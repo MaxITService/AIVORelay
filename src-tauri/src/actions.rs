@@ -12,9 +12,10 @@ use crate::settings::{
 use crate::shortcut;
 use crate::tray::{change_tray_icon, TrayIconState};
 use crate::utils::{self, show_recording_overlay, show_transcribing_overlay};
+use crate::ManagedToggleState;
 use async_openai::types::{
-    ChatCompletionRequestMessage, ChatCompletionRequestUserMessageArgs,
-    CreateChatCompletionRequestArgs,
+    ChatCompletionRequestMessage, ChatCompletionRequestSystemMessageArgs,
+    ChatCompletionRequestUserMessageArgs, CreateChatCompletionRequestArgs,
 };
 use ferrous_opencc::{config::BuiltinConfig, OpenCC};
 use log::{debug, error};
@@ -32,6 +33,8 @@ pub trait ShortcutAction: Send + Sync {
 
 // Transcribe Action
 struct TranscribeAction;
+
+struct AiReplaceSelectionAction;
 
 async fn maybe_post_process_transcription(
     settings: &AppSettings,
@@ -244,6 +247,107 @@ async fn maybe_convert_chinese_variant(
             None
         }
     }
+}
+
+fn reset_toggle_state(app: &AppHandle, binding_id: &str) {
+    if let Ok(mut states) = app.state::<ManagedToggleState>().lock() {
+        if let Some(state) = states.active_toggles.get_mut(binding_id) {
+            *state = false;
+        }
+    }
+}
+
+fn emit_ai_replace_error(app: &AppHandle, message: impl Into<String>) {
+    let _ = app.emit("ai-replace-error", message.into());
+}
+
+async fn ai_replace_with_llm(
+    settings: &AppSettings,
+    selected_text: &str,
+    instruction: &str,
+) -> Result<String, String> {
+    let provider = settings
+        .active_post_process_provider()
+        .cloned()
+        .ok_or_else(|| "No LLM provider configured".to_string())?;
+
+    let model = settings
+        .post_process_models
+        .get(&provider.id)
+        .cloned()
+        .unwrap_or_default();
+
+    if model.trim().is_empty() {
+        return Err(format!(
+            "No model configured for provider '{}'",
+            provider.label
+        ));
+    }
+
+    let system_prompt = settings.ai_replace_system_prompt.clone();
+    let user_template = settings.ai_replace_user_prompt.clone();
+    if user_template.trim().is_empty() {
+        return Err("AI replace prompt template is empty".to_string());
+    }
+
+    let user_prompt = user_template
+        .replace("${output}", selected_text)
+        .replace("${instruction}", instruction);
+
+    debug!(
+        "AI replace LLM request using provider '{}' (model: {})",
+        provider.id, model
+    );
+
+    let api_key = settings
+        .post_process_api_keys
+        .get(&provider.id)
+        .cloned()
+        .unwrap_or_default();
+
+    let client = crate::llm_client::create_client(&provider, api_key)
+        .map_err(|e| format!("Failed to create LLM client: {}", e))?;
+
+    let system_message = ChatCompletionRequestSystemMessageArgs::default()
+        .content(system_prompt)
+        .build()
+        .map(ChatCompletionRequestMessage::System)
+        .map_err(|e| format!("Failed to build system message: {}", e))?;
+
+    let user_message = ChatCompletionRequestUserMessageArgs::default()
+        .content(user_prompt)
+        .build()
+        .map(ChatCompletionRequestMessage::User)
+        .map_err(|e| format!("Failed to build user message: {}", e))?;
+
+    let estimated_tokens = (selected_text.len() as f32 / 4.0).ceil() as u32;
+    let max_tokens = std::cmp::min(
+        8192,
+        std::cmp::max(256, estimated_tokens.saturating_add(512)),
+    );
+
+    let request = CreateChatCompletionRequestArgs::default()
+        .model(&model)
+        .messages(vec![system_message, user_message])
+        .temperature(0.2)
+        .max_tokens(max_tokens)
+        .build()
+        .map_err(|e| format!("Failed to build chat completion request: {}", e))?;
+
+    let response = client
+        .chat()
+        .create(request)
+        .await
+        .map_err(|e| format!("LLM request failed: {}", e))?;
+
+    if let Some(choice) = response.choices.first() {
+        if let Some(content) = &choice.message.content {
+            debug!("AI replace LLM response length: {} chars", content.len());
+            return Ok(content.clone());
+        }
+    }
+
+    Err("LLM API response has no content".to_string())
 }
 
 impl ShortcutAction for TranscribeAction {
@@ -486,6 +590,267 @@ impl ShortcutAction for TranscribeAction {
     }
 }
 
+impl ShortcutAction for AiReplaceSelectionAction {
+    fn start(&self, app: &AppHandle, binding_id: &str, _shortcut_str: &str) {
+        let start_time = Instant::now();
+        debug!(
+            "AiReplaceSelectionAction::start called for binding: {}",
+            binding_id
+        );
+
+        if !cfg!(target_os = "windows") {
+            emit_ai_replace_error(app, "AI Replace Selection is only supported on Windows.");
+            reset_toggle_state(app, binding_id);
+            return;
+        }
+
+        let settings = get_settings(app);
+
+        // Load model in the background
+        let tm = app.state::<Arc<TranscriptionManager>>();
+        if settings.transcription_provider == TranscriptionProvider::Local {
+            tm.initiate_model_load();
+        }
+
+        change_tray_icon(app, TrayIconState::Recording);
+        show_recording_overlay(app);
+
+        let rm = app.state::<Arc<AudioRecordingManager>>();
+        let is_always_on = settings.always_on_microphone;
+        debug!("Microphone mode - always_on: {}", is_always_on);
+
+        let mut recording_started = false;
+        if is_always_on {
+            debug!("Always-on mode: Playing audio feedback immediately");
+            let rm_clone = Arc::clone(&rm);
+            let app_clone = app.clone();
+            std::thread::spawn(move || {
+                play_feedback_sound_blocking(&app_clone, SoundType::Start);
+                rm_clone.apply_mute();
+            });
+
+            recording_started = rm.try_start_recording(binding_id);
+            debug!("Recording started: {}", recording_started);
+        } else {
+            debug!("On-demand mode: Starting recording first, then audio feedback");
+            let recording_start_time = Instant::now();
+            if rm.try_start_recording(binding_id) {
+                recording_started = true;
+                debug!("Recording started in {:?}", recording_start_time.elapsed());
+                let app_clone = app.clone();
+                let rm_clone = Arc::clone(&rm);
+                std::thread::spawn(move || {
+                    std::thread::sleep(std::time::Duration::from_millis(100));
+                    debug!("Handling delayed audio feedback/mute sequence");
+                    play_feedback_sound_blocking(&app_clone, SoundType::Start);
+                    rm_clone.apply_mute();
+                });
+            } else {
+                debug!("Failed to start recording");
+            }
+        }
+
+        if recording_started {
+            shortcut::register_cancel_shortcut(app);
+        }
+
+        debug!(
+            "AiReplaceSelectionAction::start completed in {:?}",
+            start_time.elapsed()
+        );
+    }
+
+    fn stop(&self, app: &AppHandle, binding_id: &str, _shortcut_str: &str) {
+        shortcut::unregister_cancel_shortcut(app);
+
+        let stop_time = Instant::now();
+        debug!(
+            "AiReplaceSelectionAction::stop called for binding: {}",
+            binding_id
+        );
+
+        let ah = app.clone();
+        let rm = Arc::clone(&app.state::<Arc<AudioRecordingManager>>());
+        let tm = Arc::clone(&app.state::<Arc<TranscriptionManager>>());
+
+        change_tray_icon(app, TrayIconState::Transcribing);
+        show_transcribing_overlay(app);
+
+        rm.remove_mute();
+        play_feedback_sound(app, SoundType::Stop);
+
+        let binding_id = binding_id.to_string();
+
+        tauri::async_runtime::spawn(async move {
+            debug!(
+                "Starting async AI replace transcription task for binding: {}",
+                binding_id
+            );
+
+            let stop_recording_time = Instant::now();
+            if let Some(samples) = rm.stop_recording(&binding_id) {
+                debug!(
+                    "Recording stopped and samples retrieved in {:?}, sample count: {}",
+                    stop_recording_time.elapsed(),
+                    samples.len()
+                );
+
+                let transcription_time = Instant::now();
+                let settings = get_settings(&ah);
+                let transcription_result = if settings.transcription_provider
+                    == TranscriptionProvider::RemoteOpenAiCompatible
+                {
+                    let remote_manager = ah.state::<Arc<RemoteSttManager>>();
+                    remote_manager
+                        .transcribe(&settings.remote_stt, &samples)
+                        .await
+                        .map(|text| {
+                            if settings.custom_words.is_empty() {
+                                text
+                            } else {
+                                apply_custom_words(
+                                    &text,
+                                    &settings.custom_words,
+                                    settings.word_correction_threshold,
+                                )
+                            }
+                        })
+                } else {
+                    tm.transcribe(samples)
+                };
+
+                match transcription_result {
+                    Ok(transcription) => {
+                        debug!(
+                            "AI replace instruction transcription completed in {:?}: '{}'",
+                            transcription_time.elapsed(),
+                            transcription
+                        );
+
+                        if transcription.trim().is_empty() {
+                            emit_ai_replace_error(
+                                &ah,
+                                "No instruction captured. Please try again.",
+                            );
+                            utils::hide_recording_overlay(&ah);
+                            change_tray_icon(&ah, TrayIconState::Idle);
+                            return;
+                        }
+
+                        debug!("AI replace instruction: {}", transcription);
+
+                        let capture_start = Instant::now();
+                        let selected_text = match utils::capture_selection_text(&ah) {
+                            Ok(text) => text,
+                            Err(err) => {
+                                debug!("AI replace selection capture failed: {}", err);
+                                emit_ai_replace_error(
+                                    &ah,
+                                    "Could not capture selection. Please select editable text.",
+                                );
+                                utils::hide_recording_overlay(&ah);
+                                change_tray_icon(&ah, TrayIconState::Idle);
+                                return;
+                            }
+                        };
+
+                        if selected_text.is_empty() {
+                            emit_ai_replace_error(
+                                &ah,
+                                "Could not capture selection. Please select editable text.",
+                            );
+                            utils::hide_recording_overlay(&ah);
+                            change_tray_icon(&ah, TrayIconState::Idle);
+                            return;
+                        }
+
+                        let selection_len = selected_text.chars().count();
+                        if selection_len > settings.ai_replace_max_chars {
+                            emit_ai_replace_error(
+                                &ah,
+                                format!(
+                                    "Selection too large (max {} characters).",
+                                    settings.ai_replace_max_chars
+                                ),
+                            );
+                            utils::hide_recording_overlay(&ah);
+                            change_tray_icon(&ah, TrayIconState::Idle);
+                            return;
+                        }
+
+                        debug!(
+                            "AI replace selection captured in {:?} ({} chars)",
+                            capture_start.elapsed(),
+                            selection_len
+                        );
+                        debug!("AI replace selected text: {}", selected_text);
+
+                        let llm_start = Instant::now();
+                        match ai_replace_with_llm(&settings, &selected_text, &transcription).await {
+                            Ok(output) => {
+                                debug!(
+                                    "AI replace LLM completed in {:?}: '{}'",
+                                    llm_start.elapsed(),
+                                    output
+                                );
+
+                                let ah_clone = ah.clone();
+                                let paste_time = Instant::now();
+                                ah.run_on_main_thread(move || {
+                                    match utils::paste(output, ah_clone.clone()) {
+                                        Ok(()) => debug!(
+                                            "AI replace text pasted successfully in {:?}",
+                                            paste_time.elapsed()
+                                        ),
+                                        Err(e) => {
+                                            error!("Failed to paste AI replace output: {}", e)
+                                        }
+                                    }
+                                    utils::hide_recording_overlay(&ah_clone);
+                                    change_tray_icon(&ah_clone, TrayIconState::Idle);
+                                })
+                                .unwrap_or_else(|e| {
+                                    error!("Failed to run paste on main thread: {:?}", e);
+                                    utils::hide_recording_overlay(&ah);
+                                    change_tray_icon(&ah, TrayIconState::Idle);
+                                });
+                            }
+                            Err(err) => {
+                                error!("AI replace LLM failed: {}", err);
+                                emit_ai_replace_error(
+                                    &ah,
+                                    "AI replace failed. Check your LLM settings.",
+                                );
+                                utils::hide_recording_overlay(&ah);
+                                change_tray_icon(&ah, TrayIconState::Idle);
+                            }
+                        }
+                    }
+                    Err(err) => {
+                        if settings.transcription_provider
+                            == TranscriptionProvider::RemoteOpenAiCompatible
+                        {
+                            let _ = ah.emit("remote-stt-error", format!("{}", err));
+                        }
+                        debug!("AI replace transcription error: {}", err);
+                        utils::hide_recording_overlay(&ah);
+                        change_tray_icon(&ah, TrayIconState::Idle);
+                    }
+                }
+            } else {
+                debug!("No samples retrieved from AI replace recording stop");
+                utils::hide_recording_overlay(&ah);
+                change_tray_icon(&ah, TrayIconState::Idle);
+            }
+        });
+
+        debug!(
+            "AiReplaceSelectionAction::stop completed in {:?}",
+            stop_time.elapsed()
+        );
+    }
+}
+
 // Cancel Action
 struct CancelAction;
 
@@ -528,6 +893,10 @@ pub static ACTION_MAP: Lazy<HashMap<String, Arc<dyn ShortcutAction>>> = Lazy::ne
     map.insert(
         "transcribe".to_string(),
         Arc::new(TranscribeAction) as Arc<dyn ShortcutAction>,
+    );
+    map.insert(
+        "ai_replace_selection".to_string(),
+        Arc::new(AiReplaceSelectionAction) as Arc<dyn ShortcutAction>,
     );
     map.insert(
         "cancel".to_string(),

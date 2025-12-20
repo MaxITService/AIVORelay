@@ -1,5 +1,6 @@
 import React from "react";
 import { useTranslation } from "react-i18next";
+import { type } from "@tauri-apps/plugin-os";
 import { MicrophoneSelector } from "../MicrophoneSelector";
 import { LanguageSelector } from "../LanguageSelector";
 import { HandyShortcut } from "../HandyShortcut";
@@ -13,10 +14,14 @@ import { VolumeSlider } from "../VolumeSlider";
 export const GeneralSettings: React.FC = () => {
   const { t } = useTranslation();
   const { audioFeedbackEnabled } = useSettings();
+  const isWindows = type() === "windows";
   return (
     <div className="max-w-3xl w-full mx-auto space-y-6">
       <SettingsGroup title={t("settings.general.title")}>
         <HandyShortcut shortcutId="transcribe" grouped={true} />
+        {isWindows && (
+          <HandyShortcut shortcutId="ai_replace_selection" grouped={true} />
+        )}
         <LanguageSelector descriptionMode="tooltip" grouped={true} />
         <PushToTalk descriptionMode="tooltip" grouped={true} />
       </SettingsGroup>

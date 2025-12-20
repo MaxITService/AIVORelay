@@ -124,6 +124,12 @@ const settingUpdaters: {
     commands.changePostProcessEnabledSetting(value as boolean),
   post_process_selected_prompt_id: (value) =>
     commands.setPostProcessSelectedPrompt(value as string),
+  ai_replace_system_prompt: (value) =>
+    commands.changeAiReplaceSystemPromptSetting(value as string),
+  ai_replace_user_prompt: (value) =>
+    commands.changeAiReplaceUserPromptSetting(value as string),
+  ai_replace_max_chars: (value) =>
+    commands.changeAiReplaceMaxCharsSetting(value as number),
   mute_while_recording: (value) =>
     commands.changeMuteWhileRecordingSetting(value as boolean),
   append_trailing_space: (value) =>

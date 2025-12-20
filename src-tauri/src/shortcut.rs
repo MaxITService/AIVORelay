@@ -816,6 +816,42 @@ pub fn change_append_trailing_space_setting(app: AppHandle, enabled: bool) -> Re
 
 #[tauri::command]
 #[specta::specta]
+pub fn change_ai_replace_system_prompt_setting(
+    app: AppHandle,
+    prompt: String,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.ai_replace_system_prompt = prompt;
+    settings::write_settings(&app, settings);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_ai_replace_user_prompt_setting(
+    app: AppHandle,
+    prompt: String,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.ai_replace_user_prompt = prompt;
+    settings::write_settings(&app, settings);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_ai_replace_max_chars_setting(
+    app: AppHandle,
+    max_chars: usize,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.ai_replace_max_chars = max_chars;
+    settings::write_settings(&app, settings);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
 pub fn change_app_language_setting(app: AppHandle, language: String) -> Result<(), String> {
     let mut settings = settings::get_settings(&app);
     settings.app_language = language.clone();

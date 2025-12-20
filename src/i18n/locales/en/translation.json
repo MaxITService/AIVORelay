@@ -106,6 +106,10 @@
             "name": "Transcribe",
             "description": "Converts your speech into text."
           },
+          "ai_replace_selection": {
+            "name": "AI Replace Selection",
+            "description": "Cut selected text, speak an instruction, replace selection with AI output"
+          },
           "cancel": {
             "name": "Cancel",
             "description": "Cancels the current recording."
@@ -189,6 +193,21 @@
         "options": {
           "dontModify": "Don't Modify Clipboard",
           "copyToClipboard": "Copy to Clipboard"
+        }
+      },
+      "aiReplace": {
+        "systemPrompt": {
+          "title": "AI Replace System Prompt",
+          "description": "System prompt that enforces paste-ready output for AI Replace Selection."
+        },
+        "userPrompt": {
+          "title": "AI Replace User Prompt",
+          "description": "Template for the AI Replace request. Supports ${instruction} and ${output}."
+        },
+        "maxChars": {
+          "title": "AI Replace Max Characters",
+          "description": "Maximum number of characters allowed in the selected text before calling the LLM.",
+          "suffix": "characters"
         }
       },
       "transcriptionProvider": {

@@ -26,12 +26,16 @@ function App() {
   }, []);
 
   useEffect(() => {
-    const unlistenPromise = listen<string>("remote-stt-error", (event) => {
+    const unlistenRemote = listen<string>("remote-stt-error", (event) => {
+      toast.error(event.payload);
+    });
+    const unlistenAiReplace = listen<string>("ai-replace-error", (event) => {
       toast.error(event.payload);
     });
 
     return () => {
-      unlistenPromise.then((unlisten) => unlisten());
+      unlistenRemote.then((unlisten) => unlisten());
+      unlistenAiReplace.then((unlisten) => unlisten());
     };
   }, []);
 

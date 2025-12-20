@@ -316,6 +316,12 @@ pub struct AppSettings {
     pub post_process_prompts: Vec<LLMPrompt>,
     #[serde(default)]
     pub post_process_selected_prompt_id: Option<String>,
+    #[serde(default = "default_ai_replace_system_prompt")]
+    pub ai_replace_system_prompt: String,
+    #[serde(default = "default_ai_replace_user_prompt")]
+    pub ai_replace_user_prompt: String,
+    #[serde(default = "default_ai_replace_max_chars")]
+    pub ai_replace_max_chars: usize,
     #[serde(default)]
     pub mute_while_recording: bool,
     #[serde(default)]
@@ -420,6 +426,18 @@ fn default_app_language() -> String {
 
 fn default_post_process_provider_id() -> String {
     "openai".to_string()
+}
+
+fn default_ai_replace_system_prompt() -> String {
+    "You are a text transformation engine.\nReturn ONLY the final transformed text that is ready to be pasted directly into another application.\nDo not include explanations, commentary, labels, headings, lists, markdown, code fences, or any surrounding quotes.\nPreserve the original language and keep the original formatting (line breaks, punctuation, and spacing) unless the instruction explicitly asks to change it.\nMake the smallest change that satisfies the instruction.\nIf the instruction conflicts with the text or is unclear, prefer minimal edits and do not invent new facts.".to_string()
+}
+
+fn default_ai_replace_user_prompt() -> String {
+    "INSTRUCTION:\n${instruction}\n\nTEXT:\n${output}".to_string()
+}
+
+fn default_ai_replace_max_chars() -> usize {
+    20000
 }
 
 fn default_post_process_providers() -> Vec<PostProcessProvider> {
@@ -566,6 +584,18 @@ pub fn get_default_settings() -> AppSettings {
             current_binding: default_shortcut.to_string(),
         },
     );
+    #[cfg(target_os = "windows")]
+    bindings.insert(
+        "ai_replace_selection".to_string(),
+        ShortcutBinding {
+            id: "ai_replace_selection".to_string(),
+            name: "AI Replace Selection".to_string(),
+            description: "Cut selected text, speak an instruction, replace selection with AI output"
+                .to_string(),
+            default_binding: "ctrl+shift+space".to_string(),
+            current_binding: "ctrl+shift+space".to_string(),
+        },
+    );
     bindings.insert(
         "cancel".to_string(),
         ShortcutBinding {
@@ -612,6 +642,9 @@ pub fn get_default_settings() -> AppSettings {
         post_process_models: default_post_process_models(),
         post_process_prompts: default_post_process_prompts(),
         post_process_selected_prompt_id: None,
+        ai_replace_system_prompt: default_ai_replace_system_prompt(),
+        ai_replace_user_prompt: default_ai_replace_user_prompt(),
+        ai_replace_max_chars: default_ai_replace_max_chars(),
         mute_while_recording: false,
         append_trailing_space: false,
         app_language: default_app_language(),
