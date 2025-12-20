@@ -47,6 +47,11 @@ interface SettingsStore {
   updatePostProcessModel: (providerId: string, model: string) => Promise<void>;
   fetchPostProcessModels: (providerId: string) => Promise<string[]>;
   setPostProcessModelOptions: (providerId: string, models: string[]) => void;
+  setTranscriptionProvider: (providerId: string) => Promise<void>;
+  updateRemoteSttBaseUrl: (baseUrl: string) => Promise<void>;
+  updateRemoteSttModelId: (modelId: string) => Promise<void>;
+  updateRemoteSttDebugCapture: (enabled: boolean) => Promise<void>;
+  updateRemoteSttDebugMode: (mode: string) => Promise<void>;
 
   // Internal state setters
   setSettings: (settings: Settings | null) => void;
@@ -125,6 +130,8 @@ const settingUpdaters: {
     commands.changeAppendTrailingSpaceSetting(value as boolean),
   log_level: (value) => commands.setLogLevel(value as any),
   app_language: (value) => commands.changeAppLanguageSetting(value as string),
+  transcription_provider: (value) =>
+    commands.changeTranscriptionProviderSetting(value as string),
 };
 
 export const useSettingsStore = create<SettingsStore>()(
@@ -382,6 +389,41 @@ export const useSettingsStore = create<SettingsStore>()(
       }
     },
 
+    setTranscriptionProvider: async (providerId) => {
+      const { settings, setUpdating, refreshSettings } = get();
+      const updateKey = "transcription_provider";
+      const previousId = settings?.transcription_provider ?? null;
+
+      setUpdating(updateKey, true);
+
+      if (settings) {
+        set((state) => ({
+          settings: state.settings
+            ? { ...state.settings, transcription_provider: providerId as any }
+            : null,
+        }));
+      }
+
+      try {
+        await commands.changeTranscriptionProviderSetting(providerId);
+        await refreshSettings();
+      } catch (error) {
+        console.error("Failed to set transcription provider:", error);
+        if (previousId !== null) {
+          set((state) => ({
+            settings: state.settings
+              ? {
+                  ...state.settings,
+                  transcription_provider: previousId as any,
+                }
+              : null,
+          }));
+        }
+      } finally {
+        setUpdating(updateKey, false);
+      }
+    },
+
     // Generic updater for post-processing provider settings
     updatePostProcessSetting: async (
       settingType: "base_url" | "api_key" | "model",
@@ -463,6 +505,66 @@ export const useSettingsStore = create<SettingsStore>()(
           [providerId]: models,
         },
       })),
+
+    updateRemoteSttBaseUrl: async (baseUrl) => {
+      const { setUpdating, refreshSettings } = get();
+      const updateKey = "remote_stt_base_url";
+
+      setUpdating(updateKey, true);
+      try {
+        await commands.changeRemoteSttBaseUrlSetting(baseUrl);
+        await refreshSettings();
+      } catch (error) {
+        console.error("Failed to update remote STT base URL:", error);
+      } finally {
+        setUpdating(updateKey, false);
+      }
+    },
+
+    updateRemoteSttModelId: async (modelId) => {
+      const { setUpdating, refreshSettings } = get();
+      const updateKey = "remote_stt_model_id";
+
+      setUpdating(updateKey, true);
+      try {
+        await commands.changeRemoteSttModelIdSetting(modelId);
+        await refreshSettings();
+      } catch (error) {
+        console.error("Failed to update remote STT model ID:", error);
+      } finally {
+        setUpdating(updateKey, false);
+      }
+    },
+
+    updateRemoteSttDebugCapture: async (enabled) => {
+      const { setUpdating, refreshSettings } = get();
+      const updateKey = "remote_stt_debug_capture";
+
+      setUpdating(updateKey, true);
+      try {
+        await commands.changeRemoteSttDebugCaptureSetting(enabled);
+        await refreshSettings();
+      } catch (error) {
+        console.error("Failed to update remote STT debug capture:", error);
+      } finally {
+        setUpdating(updateKey, false);
+      }
+    },
+
+    updateRemoteSttDebugMode: async (mode) => {
+      const { setUpdating, refreshSettings } = get();
+      const updateKey = "remote_stt_debug_mode";
+
+      setUpdating(updateKey, true);
+      try {
+        await commands.changeRemoteSttDebugModeSetting(mode);
+        await refreshSettings();
+      } catch (error) {
+        console.error("Failed to update remote STT debug mode:", error);
+      } finally {
+        setUpdating(updateKey, false);
+      }
+    },
 
     // Load default settings from Rust
     loadDefaultSettings: async () => {

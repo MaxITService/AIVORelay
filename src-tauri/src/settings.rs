@@ -104,6 +104,31 @@ pub struct PostProcessProvider {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Type)]
+#[serde(rename_all = "snake_case")]
+pub enum TranscriptionProvider {
+    Local,
+    #[serde(rename = "remote_openai_compatible")]
+    RemoteOpenAiCompatible,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Type)]
+#[serde(rename_all = "snake_case")]
+pub enum RemoteSttDebugMode {
+    Normal,
+    Verbose,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, Type)]
+pub struct RemoteSttSettings {
+    pub base_url: String,
+    pub model_id: String,
+    #[serde(default = "default_remote_stt_debug_capture")]
+    pub debug_capture: bool,
+    #[serde(default = "default_remote_stt_debug_mode")]
+    pub debug_mode: RemoteSttDebugMode,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Type)]
 #[serde(rename_all = "lowercase")]
 pub enum OverlayPosition {
     None,
@@ -241,6 +266,10 @@ pub struct AppSettings {
     pub update_checks_enabled: bool,
     #[serde(default = "default_model")]
     pub selected_model: String,
+    #[serde(default = "default_transcription_provider")]
+    pub transcription_provider: TranscriptionProvider,
+    #[serde(default = "default_remote_stt_settings")]
+    pub remote_stt: RemoteSttSettings,
     #[serde(default = "default_always_on_microphone")]
     pub always_on_microphone: bool,
     #[serde(default)]
@@ -297,6 +326,27 @@ pub struct AppSettings {
 
 fn default_model() -> String {
     "".to_string()
+}
+
+fn default_transcription_provider() -> TranscriptionProvider {
+    TranscriptionProvider::Local
+}
+
+fn default_remote_stt_debug_capture() -> bool {
+    false
+}
+
+fn default_remote_stt_debug_mode() -> RemoteSttDebugMode {
+    RemoteSttDebugMode::Normal
+}
+
+fn default_remote_stt_settings() -> RemoteSttSettings {
+    RemoteSttSettings {
+        base_url: "https://api.groq.com/openai/v1".to_string(),
+        model_id: "whisper-large-v3-turbo".to_string(),
+        debug_capture: default_remote_stt_debug_capture(),
+        debug_mode: default_remote_stt_debug_mode(),
+    }
 }
 
 fn default_always_on_microphone() -> bool {
@@ -537,6 +587,8 @@ pub fn get_default_settings() -> AppSettings {
         autostart_enabled: default_autostart_enabled(),
         update_checks_enabled: default_update_checks_enabled(),
         selected_model: "".to_string(),
+        transcription_provider: default_transcription_provider(),
+        remote_stt: default_remote_stt_settings(),
         always_on_microphone: false,
         selected_microphone: None,
         clamshell_microphone: None,

@@ -15,6 +15,18 @@
   },
   "onboarding": {
     "subtitle": "To get started, choose a transcription model",
+    "mode": {
+      "subtitle": "Choose how you want Handy to transcribe speech",
+      "local": {
+        "title": "Local (Offline)",
+        "description": "Runs on-device using downloaded models."
+      },
+      "remote": {
+        "title": "Remote (OpenAI-compatible)",
+        "description": "Uses a remote API for transcription.",
+        "windowsOnly": "Windows-only for now."
+      }
+    },
     "recommended": "Recommended",
     "download": "Download",
     "downloading": "Downloading...",
@@ -50,7 +62,9 @@
     },
     "errors": {
       "loadModels": "Failed to load available models",
-      "downloadModel": "Failed to download model: {{error}}"
+      "downloadModel": "Failed to download model: {{error}}",
+      "selectLocal": "Failed to select local mode",
+      "selectRemote": "Failed to select remote mode"
     }
   },
   "modelSelector": {
@@ -74,6 +88,7 @@
     "modelError": "Model Error",
     "modelUnloaded": "Model Unloaded",
     "noModelDownloadRequired": "No Model - Download Required",
+    "remoteMode": "Remote STT",
     "deleteModel": "Delete {{modelName}}"
   },
   "settings": {
@@ -176,10 +191,62 @@
           "copyToClipboard": "Copy to Clipboard"
         }
       },
+      "transcriptionProvider": {
+        "title": "Transcription Provider",
+        "description": "Choose between local and remote transcription.",
+        "placeholder": "Select provider",
+        "options": {
+          "local": "Local (Offline)",
+          "remote": "Remote (OpenAI-compatible)"
+        },
+        "windowsOnly": "Remote transcription is Windows-only for now."
+      },
+      "remoteStt": {
+        "baseUrl": {
+          "title": "Remote Base URL",
+          "description": "Base URL for the OpenAI-compatible speech-to-text API.",
+          "placeholder": "https://api.groq.com/openai/v1"
+        },
+        "modelId": {
+          "title": "Remote Model ID",
+          "description": "Model identifier to send in the transcription request.",
+          "placeholder": "whisper-large-v3-turbo"
+        },
+        "apiKey": {
+          "title": "Remote API Key",
+          "description": "Stored securely in Windows Credential Manager.",
+          "placeholder": "sk-...",
+          "save": "Save",
+          "clear": "Clear",
+          "statusSet": "API key is stored.",
+          "statusMissing": "No API key stored yet."
+        },
+        "debug": {
+          "capture": {
+            "title": "Debug Capture",
+            "description": "Capture remote STT debug logs in memory."
+          },
+          "mode": {
+            "title": "Debug Mode",
+            "description": "Normal captures errors only; verbose includes request metadata.",
+            "options": {
+              "normal": "Normal",
+              "verbose": "Verbose"
+            }
+          },
+          "output": {
+            "title": "Remote Debug Log",
+            "description": "Latest remote STT debug output.",
+            "empty": "No remote debug output yet.",
+            "clear": "Clear"
+          }
+        }
+      },
       "translateToEnglish": {
         "label": "Translate to English",
         "description": "Automatically translate speech from other languages to English during transcription.",
-        "descriptionUnsupported": "Translation is not supported by the {{model}} model."
+        "descriptionUnsupported": "Translation is not supported by the {{model}} model.",
+        "descriptionRemoteUnsupported": "Translation is not available in remote transcription mode."
       },
       "modelUnload": {
         "title": "Unload Model",

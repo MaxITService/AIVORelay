@@ -9,6 +9,7 @@ import { StartHidden } from "../StartHidden";
 import { AutostartToggle } from "../AutostartToggle";
 import { PasteMethodSetting } from "../PasteMethod";
 import { ClipboardHandlingSetting } from "../ClipboardHandling";
+import { RemoteSttSettings } from "../remote-stt/RemoteSttSettings";
 
 export const AdvancedSettings: React.FC = () => {
   const { t } = useTranslation();
@@ -23,6 +24,7 @@ export const AdvancedSettings: React.FC = () => {
         <TranslateToEnglish descriptionMode="tooltip" grouped={true} />
         <ModelUnloadTimeoutSetting descriptionMode="tooltip" grouped={true} />
         <CustomWords descriptionMode="tooltip" grouped />
+        <RemoteSttSettings descriptionMode="tooltip" grouped={true} />
       </SettingsGroup>
     </div>
   );

@@ -23,6 +23,7 @@ use env_filter::Builder as EnvFilterBuilder;
 use managers::audio::AudioRecordingManager;
 use managers::history::HistoryManager;
 use managers::model::ModelManager;
+use managers::remote_stt::RemoteSttManager;
 use managers::transcription::TranscriptionManager;
 #[cfg(unix)]
 use signal_hook::consts::SIGUSR2;
@@ -124,6 +125,8 @@ fn initialize_core_logic(app_handle: &AppHandle) {
         TranscriptionManager::new(app_handle, model_manager.clone())
             .expect("Failed to initialize transcription manager"),
     );
+    let remote_stt_manager =
+        Arc::new(RemoteSttManager::new(app_handle).expect("Failed to initialize remote STT"));
     let history_manager =
         Arc::new(HistoryManager::new(app_handle).expect("Failed to initialize history manager"));
 
@@ -131,6 +134,7 @@ fn initialize_core_logic(app_handle: &AppHandle) {
     app_handle.manage(recording_manager.clone());
     app_handle.manage(model_manager.clone());
     app_handle.manage(transcription_manager.clone());
+    app_handle.manage(remote_stt_manager.clone());
     app_handle.manage(history_manager.clone());
 
     // Initialize the shortcuts
@@ -242,11 +246,16 @@ pub fn run() {
         shortcut::change_autostart_setting,
         shortcut::change_translate_to_english_setting,
         shortcut::change_selected_language_setting,
+        shortcut::change_transcription_provider_setting,
         shortcut::change_overlay_position_setting,
         shortcut::change_debug_mode_setting,
         shortcut::change_word_correction_threshold_setting,
         shortcut::change_paste_method_setting,
         shortcut::change_clipboard_handling_setting,
+        shortcut::change_remote_stt_base_url_setting,
+        shortcut::change_remote_stt_model_id_setting,
+        shortcut::change_remote_stt_debug_capture_setting,
+        shortcut::change_remote_stt_debug_mode_setting,
         shortcut::change_post_process_enabled_setting,
         shortcut::change_post_process_base_url_setting,
         shortcut::change_post_process_api_key_setting,
@@ -274,6 +283,11 @@ pub fn run() {
         commands::open_recordings_folder,
         commands::open_log_dir,
         commands::open_app_data_dir,
+        commands::remote_stt::remote_stt_has_api_key,
+        commands::remote_stt::remote_stt_set_api_key,
+        commands::remote_stt::remote_stt_clear_api_key,
+        commands::remote_stt::remote_stt_get_debug_dump,
+        commands::remote_stt::remote_stt_clear_debug,
         commands::models::get_available_models,
         commands::models::get_model_info,
         commands::models::download_model,

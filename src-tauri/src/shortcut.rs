@@ -2,7 +2,7 @@ use log::{error, warn};
 use serde::Serialize;
 use specta::Type;
 use std::sync::Arc;
-use tauri::{AppHandle, Emitter, Manager};
+use tauri::{AppHandle, Emitter, Manager, State};
 use tauri_plugin_autostart::ManagerExt;
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
 
@@ -10,9 +10,11 @@ use crate::actions::ACTION_MAP;
 use crate::managers::audio::AudioRecordingManager;
 use crate::settings::ShortcutBinding;
 use crate::settings::{
-    self, get_settings, ClipboardHandling, LLMPrompt, OverlayPosition, PasteMethod, SoundTheme,
-    APPLE_INTELLIGENCE_DEFAULT_MODEL_ID, APPLE_INTELLIGENCE_PROVIDER_ID,
+    self, get_settings, ClipboardHandling, LLMPrompt, OverlayPosition, PasteMethod,
+    RemoteSttDebugMode, SoundTheme, TranscriptionProvider, APPLE_INTELLIGENCE_DEFAULT_MODEL_ID,
+    APPLE_INTELLIGENCE_PROVIDER_ID,
 };
+use crate::managers::remote_stt::RemoteSttManager;
 use crate::tray;
 use crate::ManagedToggleState;
 
@@ -200,6 +202,37 @@ pub fn change_selected_language_setting(app: AppHandle, language: String) -> Res
 
 #[tauri::command]
 #[specta::specta]
+pub fn change_transcription_provider_setting(
+    app: AppHandle,
+    provider: String,
+) -> Result<(), String> {
+    let parsed = match provider.as_str() {
+        "local" => TranscriptionProvider::Local,
+        "remote_openai_compatible" => TranscriptionProvider::RemoteOpenAiCompatible,
+        other => {
+            warn!(
+                "Invalid transcription provider '{}', defaulting to local",
+                other
+            );
+            TranscriptionProvider::Local
+        }
+    };
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        if parsed == TranscriptionProvider::RemoteOpenAiCompatible {
+            return Err("Remote STT is only available on Windows".to_string());
+        }
+    }
+
+    let mut settings = settings::get_settings(&app);
+    settings.transcription_provider = parsed;
+    settings::write_settings(&app, settings);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
 pub fn change_overlay_position_setting(app: AppHandle, position: String) -> Result<(), String> {
     let mut settings = settings::get_settings(&app);
     let parsed = match position.as_str() {
@@ -360,6 +393,69 @@ pub fn change_clipboard_handling_setting(app: AppHandle, handling: String) -> Re
         }
     };
     settings.clipboard_handling = parsed;
+    settings::write_settings(&app, settings);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_remote_stt_base_url_setting(
+    app: AppHandle,
+    base_url: String,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.remote_stt.base_url = base_url;
+    settings::write_settings(&app, settings);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_remote_stt_model_id_setting(
+    app: AppHandle,
+    model_id: String,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.remote_stt.model_id = model_id;
+    settings::write_settings(&app, settings);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_remote_stt_debug_capture_setting(
+    app: AppHandle,
+    enabled: bool,
+    remote_manager: State<'_, Arc<RemoteSttManager>>,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.remote_stt.debug_capture = enabled;
+    settings::write_settings(&app, settings);
+
+    if !enabled {
+        remote_manager.clear_debug();
+    }
+
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_remote_stt_debug_mode_setting(
+    app: AppHandle,
+    mode: String,
+) -> Result<(), String> {
+    let parsed = match mode.as_str() {
+        "normal" => RemoteSttDebugMode::Normal,
+        "verbose" => RemoteSttDebugMode::Verbose,
+        other => {
+            warn!("Invalid remote STT debug mode '{}', defaulting to normal", other);
+            RemoteSttDebugMode::Normal
+        }
+    };
+
+    let mut settings = settings::get_settings(&app);
+    settings.remote_stt.debug_mode = parsed;
     settings::write_settings(&app, settings);
     Ok(())
 }

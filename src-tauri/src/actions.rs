@@ -1,10 +1,14 @@
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 use crate::apple_intelligence;
 use crate::audio_feedback::{play_feedback_sound, play_feedback_sound_blocking, SoundType};
+use crate::audio_toolkit::apply_custom_words;
 use crate::managers::audio::AudioRecordingManager;
 use crate::managers::history::HistoryManager;
+use crate::managers::remote_stt::RemoteSttManager;
 use crate::managers::transcription::TranscriptionManager;
-use crate::settings::{get_settings, AppSettings, APPLE_INTELLIGENCE_PROVIDER_ID};
+use crate::settings::{
+    get_settings, AppSettings, TranscriptionProvider, APPLE_INTELLIGENCE_PROVIDER_ID,
+};
 use crate::shortcut;
 use crate::tray::{change_tray_icon, TrayIconState};
 use crate::utils::{self, show_recording_overlay, show_transcribing_overlay};
@@ -18,8 +22,7 @@ use once_cell::sync::Lazy;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Instant;
-use tauri::AppHandle;
-use tauri::Manager;
+use tauri::{AppHandle, Emitter, Manager};
 
 // Shortcut Action Trait
 pub trait ShortcutAction: Send + Sync {
@@ -250,7 +253,10 @@ impl ShortcutAction for TranscribeAction {
 
         // Load model in the background
         let tm = app.state::<Arc<TranscriptionManager>>();
-        tm.initiate_model_load();
+        let settings = get_settings(app);
+        if settings.transcription_provider == TranscriptionProvider::Local {
+            tm.initiate_model_load();
+        }
 
         let binding_id = binding_id.to_string();
         change_tray_icon(app, TrayIconState::Recording);
@@ -259,7 +265,6 @@ impl ShortcutAction for TranscribeAction {
         let rm = app.state::<Arc<AudioRecordingManager>>();
 
         // Get the microphone mode to determine audio feedback timing
-        let settings = get_settings(app);
         let is_always_on = settings.always_on_microphone;
         debug!("Microphone mode - always_on: {}", is_always_on);
 
@@ -353,7 +358,30 @@ impl ShortcutAction for TranscribeAction {
 
                 let transcription_time = Instant::now();
                 let samples_clone = samples.clone(); // Clone for history saving
-                match tm.transcribe(samples) {
+                let settings = get_settings(&ah);
+                let transcription_result = if settings.transcription_provider
+                    == TranscriptionProvider::RemoteOpenAiCompatible
+                {
+                    let remote_manager = ah.state::<Arc<RemoteSttManager>>();
+                    remote_manager
+                        .transcribe(&settings.remote_stt, &samples)
+                        .await
+                        .map(|text| {
+                            if settings.custom_words.is_empty() {
+                                text
+                            } else {
+                                apply_custom_words(
+                                    &text,
+                                    &settings.custom_words,
+                                    settings.word_correction_threshold,
+                                )
+                            }
+                        })
+                } else {
+                    tm.transcribe(samples)
+                };
+
+                match transcription_result {
                     Ok(transcription) => {
                         debug!(
                             "Transcription completed in {:?}: '{}'",
@@ -361,7 +389,6 @@ impl ShortcutAction for TranscribeAction {
                             transcription
                         );
                         if !transcription.is_empty() {
-                            let settings = get_settings(&ah);
                             let mut final_text = transcription.clone();
                             let mut post_processed_text: Option<String> = None;
                             let mut post_process_prompt: Option<String> = None;
@@ -435,6 +462,11 @@ impl ShortcutAction for TranscribeAction {
                         }
                     }
                     Err(err) => {
+                        if settings.transcription_provider
+                            == TranscriptionProvider::RemoteOpenAiCompatible
+                        {
+                            let _ = ah.emit("remote-stt-error", format!("{}", err));
+                        }
                         debug!("Global Shortcut Transcription error: {}", err);
                         utils::hide_recording_overlay(&ah);
                         change_tray_icon(&ah, TrayIconState::Idle);

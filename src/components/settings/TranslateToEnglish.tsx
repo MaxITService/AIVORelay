@@ -23,10 +23,19 @@ export const TranslateToEnglish: React.FC<TranslateToEnglishProps> = React.memo(
     const { currentModel, loadCurrentModel, models } = useModels();
 
     const translateToEnglish = getSetting("translate_to_english") || false;
+    const transcriptionProvider =
+      getSetting("transcription_provider") || "local";
+    const isRemoteProvider =
+      transcriptionProvider === "remote_openai_compatible";
     const isDisabledTranslation =
       unsupportedTranslationModels.includes(currentModel);
 
     const description = useMemo(() => {
+      if (isRemoteProvider) {
+        return t(
+          "settings.advanced.translateToEnglish.descriptionRemoteUnsupported",
+        );
+      }
       if (isDisabledTranslation) {
         const currentModelDisplayName = models.find(
           (model) => model.id === currentModel,
@@ -40,7 +49,7 @@ export const TranslateToEnglish: React.FC<TranslateToEnglishProps> = React.memo(
       }
 
       return t("settings.advanced.translateToEnglish.description");
-    }, [t, models, currentModel, isDisabledTranslation]);
+    }, [t, models, currentModel, isDisabledTranslation, isRemoteProvider]);
 
     // Listen for model state changes to update UI reactively
     useEffect(() => {
@@ -58,7 +67,7 @@ export const TranslateToEnglish: React.FC<TranslateToEnglishProps> = React.memo(
         checked={translateToEnglish}
         onChange={(enabled) => updateSetting("translate_to_english", enabled)}
         isUpdating={isUpdating("translate_to_english")}
-        disabled={isDisabledTranslation}
+        disabled={isDisabledTranslation || isRemoteProvider}
         label={t("settings.advanced.translateToEnglish.label")}
         description={description}
         descriptionMode={descriptionMode}

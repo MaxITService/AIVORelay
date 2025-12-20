@@ -6,6 +6,7 @@ import { getTranslatedModelName } from "../../lib/utils/modelTranslation";
 import ModelStatusButton from "./ModelStatusButton";
 import ModelDropdown from "./ModelDropdown";
 import DownloadProgressDisplay from "./DownloadProgressDisplay";
+import { useSettings } from "../../hooks/useSettings";
 
 interface ModelStateEvent {
   event_type: string;
@@ -43,6 +44,7 @@ interface ModelSelectorProps {
 
 const ModelSelector: React.FC<ModelSelectorProps> = ({ onError }) => {
   const { t } = useTranslation();
+  const { getSetting } = useSettings();
   const [models, setModels] = useState<ModelInfo[]>([]);
   const [currentModelId, setCurrentModelId] = useState<string>("");
   const [modelStatus, setModelStatus] = useState<ModelStatus>("unloaded");
@@ -57,6 +59,11 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({ onError }) => {
   const [extractingModels, setExtractingModels] = useState<Set<string>>(
     new Set(),
   );
+
+  const transcriptionProvider =
+    getSetting("transcription_provider") || "local";
+  const isRemoteProvider =
+    transcriptionProvider === "remote_openai_compatible";
 
   const dropdownRef = useRef<HTMLDivElement>(null);
 
@@ -246,6 +253,12 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({ onError }) => {
     };
   }, []);
 
+  useEffect(() => {
+    if (isRemoteProvider) {
+      setShowModelDropdown(false);
+    }
+  }, [isRemoteProvider]);
+
   const loadModels = async () => {
     try {
       const result = await commands.getAvailableModels();
@@ -287,6 +300,7 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({ onError }) => {
   };
 
   const handleModelSelect = async (modelId: string) => {
+    if (isRemoteProvider) return;
     try {
       setCurrentModelId(modelId); // Set optimistically so loading text shows correct model
       setModelError(null);
@@ -307,6 +321,7 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({ onError }) => {
   };
 
   const handleModelDownload = async (modelId: string) => {
+    if (isRemoteProvider) return;
     try {
       setModelError(null);
       const result = await commands.downloadModel(modelId);
@@ -329,6 +344,10 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({ onError }) => {
   };
 
   const getModelDisplayText = (): string => {
+    if (isRemoteProvider) {
+      return t("modelSelector.remoteMode");
+    }
+
     if (extractingModels.size > 0) {
       if (extractingModels.size === 1) {
         const [modelId] = Array.from(extractingModels);
@@ -394,6 +413,7 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({ onError }) => {
   };
 
   const handleModelDelete = async (modelId: string) => {
+    if (isRemoteProvider) return;
     const result = await commands.deleteModel(modelId);
     if (result.status === "ok") {
       await loadModels();
@@ -410,10 +430,11 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({ onError }) => {
           displayText={getModelDisplayText()}
           isDropdownOpen={showModelDropdown}
           onClick={() => setShowModelDropdown(!showModelDropdown)}
+          disabled={isRemoteProvider}
         />
 
         {/* Model Dropdown */}
-        {showModelDropdown && (
+        {showModelDropdown && !isRemoteProvider && (
           <ModelDropdown
             models={models}
             currentModelId={currentModelId}

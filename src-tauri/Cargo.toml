@@ -58,7 +58,7 @@ tokio = "1.43.0"
 vad-rs = { git = "https://github.com/cjpais/vad-rs", default-features = false }
 enigo = "0.6.1"
 rodio = { git = "https://github.com/cjpais/rodio.git" }
-reqwest = { version = "0.12", features = ["json", "stream"] }
+reqwest = { version = "0.12", features = ["json", "multipart", "stream"] }
 async-openai = "0.30.1"
 futures-util = "0.3"
 rustfft = "6.4.0"
@@ -70,6 +70,7 @@ tar = "0.4.44"
 flate2 = "1.0"
 transcribe-rs = "0.1.4"
 ferrous-opencc = "0.2.3"
+keyring = "2.3.3"
 specta = "=2.0.0-rc.22"
 specta-typescript = "0.0.9"
 tauri-specta = { version = "=2.0.0-rc.21", features = ["derive", "typescript"] }

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Toaster } from "sonner";
+import { Toaster, toast } from "sonner";
 import "./App.css";
 import AccessibilityPermissions from "./components/AccessibilityPermissions";
 import Footer from "./components/footer";
@@ -7,6 +7,7 @@ import Onboarding from "./components/onboarding";
 import { Sidebar, SidebarSection, SECTIONS_CONFIG } from "./components/Sidebar";
 import { useSettings } from "./hooks/useSettings";
 import { commands } from "@/bindings";
+import { listen } from "@tauri-apps/api/event";
 
 const renderSettingsContent = (section: SidebarSection) => {
   const ActiveComponent =
@@ -18,10 +19,20 @@ function App() {
   const [showOnboarding, setShowOnboarding] = useState<boolean | null>(null);
   const [currentSection, setCurrentSection] =
     useState<SidebarSection>("general");
-  const { settings, updateSetting } = useSettings();
+  const { settings, updateSetting, refreshSettings } = useSettings();
 
   useEffect(() => {
     checkOnboardingStatus();
+  }, []);
+
+  useEffect(() => {
+    const unlistenPromise = listen<string>("remote-stt-error", (event) => {
+      toast.error(event.payload);
+    });
+
+    return () => {
+      unlistenPromise.then((unlisten) => unlisten());
+    };
   }, []);
 
   // Handle keyboard shortcuts for debug mode toggle
@@ -51,10 +62,22 @@ function App() {
 
   const checkOnboardingStatus = async () => {
     try {
-      // Always check if they have any models available
-      const result = await commands.hasAnyModelsAvailable();
-      if (result.status === "ok") {
-        setShowOnboarding(!result.data);
+      const [settingsResult, modelResult] = await Promise.all([
+        commands.getAppSettings(),
+        commands.hasAnyModelsAvailable(),
+      ]);
+
+      if (
+        settingsResult.status === "ok" &&
+        settingsResult.data.transcription_provider ===
+          "remote_openai_compatible"
+      ) {
+        setShowOnboarding(false);
+        return;
+      }
+
+      if (modelResult.status === "ok") {
+        setShowOnboarding(!modelResult.data);
       } else {
         setShowOnboarding(true);
       }
@@ -69,8 +92,19 @@ function App() {
     setShowOnboarding(false);
   };
 
+  const handleRemoteSelected = () => {
+    setShowOnboarding(false);
+    setCurrentSection("advanced");
+    refreshSettings();
+  };
+
   if (showOnboarding) {
-    return <Onboarding onModelSelected={handleModelSelected} />;
+    return (
+      <Onboarding
+        onModelSelected={handleModelSelected}
+        onRemoteSelected={handleRemoteSelected}
+      />
+    );
   }
 
   return (

@@ -41,6 +41,11 @@ interface UseSettingsReturn {
   ) => Promise<void>;
   updatePostProcessModel: (providerId: string, model: string) => Promise<void>;
   fetchPostProcessModels: (providerId: string) => Promise<string[]>;
+  setTranscriptionProvider: (providerId: string) => Promise<void>;
+  updateRemoteSttBaseUrl: (baseUrl: string) => Promise<void>;
+  updateRemoteSttModelId: (modelId: string) => Promise<void>;
+  updateRemoteSttDebugCapture: (enabled: boolean) => Promise<void>;
+  updateRemoteSttDebugMode: (mode: string) => Promise<void>;
 }
 
 export const useSettings = (): UseSettingsReturn => {
@@ -74,5 +79,10 @@ export const useSettings = (): UseSettingsReturn => {
     updatePostProcessApiKey: store.updatePostProcessApiKey,
     updatePostProcessModel: store.updatePostProcessModel,
     fetchPostProcessModels: store.fetchPostProcessModels,
+    setTranscriptionProvider: store.setTranscriptionProvider,
+    updateRemoteSttBaseUrl: store.updateRemoteSttBaseUrl,
+    updateRemoteSttModelId: store.updateRemoteSttModelId,
+    updateRemoteSttDebugCapture: store.updateRemoteSttDebugCapture,
+    updateRemoteSttDebugMode: store.updateRemoteSttDebugMode,
   };
 };
