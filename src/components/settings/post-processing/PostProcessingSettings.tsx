@@ -30,13 +30,7 @@ const PostProcessingSettingsApiComponent: React.FC = () => {
   const { t } = useTranslation();
   const state = usePostProcessProviderState();
 
-  if (!state.enabled) {
-    return (
-      <DisabledNotice>
-        {t("settings.postProcessing.disabledNotice")}
-      </DisabledNotice>
-    );
-  }
+
 
   return (
     <>
@@ -265,13 +259,7 @@ const PostProcessingSettingsPromptsComponent: React.FC = () => {
     setDraftText("");
   };
 
-  if (!enabled) {
-    return (
-      <DisabledNotice>
-        {t("settings.postProcessing.disabledNotice")}
-      </DisabledNotice>
-    );
-  }
+
 
   const hasPrompts = prompts.length > 0;
   const isDirty =
