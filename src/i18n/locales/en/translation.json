@@ -196,6 +196,14 @@
         }
       },
       "aiReplace": {
+        "allowNoSelection": {
+          "label": "Allow Without Selection",
+          "description": "If no text is selected, generate new text based on the instruction."
+        },
+        "noSelectionSystemPrompt": {
+          "title": "System Prompt (No Selection)",
+          "description": "System prompt used when generating text without a selection."
+        },
         "systemPrompt": {
           "title": "AI Replace System Prompt",
           "description": "System prompt that enforces paste-ready output for AI Replace Selection."

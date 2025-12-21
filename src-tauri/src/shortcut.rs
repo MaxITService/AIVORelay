@@ -8,13 +8,13 @@ use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
 
 use crate::actions::ACTION_MAP;
 use crate::managers::audio::AudioRecordingManager;
+use crate::managers::remote_stt::RemoteSttManager;
 use crate::settings::ShortcutBinding;
 use crate::settings::{
     self, get_settings, ClipboardHandling, LLMPrompt, OverlayPosition, PasteMethod,
     RemoteSttDebugMode, SoundTheme, TranscriptionProvider, APPLE_INTELLIGENCE_DEFAULT_MODEL_ID,
     APPLE_INTELLIGENCE_PROVIDER_ID,
 };
-use crate::managers::remote_stt::RemoteSttManager;
 use crate::tray;
 use crate::ManagedToggleState;
 
@@ -399,10 +399,7 @@ pub fn change_clipboard_handling_setting(app: AppHandle, handling: String) -> Re
 
 #[tauri::command]
 #[specta::specta]
-pub fn change_remote_stt_base_url_setting(
-    app: AppHandle,
-    base_url: String,
-) -> Result<(), String> {
+pub fn change_remote_stt_base_url_setting(app: AppHandle, base_url: String) -> Result<(), String> {
     let mut settings = settings::get_settings(&app);
     settings.remote_stt.base_url = base_url;
     settings::write_settings(&app, settings);
@@ -411,10 +408,7 @@ pub fn change_remote_stt_base_url_setting(
 
 #[tauri::command]
 #[specta::specta]
-pub fn change_remote_stt_model_id_setting(
-    app: AppHandle,
-    model_id: String,
-) -> Result<(), String> {
+pub fn change_remote_stt_model_id_setting(app: AppHandle, model_id: String) -> Result<(), String> {
     let mut settings = settings::get_settings(&app);
     settings.remote_stt.model_id = model_id;
     settings::write_settings(&app, settings);
@@ -441,15 +435,15 @@ pub fn change_remote_stt_debug_capture_setting(
 
 #[tauri::command]
 #[specta::specta]
-pub fn change_remote_stt_debug_mode_setting(
-    app: AppHandle,
-    mode: String,
-) -> Result<(), String> {
+pub fn change_remote_stt_debug_mode_setting(app: AppHandle, mode: String) -> Result<(), String> {
     let parsed = match mode.as_str() {
         "normal" => RemoteSttDebugMode::Normal,
         "verbose" => RemoteSttDebugMode::Verbose,
         other => {
-            warn!("Invalid remote STT debug mode '{}', defaulting to normal", other);
+            warn!(
+                "Invalid remote STT debug mode '{}', defaulting to normal",
+                other
+            );
             RemoteSttDebugMode::Normal
         }
     };
@@ -828,10 +822,7 @@ pub fn change_ai_replace_system_prompt_setting(
 
 #[tauri::command]
 #[specta::specta]
-pub fn change_ai_replace_user_prompt_setting(
-    app: AppHandle,
-    prompt: String,
-) -> Result<(), String> {
+pub fn change_ai_replace_user_prompt_setting(app: AppHandle, prompt: String) -> Result<(), String> {
     let mut settings = settings::get_settings(&app);
     settings.ai_replace_user_prompt = prompt;
     settings::write_settings(&app, settings);
@@ -840,12 +831,33 @@ pub fn change_ai_replace_user_prompt_setting(
 
 #[tauri::command]
 #[specta::specta]
-pub fn change_ai_replace_max_chars_setting(
-    app: AppHandle,
-    max_chars: usize,
-) -> Result<(), String> {
+pub fn change_ai_replace_max_chars_setting(app: AppHandle, max_chars: usize) -> Result<(), String> {
     let mut settings = settings::get_settings(&app);
     settings.ai_replace_max_chars = max_chars;
+    settings::write_settings(&app, settings);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_ai_replace_allow_no_selection_setting(
+    app: AppHandle,
+    allowed: bool,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.ai_replace_allow_no_selection = allowed;
+    settings::write_settings(&app, settings);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_ai_replace_no_selection_system_prompt_setting(
+    app: AppHandle,
+    prompt: String,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.ai_replace_no_selection_system_prompt = prompt;
     settings::write_settings(&app, settings);
     Ok(())
 }

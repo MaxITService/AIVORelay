@@ -322,6 +322,10 @@ pub struct AppSettings {
     pub ai_replace_user_prompt: String,
     #[serde(default = "default_ai_replace_max_chars")]
     pub ai_replace_max_chars: usize,
+    #[serde(default = "default_ai_replace_allow_no_selection")]
+    pub ai_replace_allow_no_selection: bool,
+    #[serde(default = "default_ai_replace_no_selection_system_prompt")]
+    pub ai_replace_no_selection_system_prompt: String,
     #[serde(default)]
     pub mute_while_recording: bool,
     #[serde(default)]
@@ -438,6 +442,14 @@ fn default_ai_replace_user_prompt() -> String {
 
 fn default_ai_replace_max_chars() -> usize {
     20000
+}
+
+fn default_ai_replace_allow_no_selection() -> bool {
+    true
+}
+
+fn default_ai_replace_no_selection_system_prompt() -> String {
+    "You are a helpful assistant.\nAnswer the user's instruction directly and concisely.\nDo not include any preamble (like 'Here is the answer') or postscript.\nJust provide the content requested.".to_string()
 }
 
 fn default_post_process_providers() -> Vec<PostProcessProvider> {
@@ -590,8 +602,9 @@ pub fn get_default_settings() -> AppSettings {
         ShortcutBinding {
             id: "ai_replace_selection".to_string(),
             name: "AI Replace Selection".to_string(),
-            description: "Cut selected text, speak an instruction, replace selection with AI output"
-                .to_string(),
+            description:
+                "Cut selected text, speak an instruction, replace selection with AI output"
+                    .to_string(),
             default_binding: "ctrl+shift+space".to_string(),
             current_binding: "ctrl+shift+space".to_string(),
         },
@@ -645,6 +658,8 @@ pub fn get_default_settings() -> AppSettings {
         ai_replace_system_prompt: default_ai_replace_system_prompt(),
         ai_replace_user_prompt: default_ai_replace_user_prompt(),
         ai_replace_max_chars: default_ai_replace_max_chars(),
+        ai_replace_allow_no_selection: default_ai_replace_allow_no_selection(),
+        ai_replace_no_selection_system_prompt: default_ai_replace_no_selection_system_prompt(),
         mute_while_recording: false,
         append_trailing_space: false,
         app_language: default_app_language(),

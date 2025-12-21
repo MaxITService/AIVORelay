@@ -274,6 +274,8 @@ pub fn run() {
         shortcut::change_ai_replace_system_prompt_setting,
         shortcut::change_ai_replace_user_prompt_setting,
         shortcut::change_ai_replace_max_chars_setting,
+        shortcut::change_ai_replace_allow_no_selection_setting,
+        shortcut::change_ai_replace_no_selection_system_prompt_setting,
         shortcut::change_app_language_setting,
         shortcut::change_update_checks_setting,
         trigger_update_check,

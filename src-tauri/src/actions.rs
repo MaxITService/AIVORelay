@@ -284,7 +284,12 @@ async fn ai_replace_with_llm(
         ));
     }
 
-    let system_prompt = settings.ai_replace_system_prompt.clone();
+    let system_prompt = if selected_text.trim().is_empty() && settings.ai_replace_allow_no_selection
+    {
+        settings.ai_replace_no_selection_system_prompt.clone()
+    } else {
+        settings.ai_replace_system_prompt.clone()
+    };
     let user_template = settings.ai_replace_user_prompt.clone();
     if user_template.trim().is_empty() {
         return Err("AI replace prompt template is empty".to_string());
@@ -754,7 +759,9 @@ impl ShortcutAction for AiReplaceSelectionAction {
                             }
                         };
 
-                        if selected_text.is_empty() {
+                        if selected_text.trim().is_empty()
+                            && !settings.ai_replace_allow_no_selection
+                        {
                             emit_ai_replace_error(
                                 &ah,
                                 "Could not capture selection. Please select editable text.",

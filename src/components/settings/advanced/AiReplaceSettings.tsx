@@ -4,6 +4,7 @@ import { useSettings } from "../../../hooks/useSettings";
 import { Input } from "../../ui/Input";
 import { SettingContainer } from "../../ui/SettingContainer";
 import { Textarea } from "../../ui/Textarea";
+import { ToggleSwitch } from "../../ui/ToggleSwitch";
 
 interface AiReplaceSettingsProps {
   descriptionMode?: "tooltip" | "inline";
@@ -20,6 +21,9 @@ export const AiReplaceSettings: React.FC<AiReplaceSettingsProps> = ({
   const systemPrompt = getSetting("ai_replace_system_prompt") ?? "";
   const userPrompt = getSetting("ai_replace_user_prompt") ?? "";
   const maxChars = getSetting("ai_replace_max_chars") ?? 20000;
+  const allowNoSelection = getSetting("ai_replace_allow_no_selection") ?? true;
+  const noSelectionSystemPrompt =
+    getSetting("ai_replace_no_selection_system_prompt") ?? "";
 
   const handleSystemPromptChange = (
     event: React.ChangeEvent<HTMLTextAreaElement>,
@@ -42,8 +46,49 @@ export const AiReplaceSettings: React.FC<AiReplaceSettingsProps> = ({
     }
   };
 
+  const handleAllowNoSelectionChange = (checked: boolean) => {
+    updateSetting("ai_replace_allow_no_selection", checked);
+  };
+
+  const handleNoSelectionSystemPromptChange = (
+    event: React.ChangeEvent<HTMLTextAreaElement>,
+  ) => {
+    updateSetting("ai_replace_no_selection_system_prompt", event.target.value);
+  };
+
   return (
     <>
+      <ToggleSwitch
+        label={t("settings.advanced.aiReplace.allowNoSelection.label")}
+        description={t(
+          "settings.advanced.aiReplace.allowNoSelection.description",
+        )}
+        descriptionMode={descriptionMode}
+        grouped={grouped}
+        checked={allowNoSelection}
+        onChange={handleAllowNoSelectionChange}
+        disabled={isUpdating("ai_replace_allow_no_selection")}
+      />
+
+      {allowNoSelection && (
+        <SettingContainer
+          title={t("settings.advanced.aiReplace.noSelectionSystemPrompt.title")}
+          description={t(
+            "settings.advanced.aiReplace.noSelectionSystemPrompt.description",
+          )}
+          descriptionMode={descriptionMode}
+          grouped={grouped}
+          layout="stacked"
+        >
+          <Textarea
+            value={noSelectionSystemPrompt}
+            onChange={handleNoSelectionSystemPromptChange}
+            disabled={isUpdating("ai_replace_no_selection_system_prompt")}
+            className="w-full"
+          />
+        </SettingContainer>
+      )}
+
       <SettingContainer
         title={t("settings.advanced.aiReplace.systemPrompt.title")}
         description={t("settings.advanced.aiReplace.systemPrompt.description")}

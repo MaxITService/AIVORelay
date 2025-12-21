@@ -189,6 +189,9 @@ pub fn capture_selection_text(app_handle: &AppHandle) -> Result<String, String> 
             .lock()
             .map_err(|e| format!("Failed to lock Enigo: {}", e))?;
 
+        // Clear clipboard to ensure we don't pick up old content if selection is empty
+        let _ = clipboard.write_text("");
+
         input::send_cut_ctrl_x(&mut enigo)?;
         std::thread::sleep(std::time::Duration::from_millis(80));
 
@@ -198,7 +201,10 @@ pub fn capture_selection_text(app_handle: &AppHandle) -> Result<String, String> 
     })();
 
     if let Err(err) = clipboard.write_text(&clipboard_backup) {
-        warn!("Failed to restore clipboard after selection capture: {}", err);
+        warn!(
+            "Failed to restore clipboard after selection capture: {}",
+            err
+        );
     }
 
     capture_result
