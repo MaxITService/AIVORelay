@@ -2,6 +2,7 @@
 use crate::apple_intelligence;
 use crate::audio_feedback::{play_feedback_sound, play_feedback_sound_blocking, SoundType};
 use crate::audio_toolkit::apply_custom_words;
+use crate::connector;
 use crate::managers::audio::AudioRecordingManager;
 use crate::managers::history::HistoryManager;
 use crate::managers::remote_stt::RemoteSttManager;
@@ -35,6 +36,9 @@ pub trait ShortcutAction: Send + Sync {
 struct TranscribeAction;
 
 struct AiReplaceSelectionAction;
+
+struct SendToExtensionAction;
+struct SendToExtensionWithSelectionAction;
 
 async fn maybe_post_process_transcription(
     settings: &AppSettings,
@@ -259,6 +263,35 @@ fn reset_toggle_state(app: &AppHandle, binding_id: &str) {
 
 fn emit_ai_replace_error(app: &AppHandle, message: impl Into<String>) {
     let _ = app.emit("ai-replace-error", message.into());
+}
+
+fn build_extension_message(settings: &AppSettings, instruction: &str, selection: &str) -> String {
+    let instruction_trimmed = instruction.trim();
+    let selection_trimmed = selection.trim();
+
+    if instruction_trimmed.is_empty() {
+        return String::new();
+    }
+
+    if selection_trimmed.is_empty() {
+        return instruction_trimmed.to_string();
+    }
+
+    let user_template = settings.ai_replace_user_prompt.trim();
+    let user_message = if user_template.is_empty() {
+        format!("INSTRUCTION:\n{}\n\nTEXT:\n{}", instruction_trimmed, selection)
+    } else {
+        user_template
+            .replace("${instruction}", instruction_trimmed)
+            .replace("${output}", selection)
+    };
+
+    let system_prompt = settings.ai_replace_system_prompt.trim();
+    if system_prompt.is_empty() {
+        user_message
+    } else {
+        format!("SYSTEM:\n{}\n\n{}", system_prompt, user_message)
+    }
 }
 
 async fn ai_replace_with_llm(
@@ -595,6 +628,455 @@ impl ShortcutAction for TranscribeAction {
     }
 }
 
+impl ShortcutAction for SendToExtensionAction {
+    fn start(&self, app: &AppHandle, binding_id: &str, _shortcut_str: &str) {
+        let start_time = Instant::now();
+        debug!(
+            "SendToExtensionAction::start called for binding: {}",
+            binding_id
+        );
+
+        // Load model in the background
+        let tm = app.state::<Arc<TranscriptionManager>>();
+        let settings = get_settings(app);
+        if settings.transcription_provider == TranscriptionProvider::Local {
+            tm.initiate_model_load();
+        }
+
+        let binding_id = binding_id.to_string();
+        change_tray_icon(app, TrayIconState::Recording);
+        show_recording_overlay(app);
+
+        let rm = app.state::<Arc<AudioRecordingManager>>();
+
+        // Get the microphone mode to determine audio feedback timing
+        let is_always_on = settings.always_on_microphone;
+        debug!("Microphone mode - always_on: {}", is_always_on);
+
+        let mut recording_started = false;
+        if is_always_on {
+            // Always-on mode: Play audio feedback immediately, then apply mute after sound finishes
+            debug!("Always-on mode: Playing audio feedback immediately");
+            let rm_clone = Arc::clone(&rm);
+            let app_clone = app.clone();
+            // The blocking helper exits immediately if audio feedback is disabled,
+            // so we can always reuse this thread to ensure mute happens right after playback.
+            std::thread::spawn(move || {
+                play_feedback_sound_blocking(&app_clone, SoundType::Start);
+                rm_clone.apply_mute();
+            });
+
+            recording_started = rm.try_start_recording(&binding_id);
+            debug!("Recording started: {}", recording_started);
+        } else {
+            // On-demand mode: Start recording first, then play audio feedback, then apply mute
+            // This allows the microphone to be activated before playing the sound
+            debug!("On-demand mode: Starting recording first, then audio feedback");
+            let recording_start_time = Instant::now();
+            if rm.try_start_recording(&binding_id) {
+                recording_started = true;
+                debug!("Recording started in {:?}", recording_start_time.elapsed());
+                // Small delay to ensure microphone stream is active
+                let app_clone = app.clone();
+                let rm_clone = Arc::clone(&rm);
+                std::thread::spawn(move || {
+                    std::thread::sleep(std::time::Duration::from_millis(100));
+                    debug!("Handling delayed audio feedback/mute sequence");
+                    // Helper handles disabled audio feedback by returning early, so we reuse it
+                    // to keep mute sequencing consistent in every mode.
+                    play_feedback_sound_blocking(&app_clone, SoundType::Start);
+                    rm_clone.apply_mute();
+                });
+            } else {
+                debug!("Failed to start recording");
+            }
+        }
+
+        if recording_started {
+            // Dynamically register the cancel shortcut in a separate task to avoid deadlock
+            shortcut::register_cancel_shortcut(app);
+        }
+
+        debug!(
+            "SendToExtensionAction::start completed in {:?}",
+            start_time.elapsed()
+        );
+    }
+
+    fn stop(&self, app: &AppHandle, binding_id: &str, _shortcut_str: &str) {
+        // Unregister the cancel shortcut when transcription stops
+        shortcut::unregister_cancel_shortcut(app);
+
+        let stop_time = Instant::now();
+        debug!(
+            "SendToExtensionAction::stop called for binding: {}",
+            binding_id
+        );
+
+        let ah = app.clone();
+        let rm = Arc::clone(&app.state::<Arc<AudioRecordingManager>>());
+        let tm = Arc::clone(&app.state::<Arc<TranscriptionManager>>());
+        let hm = Arc::clone(&app.state::<Arc<HistoryManager>>());
+
+        change_tray_icon(app, TrayIconState::Transcribing);
+        show_transcribing_overlay(app);
+
+        // Unmute before playing audio feedback so the stop sound is audible
+        rm.remove_mute();
+
+        // Play audio feedback for recording stop
+        play_feedback_sound(app, SoundType::Stop);
+
+        let binding_id = binding_id.to_string(); // Clone binding_id for the async task
+
+        tauri::async_runtime::spawn(async move {
+            let binding_id = binding_id.clone(); // Clone for the inner async task
+            debug!(
+                "Starting async connector transcription task for binding: {}",
+                binding_id
+            );
+
+            let stop_recording_time = Instant::now();
+            if let Some(samples) = rm.stop_recording(&binding_id) {
+                debug!(
+                    "Recording stopped and samples retrieved in {:?}, sample count: {}",
+                    stop_recording_time.elapsed(),
+                    samples.len()
+                );
+
+                let transcription_time = Instant::now();
+                let samples_clone = samples.clone(); // Clone for history saving
+                let settings = get_settings(&ah);
+                let transcription_result = if settings.transcription_provider
+                    == TranscriptionProvider::RemoteOpenAiCompatible
+                {
+                    let remote_manager = ah.state::<Arc<RemoteSttManager>>();
+                    remote_manager
+                        .transcribe(&settings.remote_stt, &samples)
+                        .await
+                        .map(|text| {
+                            if settings.custom_words.is_empty() {
+                                text
+                            } else {
+                                apply_custom_words(
+                                    &text,
+                                    &settings.custom_words,
+                                    settings.word_correction_threshold,
+                                )
+                            }
+                        })
+                } else {
+                    tm.transcribe(samples)
+                };
+
+                match transcription_result {
+                    Ok(transcription) => {
+                        debug!(
+                            "Connector transcription completed in {:?}: '{}'",
+                            transcription_time.elapsed(),
+                            transcription
+                        );
+                        if !transcription.is_empty() {
+                            let mut final_text = transcription.clone();
+                            let mut post_processed_text: Option<String> = None;
+                            let mut post_process_prompt: Option<String> = None;
+
+                            // First, check if Chinese variant conversion is needed
+                            if let Some(converted_text) =
+                                maybe_convert_chinese_variant(&settings, &transcription).await
+                            {
+                                final_text = converted_text.clone();
+                                post_processed_text = Some(converted_text);
+                            }
+                            // Then apply regular post-processing if enabled
+                            else if let Some(processed_text) =
+                                maybe_post_process_transcription(&settings, &transcription).await
+                            {
+                                final_text = processed_text.clone();
+                                post_processed_text = Some(processed_text);
+
+                                // Get the prompt that was used
+                                if let Some(prompt_id) = &settings.post_process_selected_prompt_id {
+                                    if let Some(prompt) = settings
+                                        .post_process_prompts
+                                        .iter()
+                                        .find(|p| &p.id == prompt_id)
+                                    {
+                                        post_process_prompt = Some(prompt.prompt.clone());
+                                    }
+                                }
+                            }
+
+                            // Save to history with post-processed text and prompt
+                            let hm_clone = Arc::clone(&hm);
+                            let transcription_for_history = transcription.clone();
+                            tauri::async_runtime::spawn(async move {
+                                if let Err(e) = hm_clone
+                                    .save_transcription(
+                                        samples_clone,
+                                        transcription_for_history,
+                                        post_processed_text,
+                                        post_process_prompt,
+                                    )
+                                    .await
+                                {
+                                    error!("Failed to save transcription to history: {}", e);
+                                }
+                            });
+
+                            let send_time = Instant::now();
+                            match connector::send_message(&settings, &final_text).await {
+                                Ok(()) => debug!(
+                                    "Connector message sent in {:?}",
+                                    send_time.elapsed()
+                                ),
+                                Err(e) => error!("Failed to send connector message: {}", e),
+                            }
+
+                            let ah_clone = ah.clone();
+                            ah.run_on_main_thread(move || {
+                                utils::hide_recording_overlay(&ah_clone);
+                                change_tray_icon(&ah_clone, TrayIconState::Idle);
+                            })
+                            .unwrap_or_else(|e| {
+                                error!("Failed to run connector cleanup on main thread: {:?}", e);
+                                utils::hide_recording_overlay(&ah);
+                                change_tray_icon(&ah, TrayIconState::Idle);
+                            });
+                        } else {
+                            utils::hide_recording_overlay(&ah);
+                            change_tray_icon(&ah, TrayIconState::Idle);
+                        }
+                    }
+                    Err(err) => {
+                        if settings.transcription_provider
+                            == TranscriptionProvider::RemoteOpenAiCompatible
+                        {
+                            let _ = ah.emit("remote-stt-error", format!("{}", err));
+                        }
+                        debug!("Connector transcription error: {}", err);
+                        utils::hide_recording_overlay(&ah);
+                        change_tray_icon(&ah, TrayIconState::Idle);
+                    }
+                }
+            } else {
+                debug!("No samples retrieved from recording stop");
+                utils::hide_recording_overlay(&ah);
+                change_tray_icon(&ah, TrayIconState::Idle);
+            }
+        });
+
+        debug!(
+            "SendToExtensionAction::stop completed in {:?}",
+            stop_time.elapsed()
+        );
+    }
+}
+
+impl ShortcutAction for SendToExtensionWithSelectionAction {
+    fn start(&self, app: &AppHandle, binding_id: &str, _shortcut_str: &str) {
+        let start_time = Instant::now();
+        debug!(
+            "SendToExtensionWithSelectionAction::start called for binding: {}",
+            binding_id
+        );
+
+        let settings = get_settings(app);
+
+        // Load model in the background
+        let tm = app.state::<Arc<TranscriptionManager>>();
+        if settings.transcription_provider == TranscriptionProvider::Local {
+            tm.initiate_model_load();
+        }
+
+        change_tray_icon(app, TrayIconState::Recording);
+        show_recording_overlay(app);
+
+        let rm = app.state::<Arc<AudioRecordingManager>>();
+        let is_always_on = settings.always_on_microphone;
+        debug!("Microphone mode - always_on: {}", is_always_on);
+
+        let mut recording_started = false;
+        if is_always_on {
+            debug!("Always-on mode: Playing audio feedback immediately");
+            let rm_clone = Arc::clone(&rm);
+            let app_clone = app.clone();
+            std::thread::spawn(move || {
+                play_feedback_sound_blocking(&app_clone, SoundType::Start);
+                rm_clone.apply_mute();
+            });
+
+            recording_started = rm.try_start_recording(binding_id);
+            debug!("Recording started: {}", recording_started);
+        } else {
+            debug!("On-demand mode: Starting recording first, then audio feedback");
+            let recording_start_time = Instant::now();
+            if rm.try_start_recording(binding_id) {
+                recording_started = true;
+                debug!("Recording started in {:?}", recording_start_time.elapsed());
+                let app_clone = app.clone();
+                let rm_clone = Arc::clone(&rm);
+                std::thread::spawn(move || {
+                    std::thread::sleep(std::time::Duration::from_millis(100));
+                    debug!("Handling delayed audio feedback/mute sequence");
+                    play_feedback_sound_blocking(&app_clone, SoundType::Start);
+                    rm_clone.apply_mute();
+                });
+            } else {
+                debug!("Failed to start recording");
+            }
+        }
+
+        if recording_started {
+            shortcut::register_cancel_shortcut(app);
+        }
+
+        debug!(
+            "SendToExtensionWithSelectionAction::start completed in {:?}",
+            start_time.elapsed()
+        );
+    }
+
+    fn stop(&self, app: &AppHandle, binding_id: &str, _shortcut_str: &str) {
+        shortcut::unregister_cancel_shortcut(app);
+
+        let stop_time = Instant::now();
+        debug!(
+            "SendToExtensionWithSelectionAction::stop called for binding: {}",
+            binding_id
+        );
+
+        let ah = app.clone();
+        let rm = Arc::clone(&app.state::<Arc<AudioRecordingManager>>());
+        let tm = Arc::clone(&app.state::<Arc<TranscriptionManager>>());
+
+        change_tray_icon(app, TrayIconState::Transcribing);
+        show_transcribing_overlay(app);
+
+        rm.remove_mute();
+        play_feedback_sound(app, SoundType::Stop);
+
+        let binding_id = binding_id.to_string();
+
+        tauri::async_runtime::spawn(async move {
+            debug!(
+                "Starting async connector selection task for binding: {}",
+                binding_id
+            );
+
+            let stop_recording_time = Instant::now();
+            if let Some(samples) = rm.stop_recording(&binding_id) {
+                debug!(
+                    "Recording stopped and samples retrieved in {:?}, sample count: {}",
+                    stop_recording_time.elapsed(),
+                    samples.len()
+                );
+
+                let transcription_time = Instant::now();
+                let settings = get_settings(&ah);
+                let transcription_result = if settings.transcription_provider
+                    == TranscriptionProvider::RemoteOpenAiCompatible
+                {
+                    let remote_manager = ah.state::<Arc<RemoteSttManager>>();
+                    remote_manager
+                        .transcribe(&settings.remote_stt, &samples)
+                        .await
+                        .map(|text| {
+                            if settings.custom_words.is_empty() {
+                                text
+                            } else {
+                                apply_custom_words(
+                                    &text,
+                                    &settings.custom_words,
+                                    settings.word_correction_threshold,
+                                )
+                            }
+                        })
+                } else {
+                    tm.transcribe(samples)
+                };
+
+                match transcription_result {
+                    Ok(transcription) => {
+                        debug!(
+                            "Connector selection transcription completed in {:?}: '{}'",
+                            transcription_time.elapsed(),
+                            transcription
+                        );
+
+                        if transcription.trim().is_empty() {
+                            utils::hide_recording_overlay(&ah);
+                            change_tray_icon(&ah, TrayIconState::Idle);
+                            return;
+                        }
+
+                        let capture_start = Instant::now();
+                        let selected_text = match utils::capture_selection_text_copy(&ah) {
+                            Ok(text) => text,
+                            Err(err) => {
+                                debug!("Selection copy capture failed: {}", err);
+                                String::new()
+                            }
+                        };
+                        debug!(
+                            "Selection copied in {:?} ({} chars)",
+                            capture_start.elapsed(),
+                            selected_text.chars().count()
+                        );
+
+                        let message =
+                            build_extension_message(&settings, &transcription, &selected_text);
+                        if message.trim().is_empty() {
+                            utils::hide_recording_overlay(&ah);
+                            change_tray_icon(&ah, TrayIconState::Idle);
+                            return;
+                        }
+
+                        let send_time = Instant::now();
+                        match connector::send_message(&settings, &message).await {
+                            Ok(()) => debug!(
+                                "Connector message sent in {:?}",
+                                send_time.elapsed()
+                            ),
+                            Err(e) => error!("Failed to send connector message: {}", e),
+                        }
+
+                        let ah_clone = ah.clone();
+                        ah.run_on_main_thread(move || {
+                            utils::hide_recording_overlay(&ah_clone);
+                            change_tray_icon(&ah_clone, TrayIconState::Idle);
+                        })
+                        .unwrap_or_else(|e| {
+                            error!("Failed to run connector cleanup on main thread: {:?}", e);
+                            utils::hide_recording_overlay(&ah);
+                            change_tray_icon(&ah, TrayIconState::Idle);
+                        });
+                    }
+                    Err(err) => {
+                        if settings.transcription_provider
+                            == TranscriptionProvider::RemoteOpenAiCompatible
+                        {
+                            let _ = ah.emit("remote-stt-error", format!("{}", err));
+                        }
+                        debug!("Connector selection transcription error: {}", err);
+                        utils::hide_recording_overlay(&ah);
+                        change_tray_icon(&ah, TrayIconState::Idle);
+                    }
+                }
+            } else {
+                debug!("No samples retrieved from recording stop");
+                utils::hide_recording_overlay(&ah);
+                change_tray_icon(&ah, TrayIconState::Idle);
+            }
+        });
+
+        debug!(
+            "SendToExtensionWithSelectionAction::stop completed in {:?}",
+            stop_time.elapsed()
+        );
+    }
+}
+
 impl ShortcutAction for AiReplaceSelectionAction {
     fn start(&self, app: &AppHandle, binding_id: &str, _shortcut_str: &str) {
         let start_time = Instant::now();
@@ -900,6 +1382,14 @@ pub static ACTION_MAP: Lazy<HashMap<String, Arc<dyn ShortcutAction>>> = Lazy::ne
     map.insert(
         "transcribe".to_string(),
         Arc::new(TranscribeAction) as Arc<dyn ShortcutAction>,
+    );
+    map.insert(
+        "send_to_extension".to_string(),
+        Arc::new(SendToExtensionAction) as Arc<dyn ShortcutAction>,
+    );
+    map.insert(
+        "send_to_extension_with_selection".to_string(),
+        Arc::new(SendToExtensionWithSelectionAction) as Arc<dyn ShortcutAction>,
     );
     map.insert(
         "ai_replace_selection".to_string(),

@@ -19,6 +19,11 @@ export const GeneralSettings: React.FC = () => {
     <div className="max-w-3xl w-full mx-auto space-y-6">
       <SettingsGroup title={t("settings.general.title")}>
         <HandyShortcut shortcutId="transcribe" grouped={true} />
+        <HandyShortcut shortcutId="send_to_extension" grouped={true} />
+        <HandyShortcut
+          shortcutId="send_to_extension_with_selection"
+          grouped={true}
+        />
         {isWindows && (
           <HandyShortcut shortcutId="ai_replace_selection" grouped={true} />
         )}

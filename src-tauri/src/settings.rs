@@ -330,6 +330,12 @@ pub struct AppSettings {
     pub mute_while_recording: bool,
     #[serde(default)]
     pub append_trailing_space: bool,
+    #[serde(default = "default_connector_host")]
+    pub connector_host: String,
+    #[serde(default = "default_connector_port")]
+    pub connector_port: u16,
+    #[serde(default = "default_connector_path")]
+    pub connector_path: String,
     #[serde(default = "default_app_language")]
     pub app_language: String,
 }
@@ -426,6 +432,18 @@ fn default_app_language() -> String {
     tauri_plugin_os::locale()
         .and_then(|l| l.split(['-', '_']).next().map(String::from))
         .unwrap_or_else(|| "en".to_string())
+}
+
+fn default_connector_host() -> String {
+    "127.0.0.1".to_string()
+}
+
+fn default_connector_port() -> u16 {
+    63155
+}
+
+fn default_connector_path() -> String {
+    "/messages".to_string()
 }
 
 fn default_post_process_provider_id() -> String {
@@ -585,6 +603,24 @@ pub fn get_default_settings() -> AppSettings {
     #[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
     let default_shortcut = "alt+space";
 
+    #[cfg(target_os = "windows")]
+    let default_send_shortcut = "ctrl+alt+space";
+    #[cfg(target_os = "macos")]
+    let default_send_shortcut = "option+command+space";
+    #[cfg(target_os = "linux")]
+    let default_send_shortcut = "ctrl+alt+space";
+    #[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
+    let default_send_shortcut = "alt+space";
+
+    #[cfg(target_os = "windows")]
+    let default_send_selection_shortcut = "ctrl+alt+shift+space";
+    #[cfg(target_os = "macos")]
+    let default_send_selection_shortcut = "option+command+shift+space";
+    #[cfg(target_os = "linux")]
+    let default_send_selection_shortcut = "ctrl+alt+shift+space";
+    #[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
+    let default_send_selection_shortcut = "alt+shift+space";
+
     let mut bindings = HashMap::new();
     bindings.insert(
         "transcribe".to_string(),
@@ -594,6 +630,27 @@ pub fn get_default_settings() -> AppSettings {
             description: "Converts your speech into text.".to_string(),
             default_binding: default_shortcut.to_string(),
             current_binding: default_shortcut.to_string(),
+        },
+    );
+    bindings.insert(
+        "send_to_extension".to_string(),
+        ShortcutBinding {
+            id: "send_to_extension".to_string(),
+            name: "Send to Extension".to_string(),
+            description: "Send transcription to Handy Connector.".to_string(),
+            default_binding: default_send_shortcut.to_string(),
+            current_binding: default_send_shortcut.to_string(),
+        },
+    );
+    bindings.insert(
+        "send_to_extension_with_selection".to_string(),
+        ShortcutBinding {
+            id: "send_to_extension_with_selection".to_string(),
+            name: "Send + Selection to Extension".to_string(),
+            description:
+                "Send transcription plus copied selection to Handy Connector.".to_string(),
+            default_binding: default_send_selection_shortcut.to_string(),
+            current_binding: default_send_selection_shortcut.to_string(),
         },
     );
     #[cfg(target_os = "windows")]
@@ -662,6 +719,9 @@ pub fn get_default_settings() -> AppSettings {
         ai_replace_no_selection_system_prompt: default_ai_replace_no_selection_system_prompt(),
         mute_while_recording: false,
         append_trailing_space: false,
+        connector_host: default_connector_host(),
+        connector_port: default_connector_port(),
+        connector_path: default_connector_path(),
         app_language: default_app_language(),
     }
 }

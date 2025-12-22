@@ -209,3 +209,37 @@ pub fn capture_selection_text(app_handle: &AppHandle) -> Result<String, String> 
 
     capture_result
 }
+
+pub fn capture_selection_text_copy(app_handle: &AppHandle) -> Result<String, String> {
+    let clipboard = app_handle.clipboard();
+    let clipboard_backup = clipboard.read_text().unwrap_or_default();
+
+    let capture_result = (|| -> Result<String, String> {
+        let enigo_state = app_handle
+            .try_state::<EnigoState>()
+            .ok_or("Enigo state not initialized")?;
+        let mut enigo = enigo_state
+            .0
+            .lock()
+            .map_err(|e| format!("Failed to lock Enigo: {}", e))?;
+
+        // Clear clipboard so empty selections read as empty.
+        let _ = clipboard.write_text("");
+
+        input::send_copy_ctrl_c(&mut enigo)?;
+        std::thread::sleep(std::time::Duration::from_millis(80));
+
+        clipboard
+            .read_text()
+            .map_err(|e| format!("Failed to read clipboard: {}", e))
+    })();
+
+    if let Err(err) = clipboard.write_text(&clipboard_backup) {
+        warn!(
+            "Failed to restore clipboard after selection copy capture: {}",
+            err
+        );
+    }
+
+    capture_result
+}
