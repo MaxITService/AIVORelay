@@ -90,6 +90,14 @@ struct ShortcutToggleStates {
 
 type ManagedToggleState = Mutex<ShortcutToggleStates>;
 
+#[derive(Default)]
+pub struct PressTimestamps {
+    // Map: shortcut_binding_id -> press start time
+    pub timestamps: HashMap<String, std::time::Instant>,
+}
+
+pub type ManagedPressTimestamps = Mutex<PressTimestamps>;
+
 fn show_main_window(app: &AppHandle) {
     if let Some(main_window) = app.get_webview_window("main") {
         // First, ensure the window is visible
@@ -287,6 +295,9 @@ pub fn run() {
         shortcut::change_ai_replace_max_chars_setting,
         shortcut::change_ai_replace_allow_no_selection_setting,
         shortcut::change_ai_replace_no_selection_system_prompt_setting,
+        shortcut::change_ai_replace_allow_quick_tap_setting,
+        shortcut::change_ai_replace_quick_tap_threshold_ms_setting,
+        shortcut::change_ai_replace_quick_tap_system_prompt_setting,
         shortcut::change_send_to_extension_push_to_talk_setting,
         shortcut::change_send_to_extension_with_selection_push_to_talk_setting,
         shortcut::change_ai_replace_selection_push_to_talk_setting,
@@ -303,6 +314,8 @@ pub fn run() {
         shortcut::change_screenshot_require_recent_setting,
         shortcut::change_screenshot_timeout_seconds_setting,
         shortcut::change_screenshot_include_subfolders_setting,
+        shortcut::change_screenshot_allow_no_voice_setting,
+        shortcut::change_screenshot_no_voice_default_prompt_setting,
         shortcut::change_send_screenshot_to_extension_push_to_talk_setting,
         shortcut::change_app_language_setting,
         shortcut::change_update_checks_setting,
@@ -419,6 +432,7 @@ pub fn run() {
             Some(vec![]),
         ))
         .manage(Mutex::new(ShortcutToggleStates::default()))
+        .manage(Mutex::new(PressTimestamps::default()))
         .setup(move |app| {
             let settings = get_settings(&app.handle());
             let tauri_log_level: tauri_plugin_log::LogLevel = settings.log_level.into();

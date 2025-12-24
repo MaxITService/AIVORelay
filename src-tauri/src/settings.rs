@@ -326,6 +326,12 @@ pub struct AppSettings {
     pub ai_replace_allow_no_selection: bool,
     #[serde(default = "default_ai_replace_no_selection_system_prompt")]
     pub ai_replace_no_selection_system_prompt: String,
+    #[serde(default = "default_ai_replace_allow_quick_tap")]
+    pub ai_replace_allow_quick_tap: bool,
+    #[serde(default = "default_ai_replace_quick_tap_threshold_ms")]
+    pub ai_replace_quick_tap_threshold_ms: u32,
+    #[serde(default = "default_ai_replace_quick_tap_system_prompt")]
+    pub ai_replace_quick_tap_system_prompt: String,
     #[serde(default = "default_true")]
     pub send_to_extension_push_to_talk: bool,
     #[serde(default = "default_true")]
@@ -362,6 +368,10 @@ pub struct AppSettings {
     pub screenshot_timeout_seconds: u32,
     #[serde(default)]
     pub screenshot_include_subfolders: bool,
+    #[serde(default = "default_true")]
+    pub screenshot_allow_no_voice: bool,
+    #[serde(default = "default_screenshot_no_voice_default_prompt")]
+    pub screenshot_no_voice_default_prompt: String,
     #[serde(default = "default_true")]
     pub send_screenshot_to_extension_push_to_talk: bool,
     #[serde(default = "default_app_language")]
@@ -510,6 +520,10 @@ fn default_screenshot_timeout_seconds() -> u32 {
     5
 }
 
+fn default_screenshot_no_voice_default_prompt() -> String {
+    "Look at this picture and provide a helpful response.".to_string()
+}
+
 fn default_post_process_provider_id() -> String {
     "openai".to_string()
 }
@@ -536,6 +550,18 @@ fn default_true() -> bool {
 
 fn default_ai_replace_no_selection_system_prompt() -> String {
     "You are a helpful assistant.\nAnswer the user's instruction directly and concisely.\nDo not include any preamble (like 'Here is the answer') or postscript.\nJust provide the content requested.".to_string()
+}
+
+fn default_ai_replace_allow_quick_tap() -> bool {
+    true
+}
+
+fn default_ai_replace_quick_tap_threshold_ms() -> u32 {
+    500
+}
+
+fn default_ai_replace_quick_tap_system_prompt() -> String {
+    "You are a text improvement engine.\nImprove the provided text while preserving its original meaning and intent.\nFix any grammar, spelling, or punctuation errors.\nEnhance clarity and readability where possible.\nReturn ONLY the improved text without any explanations or commentary.\nPreserve the original language and formatting unless fixing errors requires changes.".to_string()
 }
 
 fn default_post_process_providers() -> Vec<PostProcessProvider> {
@@ -798,6 +824,9 @@ pub fn get_default_settings() -> AppSettings {
         ai_replace_max_chars: default_ai_replace_max_chars(),
         ai_replace_allow_no_selection: default_ai_replace_allow_no_selection(),
         ai_replace_no_selection_system_prompt: default_ai_replace_no_selection_system_prompt(),
+        ai_replace_allow_quick_tap: default_ai_replace_allow_quick_tap(),
+        ai_replace_quick_tap_threshold_ms: default_ai_replace_quick_tap_threshold_ms(),
+        ai_replace_quick_tap_system_prompt: default_ai_replace_quick_tap_system_prompt(),
         send_to_extension_push_to_talk: true,
         send_to_extension_with_selection_push_to_talk: true,
         ai_replace_selection_push_to_talk: true,
@@ -816,6 +845,8 @@ pub fn get_default_settings() -> AppSettings {
         screenshot_require_recent: true,
         screenshot_timeout_seconds: default_screenshot_timeout_seconds(),
         screenshot_include_subfolders: false,
+        screenshot_allow_no_voice: true,
+        screenshot_no_voice_default_prompt: default_screenshot_no_voice_default_prompt(),
         send_screenshot_to_extension_push_to_talk: true,
         app_language: default_app_language(),
     }

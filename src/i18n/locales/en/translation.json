@@ -588,6 +588,15 @@
           "title": "Screenshot Timeout",
           "description": "Maximum time to wait for a screenshot to appear.",
           "unit": "seconds"
+        },
+        "allowNoVoice": {
+          "title": "Allow Without Voice",
+          "description": "Send screenshot with a default prompt when no voice instruction is recorded."
+        },
+        "noVoiceDefaultPrompt": {
+          "title": "Default Prompt (No Voice)",
+          "description": "Prompt used when sending a screenshot without voice instruction.",
+          "placeholder": "Look at this picture and provide a helpful response."
         }
       },
       "connection": {

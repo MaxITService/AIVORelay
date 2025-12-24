@@ -30,17 +30,30 @@ Send voice to ChatGPT/Perplexity via **Handy Connector** Chrome extension.
 
 > ⚠️ **Requires:** [Handy Connector](https://github.com/MaxITService/Handy-connector) Chrome extension must be installed and running. Without it, "Send to Extension" features won't work.
 
-**Two modes:**
+**Three modes:**
 
 | Action | Input | Output to ChatGPT |
 |--------|-------|-------------------|
 | **Send to Extension** | Voice only | Just your question |
 | **Send with Selection** | Voice + selected text | Question with context |
+| **Send Screenshot** | Voice + screenshot | Question with image attachment |
 
 **Examples:**
 - Press shortcut, say "what is recursion" → ChatGPT gets your question
 - Select error log, say "why is this failing" → ChatGPT gets question + the log
 - Select article, say "summarize this" → ChatGPT gets instruction + full text
+- Capture region, say "explain this chart" → ChatGPT gets question + screenshot
+
+### 📷 Send Screenshot to Extension (Windows only) (Requires external screenshot tool, like ShareX!)
+Capture a screenshot region and send it with voice instruction to ChatGPT/Claude.
+
+1. Press the shortcut and speak your instruction
+2. Select screen region with ShareX (or your configured tool)
+3. Screenshot + instruction sent to extension
+
+**"Allow Without Voice" mode:** Can send screenshot with just a default prompt (e.g., "Look at this picture") — no voice needed.
+
+**Setup:** Settings → Browser Connector → Screenshot Settings
 
 ---
 
@@ -52,6 +65,7 @@ Send voice to ChatGPT/Perplexity via **Handy Connector** Chrome extension.
 | AI Replace Selection | `Ctrl+Shift+Space` |
 | Send to Extension | Configure in Settings → Shortcuts |
 | Send with Selection | Configure in Settings → Shortcuts |
+| Send Screenshot | Configure in Settings → Shortcuts |
 
 ---
 
@@ -94,6 +108,7 @@ ${output}
 
 ## Limitations
 - **AI Replace Selection**: Windows only
+- **Send Screenshot to Extension**: Windows only (uses ShareX or similar)
 - **Remote STT**: Windows only (API keys in Windows Credential Manager)
 
 ## Original Features

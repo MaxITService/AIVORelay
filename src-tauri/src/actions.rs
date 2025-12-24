@@ -1411,7 +1411,12 @@ impl ShortcutAction for SendScreenshotToExtensionAction {
                     // Hide overlay immediately after successful transcription
                     utils::hide_recording_overlay(&ah);
                     change_tray_icon(&ah, TrayIconState::Idle);
-                    text
+                    // If voice is empty and allow_no_voice is enabled, use default prompt
+                    if text.trim().is_empty() && settings.screenshot_allow_no_voice {
+                        settings.screenshot_no_voice_default_prompt.clone()
+                    } else {
+                        text
+                    }
                 }
                 Err(e) => {
                     error!("Voice transcription failed: {}", e);

@@ -313,6 +313,36 @@ export const BrowserConnectorSettings: React.FC = () => {
             </div>
           </SettingContainer>
         </div>
+        <SettingContainer
+          title={t("settings.browserConnector.screenshot.allowNoVoice.title")}
+          description={t("settings.browserConnector.screenshot.allowNoVoice.description")}
+          descriptionMode="tooltip"
+          grouped={true}
+        >
+          <ToggleSwitch
+            checked={settings?.screenshot_allow_no_voice ?? true}
+            onChange={(enabled) => void updateSetting("screenshot_allow_no_voice", enabled)}
+            disabled={isUpdating("screenshot_allow_no_voice")}
+          />
+        </SettingContainer>
+        <div className={!settings?.screenshot_allow_no_voice ? "opacity-50" : ""}>
+          <SettingContainer
+            title={t("settings.browserConnector.screenshot.noVoiceDefaultPrompt.title")}
+            description={t("settings.browserConnector.screenshot.noVoiceDefaultPrompt.description")}
+            descriptionMode="inline"
+            grouped={true}
+            layout="stacked"
+          >
+            <Textarea
+              value={settings?.screenshot_no_voice_default_prompt ?? ""}
+              onChange={(event) => void updateSetting("screenshot_no_voice_default_prompt", event.target.value)}
+              disabled={!settings?.screenshot_allow_no_voice || isUpdating("screenshot_no_voice_default_prompt")}
+              placeholder={t("settings.browserConnector.screenshot.noVoiceDefaultPrompt.placeholder")}
+              className="w-full"
+              rows={2}
+            />
+          </SettingContainer>
+        </div>
       </SettingsGroup>
 
       {/* Send to Extension Prompts */}

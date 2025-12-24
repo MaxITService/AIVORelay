@@ -41,8 +41,8 @@ When adding new features, please prefer adding them in new files instead of edit
 - Launches external screenshot tool (default: ShareX with `-RectangleRegion`)
 - Watches screenshot folder for new images using `notify` crate
 - Sends bundle message with image attachment and voice instruction to extension
-- Configurable: capture command, folder path, timeout, "require recent" filter
-- Settings: `screenshot_capture_command`, `screenshot_folder`, `screenshot_require_recent`, `screenshot_timeout_seconds`
+- Configurable: capture command, folder path, timeout, "require recent" filter, "allow without voice"
+- Settings: `screenshot_capture_command`, `screenshot_folder`, `screenshot_require_recent`, `screenshot_timeout_seconds`, `screenshot_allow_no_voice`, `screenshot_no_voice_default_prompt`
 
 ## Guidelines for Agents
 
