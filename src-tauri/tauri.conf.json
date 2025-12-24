@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Handy",
+  "productName": "Handy Pro Plus",
   "version": "0.6.8",
   "identifier": "com.pais.handy",
   "build": {
@@ -14,7 +14,7 @@
     "windows": [
       {
         "label": "main",
-        "title": "Handy",
+        "title": "Handy Pro Plus",
         "width": 680,
         "height": 570,
         "minWidth": 680,
