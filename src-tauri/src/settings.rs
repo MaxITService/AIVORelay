@@ -326,6 +326,12 @@ pub struct AppSettings {
     pub ai_replace_allow_no_selection: bool,
     #[serde(default = "default_ai_replace_no_selection_system_prompt")]
     pub ai_replace_no_selection_system_prompt: String,
+    #[serde(default = "default_true")]
+    pub send_to_extension_push_to_talk: bool,
+    #[serde(default = "default_true")]
+    pub send_to_extension_with_selection_push_to_talk: bool,
+    #[serde(default = "default_true")]
+    pub ai_replace_selection_push_to_talk: bool,
     #[serde(default)]
     pub mute_while_recording: bool,
     #[serde(default)]
@@ -493,6 +499,10 @@ fn default_ai_replace_max_chars() -> usize {
 }
 
 fn default_ai_replace_allow_no_selection() -> bool {
+    true
+}
+
+fn default_true() -> bool {
     true
 }
 
@@ -747,6 +757,9 @@ pub fn get_default_settings() -> AppSettings {
         ai_replace_max_chars: default_ai_replace_max_chars(),
         ai_replace_allow_no_selection: default_ai_replace_allow_no_selection(),
         ai_replace_no_selection_system_prompt: default_ai_replace_no_selection_system_prompt(),
+        send_to_extension_push_to_talk: true,
+        send_to_extension_with_selection_push_to_talk: true,
+        ai_replace_selection_push_to_talk: true,
         mute_while_recording: false,
         append_trailing_space: false,
         connector_host: default_connector_host(),

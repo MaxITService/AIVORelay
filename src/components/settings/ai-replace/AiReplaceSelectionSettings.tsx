@@ -11,7 +11,7 @@ import { ToggleSwitch } from "../../ui/ToggleSwitch";
 
 export const AiReplaceSelectionSettings: React.FC = () => {
   const { t } = useTranslation();
-  const { getSetting, updateSetting, isUpdating } = useSettings();
+  const { settings, getSetting, updateSetting, isUpdating } = useSettings();
 
   const systemPrompt = getSetting("ai_replace_system_prompt") ?? "";
   const userPrompt = getSetting("ai_replace_user_prompt") ?? "";
@@ -64,6 +64,18 @@ export const AiReplaceSelectionSettings: React.FC = () => {
 
       <SettingsGroup title={t("settings.aiReplace.shortcuts.title")}>
         <HandyShortcut shortcutId="ai_replace_selection" grouped={true} />
+        <SettingContainer
+          title={t("settings.general.shortcut.bindings.ai_replace_selection.pushToTalk.label")}
+          description={t("settings.general.shortcut.bindings.ai_replace_selection.pushToTalk.description")}
+          descriptionMode="tooltip"
+          grouped={true}
+        >
+          <ToggleSwitch
+            checked={settings?.ai_replace_selection_push_to_talk ?? true}
+            onChange={(enabled) => void updateSetting("ai_replace_selection_push_to_talk", enabled)}
+            disabled={isUpdating("ai_replace_selection_push_to_talk")}
+          />
+        </SettingContainer>
       </SettingsGroup>
 
       <SettingsGroup title={t("settings.aiReplace.noSelection.title")}>

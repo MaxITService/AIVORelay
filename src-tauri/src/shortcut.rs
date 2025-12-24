@@ -864,6 +864,42 @@ pub fn change_ai_replace_no_selection_system_prompt_setting(
 
 #[tauri::command]
 #[specta::specta]
+pub fn change_send_to_extension_push_to_talk_setting(
+    app: AppHandle,
+    enabled: bool,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.send_to_extension_push_to_talk = enabled;
+    settings::write_settings(&app, settings);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_send_to_extension_with_selection_push_to_talk_setting(
+    app: AppHandle,
+    enabled: bool,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.send_to_extension_with_selection_push_to_talk = enabled;
+    settings::write_settings(&app, settings);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_ai_replace_selection_push_to_talk_setting(
+    app: AppHandle,
+    enabled: bool,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.ai_replace_selection_push_to_talk = enabled;
+    settings::write_settings(&app, settings);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
 pub fn change_connector_send_system_prompt_setting(
     app: AppHandle,
     prompt: String,
@@ -1094,7 +1130,17 @@ pub fn register_shortcut(app: &AppHandle, binding: ShortcutBinding) -> Result<()
                             action.start(ah, &binding_id_for_closure, &shortcut_string);
                         }
                         return;
-                    } else if settings.push_to_talk {
+                    }
+                    
+                    // Determine push-to-talk setting based on binding
+                    let use_push_to_talk = match binding_id_for_closure.as_str() {
+                        "send_to_extension" => settings.send_to_extension_push_to_talk,
+                        "send_to_extension_with_selection" => settings.send_to_extension_with_selection_push_to_talk,
+                        "ai_replace_selection" => settings.ai_replace_selection_push_to_talk,
+                        _ => settings.push_to_talk,
+                    };
+                    
+                    if use_push_to_talk {
                         if event.state == ShortcutState::Pressed {
                             action.start(ah, &binding_id_for_closure, &shortcut_string);
                         } else if event.state == ShortcutState::Released {

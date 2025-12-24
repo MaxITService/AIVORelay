@@ -332,6 +332,30 @@ async changeAiReplaceNoSelectionSystemPromptSetting(prompt: string) : Promise<Re
     else return { status: "error", error: e  as any };
 }
 },
+async changeSendToExtensionPushToTalkSetting(enabled: boolean) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("change_send_to_extension_push_to_talk_setting", { enabled }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async changeSendToExtensionWithSelectionPushToTalkSetting(enabled: boolean) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("change_send_to_extension_with_selection_push_to_talk_setting", { enabled }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async changeAiReplaceSelectionPushToTalkSetting(enabled: boolean) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("change_ai_replace_selection_push_to_talk_setting", { enabled }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async changeConnectorSendSystemPromptSetting(prompt: string) : Promise<Result<null, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("change_connector_send_system_prompt_setting", { prompt }) };
@@ -851,7 +875,7 @@ async isLaptop() : Promise<Result<boolean, string>> {
 
 /** user-defined types **/
 
-export type AppSettings = { bindings: Partial<{ [key in string]: ShortcutBinding }>; push_to_talk: boolean; audio_feedback: boolean; audio_feedback_volume?: number; sound_theme?: SoundTheme; start_hidden?: boolean; autostart_enabled?: boolean; update_checks_enabled?: boolean; selected_model?: string; transcription_provider?: TranscriptionProvider; remote_stt?: RemoteSttSettings; always_on_microphone?: boolean; selected_microphone?: string | null; clamshell_microphone?: string | null; selected_output_device?: string | null; translate_to_english?: boolean; selected_language?: string; overlay_position?: OverlayPosition; debug_mode?: boolean; log_level?: LogLevel; custom_words?: string[]; model_unload_timeout?: ModelUnloadTimeout; word_correction_threshold?: number; history_limit?: number; recording_retention_period?: RecordingRetentionPeriod; paste_method?: PasteMethod; clipboard_handling?: ClipboardHandling; post_process_enabled?: boolean; post_process_provider_id?: string; post_process_providers?: PostProcessProvider[]; post_process_api_keys?: Partial<{ [key in string]: string }>; post_process_models?: Partial<{ [key in string]: string }>; post_process_prompts?: LLMPrompt[]; post_process_selected_prompt_id?: string | null; ai_replace_system_prompt?: string; ai_replace_user_prompt?: string; ai_replace_max_chars?: number; ai_replace_allow_no_selection?: boolean; ai_replace_no_selection_system_prompt?: string; mute_while_recording?: boolean; append_trailing_space?: boolean; connector_host?: string; connector_port?: number; connector_path?: string; connector_auto_open_enabled?: boolean; connector_auto_open_url?: string; connector_send_system_prompt?: string; connector_send_selection_system_prompt?: string; connector_send_selection_user_prompt?: string; app_language?: string }
+export type AppSettings = { bindings: Partial<{ [key in string]: ShortcutBinding }>; push_to_talk: boolean; audio_feedback: boolean; audio_feedback_volume?: number; sound_theme?: SoundTheme; start_hidden?: boolean; autostart_enabled?: boolean; update_checks_enabled?: boolean; selected_model?: string; transcription_provider?: TranscriptionProvider; remote_stt?: RemoteSttSettings; always_on_microphone?: boolean; selected_microphone?: string | null; clamshell_microphone?: string | null; selected_output_device?: string | null; translate_to_english?: boolean; selected_language?: string; overlay_position?: OverlayPosition; debug_mode?: boolean; log_level?: LogLevel; custom_words?: string[]; model_unload_timeout?: ModelUnloadTimeout; word_correction_threshold?: number; history_limit?: number; recording_retention_period?: RecordingRetentionPeriod; paste_method?: PasteMethod; clipboard_handling?: ClipboardHandling; post_process_enabled?: boolean; post_process_provider_id?: string; post_process_providers?: PostProcessProvider[]; post_process_api_keys?: Partial<{ [key in string]: string }>; post_process_models?: Partial<{ [key in string]: string }>; post_process_prompts?: LLMPrompt[]; post_process_selected_prompt_id?: string | null; ai_replace_system_prompt?: string; ai_replace_user_prompt?: string; ai_replace_max_chars?: number; ai_replace_allow_no_selection?: boolean; ai_replace_no_selection_system_prompt?: string; send_to_extension_push_to_talk?: boolean; send_to_extension_with_selection_push_to_talk?: boolean; ai_replace_selection_push_to_talk?: boolean; mute_while_recording?: boolean; append_trailing_space?: boolean; connector_host?: string; connector_port?: number; connector_path?: string; connector_auto_open_enabled?: boolean; connector_auto_open_url?: string; connector_send_system_prompt?: string; connector_send_selection_system_prompt?: string; connector_send_selection_user_prompt?: string; app_language?: string }
 export type AudioDevice = { index: string; name: string; is_default: boolean }
 export type BindingResponse = { success: boolean; binding: ShortcutBinding | null; error: string | null }
 export type ClipboardHandling = "dont_modify" | "copy_to_clipboard"

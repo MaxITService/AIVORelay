@@ -130,6 +130,12 @@ const settingUpdaters: {
     commands.changeAiReplaceUserPromptSetting(value as string),
   ai_replace_max_chars: (value) =>
     commands.changeAiReplaceMaxCharsSetting(value as number),
+  send_to_extension_push_to_talk: (value) =>
+    commands.changeSendToExtensionPushToTalkSetting(value as boolean),
+  send_to_extension_with_selection_push_to_talk: (value) =>
+    commands.changeSendToExtensionWithSelectionPushToTalkSetting(value as boolean),
+  ai_replace_selection_push_to_talk: (value) =>
+    commands.changeAiReplaceSelectionPushToTalkSetting(value as boolean),
   connector_send_system_prompt: (value) =>
     commands.changeConnectorSendSystemPromptSetting(value as string),
   connector_send_selection_system_prompt: (value) =>

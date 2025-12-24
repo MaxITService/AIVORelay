@@ -110,15 +110,27 @@
           },
           "send_to_extension": {
             "name": "Send to Extension",
-            "description": "Send transcription to Handy Connector browser extension."
+            "description": "Send transcription to Handy Connector browser extension.",
+            "pushToTalk": {
+              "label": "Push To Talk",
+              "description": "Hold to record, release to stop"
+            }
           },
           "send_to_extension_with_selection": {
             "name": "Send + Selection to Extension",
-            "description": "Send transcription plus selected text to Handy Connector browser extension."
+            "description": "Send transcription plus selected text to Handy Connector browser extension.",
+            "pushToTalk": {
+              "label": "Push To Talk",
+              "description": "Hold to record, release to stop"
+            }
           },
           "ai_replace_selection": {
             "name": "AI Replace Selection",
-            "description": "Cut selected text, speak an instruction, replace selection with AI output"
+            "description": "Cut selected text, speak an instruction, replace selection with AI output",
+            "pushToTalk": {
+              "label": "Push To Talk",
+              "description": "Hold to record, release to stop"
+            }
           },
           "cancel": {
             "name": "Cancel",

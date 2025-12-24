@@ -133,7 +133,31 @@ export const BrowserConnectorSettings: React.FC = () => {
 
       <SettingsGroup title={t("settings.browserConnector.shortcuts.title")}>
         <HandyShortcut shortcutId="send_to_extension" grouped={true} />
+        <SettingContainer
+          title={t("settings.general.shortcut.bindings.send_to_extension.pushToTalk.label")}
+          description={t("settings.general.shortcut.bindings.send_to_extension.pushToTalk.description")}
+          descriptionMode="tooltip"
+          grouped={true}
+        >
+          <ToggleSwitch
+            checked={settings?.send_to_extension_push_to_talk ?? true}
+            onChange={(enabled) => void updateSetting("send_to_extension_push_to_talk", enabled)}
+            disabled={isUpdating("send_to_extension_push_to_talk")}
+          />
+        </SettingContainer>
         <HandyShortcut shortcutId="send_to_extension_with_selection" grouped={true} />
+        <SettingContainer
+          title={t("settings.general.shortcut.bindings.send_to_extension_with_selection.pushToTalk.label")}
+          description={t("settings.general.shortcut.bindings.send_to_extension_with_selection.pushToTalk.description")}
+          descriptionMode="tooltip"
+          grouped={true}
+        >
+          <ToggleSwitch
+            checked={settings?.send_to_extension_with_selection_push_to_talk ?? true}
+            onChange={(enabled) => void updateSetting("send_to_extension_with_selection_push_to_talk", enabled)}
+            disabled={isUpdating("send_to_extension_with_selection_push_to_talk")}
+          />
+        </SettingContainer>
       </SettingsGroup>
 
       {/* Send to Extension Prompts */}

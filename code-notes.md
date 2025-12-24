@@ -29,9 +29,9 @@ Files that differentiate this fork from the original [cjpais/Handy](https://gith
 | File | Changes |
 |------|---------|
 | `src-tauri/src/actions.rs` | Added new shortcut actions: `AiReplaceSelectionAction`, `SendToExtensionAction`, `SendToExtensionWithSelectionAction`. These handle the new voice-to-LLM and connector workflows. |
-| `src-tauri/src/settings.rs` | Extended `AppSettings` with: `transcription_provider`, `remote_stt` settings, `ai_replace_*` fields, `connector_*` fields. Added `RemoteSttSettings`, `TranscriptionProvider` enum. |
-| `src-tauri/src/lib.rs` | Registered new managers (`RemoteSttManager`, `ConnectorManager`) and commands. Starts connector server on app init. |
-| `src-tauri/src/shortcut.rs` | Added shortcut bindings for new actions (AI Replace, Send to Extension). |
+| `src-tauri/src/settings.rs` | Extended `AppSettings` with: `transcription_provider`, `remote_stt` settings, `ai_replace_*` fields, `connector_*` fields, individual push-to-talk settings (`send_to_extension_push_to_talk`, `send_to_extension_with_selection_push_to_talk`, `ai_replace_selection_push_to_talk`). Added `RemoteSttSettings`, `TranscriptionProvider` enum, `default_true()` helper. |
+| `src-tauri/src/lib.rs` | Registered new managers (`RemoteSttManager`, `ConnectorManager`) and commands including individual push-to-talk commands. Starts connector server on app init. |
+| `src-tauri/src/shortcut.rs` | Added shortcut bindings for new actions (AI Replace, Send to Extension). Added commands for individual push-to-talk settings and logic to use per-binding push-to-talk instead of global setting for fork-specific actions. |
 | `src-tauri/src/clipboard.rs` | Enhanced clipboard handling for AI Replace selection capture. |
 | `src-tauri/src/input.rs` | Added selection capture utilities for Windows. |
 
