@@ -28,7 +28,7 @@ Voice-controlled text editing:
 ### 📤 Send to Extension
 Send voice to ChatGPT/Perplexity via **Handy Connector** Chrome extension.
 
-> ⚠️ **Requires:** [Handy Connector](https://github.com/user/handy-connector) Chrome extension must be installed and running. Without it, "Send to Extension" features won't work.
+> ⚠️ **Requires:** [Handy Connector](https://github.com/MaxITService/Handy-connector) Chrome extension must be installed and running. Without it, "Send to Extension" features won't work.
 
 **Two modes:**
 
