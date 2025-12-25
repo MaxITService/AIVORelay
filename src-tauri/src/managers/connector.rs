@@ -294,7 +294,7 @@ impl ConnectorManager {
 
     /// Handle an incoming HTTP request
     fn handle_request(
-        request: Request,
+        mut request: Request,
         state: &Arc<Mutex<ConnectorState>>,
         last_poll_at: &AtomicI64,
         app_handle: &AppHandle,
