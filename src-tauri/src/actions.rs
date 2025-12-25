@@ -503,10 +503,20 @@ impl ShortcutAction for TranscribeAction {
                 let transcription_time = Instant::now();
                 let samples_clone = samples.clone(); // Clone for history saving
                 let settings = get_settings(&ah);
+                
+                // Get operation ID for cancellation tracking (Remote STT only)
+                let remote_manager = ah.state::<Arc<RemoteSttManager>>();
+                let operation_id = if settings.transcription_provider
+                    == TranscriptionProvider::RemoteOpenAiCompatible
+                {
+                    remote_manager.start_operation()
+                } else {
+                    0 // Not used for local transcription
+                };
+                
                 let transcription_result = if settings.transcription_provider
                     == TranscriptionProvider::RemoteOpenAiCompatible
                 {
-                    let remote_manager = ah.state::<Arc<RemoteSttManager>>();
                     remote_manager
                         .transcribe(&settings.remote_stt, &samples)
                         .await
@@ -524,6 +534,14 @@ impl ShortcutAction for TranscribeAction {
                 } else {
                     tm.transcribe(samples)
                 };
+
+                // Check if operation was cancelled while we were waiting
+                if settings.transcription_provider == TranscriptionProvider::RemoteOpenAiCompatible
+                    && remote_manager.is_cancelled(operation_id)
+                {
+                    debug!("Transcription operation {} was cancelled, discarding result", operation_id);
+                    return;
+                }
 
                 match transcription_result {
                     Ok(transcription) => {
@@ -754,10 +772,20 @@ impl ShortcutAction for SendToExtensionAction {
                 let transcription_time = Instant::now();
                 let samples_clone = samples.clone(); // Clone for history saving
                 let settings = get_settings(&ah);
+                
+                // Get operation ID for cancellation tracking (Remote STT only)
+                let remote_manager = ah.state::<Arc<RemoteSttManager>>();
+                let operation_id = if settings.transcription_provider
+                    == TranscriptionProvider::RemoteOpenAiCompatible
+                {
+                    remote_manager.start_operation()
+                } else {
+                    0 // Not used for local transcription
+                };
+                
                 let transcription_result = if settings.transcription_provider
                     == TranscriptionProvider::RemoteOpenAiCompatible
                 {
-                    let remote_manager = ah.state::<Arc<RemoteSttManager>>();
                     remote_manager
                         .transcribe(&settings.remote_stt, &samples)
                         .await
@@ -775,6 +803,14 @@ impl ShortcutAction for SendToExtensionAction {
                 } else {
                     tm.transcribe(samples)
                 };
+
+                // Check if operation was cancelled while we were waiting
+                if settings.transcription_provider == TranscriptionProvider::RemoteOpenAiCompatible
+                    && remote_manager.is_cancelled(operation_id)
+                {
+                    debug!("Connector transcription operation {} was cancelled, discarding result", operation_id);
+                    return;
+                }
 
                 match transcription_result {
                     Ok(transcription) => {
@@ -986,10 +1022,20 @@ impl ShortcutAction for SendToExtensionWithSelectionAction {
 
                 let transcription_time = Instant::now();
                 let settings = get_settings(&ah);
+                
+                // Get operation ID for cancellation tracking (Remote STT only)
+                let remote_manager = ah.state::<Arc<RemoteSttManager>>();
+                let operation_id = if settings.transcription_provider
+                    == TranscriptionProvider::RemoteOpenAiCompatible
+                {
+                    remote_manager.start_operation()
+                } else {
+                    0 // Not used for local transcription
+                };
+                
                 let transcription_result = if settings.transcription_provider
                     == TranscriptionProvider::RemoteOpenAiCompatible
                 {
-                    let remote_manager = ah.state::<Arc<RemoteSttManager>>();
                     remote_manager
                         .transcribe(&settings.remote_stt, &samples)
                         .await
@@ -1007,6 +1053,14 @@ impl ShortcutAction for SendToExtensionWithSelectionAction {
                 } else {
                     tm.transcribe(samples)
                 };
+
+                // Check if operation was cancelled while we were waiting
+                if settings.transcription_provider == TranscriptionProvider::RemoteOpenAiCompatible
+                    && remote_manager.is_cancelled(operation_id)
+                {
+                    debug!("Connector selection transcription operation {} was cancelled, discarding result", operation_id);
+                    return;
+                }
 
                 match transcription_result {
                     Ok(transcription) => {
@@ -1347,10 +1401,20 @@ impl ShortcutAction for SendScreenshotToExtensionAction {
                 );
 
                 let transcription_time = Instant::now();
+                
+                // Get operation ID for cancellation tracking (Remote STT only)
+                let remote_manager = ah.state::<Arc<RemoteSttManager>>();
+                let operation_id = if settings.transcription_provider
+                    == TranscriptionProvider::RemoteOpenAiCompatible
+                {
+                    remote_manager.start_operation()
+                } else {
+                    0 // Not used for local transcription
+                };
+                
                 let result = if settings.transcription_provider
                     == TranscriptionProvider::RemoteOpenAiCompatible
                 {
-                    let remote_manager = ah.state::<Arc<RemoteSttManager>>();
                     remote_manager
                         .transcribe(&settings.remote_stt, &samples)
                         .await
@@ -1368,6 +1432,14 @@ impl ShortcutAction for SendScreenshotToExtensionAction {
                 } else {
                     tm.transcribe(samples)
                 };
+
+                // Check if operation was cancelled while we were waiting
+                if settings.transcription_provider == TranscriptionProvider::RemoteOpenAiCompatible
+                    && remote_manager.is_cancelled(operation_id)
+                {
+                    debug!("Screenshot transcription operation {} was cancelled, discarding result", operation_id);
+                    return;
+                }
 
                 match result {
                     Ok(text) => {
@@ -1599,10 +1671,20 @@ impl ShortcutAction for AiReplaceSelectionAction {
 
                 let transcription_time = Instant::now();
                 let settings = get_settings(&ah);
+                
+                // Get operation ID for cancellation tracking (Remote STT only)
+                let remote_manager = ah.state::<Arc<RemoteSttManager>>();
+                let operation_id = if settings.transcription_provider
+                    == TranscriptionProvider::RemoteOpenAiCompatible
+                {
+                    remote_manager.start_operation()
+                } else {
+                    0 // Not used for local transcription
+                };
+                
                 let transcription_result = if settings.transcription_provider
                     == TranscriptionProvider::RemoteOpenAiCompatible
                 {
-                    let remote_manager = ah.state::<Arc<RemoteSttManager>>();
                     remote_manager
                         .transcribe(&settings.remote_stt, &samples)
                         .await
@@ -1620,6 +1702,14 @@ impl ShortcutAction for AiReplaceSelectionAction {
                 } else {
                     tm.transcribe(samples)
                 };
+
+                // Check if operation was cancelled while we were waiting
+                if settings.transcription_provider == TranscriptionProvider::RemoteOpenAiCompatible
+                    && remote_manager.is_cancelled(operation_id)
+                {
+                    debug!("AI replace transcription operation {} was cancelled, discarding result", operation_id);
+                    return;
+                }
 
                 match transcription_result {
                     Ok(transcription) => {

@@ -1,4 +1,5 @@
 use crate::managers::audio::AudioRecordingManager;
+use crate::managers::remote_stt::RemoteSttManager;
 use crate::shortcut;
 use crate::ManagedToggleState;
 use log::{info, warn};
@@ -31,6 +32,10 @@ pub fn cancel_current_operation(app: &AppHandle) {
     // Cancel any ongoing recording
     let audio_manager = app.state::<Arc<AudioRecordingManager>>();
     audio_manager.cancel_recording();
+
+    // Cancel any in-flight Remote STT requests
+    let remote_stt_manager = app.state::<Arc<RemoteSttManager>>();
+    remote_stt_manager.cancel();
 
     // Update tray icon and hide overlay
     change_tray_icon(app, crate::tray::TrayIconState::Idle);

@@ -1,5 +1,6 @@
 # Fork Agents Guide
-
+ALL DEBUG IS DONE BY USER!! NOT AUTOMATED TESTS!!
+NEVER Build ! User will build!
 This file provides guidance for AI code agents working with this fork.
 
 ## ⚠️ Important: This is a Fork

@@ -3,9 +3,15 @@ use crate::settings::{RemoteSttDebugMode, RemoteSttSettings};
 use anyhow::{anyhow, Result};
 use serde::Deserialize;
 use std::collections::VecDeque;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter};
+
+/// Default timeout for Remote STT requests (60 seconds)
+const DEFAULT_REQUEST_TIMEOUT_SECS: u64 = 60;
+/// Default connection timeout (10 seconds)
+const DEFAULT_CONNECT_TIMEOUT_SECS: u64 = 10;
 
 const REMOTE_STT_SERVICE: &str = "com.pais.handy";
 const REMOTE_STT_USER: &str = "remote_stt_api_key";
@@ -48,11 +54,18 @@ pub struct RemoteSttManager {
     client: reqwest::Client,
     debug: Mutex<DebugBuffer>,
     app_handle: AppHandle,
+    /// Monotonically increasing operation ID; when cancel() is called, all
+    /// operations started before that point should abort.
+    current_operation_id: AtomicU64,
+    /// The operation ID at the time cancel() was last called.
+    cancelled_before_id: AtomicU64,
 }
 
 impl RemoteSttManager {
     pub fn new(app_handle: &AppHandle) -> Result<Self> {
         let client = reqwest::Client::builder()
+            .connect_timeout(Duration::from_secs(DEFAULT_CONNECT_TIMEOUT_SECS))
+            .timeout(Duration::from_secs(DEFAULT_REQUEST_TIMEOUT_SECS))
             .build()
             .map_err(|e| anyhow!("Failed to build HTTP client: {}", e))?;
 
@@ -60,7 +73,26 @@ impl RemoteSttManager {
             client,
             debug: Mutex::new(DebugBuffer::new()),
             app_handle: app_handle.clone(),
+            current_operation_id: AtomicU64::new(0),
+            cancelled_before_id: AtomicU64::new(0),
         })
+    }
+
+    /// Returns a new operation ID for tracking cancellation.
+    pub fn start_operation(&self) -> u64 {
+        self.current_operation_id.fetch_add(1, Ordering::SeqCst) + 1
+    }
+
+    /// Marks all operations started before now as cancelled.
+    pub fn cancel(&self) {
+        let current = self.current_operation_id.load(Ordering::SeqCst);
+        self.cancelled_before_id.store(current + 1, Ordering::SeqCst);
+        log::info!("RemoteSttManager: cancelled all operations up to id {}", current + 1);
+    }
+
+    /// Returns true if the given operation ID has been cancelled.
+    pub fn is_cancelled(&self, operation_id: u64) -> bool {
+        operation_id < self.cancelled_before_id.load(Ordering::SeqCst)
     }
 
     pub fn get_debug_dump(&self) -> Vec<String> {
