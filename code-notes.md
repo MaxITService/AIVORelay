@@ -9,7 +9,7 @@ Files that differentiate this fork from the original [cjpais/Handy](https://gith
 | File | Purpose |
 |------|---------|
 | `src-tauri/src/connector.rs` | HTTP client for sending transcriptions to external services (Handy Connector). Sends JSON payload `{text, ts}` to configurable endpoint. |
-| `src-tauri/src/managers/connector.rs` | Connector Manager with HTTP server for extension communication. Tracks extension online/offline status via polling, handles keepalive messages. |
+| `src-tauri/src/managers/connector.rs` | Connector Manager with HTTP server for extension communication. Tracks extension online/offline status via polling, handles keepalive messages. **Includes Bearer token authentication** to prevent data exfiltration by malicious webpages. |
 | `src-tauri/src/commands/connector.rs` | Tauri commands for connector: `connector_get_status`, `connector_is_online`, `connector_start_server`, `connector_stop_server`, `connector_queue_message`. |
 | `src-tauri/src/managers/remote_stt.rs` | Remote Speech-to-Text manager. Handles OpenAI-compatible API calls, WAV encoding, API key storage (Windows Credential Manager), debug logging. |
 | `src-tauri/src/commands/remote_stt.rs` | Tauri commands exposing Remote STT functionality to frontend: `remote_stt_has_api_key`, `remote_stt_set_api_key`, `remote_stt_test_connection`, etc. |
@@ -31,7 +31,7 @@ Files that differentiate this fork from the original [cjpais/Handy](https://gith
 | File | Changes |
 |------|---------|
 | `src-tauri/src/actions.rs` | Added new shortcut actions: `AiReplaceSelectionAction`, `SendToExtensionAction`, `SendToExtensionWithSelectionAction`, `SendScreenshotToExtensionAction`. These handle the new voice-to-LLM, connector, and screenshot workflows. |
-| `src-tauri/src/settings.rs` | Extended `AppSettings` with: `transcription_provider`, `remote_stt` settings, `ai_replace_*` fields, `connector_*` fields, `screenshot_*` fields, individual push-to-talk settings (`send_to_extension_push_to_talk`, `send_to_extension_with_selection_push_to_talk`, `ai_replace_selection_push_to_talk`, `send_screenshot_to_extension_push_to_talk`). Added `RemoteSttSettings`, `TranscriptionProvider` enum, `default_true()` helper. |
+| `src-tauri/src/settings.rs` | Extended `AppSettings` with: `transcription_provider`, `remote_stt` settings, `ai_replace_*` fields, `connector_*` fields (including `connector_password` for auth), `screenshot_*` fields, individual push-to-talk settings (`send_to_extension_push_to_talk`, `send_to_extension_with_selection_push_to_talk`, `ai_replace_selection_push_to_talk`, `send_screenshot_to_extension_push_to_talk`). Added `RemoteSttSettings`, `TranscriptionProvider` enum, `default_true()` helper, `default_connector_password()`. |
 | `src-tauri/src/lib.rs` | Registered new managers (`RemoteSttManager`, `ConnectorManager`) and commands including individual push-to-talk commands and screenshot settings commands. Starts connector server on app init. |
 | `src-tauri/src/shortcut.rs` | Added shortcut bindings for new actions (AI Replace, Send to Extension, Send Screenshot to Extension). Added commands for individual push-to-talk settings and screenshot settings, plus logic to use per-binding push-to-talk instead of global setting for fork-specific actions. |
 | `src-tauri/src/clipboard.rs` | Enhanced clipboard handling for AI Replace selection capture. |
@@ -123,6 +123,7 @@ Extension polls Handy server
 | Add new Tauri command | `commands/*.rs` → add fn, `commands/mod.rs` → export |
 | Change extension status timeout | `managers/connector.rs` → `EXTENSION_TIMEOUT_SECS` constant |
 | Customize status display | `ConnectorStatus.tsx` |
+| Change connector password | `settings.rs` → `connector_password` field, `BrowserConnectorSettings.tsx` → password UI |
 
 ## Key Data Structures
 

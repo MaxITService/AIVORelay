@@ -294,7 +294,7 @@ impl ConnectorManager {
 
     /// Handle an incoming HTTP request
     fn handle_request(
-        mut request: Request,
+        request: Request,
         state: &Arc<Mutex<ConnectorState>>,
         last_poll_at: &AtomicI64,
         app_handle: &AppHandle,
@@ -306,7 +306,7 @@ impl ConnectorManager {
         // Add CORS headers to all responses
         let cors_headers = vec![
             Header::from_bytes(&b"Access-Control-Allow-Origin"[..], &b"*"[..]).unwrap(),
-            Header::from_bytes(&b"Access-Control-Allow-Headers"[..], &b"*"[..]).unwrap(),
+            Header::from_bytes(&b"Access-Control-Allow-Headers"[..], &b"Authorization, Content-Type"[..]).unwrap(),
             Header::from_bytes(&b"Access-Control-Allow-Methods"[..], &b"GET, POST, OPTIONS"[..])
                 .unwrap(),
             Header::from_bytes(&b"Cache-Control"[..], &b"no-store"[..]).unwrap(),
@@ -314,7 +314,7 @@ impl ConnectorManager {
 
         match (&method, path.as_str()) {
             (Method::Options, _) => {
-                // CORS preflight
+                // CORS preflight - no auth needed
                 let mut response = Response::empty(204);
                 for header in cors_headers {
                     response.add_header(header);
@@ -323,6 +323,13 @@ impl ConnectorManager {
             }
 
             (Method::Get, "/messages") => {
+                // Auth check for messages endpoint
+                let settings = get_settings(app_handle);
+                if !validate_auth(&request, &settings.connector_password) {
+                    Self::respond_unauthorized(request, cors_headers);
+                    return;
+                }
+
                 // Extension is polling for messages
                 let now = now_ms();
                 let old_poll = last_poll_at.swap(now, Ordering::SeqCst);
@@ -391,6 +398,13 @@ impl ConnectorManager {
             }
 
             (Method::Post, "/messages") => {
+                // Auth check for messages endpoint
+                let settings = get_settings(app_handle);
+                if !validate_auth(&request, &settings.connector_password) {
+                    Self::respond_unauthorized(request, cors_headers);
+                    return;
+                }
+
                 // Extension sending status/ack
                 let mut body = String::new();
                 let _ = request.as_reader().read_to_string(&mut body);
@@ -417,9 +431,16 @@ impl ConnectorManager {
                 let _ = request.respond(response);
             }
 
-            (Method::Get, path) if path.starts_with("/blob/") => {
+            (Method::Get, blob_path) if blob_path.starts_with("/blob/") => {
+                // Auth check for blob endpoint
+                let settings = get_settings(app_handle);
+                if !validate_auth(&request, &settings.connector_password) {
+                    Self::respond_unauthorized(request, cors_headers);
+                    return;
+                }
+
                 // Serve blob data for attachments
-                let att_id = path.strip_prefix("/blob/").unwrap_or("");
+                let att_id = blob_path.strip_prefix("/blob/").unwrap_or("");
                 
                 let blob_data = {
                     let mut state_guard = state.lock().unwrap();
@@ -644,6 +665,18 @@ impl ConnectorManager {
         }
         (now_ms() - last_poll) < POLL_TIMEOUT_MS
     }
+
+    /// Send 401 Unauthorized response
+    fn respond_unauthorized(request: Request, cors_headers: Vec<Header>) {
+        let mut response = Response::from_string("Unauthorized").with_status_code(401);
+        response.add_header(
+            Header::from_bytes(&b"WWW-Authenticate"[..], &b"Bearer"[..]).unwrap(),
+        );
+        for header in cors_headers {
+            response.add_header(header);
+        }
+        let _ = request.respond(response);
+    }
 }
 
 /// Get current Unix timestamp in milliseconds
@@ -662,4 +695,31 @@ fn uuid_simple() -> String {
         .unwrap()
         .as_nanos();
     format!("{:032x}", ts)
+}
+
+/// Validate Authorization header against expected password
+fn validate_auth(request: &Request, expected_password: &str) -> bool {
+    // If no password configured, reject all requests
+    if expected_password.is_empty() {
+        return false;
+    }
+    
+    // Check Authorization: Bearer <password>
+    for header in request.headers() {
+        if header.field.equiv("Authorization") {
+            let value = header.value.as_str();
+            if let Some(token) = value.strip_prefix("Bearer ") {
+                return constant_time_eq(token.as_bytes(), expected_password.as_bytes());
+            }
+        }
+    }
+    false
+}
+
+/// Constant-time comparison to prevent timing attacks
+fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
+    if a.len() != b.len() {
+        return false;
+    }
+    a.iter().zip(b.iter()).fold(0u8, |acc, (x, y)| acc | (x ^ y)) == 0
 }

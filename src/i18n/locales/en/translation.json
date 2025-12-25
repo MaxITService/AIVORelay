@@ -613,6 +613,14 @@
           "title": "Path",
           "description": "The endpoint path for sending messages."
         },
+        "password": {
+          "title": "Connection Password",
+          "description": "Password to authenticate the extension. Must match in both Handy and the extension.",
+          "defaultWarning": {
+            "title": "Security Warning: Default Password",
+            "description": "You are using the default password. Please change it to a unique password in BOTH the Handy app AND the Handy Connector extension to prevent other websites from reading your messages."
+          }
+        },
         "endpoint": {
           "title": "Endpoint URL",
           "description": "The full URL where transcriptions will be sent."

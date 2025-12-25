@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { useTranslation, Trans } from "react-i18next";
-import { Globe, Info, ExternalLink, Camera } from "lucide-react";
+import { Globe, Info, ExternalLink, Camera, Eye, EyeOff, Copy, AlertTriangle } from "lucide-react";
 import { useSettings } from "../../../hooks/useSettings";
 import { HandyShortcut } from "../HandyShortcut";
 import { Input } from "../../ui/Input";
@@ -30,6 +30,8 @@ export const BrowserConnectorSettings: React.FC = () => {
   const [hostInput, setHostInput] = useState(settings?.connector_host ?? "127.0.0.1");
   const [portInput, setPortInput] = useState(String(settings?.connector_port ?? 63155));
   const [pathInput, setPathInput] = useState(settings?.connector_path ?? "/messages");
+  const [passwordInput, setPasswordInput] = useState(settings?.connector_password ?? "");
+  const [showPassword, setShowPassword] = useState(false);
 
   // Screenshot settings local state
   const [screenshotCommandInput, setScreenshotCommandInput] = useState(
@@ -58,6 +60,10 @@ export const BrowserConnectorSettings: React.FC = () => {
   useEffect(() => {
     setPathInput(settings?.connector_path ?? "/messages");
   }, [settings?.connector_path]);
+
+  useEffect(() => {
+    setPasswordInput(settings?.connector_password ?? "");
+  }, [settings?.connector_password]);
 
   // Screenshot settings sync with settings
   useEffect(() => {
@@ -94,6 +100,20 @@ export const BrowserConnectorSettings: React.FC = () => {
       void updateSetting("connector_path", trimmed);
     }
   };
+
+  const handlePasswordBlur = () => {
+    const trimmed = passwordInput.trim();
+    if (trimmed !== (settings?.connector_password ?? "")) {
+      void updateSetting("connector_password", trimmed);
+    }
+  };
+
+  const handleCopyPassword = () => {
+    void navigator.clipboard.writeText(passwordInput);
+  };
+
+  // Check if using default password
+  const isDefaultPassword = passwordInput === "fklejqwhfiu342lhk3";
 
   const handleAutoOpenEnabledChange = (enabled: boolean) => {
     void updateSetting("connector_auto_open_enabled", enabled);
@@ -494,6 +514,54 @@ export const BrowserConnectorSettings: React.FC = () => {
             placeholder="/messages"
             className="w-40"
           />
+        </SettingContainer>
+
+        <SettingContainer
+          title={t("settings.browserConnector.connection.password.title")}
+          description={t("settings.browserConnector.connection.password.description")}
+          descriptionMode="tooltip"
+          grouped={true}
+          layout="stacked"
+        >
+          <div className="flex items-center gap-2">
+            <Input
+              type={showPassword ? "text" : "password"}
+              value={passwordInput}
+              onChange={(event) => setPasswordInput(event.target.value)}
+              onBlur={handlePasswordBlur}
+              placeholder="Enter connection password..."
+              className="flex-1 font-mono"
+            />
+            <button
+              type="button"
+              onClick={() => setShowPassword(!showPassword)}
+              className="p-2 rounded hover:bg-mid-gray/20 text-text/60 hover:text-text"
+              title={showPassword ? "Hide password" : "Show password"}
+            >
+              {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+            </button>
+            <button
+              type="button"
+              onClick={handleCopyPassword}
+              className="p-2 rounded hover:bg-mid-gray/20 text-text/60 hover:text-text"
+              title="Copy password"
+            >
+              <Copy className="w-4 h-4" />
+            </button>
+          </div>
+          {isDefaultPassword && (
+            <div className="mt-2 rounded-lg border border-yellow-500/30 bg-yellow-500/10 p-3">
+              <div className="flex items-start gap-2">
+                <AlertTriangle className="w-4 h-4 text-yellow-400 mt-0.5 flex-shrink-0" />
+                <div className="text-sm text-yellow-200">
+                  <p className="font-medium">{t("settings.browserConnector.connection.password.defaultWarning.title")}</p>
+                  <p className="text-yellow-200/80 mt-1">
+                    {t("settings.browserConnector.connection.password.defaultWarning.description")}
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
         </SettingContainer>
 
         <SettingContainer
