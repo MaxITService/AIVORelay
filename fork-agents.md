@@ -26,6 +26,36 @@ When adding new features, please prefer adding them in new files instead of edit
 - Uses OpenAI-compatible `/audio/transcriptions` endpoint
 - API keys stored in Windows Credential Manager via `keyring` crate
 
+#### Transcription Flow & Status Info
+
+When using Remote STT API, the **Recording Overlay** (`recording_overlay` window) shows visual status:
+
+| State | Overlay Display | Description |
+|-------|-----------------|-------------|
+| `recording` | Red pulsing circle | User is recording audio |
+| `transcribing` | Blue pulsing circle | Audio sent to API, waiting for response |
+| `error` | Red text with message | API error occurred (auto-hides after 3s) |
+
+**Error Categories** (shown in overlay):
+- **Certificate Error** — TLS certificate validation failed
+- **TLS Error** — TLS handshake or protocol failure
+- **Connection Timeout** — Server did not respond in time
+- **Network Error** — Cannot reach server (DNS, connection refused)
+- **Server Error** — HTTP 4xx/5xx response from API
+- **Parse Error** — Invalid JSON response
+- **Transcription Error** — Generic/unknown error
+
+**Flow after recording stops:**
+1. Overlay switches from `recording` → `transcribing`
+2. Audio is sent to configured API endpoint
+3. On **success**: Text pasted to active app, overlay hides
+4. On **error**: Overlay shows categorized error for 3 seconds, then hides; toast notification also shown via `remote-stt-error` event
+
+**Implementation files:**
+- `src-tauri/src/plus_overlay_state.rs` — Error categorization and overlay control
+- `src/overlay/plus_overlay_states.ts` — TypeScript types and display text
+- `src/overlay/RecordingOverlay.tsx` — Overlay UI (modified to handle extended states)
+
 ### 2. AI Replace Selection (Windows only)
 - Files: `src-tauri/src/actions.rs` (AiReplaceSelectionAction), `src/components/settings/advanced/AiReplaceSettings.tsx`
 - Captures selected text, sends to LLM with voice instruction, replaces selection
@@ -151,8 +181,10 @@ These files are 100% ours — upstream won't have them:
 - `src-tauri/src/connector.rs`
 - `src-tauri/src/managers/remote_stt.rs`
 - `src-tauri/src/commands/remote_stt.rs`
+- `src-tauri/src/plus_overlay_state.rs` — Extended overlay states for error display
 - `src/components/settings/remote-stt/RemoteSttSettings.tsx`
 - `src/components/settings/advanced/AiReplaceSettings.tsx`
+- `src/overlay/plus_overlay_states.ts` — TypeScript types for extended overlay
 
 ### After Merge Checklist
 

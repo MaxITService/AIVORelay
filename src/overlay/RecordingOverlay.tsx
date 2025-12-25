@@ -9,13 +9,17 @@ import {
 import "./RecordingOverlay.css";
 import { commands } from "@/bindings";
 import { syncLanguageFromSettings } from "@/i18n";
-
-type OverlayState = "recording" | "transcribing";
+import {
+  ExtendedOverlayState,
+  OverlayPayload,
+  isExtendedPayload,
+} from "./plus_overlay_states";
 
 const RecordingOverlay: React.FC = () => {
   const { t } = useTranslation();
   const [isVisible, setIsVisible] = useState(false);
-  const [state, setState] = useState<OverlayState>("recording");
+  const [state, setState] = useState<ExtendedOverlayState>("recording");
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [levels, setLevels] = useState<number[]>(Array(16).fill(0));
   const smoothedLevelsRef = useRef<number[]>(Array(16).fill(0));
 
@@ -25,8 +29,21 @@ const RecordingOverlay: React.FC = () => {
       const unlistenShow = await listen("show-overlay", async (event) => {
         // Sync language from settings each time overlay is shown
         await syncLanguageFromSettings();
-        const overlayState = event.payload as OverlayState;
-        setState(overlayState);
+        
+        const payload = event.payload;
+        // Handle both extended payload objects and legacy string payloads
+        if (isExtendedPayload(payload)) {
+          setState(payload.state);
+          if (payload.state === "error" && payload.error_message) {
+            setErrorMessage(payload.error_message);
+          } else {
+            setErrorMessage(null);
+          }
+        } else {
+          // Legacy string payload (e.g., "recording" or "transcribing")
+          setState(payload as ExtendedOverlayState);
+          setErrorMessage(null);
+        }
         setIsVisible(true);
       });
 
@@ -61,15 +78,21 @@ const RecordingOverlay: React.FC = () => {
   }, []);
 
   const getIcon = () => {
-    if (state === "recording") {
-      return <MicrophoneIcon />;
-    } else {
-      return <TranscriptionIcon />;
+    switch (state) {
+      case "recording":
+        return <MicrophoneIcon />;
+      case "sending":
+        return <span className="overlay-icon-emoji">⬆️</span>;
+      case "error":
+        return <span className="overlay-icon-emoji">❌</span>;
+      case "transcribing":
+      default:
+        return <TranscriptionIcon />;
     }
   };
 
   return (
-    <div className={`recording-overlay ${isVisible ? "fade-in" : ""}`}>
+    <div className={`recording-overlay ${isVisible ? "fade-in" : ""} ${state === "error" ? "overlay-error" : ""}`}>
       <div className="overlay-left">{getIcon()}</div>
 
       <div className="overlay-middle">
@@ -88,8 +111,14 @@ const RecordingOverlay: React.FC = () => {
             ))}
           </div>
         )}
+        {state === "sending" && (
+          <div className="sending-text">Sending...</div>
+        )}
         {state === "transcribing" && (
           <div className="transcribing-text">{t("overlay.transcribing")}</div>
+        )}
+        {state === "error" && (
+          <div className="error-text">{errorMessage || "Failed"}</div>
         )}
       </div>
 

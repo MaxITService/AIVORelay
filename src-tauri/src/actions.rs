@@ -606,14 +606,18 @@ impl ShortcutAction for TranscribeAction {
                         }
                     }
                     Err(err) => {
+                        let err_str = format!("{}", err);
                         if settings.transcription_provider
                             == TranscriptionProvider::RemoteOpenAiCompatible
                         {
-                            let _ = ah.emit("remote-stt-error", format!("{}", err));
+                            let _ = ah.emit("remote-stt-error", err_str.clone());
+                            // Show categorized error in overlay (auto-hides after 3s)
+                            crate::plus_overlay_state::handle_transcription_error(&ah, &err_str);
+                        } else {
+                            debug!("Global Shortcut Transcription error: {}", err);
+                            utils::hide_recording_overlay(&ah);
+                            change_tray_icon(&ah, TrayIconState::Idle);
                         }
-                        debug!("Global Shortcut Transcription error: {}", err);
-                        utils::hide_recording_overlay(&ah);
-                        change_tray_icon(&ah, TrayIconState::Idle);
                     }
                 }
             } else {
@@ -852,14 +856,18 @@ impl ShortcutAction for SendToExtensionAction {
                         }
                     }
                     Err(err) => {
+                        let err_str = format!("{}", err);
                         if settings.transcription_provider
                             == TranscriptionProvider::RemoteOpenAiCompatible
                         {
-                            let _ = ah.emit("remote-stt-error", format!("{}", err));
+                            let _ = ah.emit("remote-stt-error", err_str.clone());
+                            // Show categorized error in overlay (auto-hides after 3s)
+                            crate::plus_overlay_state::handle_transcription_error(&ah, &err_str);
+                        } else {
+                            debug!("Connector transcription error: {}", err);
+                            utils::hide_recording_overlay(&ah);
+                            change_tray_icon(&ah, TrayIconState::Idle);
                         }
-                        debug!("Connector transcription error: {}", err);
-                        utils::hide_recording_overlay(&ah);
-                        change_tray_icon(&ah, TrayIconState::Idle);
                     }
                 }
             } else {
@@ -1057,14 +1065,18 @@ impl ShortcutAction for SendToExtensionWithSelectionAction {
                         });
                     }
                     Err(err) => {
+                        let err_str = format!("{}", err);
                         if settings.transcription_provider
                             == TranscriptionProvider::RemoteOpenAiCompatible
                         {
-                            let _ = ah.emit("remote-stt-error", format!("{}", err));
+                            let _ = ah.emit("remote-stt-error", err_str.clone());
+                            // Show categorized error in overlay (auto-hides after 3s)
+                            crate::plus_overlay_state::handle_transcription_error(&ah, &err_str);
+                        } else {
+                            debug!("Connector selection transcription error: {}", err);
+                            utils::hide_recording_overlay(&ah);
+                            change_tray_icon(&ah, TrayIconState::Idle);
                         }
-                        debug!("Connector selection transcription error: {}", err);
-                        utils::hide_recording_overlay(&ah);
-                        change_tray_icon(&ah, TrayIconState::Idle);
                     }
                 }
             } else {
@@ -1367,10 +1379,13 @@ impl ShortcutAction for SendScreenshotToExtensionAction {
                         Ok(text)
                     }
                     Err(e) => {
+                        let err_str = format!("{}", e);
                         if settings.transcription_provider
                             == TranscriptionProvider::RemoteOpenAiCompatible
                         {
-                            let _ = ah.emit("remote-stt-error", format!("{}", e));
+                            let _ = ah.emit("remote-stt-error", err_str.clone());
+                            // Show categorized error in overlay (auto-hides after 3s)
+                            crate::plus_overlay_state::handle_transcription_error(&ah, &err_str);
                         }
                         Err(format!("Transcription failed: {}", e))
                     }
@@ -1716,14 +1731,18 @@ impl ShortcutAction for AiReplaceSelectionAction {
                         }
                     }
                     Err(err) => {
+                        let err_str = format!("{}", err);
                         if settings.transcription_provider
                             == TranscriptionProvider::RemoteOpenAiCompatible
                         {
-                            let _ = ah.emit("remote-stt-error", format!("{}", err));
+                            let _ = ah.emit("remote-stt-error", err_str.clone());
+                            // Show categorized error in overlay (auto-hides after 3s)
+                            crate::plus_overlay_state::handle_transcription_error(&ah, &err_str);
+                        } else {
+                            debug!("AI replace transcription error: {}", err);
+                            utils::hide_recording_overlay(&ah);
+                            change_tray_icon(&ah, TrayIconState::Idle);
                         }
-                        debug!("AI replace transcription error: {}", err);
-                        utils::hide_recording_overlay(&ah);
-                        change_tray_icon(&ah, TrayIconState::Idle);
                     }
                 }
             } else {

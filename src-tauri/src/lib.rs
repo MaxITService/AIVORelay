@@ -11,6 +11,7 @@ mod input;
 mod llm_client;
 mod managers;
 mod overlay;
+mod plus_overlay_state;
 mod settings;
 mod shortcut;
 mod signal_handle;

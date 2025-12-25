@@ -13,6 +13,7 @@ Files that differentiate this fork from the original [cjpais/Handy](https://gith
 | `src-tauri/src/commands/connector.rs` | Tauri commands for connector: `connector_get_status`, `connector_is_online`, `connector_start_server`, `connector_stop_server`, `connector_queue_message`. |
 | `src-tauri/src/managers/remote_stt.rs` | Remote Speech-to-Text manager. Handles OpenAI-compatible API calls, WAV encoding, API key storage (Windows Credential Manager), debug logging. |
 | `src-tauri/src/commands/remote_stt.rs` | Tauri commands exposing Remote STT functionality to frontend: `remote_stt_has_api_key`, `remote_stt_set_api_key`, `remote_stt_test_connection`, etc. |
+| `src-tauri/src/plus_overlay_state.rs` | Extended overlay states for Remote STT error display. Categorizes errors (TLS, timeout, network, server), emits typed payloads to overlay, auto-hides after 3s. |
 
 ### Frontend (React/TypeScript)
 
@@ -21,6 +22,7 @@ Files that differentiate this fork from the original [cjpais/Handy](https://gith
 | `src/components/settings/remote-stt/RemoteSttSettings.tsx` | UI for Remote STT configuration: base URL, model ID, API key management, connection testing, debug log viewer. |
 | `src/components/settings/advanced/AiReplaceSettings.tsx` | UI for AI Replace feature: system/user prompts, max chars limit, "no selection" mode toggle. |
 | `src/components/settings/browser-connector/ConnectorStatus.tsx` | Extension status indicator component showing online/offline status with "last seen" time when offline. |
+| `src/overlay/plus_overlay_states.ts` | TypeScript types for extended overlay states (`error`, `sending`). Error category enum and display text mapping. |
 
 ## Modified Files
 
@@ -66,6 +68,8 @@ Files that differentiate this fork from the original [cjpais/Handy](https://gith
 | `src/App.tsx` | Event listeners for new features (remote-stt-error, ai-replace-error, screenshot-error). |
 | `src/components/model-selector/*` | Adjusted for transcription provider switching. |
 | `src/components/onboarding/Onboarding.tsx` | Updated for Remote STT option. |
+| `src/overlay/RecordingOverlay.tsx` | Extended to handle `error` state with categorized error messages. Accepts extended payload object instead of string-only state. |
+| `src/overlay/RecordingOverlay.css` | Added `.error-text` and `.overlay-error` styles for error state display. |
 
 ## Feature → File Mapping
 
