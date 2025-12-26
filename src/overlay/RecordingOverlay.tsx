@@ -6,6 +6,7 @@ import {
   TranscriptionIcon,
   CancelIcon,
   SendingIcon,
+  ThinkingIcon,
 } from "../components/icons";
 import "./RecordingOverlay.css";
 import { commands } from "@/bindings";
@@ -84,6 +85,8 @@ const RecordingOverlay: React.FC = () => {
         return <MicrophoneIcon />;
       case "sending":
         return <SendingIcon />;
+      case "thinking":
+        return <ThinkingIcon />;
       case "error":
         return <span className="overlay-icon-emoji">❌</span>;
       case "transcribing":
@@ -114,6 +117,9 @@ const RecordingOverlay: React.FC = () => {
         )}
         {state === "sending" && (
           <div className="sending-text">Sending...</div>
+        )}
+        {state === "thinking" && (
+          <div className="thinking-text">Thinking...</div>
         )}
         {state === "transcribing" && (
           <div className="transcribing-text">{t("overlay.transcribing")}</div>

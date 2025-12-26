@@ -19,6 +19,7 @@ pub enum OverlayErrorCategory {
     NetworkError,
     ServerError,
     ParseError,
+    ExtensionOffline,
     Unknown,
 }
 
@@ -32,6 +33,7 @@ impl OverlayErrorCategory {
             OverlayErrorCategory::NetworkError => "Network unavailable",
             OverlayErrorCategory::ServerError => "Server error",
             OverlayErrorCategory::ParseError => "Invalid response",
+            OverlayErrorCategory::ExtensionOffline => "Extension offline",
             OverlayErrorCategory::Unknown => "Transcription failed",
         }
     }
@@ -134,12 +136,12 @@ pub fn show_error_overlay(app: &AppHandle, category: OverlayErrorCategory) {
 }
 
 /// Main hook function: handle transcription errors with categorized overlay
-/// 
+///
 /// This function:
 /// 1. Categorizes the error
 /// 2. Shows error overlay for 3 seconds
 /// 3. Auto-hides overlay and resets tray icon
-/// 
+///
 /// Note: The existing toast (remote-stt-error event) should still be emitted separately
 pub fn handle_transcription_error(app: &AppHandle, err_string: &str) {
     let category = categorize_error(err_string);

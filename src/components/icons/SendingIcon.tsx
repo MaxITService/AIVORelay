@@ -22,27 +22,10 @@ const SendingIcon: React.FC<SendingIconProps> = ({
       xmlns="http://www.w3.org/2000/svg"
       className={className}
     >
-      {/* Upload arrow icon */}
+      {/* Paper plane / send icon - filled path */}
       <path
-        d="M12 4L12 16"
-        stroke={color}
-        strokeWidth="2"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-      <path
-        d="M7 9L12 4L17 9"
-        stroke={color}
-        strokeWidth="2"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-      <path
-        d="M5 20H19"
-        stroke={color}
-        strokeWidth="2"
-        strokeLinecap="round"
-        strokeLinejoin="round"
+        d="M2.01 21L23 12L2.01 3L2 10L17 12L2 14L2.01 21Z"
+        fill={color}
       />
     </svg>
   );

@@ -6,7 +6,7 @@
 /**
  * Extended overlay state type including new states
  */
-export type ExtendedOverlayState = "recording" | "sending" | "transcribing" | "error";
+export type ExtendedOverlayState = "recording" | "sending" | "transcribing" | "thinking" | "error";
 
 /**
  * Error categories matching Rust OverlayErrorCategory enum
@@ -18,6 +18,7 @@ export type OverlayErrorCategory =
   | "NetworkError"
   | "ServerError"
   | "ParseError"
+  | "ExtensionOffline"
   | "Unknown";
 
 /**
@@ -52,6 +53,7 @@ export function getErrorDisplayText(category: OverlayErrorCategory): string {
     NetworkError: "Network unavailable",
     ServerError: "Server error",
     ParseError: "Invalid response",
+    ExtensionOffline: "Extension offline",
     Unknown: "Transcription failed",
   };
   return messages[category];
@@ -65,6 +67,7 @@ export function getStateIcon(state: ExtendedOverlayState): string {
     recording: "🎤",
     sending: "⬆️",
     transcribing: "📝",
+    thinking: "🧠",
     error: "❌",
   };
   return icons[state];

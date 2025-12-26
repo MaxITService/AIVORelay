@@ -12,7 +12,10 @@ use crate::settings::{
 };
 use crate::shortcut;
 use crate::tray::{change_tray_icon, TrayIconState};
-use crate::utils::{self, show_recording_overlay, show_sending_overlay, show_transcribing_overlay};
+use crate::utils::{
+    self, show_recording_overlay, show_sending_overlay, show_thinking_overlay,
+    show_transcribing_overlay,
+};
 use crate::ManagedToggleState;
 use async_openai::types::{
     ChatCompletionRequestMessage, ChatCompletionRequestSystemMessageArgs,
@@ -885,6 +888,17 @@ impl ShortcutAction for SendToExtensionAction {
             binding_id
         );
 
+        // Check if extension is online before starting
+        let cm = Arc::clone(&app.state::<Arc<ConnectorManager>>());
+        if !cm.is_online() {
+            debug!("Extension is offline, showing error overlay");
+            crate::plus_overlay_state::show_error_overlay(
+                app,
+                crate::plus_overlay_state::OverlayErrorCategory::ExtensionOffline,
+            );
+            return;
+        }
+
         start_recording_with_feedback(app, binding_id);
 
         debug!(
@@ -896,6 +910,13 @@ impl ShortcutAction for SendToExtensionAction {
     fn stop(&self, app: &AppHandle, binding_id: &str, _shortcut_str: &str) {
         // Unregister the cancel shortcut when transcription stops
         shortcut::unregister_cancel_shortcut(app);
+
+        // If extension is offline, start() would have returned early - don't override the error overlay
+        let cm = Arc::clone(&app.state::<Arc<ConnectorManager>>());
+        if !cm.is_online() {
+            debug!("SendToExtensionAction::stop - extension offline, skipping");
+            return;
+        }
 
         let stop_time = Instant::now();
         debug!(
@@ -1102,6 +1123,17 @@ impl ShortcutAction for SendToExtensionWithSelectionAction {
             binding_id
         );
 
+        // Check if extension is online before starting
+        let cm = Arc::clone(&app.state::<Arc<ConnectorManager>>());
+        if !cm.is_online() {
+            debug!("Extension is offline, showing error overlay");
+            crate::plus_overlay_state::show_error_overlay(
+                app,
+                crate::plus_overlay_state::OverlayErrorCategory::ExtensionOffline,
+            );
+            return;
+        }
+
         start_recording_with_feedback(app, binding_id);
 
         debug!(
@@ -1112,6 +1144,13 @@ impl ShortcutAction for SendToExtensionWithSelectionAction {
 
     fn stop(&self, app: &AppHandle, binding_id: &str, _shortcut_str: &str) {
         shortcut::unregister_cancel_shortcut(app);
+
+        // If extension is offline, start() would have returned early - don't override the error overlay
+        let cm = Arc::clone(&app.state::<Arc<ConnectorManager>>());
+        if !cm.is_online() {
+            debug!("SendToExtensionWithSelectionAction::stop - extension offline, skipping");
+            return;
+        }
 
         let stop_time = Instant::now();
         debug!(
@@ -1280,6 +1319,33 @@ impl ShortcutAction for SendToExtensionWithSelectionAction {
 
 fn emit_screenshot_error(app: &AppHandle, message: impl Into<String>) {
     let _ = app.emit("screenshot-error", message.into());
+}
+
+/// Expands Windows-style environment variables like %USERPROFILE% in a path string.
+/// On non-Windows platforms, returns the path unchanged.
+#[cfg(target_os = "windows")]
+fn expand_env_vars(path: &str) -> String {
+    let mut result = path.to_string();
+    // Find all %VAR% patterns and replace with actual env values
+    while let Some(start) = result.find('%') {
+        if let Some(end) = result[start + 1..].find('%') {
+            let var_name = &result[start + 1..start + 1 + end];
+            if let Ok(value) = std::env::var(var_name) {
+                result = result.replace(&format!("%{}%", var_name), &value);
+            } else {
+                break; // Unknown variable, stop to avoid infinite loop
+            }
+        } else {
+            break; // No closing %, stop
+        }
+    }
+    result
+}
+
+#[cfg(not(target_os = "windows"))]
+fn expand_env_vars(path: &str) -> String {
+    // On Unix, could expand $VAR or ${VAR} if needed, but for now just return as-is
+    path.to_string()
 }
 
 /// Finds the most recently created image file in a directory (optionally recursive)
@@ -1452,6 +1518,17 @@ impl ShortcutAction for SendScreenshotToExtensionAction {
             binding_id
         );
 
+        // Check if extension is online before starting
+        let cm = Arc::clone(&app.state::<Arc<ConnectorManager>>());
+        if !cm.is_online() {
+            debug!("Extension is offline, showing error overlay");
+            crate::plus_overlay_state::show_error_overlay(
+                app,
+                crate::plus_overlay_state::OverlayErrorCategory::ExtensionOffline,
+            );
+            return;
+        }
+
         start_recording_with_feedback(app, binding_id);
 
         debug!(
@@ -1462,6 +1539,13 @@ impl ShortcutAction for SendScreenshotToExtensionAction {
 
     fn stop(&self, app: &AppHandle, binding_id: &str, _shortcut_str: &str) {
         shortcut::unregister_cancel_shortcut(app);
+
+        // If extension is offline, start() would have returned early - don't override the error overlay
+        let cm = Arc::clone(&app.state::<Arc<ConnectorManager>>());
+        if !cm.is_online() {
+            debug!("SendScreenshotToExtensionAction::stop - extension offline, skipping");
+            return;
+        }
 
         let stop_time = Instant::now();
         debug!(
@@ -1634,7 +1718,7 @@ impl ShortcutAction for SendScreenshotToExtensionAction {
             }
 
             // Gate 2: Wait for screenshot (overlay already hidden)
-            let screenshot_folder = PathBuf::from(&settings.screenshot_folder);
+            let screenshot_folder = PathBuf::from(expand_env_vars(&settings.screenshot_folder));
             let timeout_secs = settings.screenshot_timeout_seconds as u64;
             let require_recent = settings.screenshot_require_recent;
             let include_subfolders = settings.screenshot_include_subfolders;
@@ -1866,6 +1950,9 @@ impl ShortcutAction for AiReplaceSelectionAction {
                             selection_len
                         );
                         debug!("AI replace selected text: {}", selected_text);
+
+                        // Show "Thinking..." overlay while LLM processes the request
+                        show_thinking_overlay(&ah);
 
                         let llm_start = Instant::now();
                         match ai_replace_with_llm(&settings, &selected_text, &transcription).await {
