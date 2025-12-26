@@ -1,7 +1,8 @@
 # Fork Agents Guide
 > **Agent rule:** all debugging/build verification is done by the user (do not run automated tests/builds unless explicitly requested).
 This file provides guidance for AI code agents working with this fork. Do not run cargo check
-
+CODE ONLY WHEN APPROVED BY USER. Otherwise, only your thoughts in chat are needed.
+If you are not very sure that change will fix it, consult user first, user may want to revert unsuccessful fix, so user nneds to commit and stuff.
 
 ## ⚠️ Important: This is a Fork
 
