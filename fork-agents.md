@@ -1,6 +1,5 @@
 # Fork Agents Guide
-ALL DEBUG IS DONE BY USER!! NOT AUTOMATED TESTS!!
-NEVER Build ! User will build!
+> **Agent rule:** all debugging/build verification is done by the user (do not run automated tests/builds unless explicitly requested).
 This file provides guidance for AI code agents working with this fork.
 
 ## ⚠️ Important: This is a Fork
@@ -64,8 +63,12 @@ When using Remote STT API, the **Recording Overlay** (`recording_overlay` window
 - Selection capture uses Windows-specific APIs in `src-tauri/src/input.rs`
 
 ### 3. Connector (Send to Extension)
-- Files: `src-tauri/src/connector.rs`, `src-tauri/src/actions.rs` (SendToExtensionAction)
-- HTTP POST to local server (default `http://127.0.0.1:63155/messages`)
+- Primary implementation: `src-tauri/src/managers/connector.rs` (local HTTP server), `src-tauri/src/actions.rs` (Send*ToExtension actions), `src/components/settings/browser-connector/`
+- Extension polls Handy’s local server (default `http://127.0.0.1:63155`):
+  - `GET /messages?since=<cursor>` → queued messages + next `cursor`
+  - `GET /blob/{attId}` → attachment bytes (short-lived)
+  - `POST /messages` → extension acks (e.g. `keepalive_ack`, `password_ack`)
+- **Auth required:** `Authorization: Bearer <connector_password>` (see `src-tauri/src/settings.rs`; password may rotate via `passwordUpdate` handshake)
 
 ### 4. Send Screenshot to Extension (Windows only)
 - Files: `src-tauri/src/actions.rs` (SendScreenshotToExtensionAction), `src-tauri/src/managers/connector.rs` (blob serving)
@@ -86,7 +89,7 @@ When using Remote STT API, the **Recording Overlay** (`recording_overlay` window
 ```bash
 # Remote STT requires Windows + API key configured
 # AI Replace requires Windows + LLM provider configured
-# Connector requires local HTTP server running (use test-server from Handy Connector)
+# Connector requires Handy running (it starts the local HTTP server for the extension)
 ```
 
 ### Adding New Fork Features
@@ -114,13 +117,14 @@ See [`fork-merge-guide.md`](fork-merge-guide.md) for upstream tracking and the m
 ### Connector (Send to Extension)
 1. Ensure Handy Connector extension is installed and bound to a tab
 2. Check console for "Connector message sent" or error logs
+3. Verify Handy server responds (auth required): `curl -H "Authorization: Bearer <password>" "http://127.0.0.1:63155/messages"`
 
 ### Send Screenshot to Extension
 1. Listen to `screenshot-error` event in `App.tsx` — errors display for 5 seconds
 2. Ensure ShareX (or configured tool) saves to the configured folder
 3. Check "Require Recent Screenshot" is enabled to filter old files
 4. Test screenshot tool manually: `"C:\Program Files\ShareX\ShareX.exe" -RectangleRegion`
-5. Verify blob endpoint works: `curl http://127.0.0.1:63155/blob/{attId}`
+5. Verify blob endpoint works (requires auth): `curl -H "Authorization: Bearer <password>" http://127.0.0.1:63155/blob/{attId}`
 
 ### Selection Capture (Windows)
 1. If selection capture fails, check Windows accessibility permissions
