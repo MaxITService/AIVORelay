@@ -248,6 +248,14 @@
           "title": "AI Replace Max Characters",
           "description": "Maximum number of characters allowed in the selected text before calling the LLM.",
           "suffix": "characters"
+        },
+        "allowQuickTap": {
+          "label": "Allow Quick Tap",
+          "description": "Enable to send without speaking. Usage: Quickly tap your hotkey and do not say anything to automatically improve/fix the selected text."
+        },
+        "quickTapSystemPrompt": {
+          "title": "System Prompt (Quick Tap)",
+          "description": "System prompt used when you just tap the key without speaking (e.g. 'Fix grammar')."
         }
       },
       "transcriptionProvider": {
@@ -571,7 +579,7 @@
         },
         "allowNoVoice": {
           "title": "Allow Without Voice",
-          "description": "Send screenshots without speaking. Uses the default prompt below for quick queries."
+          "description": "Enable to send without speaking. Usage: Quickly tap your hotkey and do not say anything to send the screenshot with the default prompt."
         },
         "noVoiceDefaultPrompt": {
           "title": "Default Prompt (No Voice)",
@@ -620,11 +628,11 @@
         },
         "allowNoVoice": {
           "title": "Allow Without Voice",
-          "description": "Send selected text without speaking. Uses the system prompt below for formatting."
+          "description": "Enable to send without speaking. Usage: Quickly tap your hotkey and do not say anything to send just the selection."
         },
         "noVoiceSystemPrompt": {
           "title": "System Prompt (No Voice)",
-          "description": "System prompt used when sending selected text without voice instruction."
+          "description": "Optional instruction prepended to your selection (format: SYSTEM:\\n[Prompt]\\n\\n[Selection]). Leave empty to send only the text."
         }
       }
     },
@@ -649,6 +657,18 @@
         "systemPrompt": {
           "title": "System Prompt (No Selection)",
           "description": "System prompt used when generating text from scratch."
+        }
+      },
+      "quickTap": {
+        "title": "Quick Tap Mode",
+        "description": "When you tap the key without speaking.",
+        "allowQuickTap": {
+          "label": "Allow Quick Tap",
+          "description": "Enable to send without speaking. Usage: Quickly tap your hotkey and do not say anything to automatically improve/fix the selected text."
+        },
+        "systemPrompt": {
+          "title": "System Prompt (Quick Tap)",
+          "description": "System prompt used when you just tap the key without speaking (e.g. 'Fix grammar')."
         }
       },
       "withSelection": {

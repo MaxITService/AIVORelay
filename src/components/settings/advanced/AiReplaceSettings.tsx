@@ -70,6 +70,34 @@ export const AiReplaceSettings: React.FC<AiReplaceSettingsProps> = ({
         disabled={isUpdating("ai_replace_allow_no_selection")}
       />
 
+      <ToggleSwitch
+        label={t("settings.advanced.aiReplace.allowQuickTap.label")}
+        description={t("settings.advanced.aiReplace.allowQuickTap.description")}
+        descriptionMode={descriptionMode}
+        grouped={grouped}
+        checked={getSetting("ai_replace_allow_quick_tap") ?? true}
+        onChange={(checked) => updateSetting("ai_replace_allow_quick_tap", checked)}
+        disabled={isUpdating("ai_replace_allow_quick_tap")}
+      />
+      
+      {getSetting("ai_replace_allow_quick_tap") && (
+        <SettingContainer
+          title={t("settings.advanced.aiReplace.quickTapSystemPrompt.title")}
+          description={t("settings.advanced.aiReplace.quickTapSystemPrompt.description")}
+          descriptionMode={descriptionMode}
+          grouped={grouped}
+          layout="stacked"
+        >
+          <Textarea
+            value={getSetting("ai_replace_quick_tap_system_prompt") ?? ""}
+            onChange={(e) => updateSetting("ai_replace_quick_tap_system_prompt", e.target.value)}
+            disabled={isUpdating("ai_replace_quick_tap_system_prompt")}
+            className="w-full"
+            rows={3}
+          />
+        </SettingContainer>
+      )}
+
       {allowNoSelection && (
         <SettingContainer
           title={t("settings.advanced.aiReplace.noSelectionSystemPrompt.title")}

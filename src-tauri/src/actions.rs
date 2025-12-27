@@ -586,8 +586,9 @@ async fn ai_replace_with_llm(
         ));
     }
 
-    let system_prompt = if selected_text.trim().is_empty() && settings.ai_replace_allow_no_selection
-    {
+    let system_prompt = if instruction.trim().is_empty() && settings.ai_replace_allow_quick_tap {
+        settings.ai_replace_quick_tap_system_prompt.clone()
+    } else if selected_text.trim().is_empty() && settings.ai_replace_allow_no_selection {
         settings.ai_replace_no_selection_system_prompt.clone()
     } else {
         settings.ai_replace_system_prompt.clone()
@@ -1163,14 +1164,18 @@ impl ShortcutAction for AiReplaceSelectionAction {
                 None => return,
             };
 
+            let settings = get_settings(&ah);
+
             if transcription.trim().is_empty() {
-                emit_ai_replace_error(&ah, "No instruction captured.");
-                utils::hide_recording_overlay(&ah);
-                change_tray_icon(&ah, TrayIconState::Idle);
-                return;
+                if !settings.ai_replace_allow_quick_tap {
+                    emit_ai_replace_error(&ah, "No instruction captured.");
+                    utils::hide_recording_overlay(&ah);
+                    change_tray_icon(&ah, TrayIconState::Idle);
+                    return;
+                }
+                // proceeding with empty transcription
             }
 
-            let settings = get_settings(&ah);
             let selected_text = utils::capture_selection_text(&ah).unwrap_or_else(|_| {
                 if settings.ai_replace_allow_no_selection {
                     String::new()
