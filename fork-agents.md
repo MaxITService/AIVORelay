@@ -3,6 +3,11 @@
 This file provides guidance for AI code agents working with this fork. Do not run cargo check
 CODE ONLY WHEN APPROVED BY USER. Otherwise, only your thoughts in chat are needed.
 If you are not very sure that change will fix it, consult user first, user may want to revert unsuccessful fix, so user nneds to commit and stuff.
+## Environment:
+Windows 11; PowerShell (pwsh) host.
+Harness: use PowerShell with -NoProfile only: avoid profile interference.
+**ast-grep (sg) and rg and also sd INSTALLED on Windows and on PATH, installed via Winget - their Windows versions!**
+No need to use WSL for them: their Windows versions are installed: callable directly from PowerShell. Use the best tool, where sane, where the best tool wins, probably you also have good tools inside your harness.
 
 ## ⚠️ Important: This is a Fork
 
