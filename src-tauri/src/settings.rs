@@ -352,12 +352,8 @@ pub struct AppSettings {
     pub mute_while_recording: bool,
     #[serde(default)]
     pub append_trailing_space: bool,
-    #[serde(default = "default_connector_host")]
-    pub connector_host: String,
     #[serde(default = "default_connector_port")]
     pub connector_port: u16,
-    #[serde(default = "default_connector_path")]
-    pub connector_path: String,
     #[serde(default = "default_connector_auto_open_enabled")]
     pub connector_auto_open_enabled: bool,
     #[serde(default = "default_connector_auto_open_url")]
@@ -486,16 +482,8 @@ fn default_app_language() -> String {
         .unwrap_or_else(|| "en".to_string())
 }
 
-fn default_connector_host() -> String {
-    "127.0.0.1".to_string()
-}
-
 fn default_connector_port() -> u16 {
     63155
-}
-
-fn default_connector_path() -> String {
-    "/messages".to_string()
 }
 
 fn default_connector_auto_open_enabled() -> bool {
@@ -866,9 +854,7 @@ pub fn get_default_settings() -> AppSettings {
         ai_replace_selection_push_to_talk: true,
         mute_while_recording: false,
         append_trailing_space: false,
-        connector_host: default_connector_host(),
         connector_port: default_connector_port(),
-        connector_path: default_connector_path(),
         connector_auto_open_enabled: default_connector_auto_open_enabled(),
         connector_auto_open_url: default_connector_auto_open_url(),
         screenshot_capture_command: default_screenshot_capture_command(),

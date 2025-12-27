@@ -981,15 +981,6 @@ pub fn change_connector_auto_open_url_setting(app: AppHandle, url: String) -> Re
 
 #[tauri::command]
 #[specta::specta]
-pub fn change_connector_host_setting(app: AppHandle, host: String) -> Result<(), String> {
-    let mut settings = settings::get_settings(&app);
-    settings.connector_host = host;
-    settings::write_settings(&app, settings);
-    Ok(())
-}
-
-#[tauri::command]
-#[specta::specta]
 pub fn change_connector_port_setting(
     app: AppHandle,
     port: u16,
@@ -1002,15 +993,6 @@ pub fn change_connector_port_setting(
     // Restart server on new port if it's running
     connector_manager.restart_on_port(port)?;
 
-    Ok(())
-}
-
-#[tauri::command]
-#[specta::specta]
-pub fn change_connector_path_setting(app: AppHandle, path: String) -> Result<(), String> {
-    let mut settings = settings::get_settings(&app);
-    settings.connector_path = path;
-    settings::write_settings(&app, settings);
     Ok(())
 }
 

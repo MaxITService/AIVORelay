@@ -136,22 +136,12 @@ const settingUpdaters: {
     commands.changeSendToExtensionWithSelectionPushToTalkSetting(value as boolean),
   ai_replace_selection_push_to_talk: (value) =>
     commands.changeAiReplaceSelectionPushToTalkSetting(value as boolean),
-  connector_send_system_prompt: (value) =>
-    commands.changeConnectorSendSystemPromptSetting(value as string),
-  connector_send_selection_system_prompt: (value) =>
-    commands.changeConnectorSendSelectionSystemPromptSetting(value as string),
-  connector_send_selection_user_prompt: (value) =>
-    commands.changeConnectorSendSelectionUserPromptSetting(value as string),
   connector_auto_open_enabled: (value) =>
     commands.changeConnectorAutoOpenEnabledSetting(value as boolean),
   connector_auto_open_url: (value) =>
     commands.changeConnectorAutoOpenUrlSetting(value as string),
-  connector_host: (value) =>
-    commands.changeConnectorHostSetting(value as string),
   connector_port: (value) =>
     commands.changeConnectorPortSetting(value as number),
-  connector_path: (value) =>
-    commands.changeConnectorPathSetting(value as string),
   connector_password: (value) =>
     commands.changeConnectorPasswordSetting(value as string),
   screenshot_capture_command: (value) =>
