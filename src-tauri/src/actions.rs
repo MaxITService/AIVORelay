@@ -446,6 +446,16 @@ async fn get_transcription_or_cleanup(
     let rm = Arc::clone(&app.state::<Arc<AudioRecordingManager>>());
 
     if let Some(samples) = rm.stop_recording(binding_id) {
+        // Quick Tap Optimization: If audio is less than 800ms, skip STT
+        // 16000 Hz * 0.8s = 12800 samples
+        if samples.len() < 12_800 {
+            debug!(
+                "Quick tap detected ({} samples < 12800), skipping transcription",
+                samples.len()
+            );
+            return Some((String::new(), samples));
+        }
+
         match perform_transcription(app, samples.clone()).await {
             TranscriptionOutcome::Success(text) => Some((text, samples)),
             TranscriptionOutcome::Cancelled => None,
