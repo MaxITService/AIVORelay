@@ -2,11 +2,12 @@ import React, { useState, useEffect, useCallback } from "react";
 import { useTranslation } from "react-i18next";
 import { AudioPlayer } from "../../ui/AudioPlayer";
 import { Button } from "../../ui/Button";
-import { Copy, Star, Check, Trash2, FolderOpen } from "lucide-react";
+import { Copy, Star, Check, Trash2, FolderOpen, Wand2, AlertTriangle } from "lucide-react";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { commands, type HistoryEntry } from "@/bindings";
 import { formatDateTime } from "@/utils/dateFormat";
+import { HandyShortcut } from "../HandyShortcut";
 
 interface OpenRecordingsButtonProps {
   onClick: () => void;
@@ -171,6 +172,17 @@ export const HistorySettings: React.FC = () => {
 
   return (
     <div className="max-w-3xl w-full mx-auto space-y-6">
+      {/* Repaste Shortcut Section */}
+      <div className="space-y-2">
+        <h2 className="px-4 text-xs font-medium text-mid-gray uppercase tracking-wide">
+          {t("settings.history.shortcut.title")}
+        </h2>
+        <div className="bg-background border border-mid-gray/20 rounded-lg overflow-visible">
+          <HandyShortcut shortcutId="repaste_last" grouped={true} />
+        </div>
+      </div>
+
+      {/* History Entries Section */}
       <div className="space-y-2">
         <div className="px-4 flex items-center justify-between">
           <div>
@@ -190,7 +202,14 @@ export const HistorySettings: React.FC = () => {
                 key={entry.id}
                 entry={entry}
                 onToggleSaved={() => toggleSaved(entry.id)}
-                onCopyText={() => copyToClipboard(entry.transcription_text)}
+                onCopyText={() => {
+                  // For AI Replace, copy the AI response if available
+                  const textToCopy =
+                    entry.action_type === "ai_replace"
+                      ? entry.ai_response ?? entry.transcription_text
+                      : entry.post_processed_text ?? entry.transcription_text;
+                  copyToClipboard(textToCopy);
+                }}
                 getAudioUrl={getAudioUrl}
                 deleteAudio={deleteAudioEntry}
               />
@@ -221,13 +240,21 @@ const HistoryEntryComponent: React.FC<HistoryEntryProps> = ({
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
   const [showCopied, setShowCopied] = useState(false);
 
+  const isAiReplace = entry.action_type === "ai_replace";
+
   useEffect(() => {
+    // AI Replace entries don't have audio files
+    if (isAiReplace) {
+      setAudioUrl(null);
+      return;
+    }
+
     const loadAudio = async () => {
       const url = await getAudioUrl(entry.file_name);
       setAudioUrl(url);
     };
     loadAudio();
-  }, [entry.file_name, getAudioUrl]);
+  }, [entry.file_name, getAudioUrl, isAiReplace]);
 
   const handleCopyText = () => {
     onCopyText();
@@ -246,10 +273,26 @@ const HistoryEntryComponent: React.FC<HistoryEntryProps> = ({
 
   const formattedDate = formatDateTime(String(entry.timestamp), i18n.language);
 
+  // Truncate text for display
+  const truncateText = (text: string, maxLength: number) => {
+    if (text.length <= maxLength) return text;
+    return text.substring(0, maxLength) + "...";
+  };
+
   return (
     <div className="px-4 py-2 pb-5 flex flex-col gap-3">
       <div className="flex justify-between items-center">
-        <p className="text-sm font-medium">{formattedDate}</p>
+        <div className="flex items-center gap-2">
+          {isAiReplace && (
+            <Wand2 width={14} height={14} className="text-logo-primary" />
+          )}
+          <p className="text-sm font-medium">{formattedDate}</p>
+          {isAiReplace && (
+            <span className="text-xs bg-logo-primary/20 text-logo-primary px-2 py-0.5 rounded">
+              {t("settings.history.aiReplace.badge")}
+            </span>
+          )}
+        </div>
         <div className="flex items-center gap-1">
           <button
             onClick={handleCopyText}
@@ -290,10 +333,60 @@ const HistoryEntryComponent: React.FC<HistoryEntryProps> = ({
           </button>
         </div>
       </div>
-      <p className="italic text-text/90 text-sm pb-2">
-        {entry.transcription_text}
-      </p>
-      {audioUrl && <AudioPlayer src={audioUrl} className="w-full" />}
+
+      {isAiReplace ? (
+        // AI Replace Entry Display
+        <div className="space-y-2">
+          {/* Instruction (transcription_text) */}
+          {entry.transcription_text && (
+            <div>
+              <p className="text-xs text-mid-gray uppercase">
+                {t("settings.history.aiReplace.instruction")}
+              </p>
+              <p className="italic text-text/90 text-sm">
+                {entry.transcription_text || t("settings.history.aiReplace.quickTap")}
+              </p>
+            </div>
+          )}
+
+          {/* Original Selection (if any) */}
+          {entry.original_selection && (
+            <div>
+              <p className="text-xs text-mid-gray uppercase">
+                {t("settings.history.aiReplace.originalSelection")}
+              </p>
+              <p className="text-text/70 text-sm">
+                {truncateText(entry.original_selection, 150)}
+              </p>
+            </div>
+          )}
+
+          {/* AI Response or Error */}
+          <div>
+            <p className="text-xs text-mid-gray uppercase">
+              {t("settings.history.aiReplace.response")}
+            </p>
+            {entry.ai_response ? (
+              <p className="text-text/90 text-sm">{entry.ai_response}</p>
+            ) : (
+              <div className="flex items-center gap-2 text-amber-500">
+                <AlertTriangle width={14} height={14} />
+                <p className="text-sm">
+                  {t("settings.history.aiReplace.noResponse")}
+                </p>
+              </div>
+            )}
+          </div>
+        </div>
+      ) : (
+        // Regular Transcription Entry Display
+        <>
+          <p className="italic text-text/90 text-sm pb-2">
+            {entry.post_processed_text || entry.transcription_text}
+          </p>
+          {audioUrl && <AudioPlayer src={audioUrl} className="w-full" />}
+        </>
+      )}
     </div>
   );
 };

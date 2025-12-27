@@ -899,6 +899,14 @@ async updateRecordingRetentionPeriod(period: string) : Promise<Result<null, stri
     else return { status: "error", error: e  as any };
 }
 },
+async getLatestHistoryEntry() : Promise<Result<HistoryEntry | null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("get_latest_history_entry") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 /**
  * Get current connector/extension status
  */
@@ -1009,7 +1017,19 @@ export type ExtensionStatus =
  * Server is starting up, status unknown
  */
 "unknown"
-export type HistoryEntry = { id: number; file_name: string; timestamp: number; saved: boolean; title: string; transcription_text: string; post_processed_text: string | null; post_process_prompt: string | null }
+export type HistoryEntry = { id: number; file_name: string; timestamp: number; saved: boolean; title: string; transcription_text: string; post_processed_text: string | null; post_process_prompt: string | null; 
+/**
+ * Type of action: "transcribe", "ai_replace", etc.
+ */
+action_type: string; 
+/**
+ * For AI Replace: the original selected text that was transformed
+ */
+original_selection: string | null; 
+/**
+ * For AI Replace: the AI response (None if request failed/never received)
+ */
+ai_response: string | null }
 export type LLMPrompt = { id: string; name: string; prompt: string }
 export type LogLevel = "trace" | "debug" | "info" | "warn" | "error"
 export type ModelInfo = { id: string; name: string; description: string; filename: string; url: string | null; size_mb: number; is_downloaded: boolean; is_downloading: boolean; partial_size: number; is_directory: boolean; engine_type: EngineType; accuracy_score: number; speed_score: number }

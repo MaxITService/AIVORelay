@@ -369,6 +369,7 @@ pub fn run() {
         commands::history::delete_history_entry,
         commands::history::update_history_limit,
         commands::history::update_recording_retention_period,
+        commands::history::get_latest_history_entry,
         commands::connector::connector_get_status,
         commands::connector::connector_is_online,
         commands::connector::connector_start_server,

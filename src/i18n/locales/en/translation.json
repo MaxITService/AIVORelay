@@ -145,6 +145,10 @@
           "cancel": {
             "name": "Cancel",
             "description": "Cancels the current recording."
+          },
+          "repaste_last": {
+            "name": "Repaste Last",
+            "description": "Paste the most recent transcription or AI response again."
           }
         },
         "errors": {
@@ -418,7 +422,18 @@
       "save": "Save transcription",
       "unsave": "Remove from saved",
       "delete": "Delete entry",
-      "deleteError": "Failed to delete entry. Please try again."
+      "deleteError": "Failed to delete entry. Please try again.",
+      "shortcut": {
+        "title": "Repaste Shortcut"
+      },
+      "aiReplace": {
+        "badge": "AI Replace",
+        "instruction": "Instruction",
+        "originalSelection": "Original Selection",
+        "response": "AI Response",
+        "noResponse": "Response was never received",
+        "quickTap": "(Quick Tap)"
+      }
     },
     "debug": {
       "title": "Debug",

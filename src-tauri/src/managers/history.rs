@@ -31,6 +31,12 @@ static MIGRATIONS: &[M] = &[
     ),
     M::up("ALTER TABLE transcription_history ADD COLUMN post_processed_text TEXT;"),
     M::up("ALTER TABLE transcription_history ADD COLUMN post_process_prompt TEXT;"),
+    // Migration 4: Add columns for AI Replace history support
+    M::up(
+        "ALTER TABLE transcription_history ADD COLUMN action_type TEXT DEFAULT 'transcribe';
+         ALTER TABLE transcription_history ADD COLUMN original_selection TEXT;
+         ALTER TABLE transcription_history ADD COLUMN ai_response TEXT;",
+    ),
 ];
 
 #[derive(Clone, Debug, Serialize, Deserialize, Type)]
@@ -43,6 +49,12 @@ pub struct HistoryEntry {
     pub transcription_text: String,
     pub post_processed_text: Option<String>,
     pub post_process_prompt: Option<String>,
+    /// Type of action: "transcribe", "ai_replace", etc.
+    pub action_type: String,
+    /// For AI Replace: the original selected text that was transformed
+    pub original_selection: Option<String>,
+    /// For AI Replace: the AI response (None if request failed/never received)
+    pub ai_response: Option<String>,
 }
 
 pub struct HistoryManager {
@@ -224,8 +236,8 @@ impl HistoryManager {
     ) -> Result<()> {
         let conn = self.get_connection()?;
         conn.execute(
-            "INSERT INTO transcription_history (file_name, timestamp, saved, title, transcription_text, post_processed_text, post_process_prompt) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-            params![file_name, timestamp, false, title, transcription_text, post_processed_text, post_process_prompt],
+            "INSERT INTO transcription_history (file_name, timestamp, saved, title, transcription_text, post_processed_text, post_process_prompt, action_type) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+            params![file_name, timestamp, false, title, transcription_text, post_processed_text, post_process_prompt, "transcribe"],
         )?;
 
         debug!("Saved transcription to database");
@@ -355,7 +367,7 @@ impl HistoryManager {
     pub async fn get_history_entries(&self) -> Result<Vec<HistoryEntry>> {
         let conn = self.get_connection()?;
         let mut stmt = conn.prepare(
-            "SELECT id, file_name, timestamp, saved, title, transcription_text, post_processed_text, post_process_prompt FROM transcription_history ORDER BY timestamp DESC"
+            "SELECT id, file_name, timestamp, saved, title, transcription_text, post_processed_text, post_process_prompt, action_type, original_selection, ai_response FROM transcription_history ORDER BY timestamp DESC"
         )?;
 
         let rows = stmt.query_map([], |row| {
@@ -368,6 +380,11 @@ impl HistoryManager {
                 transcription_text: row.get("transcription_text")?,
                 post_processed_text: row.get("post_processed_text")?,
                 post_process_prompt: row.get("post_process_prompt")?,
+                action_type: row
+                    .get::<_, Option<String>>("action_type")?
+                    .unwrap_or_else(|| "transcribe".to_string()),
+                original_selection: row.get("original_selection")?,
+                ai_response: row.get("ai_response")?,
             })
         })?;
 
@@ -413,7 +430,7 @@ impl HistoryManager {
     pub async fn get_entry_by_id(&self, id: i64) -> Result<Option<HistoryEntry>> {
         let conn = self.get_connection()?;
         let mut stmt = conn.prepare(
-            "SELECT id, file_name, timestamp, saved, title, transcription_text, post_processed_text, post_process_prompt
+            "SELECT id, file_name, timestamp, saved, title, transcription_text, post_processed_text, post_process_prompt, action_type, original_selection, ai_response
              FROM transcription_history WHERE id = ?1",
         )?;
 
@@ -428,6 +445,11 @@ impl HistoryManager {
                     transcription_text: row.get("transcription_text")?,
                     post_processed_text: row.get("post_processed_text")?,
                     post_process_prompt: row.get("post_process_prompt")?,
+                    action_type: row
+                        .get::<_, Option<String>>("action_type")?
+                        .unwrap_or_else(|| "transcribe".to_string()),
+                    original_selection: row.get("original_selection")?,
+                    ai_response: row.get("ai_response")?,
                 })
             })
             .optional()?;
@@ -464,6 +486,67 @@ impl HistoryManager {
         }
 
         Ok(())
+    }
+
+    /// Save an AI Replace operation to history (no audio file, just the text data)
+    pub async fn save_ai_replace_entry(
+        &self,
+        instruction: String,
+        original_selection: String,
+        ai_response: Option<String>,
+    ) -> Result<()> {
+        let timestamp = Utc::now().timestamp();
+        let file_name = format!("ai-replace-{}.txt", timestamp); // Virtual file, not actually created
+        let title = self.format_timestamp_title(timestamp);
+
+        let conn = self.get_connection()?;
+        conn.execute(
+            "INSERT INTO transcription_history (file_name, timestamp, saved, title, transcription_text, action_type, original_selection, ai_response) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+            params![file_name, timestamp, false, title, instruction, "ai_replace", original_selection, ai_response],
+        )?;
+
+        debug!("Saved AI Replace entry to database");
+
+        // Clean up old entries
+        self.cleanup_old_entries()?;
+
+        // Emit history updated event
+        if let Err(e) = self.app_handle.emit("history-updated", ()) {
+            error!("Failed to emit history-updated event: {}", e);
+        }
+
+        Ok(())
+    }
+
+    /// Get the most recent history entry (for repaste functionality)
+    pub async fn get_latest_entry(&self) -> Result<Option<HistoryEntry>> {
+        let conn = self.get_connection()?;
+        let mut stmt = conn.prepare(
+            "SELECT id, file_name, timestamp, saved, title, transcription_text, post_processed_text, post_process_prompt, action_type, original_selection, ai_response
+             FROM transcription_history ORDER BY timestamp DESC LIMIT 1",
+        )?;
+
+        let entry = stmt
+            .query_row([], |row| {
+                Ok(HistoryEntry {
+                    id: row.get("id")?,
+                    file_name: row.get("file_name")?,
+                    timestamp: row.get("timestamp")?,
+                    saved: row.get("saved")?,
+                    title: row.get("title")?,
+                    transcription_text: row.get("transcription_text")?,
+                    post_processed_text: row.get("post_processed_text")?,
+                    post_process_prompt: row.get("post_process_prompt")?,
+                    action_type: row
+                        .get::<_, Option<String>>("action_type")?
+                        .unwrap_or_else(|| "transcribe".to_string()),
+                    original_selection: row.get("original_selection")?,
+                    ai_response: row.get("ai_response")?,
+                })
+            })
+            .optional()?;
+
+        Ok(entry)
     }
 
     fn format_timestamp_title(&self, timestamp: i64) -> String {

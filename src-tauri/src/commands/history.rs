@@ -99,3 +99,15 @@ pub async fn update_recording_retention_period(
 
     Ok(())
 }
+
+#[tauri::command]
+#[specta::specta]
+pub async fn get_latest_history_entry(
+    _app: AppHandle,
+    history_manager: State<'_, Arc<HistoryManager>>,
+) -> Result<Option<HistoryEntry>, String> {
+    history_manager
+        .get_latest_entry()
+        .await
+        .map_err(|e| e.to_string())
+}

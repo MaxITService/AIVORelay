@@ -800,6 +800,16 @@ pub fn get_default_settings() -> AppSettings {
             current_binding: "escape".to_string(),
         },
     );
+    bindings.insert(
+        "repaste_last".to_string(),
+        ShortcutBinding {
+            id: "repaste_last".to_string(),
+            name: "Repaste Last".to_string(),
+            description: "Paste the most recent transcription or AI response again.".to_string(),
+            default_binding: "ctrl+shift+z".to_string(),
+            current_binding: "ctrl+shift+z".to_string(),
+        },
+    );
 
     AppSettings {
         bindings,

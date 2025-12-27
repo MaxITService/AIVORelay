@@ -45,6 +45,8 @@ struct SendToExtensionAction;
 struct SendToExtensionWithSelectionAction;
 struct SendScreenshotToExtensionAction;
 
+struct RepastLastAction;
+
 async fn maybe_post_process_transcription(
     settings: &AppSettings,
     transcription: &str,
@@ -1208,8 +1210,30 @@ impl ShortcutAction for AiReplaceSelectionAction {
 
             show_thinking_overlay(&ah);
 
+            let hm = Arc::clone(&ah.state::<Arc<HistoryManager>>());
+            let instruction_for_history = transcription.clone();
+            let selection_for_history = selected_text.clone();
+
             match ai_replace_with_llm(&settings, &selected_text, &transcription).await {
                 Ok(output) => {
+                    // Save to history with AI response
+                    let hm_clone = Arc::clone(&hm);
+                    let instruction_clone = instruction_for_history.clone();
+                    let selection_clone = selection_for_history.clone();
+                    let output_for_history = output.clone();
+                    tauri::async_runtime::spawn(async move {
+                        if let Err(e) = hm_clone
+                            .save_ai_replace_entry(
+                                instruction_clone,
+                                selection_clone,
+                                Some(output_for_history),
+                            )
+                            .await
+                        {
+                            error!("Failed to save AI Replace entry to history: {}", e);
+                        }
+                    });
+
                     let ah_clone = ah.clone();
                     ah.run_on_main_thread(move || {
                         let _ = utils::paste(output, ah_clone.clone());
@@ -1219,6 +1243,20 @@ impl ShortcutAction for AiReplaceSelectionAction {
                     .ok();
                 }
                 Err(_) => {
+                    // Save to history with no AI response (indicates failure)
+                    tauri::async_runtime::spawn(async move {
+                        if let Err(e) = hm
+                            .save_ai_replace_entry(
+                                instruction_for_history,
+                                selection_for_history,
+                                None, // Response never received
+                            )
+                            .await
+                        {
+                            error!("Failed to save AI Replace entry to history: {}", e);
+                        }
+                    });
+
                     emit_ai_replace_error(&ah, "AI replace failed.");
                     utils::hide_recording_overlay(&ah);
                     change_tray_icon(&ah, TrayIconState::Idle);
@@ -1264,6 +1302,69 @@ impl ShortcutAction for TestAction {
     }
 }
 
+// Repaste Last Action
+impl ShortcutAction for RepastLastAction {
+    fn start(&self, app: &AppHandle, _binding_id: &str, _shortcut_str: &str) {
+        debug!("RepastLastAction::start called");
+
+        let ah = app.clone();
+
+        tauri::async_runtime::spawn(async move {
+            let hm = Arc::clone(&ah.state::<Arc<HistoryManager>>());
+
+            match hm.get_latest_entry().await {
+                Ok(Some(entry)) => {
+                    // Determine what text to paste based on action type
+                    let text_to_paste = match entry.action_type.as_str() {
+                        "ai_replace" => {
+                            // For AI Replace, use the AI response if available
+                            match entry.ai_response {
+                                Some(response) => response,
+                                None => {
+                                    // AI response never received
+                                    let _ = ah.emit(
+                                        "repaste-error",
+                                        "AI response was never received for this entry.",
+                                    );
+                                    return;
+                                }
+                            }
+                        }
+                        _ => {
+                            // For regular transcription, prefer post-processed text, fall back to transcription
+                            entry
+                                .post_processed_text
+                                .unwrap_or(entry.transcription_text)
+                        }
+                    };
+
+                    if text_to_paste.trim().is_empty() {
+                        let _ = ah.emit("repaste-error", "No text available to repaste.");
+                        return;
+                    }
+
+                    let ah_clone = ah.clone();
+                    ah.run_on_main_thread(move || {
+                        let _ = utils::paste(text_to_paste, ah_clone);
+                    })
+                    .ok();
+                }
+                Ok(None) => {
+                    let _ = ah.emit("repaste-error", "No history entries available.");
+                }
+                Err(e) => {
+                    error!("Failed to get latest history entry: {}", e);
+                    let _ = ah.emit("repaste-error", "Failed to retrieve history.");
+                }
+            }
+        });
+    }
+
+    fn stop(&self, _app: &AppHandle, _binding_id: &str, _shortcut_str: &str) {
+        // Repaste is instant, nothing to do on stop
+    }
+}
+
 // Static Action Map
 pub static ACTION_MAP: Lazy<HashMap<String, Arc<dyn ShortcutAction>>> = Lazy::new(|| {
     let mut map = HashMap::new();
@@ -1290,6 +1391,10 @@ pub static ACTION_MAP: Lazy<HashMap<String, Arc<dyn ShortcutAction>>> = Lazy::ne
     map.insert(
         "cancel".to_string(),
         Arc::new(CancelAction) as Arc<dyn ShortcutAction>,
+    );
+    map.insert(
+        "repaste_last".to_string(),
+        Arc::new(RepastLastAction) as Arc<dyn ShortcutAction>,
     );
     map.insert(
         "test".to_string(),
