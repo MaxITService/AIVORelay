@@ -322,8 +322,8 @@ export const BrowserConnectorSettings: React.FC = () => {
           </SettingContainer>
         </div>
         <SettingContainer
-          title={t("settings.browserConnector.screenshot.allowNoVoice.title")}
-          description={t("settings.browserConnector.screenshot.allowNoVoice.description")}
+          title={t("settings.browserConnector.screenshot.quickTap.title")}
+          description={t("settings.browserConnector.screenshot.quickTap.description")}
           descriptionMode="tooltip"
           grouped={true}
         >
@@ -335,8 +335,35 @@ export const BrowserConnectorSettings: React.FC = () => {
         </SettingContainer>
         <div className={!settings?.screenshot_allow_no_voice ? "opacity-50" : ""}>
           <SettingContainer
-            title={t("settings.browserConnector.screenshot.noVoiceDefaultPrompt.title")}
-            description={t("settings.browserConnector.screenshot.noVoiceDefaultPrompt.description")}
+            title={t("settings.browserConnector.screenshot.quickTap.threshold.title")}
+            description={t("settings.browserConnector.screenshot.quickTap.threshold.description")}
+            descriptionMode="tooltip"
+            grouped={true}
+          >
+            <div className="flex items-center gap-2">
+              <Input
+                type="number"
+                value={settings?.screenshot_quick_tap_threshold_ms ?? 500}
+                onChange={(event) => {
+                  const val = parseInt(event.target.value, 10);
+                  if (!isNaN(val) && val > 0) {
+                    void updateSetting("screenshot_quick_tap_threshold_ms", val);
+                  }
+                }}
+                disabled={!settings?.screenshot_allow_no_voice || isUpdating("screenshot_quick_tap_threshold_ms")}
+                min={100}
+                max={2000}
+                step={50}
+                className="w-24"
+              />
+              <span className="text-sm text-text/60">
+                {t("settings.browserConnector.screenshot.quickTap.threshold.suffix")}
+              </span>
+            </div>
+          </SettingContainer>
+          <SettingContainer
+            title={t("settings.browserConnector.screenshot.quickTap.defaultPrompt.title")}
+            description={t("settings.browserConnector.screenshot.quickTap.defaultPrompt.description")}
             descriptionMode="inline"
             grouped={true}
             layout="stacked"
@@ -345,7 +372,7 @@ export const BrowserConnectorSettings: React.FC = () => {
               value={settings?.screenshot_no_voice_default_prompt ?? ""}
               onChange={(event) => void updateSetting("screenshot_no_voice_default_prompt", event.target.value)}
               disabled={!settings?.screenshot_allow_no_voice || isUpdating("screenshot_no_voice_default_prompt")}
-              placeholder={t("settings.browserConnector.screenshot.noVoiceDefaultPrompt.placeholder")}
+              placeholder={t("settings.browserConnector.screenshot.quickTap.defaultPrompt.placeholder")}
               className="w-full"
               rows={2}
             />
@@ -392,8 +419,8 @@ export const BrowserConnectorSettings: React.FC = () => {
           </div>
         </SettingContainer>
         <SettingContainer
-          title={t("settings.browserConnector.prompts.allowNoVoice.title")}
-          description={t("settings.browserConnector.prompts.allowNoVoice.description")}
+          title={t("settings.browserConnector.prompts.quickTap.title")}
+          description={t("settings.browserConnector.prompts.quickTap.description")}
           descriptionMode="tooltip"
           grouped={true}
         >
@@ -405,8 +432,35 @@ export const BrowserConnectorSettings: React.FC = () => {
         </SettingContainer>
         <div className={!settings?.send_to_extension_with_selection_allow_no_voice ? "opacity-50" : ""}>
           <SettingContainer
-            title={t("settings.browserConnector.prompts.noVoiceSystemPrompt.title")}
-            description={t("settings.browserConnector.prompts.noVoiceSystemPrompt.description")}
+            title={t("settings.browserConnector.prompts.quickTap.threshold.title")}
+            description={t("settings.browserConnector.prompts.quickTap.threshold.description")}
+            descriptionMode="tooltip"
+            grouped={true}
+          >
+            <div className="flex items-center gap-2">
+              <Input
+                type="number"
+                value={settings?.send_to_extension_with_selection_quick_tap_threshold_ms ?? 500}
+                onChange={(event) => {
+                  const val = parseInt(event.target.value, 10);
+                  if (!isNaN(val) && val > 0) {
+                    void updateSetting("send_to_extension_with_selection_quick_tap_threshold_ms", val);
+                  }
+                }}
+                disabled={!settings?.send_to_extension_with_selection_allow_no_voice || isUpdating("send_to_extension_with_selection_quick_tap_threshold_ms")}
+                min={100}
+                max={2000}
+                step={50}
+                className="w-24"
+              />
+              <span className="text-sm text-text/60">
+                {t("settings.browserConnector.prompts.quickTap.threshold.suffix")}
+              </span>
+            </div>
+          </SettingContainer>
+          <SettingContainer
+            title={t("settings.browserConnector.prompts.quickTap.systemPrompt.title")}
+            description={t("settings.browserConnector.prompts.quickTap.systemPrompt.description")}
             descriptionMode="inline"
             grouped={true}
             layout="stacked"

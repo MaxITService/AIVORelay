@@ -342,6 +342,8 @@ pub struct AppSettings {
     pub send_to_extension_with_selection_push_to_talk: bool,
     #[serde(default = "default_true")]
     pub send_to_extension_with_selection_allow_no_voice: bool,
+    #[serde(default = "default_quick_tap_threshold_ms")]
+    pub send_to_extension_with_selection_quick_tap_threshold_ms: u32,
     #[serde(default)]
     pub send_to_extension_with_selection_no_voice_system_prompt: String,
     #[serde(default = "default_true")]
@@ -372,6 +374,8 @@ pub struct AppSettings {
     pub screenshot_include_subfolders: bool,
     #[serde(default = "default_true")]
     pub screenshot_allow_no_voice: bool,
+    #[serde(default = "default_quick_tap_threshold_ms")]
+    pub screenshot_quick_tap_threshold_ms: u32,
     #[serde(default = "default_screenshot_no_voice_default_prompt")]
     pub screenshot_no_voice_default_prompt: String,
     #[serde(default = "default_true")]
@@ -520,6 +524,10 @@ fn default_screenshot_timeout_seconds() -> u32 {
 
 fn default_screenshot_no_voice_default_prompt() -> String {
     "Look at this picture and provide a helpful response.".to_string()
+}
+
+fn default_quick_tap_threshold_ms() -> u32 {
+    500
 }
 
 /// Default connector password - used for initial mutual authentication
@@ -841,6 +849,7 @@ pub fn get_default_settings() -> AppSettings {
         send_to_extension_with_selection_user_prompt:
             default_send_to_extension_with_selection_user_prompt(),
         send_to_extension_with_selection_allow_no_voice: true,
+        send_to_extension_with_selection_quick_tap_threshold_ms: default_quick_tap_threshold_ms(),
         send_to_extension_with_selection_no_voice_system_prompt: String::new(),
         send_to_extension_push_to_talk: true,
         send_to_extension_with_selection_push_to_talk: true,
@@ -858,6 +867,7 @@ pub fn get_default_settings() -> AppSettings {
         screenshot_timeout_seconds: default_screenshot_timeout_seconds(),
         screenshot_include_subfolders: false,
         screenshot_allow_no_voice: true,
+        screenshot_quick_tap_threshold_ms: default_quick_tap_threshold_ms(),
         screenshot_no_voice_default_prompt: default_screenshot_no_voice_default_prompt(),
         send_screenshot_to_extension_push_to_talk: true,
         app_language: default_app_language(),

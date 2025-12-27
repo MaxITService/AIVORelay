@@ -110,6 +110,68 @@ export const AiReplaceSelectionSettings: React.FC = () => {
         )}
       </SettingsGroup>
 
+      <SettingsGroup title={t("settings.aiReplace.quickTap.title")}>
+        <div className="text-sm text-text/60 mb-2 px-1">
+          {t("settings.aiReplace.quickTap.description")}
+        </div>
+        <ToggleSwitch
+          label={t("settings.aiReplace.quickTap.allowQuickTap.label")}
+          description={t("settings.aiReplace.quickTap.allowQuickTap.description")}
+          descriptionMode="tooltip"
+          grouped={true}
+          checked={getSetting("ai_replace_allow_quick_tap") ?? true}
+          onChange={(checked) => void updateSetting("ai_replace_allow_quick_tap", checked)}
+          disabled={isUpdating("ai_replace_allow_quick_tap")}
+        />
+        {(getSetting("ai_replace_allow_quick_tap") ?? true) && (
+          <>
+            <SettingContainer
+              title={t("settings.aiReplace.quickTap.systemPrompt.title")}
+              description={t("settings.aiReplace.quickTap.systemPrompt.description")}
+              descriptionMode="inline"
+              grouped={true}
+              layout="stacked"
+            >
+              <Textarea
+                value={getSetting("ai_replace_quick_tap_system_prompt") ?? ""}
+                onChange={(e) => void updateSetting("ai_replace_quick_tap_system_prompt", e.target.value)}
+                disabled={isUpdating("ai_replace_quick_tap_system_prompt")}
+                className="w-full"
+                rows={4}
+              />
+            </SettingContainer>
+            <SettingContainer
+              title={t("settings.aiReplace.quickTap.threshold.title")}
+              description={t("settings.aiReplace.quickTap.threshold.description")}
+              descriptionMode="tooltip"
+              grouped={true}
+              layout="horizontal"
+            >
+              <div className="flex items-center space-x-2">
+                <Input
+                  type="number"
+                  min="100"
+                  max="2000"
+                  step="50"
+                  value={getSetting("ai_replace_quick_tap_threshold_ms") ?? 500}
+                  onChange={(e) => {
+                    const val = parseInt(e.target.value, 10);
+                    if (!isNaN(val) && val > 0) {
+                      void updateSetting("ai_replace_quick_tap_threshold_ms", val);
+                    }
+                  }}
+                  disabled={isUpdating("ai_replace_quick_tap_threshold_ms")}
+                  className="w-24"
+                />
+                <span className="text-sm text-text">
+                  {t("settings.aiReplace.quickTap.threshold.suffix")}
+                </span>
+              </div>
+            </SettingContainer>
+          </>
+        )}
+      </SettingsGroup>
+
       <SettingsGroup title={t("settings.aiReplace.withSelection.title")}>
         <div className="text-sm text-text/60 mb-2 px-1">
           {t("settings.aiReplace.withSelection.description")}

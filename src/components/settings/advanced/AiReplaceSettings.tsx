@@ -95,6 +95,34 @@ export const AiReplaceSettings: React.FC<AiReplaceSettingsProps> = ({
             className="w-full"
             rows={3}
           />
+          <div className="mt-4 flex items-center space-x-2">
+            <div className="flex-1">
+              <div className="text-sm font-medium text-text">
+                {t("settings.advanced.aiReplace.quickTapThreshold.title")}
+              </div>
+              <div className="text-xs text-text-muted">
+                {t("settings.advanced.aiReplace.quickTapThreshold.description")}
+              </div>
+            </div>
+            <Input
+              type="number"
+              min="100"
+              max="2000"
+              step="50"
+              value={getSetting("ai_replace_quick_tap_threshold_ms") ?? 500}
+              onChange={(e) => {
+                const val = parseInt(e.target.value, 10);
+                if (!isNaN(val) && val > 0) {
+                  updateSetting("ai_replace_quick_tap_threshold_ms", val);
+                }
+              }}
+              disabled={isUpdating("ai_replace_quick_tap_threshold_ms")}
+              className="w-24"
+            />
+            <span className="text-sm text-text">
+              {t("settings.advanced.aiReplace.quickTapThreshold.suffix")}
+            </span>
+          </div>
         </SettingContainer>
       )}
 

@@ -81,12 +81,15 @@ When merging upstream changes, these files will likely have conflicts. Here's ho
 ### Fork-Only Files (No Conflict Expected)
 
 These files are 100% ours — upstream won't have them:
-- `src-tauri/src/connector.rs`
+- `src-tauri/src/managers/connector.rs` — Main connector module (HTTP server for extension)
+- `src-tauri/src/commands/connector.rs` — Tauri commands for connector
 - `src-tauri/src/managers/remote_stt.rs`
 - `src-tauri/src/commands/remote_stt.rs`
 - `src-tauri/src/plus_overlay_state.rs` — Extended overlay states for error display
 - `src/components/settings/remote-stt/RemoteSttSettings.tsx`
 - `src/components/settings/advanced/AiReplaceSettings.tsx`
+- `src/components/settings/browser-connector/ConnectorStatus.tsx` — Extension status indicator
+- `src/components/icons/SendingIcon.tsx` — Icon for "sending" overlay state
 - `src/overlay/plus_overlay_states.ts` — TypeScript types for extended overlay
 
 ### After Merge Checklist

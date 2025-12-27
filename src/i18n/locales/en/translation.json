@@ -256,6 +256,11 @@
         "quickTapSystemPrompt": {
           "title": "System Prompt (Quick Tap)",
           "description": "System prompt used when you just tap the key without speaking (e.g. 'Fix grammar')."
+        },
+        "quickTapThreshold": {
+          "title": "Quick Tap Threshold",
+          "description": "Maximum duration to consider a tap as a 'Quick Tap'.",
+          "suffix": "ms"
         }
       },
       "transcriptionProvider": {
@@ -577,14 +582,19 @@
           "description": "How long to wait for ShareX to save. Increase for slow drives or network folders.",
           "unit": "seconds"
         },
-        "allowNoVoice": {
-          "title": "Allow Without Voice",
-          "description": "Enable to send without speaking. Usage: Quickly tap your hotkey and do not say anything to send the screenshot with the default prompt."
-        },
-        "noVoiceDefaultPrompt": {
-          "title": "Default Prompt (No Voice)",
-          "description": "Prompt used when sending a screenshot without voice instruction.",
-          "placeholder": "Look at this picture and provide a helpful response."
+        "quickTap": {
+          "title": "Allow Quick Tap",
+          "description": "Enable to send without speaking. Usage: Quickly tap your hotkey and do not say anything to send the screenshot with the default prompt.",
+          "threshold": {
+            "title": "Quick Tap Threshold",
+            "description": "Maximum duration to consider a tap as a 'Quick Tap'.",
+            "suffix": "ms"
+          },
+          "defaultPrompt": {
+            "title": "Default Prompt (Quick Tap)",
+            "description": "Prompt used when sending a screenshot without voice instruction.",
+            "placeholder": "Look at this picture and provide a helpful response."
+          }
         }
       },
       "connection": {
@@ -626,13 +636,18 @@
           "title": "User Prompt Template",
           "description": "Template for combining instruction and selection. Supports ${instruction} and ${output}."
         },
-        "allowNoVoice": {
-          "title": "Allow Without Voice",
-          "description": "Enable to send without speaking. Usage: Quickly tap your hotkey and do not say anything to send just the selection."
-        },
-        "noVoiceSystemPrompt": {
-          "title": "System Prompt (No Voice)",
-          "description": "Optional instruction prepended to your selection (format: SYSTEM:\\n[Prompt]\\n\\n[Selection]). Leave empty to send only the text."
+        "quickTap": {
+          "title": "Allow Quick Tap",
+          "description": "Enable to send without speaking. Usage: Quickly tap your hotkey and do not say anything to send just the selection.",
+          "threshold": {
+            "title": "Quick Tap Threshold",
+            "description": "Maximum duration to consider a tap as a 'Quick Tap'.",
+            "suffix": "ms"
+          },
+          "systemPrompt": {
+            "title": "System Prompt (Quick Tap)",
+            "description": "Optional instruction prepended to your selection (format: SYSTEM:\\n[Prompt]\\n\\n[Selection]). Leave empty to send only the text."
+          }
         }
       }
     },
@@ -669,6 +684,11 @@
         "systemPrompt": {
           "title": "System Prompt (Quick Tap)",
           "description": "System prompt used when you just tap the key without speaking (e.g. 'Fix grammar')."
+        },
+        "threshold": {
+          "title": "Quick Tap Threshold",
+          "description": "Maximum duration to consider a tap as a 'Quick Tap'.",
+          "suffix": "ms"
         }
       },
       "withSelection": {

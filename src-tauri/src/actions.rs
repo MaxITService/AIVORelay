@@ -446,12 +446,17 @@ async fn get_transcription_or_cleanup(
     let rm = Arc::clone(&app.state::<Arc<AudioRecordingManager>>());
 
     if let Some(samples) = rm.stop_recording(binding_id) {
-        // Quick Tap Optimization: If audio is less than 800ms, skip STT
-        // 16000 Hz * 0.8s = 12800 samples
-        if samples.len() < 12_800 {
+        // Quick Tap Optimization: If audio is less than threshold, skip STT
+        // 16000 Hz * (threshold_ms / 1000)
+        let settings = get_settings(app);
+        let threshold_samples =
+            (settings.ai_replace_quick_tap_threshold_ms as f32 / 1000.0 * 16000.0) as usize;
+
+        if samples.len() < threshold_samples {
             debug!(
-                "Quick tap detected ({} samples < 12800), skipping transcription",
-                samples.len()
+                "Quick tap detected ({} samples < {}), skipping transcription",
+                samples.len(),
+                threshold_samples
             );
             return Some((String::new(), samples));
         }
