@@ -24,6 +24,7 @@ use env_filter::Builder as EnvFilterBuilder;
 use managers::audio::AudioRecordingManager;
 use managers::connector::ConnectorManager;
 use managers::history::HistoryManager;
+use managers::llm_operation::LlmOperationTracker;
 use managers::model::ModelManager;
 use managers::remote_stt::RemoteSttManager;
 use managers::transcription::TranscriptionManager;
@@ -142,12 +143,14 @@ fn initialize_core_logic(app_handle: &AppHandle) {
     let connector_manager = Arc::new(
         ConnectorManager::new(app_handle).expect("Failed to initialize connector manager"),
     );
+    let llm_operation_tracker = Arc::new(LlmOperationTracker::new());
 
     // Add managers to Tauri's managed state
     app_handle.manage(recording_manager.clone());
     app_handle.manage(model_manager.clone());
     app_handle.manage(transcription_manager.clone());
     app_handle.manage(remote_stt_manager.clone());
+    app_handle.manage(llm_operation_tracker.clone());
     app_handle.manage(history_manager.clone());
     app_handle.manage(connector_manager.clone());
 

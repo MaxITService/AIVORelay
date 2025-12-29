@@ -5,6 +5,7 @@ use crate::audio_toolkit::apply_custom_words;
 use crate::managers::audio::AudioRecordingManager;
 use crate::managers::connector::ConnectorManager;
 use crate::managers::history::HistoryManager;
+use crate::managers::llm_operation::LlmOperationTracker;
 use crate::managers::remote_stt::RemoteSttManager;
 use crate::managers::transcription::TranscriptionManager;
 use crate::settings::{
@@ -1210,12 +1211,26 @@ impl ShortcutAction for AiReplaceSelectionAction {
 
             show_thinking_overlay(&ah);
 
+            // Start LLM operation tracking for cancellation support
+            let llm_tracker = ah.state::<Arc<LlmOperationTracker>>();
+            let operation_id = llm_tracker.start_operation();
+
             let hm = Arc::clone(&ah.state::<Arc<HistoryManager>>());
             let instruction_for_history = transcription.clone();
             let selection_for_history = selected_text.clone();
 
             match ai_replace_with_llm(&settings, &selected_text, &transcription).await {
                 Ok(output) => {
+                    // Check if operation was cancelled while we were waiting
+                    if llm_tracker.is_cancelled(operation_id) {
+                        debug!(
+                            "LLM operation {} was cancelled, discarding result",
+                            operation_id
+                        );
+                        // Overlay already hidden by cancel_current_operation, just return
+                        return;
+                    }
+
                     // Save to history with AI response
                     let hm_clone = Arc::clone(&hm);
                     let instruction_clone = instruction_for_history.clone();
@@ -1243,6 +1258,15 @@ impl ShortcutAction for AiReplaceSelectionAction {
                     .ok();
                 }
                 Err(_) => {
+                    // Check if cancelled - if so, skip error reporting
+                    if llm_tracker.is_cancelled(operation_id) {
+                        debug!(
+                            "LLM operation {} was cancelled, skipping error handling",
+                            operation_id
+                        );
+                        return;
+                    }
+
                     // Save to history with no AI response (indicates failure)
                     tauri::async_runtime::spawn(async move {
                         if let Err(e) = hm
