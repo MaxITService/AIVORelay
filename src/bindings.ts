@@ -400,6 +400,14 @@ async changeAiReplaceModelSetting(providerId: string, model: string) : Promise<R
     else return { status: "error", error: e  as any };
 }
 },
+async changeSendToExtensionEnabledSetting(enabled: boolean) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("change_send_to_extension_enabled_setting", { enabled }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async changeSendToExtensionPushToTalkSetting(enabled: boolean) : Promise<Result<null, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("change_send_to_extension_push_to_talk_setting", { enabled }) };
@@ -419,6 +427,14 @@ async changeSendToExtensionWithSelectionSystemPromptSetting(prompt: string) : Pr
 async changeSendToExtensionWithSelectionUserPromptSetting(prompt: string) : Promise<Result<null, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("change_send_to_extension_with_selection_user_prompt_setting", { prompt }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async changeSendToExtensionWithSelectionEnabledSetting(enabled: boolean) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("change_send_to_extension_with_selection_enabled_setting", { enabled }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
@@ -523,6 +539,14 @@ async changeScreenshotAllowNoVoiceSetting(enabled: boolean) : Promise<Result<nul
 async changeScreenshotNoVoiceDefaultPromptSetting(prompt: string) : Promise<Result<null, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("change_screenshot_no_voice_default_prompt_setting", { prompt }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async changeSendScreenshotToExtensionEnabledSetting(enabled: boolean) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("change_send_screenshot_to_extension_enabled_setting", { enabled }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };

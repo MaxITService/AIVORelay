@@ -1002,6 +1002,18 @@ pub fn change_ai_replace_model_setting(
 
 #[tauri::command]
 #[specta::specta]
+pub fn change_send_to_extension_enabled_setting(
+    app: AppHandle,
+    enabled: bool,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.send_to_extension_enabled = enabled;
+    settings::write_settings(&app, settings);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
 pub fn change_send_to_extension_push_to_talk_setting(
     app: AppHandle,
     enabled: bool,
@@ -1032,6 +1044,18 @@ pub fn change_send_to_extension_with_selection_user_prompt_setting(
 ) -> Result<(), String> {
     let mut settings = settings::get_settings(&app);
     settings.send_to_extension_with_selection_user_prompt = prompt;
+    settings::write_settings(&app, settings);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_send_to_extension_with_selection_enabled_setting(
+    app: AppHandle,
+    enabled: bool,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.send_to_extension_with_selection_enabled = enabled;
     settings::write_settings(&app, settings);
     Ok(())
 }
@@ -1201,6 +1225,18 @@ pub fn change_screenshot_no_voice_default_prompt_setting(
 ) -> Result<(), String> {
     let mut settings = settings::get_settings(&app);
     settings.screenshot_no_voice_default_prompt = prompt;
+    settings::write_settings(&app, settings);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_send_screenshot_to_extension_enabled_setting(
+    app: AppHandle,
+    enabled: bool,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.send_screenshot_to_extension_enabled = enabled;
     settings::write_settings(&app, settings);
     Ok(())
 }

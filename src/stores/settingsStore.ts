@@ -137,8 +137,12 @@ const settingUpdaters: {
     commands.changeAiReplaceUserPromptSetting(value as string),
   ai_replace_max_chars: (value) =>
     commands.changeAiReplaceMaxCharsSetting(value as number),
+  send_to_extension_enabled: (value) =>
+    commands.changeSendToExtensionEnabledSetting(value as boolean),
   send_to_extension_push_to_talk: (value) =>
     commands.changeSendToExtensionPushToTalkSetting(value as boolean),
+  send_to_extension_with_selection_enabled: (value) =>
+    commands.changeSendToExtensionWithSelectionEnabledSetting(value as boolean),
   send_to_extension_with_selection_push_to_talk: (value) =>
     commands.changeSendToExtensionWithSelectionPushToTalkSetting(value as boolean),
   ai_replace_selection_push_to_talk: (value) =>
@@ -161,6 +165,8 @@ const settingUpdaters: {
     commands.changeScreenshotTimeoutSecondsSetting(value as number),
   screenshot_include_subfolders: (value) =>
     commands.changeScreenshotIncludeSubfoldersSetting(value as boolean),
+  send_screenshot_to_extension_enabled: (value) =>
+    commands.changeSendScreenshotToExtensionEnabledSetting(value as boolean),
   send_screenshot_to_extension_push_to_talk: (value) =>
     commands.changeSendScreenshotToExtensionPushToTalkSetting(value as boolean),
   mute_while_recording: (value) =>
