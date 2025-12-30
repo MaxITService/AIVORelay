@@ -587,15 +587,11 @@ async fn ai_replace_with_llm(
     instruction: &str,
 ) -> Result<String, String> {
     let provider = settings
-        .active_post_process_provider()
+        .active_ai_replace_provider()
         .cloned()
         .ok_or_else(|| "No LLM provider configured".to_string())?;
 
-    let model = settings
-        .post_process_models
-        .get(&provider.id)
-        .cloned()
-        .unwrap_or_default();
+    let model = settings.ai_replace_model(&provider.id);
 
     if model.trim().is_empty() {
         return Err(format!(
@@ -625,11 +621,7 @@ async fn ai_replace_with_llm(
         provider.id, model
     );
 
-    let api_key = settings
-        .post_process_api_keys
-        .get(&provider.id)
-        .cloned()
-        .unwrap_or_default();
+    let api_key = settings.ai_replace_api_key(&provider.id);
 
     let client = crate::llm_client::create_client(&provider, api_key)
         .map_err(|e| format!("Failed to create LLM client: {}", e))?;

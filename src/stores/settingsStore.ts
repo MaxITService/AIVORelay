@@ -46,12 +46,19 @@ interface SettingsStore {
   ) => Promise<void>;
   updatePostProcessModel: (providerId: string, model: string) => Promise<void>;
   fetchPostProcessModels: (providerId: string) => Promise<string[]>;
+  fetchLlmModels: (feature: "post_processing" | "ai_replace") => Promise<string[]>;
   setPostProcessModelOptions: (providerId: string, models: string[]) => void;
   setTranscriptionProvider: (providerId: string) => Promise<void>;
   updateRemoteSttBaseUrl: (baseUrl: string) => Promise<void>;
   updateRemoteSttModelId: (modelId: string) => Promise<void>;
   updateRemoteSttDebugCapture: (enabled: boolean) => Promise<void>;
   updateRemoteSttDebugMode: (mode: string) => Promise<void>;
+  setAiReplaceProvider: (providerId: string | null) => Promise<void>;
+  updateAiReplaceApiKey: (
+    providerId: string,
+    apiKey: string,
+  ) => Promise<void>;
+  updateAiReplaceModel: (providerId: string, model: string) => Promise<void>;
 
   // Internal state setters
   setSettings: (settings: Settings | null) => void;
@@ -545,6 +552,100 @@ export const useSettingsStore = create<SettingsStore>()(
           [providerId]: models,
         },
       })),
+
+    fetchLlmModels: async (feature: "post_processing" | "ai_replace") => {
+      const { setUpdating, setPostProcessModelOptions, settings } = get();
+      
+      // Get the effective provider ID for this feature
+      const effectiveProviderId = feature === "ai_replace"
+        ? (settings?.ai_replace_provider_id || settings?.post_process_provider_id || "openai")
+        : (settings?.post_process_provider_id || "openai");
+      
+      const updateKey = `llm_models_fetch:${feature}:${effectiveProviderId}`;
+
+      setUpdating(updateKey, true);
+
+      try {
+        const result = await commands.fetchLlmModels(feature);
+        if (result.status === "ok") {
+          // Store models under the effective provider ID for this feature
+          setPostProcessModelOptions(effectiveProviderId, result.data);
+          return result.data;
+        } else {
+          console.error("Failed to fetch LLM models:", result.error);
+          return [];
+        }
+      } catch (error) {
+        console.error("Failed to fetch LLM models:", error);
+        return [];
+      } finally {
+        setUpdating(updateKey, false);
+      }
+    },
+
+    setAiReplaceProvider: async (providerId: string | null) => {
+      const { settings, setUpdating, refreshSettings } = get();
+      const updateKey = "ai_replace_provider_id";
+      const previousId = settings?.ai_replace_provider_id ?? null;
+
+      setUpdating(updateKey, true);
+
+      if (settings) {
+        set((state) => ({
+          settings: state.settings
+? { ...state.settings, ai_replace_provider_id: providerId }
+            : null,
+        }));
+      }
+
+      try {
+        await commands.setAiReplaceProvider(providerId);
+        await refreshSettings();
+      } catch (error) {
+        console.error("Failed to set AI Replace provider:", error);
+        if (settings) {
+          set((state) => ({
+            settings: state.settings
+? { ...state.settings, ai_replace_provider_id: previousId }
+              : null,
+          }));
+        }
+      } finally {
+        setUpdating(updateKey, false);
+      }
+    },
+
+    updateAiReplaceApiKey: async (providerId: string, apiKey: string) => {
+      const { setUpdating, refreshSettings } = get();
+      const updateKey = `ai_replace_api_key:${providerId}`;
+
+      setUpdating(updateKey, true);
+
+      try {
+        await commands.changeAiReplaceApiKeySetting(providerId, apiKey);
+        await refreshSettings();
+      } catch (error) {
+        console.error("Failed to update AI Replace API key:", error);
+      } finally {
+        setUpdating(updateKey, false);
+      }
+    },
+
+    updateAiReplaceModel: async (providerId: string, model: string) => {
+      const { setUpdating, refreshSettings } = get();
+      const updateKey = `ai_replace_model:${providerId}`;
+
+      setUpdating(updateKey, true);
+
+      try {
+        await commands.changeAiReplaceModelSetting(providerId, model);
+        await refreshSettings();
+      } catch (error) {
+        console.error("Failed to update AI Replace model:", error);
+      } finally {
+        setUpdating(updateKey, false);
+      }
+    },
 
     updateRemoteSttBaseUrl: async (baseUrl) => {
       const { setUpdating, refreshSettings } = get();

@@ -773,6 +773,51 @@ async fn fetch_models_manual(
     Ok(models)
 }
 
+/// Fetch models for a specific LLM feature.
+/// Uses the proper API key based on the feature's configuration.
+#[tauri::command]
+#[specta::specta]
+pub async fn fetch_llm_models(
+    app: AppHandle,
+    feature: settings::LlmFeature,
+) -> Result<Vec<String>, String> {
+    let settings = settings::get_settings(&app);
+
+    // Get the resolved LLM config for this feature
+    let config = settings
+        .llm_config_for(feature)
+        .ok_or_else(|| "No provider configured for this feature".to_string())?;
+
+    // Find the provider details
+    let provider = settings
+        .post_process_providers
+        .iter()
+        .find(|p| p.id == config.provider_id)
+        .ok_or_else(|| format!("Provider '{}' not found", config.provider_id))?;
+
+    if provider.id == APPLE_INTELLIGENCE_PROVIDER_ID {
+        #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+        {
+            return Ok(vec![APPLE_INTELLIGENCE_DEFAULT_MODEL_ID.to_string()]);
+        }
+
+        #[cfg(not(all(target_os = "macos", target_arch = "aarch64")))]
+        {
+            return Err("Apple Intelligence is only available on Apple silicon Macs running macOS 15 or later.".to_string());
+        }
+    }
+
+    // Skip fetching if no API key for providers that typically need one
+    if config.api_key.trim().is_empty() && provider.id != "custom" {
+        return Err(format!(
+            "API key is required for {}. Please add an API key to list available models.",
+            provider.label
+        ));
+    }
+
+    fetch_models_manual(provider, config.api_key).await
+}
+
 #[tauri::command]
 #[specta::specta]
 pub fn set_post_process_selected_prompt(app: AppHandle, id: String) -> Result<(), String> {
@@ -894,6 +939,46 @@ pub fn change_ai_replace_quick_tap_system_prompt_setting(
 ) -> Result<(), String> {
     let mut settings = settings::get_settings(&app);
     settings.ai_replace_quick_tap_system_prompt = prompt;
+    settings::write_settings(&app, settings);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn set_ai_replace_provider(app: AppHandle, provider_id: Option<String>) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    if let Some(ref pid) = provider_id {
+        validate_provider_exists(&settings, pid)?;
+    }
+    settings.ai_replace_provider_id = provider_id;
+    settings::write_settings(&app, settings);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_ai_replace_api_key_setting(
+    app: AppHandle,
+    provider_id: String,
+    api_key: String,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    validate_provider_exists(&settings, &provider_id)?;
+    settings.ai_replace_api_keys.insert(provider_id, api_key);
+    settings::write_settings(&app, settings);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_ai_replace_model_setting(
+    app: AppHandle,
+    provider_id: String,
+    model: String,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    validate_provider_exists(&settings, &provider_id)?;
+    settings.ai_replace_models.insert(provider_id, model);
     settings::write_settings(&app, settings);
     Ok(())
 }

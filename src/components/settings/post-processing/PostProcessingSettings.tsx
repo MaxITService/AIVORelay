@@ -10,12 +10,12 @@ import { ResetButton } from "../../ui/ResetButton";
 import { Input } from "../../ui/Input";
 import { Dropdown } from "../../ui/Dropdown";
 import { Textarea } from "../../ui/Textarea";
-
 import { ProviderSelect } from "../PostProcessingSettingsApi/ProviderSelect";
 import { BaseUrlField } from "../PostProcessingSettingsApi/BaseUrlField";
 import { ApiKeyField } from "../PostProcessingSettingsApi/ApiKeyField";
 import { ModelSelect } from "../PostProcessingSettingsApi/ModelSelect";
 import { usePostProcessProviderState } from "../PostProcessingSettingsApi/usePostProcessProviderState";
+import { useAiReplaceProviderState } from "./useAiReplaceProviderState";
 import { useSettings } from "../../../hooks/useSettings";
 
 const DisabledNotice: React.FC<{ children: React.ReactNode }> = ({
@@ -26,14 +26,21 @@ const DisabledNotice: React.FC<{ children: React.ReactNode }> = ({
   </div>
 );
 
-const PostProcessingSettingsApiComponent: React.FC = () => {
+const LlmConfigSection: React.FC<{
+  title: string;
+  description: string;
+  state: any; // Can be from usePostProcessProviderState or useAiReplaceProviderState
+  showBaseUrl?: boolean;
+}> = ({ title, description, state, showBaseUrl = true }) => {
   const { t } = useTranslation();
-  const state = usePostProcessProviderState();
-
-
 
   return (
-    <>
+    <div className="space-y-4 pt-4 first:pt-0">
+      <div className="px-1">
+        <h3 className="text-sm font-semibold text-text">{title}</h3>
+        <p className="text-xs text-text/60 mt-0.5">{description}</p>
+      </div>
+
       <SettingContainer
         title={t("settings.postProcessing.api.provider.title")}
         description={t("settings.postProcessing.api.provider.description")}
@@ -50,113 +57,165 @@ const PostProcessingSettingsApiComponent: React.FC = () => {
         </div>
       </SettingContainer>
 
-      {state.isAppleProvider ? (
+      {/* If state has useSameAsPostProcess and it's true, show notice and hide rest */}
+      {state.useSameAsPostProcess ? (
         <SettingContainer
-          title={t("settings.postProcessing.api.appleIntelligence.title")}
-          description={t(
-            "settings.postProcessing.api.appleIntelligence.description",
-          )}
+          title=""
+          description=""
           descriptionMode="tooltip"
           layout="stacked"
           grouped={true}
         >
-          <DisabledNotice>
-            {t("settings.postProcessing.api.appleIntelligence.requirements")}
-          </DisabledNotice>
+          <div className="p-3 bg-purple-500/5 border border-purple-500/20 rounded-lg">
+            <p className="text-xs text-purple-400/80">
+              {t("settings.postProcessing.api.aiReplace.sameAsPostProcessing")}
+            </p>
+          </div>
         </SettingContainer>
       ) : (
         <>
-          <SettingContainer
-            title={t("settings.postProcessing.api.baseUrl.title")}
-            description={t("settings.postProcessing.api.baseUrl.description")}
-            descriptionMode="tooltip"
-            layout="horizontal"
-            grouped={true}
-          >
-            <div className="flex items-center gap-2">
-              <BaseUrlField
-                value={state.baseUrl}
-                onBlur={state.handleBaseUrlChange}
-                placeholder={t(
-                  "settings.postProcessing.api.baseUrl.placeholder",
+          {state.isAppleProvider ? (
+            <SettingContainer
+              title={t("settings.postProcessing.api.appleIntelligence.title")}
+              description={t(
+                "settings.postProcessing.api.appleIntelligence.description",
+              )}
+              descriptionMode="tooltip"
+              layout="stacked"
+              grouped={true}
+            >
+              <DisabledNotice>
+                {t(
+                  "settings.postProcessing.api.appleIntelligence.requirements",
                 )}
-                disabled={
-                  !state.selectedProvider?.allow_base_url_edit ||
-                  state.isBaseUrlUpdating
-                }
-                className="min-w-[380px]"
-              />
-            </div>
-          </SettingContainer>
+              </DisabledNotice>
+            </SettingContainer>
+          ) : (
+            <>
+              {showBaseUrl && (
+                <SettingContainer
+                  title={t("settings.postProcessing.api.baseUrl.title")}
+                  description={t(
+                    "settings.postProcessing.api.baseUrl.description",
+                  )}
+                  descriptionMode="tooltip"
+                  layout="horizontal"
+                  grouped={true}
+                >
+                  <div className="flex items-center gap-2">
+                    <BaseUrlField
+                      value={state.baseUrl}
+                      onBlur={state.handleBaseUrlChange || (() => {})}
+                      placeholder={t(
+                        "settings.postProcessing.api.baseUrl.placeholder",
+                      )}
+                      disabled={
+                        !state.selectedProvider?.allow_base_url_edit ||
+                        state.isBaseUrlUpdating
+                      }
+                      className="min-w-[380px]"
+                    />
+                  </div>
+                </SettingContainer>
+              )}
+
+              <SettingContainer
+                title={t("settings.postProcessing.api.apiKey.title")}
+                description={t(
+                  "settings.postProcessing.api.apiKey.description",
+                )}
+                descriptionMode="tooltip"
+                layout="horizontal"
+                grouped={true}
+              >
+                <div className="flex items-center gap-2">
+                  <ApiKeyField
+                    value={state.apiKey}
+                    onBlur={state.handleApiKeyChange}
+                    placeholder={t(
+                      "settings.postProcessing.api.apiKey.placeholder",
+                    )}
+                    disabled={state.isApiKeyUpdating}
+                    className="min-w-[320px]"
+                  />
+                </div>
+              </SettingContainer>
+            </>
+          )}
 
           <SettingContainer
-            title={t("settings.postProcessing.api.apiKey.title")}
-            description={t("settings.postProcessing.api.apiKey.description")}
+            title={t("settings.postProcessing.api.model.title")}
+            description={
+              state.isAppleProvider
+                ? t("settings.postProcessing.api.model.descriptionApple")
+                : state.isCustomProvider
+                  ? t("settings.postProcessing.api.model.descriptionCustom")
+                  : t("settings.postProcessing.api.model.descriptionDefault")
+            }
             descriptionMode="tooltip"
-            layout="horizontal"
+            layout="stacked"
             grouped={true}
           >
             <div className="flex items-center gap-2">
-              <ApiKeyField
-                value={state.apiKey}
-                onBlur={state.handleApiKeyChange}
-                placeholder={t(
-                  "settings.postProcessing.api.apiKey.placeholder",
-                )}
-                disabled={state.isApiKeyUpdating}
-                className="min-w-[320px]"
+              <ModelSelect
+                value={state.model}
+                options={state.modelOptions}
+                disabled={state.isModelUpdating}
+                isLoading={state.isFetchingModels}
+                placeholder={
+                  state.isAppleProvider
+                    ? t("settings.postProcessing.api.model.placeholderApple")
+                    : state.modelOptions.length > 0
+                      ? t(
+                          "settings.postProcessing.api.model.placeholderWithOptions",
+                        )
+                      : t(
+                          "settings.postProcessing.api.model.placeholderNoOptions",
+                        )
+                }
+                onSelect={state.handleModelSelect}
+                onCreate={state.handleModelCreate}
+                onBlur={() => {}}
+                className="flex-1 min-w-[380px]"
               />
+              <ResetButton
+                onClick={state.handleRefreshModels}
+                disabled={state.isFetchingModels || state.isAppleProvider}
+                ariaLabel={t("settings.postProcessing.api.model.refreshModels")}
+                className="flex h-10 w-10 items-center justify-center"
+              >
+                <RefreshCcw
+                  className={`h-4 w-4 ${state.isFetchingModels ? "animate-spin" : ""}`}
+                />
+              </ResetButton>
             </div>
           </SettingContainer>
         </>
       )}
+    </div>
+  );
+};
 
-      <SettingContainer
-        title={t("settings.postProcessing.api.model.title")}
-        description={
-          state.isAppleProvider
-            ? t("settings.postProcessing.api.model.descriptionApple")
-            : state.isCustomProvider
-              ? t("settings.postProcessing.api.model.descriptionCustom")
-              : t("settings.postProcessing.api.model.descriptionDefault")
-        }
-        descriptionMode="tooltip"
-        layout="stacked"
-        grouped={true}
-      >
-        <div className="flex items-center gap-2">
-          <ModelSelect
-            value={state.model}
-            options={state.modelOptions}
-            disabled={state.isModelUpdating}
-            isLoading={state.isFetchingModels}
-            placeholder={
-              state.isAppleProvider
-                ? t("settings.postProcessing.api.model.placeholderApple")
-                : state.modelOptions.length > 0
-                  ? t(
-                      "settings.postProcessing.api.model.placeholderWithOptions",
-                    )
-                  : t("settings.postProcessing.api.model.placeholderNoOptions")
-            }
-            onSelect={state.handleModelSelect}
-            onCreate={state.handleModelCreate}
-            onBlur={() => {}}
-            className="flex-1 min-w-[380px]"
-          />
-          <ResetButton
-            onClick={state.handleRefreshModels}
-            disabled={state.isFetchingModels || state.isAppleProvider}
-            ariaLabel={t("settings.postProcessing.api.model.refreshModels")}
-            className="flex h-10 w-10 items-center justify-center"
-          >
-            <RefreshCcw
-              className={`h-4 w-4 ${state.isFetchingModels ? "animate-spin" : ""}`}
-            />
-          </ResetButton>
-        </div>
-      </SettingContainer>
-    </>
+const PostProcessingSettingsApiComponent: React.FC = () => {
+  const { t } = useTranslation();
+  const postProcessState = usePostProcessProviderState();
+  const aiReplaceState = useAiReplaceProviderState();
+
+  return (
+    <div className="divide-y divide-mid-gray/10 space-y-8">
+      <LlmConfigSection
+        title={t("settings.postProcessing.api.transcription.title")}
+        description={t("settings.postProcessing.api.transcription.description")}
+        state={postProcessState}
+      />
+
+      <LlmConfigSection
+        title={t("settings.postProcessing.api.aiReplace.title")}
+        description={t("settings.postProcessing.api.aiReplace.description")}
+        state={aiReplaceState}
+        showBaseUrl={false} // Base URL is shared per provider
+      />
+    </div>
   );
 };
 

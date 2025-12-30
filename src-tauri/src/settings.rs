@@ -103,6 +103,27 @@ pub struct PostProcessProvider {
     pub models_endpoint: Option<String>,
 }
 
+/// Which feature is requesting LLM access.
+/// Used to resolve the correct provider/key/model configuration.
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Type)]
+#[serde(rename_all = "snake_case")]
+pub enum LlmFeature {
+    /// Post-processing of transcriptions
+    PostProcessing,
+    /// AI Replace selection feature
+    AiReplace,
+}
+
+/// Resolved LLM configuration for a specific feature.
+/// Contains all information needed to make an LLM API call.
+#[derive(Serialize, Deserialize, Debug, Clone, Type)]
+pub struct LlmConfig {
+    pub provider_id: String,
+    pub api_key: String,
+    pub model: String,
+    pub base_url: String,
+}
+
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Type)]
 #[serde(rename_all = "snake_case")]
 pub enum TranscriptionProvider {
@@ -332,6 +353,15 @@ pub struct AppSettings {
     pub ai_replace_quick_tap_threshold_ms: u32,
     #[serde(default = "default_ai_replace_quick_tap_system_prompt")]
     pub ai_replace_quick_tap_system_prompt: String,
+    /// AI Replace LLM provider ID (separate from post-processing)
+    #[serde(default)]
+    pub ai_replace_provider_id: Option<String>,
+    /// AI Replace API keys per provider
+    #[serde(default)]
+    pub ai_replace_api_keys: HashMap<String, String>,
+    /// AI Replace models per provider
+    #[serde(default)]
+    pub ai_replace_models: HashMap<String, String>,
     #[serde(default = "default_send_to_extension_with_selection_system_prompt")]
     pub send_to_extension_with_selection_system_prompt: String,
     #[serde(default = "default_send_to_extension_with_selection_user_prompt")]
@@ -853,6 +883,9 @@ pub fn get_default_settings() -> AppSettings {
         ai_replace_allow_quick_tap: default_ai_replace_allow_quick_tap(),
         ai_replace_quick_tap_threshold_ms: default_ai_replace_quick_tap_threshold_ms(),
         ai_replace_quick_tap_system_prompt: default_ai_replace_quick_tap_system_prompt(),
+        ai_replace_provider_id: None,
+        ai_replace_api_keys: HashMap::new(),
+        ai_replace_models: HashMap::new(),
         send_to_extension_with_selection_system_prompt:
             default_send_to_extension_with_selection_system_prompt(),
         send_to_extension_with_selection_user_prompt:
@@ -907,6 +940,107 @@ impl AppSettings {
         self.post_process_providers
             .iter_mut()
             .find(|provider| provider.id == provider_id)
+    }
+
+    /// Get the active AI Replace LLM provider.
+    /// Falls back to post-processing provider if none is set.
+    pub fn active_ai_replace_provider(&self) -> Option<&PostProcessProvider> {
+        if let Some(ref provider_id) = self.ai_replace_provider_id {
+            self.post_process_providers
+                .iter()
+                .find(|p| &p.id == provider_id)
+        } else {
+            self.active_post_process_provider()
+        }
+    }
+
+    /// Get AI Replace API key for a provider.
+    /// Falls back to post-processing API key if not set.
+    pub fn ai_replace_api_key(&self, provider_id: &str) -> String {
+        // If AI Replace is configured to use the same provider as post-processing,
+        // use the post-processing API key (ignore any AI Replace overrides).
+        if self.ai_replace_provider_id.as_deref() != Some(provider_id) {
+            return self
+                .post_process_api_keys
+                .get(provider_id)
+                .cloned()
+                .unwrap_or_default();
+        }
+
+        self.ai_replace_api_keys
+            .get(provider_id)
+            .filter(|k| !k.is_empty())
+            .cloned()
+            .unwrap_or_else(|| {
+                self.post_process_api_keys
+                    .get(provider_id)
+                    .cloned()
+                    .unwrap_or_default()
+            })
+    }
+
+    /// Get AI Replace model for a provider.
+    /// Falls back to post-processing model if not set.
+    pub fn ai_replace_model(&self, provider_id: &str) -> String {
+        // If AI Replace is configured to use the same provider as post-processing,
+        // use the post-processing model (ignore any AI Replace overrides).
+        if self.ai_replace_provider_id.as_deref() != Some(provider_id) {
+            return self
+                .post_process_models
+                .get(provider_id)
+                .cloned()
+                .unwrap_or_default();
+        }
+
+        self.ai_replace_models
+            .get(provider_id)
+            .filter(|m| !m.is_empty())
+            .cloned()
+            .unwrap_or_else(|| {
+                self.post_process_models
+                    .get(provider_id)
+                    .cloned()
+                    .unwrap_or_default()
+            })
+    }
+
+    /// Get the fully resolved LLM configuration for a specific feature.
+    /// This is the primary entry point for getting LLM settings with proper fallback chains.
+    pub fn llm_config_for(&self, feature: LlmFeature) -> Option<LlmConfig> {
+        match feature {
+            LlmFeature::PostProcessing => {
+                let provider = self.active_post_process_provider()?;
+                let api_key = self
+                    .post_process_api_keys
+                    .get(&provider.id)
+                    .cloned()
+                    .unwrap_or_default();
+                let model = self
+                    .post_process_models
+                    .get(&provider.id)
+                    .cloned()
+                    .unwrap_or_default();
+
+                Some(LlmConfig {
+                    provider_id: provider.id.clone(),
+                    api_key,
+                    model,
+                    base_url: provider.base_url.clone(),
+                })
+            }
+            LlmFeature::AiReplace => {
+                let provider = self.active_ai_replace_provider()?;
+                let api_key = self.ai_replace_api_key(&provider.id);
+                let model = self.ai_replace_model(&provider.id);
+
+                Some(LlmConfig {
+                    provider_id: provider.id.clone(),
+                    api_key,
+                    model,
+                    base_url: provider.base_url.clone(),
+                })
+            }
+        }
     }
 }
 

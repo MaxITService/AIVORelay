@@ -86,15 +86,15 @@ Capture a screenshot region and send it with voice instruction to ChatGPT/Claude
 
 ## Configuration
 
-### LLM Provider (Required for AI Replace)
+### LLM API Relay Configuration
 
-Settings → Post-Processing → Configure your LLM provider (OpenAI, Anthropic, etc.)
+**Settings → LLM API Relay**
 
-AI Replace uses the same LLM provider configured for post-processing.
+Configure your LLM provider (OpenAI, Anthropic, etc.) to power Post-Processing and AI Replace features. You can use the same model for both or configure separate ones if needed.
 
-### AI Replace Prompts
+### AI Replace Settings
 
-Settings → Advanced → AI Replace Settings
+**Settings → AI Replace**
 
 | Setting                        | Description                                                                 |
 | ------------------------------ | --------------------------------------------------------------------------- |

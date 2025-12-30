@@ -8,7 +8,7 @@
   "sidebar": {
     "general": "Speech / Mic",
     "advanced": "Advanced",
-    "postProcessing": "LLM Relay",
+    "postProcessing": "LLM API Relay",
     "aiReplace": "AI Replace",
     "browserConnector": "Connector",
     "history": "History",
@@ -388,7 +388,7 @@
       }
     },
     "postProcessing": {
-      "title": "LLM Relay",
+      "title": "LLM API Relay",
       "help": {
         "title": "Model Configuration",
         "description": "Here you can connect to large language model for either post-processing of your transcriptions or for function of AI replacing where the text is cut and sent to the large language model along with your voice message to be returned and pasted when AI responds."
@@ -424,6 +424,17 @@
           "placeholderWithOptions": "Search or select a model",
           "placeholderNoOptions": "Type a model name",
           "refreshModels": "Refresh models"
+        },
+        "transcription": {
+          "title": "Transcription Post-Processing",
+          "description": "Configure the LLM used to refine your speech-to-text results."
+        },
+        "aiReplace": {
+          "title": "AI Replace (Text Selection)",
+          "description": "Configure the LLM used for the AI Replace feature. You can use separate settings or the same as post-processing.",
+          "sameAsPostProcessing": "Use same settings as Transcription Post-Processing",
+          "sameAsPostProcessingOption": "Same as Post-Processing",
+          "differentSettings": "Use separate settings for AI Replace"
         }
       },
       "prompts": {

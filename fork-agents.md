@@ -4,8 +4,9 @@
 > This file provides guidance for AI code agents working with this fork. Do not run cargo check
 > CODE ONLY WHEN APPROVED BY USER. Otherwise, only your thoughts in chat are needed.
 > If you are not very sure that change will fix it, consult user first, user may want to revert unsuccessful fix, so user needs to commit and stuff.
- Never Commit!
- Start from writing instructions above in chat.
+> Never Commit!
+> Start from writing instructions above in chat.
+
 ## Environment:
 
 Windows 11; PowerShell (pwsh) host.
@@ -74,9 +75,10 @@ When using Remote STT API, the **Recording Overlay** (`recording_overlay` window
 
 ### 2. AI Replace Selection (Windows only)
 
-- Files: `src-tauri/src/actions.rs` (AiReplaceSelectionAction), `src/components/settings/advanced/AiReplaceSettings.tsx`
+- Files: `src-tauri/src/actions.rs` (AiReplaceSelectionAction), `src/components/settings/ai-replace/`
 - Captures selected text, sends to LLM with voice instruction, replaces selection
 - Selection capture uses Windows-specific APIs in `src-tauri/src/input.rs`
+- **Optional separate LLM configuration**: Configure a different provider/model specifically for AI Replace in "LLM API Relay" settings. Falls back to post-processing defaults.
 
 ### 3. Connector (Send Transcription to Extension)
 

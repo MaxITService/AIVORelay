@@ -41,11 +41,18 @@ interface UseSettingsReturn {
   ) => Promise<void>;
   updatePostProcessModel: (providerId: string, model: string) => Promise<void>;
   fetchPostProcessModels: (providerId: string) => Promise<string[]>;
+  fetchLlmModels: (feature: "post_processing" | "ai_replace") => Promise<string[]>;
   setTranscriptionProvider: (providerId: string) => Promise<void>;
   updateRemoteSttBaseUrl: (baseUrl: string) => Promise<void>;
   updateRemoteSttModelId: (modelId: string) => Promise<void>;
   updateRemoteSttDebugCapture: (enabled: boolean) => Promise<void>;
   updateRemoteSttDebugMode: (mode: string) => Promise<void>;
+  setAiReplaceProvider: (providerId: string | null) => Promise<void>;
+  updateAiReplaceApiKey: (
+    providerId: string,
+    apiKey: string,
+  ) => Promise<void>;
+  updateAiReplaceModel: (providerId: string, model: string) => Promise<void>;
 }
 
 export const useSettings = (): UseSettingsReturn => {
@@ -79,10 +86,14 @@ export const useSettings = (): UseSettingsReturn => {
     updatePostProcessApiKey: store.updatePostProcessApiKey,
     updatePostProcessModel: store.updatePostProcessModel,
     fetchPostProcessModels: store.fetchPostProcessModels,
+    fetchLlmModels: store.fetchLlmModels,
     setTranscriptionProvider: store.setTranscriptionProvider,
     updateRemoteSttBaseUrl: store.updateRemoteSttBaseUrl,
     updateRemoteSttModelId: store.updateRemoteSttModelId,
     updateRemoteSttDebugCapture: store.updateRemoteSttDebugCapture,
     updateRemoteSttDebugMode: store.updateRemoteSttDebugMode,
+    setAiReplaceProvider: store.setAiReplaceProvider,
+    updateAiReplaceApiKey: store.updateAiReplaceApiKey,
+    updateAiReplaceModel: store.updateAiReplaceModel,
   };
 };
