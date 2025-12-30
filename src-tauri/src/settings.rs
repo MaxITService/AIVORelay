@@ -336,8 +336,14 @@ pub struct AppSettings {
     pub send_to_extension_with_selection_system_prompt: String,
     #[serde(default = "default_send_to_extension_with_selection_user_prompt")]
     pub send_to_extension_with_selection_user_prompt: String,
+    /// Whether the "Send Transcription to Extension" action is enabled (risky feature)
+    #[serde(default)]
+    pub send_to_extension_enabled: bool,
     #[serde(default = "default_true")]
     pub send_to_extension_push_to_talk: bool,
+    /// Whether the "Send Transcription + Selection to Extension" action is enabled (risky feature)
+    #[serde(default)]
+    pub send_to_extension_with_selection_enabled: bool,
     #[serde(default = "default_true")]
     pub send_to_extension_with_selection_push_to_talk: bool,
     #[serde(default = "default_true")]
@@ -374,6 +380,9 @@ pub struct AppSettings {
     pub screenshot_quick_tap_threshold_ms: u32,
     #[serde(default = "default_screenshot_no_voice_default_prompt")]
     pub screenshot_no_voice_default_prompt: String,
+    /// Whether the "Send Transcription + Screenshot to Extension" action is enabled (risky feature)
+    #[serde(default)]
+    pub send_screenshot_to_extension_enabled: bool,
     #[serde(default = "default_true")]
     pub send_screenshot_to_extension_push_to_talk: bool,
     #[serde(default = "default_app_language")]
@@ -851,7 +860,9 @@ pub fn get_default_settings() -> AppSettings {
         send_to_extension_with_selection_allow_no_voice: true,
         send_to_extension_with_selection_quick_tap_threshold_ms: default_quick_tap_threshold_ms(),
         send_to_extension_with_selection_no_voice_system_prompt: String::new(),
+        send_to_extension_enabled: false,
         send_to_extension_push_to_talk: true,
+        send_to_extension_with_selection_enabled: false,
         send_to_extension_with_selection_push_to_talk: true,
         ai_replace_selection_push_to_talk: true,
         mute_while_recording: false,
@@ -867,6 +878,7 @@ pub fn get_default_settings() -> AppSettings {
         screenshot_allow_no_voice: true,
         screenshot_quick_tap_threshold_ms: default_quick_tap_threshold_ms(),
         screenshot_no_voice_default_prompt: default_screenshot_no_voice_default_prompt(),
+        send_screenshot_to_extension_enabled: false,
         send_screenshot_to_extension_push_to_talk: true,
         app_language: default_app_language(),
         connector_password: default_connector_password(),

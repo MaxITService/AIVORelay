@@ -10,6 +10,7 @@ import { SettingContainer } from "../../ui/SettingContainer";
 import { SettingsGroup } from "../../ui/SettingsGroup";
 import { Textarea } from "../../ui/Textarea";
 import { ToggleSwitch } from "../../ui/ToggleSwitch";
+import { ConfirmationModal } from "../../ui/ConfirmationModal";
 import { ConnectorStatusIndicator } from "./ConnectorStatus";
 
 // Preset sites for auto-open dropdown
@@ -33,6 +34,11 @@ export const BrowserConnectorSettings: React.FC = () => {
   const [passwordInput, setPasswordInput] = useState(settings?.connector_password ?? "");
   const [showPassword, setShowPassword] = useState(false);
   const [showCopiedTooltip, setShowCopiedTooltip] = useState(false);
+
+  // Warning modal states for risky features
+  const [showEnableWarning, setShowEnableWarning] = useState<
+    "send_to_extension" | "send_to_extension_with_selection" | "send_screenshot_to_extension" | null
+  >(null);
 
   // Screenshot settings local state
   const [screenshotCommandInput, setScreenshotCommandInput] = useState(
@@ -200,45 +206,110 @@ export const BrowserConnectorSettings: React.FC = () => {
       </SettingsGroup>
 
       <SettingsGroup title={t("settings.browserConnector.shortcuts.title")}>
-        <HandyShortcut shortcutId="send_to_extension" grouped={true} />
+        {/* Send Transcription Directly to Extension */}
         <SettingContainer
-          title={t("settings.general.shortcut.bindings.send_to_extension.pushToTalk.label")}
-          description={t("settings.general.shortcut.bindings.send_to_extension.pushToTalk.description")}
+          title={t("settings.general.shortcut.bindings.send_to_extension.enable.label")}
+          description={t("settings.general.shortcut.bindings.send_to_extension.enable.description")}
           descriptionMode="tooltip"
           grouped={true}
         >
           <ToggleSwitch
-            checked={settings?.send_to_extension_push_to_talk ?? true}
-            onChange={(enabled) => void updateSetting("send_to_extension_push_to_talk", enabled)}
-            disabled={isUpdating("send_to_extension_push_to_talk")}
+            checked={settings?.send_to_extension_enabled ?? false}
+            onChange={(enabled) => {
+              if (enabled) {
+                setShowEnableWarning("send_to_extension");
+              } else {
+                void updateSetting("send_to_extension_enabled", false);
+              }
+            }}
+            disabled={isUpdating("send_to_extension_enabled")}
           />
         </SettingContainer>
-        <HandyShortcut shortcutId="send_to_extension_with_selection" grouped={true} />
+        <div className={!settings?.send_to_extension_enabled ? "opacity-50" : ""}>
+          <HandyShortcut shortcutId="send_to_extension" grouped={true} disabled={!settings?.send_to_extension_enabled} />
+          <SettingContainer
+            title={t("settings.general.shortcut.bindings.send_to_extension.pushToTalk.label")}
+            description={t("settings.general.shortcut.bindings.send_to_extension.pushToTalk.description")}
+            descriptionMode="tooltip"
+            grouped={true}
+          >
+            <ToggleSwitch
+              checked={settings?.send_to_extension_push_to_talk ?? true}
+              onChange={(enabled) => void updateSetting("send_to_extension_push_to_talk", enabled)}
+              disabled={!settings?.send_to_extension_enabled || isUpdating("send_to_extension_push_to_talk")}
+            />
+          </SettingContainer>
+        </div>
+
+        {/* Send Transcription + Selection to Extension */}
         <SettingContainer
-          title={t("settings.general.shortcut.bindings.send_to_extension_with_selection.pushToTalk.label")}
-          description={t("settings.general.shortcut.bindings.send_to_extension_with_selection.pushToTalk.description")}
+          title={t("settings.general.shortcut.bindings.send_to_extension_with_selection.enable.label")}
+          description={t("settings.general.shortcut.bindings.send_to_extension_with_selection.enable.description")}
           descriptionMode="tooltip"
           grouped={true}
         >
           <ToggleSwitch
-            checked={settings?.send_to_extension_with_selection_push_to_talk ?? true}
-            onChange={(enabled) => void updateSetting("send_to_extension_with_selection_push_to_talk", enabled)}
-            disabled={isUpdating("send_to_extension_with_selection_push_to_talk")}
+            checked={settings?.send_to_extension_with_selection_enabled ?? false}
+            onChange={(enabled) => {
+              if (enabled) {
+                setShowEnableWarning("send_to_extension_with_selection");
+              } else {
+                void updateSetting("send_to_extension_with_selection_enabled", false);
+              }
+            }}
+            disabled={isUpdating("send_to_extension_with_selection_enabled")}
           />
         </SettingContainer>
-        <HandyShortcut shortcutId="send_screenshot_to_extension" grouped={true} />
+        <div className={!settings?.send_to_extension_with_selection_enabled ? "opacity-50" : ""}>
+          <HandyShortcut shortcutId="send_to_extension_with_selection" grouped={true} disabled={!settings?.send_to_extension_with_selection_enabled} />
+          <SettingContainer
+            title={t("settings.general.shortcut.bindings.send_to_extension_with_selection.pushToTalk.label")}
+            description={t("settings.general.shortcut.bindings.send_to_extension_with_selection.pushToTalk.description")}
+            descriptionMode="tooltip"
+            grouped={true}
+          >
+            <ToggleSwitch
+              checked={settings?.send_to_extension_with_selection_push_to_talk ?? true}
+              onChange={(enabled) => void updateSetting("send_to_extension_with_selection_push_to_talk", enabled)}
+              disabled={!settings?.send_to_extension_with_selection_enabled || isUpdating("send_to_extension_with_selection_push_to_talk")}
+            />
+          </SettingContainer>
+        </div>
+
+        {/* Send Transcription + Screenshot to Extension */}
         <SettingContainer
-          title={t("settings.general.shortcut.bindings.send_screenshot_to_extension.pushToTalk.label")}
-          description={t("settings.general.shortcut.bindings.send_screenshot_to_extension.pushToTalk.description")}
+          title={t("settings.general.shortcut.bindings.send_screenshot_to_extension.enable.label")}
+          description={t("settings.general.shortcut.bindings.send_screenshot_to_extension.enable.description")}
           descriptionMode="tooltip"
           grouped={true}
         >
           <ToggleSwitch
-            checked={settings?.send_screenshot_to_extension_push_to_talk ?? true}
-            onChange={(enabled) => void updateSetting("send_screenshot_to_extension_push_to_talk", enabled)}
-            disabled={isUpdating("send_screenshot_to_extension_push_to_talk")}
+            checked={settings?.send_screenshot_to_extension_enabled ?? false}
+            onChange={(enabled) => {
+              if (enabled) {
+                setShowEnableWarning("send_screenshot_to_extension");
+              } else {
+                void updateSetting("send_screenshot_to_extension_enabled", false);
+              }
+            }}
+            disabled={isUpdating("send_screenshot_to_extension_enabled")}
           />
         </SettingContainer>
+        <div className={!settings?.send_screenshot_to_extension_enabled ? "opacity-50" : ""}>
+          <HandyShortcut shortcutId="send_screenshot_to_extension" grouped={true} disabled={!settings?.send_screenshot_to_extension_enabled} />
+          <SettingContainer
+            title={t("settings.general.shortcut.bindings.send_screenshot_to_extension.pushToTalk.label")}
+            description={t("settings.general.shortcut.bindings.send_screenshot_to_extension.pushToTalk.description")}
+            descriptionMode="tooltip"
+            grouped={true}
+          >
+            <ToggleSwitch
+              checked={settings?.send_screenshot_to_extension_push_to_talk ?? true}
+              onChange={(enabled) => void updateSetting("send_screenshot_to_extension_push_to_talk", enabled)}
+              disabled={!settings?.send_screenshot_to_extension_enabled || isUpdating("send_screenshot_to_extension_push_to_talk")}
+            />
+          </SettingContainer>
+        </div>
       </SettingsGroup>
 
       {/* Screenshot Settings */}
@@ -622,6 +693,25 @@ export const BrowserConnectorSettings: React.FC = () => {
           </div>
         </SettingContainer>
       </SettingsGroup>
+
+      {/* Warning modal for enabling risky features */}
+      <ConfirmationModal
+        isOpen={showEnableWarning !== null}
+        onClose={() => setShowEnableWarning(null)}
+        onConfirm={() => {
+          if (showEnableWarning === "send_to_extension") {
+            void updateSetting("send_to_extension_enabled", true);
+          } else if (showEnableWarning === "send_to_extension_with_selection") {
+            void updateSetting("send_to_extension_with_selection_enabled", true);
+          } else if (showEnableWarning === "send_screenshot_to_extension") {
+            void updateSetting("send_screenshot_to_extension_enabled", true);
+          }
+        }}
+        title={showEnableWarning ? t(`settings.general.shortcut.bindings.${showEnableWarning}.enable.warning.title`) : ""}
+        message={showEnableWarning ? t(`settings.general.shortcut.bindings.${showEnableWarning}.enable.warning.message`) : ""}
+        confirmText={showEnableWarning ? t(`settings.general.shortcut.bindings.${showEnableWarning}.enable.warning.confirm`) : ""}
+        variant="warning"
+      />
     </div>
   );
 };
