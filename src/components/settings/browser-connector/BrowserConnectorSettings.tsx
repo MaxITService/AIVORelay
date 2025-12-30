@@ -154,9 +154,9 @@ export const BrowserConnectorSettings: React.FC = () => {
   return (
     <div className="max-w-3xl w-full mx-auto space-y-6">
       {/* Help Banner */}
-      <div className="rounded-lg border border-blue-500/30 bg-blue-500/10 p-4">
+      <div className="rounded-lg border border-purple-500/30 bg-purple-500/10 p-4">
         <div className="flex items-start gap-3">
-          <Info className="w-5 h-5 text-blue-400 mt-0.5 flex-shrink-0" />
+          <Info className="w-5 h-5 text-purple-400 mt-0.5 flex-shrink-0" />
           <div className="space-y-2 text-sm text-text/80">
             <p className="font-medium text-text">
               {t("settings.browserConnector.help.title")}
@@ -170,7 +170,7 @@ export const BrowserConnectorSettings: React.FC = () => {
                       href="https://github.com/MaxITService/AivoRelay-connector"
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="text-blue-400 hover:underline inline-flex items-center gap-1"
+                      className="text-purple-400 hover:underline inline-flex items-center gap-1"
                     >
                       AivoRelay Connector
                       <ExternalLink className="w-3 h-3" />
@@ -184,6 +184,12 @@ export const BrowserConnectorSettings: React.FC = () => {
               <li>{t("settings.browserConnector.help.feature2")}</li>
               <li>{t("settings.browserConnector.help.feature3")}</li>
             </ul>
+            <div className="mt-4 p-3 rounded border border-yellow-500/30 bg-yellow-500/5 text-yellow-200/90 italic">
+              <div className="flex gap-2">
+                <AlertTriangle className="w-4 h-4 text-yellow-400 mt-0.5 flex-shrink-0" />
+                <p>{t("settings.browserConnector.help.feature4")}</p>
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -239,6 +245,12 @@ export const BrowserConnectorSettings: React.FC = () => {
       <SettingsGroup title={t("settings.browserConnector.screenshot.title")}>
         <div className="text-sm text-text/60 mb-2 px-1">
           {t("settings.browserConnector.screenshot.description")}
+        </div>
+        <div className="mx-1 mb-4 p-3 rounded border border-red-500/30 bg-red-500/5 text-red-200/90 text-sm italic">
+          <div className="flex gap-2">
+            <AlertTriangle className="w-4 h-4 text-red-400 mt-0.5 flex-shrink-0" />
+            <p>{t("settings.browserConnector.screenshot.warning")}</p>
+          </div>
         </div>
         <SettingContainer
           title={t("settings.browserConnector.screenshot.command.title")}

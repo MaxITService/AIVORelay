@@ -8,9 +8,9 @@
   "sidebar": {
     "general": "Speech / Mic",
     "advanced": "Advanced",
-    "postProcessing": "API Post Processing",
+    "postProcessing": "LLM Relay",
     "aiReplace": "AI Replace",
-    "browserConnector": "Browser Connector",
+    "browserConnector": "Connector",
     "history": "History",
     "debug": "Debug",
     "about": "About"
@@ -195,6 +195,10 @@
     },
     "advanced": {
       "title": "Advanced",
+      "help": {
+        "title": "Module Configuration",
+        "description": "This is where you can configure modules for speech to text, but only remote ones. Local modules can be selected from the menu at the bottom-left of the application."
+      },
       "startHidden": {
         "label": "Start Hidden",
         "description": "Launch to system tray without opening the window."
@@ -357,7 +361,11 @@
       }
     },
     "postProcessing": {
-      "title": "Post Process",
+      "title": "LLM Relay",
+      "help": {
+        "title": "Model Configuration",
+        "description": "Here you can connect to large language model for either post-processing of your transcriptions or for function of AI replacing where the text is cut and sent to the large language model along with your voice message to be returned and pasted when AI responds."
+      },
       "disabledNotice": "Post processing is currently disabled. Enable it in Debug settings to configure.",
       "api": {
         "title": "API (OpenAI Compatible)",
@@ -534,7 +542,7 @@
         "feature1": "Speak and send messages directly to ChatGPT or other AI chats",
         "feature2": "Use \"Send Transcription + Selection\" to include selected text as context",
         "feature3": "Optional LLM processing before sending (e.g., translate, reformat)",
-        "feature4": "YOU MUST CHANGE PASSWORD IN SETTINGS - SAME PASSWORD HERE AND IN EXTENSION. OTHERWISE YOUR MESSAGES ARE AT RISK OF BEING SPYED ON BY ANY WEBSITE WHICH KNOWS DEFAULT PASSWORD!"
+        "feature4": "Security Recommendation: You should change the connection password. On a fresh install, the extension uses a default password that could allow other programs to intercept your communication. Changing it here will automatically update the extension if it is connected. For maximum security, we recommend doing this while offline to prevent any local interference during the handshake."
       },
       "status": {
         "sectionTitle": "Extension Status",
@@ -580,6 +588,7 @@
           "title": "Capture Command",
           "description": "Command to run for capturing a screenshot region. ShareX is recommended on Windows."
         },
+        "warning": "This is a risky feature. The last screenshot detection might not be perfect, and you could accidentally send the wrong image to a web chat. Use with caution, and ensure no unintended screenshots are in the directory. You have been warned.",
         "folder": {
           "title": "Screenshots Folder",
           "description": "Folder where screenshots are saved. Environment variables like %USERPROFILE% are supported."
@@ -632,7 +641,7 @@
           "description": "Password to authenticate the extension. Must match in both AivoRelay and the extension.",
           "defaultWarning": {
             "title": "Security Warning: Default Password",
-            "description": "You are using the default password. Please change it to a unique password in BOTH the AivoRelay app AND the AivoRelay Connector extension to prevent other websites from reading your messages."
+            "description": "You are currently using the default password. We highly recommend changing it to a unique one. Changing it here will automatically update the extension if it is currently connected. For maximum security, we recommend performing this change while offline to prevent other programs from intercepting the initial handshake."
           }
         },
         "endpoint": {
