@@ -1,27 +1,67 @@
 @import "tailwindcss";
 
+/* ============================================
+   AivoRelay - Adobe Photoshop Style Dark Theme
+   with Apple Liquid Glass Effects
+   ============================================ */
+
+/* Google Fonts - Inter for modern typography */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+
 @theme {
-  --color-text: #0f0f0f;
-  --color-background: #fbfbfb;
-  --color-background-ui: #da5893;
-  --color-logo-primary: #faa2ca;
-  --color-logo-stroke: #382731;
-  --color-text-stroke: #f6f6f6;
-  --color-mid-gray: #808080;
+  /* Warm Dark Theme Colors - Pink/Violet/Yellow palette */
+  --color-text: #f5f5f5;
+  --color-text-secondary: #b8b8b8;
+  --color-text-muted: #707070;
+
+  /* Background Layers (Deep Black tones) */
+  --color-background: #121212;
+  --color-background-secondary: #1a1a1a;
+  --color-background-tertiary: #222222;
+  --color-background-elevated: #2a2a2a;
+  --color-background-ui: #ff4d8d;
+
+  /* Borders & Dividers */
+  --color-border: #333333;
+  --color-border-subtle: #282828;
+  --color-border-accent: #3d3d3d;
+
+  /* Accent Colors (Pink + Violet gradient) */
+  --color-accent-primary: #ff4d8d;
+  --color-accent-secondary: #9b5de5;
+  --color-accent-gradient-start: #ff4d8d;
+  --color-accent-gradient-end: #9b5de5;
+
+  /* Warm Accent */
+  --color-accent-warm: #ffd93d;
+
+  /* Logo Colors */
+  --color-logo-primary: #ff4d8d;
+  --color-logo-stroke: #ffd1e6;
+  --color-text-stroke: #222222;
+
+  /* Status Colors - No green, using yellow for success feel */
+  --color-success: #ffd93d;
+  --color-warning: #ffb347;
+  --color-error: #ff4757;
+
+  /* Mid Gray for compatibility */
+  --color-mid-gray: #707070;
+
+  /* Liquid Glass Effect Variables */
+  --glass-blur: 20px;
+  --glass-saturation: 180%;
+  --glass-opacity: 0.75;
+  --glass-border-opacity: 0.12;
 }
 
 :root {
   /* Typography */
-  font-size: 15px;
-  line-height: 24px;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-size: 14px;
+  line-height: 1.5;
   font-weight: 400;
-
-  /* Colors - Light Theme */
-  /* --color-text: #0f0f0f;
-  --color-background: #fbfbfb;
-  --color-logo-primary: #FAA2CA;
-  --color-logo-stroke: #382731;
-  --color-text-stroke: #f6f6f6; */
+  letter-spacing: -0.01em;
 
   /* Typography settings */
   font-synthesis: none;
@@ -35,6 +75,310 @@
   background-color: var(--color-background);
 }
 
+/* ============================================
+   Liquid Glass Effects (Apple Style)
+   ============================================ */
+
+.glass-panel {
+  background: linear-gradient(135deg,
+      rgba(50, 50, 50, var(--glass-opacity)) 0%,
+      rgba(37, 37, 37, calc(var(--glass-opacity) - 0.1)) 100%);
+  backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturation));
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturation));
+  border: 1px solid rgba(255, 255, 255, var(--glass-border-opacity));
+  box-shadow:
+    0 8px 32px rgba(0, 0, 0, 0.4),
+    inset 0 1px 0 rgba(255, 255, 255, 0.05),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.2);
+}
+
+.glass-panel-subtle {
+  background: rgba(43, 43, 43, 0.6);
+  backdrop-filter: blur(12px) saturate(150%);
+  -webkit-backdrop-filter: blur(12px) saturate(150%);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow:
+    0 4px 16px rgba(0, 0, 0, 0.3),
+    inset 0 1px 0 rgba(255, 255, 255, 0.03);
+}
+
+.glass-panel-interactive {
+  background: rgba(50, 50, 50, 0.5);
+  backdrop-filter: blur(16px) saturate(160%);
+  -webkit-backdrop-filter: blur(16px) saturate(160%);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.glass-panel-interactive:hover {
+  background: rgba(60, 60, 60, 0.6);
+  border-color: rgba(255, 255, 255, 0.18);
+  box-shadow:
+    0 8px 24px rgba(0, 0, 0, 0.35),
+    inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  transform: translateY(-1px);
+}
+
+/* ============================================
+   Adobe-style Sidebar
+   ============================================ */
+
+.adobe-sidebar {
+  background: linear-gradient(180deg,
+      #1f1f1f 0%,
+      #1a1a1a 50%,
+      #121212 100%);
+  border-right: 1px solid var(--color-border);
+  box-shadow:
+    1px 0 12px rgba(0, 0, 0, 0.4),
+    inset -1px 0 0 rgba(255, 255, 255, 0.02);
+}
+
+.adobe-sidebar-item {
+  position: relative;
+  padding: 10px 12px;
+  border-radius: 6px;
+  transition: all 0.15s ease;
+  cursor: pointer;
+}
+
+.adobe-sidebar-item::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 3px;
+  height: 0;
+  background: linear-gradient(180deg,
+      var(--color-accent-primary) 0%,
+      var(--color-accent-secondary) 100%);
+  border-radius: 0 2px 2px 0;
+  transition: height 0.2s ease;
+}
+
+.adobe-sidebar-item:hover {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.adobe-sidebar-item.active {
+  background: linear-gradient(90deg,
+      rgba(255, 77, 141, 0.15) 0%,
+      rgba(155, 93, 229, 0.08) 100%);
+}
+
+.adobe-sidebar-item.active::before {
+  height: 60%;
+}
+
+/* ============================================
+   Premium Buttons
+   ============================================ */
+
+.btn-premium {
+  position: relative;
+  background: linear-gradient(135deg,
+      var(--color-accent-primary) 0%,
+      var(--color-accent-secondary) 100%);
+  border: none;
+  border-radius: 6px;
+  padding: 8px 16px;
+  font-weight: 500;
+  color: white;
+  cursor: pointer;
+  overflow: hidden;
+  transition: all 0.2s ease;
+  box-shadow:
+    0 2px 8px rgba(255, 77, 141, 0.3),
+    inset 0 1px 0 rgba(255, 255, 255, 0.2);
+}
+
+.btn-premium::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -100%;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(90deg,
+      transparent,
+      rgba(255, 255, 255, 0.25),
+      transparent);
+  transition: left 0.5s ease;
+}
+
+.btn-premium:hover::before {
+  left: 100%;
+}
+
+.btn-premium:hover {
+  transform: translateY(-1px);
+  box-shadow:
+    0 4px 16px rgba(255, 77, 141, 0.4),
+    inset 0 1px 0 rgba(255, 255, 255, 0.25);
+}
+
+.btn-premium:active {
+  transform: translateY(0);
+}
+
+/* ============================================
+   Settings Container Styles
+   ============================================ */
+
+.setting-container {
+  background: rgba(43, 43, 43, 0.4);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: 8px;
+  padding: 12px 16px;
+  transition: all 0.2s ease;
+}
+
+.setting-container:hover {
+  background: rgba(50, 50, 50, 0.5);
+  border-color: var(--color-border);
+}
+
+.settings-group {
+  background: rgba(37, 37, 37, 0.6);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: 10px;
+  overflow: hidden;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+}
+
+.settings-group>div:not(:last-child) {
+  border-bottom: 1px solid var(--color-border-subtle);
+}
+
+/* ============================================
+   Form Elements
+   ============================================ */
+
+.input-adobe {
+  background: rgba(30, 30, 30, 0.8);
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  padding: 8px 12px;
+  color: var(--color-text);
+  font-size: 13px;
+  transition: all 0.15s ease;
+}
+
+.input-adobe:focus {
+  outline: none;
+  border-color: var(--color-accent-primary);
+  box-shadow:
+    0 0 0 2px rgba(13, 153, 255, 0.2),
+    inset 0 1px 2px rgba(0, 0, 0, 0.3);
+}
+
+.input-adobe::placeholder {
+  color: var(--color-text-muted);
+}
+
+/* ============================================
+   Toggle Switch (Adobe Style)
+   ============================================ */
+
+.toggle-adobe {
+  position: relative;
+  width: 40px;
+  height: 22px;
+  background: #3c3c3c;
+  border-radius: 11px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.toggle-adobe.active {
+  background: linear-gradient(135deg,
+      var(--color-accent-primary) 0%,
+      var(--color-accent-secondary) 100%);
+}
+
+.toggle-adobe::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 18px;
+  height: 18px;
+  background: white;
+  border-radius: 50%;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+  transition: all 0.2s ease;
+}
+
+.toggle-adobe.active::after {
+  transform: translateX(18px);
+}
+
+/* ============================================
+   Scrollbar Styling
+   ============================================ */
+
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--color-background);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--color-border-accent);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #5a5a5a;
+}
+
+/* ============================================
+   Animations
+   ============================================ */
+
+@keyframes shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+@keyframes glow-pulse {
+
+  0%,
+  100% {
+    box-shadow: 0 0 20px rgba(255, 77, 141, 0.3);
+  }
+
+  50% {
+    box-shadow: 0 0 40px rgba(255, 77, 141, 0.5);
+  }
+}
+
+.animate-shimmer {
+  background: linear-gradient(90deg,
+      transparent 0%,
+      rgba(255, 255, 255, 0.08) 50%,
+      transparent 100%);
+  background-size: 200% 100%;
+  animation: shimmer 2s infinite;
+}
+
+.animate-glow {
+  animation: glow-pulse 2s ease-in-out infinite;
+}
+
+/* ============================================
+   Utility Classes
+   ============================================ */
+
 .container {
   margin: 0;
   padding-top: 10vh;
@@ -44,19 +388,24 @@
   text-align: center;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    /* Colors - Dark Theme */
-    --color-text: #fbfbfb;
-    --color-background: #2c2b29;
-    --color-logo-primary: #f28cbb;
-    --color-logo-stroke: #fad1ed;
-  }
-}
-
 @layer utilities {
   .text-stroke {
     -webkit-text-stroke: 2px var(--color-text-stroke);
+  }
+
+  .text-gradient {
+    background: linear-gradient(135deg,
+        var(--color-accent-primary) 0%,
+        var(--color-accent-secondary) 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  .border-gradient {
+    border-image: linear-gradient(135deg,
+        var(--color-accent-primary),
+        var(--color-accent-secondary)) 1;
   }
 }
 
@@ -68,4 +417,24 @@
   fill: var(--color-logo-stroke);
   stroke: var(--color-logo-stroke);
   stroke-width: 1;
+}
+
+/* Premium Section Divider */
+.section-divider {
+  height: 1px;
+  background: linear-gradient(90deg,
+      transparent 0%,
+      var(--color-border) 20%,
+      var(--color-border-accent) 50%,
+      var(--color-border) 80%,
+      transparent 100%);
+}
+
+/* Tooltip Styling */
+.tooltip-adobe {
+  background: rgba(50, 50, 50, 0.95);
+  backdrop-filter: blur(12px);
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
 }

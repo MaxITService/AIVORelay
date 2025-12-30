@@ -103,11 +103,17 @@ export const Sidebar: React.FC<SidebarProps> = ({
     .map(([id, config]) => ({ id: id as SidebarSection, ...config }));
 
   return (
-    <div className="flex flex-col w-48 h-full border-r border-mid-gray/20 items-center px-2">
-      <div className="w-full p-2">
-        <HandyTextLogo className="w-full h-auto" />
+    <div className="adobe-sidebar flex flex-col w-52 h-full items-center px-3 py-4">
+      {/* Logo Section with glow effect */}
+      <div className="w-full p-3 mb-2">
+        <HandyTextLogo className="w-full h-auto drop-shadow-[0_0_8px_rgba(255,107,157,0.3)]" />
       </div>
-      <div className="flex flex-col w-full items-center gap-1 pt-2 border-t border-mid-gray/20">
+      
+      {/* Gradient Divider */}
+      <div className="section-divider w-full mb-4" />
+      
+      {/* Navigation Items */}
+      <div className="flex flex-col w-full gap-1">
         {availableSections.map((section) => {
           const Icon = section.icon;
           const isActive = activeSection === section.id;
@@ -115,16 +121,27 @@ export const Sidebar: React.FC<SidebarProps> = ({
           return (
             <div
               key={section.id}
-              className={`flex gap-2 items-center p-2 w-full rounded-lg cursor-pointer transition-colors ${
-                isActive
-                  ? "bg-logo-primary/80"
-                  : "hover:bg-mid-gray/20 hover:opacity-100 opacity-85"
+              className={`adobe-sidebar-item flex gap-3 items-center w-full ${
+                isActive ? "active" : ""
               }`}
               onClick={() => onSectionChange(section.id)}
             >
-              <Icon width={24} height={24} className="shrink-0" />
+              {/* Icon with gradient on active */}
+              <div className={`shrink-0 transition-all duration-200 ${
+                isActive 
+                  ? "text-[#ff4d8d] drop-shadow-[0_0_6px_rgba(255,77,141,0.5)]" 
+                  : "text-[#b8b8b8] group-hover:text-[#f5f5f5]"
+              }`}>
+                <Icon width={20} height={20} />
+              </div>
+              
+              {/* Label */}
               <p
-                className="text-sm font-medium truncate"
+                className={`text-sm font-medium truncate transition-colors duration-200 ${
+                  isActive 
+                    ? "text-[#f5f5f5]" 
+                    : "text-[#b8b8b8]"
+                }`}
                 title={t(section.labelKey)}
               >
                 {t(section.labelKey)}
@@ -132,6 +149,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
             </div>
           );
         })}
+      </div>
+      
+      {/* Bottom spacer with subtle gradient */}
+      <div className="flex-1" />
+      <div className="section-divider w-full mt-4" />
+      <div className="w-full py-3 px-2 text-center">
+        <span className="text-xs text-[#707070]">AivoRelay</span>
       </div>
     </div>
   );

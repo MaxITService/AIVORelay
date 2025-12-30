@@ -116,18 +116,28 @@ function App() {
   }
 
   return (
-    <div className="h-screen flex flex-col">
-      <Toaster />
+    <div className="h-screen flex flex-col bg-[#121212]">
+      <Toaster 
+        theme="dark"
+        toastOptions={{
+          style: {
+            background: 'rgba(26, 26, 26, 0.98)',
+            border: '1px solid #333333',
+            color: '#f5f5f5',
+            backdropFilter: 'blur(12px)',
+          },
+        }}
+      />
       {/* Main content area that takes remaining space */}
       <div className="flex-1 flex overflow-hidden">
         <Sidebar
           activeSection={currentSection}
           onSectionChange={setCurrentSection}
         />
-        {/* Scrollable content area */}
-        <div className="flex-1 flex flex-col overflow-hidden">
+        {/* Scrollable content area with gradient background */}
+        <div className="flex-1 flex flex-col overflow-hidden bg-gradient-to-br from-[#121212] via-[#161616] to-[#0f0f0f]">
           <div className="flex-1 overflow-y-auto">
-            <div className="flex flex-col items-center p-4 gap-4">
+            <div className="flex flex-col items-center p-6 gap-5 max-w-3xl mx-auto">
               <AccessibilityPermissions />
               {renderSettingsContent(currentSection)}
             </div>

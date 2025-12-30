@@ -6,7 +6,7 @@
     "cancel": "Cancel"
   },
   "sidebar": {
-    "general": "General",
+    "general": "Speech / Mic",
     "advanced": "Advanced",
     "postProcessing": "API Post Processing",
     "aiReplace": "AI Replace",

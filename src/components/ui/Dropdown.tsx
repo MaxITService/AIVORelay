@@ -62,17 +62,17 @@ export const Dropdown: React.FC<DropdownProps> = ({
     <div className={`relative ${className}`} ref={dropdownRef}>
       <button
         type="button"
-        className={`px-2 py-1 text-sm font-semibold bg-mid-gray/10 border border-mid-gray/80 rounded min-w-[200px] text-left flex items-center justify-between transition-all duration-150 ${
+        className={`px-3 py-2 text-sm font-medium bg-[#1e1e1e]/80 border border-[#3c3c3c] rounded-md min-w-[200px] text-left flex items-center justify-between transition-all duration-200 text-[#e8e8e8] ${
           disabled
-            ? "opacity-50 cursor-not-allowed"
-            : "hover:bg-logo-primary/10 cursor-pointer hover:border-logo-primary"
+            ? "opacity-40 cursor-not-allowed"
+            : "hover:bg-[#252525]/80 hover:border-[#4a4a4a] cursor-pointer"
         }`}
         onClick={handleToggle}
         disabled={disabled}
       >
         <span className="truncate">{selectedOption?.label || placeholder}</span>
         <svg
-          className={`w-4 h-4 ml-2 transition-transform duration-200 ${isOpen ? "transform rotate-180" : ""}`}
+          className={`w-4 h-4 ml-2 transition-transform duration-200 text-[#6b6b6b] ${isOpen ? "transform rotate-180" : ""}`}
           fill="none"
           stroke="currentColor"
           viewBox="0 0 24 24"
@@ -86,9 +86,9 @@ export const Dropdown: React.FC<DropdownProps> = ({
         </svg>
       </button>
       {isOpen && !disabled && (
-        <div className="absolute top-full left-0 right-0 mt-1 bg-background border border-mid-gray/80 rounded shadow-lg z-50 max-h-60 overflow-y-auto">
+        <div className="absolute top-full left-0 right-0 mt-1 bg-[#252525]/98 backdrop-blur-xl border border-[#3c3c3c] rounded-lg shadow-[0_12px_40px_rgba(0,0,0,0.5)] z-50 max-h-60 overflow-y-auto p-1">
           {options.length === 0 ? (
-            <div className="px-2 py-1 text-sm text-mid-gray">
+            <div className="px-3 py-2 text-sm text-[#6b6b6b]">
               {t("common.noOptionsFound")}
             </div>
           ) : (
@@ -96,11 +96,11 @@ export const Dropdown: React.FC<DropdownProps> = ({
               <button
                 key={option.value}
                 type="button"
-                className={`w-full px-2 py-1 text-sm text-left hover:bg-logo-primary/10 transition-colors duration-150 ${
+                className={`w-full px-3 py-2 text-sm text-left rounded-md transition-all duration-150 text-[#e8e8e8] ${
                   selectedValue === option.value
-                    ? "bg-logo-primary/20 font-semibold"
-                    : ""
-                } ${option.disabled ? "opacity-50 cursor-not-allowed" : ""}`}
+                    ? "bg-[#ff4d8d]/20 text-[#ff4d8d] font-medium"
+                    : "hover:bg-[#ffffff]/5"
+                } ${option.disabled ? "opacity-40 cursor-not-allowed" : "cursor-pointer"}`}
                 onClick={() => handleSelect(option.value)}
                 disabled={option.disabled}
               >
