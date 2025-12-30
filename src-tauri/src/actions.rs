@@ -18,10 +18,6 @@ use crate::utils::{
     show_transcribing_overlay,
 };
 use crate::ManagedToggleState;
-use async_openai::types::{
-    ChatCompletionRequestMessage, ChatCompletionRequestSystemMessageArgs,
-    ChatCompletionRequestUserMessageArgs, CreateChatCompletionRequestArgs,
-};
 use ferrous_opencc::{config::BuiltinConfig, OpenCC};
 use log::{debug, error, info};
 use once_cell::sync::Lazy;
@@ -157,52 +153,19 @@ async fn maybe_post_process_transcription(
         .cloned()
         .unwrap_or_default();
 
-    // Create OpenAI-compatible client
-    let client = match crate::llm_client::create_client(&provider, api_key) {
-        Ok(client) => client,
-        Err(e) => {
-            error!("Failed to create LLM client: {}", e);
-            return None;
-        }
-    };
-
-    // Build the chat completion request
-    let message = match ChatCompletionRequestUserMessageArgs::default()
-        .content(processed_prompt)
-        .build()
+    // Send the chat completion request
+    match crate::llm_client::send_chat_completion(&provider, api_key, &model, processed_prompt)
+        .await
     {
-        Ok(msg) => ChatCompletionRequestMessage::User(msg),
-        Err(e) => {
-            error!("Failed to build chat message: {}", e);
-            return None;
+        Ok(Some(content)) => {
+            debug!(
+                "LLM post-processing succeeded for provider '{}'. Output length: {} chars",
+                provider.id,
+                content.len()
+            );
+            Some(content)
         }
-    };
-
-    let request = match CreateChatCompletionRequestArgs::default()
-        .model(&model)
-        .messages(vec![message])
-        .build()
-    {
-        Ok(req) => req,
-        Err(e) => {
-            error!("Failed to build chat completion request: {}", e);
-            return None;
-        }
-    };
-
-    // Send the request
-    match client.chat().create(request).await {
-        Ok(response) => {
-            if let Some(choice) = response.choices.first() {
-                if let Some(content) = &choice.message.content {
-                    debug!(
-                        "LLM post-processing succeeded for provider '{}'. Output length: {} chars",
-                        provider.id,
-                        content.len()
-                    );
-                    return Some(content.clone());
-                }
-            }
+        Ok(None) => {
             error!("LLM API response has no content");
             None
         }
@@ -632,49 +595,23 @@ async fn ai_replace_with_llm(
 
     let api_key = settings.ai_replace_api_key(&provider.id);
 
-    let client = crate::llm_client::create_client(&provider, api_key)
-        .map_err(|e| format!("Failed to create LLM client: {}", e))?;
-
-    let system_message = ChatCompletionRequestSystemMessageArgs::default()
-        .content(system_prompt)
-        .build()
-        .map(ChatCompletionRequestMessage::System)
-        .map_err(|e| format!("Failed to build system message: {}", e))?;
-
-    let user_message = ChatCompletionRequestUserMessageArgs::default()
-        .content(user_prompt)
-        .build()
-        .map(ChatCompletionRequestMessage::User)
-        .map_err(|e| format!("Failed to build user message: {}", e))?;
-
-    let estimated_tokens = (selected_text.len() as f32 / 4.0).ceil() as u32;
-    let max_tokens = std::cmp::min(
-        8192,
-        std::cmp::max(256, estimated_tokens.saturating_add(512)),
-    );
-
-    let request = CreateChatCompletionRequestArgs::default()
-        .model(&model)
-        .messages(vec![system_message, user_message])
-        .temperature(0.2)
-        .max_tokens(max_tokens)
-        .build()
-        .map_err(|e| format!("Failed to build chat completion request: {}", e))?;
-
-    let response = client
-        .chat()
-        .create(request)
-        .await
-        .map_err(|e| format!("LLM request failed: {}", e))?;
-
-    if let Some(choice) = response.choices.first() {
-        if let Some(content) = &choice.message.content {
+    // Use the new HTTP-based LLM client
+    match crate::llm_client::send_chat_completion_with_system(
+        &provider,
+        api_key,
+        &model,
+        system_prompt,
+        user_prompt,
+    )
+    .await
+    {
+        Ok(Some(content)) => {
             debug!("AI replace LLM response length: {} chars", content.len());
-            return Ok(content.clone());
+            Ok(content)
         }
+        Ok(None) => Err("LLM API response has no content".to_string()),
+        Err(e) => Err(format!("LLM request failed: {}", e)),
     }
-
-    Err("LLM API response has no content".to_string())
 }
 
 impl ShortcutAction for TranscribeAction {

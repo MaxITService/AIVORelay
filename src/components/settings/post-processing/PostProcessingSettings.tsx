@@ -92,7 +92,7 @@ const LlmConfigSection: React.FC<{
             </SettingContainer>
           ) : (
             <>
-              {showBaseUrl && (
+              {showBaseUrl && state.selectedProvider?.id === "custom" && (
                 <SettingContainer
                   title={t("settings.postProcessing.api.baseUrl.title")}
                   description={t(
@@ -109,10 +109,7 @@ const LlmConfigSection: React.FC<{
                       placeholder={t(
                         "settings.postProcessing.api.baseUrl.placeholder",
                       )}
-                      disabled={
-                        !state.selectedProvider?.allow_base_url_edit ||
-                        state.isBaseUrlUpdating
-                      }
+                      disabled={state.isBaseUrlUpdating}
                       className="min-w-[380px]"
                     />
                   </div>
