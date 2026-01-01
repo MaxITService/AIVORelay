@@ -7,7 +7,10 @@
 use crate::overlay;
 use crate::tray::{change_tray_icon, TrayIconState};
 use serde::Serialize;
+use std::sync::atomic::{AtomicU64, Ordering};
 use tauri::{AppHandle, Emitter, Manager};
+
+static OVERLAY_GENERATION: AtomicU64 = AtomicU64::new(0);
 
 /// Error categories for overlay display
 #[derive(Clone, Debug, Serialize)]
@@ -119,15 +122,21 @@ pub fn show_error_overlay(app: &AppHandle, category: OverlayErrorCategory) {
         };
         let _ = overlay_window.emit("show-overlay", payload);
 
+        // Generation counter to prevent hiding overlay of new session
+        let current_gen = OVERLAY_GENERATION.fetch_add(1, Ordering::SeqCst) + 1;
+
         // Auto-hide after 3 seconds
         let window_clone = overlay_window.clone();
         let app_clone = app.clone();
         std::thread::spawn(move || {
             std::thread::sleep(std::time::Duration::from_secs(3));
-            let _ = window_clone.emit("hide-overlay", ());
-            std::thread::sleep(std::time::Duration::from_millis(300));
-            let _ = window_clone.hide();
-            change_tray_icon(&app_clone, TrayIconState::Idle);
+            // Only hide if generation hasn't changed (no new overlay shown)
+            if OVERLAY_GENERATION.load(Ordering::SeqCst) == current_gen {
+                let _ = window_clone.emit("hide-overlay", ());
+                std::thread::sleep(std::time::Duration::from_millis(300));
+                let _ = window_clone.hide();
+                change_tray_icon(&app_clone, TrayIconState::Idle);
+            }
         });
     } else {
         // If no overlay window, just reset tray icon
