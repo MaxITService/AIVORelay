@@ -21,7 +21,7 @@ use crate::ManagedToggleState;
 use ferrous_opencc::{config::BuiltinConfig, OpenCC};
 use log::{debug, error};
 use once_cell::sync::Lazy;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Instant;
@@ -838,44 +838,26 @@ fn expand_env_vars(path: &str) -> String {
     path.to_string()
 }
 
-/// Finds the most recently created image file in a directory (optionally recursive)
-fn find_recent_image(
-    folder: &std::path::Path,
-    max_age_secs: u64,
-    recursive: bool,
-) -> Option<PathBuf> {
-    let cutoff = std::time::SystemTime::now()
-        .checked_sub(std::time::Duration::from_secs(max_age_secs))
-        .unwrap_or(std::time::UNIX_EPOCH);
+/// Collects all image files in a folder into a HashSet for quick existence checks.
+fn collect_existing_images(folder: &std::path::Path, recursive: bool) -> HashSet<PathBuf> {
+    let mut images = HashSet::new();
 
-    let mut newest: Option<(PathBuf, std::time::SystemTime)> = None;
-
-    fn scan_directory(
-        dir: &std::path::Path,
-        cutoff: std::time::SystemTime,
-        recursive: bool,
-        newest: &mut Option<(PathBuf, std::time::SystemTime)>,
-    ) {
+    fn scan(dir: &std::path::Path, recursive: bool, images: &mut HashSet<PathBuf>) {
         if let Ok(entries) = std::fs::read_dir(dir) {
             for entry in entries.flatten() {
                 let path = entry.path();
-
-                // Recurse into subdirectories if enabled
                 if path.is_dir() && recursive {
-                    scan_directory(&path, cutoff, recursive, newest);
+                    scan(&path, recursive, images);
                     continue;
                 }
-
                 if !path.is_file() {
                     continue;
                 }
-
-                // Check if it's an image file
                 let ext = path
                     .extension()
                     .and_then(|e| e.to_str())
                     .map(|e| e.to_lowercase());
-                let is_image = matches!(
+                if matches!(
                     ext.as_deref(),
                     Some("png")
                         | Some("jpg")
@@ -883,15 +865,50 @@ fn find_recent_image(
                         | Some("gif")
                         | Some("webp")
                         | Some("bmp")
-                );
-                if !is_image {
+                ) {
+                    images.insert(path);
+                }
+            }
+        }
+    }
+    scan(folder, recursive, &mut images);
+    images
+}
+
+/// Finds the newest image in a folder, optionally recursive.
+fn find_newest_image(folder: &std::path::Path, recursive: bool) -> Option<PathBuf> {
+    let mut newest: Option<(PathBuf, std::time::SystemTime)> = None;
+
+    fn scan(
+        dir: &std::path::Path,
+        recursive: bool,
+        newest: &mut Option<(PathBuf, std::time::SystemTime)>,
+    ) {
+        if let Ok(entries) = std::fs::read_dir(dir) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.is_dir() && recursive {
+                    scan(&path, recursive, newest);
                     continue;
                 }
-
-                // Check modification time
-                if let Ok(metadata) = entry.metadata() {
-                    if let Ok(modified) = metadata.modified() {
-                        if modified > cutoff {
+                if !path.is_file() {
+                    continue;
+                }
+                let ext = path
+                    .extension()
+                    .and_then(|e| e.to_str())
+                    .map(|e| e.to_lowercase());
+                if matches!(
+                    ext.as_deref(),
+                    Some("png")
+                        | Some("jpg")
+                        | Some("jpeg")
+                        | Some("gif")
+                        | Some("webp")
+                        | Some("bmp")
+                ) {
+                    if let Ok(metadata) = path.metadata() {
+                        if let Ok(modified) = metadata.modified() {
                             if newest.is_none() || modified > newest.as_ref().unwrap().1 {
                                 *newest = Some((path, modified));
                             }
@@ -901,18 +918,18 @@ fn find_recent_image(
             }
         }
     }
-
-    scan_directory(folder, cutoff, recursive, &mut newest);
-    newest.map(|(path, _)| path)
+    scan(folder, recursive, &mut newest);
+    newest.map(|(p, _)| p)
 }
 
-/// Watches a folder for new image files with timeout (optionally recursive)
+/// Watches for a NEW image file (created after start_time and not in existing_files).
 async fn watch_for_new_image(
     folder: PathBuf,
     timeout_secs: u64,
-    require_recent: bool,
-    recent_window_secs: u64,
     recursive: bool,
+    existing_files: HashSet<PathBuf>,
+    start_time: std::time::SystemTime,
+    allow_fallback_to_old: bool,
 ) -> Result<PathBuf, String> {
     use notify::{Config, RecommendedWatcher, RecursiveMode, Watcher};
     use std::sync::mpsc;
@@ -970,27 +987,46 @@ async fn watch_for_new_image(
     loop {
         let remaining = deadline.saturating_duration_since(std::time::Instant::now());
         if remaining.is_zero() {
-            // Timeout - check for recent files if allowed
-            if !require_recent {
-                if let Some(recent) = find_recent_image(&folder, timeout_secs + 5, recursive) {
+            // Timeout - check for recent files if fallback is allowed (e.g. strict mode disabled)
+            if allow_fallback_to_old {
+                if let Some(recent) = find_newest_image(&folder, recursive) {
                     return Ok(recent);
                 }
             }
             return Err("Screenshot timeout: no new image detected".to_string());
         }
 
+        // Helper check for "is this a new file"
+        let is_new_file = |path: &PathBuf| -> bool {
+            let is_known_old = existing_files.contains(path);
+            let is_fresh = if let Ok(meta) = path.metadata() {
+                if let Ok(modified) = meta.modified() {
+                    modified > start_time
+                } else {
+                    false
+                }
+            } else {
+                false
+            };
+            // It's new if it wasn't there before, OR it was there but modified recently (overwrite)
+            !is_known_old || is_fresh
+        };
+
         match rx.recv_timeout(remaining.min(Duration::from_millis(500))) {
             Ok(path) => {
                 // Give the file system a moment to finish writing
                 tokio::time::sleep(Duration::from_millis(100)).await;
-                if path.exists() {
+                if path.exists() && is_new_file(&path) {
                     return Ok(path);
                 }
             }
             Err(mpsc::RecvTimeoutError::Timeout) => {
-                // Check if a recent file appeared (polling fallback)
-                if let Some(recent) = find_recent_image(&folder, recent_window_secs, recursive) {
-                    return Ok(recent);
+                // Polling fallback: check if any file in folder is new
+                // This covers cases where watcher might miss an event
+                if let Some(path) = find_newest_image(&folder, recursive) {
+                    if is_new_file(&path) {
+                        return Ok(path);
+                    }
                 }
             }
             Err(mpsc::RecvTimeoutError::Disconnected) => {
@@ -1081,6 +1117,11 @@ impl ShortcutAction for SendScreenshotToExtensionAction {
                 return;
             }
 
+            // Snapshot existing files to prevent picking up old ones
+            let existing_files =
+                collect_existing_images(&screenshot_folder, settings.screenshot_include_subfolders);
+            let start_time = std::time::SystemTime::now();
+
             // Launch screenshot tool
             let capture_command = settings.screenshot_capture_command.clone();
             if !capture_command.trim().is_empty() {
@@ -1095,9 +1136,10 @@ impl ShortcutAction for SendScreenshotToExtensionAction {
             match watch_for_new_image(
                 screenshot_folder,
                 timeout,
-                settings.screenshot_require_recent,
-                timeout,
                 settings.screenshot_include_subfolders,
+                existing_files,
+                start_time,
+                !settings.screenshot_require_recent, // Fallback if requirement is disabled
             )
             .await
             {
