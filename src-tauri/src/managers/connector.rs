@@ -514,10 +514,10 @@ impl ConnectorManager {
         let now = now_ms();
         let expires_at = now + BLOB_EXPIRY_MS;
 
-        // Get port for fetch URL
-        let port = {
-            let port_guard = self.port.blocking_read();
-            *port_guard
+        // Get port for fetch URL - use try_read to avoid blocking in async context
+        let port = match self.port.try_read() {
+            Ok(guard) => *guard,
+            Err(_) => DEFAULT_PORT, // Fallback if lock is held
         };
         let fetch_url = format!("http://127.0.0.1:{}/blob/{}", port, att_id);
 
@@ -627,9 +627,9 @@ impl ConnectorManager {
         let last_poll = self.last_poll_at.load(Ordering::SeqCst);
         let now = now_ms();
         let server_running = self.server_running.load(Ordering::SeqCst);
-        let port = {
-            let port_guard = self.port.blocking_read();
-            *port_guard
+        let port = match self.port.try_read() {
+            Ok(guard) => *guard,
+            Err(_) => DEFAULT_PORT,
         };
 
         let status = if !server_running {

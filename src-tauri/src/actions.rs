@@ -935,6 +935,14 @@ async fn watch_for_new_image(
     use std::sync::mpsc;
     use std::time::Duration;
 
+    debug!(
+        "watch_for_new_image: folder={}, timeout={}s, existing_files_count={}, recursive={}",
+        folder.display(),
+        timeout_secs,
+        existing_files.len(),
+        recursive
+    );
+
     let (tx, rx) = mpsc::channel();
 
     // Create watcher
@@ -1014,9 +1022,16 @@ async fn watch_for_new_image(
 
         match rx.recv_timeout(remaining.min(Duration::from_millis(500))) {
             Ok(path) => {
+                debug!("watch_for_new_image: watcher event for {:?}", path);
                 // Give the file system a moment to finish writing
                 tokio::time::sleep(Duration::from_millis(100)).await;
-                if path.exists() && is_new_file(&path) {
+                let is_new = is_new_file(&path);
+                debug!(
+                    "watch_for_new_image: path exists={}, is_new={}",
+                    path.exists(),
+                    is_new
+                );
+                if path.exists() && is_new {
                     return Ok(path);
                 }
             }
@@ -1024,7 +1039,12 @@ async fn watch_for_new_image(
                 // Polling fallback: check if any file in folder is new
                 // This covers cases where watcher might miss an event
                 if let Some(path) = find_newest_image(&folder, recursive) {
-                    if is_new_file(&path) {
+                    let is_new = is_new_file(&path);
+                    debug!(
+                        "watch_for_new_image: polling found {:?}, is_new={}",
+                        path, is_new
+                    );
+                    if is_new {
                         return Ok(path);
                     }
                 }

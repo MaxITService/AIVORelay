@@ -909,7 +909,7 @@ pub fn get_default_settings() -> AppSettings {
         screenshot_folder: default_screenshot_folder(),
         screenshot_require_recent: true,
         screenshot_timeout_seconds: default_screenshot_timeout_seconds(),
-        screenshot_include_subfolders: false,
+        screenshot_include_subfolders: true,
         screenshot_allow_no_voice: true,
         screenshot_quick_tap_threshold_ms: default_quick_tap_threshold_ms(),
         screenshot_no_voice_default_prompt: default_screenshot_no_voice_default_prompt(),
