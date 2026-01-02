@@ -610,7 +610,10 @@
         "minutesAgo": "{{count}}m ago",
         "hoursAgo": "{{count}}h ago",
         "lastSeen": "Last seen: {{time}}",
-        "port": "Port {{port}}"
+        "port": "Port {{port}}",
+        "serverError": "Server Error",
+        "copyError": "Copy error details",
+        "errorHint": "The port may be in use by another application. Try a different port in Connection Settings below, or close the conflicting application."
       },
       "shortcuts": {
         "title": "Shortcuts"

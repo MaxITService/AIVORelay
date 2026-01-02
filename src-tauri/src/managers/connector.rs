@@ -67,6 +67,8 @@ pub struct ConnectorStatus {
     pub server_running: bool,
     /// Port server is listening on
     pub port: u16,
+    /// Last server error (e.g., port binding failure), None if no error
+    pub server_error: Option<String>,
 }
 
 /// A message in the queue to be sent to extension
@@ -210,6 +212,8 @@ pub struct ConnectorManager {
     stop_flag: Arc<AtomicBool>,
     /// Notify waiters when a new message is queued
     message_notify: Arc<Notify>,
+    /// Last server error (e.g., port binding failure)
+    server_error: Arc<RwLock<Option<String>>>,
 }
 
 impl ConnectorManager {
@@ -236,6 +240,7 @@ impl ConnectorManager {
             })),
             stop_flag: Arc::new(AtomicBool::new(false)),
             message_notify: Arc::new(Notify::new()),
+            server_error: Arc::new(RwLock::new(None)),
         };
 
         Ok(manager)
@@ -276,6 +281,7 @@ impl ConnectorManager {
         let app_handle = self.app_handle.clone();
         let last_poll_at = self.last_poll_at.clone();
         let state = self.state.clone();
+        let server_error = self.server_error.clone();
 
         tauri::async_runtime::spawn(async move {
             info!("Connector server starting on port {}", port);
@@ -298,9 +304,27 @@ impl ConnectorManager {
 
             let addr = format!("127.0.0.1:{}", port);
             let listener = match TcpListener::bind(&addr).await {
-                Ok(l) => l,
+                Ok(l) => {
+                    // Clear any previous error on successful bind
+                    {
+                        let mut err_guard = server_error.write().await;
+                        *err_guard = None;
+                    }
+                    l
+                }
                 Err(e) => {
-                    error!("Failed to bind connector server to {}: {}", addr, e);
+                    let error_msg = format!("Failed to bind to port {}: {}", port, e);
+                    error!("Connector server: {}", error_msg);
+
+                    // Store the error for status display
+                    {
+                        let mut err_guard = server_error.write().await;
+                        *err_guard = Some(error_msg.clone());
+                    }
+
+                    // Emit error event so UI can display it
+                    let _ = app_handle.emit("connector-server-error", error_msg);
+
                     server_running.store(false, Ordering::SeqCst);
                     return;
                 }
@@ -735,11 +759,17 @@ impl ConnectorManager {
             ExtensionStatus::Offline
         };
 
+        let server_error = match self.server_error.try_read() {
+            Ok(guard) => guard.clone(),
+            Err(_) => None,
+        };
+
         ConnectorStatus {
             status,
             last_poll_at: last_poll,
             server_running,
             port,
+            server_error,
         }
     }
 

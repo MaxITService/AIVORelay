@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback } from "react";
 import { useTranslation } from "react-i18next";
 import { listen } from "@tauri-apps/api/event";
 import { invoke } from "@tauri-apps/api/core";
-import { Wifi, WifiOff, Server } from "lucide-react";
+import { Wifi, WifiOff, Server, AlertTriangle, Copy, Check } from "lucide-react";
 import { SettingContainer } from "../../ui/SettingContainer";
 
 // Types matching Rust backend
@@ -13,6 +13,7 @@ interface ConnectorStatusResponse {
   last_poll_at: number;
   server_running: boolean;
   port: number;
+  server_error: string | null;
 }
 
 interface ConnectorStatusIndicatorProps {
@@ -52,6 +53,7 @@ export const ConnectorStatusIndicator: React.FC<ConnectorStatusIndicatorProps> =
   const { t } = useTranslation();
   const [status, setStatus] = useState<ConnectorStatusResponse | null>(null);
   const [lastSeenText, setLastSeenText] = useState<string>("");
+  const [errorCopied, setErrorCopied] = useState(false);
 
   // Fetch status from backend
   const fetchStatus = useCallback(async () => {
@@ -89,7 +91,7 @@ export const ConnectorStatusIndicator: React.FC<ConnectorStatusIndicatorProps> =
 
   // Listen for status change events from backend
   useEffect(() => {
-    const unlisten = listen<ExtensionStatus>("extension-status-changed", (event) => {
+    const unlisten = listen<ExtensionStatus>("extension-status-changed", () => {
       // Refetch full status when event received
       fetchStatus();
     });
@@ -98,6 +100,27 @@ export const ConnectorStatusIndicator: React.FC<ConnectorStatusIndicatorProps> =
       unlisten.then((fn) => fn());
     };
   }, [fetchStatus]);
+
+  // Listen for server error events from backend
+  useEffect(() => {
+    const unlisten = listen<string>("connector-server-error", () => {
+      // Refetch full status to get the error
+      fetchStatus();
+    });
+
+    return () => {
+      unlisten.then((fn) => fn());
+    };
+  }, [fetchStatus]);
+
+  // Copy error to clipboard
+  const handleCopyError = () => {
+    if (status?.server_error) {
+      void navigator.clipboard.writeText(status.server_error);
+      setErrorCopied(true);
+      setTimeout(() => setErrorCopied(false), 1500);
+    }
+  };
 
   const getStatusColor = (): string => {
     if (!status || !status.server_running) {
@@ -160,29 +183,63 @@ export const ConnectorStatusIndicator: React.FC<ConnectorStatusIndicatorProps> =
       description={t("settings.browserConnector.status.description")}
       descriptionMode={descriptionMode}
       grouped={grouped}
+      layout="stacked"
     >
-      <div className="flex items-center gap-3">
-        <div
-          className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border ${getStatusBadgeClass()}`}
-        >
-          {getStatusIcon()}
-          <span className={`text-sm font-medium ${getStatusColor()}`}>
-            {getStatusText()}
-          </span>
+      <div className="flex flex-col gap-3">
+        <div className="flex items-center gap-3">
+          <div
+            className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border ${getStatusBadgeClass()}`}
+          >
+            {getStatusIcon()}
+            <span className={`text-sm font-medium ${getStatusColor()}`}>
+              {getStatusText()}
+            </span>
+          </div>
+
+          {/* Show last seen time when offline */}
+          {status?.status === "offline" && lastSeenText && (
+            <span className="text-xs text-text/50">
+              {t("settings.browserConnector.status.lastSeen", { time: lastSeenText })}
+            </span>
+          )}
+
+          {/* Show port info when server is running */}
+          {status?.server_running && (
+            <span className="text-xs text-text/40">
+              {t("settings.browserConnector.status.port", { port: status.port })}
+            </span>
+          )}
         </div>
 
-        {/* Show last seen time when offline */}
-        {status?.status === "offline" && lastSeenText && (
-          <span className="text-xs text-text/50">
-            {t("settings.browserConnector.status.lastSeen", { time: lastSeenText })}
-          </span>
-        )}
-
-        {/* Show port info when server is running */}
-        {status?.server_running && (
-          <span className="text-xs text-text/40">
-            {t("settings.browserConnector.status.port", { port: status.port })}
-          </span>
+        {/* Show server error if present */}
+        {status?.server_error && (
+          <div className="flex flex-col gap-2 p-3 rounded-lg border border-red-500/30 bg-red-500/10">
+            <div className="flex items-start gap-2">
+              <AlertTriangle className="w-4 h-4 text-red-400 mt-0.5 flex-shrink-0" />
+              <div className="flex-1">
+                <div className="text-sm font-medium text-red-400">
+                  {t("settings.browserConnector.status.serverError")}
+                </div>
+                <div className="text-xs text-red-300/80 mt-1 font-mono break-all select-all">
+                  {status.server_error}
+                </div>
+              </div>
+              <button
+                onClick={handleCopyError}
+                className="p-1.5 rounded hover:bg-red-500/20 transition-colors text-red-400 hover:text-red-300"
+                title={t("settings.browserConnector.status.copyError")}
+              >
+                {errorCopied ? (
+                  <Check className="w-4 h-4" />
+                ) : (
+                  <Copy className="w-4 h-4" />
+                )}
+              </button>
+            </div>
+            <div className="text-xs text-text/50 italic">
+              {t("settings.browserConnector.status.errorHint")}
+            </div>
+          </div>
         )}
       </div>
     </SettingContainer>

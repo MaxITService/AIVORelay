@@ -1147,7 +1147,11 @@ server_running: boolean;
 /**
  * Port server is listening on
  */
-port: number }
+port: number; 
+/**
+ * Last server error (e.g., port binding failure), None if no error
+ */
+server_error: string | null }
 export type CustomSounds = { start: boolean; stop: boolean }
 export type EngineType = "Whisper" | "Parakeet"
 /**
