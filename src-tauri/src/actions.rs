@@ -1341,10 +1341,8 @@ impl ShortcutAction for SendScreenshotToExtensionAction {
                     use crate::region_capture::{open_region_picker, RegionCaptureResult};
 
                     match open_region_picker(&ah, settings.native_region_capture_mode).await {
-                        RegionCaptureResult::Selected {
-                            region: _,
-                            image_data,
-                        } => {
+                        RegionCaptureResult::Selected { region, image_data } => {
+                            debug!("Screenshot captured for region: {:?}", region);
                             // Send screenshot bytes directly to connector
                             let _ = cm.queue_bundle_message_bytes(
                                 &final_voice_text,
