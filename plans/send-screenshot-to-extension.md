@@ -11,22 +11,22 @@ flowchart TD
     A[Shortcut PRESS] --> B[Launch ShareX command async]
     A --> C[Start file watcher on screenshots folder]
     A --> D[Start voice recording]
-    
+
     B --> E{User takes screenshot}
     D --> F{User releases shortcut}
-    
+
     E -->|File appears| G[Gate 2: screenshot_found = true<br>Store file path]
     F --> H[Gate 1: voice_done = true<br>Transcribe audio]
-    
+
     G --> I{Both gates open?}
     H --> I
-    
+
     I -->|Yes| J[Send bundle message to extension]
     I -->|No| K{Timeout reached?}
-    
+
     K -->|Yes| L[Toast error: Screenshot not found<br>5 sec visible]
     K -->|No| I
-    
+
     J --> M[Done]
     L --> M
 ```
@@ -35,41 +35,46 @@ flowchart TD
 
 ### New Fields in AppSettings
 
-| Field | Type | Default | Description |
-|-------|------|---------|-------------|
-| `screenshot_capture_command` | `String` | `C:\Program Files\ShareX\ShareX.exe -RectangleRegion` | Command to launch screenshot tool |
-| `screenshot_folder` | `String` | `%USERPROFILE%\Pictures\Screenshots` | Folder to watch for new screenshots |
-| `screenshot_require_recent` | `bool` | `true` | Only accept files created within timeout window |
-| `screenshot_timeout_seconds` | `u32` | `5` | How long to wait for screenshot to appear |
-| `send_screenshot_to_extension_push_to_talk` | `bool` | `true` | Push-to-talk mode for this action |
+| Field                                       | Type     | Default                                               | Description                                     |
+| ------------------------------------------- | -------- | ----------------------------------------------------- | ----------------------------------------------- |
+| `screenshot_capture_command`                | `String` | `C:\Program Files\ShareX\ShareX.exe -RectangleRegion` | Command to launch screenshot tool               |
+| `screenshot_folder`                         | `String` | `%USERPROFILE%\Pictures\Screenshots`                  | Folder to watch for new screenshots             |
+| `screenshot_require_recent`                 | `bool`   | `true`                                                | Only accept files created within timeout window |
+| `screenshot_timeout_seconds`                | `u32`    | `5`                                                   | How long to wait for screenshot to appear       |
+| `send_screenshot_to_extension_push_to_talk` | `bool`   | `true`                                                | Push-to-talk mode for this action               |
 
 ## File Changes Required
 
 ### Backend (Rust)
 
 #### 1. `src-tauri/src/settings.rs`
+
 - Add new fields to `AppSettings` struct
 - Add default value functions
 - Expand screenshots folder path at runtime
 
 #### 2. `src-tauri/src/actions.rs`
+
 - Create `SendScreenshotToExtensionAction` struct
 - Implement `ShortcutAction` trait with two-gate logic
 - Handle parallel voice recording and file watching
 - Register in `ACTION_MAP`
 
 #### 3. `src-tauri/src/managers/connector.rs`
+
 - Add `BlobAttachment` struct for tracking served files
 - Add `queue_bundle_message` method for sending bundles with attachments
 - Add `/blob/{attId}` endpoint handler
 - Store pending blobs with expiration
 
 #### 4. `src-tauri/resources/default_settings.json`
+
 - Add default values for new settings
 
 ### Frontend (TypeScript/React)
 
 #### 5. `src/components/settings/browser-connector/BrowserConnectorSettings.tsx`
+
 - Add new settings section for Screenshot capture
 - Input for capture command
 - Input for screenshots folder with folder picker
@@ -77,20 +82,25 @@ flowchart TD
 - Number input for timeout seconds
 
 #### 6. `src/hooks/useSettings.ts`
+
 - Add update methods for new settings
 
 #### 7. `src/i18n/locales/en/translation.json`
+
 - Add translations for new UI elements
 
 #### 8. `src/App.tsx`
+
 - Add event listener for `screenshot-error` events
 
 ### Documentation
 
 #### 9. `fork-agents.md`
+
 - Document new feature and files
 
 #### 10. `code-notes.md`
+
 - Add new files to the list
 
 ## Implementation Details
@@ -110,6 +120,7 @@ struct ScreenshotCaptureState {
 ### File Watcher Implementation
 
 Use `notify` crate for cross-platform file watching:
+
 - Watch screenshots folder for new files
 - Filter by: extension (png, jpg, jpeg), creation time within timeout window
 - Stop watching once a valid file is found
@@ -132,7 +143,7 @@ Per messaging-contract.md:
       "mime": "image/png",
       "size": 10240,
       "fetch": {
-        "url": "http://127.0.0.1:63155/blob/img_01",
+        "url": "http://127.0.0.1:38243/blob/img_01",
         "method": "GET",
         "headers": {},
         "expiresAt": 1735084300000
@@ -154,6 +165,7 @@ All errors displayed via `toast.error()` with 5 second duration.
 ## New Dependencies
 
 Add to `Cargo.toml`:
+
 ```toml
 notify = "6.1"  # File system notifications
 ```
@@ -218,7 +230,7 @@ sequenceDiagram
     Handy->>ShareX: Launch capture command
     Handy->>FileSystem: Start watching folder
     Handy->>Handy: Start voice recording
-    
+
     par Voice Recording
         User->>Handy: Speak instruction
     and Screenshot
@@ -227,14 +239,15 @@ sequenceDiagram
         FileSystem-->>Handy: New file event
         Handy->>Handy: Gate 2: screenshot found
     end
-    
+
     User->>Handy: Release shortcut
     Handy->>Handy: Gate 1: voice done
     Handy->>Handy: Transcribe audio
-    
+
     Note over Handy: Both gates open
-    
+
     Handy->>Extension: Queue bundle message
     Extension->>Handy: GET /blob/attId
     Handy-->>Extension: Return image bytes
     Extension->>Extension: Send to AI chat
+```

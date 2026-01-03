@@ -8,7 +8,7 @@ Files that differentiate this fork from the original [cjpais/Handy](https://gith
 
 | File                                       | Purpose                                                                                                                                                                                                                                                                                                                                                    |
 | ------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `src-tauri/src/managers/connector.rs`      | **Main connector module**: HTTP server (port 63155) for extension communication. Extension polls `GET /messages` with Bearer auth, AivoRelay returns `{cursor, messages[], config, passwordUpdate?}`. Handles text messages, bundle (with image attachments via `/blob/*`), and keepalive messages. **Includes two-phase password rotation** for security. |
+| `src-tauri/src/managers/connector.rs`      | **Main connector module**: HTTP server (port 38243) for extension communication. Extension polls `GET /messages` with Bearer auth, AivoRelay returns `{cursor, messages[], config, passwordUpdate?}`. Handles text messages, bundle (with image attachments via `/blob/*`), and keepalive messages. **Includes two-phase password rotation** for security. |
 | `src-tauri/src/commands/connector.rs`      | Tauri commands for connector: `connector_get_status`, `connector_is_online`, `connector_start_server`, `connector_stop_server`, `connector_queue_message`.                                                                                                                                                                                                 |
 | `src-tauri/src/managers/remote_stt.rs`     | Remote Speech-to-Text manager. Handles OpenAI-compatible API calls, WAV encoding, API key storage (Windows Credential Manager), debug logging.                                                                                                                                                                                                             |
 | `src-tauri/src/commands/remote_stt.rs`     | Tauri commands exposing Remote STT functionality to frontend: `remote_stt_has_api_key`, `remote_stt_set_api_key`, `remote_stt_test_connection`, etc.                                                                                                                                                                                                       |
@@ -110,7 +110,7 @@ User presses shortcut + speaks
                     └─► message added to queue with {id, type, text, ts, attachments?}
 
 Extension polls server
-    └─► GET http://127.0.0.1:63155/messages?since=<cursor>
+    └─► GET http://127.0.0.1:38243/messages?since=<cursor>
             └─► Authorization: Bearer <password>
             └─► Returns {cursor, messages[], config, passwordUpdate?}
     └─► GET /blob/<attId> for image attachments (also requires auth)

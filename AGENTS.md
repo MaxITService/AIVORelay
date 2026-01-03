@@ -83,7 +83,7 @@ When using Remote STT API, the **Recording Overlay** (`recording_overlay` window
 ### 3. Connector (Send Transcription to Extension)
 
 - Primary implementation: `src-tauri/src/managers/connector.rs` (local HTTP server), `src-tauri/src/actions.rs` (Send\*ToExtension actions), `src/components/settings/browser-connector/`
-- Extension polls AivoRelay's local server (default `http://127.0.0.1:63155`):
+- Extension polls AivoRelay's local server (default `http://127.0.0.1:38243`):
   - `GET /messages?since=<cursor>` → queued messages + next `cursor`
   - `GET /blob/{attId}` → attachment bytes (short-lived)
   - `POST /messages` → extension acks (e.g. `keepalive_ack`, `password_ack`)
@@ -127,7 +127,7 @@ See [`fork-merge-guide.md`](fork-merge-guide.md) for upstream tracking and the m
 
 1. Ensure AivoRelay Connector extension is installed and bound to a tab
 2. Check console for "Connector message sent" or error logs
-3. Verify AivoRelay server responds (auth required): `curl -H "Authorization: Bearer <password>" "http://127.0.0.1:63155/messages"`
+3. Verify AivoRelay server responds (auth required): `curl -H "Authorization: Bearer <password>" "http://127.0.0.1:38243/messages"`
 
 ### Send Screenshot to Extension
 
@@ -135,7 +135,7 @@ See [`fork-merge-guide.md`](fork-merge-guide.md) for upstream tracking and the m
 2. Ensure ShareX (or configured tool) saves to the configured folder
 3. Check "Require Recent Screenshot" is enabled to filter old files
 4. Test screenshot tool manually: `"C:\Program Files\ShareX\ShareX.exe" -RectangleRegion`
-5. Verify blob endpoint works (requires auth): `curl -H "Authorization: Bearer <password>" http://127.0.0.1:63155/blob/{attId}`
+5. Verify blob endpoint works (requires auth): `curl -H "Authorization: Bearer <password>" http://127.0.0.1:38243/blob/{attId}`
 
 ### Selection Capture (Windows)
 

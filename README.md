@@ -122,7 +122,7 @@ ${output}
 1. Install [AivoRelay Connector](https://github.com/MaxITService/AivoRelay-relay) Chrome extension
 2. Open ChatGPT or Perplexity in a browser tab
 3. Click extension icon → "Bind to this tab"
-4. Extension polls `http://127.0.0.1:63155` by default for messages from AivoRelay. Port must match in extension and in AivoRelay settings.
+4. Extension polls `http://127.0.0.1:38243` by default for messages from AivoRelay. Port must match in extension and in AivoRelay settings.
 
 ---
 

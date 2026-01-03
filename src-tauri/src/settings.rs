@@ -542,7 +542,7 @@ fn default_app_language() -> String {
 }
 
 fn default_connector_port() -> u16 {
-    63155
+    38243
 }
 
 fn default_connector_auto_open_enabled() -> bool {

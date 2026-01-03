@@ -30,7 +30,7 @@ use tokio::sync::{Notify, RwLock};
 use tower_http::cors::{Any, CorsLayer};
 
 /// Default server port (same as test-server.ps1)
-const DEFAULT_PORT: u16 = 63155;
+const DEFAULT_PORT: u16 = 38243;
 /// Timeout in milliseconds - if no poll for this duration, consider disconnected
 /// Must be longer than MAX_WAIT_SECONDS to account for long-polling
 const POLL_TIMEOUT_MS: i64 = 35_000;
