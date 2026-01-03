@@ -1,9 +1,9 @@
 use crate::managers::audio::AudioRecordingManager;
 use crate::managers::llm_operation::LlmOperationTracker;
 use crate::managers::remote_stt::RemoteSttManager;
-use crate::shortcut;
+use crate::recording_session;
 use crate::ManagedToggleState;
-use log::{info, warn};
+use log::{debug, info, warn};
 use std::sync::Arc;
 use tauri::{AppHandle, Manager};
 
@@ -15,13 +15,31 @@ pub use crate::tray::*;
 
 /// Centralized cancellation function that can be called from anywhere in the app.
 /// Handles cancelling both recording and transcription operations and updates UI state.
+/// This also cancels any ongoing Processing work (transcription, LLM, etc.).
 pub fn cancel_current_operation(app: &AppHandle) {
     info!("Initiating operation cancellation...");
 
-    // Unregister the cancel shortcut asynchronously
-    shortcut::unregister_cancel_shortcut(app);
+    // Take the active session if any - its Drop will handle cleanup
+    // (unregistering cancel shortcut, removing mute, etc.)
+    if let Some((session, binding_id)) = recording_session::take_session(app) {
+        debug!(
+            "Cancellation: took active session for binding '{}'",
+            binding_id
+        );
+        // Session's Drop will handle:
+        // - Unregistering cancel shortcut
+        // - Removing mute
+        // - Hiding overlay
+        // - Resetting tray icon
+        drop(session);
+    } else {
+        // No Recording session - maybe we're in Processing state
+        // exit_processing will set state to Idle if we were in Processing
+        recording_session::exit_processing(app);
+        debug!("Cancellation: no active recording session, checked for Processing state");
+    }
 
-    // First, reset all shortcut toggle states.
+    // Reset all shortcut toggle states.
     // This is critical for non-push-to-talk mode where shortcuts toggle on/off
     let toggle_state_manager = app.state::<ManagedToggleState>();
     if let Ok(mut states) = toggle_state_manager.lock() {
@@ -30,7 +48,7 @@ pub fn cancel_current_operation(app: &AppHandle) {
         warn!("Failed to lock toggle state manager during cancellation");
     }
 
-    // Cancel any ongoing recording
+    // Cancel any ongoing recording (belt-and-suspenders, session should have done this)
     let audio_manager = app.state::<Arc<AudioRecordingManager>>();
     audio_manager.cancel_recording();
 
@@ -42,7 +60,7 @@ pub fn cancel_current_operation(app: &AppHandle) {
     let llm_tracker = app.state::<Arc<LlmOperationTracker>>();
     llm_tracker.cancel();
 
-    // Update tray icon and hide overlay
+    // Ensure UI is in idle state (redundant if session Drop ran, but safe)
     change_tray_icon(app, crate::tray::TrayIconState::Idle);
     hide_recording_overlay(app);
 

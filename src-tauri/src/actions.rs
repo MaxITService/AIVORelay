@@ -8,10 +8,10 @@ use crate::managers::history::HistoryManager;
 use crate::managers::llm_operation::LlmOperationTracker;
 use crate::managers::remote_stt::RemoteSttManager;
 use crate::managers::transcription::TranscriptionManager;
+use crate::recording_session::{self, ManagedSessionState};
 use crate::settings::{
     get_settings, AppSettings, TranscriptionProvider, APPLE_INTELLIGENCE_PROVIDER_ID,
 };
-use crate::shortcut;
 use crate::tray::{change_tray_icon, TrayIconState};
 use crate::utils::{
     self, show_recording_overlay, show_sending_overlay, show_thinking_overlay,
@@ -47,7 +47,10 @@ struct RepastLastAction;
 enum PostProcessTranscriptionOutcome {
     Skipped,
     Cancelled,
-    Processed { text: String, prompt_template: String },
+    Processed {
+        text: String,
+        prompt_template: String,
+    },
 }
 
 async fn maybe_post_process_transcription(
@@ -304,6 +307,12 @@ fn emit_ai_replace_error(app: &AppHandle, message: impl Into<String>) {
 /// Starts recording with proper audio feedback handling.
 /// Handles both always-on and on-demand microphone modes.
 /// Returns true if recording was successfully started.
+///
+/// This function creates a recording session that will be stored in managed state.
+/// The session's Drop ensures cleanup (cancel shortcut, mute, overlay) happens exactly once.
+///
+/// IMPORTANT: We hold the session state lock throughout the entire operation to prevent
+/// race conditions when the user rapidly presses the shortcut key.
 fn start_recording_with_feedback(app: &AppHandle, binding_id: &str) -> bool {
     let settings = get_settings(app);
 
@@ -312,6 +321,33 @@ fn start_recording_with_feedback(app: &AppHandle, binding_id: &str) -> bool {
     if settings.transcription_provider == TranscriptionProvider::Local {
         tm.initiate_model_load();
     }
+
+    // Hold the lock for the entire operation to prevent race conditions
+    let state = app.state::<ManagedSessionState>();
+    let mut state_guard = state.lock().expect("Failed to lock session state");
+
+    // Check if we're already recording or processing
+    // During processing, we block new recordings to prevent overlapping operations
+    if !matches!(*state_guard, recording_session::SessionState::Idle) {
+        debug!("start_recording_with_feedback: System busy (recording or processing), ignoring");
+        return false;
+    }
+
+    // Mark as recording immediately to prevent concurrent starts
+    // We'll update with the real session once recording actually starts
+    // For now, create a placeholder session
+    let session = Arc::new(recording_session::RecordingSession::new_with_resources(
+        app, true, // cancel shortcut will be registered
+        true, // mute may be applied (session tracks this for cleanup)
+    ));
+
+    *state_guard = recording_session::SessionState::Recording {
+        session: Arc::clone(&session),
+        binding_id: binding_id.to_string(),
+    };
+
+    // Now release the lock before doing I/O operations
+    drop(state_guard);
 
     change_tray_icon(app, TrayIconState::Recording);
     show_recording_overlay(app);
@@ -354,7 +390,19 @@ fn start_recording_with_feedback(app: &AppHandle, binding_id: &str) -> bool {
     }
 
     if recording_started {
-        shortcut::register_cancel_shortcut(app);
+        // Register cancel shortcut now that recording is confirmed
+        session.register_cancel_shortcut();
+    } else {
+        // Recording failed - clean up
+        // Take the session back and let it drop (which will clean up)
+        let state = app.state::<ManagedSessionState>();
+        let mut state_guard = state.lock().expect("Failed to lock session state");
+        *state_guard = recording_session::SessionState::Idle;
+        drop(state_guard);
+
+        // Session's Drop will handle cleanup, but we also explicitly reset UI
+        utils::hide_recording_overlay(app);
+        change_tray_icon(app, TrayIconState::Idle);
     }
 
     recording_started
@@ -458,21 +506,78 @@ async fn perform_transcription(app: &AppHandle, samples: Vec<f32>) -> Transcript
 
 /// Prepares the application state for stopping a recording.
 /// Handles tray icon, overlay selection, sound, and unmuting.
-fn prepare_stop_recording(app: &AppHandle) {
-    shortcut::unregister_cancel_shortcut(app);
-    let settings = get_settings(app);
+///
+/// This function transitions from Recording to Processing state.
+/// The session's finish() method handles cleanup (unregistering cancel shortcut).
+/// Pass the binding_id to ensure we only stop our own recording.
+///
+/// IMPORTANT: After calling this, the caller MUST call exit_processing() when
+/// the async work is complete (success or error).
+fn prepare_stop_recording(app: &AppHandle, binding_id: &str) -> bool {
+    // Take the session and transition to Processing state
+    let state = app.state::<ManagedSessionState>();
+    let mut state_guard = state.lock().expect("Failed to lock session state");
 
-    change_tray_icon(app, TrayIconState::Transcribing);
-    if settings.transcription_provider == TranscriptionProvider::RemoteOpenAiCompatible {
-        show_sending_overlay(app);
+    let session = match &*state_guard {
+        recording_session::SessionState::Recording {
+            binding_id: current_binding_id,
+            session,
+        } if current_binding_id == binding_id => {
+            let session = Arc::clone(session);
+            // Transition to Processing state
+            *state_guard = recording_session::SessionState::Processing {
+                binding_id: binding_id.to_string(),
+            };
+            Some(session)
+        }
+        recording_session::SessionState::Recording {
+            binding_id: current_binding_id,
+            ..
+        } => {
+            debug!(
+                "prepare_stop_recording: Binding mismatch (expected {}, got {})",
+                binding_id, current_binding_id
+            );
+            None
+        }
+        recording_session::SessionState::Processing { .. } => {
+            debug!("prepare_stop_recording: Already in Processing state");
+            None
+        }
+        recording_session::SessionState::Idle => {
+            debug!(
+                "prepare_stop_recording: No active session for binding {}",
+                binding_id
+            );
+            None
+        }
+    };
+
+    // Release lock before doing I/O
+    drop(state_guard);
+
+    if let Some(session) = session {
+        // Explicitly finish the session to trigger cleanup
+        // This unregisters the cancel shortcut exactly once
+        session.finish();
+
+        let settings = get_settings(app);
+
+        change_tray_icon(app, TrayIconState::Transcribing);
+        if settings.transcription_provider == TranscriptionProvider::RemoteOpenAiCompatible {
+            show_sending_overlay(app);
+        } else {
+            show_transcribing_overlay(app);
+        }
+
+        let rm = app.state::<Arc<AudioRecordingManager>>();
+        rm.remove_mute();
+
+        play_feedback_sound(app, SoundType::Stop);
+        true
     } else {
-        show_transcribing_overlay(app);
+        false
     }
-
-    let rm = app.state::<Arc<AudioRecordingManager>>();
-    rm.remove_mute();
-
-    play_feedback_sound(app, SoundType::Stop);
 }
 
 /// Asynchronously stops recording and performs transcription.
@@ -691,7 +796,9 @@ impl ShortcutAction for TranscribeAction {
     }
 
     fn stop(&self, app: &AppHandle, binding_id: &str, _shortcut_str: &str) {
-        prepare_stop_recording(app);
+        if !prepare_stop_recording(app, binding_id) {
+            return; // No active session - nothing to do
+        }
 
         let ah = app.clone();
         let binding_id = binding_id.to_string();
@@ -700,19 +807,26 @@ impl ShortcutAction for TranscribeAction {
             let (transcription, samples) =
                 match get_transcription_or_cleanup(&ah, &binding_id).await {
                     Some(res) => res,
-                    None => return,
+                    None => {
+                        recording_session::exit_processing(&ah);
+                        return;
+                    }
                 };
 
             if transcription.is_empty() {
                 utils::hide_recording_overlay(&ah);
                 change_tray_icon(&ah, TrayIconState::Idle);
+                recording_session::exit_processing(&ah);
                 return;
             }
 
             let final_text =
                 match apply_post_processing_and_history(&ah, transcription, samples).await {
                     Some(text) => text,
-                    None => return,
+                    None => {
+                        recording_session::exit_processing(&ah);
+                        return;
+                    }
                 };
 
             let ah_clone = ah.clone();
@@ -722,6 +836,8 @@ impl ShortcutAction for TranscribeAction {
                 change_tray_icon(&ah_clone, TrayIconState::Idle);
             })
             .ok();
+
+            recording_session::exit_processing(&ah);
         });
     }
 }
@@ -756,11 +872,14 @@ impl ShortcutAction for SendToExtensionAction {
     fn stop(&self, app: &AppHandle, binding_id: &str, _shortcut_str: &str) {
         let cm = Arc::clone(&app.state::<Arc<ConnectorManager>>());
         if !cm.is_online() {
-            shortcut::unregister_cancel_shortcut(app);
+            // Extension went offline - take session to trigger cleanup via Drop
+            let _ = recording_session::take_session_if_matches(app, binding_id);
             return;
         }
 
-        prepare_stop_recording(app);
+        if !prepare_stop_recording(app, binding_id) {
+            return; // No active session - nothing to do
+        }
 
         let ah = app.clone();
         let cm = Arc::clone(&app.state::<Arc<ConnectorManager>>());
@@ -770,19 +889,26 @@ impl ShortcutAction for SendToExtensionAction {
             let (transcription, samples) =
                 match get_transcription_or_cleanup(&ah, &binding_id).await {
                     Some(res) => res,
-                    None => return,
+                    None => {
+                        recording_session::exit_processing(&ah);
+                        return;
+                    }
                 };
 
             if transcription.is_empty() {
                 utils::hide_recording_overlay(&ah);
                 change_tray_icon(&ah, TrayIconState::Idle);
+                recording_session::exit_processing(&ah);
                 return;
             }
 
             let final_text =
                 match apply_post_processing_and_history(&ah, transcription, samples).await {
                     Some(text) => text,
-                    None => return,
+                    None => {
+                        recording_session::exit_processing(&ah);
+                        return;
+                    }
                 };
 
             match cm.queue_message(&final_text) {
@@ -796,6 +922,8 @@ impl ShortcutAction for SendToExtensionAction {
                 change_tray_icon(&ah_clone, TrayIconState::Idle);
             })
             .ok();
+
+            recording_session::exit_processing(&ah);
         });
     }
 }
@@ -830,11 +958,14 @@ impl ShortcutAction for SendToExtensionWithSelectionAction {
     fn stop(&self, app: &AppHandle, binding_id: &str, _shortcut_str: &str) {
         let cm = Arc::clone(&app.state::<Arc<ConnectorManager>>());
         if !cm.is_online() {
-            shortcut::unregister_cancel_shortcut(app);
+            // Extension went offline - take session to trigger cleanup via Drop
+            let _ = recording_session::take_session_if_matches(app, binding_id);
             return;
         }
 
-        prepare_stop_recording(app);
+        if !prepare_stop_recording(app, binding_id) {
+            return; // No active session - nothing to do
+        }
 
         let ah = app.clone();
         let cm = Arc::clone(&app.state::<Arc<ConnectorManager>>());
@@ -844,7 +975,10 @@ impl ShortcutAction for SendToExtensionWithSelectionAction {
             let (transcription, samples) =
                 match get_transcription_or_cleanup(&ah, &binding_id).await {
                     Some(res) => res,
-                    None => return,
+                    None => {
+                        recording_session::exit_processing(&ah);
+                        return;
+                    }
                 };
 
             let settings = get_settings(&ah);
@@ -852,13 +986,17 @@ impl ShortcutAction for SendToExtensionWithSelectionAction {
                 if !settings.send_to_extension_with_selection_allow_no_voice {
                     utils::hide_recording_overlay(&ah);
                     change_tray_icon(&ah, TrayIconState::Idle);
+                    recording_session::exit_processing(&ah);
                     return;
                 }
                 String::new()
             } else {
                 match apply_post_processing_and_history(&ah, transcription, samples).await {
                     Some(text) => text,
-                    None => return,
+                    None => {
+                        recording_session::exit_processing(&ah);
+                        return;
+                    }
                 }
             };
 
@@ -875,6 +1013,8 @@ impl ShortcutAction for SendToExtensionWithSelectionAction {
                 change_tray_icon(&ah_clone, TrayIconState::Idle);
             })
             .ok();
+
+            recording_session::exit_processing(&ah);
         });
     }
 }
@@ -1158,11 +1298,14 @@ impl ShortcutAction for SendScreenshotToExtensionAction {
     fn stop(&self, app: &AppHandle, binding_id: &str, _shortcut_str: &str) {
         let cm = Arc::clone(&app.state::<Arc<ConnectorManager>>());
         if !cm.is_online() {
-            shortcut::unregister_cancel_shortcut(app);
+            // Extension went offline - take session to trigger cleanup via Drop
+            let _ = recording_session::take_session_if_matches(app, binding_id);
             return;
         }
 
-        prepare_stop_recording(app);
+        if !prepare_stop_recording(app, binding_id) {
+            return; // No active session - nothing to do
+        }
 
         let ah = app.clone();
         let cm = Arc::clone(&app.state::<Arc<ConnectorManager>>());
@@ -1171,7 +1314,10 @@ impl ShortcutAction for SendScreenshotToExtensionAction {
         tauri::async_runtime::spawn(async move {
             let (voice_text, _) = match get_transcription_or_cleanup(&ah, &binding_id).await {
                 Some(res) => res,
-                None => return,
+                None => {
+                    recording_session::exit_processing(&ah);
+                    return;
+                }
             };
 
             let settings = get_settings(&ah);
@@ -1223,6 +1369,7 @@ impl ShortcutAction for SendScreenshotToExtensionAction {
                         "Native screenshot capture is only supported on Windows.",
                     );
                 }
+                recording_session::exit_processing(&ah);
                 return;
             }
 
@@ -1236,6 +1383,7 @@ impl ShortcutAction for SendScreenshotToExtensionAction {
                         screenshot_folder.display()
                     ),
                 );
+                recording_session::exit_processing(&ah);
                 return;
             }
             if !screenshot_folder.is_dir() {
@@ -1246,6 +1394,7 @@ impl ShortcutAction for SendScreenshotToExtensionAction {
                         screenshot_folder.display()
                     ),
                 );
+                recording_session::exit_processing(&ah);
                 return;
             }
 
@@ -1282,6 +1431,8 @@ impl ShortcutAction for SendScreenshotToExtensionAction {
                     emit_screenshot_error(&ah, &e);
                 }
             }
+
+            recording_session::exit_processing(&ah);
         });
     }
 }
@@ -1309,7 +1460,9 @@ impl ShortcutAction for AiReplaceSelectionAction {
     }
 
     fn stop(&self, app: &AppHandle, binding_id: &str, _shortcut_str: &str) {
-        prepare_stop_recording(app);
+        if !prepare_stop_recording(app, binding_id) {
+            return; // No active session - nothing to do
+        }
 
         let ah = app.clone();
         let binding_id = binding_id.to_string();
@@ -1317,7 +1470,10 @@ impl ShortcutAction for AiReplaceSelectionAction {
         tauri::async_runtime::spawn(async move {
             let (transcription, _) = match get_transcription_or_cleanup(&ah, &binding_id).await {
                 Some(res) => res,
-                None => return,
+                None => {
+                    recording_session::exit_processing(&ah);
+                    return;
+                }
             };
 
             let settings = get_settings(&ah);
@@ -1327,6 +1483,7 @@ impl ShortcutAction for AiReplaceSelectionAction {
                     emit_ai_replace_error(&ah, "No instruction captured.");
                     utils::hide_recording_overlay(&ah);
                     change_tray_icon(&ah, TrayIconState::Idle);
+                    recording_session::exit_processing(&ah);
                     return;
                 }
                 // proceeding with empty transcription
@@ -1344,6 +1501,7 @@ impl ShortcutAction for AiReplaceSelectionAction {
                 emit_ai_replace_error(&ah, "Could not capture selection.");
                 utils::hide_recording_overlay(&ah);
                 change_tray_icon(&ah, TrayIconState::Idle);
+                recording_session::exit_processing(&ah);
                 return;
             }
 
@@ -1365,7 +1523,8 @@ impl ShortcutAction for AiReplaceSelectionAction {
                             "LLM operation {} was cancelled, discarding result",
                             operation_id
                         );
-                        // Overlay already hidden by cancel_current_operation, just return
+                        // Overlay already hidden by cancel_current_operation
+                        // exit_processing already called by cancel
                         return;
                     }
 
@@ -1402,6 +1561,7 @@ impl ShortcutAction for AiReplaceSelectionAction {
                             "LLM operation {} was cancelled, skipping error handling",
                             operation_id
                         );
+                        // exit_processing already called by cancel
                         return;
                     }
 
@@ -1424,6 +1584,8 @@ impl ShortcutAction for AiReplaceSelectionAction {
                     change_tray_icon(&ah, TrayIconState::Idle);
                 }
             }
+
+            recording_session::exit_processing(&ah);
         });
     }
 }
