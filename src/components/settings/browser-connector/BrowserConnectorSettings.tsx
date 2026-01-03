@@ -31,9 +31,9 @@ const getDefaultScreenshotFolder = () => {
 
 export const BrowserConnectorSettings: React.FC = () => {
   const { t } = useTranslation();
-  const { settings, updateSetting, isUpdating } = useSettings();
+  const { settings, updateSetting, isUpdating, refreshSettings } = useSettings();
 
-  const [portInput, setPortInput] = useState(String(settings?.connector_port ?? 63155));
+  const [portInput, setPortInput] = useState(String(settings?.connector_port ?? 38243));
   const [portError, setPortError] = useState<string | null>(null);
   const [passwordInput, setPasswordInput] = useState(settings?.connector_password ?? "");
   const [showPassword, setShowPassword] = useState(false);
@@ -77,7 +77,7 @@ export const BrowserConnectorSettings: React.FC = () => {
   );
 
   useEffect(() => {
-    setPortInput(String(settings?.connector_port ?? 63155));
+    setPortInput(String(settings?.connector_port ?? 38243));
     setPortError(null); // Clear error when port updates successfully
   }, [settings?.connector_port]);
 
@@ -149,11 +149,14 @@ export const BrowserConnectorSettings: React.FC = () => {
       if (result.status === "error") {
         setPortError(result.error);
         // Revert input to current working port
-        setPortInput(String(settings?.connector_port ?? 63155));
+        setPortInput(String(settings?.connector_port ?? 38243));
+      } else {
+        // Refresh settings to ensure the store is in sync
+        await refreshSettings();
       }
     } catch (error) {
       setPortError(String(error));
-      setPortInput(String(settings?.connector_port ?? 63155));
+      setPortInput(String(settings?.connector_port ?? 38243));
     }
   };
 
@@ -829,7 +832,7 @@ export const BrowserConnectorSettings: React.FC = () => {
                 setPortError(null);
               }}
               onBlur={handlePortBlur}
-              placeholder="63155"
+              placeholder="38243"
               min={1024}
               max={65535}
               className={`w-28 ${portError ? "border-red-500" : ""}`}

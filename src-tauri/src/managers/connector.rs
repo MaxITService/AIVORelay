@@ -430,13 +430,19 @@ impl ConnectorManager {
         self.stop_flag.store(true, Ordering::SeqCst);
     }
 
-    /// Update the port and restart the server if it's running
+    /// Update the port and restart the server if it's running, or start it if there was a previous error
     pub fn restart_on_port(&self, new_port: u16) -> Result<(), String> {
         // Update the stored port
         {
             let mut port = self.port.blocking_write();
             *port = new_port;
         }
+
+        // Check if there was a previous error (e.g., port binding failure)
+        let had_previous_error = {
+            let err_guard = self.server_error.blocking_read();
+            err_guard.is_some()
+        };
 
         // If server is running, restart it on the new port
         if self.server_running.load(Ordering::SeqCst) {
@@ -456,6 +462,25 @@ impl ConnectorManager {
             self.last_poll_at.store(0, Ordering::SeqCst);
 
             // Start on new port
+            self.start_server()?;
+        } else if had_previous_error {
+            // Server failed to start previously (e.g., port was blocked).
+            // User is changing port, so try again on the new port.
+            info!(
+                "Attempting to start connector server on new port {} after previous failure",
+                new_port
+            );
+
+            // Clear the previous error before attempting
+            {
+                let mut err_guard = self.server_error.blocking_write();
+                *err_guard = None;
+            }
+
+            // Reset last poll so status goes to Unknown
+            self.last_poll_at.store(0, Ordering::SeqCst);
+
+            // Try to start on the new port
             self.start_server()?;
         }
 
