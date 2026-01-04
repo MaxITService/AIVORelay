@@ -573,9 +573,14 @@
         "button": "View on GitHub"
       },
       "supportDevelopment": {
-        "title": "Support Development",
-        "description": "Help us continue building AivoRelay",
-        "button": "Donate"
+        "title": "Support Original Author",
+        "description": "Support the developer of the original Handy project",
+        "button": "Donate to Original Author"
+      },
+      "supportFork": {
+        "title": "Support Fork (AivoRelay)",
+        "description": "Support the developer of this fork",
+        "button": "Donate to author of fork (AivoRelay)"
       },
       "acknowledgments": {
         "title": "Acknowledgments",

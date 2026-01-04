@@ -34,6 +34,14 @@ export const AboutSettings: React.FC = () => {
     }
   };
 
+  const handleForkDonateClick = async () => {
+    try {
+      await openUrl("https://buymeacoffee.com/netstaff");
+    } catch (error) {
+      console.error("Failed to open fork donate link:", error);
+    }
+  };
+
   return (
     <div className="max-w-3xl w-full mx-auto space-y-6">
       <SettingsGroup title={t("settings.about.title")}>
@@ -70,6 +78,16 @@ export const AboutSettings: React.FC = () => {
         >
           <Button variant="primary" size="md" onClick={handleDonateClick}>
             {t("settings.about.supportDevelopment.button")}
+          </Button>
+        </SettingContainer>
+
+        <SettingContainer
+          title={t("settings.about.supportFork.title")}
+          description={t("settings.about.supportFork.description")}
+          grouped={true}
+        >
+          <Button variant="primary" size="md" onClick={handleForkDonateClick}>
+            {t("settings.about.supportFork.button")}
           </Button>
         </SettingContainer>
       </SettingsGroup>
