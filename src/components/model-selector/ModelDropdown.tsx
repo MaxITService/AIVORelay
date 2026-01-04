@@ -155,7 +155,7 @@ const ModelDropdown: React.FC<ModelDropdownProps> = ({
               tabIndex={0}
               role="button"
               className={`w-full px-3 py-2 text-left hover:bg-mid-gray/10 transition-colors cursor-pointer focus:outline-none ${
-                currentModelId === model.id
+                currentModelId === model.id && !isRemoteProvider
                   ? "bg-logo-primary/10 text-logo-primary"
                   : ""
               }`}

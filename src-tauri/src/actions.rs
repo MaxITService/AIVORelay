@@ -444,6 +444,11 @@ async fn perform_transcription(app: &AppHandle, samples: Vec<f32>) -> Transcript
     let settings = get_settings(app);
 
     if settings.transcription_provider == TranscriptionProvider::RemoteOpenAiCompatible {
+        log::info!(
+            "Transcription using Remote STT: base_url={}, model={}",
+            settings.remote_stt.base_url,
+            settings.remote_stt.model_id
+        );
         let remote_manager = app.state::<Arc<RemoteSttManager>>();
         let operation_id = remote_manager.start_operation();
 
@@ -493,6 +498,10 @@ async fn perform_transcription(app: &AppHandle, samples: Vec<f32>) -> Transcript
             }
         }
     } else {
+        log::info!(
+            "Transcription using Local model: {}",
+            settings.selected_model
+        );
         let tm = app.state::<Arc<TranscriptionManager>>();
         match tm.transcribe(samples) {
             Ok(text) => TranscriptionOutcome::Success(text),
