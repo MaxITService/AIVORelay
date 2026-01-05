@@ -10,6 +10,7 @@ import { AudioFeedback } from "../AudioFeedback";
 import { useSettings } from "../../../hooks/useSettings";
 import { VolumeSlider } from "../VolumeSlider";
 import { TranscriptionSystemPrompt } from "../TranscriptionSystemPrompt";
+import { TranscriptionProfiles } from "../TranscriptionProfiles";
 
 export const GeneralSettings: React.FC = () => {
   const { t } = useTranslation();
@@ -32,6 +33,7 @@ export const GeneralSettings: React.FC = () => {
         />
         <VolumeSlider disabled={!audioFeedbackEnabled} />
       </SettingsGroup>
+      <TranscriptionProfiles />
     </div>
   );
 };

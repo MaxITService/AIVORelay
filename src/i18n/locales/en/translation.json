@@ -210,6 +210,22 @@
         "remoteNote": "For remote APIs: prompt support depends on your provider. Most OpenAI-compatible APIs support this parameter."
       }
     },
+    "transcriptionProfiles": {
+      "title": "Custom Transcription Shortcuts",
+      "help": "Create custom shortcuts with specific language and translation settings. Each profile gets its own keyboard shortcut that transcribes in your chosen language, optionally translating to English.",
+      "existingProfiles": "Your Profiles",
+      "createNew": "Create New Profile",
+      "createNewDescription": "Add a new transcription shortcut with custom language settings.",
+      "profileName": "Profile Name",
+      "profileNamePlaceholder": "e.g., French to English",
+      "language": "Speech Language",
+      "translateToEnglish": "Translate to English",
+      "translateToEnglishDescription": "Automatically translate transcription to English",
+      "shortcut": "Keyboard Shortcut",
+      "addProfile": "Create Profile",
+      "saveChanges": "Save Changes",
+      "deleteProfile": "Delete"
+    },
     "sound": {
       "title": "Sound",
       "microphone": {

@@ -265,6 +265,40 @@ async setPostProcessSelectedPrompt(id: string) : Promise<Result<null, string>> {
     else return { status: "error", error: e  as any };
 }
 },
+/**
+ * Creates a new transcription profile with its own language/translation settings.
+ * This also creates a corresponding shortcut binding and registers it.
+ */
+async addTranscriptionProfile(name: string, language: string, translateToEnglish: boolean) : Promise<Result<TranscriptionProfile, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("add_transcription_profile", { name, language, translateToEnglish }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Updates an existing transcription profile.
+ */
+async updateTranscriptionProfile(id: string, name: string, language: string, translateToEnglish: boolean) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("update_transcription_profile", { id, name, language, translateToEnglish }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Deletes a transcription profile and its associated shortcut binding.
+ */
+async deleteTranscriptionProfile(id: string) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("delete_transcription_profile", { id }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async updateCustomWords(words: string[]) : Promise<Result<null, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("update_custom_words", { words }) };
@@ -1144,7 +1178,12 @@ connector_pending_password?: string | null;
  * Per-model transcription prompts (model_id -> prompt text)
  * For Whisper: context/terms prompt. For Parakeet: comma-separated boost words.
  */
-transcription_prompts?: Partial<{ [key in string]: string }> }
+transcription_prompts?: Partial<{ [key in string]: string }>; 
+/**
+ * Custom transcription profiles with per-profile language/translation settings.
+ * Each profile creates a dynamic shortcut binding.
+ */
+transcription_profiles?: TranscriptionProfile[] }
 export type AudioDevice = { index: string; name: string; is_default: boolean }
 export type BindingResponse = { success: boolean; binding: ShortcutBinding | null; error: string | null }
 export type ClipboardHandling = "dont_modify" | "copy_to_clipboard"
@@ -1259,6 +1298,31 @@ width: number;
 height: number }
 export type ShortcutBinding = { id: string; name: string; description: string; default_binding: string; current_binding: string }
 export type SoundTheme = "marimba" | "pop" | "custom"
+/**
+ * A custom transcription profile with its own language and translation settings.
+ * Each profile creates a separate shortcut binding (e.g., "transcribe_profile_abc123").
+ */
+export type TranscriptionProfile = { 
+/**
+ * Unique identifier (e.g., "profile_1704067200000")
+ */
+id: string; 
+/**
+ * User-friendly name (e.g., "French to English", "Spanish Native")
+ */
+name: string; 
+/**
+ * Language code for speech recognition (e.g., "fr", "es", "auto")
+ */
+language: string; 
+/**
+ * Whether to translate the transcription to English
+ */
+translate_to_english: boolean; 
+/**
+ * Optional description shown in UI
+ */
+description?: string }
 export type TranscriptionProvider = "local" | "remote_openai_compatible"
 /**
  * Information about the virtual screen (all monitors combined).
