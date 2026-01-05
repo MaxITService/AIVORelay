@@ -16,18 +16,22 @@ Files that differentiate this fork from the original [cjpais/Handy](https://gith
 | `src-tauri/src/plus_overlay_state.rs`      | Extended overlay states for Remote STT error display. Categorizes errors (TLS, timeout, network, server), emits typed payloads to overlay, auto-hides after 3s.                                                                                                                                                                                            |
 | `src-tauri/src/region_capture.rs`          | **Native region capture** (Windows only): Captures all monitors into single canvas, opens full-screen overlay for region selection with resize handles. Returns cropped PNG bytes directly to connector without disk I/O.                                                                                                                                  |
 | `src-tauri/src/commands/region_capture.rs` | Tauri commands for region capture overlay: `region_capture_confirm`, `region_capture_cancel`.                                                                                                                                                                                                                                                              |
+| `src-tauri/src/commands/voice_command.rs`  | **Voice Command Center** (Windows only): Tauri command `execute_voice_command` runs approved PowerShell commands after user confirmation. Includes safety validation.                                                                                                                                                                                      |
 
 ### Frontend (React/TypeScript)
 
-| File                                                            | Purpose                                                                                                              |
-| --------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
-| `src/components/settings/remote-stt/RemoteSttSettings.tsx`      | UI for Remote STT configuration: base URL, model ID, API key management, connection testing, debug log viewer.       |
-| `src/components/settings/advanced/AiReplaceSettings.tsx`        | UI for AI Replace feature: system/user prompts, max chars limit, "no selection" mode toggle.                         |
-| `src/components/settings/browser-connector/ConnectorStatus.tsx` | Extension status indicator component showing online/offline status with "last seen" time when offline.               |
-| `src/components/icons/SendingIcon.tsx`                          | Monochrome SVG icon (upload arrow) for "sending" overlay state. Matches pink style (`#FAA2CA`) of other icons.       |
-| `src/overlay/plus_overlay_states.ts`                            | TypeScript types for extended overlay states (`error`, `sending`). Error category enum and display text mapping.     |
-| `src/region-capture/RegionCaptureOverlay.tsx`                   | React component for native region selection: state machine (idle→creating→selected), mouse handling, resize handles. |
-| `src/region-capture/RegionCaptureOverlay.css`                   | Styles for region capture overlay: dim areas, selection border, resize handles, cursor states.                       |
+| File                                                              | Purpose                                                                                                              |
+| ----------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| `src/components/settings/remote-stt/RemoteSttSettings.tsx`        | UI for Remote STT configuration: base URL, model ID, API key management, connection testing, debug log viewer.       |
+| `src/components/settings/advanced/AiReplaceSettings.tsx`          | UI for AI Replace feature: system/user prompts, max chars limit, "no selection" mode toggle.                         |
+| `src/components/settings/browser-connector/ConnectorStatus.tsx`   | Extension status indicator component showing online/offline status with "last seen" time when offline.               |
+| `src/components/icons/SendingIcon.tsx`                            | Monochrome SVG icon (upload arrow) for "sending" overlay state. Matches pink style (`#FAA2CA`) of other icons.       |
+| `src/overlay/plus_overlay_states.ts`                              | TypeScript types for extended overlay states (`error`, `sending`). Error category enum and display text mapping.     |
+| `src/region-capture/RegionCaptureOverlay.tsx`                     | React component for native region selection: state machine (idle→creating→selected), mouse handling, resize handles. |
+| `src/region-capture/RegionCaptureOverlay.css`                     | Styles for region capture overlay: dim areas, selection border, resize handles, cursor states.                       |
+| `src/command-confirm/CommandConfirmOverlay.tsx`                   | **Voice Command Center**: Confirmation popup showing suggested PowerShell command with Run/Edit/Cancel buttons.      |
+| `src/command-confirm/CommandConfirmOverlay.css`                   | Styles for command confirmation overlay: glassmorphism, dark theme, vibrant accent colors.                           |
+| `src/components/settings/voice-commands/VoiceCommandSettings.tsx` | Settings UI for managing predefined voice commands, similarity thresholds, and LLM fallback toggle.                  |
 
 ## Modified Files
 
@@ -123,6 +127,25 @@ Extension polls server
 - **Keepalive**: Extension should filter `msg_type === "keepalive"` to avoid pasting "keepalive" into pages
 - **Password rotation**: On first connect, server sends `passwordUpdate`; extension must POST `{"type":"password_ack"}` to commit
 - **Blob auth**: `/blob/*` endpoint requires Bearer auth (Extension provides this header automatically; it is NOT sent in metadata for security)
+
+### Voice Command Center (NEW)
+
+```
+User presses voice_command shortcut + speaks
+    └─► shortcut.rs → actions.rs (VoiceCommandAction)
+            └─► transcription (local or remote)
+            └─► find_matching_command() → fuzzy match against predefined commands
+                    │
+                    ├─► MATCH FOUND → show_command_confirm_overlay() → User confirms → execute_voice_command()
+                    │
+                    └─► NO MATCH + LLM fallback enabled
+                            └─► generate_command_with_llm() → LLM generates PowerShell one-liner
+                                    └─► show_command_confirm_overlay() → User confirms/edits → execute_voice_command()
+```
+
+- **Two modes**: Predefined commands (fast, offline) and LLM-generated commands (smart, flexible)
+- **Similarity matching**: Configurable threshold (default 0.75) using word-based Jaccard similarity
+- **Safety**: Always shows confirmation popup before executing any command
 
 ## Entry Points for Common Tasks
 

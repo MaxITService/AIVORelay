@@ -35,11 +35,15 @@ function App() {
     const unlistenScreenshot = listen<string>("screenshot-error", (event) => {
       toast.error(event.payload, { duration: 5000 });
     });
+    const unlistenVoiceCommand = listen<string>("voice-command-error", (event) => {
+      toast.error(event.payload, { duration: 4000 });
+    });
 
     return () => {
       unlistenRemote.then((unlisten) => unlisten());
       unlistenAiReplace.then((unlisten) => unlisten());
       unlistenScreenshot.then((unlisten) => unlisten());
+      unlistenVoiceCommand.then((unlisten) => unlisten());
     };
   }, []);
 

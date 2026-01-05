@@ -10,6 +10,7 @@
     "advanced": "Advanced",
     "postProcessing": "LLM API Relay",
     "aiReplace": "AI Replace",
+    "voiceCommands": "Voice Commands",
     "browserConnector": "Connector",
     "history": "History",
     "debug": "Debug",

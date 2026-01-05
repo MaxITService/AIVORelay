@@ -109,6 +109,26 @@ pub struct TranscriptionProfile {
     pub description: String,
 }
 
+/// A voice command that triggers a script when the user speaks a matching phrase.
+/// Used by the Voice Command Center feature for hands-free automation.
+#[derive(Serialize, Deserialize, Debug, Clone, Type)]
+pub struct VoiceCommand {
+    /// Unique identifier (e.g., "vc_1704067200000")
+    pub id: String,
+    /// User-friendly name shown in UI (e.g., "Lock Computer")
+    pub name: String,
+    /// The trigger phrase to match (e.g., "lock computer", "open browser")
+    pub trigger_phrase: String,
+    /// The script/command to execute (e.g., "rundll32.exe user32.dll,LockWorkStation")
+    pub script: String,
+    /// Similarity threshold for fuzzy matching (0.0-1.0, default 0.8)
+    #[serde(default = "default_voice_command_threshold")]
+    pub similarity_threshold: f64,
+    /// Whether this command is enabled
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+}
+
 #[derive(Serialize, Deserialize, Debug, Clone, Type)]
 pub struct PostProcessProvider {
     pub id: String,
@@ -466,6 +486,25 @@ pub struct AppSettings {
     /// Each profile creates a dynamic shortcut binding.
     #[serde(default)]
     pub transcription_profiles: Vec<TranscriptionProfile>,
+    // ==================== Voice Command Center ====================
+    /// Whether the Voice Command feature is enabled
+    #[serde(default)]
+    pub voice_command_enabled: bool,
+    /// Push-to-talk mode for voice commands
+    #[serde(default = "default_true")]
+    pub voice_command_push_to_talk: bool,
+    /// Predefined voice commands (trigger phrase -> script)
+    #[serde(default)]
+    pub voice_commands: Vec<VoiceCommand>,
+    /// Default similarity threshold for fuzzy matching (0.0-1.0)
+    #[serde(default = "default_voice_command_threshold")]
+    pub voice_command_default_threshold: f64,
+    /// Whether to use LLM fallback when no predefined command matches
+    #[serde(default = "default_true")]
+    pub voice_command_llm_fallback: bool,
+    /// System prompt for LLM command generation
+    #[serde(default = "default_voice_command_system_prompt")]
+    pub voice_command_system_prompt: String,
 }
 
 fn default_model() -> String {
@@ -604,6 +643,29 @@ fn default_screenshot_no_voice_default_prompt() -> String {
 
 fn default_quick_tap_threshold_ms() -> u32 {
     500
+}
+
+fn default_voice_command_threshold() -> f64 {
+    0.75
+}
+
+fn default_voice_command_system_prompt() -> String {
+    r#"You are a Windows command generator. The user will describe what they want to do, and you must generate a SINGLE PowerShell one-liner command that accomplishes it.
+
+Rules:
+1. Return ONLY the command, nothing else - no explanations, no markdown, no code blocks
+2. The command must be a valid PowerShell one-liner that can run directly
+3. Use Start-Process for launching applications
+4. Use common Windows paths and commands
+5. If the request is unclear or dangerous (like deleting system files), return: UNSAFE_REQUEST
+6. Keep commands simple and safe
+
+Example inputs and outputs:
+- "open notepad" → Start-Process notepad
+- "open chrome" → Start-Process chrome
+- "lock the computer" → rundll32.exe user32.dll,LockWorkStation
+- "open word and excel" → Start-Process winword; Start-Process excel
+- "show my documents folder" → Start-Process explorer -ArgumentList "$env:USERPROFILE\Documents""#.to_string()
 }
 
 /// Default connector password - used for initial mutual authentication
@@ -890,6 +952,18 @@ pub fn get_default_settings() -> AppSettings {
             current_binding: "ctrl+shift+z".to_string(),
         },
     );
+    #[cfg(target_os = "windows")]
+    bindings.insert(
+        "voice_command".to_string(),
+        ShortcutBinding {
+            id: "voice_command".to_string(),
+            name: "Voice Command".to_string(),
+            description: "Speak to run predefined scripts or get AI-suggested PowerShell commands."
+                .to_string(),
+            default_binding: "".to_string(),
+            current_binding: "".to_string(),
+        },
+    );
 
     AppSettings {
         bindings,
@@ -972,6 +1046,13 @@ pub fn get_default_settings() -> AppSettings {
         connector_pending_password: None,
         transcription_prompts: HashMap::new(),
         transcription_profiles: Vec::new(),
+        // Voice Command Center
+        voice_command_enabled: false,
+        voice_command_push_to_talk: true,
+        voice_commands: Vec::new(),
+        voice_command_default_threshold: default_voice_command_threshold(),
+        voice_command_llm_fallback: true,
+        voice_command_system_prompt: default_voice_command_system_prompt(),
     }
 }
 

@@ -5,6 +5,7 @@ pub mod models;
 pub mod region_capture;
 pub mod remote_stt;
 pub mod transcription;
+pub mod voice_command;
 
 use crate::settings::{get_settings, write_settings, AppSettings, LogLevel};
 use crate::utils::cancel_current_operation;

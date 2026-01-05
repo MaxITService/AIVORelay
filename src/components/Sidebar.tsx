@@ -1,6 +1,6 @@
 import React from "react";
 import { useTranslation } from "react-i18next";
-import { Cog, FlaskConical, Globe, History, Info, Sparkles, Wand2 } from "lucide-react";
+import { Cog, FlaskConical, Globe, History, Info, Sparkles, Wand2, Terminal } from "lucide-react";
 import { type } from "@tauri-apps/plugin-os";
 import HandyTextLogo from "./icons/HandyTextLogo";
 import HandyHand from "./icons/HandyHand";
@@ -14,6 +14,7 @@ import {
   PostProcessingSettings,
   BrowserConnectorSettings,
   AiReplaceSelectionSettings,
+  VoiceCommandSettings,
 } from "./settings";
 
 export type SidebarSection = keyof typeof SECTIONS_CONFIG;
@@ -58,6 +59,12 @@ export const SECTIONS_CONFIG = {
     labelKey: "sidebar.aiReplace",
     icon: Wand2,
     component: AiReplaceSelectionSettings,
+    enabled: () => isWindows,
+  },
+  voiceCommands: {
+    labelKey: "sidebar.voiceCommands",
+    icon: Terminal,
+    component: VoiceCommandSettings,
     enabled: () => isWindows,
   },
   browserConnector: {

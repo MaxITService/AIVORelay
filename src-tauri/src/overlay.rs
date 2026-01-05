@@ -28,6 +28,10 @@ tauri_panel! {
 const OVERLAY_WIDTH: f64 = 172.0;
 const OVERLAY_HEIGHT: f64 = 36.0;
 
+// Command Confirmation Overlay dimensions
+const COMMAND_CONFIRM_WIDTH: f64 = 520.0;
+const COMMAND_CONFIRM_HEIGHT: f64 = 280.0;
+
 #[cfg(target_os = "macos")]
 const OVERLAY_TOP_OFFSET: f64 = 46.0;
 #[cfg(any(target_os = "windows", target_os = "linux"))]
@@ -338,5 +342,103 @@ pub fn emit_levels(app_handle: &AppHandle, levels: &Vec<f32>) {
     // also emit to the recording overlay if it's open
     if let Some(overlay_window) = app_handle.get_webview_window("recording_overlay") {
         let _ = overlay_window.emit("mic-level", levels);
+    }
+}
+
+// ============================================================================
+// Command Confirmation Overlay (Voice Command Center)
+// ============================================================================
+
+/// Calculates centered position for command confirmation overlay
+fn calculate_command_confirm_position(app_handle: &AppHandle) -> Option<(f64, f64)> {
+    if let Some(monitor) = get_monitor_with_cursor(app_handle) {
+        let work_area = monitor.work_area();
+        let scale = monitor.scale_factor();
+        let work_area_width = work_area.size.width as f64 / scale;
+        let work_area_height = work_area.size.height as f64 / scale;
+        let work_area_x = work_area.position.x as f64 / scale;
+        let work_area_y = work_area.position.y as f64 / scale;
+
+        // Center the overlay
+        let x = work_area_x + (work_area_width - COMMAND_CONFIRM_WIDTH) / 2.0;
+        let y = work_area_y + (work_area_height - COMMAND_CONFIRM_HEIGHT) / 2.0 - 50.0; // Slightly above center
+
+        return Some((x, y));
+    }
+    None
+}
+
+/// Shows the command confirmation overlay with the given payload.
+/// Creates the window if it doesn't exist yet.
+#[cfg(target_os = "windows")]
+pub fn show_command_confirm_overlay(
+    app_handle: &AppHandle,
+    payload: crate::actions::CommandConfirmPayload,
+) {
+    use log::debug;
+
+    let window_label = "command_confirm";
+
+    // Get or create the window
+    let window = if let Some(existing) = app_handle.get_webview_window(window_label) {
+        existing
+    } else {
+        // Create the window
+        if let Some((x, y)) = calculate_command_confirm_position(app_handle) {
+            match WebviewWindowBuilder::new(
+                app_handle,
+                window_label,
+                tauri::WebviewUrl::App("src/command-confirm/index.html".into()),
+            )
+            .title("Voice Command")
+            .position(x, y)
+            .inner_size(COMMAND_CONFIRM_WIDTH, COMMAND_CONFIRM_HEIGHT)
+            .resizable(false)
+            .maximizable(false)
+            .minimizable(false)
+            .closable(true)
+            .decorations(false)
+            .always_on_top(true)
+            .skip_taskbar(true)
+            .transparent(true)
+            .focused(true)
+            .visible(false)
+            .build()
+            {
+                Ok(window) => {
+                    debug!("Command confirm overlay window created");
+                    window
+                }
+                Err(e) => {
+                    log::error!("Failed to create command confirm window: {}", e);
+                    return;
+                }
+            }
+        } else {
+            log::error!("Could not calculate position for command confirm overlay");
+            return;
+        }
+    };
+
+    // Update position and show
+    if let Some((x, y)) = calculate_command_confirm_position(app_handle) {
+        let _ = window.set_position(tauri::Position::Logical(tauri::LogicalPosition { x, y }));
+    }
+
+    let _ = window.show();
+    let _ = window.set_focus();
+
+    // Force topmost
+    force_overlay_topmost(&window);
+
+    // Emit the payload to the window
+    let _ = window.emit("show-command-confirm", payload);
+}
+
+/// Hides the command confirmation overlay
+#[cfg(target_os = "windows")]
+pub fn hide_command_confirm_overlay(app_handle: &AppHandle) {
+    if let Some(window) = app_handle.get_webview_window("command_confirm") {
+        let _ = window.hide();
     }
 }

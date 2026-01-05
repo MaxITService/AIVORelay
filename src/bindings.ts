@@ -1118,6 +1118,18 @@ async regionCaptureCancel() : Promise<void> {
     await TAURI_INVOKE("region_capture_cancel");
 },
 /**
+ * Executes a PowerShell command after user confirmation.
+ * Returns the output on success or an error message on failure.
+ */
+async executeVoiceCommand(command: string) : Promise<Result<string, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("execute_voice_command", { command }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
  * Stub implementation for non-macOS platforms
  * Always returns false since laptop detection is macOS-specific
  */
@@ -1183,7 +1195,31 @@ transcription_prompts?: Partial<{ [key in string]: string }>;
  * Custom transcription profiles with per-profile language/translation settings.
  * Each profile creates a dynamic shortcut binding.
  */
-transcription_profiles?: TranscriptionProfile[] }
+transcription_profiles?: TranscriptionProfile[]; 
+/**
+ * Whether the Voice Command feature is enabled
+ */
+voice_command_enabled?: boolean; 
+/**
+ * Push-to-talk mode for voice commands
+ */
+voice_command_push_to_talk?: boolean; 
+/**
+ * Predefined voice commands (trigger phrase -> script)
+ */
+voice_commands?: VoiceCommand[]; 
+/**
+ * Default similarity threshold for fuzzy matching (0.0-1.0)
+ */
+voice_command_default_threshold?: number; 
+/**
+ * Whether to use LLM fallback when no predefined command matches
+ */
+voice_command_llm_fallback?: boolean; 
+/**
+ * System prompt for LLM command generation
+ */
+voice_command_system_prompt?: string }
 export type AudioDevice = { index: string; name: string; is_default: boolean }
 export type BindingResponse = { success: boolean; binding: ShortcutBinding | null; error: string | null }
 export type ClipboardHandling = "dont_modify" | "copy_to_clipboard"
@@ -1348,6 +1384,35 @@ total_height: number;
  * Scale factor of primary monitor (for coordinate conversion)
  */
 scale_factor: number }
+/**
+ * A voice command that triggers a script when the user speaks a matching phrase.
+ * Used by the Voice Command Center feature for hands-free automation.
+ */
+export type VoiceCommand = { 
+/**
+ * Unique identifier (e.g., "vc_1704067200000")
+ */
+id: string; 
+/**
+ * User-friendly name shown in UI (e.g., "Lock Computer")
+ */
+name: string; 
+/**
+ * The trigger phrase to match (e.g., "lock computer", "open browser")
+ */
+trigger_phrase: string; 
+/**
+ * The script/command to execute (e.g., "rundll32.exe user32.dll,LockWorkStation")
+ */
+script: string; 
+/**
+ * Similarity threshold for fuzzy matching (0.0-1.0, default 0.8)
+ */
+similarity_threshold?: number; 
+/**
+ * Whether this command is enabled
+ */
+enabled?: boolean }
 
 /** tauri-specta globals **/
 

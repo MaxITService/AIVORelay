@@ -1744,6 +1744,261 @@ impl ShortcutAction for RepastLastAction {
     }
 }
 
+// ============================================================================
+// Voice Command Action (Windows only)
+// ============================================================================
+
+#[cfg(target_os = "windows")]
+struct VoiceCommandAction;
+
+/// Event payload for showing the command confirmation overlay
+#[derive(Clone, serde::Serialize, specta::Type)]
+pub struct CommandConfirmPayload {
+    /// The suggested command to execute
+    pub command: String,
+    /// What the user said (for context)
+    pub spoken_text: String,
+    /// Whether this came from LLM (true) or predefined match (false)
+    pub from_llm: bool,
+}
+
+/// Computes a similarity score between two strings using a simple word-based approach.
+/// Returns a value between 0.0 and 1.0.
+fn compute_similarity(a: &str, b: &str) -> f64 {
+    let a_lower = a.to_lowercase();
+    let b_lower = b.to_lowercase();
+
+    // Exact match
+    if a_lower == b_lower {
+        return 1.0;
+    }
+
+    // Word-based Jaccard similarity
+    let a_words: HashSet<&str> = a_lower.split_whitespace().collect();
+    let b_words: HashSet<&str> = b_lower.split_whitespace().collect();
+
+    if a_words.is_empty() || b_words.is_empty() {
+        return 0.0;
+    }
+
+    let intersection = a_words.intersection(&b_words).count();
+    let union = a_words.union(&b_words).count();
+
+    if union == 0 {
+        return 0.0;
+    }
+
+    intersection as f64 / union as f64
+}
+
+/// Finds the best matching predefined command for the given transcription.
+/// Returns (command, similarity_score) if a match above threshold is found.
+fn find_matching_command(
+    transcription: &str,
+    commands: &[crate::settings::VoiceCommand],
+    default_threshold: f64,
+) -> Option<(crate::settings::VoiceCommand, f64)> {
+    let mut best_match: Option<(crate::settings::VoiceCommand, f64)> = None;
+
+    for cmd in commands.iter().filter(|c| c.enabled) {
+        let threshold = if cmd.similarity_threshold > 0.0 {
+            cmd.similarity_threshold
+        } else {
+            default_threshold
+        };
+
+        let score = compute_similarity(transcription, &cmd.trigger_phrase);
+
+        if score >= threshold {
+            match &best_match {
+                Some((_, best_score)) if score > *best_score => {
+                    best_match = Some((cmd.clone(), score));
+                }
+                None => {
+                    best_match = Some((cmd.clone(), score));
+                }
+                _ => {}
+            }
+        }
+    }
+
+    best_match
+}
+
+/// Generates a PowerShell command using LLM based on user's spoken request
+#[cfg(target_os = "windows")]
+async fn generate_command_with_llm(app: &AppHandle, spoken_text: &str) -> Result<String, String> {
+    let settings = get_settings(app);
+
+    let provider = settings
+        .active_post_process_provider()
+        .cloned()
+        .ok_or_else(|| "No LLM provider configured".to_string())?;
+
+    let model = settings
+        .post_process_models
+        .get(&provider.id)
+        .cloned()
+        .unwrap_or_default();
+
+    if model.trim().is_empty() {
+        return Err(format!(
+            "No model configured for provider '{}'",
+            provider.label
+        ));
+    }
+
+    let system_prompt = settings.voice_command_system_prompt.clone();
+    let user_prompt = spoken_text.to_string();
+
+    #[cfg(target_os = "windows")]
+    let api_key = crate::secure_keys::get_post_process_api_key(&provider.id);
+
+    #[cfg(not(target_os = "windows"))]
+    let api_key = settings
+        .post_process_api_keys
+        .get(&provider.id)
+        .cloned()
+        .unwrap_or_default();
+
+    match crate::llm_client::send_chat_completion_with_system(
+        &provider,
+        api_key,
+        &model,
+        system_prompt,
+        user_prompt,
+    )
+    .await
+    {
+        Ok(Some(content)) => {
+            let trimmed = content.trim();
+            if trimmed == "UNSAFE_REQUEST" {
+                Err("Request was deemed unsafe by the LLM".to_string())
+            } else {
+                Ok(trimmed.to_string())
+            }
+        }
+        Ok(None) => Err("LLM returned empty response".to_string()),
+        Err(e) => Err(format!("LLM request failed: {}", e)),
+    }
+}
+
+fn emit_voice_command_error(app: &AppHandle, message: impl Into<String>) {
+    let _ = app.emit("voice-command-error", message.into());
+}
+
+#[cfg(target_os = "windows")]
+impl ShortcutAction for VoiceCommandAction {
+    fn start(&self, app: &AppHandle, binding_id: &str, _shortcut_str: &str) {
+        let start_time = Instant::now();
+        debug!(
+            "VoiceCommandAction::start called for binding: {}",
+            binding_id
+        );
+
+        start_recording_with_feedback(app, binding_id);
+
+        debug!(
+            "VoiceCommandAction::start completed in {:?}",
+            start_time.elapsed()
+        );
+    }
+
+    fn stop(&self, app: &AppHandle, binding_id: &str, _shortcut_str: &str) {
+        if !prepare_stop_recording(app, binding_id) {
+            return;
+        }
+
+        let ah = app.clone();
+        let binding_id = binding_id.to_string();
+
+        tauri::async_runtime::spawn(async move {
+            let (transcription, _) = match get_transcription_or_cleanup(&ah, &binding_id).await {
+                Some(res) => res,
+                None => {
+                    session_manager::exit_processing(&ah);
+                    return;
+                }
+            };
+
+            if transcription.trim().is_empty() {
+                emit_voice_command_error(&ah, "No command detected");
+                utils::hide_recording_overlay(&ah);
+                change_tray_icon(&ah, TrayIconState::Idle);
+                session_manager::exit_processing(&ah);
+                return;
+            }
+
+            let settings = get_settings(&ah);
+
+            // Step 1: Try to match against predefined commands
+            if let Some((matched_cmd, score)) = find_matching_command(
+                &transcription,
+                &settings.voice_commands,
+                settings.voice_command_default_threshold,
+            ) {
+                debug!(
+                    "Voice command matched: '{}' -> '{}' (score: {:.2})",
+                    matched_cmd.trigger_phrase, matched_cmd.script, score
+                );
+
+                // Show confirmation overlay
+                crate::overlay::show_command_confirm_overlay(
+                    &ah,
+                    CommandConfirmPayload {
+                        command: matched_cmd.script.clone(),
+                        spoken_text: transcription.clone(),
+                        from_llm: false,
+                    },
+                );
+
+                utils::hide_recording_overlay(&ah);
+                change_tray_icon(&ah, TrayIconState::Idle);
+                session_manager::exit_processing(&ah);
+                return;
+            }
+
+            // Step 2: No predefined match - try LLM fallback if enabled
+            if settings.voice_command_llm_fallback {
+                debug!(
+                    "No predefined match, using LLM fallback for: '{}'",
+                    transcription
+                );
+
+                show_thinking_overlay(&ah);
+
+                match generate_command_with_llm(&ah, &transcription).await {
+                    Ok(suggested_command) => {
+                        debug!("LLM suggested command: '{}'", suggested_command);
+
+                        // Show confirmation overlay
+                        crate::overlay::show_command_confirm_overlay(
+                            &ah,
+                            CommandConfirmPayload {
+                                command: suggested_command,
+                                spoken_text: transcription,
+                                from_llm: true,
+                            },
+                        );
+                    }
+                    Err(e) => {
+                        emit_voice_command_error(&ah, format!("Failed to generate command: {}", e));
+                    }
+                }
+            } else {
+                emit_voice_command_error(
+                    &ah,
+                    format!("No matching command found for: '{}'", transcription),
+                );
+            }
+
+            utils::hide_recording_overlay(&ah);
+            change_tray_icon(&ah, TrayIconState::Idle);
+            session_manager::exit_processing(&ah);
+        });
+    }
+}
+
 // Static Action Map
 pub static ACTION_MAP: Lazy<HashMap<String, Arc<dyn ShortcutAction>>> = Lazy::new(|| {
     let mut map = HashMap::new();
@@ -1778,6 +2033,11 @@ pub static ACTION_MAP: Lazy<HashMap<String, Arc<dyn ShortcutAction>>> = Lazy::ne
     map.insert(
         "test".to_string(),
         Arc::new(TestAction) as Arc<dyn ShortcutAction>,
+    );
+    #[cfg(target_os = "windows")]
+    map.insert(
+        "voice_command".to_string(),
+        Arc::new(VoiceCommandAction) as Arc<dyn ShortcutAction>,
     );
     map
 });

@@ -416,6 +416,7 @@ pub fn run() {
         commands::region_capture::region_capture_get_data,
         commands::region_capture::region_capture_confirm,
         commands::region_capture::region_capture_cancel,
+        commands::voice_command::execute_voice_command,
         helpers::clamshell::is_laptop,
     ]);
 
