@@ -67,7 +67,7 @@
       }
     },
     "windows": {
-      "signCommand": "powershell -NoProfile -ExecutionPolicy Bypass -File src-tauri/scripts/sign-windows.ps1 %1"
+      "signCommand": "powershell -NoProfile -ExecutionPolicy Bypass -Command \"& 'src-tauri/scripts/sign-windows.ps1' $args[0]\" %1"
     }
   },
   "plugins": {
