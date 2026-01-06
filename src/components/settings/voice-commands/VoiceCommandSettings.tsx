@@ -14,7 +14,7 @@ function VoiceCommandCard({ command, onUpdate, onDelete }: VoiceCommandCardProps
   const [editName, setEditName] = useState(command.name);
   const [editPhrase, setEditPhrase] = useState(command.trigger_phrase);
   const [editScript, setEditScript] = useState(command.script);
-  const [editThreshold, setEditThreshold] = useState(command.similarity_threshold);
+  const [editThreshold, setEditThreshold] = useState(command.similarity_threshold ?? 0.75);
 
   const handleSave = () => {
     onUpdate({
@@ -31,7 +31,7 @@ function VoiceCommandCard({ command, onUpdate, onDelete }: VoiceCommandCardProps
     setEditName(command.name);
     setEditPhrase(command.trigger_phrase);
     setEditScript(command.script);
-    setEditThreshold(command.similarity_threshold);
+    setEditThreshold(command.similarity_threshold ?? 0.75);
     setIsEditing(false);
   };
 
