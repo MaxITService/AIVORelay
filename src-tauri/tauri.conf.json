@@ -37,6 +37,9 @@
   },
   "bundle": {
     "active": true,
+    "publisher": "MaxITService",
+    "copyright": "Copyright © 2026 Maxim Fomin",
+    "shortDescription": "AivoRelay - AI Voice Relay",
     "createUpdaterArtifacts": true,
     "targets": "msi",
     "resources": ["resources/**/*"],

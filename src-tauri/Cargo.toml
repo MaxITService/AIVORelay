@@ -1,9 +1,11 @@
 [package]
 name = "aivorelay"
-version = "0.6.9"
-description = "AivoRelay"
-authors = ["cjpais"]
+version = "0.7.0"
+description = "A sophisticated AI voice relay application"
+authors = ["Maxim Fomin", "MaxITService"]
 edition = "2021"
+homepage = "https://github.com/MaxITService/AIVORelay"
+repository = "https://github.com/MaxITService/AIVORelay"
 license = "MIT"
 default-run = "aivorelay"
 
