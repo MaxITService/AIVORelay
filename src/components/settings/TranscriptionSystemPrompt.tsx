@@ -6,10 +6,10 @@ import { SettingContainer } from "../ui/SettingContainer";
 import { Textarea } from "../ui/Textarea";
 import { commands } from "../../bindings";
 
-// Character limits
-const WHISPER_CHAR_LIMIT = 896;
-const DEEPGRAM_CHAR_LIMIT = 2000;
-const DEFAULT_CHAR_LIMIT = 896;
+// Character limits - exported for reuse
+export const WHISPER_CHAR_LIMIT = 896;
+export const DEEPGRAM_CHAR_LIMIT = 2000;
+export const DEFAULT_CHAR_LIMIT = 896;
 
 // Approximate token calculation
 const CHARS_PER_TOKEN = 4;
@@ -19,7 +19,7 @@ const WHISPER_PATTERNS = ["whisper"];
 const DEEPGRAM_PATTERNS = ["deepgram", "nova"];
 const NO_PROMPT_PATTERNS = ["parakeet", "nemo", "canary"];
 
-interface ModelPromptInfo {
+export interface ModelPromptInfo {
   supportsPrompt: boolean;
   isWhisperLike: boolean;
   isParakeet: boolean;
@@ -27,7 +27,7 @@ interface ModelPromptInfo {
   modelId: string;
 }
 
-function getModelPromptInfo(
+export function getModelPromptInfo(
   modelId: string,
   engineType?: string
 ): ModelPromptInfo {

@@ -440,10 +440,6 @@ pub enum TranscriptionOutcome {
 /// - Error display in overlay (for remote)
 ///
 /// Returns a TranscriptionOutcome indicating success, cancellation, or error.
-async fn perform_transcription(app: &AppHandle, samples: Vec<f32>) -> TranscriptionOutcome {
-    perform_transcription_for_profile(app, samples, None).await
-}
-
 /// Performs transcription with optional profile overrides.
 /// When binding_id is provided and matches a transcription profile,
 /// uses that profile's language and translation settings.
@@ -483,12 +479,18 @@ async fn perform_transcription_for_profile(
             .transcribe(
                 &settings.remote_stt,
                 &samples,
-                // Get prompt for the remote model from per-model HashMap
-                settings
-                    .transcription_prompts
-                    .get(&settings.remote_stt.model_id)
+                // Use profile's system_prompt if available, otherwise fall back to per-model prompt
+                profile
+                    .as_ref()
+                    .map(|p| p.system_prompt.clone())
                     .filter(|p| !p.trim().is_empty())
-                    .cloned(),
+                    .or_else(|| {
+                        settings
+                            .transcription_prompts
+                            .get(&settings.remote_stt.model_id)
+                            .filter(|p| !p.trim().is_empty())
+                            .cloned()
+                    }),
             )
             .await
             .map(|text| {
@@ -1760,6 +1762,12 @@ pub struct CommandConfirmPayload {
     pub spoken_text: String,
     /// Whether this came from LLM (true) or predefined match (false)
     pub from_llm: bool,
+    /// PowerShell arguments for execution
+    pub ps_args: String,
+    /// Whether to open PowerShell window and keep it open
+    pub keep_window_open: bool,
+    /// Whether to use Windows Terminal instead of classic PowerShell
+    pub use_windows_terminal: bool,
 }
 
 /// Computes a similarity score between two strings using a simple word-based approach.
@@ -1793,7 +1801,7 @@ fn compute_similarity(a: &str, b: &str) -> f64 {
 
 /// Finds the best matching predefined command for the given transcription.
 /// Returns (command, similarity_score) if a match above threshold is found.
-fn find_matching_command(
+pub fn find_matching_command(
     transcription: &str,
     commands: &[crate::settings::VoiceCommand],
     default_threshold: f64,
@@ -1827,7 +1835,10 @@ fn find_matching_command(
 
 /// Generates a PowerShell command using LLM based on user's spoken request
 #[cfg(target_os = "windows")]
-async fn generate_command_with_llm(app: &AppHandle, spoken_text: &str) -> Result<String, String> {
+pub async fn generate_command_with_llm(
+    app: &AppHandle,
+    spoken_text: &str,
+) -> Result<String, String> {
     let settings = get_settings(app);
 
     let provider = settings
@@ -1949,6 +1960,9 @@ impl ShortcutAction for VoiceCommandAction {
                         command: matched_cmd.script.clone(),
                         spoken_text: transcription.clone(),
                         from_llm: false,
+                        ps_args: settings.voice_command_ps_args.clone(),
+                        keep_window_open: settings.voice_command_keep_window_open,
+                        use_windows_terminal: settings.voice_command_use_windows_terminal,
                     },
                 );
 
@@ -1978,6 +1992,9 @@ impl ShortcutAction for VoiceCommandAction {
                                 command: suggested_command,
                                 spoken_text: transcription,
                                 from_llm: true,
+                                ps_args: settings.voice_command_ps_args.clone(),
+                                keep_window_open: settings.voice_command_keep_window_open,
+                                use_windows_terminal: settings.voice_command_use_windows_terminal,
                             },
                         );
                     }

@@ -23,7 +23,7 @@ struct TranscriptionResponse {
 
 /// Returns the known character limit for a model's prompt parameter.
 /// Returns None if the model is unknown (no limit enforced by us, API may handle).
-fn get_model_prompt_limit(model_id: &str) -> Option<usize> {
+pub fn get_model_prompt_limit(model_id: &str) -> Option<usize> {
     let lower = model_id.to_lowercase();
 
     // Groq Whisper models - 896 character limit

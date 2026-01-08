@@ -1,4 +1,5 @@
-import React, { useState, useRef, useEffect, useMemo } from "react";
+import React, { useState, useRef, useEffect, useMemo, useLayoutEffect } from "react";
+import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import { listen } from "@tauri-apps/api/event";
 import { SettingContainer } from "../ui/SettingContainer";
@@ -24,16 +25,56 @@ export const LanguageSelector: React.FC<LanguageSelectorProps> = ({
   const [isOpen, setIsOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const dropdownRef = useRef<HTMLDivElement>(null);
+  const buttonRef = useRef<HTMLButtonElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
+  const [dropdownPosition, setDropdownPosition] = useState<{ top: number; left: number; width: number } | null>(null);
 
   const selectedLanguage = getSetting("selected_language") || "auto";
   const isUnsupported = unsupportedModels.includes(currentModel);
+
+  // Update dropdown position when open
+  useLayoutEffect(() => {
+    if (isOpen && buttonRef.current) {
+      const rect = buttonRef.current.getBoundingClientRect();
+      setDropdownPosition({
+        top: rect.bottom + 4,
+        left: rect.left,
+        width: rect.width,
+      });
+    }
+  }, [isOpen]);
+
+  // Update position on scroll/resize
+  useEffect(() => {
+    if (!isOpen) return;
+
+    const updatePosition = () => {
+      if (buttonRef.current) {
+        const rect = buttonRef.current.getBoundingClientRect();
+        setDropdownPosition({
+          top: rect.bottom + 4,
+          left: rect.left,
+          width: rect.width,
+        });
+      }
+    };
+
+    window.addEventListener("scroll", updatePosition, true);
+    window.addEventListener("resize", updatePosition);
+
+    return () => {
+      window.removeEventListener("scroll", updatePosition, true);
+      window.removeEventListener("resize", updatePosition);
+    };
+  }, [isOpen]);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (
         dropdownRef.current &&
-        !dropdownRef.current.contains(event.target as Node)
+        !dropdownRef.current.contains(event.target as Node) &&
+        buttonRef.current &&
+        !buttonRef.current.contains(event.target as Node)
       ) {
         setIsOpen(false);
         setSearchQuery("");
@@ -105,6 +146,63 @@ export const LanguageSelector: React.FC<LanguageSelectorProps> = ({
     }
   };
 
+  const renderDropdownPortal = () => {
+    if (!isOpen || !dropdownPosition || isUpdating("selected_language") || isUnsupported) {
+      return null;
+    }
+
+    return createPortal(
+      <div
+        ref={dropdownRef}
+        className="fixed bg-[#1e1e1e] border border-mid-gray/80 rounded-lg shadow-[0_8px_32px_rgba(0,0,0,0.5)] z-[9999] max-h-60 overflow-hidden"
+        style={{
+          top: dropdownPosition.top,
+          left: dropdownPosition.left,
+          width: dropdownPosition.width,
+        }}
+      >
+        {/* Search input */}
+        <div className="p-2 border-b border-mid-gray/40">
+          <input
+            ref={searchInputRef}
+            type="text"
+            value={searchQuery}
+            onChange={handleSearchChange}
+            onKeyDown={handleKeyDown}
+            placeholder={t("settings.general.language.searchPlaceholder")}
+            className="w-full px-2 py-1 text-sm bg-mid-gray/10 border border-mid-gray/40 rounded focus:outline-none focus:ring-1 focus:ring-logo-primary focus:border-logo-primary"
+          />
+        </div>
+
+        <div className="max-h-48 overflow-y-auto">
+          {filteredLanguages.length === 0 ? (
+            <div className="px-2 py-2 text-sm text-mid-gray text-center">
+              {t("settings.general.language.noResults")}
+            </div>
+          ) : (
+            filteredLanguages.map((language) => (
+              <button
+                key={language.value}
+                type="button"
+                className={`w-full px-2 py-1 text-sm text-left hover:bg-logo-primary/10 transition-colors duration-150 ${
+                  selectedLanguage === language.value
+                    ? "bg-logo-primary/20 text-logo-primary font-semibold"
+                    : ""
+                }`}
+                onClick={() => handleLanguageSelect(language.value)}
+              >
+                <div className="flex items-center justify-between">
+                  <span className="truncate">{language.label}</span>
+                </div>
+              </button>
+            ))
+          )}
+        </div>
+      </div>,
+      document.body
+    );
+  };
+
   return (
     <SettingContainer
       title={t("settings.general.language.title")}
@@ -118,8 +216,9 @@ export const LanguageSelector: React.FC<LanguageSelectorProps> = ({
       disabled={isUnsupported}
     >
       <div className="flex items-center space-x-1">
-        <div className="relative" ref={dropdownRef}>
+        <div className="relative">
           <button
+            ref={buttonRef}
             type="button"
             className={`px-2 py-1 text-sm font-semibold bg-mid-gray/10 border border-mid-gray/80 rounded min-w-[200px] text-left flex items-center justify-between transition-all duration-150 ${
               isUpdating("selected_language") || isUnsupported
@@ -147,47 +246,7 @@ export const LanguageSelector: React.FC<LanguageSelectorProps> = ({
             </svg>
           </button>
 
-          {isOpen && !isUpdating("selected_language") && !isUnsupported && (
-            <div className="absolute top-full left-0 right-0 mt-1 bg-background border border-mid-gray/80 rounded shadow-lg z-50 max-h-60 overflow-hidden">
-              {/* Search input */}
-              <div className="p-2 border-b border-mid-gray/80">
-                <input
-                  ref={searchInputRef}
-                  type="text"
-                  value={searchQuery}
-                  onChange={handleSearchChange}
-                  onKeyDown={handleKeyDown}
-                  placeholder={t("settings.general.language.searchPlaceholder")}
-                  className="w-full px-2 py-1 text-sm bg-mid-gray/10 border border-mid-gray/40 rounded focus:outline-none focus:ring-1 focus:ring-logo-primary focus:border-logo-primary"
-                />
-              </div>
-
-              <div className="max-h-48 overflow-y-auto">
-                {filteredLanguages.length === 0 ? (
-                  <div className="px-2 py-2 text-sm text-mid-gray text-center">
-                    {t("settings.general.language.noResults")}
-                  </div>
-                ) : (
-                  filteredLanguages.map((language) => (
-                    <button
-                      key={language.value}
-                      type="button"
-                      className={`w-full px-2 py-1 text-sm text-left hover:bg-logo-primary/10 transition-colors duration-150 ${
-                        selectedLanguage === language.value
-                          ? "bg-logo-primary/20 text-logo-primary font-semibold"
-                          : ""
-                      }`}
-                      onClick={() => handleLanguageSelect(language.value)}
-                    >
-                      <div className="flex items-center justify-between">
-                        <span className="truncate">{language.label}</span>
-                      </div>
-                    </button>
-                  ))
-                )}
-              </div>
-            </div>
-          )}
+          {renderDropdownPortal()}
         </div>
         <ResetButton
           onClick={handleReset}

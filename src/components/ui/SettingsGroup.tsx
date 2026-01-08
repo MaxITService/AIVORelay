@@ -23,7 +23,7 @@ export const SettingsGroup: React.FC<SettingsGroupProps> = ({
           )}
         </div>
       )}
-      <div className="glass-panel-subtle rounded-xl overflow-hidden border border-white/[0.03]">
+      <div className="glass-panel-subtle rounded-xl overflow-visible border border-white/[0.03]">
         <div className="divide-y divide-white/[0.05]">{children}</div>
       </div>
     </div>

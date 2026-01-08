@@ -107,6 +107,10 @@ pub struct TranscriptionProfile {
     /// Optional description shown in UI
     #[serde(default)]
     pub description: String,
+    /// Optional system prompt for STT models (context hints, terminology, etc.)
+    /// Character limits are enforced based on the active model (e.g., Whisper: 896 chars)
+    #[serde(default)]
+    pub system_prompt: String,
 }
 
 /// A voice command that triggers a script when the user speaks a matching phrase.
@@ -505,6 +509,15 @@ pub struct AppSettings {
     /// System prompt for LLM command generation
     #[serde(default = "default_voice_command_system_prompt")]
     pub voice_command_system_prompt: String,
+    /// PowerShell arguments for command execution
+    #[serde(default = "default_voice_command_ps_args")]
+    pub voice_command_ps_args: String,
+    /// Whether to open PowerShell window and keep it open (for debugging)
+    #[serde(default)]
+    pub voice_command_keep_window_open: bool,
+    /// Whether to use Windows Terminal (wt) instead of classic PowerShell window
+    #[serde(default = "default_true")]
+    pub voice_command_use_windows_terminal: bool,
     // ==================== Beta Feature Flags ====================
     /// Whether Voice Commands beta feature is enabled in the UI (Debug menu toggle)
     #[serde(default)]
@@ -673,6 +686,10 @@ Example inputs and outputs:
 - "lock the computer" → rundll32.exe user32.dll,LockWorkStation
 - "open word and excel" → Start-Process winword; Start-Process excel
 - "show my documents folder" → Start-Process explorer -ArgumentList "$env:USERPROFILE\Documents""#.to_string()
+}
+
+fn default_voice_command_ps_args() -> String {
+    "-NoProfile -NonInteractive".to_string()
 }
 
 /// Default connector password - used for initial mutual authentication
@@ -1060,6 +1077,9 @@ pub fn get_default_settings() -> AppSettings {
         voice_command_default_threshold: default_voice_command_threshold(),
         voice_command_llm_fallback: true,
         voice_command_system_prompt: default_voice_command_system_prompt(),
+        voice_command_ps_args: default_voice_command_ps_args(),
+        voice_command_keep_window_open: false,
+        voice_command_use_windows_terminal: true,
         // Beta Feature Flags
         beta_voice_commands_enabled: false,
         beta_transcription_profiles_enabled: false,

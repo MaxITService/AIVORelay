@@ -11,6 +11,7 @@ import { Dropdown } from "../ui/Dropdown";
 import { HandyShortcut } from "./HandyShortcut";
 import { useSettings } from "../../hooks/useSettings";
 import { LANGUAGES } from "../../lib/constants/languages";
+import { getModelPromptInfo } from "./TranscriptionSystemPrompt";
 
 interface ProfileCardProps {
   profile: TranscriptionProfile;
@@ -19,6 +20,7 @@ interface ProfileCardProps {
   onUpdate: (profile: TranscriptionProfile) => Promise<void>;
   onDelete: (id: string) => Promise<void>;
   canDelete: boolean;
+  promptLimit: number;
 }
 
 const ProfileCard: React.FC<ProfileCardProps> = ({
@@ -28,12 +30,14 @@ const ProfileCard: React.FC<ProfileCardProps> = ({
   onUpdate,
   onDelete,
   canDelete,
+  promptLimit,
 }) => {
   const { t } = useTranslation();
   const [isUpdating, setIsUpdating] = useState(false);
   const [localName, setLocalName] = useState(profile.name);
   const [localLanguage, setLocalLanguage] = useState(profile.language);
   const [localTranslate, setLocalTranslate] = useState(profile.translate_to_english);
+  const [localSystemPrompt, setLocalSystemPrompt] = useState(profile.system_prompt || "");
 
   const bindingId = `transcribe_${profile.id}`;
 
@@ -42,8 +46,12 @@ const ProfileCard: React.FC<ProfileCardProps> = ({
     return lang?.label || t("settings.general.language.auto");
   }, [localLanguage, t]);
 
+  const promptLength = localSystemPrompt.length;
+  const isOverLimit = promptLimit > 0 && promptLength > promptLimit;
+
   const handleSave = async () => {
     if (!localName.trim()) return;
+    if (isOverLimit) return;
     setIsUpdating(true);
     try {
       await onUpdate({
@@ -51,6 +59,7 @@ const ProfileCard: React.FC<ProfileCardProps> = ({
         name: localName.trim(),
         language: localLanguage,
         translate_to_english: localTranslate,
+        system_prompt: localSystemPrompt,
       });
     } finally {
       setIsUpdating(false);
@@ -69,10 +78,11 @@ const ProfileCard: React.FC<ProfileCardProps> = ({
   const isDirty =
     localName.trim() !== profile.name ||
     localLanguage !== profile.language ||
-    localTranslate !== profile.translate_to_english;
+    localTranslate !== profile.translate_to_english ||
+    localSystemPrompt !== profile.system_prompt;
 
   return (
-    <div className="border border-mid-gray/30 rounded-lg bg-background/50 overflow-hidden">
+    <div className="border border-mid-gray/30 rounded-lg bg-background/50">
       {/* Header - always visible */}
       <div
         className="flex items-center justify-between px-4 py-3 cursor-pointer hover:bg-mid-gray/5 transition-colors"
@@ -126,7 +136,7 @@ const ProfileCard: React.FC<ProfileCardProps> = ({
           </div>
 
           {/* Language Selection */}
-          <div className="space-y-2">
+          <div className="space-y-2 relative z-20">
             <label className="text-xs font-semibold text-text/70">
               {t("settings.transcriptionProfiles.language")}
             </label>
@@ -137,6 +147,39 @@ const ProfileCard: React.FC<ProfileCardProps> = ({
               placeholder={t("settings.general.language.auto")}
               disabled={isUpdating}
             />
+          </div>
+
+          {/* System Prompt */}
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <label className="text-xs font-semibold text-text/70">
+                {t("settings.transcriptionProfiles.systemPrompt")}
+              </label>
+              <span className={`text-xs ${isOverLimit ? "text-red-400" : "text-mid-gray"}`}>
+                {promptLength}
+                {promptLimit > 0 && ` / ${promptLimit}`}
+              </span>
+            </div>
+            <textarea
+              value={localSystemPrompt}
+              onChange={(e) => setLocalSystemPrompt(e.target.value)}
+              placeholder={t("settings.transcriptionProfiles.systemPromptPlaceholder")}
+              disabled={isUpdating}
+              rows={3}
+              className={`w-full px-3 py-2 text-sm bg-[#1e1e1e]/80 border rounded-md resize-none transition-colors ${
+                isOverLimit
+                  ? "border-red-400 focus:border-red-400"
+                  : "border-[#3c3c3c] focus:border-[#4a4a4a]"
+              } ${isUpdating ? "opacity-40 cursor-not-allowed" : ""} text-[#e8e8e8] placeholder-[#6b6b6b]`}
+            />
+            <p className="text-xs text-mid-gray">
+              {t("settings.transcriptionProfiles.systemPromptDescription")}
+            </p>
+            {isOverLimit && (
+              <p className="text-xs text-red-400">
+                {t("settings.transcriptionProfiles.systemPromptTooLong", { limit: promptLimit })}
+              </p>
+            )}
           </div>
 
           {/* Translate to English Toggle */}
@@ -171,7 +214,7 @@ const ProfileCard: React.FC<ProfileCardProps> = ({
               onClick={handleSave}
               variant="primary"
               size="sm"
-              disabled={!isDirty || !localName.trim() || isUpdating}
+              disabled={!isDirty || !localName.trim() || isUpdating || isOverLimit}
             >
               {t("settings.transcriptionProfiles.saveChanges")}
             </Button>
@@ -201,23 +244,41 @@ export const TranscriptionProfiles: React.FC = () => {
   const [newName, setNewName] = useState("");
   const [newLanguage, setNewLanguage] = useState("auto");
   const [newTranslate, setNewTranslate] = useState(false);
+  const [newSystemPrompt, setNewSystemPrompt] = useState("");
 
   const profiles = settings?.transcription_profiles || [];
 
+  // Get prompt limit based on active transcription settings
+  // Profiles use the same model as the main transcription
+  const promptLimit = useMemo(() => {
+    const isRemote = settings?.transcription_provider === "remote_openai_compatible";
+    const modelId = isRemote
+      ? settings?.remote_stt?.model_id || ""
+      : settings?.selected_model || "";
+    const info = getModelPromptInfo(modelId);
+    return info.supportsPrompt ? info.charLimit : 0;
+  }, [settings?.transcription_provider, settings?.remote_stt?.model_id, settings?.selected_model]);
+
+  const newPromptLength = newSystemPrompt.length;
+  const isNewPromptOverLimit = promptLimit > 0 && newPromptLength > promptLimit;
+
   const handleCreate = async () => {
     if (!newName.trim()) return;
+    if (isNewPromptOverLimit) return;
     setIsCreating(true);
     try {
       const result = await commands.addTranscriptionProfile(
         newName.trim(),
         newLanguage,
-        newTranslate
+        newTranslate,
+        newSystemPrompt
       );
       if (result.status === "ok") {
         await refreshSettings();
         setNewName("");
         setNewLanguage("auto");
         setNewTranslate(false);
+        setNewSystemPrompt("");
         setExpandedId(result.data.id);
       }
     } catch (error) {
@@ -233,7 +294,8 @@ export const TranscriptionProfiles: React.FC = () => {
         profile.id,
         profile.name,
         profile.language,
-        profile.translate_to_english
+        profile.translate_to_english,
+        profile.system_prompt || ""
       );
       await refreshSettings();
     } catch (error) {
@@ -291,6 +353,7 @@ export const TranscriptionProfiles: React.FC = () => {
                 onUpdate={handleUpdate}
                 onDelete={handleDelete}
                 canDelete={true}
+                promptLimit={promptLimit}
               />
             ))}
           </div>
@@ -305,7 +368,7 @@ export const TranscriptionProfiles: React.FC = () => {
         layout="stacked"
         grouped={true}
       >
-        <div className="space-y-3 p-3 border border-dashed border-mid-gray/30 rounded-lg">
+        <div className="space-y-3 p-3 border border-dashed border-mid-gray/30 rounded-lg overflow-visible">
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1">
               <label className="text-xs font-semibold text-text/70">
@@ -320,7 +383,7 @@ export const TranscriptionProfiles: React.FC = () => {
                 disabled={isCreating}
               />
             </div>
-            <div className="space-y-1">
+            <div className="space-y-1 relative z-10">
               <label className="text-xs font-semibold text-text/70">
                 {t("settings.transcriptionProfiles.language")}
               </label>
@@ -332,6 +395,36 @@ export const TranscriptionProfiles: React.FC = () => {
                 disabled={isCreating}
               />
             </div>
+          </div>
+
+          {/* System Prompt for new profile */}
+          <div className="space-y-1">
+            <div className="flex items-center justify-between">
+              <label className="text-xs font-semibold text-text/70">
+                {t("settings.transcriptionProfiles.systemPrompt")}
+              </label>
+              <span className={`text-xs ${isNewPromptOverLimit ? "text-red-400" : "text-mid-gray"}`}>
+                {newPromptLength}
+                {promptLimit > 0 && ` / ${promptLimit}`}
+              </span>
+            </div>
+            <textarea
+              value={newSystemPrompt}
+              onChange={(e) => setNewSystemPrompt(e.target.value)}
+              placeholder={t("settings.transcriptionProfiles.systemPromptPlaceholder")}
+              disabled={isCreating}
+              rows={2}
+              className={`w-full px-3 py-2 text-sm bg-[#1e1e1e]/80 border rounded-md resize-none transition-colors ${
+                isNewPromptOverLimit
+                  ? "border-red-400 focus:border-red-400"
+                  : "border-[#3c3c3c] focus:border-[#4a4a4a]"
+              } ${isCreating ? "opacity-40 cursor-not-allowed" : ""} text-[#e8e8e8] placeholder-[#6b6b6b]`}
+            />
+            {isNewPromptOverLimit && (
+              <p className="text-xs text-red-400">
+                {t("settings.transcriptionProfiles.systemPromptTooLong", { limit: promptLimit })}
+              </p>
+            )}
           </div>
 
           <div className="flex items-center justify-between">
@@ -356,16 +449,19 @@ export const TranscriptionProfiles: React.FC = () => {
             </button>
           </div>
 
-          <Button
-            onClick={handleCreate}
-            variant="primary"
-            size="md"
-            disabled={!newName.trim() || isCreating}
-            className="w-full"
-          >
-            <Plus className="w-4 h-4 mr-2" />
-            {t("settings.transcriptionProfiles.addProfile")}
-          </Button>
+          {/* Create Button */}
+          <div className="flex justify-end pt-1">
+            <Button
+              onClick={handleCreate}
+              variant="primary"
+              size="sm"
+              disabled={!newName.trim() || isCreating || isNewPromptOverLimit}
+              className="inline-flex items-center"
+            >
+              <Plus className="w-3.5 h-3.5 mr-1.5" />
+              {t("settings.transcriptionProfiles.addProfile")}
+            </Button>
+          </div>
         </div>
       </SettingContainer>
     </SettingsGroup>

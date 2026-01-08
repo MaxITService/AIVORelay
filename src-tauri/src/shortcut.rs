@@ -724,6 +724,7 @@ pub fn add_transcription_profile(
     name: String,
     language: String,
     translate_to_english: bool,
+    system_prompt: String,
 ) -> Result<settings::TranscriptionProfile, String> {
     let mut settings = settings::get_settings(&app);
 
@@ -744,6 +745,7 @@ pub fn add_transcription_profile(
         language,
         translate_to_english,
         description: description.clone(),
+        system_prompt,
     };
 
     // Create a corresponding shortcut binding (no default key assigned)
@@ -772,6 +774,7 @@ pub fn update_transcription_profile(
     name: String,
     language: String,
     translate_to_english: bool,
+    system_prompt: String,
 ) -> Result<(), String> {
     let mut settings = settings::get_settings(&app);
 
@@ -792,6 +795,7 @@ pub fn update_transcription_profile(
     profile.language = language;
     profile.translate_to_english = translate_to_english;
     profile.description = description.clone();
+    profile.system_prompt = system_prompt;
 
     // Update the binding name/description as well
     let binding_id = format!("transcribe_{}", id);

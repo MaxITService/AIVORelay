@@ -100,6 +100,15 @@ When using Remote STT API, the **Recording Overlay** (`recording_overlay` window
 - Configurable: capture command, folder path, timeout, "require recent" filter, "allow without voice"
 - Settings: `screenshot_capture_command`, `screenshot_folder`, `screenshot_require_recent`, `screenshot_timeout_seconds`, `screenshot_allow_no_voice`, `screenshot_no_voice_default_prompt`
 
+### 5. Transcription Profiles (Beta)
+
+- Files: `src-tauri/src/settings.rs` (TranscriptionProfile struct), `src-tauri/src/shortcut.rs` (profile commands), `src/components/settings/TranscriptionProfiles.tsx`
+- Create custom shortcuts with specific language, translation, and system prompt settings
+- Each profile creates a dynamic shortcut binding (e.g., `transcribe_profile_1234567890`)
+- Profile's `system_prompt` overrides global per-model prompt when set
+- **System Prompt Limits**: Enforced based on active STT model (Whisper: 896 chars, Deepgram: 2000 chars)
+- Character limit logic shared between `TranscriptionSystemPrompt.tsx` (frontend) and `managers/remote_stt.rs` (backend)
+
 ## Guidelines for Agents
 
 ### When Modifying Fork Features

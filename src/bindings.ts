@@ -269,9 +269,9 @@ async setPostProcessSelectedPrompt(id: string) : Promise<Result<null, string>> {
  * Creates a new transcription profile with its own language/translation settings.
  * This also creates a corresponding shortcut binding and registers it.
  */
-async addTranscriptionProfile(name: string, language: string, translateToEnglish: boolean) : Promise<Result<TranscriptionProfile, string>> {
+async addTranscriptionProfile(name: string, language: string, translateToEnglish: boolean, systemPrompt: string) : Promise<Result<TranscriptionProfile, string>> {
     try {
-    return { status: "ok", data: await TAURI_INVOKE("add_transcription_profile", { name, language, translateToEnglish }) };
+    return { status: "ok", data: await TAURI_INVOKE("add_transcription_profile", { name, language, translateToEnglish, systemPrompt }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
@@ -280,9 +280,9 @@ async addTranscriptionProfile(name: string, language: string, translateToEnglish
 /**
  * Updates an existing transcription profile.
  */
-async updateTranscriptionProfile(id: string, name: string, language: string, translateToEnglish: boolean) : Promise<Result<null, string>> {
+async updateTranscriptionProfile(id: string, name: string, language: string, translateToEnglish: boolean, systemPrompt: string) : Promise<Result<null, string>> {
     try {
-    return { status: "ok", data: await TAURI_INVOKE("update_transcription_profile", { id, name, language, translateToEnglish }) };
+    return { status: "ok", data: await TAURI_INVOKE("update_transcription_profile", { id, name, language, translateToEnglish, systemPrompt }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
@@ -797,6 +797,13 @@ async remoteSttTestConnection(baseUrl: string) : Promise<Result<null, string>> {
     else return { status: "error", error: e  as any };
 }
 },
+/**
+ * Returns the character limit for the system prompt based on the currently selected Remote STT model.
+ * Returns None if the model is unknown (no enforced limit).
+ */
+async remoteSttGetPromptLimit() : Promise<number | null> {
+    return await TAURI_INVOKE("remote_stt_get_prompt_limit");
+},
 async getAvailableModels() : Promise<Result<ModelInfo[], string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("get_available_models") };
@@ -1135,11 +1142,31 @@ async regionCaptureCancel() : Promise<void> {
 },
 /**
  * Executes a PowerShell command after user confirmation.
+ * 
+ * Parameters:
+ * - `command`: The PowerShell command to execute
+ * - `ps_args`: PowerShell arguments (e.g., "-NoProfile -NonInteractive")
+ * - `keep_window_open`: If true, opens a visible terminal window instead of silent execution
+ * - `use_windows_terminal`: If true, uses Windows Terminal (wt); otherwise uses classic PowerShell window
+ * 
  * Returns the output on success or an error message on failure.
+ * When `keep_window_open` is true, returns success immediately (no output capture).
  */
-async executeVoiceCommand(command: string) : Promise<Result<string, string>> {
+async executeVoiceCommand(command: string, psArgs: string, keepWindowOpen: boolean, useWindowsTerminal: boolean) : Promise<Result<string, string>> {
     try {
-    return { status: "ok", data: await TAURI_INVOKE("execute_voice_command", { command }) };
+    return { status: "ok", data: await TAURI_INVOKE("execute_voice_command", { command, psArgs, keepWindowOpen, useWindowsTerminal }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Tests voice command matching with mock text (simulates STT output).
+ * Runs the same matching logic as if the text was spoken.
+ */
+async testVoiceCommandMock(mockText: string) : Promise<Result<string, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("test_voice_command_mock", { mockText }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
@@ -1236,6 +1263,18 @@ voice_command_llm_fallback?: boolean;
  * System prompt for LLM command generation
  */
 voice_command_system_prompt?: string; 
+/**
+ * PowerShell arguments for command execution
+ */
+voice_command_ps_args?: string; 
+/**
+ * Whether to open PowerShell window and keep it open (for debugging)
+ */
+voice_command_keep_window_open?: boolean; 
+/**
+ * Whether to use Windows Terminal (wt) instead of classic PowerShell window
+ */
+voice_command_use_windows_terminal?: boolean; 
 /**
  * Whether Voice Commands beta feature is enabled in the UI (Debug menu toggle)
  */
@@ -1382,7 +1421,12 @@ translate_to_english: boolean;
 /**
  * Optional description shown in UI
  */
-description?: string }
+description?: string; 
+/**
+ * Optional system prompt for STT models (context hints, terminology, etc.)
+ * Character limits are enforced based on the active model (e.g., Whisper: 896 chars)
+ */
+system_prompt?: string }
 export type TranscriptionProvider = "local" | "remote_openai_compatible"
 /**
  * Information about the virtual screen (all monitors combined).

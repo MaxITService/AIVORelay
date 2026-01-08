@@ -374,6 +374,7 @@ pub fn run() {
         commands::remote_stt::remote_stt_get_debug_dump,
         commands::remote_stt::remote_stt_clear_debug,
         commands::remote_stt::remote_stt_test_connection,
+        commands::remote_stt::remote_stt_get_prompt_limit,
         commands::models::get_available_models,
         commands::models::get_model_info,
         commands::models::download_model,
@@ -419,6 +420,7 @@ pub fn run() {
         commands::region_capture::region_capture_confirm,
         commands::region_capture::region_capture_cancel,
         commands::voice_command::execute_voice_command,
+        commands::voice_command::test_voice_command_mock,
         helpers::clamshell::is_laptop,
     ]);
 

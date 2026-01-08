@@ -434,11 +434,3 @@ pub fn show_command_confirm_overlay(
     // Emit the payload to the window
     let _ = window.emit("show-command-confirm", payload);
 }
-
-/// Hides the command confirmation overlay
-#[cfg(target_os = "windows")]
-pub fn hide_command_confirm_overlay(app_handle: &AppHandle) {
-    if let Some(window) = app_handle.get_webview_window("command_confirm") {
-        let _ = window.hide();
-    }
-}

@@ -147,6 +147,24 @@ User presses voice_command shortcut + speaks
 - **Similarity matching**: Configurable threshold (default 0.75) using word-based Jaccard similarity
 - **Safety**: Always shows confirmation popup before executing any command
 
+### Transcription Profiles (Beta)
+
+```
+User creates profile in Settings
+    └─► TranscriptionProfiles.tsx → commands.addTranscriptionProfile()
+            └─► shortcut.rs → creates profile + shortcut binding (transcribe_profile_xxx)
+                    └─► settings.rs → TranscriptionProfile {id, name, language, translate, system_prompt}
+
+User presses profile shortcut
+    └─► shortcut.rs → ACTION_MAP["transcribe"] (falls back from transcribe_profile_xxx)
+            └─► actions.rs → perform_transcription_for_profile()
+                    ├─► Uses profile.language + translate_to_english overrides (local STT)
+                    └─► Uses profile.system_prompt if set, else global per-model prompt (remote STT)
+```
+
+- **System Prompt Limits**: Character limits are enforced based on the STT model (Whisper: 896, Deepgram: 2000)
+- **Shared Logic**: Frontend uses `getModelPromptInfo()` from `TranscriptionSystemPrompt.tsx`; backend validates in `remote_stt.rs`
+
 ## Entry Points for Common Tasks
 
 | Task                                | Start Here                                                                               |
@@ -163,18 +181,21 @@ User presses voice_command shortcut + speaks
 | Change extension status timeout     | `managers/connector.rs` → `EXTENSION_TIMEOUT_SECS` constant                              |
 | Customize status display            | `ConnectorStatus.tsx`                                                                    |
 | Change connector password           | `settings.rs` → `connector_password` field, `BrowserConnectorSettings.tsx` → password UI |
+| Add/modify transcription profiles   | `settings.rs` → `TranscriptionProfile`, `shortcut.rs` → profile commands                 |
+| Change profile system prompt limits | `TranscriptionSystemPrompt.tsx` → `getModelPromptInfo()`, `managers/remote_stt.rs`       |
 
 ## Key Data Structures
 
-| Structure               | File                    | Purpose                                                                |
-| ----------------------- | ----------------------- | ---------------------------------------------------------------------- |
-| `AppSettings`           | `settings.rs`           | All app settings, includes `ai_replace_*`, `remote_stt`, `connector_*` |
-| `RemoteSttSettings`     | `settings.rs`           | base_url, model_id, debug_mode, debug_capture                          |
-| `TranscriptionProvider` | `settings.rs`           | Enum: `Local`, `RemoteOpenAiCompatible`                                |
-| `ShortcutAction` trait  | `actions.rs`            | Interface for all shortcut actions (start/stop)                        |
-| `ACTION_MAP`            | `actions.rs`            | Registry of all available shortcut actions                             |
-| `ConnectorManager`      | `managers/connector.rs` | HTTP server tracking extension status via polling                      |
-| `ConnectorStatus`       | `managers/connector.rs` | Status struct with `online`, `last_poll`, `server_running` fields      |
+| Structure               | File                    | Purpose                                                                          |
+| ----------------------- | ----------------------- | -------------------------------------------------------------------------------- |
+| `AppSettings`           | `settings.rs`           | All app settings, includes `ai_replace_*`, `remote_stt`, `connector_*`           |
+| `RemoteSttSettings`     | `settings.rs`           | base_url, model_id, debug_mode, debug_capture                                    |
+| `TranscriptionProfile`  | `settings.rs`           | Custom shortcut profile: id, name, language, translate_to_english, system_prompt |
+| `TranscriptionProvider` | `settings.rs`           | Enum: `Local`, `RemoteOpenAiCompatible`                                          |
+| `ShortcutAction` trait  | `actions.rs`            | Interface for all shortcut actions (start/stop)                                  |
+| `ACTION_MAP`            | `actions.rs`            | Registry of all available shortcut actions                                       |
+| `ConnectorManager`      | `managers/connector.rs` | HTTP server tracking extension status via polling                                |
+| `ConnectorStatus`       | `managers/connector.rs` | Status struct with `online`, `last_poll`, `server_running` fields                |
 
 ## Change Impact
 

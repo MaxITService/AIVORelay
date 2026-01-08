@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { listen } from "@tauri-apps/api/event";
+import { listen, emit } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { commands } from "@/bindings";
 
@@ -7,6 +7,20 @@ interface CommandConfirmPayload {
   command: string;
   spoken_text: string;
   from_llm: boolean;
+  // Execution settings passed from backend
+  ps_args?: string;
+  keep_window_open?: boolean;
+  use_windows_terminal?: boolean;
+}
+
+/** Payload emitted after command execution (for history tracking) */
+export interface VoiceCommandResultPayload {
+  timestamp: number;
+  command: string;
+  spokenText: string;
+  output: string;
+  isError: boolean;
+  wasOpenedInWindow: boolean;
 }
 
 type Status = null | { type: "success"; message: string } | { type: "error"; message: string };
@@ -38,19 +52,64 @@ export default function CommandConfirmOverlay() {
     setIsExecuting(true);
     const commandToRun = isEditing ? editedCommand : payload.command;
     
+    // Get execution settings with defaults
+    const psArgs = payload.ps_args ?? "-NoProfile -NonInteractive";
+    const keepWindowOpen = payload.keep_window_open ?? false;
+    const useWindowsTerminal = payload.use_windows_terminal ?? true;
+    
     try {
-      const result = await commands.executeVoiceCommand(commandToRun);
+      const result = await commands.executeVoiceCommand(
+        commandToRun,
+        psArgs,
+        keepWindowOpen,
+        useWindowsTerminal
+      );
+      
       if (result.status === "ok") {
-        setStatus({ type: "success", message: "Command executed successfully" });
+        const output = result.data;
+        setStatus({ type: "success", message: keepWindowOpen ? "Opened in terminal" : "Command executed successfully" });
+        
+        // Emit result for history tracking
+        await emit("voice-command-result", {
+          timestamp: Date.now(),
+          command: commandToRun,
+          spokenText: payload.spoken_text,
+          output: output,
+          isError: false,
+          wasOpenedInWindow: keepWindowOpen,
+        } as VoiceCommandResultPayload);
+        
         // Auto-hide after success
         setTimeout(() => {
           getCurrentWindow().hide();
         }, 1000);
       } else {
-        setStatus({ type: "error", message: result.error || "Execution failed" });
+        const errorMsg = result.error || "Execution failed";
+        setStatus({ type: "error", message: errorMsg });
+        
+        // Emit error for history tracking
+        await emit("voice-command-result", {
+          timestamp: Date.now(),
+          command: commandToRun,
+          spokenText: payload.spoken_text,
+          output: errorMsg,
+          isError: true,
+          wasOpenedInWindow: false,
+        } as VoiceCommandResultPayload);
       }
     } catch (err) {
-      setStatus({ type: "error", message: String(err) });
+      const errorMsg = String(err);
+      setStatus({ type: "error", message: errorMsg });
+      
+      // Emit error for history tracking
+      await emit("voice-command-result", {
+        timestamp: Date.now(),
+        command: commandToRun,
+        spokenText: payload.spoken_text,
+        output: errorMsg,
+        isError: true,
+        wasOpenedInWindow: false,
+      } as VoiceCommandResultPayload);
     } finally {
       setIsExecuting(false);
     }

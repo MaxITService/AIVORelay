@@ -225,7 +225,11 @@
       "shortcut": "Keyboard Shortcut",
       "addProfile": "Create Profile",
       "saveChanges": "Save Changes",
-      "deleteProfile": "Delete"
+      "deleteProfile": "Delete",
+      "systemPrompt": "System Prompt (Optional)",
+      "systemPromptPlaceholder": "Context hints, terminology, formatting guidance...",
+      "systemPromptDescription": "Provide context to help with specialized terminology, names, or formatting. Leave empty to use the global prompt.",
+      "systemPromptTooLong": "Prompt exceeds {{limit}} character limit for this model."
     },
     "sound": {
       "title": "Sound",
