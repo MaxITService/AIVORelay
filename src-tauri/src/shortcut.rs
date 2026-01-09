@@ -34,8 +34,11 @@ pub fn init_shortcuts(app: &AppHandle) {
             .cloned()
             .unwrap_or(default_binding);
 
-        if let Err(e) = register_shortcut(app, binding) {
-            error!("Failed to register shortcut {} during init: {}", id, e);
+        // Skip empty bindings (intentionally unbound shortcuts like voice_command, cycle_profile)
+        if !binding.current_binding.is_empty() {
+            if let Err(e) = register_shortcut(app, binding) {
+                error!("Failed to register shortcut {} during init: {}", id, e);
+            }
         }
     }
 
