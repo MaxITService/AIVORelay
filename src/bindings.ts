@@ -317,9 +317,9 @@ async setPostProcessSelectedPrompt(id: string) : Promise<Result<null, string>> {
  * Creates a new transcription profile with its own language/translation settings.
  * This also creates a corresponding shortcut binding and registers it.
  */
-async addTranscriptionProfile(name: string, language: string, translateToEnglish: boolean, systemPrompt: string) : Promise<Result<TranscriptionProfile, string>> {
+async addTranscriptionProfile(name: string, language: string, translateToEnglish: boolean, systemPrompt: string, pushToTalk: boolean) : Promise<Result<TranscriptionProfile, string>> {
     try {
-    return { status: "ok", data: await TAURI_INVOKE("add_transcription_profile", { name, language, translateToEnglish, systemPrompt }) };
+    return { status: "ok", data: await TAURI_INVOKE("add_transcription_profile", { name, language, translateToEnglish, systemPrompt, pushToTalk }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
@@ -328,9 +328,9 @@ async addTranscriptionProfile(name: string, language: string, translateToEnglish
 /**
  * Updates an existing transcription profile.
  */
-async updateTranscriptionProfile(id: string, name: string, language: string, translateToEnglish: boolean, systemPrompt: string, includeInCycle: boolean) : Promise<Result<null, string>> {
+async updateTranscriptionProfile(id: string, name: string, language: string, translateToEnglish: boolean, systemPrompt: string, includeInCycle: boolean, pushToTalk: boolean) : Promise<Result<null, string>> {
     try {
-    return { status: "ok", data: await TAURI_INVOKE("update_transcription_profile", { id, name, language, translateToEnglish, systemPrompt, includeInCycle }) };
+    return { status: "ok", data: await TAURI_INVOKE("update_transcription_profile", { id, name, language, translateToEnglish, systemPrompt, includeInCycle, pushToTalk }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
@@ -1550,7 +1550,11 @@ system_prompt?: string;
 /**
  * Whether this profile participates in the cycle shortcut rotation
  */
-include_in_cycle?: boolean }
+include_in_cycle?: boolean; 
+/**
+ * Push-to-talk mode for this profile (hold key to record vs toggle)
+ */
+push_to_talk?: boolean }
 export type TranscriptionProvider = "local" | "remote_openai_compatible"
 /**
  * Information about the virtual screen (all monitors combined).

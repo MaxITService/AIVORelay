@@ -38,7 +38,8 @@ export const ExtendedThinkingSection: React.FC<ExtendedThinkingSectionProps> = (
 
   const handleBudgetChange = (value: string) => {
     const numValue = parseInt(value, 10);
-    if (!isNaN(numValue) && numValue >= 1024) {
+    // Allow typing any valid number (validation happens on blur)
+    if (!isNaN(numValue) && numValue > 0) {
       updateSetting(budgetKey, numValue);
     }
   };

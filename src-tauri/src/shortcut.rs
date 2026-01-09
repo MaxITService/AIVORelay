@@ -818,6 +818,7 @@ pub fn add_transcription_profile(
     language: String,
     translate_to_english: bool,
     system_prompt: String,
+    push_to_talk: bool,
 ) -> Result<settings::TranscriptionProfile, String> {
     let mut settings = settings::get_settings(&app);
 
@@ -840,6 +841,7 @@ pub fn add_transcription_profile(
         description: description.clone(),
         system_prompt,
         include_in_cycle: true, // Include in cycle by default
+        push_to_talk,
     };
 
     // Create a corresponding shortcut binding (no default key assigned)
@@ -870,6 +872,7 @@ pub fn update_transcription_profile(
     translate_to_english: bool,
     system_prompt: String,
     include_in_cycle: bool,
+    push_to_talk: bool,
 ) -> Result<(), String> {
     let mut settings = settings::get_settings(&app);
 
@@ -892,6 +895,7 @@ pub fn update_transcription_profile(
     profile.description = description.clone();
     profile.system_prompt = system_prompt;
     profile.include_in_cycle = include_in_cycle;
+    profile.push_to_talk = push_to_talk;
 
     // Update the binding name/description as well
     let binding_id = format!("transcribe_{}", id);
@@ -960,18 +964,27 @@ pub fn set_active_profile(app: AppHandle, id: String) -> Result<(), String> {
     settings::write_settings(&app, settings.clone());
 
     // Show overlay notification if enabled
+    // Skip overlay if recording/processing is active to avoid hiding the recording overlay
     if settings.profile_switch_overlay_enabled {
-        let profile_name = if id == "default" {
-            "Default".to_string()
-        } else {
-            settings
-                .transcription_profiles
-                .iter()
-                .find(|p| p.id == id)
-                .map(|p| p.name.clone())
-                .unwrap_or_else(|| id.clone())
+        let show_overlay = {
+            let state = app.state::<crate::session_manager::ManagedSessionState>();
+            let state_guard = state.lock().expect("Failed to lock session state");
+            matches!(*state_guard, crate::session_manager::SessionState::Idle)
         };
-        crate::overlay::show_profile_switch_overlay(&app, &profile_name);
+
+        if show_overlay {
+            let profile_name = if id == "default" {
+                "Default".to_string()
+            } else {
+                settings
+                    .transcription_profiles
+                    .iter()
+                    .find(|p| p.id == id)
+                    .map(|p| p.name.clone())
+                    .unwrap_or_else(|| id.clone())
+            };
+            crate::overlay::show_profile_switch_overlay(&app, &profile_name);
+        }
     }
 
     // Emit event for UI sync
@@ -996,11 +1009,18 @@ pub fn cycle_to_next_profile(app: AppHandle) -> Result<String, String> {
         }
     }
 
+    // If only "default" is available (no other profiles in cycle), just ensure we're on default
     if cycle_ids.len() <= 1 {
-        return Err("No profiles available for cycling".to_string());
+        if settings.active_profile_id != "default" {
+            // Active profile is not in cycle, switch back to default
+            set_active_profile(app, "default".to_string())?;
+            return Ok("default".to_string());
+        }
+        // Already on default and nothing else to cycle to
+        return Ok("default".to_string());
     }
 
-    // Find current index and move to next
+    // Find current index; if active profile is not in cycle list, start from 0 (default)
     let current_idx = cycle_ids
         .iter()
         .position(|id| id == &settings.active_profile_id)
@@ -1790,6 +1810,24 @@ pub fn register_shortcut(app: &AppHandle, binding: ShortcutBinding) -> Result<()
                         "send_to_extension_with_selection" => settings.send_to_extension_with_selection_push_to_talk,
                         "ai_replace_selection" => settings.ai_replace_selection_push_to_talk,
                         "send_screenshot_to_extension" => settings.send_screenshot_to_extension_push_to_talk,
+                        "transcribe" => {
+                            // Use active profile's PTT setting, or global if "default"
+                            if settings.active_profile_id == "default" {
+                                settings.push_to_talk
+                            } else {
+                                settings
+                                    .transcription_profile(&settings.active_profile_id)
+                                    .map(|p| p.push_to_talk)
+                                    .unwrap_or(settings.push_to_talk)
+                            }
+                        }
+                        id if id.starts_with("transcribe_") => {
+                            // Profile-specific shortcut: use that profile's PTT
+                            settings
+                                .transcription_profile_by_binding(id)
+                                .map(|p| p.push_to_talk)
+                                .unwrap_or(settings.push_to_talk)
+                        }
                         _ => settings.push_to_talk,
                     };
 

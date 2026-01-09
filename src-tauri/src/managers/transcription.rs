@@ -438,13 +438,14 @@ impl TranscriptionManager {
         Ok(final_result)
     }
 
-    /// Transcribe audio with optional language/translation overrides.
+    /// Transcribe audio with optional language/translation/prompt overrides.
     /// Used by transcription profiles to override global settings.
     pub fn transcribe_with_overrides(
         &self,
         audio: Vec<f32>,
         language_override: Option<&str>,
         translate_override: Option<bool>,
+        prompt_override: Option<String>,
     ) -> Result<String> {
         // Update last activity timestamp
         self.last_activity.store(
@@ -509,12 +510,17 @@ impl TranscriptionManager {
                         language: whisper_language,
                         translate: translate_to_english,
                         initial_prompt: {
-                            let current_model_id = self.current_model_id.lock().unwrap();
-                            current_model_id
-                                .as_ref()
-                                .and_then(|id| settings.transcription_prompts.get(id))
+                            // Priority: 1) profile override, 2) global per-model prompt
+                            prompt_override
                                 .filter(|p| !p.trim().is_empty())
-                                .cloned()
+                                .or_else(|| {
+                                    let current_model_id = self.current_model_id.lock().unwrap();
+                                    current_model_id
+                                        .as_ref()
+                                        .and_then(|id| settings.transcription_prompts.get(id))
+                                        .filter(|p| !p.trim().is_empty())
+                                        .cloned()
+                                })
                         },
                         ..Default::default()
                     };

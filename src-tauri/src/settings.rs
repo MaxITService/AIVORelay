@@ -114,6 +114,9 @@ pub struct TranscriptionProfile {
     /// Whether this profile participates in the cycle shortcut rotation
     #[serde(default = "default_true")]
     pub include_in_cycle: bool,
+    /// Push-to-talk mode for this profile (hold key to record vs toggle)
+    #[serde(default = "default_true")]
+    pub push_to_talk: bool,
 }
 
 /// A voice command that triggers a script when the user speaks a matching phrase.
@@ -1399,6 +1402,21 @@ pub fn load_or_create_app_settings(app: &AppHandle) -> AppSettings {
     if !settings.beta_voice_commands_enabled || !settings.beta_transcription_profiles_enabled {
         settings.beta_voice_commands_enabled = true;
         settings.beta_transcription_profiles_enabled = true;
+        store.set("settings", serde_json::to_value(&settings).unwrap());
+    }
+
+    // Normalize active_profile_id: if it points to a non-existent profile, reset to "default"
+    if settings.active_profile_id != "default"
+        && !settings
+            .transcription_profiles
+            .iter()
+            .any(|p| p.id == settings.active_profile_id)
+    {
+        warn!(
+            "Active profile '{}' not found, resetting to default",
+            settings.active_profile_id
+        );
+        settings.active_profile_id = "default".to_string();
         store.set("settings", serde_json::to_value(&settings).unwrap());
     }
 

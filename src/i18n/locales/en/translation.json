@@ -229,7 +229,16 @@
       "systemPrompt": "System Prompt (Optional)",
       "systemPromptPlaceholder": "Context hints, terminology, formatting guidance...",
       "systemPromptDescription": "Provide context to help with specialized terminology, names, or formatting. Leave empty to use the global prompt.",
-      "systemPromptTooLong": "Prompt exceeds {{limit}} character limit for this model."
+      "systemPromptTooLong": "Prompt exceeds {{limit}} character limit for this model.",
+      "active": "Active",
+      "setActive": "Set Active",
+      "setActiveDescription": "Use this profile for the main 'Transcribe' shortcut.",
+      "defaultProfile": "Default (Global)",
+      "defaultProfileDescription": "Use global language settings.",
+      "includeInCycle": "Include in Cycle",
+      "includeInCycleDescription": "Include when cycling profiles via shortcut.",
+      "showOverlayOnSwitch": "Show Overlay on Switch",
+      "showOverlayOnSwitchDescription": "Show a brief notification when switching profiles."
     },
     "sound": {
       "title": "Sound",
@@ -840,34 +849,6 @@
         "description": "Maximum tokens the model can use for internal reasoning. Minimum 1024. Higher values allow more complex thinking.",
         "tokens": "tokens"
       }
-    },
-    "transcriptionProfiles": {
-      "title": "Transcription Profiles",
-      "help": "Create custom transcription profiles with specific languages and system prompts. Each profile gets its own shortcut.",
-      "existingProfiles": "Existing Profiles",
-      "createNew": "Create New Profile",
-      "createNewDescription": "Add a new profile with custom settings.",
-      "profileName": "Profile Name",
-      "profileNamePlaceholder": "e.g., French to English",
-      "language": "Language",
-      "systemPrompt": "System Prompt",
-      "systemPromptPlaceholder": "Optional system prompt...",
-      "systemPromptDescription": "Add context or instructions for the model.",
-      "systemPromptTooLong": "System prompt exceeds limit of {{limit}} characters.",
-      "translateToEnglish": "Translate to English",
-      "translateToEnglishDescription": "Automatically translate the transcribed text to English.",
-      "saveChanges": "Save Changes",
-      "addProfile": "Add Profile",
-      "shortcut": "Shortcut",
-      "active": "Active",
-      "setActive": "Set Active",
-      "setActiveDescription": "Use this profile for the main 'Transcribe' shortcut.",
-      "defaultProfile": "Default (Global)",
-      "defaultProfileDescription": "Use global language settings.",
-      "includeInCycle": "Include in Cycle",
-      "includeInCycleDescription": "Include when cycling profiles via shortcut.",
-      "showOverlayOnSwitch": "Show Overlay on Switch",
-      "showOverlayOnSwitchDescription": "Show a brief notification when switching profiles."
     }
   },
   "footer": {

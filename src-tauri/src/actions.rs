@@ -565,7 +565,17 @@ async fn perform_transcription_for_profile(
                 p.language,
                 p.translate_to_english
             );
-            tm.transcribe_with_overrides(samples, Some(&p.language), Some(p.translate_to_english))
+            tm.transcribe_with_overrides(
+                samples,
+                Some(&p.language),
+                Some(p.translate_to_english),
+                // Pass profile's system_prompt if set, otherwise None (will use global prompt)
+                if p.system_prompt.trim().is_empty() {
+                    None
+                } else {
+                    Some(p.system_prompt.clone())
+                },
+            )
         } else {
             log::info!(
                 "Transcription using Local model: {}",
@@ -1787,6 +1797,18 @@ impl ShortcutAction for RepastLastAction {
 impl ShortcutAction for CycleProfileAction {
     fn start(&self, app: &AppHandle, _binding_id: &str, _shortcut_str: &str) {
         debug!("CycleProfileAction::start called");
+
+        // Prevent profile switching during active recording or processing
+        // to avoid overlay conflicts and user confusion
+        {
+            let state = app.state::<ManagedSessionState>();
+            let state_guard = state.lock().expect("Failed to lock session state");
+
+            if !matches!(*state_guard, session_manager::SessionState::Idle) {
+                debug!("CycleProfileAction: System busy (recording or processing), ignoring");
+                return;
+            }
+        }
 
         // Call the cycle function directly (it handles overlay and events)
         match crate::shortcut::cycle_to_next_profile(app.clone()) {

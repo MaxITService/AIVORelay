@@ -1,15 +1,11 @@
 import React from "react";
 import { useTranslation } from "react-i18next";
 import { MicrophoneSelector } from "../MicrophoneSelector";
-import { LanguageSelector } from "../LanguageSelector";
-import { HandyShortcut } from "../HandyShortcut";
 import { SettingsGroup } from "../../ui/SettingsGroup";
 import { OutputDeviceSelector } from "../OutputDeviceSelector";
-import { PushToTalk } from "../PushToTalk";
 import { AudioFeedback } from "../AudioFeedback";
 import { useSettings } from "../../../hooks/useSettings";
 import { VolumeSlider } from "../VolumeSlider";
-import { TranscriptionSystemPrompt } from "../TranscriptionSystemPrompt";
 import { TranscriptionProfiles } from "../TranscriptionProfiles";
 
 export const GeneralSettings: React.FC = () => {
@@ -17,12 +13,10 @@ export const GeneralSettings: React.FC = () => {
   const { audioFeedbackEnabled, settings } = useSettings();
   return (
     <div className="max-w-3xl w-full mx-auto space-y-8 pb-12">
-      <SettingsGroup title={t("settings.general.title")}>
-        <HandyShortcut shortcutId="transcribe" grouped={true} />
-        <TranscriptionSystemPrompt grouped={true} />
-        <LanguageSelector descriptionMode="tooltip" grouped={true} />
-        <PushToTalk descriptionMode="tooltip" grouped={true} />
-      </SettingsGroup>
+      {/* Transcription Profiles at the top */}
+      {(settings as any)?.beta_transcription_profiles_enabled && <TranscriptionProfiles />}
+      
+      {/* Sound Settings at the bottom */}
       <SettingsGroup title={t("settings.sound.title")}>
         <MicrophoneSelector descriptionMode="tooltip" grouped={true} />
         <AudioFeedback descriptionMode="tooltip" grouped={true} />
@@ -33,7 +27,6 @@ export const GeneralSettings: React.FC = () => {
         />
         <VolumeSlider disabled={!audioFeedbackEnabled} />
       </SettingsGroup>
-      {(settings as any)?.beta_transcription_profiles_enabled && <TranscriptionProfiles />}
     </div>
   );
 };
