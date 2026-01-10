@@ -14,7 +14,7 @@ export const GeneralSettings: React.FC = () => {
   return (
     <div className="max-w-3xl w-full mx-auto space-y-8 pb-12">
       {/* Transcription Profiles at the top */}
-      {(settings as any)?.beta_transcription_profiles_enabled && <TranscriptionProfiles />}
+      <TranscriptionProfiles />
       
       {/* Sound Settings at the bottom */}
       <SettingsGroup title={t("settings.sound.title")}>

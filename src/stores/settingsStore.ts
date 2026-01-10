@@ -205,8 +205,6 @@ const settingUpdaters: {
   invoke("change_native_region_capture_mode_setting", { mode: value });
 (settingUpdaters as any).beta_voice_commands_enabled = (value: any) =>
   invoke("change_beta_voice_commands_enabled_setting", { enabled: value });
-(settingUpdaters as any).beta_transcription_profiles_enabled = (value: any) =>
-  invoke("change_beta_transcription_profiles_enabled_setting", { enabled: value });
 
 // Extended Thinking / Reasoning settings
 (settingUpdaters as any).post_process_reasoning_enabled = (value: any) =>

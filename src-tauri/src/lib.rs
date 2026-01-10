@@ -378,7 +378,6 @@ pub fn run() {
         shortcut::change_app_language_setting,
         shortcut::change_update_checks_setting,
         shortcut::change_beta_voice_commands_enabled_setting,
-        shortcut::change_beta_transcription_profiles_enabled_setting,
         trigger_update_check,
         commands::cancel_operation,
         commands::get_app_dir_path,

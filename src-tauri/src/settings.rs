@@ -566,9 +566,6 @@ pub struct AppSettings {
     /// Whether Voice Commands beta feature is enabled in the UI (Debug menu toggle)
     #[serde(default = "default_true")]
     pub beta_voice_commands_enabled: bool,
-    /// Whether Transcription Profiles beta feature is enabled in the UI (Debug menu toggle)
-    #[serde(default = "default_true")]
-    pub beta_transcription_profiles_enabled: bool,
 }
 
 fn default_model() -> String {
@@ -1172,7 +1169,6 @@ pub fn get_default_settings() -> AppSettings {
         voice_command_reasoning_budget: default_reasoning_budget(),
         // Beta Feature Flags
         beta_voice_commands_enabled: false,
-        beta_transcription_profiles_enabled: false,
     }
 }
 
@@ -1474,9 +1470,8 @@ pub fn load_or_create_app_settings(app: &AppHandle) -> AppSettings {
     }
 
     // Force beta features to be enabled (removing "debug only" status)
-    if !settings.beta_voice_commands_enabled || !settings.beta_transcription_profiles_enabled {
+    if !settings.beta_voice_commands_enabled {
         settings.beta_voice_commands_enabled = true;
-        settings.beta_transcription_profiles_enabled = true;
         store.set("settings", serde_json::to_value(&settings).unwrap());
     }
 

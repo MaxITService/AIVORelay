@@ -29,10 +29,8 @@ export const DebugSettings: React.FC = () => {
 
   // Modal states
   const [showVoiceCommandsWarning, setShowVoiceCommandsWarning] = useState(false);
-  const [showProfilesWarning, setShowProfilesWarning] = useState(false);
 
   const betaVoiceCommandsEnabled = (settings as any)?.beta_voice_commands_enabled ?? false;
-  const betaTranscriptionProfilesEnabled = (settings as any)?.beta_transcription_profiles_enabled ?? false;
 
   const handleVoiceCommandsToggle = (enabled: boolean) => {
     if (enabled) {
@@ -42,13 +40,7 @@ export const DebugSettings: React.FC = () => {
     }
   };
 
-  const handleProfilesToggle = (enabled: boolean) => {
-    if (enabled) {
-      setShowProfilesWarning(true);
-    } else {
-      void updateSetting("beta_transcription_profiles_enabled" as any, false);
-    }
-  };
+
 
   return (
     <div className="max-w-3xl w-full mx-auto space-y-6">
@@ -91,26 +83,7 @@ export const DebugSettings: React.FC = () => {
           </div>
         </div>
 
-        {/* Transcription Profiles Toggle */}
-        <SettingContainer
-          title="Transcription Profiles"
-          description="Create custom transcription shortcuts with different language settings"
-          descriptionMode="inline"
-          grouped={true}
-        >
-          <ToggleSwitch
-            checked={betaTranscriptionProfilesEnabled}
-            onChange={handleProfilesToggle}
-            disabled={isUpdating("beta_transcription_profiles_enabled")}
-          />
-        </SettingContainer>
-        {betaTranscriptionProfilesEnabled && (
-          <div className="mx-4 mb-3 p-3 bg-purple-500/10 border border-purple-500/30 rounded-lg">
-            <p className="text-xs text-purple-200/80">
-              ✓ Enabled. Go to <strong>General Settings</strong> to configure transcription profiles.
-            </p>
-          </div>
-        )}
+
 
         {/* Voice Commands Toggle - Windows only */}
         {isWindows && (
@@ -159,19 +132,7 @@ export const DebugSettings: React.FC = () => {
         variant="danger"
       />
 
-      {/* Confirmation Modal for Transcription Profiles */}
-      <ConfirmationModal
-        isOpen={showProfilesWarning}
-        onClose={() => setShowProfilesWarning(false)}
-        onConfirm={() => {
-          void updateSetting("beta_transcription_profiles_enabled" as any, true);
-        }}
-        title="Enable Transcription Profiles?"
-        message="Transcription Profiles is a beta feature that allows you to create custom transcription shortcuts with different language and translation settings. This feature is still being refined and may change in future versions."
-        confirmText="Enable"
-        cancelText="Cancel"
-        variant="warning"
-      />
+
     </div>
   );
 };
