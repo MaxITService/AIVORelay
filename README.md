@@ -1,141 +1,130 @@
 # AivoRelay
 
 ![large_logo](Promo/large_logo.jpg)
-
 AI Voice Relay
-A fork of [cjpais/Handy](https://github.com/cjpais/Handy) with additional features for Windows.
+> 🎙️ AI-powered voice-to-text with smart integrations for Windows  
+> A fork of [cjpais/Handy](https://github.com/cjpais/Handy) with additional features
 
-## Fork Features
+## ✨ Key Features
 
-### 🌐 Remote STT API
+### 🤖 AI Replace Selection
 
-Use any OpenAI-compatible speech-to-text API instead of local Whisper model.
+Voice-controlled text editing — select text, speak instruction, get AI-transformed result.
 
-- No need to download 1GB+ models
-- Use fast cloud services (Groq, Deepgram, etc.)
-- Great for machines without GPU
-
-**Setup:** Settings → Advanced → Transcription Provider → Remote OpenAI Compatible
-
-### 🤖 AI Replace Selection (Windows only)
-
-Voice-controlled text editing:
-
-1. Select text in any application
-2. Hold the AI Replace shortcut, speak your instruction
-3. Release — selected text is replaced with AI result
-
-**Examples:**
-
-- Select code → say "add error handling" → get improved code
-- Select paragraph → say "make it shorter" → get condensed version
-- Empty field + "no selection" mode → say "write a greeting email" → get generated text
+- Select code → say "add error handling" → improved code replaces selection
+- Select paragraph → say "make it shorter" → condensed version
+- Empty field + "no selection" mode → say "write a greeting email" → generated text
+- Works in any Windows application
 
 **Setup:** Settings → Advanced → AI Replace Settings
 
-### 📤 Send to Extension
+### 📤 Send to ChatGPT/Claude
 
-Send voice to ChatGPT/Perplexity via **AivoRelay Connector** Chrome extension.
+Voice-to-AI bridge via [AivoRelay Connector](https://github.com/MaxITService/AivoRelay-relay) browser extension.
 
-> ⚠️ **Requires:** [AivoRelay Connector](https://github.com/MaxITService/AivoRelay-relay) Chrome extension must be installed and running. Without it, "Send to Extension" features won't work.
-
-**Three modes:**
-
-| Action                  | Input                 | Output to ChatGPT              |
-| ----------------------- | --------------------- | ------------------------------ |
-| **Send to Extension**   | Voice only            | Just your question             |
-| **Send with Selection** | Voice + selected text | Question with context          |
-| **Send Screenshot**     | Voice + screenshot    | Question with image attachment |
+| Mode | Input | What ChatGPT receives |
+|------|-------|----------------------|
+| **Voice only** | Speak your question | Your transcribed question |
+| **Voice + Selection** | Speak + selected text | Question with context |
+| **Voice + Screenshot** | Speak + screen capture | Question with image |
 
 **Examples:**
-
-- Press shortcut, say "what is recursion" → ChatGPT gets your question
+- Say "what is recursion" → ChatGPT gets your question
 - Select error log, say "why is this failing" → ChatGPT gets question + the log
-- Select article, say "summarize this" → ChatGPT gets instruction + full text
-- Capture region, say "explain this chart" → ChatGPT gets question + screenshot
+- Capture chart, say "explain this" → ChatGPT gets question + screenshot
 
-### 📷 Send Screenshot to Extension (Windows only)
+> ⚠️ **Requires:** [AivoRelay Connector](https://github.com/MaxITService/AivoRelay-relay) Chrome extension
 
-Capture a screenshot region and send it with voice instruction to ChatGPT/Claude.
+### 🎚️ Transcription Profiles
 
-**Requires:** External screenshot tool like [ShareX](https://getsharex.com/) (free, open source)
+Quick-switch between language and prompt presets with dedicated shortcuts.
 
-**How it works:**
+- Create profiles for different languages or use cases
+- Each profile has its own shortcut, language, and system prompt
+- Cycle through profiles with a hotkey
+- Great for multilingual users or specialized transcription needs
 
-1. Press and hold the shortcut, speak your instruction (e.g., "explain this chart")
-2. Release the shortcut — voice is transcribed first
-3. Screenshot tool launches automatically
-4. Select screen region with your screenshot tool
-5. Screenshot + your voice instruction sent to extension
+**Setup:** Settings → Speech → Transcription Profiles
 
-**Workflow:**
+### ☁️ Cloud STT Option
 
-```
-[Hold shortcut] → [Speak] → [Release] → [Transcribe voice] → [Screenshot tool opens] → [Capture region] → [Sent to ChatGPT]
-```
+Use Groq, Deepgram, or other OpenAI-compatible APIs — *or* keep using local Whisper. Your choice!
 
-**"Allow Without Voice" mode:** Can send screenshot with just a default prompt (e.g., "Look at this picture") — useful when you just want to share an image without speaking.
+- No GPU? Use fast cloud APIs
+- Have a powerful GPU? Run locally for privacy
+- Switch between providers anytime
 
-**Setup:**
-
-- Settings → Browser Connector → Screenshot Settings
-- Configure your screenshot tool command (default: ShareX `-RectangleRegion`)
-- Set screenshot folder path where your tool saves images
+**Setup:** Settings → Advanced → Transcription Provider
 
 ---
 
-## Configuration
+## 🚀 Quick Start
 
-### LLM API Relay Configuration
+1. Download from [Releases](https://github.com/MaxITService/AIVORelay/releases)
+2. Install and run AivoRelay
+3. Press `Ctrl+F8` — hold to record, release to transcribe!
+
+---
+
+## ⚙️ Configuration
+
+### LLM API Relay
 
 **Settings → LLM API Relay**
 
-Configure your LLM provider (OpenAI, Anthropic, etc.) to power Post-Processing and AI Replace features. You can use the same model for both or configure separate ones if needed.
+Configure your LLM provider (OpenAI, Anthropic, etc.) to power AI Replace and Post-Processing features.
 
 ### AI Replace Settings
 
 **Settings → AI Replace**
 
-| Setting                        | Description                                                                 |
-| ------------------------------ | --------------------------------------------------------------------------- |
-| **System Prompt**              | Instructions for the LLM (e.g., "return only transformed text")             |
-| **User Prompt Template**       | Template with `${instruction}` (your voice) and `${output}` (selected text) |
-| **No Selection System Prompt** | Alternative prompt when no text is selected                                 |
-| **Max Characters**             | Limit for selected text (default: 20000)                                    |
+| Setting | Description |
+|---------|-------------|
+| **System Prompt** | Instructions for the LLM (e.g., "return only transformed text") |
+| **User Prompt Template** | Template with `${instruction}` (your voice) and `${output}` (selected text) |
+| **No Selection System Prompt** | Alternative prompt when no text is selected |
+| **Max Characters** | Limit for selected text (default: 20000) |
 
-Default user template:
+### Send Screenshot Settings
 
-```
-INSTRUCTION:
-${instruction}
+**Settings → Browser Connector → Screenshot Settings**
 
-TEXT:
-${output}
-```
-
-### Send to Extension Prompts
-
-"Send with Selection" uses the same AI Replace prompt templates to format the message before sending to ChatGPT.
+- Configure screenshot tool command (default: ShareX `-RectangleRegion`)
+- Set screenshot folder path
+- Enable "Allow Without Voice" for quick image-only sends
 
 ### AivoRelay Connector Setup
 
 1. Install [AivoRelay Connector](https://github.com/MaxITService/AivoRelay-relay) Chrome extension
 2. Open ChatGPT or Perplexity in a browser tab
 3. Click extension icon → "Bind to this tab"
-4. Extension polls `http://127.0.0.1:38243` by default for messages from AivoRelay. Port must match in extension and in AivoRelay settings.
+4. Extension connects to `http://127.0.0.1:38243` (configurable)
 
 ---
 
-## Limitations
+## 📋 Platform Notes
 
-- **AI Replace Selection**: Windows only
-- **Send Screenshot to Extension**: Windows only (uses ShareX or similar)
-- **Remote STT**: Windows only (API keys in Windows Credential Manager)
+| Feature | Platform |
+|---------|----------|
+| AI Replace Selection | Windows only |
+| Send Screenshot | Windows only (uses ShareX or similar) |
+| Cloud STT | Windows only (API keys in Windows Credential Manager) |
+| Local Whisper, Shortcuts, History | All platforms |
 
-## Original Features
+---
 
-All original Handy features remain: local Whisper, VAD, global shortcuts, push-to-talk, LLM post-processing, transcription history.
+## 🔧 Original Features
 
-## License
+All original Handy features remain available:
+- Local Whisper transcription with multiple model sizes
+- Voice Activity Detection (VAD)
+- Global keyboard shortcuts
+- Push-to-talk mode
+- LLM post-processing
+- Transcription history
+
+---
+
+## 📄 License
 
 MIT License — NO WARRANTIES.
