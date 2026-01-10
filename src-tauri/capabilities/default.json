@@ -2,9 +2,10 @@
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
   "description": "Capabilities for the app",
-  "windows": ["main", "recording_overlay"],
+  "windows": ["main", "recording_overlay", "command_confirm"],
   "permissions": [
     "core:default",
+    "core:window:allow-hide",
     "opener:default",
     "store:default",
     "updater:default",

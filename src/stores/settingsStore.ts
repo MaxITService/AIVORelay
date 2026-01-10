@@ -216,6 +216,24 @@ const settingUpdaters: {
 (settingUpdaters as any).voice_command_reasoning_budget = (value: any) =>
   invoke("change_voice_command_reasoning_budget_setting", { budget: value });
 
+// Voice Command Center settings
+(settingUpdaters as any).voice_command_enabled = (value: any) =>
+  invoke("change_voice_command_enabled_setting", { enabled: value });
+(settingUpdaters as any).voice_command_llm_fallback = (value: any) =>
+  invoke("change_voice_command_llm_fallback_setting", { enabled: value });
+(settingUpdaters as any).voice_command_system_prompt = (value: any) =>
+  invoke("change_voice_command_system_prompt_setting", { prompt: value });
+(settingUpdaters as any).voice_command_ps_args = (value: any) =>
+  invoke("change_voice_command_ps_args_setting", { args: value });
+(settingUpdaters as any).voice_command_keep_window_open = (value: any) =>
+  invoke("change_voice_command_keep_window_open_setting", { enabled: value });
+(settingUpdaters as any).voice_command_use_windows_terminal = (value: any) =>
+  invoke("change_voice_command_use_windows_terminal_setting", { enabled: value });
+(settingUpdaters as any).voice_command_default_threshold = (value: any) =>
+  invoke("change_voice_command_default_threshold_setting", { threshold: value });
+(settingUpdaters as any).voice_commands = (value: any) =>
+  invoke("change_voice_commands_setting", { commands: value });
+
 // Transcription Profiles settings
 (settingUpdaters as any).active_profile_id = (value: any) =>
   invoke("set_active_profile", { id: value });

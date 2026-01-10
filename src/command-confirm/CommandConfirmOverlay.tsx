@@ -25,6 +25,13 @@ export interface VoiceCommandResultPayload {
 
 type Status = null | { type: "success"; message: string } | { type: "error"; message: string };
 
+/** Helper to hide the current window - handles the async nature of hide() */
+const hideWindow = () => {
+  getCurrentWindow().hide().catch((err) => {
+    console.error("Failed to hide window:", err);
+  });
+};
+
 export default function CommandConfirmOverlay() {
   const [payload, setPayload] = useState<CommandConfirmPayload | null>(null);
   const [isEditing, setIsEditing] = useState(false);
@@ -81,7 +88,7 @@ export default function CommandConfirmOverlay() {
         
         // Auto-hide after success
         setTimeout(() => {
-          getCurrentWindow().hide();
+          hideWindow();
         }, 1000);
       } else {
         const errorMsg = result.error || "Execution failed";
@@ -121,15 +128,29 @@ export default function CommandConfirmOverlay() {
   };
 
   const handleCancel = () => {
-    getCurrentWindow().hide();
+    hideWindow();
   };
 
-  // Handle keyboard shortcuts
+  // Handle keyboard shortcuts - separate effect for ESC to ensure it always works
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
-        handleCancel();
-      } else if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
+        e.preventDefault();
+        hideWindow();
+      }
+    };
+    
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, []);
+  
+  // Handle Ctrl+Enter to run command
+  useEffect(() => {
+    if (!payload) return;
+    
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Enter" && (e.ctrlKey || e.metaKey) && !isExecuting) {
+        e.preventDefault();
         handleRun();
       }
     };

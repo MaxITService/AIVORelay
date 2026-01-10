@@ -377,7 +377,6 @@ fn calculate_command_confirm_position(app_handle: &AppHandle) -> Option<(f64, f6
     }
     None
 }
-
 /// Shows the command confirmation overlay with the given payload.
 /// Creates the window if it doesn't exist yet.
 #[cfg(target_os = "windows")]
@@ -389,12 +388,22 @@ pub fn show_command_confirm_overlay(
 
     let window_label = "command_confirm";
 
+    debug!("show_command_confirm_overlay called");
+
+    // Track whether we're creating a new window (need to wait longer for React to mount)
+    let is_new_window;
+
     // Get or create the window
     let window = if let Some(existing) = app_handle.get_webview_window(window_label) {
+        is_new_window = false;
+        debug!("Reusing existing command_confirm window");
         existing
     } else {
+        is_new_window = true;
+        debug!("Creating new command_confirm window");
         // Create the window
         if let Some((x, y)) = calculate_command_confirm_position(app_handle) {
+            debug!("Window position calculated: ({}, {})", x, y);
             match WebviewWindowBuilder::new(
                 app_handle,
                 window_label,
@@ -408,6 +417,7 @@ pub fn show_command_confirm_overlay(
             .minimizable(false)
             .closable(true)
             .decorations(false)
+            .shadow(false)
             .always_on_top(true)
             .skip_taskbar(true)
             .transparent(true)
@@ -416,7 +426,7 @@ pub fn show_command_confirm_overlay(
             .build()
             {
                 Ok(window) => {
-                    debug!("Command confirm overlay window created");
+                    debug!("Command confirm overlay window created successfully");
                     window
                 }
                 Err(e) => {
@@ -435,14 +445,29 @@ pub fn show_command_confirm_overlay(
         let _ = window.set_position(tauri::Position::Logical(tauri::LogicalPosition { x, y }));
     }
 
-    let _ = window.show();
+    if let Err(e) = window.show() {
+        log::error!("Failed to show window: {}", e);
+    }
+
+    // Force topmost first, then set focus
+    force_overlay_topmost(&window);
     let _ = window.set_focus();
 
-    // Force topmost
-    force_overlay_topmost(&window);
+    // Emit the payload to the window with a delay to ensure React listener is ready
+    // New windows need more time for the webview to load and React to mount
+    let delay_ms = if is_new_window { 200 } else { 50 };
+    debug!(
+        "Emitting show-command-confirm event with {}ms delay (is_new_window={})",
+        delay_ms, is_new_window
+    );
 
-    // Emit the payload to the window
-    let _ = window.emit("show-command-confirm", payload);
+    let window_clone = window.clone();
+    std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_millis(delay_ms));
+        if let Err(e) = window_clone.emit("show-command-confirm", payload) {
+            log::error!("Failed to emit show-command-confirm event: {}", e);
+        }
+    });
 }
 
 // ============================================================================

@@ -622,6 +622,100 @@ pub fn change_voice_command_reasoning_budget_setting(
 }
 
 // ============================================================================
+// Voice Command Center Settings
+// ============================================================================
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_voice_command_enabled_setting(app: AppHandle, enabled: bool) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.voice_command_enabled = enabled;
+    settings::write_settings(&app, settings);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_voice_command_llm_fallback_setting(
+    app: AppHandle,
+    enabled: bool,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.voice_command_llm_fallback = enabled;
+    settings::write_settings(&app, settings);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_voice_command_system_prompt_setting(
+    app: AppHandle,
+    prompt: String,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.voice_command_system_prompt = prompt;
+    settings::write_settings(&app, settings);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_voice_command_ps_args_setting(app: AppHandle, args: String) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.voice_command_ps_args = args;
+    settings::write_settings(&app, settings);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_voice_command_keep_window_open_setting(
+    app: AppHandle,
+    enabled: bool,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.voice_command_keep_window_open = enabled;
+    settings::write_settings(&app, settings);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_voice_command_use_windows_terminal_setting(
+    app: AppHandle,
+    enabled: bool,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.voice_command_use_windows_terminal = enabled;
+    settings::write_settings(&app, settings);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_voice_command_default_threshold_setting(
+    app: AppHandle,
+    threshold: f64,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.voice_command_default_threshold = threshold.clamp(0.0, 1.0);
+    settings::write_settings(&app, settings);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_voice_commands_setting(
+    app: AppHandle,
+    commands: Vec<settings::VoiceCommand>,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.voice_commands = commands;
+    settings::write_settings(&app, settings);
+    Ok(())
+}
+
+// ============================================================================
 // Transcription Profile Settings
 // ============================================================================
 
