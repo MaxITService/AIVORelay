@@ -566,6 +566,12 @@ export default function VoiceCommandSettings() {
           padding: 14px 0;
           border-bottom: 1px solid rgba(255,255,255,0.06);
         }
+        .shortcut-row > div {
+          flex-direction: row !important;
+          flex-wrap: nowrap !important;
+          align-items: center !important;
+          justify-content: space-between !important;
+        }
         .setting-row {
           display: flex;
           justify-content: space-between;
