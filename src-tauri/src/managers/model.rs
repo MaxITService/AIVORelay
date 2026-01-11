@@ -292,11 +292,20 @@ impl ModelManager {
     fn auto_select_model_if_needed(&self) -> Result<()> {
         // Check if we have a selected model in settings
         let settings = get_settings(&self.app_handle);
+        let models = self.available_models.lock().unwrap();
 
-        // If no model is selected or selected model is empty
-        if settings.selected_model.is_empty() {
+        let selected_model_available = if settings.selected_model.is_empty() {
+            false
+        } else {
+            models
+                .get(&settings.selected_model)
+                .map(|model| model.is_downloaded)
+                .unwrap_or(false)
+        };
+
+        // If no model is selected or the selected model isn't available, auto-select
+        if settings.selected_model.is_empty() || !selected_model_available {
             // Find the first available (downloaded) model
-            let models = self.available_models.lock().unwrap();
             if let Some(available_model) = models.values().find(|model| model.is_downloaded) {
                 info!(
                     "Auto-selecting model: {} ({})",
@@ -309,6 +318,11 @@ impl ModelManager {
                 write_settings(&self.app_handle, updated_settings);
 
                 info!("Successfully auto-selected model: {}", available_model.id);
+            } else if !settings.selected_model.is_empty() {
+                warn!(
+                    "Selected model {} is unavailable and no downloaded models were found.",
+                    settings.selected_model
+                );
             }
         }
 

@@ -576,6 +576,155 @@ impl TranscriptionManager {
 
         Ok(final_result)
     }
+
+    /// Transcribe audio and return full result including segments with timestamps.
+    /// This is used for file transcription where subtitle formats (SRT/VTT) are needed.
+    pub fn transcribe_with_segments(
+        &self,
+        audio: Vec<f32>,
+        language_override: Option<&str>,
+        translate_override: Option<bool>,
+        prompt_override: Option<String>,
+    ) -> Result<(String, Option<Vec<crate::subtitle::SubtitleSegment>>)> {
+        // Update last activity timestamp
+        self.last_activity.store(
+            SystemTime::now()
+                .duration_since(SystemTime::UNIX_EPOCH)
+                .unwrap()
+                .as_millis() as u64,
+            Ordering::Relaxed,
+        );
+
+        let st = std::time::Instant::now();
+
+        debug!("Audio vector length: {} (with segments)", audio.len());
+
+        if audio.len() == 0 {
+            debug!("Empty audio vector");
+            return Ok((String::new(), None));
+        }
+
+        // Check if model is loaded
+        {
+            let mut is_loading = self.is_loading.lock().unwrap();
+            while *is_loading {
+                is_loading = self.loading_condvar.wait(is_loading).unwrap();
+            }
+
+            let engine_guard = self.engine.lock().unwrap();
+            if engine_guard.is_none() {
+                return Err(anyhow::anyhow!("Model is not loaded for transcription."));
+            }
+        }
+
+        let settings = get_settings(&self.app_handle);
+
+        // Apply overrides
+        let selected_language = language_override
+            .map(|s| s.to_string())
+            .unwrap_or_else(|| settings.selected_language.clone());
+        let translate_to_english = translate_override.unwrap_or(settings.translate_to_english);
+
+        let result = {
+            let mut engine_guard = self.engine.lock().unwrap();
+            let engine = engine_guard.as_mut().ok_or_else(|| {
+                anyhow::anyhow!("Model failed to load. Please check your model settings.")
+            })?;
+
+            match engine {
+                LoadedEngine::Whisper(whisper_engine) => {
+                    let whisper_language = if selected_language == "auto" {
+                        None
+                    } else {
+                        let normalized =
+                            if selected_language == "zh-Hans" || selected_language == "zh-Hant" {
+                                "zh".to_string()
+                            } else {
+                                selected_language.clone()
+                            };
+                        Some(normalized)
+                    };
+
+                    let params = WhisperInferenceParams {
+                        language: whisper_language,
+                        translate: translate_to_english,
+                        initial_prompt: {
+                            prompt_override
+                                .filter(|p| !p.trim().is_empty())
+                                .or_else(|| {
+                                    let current_model_id = self.current_model_id.lock().unwrap();
+                                    current_model_id
+                                        .as_ref()
+                                        .and_then(|id| settings.transcription_prompts.get(id))
+                                        .filter(|p| !p.trim().is_empty())
+                                        .cloned()
+                                })
+                        },
+                        ..Default::default()
+                    };
+
+                    whisper_engine
+                        .transcribe_samples(audio, Some(params))
+                        .map_err(|e| anyhow::anyhow!("Whisper transcription failed: {}", e))?
+                }
+                LoadedEngine::Parakeet(parakeet_engine) => {
+                    let params = ParakeetInferenceParams {
+                        timestamp_granularity: TimestampGranularity::Segment,
+                        ..Default::default()
+                    };
+
+                    parakeet_engine
+                        .transcribe_samples(audio, Some(params))
+                        .map_err(|e| anyhow::anyhow!("Parakeet transcription failed: {}", e))?
+                }
+            }
+        };
+
+        // Convert transcribe_rs segments to our SubtitleSegment format
+        let segments: Option<Vec<crate::subtitle::SubtitleSegment>> = result.segments.map(|segs| {
+            segs.into_iter()
+                .map(|seg| crate::subtitle::SubtitleSegment {
+                    start: seg.start,
+                    end: seg.end,
+                    text: seg.text,
+                })
+                .collect()
+        });
+
+        let corrected_result = if !settings.custom_words.is_empty() {
+            apply_custom_words(
+                &result.text,
+                &settings.custom_words,
+                settings.word_correction_threshold,
+            )
+        } else {
+            result.text
+        };
+
+        let et = std::time::Instant::now();
+        let translation_note = if translate_to_english {
+            " (translated)"
+        } else {
+            ""
+        };
+        info!(
+            "Transcription with segments (lang={}) completed in {}ms{}",
+            selected_language,
+            (et - st).as_millis(),
+            translation_note
+        );
+
+        let final_result = corrected_result.trim().to_string();
+
+        if settings.model_unload_timeout == ModelUnloadTimeout::Immediately {
+            info!("Immediately unloading model after transcription");
+            if let Err(e) = self.unload_model() {
+                error!("Failed to immediately unload model: {}", e);
+            }
+        }
+
+        Ok((final_result, segments))
+    }
 }
 
 impl Drop for TranscriptionManager {

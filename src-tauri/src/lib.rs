@@ -18,6 +18,7 @@ mod session_manager;
 mod settings;
 mod shortcut;
 mod signal_handle;
+pub mod subtitle;
 mod tray;
 mod tray_i18n;
 mod utils;

@@ -7,6 +7,9 @@ use crate::audio_toolkit::apply_custom_words;
 use crate::managers::remote_stt::RemoteSttManager;
 use crate::managers::transcription::TranscriptionManager;
 use crate::settings::{get_settings, TranscriptionProvider};
+use crate::subtitle::{
+    get_format_extension, segments_to_srt, segments_to_vtt, OutputFormat, SubtitleSegment,
+};
 use log::{debug, error, info};
 use serde::Serialize;
 use specta::Type;
@@ -17,10 +20,12 @@ use tauri::{AppHandle, Manager};
 /// Result of a file transcription operation
 #[derive(Serialize, Type)]
 pub struct FileTranscriptionResult {
-    /// The transcribed text
+    /// The transcribed text (or formatted SRT/VTT content)
     pub text: String,
-    /// Path where the text file was saved (if save_to_file was true)
+    /// Path where the file was saved (if save_to_file was true)
     pub saved_file_path: Option<String>,
+    /// The segments with timestamps (only populated for SRT/VTT formats)
+    pub segments: Option<Vec<SubtitleSegment>>,
 }
 
 /// Supported audio file extensions
@@ -38,7 +43,8 @@ pub fn get_supported_audio_extensions() -> Vec<String> {
 /// # Arguments
 /// * `file_path` - Path to the audio file
 /// * `profile_id` - Optional transcription profile ID (uses active profile if not specified)
-/// * `save_to_file` - If true, saves the transcription to a .txt file in Documents folder
+/// * `save_to_file` - If true, saves the transcription to a file in Documents folder
+/// * `output_format` - Output format: "text" (default), "srt", or "vtt"
 ///
 /// # Returns
 /// FileTranscriptionResult with the transcribed text and optional saved file path
@@ -49,8 +55,11 @@ pub async fn transcribe_audio_file(
     file_path: String,
     profile_id: Option<String>,
     save_to_file: bool,
+    output_format: Option<OutputFormat>,
+    model_override: Option<String>,
 ) -> Result<FileTranscriptionResult, String> {
     let path = PathBuf::from(&file_path);
+    let format = output_format.unwrap_or_default();
 
     // Validate file exists
     if !path.exists() {
@@ -72,7 +81,10 @@ pub async fn transcribe_audio_file(
         ));
     }
 
-    info!("Transcribing audio file: {}", file_path);
+    info!(
+        "Transcribing audio file: {} (format: {:?})",
+        file_path, format
+    );
 
     // Read and decode the audio file to PCM samples
     let samples = decode_audio_file(&path).map_err(|e| {
@@ -91,47 +103,108 @@ pub async fn transcribe_audio_file(
     let profile_id = profile_id.unwrap_or_else(|| settings.active_profile_id.clone());
     let profile = settings.transcription_profile(&profile_id);
 
-    // Perform transcription
-    let transcription_text =
-        if settings.transcription_provider == TranscriptionProvider::RemoteOpenAiCompatible {
-            // Remote STT
-            let remote_manager = app.state::<Arc<RemoteSttManager>>();
+    // Perform transcription - get segments for subtitle formats
+    let needs_segments = matches!(format, OutputFormat::Srt | OutputFormat::Vtt);
 
-            let prompt = profile
-                .as_ref()
-                .map(|p| p.system_prompt.clone())
-                .filter(|p| !p.trim().is_empty())
-                .or_else(|| {
-                    settings
-                        .transcription_prompts
-                        .get(&settings.remote_stt.model_id)
-                        .filter(|p| !p.trim().is_empty())
-                        .cloned()
-                });
+    // If model_override is provided, we must use the local manager path with that model.
+    // Otherwise, check if we should use remote.
+    let use_remote = model_override.is_none()
+        && settings.transcription_provider == TranscriptionProvider::RemoteOpenAiCompatible;
 
-            let text = remote_manager
-                .transcribe(&settings.remote_stt, &samples, prompt)
-                .await
-                .map_err(|e| format!("Remote transcription failed: {}", e))?;
+    let (transcription_text, segments) = if use_remote {
+        // Remote STT - currently doesn't support segments
+        let remote_manager = app.state::<Arc<RemoteSttManager>>();
 
-            // Apply custom word corrections
-            if settings.custom_words.is_empty() {
-                text
-            } else {
-                apply_custom_words(
-                    &text,
-                    &settings.custom_words,
-                    settings.word_correction_threshold,
-                )
+        let prompt = profile
+            .as_ref()
+            .map(|p| p.system_prompt.clone())
+            .filter(|p| !p.trim().is_empty())
+            .or_else(|| {
+                settings
+                    .transcription_prompts
+                    .get(&settings.remote_stt.model_id)
+                    .filter(|p| !p.trim().is_empty())
+                    .cloned()
+            });
+
+        let text = remote_manager
+            .transcribe(&settings.remote_stt, &samples, prompt)
+            .await
+            .map_err(|e| format!("Remote transcription failed: {}", e))?;
+
+        // Apply custom word corrections
+        let corrected = if settings.custom_words.is_empty() {
+            text
+        } else {
+            apply_custom_words(
+                &text,
+                &settings.custom_words,
+                settings.word_correction_threshold,
+            )
+        };
+
+        // For remote STT without segment support, create a single segment
+        // spanning the estimated duration if subtitle format is requested
+        let segs = if needs_segments {
+            // Estimate duration: ~150 words per minute average
+            let word_count = corrected.split_whitespace().count();
+            let estimated_duration = (word_count as f32 / 150.0) * 60.0;
+            Some(vec![SubtitleSegment {
+                start: 0.0,
+                end: estimated_duration.max(1.0),
+                text: corrected.clone(),
+            }])
+        } else {
+            None
+        };
+
+        (corrected, segs)
+    } else {
+        // Local transcription with segment support
+        let tm = app.state::<Arc<TranscriptionManager>>();
+
+        // If override is provided, load that model first
+        if let Some(model_id) = &model_override {
+            info!("Using override model: {}", model_id);
+            // We need to ensure this model is loaded.
+            // Note: The TM currently holds one loaded model. Switching it here might affect global state,
+            // but file transcription is a distinct action.
+            // However, load_model is async-ish in the background or blocking?
+            // `load_model` in TM is synchronous (blocking) but `initiate_model_load` is async.
+            // We need it loaded NOW.
+
+            // First check if it's already the current one
+            let current = tm.get_current_model();
+            if current.as_deref() != Some(model_id) {
+                tm.load_model(model_id)
+                    .map_err(|e| format!("Failed to load override model: {}", e))?;
             }
         } else {
-            // Local transcription
-            let tm = app.state::<Arc<TranscriptionManager>>();
-
-            // Ensure model is loaded before transcription
+            // Ensure default model is loaded before transcription
             tm.initiate_model_load();
+        }
 
+        if needs_segments {
+            // Use the new method that returns segments
             if let Some(p) = &profile {
+                tm.transcribe_with_segments(
+                    samples,
+                    Some(&p.language),
+                    Some(p.translate_to_english),
+                    if p.system_prompt.trim().is_empty() {
+                        None
+                    } else {
+                        Some(p.system_prompt.clone())
+                    },
+                )
+                .map_err(|e| format!("Local transcription failed: {}", e))?
+            } else {
+                tm.transcribe_with_segments(samples, None, None, None)
+                    .map_err(|e| format!("Local transcription failed: {}", e))?
+            }
+        } else {
+            // Use the standard method for plain text
+            let text = if let Some(p) = &profile {
                 tm.transcribe_with_overrides(
                     samples,
                     Some(&p.language),
@@ -146,18 +219,50 @@ pub async fn transcribe_audio_file(
             } else {
                 tm.transcribe(samples)
                     .map_err(|e| format!("Local transcription failed: {}", e))?
+            };
+            (text, None)
+        }
+    };
+
+    // Format the output based on requested format
+    let output_text = match format {
+        OutputFormat::Text => transcription_text.clone(),
+        OutputFormat::Srt => {
+            if let Some(ref segs) = segments {
+                segments_to_srt(segs)
+            } else {
+                // Fallback: create single segment
+                segments_to_srt(&[SubtitleSegment {
+                    start: 0.0,
+                    end: 10.0,
+                    text: transcription_text.clone(),
+                }])
             }
-        };
+        }
+        OutputFormat::Vtt => {
+            if let Some(ref segs) = segments {
+                segments_to_vtt(segs)
+            } else {
+                // Fallback: create single segment
+                segments_to_vtt(&[SubtitleSegment {
+                    start: 0.0,
+                    end: 10.0,
+                    text: transcription_text.clone(),
+                }])
+            }
+        }
+    };
 
     info!(
-        "Transcription completed: {} characters",
-        transcription_text.len()
+        "Transcription completed: {} characters (format: {:?})",
+        output_text.len(),
+        format
     );
 
     // Save to file if requested
     let saved_file_path = if save_to_file {
-        let output_path = get_output_file_path(&path)?;
-        std::fs::write(&output_path, &transcription_text)
+        let output_path = get_output_file_path(&path, format)?;
+        std::fs::write(&output_path, &output_text)
             .map_err(|e| format!("Failed to save transcription: {}", e))?;
         info!("Saved transcription to: {}", output_path.display());
         Some(output_path.to_string_lossy().to_string())
@@ -166,8 +271,9 @@ pub async fn transcribe_audio_file(
     };
 
     Ok(FileTranscriptionResult {
-        text: transcription_text,
+        text: output_text,
         saved_file_path,
+        segments,
     })
 }
 
@@ -319,8 +425,8 @@ fn resample_audio(samples: &[f32], from_rate: u32, to_rate: u32) -> Result<Vec<f
 }
 
 /// Get the output file path for saving transcription
-/// Saves to Documents folder with same name as audio file but .txt extension
-fn get_output_file_path(audio_path: &PathBuf) -> Result<PathBuf, String> {
+/// Saves to Documents folder with same name as audio file but appropriate extension
+fn get_output_file_path(audio_path: &PathBuf, format: OutputFormat) -> Result<PathBuf, String> {
     // Get Documents folder
     let documents_dir =
         dirs::document_dir().ok_or_else(|| "Could not find Documents folder".to_string())?;
@@ -331,7 +437,8 @@ fn get_output_file_path(audio_path: &PathBuf) -> Result<PathBuf, String> {
         .and_then(|s| s.to_str())
         .unwrap_or("transcription");
 
-    let output_path = documents_dir.join(format!("{}.txt", stem));
+    let ext = get_format_extension(format);
+    let output_path = documents_dir.join(format!("{}.{}", stem, ext));
 
     Ok(output_path)
 }

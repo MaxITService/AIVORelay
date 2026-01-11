@@ -1351,14 +1351,15 @@ async getSupportedAudioExtensions() : Promise<string[]> {
  * # Arguments
  * * `file_path` - Path to the audio file
  * * `profile_id` - Optional transcription profile ID (uses active profile if not specified)
- * * `save_to_file` - If true, saves the transcription to a .txt file in Documents folder
+ * * `save_to_file` - If true, saves the transcription to a file in Documents folder
+ * * `output_format` - Output format: "text" (default), "srt", or "vtt"
  * 
  * # Returns
  * FileTranscriptionResult with the transcribed text and optional saved file path
  */
-async transcribeAudioFile(filePath: string, profileId: string | null, saveToFile: boolean) : Promise<Result<FileTranscriptionResult, string>> {
+async transcribeAudioFile(filePath: string, profileId: string | null, saveToFile: boolean, outputFormat: OutputFormat | null, modelOverride: string | null) : Promise<Result<FileTranscriptionResult, string>> {
     try {
-    return { status: "ok", data: await TAURI_INVOKE("transcribe_audio_file", { filePath, profileId, saveToFile }) };
+    return { status: "ok", data: await TAURI_INVOKE("transcribe_audio_file", { filePath, profileId, saveToFile, outputFormat, modelOverride }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
@@ -1562,13 +1563,17 @@ export type ExtensionStatus =
  */
 export type FileTranscriptionResult = { 
 /**
- * The transcribed text
+ * The transcribed text (or formatted SRT/VTT content)
  */
 text: string; 
 /**
- * Path where the text file was saved (if save_to_file was true)
+ * Path where the file was saved (if save_to_file was true)
  */
-saved_file_path: string | null }
+saved_file_path: string | null; 
+/**
+ * The segments with timestamps (only populated for SRT/VTT formats)
+ */
+segments: SubtitleSegment[] | null }
 export type HistoryEntry = { id: number; file_name: string; timestamp: number; saved: boolean; title: string; transcription_text: string; post_processed_text: string | null; post_process_prompt: string | null; 
 /**
  * Type of action: "transcribe", "ai_replace", etc.
@@ -1613,6 +1618,22 @@ export type NativeRegionCaptureMode =
  * Legacy: capture a full screenshot first and use it as the picker background.
  */
 "screenshot_background"
+/**
+ * Output format for transcription
+ */
+export type OutputFormat = 
+/**
+ * Plain text (default)
+ */
+"text" | 
+/**
+ * SRT subtitle format
+ */
+"srt" | 
+/**
+ * WebVTT subtitle format
+ */
+"vtt"
 export type OverlayPosition = "none" | "top" | "bottom"
 export type PasteMethod = "ctrl_v" | "direct" | "none" | "shift_insert" | "ctrl_shift_v"
 export type PostProcessProvider = { id: string; label: string; base_url: string }
@@ -1646,6 +1667,22 @@ width: number;
 height: number }
 export type ShortcutBinding = { id: string; name: string; description: string; default_binding: string; current_binding: string }
 export type SoundTheme = "marimba" | "pop" | "custom"
+/**
+ * A transcription segment with timing information
+ */
+export type SubtitleSegment = { 
+/**
+ * Start time in seconds
+ */
+start: number; 
+/**
+ * End time in seconds
+ */
+end: number; 
+/**
+ * The transcribed text for this segment
+ */
+text: string }
 /**
  * A custom transcription profile with its own language and translation settings.
  * Each profile creates a separate shortcut binding (e.g., "transcribe_profile_abc123").

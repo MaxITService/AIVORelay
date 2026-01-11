@@ -1,6 +1,7 @@
 import { create } from "zustand";
 
 export type OutputMode = "textarea" | "file";
+export type OutputFormat = "text" | "srt" | "vtt";
 
 export interface SelectedFile {
   path: string;
@@ -12,6 +13,8 @@ export interface SelectedFile {
 interface TranscribeFileState {
   selectedFile: SelectedFile | null;
   outputMode: OutputMode;
+  outputFormat: OutputFormat;
+  overrideModelId: string | null;
   transcriptionResult: string;
   savedFilePath: string | null;
   error: string | null;
@@ -19,6 +22,8 @@ interface TranscribeFileState {
   selectedProfileId: string | null;
   setSelectedFile: (selectedFile: SelectedFile | null) => void;
   setOutputMode: (outputMode: OutputMode) => void;
+  setOutputFormat: (outputFormat: OutputFormat) => void;
+  setOverrideModelId: (overrideModelId: string | null) => void;
   setTranscriptionResult: (transcriptionResult: string) => void;
   setSavedFilePath: (savedFilePath: string | null) => void;
   setError: (error: string | null) => void;
@@ -29,6 +34,8 @@ interface TranscribeFileState {
 export const useTranscribeFileStore = create<TranscribeFileState>((set) => ({
   selectedFile: null,
   outputMode: "textarea",
+  outputFormat: "text",
+  overrideModelId: null,
   transcriptionResult: "",
   savedFilePath: null,
   error: null,
@@ -36,6 +43,8 @@ export const useTranscribeFileStore = create<TranscribeFileState>((set) => ({
   selectedProfileId: null,
   setSelectedFile: (selectedFile) => set({ selectedFile }),
   setOutputMode: (outputMode) => set({ outputMode }),
+  setOutputFormat: (outputFormat) => set({ outputFormat }),
+  setOverrideModelId: (overrideModelId) => set({ overrideModelId }),
   setTranscriptionResult: (transcriptionResult) => set({ transcriptionResult }),
   setSavedFilePath: (savedFilePath) => set({ savedFilePath }),
   setError: (error) => set({ error }),

@@ -929,6 +929,14 @@
       "textarea": "Show in text area",
       "file": "Save to Documents (.txt)"
     },
+    "outputFormat": {
+      "label": "Output Format"
+    },
+    "modelOverride": {
+      "label": "Override Model",
+      "placeholder": "Select a model...",
+      "hint": "Select a specific local model for this transcription. Local models support accurate timestamping for SRT/VTT."
+    },
     "transcribe": "Transcribe",
     "transcribing": "Transcribing...",
     "clear": "Clear",

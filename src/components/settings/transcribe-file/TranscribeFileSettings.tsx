@@ -13,7 +13,7 @@ import { open } from "@tauri-apps/plugin-dialog";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { stat } from "@tauri-apps/plugin-fs";
-import { commands } from "@/bindings";
+import { commands, ModelInfo } from "@/bindings";
 import { useSettings } from "@/hooks/useSettings";
 import { SettingsGroup } from "@/components/ui/SettingsGroup";
 import { Button } from "@/components/ui/Button";
@@ -30,6 +30,8 @@ export const TranscribeFileSettings: React.FC = () => {
   const {
     selectedFile,
     outputMode,
+    outputFormat,
+    overrideModelId,
     transcriptionResult,
     savedFilePath,
     isTranscribing,
@@ -37,6 +39,8 @@ export const TranscribeFileSettings: React.FC = () => {
     selectedProfileId,
     setSelectedFile,
     setOutputMode,
+    setOutputFormat,
+    setOverrideModelId,
     setTranscriptionResult,
     setSavedFilePath,
     setIsTranscribing,
@@ -46,6 +50,7 @@ export const TranscribeFileSettings: React.FC = () => {
   const [isRecording, setIsRecording] = useState(false);
   const [copied, setCopied] = useState(false);
   const [isDragOver, setIsDragOver] = useState(false);
+  const [availableModels, setAvailableModels] = useState<ModelInfo[]>([]);
 
   const dropZoneRef = useRef<HTMLDivElement>(null);
 
@@ -56,7 +61,7 @@ export const TranscribeFileSettings: React.FC = () => {
     const unlistenDrop = appWindow.onDragDropEvent(async (event) => {
       if (event.payload.type === "over") {
         setIsDragOver(true);
-      } else if (event.payload.type === "leave" || event.payload.type === "cancel") {
+      } else if (event.payload.type === "leave") {
         setIsDragOver(false);
       } else if (event.payload.type === "drop") {
         setIsDragOver(false);
@@ -108,10 +113,8 @@ export const TranscribeFileSettings: React.FC = () => {
   useEffect(() => {
     const checkRecording = async () => {
       try {
-        const result = await commands.isRecording();
-        if (result.status === "ok") {
-          setIsRecording(result.data);
-        }
+        const isRec = await commands.isRecording();
+        setIsRecording(isRec);
       } catch (e) {
         // Ignore errors
       }
@@ -120,6 +123,16 @@ export const TranscribeFileSettings: React.FC = () => {
     checkRecording();
     const interval = setInterval(checkRecording, 500);
     return () => clearInterval(interval);
+  }, []);
+
+  // Fetch available models on mount
+  useEffect(() => {
+    commands.getAvailableModels().then((result) => {
+        if (result.status === "ok") {
+            // Filter only downloaded models
+            setAvailableModels(result.data.filter(m => m.is_downloaded));
+        }
+    });
   }, []);
 
   const profiles = settings?.transcription_profiles ?? [];
@@ -211,6 +224,8 @@ export const TranscribeFileSettings: React.FC = () => {
         selectedFile.path,
         effectiveProfileId === "default" ? null : effectiveProfileId,
         outputMode === "file",
+        outputFormat,
+        overrideModelId,
       );
 
       if (result.status === "ok") {
@@ -376,6 +391,72 @@ export const TranscribeFileSettings: React.FC = () => {
                   {t("transcribeFile.outputMode.file")}
                 </span>
               </label>
+            </div>
+            {/* Output Format Selection */}
+            <div className="flex items-center gap-3 mt-3">
+              <span className="text-sm text-[#808080]">
+                {t("transcribeFile.outputFormat.label")}
+              </span>
+              <div className="flex gap-2">
+                {(["text", "srt", "vtt"] as const).map((fmt) => (
+                  <button
+                    key={fmt}
+                    onClick={() => {
+                        setOutputFormat(fmt);
+                        // Make sure we have a model selected if switching to subtitle format
+                        if (fmt !== 'text' && !overrideModelId && availableModels.length > 0) {
+                             const current = availableModels.find(m => m.id === settings?.selected_model);
+                             setOverrideModelId(current ? current.id : availableModels[0].id);
+                        }
+                    }}
+                    className={`px-3 py-1 text-xs font-medium rounded transition-all ${
+                      outputFormat === fmt
+                        ? "bg-[#9b5de5] text-white"
+                        : "bg-[#1a1a1a] text-[#b8b8b8] hover:bg-[#222222] border border-[#333333]"
+                    }`}
+                  >
+                    {fmt.toUpperCase()}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Override Model Option */}
+            <div className="mt-4 space-y-3">
+                <label className="flex items-center gap-2 cursor-pointer select-none">
+                    <input 
+                        type="checkbox"
+                        checked={!!overrideModelId}
+                        onChange={(e) => {
+                            if (e.target.checked) {
+                                // Default to currently selected model if available, or first available
+                                const current = availableModels.find(m => m.id === settings?.selected_model);
+                                setOverrideModelId(current ? current.id : (availableModels[0]?.id ?? null));
+                            } else {
+                                setOverrideModelId(null);
+                            }
+                        }}
+                        className="accent-[#9b5de5] w-4 h-4 rounded border-[#333333] bg-[#1a1a1a]" 
+                    />
+                    <span className="text-sm text-[#f5f5f5]">
+                            {t("transcribeFile.modelOverride.label", "Override Model")}
+                    </span>
+                </label>
+
+                {overrideModelId && (
+                    <div className="pl-6">
+                        <Dropdown 
+                            className="w-full"
+                            selectedValue={overrideModelId}
+                            options={availableModels.map(m => ({ value: m.id, label: m.name }))}
+                            onSelect={setOverrideModelId}
+                            placeholder={t("transcribeFile.modelOverride.placeholder", "Select a model...")}
+                        />
+                         <p className="text-xs text-[#606060] mt-1.5">
+                            {t("transcribeFile.modelOverride.hint", "Select a specific local model for this transcription. Local models support accurate timestamping for SRT/VTT.")}
+                        </p>
+                    </div>
+                )}
             </div>
           </div>
         )}
