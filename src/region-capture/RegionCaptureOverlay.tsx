@@ -66,13 +66,31 @@ export default function RegionCaptureOverlay() {
         invoke("region_capture_cancel");
       } else if (e.key === "Enter") {
         e.preventDefault();
-        handleConfirm();
+        if (
+          state === "selected" &&
+          region &&
+          virtualScreen &&
+          region.width > MIN_REGION_SIZE &&
+          region.height > MIN_REGION_SIZE
+        ) {
+          // Confirm - notify backend with region data
+          // Convert from logical to physical coordinates
+          const scale = virtualScreen.scale_factor || 1;
+          invoke("region_capture_confirm", {
+            region: {
+              x: Math.round(region.x * scale),
+              y: Math.round(region.y * scale),
+              width: Math.round(region.width * scale),
+              height: Math.round(region.height * scale),
+            },
+          });
+        }
       }
     };
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [handleConfirm]);
+  }, [state, region, virtualScreen]);
 
   // Get handle at a point
   const getHandleAtPoint = useCallback(
@@ -219,27 +237,6 @@ export default function RegionCaptureOverlay() {
     [state, dragStart, regionStart, activeHandle]
   );
 
-  // Confirm region selection (used by Enter key and double-click)
-  const handleConfirm = useCallback(() => {
-    if (
-      state === "selected" &&
-      region &&
-      virtualScreen &&
-      region.width > MIN_REGION_SIZE &&
-      region.height > MIN_REGION_SIZE
-    ) {
-      const scale = virtualScreen.scale_factor || 1;
-      invoke("region_capture_confirm", {
-        region: {
-          x: Math.round(region.x * scale),
-          y: Math.round(region.y * scale),
-          width: Math.round(region.width * scale),
-          height: Math.round(region.height * scale),
-        },
-      });
-    }
-  }, [state, region, virtualScreen]);
-
   // Mouse up handler
   const handleMouseUp = useCallback(() => {
     if (state === "creating") {
@@ -307,7 +304,6 @@ export default function RegionCaptureOverlay() {
       onMouseMove={handleMouseMove}
       onMouseUp={handleMouseUp}
       onMouseLeave={handleMouseUp}
-      onDoubleClick={handleConfirm}
     >
       {/* Optional screenshot background (legacy mode). When absent, desktop shows through. */}
       {screenshot && (
