@@ -349,7 +349,7 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
                 <div className="flex flex-col gap-2">
                   <Input
                     type="text"
-                    value="********"
+                    value="************************************************"
                     readOnly
                     className="text-green-400"
                   />
