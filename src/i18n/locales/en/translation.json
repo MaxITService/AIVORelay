@@ -279,6 +279,48 @@
         "title": "Voice Model Configuration",
         "description": "This is where you can configure voice models for speech to text, but only remote ones. Local models can be selected from the menu at the bottom-left of the application."
       },
+      "tellMeMore": {
+        "title": "Tell me more: Fine-tuning the Engine",
+        "headline": "Fine-tune the Engine.",
+        "intro": "These settings control system behavior and how AivoRelay interacts with your applications.",
+        "startup": {
+          "title": "Startup Options:",
+          "description": "Control whether AivoRelay launches when you turn on your PC and whether it starts minimized to the system tray."
+        },
+        "overlay": {
+          "title": "Overlay:",
+          "description": "That little pop-up that shows what you're saying while recording. You can move it to the top, bottom, or hide it entirely if it's distracting."
+        },
+        "pasteMethod": {
+          "title": "Paste Method:",
+          "description": "How transcribed text gets into your apps.",
+          "clipboard": "Clipboard: Pastes instantly using Ctrl+V (faster, works in most apps).",
+          "direct": "Direct: Simulates typing character-by-character (more compatible with games/terminals)."
+        },
+        "clipboardHandling": {
+          "title": "Clipboard Handling:",
+          "description": "Choose whether to preserve your existing clipboard contents or leave the transcription in the clipboard after pasting."
+        },
+        "translate": {
+          "title": "Translate to English:",
+          "description": "Automatically translate speech from other languages to English during transcription (requires compatible model)."
+        },
+        "modelUnload": {
+          "title": "Model Unload:",
+          "description": "Automatically free GPU/CPU memory when the speech model hasn't been used for a while. Useful if you need resources for other apps."
+        },
+        "customWords": {
+          "title": "Custom Words:",
+          "description": "Add words that are often misheard (names, technical terms, brand names). The system will correct similar-sounding words automatically."
+        },
+        "remoteStt": {
+          "title": "Remote STT (Cloud Transcription):",
+          "description": "Use a cloud API instead of local models for speech-to-text. You can specify the Base URL, API Key, and which model to use. Great if you don't have a powerful GPU or want faster/more accurate results.",
+          "recommendation": "One easy way to start with Cloud API is to register a free account on Groq:",
+          "freeTier": "Groq offers a generous free tier with fast transcription speeds. The Base URL and Model are prefilled with Groq defaults for your convenience. Just create an API key on the website and enter it in the field below."
+        },
+        "tip": "Most users can leave these at their defaults. Adjust only if you experience specific issues."
+      },
       "startHidden": {
         "label": "Start Hidden",
         "description": "Launch to system tray without opening the window."
