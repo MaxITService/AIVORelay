@@ -276,8 +276,8 @@
     "advanced": {
       "title": "Advanced",
       "help": {
-        "title": "Module Configuration",
-        "description": "This is where you can configure modules for speech to text, but only remote ones. Local modules can be selected from the menu at the bottom-left of the application."
+        "title": "Voice Model Configuration",
+        "description": "This is where you can configure voice models for speech to text, but only remote ones. Local models can be selected from the menu at the bottom-left of the application."
       },
       "startHidden": {
         "label": "Start Hidden",
