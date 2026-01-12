@@ -8,6 +8,7 @@ import { Sidebar, SidebarSection, SECTIONS_CONFIG } from "./components/Sidebar";
 import { useSettings } from "./hooks/useSettings";
 import { commands } from "@/bindings";
 import { listen } from "@tauri-apps/api/event";
+import { useNavigationStore } from "./stores/navigationStore";
 
 const renderSettingsContent = (section: SidebarSection) => {
   const ActiveComponent =
@@ -17,8 +18,7 @@ const renderSettingsContent = (section: SidebarSection) => {
 
 function App() {
   const [showOnboarding, setShowOnboarding] = useState<boolean | null>(null);
-  const [currentSection, setCurrentSection] =
-    useState<SidebarSection>("general");
+  const { currentSection, setSection: setCurrentSection } = useNavigationStore();
   const { settings, updateSetting, refreshSettings } = useSettings();
 
   useEffect(() => {

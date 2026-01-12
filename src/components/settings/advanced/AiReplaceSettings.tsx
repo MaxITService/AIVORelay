@@ -5,6 +5,7 @@ import { Input } from "../../ui/Input";
 import { SettingContainer } from "../../ui/SettingContainer";
 import { Textarea } from "../../ui/Textarea";
 import { ToggleSwitch } from "../../ui/ToggleSwitch";
+import { TellMeMore } from "../../ui/TellMeMore";
 
 interface AiReplaceSettingsProps {
   descriptionMode?: "tooltip" | "inline";
@@ -58,6 +59,39 @@ export const AiReplaceSettings: React.FC<AiReplaceSettingsProps> = ({
 
   return (
     <>
+      <TellMeMore title={t("settings.advanced.aiReplace.tellMeMore.title", "Tell me more: How to use AI Replace")}>
+        <div className="space-y-3">
+          <p>
+            <strong>Think of this as your magic editing wand.</strong>
+          </p>
+          <ol className="list-decimal list-inside space-y-1 ml-1 opacity-90">
+            <li><strong>Select Text:</strong> Highlight any text in any app (Word, Email, Browser).</li>
+            <li><strong>Trigger:</strong> Press your AI Replace shortcut (Default: <code>Ctrl+Shift+Insert</code>).</li>
+            <li><strong>Speak:</strong> Tell the AI what to change.
+              <ul className="list-disc list-inside ml-5 mt-1 text-text/80 text-xs">
+                <li><em>"Fix the grammar"</em></li>
+                <li><em>"Make this sound more professional"</em></li>
+                <li><em>"Translate to French"</em></li>
+              </ul>
+            </li>
+            <li><strong>Watch:</strong> The text disappears and is re-typed with the improvements!</li>
+          </ol>
+          
+          <div className="mt-4 p-3 bg-red-500/10 border border-red-500/20 rounded-md">
+            <p className="font-semibold text-red-300 mb-1">⚠️ Configuration Required</p>
+            <p className="text-xs">
+              This feature requires an active <strong>LLM API</strong> connection to process instructions. Local speech models only handle speech-to-text conversion.<br/><br/>
+              Please configure an API Key (OpenAI, Groq, Anthropic) in the <span className="font-bold text-accent">LLM API Relay</span> settings.
+            </p>
+          </div>
+
+          <p className="pt-2">
+            <strong>💡 Pro Tip: Generating New Text</strong><br/>
+            If you <strong>don't</strong> select any text, you can just ask the AI to write something from scratch (e.g., <em>"Write a friendly out-of-office email"</em>).
+          </p>
+        </div>
+      </TellMeMore>
+
       <ToggleSwitch
         label={t("settings.advanced.aiReplace.allowNoSelection.label")}
         description={t(

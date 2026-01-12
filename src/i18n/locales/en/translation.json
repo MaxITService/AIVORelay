@@ -20,8 +20,8 @@
   "voiceCommands": {
     "llmApi": {
       "title": "LLM API Settings",
-      "description": "Configure the provider, API key, and model used for voice command generation.",
-      "sameAsPostProcessing": "Using the same LLM settings as Transcription Post-Processing."
+      "description": "Configure the LLM provider for voice command generation.",
+      "sameAsPostProcessing": "Use the same LLM settings as Transcription Post-Processing."
     }
   },
   "onboarding": {
@@ -353,13 +353,13 @@
       },
       "transcriptionProvider": {
         "title": "Transcription Provider",
-        "description": "Choose between local and remote transcription.",
+        "description": "Select the engine used for speech-to-text conversion.",
         "placeholder": "Select provider",
         "options": {
-          "local": "Local (Offline)",
-          "remote": "Remote (OpenAI-compatible)"
+          "local": "Local (Offline, Privacy-focused, Needs powerful GPU, drivers and Vulkan softaware)",
+          "remote": "Remote (Cloud API, High Accuracy)"
         },
-        "windowsOnly": "Remote transcription is Windows-only for now."
+        "windowsOnly": "Remote transcription is currently Windows-only."
       },
       "remoteStt": {
         "baseUrl": {
@@ -796,9 +796,9 @@
     },
     "aiReplace": {
       "help": {
-        "title": "What is AI Replace Selection?",
-        "description": "Select text, speak an instruction, and let AI transform the selected text based on your voice command. If no text is selected, the AI replaces the \"empty\" text with new content generated from your instruction.",
-        "step1": "Select text in any application",
+        "title": "About AI Replace",
+        "description": "Select text, speak an instruction, and let the LLM transform the text. If no text is selected, it generates new content based on the instruction.",
+        "step1": "Edit, refactor, or translate text in any application using natural language.",
         "step2": "Press the shortcut and speak your instruction (e.g., \"translate to French\")",
         "step3": "AI replaces your selection with the transformed result"
       },

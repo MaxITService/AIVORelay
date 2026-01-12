@@ -8,10 +8,14 @@ import { SettingContainer } from "../../ui/SettingContainer";
 import { SettingsGroup } from "../../ui/SettingsGroup";
 import { Textarea } from "../../ui/Textarea";
 import { ToggleSwitch } from "../../ui/ToggleSwitch";
+import { TellMeMore } from "../../ui/TellMeMore";
+
+import { useNavigationStore } from "../../../stores/navigationStore";
 
 export const AiReplaceSelectionSettings: React.FC = () => {
   const { t } = useTranslation();
   const { settings, getSetting, updateSetting, isUpdating } = useSettings();
+  const { setSection } = useNavigationStore();
 
   const systemPrompt = getSetting("ai_replace_system_prompt") ?? "";
   const userPrompt = getSetting("ai_replace_user_prompt") ?? "";
@@ -45,22 +49,38 @@ export const AiReplaceSelectionSettings: React.FC = () => {
   return (
     <div className="max-w-3xl w-full mx-auto space-y-8 pb-12">
       {/* Help Banner */}
-      <div className="rounded-lg border border-purple-500/30 bg-purple-500/10 p-4">
-        <div className="flex items-start gap-3">
-          <Wand2 className="w-5 h-5 text-purple-400 mt-0.5 flex-shrink-0" />
-          <div className="space-y-2 text-sm text-text/80">
-            <p className="font-medium text-text">
-              {t("settings.aiReplace.help.title")}
+      <TellMeMore title={t("settings.advanced.aiReplace.tellMeMore.title", "Tell me more: How to use AI Replace")}>
+        <div className="space-y-3">
+          <p>
+            <strong>Think of this as your magic editing wand.</strong>
+          </p>
+          <ol className="list-decimal list-inside space-y-1 ml-1 opacity-90">
+            <li><strong>Select Text:</strong> Highlight any text in any app (Word, Email, Browser).</li>
+            <li><strong>Trigger:</strong> Press your AI Replace shortcut (Default: <code>Ctrl+Shift+Insert</code>).</li>
+            <li><strong>Speak:</strong> Tell the AI what to change.
+              <ul className="list-disc list-inside ml-5 mt-1 text-text/80 text-xs">
+                <li><em>"Fix the grammar"</em></li>
+                <li><em>"Make this sound more professional"</em></li>
+                <li><em>"Translate to French"</em></li>
+              </ul>
+            </li>
+            <li><strong>Watch:</strong> The text disappears and is re-typed with the improvements!</li>
+          </ol>
+          
+          <div className="mt-4 p-3 bg-red-500/10 border border-red-500/20 rounded-md">
+            <p className="font-semibold text-red-300 mb-1">⚠️ Configuration Required</p>
+            <p className="text-xs">
+              This feature requires an active <strong>LLM API</strong> connection to process instructions. Local speech models only handle speech-to-text conversion.<br/><br/>
+              Please configure an API Key (OpenAI, Groq, Anthropic) in the <button onClick={() => setSection("postprocessing")} className="font-bold text-accent hover:underline cursor-pointer">LLM API Relay</button> settings.
             </p>
-            <p>{t("settings.aiReplace.help.description")}</p>
-            <ul className="list-disc list-inside space-y-1 ml-1">
-              <li>{t("settings.aiReplace.help.step1")}</li>
-              <li>{t("settings.aiReplace.help.step2")}</li>
-              <li>{t("settings.aiReplace.help.step3")}</li>
-            </ul>
           </div>
+
+          <p className="pt-2">
+            <strong>💡 Pro Tip: Generating New Text</strong><br/>
+            If you <strong>don't</strong> select any text, you can just ask the AI to write something from scratch (e.g., <em>"Write a friendly out-of-office email"</em>).
+          </p>
         </div>
-      </div>
+      </TellMeMore>
 
       <SettingsGroup title={t("settings.aiReplace.shortcuts.title")}>
         <HandyShortcut shortcutId="ai_replace_selection" grouped={true} />
