@@ -6,33 +6,36 @@ Files that differentiate this fork from the original [cjpais/Handy](https://gith
 
 ### Backend (Rust)
 
-| File                                       | Purpose                                                                                                                                                                                                                                                                                                                                                    |
-| ------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `src-tauri/src/managers/connector.rs`      | **Main connector module**: HTTP server (port 38243) for extension communication. Extension polls `GET /messages` with Bearer auth, AivoRelay returns `{cursor, messages[], config, passwordUpdate?}`. Handles text messages, bundle (with image attachments via `/blob/*`), and keepalive messages. **Includes two-phase password rotation** for security. |
-| `src-tauri/src/commands/connector.rs`      | Tauri commands for connector: `connector_get_status`, `connector_is_online`, `connector_start_server`, `connector_stop_server`, `connector_queue_message`.                                                                                                                                                                                                 |
-| `src-tauri/src/managers/remote_stt.rs`     | Remote Speech-to-Text manager. Handles OpenAI-compatible API calls, WAV encoding, API key storage (Windows Credential Manager), debug logging.                                                                                                                                                                                                             |
-| `src-tauri/src/commands/remote_stt.rs`     | Tauri commands exposing Remote STT functionality to frontend: `remote_stt_has_api_key`, `remote_stt_set_api_key`, `remote_stt_test_connection`, etc.                                                                                                                                                                                                       |
-| `src-tauri/src/secure_keys.rs`             | **Secure API key storage** (Windows only): Unified interface for storing all LLM API keys (Remote STT, Post-Processing, AI Replace) in Windows Credential Manager. Includes migration logic from JSON settings.                                                                                                                                            |
-| `src-tauri/src/plus_overlay_state.rs`      | Extended overlay states for Remote STT error display. Categorizes errors (TLS, timeout, network, server), emits typed payloads to overlay, auto-hides after 3s.                                                                                                                                                                                            |
-| `src-tauri/src/region_capture.rs`          | **Native region capture** (Windows only): Captures all monitors into single canvas, opens full-screen overlay for region selection with resize handles. Returns cropped PNG bytes directly to connector without disk I/O.                                                                                                                                  |
-| `src-tauri/src/commands/region_capture.rs` | Tauri commands for region capture overlay: `region_capture_confirm`, `region_capture_cancel`.                                                                                                                                                                                                                                                              |
-| `src-tauri/src/commands/voice_command.rs`  | **Voice Command Center** (Windows only): Tauri command `execute_voice_command` runs approved PowerShell commands after user confirmation. Includes safety validation.                                                                                                                                                                                      |
+| File                                           | Purpose                                                                                                                                                                                                                                                                                                                                                    |
+| ---------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `src-tauri/src/managers/connector.rs`          | **Main connector module**: HTTP server (port 38243) for extension communication. Extension polls `GET /messages` with Bearer auth, AivoRelay returns `{cursor, messages[], config, passwordUpdate?}`. Handles text messages, bundle (with image attachments via `/blob/*`), and keepalive messages. **Includes two-phase password rotation** for security. |
+| `src-tauri/src/commands/connector.rs`          | Tauri commands for connector: `connector_get_status`, `connector_is_online`, `connector_start_server`, `connector_stop_server`, `connector_queue_message`.                                                                                                                                                                                                 |
+| `src-tauri/src/managers/remote_stt.rs`         | Remote Speech-to-Text manager. Handles OpenAI-compatible API calls, WAV encoding, API key storage (Windows Credential Manager), debug logging.                                                                                                                                                                                                             |
+| `src-tauri/src/commands/remote_stt.rs`         | Tauri commands exposing Remote STT functionality to frontend: `remote_stt_has_api_key`, `remote_stt_set_api_key`, `remote_stt_test_connection`, etc.                                                                                                                                                                                                       |
+| `src-tauri/src/secure_keys.rs`                 | **Secure API key storage** (Windows only): Unified interface for storing all LLM API keys (Remote STT, Post-Processing, AI Replace) in Windows Credential Manager. Includes migration logic from JSON settings.                                                                                                                                            |
+| `src-tauri/src/plus_overlay_state.rs`          | Extended overlay states for Remote STT error display. Categorizes errors (TLS, timeout, network, server), emits typed payloads to overlay, auto-hides after 3s.                                                                                                                                                                                            |
+| `src-tauri/src/region_capture.rs`              | **Native region capture** (Windows only): Captures all monitors into single canvas, opens full-screen overlay for region selection with resize handles. Returns cropped PNG bytes directly to connector without disk I/O.                                                                                                                                  |
+| `src-tauri/src/commands/region_capture.rs`     | Tauri commands for region capture overlay: `region_capture_confirm`, `region_capture_cancel`.                                                                                                                                                                                                                                                              |
+| `src-tauri/src/commands/voice_command.rs`      | **Voice Command Center** (Windows only): Tauri command `execute_voice_command` runs approved PowerShell commands after user confirmation. Includes safety validation.                                                                                                                                                                                      |
+| `src-tauri/src/commands/file_transcription.rs` | **File Transcription**: Handles logic for transcribing audio files. Decodes various audio formats (wav, mp3, etc.), manages output formats, and coordinates with local/remote transcription providers.                                                                                                                                                     |
+| `src-tauri/src/subtitle.rs`                    | **Subtitle Formatting**: Logic for generating timestamped subtitles (SRT/VTT). Used by `file_transcription.rs` to structure transcription segments into standard subtitle formats.                                                                                                                                                                         |
 
 ### Frontend (React/TypeScript)
 
-| File                                                              | Purpose                                                                                                              |
-| ----------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
-| `src/components/settings/remote-stt/RemoteSttSettings.tsx`        | UI for Remote STT configuration: base URL, model ID, API key management, connection testing, debug log viewer.       |
-| `src/components/settings/advanced/AiReplaceSettings.tsx`          | UI for AI Replace feature: system/user prompts, max chars limit, "no selection" mode toggle.                         |
-| `src/components/settings/browser-connector/ConnectorStatus.tsx`   | Extension status indicator component showing online/offline status with "last seen" time when offline.               |
-| `src/components/icons/SendingIcon.tsx`                            | Monochrome SVG icon (upload arrow) for "sending" overlay state. Matches pink style (`#FAA2CA`) of other icons.       |
-| `src/overlay/plus_overlay_states.ts`                              | TypeScript types for extended overlay states (`error`, `sending`). Error category enum and display text mapping.     |
-| `src/region-capture/RegionCaptureOverlay.tsx`                     | React component for native region selection: state machine (idle→creating→selected), mouse handling, resize handles. |
-| `src/region-capture/RegionCaptureOverlay.css`                     | Styles for region capture overlay: dim areas, selection border, resize handles, cursor states.                       |
-| `src/command-confirm/CommandConfirmOverlay.tsx`                   | **Voice Command Center**: Confirmation popup showing suggested PowerShell command with Run/Edit/Cancel buttons.      |
-| `src/command-confirm/CommandConfirmOverlay.css`                   | Styles for command confirmation overlay: glassmorphism, dark theme, vibrant accent colors.                           |
-| `src/components/settings/voice-commands/VoiceCommandSettings.tsx` | Settings UI for managing predefined voice commands, similarity thresholds, and LLM fallback toggle.                  |
-| `src/stores/transcribeFileStore.ts`                               | Session store for Transcribe File UI state (selected file, output mode, profile selection, results).                 |
+| File                                                                 | Purpose                                                                                                                                                      |
+| -------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `src/components/settings/remote-stt/RemoteSttSettings.tsx`           | UI for Remote STT configuration: base URL, model ID, API key management, connection testing, debug log viewer.                                               |
+| `src/components/settings/advanced/AiReplaceSettings.tsx`             | UI for AI Replace feature: system/user prompts, max chars limit, "no selection" mode toggle.                                                                 |
+| `src/components/settings/browser-connector/ConnectorStatus.tsx`      | Extension status indicator component showing online/offline status with "last seen" time when offline.                                                       |
+| `src/components/icons/SendingIcon.tsx`                               | Monochrome SVG icon (upload arrow) for "sending" overlay state. Matches pink style (`#FAA2CA`) of other icons.                                               |
+| `src/overlay/plus_overlay_states.ts`                                 | TypeScript types for extended overlay states (`error`, `sending`). Error category enum and display text mapping.                                             |
+| `src/region-capture/RegionCaptureOverlay.tsx`                        | React component for native region selection: state machine (idle→creating→selected), mouse handling, resize handles.                                         |
+| `src/region-capture/RegionCaptureOverlay.css`                        | Styles for region capture overlay: dim areas, selection border, resize handles, cursor states.                                                               |
+| `src/command-confirm/CommandConfirmOverlay.tsx`                      | **Voice Command Center**: Confirmation popup showing suggested PowerShell command with Run/Edit/Cancel buttons.                                              |
+| `src/command-confirm/CommandConfirmOverlay.css`                      | Styles for command confirmation overlay: glassmorphism, dark theme, vibrant accent colors.                                                                   |
+| `src/components/settings/voice-commands/VoiceCommandSettings.tsx`    | Settings UI for managing predefined voice commands, similarity thresholds, and LLM fallback toggle.                                                          |
+| `src/components/settings/transcribe-file/TranscribeFileSettings.tsx` | UI for "Transcribe Audio File" feature: Drag-and-drop zone, file info, output format selection (Text/SRT/VTT), optional model override, and results display. |
+| `src/stores/transcribeFileStore.ts`                                  | Session store for Transcribe File UI state (selected file, output mode, profile selection, results).                                                         |
 
 ## Modified Files
 
@@ -148,7 +151,7 @@ User presses voice_command shortcut + speaks
 - **Similarity matching**: Configurable threshold (default 0.75) using word-based Jaccard similarity
 - **Safety**: Always shows confirmation popup before executing any command
 
-### Transcription Profiles (Beta)
+### Transcription Profiles
 
 ```
 User creates profile in Settings
@@ -165,6 +168,24 @@ User presses profile shortcut
 
 - **System Prompt Limits**: Character limits are enforced based on the STT model (Whisper: 896, Deepgram: 2000)
 - **Shared Logic**: Frontend uses `getModelPromptInfo()` from `TranscriptionSystemPrompt.tsx`; backend validates in `remote_stt.rs`
+
+### Transcribe Audio File
+
+```
+User drops file in UI
+    └─► TranscribeFileSettings.tsx
+            └─► commands.transcribeAudioFile()
+                    └─► file_transcription.rs (decodes audio)
+                    │
+                    ├─► transcription (local or remote)
+                    │
+                    └─► subtitle.rs (formats SRT/VTT if requested)
+                            └─► segments_to_srt() / segments_to_vtt()
+```
+
+- **Formatting**: Supports Text, SRT, and VTT output.
+- **Timestamping**: Accurate timestamps require Local model; Remote STT currently returns text-only (single segment).
+- **Audio Processing**: Supports wav, mp3, m4a, ogg, flac, webm. Resamples to 16kHz automatically.
 
 ## Entry Points for Common Tasks
 

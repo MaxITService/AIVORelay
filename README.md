@@ -48,6 +48,27 @@ Quick-switch between language and prompt presets with dedicated shortcuts.
 
 **Setup:** Settings → Speech → Transcription Profiles
 
+### 🗣️ Voice Command Center
+
+Execute PowerShell scripts with your voice.
+
+- Say "lock computer" → Locks Windows
+- Say "open notepad" → Opens Notepad
+- **Safe:** Always shows confirmation before running
+- **Smart:** If no command matches, use AI to generate a script on the fly (e.g. "open chrome and go to youtube")
+
+**Setup:** Settings → Voice Command Center
+
+### 📁 Transcribe Audio Files
+
+Drag and drop audio files to get a transcript.
+
+- Supports WAV, MP3, OGG, M4A, FLAC
+- Outputs Text, SRT (Subtitles), or VTT
+- Uses your local or cloud models
+
+**Usage:** Settings → Transcribe Audio File
+
 ### ☁️ Cloud STT Option
 
 Use Groq, Deepgram, or other OpenAI-compatible APIs — _or_ keep using local Whisper. Your choice!
@@ -91,8 +112,9 @@ Configure your LLM provider (OpenAI, Anthropic, etc.) to power AI Replace and Po
 
 **Settings → Browser Connector → Screenshot Settings**
 
-- Configure screenshot tool command (default: ShareX `-RectangleRegion`)
-- Set screenshot folder path
+- **Default:** Native selection overlay (no external tools needed)
+- **Optional:** Use external tools like ShareX
+- Set screenshot folder path (for external tools)
 - Enable "Allow Without Voice" for quick image-only sends
 
 ### AivoRelay Connector Setup
@@ -106,13 +128,7 @@ Configure your LLM provider (OpenAI, Anthropic, etc.) to power AI Replace and Po
 
 ## 📋 Platform Notes
 
-| Feature                           | Platform                                              |
-| --------------------------------- | ----------------------------------------------------- |
-| AI Replace Selection              | Windows only                                          |
-| Send Screenshot                   | Windows only (uses ShareX or similar)                 |
-| Cloud STT                         | Windows only (API keys in Windows Credential Manager) |
-| Local Whisper, Shortcuts, History | All platforms                                         |
-
+ This extension has only been built and tested for Windows.   If you need other platforms, Handy can do it but without additional features.
 ---
 
 ## 🔧 Original Features

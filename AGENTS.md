@@ -93,14 +93,15 @@ When using Remote STT API, the **Recording Overlay** (`recording_overlay` window
 
 ### 4. Send Transcription + Screenshot to Extension (Windows only)
 
-- Files: `src-tauri/src/actions.rs` (SendScreenshotToExtensionAction), `src-tauri/src/managers/connector.rs` (blob serving)
-- Launches external screenshot tool (default: ShareX with `-RectangleRegion`)
-- Watches screenshot folder for new images using `notify` crate
+- Files: `src-tauri/src/actions.rs` (SendScreenshotToExtensionAction), `src-tauri/src/managers/connector.rs` (blob serving), `src-tauri/src/region_capture.rs`
+- **Default**: Uses **Native Region Capture** (Windows only) - draws a selection overlay directly on screen.
+- **Alternative**: Can use external tools like ShareX (configure in settings).
+- Watches screenshot folder for new images using `notify` crate (if using external tool)
 - Sends bundle message with image attachment and voice instruction to extension
 - Configurable: capture command, folder path, timeout, "require recent" filter, "allow without voice"
-- Settings: `screenshot_capture_command`, `screenshot_folder`, `screenshot_require_recent`, `screenshot_timeout_seconds`, `screenshot_allow_no_voice`, `screenshot_no_voice_default_prompt`
+- Settings: `screenshot_capture_method`, `screenshot_capture_command`, `screenshot_folder`, etc.
 
-### 5. Transcription Profiles (Beta)
+### 5. Transcription Profiles
 
 - Files: `src-tauri/src/settings.rs` (TranscriptionProfile struct), `src-tauri/src/shortcut.rs` (profile commands), `src/components/settings/TranscriptionProfiles.tsx`
 - Create custom shortcuts with specific language, translation, and system prompt settings
@@ -108,6 +109,23 @@ When using Remote STT API, the **Recording Overlay** (`recording_overlay` window
 - Profile's `system_prompt` overrides global per-model prompt when set
 - **System Prompt Limits**: Enforced based on active STT model (Whisper: 896 chars, Deepgram: 2000 chars)
 - Character limit logic shared between `TranscriptionSystemPrompt.tsx` (frontend) and `managers/remote_stt.rs` (backend)
+
+### 6. Voice Command Center (Windows only)
+
+- Files: `src-tauri/src/commands/voice_command.rs`, `src/components/settings/voice-commands/`
+- Execute PowerShell scripts via voice commands (e.g., "lock computer", "open notepad")
+- **Safe Execution**: Always shows a confirmation overlay before running any command
+- **LLM Fallback**: If no predefined command matches, uses an LLM to generate a PowerShell one-liner on the fly
+- **Modes**: Predefined (fast, offline) vs. LLM (flexible, requires API key)
+
+### 7. Transcribe Audio File
+
+- Files: `src-tauri/src/commands/file_transcription.rs`, `src/components/settings/transcribe-file/`
+- Drag-and-drop interface for transcribing existing audio files
+- Supports `wav`, `mp3`, `m4a`, `ogg`, `flac`, `webm`
+- **Output Formats**: Plain Text, SRT (Subtitles), VTT (Web Video Text Tracks)
+- **Timestamping**: Accurate timestamps are available when using **Local Whisper** models
+- **Remote STT**: Currently produces text-only output (no segment timestamps)
 
 ## Guidelines for Agents
 
