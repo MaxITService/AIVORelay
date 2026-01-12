@@ -703,7 +703,7 @@
         "vulkan": {
           "title": "Vulkan Loader",
           "description": "GPU acceleration for local speech recognition models",
-          "details": "AivoRelay bundles the Vulkan Loader (vulkan-1.dll) for GPU-accelerated inference. Licensed under Apache 2.0 by The Khronos Group."
+          "details": "AivoRelay bundles the Vulkan Loader (vulkan-1.dll) for GPU-accelerated inference. Licensed under Apache 2.0 by The Khronos Group. License file is provided in THIRD_PARTY_LICENSES.md"
         }
       }
     },
