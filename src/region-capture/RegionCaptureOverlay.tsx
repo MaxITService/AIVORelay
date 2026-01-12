@@ -85,19 +85,25 @@ export default function RegionCaptureOverlay() {
       // Use the region saved at the START of this click sequence
       const savedRegion = savedRegionRef.current;
 
-      if (savedRegion && savedRegion.width > MIN_REGION_SIZE && savedRegion.height > MIN_REGION_SIZE) {
-        // Had a valid selection before double-click → send it
-        handleConfirm(savedRegion);
-      } else {
-        // No valid selection → send full screen
-        const fullScreen: Region = {
-          x: 0,
-          y: 0,
-          width: virtualScreen.total_width / (virtualScreen.scale_factor || 1),
-          height: virtualScreen.total_height / (virtualScreen.scale_factor || 1),
-        };
-        handleConfirm(fullScreen);
-      }
+      // Clear visible region before confirming to avoid purple frame in screenshot
+      setRegion(null);
+
+      // Wait for next frame to ensure UI update before sending confirm
+      requestAnimationFrame(() => {
+        if (savedRegion && savedRegion.width > MIN_REGION_SIZE && savedRegion.height > MIN_REGION_SIZE) {
+          // Had a valid selection before double-click → send it
+          handleConfirm(savedRegion);
+        } else {
+          // No valid selection → send full screen
+          const fullScreen: Region = {
+            x: 0,
+            y: 0,
+            width: virtualScreen.total_width / (virtualScreen.scale_factor || 1),
+            height: virtualScreen.total_height / (virtualScreen.scale_factor || 1),
+          };
+          handleConfirm(fullScreen);
+        }
+      });
     },
     [virtualScreen, handleConfirm]
   );
