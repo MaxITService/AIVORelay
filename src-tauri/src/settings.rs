@@ -92,6 +92,15 @@ pub struct LLMPrompt {
     pub prompt: String,
 }
 
+/// Per-profile LLM post-processing settings.
+/// Used as a parameter struct for update_transcription_profile to reduce argument count.
+#[derive(Serialize, Deserialize, Debug, Clone, Type)]
+pub struct ProfileLlmSettings {
+    pub enabled: bool,
+    pub prompt_override: Option<String>,
+    pub model_override: Option<String>,
+}
+
 /// A custom transcription profile with its own language and translation settings.
 /// Each profile creates a separate shortcut binding (e.g., "transcribe_profile_abc123").
 #[derive(Serialize, Deserialize, Debug, Clone, Type)]
@@ -117,6 +126,19 @@ pub struct TranscriptionProfile {
     /// Push-to-talk mode for this profile (hold key to record vs toggle)
     #[serde(default = "default_true")]
     pub push_to_talk: bool,
+    // ==================== LLM Post-Processing Settings ====================
+    /// Whether LLM post-processing is enabled for this profile
+    /// Inherits from global post_process_enabled when profile is created
+    #[serde(default)]
+    pub llm_post_process_enabled: bool,
+    /// Override the global LLM system prompt for this profile
+    /// If Some, uses this text instead of the global selected prompt
+    #[serde(default)]
+    pub llm_prompt_override: Option<String>,
+    /// Override the global LLM model for this profile
+    /// If Some, uses this model instead of the global model for the current provider
+    #[serde(default)]
+    pub llm_model_override: Option<String>,
 }
 
 /// A voice command that triggers a script when the user speaks a matching phrase.
@@ -246,6 +268,8 @@ pub enum PasteMethod {
 pub enum ClipboardHandling {
     DontModify,
     CopyToClipboard,
+    /// Experimental: Try to restore all clipboard formats including images, HTML, files (Windows-only)
+    RestoreAdvanced,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Type)]
@@ -384,6 +408,9 @@ pub struct AppSettings {
     pub recording_retention_period: RecordingRetentionPeriod,
     #[serde(default)]
     pub paste_method: PasteMethod,
+    /// Convert LF to CRLF before clipboard paste (fixes newlines on Windows)
+    #[serde(default = "default_true")]
+    pub convert_lf_to_crlf: bool,
     #[serde(default)]
     pub clipboard_handling: ClipboardHandling,
     #[serde(default = "default_post_process_enabled")]
@@ -496,6 +523,10 @@ pub struct AppSettings {
     /// For Whisper: context/terms prompt. For Parakeet: comma-separated boost words.
     #[serde(default)]
     pub transcription_prompts: HashMap<String, String>,
+    /// Whether to send the STT system prompt to the speech recognition model
+    /// When disabled, prompts are not sent even if text exists
+    #[serde(default)]
+    pub stt_system_prompt_enabled: bool,
     /// Custom transcription profiles with per-profile language/translation settings.
     /// Each profile creates a dynamic shortcut binding.
     #[serde(default)]
@@ -1097,6 +1128,7 @@ pub fn get_default_settings() -> AppSettings {
         history_limit: default_history_limit(),
         recording_retention_period: default_recording_retention_period(),
         paste_method: PasteMethod::default(),
+        convert_lf_to_crlf: true,
         clipboard_handling: ClipboardHandling::default(),
         post_process_enabled: default_post_process_enabled(),
         post_process_provider_id: default_post_process_provider_id(),
@@ -1150,6 +1182,7 @@ pub fn get_default_settings() -> AppSettings {
         connector_password_user_set: false,
         connector_pending_password: None,
         transcription_prompts: HashMap::new(),
+        stt_system_prompt_enabled: false,
         transcription_profiles: Vec::new(),
         active_profile_id: default_active_profile_id(),
         profile_switch_overlay_enabled: true,
@@ -1405,6 +1438,7 @@ pub fn load_or_create_app_settings(app: &AppHandle) -> AppSettings {
         .expect("Failed to initialize store");
 
     let mut settings = if let Some(settings_value) = store.get("settings") {
+        let has_stt_prompt_enabled_key = settings_value.get("stt_system_prompt_enabled").is_some();
         // Parse the entire settings object
         match serde_json::from_value::<AppSettings>(settings_value) {
             Ok(mut settings) => {
@@ -1447,6 +1481,22 @@ pub fn load_or_create_app_settings(app: &AppHandle) -> AppSettings {
                                 .ai_replace_api_keys
                                 .insert(provider_id, String::new());
                         }
+                        updated = true;
+                    }
+                }
+
+                if !has_stt_prompt_enabled_key && !settings.stt_system_prompt_enabled {
+                    let has_existing_prompt = settings
+                        .transcription_prompts
+                        .values()
+                        .any(|prompt| !prompt.trim().is_empty())
+                        || settings
+                            .transcription_profiles
+                            .iter()
+                            .any(|profile| !profile.system_prompt.trim().is_empty());
+
+                    if has_existing_prompt {
+                        settings.stt_system_prompt_enabled = true;
                         updated = true;
                     }
                 }

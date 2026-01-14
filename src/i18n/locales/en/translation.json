@@ -217,6 +217,26 @@
         "nearLimit": "Approaching the {{limit}} character limit. Longer prompts may be truncated.",
         "overLimit": "Exceeds {{limit}} character limit! The prompt will be automatically truncated.",
         "remoteNote": "For remote APIs: prompt support depends on your provider. Most OpenAI-compatible APIs support this parameter."
+      },
+      "sttSystemPrompt": {
+        "title": "Voice Model System Prompt",
+        "description": "Provide context hints for the speech recognition model. This is different from LLM post-processing prompts - it helps the voice model with specialized terminology, proper nouns, and context.",
+        "placeholder": "Example: Context: technical discussion. Terms: Kubernetes, gRPC, CI/CD.",
+        "enableLabel": "Send system prompt to voice model",
+        "clear": "Clear",
+        "supported": "Supported",
+        "bestEffort": "Best Effort",
+        "unsupported": "Not Supported",
+        "whisperWarning": "Whisper uses the last {{tokens}} tokens (approx. ~{{chars}} chars). Anything beyond is silently truncated.",
+        "unknownModelWarning": "Support unknown for this model - will attempt to send (best effort). If you experience issues, try disabling the system prompt using the toggle above or clearing it.",
+        "unsupportedMessage": "System prompts are not supported by this model type. Word boosting is not yet implemented.",
+        "nearLimit": "Approaching the {{limit}} character limit. Longer prompts may be truncated.",
+        "overLimit": "Exceeds {{limit}} character limit! The prompt will be automatically truncated.",
+        "remoteNote": "For remote APIs: prompt support depends on your provider. Most OpenAI-compatible APIs support this parameter."
+      },
+      "postProcessingDefault": {
+        "label": "LLM Post-Processing Default",
+        "description": "Enable AI-powered text refinement by default for new profiles. Each profile can override this individually."
       }
     },
     "transcriptionProfiles": {
@@ -229,14 +249,16 @@
       "profileNamePlaceholder": "e.g., French to English",
       "language": "Speech Language",
       "translateToEnglish": "Translate to English",
-      "translateToEnglishDescription": "Automatically translate transcription to English",
+      "translateToEnglishDescription": "Automatically translate transcription to English. Whisper-only: other models simply do not support translation! Only translation towards English is supported.",
+      "translateToEnglishWarning": "Whisper-only: translation runs only when the active voice model is Whisper.",
+      "translateToEnglishTooltip": "Only Whisper supports translation, and it always targets English.",
       "shortcut": "Keyboard Shortcut",
       "addProfile": "Create Profile",
       "saveChanges": "Save Changes",
       "deleteProfile": "Delete",
-      "systemPrompt": "System Prompt (Optional)",
+      "systemPrompt": "Voice Model Prompt (optional, will only work if model supports it)",
       "systemPromptPlaceholder": "Context hints, terminology, formatting guidance...",
-      "systemPromptDescription": "Provide context to help with specialized terminology, names, or formatting. Leave empty to use the global prompt.",
+      "systemPromptDescription": "Prompt sent to the speech-to-text model to help with specialized terminology, names, or formatting. Leave empty to use the global prompt.",
       "systemPromptTooLong": "Prompt exceeds {{limit}} character limit for this model.",
       "active": "Active",
       "setActive": "Set Active",
@@ -248,7 +270,21 @@
       "showOverlayOnSwitch": "Show Overlay on Switch",
       "showOverlayOnSwitchDescription": "Show a brief notification when switching profiles.",
       "transcribeActiveProfile": "Transcribe (Active Profile)",
-      "transcribeActiveProfileDescription": "This shortcut always uses the currently active profile. Switch profiles above or use the cycle shortcut."
+      "transcribeActiveProfileDescription": "This shortcut always uses the currently active profile. Switch profiles above or use the cycle shortcut.",
+      "llmPostProcessing": {
+        "title": "LLM Post-Processing",
+        "description": "Enable AI-powered text refinement for this profile",
+        "descriptionWithLink": "Enable AI-powered text refinement for this profile: set up API keys and System Prompt for it in",
+        "llmApiRelayLink": "LLM API Relay",
+        "notConfigured": "LLM API is not configured.",
+        "configureLink": "Configure LLM settings",
+        "overridePrompt": "Override system prompt",
+        "promptPlaceholder": "Custom LLM prompt for this profile...",
+        "overrideModel": "Override LLM model",
+        "modelPlaceholder": "e.g., gpt-4-turbo",
+        "usingGlobalModel": "Using global model: {{model}}",
+        "defaultNote": "Custom profiles can override this setting individually."
+      }
     },
     "sound": {
       "title": "Sound",
@@ -347,14 +383,42 @@
           "clipboardShiftInsert": "Clipboard (Shift+Insert)",
           "direct": "Direct",
           "none": "None"
+        },
+        "convertLfToCrlf": {
+          "label": "Convert LF to CRLF (Windows)",
+          "description": "Normalize Unix-style line breaks (LF) to Windows-style (CRLF) when pasting via clipboard. Fixes newlines being 'eaten' in some applications."
+        },
+        "tellMeMore": {
+          "title": "Tell me more: Paste Methods Explained",
+          "headline": "Understanding Paste Methods",
+          "intro": "Different applications handle text input differently. Choose the method that works best for your workflow:",
+          "ctrlV": {
+            "title": "Clipboard (Ctrl+V):",
+            "description": "Uses 'tauri-plugin-clipboard-manager' to write plain text (CF_UNICODETEXT on Windows, text/plain on Linux/macOS) to the OS clipboard, then uses 'Enigo' to simulate the paste shortcut. Handles large text instantly. Note: Clipboard backup/restore only supports text—if you had an image or rich content copied, it will be replaced with the transcription text."
+          },
+          "direct": {
+            "title": "Direct:",
+            "description": "Simulates typing each character individually using the Rust 'Enigo' library. This happens at the OS input level. Slower but more compatible with games, terminals, and legacy apps that block clipboard paste. Newlines work reliably as explicit Enter keypresses."
+          },
+          "none": {
+            "title": "None:",
+            "description": "Skips the paste step entirely. Useful if you only want to save the transcription to history or manually copy it later. The text is processed and stored, but no input simulation occurs."
+          },
+          "crlfNote": {
+            "title": "Windows Line Endings:",
+            "description": "LLM responses and some APIs use Unix-style line breaks (LF). Windows applications often expect Windows-style line breaks (CRLF). When enabled, this option converts LF to CRLF before pasting, preventing newlines from being ignored or collapsed."
+          },
+          "tip": "Most users should use Clipboard (Ctrl+V). Try Direct if you experience issues with games or terminals."
         }
       },
       "clipboardHandling": {
         "title": "Clipboard Handling",
-        "description": "Don't Modify Clipboard preserves your current clipboard contents after transcription. Copy to Clipboard leaves the transcription result in your clipboard after pasting.",
+        "description": "Choose what happens to your clipboard after pasting. 'Restore' attempts to recover the previous text (note: images and files cannot be restored). 'Keep' leaves the transcription in your clipboard for easy re-pasting.",
+        "descriptionAdvanced": "⚠️ Experimental: Uses Windows clipboard APIs (OpenClipboard, EnumClipboardFormats, GetClipboardData) to backup ALL clipboard formats before pasting, then restores them afterwards. This preserves images, HTML, files, and other rich content. May not work with 'delayed rendering' content. If you experience issues, switch back to 'Restore previous text'.",
         "options": {
-          "dontModify": "Don't Modify Clipboard",
-          "copyToClipboard": "Copy to Clipboard"
+          "dontModify": "Restore previous text",
+          "copyToClipboard": "Keep transcription in clipboard",
+          "restoreAdvanced": "⚠️ Experimental: Restore all formats (Windows)"
         }
       },
       "aiReplace": {

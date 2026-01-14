@@ -56,6 +56,8 @@ struct RepastLastAction;
 
 struct CycleProfileAction;
 
+use crate::settings::TranscriptionProfile;
+
 enum PostProcessTranscriptionOutcome {
     Skipped,
     Cancelled,
@@ -65,12 +67,27 @@ enum PostProcessTranscriptionOutcome {
     },
 }
 
+/// Post-process transcription with LLM, optionally using profile-specific settings.
+///
+/// If `profile` is Some, uses the profile's LLM settings:
+/// - `profile.llm_post_process_enabled` determines if post-processing is enabled
+/// - `profile.llm_prompt_override` overrides the global prompt (if set)
+/// - `profile.llm_model_override` overrides the global model (if set and valid for current provider)
+///
+/// If `profile` is None (default profile), uses global settings.
 async fn maybe_post_process_transcription(
     app: &AppHandle,
     settings: &AppSettings,
     transcription: &str,
+    profile: Option<&TranscriptionProfile>,
 ) -> PostProcessTranscriptionOutcome {
-    if !settings.post_process_enabled {
+    // Determine if post-processing is enabled based on profile or global setting
+    let is_enabled = match profile {
+        Some(p) => p.llm_post_process_enabled,
+        None => settings.post_process_enabled,
+    };
+
+    if !is_enabled {
         return PostProcessTranscriptionOutcome::Skipped;
     }
 
@@ -82,11 +99,24 @@ async fn maybe_post_process_transcription(
         }
     };
 
-    let model = settings
+    // Determine model: profile override > global setting
+    let global_model = settings
         .post_process_models
         .get(&provider.id)
         .cloned()
         .unwrap_or_default();
+
+    let model = match profile {
+        Some(p) => {
+            // Use profile override if set and non-empty, otherwise fall back to global
+            p.llm_model_override
+                .as_ref()
+                .filter(|m| !m.trim().is_empty())
+                .cloned()
+                .unwrap_or(global_model)
+        }
+        None => global_model,
+    };
 
     if model.trim().is_empty() {
         debug!(
@@ -96,26 +126,36 @@ async fn maybe_post_process_transcription(
         return PostProcessTranscriptionOutcome::Skipped;
     }
 
-    let selected_prompt_id = match &settings.post_process_selected_prompt_id {
-        Some(id) => id.clone(),
-        None => {
-            debug!("Post-processing skipped because no prompt is selected");
-            return PostProcessTranscriptionOutcome::Skipped;
+    // Determine prompt: profile override > global selected prompt
+    let prompt_template = match profile {
+        Some(p) if p.llm_prompt_override.as_ref().map_or(false, |s| !s.trim().is_empty()) => {
+            // Use profile's prompt override
+            p.llm_prompt_override.clone().unwrap()
         }
-    };
+        _ => {
+            // Use global selected prompt
+            let selected_prompt_id = match &settings.post_process_selected_prompt_id {
+                Some(id) => id.clone(),
+                None => {
+                    debug!("Post-processing skipped because no prompt is selected");
+                    return PostProcessTranscriptionOutcome::Skipped;
+                }
+            };
 
-    let prompt_template = match settings
-        .post_process_prompts
-        .iter()
-        .find(|prompt| prompt.id == selected_prompt_id)
-    {
-        Some(prompt) => prompt.prompt.clone(),
-        None => {
-            debug!(
-                "Post-processing skipped because prompt '{}' was not found",
-                selected_prompt_id
-            );
-            return PostProcessTranscriptionOutcome::Skipped;
+            match settings
+                .post_process_prompts
+                .iter()
+                .find(|prompt| prompt.id == selected_prompt_id)
+            {
+                Some(prompt) => prompt.prompt.clone(),
+                None => {
+                    debug!(
+                        "Post-processing skipped because prompt '{}' was not found",
+                        selected_prompt_id
+                    );
+                    return PostProcessTranscriptionOutcome::Skipped;
+                }
+            }
         }
     };
 
@@ -517,8 +557,13 @@ async fn perform_transcription_for_profile(
     );
 
     if settings.transcription_provider == TranscriptionProvider::RemoteOpenAiCompatible {
-        // Remote STT doesn't currently support per-profile language/translate overrides
-        // Log the profile info if present
+        // Determine translate_to_english: use profile setting if available, otherwise global setting
+        let translate_to_english = profile
+            .as_ref()
+            .map(|p| p.translate_to_english)
+            .unwrap_or(settings.translate_to_english);
+
+        // Log the request details
         if let Some(p) = &profile {
             log::info!(
                 "Transcription using Remote STT with profile '{}' (lang={}, translate={}): base_url={}, model={}",
@@ -530,31 +575,34 @@ async fn perform_transcription_for_profile(
             );
         } else {
             log::info!(
-                "Transcription using Remote STT: base_url={}, model={}",
+                "Transcription using Remote STT: base_url={}, model={}, translate={}",
                 settings.remote_stt.base_url,
-                settings.remote_stt.model_id
+                settings.remote_stt.model_id,
+                translate_to_english
             );
         }
         let remote_manager = app.state::<Arc<RemoteSttManager>>();
         let operation_id = remote_manager.start_operation();
 
+        let prompt = if settings.stt_system_prompt_enabled {
+            // Use profile's system_prompt if available, otherwise fall back to per-model prompt
+            profile
+                .as_ref()
+                .map(|p| p.system_prompt.clone())
+                .filter(|p| !p.trim().is_empty())
+                .or_else(|| {
+                    settings
+                        .transcription_prompts
+                        .get(&settings.remote_stt.model_id)
+                        .filter(|p| !p.trim().is_empty())
+                        .cloned()
+                })
+        } else {
+            None
+        };
+
         let result = remote_manager
-            .transcribe(
-                &settings.remote_stt,
-                &samples,
-                // Use profile's system_prompt if available, otherwise fall back to per-model prompt
-                profile
-                    .as_ref()
-                    .map(|p| p.system_prompt.clone())
-                    .filter(|p| !p.trim().is_empty())
-                    .or_else(|| {
-                        settings
-                            .transcription_prompts
-                            .get(&settings.remote_stt.model_id)
-                            .filter(|p| !p.trim().is_empty())
-                            .cloned()
-                    }),
-            )
+            .transcribe(&settings.remote_stt, &samples, prompt, translate_to_english)
             .await
             .map(|text| {
                 if settings.custom_words_enabled && !settings.custom_words.is_empty() {
@@ -775,21 +823,31 @@ async fn get_transcription_or_cleanup(
 }
 
 /// Applies Chinese conversion, LLM post-processing and saves to history.
+///
+/// `profile_id` is the ID of the active transcription profile (e.g., "default" or "profile_1234").
+/// If a custom profile is used, its LLM settings will be applied for post-processing.
 async fn apply_post_processing_and_history(
     app: &AppHandle,
     transcription: String,
     samples: Vec<f32>,
+    profile_id: Option<String>,
 ) -> Option<String> {
     let settings = get_settings(app);
     let mut final_text = transcription.clone();
     let mut post_processed_text: Option<String> = None;
     let mut post_process_prompt: Option<String> = None;
 
+    // Look up the profile if a custom profile is being used
+    let profile = profile_id
+        .as_ref()
+        .filter(|id| *id != "default")
+        .and_then(|id| settings.transcription_profile(id));
+
     if let Some(converted_text) = maybe_convert_chinese_variant(&settings, &transcription).await {
         final_text = converted_text.clone();
         post_processed_text = Some(converted_text);
     } else {
-        match maybe_post_process_transcription(app, &settings, &transcription).await {
+        match maybe_post_process_transcription(app, &settings, &transcription, profile).await {
             PostProcessTranscriptionOutcome::Skipped => {}
             PostProcessTranscriptionOutcome::Cancelled => {
                 return None;
@@ -965,6 +1023,7 @@ impl ShortcutAction for TranscribeAction {
         let binding_id = binding_id.to_string();
 
         tauri::async_runtime::spawn(async move {
+            let profile_id_for_postprocess = captured_profile_id.clone();
             let (transcription, samples) =
                 match get_transcription_or_cleanup(&ah, &binding_id, captured_profile_id).await {
                     Some(res) => res,
@@ -982,7 +1041,7 @@ impl ShortcutAction for TranscribeAction {
             }
 
             let final_text =
-                match apply_post_processing_and_history(&ah, transcription, samples).await {
+                match apply_post_processing_and_history(&ah, transcription, samples, profile_id_for_postprocess).await {
                     Some(text) => text,
                     None => {
                         session_manager::exit_processing(&ah);
@@ -1065,8 +1124,9 @@ impl ShortcutAction for SendToExtensionAction {
                 return;
             }
 
+            // Use default profile (None) for extension actions
             let final_text =
-                match apply_post_processing_and_history(&ah, transcription, samples).await {
+                match apply_post_processing_and_history(&ah, transcription, samples, None).await {
                     Some(text) => text,
                     None => {
                         session_manager::exit_processing(&ah);
@@ -1156,7 +1216,8 @@ impl ShortcutAction for SendToExtensionWithSelectionAction {
                 }
                 String::new()
             } else {
-                match apply_post_processing_and_history(&ah, transcription, samples).await {
+                // Use default profile (None) for extension actions
+                match apply_post_processing_and_history(&ah, transcription, samples, None).await {
                     Some(text) => text,
                     None => {
                         session_manager::exit_processing(&ah);

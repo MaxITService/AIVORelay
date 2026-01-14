@@ -47,6 +47,41 @@ pub fn get_model_prompt_limit(model_id: &str) -> Option<usize> {
     None
 }
 
+/// Returns whether a remote STT model supports translation to English.
+/// Uses the OpenAI-compatible /audio/translations endpoint.
+///
+/// Known model support:
+/// - Groq: whisper-large-v3 supports translation, whisper-large-v3-turbo does NOT
+/// - OpenAI: whisper-1 supports translation
+/// - Unknown models default to false (safe fallback)
+pub fn supports_translation(model_id: &str) -> bool {
+    let lower = model_id.to_lowercase();
+
+    // Groq whisper-large-v3-turbo does NOT support translation
+    // https://console.groq.com/docs/speech-to-text
+    if lower.contains("whisper") && lower.contains("turbo") {
+        return false;
+    }
+
+    // Groq whisper-large-v3 supports translation
+    if lower.contains("whisper-large-v3") {
+        return true;
+    }
+
+    // OpenAI whisper-1 supports translation
+    if lower == "whisper-1" {
+        return true;
+    }
+
+    // Generic whisper models (e.g., self-hosted) - assume they support translation
+    if lower.contains("whisper") && !lower.contains("turbo") {
+        return true;
+    }
+
+    // Deepgram, Parakeet, and other non-Whisper models don't use OpenAI translation endpoint
+    false
+}
+
 #[derive(Default)]
 struct DebugBuffer {
     lines: VecDeque<String>,
@@ -165,6 +200,7 @@ impl RemoteSttManager {
         settings: &RemoteSttSettings,
         audio_samples: &[f32],
         prompt: Option<String>,
+        translate_to_english: bool,
     ) -> Result<String> {
         if audio_samples.is_empty() {
             return Ok(String::new());
@@ -196,14 +232,23 @@ impl RemoteSttManager {
         })?;
 
         let file_size = wav_bytes.len();
-        let url = format!("{}/audio/transcriptions", base_url);
+
+        // Use /audio/translations endpoint if translate_to_english is enabled AND model supports it
+        // Otherwise use /audio/transcriptions (default behavior)
+        let use_translation = translate_to_english && supports_translation(&settings.model_id);
+        let endpoint = if use_translation {
+            "translations"
+        } else {
+            "transcriptions"
+        };
+        let url = format!("{}/audio/{}", base_url, endpoint);
 
         if settings.debug_mode == RemoteSttDebugMode::Verbose {
             self.record_info(
                 settings,
                 format!(
-                    "Remote STT request base_url={} model={} bytes={}",
-                    base_url, settings.model_id, file_size
+                    "Remote STT request base_url={} model={} bytes={} endpoint={}",
+                    base_url, settings.model_id, file_size, endpoint
                 ),
             );
         }

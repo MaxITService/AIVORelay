@@ -10,12 +10,153 @@ use crate::utils::is_wayland;
 #[cfg(target_os = "linux")]
 use std::process::Command;
 
+/// Windows-only: Advanced clipboard backup/restore that preserves all formats
+#[cfg(target_os = "windows")]
+mod win_clipboard {
+    use log::{debug, warn};
+    use std::ptr;
+    use windows::Win32::Foundation::{HANDLE, HGLOBAL};
+    use windows::Win32::System::DataExchange::{
+        CloseClipboard, EmptyClipboard, EnumClipboardFormats, GetClipboardData, OpenClipboard,
+        SetClipboardData,
+    };
+    use windows::Win32::System::Memory::{GlobalAlloc, GlobalLock, GlobalSize, GlobalUnlock, GHND};
+
+    /// Represents a single clipboard format and its data
+    pub struct ClipboardEntry {
+        pub format: u32,
+        pub data: Vec<u8>,
+    }
+
+    /// Backup all clipboard formats
+    pub fn backup_all_formats() -> Result<Vec<ClipboardEntry>, String> {
+        let mut entries = Vec::new();
+
+        unsafe {
+            // Open clipboard (None = current task)
+            if OpenClipboard(None).is_err() {
+                return Err("Failed to open clipboard for backup".into());
+            }
+
+            // Enumerate all formats
+            let mut format = EnumClipboardFormats(0);
+            while format != 0 {
+                if let Some(entry) = read_format(format) {
+                    debug!(
+                        "Backed up clipboard format {}: {} bytes",
+                        format,
+                        entry.data.len()
+                    );
+                    entries.push(entry);
+                }
+                format = EnumClipboardFormats(format);
+            }
+
+            let _ = CloseClipboard();
+        }
+
+        debug!("Backed up {} clipboard formats", entries.len());
+        Ok(entries)
+    }
+
+    /// Read data for a specific clipboard format
+    unsafe fn read_format(format: u32) -> Option<ClipboardEntry> {
+        let handle = GetClipboardData(format).ok()?;
+        if handle.0.is_null() {
+            return None;
+        }
+
+        // Convert HANDLE to HGLOBAL for memory operations
+        let hglobal = HGLOBAL(handle.0);
+
+        let size = GlobalSize(hglobal);
+        if size == 0 {
+            return None;
+        }
+
+        let ptr = GlobalLock(hglobal);
+        if ptr.is_null() {
+            return None;
+        }
+
+        let data = std::slice::from_raw_parts(ptr as *const u8, size).to_vec();
+        let _ = GlobalUnlock(hglobal);
+
+        Some(ClipboardEntry { format, data })
+    }
+
+    /// Restore all backed-up clipboard formats
+    pub fn restore_all_formats(entries: Vec<ClipboardEntry>) -> Result<(), String> {
+        if entries.is_empty() {
+            debug!("No clipboard entries to restore");
+            return Ok(());
+        }
+
+        unsafe {
+            // Open clipboard (None = current task)
+            if OpenClipboard(None).is_err() {
+                return Err("Failed to open clipboard for restore".into());
+            }
+
+            // Clear existing content
+            if EmptyClipboard().is_err() {
+                let _ = CloseClipboard();
+                return Err("Failed to empty clipboard".into());
+            }
+
+            // Restore each format
+            for entry in entries {
+                if let Err(e) = write_format(entry.format, &entry.data) {
+                    warn!("Failed to restore clipboard format {}: {}", entry.format, e);
+                    // Continue with other formats
+                } else {
+                    debug!(
+                        "Restored clipboard format {}: {} bytes",
+                        entry.format,
+                        entry.data.len()
+                    );
+                }
+            }
+
+            let _ = CloseClipboard();
+        }
+
+        Ok(())
+    }
+
+    /// Write data for a specific clipboard format
+    unsafe fn write_format(format: u32, data: &[u8]) -> Result<(), String> {
+        // Allocate global memory
+        let hmem =
+            GlobalAlloc(GHND, data.len()).map_err(|e| format!("GlobalAlloc failed: {}", e))?;
+
+        let ptr = GlobalLock(hmem);
+        if ptr.is_null() {
+            return Err("GlobalLock failed".into());
+        }
+
+        // Copy data
+        ptr::copy_nonoverlapping(data.as_ptr(), ptr as *mut u8, data.len());
+        let _ = GlobalUnlock(hmem);
+
+        // Set clipboard data (clipboard takes ownership of memory)
+        // Convert HGLOBAL to HANDLE for SetClipboardData
+        let handle = HANDLE(hmem.0);
+        SetClipboardData(format, Some(handle))
+            .map_err(|e| format!("SetClipboardData failed: {}", e))?;
+
+        Ok(())
+    }
+}
+
 /// Pastes text using the clipboard: saves current content, writes text, sends paste keystroke, restores clipboard.
 fn paste_via_clipboard(
     enigo: &mut Enigo,
     text: &str,
     app_handle: &AppHandle,
     paste_method: &PasteMethod,
+    convert_lf_to_crlf: bool,
+    clipboard_handling: ClipboardHandling,
 ) -> Result<(), String> {
     // Check for Wayland first
     #[cfg(target_os = "linux")]
@@ -24,10 +165,47 @@ fn paste_via_clipboard(
     }
 
     let clipboard = app_handle.clipboard();
-    let clipboard_content = clipboard.read_text().unwrap_or_default();
+
+    // Backup clipboard content based on handling mode
+    #[cfg(target_os = "windows")]
+    let advanced_backup = if clipboard_handling == ClipboardHandling::RestoreAdvanced {
+        match win_clipboard::backup_all_formats() {
+            Ok(entries) => {
+                info!("Advanced clipboard backup: {} formats saved", entries.len());
+                Some(entries)
+            }
+            Err(e) => {
+                warn!(
+                    "Advanced clipboard backup failed: {}. Falling back to text-only.",
+                    e
+                );
+                None
+            }
+        }
+    } else {
+        None
+    };
+
+    // Text-only backup for non-advanced modes
+    let text_backup = if clipboard_handling == ClipboardHandling::DontModify {
+        clipboard.read_text().unwrap_or_default()
+    } else {
+        String::new()
+    };
+
+    // Convert LF to CRLF on Windows if enabled (fixes newlines being eaten by some apps)
+    #[cfg(target_os = "windows")]
+    let text = if convert_lf_to_crlf {
+        // First normalize any existing CRLF to LF, then convert all LF to CRLF
+        text.replace("\r\n", "\n").replace('\n', "\r\n")
+    } else {
+        text.to_string()
+    };
+    #[cfg(not(target_os = "windows"))]
+    let text = text.to_string();
 
     clipboard
-        .write_text(text)
+        .write_text(&text)
         .map_err(|e| format!("Failed to write to clipboard: {}", e))?;
 
     std::thread::sleep(std::time::Duration::from_millis(50));
@@ -41,9 +219,26 @@ fn paste_via_clipboard(
 
     std::thread::sleep(std::time::Duration::from_millis(50));
 
-    clipboard
-        .write_text(&clipboard_content)
-        .map_err(|e| format!("Failed to restore clipboard: {}", e))?;
+    // Restore clipboard based on handling mode
+    #[cfg(target_os = "windows")]
+    if let Some(entries) = advanced_backup {
+        if let Err(e) = win_clipboard::restore_all_formats(entries) {
+            warn!(
+                "Advanced clipboard restore failed: {}. Clipboard may contain transcription.",
+                e
+            );
+        } else {
+            info!("Advanced clipboard restore completed successfully");
+        }
+        return Ok(());
+    }
+
+    // Text-only restore for DontModify mode
+    if clipboard_handling == ClipboardHandling::DontModify {
+        clipboard
+            .write_text(&text_backup)
+            .map_err(|e| format!("Failed to restore clipboard: {}", e))?;
+    }
 
     Ok(())
 }
@@ -135,6 +330,7 @@ fn send_paste_via_dotool(paste_method: &PasteMethod) -> Result<(), String> {
 pub fn paste(text: String, app_handle: AppHandle) -> Result<(), String> {
     let settings = get_settings(&app_handle);
     let paste_method = settings.paste_method;
+    let clipboard_handling = settings.clipboard_handling;
 
     // Append trailing space if setting is enabled
     let text = if settings.append_trailing_space {
@@ -143,7 +339,10 @@ pub fn paste(text: String, app_handle: AppHandle) -> Result<(), String> {
         text
     };
 
-    info!("Using paste method: {:?}", paste_method);
+    info!(
+        "Using paste method: {:?}, clipboard handling: {:?}",
+        paste_method, clipboard_handling
+    );
 
     // Get the managed Enigo instance
     let enigo_state = app_handle
@@ -161,12 +360,20 @@ pub fn paste(text: String, app_handle: AppHandle) -> Result<(), String> {
         }
         PasteMethod::Direct => input::paste_text_direct(&mut enigo, &text)?,
         PasteMethod::CtrlV | PasteMethod::CtrlShiftV | PasteMethod::ShiftInsert => {
-            paste_via_clipboard(&mut enigo, &text, &app_handle, &paste_method)?
+            paste_via_clipboard(
+                &mut enigo,
+                &text,
+                &app_handle,
+                &paste_method,
+                settings.convert_lf_to_crlf,
+                clipboard_handling,
+            )?
         }
     }
 
     // After pasting, optionally copy to clipboard based on settings
-    if settings.clipboard_handling == ClipboardHandling::CopyToClipboard {
+    // (only if CopyToClipboard mode, which means we intentionally want to keep the transcription)
+    if clipboard_handling == ClipboardHandling::CopyToClipboard {
         let clipboard = app_handle.clipboard();
         clipboard
             .write_text(&text)

@@ -1,5 +1,6 @@
-import React from "react";
+import React, { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { type as getOsType } from "@tauri-apps/plugin-os";
 import { Dropdown } from "../ui/Dropdown";
 import { SettingContainer } from "../ui/SettingContainer";
 import { useSettings } from "../../hooks/useSettings";
@@ -14,6 +15,11 @@ export const ClipboardHandlingSetting: React.FC<ClipboardHandlingProps> =
   React.memo(({ descriptionMode = "tooltip", grouped = false }) => {
     const { t } = useTranslation();
     const { getSetting, updateSetting, isUpdating } = useSettings();
+    const [osType, setOsType] = useState<string>("unknown");
+
+    useEffect(() => {
+      setOsType(getOsType());
+    }, []);
 
     const clipboardHandlingOptions = [
       {
@@ -26,13 +32,27 @@ export const ClipboardHandlingSetting: React.FC<ClipboardHandlingProps> =
       },
     ];
 
+    // Add Windows-only experimental option
+    if (osType === "windows") {
+      clipboardHandlingOptions.push({
+        value: "restore_advanced",
+        label: t("settings.advanced.clipboardHandling.options.restoreAdvanced"),
+      });
+    }
+
     const selectedHandling = (getSetting("clipboard_handling") ||
       "dont_modify") as ClipboardHandling;
+
+    // Show extended description for the experimental option
+    const description =
+      (selectedHandling as string) === "restore_advanced"
+        ? t("settings.advanced.clipboardHandling.descriptionAdvanced")
+        : t("settings.advanced.clipboardHandling.description");
 
     return (
       <SettingContainer
         title={t("settings.advanced.clipboardHandling.title")}
-        description={t("settings.advanced.clipboardHandling.description")}
+        description={description}
         descriptionMode={descriptionMode}
         grouped={grouped}
       >

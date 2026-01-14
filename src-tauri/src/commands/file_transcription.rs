@@ -123,20 +123,30 @@ pub async fn transcribe_audio_file(
         // Remote STT - currently doesn't support segments
         let remote_manager = app.state::<Arc<RemoteSttManager>>();
 
-        let prompt = profile
+        // Determine translate_to_english: use profile setting if available, otherwise global setting
+        let translate_to_english = profile
             .as_ref()
-            .map(|p| p.system_prompt.clone())
-            .filter(|p| !p.trim().is_empty())
-            .or_else(|| {
-                settings
-                    .transcription_prompts
-                    .get(&settings.remote_stt.model_id)
-                    .filter(|p| !p.trim().is_empty())
-                    .cloned()
-            });
+            .map(|p| p.translate_to_english)
+            .unwrap_or(settings.translate_to_english);
+
+        let prompt = if settings.stt_system_prompt_enabled {
+            profile
+                .as_ref()
+                .map(|p| p.system_prompt.clone())
+                .filter(|p| !p.trim().is_empty())
+                .or_else(|| {
+                    settings
+                        .transcription_prompts
+                        .get(&settings.remote_stt.model_id)
+                        .filter(|p| !p.trim().is_empty())
+                        .cloned()
+                })
+        } else {
+            None
+        };
 
         let text = remote_manager
-            .transcribe(&settings.remote_stt, &samples, prompt)
+            .transcribe(&settings.remote_stt, &samples, prompt, translate_to_english)
             .await
             .map_err(|e| format!("Remote transcription failed: {}", e))?;
 

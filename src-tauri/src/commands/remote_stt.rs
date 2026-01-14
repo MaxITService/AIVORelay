@@ -1,5 +1,6 @@
 use crate::managers::remote_stt::{
-    clear_remote_stt_api_key, has_remote_stt_api_key, set_remote_stt_api_key, RemoteSttManager,
+    clear_remote_stt_api_key, has_remote_stt_api_key, set_remote_stt_api_key, supports_translation,
+    RemoteSttManager,
 };
 use crate::settings::get_settings;
 use std::sync::Arc;
@@ -64,4 +65,14 @@ pub async fn remote_stt_test_connection(
 pub fn remote_stt_get_prompt_limit(app: AppHandle) -> Option<usize> {
     let settings = get_settings(&app);
     crate::managers::remote_stt::get_model_prompt_limit(&settings.remote_stt.model_id)
+}
+
+/// Returns whether the currently selected Remote STT model supports translation to English.
+/// Uses the OpenAI-compatible /audio/translations endpoint.
+/// Known support: Groq whisper-large-v3, OpenAI whisper-1. NOT supported: whisper-large-v3-turbo.
+#[tauri::command]
+#[specta::specta]
+pub fn remote_stt_supports_translation(app: AppHandle) -> bool {
+    let settings = get_settings(&app);
+    supports_translation(&settings.remote_stt.model_id)
 }

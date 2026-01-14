@@ -246,6 +246,10 @@ const settingUpdaters: {
 (settingUpdaters as any).profile_switch_overlay_enabled = (value: any) =>
   invoke("change_profile_switch_overlay_enabled_setting", { enabled: value });
 
+// Clipboard / Paste settings
+(settingUpdaters as any).convert_lf_to_crlf = (value: any) =>
+  invoke("change_convert_lf_to_crlf_setting", { enabled: value });
+
 export const useSettingsStore = create<SettingsStore>()(
   subscribeWithSelector((set, get) => ({
     settings: null,

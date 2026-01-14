@@ -101,6 +101,14 @@ async changeTranscriptionPromptSetting(modelId: string, prompt: string) : Promis
     else return { status: "error", error: e  as any };
 }
 },
+async changeSttSystemPromptEnabledSetting(enabled: boolean) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("change_stt_system_prompt_enabled_setting", { enabled }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async changeOverlayPositionSetting(position: string) : Promise<Result<null, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("change_overlay_position_setting", { position }) };
@@ -136,6 +144,14 @@ async changePasteMethodSetting(method: string) : Promise<Result<null, string>> {
 async changeClipboardHandlingSetting(handling: string) : Promise<Result<null, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("change_clipboard_handling_setting", { handling }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async changeConvertLfToCrlfSetting(enabled: boolean) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("change_convert_lf_to_crlf_setting", { enabled }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
@@ -381,9 +397,9 @@ async setPostProcessSelectedPrompt(id: string) : Promise<Result<null, string>> {
  * Creates a new transcription profile with its own language/translation settings.
  * This also creates a corresponding shortcut binding and registers it.
  */
-async addTranscriptionProfile(name: string, language: string, translateToEnglish: boolean, systemPrompt: string, pushToTalk: boolean) : Promise<Result<TranscriptionProfile, string>> {
+async addTranscriptionProfile(name: string, language: string, translateToEnglish: boolean, systemPrompt: string, pushToTalk: boolean, llmSettings: ProfileLlmSettings | null) : Promise<Result<TranscriptionProfile, string>> {
     try {
-    return { status: "ok", data: await TAURI_INVOKE("add_transcription_profile", { name, language, translateToEnglish, systemPrompt, pushToTalk }) };
+    return { status: "ok", data: await TAURI_INVOKE("add_transcription_profile", { name, language, translateToEnglish, systemPrompt, pushToTalk, llmSettings }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
@@ -392,9 +408,9 @@ async addTranscriptionProfile(name: string, language: string, translateToEnglish
 /**
  * Updates an existing transcription profile.
  */
-async updateTranscriptionProfile(id: string, name: string, language: string, translateToEnglish: boolean, systemPrompt: string, includeInCycle: boolean, pushToTalk: boolean) : Promise<Result<null, string>> {
+async updateTranscriptionProfile(id: string, name: string, language: string, translateToEnglish: boolean, systemPrompt: string, includeInCycle: boolean, pushToTalk: boolean, llmSettings: ProfileLlmSettings) : Promise<Result<null, string>> {
     try {
-    return { status: "ok", data: await TAURI_INVOKE("update_transcription_profile", { id, name, language, translateToEnglish, systemPrompt, includeInCycle, pushToTalk }) };
+    return { status: "ok", data: await TAURI_INVOKE("update_transcription_profile", { id, name, language, translateToEnglish, systemPrompt, includeInCycle, pushToTalk, llmSettings }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
@@ -979,6 +995,14 @@ async remoteSttTestConnection(baseUrl: string) : Promise<Result<null, string>> {
 async remoteSttGetPromptLimit() : Promise<number | null> {
     return await TAURI_INVOKE("remote_stt_get_prompt_limit");
 },
+/**
+ * Returns whether the currently selected Remote STT model supports translation to English.
+ * Uses the OpenAI-compatible /audio/translations endpoint.
+ * Known support: Groq whisper-large-v3, OpenAI whisper-1. NOT supported: whisper-large-v3-turbo.
+ */
+async remoteSttSupportsTranslation() : Promise<boolean> {
+    return await TAURI_INVOKE("remote_stt_supports_translation");
+},
 async getAvailableModels() : Promise<Result<ModelInfo[], string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("get_available_models") };
@@ -1398,7 +1422,11 @@ async isLaptop() : Promise<Result<boolean, string>> {
 
 /** user-defined types **/
 
-export type AppSettings = { bindings: Partial<{ [key in string]: ShortcutBinding }>; push_to_talk: boolean; audio_feedback: boolean; audio_feedback_volume?: number; sound_theme?: SoundTheme; start_hidden?: boolean; autostart_enabled?: boolean; update_checks_enabled?: boolean; selected_model?: string; transcription_provider?: TranscriptionProvider; remote_stt?: RemoteSttSettings; always_on_microphone?: boolean; selected_microphone?: string | null; clamshell_microphone?: string | null; selected_output_device?: string | null; translate_to_english?: boolean; selected_language?: string; overlay_position?: OverlayPosition; debug_mode?: boolean; log_level?: LogLevel; custom_words?: string[]; custom_words_enabled?: boolean; model_unload_timeout?: ModelUnloadTimeout; word_correction_threshold?: number; history_limit?: number; recording_retention_period?: RecordingRetentionPeriod; paste_method?: PasteMethod; clipboard_handling?: ClipboardHandling; post_process_enabled?: boolean; post_process_provider_id?: string; post_process_providers?: PostProcessProvider[]; post_process_api_keys?: Partial<{ [key in string]: string }>; post_process_models?: Partial<{ [key in string]: string }>; post_process_prompts?: LLMPrompt[]; post_process_selected_prompt_id?: string | null; ai_replace_system_prompt?: string; ai_replace_user_prompt?: string; ai_replace_max_chars?: number; ai_replace_allow_no_selection?: boolean; ai_replace_no_selection_system_prompt?: string; ai_replace_allow_quick_tap?: boolean; ai_replace_quick_tap_threshold_ms?: number; ai_replace_quick_tap_system_prompt?: string; 
+export type AppSettings = { bindings: Partial<{ [key in string]: ShortcutBinding }>; push_to_talk: boolean; audio_feedback: boolean; audio_feedback_volume?: number; sound_theme?: SoundTheme; start_hidden?: boolean; autostart_enabled?: boolean; update_checks_enabled?: boolean; selected_model?: string; transcription_provider?: TranscriptionProvider; remote_stt?: RemoteSttSettings; always_on_microphone?: boolean; selected_microphone?: string | null; clamshell_microphone?: string | null; selected_output_device?: string | null; translate_to_english?: boolean; selected_language?: string; overlay_position?: OverlayPosition; debug_mode?: boolean; log_level?: LogLevel; custom_words?: string[]; custom_words_enabled?: boolean; model_unload_timeout?: ModelUnloadTimeout; word_correction_threshold?: number; history_limit?: number; recording_retention_period?: RecordingRetentionPeriod; paste_method?: PasteMethod; 
+/**
+ * Convert LF to CRLF before clipboard paste (fixes newlines on Windows)
+ */
+convert_lf_to_crlf?: boolean; clipboard_handling?: ClipboardHandling; post_process_enabled?: boolean; post_process_provider_id?: string; post_process_providers?: PostProcessProvider[]; post_process_api_keys?: Partial<{ [key in string]: string }>; post_process_models?: Partial<{ [key in string]: string }>; post_process_prompts?: LLMPrompt[]; post_process_selected_prompt_id?: string | null; ai_replace_system_prompt?: string; ai_replace_user_prompt?: string; ai_replace_max_chars?: number; ai_replace_allow_no_selection?: boolean; ai_replace_no_selection_system_prompt?: string; ai_replace_allow_quick_tap?: boolean; ai_replace_quick_tap_threshold_ms?: number; ai_replace_quick_tap_system_prompt?: string; 
 /**
  * AI Replace LLM provider ID (separate from post-processing)
  */
@@ -1436,6 +1464,11 @@ connector_pending_password?: string | null;
  * For Whisper: context/terms prompt. For Parakeet: comma-separated boost words.
  */
 transcription_prompts?: Partial<{ [key in string]: string }>; 
+/**
+ * Whether to send the STT system prompt to the speech recognition model
+ * When disabled, prompts are not sent even if text exists
+ */
+stt_system_prompt_enabled?: boolean; 
 /**
  * Custom transcription profiles with per-profile language/translation settings.
  * Each profile creates a dynamic shortcut binding.
@@ -1528,7 +1561,11 @@ voice_command_reasoning_budget?: number;
 beta_voice_commands_enabled?: boolean }
 export type AudioDevice = { index: string; name: string; is_default: boolean }
 export type BindingResponse = { success: boolean; binding: ShortcutBinding | null; error: string | null }
-export type ClipboardHandling = "dont_modify" | "copy_to_clipboard"
+export type ClipboardHandling = "dont_modify" | "copy_to_clipboard" | 
+/**
+ * Experimental: Try to restore all clipboard formats including images, HTML, files (Windows-only)
+ */
+"restore_advanced"
 /**
  * Status info returned to frontend
  */
@@ -1646,6 +1683,11 @@ export type OutputFormat =
 export type OverlayPosition = "none" | "top" | "bottom"
 export type PasteMethod = "ctrl_v" | "direct" | "none" | "shift_insert" | "ctrl_shift_v"
 export type PostProcessProvider = { id: string; label: string; base_url: string }
+/**
+ * Per-profile LLM post-processing settings.
+ * Used as a parameter struct for update_transcription_profile to reduce argument count.
+ */
+export type ProfileLlmSettings = { enabled: boolean; prompt_override: string | null; model_override: string | null }
 export type RecordingRetentionPeriod = "never" | "preserve_limit" | "days_3" | "weeks_2" | "months_3"
 /**
  * Response for get_data command
@@ -1729,7 +1771,22 @@ include_in_cycle?: boolean;
 /**
  * Push-to-talk mode for this profile (hold key to record vs toggle)
  */
-push_to_talk?: boolean }
+push_to_talk?: boolean; 
+/**
+ * Whether LLM post-processing is enabled for this profile
+ * Inherits from global post_process_enabled when profile is created
+ */
+llm_post_process_enabled?: boolean; 
+/**
+ * Override the global LLM system prompt for this profile
+ * If Some, uses this text instead of the global selected prompt
+ */
+llm_prompt_override?: string | null; 
+/**
+ * Override the global LLM model for this profile
+ * If Some, uses this model instead of the global model for the current provider
+ */
+llm_model_override?: string | null }
 export type TranscriptionProvider = "local" | "remote_openai_compatible"
 /**
  * Information about the virtual screen (all monitors combined).

@@ -436,6 +436,7 @@ pub fn change_clipboard_handling_setting(app: AppHandle, handling: String) -> Re
     let parsed = match handling.as_str() {
         "dont_modify" => ClipboardHandling::DontModify,
         "copy_to_clipboard" => ClipboardHandling::CopyToClipboard,
+        "restore_advanced" => ClipboardHandling::RestoreAdvanced,
         other => {
             warn!(
                 "Invalid clipboard handling '{}', defaulting to dont_modify",
@@ -445,6 +446,15 @@ pub fn change_clipboard_handling_setting(app: AppHandle, handling: String) -> Re
         }
     };
     settings.clipboard_handling = parsed;
+    settings::write_settings(&app, settings);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_convert_lf_to_crlf_setting(app: AppHandle, enabled: bool) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.convert_lf_to_crlf = enabled;
     settings::write_settings(&app, settings);
     Ok(())
 }
@@ -480,6 +490,18 @@ pub fn change_transcription_prompt_setting(
     } else {
         settings.transcription_prompts.insert(model_id, prompt);
     }
+    settings::write_settings(&app, settings);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_stt_system_prompt_enabled_setting(
+    app: AppHandle,
+    enabled: bool,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.stt_system_prompt_enabled = enabled;
     settings::write_settings(&app, settings);
     Ok(())
 }
@@ -906,6 +928,7 @@ pub fn add_transcription_profile(
     translate_to_english: bool,
     system_prompt: String,
     push_to_talk: bool,
+    llm_settings: Option<settings::ProfileLlmSettings>,
 ) -> Result<settings::TranscriptionProfile, String> {
     let mut settings = settings::get_settings(&app);
 
@@ -920,6 +943,14 @@ pub fn add_transcription_profile(
         name.clone()
     };
 
+    // Use provided LLM settings or inherit from global default
+    let (llm_post_process_enabled, llm_prompt_override, llm_model_override) =
+        if let Some(llm) = llm_settings {
+            (llm.enabled, llm.prompt_override, llm.model_override)
+        } else {
+            (settings.post_process_enabled, None, None)
+        };
+
     let new_profile = settings::TranscriptionProfile {
         id: profile_id.clone(),
         name: name.clone(),
@@ -929,6 +960,9 @@ pub fn add_transcription_profile(
         system_prompt,
         include_in_cycle: true, // Include in cycle by default
         push_to_talk,
+        llm_post_process_enabled,
+        llm_prompt_override,
+        llm_model_override,
     };
 
     // Create a corresponding shortcut binding (no default key assigned)
@@ -960,6 +994,7 @@ pub fn update_transcription_profile(
     system_prompt: String,
     include_in_cycle: bool,
     push_to_talk: bool,
+    llm_settings: settings::ProfileLlmSettings,
 ) -> Result<(), String> {
     let mut settings = settings::get_settings(&app);
 
@@ -983,6 +1018,9 @@ pub fn update_transcription_profile(
     profile.system_prompt = system_prompt;
     profile.include_in_cycle = include_in_cycle;
     profile.push_to_talk = push_to_talk;
+    profile.llm_post_process_enabled = llm_settings.enabled;
+    profile.llm_prompt_override = llm_settings.prompt_override;
+    profile.llm_model_override = llm_settings.model_override;
 
     // Update the binding name/description as well
     let binding_id = format!("transcribe_{}", id);
