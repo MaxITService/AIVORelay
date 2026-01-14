@@ -128,7 +128,11 @@ async fn maybe_post_process_transcription(
 
     // Determine prompt: profile override > global selected prompt
     let prompt_template = match profile {
-        Some(p) if p.llm_prompt_override.as_ref().map_or(false, |s| !s.trim().is_empty()) => {
+        Some(p)
+            if p.llm_prompt_override
+                .as_ref()
+                .map_or(false, |s| !s.trim().is_empty()) =>
+        {
             // Use profile's prompt override
             p.llm_prompt_override.clone().unwrap()
         }
@@ -1040,14 +1044,20 @@ impl ShortcutAction for TranscribeAction {
                 return;
             }
 
-            let final_text =
-                match apply_post_processing_and_history(&ah, transcription, samples, profile_id_for_postprocess).await {
-                    Some(text) => text,
-                    None => {
-                        session_manager::exit_processing(&ah);
-                        return;
-                    }
-                };
+            let final_text = match apply_post_processing_and_history(
+                &ah,
+                transcription,
+                samples,
+                profile_id_for_postprocess,
+            )
+            .await
+            {
+                Some(text) => text,
+                None => {
+                    session_manager::exit_processing(&ah);
+                    return;
+                }
+            };
 
             let ah_clone = ah.clone();
             ah.run_on_main_thread(move || {

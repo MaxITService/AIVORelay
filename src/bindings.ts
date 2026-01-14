@@ -1683,11 +1683,14 @@ export type OutputFormat =
 export type OverlayPosition = "none" | "top" | "bottom"
 export type PasteMethod = "ctrl_v" | "direct" | "none" | "shift_insert" | "ctrl_shift_v"
 export type PostProcessProvider = { id: string; label: string; base_url: string }
+<<<<<<< HEAD
 /**
  * Per-profile LLM post-processing settings.
  * Used as a parameter struct for update_transcription_profile to reduce argument count.
  */
 export type ProfileLlmSettings = { enabled: boolean; prompt_override: string | null; model_override: string | null }
+=======
+>>>>>>> 5c5e428
 export type RecordingRetentionPeriod = "never" | "preserve_limit" | "days_3" | "weeks_2" | "months_3"
 /**
  * Response for get_data command
