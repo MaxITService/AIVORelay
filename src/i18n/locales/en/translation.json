@@ -293,7 +293,22 @@
         "overrideModelHint": "Leave empty to use the global model.",
         "modelPlaceholder": "e.g., gpt-4-turbo",
         "usingGlobalModel": "Using global model: {{model}}",
-        "defaultNote": "Custom profiles can override this setting individually."
+        "defaultNote": "Custom profiles can override this setting individually.",
+        "outputVariableDoc": {
+          "title": "Template Variable: ${output}",
+          "description": "Your prompt MUST include <code>${output}</code> to indicate where the transcribed text will be inserted.",
+          "howItWorks": "How it works:",
+          "step1": "After speech-to-text completes, the raw transcript is stored",
+          "step2": "The <code>${output}</code> placeholder in your prompt is replaced with the actual transcript",
+          "step3": "The complete prompt is sent to the LLM for processing",
+          "step4": "The LLM's response replaces your transcription",
+          "validExample": "Valid prompt example:",
+          "validPrompt": "Fix grammar and punctuation:\\n${output}",
+          "invalidExample": "Invalid prompt (missing ${output}):",
+          "invalidPrompt": "Fix grammar and punctuation for the text.",
+          "invalidWarning": "Without <code>${output}</code>, the LLM won't receive your transcript and cannot process it!",
+          "tip": "Tip: Position <code>${output}</code> where you want your transcript to appear. You can add instructions before and/or after it."
+        }
       }
     },
     "sound": {
@@ -650,6 +665,21 @@
         "promptInstructions": "Prompt Instructions",
         "promptInstructionsPlaceholder": "Write the instructions to run after transcription. Example: Improve grammar and clarity for the following text: ${output}",
         "promptTip": "Tip: Use <code>${output}</code> to insert the transcribed text in your prompt.",
+        "outputVariableDoc": {
+          "title": "Required: ${output} Template Variable",
+          "description": "Your prompt <strong>MUST</strong> include <code>${output}</code> to indicate where the transcribed text will be inserted.",
+          "howItWorks": "How it works:",
+          "step1": "After speech-to-text completes, the raw transcript is stored",
+          "step2": "The <code>${output}</code> placeholder in your prompt is replaced with the actual transcript",
+          "step3": "The complete prompt is sent to the LLM for processing",
+          "step4": "The LLM's response replaces your original transcription",
+          "validExample": "✓ Valid prompt example:",
+          "validPrompt": "Fix grammar and punctuation:\n${output}",
+          "invalidExample": "✗ Invalid prompt (missing ${output}):",
+          "invalidPrompt": "Fix grammar and punctuation for the text.",
+          "invalidWarning": "<strong>Warning:</strong> Without <code>${output}</code>, the LLM won't receive your transcript and cannot process it!",
+          "tip": "Position <code>${output}</code> where you want your transcript to appear. You can add instructions before and/or after it."
+        },
         "updatePrompt": "Update Prompt",
         "deletePrompt": "Delete Prompt",
         "createPrompt": "Create Prompt",

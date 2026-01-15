@@ -95,6 +95,7 @@ pub struct LLMPrompt {
 /// Per-profile LLM post-processing settings.
 /// Used as a parameter struct for update_transcription_profile to reduce argument count.
 #[derive(Serialize, Deserialize, Debug, Clone, Type)]
+#[serde(rename_all = "camelCase")]
 pub struct ProfileLlmSettings {
     pub enabled: bool,
     pub prompt_override: Option<String>,

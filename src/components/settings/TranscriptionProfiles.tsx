@@ -33,6 +33,20 @@ import { getModelPromptInfo } from "./TranscriptionSystemPrompt";
 
 const APPLE_PROVIDER_ID = "apple_intelligence";
 
+const DEFAULT_CLEAN_PROMPT = `Clean this Speech to text transcript:
+1. Fix spelling, capitalization, and punctuation errors
+2. Convert number words to digits (twenty-five → 25, ten percent → 10%, five dollars → $5)
+3. Replace spoken punctuation with symbols (period → ., comma → , question mark → ?)
+4. REPLACE "ENTER" WITH NEWLINE SYMBOL!!!!
+5. Keep the language in the original version (if it was french, keep it in french for example) unless last sentence is "Translate this to <language>". Then - do this: CUT OUT THE LAST SENTENCE (the one wiht instruction), and translate the text into target language. 
+
+Preserve exact meaning and word order. Do not paraphrase or reorder content.
+
+Return only the cleaned transcript.
+
+Transcript:
+\${output}`;
+
 interface ExtendedTranscriptionProfile extends TranscriptionProfile {
   include_in_cycle: boolean;
   push_to_talk: boolean;
@@ -54,6 +68,7 @@ interface ProfileCardProps {
   globalLlmModel: string;
   onRefreshModels: () => void;
   isFetchingModels: boolean;
+  defaultLlmPrompt: string;
 }
 
 const ProfileCard: React.FC<ProfileCardProps> = ({
@@ -71,9 +86,23 @@ const ProfileCard: React.FC<ProfileCardProps> = ({
   globalLlmModel,
   onRefreshModels,
   isFetchingModels,
+  defaultLlmPrompt,
 }) => {
   const { t } = useTranslation();
   const [isUpdating, setIsUpdating] = useState(false);
+  // Local state for LLM prompt - initializes with override or default
+  const [localLlmPrompt, setLocalLlmPrompt] = useState(
+    profile.llm_prompt_override || defaultLlmPrompt
+  );
+
+  // Update local prompt when default changes (settings loaded) or profile changes
+  useEffect(() => {
+    if (!profile.llm_prompt_override) {
+      setLocalLlmPrompt(defaultLlmPrompt);
+    } else {
+      setLocalLlmPrompt(profile.llm_prompt_override);
+    }
+  }, [profile.llm_prompt_override, defaultLlmPrompt]);
 
   const bindingId = `transcribe_${profile.id}`;
 
@@ -521,12 +550,43 @@ const ProfileCard: React.FC<ProfileCardProps> = ({
                     <p className="text-xs text-mid-gray">
                       {t("settings.transcriptionProfiles.llmPostProcessing.overridePromptHint")}
                     </p>
+                    {/* ${output} Variable Documentation */}
+                    <div className="p-2 bg-blue-500/10 border border-blue-500/30 rounded text-xs space-y-1">
+                      <div className="font-semibold text-blue-400">
+                        {t("settings.transcriptionProfiles.llmPostProcessing.outputVariableDoc.title")}
+                      </div>
+                      <p className="text-text/70" dangerouslySetInnerHTML={{ __html: t("settings.transcriptionProfiles.llmPostProcessing.outputVariableDoc.description") }} />
+                      <details className="cursor-pointer">
+                        <summary className="text-blue-400 hover:text-blue-300">
+                          {t("settings.transcriptionProfiles.llmPostProcessing.outputVariableDoc.howItWorks")}
+                        </summary>
+                        <ol className="list-decimal list-inside text-text/60 mt-1 space-y-0.5 pl-2">
+                          <li>{t("settings.transcriptionProfiles.llmPostProcessing.outputVariableDoc.step1")}</li>
+                          <li dangerouslySetInnerHTML={{ __html: t("settings.transcriptionProfiles.llmPostProcessing.outputVariableDoc.step2") }} />
+                          <li>{t("settings.transcriptionProfiles.llmPostProcessing.outputVariableDoc.step3")}</li>
+                          <li>{t("settings.transcriptionProfiles.llmPostProcessing.outputVariableDoc.step4")}</li>
+                        </ol>
+                        <div className="mt-2 space-y-1">
+                          <div className="text-green-400">{t("settings.transcriptionProfiles.llmPostProcessing.outputVariableDoc.validExample")}</div>
+                          <code className="block bg-green-500/10 px-2 py-1 rounded text-green-300 whitespace-pre-wrap">
+                            {t("settings.transcriptionProfiles.llmPostProcessing.outputVariableDoc.validPrompt")}
+                          </code>
+                          <div className="text-red-400 mt-2">{t("settings.transcriptionProfiles.llmPostProcessing.outputVariableDoc.invalidExample")}</div>
+                          <code className="block bg-red-500/10 px-2 py-1 rounded text-red-300">
+                            {t("settings.transcriptionProfiles.llmPostProcessing.outputVariableDoc.invalidPrompt")}
+                          </code>
+                          <p className="text-red-400/80" dangerouslySetInnerHTML={{ __html: t("settings.transcriptionProfiles.llmPostProcessing.outputVariableDoc.invalidWarning") }} />
+                        </div>
+                        <p className="mt-2 text-text/60" dangerouslySetInnerHTML={{ __html: t("settings.transcriptionProfiles.llmPostProcessing.outputVariableDoc.tip") }} />
+                      </details>
+                    </div>
                     <textarea
-                      defaultValue={profile.llm_prompt_override || ""}
+                      value={localLlmPrompt || defaultLlmPrompt}
+                      onChange={(e) => setLocalLlmPrompt(e.target.value)}
                       onBlur={(e) => handleLlmPromptChange(e.target.value)}
                       placeholder={t("settings.transcriptionProfiles.llmPostProcessing.promptPlaceholder")}
                       disabled={isUpdating}
-                      rows={2}
+                      rows={6}
                       className={`w-full px-3 py-2 text-sm bg-[#1e1e1e]/80 border rounded-md resize-none transition-colors border-[#3c3c3c] focus:border-[#4a4a4a] ${isUpdating ? "opacity-40 cursor-not-allowed" : ""} text-[#e8e8e8] placeholder-[#6b6b6b]`}
                     />
                   </div>
@@ -677,6 +737,12 @@ export const TranscriptionProfiles: React.FC = () => {
   }, [postProcessModelOptions, currentLlmProviderId]);
 
   const globalLlmModel = settings?.post_process_models?.[currentLlmProviderId] || "";
+
+  const globalPromptText = useMemo(() => {
+    const prompts = settings?.post_process_prompts || [];
+    const selectedId = settings?.post_process_selected_prompt_id;
+    return prompts.find((p) => p.id === selectedId)?.prompt || DEFAULT_CLEAN_PROMPT;
+  }, [settings?.post_process_prompts, settings?.post_process_selected_prompt_id]);
 
   const handleRefreshModels = useCallback(async () => {
     if (!currentLlmProviderId || currentLlmProviderId === APPLE_PROVIDER_ID) return;
@@ -1075,6 +1141,7 @@ export const TranscriptionProfiles: React.FC = () => {
               globalLlmModel={globalLlmModel}
               onRefreshModels={handleRefreshModels}
               isFetchingModels={isFetchingModels}
+              defaultLlmPrompt={globalPromptText}
             />
           ))}
         </div>
@@ -1277,12 +1344,42 @@ export const TranscriptionProfiles: React.FC = () => {
                     <p className="text-xs text-mid-gray">
                       {t("settings.transcriptionProfiles.llmPostProcessing.overridePromptHint")}
                     </p>
+                    {/* ${output} Variable Documentation */}
+                    <div className="p-2 bg-blue-500/10 border border-blue-500/30 rounded text-xs space-y-1">
+                      <div className="font-semibold text-blue-400">
+                        {t("settings.transcriptionProfiles.llmPostProcessing.outputVariableDoc.title")}
+                      </div>
+                      <p className="text-text/70" dangerouslySetInnerHTML={{ __html: t("settings.transcriptionProfiles.llmPostProcessing.outputVariableDoc.description") }} />
+                      <details className="cursor-pointer">
+                        <summary className="text-blue-400 hover:text-blue-300">
+                          {t("settings.transcriptionProfiles.llmPostProcessing.outputVariableDoc.howItWorks")}
+                        </summary>
+                        <ol className="list-decimal list-inside text-text/60 mt-1 space-y-0.5 pl-2">
+                          <li>{t("settings.transcriptionProfiles.llmPostProcessing.outputVariableDoc.step1")}</li>
+                          <li dangerouslySetInnerHTML={{ __html: t("settings.transcriptionProfiles.llmPostProcessing.outputVariableDoc.step2") }} />
+                          <li>{t("settings.transcriptionProfiles.llmPostProcessing.outputVariableDoc.step3")}</li>
+                          <li>{t("settings.transcriptionProfiles.llmPostProcessing.outputVariableDoc.step4")}</li>
+                        </ol>
+                        <div className="mt-2 space-y-1">
+                          <div className="text-green-400">{t("settings.transcriptionProfiles.llmPostProcessing.outputVariableDoc.validExample")}</div>
+                          <code className="block bg-green-500/10 px-2 py-1 rounded text-green-300 whitespace-pre-wrap">
+                            {t("settings.transcriptionProfiles.llmPostProcessing.outputVariableDoc.validPrompt")}
+                          </code>
+                          <div className="text-red-400 mt-2">{t("settings.transcriptionProfiles.llmPostProcessing.outputVariableDoc.invalidExample")}</div>
+                          <code className="block bg-red-500/10 px-2 py-1 rounded text-red-300">
+                            {t("settings.transcriptionProfiles.llmPostProcessing.outputVariableDoc.invalidPrompt")}
+                          </code>
+                          <p className="text-red-400/80" dangerouslySetInnerHTML={{ __html: t("settings.transcriptionProfiles.llmPostProcessing.outputVariableDoc.invalidWarning") }} />
+                        </div>
+                        <p className="mt-2 text-text/60" dangerouslySetInnerHTML={{ __html: t("settings.transcriptionProfiles.llmPostProcessing.outputVariableDoc.tip") }} />
+                      </details>
+                    </div>
                     <textarea
-                      value={newLlmPromptOverride}
+                      value={newLlmPromptOverride || globalPromptText}
                       onChange={(e) => setNewLlmPromptOverride(e.target.value)}
                       placeholder={t("settings.transcriptionProfiles.llmPostProcessing.promptPlaceholder")}
                       disabled={isCreating}
-                      rows={2}
+                      rows={6}
                       className={`w-full px-3 py-2 text-sm bg-[#1e1e1e]/80 border rounded-md resize-none transition-colors border-[#3c3c3c] focus:border-[#4a4a4a] ${isCreating ? "opacity-40 cursor-not-allowed" : ""} text-[#e8e8e8] placeholder-[#6b6b6b]`}
                     />
                   </div>
