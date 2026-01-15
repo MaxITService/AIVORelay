@@ -1764,16 +1764,26 @@ export type TextReplacement = {
 id: string; 
 /**
  * The text pattern to search for (supports escape sequences: \n, \r\n, \t, \\)
+ * If is_regex is true, this is treated as a regular expression pattern.
  */
 from: string; 
 /**
  * The replacement text (supports escape sequences: \n, \r\n, \t, \\)
+ * For regex replacements, supports $1, $2, etc. for capture groups.
  */
 to: string; 
 /**
  * Whether this replacement rule is enabled
  */
-enabled?: boolean }
+enabled?: boolean; 
+/**
+ * Whether the match should be case-sensitive (default: true)
+ */
+case_sensitive?: boolean; 
+/**
+ * Whether the 'from' field is a regular expression (default: false)
+ */
+is_regex?: boolean }
 /**
  * A custom transcription profile with its own language and translation settings.
  * Each profile creates a separate shortcut binding (e.g., "transcribe_profile_abc123").

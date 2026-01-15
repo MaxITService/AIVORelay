@@ -132,9 +132,12 @@ When using Remote STT API, the **Recording Overlay** (`recording_overlay` window
 - Files: `src-tauri/src/settings.rs` (TextReplacement struct), `src/components/settings/text-replacement/`
 - Automatic find-and-replace for transcription output
 - **Escape Sequences**: Supports `\n` (LF), `\r\n` (CRLF), `\r` (CR), `\t` (tab), `\\` (backslash)
+- **Options per rule**:
+  - `case_sensitive` — case-sensitive or case-insensitive matching (default: true)
+  - `is_regex` — treat "from" pattern as regular expression (supports `$1`, `$2` capture groups)
 - Applied after all processing (Chinese conversion, LLM post-processing)
 - Each rule can be individually enabled/disabled
-- **Use Cases**: Fix commonly misheard words, apply formatting, normalize punctuation
+- **Use Cases**: Fix commonly misheard words, apply formatting, normalize punctuation, remove repeated words
 
 ## Guidelines for Agents
 

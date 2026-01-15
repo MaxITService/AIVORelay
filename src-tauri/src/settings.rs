@@ -214,12 +214,20 @@ pub struct TextReplacement {
     /// Unique identifier (e.g., "tr_1704067200000")
     pub id: String,
     /// The text pattern to search for (supports escape sequences: \n, \r\n, \t, \\)
+    /// If is_regex is true, this is treated as a regular expression pattern.
     pub from: String,
     /// The replacement text (supports escape sequences: \n, \r\n, \t, \\)
+    /// For regex replacements, supports $1, $2, etc. for capture groups.
     pub to: String,
     /// Whether this replacement rule is enabled
     #[serde(default = "default_true")]
     pub enabled: bool,
+    /// Whether the match should be case-sensitive (default: true)
+    #[serde(default = "default_true")]
+    pub case_sensitive: bool,
+    /// Whether the 'from' field is a regular expression (default: false)
+    #[serde(default)]
+    pub is_regex: bool,
 }
 
 impl TextReplacement {
@@ -279,9 +287,49 @@ impl TextReplacement {
         if !self.enabled || self.from.is_empty() {
             return text.to_string();
         }
-        let from_processed = Self::process_escapes(&self.from);
+
         let to_processed = Self::process_escapes(&self.to);
-        text.replace(&from_processed, &to_processed)
+
+        if self.is_regex {
+            // Regex mode
+            let pattern = if self.case_sensitive {
+                self.from.clone()
+            } else {
+                format!("(?i){}", self.from)
+            };
+
+            match regex::Regex::new(&pattern) {
+                Ok(re) => re.replace_all(text, to_processed.as_str()).to_string(),
+                Err(e) => {
+                    log::warn!(
+                        "Invalid regex pattern '{}' in text replacement: {}",
+                        self.from,
+                        e
+                    );
+                    text.to_string()
+                }
+            }
+        } else {
+            // Plain text mode
+            let from_processed = Self::process_escapes(&self.from);
+
+            if self.case_sensitive {
+                text.replace(&from_processed, &to_processed)
+            } else {
+                // Case-insensitive plain text replacement
+                let lower_from = from_processed.to_lowercase();
+                let mut result = String::with_capacity(text.len());
+                let mut remaining = text;
+
+                while let Some(start) = remaining.to_lowercase().find(&lower_from) {
+                    result.push_str(&remaining[..start]);
+                    result.push_str(&to_processed);
+                    remaining = &remaining[start + from_processed.len()..];
+                }
+                result.push_str(remaining);
+                result
+            }
+        }
     }
 }
 

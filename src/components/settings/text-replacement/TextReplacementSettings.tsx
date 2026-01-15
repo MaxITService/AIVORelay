@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Plus, Trash2, ArrowRight, HelpCircle, ChevronDown, ChevronUp } from "lucide-react";
+import { Plus, Trash2, ArrowRight, HelpCircle, ChevronDown, ChevronUp, CaseSensitive, Regex } from "lucide-react";
 import { useSettings } from "@/hooks/useSettings";
 import { SettingsGroup } from "@/components/ui/SettingsGroup";
 import { Button } from "@/components/ui/Button";
@@ -12,6 +12,8 @@ interface TextReplacementRule {
   from: string;
   to: string;
   enabled: boolean;
+  case_sensitive: boolean;
+  is_regex: boolean;
 }
 
 export const TextReplacementSettings: React.FC = () => {
@@ -20,9 +22,15 @@ export const TextReplacementSettings: React.FC = () => {
 
   const [newFrom, setNewFrom] = useState("");
   const [newTo, setNewTo] = useState("");
+  const [newCaseSensitive, setNewCaseSensitive] = useState(true);
+  const [newIsRegex, setNewIsRegex] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
 
-  const replacements: TextReplacementRule[] = settings?.text_replacements ?? [];
+  const replacements: TextReplacementRule[] = (settings?.text_replacements ?? []).map((r: any) => ({
+    ...r,
+    case_sensitive: r.case_sensitive ?? true,
+    is_regex: r.is_regex ?? false,
+  }));
   const isEnabled = settings?.text_replacements_enabled ?? false;
 
   const handleAddRule = () => {
@@ -33,11 +41,14 @@ export const TextReplacementSettings: React.FC = () => {
       from: newFrom,
       to: newTo,
       enabled: true,
+      case_sensitive: newCaseSensitive,
+      is_regex: newIsRegex,
     };
 
     updateSetting("text_replacements", [...replacements, newRule]);
     setNewFrom("");
     setNewTo("");
+    // Keep the options as user set them for next rule
   };
 
   const handleRemoveRule = (id: string) => {
@@ -52,6 +63,24 @@ export const TextReplacementSettings: React.FC = () => {
       "text_replacements",
       replacements.map((r) =>
         r.id === id ? { ...r, enabled: !r.enabled } : r
+      )
+    );
+  };
+
+  const handleToggleCaseSensitive = (id: string) => {
+    updateSetting(
+      "text_replacements",
+      replacements.map((r) =>
+        r.id === id ? { ...r, case_sensitive: !r.case_sensitive } : r
+      )
+    );
+  };
+
+  const handleToggleIsRegex = (id: string) => {
+    updateSetting(
+      "text_replacements",
+      replacements.map((r) =>
+        r.id === id ? { ...r, is_regex: !r.is_regex } : r
       )
     );
   };
@@ -181,6 +210,24 @@ export const TextReplacementSettings: React.FC = () => {
               </ul>
 
               <h4 className="font-medium text-[#f5f5f5] mt-4 mb-2">
+                {t("textReplacement.optionsTitle", "Options")}
+              </h4>
+              <ul className="space-y-2 text-[#b8b8b8]">
+                <li className="flex items-start gap-2">
+                  <CaseSensitive className="w-4 h-4 mt-0.5 text-[#9b5de5] shrink-0" />
+                  <span>
+                    <strong>{t("textReplacement.caseSensitiveTitle", "Case Sensitive")}</strong> — {t("textReplacement.caseSensitiveDesc", "When enabled, 'Hello' and 'hello' are treated as different. When disabled, both will match.")}
+                  </span>
+                </li>
+                <li className="flex items-start gap-2">
+                  <Regex className="w-4 h-4 mt-0.5 text-[#f97316] shrink-0" />
+                  <span>
+                    <strong>{t("textReplacement.regexTitle", "Regular Expression")}</strong> — {t("textReplacement.regexDesc", "Enable to use regex patterns for advanced matching. Use $1, $2 in replacement for capture groups.")}
+                  </span>
+                </li>
+              </ul>
+
+              <h4 className="font-medium text-[#f5f5f5] mt-4 mb-2">
                 {t("textReplacement.examples", "Examples")}
               </h4>
               <ul className="space-y-2 text-[#b8b8b8]">
@@ -202,10 +249,10 @@ export const TextReplacementSettings: React.FC = () => {
                   </span>
                 </li>
                 <li>
-                  <code className="text-[#808080]">gonna</code> →{" "}
-                  <code className="text-[#4ade80]">going to</code>
+                  <code className="text-[#f97316]">\b(\w+)\s+\1\b</code> →{" "}
+                  <code className="text-[#4ade80]">$1</code>
                   <span className="text-[#606060] ml-2">
-                    {t("textReplacement.exampleFormal", "(formal style)")}
+                    {t("textReplacement.exampleRegex", "(remove repeated words)")}
                   </span>
                 </li>
               </ul>
@@ -227,7 +274,7 @@ export const TextReplacementSettings: React.FC = () => {
 
         {/* Add New Rule */}
         <div className="px-4 py-4 border-t border-white/[0.05] overflow-hidden">
-          <div className="flex items-center gap-2 w-full">
+          <div className="flex items-center gap-2 w-full mb-2">
             <div className="flex-1 min-w-0">
               <Input
                 type="text"
@@ -256,6 +303,35 @@ export const TextReplacementSettings: React.FC = () => {
                 disabled={isUpdating("text_replacements")}
               />
             </div>
+          </div>
+          {/* Options row */}
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <button
+                onClick={() => setNewCaseSensitive(!newCaseSensitive)}
+                className={`flex items-center gap-1.5 px-2 py-1 rounded text-xs transition-colors ${
+                  newCaseSensitive
+                    ? "bg-[#9b5de5]/20 text-[#9b5de5] border border-[#9b5de5]/30"
+                    : "bg-[#252525] text-[#606060] border border-[#333333]"
+                }`}
+                title={t("textReplacement.caseSensitiveTooltip", "Toggle case sensitivity")}
+              >
+                <CaseSensitive className="w-3.5 h-3.5" />
+                {t("textReplacement.caseSensitiveShort", "Aa")}
+              </button>
+              <button
+                onClick={() => setNewIsRegex(!newIsRegex)}
+                className={`flex items-center gap-1.5 px-2 py-1 rounded text-xs transition-colors ${
+                  newIsRegex
+                    ? "bg-[#f97316]/20 text-[#f97316] border border-[#f97316]/30"
+                    : "bg-[#252525] text-[#606060] border border-[#333333]"
+                }`}
+                title={t("textReplacement.regexTooltip", "Toggle regex mode")}
+              >
+                <Regex className="w-3.5 h-3.5" />
+                {t("textReplacement.regexShort", ".*")}
+              </button>
+            </div>
             <Button
               onClick={handleAddRule}
               disabled={!newFrom.trim() || isUpdating("text_replacements")}
@@ -275,67 +351,98 @@ export const TextReplacementSettings: React.FC = () => {
               {replacements.map((rule) => (
                 <div
                   key={rule.id}
-                  className={`flex items-center gap-3 p-3 rounded-lg border transition-all ${
+                  className={`p-3 rounded-lg border transition-all ${
                     rule.enabled
                       ? "bg-[#1a1a1a] border-[#333333]"
                       : "bg-[#0f0f0f] border-[#252525] opacity-60"
                   }`}
                 >
-                  {/* Enable/Disable Checkbox */}
-                  <input
-                    type="checkbox"
-                    checked={rule.enabled}
-                    onChange={() => handleToggleRule(rule.id)}
-                    className="accent-[#9b5de5] w-4 h-4 rounded shrink-0"
-                    disabled={isUpdating("text_replacements")}
-                  />
+                  {/* Main row */}
+                  <div className="flex items-center gap-3">
+                    {/* Enable/Disable Checkbox */}
+                    <input
+                      type="checkbox"
+                      checked={rule.enabled}
+                      onChange={() => handleToggleRule(rule.id)}
+                      className="accent-[#9b5de5] w-4 h-4 rounded shrink-0"
+                      disabled={isUpdating("text_replacements")}
+                    />
 
-                  {/* From */}
-                  <div className="flex-1 min-w-0">
-                    <code
-                      className={`text-sm px-2 py-1 rounded block truncate ${
-                        rule.enabled
-                          ? "bg-[#252525] text-[#f5f5f5]"
-                          : "bg-[#1a1a1a] text-[#808080]"
+                    {/* From */}
+                    <div className="flex-1 min-w-0">
+                      <code
+                        className={`text-sm px-2 py-1 rounded block truncate ${
+                          rule.enabled
+                            ? "bg-[#252525] text-[#f5f5f5]"
+                            : "bg-[#1a1a1a] text-[#808080]"
+                        } ${rule.is_regex ? "border-l-2 border-[#f97316]" : ""}`}
+                        title={rule.from}
+                      >
+                        {formatDisplayText(rule.from)}
+                      </code>
+                    </div>
+
+                    {/* Arrow */}
+                    <ArrowRight
+                      className={`w-4 h-4 shrink-0 ${
+                        rule.enabled ? "text-[#9b5de5]" : "text-[#444444]"
                       }`}
-                      title={rule.from}
+                    />
+
+                    {/* To */}
+                    <div className="flex-1 min-w-0">
+                      <code
+                        className={`text-sm px-2 py-1 rounded block truncate ${
+                          rule.enabled
+                            ? "bg-[#252525] text-[#4ade80]"
+                            : "bg-[#1a1a1a] text-[#606060]"
+                        }`}
+                        title={rule.to}
+                      >
+                        {formatDisplayText(rule.to)}
+                      </code>
+                    </div>
+
+                    {/* Delete Button */}
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => handleRemoveRule(rule.id)}
+                      disabled={isUpdating("text_replacements")}
+                      className="shrink-0 text-[#808080] hover:text-red-400"
+                      title={t("textReplacement.delete", "Delete rule")}
                     >
-                      {formatDisplayText(rule.from)}
-                    </code>
+                      <Trash2 className="w-4 h-4" />
+                    </Button>
                   </div>
 
-                  {/* Arrow */}
-                  <ArrowRight
-                    className={`w-4 h-4 shrink-0 ${
-                      rule.enabled ? "text-[#9b5de5]" : "text-[#444444]"
-                    }`}
-                  />
-
-                  {/* To */}
-                  <div className="flex-1 min-w-0">
-                    <code
-                      className={`text-sm px-2 py-1 rounded block truncate ${
-                        rule.enabled
-                          ? "bg-[#252525] text-[#4ade80]"
-                          : "bg-[#1a1a1a] text-[#606060]"
+                  {/* Options row */}
+                  <div className="flex items-center gap-2 mt-2 ml-7">
+                    <button
+                      onClick={() => handleToggleCaseSensitive(rule.id)}
+                      disabled={isUpdating("text_replacements")}
+                      className={`flex items-center gap-1 px-1.5 py-0.5 rounded text-xs transition-colors ${
+                        rule.case_sensitive
+                          ? "bg-[#9b5de5]/20 text-[#9b5de5]"
+                          : "bg-[#252525] text-[#606060]"
                       }`}
-                      title={rule.to}
+                      title={t("textReplacement.caseSensitiveTooltip", "Toggle case sensitivity")}
                     >
-                      {formatDisplayText(rule.to)}
-                    </code>
+                      <CaseSensitive className="w-3 h-3" />
+                    </button>
+                    <button
+                      onClick={() => handleToggleIsRegex(rule.id)}
+                      disabled={isUpdating("text_replacements")}
+                      className={`flex items-center gap-1 px-1.5 py-0.5 rounded text-xs transition-colors ${
+                        rule.is_regex
+                          ? "bg-[#f97316]/20 text-[#f97316]"
+                          : "bg-[#252525] text-[#606060]"
+                      }`}
+                      title={t("textReplacement.regexTooltip", "Toggle regex mode")}
+                    >
+                      <Regex className="w-3 h-3" />
+                    </button>
                   </div>
-
-                  {/* Delete Button */}
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => handleRemoveRule(rule.id)}
-                    disabled={isUpdating("text_replacements")}
-                    className="shrink-0 text-[#808080] hover:text-red-400"
-                    title={t("textReplacement.delete", "Delete rule")}
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </Button>
                 </div>
               ))}
             </div>

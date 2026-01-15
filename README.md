@@ -58,13 +58,13 @@ Profiles let you create different transcription configurations and switch betwee
 
 Each profile can customize:
 
-| Setting | Description |
-|---------|-------------|
-| **Language** | Speech recognition language (e.g., English, Russian, Auto-detect) |
-| **Translate to English** | Automatically translate non-English speech to English |
-| **Push-to-Talk** | Hold hotkey to record vs. toggle on/off |
-| **Voice Model Prompt** | System prompt for STT model (word hints, formatting) |
-| **Include in Cycle** | Whether this profile appears when cycling through profiles |
+| Setting                  | Description                                                       |
+| ------------------------ | ----------------------------------------------------------------- |
+| **Language**             | Speech recognition language (e.g., English, Russian, Auto-detect) |
+| **Translate to English** | Automatically translate non-English speech to English             |
+| **Push-to-Talk**         | Hold hotkey to record vs. toggle on/off                           |
+| **Voice Model Prompt**   | System prompt for STT model (word hints, formatting)              |
+| **Include in Cycle**     | Whether this profile appears when cycling through profiles        |
 
 #### LLM Post-Processing Override
 
@@ -85,6 +85,7 @@ Translate this to Finnish: ${output}
 ```
 
 **How it works:**
+
 1. You speak → "Привет, как дела?"
 2. STT transcribes → "Привет, как дела?"
 3. `${output}` is replaced → "Translate this to Finnish: Привет, как дела?"
@@ -92,11 +93,11 @@ Translate this to Finnish: ${output}
 
 #### Shortcuts
 
-| Shortcut | Action |
-|----------|--------|
-| **Main Transcribe** (`Ctrl+F8`) | Transcribe using the active profile |
-| **Cycle Profile** | Switch to the next profile in cycle |
-| **Per-Profile Shortcuts** | Each profile can have its own dedicated shortcut |
+| Shortcut                        | Action                                           |
+| ------------------------------- | ------------------------------------------------ |
+| **Main Transcribe** (`Ctrl+F8`) | Transcribe using the active profile              |
+| **Cycle Profile**               | Switch to the next profile in cycle              |
+| **Per-Profile Shortcuts**       | Each profile can have its own dedicated shortcut |
 
 #### Default Profile
 
@@ -124,6 +125,26 @@ Drag and drop audio files to get a transcript.
 - Uses your local or cloud models
 
 **Usage:** Settings → Transcribe Audio File
+
+### ✏️ Text Replacement
+
+Automatically fix transcription errors and apply formatting rules.
+
+| Feature                 | Description                                                          |
+| ----------------------- | -------------------------------------------------------------------- |
+| **Find & Replace**      | Simple text substitution with special character support (`\n`, `\t`) |
+| **Case Insensitive**    | Toggle to match "Hello" and "hello" as the same                      |
+| **Regular Expressions** | Advanced pattern matching with capture group support (`$1`, `$2`)    |
+
+**Examples:**
+
+- Fix typos: `teh` → `the`
+- Remove repeated words: `\b(\w+)\s+\1\b` → `$1` (regex)
+- Add paragraph breaks: `.\n` → `.\n\n`
+
+Applied after LLM post-processing, so you get the final word on the output!
+
+**Setup:** Settings → Text Replace
 
 ### ☁️ Cloud STT Option
 
