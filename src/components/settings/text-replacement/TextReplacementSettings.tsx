@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Plus, Trash2, ArrowRight, HelpCircle, ChevronDown, ChevronUp, CaseSensitive, Regex } from "lucide-react";
+import { Plus, Trash2, ArrowRight, HelpCircle, ChevronDown, ChevronUp, CaseSensitive, Regex, Check, X } from "lucide-react";
 import { useSettings } from "@/hooks/useSettings";
 import { SettingsGroup } from "@/components/ui/SettingsGroup";
 import { Button } from "@/components/ui/Button";
@@ -25,6 +25,11 @@ export const TextReplacementSettings: React.FC = () => {
   const [newCaseSensitive, setNewCaseSensitive] = useState(true);
   const [newIsRegex, setNewIsRegex] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
+  
+  // Editing state
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editFrom, setEditFrom] = useState("");
+  const [editTo, setEditTo] = useState("");
 
   const replacements: TextReplacementRule[] = (settings?.text_replacements ?? []).map((r: any) => ({
     ...r,
@@ -48,7 +53,6 @@ export const TextReplacementSettings: React.FC = () => {
     updateSetting("text_replacements", [...replacements, newRule]);
     setNewFrom("");
     setNewTo("");
-    // Keep the options as user set them for next rule
   };
 
   const handleRemoveRule = (id: string) => {
@@ -85,10 +89,45 @@ export const TextReplacementSettings: React.FC = () => {
     );
   };
 
+  const startEditing = (rule: TextReplacementRule) => {
+    setEditingId(rule.id);
+    setEditFrom(rule.from);
+    setEditTo(rule.to);
+  };
+
+  const cancelEditing = () => {
+    setEditingId(null);
+    setEditFrom("");
+    setEditTo("");
+  };
+
+  const saveEditing = () => {
+    if (!editingId || !editFrom.trim()) return;
+    
+    updateSetting(
+      "text_replacements",
+      replacements.map((r) =>
+        r.id === editingId ? { ...r, from: editFrom, to: editTo } : r
+      )
+    );
+    setEditingId(null);
+    setEditFrom("");
+    setEditTo("");
+  };
+
   const handleKeyPress = (e: React.KeyboardEvent) => {
     if (e.key === "Enter" && newFrom.trim()) {
       e.preventDefault();
       handleAddRule();
+    }
+  };
+
+  const handleEditKeyPress = (e: React.KeyboardEvent) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      saveEditing();
+    } else if (e.key === "Escape") {
+      cancelEditing();
     }
   };
 
@@ -368,81 +407,138 @@ export const TextReplacementSettings: React.FC = () => {
                       disabled={isUpdating("text_replacements")}
                     />
 
-                    {/* From */}
-                    <div className="flex-1 min-w-0">
-                      <code
-                        className={`text-sm px-2 py-1 rounded block truncate ${
-                          rule.enabled
-                            ? "bg-[#252525] text-[#f5f5f5]"
-                            : "bg-[#1a1a1a] text-[#808080]"
-                        } ${rule.is_regex ? "border-l-2 border-[#f97316]" : ""}`}
-                        title={rule.from}
-                      >
-                        {formatDisplayText(rule.from)}
-                      </code>
-                    </div>
+                    {editingId === rule.id ? (
+                      /* Edit mode */
+                      <>
+                        <div className="flex-1 min-w-0">
+                          <Input
+                            type="text"
+                            className="w-full"
+                            value={editFrom}
+                            onChange={(e) => setEditFrom(e.target.value)}
+                            onKeyDown={handleEditKeyPress}
+                            variant="compact"
+                            autoFocus
+                          />
+                        </div>
+                        <ArrowRight className="w-4 h-4 text-[#606060] shrink-0" />
+                        <div className="flex-1 min-w-0">
+                          <Input
+                            type="text"
+                            className="w-full"
+                            value={editTo}
+                            onChange={(e) => setEditTo(e.target.value)}
+                            onKeyDown={handleEditKeyPress}
+                            variant="compact"
+                          />
+                        </div>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={saveEditing}
+                          className="shrink-0 text-[#4ade80] hover:text-[#22c55e]"
+                          title={t("textReplacement.save", "Save")}
+                        >
+                          <Check className="w-4 h-4" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={cancelEditing}
+                          className="shrink-0 text-[#808080] hover:text-red-400"
+                          title={t("textReplacement.cancel", "Cancel")}
+                        >
+                          <X className="w-4 h-4" />
+                        </Button>
+                      </>
+                    ) : (
+                      /* View mode */
+                      <>
+                        {/* From - clickable to edit */}
+                        <div 
+                          className="flex-1 min-w-0 cursor-pointer"
+                          onClick={() => startEditing(rule)}
+                          title={t("textReplacement.clickToEdit", "Click to edit")}
+                        >
+                          <code
+                            className={`text-sm px-2 py-1 rounded block truncate hover:ring-1 hover:ring-[#9b5de5]/50 ${
+                              rule.enabled
+                                ? "bg-[#252525] text-[#f5f5f5]"
+                                : "bg-[#1a1a1a] text-[#808080]"
+                            } ${rule.is_regex ? "border-l-2 border-[#f97316]" : ""}`}
+                          >
+                            {formatDisplayText(rule.from)}
+                          </code>
+                        </div>
 
-                    {/* Arrow */}
-                    <ArrowRight
-                      className={`w-4 h-4 shrink-0 ${
-                        rule.enabled ? "text-[#9b5de5]" : "text-[#444444]"
-                      }`}
-                    />
+                        {/* Arrow */}
+                        <ArrowRight
+                          className={`w-4 h-4 shrink-0 ${
+                            rule.enabled ? "text-[#9b5de5]" : "text-[#444444]"
+                          }`}
+                        />
 
-                    {/* To */}
-                    <div className="flex-1 min-w-0">
-                      <code
-                        className={`text-sm px-2 py-1 rounded block truncate ${
-                          rule.enabled
-                            ? "bg-[#252525] text-[#4ade80]"
-                            : "bg-[#1a1a1a] text-[#606060]"
+                        {/* To - clickable to edit */}
+                        <div 
+                          className="flex-1 min-w-0 cursor-pointer"
+                          onClick={() => startEditing(rule)}
+                          title={t("textReplacement.clickToEdit", "Click to edit")}
+                        >
+                          <code
+                            className={`text-sm px-2 py-1 rounded block truncate hover:ring-1 hover:ring-[#9b5de5]/50 ${
+                              rule.enabled
+                                ? "bg-[#252525] text-[#4ade80]"
+                                : "bg-[#1a1a1a] text-[#606060]"
+                            }`}
+                          >
+                            {formatDisplayText(rule.to)}
+                          </code>
+                        </div>
+
+                        {/* Delete Button */}
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => handleRemoveRule(rule.id)}
+                          disabled={isUpdating("text_replacements")}
+                          className="shrink-0 text-[#808080] hover:text-red-400"
+                          title={t("textReplacement.delete", "Delete rule")}
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </Button>
+                      </>
+                    )}
+                  </div>
+
+                  {/* Options row - only show when not editing */}
+                  {editingId !== rule.id && (
+                    <div className="flex items-center gap-2 mt-2 ml-7">
+                      <button
+                        onClick={() => handleToggleCaseSensitive(rule.id)}
+                        disabled={isUpdating("text_replacements")}
+                        className={`flex items-center gap-1 px-1.5 py-0.5 rounded text-xs transition-colors ${
+                          rule.case_sensitive
+                            ? "bg-[#9b5de5]/20 text-[#9b5de5]"
+                            : "bg-[#252525] text-[#606060]"
                         }`}
-                        title={rule.to}
+                        title={t("textReplacement.caseSensitiveTooltip", "Toggle case sensitivity")}
                       >
-                        {formatDisplayText(rule.to)}
-                      </code>
+                        <CaseSensitive className="w-3 h-3" />
+                      </button>
+                      <button
+                        onClick={() => handleToggleIsRegex(rule.id)}
+                        disabled={isUpdating("text_replacements")}
+                        className={`flex items-center gap-1 px-1.5 py-0.5 rounded text-xs transition-colors ${
+                          rule.is_regex
+                            ? "bg-[#f97316]/20 text-[#f97316]"
+                            : "bg-[#252525] text-[#606060]"
+                        }`}
+                        title={t("textReplacement.regexTooltip", "Toggle regex mode")}
+                      >
+                        <Regex className="w-3 h-3" />
+                      </button>
                     </div>
-
-                    {/* Delete Button */}
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => handleRemoveRule(rule.id)}
-                      disabled={isUpdating("text_replacements")}
-                      className="shrink-0 text-[#808080] hover:text-red-400"
-                      title={t("textReplacement.delete", "Delete rule")}
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </Button>
-                  </div>
-
-                  {/* Options row */}
-                  <div className="flex items-center gap-2 mt-2 ml-7">
-                    <button
-                      onClick={() => handleToggleCaseSensitive(rule.id)}
-                      disabled={isUpdating("text_replacements")}
-                      className={`flex items-center gap-1 px-1.5 py-0.5 rounded text-xs transition-colors ${
-                        rule.case_sensitive
-                          ? "bg-[#9b5de5]/20 text-[#9b5de5]"
-                          : "bg-[#252525] text-[#606060]"
-                      }`}
-                      title={t("textReplacement.caseSensitiveTooltip", "Toggle case sensitivity")}
-                    >
-                      <CaseSensitive className="w-3 h-3" />
-                    </button>
-                    <button
-                      onClick={() => handleToggleIsRegex(rule.id)}
-                      disabled={isUpdating("text_replacements")}
-                      className={`flex items-center gap-1 px-1.5 py-0.5 rounded text-xs transition-colors ${
-                        rule.is_regex
-                          ? "bg-[#f97316]/20 text-[#f97316]"
-                          : "bg-[#252525] text-[#606060]"
-                      }`}
-                      title={t("textReplacement.regexTooltip", "Toggle regex mode")}
-                    >
-                      <Regex className="w-3 h-3" />
-                    </button>
-                  </div>
+                  )}
                 </div>
               ))}
             </div>

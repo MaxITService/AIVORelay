@@ -1194,6 +1194,9 @@
     "toPlaceholder": "Replace with...",
     "emptyValue": "(empty)",
     "delete": "Delete rule",
+    "save": "Save",
+    "cancel": "Cancel",
+    "clickToEdit": "Click to edit",
     "empty": "No replacement rules yet. Add one above to get started."
   }
 }
