@@ -40,9 +40,7 @@ export const TranslateToEnglish: React.FC<TranslateToEnglishProps> = React.memo(
     const checkRemoteTranslationSupport = useCallback(async () => {
       if (isRemoteProvider) {
         const result = await commands.remoteSttSupportsTranslation();
-        if (result.status === "ok") {
-          setRemoteSupportsTranslation(result.data);
-        }
+        setRemoteSupportsTranslation(result);
       }
     }, [isRemoteProvider]);
 
