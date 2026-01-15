@@ -659,12 +659,12 @@ async fn perform_transcription_for_profile(
                 samples,
                 Some(&p.language),
                 Some(p.translate_to_english),
-                // Pass profile's system_prompt if set, otherwise None (will use global prompt)
-                if p.system_prompt.trim().is_empty() {
-                    None
-                } else {
-                    Some(p.system_prompt.clone())
-                },
+                // Use resolve_stt_prompt to respect stt_prompt_override_enabled flag
+                crate::settings::resolve_stt_prompt(
+                    Some(p),
+                    &settings.transcription_prompts,
+                    &settings.selected_model,
+                ),
                 settings.custom_words_enabled,
             )
         } else {

@@ -211,11 +211,11 @@ pub async fn transcribe_audio_file(
                     samples,
                     Some(&p.language),
                     Some(p.translate_to_english),
-                    if p.system_prompt.trim().is_empty() {
-                        None
-                    } else {
-                        Some(p.system_prompt.clone())
-                    },
+                    crate::settings::resolve_stt_prompt(
+                        Some(p),
+                        &settings.transcription_prompts,
+                        &settings.selected_model,
+                    ),
                     apply_custom_words_enabled,
                 )
                 .map_err(|e| format!("Local transcription failed: {}", e))
@@ -230,11 +230,11 @@ pub async fn transcribe_audio_file(
                     samples,
                     Some(&p.language),
                     Some(p.translate_to_english),
-                    if p.system_prompt.trim().is_empty() {
-                        None
-                    } else {
-                        Some(p.system_prompt.clone())
-                    },
+                    crate::settings::resolve_stt_prompt(
+                        Some(p),
+                        &settings.transcription_prompts,
+                        &settings.selected_model,
+                    ),
                     apply_custom_words_enabled,
                 )
                 .map_err(|e| format!("Local transcription failed: {}", e))
