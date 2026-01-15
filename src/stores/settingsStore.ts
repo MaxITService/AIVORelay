@@ -250,6 +250,12 @@ const settingUpdaters: {
 (settingUpdaters as any).convert_lf_to_crlf = (value: any) =>
   invoke("change_convert_lf_to_crlf_setting", { enabled: value });
 
+// Text Replacement settings
+(settingUpdaters as any).text_replacements_enabled = (value: any) =>
+  invoke("change_text_replacements_enabled_setting", { enabled: value });
+(settingUpdaters as any).text_replacements = (value: any) =>
+  invoke("change_text_replacements_setting", { replacements: value });
+
 export const useSettingsStore = create<SettingsStore>()(
   subscribeWithSelector((set, get) => ({
     settings: null,

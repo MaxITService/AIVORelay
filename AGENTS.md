@@ -127,6 +127,15 @@ When using Remote STT API, the **Recording Overlay** (`recording_overlay` window
 - **Timestamping**: Accurate timestamps are available when using **Local Whisper** models
 - **Remote STT**: Currently produces text-only output (no segment timestamps)
 
+### 8. Text Replacement
+
+- Files: `src-tauri/src/settings.rs` (TextReplacement struct), `src/components/settings/text-replacement/`
+- Automatic find-and-replace for transcription output
+- **Escape Sequences**: Supports `\n` (LF), `\r\n` (CRLF), `\r` (CR), `\t` (tab), `\\` (backslash)
+- Applied after all processing (Chinese conversion, LLM post-processing)
+- Each rule can be individually enabled/disabled
+- **Use Cases**: Fix commonly misheard words, apply formatting, normalize punctuation
+
 ## Guidelines for Agents
 
 ### When Modifying Fork Features

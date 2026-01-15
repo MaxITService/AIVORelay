@@ -22,20 +22,21 @@ Files that differentiate this fork from the original [cjpais/Handy](https://gith
 
 ### Frontend (React/TypeScript)
 
-| File                                                                 | Purpose                                                                                                                                                      |
-| -------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `src/components/settings/remote-stt/RemoteSttSettings.tsx`           | UI for Remote STT configuration: base URL, model ID, API key management, connection testing, debug log viewer.                                               |
-| `src/components/settings/advanced/AiReplaceSettings.tsx`             | UI for AI Replace feature: system/user prompts, max chars limit, "no selection" mode toggle.                                                                 |
-| `src/components/settings/browser-connector/ConnectorStatus.tsx`      | Extension status indicator component showing online/offline status with "last seen" time when offline.                                                       |
-| `src/components/icons/SendingIcon.tsx`                               | Monochrome SVG icon (upload arrow) for "sending" overlay state. Matches pink style (`#FAA2CA`) of other icons.                                               |
-| `src/overlay/plus_overlay_states.ts`                                 | TypeScript types for extended overlay states (`error`, `sending`). Error category enum and display text mapping.                                             |
-| `src/region-capture/RegionCaptureOverlay.tsx`                        | React component for native region selection: state machine (idle→creating→selected), mouse handling, resize handles.                                         |
-| `src/region-capture/RegionCaptureOverlay.css`                        | Styles for region capture overlay: dim areas, selection border, resize handles, cursor states.                                                               |
-| `src/command-confirm/CommandConfirmOverlay.tsx`                      | **Voice Command Center**: Confirmation popup showing suggested PowerShell command with Run/Edit/Cancel buttons.                                              |
-| `src/command-confirm/CommandConfirmOverlay.css`                      | Styles for command confirmation overlay: glassmorphism, dark theme, vibrant accent colors.                                                                   |
-| `src/components/settings/voice-commands/VoiceCommandSettings.tsx`    | Settings UI for managing predefined voice commands, similarity thresholds, and LLM fallback toggle.                                                          |
-| `src/components/settings/transcribe-file/TranscribeFileSettings.tsx` | UI for "Transcribe Audio File" feature: Drag-and-drop zone, file info, output format selection (Text/SRT/VTT), optional model override, and results display. |
-| `src/stores/transcribeFileStore.ts`                                  | Session store for Transcribe File UI state (selected file, output mode, profile selection, results).                                                         |
+| File                                                                   | Purpose                                                                                                                                                                 |
+| ---------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `src/components/settings/remote-stt/RemoteSttSettings.tsx`             | UI for Remote STT configuration: base URL, model ID, API key management, connection testing, debug log viewer.                                                          |
+| `src/components/settings/advanced/AiReplaceSettings.tsx`               | UI for AI Replace feature: system/user prompts, max chars limit, "no selection" mode toggle.                                                                            |
+| `src/components/settings/browser-connector/ConnectorStatus.tsx`        | Extension status indicator component showing online/offline status with "last seen" time when offline.                                                                  |
+| `src/components/icons/SendingIcon.tsx`                                 | Monochrome SVG icon (upload arrow) for "sending" overlay state. Matches pink style (`#FAA2CA`) of other icons.                                                          |
+| `src/overlay/plus_overlay_states.ts`                                   | TypeScript types for extended overlay states (`error`, `sending`). Error category enum and display text mapping.                                                        |
+| `src/region-capture/RegionCaptureOverlay.tsx`                          | React component for native region selection: state machine (idle→creating→selected), mouse handling, resize handles.                                                    |
+| `src/region-capture/RegionCaptureOverlay.css`                          | Styles for region capture overlay: dim areas, selection border, resize handles, cursor states.                                                                          |
+| `src/command-confirm/CommandConfirmOverlay.tsx`                        | **Voice Command Center**: Confirmation popup showing suggested PowerShell command with Run/Edit/Cancel buttons.                                                         |
+| `src/command-confirm/CommandConfirmOverlay.css`                        | Styles for command confirmation overlay: glassmorphism, dark theme, vibrant accent colors.                                                                              |
+| `src/components/settings/voice-commands/VoiceCommandSettings.tsx`      | Settings UI for managing predefined voice commands, similarity thresholds, and LLM fallback toggle.                                                                     |
+| `src/components/settings/transcribe-file/TranscribeFileSettings.tsx`   | UI for "Transcribe Audio File" feature: Drag-and-drop zone, file info, output format selection (Text/SRT/VTT), optional model override, and results display.            |
+| `src/components/settings/text-replacement/TextReplacementSettings.tsx` | UI for "Text Replacement" feature: Add/remove replacement rules with enable/disable toggles. Supports escape sequences for special characters (\\n, \\r\\n, \\t, \\\\). |
+| `src/stores/transcribeFileStore.ts`                                    | Session store for Transcribe File UI state (selected file, output mode, profile selection, results).                                                                    |
 
 ## Modified Files
 

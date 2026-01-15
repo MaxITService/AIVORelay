@@ -206,6 +206,96 @@ pub struct VoiceCommand {
     pub enabled: bool,
 }
 
+/// A text replacement rule that substitutes one text pattern with another.
+/// Supports escape sequences for special characters (e.g., \n for newline).
+/// Used to automatically fix common misheard phrases or apply consistent formatting.
+#[derive(Serialize, Deserialize, Debug, Clone, Type)]
+pub struct TextReplacement {
+    /// Unique identifier (e.g., "tr_1704067200000")
+    pub id: String,
+    /// The text pattern to search for (supports escape sequences: \n, \r\n, \t, \\)
+    pub from: String,
+    /// The replacement text (supports escape sequences: \n, \r\n, \t, \\)
+    pub to: String,
+    /// Whether this replacement rule is enabled
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+}
+
+impl TextReplacement {
+    /// Processes escape sequences in a string.
+    /// Converts: \\n -> \n, \\r\\n -> \r\n, \\t -> \t, \\\\ -> \\
+    fn process_escapes(s: &str) -> String {
+        let mut result = String::with_capacity(s.len());
+        let mut chars = s.chars().peekable();
+
+        while let Some(c) = chars.next() {
+            if c == '\\' {
+                match chars.peek() {
+                    Some('n') => {
+                        result.push('\n');
+                        chars.next();
+                    }
+                    Some('r') => {
+                        chars.next();
+                        // Check for \r\n sequence
+                        if chars.peek() == Some(&'\\') {
+                            let mut temp = chars.clone();
+                            temp.next();
+                            if temp.peek() == Some(&'n') {
+                                result.push_str("\r\n");
+                                chars.next(); // consume \
+                                chars.next(); // consume n
+                            } else {
+                                result.push('\r');
+                            }
+                        } else {
+                            result.push('\r');
+                        }
+                    }
+                    Some('t') => {
+                        result.push('\t');
+                        chars.next();
+                    }
+                    Some('\\') => {
+                        result.push('\\');
+                        chars.next();
+                    }
+                    _ => {
+                        // Keep the backslash if not a recognized escape
+                        result.push(c);
+                    }
+                }
+            } else {
+                result.push(c);
+            }
+        }
+        result
+    }
+
+    /// Applies this replacement rule to the given text.
+    /// Returns the text with all occurrences of `from` replaced with `to`.
+    pub fn apply(&self, text: &str) -> String {
+        if !self.enabled || self.from.is_empty() {
+            return text.to_string();
+        }
+        let from_processed = Self::process_escapes(&self.from);
+        let to_processed = Self::process_escapes(&self.to);
+        text.replace(&from_processed, &to_processed)
+    }
+}
+
+/// Applies all enabled text replacement rules to the given text.
+pub fn apply_text_replacements(text: &str, replacements: &[TextReplacement]) -> String {
+    let mut result = text.to_string();
+    for replacement in replacements {
+        if replacement.enabled {
+            result = replacement.apply(&result);
+        }
+    }
+    result
+}
+
 #[derive(Serialize, Deserialize, Debug, Clone, Type)]
 pub struct PostProcessProvider {
     pub id: String,
@@ -644,6 +734,13 @@ pub struct AppSettings {
     /// Whether Voice Commands beta feature is enabled in the UI (Debug menu toggle)
     #[serde(default = "default_true")]
     pub beta_voice_commands_enabled: bool,
+    // ==================== Text Replacement ====================
+    /// Whether text replacement feature is enabled globally
+    #[serde(default)]
+    pub text_replacements_enabled: bool,
+    /// List of text replacement rules
+    #[serde(default)]
+    pub text_replacements: Vec<TextReplacement>,
 }
 
 fn default_model() -> String {
@@ -1271,6 +1368,9 @@ pub fn get_default_settings() -> AppSettings {
         voice_command_reasoning_budget: default_reasoning_budget(),
         // Beta Feature Flags
         beta_voice_commands_enabled: false,
+        // Text Replacement
+        text_replacements_enabled: false,
+        text_replacements: Vec::new(),
     }
 }
 

@@ -857,6 +857,22 @@ async changeBetaVoiceCommandsEnabledSetting(enabled: boolean) : Promise<Result<n
     else return { status: "error", error: e  as any };
 }
 },
+async changeTextReplacementsEnabledSetting(enabled: boolean) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("change_text_replacements_enabled_setting", { enabled }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async changeTextReplacementsSetting(replacements: TextReplacement[]) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("change_text_replacements_setting", { replacements }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async triggerUpdateCheck() : Promise<Result<null, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("trigger_update_check") };
@@ -1552,7 +1568,15 @@ voice_command_reasoning_budget?: number;
 /**
  * Whether Voice Commands beta feature is enabled in the UI (Debug menu toggle)
  */
-beta_voice_commands_enabled?: boolean }
+beta_voice_commands_enabled?: boolean; 
+/**
+ * Whether text replacement feature is enabled globally
+ */
+text_replacements_enabled?: boolean; 
+/**
+ * List of text replacement rules
+ */
+text_replacements?: TextReplacement[] }
 export type AudioDevice = { index: string; name: string; is_default: boolean }
 export type BindingResponse = { success: boolean; binding: ShortcutBinding | null; error: string | null }
 export type ClipboardHandling = "dont_modify" | "copy_to_clipboard" | 
@@ -1728,6 +1752,28 @@ end: number;
  * The transcribed text for this segment
  */
 text: string }
+/**
+ * A text replacement rule that substitutes one text pattern with another.
+ * Supports escape sequences for special characters (e.g., \n for newline).
+ * Used to automatically fix common misheard phrases or apply consistent formatting.
+ */
+export type TextReplacement = { 
+/**
+ * Unique identifier (e.g., "tr_1704067200000")
+ */
+id: string; 
+/**
+ * The text pattern to search for (supports escape sequences: \n, \r\n, \t, \\)
+ */
+from: string; 
+/**
+ * The replacement text (supports escape sequences: \n, \r\n, \t, \\)
+ */
+to: string; 
+/**
+ * Whether this replacement rule is enabled
+ */
+enabled?: boolean }
 /**
  * A custom transcription profile with its own language and translation settings.
  * Each profile creates a separate shortcut binding (e.g., "transcribe_profile_abc123").

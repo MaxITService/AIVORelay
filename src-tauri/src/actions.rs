@@ -869,6 +869,20 @@ async fn apply_post_processing_and_history(
         }
     }
 
+    // Apply text replacements if enabled
+    if settings.text_replacements_enabled && !settings.text_replacements.is_empty() {
+        let original_len = final_text.len();
+        final_text =
+            crate::settings::apply_text_replacements(&final_text, &settings.text_replacements);
+        if final_text.len() != original_len {
+            debug!(
+                "Text replacements applied: {} chars -> {} chars",
+                original_len,
+                final_text.len()
+            );
+        }
+    }
+
     let hm = Arc::clone(&app.state::<Arc<HistoryManager>>());
     tauri::async_runtime::spawn(async move {
         if let Err(e) = hm

@@ -947,7 +947,7 @@ pub fn add_transcription_profile(
         translate_to_english,
         description: description.clone(),
         system_prompt,
-        stt_prompt_override_enabled: false,      // Default: use global per-model prompt
+        stt_prompt_override_enabled: false, // Default: use global per-model prompt
         include_in_cycle: include_in_cycle.unwrap_or(true), // Include in cycle by default
         push_to_talk,
         llm_post_process_enabled,
@@ -2126,5 +2126,33 @@ pub fn unregister_shortcut(app: &AppHandle, binding: ShortcutBinding) -> Result<
         error_msg
     })?;
 
+    Ok(())
+}
+
+// ============================================================================
+// Text Replacement Settings
+// ============================================================================
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_text_replacements_enabled_setting(
+    app: AppHandle,
+    enabled: bool,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.text_replacements_enabled = enabled;
+    settings::write_settings(&app, settings);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_text_replacements_setting(
+    app: AppHandle,
+    replacements: Vec<settings::TextReplacement>,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.text_replacements = replacements;
+    settings::write_settings(&app, settings);
     Ok(())
 }

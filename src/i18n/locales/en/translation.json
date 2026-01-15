@@ -13,6 +13,7 @@
     "voiceCommands": "Voice Commands",
     "browserConnector": "Connector",
     "transcribeFile": "Transcribe File",
+    "textReplacement": "Text Replace",
     "history": "History",
     "debug": "Debug",
     "about": "About"
@@ -1159,5 +1160,30 @@
     "unsupportedFormat": "Unsupported format: .{{format}}. Supported: {{supported}}",
     "usePicker": "Drag & drop is not supported. Please click to select a file.",
     "recordingInProgress": "Recording in progress. Please wait for it to finish."
+  },
+  "textReplacement": {
+    "title": "Text Replacement",
+    "description": "Automatically replace text patterns in transcriptions. Useful for fixing commonly misheard words or applying consistent formatting.",
+    "enable": "Enable Text Replacement",
+    "enableDescription": "Apply replacement rules to all transcriptions after processing.",
+    "helpTitle": "How to use special characters",
+    "escapeSequences": "Escape Sequences",
+    "escapeIntro": "Use these codes to match or insert special characters:",
+    "escapeNewline": "Line break (LF - Unix/Mac style)",
+    "escapeCRLF": "Line break (CRLF - Windows style)",
+    "escapeCarriageReturn": "Carriage return (CR - old Mac style)",
+    "escapeTab": "Tab character",
+    "escapeBackslash": "Literal backslash",
+    "examples": "Examples",
+    "exampleTypo": "(fix typo)",
+    "exampleParagraph": "(double-space after periods)",
+    "exampleFormal": "(formal style)",
+    "noteTitle": "Note:",
+    "noteContent": "For Windows line endings conversion, consider using the 'Convert LF to CRLF' option in Advanced settings instead — it handles this automatically for clipboard paste operations.",
+    "fromPlaceholder": "Find text...",
+    "toPlaceholder": "Replace with...",
+    "emptyValue": "(empty)",
+    "delete": "Delete rule",
+    "empty": "No replacement rules yet. Add one above to get started."
   }
 }

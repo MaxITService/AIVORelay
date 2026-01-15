@@ -9,6 +9,7 @@ export { BrowserConnectorSettings } from "./browser-connector/BrowserConnectorSe
 export { AiReplaceSelectionSettings } from "./ai-replace/AiReplaceSelectionSettings";
 export { default as VoiceCommandSettings } from "./voice-commands/VoiceCommandSettings";
 export { default as TranscribeFileSettings } from "./transcribe-file/TranscribeFileSettings";
+export { default as TextReplacementSettings } from "./text-replacement/TextReplacementSettings";
 
 // Individual setting components
 export { MicrophoneSelector } from "./MicrophoneSelector";
