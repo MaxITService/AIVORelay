@@ -611,14 +611,22 @@ async fn perform_transcription_for_profile(
             )
             .await
             .map(|text| {
-                if settings.custom_words_enabled && !settings.custom_words.is_empty() {
-                    apply_custom_words(
-                        &text,
-                        &settings.custom_words,
-                        settings.word_correction_threshold,
-                    )
+                // Apply custom word corrections
+                let corrected =
+                    if settings.custom_words_enabled && !settings.custom_words.is_empty() {
+                        apply_custom_words(
+                            &text,
+                            &settings.custom_words,
+                            settings.word_correction_threshold,
+                        )
+                    } else {
+                        text
+                    };
+                // Apply filler word filter (if enabled)
+                if settings.filler_word_filter_enabled {
+                    crate::audio_toolkit::filter_transcription_output(&corrected)
                 } else {
-                    text
+                    corrected
                 }
             });
 

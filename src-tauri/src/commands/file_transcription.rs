@@ -163,6 +163,13 @@ pub async fn transcribe_audio_file(
             text
         };
 
+        // Apply filler word filter (if enabled)
+        let corrected = if settings.filler_word_filter_enabled {
+            crate::audio_toolkit::filter_transcription_output(&corrected)
+        } else {
+            corrected
+        };
+
         // For remote STT without segment support, create a single segment
         // spanning the estimated duration if subtitle format is requested
         let segs = if needs_segments {
