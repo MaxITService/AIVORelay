@@ -49,4 +49,8 @@ impl VoiceActivityDetector for SileroVad {
             Ok(VadFrame::Noise)
         }
     }
+    fn reset(&mut self) {}
+    fn set_threshold(&mut self, threshold: f32) {
+        self.threshold = threshold;
+    }
 }

@@ -153,6 +153,11 @@ impl AudioRecorder {
         self.device = None;
         Ok(())
     }
+    pub fn set_vad_threshold(&self, threshold: f32) {
+        if let Some(vad) = &self.vad {
+            vad.lock().unwrap().set_threshold(threshold);
+        }
+    }
 
     fn build_stream<T>(
         device: &cpal::Device,

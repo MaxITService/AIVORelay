@@ -23,6 +23,7 @@ pub trait VoiceActivityDetector: Send + Sync {
     }
 
     fn reset(&mut self) {}
+    fn set_threshold(&mut self, _threshold: f32) {}
 }
 
 mod silero;

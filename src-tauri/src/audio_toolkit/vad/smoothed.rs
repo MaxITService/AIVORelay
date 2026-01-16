@@ -102,4 +102,7 @@ impl VoiceActivityDetector for SmoothedVad {
         self.in_speech = false;
         self.temp_out.clear();
     }
+    fn set_threshold(&mut self, threshold: f32) {
+        self.inner_vad.set_threshold(threshold);
+    }
 }

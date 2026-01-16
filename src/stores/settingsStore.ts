@@ -47,7 +47,9 @@ interface SettingsStore {
   ) => Promise<void>;
   updatePostProcessModel: (providerId: string, model: string) => Promise<void>;
   fetchPostProcessModels: (providerId: string) => Promise<string[]>;
-  fetchLlmModels: (feature: "post_processing" | "ai_replace") => Promise<string[]>;
+  fetchLlmModels: (
+    feature: "post_processing" | "ai_replace",
+  ) => Promise<string[]>;
   setPostProcessModelOptions: (providerId: string, models: string[]) => void;
   setTranscriptionProvider: (providerId: string) => Promise<void>;
   updateRemoteSttBaseUrl: (baseUrl: string) => Promise<void>;
@@ -55,10 +57,7 @@ interface SettingsStore {
   updateRemoteSttDebugCapture: (enabled: boolean) => Promise<void>;
   updateRemoteSttDebugMode: (mode: string) => Promise<void>;
   setAiReplaceProvider: (providerId: string | null) => Promise<void>;
-  updateAiReplaceApiKey: (
-    providerId: string,
-    apiKey: string,
-  ) => Promise<void>;
+  updateAiReplaceApiKey: (providerId: string, apiKey: string) => Promise<void>;
   updateAiReplaceModel: (providerId: string, model: string) => Promise<void>;
   setVoiceCommandProvider: (providerId: string | null) => Promise<void>;
   updateVoiceCommandApiKey: (
@@ -153,13 +152,21 @@ const settingUpdaters: {
   send_to_extension_with_selection_enabled: (value) =>
     commands.changeSendToExtensionWithSelectionEnabledSetting(value as boolean),
   send_to_extension_with_selection_push_to_talk: (value) =>
-    commands.changeSendToExtensionWithSelectionPushToTalkSetting(value as boolean),
+    commands.changeSendToExtensionWithSelectionPushToTalkSetting(
+      value as boolean,
+    ),
   send_to_extension_with_selection_allow_no_voice: (value) =>
-    commands.changeSendToExtensionWithSelectionAllowNoVoiceSetting(value as boolean),
+    commands.changeSendToExtensionWithSelectionAllowNoVoiceSetting(
+      value as boolean,
+    ),
   send_to_extension_with_selection_quick_tap_threshold_ms: (value) =>
-    commands.changeSendToExtensionWithSelectionQuickTapThresholdMsSetting(value as number),
+    commands.changeSendToExtensionWithSelectionQuickTapThresholdMsSetting(
+      value as number,
+    ),
   send_to_extension_with_selection_no_voice_system_prompt: (value) =>
-    commands.changeSendToExtensionWithSelectionNoVoiceSystemPromptSetting(value as string),
+    commands.changeSendToExtensionWithSelectionNoVoiceSystemPromptSetting(
+      value as string,
+    ),
   ai_replace_selection_push_to_talk: (value) =>
     commands.changeAiReplaceSelectionPushToTalkSetting(value as boolean),
   connector_auto_open_enabled: (value) =>
@@ -200,6 +207,8 @@ const settingUpdaters: {
   app_language: (value) => commands.changeAppLanguageSetting(value as string),
   transcription_provider: (value) =>
     commands.changeTranscriptionProviderSetting(value as string),
+  vad_threshold: (value) =>
+    commands.changeVadThresholdSetting(value as number),
 };
 
 // Fork-specific settings not yet present in generated bindings.
@@ -234,13 +243,17 @@ const settingUpdaters: {
 (settingUpdaters as any).voice_command_keep_window_open = (value: any) =>
   invoke("change_voice_command_keep_window_open_setting", { enabled: value });
 (settingUpdaters as any).voice_command_use_windows_terminal = (value: any) =>
-  invoke("change_voice_command_use_windows_terminal_setting", { enabled: value });
+  invoke("change_voice_command_use_windows_terminal_setting", {
+    enabled: value,
+  });
 (settingUpdaters as any).voice_command_auto_run = (value: any) =>
   invoke("change_voice_command_auto_run_setting", { enabled: value });
 (settingUpdaters as any).voice_command_auto_run_seconds = (value: any) =>
   invoke("change_voice_command_auto_run_seconds_setting", { seconds: value });
 (settingUpdaters as any).voice_command_default_threshold = (value: any) =>
-  invoke("change_voice_command_default_threshold_setting", { threshold: value });
+  invoke("change_voice_command_default_threshold_setting", {
+    threshold: value,
+  });
 (settingUpdaters as any).voice_commands = (value: any) =>
   invoke("change_voice_commands_setting", { commands: value });
 
@@ -655,12 +668,15 @@ export const useSettingsStore = create<SettingsStore>()(
 
     fetchLlmModels: async (feature: "post_processing" | "ai_replace") => {
       const { setUpdating, setPostProcessModelOptions, settings } = get();
-      
+
       // Get the effective provider ID for this feature
-      const effectiveProviderId = feature === "ai_replace"
-        ? (settings?.ai_replace_provider_id || settings?.post_process_provider_id || "openai")
-        : (settings?.post_process_provider_id || "openai");
-      
+      const effectiveProviderId =
+        feature === "ai_replace"
+          ? settings?.ai_replace_provider_id ||
+            settings?.post_process_provider_id ||
+            "openai"
+          : settings?.post_process_provider_id || "openai";
+
       const updateKey = `llm_models_fetch:${feature}:${effectiveProviderId}`;
 
       setUpdating(updateKey, true);
@@ -693,7 +709,7 @@ export const useSettingsStore = create<SettingsStore>()(
       if (settings) {
         set((state) => ({
           settings: state.settings
-? { ...state.settings, ai_replace_provider_id: providerId }
+            ? { ...state.settings, ai_replace_provider_id: providerId }
             : null,
         }));
       }
@@ -706,7 +722,7 @@ export const useSettingsStore = create<SettingsStore>()(
         if (settings) {
           set((state) => ({
             settings: state.settings
-? { ...state.settings, ai_replace_provider_id: previousId }
+              ? { ...state.settings, ai_replace_provider_id: previousId }
               : null,
           }));
         }

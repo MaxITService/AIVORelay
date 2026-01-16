@@ -444,4 +444,9 @@ impl AudioRecordingManager {
             }
         }
     }
+    pub fn update_vad_threshold(&self, threshold: f32) {
+        if let Some(rec) = self.recorder.lock().unwrap().as_ref() {
+            rec.set_vad_threshold(threshold);
+        }
+    }
 }

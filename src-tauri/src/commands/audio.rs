@@ -200,3 +200,17 @@ pub fn is_recording(app: AppHandle) -> bool {
     let audio_manager = app.state::<Arc<AudioRecordingManager>>();
     audio_manager.is_recording()
 }
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_vad_threshold_setting(app: AppHandle, threshold: f32) -> Result<(), String> {
+    let mut settings = get_settings(&app);
+    settings.vad_threshold = threshold;
+    write_settings(&app, settings);
+
+    // Update the audio manager immediately
+    let rm = app.state::<Arc<AudioRecordingManager>>();
+    rm.update_vad_threshold(threshold);
+
+    Ok(())
+}
