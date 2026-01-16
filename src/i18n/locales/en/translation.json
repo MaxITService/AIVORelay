@@ -15,9 +15,42 @@
     "browserConnector": "Connector",
     "transcribeFile": "Transcribe File",
     "textReplacement": "Text Replace",
+    "audioProcessing": "Speech Processing",
     "history": "History",
     "debug": "Debug",
     "about": "About"
+  },
+  "textReplacement": {
+    "cleanupTitle": "Speech Clean-up",
+    "cleanupDescription": "Automatically remove common speech artifacts from the final text."
+  },
+  "audioProcessing": {
+    "title": "Speech Processing",
+    "description": "Configure voice activity detection and speech artifact filtering.",
+    "fillerFilter": "Remove Filler Words",
+    "fillerFilterDescription": "Automatically remove 'uh', 'um', 'hmm' and similar filler words from transcriptions.",
+    "fillerHelpTitle": "Tell me more about filler word removal",
+    "whatItDoes": "What it does",
+    "fillerExplanation": "This feature automatically removes common filler words and speech artifacts from your transcriptions:",
+    "fillerWords": "Filler words:",
+    "hallucinations": "Hallucinations:",
+    "stutters": "Stutters:",
+    "noteTitle": "Note:",
+    "fillerNote": "This is especially useful with AI models like Parakeet that may produce filler words or stuttering artifacts. Most professional dictation systems include similar filtering.",
+    "vadThreshold": "Voice Detection Sensitivity",
+    "moreSensitive": "More sensitive",
+    "lessSensitive": "Less sensitive",
+    "vadHelpTitle": "Tell me more about voice detection sensitivity",
+    "vadExplanation": "Voice Activity Detection (VAD)",
+    "vadDescription": "VAD determines when you're speaking vs when there's silence or background noise. The threshold controls how confident the system must be before recording audio.",
+    "lowThreshold": "Low (Default)",
+    "lowThresholdDesc": "Very sensitive — captures quiet speech but may include noise. Good for quiet environments.",
+    "midThreshold": "Medium",
+    "midThresholdDesc": "Balanced — reduces background noise while still capturing most speech.",
+    "highThreshold": "High",
+    "highThresholdDesc": "Conservative — only passes clear speech. Reduces stuttering artifacts but may miss quiet words.",
+    "tipTitle": "Tip:",
+    "vadTip": "If you're experiencing stuttering artifacts like 'wh wh wh why', try increasing this value to 0.5 or 0.6. The trade-off is that very quiet speech might get clipped."
   },
   "voiceCommands": {
     "llmApi": {

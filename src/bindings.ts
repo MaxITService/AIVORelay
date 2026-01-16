@@ -1600,7 +1600,17 @@ text_replacements_enabled?: boolean;
 /**
  * List of text replacement rules
  */
-text_replacements?: TextReplacement[] }
+text_replacements?: TextReplacement[]; 
+/**
+ * Whether to filter filler words (uh, um, hmm, etc.) from transcriptions
+ */
+filler_word_filter_enabled?: boolean; 
+/**
+ * VAD (Voice Activity Detection) threshold for speech detection (0.1-0.9)
+ * Lower = more sensitive (captures quieter speech but may include noise)
+ * Higher = less sensitive (cleaner input but may cut off quiet speech)
+ */
+vad_threshold?: number }
 export type AudioDevice = { index: string; name: string; is_default: boolean }
 export type BindingResponse = { success: boolean; binding: ShortcutBinding | null; error: string | null }
 export type ClipboardHandling = "dont_modify" | "copy_to_clipboard" | 

@@ -795,6 +795,15 @@ pub struct AppSettings {
     /// List of text replacement rules
     #[serde(default)]
     pub text_replacements: Vec<TextReplacement>,
+    // ==================== Audio Processing ====================
+    /// Whether to filter filler words (uh, um, hmm, etc.) from transcriptions
+    #[serde(default)]
+    pub filler_word_filter_enabled: bool,
+    /// VAD (Voice Activity Detection) threshold for speech detection (0.1-0.9)
+    /// Lower = more sensitive (captures quieter speech but may include noise)
+    /// Higher = less sensitive (cleaner input but may cut off quiet speech)
+    #[serde(default = "default_vad_threshold")]
+    pub vad_threshold: f32,
 }
 
 fn default_model() -> String {
@@ -820,6 +829,10 @@ fn default_remote_stt_settings() -> RemoteSttSettings {
         debug_capture: default_remote_stt_debug_capture(),
         debug_mode: default_remote_stt_debug_mode(),
     }
+}
+
+fn default_vad_threshold() -> f32 {
+    0.3 // Original Handy default - more sensitive
 }
 
 fn default_always_on_microphone() -> bool {
@@ -1431,6 +1444,9 @@ pub fn get_default_settings() -> AppSettings {
         // Text Replacement
         text_replacements_enabled: false,
         text_replacements: Vec::new(),
+        // Audio Processing
+        filler_word_filter_enabled: false,
+        vad_threshold: default_vad_threshold(),
     }
 }
 

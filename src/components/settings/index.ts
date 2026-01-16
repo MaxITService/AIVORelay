@@ -10,6 +10,7 @@ export { AiReplaceSelectionSettings } from "./ai-replace/AiReplaceSelectionSetti
 export { default as VoiceCommandSettings } from "./voice-commands/VoiceCommandSettings";
 export { default as TranscribeFileSettings } from "./transcribe-file/TranscribeFileSettings";
 export { default as TextReplacementSettings } from "./text-replacement/TextReplacementSettings";
+export { default as AudioProcessingSettings } from "./audio-processing/AudioProcessingSettings";
 
 // Individual setting components
 export { MicrophoneSelector } from "./MicrophoneSelector";

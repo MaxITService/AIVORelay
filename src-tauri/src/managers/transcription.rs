@@ -341,11 +341,7 @@ impl TranscriptionManager {
         current_model.clone()
     }
 
-    pub fn transcribe(
-        &self,
-        audio: Vec<f32>,
-        apply_custom_words_enabled: bool,
-    ) -> Result<String> {
+    pub fn transcribe(&self, audio: Vec<f32>, apply_custom_words_enabled: bool) -> Result<String> {
         // Update last activity timestamp
         self.last_activity.store(
             SystemTime::now()
@@ -456,8 +452,12 @@ impl TranscriptionManager {
             result.text
         };
 
-        // Filter out filler words and hallucinations
-        let filtered_result = filter_transcription_output(&corrected_result);
+        // Filter out filler words and hallucinations (if enabled)
+        let filtered_result = if settings.filler_word_filter_enabled {
+            filter_transcription_output(&corrected_result)
+        } else {
+            corrected_result
+        };
 
         let et = std::time::Instant::now();
         let translation_note = if settings.translate_to_english {
@@ -605,6 +605,13 @@ impl TranscriptionManager {
             result.text
         };
 
+        // Filter out filler words and hallucinations (if enabled)
+        let filtered_result = if settings.filler_word_filter_enabled {
+            filter_transcription_output(&corrected_result)
+        } else {
+            corrected_result
+        };
+
         let et = std::time::Instant::now();
         let translation_note = if translate_to_english {
             " (translated)"
@@ -618,7 +625,7 @@ impl TranscriptionManager {
             translation_note
         );
 
-        let final_result = corrected_result.trim().to_string();
+        let final_result = filtered_result.trim().to_string();
 
         if settings.model_unload_timeout == ModelUnloadTimeout::Immediately {
             info!("Immediately unloading model after transcription");
@@ -772,6 +779,13 @@ impl TranscriptionManager {
             result.text
         };
 
+        // Filter out filler words and hallucinations (if enabled)
+        let filtered_result = if settings.filler_word_filter_enabled {
+            filter_transcription_output(&corrected_result)
+        } else {
+            corrected_result
+        };
+
         let et = std::time::Instant::now();
         let translation_note = if translate_to_english {
             " (translated)"
@@ -785,7 +799,7 @@ impl TranscriptionManager {
             translation_note
         );
 
-        let final_result = corrected_result.trim().to_string();
+        let final_result = filtered_result.trim().to_string();
 
         if settings.model_unload_timeout == ModelUnloadTimeout::Immediately {
             info!("Immediately unloading model after transcription");

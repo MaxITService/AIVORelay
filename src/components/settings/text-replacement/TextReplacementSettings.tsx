@@ -557,6 +557,59 @@ export const TextReplacementSettings: React.FC = () => {
           </div>
         )}
       </SettingsGroup>
+
+      {/* Speech Clean-up Group */}
+      <SettingsGroup
+        title={t("textReplacement.cleanupTitle", "Speech Clean-up")}
+        description={t(
+          "textReplacement.cleanupDescription",
+          "Automatically remove common speech artifacts from the final text."
+        )}
+      >
+        {/* Filler Word Filter */}
+        <div className="px-4 py-3">
+          <ToggleSwitch
+            checked={settings?.filler_word_filter_enabled ?? false}
+            onChange={(enabled) =>
+              updateSetting("filler_word_filter_enabled", enabled)
+            }
+            isUpdating={isUpdating("filler_word_filter_enabled")}
+            label={t("audioProcessing.fillerFilter", "Remove Filler Words")}
+            description={t(
+              "audioProcessing.fillerFilterDescription",
+              "Automatically remove 'uh', 'um', 'hmm' and similar filler words from transcriptions."
+            )}
+            descriptionMode="inline"
+          />
+        </div>
+
+        {/* Filler Word Filter Help */}
+        <div className="px-4 py-3 border-t border-white/[0.05]">
+          <details className="group">
+            <summary className="flex items-center gap-2 text-sm text-[#9b5de5] hover:text-[#b47eff] transition-colors cursor-pointer list-none">
+              <HelpCircle className="w-4 h-4" />
+              {t("audioProcessing.fillerHelpTitle", "Tell me more about filler word removal")}
+              <ChevronDown className="w-4 h-4 group-open:rotate-180 transition-transform" />
+            </summary>
+            <div className="mt-3 p-4 bg-[#1a1a1a] rounded-lg border border-[#333333] text-sm">
+              <h4 className="font-medium text-[#f5f5f5] mb-2">
+                {t("audioProcessing.whatItDoes", "What it does")}
+              </h4>
+              <p className="text-[#b8b8b8] mb-3">
+                {t(
+                  "audioProcessing.fillerExplanation",
+                  "This feature automatically removes common filler words and speech artifacts from your transcriptions:"
+                )}
+              </p>
+              <ul className="space-y-1 text-[#b8b8b8] mb-3">
+                <li>• <strong>{t("audioProcessing.fillerWords", "Filler words:")}</strong> uh, um, uhm, umm, ah, eh, hmm, hm, mmm</li>
+                <li>• <strong>{t("audioProcessing.hallucinations", "Hallucinations:")}</strong> [AUDIO], (pause), {"<tag>...</tag>"}</li>
+                <li>• <strong>{t("audioProcessing.stutters", "Stutters:")}</strong> "w wh wh wh why" → "wh why"</li>
+              </ul>
+            </div>
+          </details>
+        </div>
+      </SettingsGroup>
     </div>
   );
 };

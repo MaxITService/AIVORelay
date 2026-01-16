@@ -1,6 +1,6 @@
 import React from "react";
 import { useTranslation } from "react-i18next";
-import { Cog, FlaskConical, Globe, History, Info, Sparkles, Wand2, Terminal, FileAudio, Replace } from "lucide-react";
+import { Cog, FlaskConical, Globe, History, Info, Sparkles, Wand2, Terminal, FileAudio, Replace, Mic } from "lucide-react";
 import { type } from "@tauri-apps/plugin-os";
 import HandyTextLogo from "./icons/HandyTextLogo";
 import HandyHand from "./icons/HandyHand";
@@ -17,6 +17,7 @@ import {
   VoiceCommandSettings,
   TranscribeFileSettings,
   TextReplacementSettings,
+  AudioProcessingSettings,
 } from "./settings";
 
 export type SidebarSection = keyof typeof SECTIONS_CONFIG;
@@ -85,6 +86,12 @@ export const SECTIONS_CONFIG = {
     labelKey: "sidebar.textReplacement",
     icon: Replace,
     component: TextReplacementSettings,
+    enabled: () => true,
+  },
+  audioProcessing: {
+    labelKey: "sidebar.audioProcessing",
+    icon: Mic,
+    component: AudioProcessingSettings,
     enabled: () => true,
   },
   history: {
