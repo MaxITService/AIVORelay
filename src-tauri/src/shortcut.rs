@@ -691,6 +691,30 @@ pub fn change_voice_command_use_windows_terminal_setting(
 
 #[tauri::command]
 #[specta::specta]
+pub fn change_voice_command_auto_run_setting(
+    app: AppHandle,
+    enabled: bool,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.voice_command_auto_run = enabled;
+    settings::write_settings(&app, settings);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_voice_command_auto_run_seconds_setting(
+    app: AppHandle,
+    seconds: u32,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.voice_command_auto_run_seconds = seconds.clamp(1, 10);
+    settings::write_settings(&app, settings);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
 pub fn change_voice_command_default_threshold_setting(
     app: AppHandle,
     threshold: f64,

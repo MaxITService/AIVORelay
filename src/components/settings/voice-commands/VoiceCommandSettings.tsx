@@ -558,6 +558,35 @@ export default function VoiceCommandSettings() {
             />
           </div>
 
+          <div className="setting-row">
+            <div className="setting-label">
+              <span>{t("voiceCommands.autoRun", "Auto Run")}</span>
+              <span className="setting-sublabel">
+                {t("voiceCommands.autoRunDescription", "Auto-execute predefined commands after countdown")}
+              </span>
+            </div>
+            <div className="auto-run-controls">
+              <input
+                type="number"
+                min="1"
+                max="10"
+                value={settings.voice_command_auto_run_seconds || 4}
+                onChange={(e) => updateSetting("voice_command_auto_run_seconds", Math.max(1, Math.min(10, parseInt(e.target.value) || 4)))}
+                disabled={!settings.voice_command_auto_run}
+                className="auto-run-seconds-input"
+              />
+              <span className="auto-run-seconds-label">{t("voiceCommands.seconds", "sec")}</span>
+              <label className="toggle-switch">
+                <input
+                  type="checkbox"
+                  checked={settings.voice_command_auto_run || false}
+                  onChange={(e) => updateSetting("voice_command_auto_run", e.target.checked)}
+                />
+                <span className="slider"></span>
+              </label>
+            </div>
+          </div>
+
           <div className="voice-commands-list">
             <div className="list-header">
               <h4>{t("voiceCommands.predefinedCommands", "Predefined Commands")}</h4>

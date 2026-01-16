@@ -235,6 +235,10 @@ const settingUpdaters: {
   invoke("change_voice_command_keep_window_open_setting", { enabled: value });
 (settingUpdaters as any).voice_command_use_windows_terminal = (value: any) =>
   invoke("change_voice_command_use_windows_terminal_setting", { enabled: value });
+(settingUpdaters as any).voice_command_auto_run = (value: any) =>
+  invoke("change_voice_command_auto_run_setting", { enabled: value });
+(settingUpdaters as any).voice_command_auto_run_seconds = (value: any) =>
+  invoke("change_voice_command_auto_run_seconds_setting", { seconds: value });
 (settingUpdaters as any).voice_command_default_threshold = (value: any) =>
   invoke("change_voice_command_default_threshold_setting", { threshold: value });
 (settingUpdaters as any).voice_commands = (value: any) =>

@@ -434,3 +434,40 @@
   border-radius: 6px;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
 }
+
+/* ============================================
+   Auto-Run Controls (Voice Commands)
+   ============================================ */
+
+.auto-run-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.auto-run-seconds-input {
+  width: 50px;
+  padding: 6px 8px;
+  background: rgba(30, 30, 30, 0.8);
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  color: var(--color-text);
+  font-size: 13px;
+  text-align: center;
+  transition: all 0.15s ease;
+}
+
+.auto-run-seconds-input:focus {
+  outline: none;
+  border-color: var(--color-accent-primary);
+}
+
+.auto-run-seconds-input:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.auto-run-seconds-label {
+  color: var(--color-text-secondary);
+  font-size: 12px;
+}

@@ -285,6 +285,22 @@ async changeVoiceCommandUseWindowsTerminalSetting(enabled: boolean) : Promise<Re
     else return { status: "error", error: e  as any };
 }
 },
+async changeVoiceCommandAutoRunSetting(enabled: boolean) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("change_voice_command_auto_run_setting", { enabled }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async changeVoiceCommandAutoRunSecondsSetting(seconds: number) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("change_voice_command_auto_run_seconds_setting", { seconds }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async changeVoiceCommandDefaultThresholdSetting(threshold: number) : Promise<Result<null, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("change_voice_command_default_threshold_setting", { threshold }) };
@@ -1529,6 +1545,14 @@ voice_command_keep_window_open?: boolean;
  * Whether to use Windows Terminal (wt) instead of classic PowerShell window
  */
 voice_command_use_windows_terminal?: boolean; 
+/**
+ * Whether to auto-run predefined commands after countdown (not LLM-generated)
+ */
+voice_command_auto_run?: boolean; 
+/**
+ * Countdown seconds before auto-running predefined commands (1-10)
+ */
+voice_command_auto_run_seconds?: number; 
 /**
  * Whether to enable extended thinking (reasoning tokens) for post-processing LLM calls
  */

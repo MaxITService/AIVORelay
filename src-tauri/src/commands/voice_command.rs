@@ -230,6 +230,8 @@ pub async fn test_voice_command_mock(
                 ps_args: settings.voice_command_ps_args.clone(),
                 keep_window_open: settings.voice_command_keep_window_open,
                 use_windows_terminal: settings.voice_command_use_windows_terminal,
+                auto_run: settings.voice_command_auto_run,
+                auto_run_seconds: settings.voice_command_auto_run_seconds,
             },
         );
 
@@ -261,6 +263,8 @@ pub async fn test_voice_command_mock(
                         ps_args: settings.voice_command_ps_args.clone(),
                         keep_window_open: settings.voice_command_keep_window_open,
                         use_windows_terminal: settings.voice_command_use_windows_terminal,
+                        auto_run: false, // Never auto-run LLM-generated commands
+                        auto_run_seconds: 0,
                     },
                 );
 

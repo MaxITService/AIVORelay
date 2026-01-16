@@ -313,6 +313,8 @@ pub fn run() {
         shortcut::change_voice_command_ps_args_setting,
         shortcut::change_voice_command_keep_window_open_setting,
         shortcut::change_voice_command_use_windows_terminal_setting,
+        shortcut::change_voice_command_auto_run_setting,
+        shortcut::change_voice_command_auto_run_seconds_setting,
         shortcut::change_voice_command_default_threshold_setting,
         shortcut::change_voice_commands_setting,
         shortcut::change_post_process_base_url_setting,

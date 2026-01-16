@@ -23,7 +23,10 @@
       "title": "LLM API Settings",
       "description": "Configure the LLM provider for voice command generation.",
       "sameAsPostProcessing": "Use the same LLM settings as Transcription Post-Processing."
-    }
+    },
+    "autoRun": "Auto Run",
+    "autoRunDescription": "Auto-execute predefined commands after countdown",
+    "seconds": "sec"
   },
   "onboarding": {
     "subtitle": "To get started, choose a transcription model",

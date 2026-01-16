@@ -11,6 +11,9 @@ interface CommandConfirmPayload {
   ps_args?: string;
   keep_window_open?: boolean;
   use_windows_terminal?: boolean;
+  // Auto-run settings (only for predefined commands)
+  auto_run?: boolean;
+  auto_run_seconds?: number;
 }
 
 /** Payload emitted after command execution (for history tracking) */
@@ -38,6 +41,12 @@ export default function CommandConfirmOverlay() {
   const [editedCommand, setEditedCommand] = useState("");
   const [status, setStatus] = useState<Status>(null);
   const [isExecuting, setIsExecuting] = useState(false);
+  // Auto-run countdown state
+  const [countdownMs, setCountdownMs] = useState<number>(0);
+  const [isPaused, setIsPaused] = useState(false);
+
+  // Whether auto-run is active for current payload
+  const isAutoRunActive = payload?.auto_run && !payload.from_llm && countdownMs > 0 && !isEditing && !status;
 
   useEffect(() => {
     const unlisten = listen<CommandConfirmPayload>("show-command-confirm", (event) => {
@@ -46,12 +55,52 @@ export default function CommandConfirmOverlay() {
       setIsEditing(false);
       setStatus(null);
       setIsExecuting(false);
+      setIsPaused(false);
+      // Initialize countdown if auto_run is enabled for predefined commands
+      if (event.payload.auto_run && !event.payload.from_llm && event.payload.auto_run_seconds) {
+        setCountdownMs(event.payload.auto_run_seconds * 1000);
+      } else {
+        setCountdownMs(0);
+      }
     });
 
     return () => {
       unlisten.then((fn) => fn());
     };
   }, []);
+
+  // Countdown timer effect
+  useEffect(() => {
+    if (!payload?.auto_run || payload.from_llm || isPaused || isEditing || status || isExecuting) {
+      return;
+    }
+
+    if (countdownMs <= 0) {
+      return;
+    }
+
+    const interval = setInterval(() => {
+      setCountdownMs((prev) => {
+        const next = prev - 50;
+        if (next <= 0) {
+          return 0;
+        }
+        return next;
+      });
+    }, 50);
+
+    return () => clearInterval(interval);
+  }, [payload, isPaused, isEditing, status, isExecuting, countdownMs > 0]);
+
+  // Auto-execute when countdown reaches 0
+  useEffect(() => {
+    if (countdownMs === 0 && payload?.auto_run && !payload.from_llm && !isEditing && !status && !isExecuting) {
+      // Check if we actually had a countdown (auto_run_seconds > 0)
+      if (payload.auto_run_seconds && payload.auto_run_seconds > 0) {
+        handleRun();
+      }
+    }
+  }, [countdownMs]);
 
   const handleRun = async () => {
     if (!payload || isExecuting) return;
@@ -125,6 +174,17 @@ export default function CommandConfirmOverlay() {
   const handleEdit = () => {
     setIsEditing(true);
     setStatus(null);
+    setCountdownMs(0); // Stop auto-run when editing
+  };
+
+  const handleContainerClick = (e: React.MouseEvent) => {
+    // Only toggle pause if clicking on the container background (not buttons/inputs)
+    if ((e.target as HTMLElement).closest('button, textarea, .command-confirm-code')) {
+      return;
+    }
+    if (isAutoRunActive || (isPaused && payload?.auto_run && !payload.from_llm && !isEditing && !status)) {
+      setIsPaused((prev) => !prev);
+    }
   };
 
   const handleCancel = () => {
@@ -163,8 +223,27 @@ export default function CommandConfirmOverlay() {
     return null;
   }
 
+  // Calculate progress percentage for auto-run bar
+  const totalMs = (payload.auto_run_seconds ?? 0) * 1000;
+  const progressPercent = totalMs > 0 ? (countdownMs / totalMs) * 100 : 0;
+  const showAutoRunBar = payload.auto_run && !payload.from_llm && !isEditing && !status && (countdownMs > 0 || isPaused);
+
   return (
-    <div className="command-confirm-container">
+    <div
+      className={`command-confirm-container ${isPaused && showAutoRunBar ? "paused" : ""}`}
+      onClick={handleContainerClick}
+    >
+      {/* Auto-run progress bar */}
+      {showAutoRunBar && (
+        <div className="auto-run-progress-container">
+          <div
+            className={`auto-run-progress-bar ${isPaused ? "paused" : ""}`}
+            style={{ width: `${progressPercent}%` }}
+          />
+          {isPaused && <span className="auto-run-paused-text">Paused</span>}
+        </div>
+      )}
+
       <div className="command-confirm-header">
         <svg className="command-confirm-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
           <path d="M4 17l6-6-6-6M12 19h8" strokeLinecap="round" strokeLinejoin="round"/>

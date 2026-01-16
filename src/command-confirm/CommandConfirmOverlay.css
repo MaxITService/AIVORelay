@@ -200,3 +200,52 @@ html, body {
   background: rgba(244, 67, 54, 0.15);
   color: #e57373;
 }
+
+/* Auto-run progress bar */
+.auto-run-progress-container {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 4px;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 16px 16px 0 0;
+  overflow: hidden;
+}
+
+.auto-run-progress-bar {
+  height: 100%;
+  background: linear-gradient(90deg, #4caf50 0%, #66bb6a 100%);
+  transition: width 50ms linear;
+  border-radius: 16px 0 0 0;
+}
+
+.auto-run-progress-bar.paused {
+  background: linear-gradient(90deg, #ff9800 0%, #ffb74d 100%);
+  animation: pausePulse 1s ease-in-out infinite;
+}
+
+@keyframes pausePulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.6; }
+}
+
+.auto-run-paused-text {
+  position: absolute;
+  top: 8px;
+  right: 12px;
+  font-size: 10px;
+  color: #ff9800;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.command-confirm-container.paused {
+  border-color: rgba(255, 152, 0, 0.3);
+}
+
+/* Make container position relative for progress bar */
+.command-confirm-container {
+  position: relative;
+}
