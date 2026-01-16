@@ -577,13 +577,13 @@ export const PostProcessingSettings: React.FC = () => {
         </div>
       </TellMeMore>
 
-      <SettingsGroup title={t("settings.postProcessing.api.title")}>
-        <PostProcessingSettingsApi />
-      </SettingsGroup>
-
       <SettingsGroup title={t("settings.postProcessing.prompts.title")}>
         <PostProcessingToggle descriptionMode="inline" grouped={true} />
         <PostProcessingSettingsPrompts />
+      </SettingsGroup>
+
+      <SettingsGroup title={t("settings.postProcessing.api.title")}>
+        <PostProcessingSettingsApi />
       </SettingsGroup>
     </div>
   );
