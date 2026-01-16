@@ -1,7 +1,6 @@
 import React from "react";
 import { useTranslation } from "react-i18next";
 import { ShowOverlay } from "../ShowOverlay";
-import { TranslateToEnglish } from "../TranslateToEnglish";
 import { ModelUnloadTimeoutSetting } from "../ModelUnloadTimeout";
 import { CustomWords } from "../CustomWords";
 import { SettingsGroup } from "../../ui/SettingsGroup";
@@ -63,10 +62,6 @@ export const AdvancedSettings: React.FC = () => {
               {t("settings.advanced.tellMeMore.clipboardHandling.description")}
             </li>
             <li>
-              <strong>{t("settings.advanced.tellMeMore.translate.title")}</strong>{" "}
-              {t("settings.advanced.tellMeMore.translate.description")}
-            </li>
-            <li>
               <strong>{t("settings.advanced.tellMeMore.modelUnload.title")}</strong>{" "}
               {t("settings.advanced.tellMeMore.modelUnload.description")}
             </li>
@@ -87,7 +82,6 @@ export const AdvancedSettings: React.FC = () => {
         <ShowOverlay descriptionMode="tooltip" grouped={true} />
         <PasteMethodSetting descriptionMode="tooltip" grouped={true} />
         <ClipboardHandlingSetting descriptionMode="tooltip" grouped={true} />
-        <TranslateToEnglish descriptionMode="tooltip" grouped={true} />
         <ModelUnloadTimeoutSetting descriptionMode="tooltip" grouped={true} />
         <CustomWords descriptionMode="tooltip" grouped />
         <RemoteSttSettings descriptionMode="tooltip" grouped={true} />

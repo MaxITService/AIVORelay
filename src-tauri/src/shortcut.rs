@@ -2180,3 +2180,15 @@ pub fn change_text_replacements_setting(
     settings::write_settings(&app, settings);
     Ok(())
 }
+
+// ============================================================================
+// OS Input Language Detection
+// ============================================================================
+
+/// Get the current keyboard layout language from the OS.
+/// Returns ISO 639-1 code (e.g., "en", "ru", "de") or None if detection fails.
+#[tauri::command]
+#[specta::specta]
+pub fn get_language_from_os_input() -> Option<String> {
+    crate::input_source::get_language_from_input_source()
+}

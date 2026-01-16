@@ -7,6 +7,7 @@ mod clipboard;
 mod commands;
 mod helpers;
 mod input;
+mod input_source;
 mod llm_client;
 mod managers;
 mod overlay;
@@ -388,6 +389,7 @@ pub fn run() {
         shortcut::change_beta_voice_commands_enabled_setting,
         shortcut::change_text_replacements_enabled_setting,
         shortcut::change_text_replacements_setting,
+        shortcut::get_language_from_os_input,
         trigger_update_check,
         commands::cancel_operation,
         commands::get_app_dir_path,

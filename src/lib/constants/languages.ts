@@ -1,10 +1,12 @@
 export interface Language {
   value: string;
   label: string;
+  className?: string;
 }
 
 export const LANGUAGES: Language[] = [
   { value: "auto", label: "Auto Detect" },
+  { value: "os_input", label: "Follow OS Input Language", className: "text-amber-400" },
   { value: "ar", label: "Arabic" },
   { value: "az", label: "Azerbaijani" },
   { value: "bn", label: "Bengali" },

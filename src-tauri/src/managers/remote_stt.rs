@@ -16,6 +16,117 @@ const DEFAULT_CONNECT_TIMEOUT_SECS: u64 = 10;
 const REMOTE_STT_SERVICE: &str = "fi.maxits.aivorelay";
 const REMOTE_STT_USER: &str = "remote_stt_api_key";
 
+/// Languages supported by Whisper models (ISO 639-1 codes)
+/// Based on OpenAI Whisper documentation and Groq's supported languages list
+/// https://github.com/openai/whisper/blob/main/whisper/tokenizer.py
+const WHISPER_SUPPORTED_LANGUAGES: &[&str] = &[
+    "af", // Afrikaans
+    "am", // Amharic
+    "ar", // Arabic
+    "as", // Assamese
+    "az", // Azerbaijani
+    "ba", // Bashkir
+    "be", // Belarusian
+    "bg", // Bulgarian
+    "bn", // Bengali
+    "bo", // Tibetan
+    "br", // Breton
+    "bs", // Bosnian
+    "ca", // Catalan
+    "cs", // Czech
+    "cy", // Welsh
+    "da", // Danish
+    "de", // German
+    "el", // Greek
+    "en", // English
+    "es", // Spanish
+    "et", // Estonian
+    "eu", // Basque
+    "fa", // Persian
+    "fi", // Finnish
+    "fo", // Faroese
+    "fr", // French
+    "gl", // Galician
+    "gu", // Gujarati
+    "ha", // Hausa
+    "haw", // Hawaiian
+    "he", // Hebrew
+    "hi", // Hindi
+    "hr", // Croatian
+    "ht", // Haitian Creole
+    "hu", // Hungarian
+    "hy", // Armenian
+    "id", // Indonesian
+    "is", // Icelandic
+    "it", // Italian
+    "ja", // Japanese
+    "jv", // Javanese
+    "ka", // Georgian
+    "kk", // Kazakh
+    "km", // Khmer
+    "kn", // Kannada
+    "ko", // Korean
+    "la", // Latin
+    "lb", // Luxembourgish
+    "ln", // Lingala
+    "lo", // Lao
+    "lt", // Lithuanian
+    "lv", // Latvian
+    "mg", // Malagasy
+    "mi", // Maori
+    "mk", // Macedonian
+    "ml", // Malayalam
+    "mn", // Mongolian
+    "mr", // Marathi
+    "ms", // Malay
+    "mt", // Maltese
+    "my", // Myanmar (Burmese)
+    "ne", // Nepali
+    "nl", // Dutch
+    "nn", // Norwegian Nynorsk
+    "no", // Norwegian
+    "oc", // Occitan
+    "pa", // Punjabi
+    "pl", // Polish
+    "ps", // Pashto
+    "pt", // Portuguese
+    "ro", // Romanian
+    "ru", // Russian
+    "sa", // Sanskrit
+    "sd", // Sindhi
+    "si", // Sinhala
+    "sk", // Slovak
+    "sl", // Slovenian
+    "sn", // Shona
+    "so", // Somali
+    "sq", // Albanian
+    "sr", // Serbian
+    "su", // Sundanese
+    "sv", // Swedish
+    "sw", // Swahili
+    "ta", // Tamil
+    "te", // Telugu
+    "tg", // Tajik
+    "th", // Thai
+    "tk", // Turkmen
+    "tl", // Tagalog
+    "tr", // Turkish
+    "tt", // Tatar
+    "uk", // Ukrainian
+    "ur", // Urdu
+    "uz", // Uzbek
+    "vi", // Vietnamese
+    "yi", // Yiddish
+    "yo", // Yoruba
+    "yue", // Cantonese
+    "zh", // Chinese
+];
+
+/// Check if a language code is supported by Whisper models
+fn is_whisper_supported_language(lang: &str) -> bool {
+    WHISPER_SUPPORTED_LANGUAGES.contains(&lang)
+}
+
 #[derive(Debug, Deserialize)]
 struct TranscriptionResponse {
     text: String,
@@ -267,12 +378,35 @@ impl RemoteSttManager {
 
         if let Some(mut lang) = language {
             if lang != "auto" {
-                // Normalize language code for OpenAI/Whisper
-                // Convert zh-Hans and zh-Hant to zh since Whisper uses ISO 639-1 codes
-                if lang == "zh-Hans" || lang == "zh-Hant" {
-                    lang = "zh".to_string();
+                // Handle "os_input" - resolve to current keyboard layout language
+                if lang == "os_input" {
+                    if let Some(resolved) = crate::input_source::get_language_from_input_source() {
+                        // Only use resolved language if it's supported by Whisper
+                        if is_whisper_supported_language(&resolved) {
+                            lang = resolved;
+                        } else {
+                            // Unsupported language - fall back to auto-detect
+                            log::debug!(
+                                "OS keyboard language '{}' is not supported by Whisper, using auto-detect",
+                                resolved
+                            );
+                            lang = "auto".to_string();
+                        }
+                    } else {
+                        // Fall back to auto-detect if OS language can't be determined
+                        lang = "auto".to_string();
+                    }
                 }
-                form = form.text("language", lang);
+                
+                // Skip "auto" - let API auto-detect
+                if lang != "auto" {
+                    // Normalize language code for OpenAI/Whisper
+                    // Convert zh-Hans and zh-Hant to zh since Whisper uses ISO 639-1 codes
+                    if lang == "zh-Hans" || lang == "zh-Hant" {
+                        lang = "zh".to_string();
+                    }
+                    form = form.text("language", lang);
+                }
             }
         }
 

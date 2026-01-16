@@ -391,8 +391,12 @@ impl TranscriptionManager {
                 LoadedEngine::Whisper(whisper_engine) => {
                     // Normalize language code for Whisper
                     // Convert zh-Hans and zh-Hant to zh since Whisper uses ISO 639-1 codes
+                    // Handle "os_input" by resolving to current keyboard layout language
                     let whisper_language = if settings.selected_language == "auto" {
                         None
+                    } else if settings.selected_language == "os_input" {
+                        // Resolve OS input source to language, fall back to auto-detect
+                        crate::input_source::get_language_from_input_source()
                     } else {
                         let normalized = if settings.selected_language == "zh-Hans"
                             || settings.selected_language == "zh-Hant"
@@ -543,6 +547,9 @@ impl TranscriptionManager {
                 LoadedEngine::Whisper(whisper_engine) => {
                     let whisper_language = if selected_language == "auto" {
                         None
+                    } else if selected_language == "os_input" {
+                        // Resolve OS input source to language, fall back to auto-detect
+                        crate::input_source::get_language_from_input_source()
                     } else {
                         let normalized =
                             if selected_language == "zh-Hans" || selected_language == "zh-Hant" {
@@ -696,6 +703,9 @@ impl TranscriptionManager {
                 LoadedEngine::Whisper(whisper_engine) => {
                     let whisper_language = if selected_language == "auto" {
                         None
+                    } else if selected_language == "os_input" {
+                        // Resolve OS input source to language, fall back to auto-detect
+                        crate::input_source::get_language_from_input_source()
                     } else {
                         let normalized =
                             if selected_language == "zh-Hans" || selected_language == "zh-Hant" {

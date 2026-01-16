@@ -889,6 +889,13 @@ async changeTextReplacementsSetting(replacements: TextReplacement[]) : Promise<R
     else return { status: "error", error: e  as any };
 }
 },
+/**
+ * Get the current keyboard layout language from the OS.
+ * Returns ISO 639-1 code (e.g., "en", "ru", "de") or None if detection fails.
+ */
+async getLanguageFromOsInput() : Promise<string | null> {
+    return await TAURI_INVOKE("get_language_from_os_input");
+},
 async triggerUpdateCheck() : Promise<Result<null, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("trigger_update_check") };
