@@ -71,7 +71,24 @@
     },
     "autoRun": "Auto Run",
     "autoRunDescription": "Auto-execute predefined commands after countdown",
-    "seconds": "sec"
+    "seconds": "sec",
+    "fuzzyMatching": {
+      "title": "Fuzzy Matching Settings",
+      "tellMeMore": "Tell me more: Fuzzy Matching",
+      "description": "Fuzzy matching helps recognize voice commands even with slight variations, typos, or pronunciation differences.",
+      "levenshteinTitle": "Character-level matching (Levenshtein):",
+      "levenshteinDesc": "Handles typos and misheard letters. For example, 'srart' matches 'start' because only one letter is different.",
+      "phoneticTitle": "Phonetic matching (Soundex):",
+      "phoneticDesc": "Matches words that sound similar. For example, 'edge' and 'etch' have the same phonetic code.",
+      "tip": "Tip: If commands aren't matching, try lowering the thresholds. If too many false matches occur, raise them.",
+      "useLevenshtein": "Character-level matching",
+      "useLevenshteinDesc": "Handles typos and transcription errors",
+      "levenshteinThreshold": "Character tolerance",
+      "usePhonetic": "Phonetic matching",
+      "usePhoneticDesc": "Match similar-sounding words",
+      "phoneticBoost": "Phonetic boost factor",
+      "wordSimilarityThreshold": "Word match strictness"
+    }
   },
   "onboarding": {
     "subtitle": "To get started, choose a transcription model",

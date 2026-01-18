@@ -740,18 +740,19 @@ pub struct AppSettings {
     /// System prompt for LLM command generation
     #[serde(default = "default_voice_command_system_prompt")]
     pub voice_command_system_prompt: String,
-    /// PowerShell arguments for command execution
-    #[serde(default = "default_voice_command_ps_args")]
-    pub voice_command_ps_args: String,
-    /// Whether to open PowerShell window and keep it open (for debugging)
+    /// Command execution template. Use ${command} as placeholder for the actual command.
+    /// Example: "powershell -NonInteractive -Command \"${command}\""
+    #[serde(default = "default_voice_command_template")]
+    pub voice_command_template: String,
+    /// Whether to open terminal window and keep it open (for debugging)
     #[serde(default)]
     pub voice_command_keep_window_open: bool,
-    /// Whether to use Windows Terminal (wt) instead of classic PowerShell window
-    #[serde(default = "default_true")]
-    pub voice_command_use_windows_terminal: bool,
-    /// Whether to use PowerShell 7+ (pwsh) instead of Windows PowerShell 5.1 (powershell)
+    /// Whether to use Windows Terminal (wt.exe) instead of conhost for command execution
     #[serde(default)]
-    pub voice_command_use_pwsh: bool,
+    pub voice_command_use_windows_terminal: bool,
+    /// Additional PowerShell arguments to pass when executing commands
+    #[serde(default)]
+    pub voice_command_ps_args: String,
     /// Whether to auto-run predefined commands after countdown (not LLM-generated)
     #[serde(default)]
     pub voice_command_auto_run: bool,
@@ -787,6 +788,22 @@ pub struct AppSettings {
     /// Token budget for Voice Command extended thinking (min: 1024, default: 2048)
     #[serde(default = "default_reasoning_budget")]
     pub voice_command_reasoning_budget: u32,
+    // ==================== Voice Command Fuzzy Matching ====================
+    /// Whether to use Levenshtein distance for character-level matching
+    #[serde(default = "default_true")]
+    pub voice_command_use_levenshtein: bool,
+    /// Per-word Levenshtein threshold (0.0-1.0, lower = more tolerant of typos)
+    #[serde(default = "default_voice_command_levenshtein_threshold")]
+    pub voice_command_levenshtein_threshold: f64,
+    /// Whether to use phonetic (Soundex) matching
+    #[serde(default = "default_true")]
+    pub voice_command_use_phonetic: bool,
+    /// Phonetic match boost multiplier (0.0-1.0)
+    #[serde(default = "default_voice_command_phonetic_boost")]
+    pub voice_command_phonetic_boost: f64,
+    /// Word similarity threshold - minimum score for a word pair to be considered matching
+    #[serde(default = "default_voice_command_word_similarity_threshold")]
+    pub voice_command_word_similarity_threshold: f64,
     // ==================== Beta Feature Flags ====================
     /// Whether Voice Commands beta feature is enabled in the UI (Debug menu toggle)
     #[serde(default = "default_true")]
@@ -968,6 +985,18 @@ fn default_voice_command_auto_run_seconds() -> u32 {
     4
 }
 
+fn default_voice_command_levenshtein_threshold() -> f64 {
+    0.3 // 30% of word length can be edits (typos)
+}
+
+fn default_voice_command_phonetic_boost() -> f64 {
+    0.5 // Phonetic matches get 50% boost
+}
+
+fn default_voice_command_word_similarity_threshold() -> f64 {
+    0.7 // Words must be 70% similar to match
+}
+
 fn default_voice_command_system_prompt() -> String {
     r#"You are a Windows command generator. The user will describe what they want to do, and you must generate a SINGLE PowerShell one-liner command that accomplishes it.
 
@@ -987,8 +1016,8 @@ Example inputs and outputs:
 - "show my documents folder" → Start-Process explorer -ArgumentList "$env:USERPROFILE\Documents""#.to_string()
 }
 
-fn default_voice_command_ps_args() -> String {
-    "-NoProfile -NonInteractive".to_string()
+fn default_voice_command_template() -> String {
+    r#"powershell -NonInteractive -Command "${command}""#.to_string()
 }
 
 /// Default connector password - used for initial mutual authentication
@@ -1431,10 +1460,10 @@ pub fn get_default_settings() -> AppSettings {
         voice_command_default_threshold: default_voice_command_threshold(),
         voice_command_llm_fallback: true,
         voice_command_system_prompt: default_voice_command_system_prompt(),
-        voice_command_ps_args: default_voice_command_ps_args(),
+        voice_command_template: default_voice_command_template(),
         voice_command_keep_window_open: false,
-        voice_command_use_windows_terminal: true,
-        voice_command_use_pwsh: false,
+        voice_command_use_windows_terminal: false,
+        voice_command_ps_args: String::new(),
         voice_command_auto_run: false,
         voice_command_auto_run_seconds: default_voice_command_auto_run_seconds(),
         // Extended Thinking / Reasoning
@@ -1448,6 +1477,12 @@ pub fn get_default_settings() -> AppSettings {
         voice_command_models: HashMap::new(),
         voice_command_reasoning_enabled: false,
         voice_command_reasoning_budget: default_reasoning_budget(),
+        // Voice Command Fuzzy Matching
+        voice_command_use_levenshtein: true,
+        voice_command_levenshtein_threshold: default_voice_command_levenshtein_threshold(),
+        voice_command_use_phonetic: true,
+        voice_command_phonetic_boost: default_voice_command_phonetic_boost(),
+        voice_command_word_similarity_threshold: default_voice_command_word_similarity_threshold(),
         // Beta Feature Flags
         beta_voice_commands_enabled: false,
         // Text Replacement

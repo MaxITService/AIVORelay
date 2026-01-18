@@ -8,10 +8,8 @@ interface CommandConfirmPayload {
   spoken_text: string;
   from_llm: boolean;
   // Execution settings passed from backend
-  ps_args?: string;
+  template?: string;
   keep_window_open?: boolean;
-  use_windows_terminal?: boolean;
-  use_pwsh?: boolean;
   // Auto-run settings (only for predefined commands)
   auto_run?: boolean;
   auto_run_seconds?: number;
@@ -110,18 +108,14 @@ export default function CommandConfirmOverlay() {
     const commandToRun = isEditing ? editedCommand : payload.command;
     
     // Get execution settings with defaults
-    const psArgs = payload.ps_args ?? "-NoProfile -NonInteractive";
+    const template = payload.template ?? 'powershell -NonInteractive -Command "${command}"';
     const keepWindowOpen = payload.keep_window_open ?? false;
-    const useWindowsTerminal = payload.use_windows_terminal ?? true;
-    const usePwsh = payload.use_pwsh ?? false;
     
     try {
       const result = await commands.executeVoiceCommand(
         commandToRun,
-        psArgs,
-        keepWindowOpen,
-        useWindowsTerminal,
-        usePwsh
+        template,
+        keepWindowOpen
       );
       
       if (result.status === "ok") {

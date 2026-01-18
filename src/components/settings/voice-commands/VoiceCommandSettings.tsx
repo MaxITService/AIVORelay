@@ -11,6 +11,7 @@ import { ProviderSelect } from "../PostProcessingSettingsApi/ProviderSelect";
 import { ApiKeyField } from "../PostProcessingSettingsApi/ApiKeyField";
 import { ModelSelect } from "../PostProcessingSettingsApi/ModelSelect";
 import { ResetButton } from "../../ui/ResetButton";
+import { TellMeMore } from "../../ui/TellMeMore";
 import { useVoiceCommandProviderState } from "./useVoiceCommandProviderState";
 
 const DEFAULT_VOICE_COMMAND_SYSTEM_PROMPT = `You are a Windows command generator. The user will describe what they want to do, and you must generate a SINGLE PowerShell one-liner command that accomplishes it.
@@ -30,7 +31,7 @@ Example inputs and outputs:
 - "open word and excel" → Start-Process winword; Start-Process excel
 - "show my documents folder" → Start-Process explorer -ArgumentList "$env:USERPROFILE\\Documents"`;
 
-const DEFAULT_PS_ARGS = "-NoProfile -NonInteractive";
+const DEFAULT_COMMAND_TEMPLATE = 'powershell -NonInteractive -Command "${command}"';
 const MAX_LOG_ENTRIES = 100;
 
 interface LogEntry extends VoiceCommandResultPayload {
@@ -154,11 +155,7 @@ export default function VoiceCommandSettings() {
   
   if (!settings) return null;
 
-  const executionArgs = settings.voice_command_ps_args ?? DEFAULT_PS_ARGS;
-  const executionInfo = t("voiceCommands.executionInfo", {
-    args: executionArgs,
-    defaultValue: `Commands run via: powershell ${executionArgs} -Command "<your command>"`,
-  });
+  const commandTemplate = settings.voice_command_template ?? DEFAULT_COMMAND_TEMPLATE;
 
   // Listen for execution results
   useEffect(() => {
@@ -473,22 +470,22 @@ export default function VoiceCommandSettings() {
 
             <div className="setting-row">
               <div className="setting-label">
-                <span>{t("voiceCommands.psArgs", "PowerShell Arguments")}</span>
+                <span>{t("voiceCommands.commandTemplate", "Command Template")}</span>
                 <span className="setting-sublabel">
-                  {t("voiceCommands.psArgsDesc", "Arguments passed to PowerShell when executing commands")}
+                  {t("voiceCommands.commandTemplateDesc", "Use ${command} as placeholder for your command")}
                 </span>
               </div>
               <div className="ps-args-container">
                 <input
                   type="text"
                   className="ps-args-input"
-                  value={executionArgs}
-                  onChange={(e) => updateSetting("voice_command_ps_args", e.target.value)}
-                  placeholder="-NoProfile -NonInteractive"
+                  value={commandTemplate}
+                  onChange={(e) => updateSetting("voice_command_template", e.target.value)}
+                  placeholder='powershell -NonInteractive -Command "${command}"'
                 />
                 <button
                   className="btn-reset-small"
-                  onClick={() => updateSetting("voice_command_ps_args", DEFAULT_PS_ARGS)}
+                  onClick={() => updateSetting("voice_command_template", DEFAULT_COMMAND_TEMPLATE)}
                   title={t("voiceCommands.resetToDefault", "Reset to default")}
                 >
                   ↺
@@ -496,11 +493,18 @@ export default function VoiceCommandSettings() {
               </div>
             </div>
 
+            <div className="execution-info">
+              <span className="info-icon">ℹ️</span>
+              <span>
+                {t("voiceCommands.templateHelp", "Use pwsh.exe for PowerShell 7+. Typical args: -NoProfile, -NoLogo")}
+              </span>
+            </div>
+
             <div className="setting-row">
               <div className="setting-label">
                 <span>{t("voiceCommands.keepWindowOpen", "Keep Terminal Window Open")}</span>
                 <span className="setting-sublabel">
-                  {t("voiceCommands.keepWindowOpenDesc", "Opens a visible terminal window instead of silent execution (useful for debugging)")}
+                  {t("voiceCommands.keepWindowOpenDesc", "Opens Windows Terminal instead of silent execution (useful for debugging)")}
                 </span>
               </div>
               <label className="toggle-switch">
@@ -511,53 +515,6 @@ export default function VoiceCommandSettings() {
                 />
                 <span className="slider"></span>
               </label>
-            </div>
-
-            {(settings.voice_command_keep_window_open ?? false) && (
-              <div className="setting-row">
-                <div className="setting-label">
-                  <span>{t("voiceCommands.useWindowsTerminal", "Use Windows Terminal")}</span>
-                  <span className="setting-sublabel">
-                    {t("voiceCommands.useWindowsTerminalDesc", "Use modern Windows Terminal (wt) instead of classic PowerShell window")}
-                  </span>
-                </div>
-                <label className="toggle-switch">
-                  <input
-                    type="checkbox"
-                    checked={settings.voice_command_use_windows_terminal ?? true}
-                    onChange={(e) => updateSetting("voice_command_use_windows_terminal", e.target.checked)}
-                  />
-                  <span className="slider"></span>
-                </label>
-              </div>
-            )}
-
-            <div className="setting-row">
-              <div className="setting-label">
-                <span>{t("voiceCommands.usePwsh", "Use PowerShell 7+")}</span>
-                <span className="setting-sublabel">
-                  {t("voiceCommands.usePwshDesc", "Use pwsh (PowerShell 7+) instead of powershell (Windows PowerShell 5.1)")}
-                </span>
-              </div>
-              <label className="toggle-switch">
-                <input
-                  type="checkbox"
-                  checked={settings.voice_command_use_pwsh ?? false}
-                  onChange={(e) => updateSetting("voice_command_use_pwsh", e.target.checked)}
-                />
-                <span className="slider"></span>
-              </label>
-            </div>
-
-            <div className="execution-info">
-              <span className="info-icon">ℹ️</span>
-              <span>
-                {t("voiceCommands.executionInfoWithShell", {
-                  shell: (settings.voice_command_use_pwsh ?? false) ? "pwsh" : "powershell",
-                  args: executionArgs,
-                  defaultValue: `Commands run via: ${(settings.voice_command_use_pwsh ?? false) ? "pwsh" : "powershell"} ${executionArgs} -Command "<your command>"`,
-                })}
-              </span>
             </div>
           </div>
 
@@ -577,6 +534,122 @@ export default function VoiceCommandSettings() {
               onChange={(e) => updateSetting("voice_command_default_threshold", parseFloat(e.target.value))}
               className="threshold-slider"
             />
+          </div>
+
+          {/* Fuzzy Matching Settings */}
+          <div className="fuzzy-matching-section">
+            <div className="section-divider">
+              <span>{t("voiceCommands.fuzzyMatching.title", "Fuzzy Matching Settings")}</span>
+            </div>
+
+            <TellMeMore title={t("voiceCommands.fuzzyMatching.tellMeMore", "Tell me more: Fuzzy Matching")}>
+              <p className="mb-3">
+                {t("voiceCommands.fuzzyMatching.description", "Fuzzy matching helps recognize voice commands even with slight variations, typos, or pronunciation differences.")}
+              </p>
+              <p className="mb-3">
+                <strong>{t("voiceCommands.fuzzyMatching.levenshteinTitle", "Character-level matching (Levenshtein):")}</strong>
+                {" "}{t("voiceCommands.fuzzyMatching.levenshteinDesc", "Handles typos and misheard letters. For example, 'srart' matches 'start' because only one letter is different.")}
+              </p>
+              <p className="mb-3">
+                <strong>{t("voiceCommands.fuzzyMatching.phoneticTitle", "Phonetic matching (Soundex):")}</strong>
+                {" "}{t("voiceCommands.fuzzyMatching.phoneticDesc", "Matches words that sound similar. For example, 'edge' and 'etch' have the same phonetic code.")}
+              </p>
+              <p className="text-text/70">
+                {t("voiceCommands.fuzzyMatching.tip", "Tip: If commands aren't matching, try lowering the thresholds. If too many false matches occur, raise them.")}
+              </p>
+            </TellMeMore>
+
+            <div className="setting-row">
+              <div className="setting-label">
+                <span>{t("voiceCommands.fuzzyMatching.useLevenshtein", "Character-level matching")}</span>
+                <span className="setting-sublabel">
+                  {t("voiceCommands.fuzzyMatching.useLevenshteinDesc", "Handles typos and transcription errors")}
+                </span>
+              </div>
+              <label className="toggle-switch">
+                <input
+                  type="checkbox"
+                  checked={settings.voice_command_use_levenshtein ?? true}
+                  onChange={(e) => updateSetting("voice_command_use_levenshtein", e.target.checked)}
+                />
+                <span className="slider"></span>
+              </label>
+            </div>
+
+            {(settings.voice_command_use_levenshtein ?? true) && (
+              <div className="setting-row sub-setting">
+                <div className="setting-label">
+                  <span>{t("voiceCommands.fuzzyMatching.levenshteinThreshold", "Character tolerance")}</span>
+                  <span className="setting-sublabel">
+                    {Math.round((settings.voice_command_levenshtein_threshold ?? 0.3) * 100)}%
+                  </span>
+                </div>
+                <input
+                  type="range"
+                  min="0.1"
+                  max="0.5"
+                  step="0.05"
+                  value={settings.voice_command_levenshtein_threshold ?? 0.3}
+                  onChange={(e) => updateSetting("voice_command_levenshtein_threshold", parseFloat(e.target.value))}
+                  className="threshold-slider"
+                />
+              </div>
+            )}
+
+            <div className="setting-row">
+              <div className="setting-label">
+                <span>{t("voiceCommands.fuzzyMatching.usePhonetic", "Phonetic matching")}</span>
+                <span className="setting-sublabel">
+                  {t("voiceCommands.fuzzyMatching.usePhoneticDesc", "Match similar-sounding words")}
+                </span>
+              </div>
+              <label className="toggle-switch">
+                <input
+                  type="checkbox"
+                  checked={settings.voice_command_use_phonetic ?? true}
+                  onChange={(e) => updateSetting("voice_command_use_phonetic", e.target.checked)}
+                />
+                <span className="slider"></span>
+              </label>
+            </div>
+
+            {(settings.voice_command_use_phonetic ?? true) && (
+              <div className="setting-row sub-setting">
+                <div className="setting-label">
+                  <span>{t("voiceCommands.fuzzyMatching.phoneticBoost", "Phonetic boost factor")}</span>
+                  <span className="setting-sublabel">
+                    {Math.round((settings.voice_command_phonetic_boost ?? 0.5) * 100)}%
+                  </span>
+                </div>
+                <input
+                  type="range"
+                  min="0.3"
+                  max="0.8"
+                  step="0.05"
+                  value={settings.voice_command_phonetic_boost ?? 0.5}
+                  onChange={(e) => updateSetting("voice_command_phonetic_boost", parseFloat(e.target.value))}
+                  className="threshold-slider"
+                />
+              </div>
+            )}
+
+            <div className="setting-row">
+              <div className="setting-label">
+                <span>{t("voiceCommands.fuzzyMatching.wordSimilarityThreshold", "Word match strictness")}</span>
+                <span className="setting-sublabel">
+                  {Math.round((settings.voice_command_word_similarity_threshold ?? 0.7) * 100)}%
+                </span>
+              </div>
+              <input
+                type="range"
+                min="0.5"
+                max="0.9"
+                step="0.05"
+                value={settings.voice_command_word_similarity_threshold ?? 0.7}
+                onChange={(e) => updateSetting("voice_command_word_similarity_threshold", parseFloat(e.target.value))}
+                className="threshold-slider"
+              />
+            </div>
           </div>
 
           <div className="setting-row">
@@ -911,6 +984,18 @@ export default function VoiceCommandSettings() {
           font-weight: 600;
           text-transform: uppercase;
           letter-spacing: 0.5px;
+        }
+
+        /* Fuzzy Matching Settings */
+        .fuzzy-matching-section {
+          margin-top: 16px;
+          padding-top: 8px;
+          border-top: 1px solid rgba(255,255,255,0.06);
+        }
+        .sub-setting {
+          padding-left: 20px;
+          border-left: 2px solid rgba(138, 43, 226, 0.3);
+          margin-left: 10px;
         }
         .ps-args-container {
           display: flex;

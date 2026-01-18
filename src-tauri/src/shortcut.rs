@@ -734,6 +734,66 @@ pub fn change_voice_commands_setting(
     Ok(())
 }
 
+#[tauri::command]
+#[specta::specta]
+pub fn change_voice_command_use_levenshtein_setting(
+    app: AppHandle,
+    enabled: bool,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.voice_command_use_levenshtein = enabled;
+    settings::write_settings(&app, settings);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_voice_command_levenshtein_threshold_setting(
+    app: AppHandle,
+    threshold: f64,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.voice_command_levenshtein_threshold = threshold.clamp(0.1, 0.5);
+    settings::write_settings(&app, settings);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_voice_command_use_phonetic_setting(
+    app: AppHandle,
+    enabled: bool,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.voice_command_use_phonetic = enabled;
+    settings::write_settings(&app, settings);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_voice_command_phonetic_boost_setting(
+    app: AppHandle,
+    boost: f64,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.voice_command_phonetic_boost = boost.clamp(0.3, 0.8);
+    settings::write_settings(&app, settings);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_voice_command_word_similarity_threshold_setting(
+    app: AppHandle,
+    threshold: f64,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.voice_command_word_similarity_threshold = threshold.clamp(0.5, 0.9);
+    settings::write_settings(&app, settings);
+    Ok(())
+}
+
 // ============================================================================
 // Transcription Profile Settings
 // ============================================================================

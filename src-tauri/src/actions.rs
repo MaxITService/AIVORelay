@@ -21,8 +21,10 @@ use crate::ManagedToggleState;
 use ferrous_opencc::{config::BuiltinConfig, OpenCC};
 use log::{debug, error, warn};
 use once_cell::sync::Lazy;
+use natural::phonetics::soundex;
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
+use strsim::normalized_levenshtein;
 use std::sync::Arc;
 use std::time::Instant;
 use tauri::{AppHandle, Emitter, Manager};
@@ -2040,23 +2042,91 @@ pub struct CommandConfirmPayload {
     pub spoken_text: String,
     /// Whether this came from LLM (true) or predefined match (false)
     pub from_llm: bool,
-    /// PowerShell arguments for execution
-    pub ps_args: String,
-    /// Whether to open PowerShell window and keep it open
+    /// Command execution template with ${command} placeholder
+    pub template: String,
+    /// Whether to open terminal window and keep it open
     pub keep_window_open: bool,
-    /// Whether to use Windows Terminal instead of classic PowerShell
-    pub use_windows_terminal: bool,
-    /// Whether to use PowerShell 7+ (pwsh) instead of Windows PowerShell 5.1 (powershell)
-    pub use_pwsh: bool,
     /// Whether to auto-run after countdown (only for predefined commands)
     pub auto_run: bool,
     /// Countdown seconds before auto-run
     pub auto_run_seconds: u32,
 }
 
-/// Computes a similarity score between two strings using a simple word-based approach.
+/// Configuration for the hybrid fuzzy matching algorithm
+#[derive(Debug, Clone)]
+pub struct FuzzyMatchConfig {
+    /// Whether to use Levenshtein distance for character-level matching
+    pub use_levenshtein: bool,
+    /// Per-word Levenshtein threshold (0.0-1.0, lower = more tolerant of typos)
+    pub levenshtein_threshold: f64,
+    /// Whether to use phonetic (Soundex) matching
+    pub use_phonetic: bool,
+    /// Phonetic match boost multiplier (0.0-1.0)
+    pub phonetic_boost: f64,
+    /// Word similarity threshold - minimum score for a word pair to be considered matching
+    pub word_similarity_threshold: f64,
+}
+
+impl Default for FuzzyMatchConfig {
+    fn default() -> Self {
+        Self {
+            use_levenshtein: true,
+            levenshtein_threshold: 0.3,
+            use_phonetic: true,
+            phonetic_boost: 0.5,
+            word_similarity_threshold: 0.7,
+        }
+    }
+}
+
+impl FuzzyMatchConfig {
+    /// Create config from AppSettings
+    pub fn from_settings(settings: &AppSettings) -> Self {
+        Self {
+            use_levenshtein: settings.voice_command_use_levenshtein,
+            levenshtein_threshold: settings.voice_command_levenshtein_threshold,
+            use_phonetic: settings.voice_command_use_phonetic,
+            phonetic_boost: settings.voice_command_phonetic_boost,
+            word_similarity_threshold: settings.voice_command_word_similarity_threshold,
+        }
+    }
+}
+
+/// Computes word-level similarity using hybrid algorithm:
+/// - Levenshtein distance for typo tolerance
+/// - Soundex phonetic matching for pronunciation similarity
 /// Returns a value between 0.0 and 1.0.
-fn compute_similarity(a: &str, b: &str) -> f64 {
+fn compute_word_similarity(word_a: &str, word_b: &str, config: &FuzzyMatchConfig) -> f64 {
+    // Exact match
+    if word_a == word_b {
+        return 1.0;
+    }
+
+    let mut score: f64 = 0.0;
+
+    // Levenshtein (character-level edit distance)
+    if config.use_levenshtein {
+        let lev_score = normalized_levenshtein(word_a, word_b);
+        // Only accept if above threshold (1.0 - threshold gives minimum required similarity)
+        if lev_score >= (1.0 - config.levenshtein_threshold) {
+            score = score.max(lev_score);
+        }
+    }
+
+    // Phonetic matching (Soundex)
+    if config.use_phonetic && soundex(word_a, word_b) {
+        // Phonetic match - boost the score
+        let phonetic_score = config.word_similarity_threshold + config.phonetic_boost * (1.0 - config.word_similarity_threshold);
+        score = score.max(phonetic_score.min(1.0));
+    }
+
+    score
+}
+
+/// Computes a similarity score between two strings using a hybrid word-matching approach.
+/// For each word in the transcription, finds the best matching word in the trigger phrase.
+/// Returns a value between 0.0 and 1.0.
+fn compute_similarity(a: &str, b: &str, config: &FuzzyMatchConfig) -> f64 {
     let a_lower = a.to_lowercase();
     let b_lower = b.to_lowercase();
 
@@ -2065,22 +2135,51 @@ fn compute_similarity(a: &str, b: &str) -> f64 {
         return 1.0;
     }
 
-    // Word-based Jaccard similarity
-    let a_words: HashSet<&str> = a_lower.split_whitespace().collect();
-    let b_words: HashSet<&str> = b_lower.split_whitespace().collect();
+    let a_words: Vec<&str> = a_lower.split_whitespace().collect();
+    let b_words: Vec<&str> = b_lower.split_whitespace().collect();
 
     if a_words.is_empty() || b_words.is_empty() {
         return 0.0;
     }
 
-    let intersection = a_words.intersection(&b_words).count();
-    let union = a_words.union(&b_words).count();
+    // For each word in 'a', find the best matching word in 'b'
+    let mut total_score: f64 = 0.0;
+    let mut matched_count = 0;
 
-    if union == 0 {
-        return 0.0;
+    for a_word in &a_words {
+        let mut best_match_score: f64 = 0.0;
+
+        for b_word in &b_words {
+            let word_score = compute_word_similarity(a_word, b_word, config);
+            if word_score >= config.word_similarity_threshold {
+                best_match_score = best_match_score.max(word_score);
+            }
+        }
+
+        if best_match_score >= config.word_similarity_threshold {
+            total_score += best_match_score;
+            matched_count += 1;
+        }
     }
 
-    intersection as f64 / union as f64
+    // Score is based on:
+    // 1. How many words from 'a' matched something in 'b' (coverage)
+    // 2. How well they matched (quality)
+    // 3. Length ratio to penalize very different lengths
+    let coverage = matched_count as f64 / a_words.len() as f64;
+    let quality = if matched_count > 0 {
+        total_score / matched_count as f64
+    } else {
+        0.0
+    };
+
+    // Length penalty - favor similar length phrases
+    let len_ratio = (a_words.len().min(b_words.len()) as f64)
+        / (a_words.len().max(b_words.len()) as f64);
+
+    // Final score combines coverage, quality, and length similarity
+    // Coverage is most important (70%), quality matters (20%), length is a tiebreaker (10%)
+    coverage * 0.7 + quality * coverage * 0.2 + len_ratio * 0.1
 }
 
 /// Finds the best matching predefined command for the given transcription.
@@ -2089,6 +2188,7 @@ pub fn find_matching_command(
     transcription: &str,
     commands: &[crate::settings::VoiceCommand],
     default_threshold: f64,
+    config: &FuzzyMatchConfig,
 ) -> Option<(crate::settings::VoiceCommand, f64)> {
     let mut best_match: Option<(crate::settings::VoiceCommand, f64)> = None;
 
@@ -2099,7 +2199,7 @@ pub fn find_matching_command(
             default_threshold
         };
 
-        let score = compute_similarity(transcription, &cmd.trigger_phrase);
+        let score = compute_similarity(transcription, &cmd.trigger_phrase, config);
 
         if score >= threshold {
             match &best_match {
@@ -2243,12 +2343,14 @@ impl ShortcutAction for VoiceCommandAction {
             }
 
             let settings = get_settings(&ah);
+            let fuzzy_config = FuzzyMatchConfig::from_settings(&settings);
 
             // Step 1: Try to match against predefined commands
             if let Some((matched_cmd, score)) = find_matching_command(
                 &transcription,
                 &settings.voice_commands,
                 settings.voice_command_default_threshold,
+                &fuzzy_config,
             ) {
                 debug!(
                     "Voice command matched: '{}' -> '{}' (score: {:.2})",
@@ -2262,10 +2364,8 @@ impl ShortcutAction for VoiceCommandAction {
                         command: matched_cmd.script.clone(),
                         spoken_text: transcription.clone(),
                         from_llm: false,
-                        ps_args: settings.voice_command_ps_args.clone(),
+                        template: settings.voice_command_template.clone(),
                         keep_window_open: settings.voice_command_keep_window_open,
-                        use_windows_terminal: settings.voice_command_use_windows_terminal,
-                        use_pwsh: settings.voice_command_use_pwsh,
                         auto_run: settings.voice_command_auto_run,
                         auto_run_seconds: settings.voice_command_auto_run_seconds,
                     },
@@ -2297,10 +2397,8 @@ impl ShortcutAction for VoiceCommandAction {
                                 command: suggested_command,
                                 spoken_text: transcription,
                                 from_llm: true,
-                                ps_args: settings.voice_command_ps_args.clone(),
+                                template: settings.voice_command_template.clone(),
                                 keep_window_open: settings.voice_command_keep_window_open,
-                                use_windows_terminal: settings.voice_command_use_windows_terminal,
-                                use_pwsh: settings.voice_command_use_pwsh,
                                 auto_run: false, // Never auto-run LLM-generated commands
                                 auto_run_seconds: 0,
                             },

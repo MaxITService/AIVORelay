@@ -317,6 +317,46 @@ async changeVoiceCommandsSetting(commands: VoiceCommand[]) : Promise<Result<null
     else return { status: "error", error: e  as any };
 }
 },
+async changeVoiceCommandUseLevenshteinSetting(enabled: boolean) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("change_voice_command_use_levenshtein_setting", { enabled }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async changeVoiceCommandLevenshteinThresholdSetting(threshold: number) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("change_voice_command_levenshtein_threshold_setting", { threshold }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async changeVoiceCommandUsePhoneticSetting(enabled: boolean) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("change_voice_command_use_phonetic_setting", { enabled }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async changeVoiceCommandPhoneticBoostSetting(boost: number) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("change_voice_command_phonetic_boost_setting", { boost }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async changeVoiceCommandWordSimilarityThresholdSetting(threshold: number) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("change_voice_command_word_similarity_threshold_setting", { threshold }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async changePostProcessBaseUrlSetting(providerId: string, baseUrl: string) : Promise<Result<null, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("change_post_process_base_url_setting", { providerId, baseUrl }) };
@@ -1394,21 +1434,19 @@ async regionCaptureCancel() : Promise<void> {
     await TAURI_INVOKE("region_capture_cancel");
 },
 /**
- * Executes a PowerShell command after user confirmation.
+ * Executes a command using a template after user confirmation.
  * 
  * Parameters:
- * - `command`: The PowerShell command to execute
- * - `ps_args`: PowerShell arguments (e.g., "-NoProfile -NonInteractive")
- * - `keep_window_open`: If true, opens a visible terminal window instead of silent execution
- * - `use_windows_terminal`: If true, uses Windows Terminal (wt); otherwise uses classic PowerShell window
- * - `use_pwsh`: If true, uses PowerShell 7+ (pwsh); otherwise uses Windows PowerShell 5.1 (powershell)
+ * - `command`: The command to execute (will replace ${command} in template)
+ * - `template`: The execution template (e.g., "powershell -NonInteractive -Command \"${command}\"")
+ * - `keep_window_open`: If true, uses Windows Terminal to open a visible window
  * 
  * Returns the output on success or an error message on failure.
  * When `keep_window_open` is true, returns success immediately (no output capture).
  */
-async executeVoiceCommand(command: string, psArgs: string, keepWindowOpen: boolean, useWindowsTerminal: boolean, usePwsh: boolean) : Promise<Result<string, string>> {
+async executeVoiceCommand(command: string, template: string, keepWindowOpen: boolean) : Promise<Result<string, string>> {
     try {
-    return { status: "ok", data: await TAURI_INVOKE("execute_voice_command", { command, psArgs, keepWindowOpen, useWindowsTerminal, usePwsh }) };
+    return { status: "ok", data: await TAURI_INVOKE("execute_voice_command", { command, template, keepWindowOpen }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
@@ -1558,21 +1596,22 @@ voice_command_llm_fallback?: boolean;
  */
 voice_command_system_prompt?: string; 
 /**
- * PowerShell arguments for command execution
+ * Command execution template. Use ${command} as placeholder for the actual command.
+ * Example: "powershell -NonInteractive -Command \"${command}\""
  */
-voice_command_ps_args?: string; 
+voice_command_template?: string; 
 /**
- * Whether to open PowerShell window and keep it open (for debugging)
+ * Whether to open terminal window and keep it open (for debugging)
  */
 voice_command_keep_window_open?: boolean; 
 /**
- * Whether to use Windows Terminal (wt) instead of classic PowerShell window
+ * Whether to use Windows Terminal (wt.exe) instead of conhost for command execution
  */
 voice_command_use_windows_terminal?: boolean; 
 /**
- * Whether to use PowerShell 7+ (pwsh) instead of Windows PowerShell 5.1 (powershell)
+ * Additional PowerShell arguments to pass when executing commands
  */
-voice_command_use_pwsh?: boolean; 
+voice_command_ps_args?: string; 
 /**
  * Whether to auto-run predefined commands after countdown (not LLM-generated)
  */
@@ -1617,6 +1656,26 @@ voice_command_reasoning_enabled?: boolean;
  * Token budget for Voice Command extended thinking (min: 1024, default: 2048)
  */
 voice_command_reasoning_budget?: number; 
+/**
+ * Whether to use Levenshtein distance for character-level matching
+ */
+voice_command_use_levenshtein?: boolean; 
+/**
+ * Per-word Levenshtein threshold (0.0-1.0, lower = more tolerant of typos)
+ */
+voice_command_levenshtein_threshold?: number; 
+/**
+ * Whether to use phonetic (Soundex) matching
+ */
+voice_command_use_phonetic?: boolean; 
+/**
+ * Phonetic match boost multiplier (0.0-1.0)
+ */
+voice_command_phonetic_boost?: number; 
+/**
+ * Word similarity threshold - minimum score for a word pair to be considered matching
+ */
+voice_command_word_similarity_threshold?: number; 
 /**
  * Whether Voice Commands beta feature is enabled in the UI (Debug menu toggle)
  */
