@@ -167,6 +167,25 @@ export const TextReplacementSettings: React.FC = () => {
           />
         </div>
 
+        {/* Apply Before LLM Toggle - only show when post-processing is enabled */}
+        {settings?.post_process_enabled && (
+          <div className="px-4 py-3 border-t border-white/[0.05]">
+            <ToggleSwitch
+              checked={settings?.text_replacements_before_llm ?? false}
+              onChange={(enabled) =>
+                updateSetting("text_replacements_before_llm", enabled)
+              }
+              isUpdating={isUpdating("text_replacements_before_llm")}
+              label={t("textReplacement.beforeLlm", "Apply Before LLM Post-Processing")}
+              description={t(
+                "textReplacement.beforeLlmDescription",
+                "When enabled, text replacements are applied BEFORE LLM processing. This prevents the LLM from modifying your replacement patterns."
+              )}
+              descriptionMode="inline"
+            />
+          </div>
+        )}
+
         {/* Help Section */}
         <div className="px-4 py-3 border-t border-white/[0.05]">
           <button

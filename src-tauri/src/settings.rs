@@ -795,6 +795,11 @@ pub struct AppSettings {
     /// List of text replacement rules
     #[serde(default)]
     pub text_replacements: Vec<TextReplacement>,
+    /// Whether to apply text replacements BEFORE LLM post-processing (default: after)
+    /// When true: STT → Text Replacement → LLM → Output
+    /// When false (default): STT → LLM → Text Replacement → Output
+    #[serde(default)]
+    pub text_replacements_before_llm: bool,
     // ==================== Audio Processing ====================
     /// Whether to filter filler words (uh, um, hmm, etc.) from transcriptions
     #[serde(default)]
@@ -1444,6 +1449,7 @@ pub fn get_default_settings() -> AppSettings {
         // Text Replacement
         text_replacements_enabled: false,
         text_replacements: Vec::new(),
+        text_replacements_before_llm: false,
         // Audio Processing
         filler_word_filter_enabled: false,
         vad_threshold: default_vad_threshold(),

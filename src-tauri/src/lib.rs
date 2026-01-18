@@ -389,6 +389,7 @@ pub fn run() {
         shortcut::change_beta_voice_commands_enabled_setting,
         shortcut::change_text_replacements_enabled_setting,
         shortcut::change_text_replacements_setting,
+        shortcut::change_text_replacements_before_llm_setting,
         shortcut::get_language_from_os_input,
         trigger_update_check,
         commands::cancel_operation,

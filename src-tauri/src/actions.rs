@@ -840,6 +840,10 @@ async fn get_transcription_or_cleanup(
 ///
 /// `profile_id` is the ID of the active transcription profile (e.g., "default" or "profile_1234").
 /// If a custom profile is used, its LLM settings will be applied for post-processing.
+///
+/// Text replacement order is controlled by `text_replacements_before_llm`:
+/// - When true:  STT → Text Replacement → LLM → Output
+/// - When false: STT → LLM → Text Replacement → Output (default)
 async fn apply_post_processing_and_history(
     app: &AppHandle,
     transcription: String,
@@ -857,11 +861,35 @@ async fn apply_post_processing_and_history(
         .filter(|id| *id != "default")
         .and_then(|id| settings.transcription_profile(id));
 
-    if let Some(converted_text) = maybe_convert_chinese_variant(&settings, &transcription).await {
+    // Helper closure for applying text replacements
+    let apply_replacements = |text: &str| -> String {
+        if settings.text_replacements_enabled && !settings.text_replacements.is_empty() {
+            let original_len = text.len();
+            let result =
+                crate::settings::apply_text_replacements(text, &settings.text_replacements);
+            if result.len() != original_len {
+                debug!(
+                    "Text replacements applied: {} chars -> {} chars",
+                    original_len,
+                    result.len()
+                );
+            }
+            result
+        } else {
+            text.to_string()
+        }
+    };
+
+    // Apply text replacements BEFORE LLM if configured
+    if settings.text_replacements_before_llm {
+        final_text = apply_replacements(&final_text);
+    }
+
+    if let Some(converted_text) = maybe_convert_chinese_variant(&settings, &final_text).await {
         final_text = converted_text.clone();
         post_processed_text = Some(converted_text);
     } else {
-        match maybe_post_process_transcription(app, &settings, &transcription, profile).await {
+        match maybe_post_process_transcription(app, &settings, &final_text, profile).await {
             PostProcessTranscriptionOutcome::Skipped => {}
             PostProcessTranscriptionOutcome::Cancelled => {
                 return None;
@@ -877,18 +905,9 @@ async fn apply_post_processing_and_history(
         }
     }
 
-    // Apply text replacements if enabled
-    if settings.text_replacements_enabled && !settings.text_replacements.is_empty() {
-        let original_len = final_text.len();
-        final_text =
-            crate::settings::apply_text_replacements(&final_text, &settings.text_replacements);
-        if final_text.len() != original_len {
-            debug!(
-                "Text replacements applied: {} chars -> {} chars",
-                original_len,
-                final_text.len()
-            );
-        }
+    // Apply text replacements AFTER LLM if NOT configured for before
+    if !settings.text_replacements_before_llm {
+        final_text = apply_replacements(&final_text);
     }
 
     let hm = Arc::clone(&app.state::<Arc<HistoryManager>>());

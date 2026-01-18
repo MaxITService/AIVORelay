@@ -691,10 +691,7 @@ pub fn change_voice_command_use_windows_terminal_setting(
 
 #[tauri::command]
 #[specta::specta]
-pub fn change_voice_command_auto_run_setting(
-    app: AppHandle,
-    enabled: bool,
-) -> Result<(), String> {
+pub fn change_voice_command_auto_run_setting(app: AppHandle, enabled: bool) -> Result<(), String> {
     let mut settings = settings::get_settings(&app);
     settings.voice_command_auto_run = enabled;
     settings::write_settings(&app, settings);
@@ -2177,6 +2174,18 @@ pub fn change_text_replacements_setting(
 ) -> Result<(), String> {
     let mut settings = settings::get_settings(&app);
     settings.text_replacements = replacements;
+    settings::write_settings(&app, settings);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_text_replacements_before_llm_setting(
+    app: AppHandle,
+    enabled: bool,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.text_replacements_before_llm = enabled;
     settings::write_settings(&app, settings);
     Ok(())
 }

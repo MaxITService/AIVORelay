@@ -22,7 +22,9 @@
   },
   "textReplacement": {
     "cleanupTitle": "Speech Clean-up",
-    "cleanupDescription": "Automatically remove common speech artifacts from the final text."
+    "cleanupDescription": "Automatically remove common speech artifacts from the final text.",
+    "beforeLlm": "Apply Before LLM Post-Processing",
+    "beforeLlmDescription": "When enabled, text replacements are applied BEFORE LLM processing. This prevents the LLM from modifying your replacement patterns."
   },
   "audioProcessing": {
     "title": "Speech Processing",
