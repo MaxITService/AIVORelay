@@ -9,6 +9,7 @@ import {
   Check,
   RefreshCw,
   RefreshCcw,
+  Info,
 } from "lucide-react";
 import { commands, TranscriptionProfile } from "@/bindings";
 import { invoke } from "@tauri-apps/api/core";
@@ -69,7 +70,7 @@ interface ProfileCardProps {
   onRefreshModels: () => void;
   isFetchingModels: boolean;
   defaultLlmPrompt: string;
-  resolvedOsLanguage: string | null;
+  // Note: resolvedOsLanguage removed - language is detected at transcription time, not in UI
 }
 
 const ProfileCard: React.FC<ProfileCardProps> = ({
@@ -88,7 +89,6 @@ const ProfileCard: React.FC<ProfileCardProps> = ({
   onRefreshModels,
   isFetchingModels,
   defaultLlmPrompt,
-  resolvedOsLanguage,
 }) => {
   const { t } = useTranslation();
   const [isUpdating, setIsUpdating] = useState(false);
@@ -110,15 +110,8 @@ const ProfileCard: React.FC<ProfileCardProps> = ({
 
   const languageLabel = useMemo(() => {
     const lang = LANGUAGES.find((l) => l.value === profile.language);
-    const baseLabel = lang?.label || t("settings.general.language.auto");
-    // If "os_input" is selected and we have a resolved language, show it
-    if (profile.language === "os_input" && resolvedOsLanguage) {
-      const resolvedLang = LANGUAGES.find((l) => l.value === resolvedOsLanguage);
-      const resolvedLabel = resolvedLang?.label || resolvedOsLanguage;
-      return `${baseLabel} (${resolvedLabel})`;
-    }
-    return baseLabel;
-  }, [profile.language, resolvedOsLanguage, t]);
+    return lang?.label || t("settings.general.language.auto");
+  }, [profile.language, t]);
 
   const promptLength = (profile.system_prompt || "").length;
   const isOverLimit = promptLimit > 0 && promptLength > promptLimit;
@@ -268,6 +261,14 @@ const ProfileCard: React.FC<ProfileCardProps> = ({
               {languageLabel}
               {profile.translate_to_english && (
                 <span className="text-purple-400 ml-1">→ EN</span>
+              )}
+              {profile.language === "os_input" && (
+                <span
+                  className="text-amber-400/60 ml-2 text-[10px]"
+                  title={t("settings.general.language.followOsInputTooltip")}
+                >
+                  ({t("settings.general.language.followOsInputHint")})
+                </span>
               )}
             </span>
           </div>
@@ -662,41 +663,9 @@ export const TranscriptionProfiles: React.FC = () => {
   const [newLlmEnabled, setNewLlmEnabled] = useState(false);
   const [newLlmPromptOverride, setNewLlmPromptOverride] = useState("");
   const [newLlmModelOverride, setNewLlmModelOverride] = useState<string | null>(null);
-  const [resolvedOsLanguage, setResolvedOsLanguage] = useState<string | null>(null);
 
-  // Check if any profile uses "os_input" language
   const profiles = (settings?.transcription_profiles ||
     []) as ExtendedTranscriptionProfile[];
-  const anyProfileUsesOsInput = useMemo(() => {
-    if (settings?.selected_language === "os_input") return true;
-    return profiles.some((p) => p.language === "os_input");
-  }, [settings?.selected_language, profiles]);
-
-  // Poll OS input language when needed
-  const fetchOsLanguage = useCallback(async () => {
-    if (!anyProfileUsesOsInput) {
-      setResolvedOsLanguage(null);
-      return;
-    }
-    try {
-      const lang = await invoke<string | null>("get_language_from_os_input");
-      setResolvedOsLanguage(lang);
-    } catch (error) {
-      console.error("Failed to get OS input language:", error);
-      setResolvedOsLanguage(null);
-    }
-  }, [anyProfileUsesOsInput]);
-
-  useEffect(() => {
-    if (!anyProfileUsesOsInput) {
-      setResolvedOsLanguage(null);
-      return;
-    }
-    
-    fetchOsLanguage();
-    const interval = setInterval(fetchOsLanguage, 2000); // Poll every 2 seconds
-    return () => clearInterval(interval);
-  }, [anyProfileUsesOsInput, fetchOsLanguage]);
 
   const isExpanded = (id: string) => expandedIds.has(id);
 
@@ -1030,19 +999,16 @@ export const TranscriptionProfiles: React.FC = () => {
                     {(() => {
                       const selectedLang = settings?.selected_language || "auto";
                       const lang = LANGUAGES.find((l) => l.value === selectedLang);
-                      let label = lang?.label || t("settings.general.language.auto");
-                      if (selectedLang === "os_input" && resolvedOsLanguage) {
-                        const resolvedLang = LANGUAGES.find((l) => l.value === resolvedOsLanguage);
-                        const resolvedLabel = resolvedLang?.label || resolvedOsLanguage;
-                        label = `${label} (${resolvedLabel})`;
-                      }
-                      return label;
+                      return lang?.label || t("settings.general.language.auto");
                     })()}
                     {settings?.translate_to_english && (
                       <span className="text-purple-400 ml-1">→ EN</span>
                     )}
                     {settings?.selected_language === "os_input" && (
-                      <span className="text-amber-400/60 ml-2 text-[10px]">
+                      <span
+                        className="text-amber-400/60 ml-2 text-[10px]"
+                        title={t("settings.general.language.followOsInputTooltip")}
+                      >
                         ({t("settings.general.language.followOsInputHint")})
                       </span>
                     )}
@@ -1202,7 +1168,6 @@ export const TranscriptionProfiles: React.FC = () => {
               onRefreshModels={handleRefreshModels}
               isFetchingModels={isFetchingModels}
               defaultLlmPrompt={globalPromptText}
-              resolvedOsLanguage={resolvedOsLanguage}
             />
           ))}
         </div>

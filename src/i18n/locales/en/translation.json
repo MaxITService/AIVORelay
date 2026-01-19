@@ -277,7 +277,8 @@
         "noResults": "No languages found",
         "auto": "Auto",
         "followOsInput": "Follow OS Input Language",
-        "followOsInputHint": "Updates every 2 seconds"
+        "followOsInputHint": "Detected when recording ends",
+        "followOsInputTooltip": "Language is determined by your current keyboard layout at the moment transcription starts. You can switch keyboard layouts even while recording - the language active when you stop recording will be used."
       },
       "pushToTalk": {
         "label": "Push To Talk",
