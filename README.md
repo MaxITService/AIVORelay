@@ -45,9 +45,9 @@ Translate this to Finnish: ${output}
 
 **How it works:**
 
-1. You speak → "Привет, как дела?"
-2. STT transcribes → "Привет, как дела?"
-3. `${output}` is replaced → "Translate this to Finnish: Привет, как дела?"
+1. You speak → "Hello, how are you?"
+2. STT transcribes → "Hello, how are you?"
+3. `${output}` is replaced → "Translate this to Finnish: Hello, how are you?"
 4. LLM processes → "Hei, mitä kuuluu?"
 
 #### Shortcuts
