@@ -1,4 +1,7 @@
 use crate::audio_toolkit::{apply_custom_words, filter_transcription_output};
+use crate::engines::whisper::{
+    LocalWhisperEngine, LocalWhisperInferenceParams, LocalWhisperResult,
+};
 use crate::managers::model::{EngineType, ModelManager};
 use crate::settings::{get_settings, ModelUnloadTimeout};
 use anyhow::Result;
@@ -9,13 +12,14 @@ use std::sync::{Arc, Condvar, Mutex};
 use std::thread;
 use std::time::{Duration, SystemTime};
 use tauri::{AppHandle, Emitter};
+
+#[cfg(feature = "vulkan")]
 use transcribe_rs::{
     engines::{
         moonshine::{ModelVariant, MoonshineEngine, MoonshineModelParams},
         parakeet::{
             ParakeetEngine, ParakeetInferenceParams, ParakeetModelParams, TimestampGranularity,
         },
-        whisper::{WhisperEngine, WhisperInferenceParams},
     },
     TranscriptionEngine,
 };
@@ -29,8 +33,10 @@ pub struct ModelStateEvent {
 }
 
 enum LoadedEngine {
-    Whisper(WhisperEngine),
+    Whisper(LocalWhisperEngine),
+    #[cfg(feature = "vulkan")]
     Parakeet(ParakeetEngine),
+    #[cfg(feature = "vulkan")]
     Moonshine(MoonshineEngine),
 }
 
@@ -143,7 +149,9 @@ impl TranscriptionManager {
             if let Some(ref mut loaded_engine) = *engine {
                 match loaded_engine {
                     LoadedEngine::Whisper(ref mut e) => e.unload_model(),
+                    #[cfg(feature = "vulkan")]
                     LoadedEngine::Parakeet(ref mut e) => e.unload_model(),
+                    #[cfg(feature = "vulkan")]
                     LoadedEngine::Moonshine(ref mut e) => e.unload_model(),
                 }
             }
@@ -225,7 +233,7 @@ impl TranscriptionManager {
         // Create appropriate engine based on model type
         let loaded_engine = match model_info.engine_type {
             EngineType::Whisper => {
-                let mut engine = WhisperEngine::new();
+                let mut engine = LocalWhisperEngine::new();
                 engine.load_model(&model_path).map_err(|e| {
                     let error_msg = format!("Failed to load whisper model {}: {}", model_id, e);
                     let _ = self.app_handle.emit(
@@ -241,6 +249,7 @@ impl TranscriptionManager {
                 })?;
                 LoadedEngine::Whisper(engine)
             }
+            #[cfg(feature = "vulkan")]
             EngineType::Parakeet => {
                 let mut engine = ParakeetEngine::new();
                 engine
@@ -261,6 +270,7 @@ impl TranscriptionManager {
                     })?;
                 LoadedEngine::Parakeet(engine)
             }
+            #[cfg(feature = "vulkan")]
             EngineType::Moonshine => {
                 let mut engine = MoonshineEngine::new();
                 engine
@@ -283,6 +293,23 @@ impl TranscriptionManager {
                         anyhow::anyhow!(error_msg)
                     })?;
                 LoadedEngine::Moonshine(engine)
+            }
+            #[cfg(not(feature = "vulkan"))]
+            _ => {
+                let error_msg = format!(
+                    "Model {} requires Parakeet/Moonshine engine which is not available in CUDA build. Please use a Whisper model.",
+                    model_id
+                );
+                let _ = self.app_handle.emit(
+                    "model-state-changed",
+                    ModelStateEvent {
+                        event_type: "loading_failed".to_string(),
+                        model_id: Some(model_id.to_string()),
+                        model_name: Some(model_info.name.clone()),
+                        error: Some(error_msg.clone()),
+                    },
+                );
+                return Err(anyhow::anyhow!(error_msg));
             }
         };
 
@@ -408,7 +435,7 @@ impl TranscriptionManager {
                         Some(normalized)
                     };
 
-                    let params = WhisperInferenceParams {
+                    let params = LocalWhisperInferenceParams {
                         language: whisper_language,
                         translate: settings.translate_to_english,
                         initial_prompt: {
@@ -420,25 +447,54 @@ impl TranscriptionManager {
                                 .filter(|p| !p.trim().is_empty())
                                 .cloned()
                         },
-                        ..Default::default()
                     };
 
                     whisper_engine
                         .transcribe_samples(audio, Some(params))
                         .map_err(|e| anyhow::anyhow!("Whisper transcription failed: {}", e))?
                 }
+                #[cfg(feature = "vulkan")]
                 LoadedEngine::Parakeet(parakeet_engine) => {
                     let params = ParakeetInferenceParams {
                         timestamp_granularity: TimestampGranularity::Segment,
                         ..Default::default()
                     };
-                    parakeet_engine
+                    let tr_result = parakeet_engine
                         .transcribe_samples(audio, Some(params))
-                        .map_err(|e| anyhow::anyhow!("Parakeet transcription failed: {}", e))?
+                        .map_err(|e| anyhow::anyhow!("Parakeet transcription failed: {}", e))?;
+                    // Convert TranscriptionResult to LocalWhisperResult
+                    LocalWhisperResult {
+                        text: tr_result.text,
+                        segments: tr_result.segments.map(|segs| {
+                            segs.into_iter()
+                                .map(|s| crate::subtitle::SubtitleSegment {
+                                    start: s.start,
+                                    end: s.end,
+                                    text: s.text,
+                                })
+                                .collect()
+                        }),
+                    }
                 }
-                LoadedEngine::Moonshine(moonshine_engine) => moonshine_engine
-                    .transcribe_samples(audio, None)
-                    .map_err(|e| anyhow::anyhow!("Moonshine transcription failed: {}", e))?,
+                #[cfg(feature = "vulkan")]
+                LoadedEngine::Moonshine(moonshine_engine) => {
+                    let tr_result = moonshine_engine
+                        .transcribe_samples(audio, None)
+                        .map_err(|e| anyhow::anyhow!("Moonshine transcription failed: {}", e))?;
+                    // Convert TranscriptionResult to LocalWhisperResult
+                    LocalWhisperResult {
+                        text: tr_result.text,
+                        segments: tr_result.segments.map(|segs| {
+                            segs.into_iter()
+                                .map(|s| crate::subtitle::SubtitleSegment {
+                                    start: s.start,
+                                    end: s.end,
+                                    text: s.text,
+                                })
+                                .collect()
+                        }),
+                    }
+                }
             }
         };
 
@@ -560,7 +616,7 @@ impl TranscriptionManager {
                         Some(normalized)
                     };
 
-                    let params = WhisperInferenceParams {
+                    let params = LocalWhisperInferenceParams {
                         language: whisper_language,
                         translate: translate_to_english,
                         initial_prompt: {
@@ -576,26 +632,52 @@ impl TranscriptionManager {
                                         .cloned()
                                 })
                         },
-                        ..Default::default()
                     };
 
                     whisper_engine
                         .transcribe_samples(audio, Some(params))
                         .map_err(|e| anyhow::anyhow!("Whisper transcription failed: {}", e))?
                 }
+                #[cfg(feature = "vulkan")]
                 LoadedEngine::Parakeet(parakeet_engine) => {
                     let params = ParakeetInferenceParams {
                         timestamp_granularity: TimestampGranularity::Segment,
                         ..Default::default()
                     };
-
-                    parakeet_engine
+                    let tr_result = parakeet_engine
                         .transcribe_samples(audio, Some(params))
-                        .map_err(|e| anyhow::anyhow!("Parakeet transcription failed: {}", e))?
+                        .map_err(|e| anyhow::anyhow!("Parakeet transcription failed: {}", e))?;
+                    LocalWhisperResult {
+                        text: tr_result.text,
+                        segments: tr_result.segments.map(|segs| {
+                            segs.into_iter()
+                                .map(|s| crate::subtitle::SubtitleSegment {
+                                    start: s.start,
+                                    end: s.end,
+                                    text: s.text,
+                                })
+                                .collect()
+                        }),
+                    }
                 }
-                LoadedEngine::Moonshine(moonshine_engine) => moonshine_engine
-                    .transcribe_samples(audio, None)
-                    .map_err(|e| anyhow::anyhow!("Moonshine transcription failed: {}", e))?,
+                #[cfg(feature = "vulkan")]
+                LoadedEngine::Moonshine(moonshine_engine) => {
+                    let tr_result = moonshine_engine
+                        .transcribe_samples(audio, None)
+                        .map_err(|e| anyhow::anyhow!("Moonshine transcription failed: {}", e))?;
+                    LocalWhisperResult {
+                        text: tr_result.text,
+                        segments: tr_result.segments.map(|segs| {
+                            segs.into_iter()
+                                .map(|s| crate::subtitle::SubtitleSegment {
+                                    start: s.start,
+                                    end: s.end,
+                                    text: s.text,
+                                })
+                                .collect()
+                        }),
+                    }
+                }
             }
         };
 
@@ -716,7 +798,7 @@ impl TranscriptionManager {
                         Some(normalized)
                     };
 
-                    let params = WhisperInferenceParams {
+                    let params = LocalWhisperInferenceParams {
                         language: whisper_language,
                         translate: translate_to_english,
                         initial_prompt: {
@@ -731,26 +813,52 @@ impl TranscriptionManager {
                                         .cloned()
                                 })
                         },
-                        ..Default::default()
                     };
 
                     whisper_engine
                         .transcribe_samples(audio, Some(params))
                         .map_err(|e| anyhow::anyhow!("Whisper transcription failed: {}", e))?
                 }
+                #[cfg(feature = "vulkan")]
                 LoadedEngine::Parakeet(parakeet_engine) => {
                     let params = ParakeetInferenceParams {
                         timestamp_granularity: TimestampGranularity::Segment,
                         ..Default::default()
                     };
-
-                    parakeet_engine
+                    let tr_result = parakeet_engine
                         .transcribe_samples(audio, Some(params))
-                        .map_err(|e| anyhow::anyhow!("Parakeet transcription failed: {}", e))?
+                        .map_err(|e| anyhow::anyhow!("Parakeet transcription failed: {}", e))?;
+                    LocalWhisperResult {
+                        text: tr_result.text,
+                        segments: tr_result.segments.map(|segs| {
+                            segs.into_iter()
+                                .map(|s| crate::subtitle::SubtitleSegment {
+                                    start: s.start,
+                                    end: s.end,
+                                    text: s.text,
+                                })
+                                .collect()
+                        }),
+                    }
                 }
-                LoadedEngine::Moonshine(moonshine_engine) => moonshine_engine
-                    .transcribe_samples(audio, None)
-                    .map_err(|e| anyhow::anyhow!("Moonshine transcription failed: {}", e))?,
+                #[cfg(feature = "vulkan")]
+                LoadedEngine::Moonshine(moonshine_engine) => {
+                    let tr_result = moonshine_engine
+                        .transcribe_samples(audio, None)
+                        .map_err(|e| anyhow::anyhow!("Moonshine transcription failed: {}", e))?;
+                    LocalWhisperResult {
+                        text: tr_result.text,
+                        segments: tr_result.segments.map(|segs| {
+                            segs.into_iter()
+                                .map(|s| crate::subtitle::SubtitleSegment {
+                                    start: s.start,
+                                    end: s.end,
+                                    text: s.text,
+                                })
+                                .collect()
+                        }),
+                    }
+                }
             }
         };
 

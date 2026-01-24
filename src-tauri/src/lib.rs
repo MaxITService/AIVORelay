@@ -5,6 +5,7 @@ mod audio_feedback;
 pub mod audio_toolkit;
 mod clipboard;
 mod commands;
+pub mod engines;
 mod helpers;
 mod input;
 mod input_source;
@@ -280,6 +281,13 @@ pub fn run() {
     // Parse console logging directives from RUST_LOG, falling back to info-level logging
     // when the variable is unset
     let console_filter = build_console_filter();
+
+    #[cfg(feature = "cuda")]
+    log::info!("AivoRelay starting with CUDA acceleration");
+    #[cfg(feature = "vulkan")]
+    log::info!("AivoRelay starting with Vulkan acceleration");
+    #[cfg(not(any(feature = "cuda", feature = "vulkan")))]
+    log::info!("AivoRelay starting (Standard build)");
 
     let specta_builder = Builder::<tauri::Wry>::new().commands(collect_commands![
         shortcut::change_binding,

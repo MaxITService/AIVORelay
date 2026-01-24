@@ -63,8 +63,10 @@ dependencies = [
  "keyring",
  "log",
  "natural",
+ "ndarray",
  "notify",
  "once_cell",
+ "ort",
  "rdev",
  "regex",
  "reqwest",
@@ -103,6 +105,7 @@ dependencies = [
  "tower-http",
  "transcribe-rs",
  "vad-rs",
+ "whisper-rs",
  "windows 0.61.3",
 ]
 
@@ -7634,8 +7637,6 @@ dependencies = [
 [[package]]
 name = "transcribe-rs"
 version = "0.2.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2a15e55d3bd4f74a474b7ff2c87ab416130223db490102c5ad32c6e2227686b0"
 dependencies = [
  "derive_builder",
  "env_logger",
