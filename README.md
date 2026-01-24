@@ -73,6 +73,10 @@ Voice-controlled text editing — select text, speak instruction, get AI-transfo
 - Empty field + "no selection" mode → say "write a greeting email" → generated text
 - Works in any Windows application
 
+![AI Replace](Promo/ai-replace.gif)
+
+In the demonstration above, first I ask to solve the mathematical task, and then to translate text to finish. 
+
 **Setup:** Settings → Advanced → AI Replace Settings
 
 ### 📤 Send to ChatGPT/Claude
