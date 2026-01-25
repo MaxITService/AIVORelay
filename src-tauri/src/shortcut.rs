@@ -1,13 +1,16 @@
-use log::{error, warn};
+use log::{error, info, warn};
 use serde::Serialize;
 use specta::Type;
+use std::collections::HashSet;
 use std::sync::Arc;
-use tauri::{AppHandle, Emitter, Manager, State};
+use tauri::{AppHandle, Emitter, Listener, Manager, State};
 use tauri_plugin_autostart::ManagerExt;
+#[cfg(not(target_os = "windows"))]
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
 
 use crate::actions::ACTION_MAP;
 use crate::managers::audio::AudioRecordingManager;
+use crate::managers::key_listener::{KeyListenerState, ShortcutEvent};
 use crate::managers::remote_stt::RemoteSttManager;
 use crate::settings::ShortcutBinding;
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
@@ -19,9 +22,18 @@ use crate::settings::{
 use crate::tray;
 use crate::ManagedToggleState;
 
+/// Track which shortcuts are registered via rdev (not tauri-plugin-global-shortcut)
+pub type RdevShortcutsSet = std::sync::Mutex<HashSet<String>>;
+
 pub fn init_shortcuts(app: &AppHandle) {
     let default_bindings = settings::get_default_settings().bindings;
     let user_settings = settings::load_or_create_app_settings(app);
+
+    // Start the rdev key listener for shortcuts that tauri doesn't support
+    start_rdev_listener(app);
+
+    // Set up listener for rdev-shortcut events
+    setup_rdev_shortcut_handler(app);
 
     // Register all default shortcuts, applying user customizations
     for (id, default_binding) in default_bindings {
@@ -54,6 +66,144 @@ pub fn init_shortcuts(app: &AppHandle) {
                         binding_id, e
                     );
                 }
+            }
+        }
+    }
+}
+
+/// Start the rdev key listener
+fn start_rdev_listener(app: &AppHandle) {
+    if let Some(key_listener_state) = app.try_state::<KeyListenerState>() {
+        let manager = key_listener_state.manager.clone();
+        tauri::async_runtime::spawn(async move {
+            if let Err(e) = manager.start().await {
+                error!("Failed to start rdev key listener: {}", e);
+            }
+        });
+    } else {
+        error!("KeyListenerState not found - rdev shortcuts won't work");
+    }
+}
+
+/// Set up handler for rdev-shortcut events (handles shortcuts that tauri doesn't support)
+fn setup_rdev_shortcut_handler(app: &AppHandle) {
+    let app_handle = app.clone();
+    app.listen("rdev-shortcut", move |event| {
+        if let Ok(shortcut_event) = serde_json::from_str::<ShortcutEvent>(event.payload()) {
+            handle_rdev_shortcut_event(&app_handle, shortcut_event);
+        } else {
+            warn!("Failed to parse rdev-shortcut event payload");
+        }
+    });
+}
+
+/// Handle a shortcut event from rdev (mirrors the tauri-plugin-global-shortcut handler logic)
+fn handle_rdev_shortcut_event(app: &AppHandle, event: ShortcutEvent) {
+    let binding_id = event.id;
+    let shortcut_string = event.binding;
+    let pressed = event.pressed;
+
+    let settings = get_settings(app);
+
+    // Look up action - for profile-based bindings, fall back to "transcribe" action
+    let action = ACTION_MAP.get(&binding_id).or_else(|| {
+        if binding_id.starts_with("transcribe_") {
+            ACTION_MAP.get("transcribe")
+        } else {
+            None
+        }
+    });
+
+    let Some(action) = action else {
+        warn!(
+            "No action defined for rdev shortcut ID '{}'. Binding: '{}'",
+            binding_id, shortcut_string
+        );
+        return;
+    };
+
+    // Handle cancel action
+    if binding_id == "cancel" {
+        let audio_manager = app.state::<Arc<AudioRecordingManager>>();
+        if audio_manager.is_recording() && pressed {
+            action.start(app, &binding_id, &shortcut_string);
+        }
+        return;
+    }
+
+    // Check if action is enabled
+    let action_enabled = match binding_id.as_str() {
+        "send_to_extension" => settings.send_to_extension_enabled,
+        "send_to_extension_with_selection" => settings.send_to_extension_with_selection_enabled,
+        "send_screenshot_to_extension" => settings.send_screenshot_to_extension_enabled,
+        "voice_command" => settings.voice_command_enabled,
+        _ => true,
+    };
+    if !action_enabled {
+        return;
+    }
+
+    // Determine push-to-talk setting
+    let use_push_to_talk = match binding_id.as_str() {
+        "send_to_extension" => settings.send_to_extension_push_to_talk,
+        "send_to_extension_with_selection" => settings.send_to_extension_with_selection_push_to_talk,
+        "ai_replace_selection" => settings.ai_replace_selection_push_to_talk,
+        "send_screenshot_to_extension" => settings.send_screenshot_to_extension_push_to_talk,
+        "voice_command" => settings.voice_command_push_to_talk,
+        "transcribe" => {
+            if settings.active_profile_id == "default" {
+                settings.push_to_talk
+            } else {
+                settings
+                    .transcription_profile(&settings.active_profile_id)
+                    .map(|p| p.push_to_talk)
+                    .unwrap_or(settings.push_to_talk)
+            }
+        }
+        id if id.starts_with("transcribe_") => settings
+            .transcription_profile_by_binding(id)
+            .map(|p| p.push_to_talk)
+            .unwrap_or(settings.push_to_talk),
+        _ => settings.push_to_talk,
+    };
+
+    // Handle instant actions
+    if action.is_instant() {
+        if pressed {
+            action.start(app, &binding_id, &shortcut_string);
+        }
+        return;
+    }
+
+    if use_push_to_talk {
+        if pressed {
+            action.start(app, &binding_id, &shortcut_string);
+        } else {
+            action.stop(app, &binding_id, &shortcut_string);
+        }
+    } else {
+        // Toggle mode
+        if pressed {
+            let should_start: bool;
+            {
+                let toggle_state_manager = app.state::<ManagedToggleState>();
+                let mut states = toggle_state_manager
+                    .lock()
+                    .expect("Failed to lock toggle state manager");
+
+                let is_currently_active = states
+                    .active_toggles
+                    .entry(binding_id.clone())
+                    .or_insert(false);
+
+                should_start = !*is_currently_active;
+                *is_currently_active = should_start;
+            }
+
+            if should_start {
+                action.start(app, &binding_id, &shortcut_string);
+            } else {
+                action.stop(app, &binding_id, &shortcut_string);
             }
         }
     }
@@ -1918,25 +2068,37 @@ pub fn change_app_language_setting(app: AppHandle, language: String) -> Result<(
     Ok(())
 }
 
-/// Validate that a shortcut contains at least one non-modifier key.
-/// The tauri-plugin-global-shortcut library requires at least one main key.
+/// Validate that a shortcut is not empty and has valid structure.
+/// On Windows, modifier-only shortcuts (like Ctrl+Alt) are allowed via rdev.
+/// On other platforms, tauri-plugin-global-shortcut requires a main key.
 fn validate_shortcut_string(raw: &str) -> Result<(), String> {
     if raw.trim().is_empty() {
         return Err("Shortcut cannot be empty".into());
     }
 
-    let modifiers = [
-        "ctrl", "control", "shift", "alt", "option", "meta", "command", "cmd", "super", "win",
-        "windows",
-    ];
-    let has_non_modifier = raw
-        .split('+')
-        .any(|part| !modifiers.contains(&part.trim().to_lowercase().as_str()));
-
-    if has_non_modifier {
+    // On Windows, we use rdev which supports modifier-only shortcuts
+    #[cfg(target_os = "windows")]
+    {
+        // Just check it's not empty - rdev can handle modifier-only
         Ok(())
-    } else {
-        Err("Shortcut must include a main key (letter, number, F-key, etc.) in addition to modifiers".into())
+    }
+
+    // On other platforms, require a main key for tauri-plugin compatibility
+    #[cfg(not(target_os = "windows"))]
+    {
+        let modifiers = [
+            "ctrl", "control", "shift", "alt", "option", "meta", "command", "cmd", "super", "win",
+            "windows",
+        ];
+        let has_non_modifier = raw
+            .split('+')
+            .any(|part| !modifiers.contains(&part.trim().to_lowercase().as_str()));
+
+        if has_non_modifier {
+            Ok(())
+        } else {
+            Err("Shortcut must include a main key (letter, number, F-key, etc.) in addition to modifiers".into())
+        }
     }
 }
 
@@ -2009,27 +2171,46 @@ pub fn unregister_cancel_shortcut(app: &AppHandle) {
 }
 
 pub fn register_shortcut(app: &AppHandle, binding: ShortcutBinding) -> Result<(), String> {
-    // Validate human-level rules first
-    if let Err(e) = validate_shortcut_string(&binding.current_binding) {
-        warn!(
-            "_register_shortcut validation error for binding '{}': {}",
-            binding.current_binding, e
-        );
-        return Err(e);
+    // On Windows, use rdev for ALL shortcuts for maximum compatibility
+    // This bypasses tauri-plugin-global-shortcut which has issues with some key combinations
+    #[cfg(target_os = "windows")]
+    {
+        return register_shortcut_via_rdev(app, binding);
     }
 
-    // Parse shortcut and return error if it fails
-    let shortcut = match binding.current_binding.parse::<Shortcut>() {
-        Ok(s) => s,
-        Err(e) => {
-            let error_msg = format!(
-                "Failed to parse shortcut '{}': {}",
-                binding.current_binding, e
-            );
-            error!("_register_shortcut parse error: {}", error_msg);
+    // On other platforms, use tauri-plugin-global-shortcut with rdev fallback
+    #[cfg(not(target_os = "windows"))]
+    {
+        register_shortcut_tauri(app, binding)
+    }
+}
+
+/// Register shortcut via tauri-plugin-global-shortcut (used on macOS/Linux)
+#[cfg(not(target_os = "windows"))]
+fn register_shortcut_tauri(app: &AppHandle, binding: ShortcutBinding) -> Result<(), String> {
+    // Try to parse shortcut for tauri-plugin-global-shortcut
+    let shortcut_result = binding.current_binding.parse::<Shortcut>();
+
+    // If tauri-plugin can't parse it, try rdev instead
+    if shortcut_result.is_err() {
+        info!(
+            "Shortcut '{}' not supported by tauri-plugin, trying rdev fallback",
+            binding.current_binding
+        );
+        return register_shortcut_via_rdev(app, binding);
+    }
+
+    let shortcut = shortcut_result.unwrap();
+
+    // Check if already registered with rdev
+    if let Some(rdev_set) = app.try_state::<RdevShortcutsSet>() {
+        let rdev_shortcuts = rdev_set.lock().expect("Failed to lock rdev shortcuts");
+        if rdev_shortcuts.contains(&binding.id) {
+            let error_msg = format!("Shortcut '{}' is already registered via rdev", binding.id);
+            warn!("{}", error_msg);
             return Err(error_msg);
         }
-    };
+    }
 
     // Prevent duplicate registrations that would silently shadow one another
     if app.global_shortcut().is_registered(shortcut) {
@@ -2174,27 +2355,117 @@ pub fn register_shortcut(app: &AppHandle, binding: ShortcutBinding) -> Result<()
 }
 
 pub fn unregister_shortcut(app: &AppHandle, binding: ShortcutBinding) -> Result<(), String> {
-    let shortcut = match binding.current_binding.parse::<Shortcut>() {
-        Ok(s) => s,
-        Err(e) => {
+    // On Windows, all shortcuts are registered via rdev
+    #[cfg(target_os = "windows")]
+    {
+        if let Some(rdev_set) = app.try_state::<RdevShortcutsSet>() {
+            let mut rdev_shortcuts = rdev_set.lock().expect("Failed to lock rdev shortcuts");
+            if rdev_shortcuts.contains(&binding.id) {
+                return unregister_shortcut_via_rdev(app, &binding.id, &mut rdev_shortcuts);
+            }
+        }
+        // If not found in rdev set, it might not have been registered
+        return Ok(());
+    }
+
+    // On other platforms, check rdev first, then tauri-plugin
+    #[cfg(not(target_os = "windows"))]
+    {
+        // Check if this is an rdev shortcut first
+        if let Some(rdev_set) = app.try_state::<RdevShortcutsSet>() {
+            let mut rdev_shortcuts = rdev_set.lock().expect("Failed to lock rdev shortcuts");
+            if rdev_shortcuts.contains(&binding.id) {
+                // Unregister from rdev
+                return unregister_shortcut_via_rdev(app, &binding.id, &mut rdev_shortcuts);
+            }
+        }
+
+        // Try tauri-plugin-global-shortcut
+        let shortcut = match binding.current_binding.parse::<Shortcut>() {
+            Ok(s) => s,
+            Err(e) => {
+                let error_msg = format!(
+                    "Failed to parse shortcut '{}' for unregistration: {}",
+                    binding.current_binding, e
+                );
+                error!("_unregister_shortcut parse error: {}", error_msg);
+                return Err(error_msg);
+            }
+        };
+
+        app.global_shortcut().unregister(shortcut).map_err(|e| {
             let error_msg = format!(
-                "Failed to parse shortcut '{}' for unregistration: {}",
+                "Failed to unregister shortcut '{}': {}",
                 binding.current_binding, e
             );
-            error!("_unregister_shortcut parse error: {}", error_msg);
+            error!("_unregister_shortcut error: {}", error_msg);
+            error_msg
+        })?;
+
+        Ok(())
+    }
+}
+
+/// Register a shortcut via rdev (for keys like Caps Lock that tauri doesn't support)
+fn register_shortcut_via_rdev(app: &AppHandle, binding: ShortcutBinding) -> Result<(), String> {
+    let key_listener_state = app
+        .try_state::<KeyListenerState>()
+        .ok_or_else(|| "KeyListenerState not found - rdev shortcuts not available".to_string())?;
+
+    let rdev_set = app
+        .try_state::<RdevShortcutsSet>()
+        .ok_or_else(|| "RdevShortcutsSet not found".to_string())?;
+
+    // Check if already registered
+    {
+        let rdev_shortcuts = rdev_set.lock().expect("Failed to lock rdev shortcuts");
+        if rdev_shortcuts.contains(&binding.id) {
+            let error_msg = format!("Shortcut '{}' is already registered via rdev", binding.id);
+            warn!("{}", error_msg);
             return Err(error_msg);
         }
-    };
+    }
 
-    app.global_shortcut().unregister(shortcut).map_err(|e| {
-        let error_msg = format!(
-            "Failed to unregister shortcut '{}': {}",
-            binding.current_binding, e
-        );
-        error!("_unregister_shortcut error: {}", error_msg);
-        error_msg
+    // Register with the key listener manager
+    let manager = key_listener_state.manager.clone();
+    let id = binding.id.clone();
+    let current_binding = binding.current_binding.clone();
+
+    // Use block_on since we're in sync context
+    futures::executor::block_on(async {
+        manager.register_shortcut(id.clone(), current_binding).await
     })?;
 
+    // Track that this shortcut is registered via rdev
+    {
+        let mut rdev_shortcuts = rdev_set.lock().expect("Failed to lock rdev shortcuts");
+        rdev_shortcuts.insert(binding.id.clone());
+    }
+
+    info!(
+        "Registered shortcut '{}' via rdev: {}",
+        binding.id, binding.current_binding
+    );
+    Ok(())
+}
+
+/// Unregister a shortcut from rdev
+fn unregister_shortcut_via_rdev(
+    app: &AppHandle,
+    id: &str,
+    rdev_shortcuts: &mut HashSet<String>,
+) -> Result<(), String> {
+    let key_listener_state = app
+        .try_state::<KeyListenerState>()
+        .ok_or_else(|| "KeyListenerState not found".to_string())?;
+
+    let manager = key_listener_state.manager.clone();
+    let id_owned = id.to_string();
+
+    futures::executor::block_on(async { manager.unregister_shortcut(&id_owned).await })?;
+
+    rdev_shortcuts.remove(id);
+    info!("Unregistered shortcut '{}' from rdev", id);
     Ok(())
 }
 

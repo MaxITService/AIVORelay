@@ -1482,6 +1482,95 @@ async transcribeAudioFile(filePath: string, profileId: string | null, saveToFile
 }
 },
 /**
+ * Start the key listener
+ */
+async keyListenerStart() : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("key_listener_start") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Stop the key listener
+ */
+async keyListenerStop() : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("key_listener_stop") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Check if the key listener is running
+ */
+async keyListenerIsRunning() : Promise<Result<boolean, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("key_listener_is_running") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Get current modifier state (Ctrl, Shift, Alt, Win)
+ */
+async keyListenerGetModifiers() : Promise<Result<ModifierState, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("key_listener_get_modifiers") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Register a shortcut with the rdev key listener
+ * This allows shortcuts that tauri-plugin-global-shortcut doesn't support (like Caps Lock)
+ */
+async keyListenerRegisterShortcut(id: string, binding: string) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("key_listener_register_shortcut", { id, binding }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Unregister a shortcut from the rdev key listener
+ */
+async keyListenerUnregisterShortcut(id: string) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("key_listener_unregister_shortcut", { id }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Check if a shortcut is registered with rdev
+ */
+async keyListenerIsShortcutRegistered(id: string) : Promise<Result<boolean, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("key_listener_is_shortcut_registered", { id }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Get list of all registered rdev shortcuts
+ */
+async keyListenerGetRegisteredShortcuts() : Promise<Result<string[], string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("key_listener_get_registered_shortcuts") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
  * Stub implementation for non-macOS platforms
  * Always returns false since laptop detection is macOS-specific
  */
@@ -1798,6 +1887,10 @@ export type LogLevel = "trace" | "debug" | "info" | "warn" | "error"
 export type ModelInfo = { id: string; name: string; description: string; filename: string; url: string | null; size_mb: number; is_downloaded: boolean; is_downloading: boolean; partial_size: number; is_directory: boolean; engine_type: EngineType; accuracy_score: number; speed_score: number }
 export type ModelLoadStatus = { is_loaded: boolean; current_model: string | null }
 export type ModelUnloadTimeout = "never" | "immediately" | "min_2" | "min_5" | "min_10" | "min_15" | "hour_1" | "sec_5"
+/**
+ * State for tracking active key modifiers (Ctrl, Shift, Alt, Win)
+ */
+export type ModifierState = { ctrl: boolean; shift: boolean; alt: boolean; win: boolean }
 export type NativeRegionCaptureMode = 
 /**
  * Most performant: transparent picker over the live desktop.

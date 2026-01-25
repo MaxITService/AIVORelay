@@ -262,6 +262,9 @@
           "restore": "Failed to restore original shortcut",
           "set": "Failed to set shortcut: {{error}}",
           "reset": "Failed to reset shortcut to original value"
+        },
+        "warnings": {
+          "modifierOnly": "Modifier-only shortcuts (like Ctrl+Alt) will trigger even when pressing Ctrl+Alt+Delete or other combinations. Consider adding a main key."
         }
       },
       "language": {

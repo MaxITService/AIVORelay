@@ -158,6 +158,19 @@ export const HandyShortcut: React.FC<HandyShortcutProps> = ({
           try {
             // changeBinding (called by updateBinding) already registers the new shortcut
             await updateBinding(editingShortcutId, newShortcut);
+
+            // Warn if modifier-only shortcut (Windows only)
+            if (osType === "windows") {
+              const isModifierOnly = sortedKeys.every((key) =>
+                modifiers.includes(key.toLowerCase()),
+              );
+              if (isModifierOnly) {
+                toast.warning(
+                  t("settings.general.shortcut.warnings.modifierOnly"),
+                  { duration: 6000 },
+                );
+              }
+            }
           } catch (error) {
             console.error("Failed to change binding:", error);
             toast.error(
