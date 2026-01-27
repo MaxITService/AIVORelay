@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { getVersion } from "@tauri-apps/api/app";
-import { open } from "@tauri-apps/plugin-opener";
+import { openUrl } from "@tauri-apps/plugin-opener";
 
 import ModelSelector from "../model-selector";
 
@@ -22,7 +22,7 @@ const Footer: React.FC = () => {
   }, []);
 
   const openReleasesPage = () => {
-    void open(
+    void openUrl(
       "https://github.com/MaxITService/AIVORelay/releases?q=avx2&expanded=true",
     );
   };
