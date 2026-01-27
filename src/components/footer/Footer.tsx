@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from "react";
 import { getVersion } from "@tauri-apps/api/app";
+import { open } from "@tauri-apps/plugin-opener";
 
 import ModelSelector from "../model-selector";
-import UpdateChecker from "../update-checker";
 
 const Footer: React.FC = () => {
   const [version, setVersion] = useState("");
@@ -21,6 +21,12 @@ const Footer: React.FC = () => {
     fetchVersion();
   }, []);
 
+  const openReleasesPage = () => {
+    void open(
+      "https://github.com/MaxITService/AIVORelay/releases?q=avx2&expanded=true",
+    );
+  };
+
   return (
     <div className="w-full bg-[#0f0f0f] border-t border-[#282828] pt-3">
       <div className="flex justify-between items-center text-xs px-4 pb-3 text-[#b8b8b8]">
@@ -28,12 +34,18 @@ const Footer: React.FC = () => {
           <ModelSelector />
         </div>
 
-        {/* Update Status */}
+        {/* Version & Manual Update Link (AVX2 build) */}
         <div className="flex items-center gap-2">
-          <UpdateChecker />
+          <button
+            onClick={openReleasesPage}
+            className="text-text/60 hover:text-text/80 transition-colors"
+          >
+            {/* eslint-disable-next-line i18next/no-literal-string */}
+            Update manually
+          </button>
           <span className="text-[#333333]">•</span>
           {/* eslint-disable-next-line i18next/no-literal-string */}
-          <span className="font-medium">v{version}</span>
+          <span className="font-medium">v{version} (AVX2)</span>
         </div>
       </div>
     </div>
