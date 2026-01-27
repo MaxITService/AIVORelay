@@ -27,31 +27,32 @@ jobs:
         uses: actions/github-script@v7
         with:
           script: |
+            const version = '${{ steps.get-version.outputs.version }}';
+            const body = [
+              '## AVX2 Optimized Build',
+              '',
+              '**This is the AVX2-optimized version of AivoRelay.**',
+              '',
+              '### Recommended for most users',
+              'If your computer was made after 2013, use this version for **2-3x faster** speech recognition.',
+              '',
+              '### Requirements',
+              '- Intel: 4th generation (Haswell) or newer',
+              '- AMD: Ryzen or newer',
+              '',
+              '### Not sure?',
+              'Try this version first. If your CPU doesn\'t support AVX2, the app will show an error on startup - then download the standard version instead.',
+              '',
+              '---',
+              '*For older CPUs without AVX2 support, see the [standard release](https://github.com/MaxITService/AIVORelay/releases).*'
+            ].join('\n');
+
             const { data } = await github.rest.repos.createRelease({
               owner: context.repo.owner,
               repo: context.repo.repo,
-              tag_name: `v${{ steps.get-version.outputs.version }}-avx2`,
-              name: `v${{ steps.get-version.outputs.version }} (AVX2)`,
-              body: `## AVX2 Optimized Build
-
-**This is the AVX2-optimized version of AivoRelay.**
-
-### Recommended for most users
-If your computer was made after 2013, use this version for **2-3x faster** speech recognition.
-
-### Requirements
-- Intel: 4th generation (Haswell) or newer
-- AMD: Ryzen or newer
-
-### Not sure?
-Try this version first. If your CPU doesn't support AVX2, the app will show an error on startup - then download the standard version instead.
-
-### Files
-- \`aivorelay-avx2_${process.env.VERSION || '${{ steps.get-version.outputs.version }}'}_x64-setup.exe\` - Installer
-- \`AivoRelay-avx2_${process.env.VERSION || '${{ steps.get-version.outputs.version }}'}_x64_en-US.msi\` - MSI package
-
----
-*For older CPUs without AVX2 support, see the [standard release](https://github.com/MaxITService/AIVORelay/releases).*`,
+              tag_name: `v${version}-avx2`,
+              name: `v${version} (AVX2)`,
+              body: body,
               draft: true,
               prerelease: false,
               generate_release_notes: true
