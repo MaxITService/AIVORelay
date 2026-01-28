@@ -4,7 +4,7 @@
   "version": "0.7.9",
   "identifier": "fi.maxits.aivorelay",
   "build": {
-    "beforeDevCommand": "bun run dev",
+    "beforeDevCommand": "tsc --noEmit && bun run dev",
     "devUrl": "http://localhost:1420",
     "beforeBuildCommand": "bun run build",
     "frontendDist": "../dist"
