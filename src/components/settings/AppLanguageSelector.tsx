@@ -40,6 +40,9 @@ export const AppLanguageSelector: React.FC<AppLanguageSelectorProps> =
           selectedValue={currentLanguage}
           onSelect={handleLanguageChange}
         />
+        <p style={{ marginTop: '0.5rem', fontSize: '0.85rem', color: 'var(--color-text-muted)', fontStyle: 'italic' }}>
+          {t("appLanguage.englishOnlyNote")}
+        </p>
       </SettingContainer>
     );
   });

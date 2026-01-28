@@ -399,6 +399,8 @@ pub fn run() {
         shortcut::change_text_replacements_enabled_setting,
         shortcut::change_text_replacements_setting,
         shortcut::change_text_replacements_before_llm_setting,
+        shortcut::change_sidebar_pinned_setting,
+        shortcut::change_sidebar_width_setting,
         shortcut::get_language_from_os_input,
         shortcut::get_current_shortcut_engine,
         shortcut::set_shortcut_engine_setting,

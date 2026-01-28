@@ -5,6 +5,7 @@ import AccessibilityPermissions from "./components/AccessibilityPermissions";
 import Footer from "./components/footer";
 import Onboarding from "./components/onboarding";
 import { Sidebar, SidebarSection, SECTIONS_CONFIG } from "./components/Sidebar";
+import { HotkeySidebar } from "./components/hotkey-sidebar";
 import { useSettings } from "./hooks/useSettings";
 import { commands } from "@/bindings";
 import { listen } from "@tauri-apps/api/event";
@@ -106,7 +107,7 @@ function App() {
 
   const handleRemoteSelected = () => {
     setShowOnboarding(false);
-    setCurrentSection("advanced");
+    setCurrentSection("general");
     refreshSettings();
   };
 
@@ -121,7 +122,7 @@ function App() {
 
   return (
     <div className="h-screen flex flex-col bg-[#121212]">
-      <Toaster 
+      <Toaster
         theme="dark"
         toastOptions={{
           style: {
@@ -150,6 +151,8 @@ function App() {
       </div>
       {/* Fixed footer at bottom */}
       <Footer />
+      {/* Hotkey sidebar on the right edge */}
+      <HotkeySidebar />
     </div>
   );
 }

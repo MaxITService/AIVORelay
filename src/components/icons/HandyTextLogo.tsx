@@ -13,13 +13,20 @@ const HandyTextLogo = ({
   const resolvedWidth = width ?? (height ? undefined : 300);
 
   return (
-    <img
-      src={largeLogoUrl}
-      alt="AivoRelay"
-      width={resolvedWidth}
-      height={height}
-      className={className}
-    />
+    <div className="flex flex-col items-center">
+      <img
+        src={largeLogoUrl}
+        alt="AivoRelay"
+        width={resolvedWidth}
+        height={height}
+        className={className}
+      />
+      {import.meta.env.DEV && (
+        <span className="text-xs font-semibold text-orange-400 mt-1">
+          Dev Mode
+        </span>
+      )}
+    </div>
   );
 };
 

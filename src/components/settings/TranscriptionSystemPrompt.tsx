@@ -161,19 +161,22 @@ export const TranscriptionSystemPrompt: React.FC<{ grouped?: boolean }> = ({
   return (
     <SettingContainer
       title={t("settings.general.transcriptionSystemPrompt.title")}
-      description={t("settings.general.transcriptionSystemPrompt.description")}
+      description={t("settings.general.transcriptionSystemPrompt.tooltip")}
       grouped={grouped}
       layout="stacked"
-      descriptionMode="inline"
+      descriptionMode="tooltip"
     >
       <div className="space-y-3 w-full pt-1">
+        <p className="text-xs text-mid-gray/80 -mt-2 mb-1">
+          {t("settings.general.transcriptionSystemPrompt.description")}
+        </p>
         {/* Model indicator */}
         <div className="flex items-center gap-2 text-[10px] text-mid-gray/60">
           <span className="px-1.5 py-0.5 rounded bg-white/5 border border-white/10">
             {activeModelId || "No model"}
           </span>
           {modelInfo.isWhisperLike && (
-            <span className="text-amber-500/60">Whisper</span>
+            <span className="text-amber-500/60">{t("settings.general.transcriptionSystemPrompt.whisperLabel", "Whisper")}</span>
           )}
         </div>
 
@@ -189,7 +192,7 @@ export const TranscriptionSystemPrompt: React.FC<{ grouped?: boolean }> = ({
           <div className="absolute bottom-3 right-3 pointer-events-none flex gap-2">
             {/* Token estimate */}
             <div className="px-2 py-0.5 rounded text-[10px] font-mono backdrop-blur-md border bg-white/5 text-mid-gray/60 border-white/5">
-              ~{approxTokens} tok
+              {t("settings.general.transcriptionSystemPrompt.tokensApprox", "~{{count}} tok", { count: approxTokens })}
             </div>
             {/* Character count */}
             <div

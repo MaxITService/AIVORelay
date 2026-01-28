@@ -271,6 +271,12 @@ const settingUpdaters: {
 (settingUpdaters as any).text_replacements_before_llm = (value: any) =>
   invoke("change_text_replacements_before_llm_setting", { enabled: value });
 
+// UI State settings
+(settingUpdaters as any).sidebar_pinned = (value: any) =>
+  invoke("change_sidebar_pinned_setting", { pinned: value });
+(settingUpdaters as any).sidebar_width = (value: any) =>
+  invoke("change_sidebar_width_setting", { width: value });
+
 export const useSettingsStore = create<SettingsStore>()(
   subscribeWithSelector((set, get) => ({
     settings: null,

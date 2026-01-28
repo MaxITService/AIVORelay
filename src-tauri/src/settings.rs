@@ -1001,6 +1001,17 @@ pub struct AppSettings {
     /// - "rdev": Supports all keys, but uses more CPU (processes every keystroke)
     #[serde(default)]
     pub shortcut_engine: ShortcutEngine,
+    // ==================== UI State ====================
+    /// Whether the hotkey sidebar is pinned open
+    #[serde(default)]
+    pub sidebar_pinned: bool,
+    /// Width of the hotkey sidebar in pixels
+    #[serde(default = "default_sidebar_width")]
+    pub sidebar_width: u32,
+}
+
+fn default_sidebar_width() -> u32 {
+    350
 }
 
 fn default_model() -> String {
@@ -1068,7 +1079,7 @@ fn default_debug_mode() -> bool {
 }
 
 fn default_log_level() -> LogLevel {
-    LogLevel::Debug
+    LogLevel::Error
 }
 
 fn default_word_correction_threshold() -> f64 {
@@ -1661,6 +1672,9 @@ pub fn get_default_settings() -> AppSettings {
         vad_threshold: default_vad_threshold(),
         // Shortcut Engine (Windows only)
         shortcut_engine: ShortcutEngine::default(),
+        // UI State
+        sidebar_pinned: false,
+        sidebar_width: default_sidebar_width(),
     }
 }
 

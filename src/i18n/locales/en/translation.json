@@ -21,6 +21,20 @@
     "about": "About"
   },
 
+  "hotkeySidebar": {
+    "title": "Hotkeys",
+    "pinSidebar": "Pin sidebar open",
+    "unpinSidebar": "Unpin sidebar",
+    "openSidebar": "Open hotkey sidebar",
+    "closeSidebar": "Close hotkey sidebar",
+    "configureHint": "Configure in Settings",
+    "categories": {
+      "recording": "Recording",
+      "actions": "Actions",
+      "profiles": "Profiles"
+    }
+  },
+
   "audioProcessing": {
     "title": "Speech Processing",
     "description": "Configure voice activity detection and speech artifact filtering.",
@@ -142,6 +156,29 @@
       "downloadModel": "Failed to download model: {{error}}",
       "selectLocal": "Failed to select local mode",
       "selectRemote": "Failed to select remote mode"
+    },
+    "remoteSttWizard": {
+      "title": "Configure Remote STT",
+      "subtitle": "Enter your API credentials to use cloud transcription",
+      "recommendation": "We recommend using Groq for fast, free cloud transcription. The fields below are prefilled with Groq defaults.",
+      "freeTier": "Groq offers a generous free tier. Just create an API key on their website and enter it below.",
+      "baseUrl": {
+        "label": "Server URL",
+        "hint": "OpenAI-compatible transcription API endpoint"
+      },
+      "modelId": {
+        "label": "Model ID",
+        "hint": "The speech-to-text model to use"
+      },
+      "apiKey": {
+        "label": "API Key",
+        "hint": "Your API key will be stored securely in Windows Credential Manager"
+      },
+      "testConnection": "Test Connection",
+      "testing": "Testing...",
+      "finishConfig": "Finish Setup",
+      "connectionSuccess": "Connection successful!",
+      "connectionFailed": "Connection failed: {{error}}"
     }
   },
   "modelSelector": {
@@ -283,11 +320,14 @@
         "description": "When ON: hold key to record. When OFF: tap once to start, tap again to stop."
       },
       "transcriptionSystemPrompt": {
-        "title": "System Prompt (Optional)",
-        "description": "Model works fine without it! Provide context to help with specialized terminology, names, or formatting.",
+        "title": "Voice Model Prompt (optional, will only work if STT model supports it)",
+        "description": "Provide context to help the voice model with specialized terminology, names, or formatting.",
+        "tooltip": "This prompt provides context hints directly to the Speech-to-Text (STT) model to help it recognize specialized terminology, proper nouns, or formatting before the transcript is created. Unlike LLM Post-Processing, this works at the 'hearing' stage to prevent errors. Note that prompts are saved independently for each specific voice model—switching models will switch the active prompt. Because STT engines have small memory windows for context (often 224-448 tokens), if the input exceeds this limit, it will be automatically truncated from the start. Support depends on the specific model provider (e.g., Whisper models generally support this, while Parakeet does not).",
         "placeholder": "Example: Context: technical discussion. Terms: Kubernetes, gRPC, CI/CD.",
         "nearLimit": "Approaching the {{limit}} character limit. Longer prompts may be truncated.",
         "overLimit": "Exceeds {{limit}} character limit! The prompt will be automatically truncated.",
+        "whisperLabel": "Whisper",
+        "tokensApprox": "~{{count}} tok",
         "remoteNote": "For remote APIs: prompt support depends on your provider. Most OpenAI-compatible APIs support this parameter."
       },
       "sttSystemPrompt": {
@@ -312,41 +352,40 @@
       }
     },
     "transcriptionProfiles": {
-      "title": "Custom Transcription Shortcuts",
-      "help": "Create custom shortcuts with specific language and translation settings. Each profile gets its own keyboard shortcut that transcribes in your chosen language, optionally translating to English.",
-      "existingProfiles": "Your Profiles",
-      "createNew": "Create New Profile",
-      "createNewDescription": "Add a new transcription shortcut with custom language settings.",
-      "profileName": "Profile Name",
-      "profileNamePlaceholder": "e.g., French to English",
-      "language": "Speech Language",
-      "translateToEnglish": "Translate to English",
-      "translateToEnglishDescription": "Automatically translate transcription to English. Whisper-only: other models simply do not support translation! Only translation towards English is supported.",
-      "translateToEnglishWarning": "Whisper-only: translation runs only when the active voice model is Whisper.",
-      "translateToEnglishTooltip": "Only Whisper supports translation, and it always targets English.",
-      "shortcut": "Keyboard Shortcut",
-      "addProfile": "Create Profile",
-      "saveChanges": "Save Changes",
-      "deleteProfile": "Delete",
-      "systemPrompt": "Voice Model Prompt (optional, will only work if model supports it)",
-      "systemPromptPlaceholder": "Context hints, terminology, formatting guidance...",
-      "systemPromptDescription": "Prompt sent to the speech-to-text model to help with specialized terminology, names, or formatting. Leave empty to use the global prompt.",
-      "systemPromptTooLong": "Prompt exceeds {{limit}} character limit for this model.",
-      "overrideSystemPrompt": "Override Voice Model Prompt",
-      "overrideSystemPromptOnDescription": "Using custom prompt for this profile. Leave empty to disable prompts entirely for this profile.",
-      "overrideSystemPromptOffDescription": "Using global per-model prompt. Enable to use a custom prompt for this profile.",
-      "voiceModelPromptTooltip": "This prompt is sent to the speech recognition model to help with specialized terminology and names. Currently only Whisper models support prompts. If transcription doesn't improve or behaves unexpectedly, you can disable this feature.",
       "active": "Active",
       "setActive": "Set Active",
-      "setActiveDescription": "Use this profile for the main 'Transcribe' shortcut.",
       "defaultProfile": "Default (Global)",
-      "defaultProfileDescription": "Use global language settings.",
-      "includeInCycle": "Include in Cycle",
-      "includeInCycleDescription": "Include when cycling profiles via shortcut.",
-      "showOverlayOnSwitch": "Show Overlay on Switch",
-      "showOverlayOnSwitchDescription": "Show a brief notification when switching profiles.",
-      "transcribeActiveProfile": "Transcribe (Active Profile)",
+      "transcribeActiveProfile": "Transcribe with Active Profile",
       "transcribeActiveProfileDescription": "This shortcut always uses the currently active profile. Switch profiles above or use the cycle shortcut.",
+      "toEnglish": "→ EN",
+      "cycleActiveProfilesShort": "Global shortcut to cycle through active profiles",
+      "existingProfiles": "Manage Profiles",
+      "title": "Transcription Profiles",
+      "help": "Profiles allow you to quickly switch between different languages, STT models, and post-processing settings.",
+      "createNew": "Create New Profile",
+      "createNewDescription": "Create a new custom profile with independent settings.",
+      "addProfile": "Add Profile",
+      "profileName": "Profile Name",
+      "profileNamePlaceholder": "e.g., Technical Meeting, French, etc.",
+      "language": "Language",
+      "translateToEnglish": "Translate to English",
+      "translateToEnglishDescription": "Translate speech to English during transcription.",
+      "translateToEnglishTooltip": "When enabled, the model will attempt to translate the detected speech into English.",
+      "shortcut": "Toggle shortcut",
+      "includeInCycle": "Include in Cycle",
+      "includeInCycleDescription": "Allow switching to this profile via the 'Cycle Profile' shortcut.",
+      "showOverlayOnSwitch": "Show Overlay on Switch",
+      "showOverlayOnSwitchDescription": "Show a visual indicator when switching profiles via keyboard.",
+      "overrideSystemPrompt": "Override Voice Model Prompt",
+      "overrideSystemPromptOnDescription": "This profile uses a custom voice model prompt.",
+      "overrideSystemPromptOffDescription": "This profile uses the global voice model prompt.",
+      "systemPrompt": "Voice Model Prompt (optional, will only work if STT model supports it)",
+      "systemPromptPlaceholder": "Context hints, terminology, formatting guidance...",
+      "systemPromptDescription": "This prompt is sent to the STT model to help with specialized terminology. It has strict character limits.",
+      "systemPromptTooLong": "Prompt exceeds {{limit}} character limit!",
+      "voiceModelPromptTooltip": "This prompt provides context hints directly to the Speech-to-Text (STT) model to help it recognize specialized terminology, proper nouns, or formatting before the transcript is created. Unlike LLM Post-Processing, this works at the 'hearing' stage to prevent errors. Note that prompts are saved independently for each specific voice model—switching models will switch the active prompt. Because STT engines have small memory windows for context (often 224-448 tokens), if the input exceeds this limit, it will be automatically truncated from the start. Support depends on the specific model provider (e.g., Whisper models generally support this, while Parakeet does not).",
+      "systemPromptGlobal": "Voice Model Prompt (Global)",
+      "voiceModelPromptGlobalTooltip": "This is the GLOBAL Voice Model Prompt. It is used by all transcription profiles unless they have 'Override Voice Model Prompt' enabled. When a profile's override is OFF, it inherits this prompt. This prompt provides context hints directly to the Speech-to-Text (STT) model to help it recognize specialized terminology, proper nouns, or formatting before the transcript is created. Unlike LLM Post-Processing, this works at the 'hearing' stage to prevent errors. Note that prompts are saved independently for each specific voice model—switching models will switch the active prompt. Because STT engines have small memory windows for context (often 224-448 tokens), if the input exceeds this limit, it will be automatically truncated from the start. Support depends on the specific model provider (e.g., Whisper models generally support this, while Parakeet does not).",
       "llmPostProcessing": {
         "title": "LLM Post-Processing",
         "description": "Enable AI-powered text refinement for this profile",
@@ -1269,7 +1308,8 @@
   },
   "appLanguage": {
     "title": "Application Language",
-    "description": "Change the language of the AivoRelay interface"
+    "description": "Change the language of the AivoRelay interface",
+    "englishOnlyNote": "Sorry, I mostly only made english version of this application."
   },
   "overlay": {
     "transcribing": "Transcribing..."

@@ -9,7 +9,6 @@ import {
   Check,
   RefreshCw,
   RefreshCcw,
-  Info,
 } from "lucide-react";
 import { commands, TranscriptionProfile } from "@/bindings";
 import { invoke } from "@tauri-apps/api/core";
@@ -26,6 +25,7 @@ import { HandyShortcut } from "./HandyShortcut";
 import { TranslateToEnglish } from "./TranslateToEnglish";
 import { ModelSelect } from "./PostProcessingSettingsApi/ModelSelect";
 import { ResetButton } from "../ui/ResetButton";
+import { InfoTooltip } from "../ui/InfoTooltip";
 import type { ModelOption } from "./PostProcessingSettingsApi/types";
 import { useSettings } from "../../hooks/useSettings";
 import { useModels } from "../../hooks/useModels";
@@ -260,7 +260,7 @@ const ProfileCard: React.FC<ProfileCardProps> = ({
             <span className="text-xs text-mid-gray break-words">
               {languageLabel}
               {profile.translate_to_english && (
-                <span className="text-purple-400 ml-1">→ EN</span>
+                <span className="text-purple-400 ml-1">{t("settings.transcriptionProfiles.toEnglish", "→ EN")}</span>
               )}
               {profile.language === "os_input" && (
                 <span
@@ -443,24 +443,7 @@ const ProfileCard: React.FC<ProfileCardProps> = ({
                 <label className="text-xs font-semibold text-text/70">
                   {t("settings.transcriptionProfiles.overrideSystemPrompt")}
                 </label>
-                <div
-                  className="relative flex items-center justify-center p-1 group"
-                  title={t("settings.transcriptionProfiles.voiceModelPromptTooltip")}
-                >
-                  <svg
-                    className="w-4 h-4 text-[#707070] cursor-help hover:text-[#ff4d8d] transition-colors duration-200"
-                    fill="none"
-                    stroke="currentColor"
-                    viewBox="0 0 24 24"
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth={2}
-                      d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
-                    />
-                  </svg>
-                </div>
+                <InfoTooltip content={t("settings.transcriptionProfiles.voiceModelPromptTooltip")} />
               </div>
               <ToggleSwitch
                 checked={profile.stt_prompt_override_enabled ?? false}
@@ -476,9 +459,12 @@ const ProfileCard: React.FC<ProfileCardProps> = ({
             {profile.stt_prompt_override_enabled && (
               <>
                 <div className="flex items-center justify-between">
-                  <label className="text-xs font-semibold text-text/70">
-                    {t("settings.transcriptionProfiles.systemPrompt")}
-                  </label>
+                  <div className="flex items-center gap-2">
+                    <label className="text-xs font-semibold text-text/70">
+                      {t("settings.transcriptionProfiles.systemPrompt")}
+                    </label>
+                    <InfoTooltip content={t("settings.transcriptionProfiles.voiceModelPromptTooltip")} />
+                  </div>
                   <span
                     className={`text-xs ${isOverLimit ? "text-red-400" : "text-mid-gray"}`}
                   >
@@ -522,24 +508,7 @@ const ProfileCard: React.FC<ProfileCardProps> = ({
                   <label className="text-xs font-semibold text-text/70">
                     {t("settings.transcriptionProfiles.llmPostProcessing.title")}
                   </label>
-                  <div
-                    className="relative flex items-center justify-center p-1 group"
-                    title={t("settings.transcriptionProfiles.llmPostProcessing.description")}
-                  >
-                    <svg
-                      className="w-4 h-4 text-[#707070] cursor-help hover:text-[#ff4d8d] transition-colors duration-200"
-                      fill="none"
-                      stroke="currentColor"
-                      viewBox="0 0 24 24"
-                    >
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        strokeWidth={2}
-                        d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
-                      />
-                    </svg>
-                  </div>
+                  <InfoTooltip content={t("settings.transcriptionProfiles.llmPostProcessing.description")} />
                 </div>
                 <ToggleSwitch
                   checked={profile.llm_post_process_enabled ?? false}
@@ -660,6 +629,7 @@ export const TranscriptionProfiles: React.FC = () => {
   const [newSystemPrompt, setNewSystemPrompt] = useState("");
   const [newPushToTalk, setNewPushToTalk] = useState(true);
   const [newIncludeInCycle, setNewIncludeInCycle] = useState(true);
+  const [newSttPromptOverrideEnabled, setNewSttPromptOverrideEnabled] = useState(false);
   const [newLlmEnabled, setNewLlmEnabled] = useState(false);
   const [newLlmPromptOverride, setNewLlmPromptOverride] = useState("");
   const [newLlmModelOverride, setNewLlmModelOverride] = useState<string | null>(null);
@@ -778,6 +748,7 @@ export const TranscriptionProfiles: React.FC = () => {
         language: newLanguage,
         translateToEnglish: newTranslate,
         systemPrompt: newSystemPrompt,
+        sttPromptOverrideEnabled: newSttPromptOverrideEnabled,
         pushToTalk: newPushToTalk,
         includeInCycle: newIncludeInCycle,
         llmSettings: {
@@ -791,6 +762,7 @@ export const TranscriptionProfiles: React.FC = () => {
       setNewLanguage("auto");
       setNewTranslate(false);
       setNewSystemPrompt("");
+      setNewSttPromptOverrideEnabled(false);
       setNewPushToTalk(true);
       setNewIncludeInCycle(true);
       setNewLlmEnabled(false);
@@ -930,7 +902,7 @@ export const TranscriptionProfiles: React.FC = () => {
                 {t("settings.transcriptionProfiles.includeInCycleDescription")}
               </span>
               <span className="text-xs text-mid-gray leading-snug">
-                Global shortcut to cycle through active profiles
+                {t("settings.transcriptionProfiles.cycleActiveProfilesShort", "Global shortcut to cycle through active profiles")}
               </span>
             </div>
             <div className="shrink-0">
@@ -1002,7 +974,7 @@ export const TranscriptionProfiles: React.FC = () => {
                       return lang?.label || t("settings.general.language.auto");
                     })()}
                     {settings?.translate_to_english && (
-                      <span className="text-purple-400 ml-1">→ EN</span>
+                      <span className="text-purple-400 ml-1">{t("settings.transcriptionProfiles.toEnglish", "→ EN")}</span>
                     )}
                     {settings?.selected_language === "os_input" && (
                       <span
@@ -1105,9 +1077,12 @@ export const TranscriptionProfiles: React.FC = () => {
                 {modelInfo.supportsPrompt && (
                   <div className="space-y-2">
                     <div className="flex items-center justify-between">
-                      <label className="text-xs font-semibold text-text/70">
-                        {t("settings.general.transcriptionSystemPrompt.title")}
-                      </label>
+                      <div className="flex items-center gap-2">
+                        <label className="text-xs font-semibold text-text/70">
+                          {t("settings.transcriptionProfiles.systemPromptGlobal")}
+                        </label>
+                        <InfoTooltip content={t("settings.transcriptionProfiles.voiceModelPromptGlobalTooltip")} />
+                      </div>
                       {promptLimit > 0 && (
                         <span
                           className={`text-xs ${(settings?.transcription_prompts?.[activeModelId] || "").length > promptLimit ? "text-red-400" : "text-mid-gray"}`}
@@ -1268,59 +1243,67 @@ export const TranscriptionProfiles: React.FC = () => {
             </span>
           </div>
 
-          {/* Voice Model Prompt */}
-          <div className="space-y-1">
+          {/* Voice Model Prompt Override */}
+          <div className="space-y-2">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <label className="text-xs font-semibold text-text/70">
-                  {t("settings.transcriptionProfiles.systemPrompt")}
+                  {t("settings.transcriptionProfiles.overrideSystemPrompt")}
                 </label>
-                <div
-                  className="relative flex items-center justify-center p-1"
-                  title={t("settings.transcriptionProfiles.voiceModelPromptTooltip")}
-                >
-                  <svg
-                    className="w-4 h-4 text-[#707070] cursor-help hover:text-[#ff4d8d] transition-colors duration-200"
-                    fill="none"
-                    stroke="currentColor"
-                    viewBox="0 0 24 24"
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth={2}
-                      d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
-                    />
-                  </svg>
-                </div>
+                <InfoTooltip content={t("settings.transcriptionProfiles.voiceModelPromptTooltip")} />
               </div>
-              <span
-                className={`text-xs ${isNewPromptOverLimit ? "text-red-400" : "text-mid-gray"}`}
-              >
-                {newPromptLength}
-                {promptLimit > 0 && ` / ${promptLimit}`}
-              </span>
+              <ToggleSwitch
+                checked={newSttPromptOverrideEnabled}
+                onChange={setNewSttPromptOverrideEnabled}
+                disabled={isCreating}
+              />
             </div>
-            <textarea
-              value={newSystemPrompt}
-              onChange={(e) => setNewSystemPrompt(e.target.value)}
-              placeholder={t(
-                "settings.transcriptionProfiles.systemPromptPlaceholder",
-              )}
-              disabled={isCreating}
-              rows={2}
-              className={`w-full px-3 py-2 text-sm bg-[#1e1e1e]/80 border rounded-md resize-none transition-colors ${
-                isNewPromptOverLimit
-                  ? "border-red-400 focus:border-red-400"
-                  : "border-[#3c3c3c] focus:border-[#4a4a4a]"
-              } ${isCreating ? "opacity-40 cursor-not-allowed" : ""} text-[#e8e8e8] placeholder-[#6b6b6b]`}
-            />
-            {isNewPromptOverLimit && (
-              <p className="text-xs text-red-400">
-                {t("settings.transcriptionProfiles.systemPromptTooLong", {
-                  limit: promptLimit,
-                })}
-              </p>
+            <p className="text-xs text-mid-gray">
+              {newSttPromptOverrideEnabled
+                ? t("settings.transcriptionProfiles.overrideSystemPromptOnDescription")
+                : t("settings.transcriptionProfiles.overrideSystemPromptOffDescription")}
+            </p>
+            {newSttPromptOverrideEnabled && (
+              <>
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <label className="text-xs font-semibold text-text/70">
+                      {t("settings.transcriptionProfiles.systemPrompt")}
+                    </label>
+                    <InfoTooltip content={t("settings.transcriptionProfiles.voiceModelPromptTooltip")} />
+                  </div>
+                  <span
+                    className={`text-xs ${isNewPromptOverLimit ? "text-red-400" : "text-mid-gray"}`}
+                  >
+                    {newPromptLength}
+                    {promptLimit > 0 && ` / ${promptLimit}`}
+                  </span>
+                </div>
+                <textarea
+                  value={newSystemPrompt}
+                  onChange={(e) => setNewSystemPrompt(e.target.value)}
+                  placeholder={t(
+                    "settings.transcriptionProfiles.systemPromptPlaceholder",
+                  )}
+                  disabled={isCreating}
+                  rows={2}
+                  className={`w-full px-3 py-2 text-sm bg-[#1e1e1e]/80 border rounded-md resize-none transition-colors ${
+                    isNewPromptOverLimit
+                      ? "border-red-400 focus:border-red-400"
+                      : "border-[#3c3c3c] focus:border-[#4a4a4a]"
+                  } ${isCreating ? "opacity-40 cursor-not-allowed" : ""} text-[#e8e8e8] placeholder-[#6b6b6b]`}
+                />
+                <p className="text-xs text-mid-gray">
+                  {t("settings.transcriptionProfiles.systemPromptDescription")}
+                </p>
+                {isNewPromptOverLimit && (
+                  <p className="text-xs text-red-400">
+                    {t("settings.transcriptionProfiles.systemPromptTooLong", {
+                      limit: promptLimit,
+                    })}
+                  </p>
+                )}
+              </>
             )}
           </div>
 
@@ -1332,24 +1315,7 @@ export const TranscriptionProfiles: React.FC = () => {
                   <label className="text-xs font-semibold text-text/70">
                     {t("settings.transcriptionProfiles.llmPostProcessing.title")}
                   </label>
-                  <div
-                    className="relative flex items-center justify-center p-1"
-                    title={t("settings.transcriptionProfiles.llmPostProcessing.description")}
-                  >
-                    <svg
-                      className="w-4 h-4 text-[#707070] cursor-help hover:text-[#ff4d8d] transition-colors duration-200"
-                      fill="none"
-                      stroke="currentColor"
-                      viewBox="0 0 24 24"
-                    >
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        strokeWidth={2}
-                        d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
-                      />
-                    </svg>
-                  </div>
+                  <InfoTooltip content={t("settings.transcriptionProfiles.llmPostProcessing.description")} />
                 </div>
                 <ToggleSwitch
                   checked={newLlmEnabled}

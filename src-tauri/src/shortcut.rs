@@ -2704,6 +2704,28 @@ pub fn change_text_replacements_before_llm_setting(
 }
 
 // ============================================================================
+// UI State Settings
+// ============================================================================
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_sidebar_pinned_setting(app: AppHandle, pinned: bool) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.sidebar_pinned = pinned;
+    settings::write_settings(&app, settings);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_sidebar_width_setting(app: AppHandle, width: u32) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.sidebar_width = width.clamp(250, 600);
+    settings::write_settings(&app, settings);
+    Ok(())
+}
+
+// ============================================================================
 // OS Input Language Detection
 // ============================================================================
 

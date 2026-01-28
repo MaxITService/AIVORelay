@@ -929,6 +929,22 @@ async changeTextReplacementsBeforeLlmSetting(enabled: boolean) : Promise<Result<
     else return { status: "error", error: e  as any };
 }
 },
+async changeSidebarPinnedSetting(pinned: boolean) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("change_sidebar_pinned_setting", { pinned }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async changeSidebarWidthSetting(width: number) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("change_sidebar_width_setting", { width }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 /**
  * Get the current keyboard layout language from the OS.
  * Returns ISO 639-1 code (e.g., "en", "ru", "de") or None if detection fails.
@@ -1803,7 +1819,15 @@ vad_threshold?: number;
  * - "tauri": High performance, but doesn't support Caps Lock, Num Lock, modifier-only shortcuts
  * - "rdev": Supports all keys, but uses more CPU (processes every keystroke)
  */
-shortcut_engine?: ShortcutEngine }
+shortcut_engine?: ShortcutEngine; 
+/**
+ * Whether the hotkey sidebar is pinned open
+ */
+sidebar_pinned?: boolean; 
+/**
+ * Width of the hotkey sidebar in pixels
+ */
+sidebar_width?: number }
 export type AudioDevice = { index: string; name: string; is_default: boolean }
 export type BindingResponse = { success: boolean; binding: ShortcutBinding | null; error: string | null }
 export type ClipboardHandling = "dont_modify" | "copy_to_clipboard" | 
