@@ -98,7 +98,7 @@ export const HotkeySidebar: React.FC = () => {
 
   const isPinned = settings?.sidebar_pinned ?? false;
   const savedWidth = (settings as any)?.sidebar_width ?? DEFAULT_WIDTH;
-  const bindings = settings?.bindings ?? {};
+  const bindings = (settings?.bindings ?? {}) as Record<string, ShortcutBinding>;
   const profiles = (settings as any)?.transcription_profiles ?? [];
 
   // Sync isOpen with isPinned when it changes (pinned = auto-open)
