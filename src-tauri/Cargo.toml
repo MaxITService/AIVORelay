@@ -118,9 +118,11 @@ windows = { version = "0.61.3", features = [
 ] }
 screenshots = "0.8"
 
-[target.'cfg(target_os = "macos")'.dependencies]
-tauri-nspanel = { git = "https://github.com/ahkohd/tauri-nspanel", branch = "v2.1" }
-whisper-rs = { version = "0.13.2", features = ["metal"] }
+# CUDA branch: macOS dependencies removed - this branch is Windows-only
+# The main branch has macOS support with Metal acceleration
+# [target.'cfg(target_os = "macos")'.dependencies]
+# tauri-nspanel = { git = "https://github.com/ahkohd/tauri-nspanel", branch = "v2.1" }
+# whisper-rs = { version = "0.13.2", features = ["metal"] }
 
 [profile.release]
 lto = true
