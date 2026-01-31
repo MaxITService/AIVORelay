@@ -103,9 +103,9 @@
           }
         },
         "errors": {
-          "restore": "Không thể khôi phục phím tắt gốc",
+          "restore": "Không thể khôi phục phím tắt gốc: {{error}}",
           "set": "Không thể đặt phím tắt: {{error}}",
-          "reset": "Không thể đặt lại phím tắt về giá trị gốc"
+          "reset": "Không thể đặt lại phím tắt về giá trị gốc: {{error}}"
         }
       },
       "language": {

@@ -223,9 +223,6 @@ pub struct VoiceCommandDefaults {
     /// Execution policy for scripts
     #[serde(default)]
     pub execution_policy: ExecutionPolicy,
-    /// Timeout in seconds (0 = no limit)
-    #[serde(default = "default_voice_command_timeout")]
-    pub timeout_seconds: u32,
 }
 
 impl Default for VoiceCommandDefaults {
@@ -235,7 +232,6 @@ impl Default for VoiceCommandDefaults {
             no_profile: false,
             use_pwsh: false,
             execution_policy: ExecutionPolicy::default(),
-            timeout_seconds: default_voice_command_timeout(),
         }
     }
 }
@@ -285,7 +281,6 @@ pub struct ResolvedExecutionOptions {
     pub use_pwsh: bool,
     pub execution_policy: ExecutionPolicy,
     pub working_directory: Option<String>,
-    pub timeout_seconds: u32,
 }
 
 impl VoiceCommand {
@@ -302,7 +297,6 @@ impl VoiceCommand {
             // Use command's execution_policy if set, otherwise inherit from defaults
             execution_policy: self.execution_policy.unwrap_or(defaults.execution_policy),
             working_directory: self.working_directory.clone(),
-            timeout_seconds: defaults.timeout_seconds,
         }
     }
 }
@@ -316,7 +310,6 @@ impl VoiceCommandDefaults {
             use_pwsh: self.use_pwsh,
             execution_policy: self.execution_policy,
             working_directory: None,
-            timeout_seconds: self.timeout_seconds,
         }
     }
 }
@@ -539,6 +532,28 @@ pub enum TranscriptionProvider {
     Local,
     #[serde(rename = "remote_openai_compatible")]
     RemoteOpenAiCompatible,
+}
+
+/// Shortcut engine selection for Windows.
+/// Controls which mechanism is used to listen for global hotkeys.
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Type)]
+#[serde(rename_all = "snake_case")]
+pub enum ShortcutEngine {
+    /// Use tauri-plugin-global-shortcut (high performance, limited key support)
+    /// Does NOT support: Caps Lock, Num Lock, Scroll Lock, modifier-only shortcuts
+    Tauri,
+    /// Use rdev low-level hooks (all keys supported, higher CPU usage)
+    /// Supports ALL keys including Caps Lock, Num Lock, and modifier-only shortcuts
+    Rdev,
+}
+
+impl Default for ShortcutEngine {
+    fn default() -> Self {
+        // Default to Tauri for all platforms (better performance)
+        // Users who need Caps Lock, Num Lock, or modifier-only shortcuts
+        // can switch to rdev in Settings → Debug → Experimental Features
+        ShortcutEngine::Tauri
+    }
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Type)]
@@ -980,6 +995,23 @@ pub struct AppSettings {
     /// Higher = less sensitive (cleaner input but may cut off quiet speech)
     #[serde(default = "default_vad_threshold")]
     pub vad_threshold: f32,
+    // ==================== Shortcut Engine (Windows only) ====================
+    /// Which shortcut engine to use for global hotkeys (Windows only)
+    /// - "tauri": High performance, but doesn't support Caps Lock, Num Lock, modifier-only shortcuts
+    /// - "rdev": Supports all keys, but uses more CPU (processes every keystroke)
+    #[serde(default)]
+    pub shortcut_engine: ShortcutEngine,
+    // ==================== UI State ====================
+    /// Whether the hotkey sidebar is pinned open
+    #[serde(default)]
+    pub sidebar_pinned: bool,
+    /// Width of the hotkey sidebar in pixels
+    #[serde(default = "default_sidebar_width")]
+    pub sidebar_width: u32,
+}
+
+fn default_sidebar_width() -> u32 {
+    350
 }
 
 fn default_model() -> String {
@@ -1047,7 +1079,7 @@ fn default_debug_mode() -> bool {
 }
 
 fn default_log_level() -> LogLevel {
-    LogLevel::Debug
+    LogLevel::Error
 }
 
 fn default_word_correction_threshold() -> f64 {
@@ -1134,10 +1166,6 @@ fn default_voice_command_threshold() -> f64 {
 
 fn default_voice_command_auto_run_seconds() -> u32 {
     4
-}
-
-fn default_voice_command_timeout() -> u32 {
-    30
 }
 
 fn default_voice_command_levenshtein_threshold() -> f64 {
@@ -1642,6 +1670,11 @@ pub fn get_default_settings() -> AppSettings {
         // Audio Processing
         filler_word_filter_enabled: false,
         vad_threshold: default_vad_threshold(),
+        // Shortcut Engine (Windows only)
+        shortcut_engine: ShortcutEngine::default(),
+        // UI State
+        sidebar_pinned: false,
+        sidebar_width: default_sidebar_width(),
     }
 }
 
@@ -2008,6 +2041,11 @@ pub fn write_settings(app: &AppHandle, settings: AppSettings) {
         .expect("Failed to initialize store");
 
     store.set("settings", serde_json::to_value(&settings).unwrap());
+
+    // Explicitly flush to disk to prevent data loss on app restart
+    if let Err(e) = store.save() {
+        warn!("Failed to flush settings to disk: {}", e);
+    }
 }
 
 pub fn get_bindings(app: &AppHandle) -> HashMap<String, ShortcutBinding> {

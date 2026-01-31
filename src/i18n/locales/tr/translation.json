@@ -122,9 +122,9 @@
           }
         },
         "errors": {
-          "restore": "Orijinal kısayol geri yüklenemedi",
+          "restore": "Orijinal kısayol geri yüklenemedi: {{error}}",
           "set": "Kısayol ayarlanamadı: {{error}}",
-          "reset": "Kısayol orijinal değerine sıfırlanamadı"
+          "reset": "Kısayol orijinal değerine sıfırlanamadı: {{error}}"
         }
       },
       "language": {

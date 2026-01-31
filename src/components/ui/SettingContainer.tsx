@@ -3,7 +3,7 @@ import { createPortal } from "react-dom";
 
 interface SettingContainerProps {
   title: string;
-  description: string;
+  description: React.ReactNode;
   children: React.ReactNode;
   descriptionMode?: "inline" | "tooltip" | "none";
 

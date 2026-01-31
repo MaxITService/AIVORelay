@@ -42,6 +42,22 @@ export const AboutSettings: React.FC = () => {
     }
   };
 
+  const handleContactAuthorClick = async () => {
+    try {
+      await openUrl("mailto:forpphotos@gmail.com");
+    } catch (error) {
+      console.error("Failed to open email client:", error);
+    }
+  };
+
+  const handleReportIssuesClick = async () => {
+    try {
+      await openUrl("https://github.com/MaxITService/AIVORelay/issues");
+    } catch (error) {
+      console.error("Failed to open issues page:", error);
+    }
+  };
+
   return (
     <div className="max-w-3xl w-full mx-auto space-y-6">
       <SettingsGroup title={t("settings.about.title")}>
@@ -88,6 +104,26 @@ export const AboutSettings: React.FC = () => {
         >
           <Button variant="primary" size="md" onClick={handleForkDonateClick}>
             {t("settings.about.supportFork.button")}
+          </Button>
+        </SettingContainer>
+
+        <SettingContainer
+          title={t("settings.about.contactAuthor.title")}
+          description={t("settings.about.contactAuthor.description")}
+          grouped={true}
+        >
+          <Button variant="secondary" size="md" onClick={handleContactAuthorClick}>
+            {t("settings.about.contactAuthor.button")}
+          </Button>
+        </SettingContainer>
+
+        <SettingContainer
+          title={t("settings.about.reportIssues.title")}
+          description={t("settings.about.reportIssues.description")}
+          grouped={true}
+        >
+          <Button variant="secondary" size="md" onClick={handleReportIssuesClick}>
+            {t("settings.about.reportIssues.button")}
           </Button>
         </SettingContainer>
       </SettingsGroup>

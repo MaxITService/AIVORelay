@@ -929,12 +929,56 @@ async changeTextReplacementsBeforeLlmSetting(enabled: boolean) : Promise<Result<
     else return { status: "error", error: e  as any };
 }
 },
+async changeSidebarPinnedSetting(pinned: boolean) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("change_sidebar_pinned_setting", { pinned }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async changeSidebarWidthSetting(width: number) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("change_sidebar_width_setting", { width }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 /**
  * Get the current keyboard layout language from the OS.
  * Returns ISO 639-1 code (e.g., "en", "ru", "de") or None if detection fails.
  */
 async getLanguageFromOsInput() : Promise<string | null> {
     return await TAURI_INVOKE("get_language_from_os_input");
+},
+/**
+ * Get the currently active (running) shortcut engine.
+ * This returns the engine that was selected at app startup, not the configured one.
+ * On Windows, reads from app state. On other platforms, always returns Tauri.
+ */
+async getCurrentShortcutEngine() : Promise<ShortcutEngine> {
+    return await TAURI_INVOKE("get_current_shortcut_engine");
+},
+/**
+ * Set the shortcut engine setting (requires app restart to take effect).
+ * On non-Windows platforms, this is a no-op.
+ */
+async setShortcutEngineSetting(engine: ShortcutEngine) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("set_shortcut_engine_setting", { engine }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Get the list of shortcuts that are incompatible with the Tauri engine.
+ * Used by the UI to show which shortcuts will be disabled when switching to Tauri.
+ * On non-Windows platforms, returns an empty list.
+ */
+async getTauriIncompatibleShortcuts() : Promise<ShortcutBinding[]> {
+    return await TAURI_INVOKE("get_tauri_incompatible_shortcuts");
 },
 async triggerUpdateCheck() : Promise<Result<null, string>> {
     try {
@@ -1434,9 +1478,9 @@ async regionCaptureCancel() : Promise<void> {
  * 
  * Returns the output on success or an error message on failure.
  */
-async executeVoiceCommand(script: string, silent: boolean, noProfile: boolean, usePwsh: boolean, executionPolicy: string | null, workingDirectory: string | null, timeoutSeconds: number) : Promise<Result<string, string>> {
+async executeVoiceCommand(script: string, silent: boolean, noProfile: boolean, usePwsh: boolean, executionPolicy: string | null, workingDirectory: string | null) : Promise<Result<string, string>> {
     try {
-    return { status: "ok", data: await TAURI_INVOKE("execute_voice_command", { script, silent, noProfile, usePwsh, executionPolicy, workingDirectory, timeoutSeconds }) };
+    return { status: "ok", data: await TAURI_INVOKE("execute_voice_command", { script, silent, noProfile, usePwsh, executionPolicy, workingDirectory }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
@@ -1476,6 +1520,95 @@ async getSupportedAudioExtensions() : Promise<string[]> {
 async transcribeAudioFile(filePath: string, profileId: string | null, saveToFile: boolean, outputFormat: OutputFormat | null, modelOverride: string | null, customWordsEnabledOverride: boolean | null) : Promise<Result<FileTranscriptionResult, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("transcribe_audio_file", { filePath, profileId, saveToFile, outputFormat, modelOverride, customWordsEnabledOverride }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Start the key listener
+ */
+async keyListenerStart() : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("key_listener_start") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Stop the key listener
+ */
+async keyListenerStop() : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("key_listener_stop") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Check if the key listener is running
+ */
+async keyListenerIsRunning() : Promise<Result<boolean, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("key_listener_is_running") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Get current modifier state (Ctrl, Shift, Alt, Win)
+ */
+async keyListenerGetModifiers() : Promise<Result<ModifierState, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("key_listener_get_modifiers") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Register a shortcut with the rdev key listener
+ * This allows shortcuts that tauri-plugin-global-shortcut doesn't support (like Caps Lock)
+ */
+async keyListenerRegisterShortcut(id: string, binding: string) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("key_listener_register_shortcut", { id, binding }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Unregister a shortcut from the rdev key listener
+ */
+async keyListenerUnregisterShortcut(id: string) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("key_listener_unregister_shortcut", { id }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Check if a shortcut is registered with rdev
+ */
+async keyListenerIsShortcutRegistered(id: string) : Promise<Result<boolean, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("key_listener_is_shortcut_registered", { id }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Get list of all registered rdev shortcuts
+ */
+async keyListenerGetRegisteredShortcuts() : Promise<Result<string[], string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("key_listener_get_registered_shortcuts") };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
@@ -1680,7 +1813,21 @@ filler_word_filter_enabled?: boolean;
  * Lower = more sensitive (captures quieter speech but may include noise)
  * Higher = less sensitive (cleaner input but may cut off quiet speech)
  */
-vad_threshold?: number }
+vad_threshold?: number; 
+/**
+ * Which shortcut engine to use for global hotkeys (Windows only)
+ * - "tauri": High performance, but doesn't support Caps Lock, Num Lock, modifier-only shortcuts
+ * - "rdev": Supports all keys, but uses more CPU (processes every keystroke)
+ */
+shortcut_engine?: ShortcutEngine; 
+/**
+ * Whether the hotkey sidebar is pinned open
+ */
+sidebar_pinned?: boolean; 
+/**
+ * Width of the hotkey sidebar in pixels
+ */
+sidebar_width?: number }
 export type AudioDevice = { index: string; name: string; is_default: boolean }
 export type BindingResponse = { success: boolean; binding: ShortcutBinding | null; error: string | null }
 export type ClipboardHandling = "dont_modify" | "copy_to_clipboard" | 
@@ -1798,6 +1945,10 @@ export type LogLevel = "trace" | "debug" | "info" | "warn" | "error"
 export type ModelInfo = { id: string; name: string; description: string; filename: string; url: string | null; size_mb: number; is_downloaded: boolean; is_downloading: boolean; partial_size: number; is_directory: boolean; engine_type: EngineType; accuracy_score: number; speed_score: number }
 export type ModelLoadStatus = { is_loaded: boolean; current_model: string | null }
 export type ModelUnloadTimeout = "never" | "immediately" | "min_2" | "min_5" | "min_10" | "min_15" | "hour_1" | "sec_5"
+/**
+ * State for tracking active key modifiers (Ctrl, Shift, Alt, Win)
+ */
+export type ModifierState = { ctrl: boolean; shift: boolean; alt: boolean; win: boolean }
 export type NativeRegionCaptureMode = 
 /**
  * Most performant: transparent picker over the live desktop.
@@ -1860,6 +2011,21 @@ width: number;
  */
 height: number }
 export type ShortcutBinding = { id: string; name: string; description: string; default_binding: string; current_binding: string }
+/**
+ * Shortcut engine selection for Windows.
+ * Controls which mechanism is used to listen for global hotkeys.
+ */
+export type ShortcutEngine = 
+/**
+ * Use tauri-plugin-global-shortcut (high performance, limited key support)
+ * Does NOT support: Caps Lock, Num Lock, Scroll Lock, modifier-only shortcuts
+ */
+"tauri" | 
+/**
+ * Use rdev low-level hooks (all keys supported, higher CPU usage)
+ * Supports ALL keys including Caps Lock, Num Lock, and modifier-only shortcuts
+ */
+"rdev"
 export type SoundTheme = "marimba" | "pop" | "custom"
 /**
  * A transcription segment with timing information
@@ -2062,11 +2228,7 @@ use_pwsh?: boolean;
 /**
  * Execution policy for scripts
  */
-execution_policy?: ExecutionPolicy; 
-/**
- * Timeout in seconds (0 = no limit)
- */
-timeout_seconds?: number }
+execution_policy?: ExecutionPolicy }
 
 /** tauri-specta globals **/
 

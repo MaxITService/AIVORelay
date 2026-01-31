@@ -1,7 +1,7 @@
 # Fork Agents Guide
 
 > **Agent rule:** all debugging/build verification is done by the user (do not run automated tests/builds unless explicitly requested).
-> This file provides guidance for AI code agents working with this fork. Do not run cargo check
+> This file provides guidance for AI code agents working with this fork.
 > CODE ONLY WHEN APPROVED BY USER. Otherwise, only your thoughts in chat are needed.
 > If you are not very sure that change will fix it, consult user first, user may want to revert unsuccessful fix, so user needs to commit and stuff.
 > Never Commit!
@@ -11,6 +11,42 @@
 
 Windows 11; PowerShell (pwsh) host.
 Harness: use PowerShell with -NoProfile only: avoid profile interference.
+
+**CRITICAL: Environment Setup**. This project requires Visual Studio 2022 build tools which are NOT in the path by default.
+
+**Run Get-Dev ONCE per conversation** (not with every command). Run it as a standalone command first, then run cargo commands separately:
+
+```powershell
+# Step 1: Run this ONCE at the start of conversation (standalone command)
+$vsPath = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -property installationPath; cmd /c "`"$vsPath\Common7\Tools\VsDevCmd.bat`" -arch=x64 && set" | Where-Object { $_ -match '^(.+?)=(.*)$' } | ForEach-Object { Set-Item "Env:$($Matches[1])" $Matches[2] }
+```
+
+After running Get-Dev once, cargo/rustc commands work for the rest of the conversation without needing to re-run it.
+
+**CRITICAL: Concurrent Cargo Processes & Tooling**.
+
+1. **Check for locks FIRST**: Use this exact snippet before running any Cargo/Tauri command:
+   `Get-Process | Where-Object { $_.Name -match "cargo|tauri|rustc|bun" } | Select-Object Name, Id`
+2. **The "No-Go" Rule**: If ANY processes are found: **DO NOT run `cargo check`, `cargo clippy`, or `cargo fmt`**.
+   - _Why?_ `check`/`clippy` fail due to Windows file locks in `target`.
+   - _Why `fmt`?_ Even though it doesn't touch `target`, it modifies source files which triggers the dev-server watcher to instantly recompile/restart the app, disrupting active testing.
+3. **Safe to run anytime**: `tsc` (Type check), `eslint` (Linting), and `prettier` (Formatting) are safe to run even if the dev-server is active, as they operate only on frontend assets and don't trigger Rust re-compilation.
+4. **Wait for completion**: If you start a background command, you MUST use `command_status` until it returns `Status: DONE`. Do not propose new commands while one is running.
+5. **Get-Dev Once Per Conversation**: Run the environment setup command ONCE at the start. Do NOT inline it with every cargo command—this causes "input line too long" errors.
+6. **Use Output Markers**: For long commands, wrap them in markers:
+   `Write-Host "--- START TASK ---"; cargo check --manifest-path src-tauri/Cargo.toml; Write-Host "--- END TASK ---"`
+7. **Tool Discretion**: Use these tools ONLY when needed for verification. They are NOT mandatory for every small change. Do not run them blindly if you are confident in your edits.
+
+**Key Tools:**
+| Tool | command | Purpose | Safe with Dev Server? |
+| :--- | :--- | :--- | :--- |
+| **TSC** | `bun x tsc --noEmit` | Frontend Type Checking | ✅ YES |
+| **ESLint** | `bun run lint` | Frontend Style/Logic Police | ✅ YES |
+| **Prettier**| `bun run format` | Frontend Code Formatting | ✅ YES |
+| **Cargo Fmt**| `cargo fmt` | Rust Code Formatting | ❌ NO (triggers re-build) |
+| **Clippy** | `cargo clippy` | Rust "Smart" Linter | ❌ NO (file locks) |
+| **Check** | `cargo check` | Rust Compilation Check | ❌ NO (file locks) |
+
 **ast-grep (sg) and rg and also sd INSTALLED on Windows and on PATH, installed via Winget - their Windows versions!**
 No need to use WSL for them: their Windows versions are installed: callable directly from PowerShell. Use the best tool, where sane, where the best tool wins, probably you also have good tools inside your harness.
 
@@ -42,32 +78,16 @@ When adding new features, please prefer adding them in new files instead of edit
 
 **Note:** On Windows, **all LLM API keys** (Remote STT, Post-Processing, AI Replace) are stored securely in the Windows Credential Manager via `src-tauri/src/secure_keys.rs`. Existing keys from JSON settings are auto-migrated on first launch.
 
-#### Transcription Flow & Status Info
+#### Status & Flow
 
-When using Remote STT API, the **Recording Overlay** (`recording_overlay` window) shows visual status:
+| State          | Display      | Description                              |
+| :------------- | :----------- | :--------------------------------------- |
+| `recording`    | Red pulsing  | User is recording audio                  |
+| `transcribing` | Blue pulsing | Audio sent to API, waiting for response  |
+| `error`        | Red text     | API error occurred (auto-hides after 3s) |
 
-| State          | Overlay Display       | Description                              |
-| -------------- | --------------------- | ---------------------------------------- |
-| `recording`    | Red pulsing circle    | User is recording audio                  |
-| `transcribing` | Blue pulsing circle   | Audio sent to API, waiting for response  |
-| `error`        | Red text with message | API error occurred (auto-hides after 3s) |
-
-**Error Categories** (shown in overlay):
-
-- **Certificate Error** — TLS certificate validation failed
-- **TLS Error** — TLS handshake or protocol failure
-- **Connection Timeout** — Server did not respond in time
-- **Network Error** — Cannot reach server (DNS, connection refused)
-- **Server Error** — HTTP 4xx/5xx response from API
-- **Parse Error** — Invalid JSON response
-- **Transcription Error** — Generic/unknown error
-
-**Flow after recording stops:**
-
-1. Overlay switches from `recording` → `transcribing`
-2. Audio is sent to configured API endpoint
-3. On **success**: Text pasted to active app, overlay hides
-4. On **error**: Overlay shows categorized error for 3 seconds, then hides; toast notification also shown via `remote-stt-error` event
+- **Errors**: Categorized (TLS, Network, Server, Parse, etc.).
+- **Logic**: Stop recording → `transcribing` state → API call → Success (paste) OR Error (show categorization + emit `remote-stt-error` event).
 
 **Implementation files:**
 
@@ -157,29 +177,3 @@ When using Remote STT API, the **Recording Overlay** (`recording_overlay` window
 ## Upstream Sync / Merging
 
 See [`fork-merge-guide.md`](fork-merge-guide.md) for upstream tracking and the merge/conflict-resolution checklist.
-
-### AI Replace
-
-1. Listen to `ai-replace-error` event in `App.tsx` for error messages
-2. Check console for "AI replace instruction:" and "AI replace selected text:" debug logs
-3. Verify LLM provider is configured in Settings → Post-Processing
-
-### Connector (Send to Extension)
-
-1. Ensure AivoRelay Connector extension is installed and bound to a tab
-2. Check console for "Connector message sent" or error logs
-3. Verify AivoRelay server responds (auth required): `curl -H "Authorization: Bearer <password>" "http://127.0.0.1:38243/messages"`
-
-### Send Screenshot to Extension
-
-1. Listen to `screenshot-error` event in `App.tsx` — errors display for 5 seconds
-2. Ensure ShareX (or configured tool) saves to the configured folder
-3. Check "Require Recent Screenshot" is enabled to filter old files
-4. Test screenshot tool manually: `"C:\Program Files\ShareX\ShareX.exe" -RectangleRegion`
-5. Verify blob endpoint works (requires auth): `curl -H "Authorization: Bearer <password>" http://127.0.0.1:38243/blob/{attId}`
-
-### Selection Capture (Windows)
-
-1. If selection capture fails, check Windows accessibility permissions
-2. Test in different apps — some apps don't support standard selection APIs
-3. Debug logs show "Selection copied in X ms (Y chars)"

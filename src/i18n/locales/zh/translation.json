@@ -102,9 +102,9 @@
           }
         },
         "errors": {
-          "restore": "无法恢复原始快捷键",
+          "restore": "无法恢复原始快捷键: {{error}}",
           "set": "无法设置快捷键: {{error}}",
-          "reset": "无法将快捷键重置为原始值"
+          "reset": "无法将快捷键重置为原始值: {{error}}"
         }
       },
       "language": {

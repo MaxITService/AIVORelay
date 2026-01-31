@@ -102,9 +102,9 @@
           }
         },
         "errors": {
-          "restore": "Error al restaurar el atajo original",
+          "restore": "Error al restaurar el atajo original: {{error}}",
           "set": "Error al configurar el atajo: {{error}}",
-          "reset": "Error al restablecer el atajo al valor original"
+          "reset": "Error al restablecer el atajo al valor original: {{error}}"
         }
       },
       "language": {

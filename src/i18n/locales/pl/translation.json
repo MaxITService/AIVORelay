@@ -102,9 +102,9 @@
           }
         },
         "errors": {
-          "restore": "Nie udało się przywrócić oryginalnego skrótu",
+          "restore": "Nie udało się przywrócić oryginalnego skrótu: {{error}}",
           "set": "Nie udało się ustawić skrótu: {{error}}",
-          "reset": "Nie udało się zresetować skrótu do wartości domyślnej"
+          "reset": "Nie udało się zresetować skrótu do wartości domyślnej: {{error}}"
         }
       },
       "language": {

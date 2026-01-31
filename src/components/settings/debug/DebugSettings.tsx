@@ -4,6 +4,7 @@ import { type } from "@tauri-apps/plugin-os";
 import { AlertTriangle } from "lucide-react";
 import { LogDirectory } from "./LogDirectory";
 import { LogLevelSelector } from "./LogLevelSelector";
+import { ShortcutEngineSelector } from "./ShortcutEngineSelector";
 import { SettingsGroup } from "../../ui/SettingsGroup";
 import { SettingContainer } from "../../ui/SettingContainer";
 import { HistoryLimit } from "../HistoryLimit";
@@ -105,13 +106,16 @@ export const DebugSettings: React.FC = () => {
                   <div className="text-xs text-red-200/80">
                     <p className="font-semibold mb-1">⚠️ Advanced Users Only</p>
                     <p>
-                      Voice Commands can execute <strong>any script or command</strong> on your computer. 
+                      Voice Commands can execute <strong>any script or command</strong> on your computer.
                       Go to <strong>Voice Commands</strong> in the sidebar to configure.
                     </p>
                   </div>
                 </div>
               </div>
             )}
+
+            {/* Shortcut Engine Selector - Windows only */}
+            <ShortcutEngineSelector />
           </>
         )}
       </SettingsGroup>

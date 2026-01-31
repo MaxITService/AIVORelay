@@ -21,7 +21,6 @@ interface CommandConfirmPayload {
   use_pwsh: boolean;
   execution_policy: string | null;
   working_directory: string | null;
-  timeout_seconds: number;
   // Auto-run settings (only for predefined commands)
   auto_run?: boolean;
   auto_run_seconds?: number;
@@ -145,8 +144,7 @@ export default function CommandConfirmOverlay() {
         payload.no_profile,
         payload.use_pwsh,
         payload.execution_policy,
-        payload.working_directory,
-        payload.timeout_seconds
+        payload.working_directory
       );
 
       if (result.status === "ok") {

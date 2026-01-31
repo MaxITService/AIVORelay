@@ -32,7 +32,6 @@ pub fn execute_voice_command(
     use_pwsh: bool,
     execution_policy: Option<String>,
     working_directory: Option<String>,
-    timeout_seconds: u32,
 ) -> Result<String, String> {
     if script.trim().is_empty() {
         return Err("Command is empty".to_string());
@@ -53,7 +52,6 @@ pub fn execute_voice_command(
         use_pwsh,
         execution_policy: policy.unwrap_or(ExecutionPolicy::Default),
         working_directory,
-        timeout_seconds,
     };
 
     execute_powershell_command(&script, &options)
@@ -170,7 +168,6 @@ pub fn execute_voice_command(
     _use_pwsh: bool,
     _execution_policy: Option<String>,
     _working_directory: Option<String>,
-    _timeout_seconds: u32,
 ) -> Result<String, String> {
     Err("Voice commands are only supported on Windows".to_string())
 }
@@ -226,7 +223,6 @@ pub async fn test_voice_command_mock(
                 use_pwsh: resolved.use_pwsh,
                 execution_policy: format_execution_policy(resolved.execution_policy),
                 working_directory: resolved.working_directory,
-                timeout_seconds: resolved.timeout_seconds,
                 auto_run: settings.voice_command_auto_run,
                 auto_run_seconds: settings.voice_command_auto_run_seconds,
             },
@@ -265,7 +261,6 @@ pub async fn test_voice_command_mock(
                         use_pwsh: resolved.use_pwsh,
                         execution_policy: format_execution_policy(resolved.execution_policy),
                         working_directory: resolved.working_directory,
-                        timeout_seconds: resolved.timeout_seconds,
                         auto_run: false, // Never auto-run LLM-generated commands
                         auto_run_seconds: 0,
                     },

@@ -102,9 +102,9 @@
           }
         },
         "errors": {
-          "restore": "Ursprüngliches Tastenkürzel konnte nicht wiederhergestellt werden",
+          "restore": "Ursprüngliches Tastenkürzel konnte nicht wiederhergestellt werden: {{error}}",
           "set": "Tastenkürzel konnte nicht gesetzt werden: {{error}}",
-          "reset": "Tastenkürzel konnte nicht auf Originalwert zurückgesetzt werden"
+          "reset": "Tastenkürzel konnte nicht auf Originalwert zurückgesetzt werden: {{error}}"
         }
       },
       "language": {

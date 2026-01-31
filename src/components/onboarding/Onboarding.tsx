@@ -4,6 +4,7 @@ import { type } from "@tauri-apps/plugin-os";
 import { commands, type ModelInfo } from "@/bindings";
 import ModelCard from "./ModelCard";
 import HandyTextLogo from "../icons/HandyTextLogo";
+import { RemoteSttWizard } from "./RemoteSttWizard";
 
 interface OnboardingProps {
   onModelSelected: () => void;
@@ -20,6 +21,7 @@ const Onboarding: React.FC<OnboardingProps> = ({
   const [downloading, setDownloading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [mode, setMode] = useState<"select" | "local">("select");
+  const [showRemoteWizard, setShowRemoteWizard] = useState(false);
 
   useEffect(() => {
     loadModels();
@@ -81,11 +83,21 @@ const Onboarding: React.FC<OnboardingProps> = ({
       await commands.changeTranscriptionProviderSetting(
         "remote_openai_compatible",
       );
-      onRemoteSelected();
+      // Show wizard instead of navigating directly
+      setShowRemoteWizard(true);
     } catch (err) {
       console.error("Failed to select remote mode:", err);
       setError(t("onboarding.errors.selectRemote"));
     }
+  };
+
+  const handleRemoteWizardComplete = () => {
+    setShowRemoteWizard(false);
+    onRemoteSelected();
+  };
+
+  const handleRemoteWizardClose = () => {
+    setShowRemoteWizard(false);
   };
 
   return (
@@ -185,6 +197,12 @@ const Onboarding: React.FC<OnboardingProps> = ({
           )}
         </div>
       </div>
+      {/* Remote STT Configuration Wizard */}
+      <RemoteSttWizard
+        isOpen={showRemoteWizard}
+        onClose={handleRemoteWizardClose}
+        onComplete={handleRemoteWizardComplete}
+      />
     </div>
   );
 };

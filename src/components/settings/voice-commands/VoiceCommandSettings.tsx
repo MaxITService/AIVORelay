@@ -316,7 +316,6 @@ export default function VoiceCommandSettings() {
     no_profile: false,
     use_pwsh: false,
     execution_policy: "bypass",
-    timeout_seconds: 30,
   };
 
   // Listen for execution results
@@ -865,39 +864,6 @@ export default function VoiceCommandSettings() {
                   </option>
                 ))}
               </select>
-            </div>
-
-            <div className="setting-row">
-              <div className="setting-label">
-                <span>{t("voiceCommands.timeout", "Timeout")}</span>
-                <span className="setting-sublabel">
-                  {t(
-                    "voiceCommands.timeoutDesc",
-                    "0 = no limit, protects against hanging commands",
-                  )}
-                </span>
-              </div>
-              <div className="timeout-input-container">
-                <input
-                  type="number"
-                  min="0"
-                  max="600"
-                  value={defaults.timeout_seconds}
-                  onChange={(e) =>
-                    updateSetting("voice_command_defaults", {
-                      ...defaults,
-                      timeout_seconds: Math.max(
-                        0,
-                        Math.min(600, parseInt(e.target.value) || 0),
-                      ),
-                    })
-                  }
-                  className="timeout-input"
-                />
-                <span className="timeout-label">
-                  {t("voiceCommands.seconds", "sec")}
-                </span>
-              </div>
             </div>
           </div>
 

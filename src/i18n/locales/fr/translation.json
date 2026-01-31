@@ -103,9 +103,9 @@
           }
         },
         "errors": {
-          "restore": "Échec de la restauration du raccourci original",
+          "restore": "Échec de la restauration du raccourci original : {{error}}",
           "set": "Échec de la définition du raccourci : {{error}}",
-          "reset": "Échec de la réinitialisation du raccourci à sa valeur d'origine"
+          "reset": "Échec de la réinitialisation du raccourci à sa valeur d'origine : {{error}}"
         }
       },
       "language": {

@@ -31,6 +31,7 @@ use env_filter::Builder as EnvFilterBuilder;
 use managers::audio::AudioRecordingManager;
 use managers::connector::ConnectorManager;
 use managers::history::HistoryManager;
+use managers::key_listener::KeyListenerState;
 use managers::llm_operation::LlmOperationTracker;
 use managers::model::ModelManager;
 use managers::remote_stt::RemoteSttManager;
@@ -152,6 +153,9 @@ fn initialize_core_logic(app_handle: &AppHandle) {
     );
     let llm_operation_tracker = Arc::new(LlmOperationTracker::new());
 
+    // Initialize key listener
+    let key_listener_state = KeyListenerState::new(app_handle.clone());
+
     // Add managers to Tauri's managed state
     app_handle.manage(recording_manager.clone());
     app_handle.manage(model_manager.clone());
@@ -160,6 +164,7 @@ fn initialize_core_logic(app_handle: &AppHandle) {
     app_handle.manage(llm_operation_tracker.clone());
     app_handle.manage(history_manager.clone());
     app_handle.manage(connector_manager.clone());
+    app_handle.manage(key_listener_state);
 
     // Initialize region capture state (Windows only)
     #[cfg(target_os = "windows")]
@@ -402,7 +407,12 @@ pub fn run() {
         shortcut::change_text_replacements_enabled_setting,
         shortcut::change_text_replacements_setting,
         shortcut::change_text_replacements_before_llm_setting,
+        shortcut::change_sidebar_pinned_setting,
+        shortcut::change_sidebar_width_setting,
         shortcut::get_language_from_os_input,
+        shortcut::get_current_shortcut_engine,
+        shortcut::set_shortcut_engine_setting,
+        shortcut::get_tauri_incompatible_shortcuts,
         trigger_update_check,
         commands::cancel_operation,
         commands::get_app_dir_path,
@@ -471,6 +481,14 @@ pub fn run() {
         commands::voice_command::test_voice_command_mock,
         commands::file_transcription::get_supported_audio_extensions,
         commands::file_transcription::transcribe_audio_file,
+        commands::key_listener::key_listener_start,
+        commands::key_listener::key_listener_stop,
+        commands::key_listener::key_listener_is_running,
+        commands::key_listener::key_listener_get_modifiers,
+        commands::key_listener::key_listener_register_shortcut,
+        commands::key_listener::key_listener_unregister_shortcut,
+        commands::key_listener::key_listener_is_shortcut_registered,
+        commands::key_listener::key_listener_get_registered_shortcuts,
         helpers::clamshell::is_laptop,
     ]);
 
@@ -534,6 +552,8 @@ pub fn run() {
         .manage(Mutex::new(ShortcutToggleStates::default()))
         .manage(Mutex::new(PressTimestamps::default()))
         .manage(Mutex::new(session_manager::SessionState::default()))
+        .manage(std::sync::Mutex::new(std::collections::HashSet::<String>::new()) as shortcut::RdevShortcutsSet)
+        .manage(std::sync::Mutex::new(settings::ShortcutEngine::default()) as shortcut::ActiveShortcutEngine)
         .setup(move |app| {
             let settings = get_settings(&app.handle());
             let tauri_log_level: tauri_plugin_log::LogLevel = settings.log_level.into();

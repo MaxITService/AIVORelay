@@ -102,9 +102,9 @@
           }
         },
         "errors": {
-          "restore": "Errore nel ripristino della scorciatoia originale",
+          "restore": "Errore nel ripristino della scorciatoia originale: {{error}}",
           "set": "Errore nella configurazione della scorciatoia: {{error}}",
-          "reset": "Errore nella reinizializzazione della scorciatoia al valore originale"
+          "reset": "Errore nella reinizializzazione della scorciatoia al valore originale: {{error}}"
         }
       },
       "language": {

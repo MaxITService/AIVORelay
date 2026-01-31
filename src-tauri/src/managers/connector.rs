@@ -365,7 +365,7 @@ impl ConnectorManager {
                 }
             });
 
-            // Spawn keepalive task
+            // Spawn keepalive and blob cleanup task
             let keepalive_stop_flag = stop_flag.clone();
             let keepalive_state = state.clone();
             tokio::spawn(async move {
@@ -377,6 +377,8 @@ impl ConnectorManager {
                     let now = now_ms();
                     {
                         let mut state_guard = keepalive_state.lock().unwrap();
+                        
+                        // Check if we need to send a keepalive
                         if now - state_guard.last_keepalive > KEEPALIVE_INTERVAL_MS {
                             state_guard.last_keepalive = now;
 
@@ -395,6 +397,9 @@ impl ConnectorManager {
                                 state_guard.messages.pop_front();
                             }
                         }
+
+                        // Clean up expired blobs
+                        state_guard.blobs.retain(|_, blob| blob.expires_at > now);
                     }
 
                     tokio::time::sleep(Duration::from_secs(5)).await;

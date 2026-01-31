@@ -43,12 +43,13 @@ export const getKeyName = (
         case "shift":
           return "shift";
         case "ctrl":
-          return osType === "macos" ? "ctrl" : "ctrl";
+          return "ctrl";
         case "alt":
           return osType === "macos" ? "option" : "alt";
         case "meta":
           // Windows key on Windows/Linux, Command key on Mac
           if (osType === "macos") return "command";
+          if (osType === "windows") return "win";
           return "super";
         default:
           return baseModifier;
@@ -162,9 +163,37 @@ export const formatKeyCombination = (
   combination: string,
   osType: OSType,
 ): string => {
-  // Simply return the combination as-is since getKeyName already provides
-  // the correct platform-specific key names
-  return combination;
+  if (!combination) return "";
+
+  // If the combination is stored as "super+k", we want to display it correctly
+  // for the current operating system.
+  let formatted = combination.toLowerCase();
+
+  if (osType === "macos") {
+    formatted = formatted
+      .replace(/\bsuper\b/g, "command")
+      .replace(/\bmeta\b/g, "command")
+      .replace(/\bwin\b/g, "command");
+  } else if (osType === "windows") {
+    formatted = formatted
+      .replace(/\bsuper\b/g, "win")
+      .replace(/\bmeta\b/g, "win")
+      .replace(/\bcommand\b/g, "win");
+  }
+
+  // Capitalize each part for better display
+  return formatted
+    .split("+")
+    .map((part) => {
+      if (part === "ctrl") return "Ctrl";
+      if (part === "shift") return "Shift";
+      if (part === "alt") return "Alt";
+      if (part === "win") return "Win";
+      if (part === "command") return "Cmd";
+      if (part === "option") return "Opt";
+      return part.charAt(0).toUpperCase() + part.slice(1);
+    })
+    .join("+");
 };
 
 /**

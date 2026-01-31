@@ -105,7 +105,7 @@ pub async fn transcribe_audio_file(
     let profile_id = profile_id.unwrap_or_else(|| settings.active_profile_id.clone());
     let profile = settings.transcription_profile(&profile_id);
     let should_unload_override_model = model_override.is_some()
-        && settings.transcription_provider == TranscriptionProvider::RemoteOpenAiCompatible;
+        && settings.transcription_provider == TranscriptionProvider::Local;
 
     let apply_custom_words_enabled =
         custom_words_enabled_override.unwrap_or(settings.custom_words_enabled);
@@ -259,7 +259,28 @@ pub async fn transcribe_audio_file(
             }
         }
 
-        result?
+        let (text, segs) = result?;
+        
+        // Apply filler word filter (if enabled)
+        let text = if settings.filler_word_filter_enabled {
+            crate::audio_toolkit::filter_transcription_output(&text)
+        } else {
+            text
+        };
+        
+        // If we have segments, apply filter to each segment
+        let segs = segs.map(|mut segments| {
+            for segment in &mut segments {
+                segment.text = if settings.filler_word_filter_enabled {
+                    crate::audio_toolkit::filter_transcription_output(&segment.text)
+                } else {
+                    segment.text.clone()
+                };
+            }
+            segments
+        });
+        
+        (text, segs)
     };
 
     // Format the output based on requested format

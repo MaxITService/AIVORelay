@@ -102,9 +102,9 @@
           }
         },
         "errors": {
-          "restore": "Nepodařilo se obnovit původní zkratku",
+          "restore": "Nepodařilo se obnovit původní zkratku: {{error}}",
           "set": "Nepodařilo se nastavit zkratku: {{error}}",
-          "reset": "Nepodařilo se vrátit zkratku na původní hodnotu"
+          "reset": "Nepodařilo se vrátit zkratku na původní hodnotu: {{error}}"
         }
       },
       "language": {

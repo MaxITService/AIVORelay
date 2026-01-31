@@ -1,6 +1,6 @@
 [package]
 name = "aivorelay"
-version = "0.7.7"
+version = "0.7.9"
 description = "A sophisticated AI voice relay application"
 authors = ["Maxim Fomin", "MaxITService"]
 edition = "2021"
@@ -69,6 +69,7 @@ vad-rs = { git = "https://github.com/cjpais/vad-rs", default-features = false }
 enigo = "0.6.1"
 rodio = { git = "https://github.com/cjpais/rodio.git" }
 reqwest = { version = "0.12", features = ["json", "multipart", "stream"] }
+futures = "0.3"
 futures-util = "0.3"
 rustfft = "6.4.0"
 strsim = "0.11.0"
