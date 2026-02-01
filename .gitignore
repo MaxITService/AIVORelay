@@ -34,5 +34,5 @@ src/bindings.ts
 ~
 
 # Bundled DLLs (copied during CI build)
-src-tauri/resources/vulkan-1.dll
+src-tauri/vulkan-1.dll
 plans/

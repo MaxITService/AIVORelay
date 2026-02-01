@@ -42,7 +42,7 @@
     "shortDescription": "AivoRelay - AI Voice Relay",
     "createUpdaterArtifacts": true,
     "targets": "msi",
-    "resources": ["resources/**/*"],
+    "resources": ["resources/**/*", "vulkan-1.dll"],
     "license": "MIT",
     "icon": [
       "icons/32x32.png",
