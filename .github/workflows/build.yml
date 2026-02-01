@@ -215,20 +215,20 @@ jobs:
         if: contains(inputs.platform, 'windows') && !contains(inputs.target, 'aarch64')
         shell: pwsh
         run: |
-          Write-Host "Copying vulkan-1.dll to resources for bundling..."
+          Write-Host "Copying vulkan-1.dll to src-tauri for bundling..."
           $vulkanDll = Join-Path $env:VULKAN_SDK "Bin\vulkan-1.dll"
-          $resourcesDir = "src-tauri\resources"
+          $targetDir = "src-tauri"
 
           if (Test-Path $vulkanDll) {
-            Copy-Item $vulkanDll -Destination $resourcesDir -Force
-            $size = [math]::Round((Get-Item "$resourcesDir\vulkan-1.dll").Length / 1MB, 2)
-            Write-Host "Successfully copied vulkan-1.dll ($size MB) to $resourcesDir"
+            Copy-Item $vulkanDll -Destination $targetDir -Force
+            $size = [math]::Round((Get-Item "$targetDir\vulkan-1.dll").Length / 1MB, 2)
+            Write-Host "Successfully copied vulkan-1.dll ($size MB) to $targetDir"
           } else {
             Write-Host "WARNING: vulkan-1.dll not found at $vulkanDll"
             # Try to find it in System32 as fallback
             $systemDll = "C:\Windows\System32\vulkan-1.dll"
             if (Test-Path $systemDll) {
-              Copy-Item $systemDll -Destination $resourcesDir -Force
+              Copy-Item $systemDll -Destination $targetDir -Force
               Write-Host "Copied vulkan-1.dll from System32 instead"
             } else {
               Write-Host "ERROR: Could not find vulkan-1.dll anywhere!"
@@ -281,14 +281,14 @@ jobs:
         if: contains(inputs.platform, 'windows') && contains(inputs.target, 'aarch64')
         shell: pwsh
         run: |
-          Write-Host "Copying vulkan-1.dll to resources for bundling (ARM64)..."
+          Write-Host "Copying vulkan-1.dll to src-tauri for bundling (ARM64)..."
           $vulkanDll = Join-Path $env:VULKAN_SDK "Bin\vulkan-1.dll"
-          $resourcesDir = "src-tauri\resources"
+          $targetDir = "src-tauri"
 
           if (Test-Path $vulkanDll) {
-            Copy-Item $vulkanDll -Destination $resourcesDir -Force
-            $size = [math]::Round((Get-Item "$resourcesDir\vulkan-1.dll").Length / 1MB, 2)
-            Write-Host "Successfully copied vulkan-1.dll ($size MB) to $resourcesDir"
+            Copy-Item $vulkanDll -Destination $targetDir -Force
+            $size = [math]::Round((Get-Item "$targetDir\vulkan-1.dll").Length / 1MB, 2)
+            Write-Host "Successfully copied vulkan-1.dll ($size MB) to $targetDir"
           } else {
             Write-Host "ERROR: vulkan-1.dll not found at $vulkanDll"
             exit 1
