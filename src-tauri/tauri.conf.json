@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "AivoRelay",
-  "version": "0.7.9",
+  "version": "0.7.10",
   "identifier": "fi.maxits.aivorelay",
   "build": {
     "beforeDevCommand": "tsc --noEmit && bun run dev",
@@ -71,7 +71,10 @@
     },
     "windows": {
       "certificateThumbprint": "C1F83B324662E8D224282F9D587B030426346A77",
-      "digestAlgorithm": "sha256"
+      "digestAlgorithm": "sha256",
+      "wix": {
+        "template": "./windows/wix/main.wxs"
+      }
     }
   },
   "plugins": {
