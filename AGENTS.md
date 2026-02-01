@@ -1,11 +1,21 @@
 # Fork Agents Guide
 
+> **This is the CUDA branch (`cuda-integration`).**
+> It differs significantly from the **main branch** (Vulkan). See [CUDA.md](CUDA.md) for build instructions and differences.
+
 > **Agent rule:** all debugging/build verification is done by the user (do not run automated tests/builds unless explicitly requested).
 > This file provides guidance for AI code agents working with this fork.
 > CODE ONLY WHEN APPROVED BY USER. Otherwise, only your thoughts in chat are needed.
 > If you are not very sure that change will fix it, consult user first, user may want to revert unsuccessful fix, so user needs to commit and stuff.
 > Never Commit!
 > Start from writing instructions about building rules only in chat to user. Write them to user!!!!
+
+**CUDA DEVELOPMENT:** 
+When working on the CUDA branch, **DO NOT** use `bun run tauri dev` or `cargo build` directly. 
+Always use the specialized build script to ensure the environment is correctly set up for CUDA/bindgen:
+- `.\build-cuda.ps1 -Dev` (for development)
+- `.\build-cuda.ps1 -Full` (for full bundling)
+- `.\build-cuda.ps1 -Check` (for quick compilation check)
 
 ## Environment:
 

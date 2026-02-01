@@ -1,5 +1,8 @@
 # Fork Code Notes
 
+> **This is the CUDA branch (`cuda-integration`).**
+> It differs significantly from the **main branch** (Vulkan). See [CUDA.md](CUDA.md) for build instructions and differences.
+
 Files that differentiate this fork from the original [cjpais/Handy](https://github.com/cjpais/Handy).
 
 ## New Files (Fork-Specific)

@@ -129,3 +129,10 @@ lto = true
 codegen-units = 1
 strip = true
 panic = "abort"
+
+# Patch whisper-rs-sys to disable layout tests (fixes Windows build)
+# The upstream bundled bindings have Linux struct sizes (216 bytes for _G_fpos_t)
+# which cause overflow errors on Windows (208 bytes)
+[patch.crates-io]
+whisper-rs-sys = { path = "C:/Code/experiments/whisper-rs-test/sys" }
+whisper-rs = { path = "C:/Code/experiments/whisper-rs-test" }

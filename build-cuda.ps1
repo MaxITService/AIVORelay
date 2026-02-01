@@ -18,14 +18,16 @@
 param(
     [switch]$Clean,
     [switch]$Build,
-    [switch]$Check
+    [switch]$Check,
+    [switch]$Full,
+    [switch]$Dev
 )
 
-$ErrorActionPreference = "Stop"
+$ErrorActionPreference = "Continue"
 
 Write-Host "========================================" -ForegroundColor Cyan
-Write-Host "  AivoRelay CUDA 12.4 Build Script V5" -ForegroundColor Cyan
-Write-Host "  (Sentinel Edition)" -ForegroundColor Cyan
+Write-Host "  AivoRelay CUDA 12.4 Build Script V5.1" -ForegroundColor Cyan
+Write-Host "  (Enhanced Bundle & Dev Edition)" -ForegroundColor Cyan
 Write-Host "========================================" -ForegroundColor Cyan
 
 # ============================================
@@ -198,50 +200,62 @@ $clangArgsString = $clangArgs -join " "
 [Environment]::SetEnvironmentVariable("BINDGEN_EXTRA_CLANG_ARGS_x86_64-pc-windows-msvc", $clangArgsString, "Process")
 
 # Force live binding generation (don't use bundled Linux bindings)
-$env:WHISPER_DONT_GENERATE_BINDINGS = "0"
+Remove-Item Env:WHISPER_DONT_GENERATE_BINDINGS -ErrorAction SilentlyContinue
 
-# Try to disable layout tests (size assertions) - may not be supported by all bindgen versions
+# Try to disable layout tests (size assertions)
 [Environment]::SetEnvironmentVariable("BINDGEN_NO_LAYOUT_TESTS", "1", "Process")
 $env:BINDGEN_NO_LAYOUT_TESTS = "1"
-Write-Host "  BINDGEN_NO_LAYOUT_TESTS: 1 (attempting to disable size checks)" -ForegroundColor Green
+Write-Host "  BINDGEN_NO_LAYOUT_TESTS: 1" -ForegroundColor Green
 
 Write-Host "  LIBCLANG_PATH: $LLVM_BIN" -ForegroundColor Green
 Write-Host "  BINDGEN_EXTRA_CLANG_ARGS:" -ForegroundColor Cyan
 Write-Host "    $clangArgsString" -ForegroundColor Gray
 
 # ============================================
-# 4. Run Cargo
+# 4. Build or Check
 # ============================================
-Write-Host "`n[4/5] Running Cargo..." -ForegroundColor Yellow
+Write-Host "`n[4/5] Executing Build/Check..." -ForegroundColor Yellow
 
-$manifestPath = "src-tauri/Cargo.toml"
 $logFile = "cargo_check_cuda.txt"
 
 if ($Clean) {
-    Write-Host "  Cleaning whisper-rs-sys cache..." -ForegroundColor Cyan
-    cargo clean -p whisper-rs-sys --manifest-path $manifestPath 2>$null
+    Write-Host "  Cleaning build artifacts..." -ForegroundColor Cyan
+    cargo clean -p whisper-rs-sys --manifest-path src-tauri/Cargo.toml 2>$null
     $buildDir = "src-tauri/target/debug/build"
     if (Test-Path $buildDir) {
         Get-ChildItem $buildDir -Directory -Filter "whisper-rs-sys-*" | Remove-Item -Recurse -Force
-        Write-Host "  Cleaned whisper-rs-sys build artifacts" -ForegroundColor Cyan
     }
 }
 
-# Run cargo and capture output
-if ($Build) {
-    Write-Host "  Running: cargo build --release --no-default-features --features cuda" -ForegroundColor Cyan
-    $cargoOutput = cargo build --manifest-path $manifestPath --release --no-default-features --features cuda 2>&1
+$cargoOutput = ""
+if ($Full) {
+    Write-Host "  RUNNING FULL TAURI BUNDLE (CUDA ENABLED)..." -ForegroundColor Green
+    # This automatically runs BEFORE build commands (frontend build)
+    bun run tauri build --features cuda
+    $cargoExitCode = $LASTEXITCODE
+}
+elseif ($Dev) {
+    Write-Host "  LAUNCHING TAURI DEV (CUDA ENABLED)..." -ForegroundColor Green
+    # Launch dev mode with CUDA features
+    bun run tauri dev --features cuda
+    $cargoExitCode = $LASTEXITCODE
+}
+elseif ($Build) {
+    Write-Host "  Running: cargo build --release --features cuda" -ForegroundColor Cyan
+    $cargoOutput = cargo build --manifest-path src-tauri/Cargo.toml --release --no-default-features --features cuda 2>&1
+    $cargoExitCode = $LASTEXITCODE
 }
 else {
-    Write-Host "  Running: cargo check --no-default-features --features cuda" -ForegroundColor Cyan
-    $cargoOutput = cargo check --manifest-path $manifestPath --no-default-features --features cuda 2>&1
+    Write-Host "  Running: cargo check --features cuda" -ForegroundColor Cyan
+    $cargoOutput = cargo check --manifest-path src-tauri/Cargo.toml --no-default-features --features cuda 2>&1
+    $cargoExitCode = $LASTEXITCODE
 }
 
-# Save output to log
-$cargoOutput | Out-File -FilePath $logFile -Encoding utf8
-$cargoOutput | Write-Host
-
-$cargoExitCode = $LASTEXITCODE
+# Capture output to log for cargo check/build
+if ($cargoOutput) {
+    $cargoOutput | Out-File -FilePath $logFile -Encoding utf8
+    $cargoOutput | Write-Host
+}
 
 # ============================================
 # 5. Validation (Fail-Fast + Bindings Check)

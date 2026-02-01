@@ -1,5 +1,8 @@
 # CLAUDE.md
 
+> **This is the CUDA branch (`cuda-integration`).**
+> It differs significantly from the **main branch** (Vulkan). See [CUDA.md](CUDA.md) for build instructions and differences.
+
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
 ## Development Commands
@@ -34,7 +37,7 @@ curl -o src-tauri/resources/models/silero_vad_v4.onnx https://blob.handy.compute
 
 ## Architecture Overview
 
-Handy is a cross-platform desktop speech-to-text app built with Tauri 2.x (Rust backend + React/TypeScript frontend).
+Handy is a Windows-only (CUDA branch) desktop speech-to-text app built with Tauri 2.x (Rust backend + React/TypeScript frontend).
 
 ### Backend Structure (src-tauri/src/)
 
