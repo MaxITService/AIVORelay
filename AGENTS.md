@@ -18,10 +18,12 @@ Harness: use PowerShell with -NoProfile only: avoid profile interference.
 
 ```powershell
 # Step 1: Run this ONCE at the start of conversation (standalone command)
-$vsPath = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -property installationPath; cmd /c "`"$vsPath\Common7\Tools\VsDevCmd.bat`" -arch=x64 && set" | Where-Object { $_ -match '^(.+?)=(.*)$' } | ForEach-Object { Set-Item "Env:$($Matches[1])" $Matches[2] }
+& "C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\Tools\Launch-VsDevShell.ps1" -Arch amd64 -HostArch amd64 -SkipAutomaticLocation
 ```
 
 After running Get-Dev once, cargo/rustc commands work for the rest of the conversation without needing to re-run it.
+
+**Note**: Use `Launch-VsDevShell.ps1` (native PowerShell script) instead of `VsDevCmd.bat` (CMD batch file). The native PowerShell script properly modifies the current session's environment including PATH for cl.exe. We specifically use VS Community installation, not BuildTools.
 
 **CRITICAL: Concurrent Cargo Processes & Tooling**.
 
@@ -177,3 +179,30 @@ When adding new features, please prefer adding them in new files instead of edit
 ## Upstream Sync / Merging
 
 See [`fork-merge-guide.md`](fork-merge-guide.md) for upstream tracking and the merge/conflict-resolution checklist.
+
+## Local Builds (Unsigned)
+
+For testing builds locally without code signing (faster than GitHub Actions):
+
+```powershell
+# Build release MSI (unsigned, no auto-update)
+.\build-local.ps1
+
+# Build debug MSI
+.\build-local.ps1 -Debug
+
+# Skip process/environment checks
+.\build-local.ps1 -SkipChecks
+```
+
+**What it does:**
+1. Checks for running cargo/tauri processes (can interfere with build)
+2. Sets up Visual Studio environment using Launch-VsDevShell.ps1
+3. Verifies Vulkan SDK and copies vulkan-1.dll to src-tauri
+4. Checks for required tools (bun, cargo)
+5. Installs dependencies (bun install)
+6. Builds unsigned MSI via `bun run build:unsigned`
+
+**Output:** `src-tauri\target\release\bundle\msi\AivoRelay_0.7.11_x64_en-US.msi`
+
+**Note:** This build will NOT have auto-update functionality (no code signing). It's equivalent to what GitHub Actions produces but without the signing step.

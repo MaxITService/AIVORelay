@@ -44,6 +44,13 @@ Files that differentiate this fork from the original [cjpais/Handy](https://gith
 | `src/components/settings/debug/ShortcutEngineSelector.tsx`             | **Shortcut Engine Selector** (Windows): UI for switching between Tauri (high-perf, limited keys) and rdev (all keys, higher CPU) engines. Shows incompatible shortcuts warning, requires app restart. Located in Debug → Experimental Features.                                                     |
 | `src/stores/transcribeFileStore.ts`                                    | Session store for Transcribe File UI state (selected file, output mode, profile selection, results).                                                                    |
 
+### Development & Build Tools
+
+| File                    | Purpose                                                                                                                                                                                                                                                                                   |
+| ----------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `build-local.ps1`       | **Local Build Script** (Windows): Automates local unsigned builds without code signing. Sets up VS environment via Launch-VsDevShell.ps1, checks for Vulkan SDK, verifies tools, installs dependencies, and builds release/debug MSI. Equivalent to GitHub Actions build without signing. |
+| `build-unsigned.js`     | **Unsigned Build Helper**: Node.js script that cleans old artifacts and runs `tauri build --no-sign` with updater disabled. Called by `bun run build:unsigned` and by build-local.ps1.                                                                                                   |
+
 ## Modified Files
 
 ### Backend Core Logic
