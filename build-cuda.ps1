@@ -229,9 +229,10 @@ if ($Clean) {
 
 $cargoOutput = ""
 if ($Full) {
-    Write-Host "  RUNNING FULL TAURI BUNDLE (CUDA ENABLED)..." -ForegroundColor Green
+    Write-Host "  RUNNING FULL TAURI BUNDLE (CUDA ENABLED, UNSIGNED)..." -ForegroundColor Green
+    # --no-sign: Code signing only works in GitHub Actions (cloud)
     # This automatically runs BEFORE build commands (frontend build)
-    bun run tauri build --features cuda
+    bun run tauri build --features cuda --no-sign
     $cargoExitCode = $LASTEXITCODE
 }
 elseif ($Dev) {

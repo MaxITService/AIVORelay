@@ -438,3 +438,36 @@ Use **Full Bundling** instead of Dev Mode for testing:
 ```
 This performs a `Release` build, embeds all frontend assets (solving "Connection Refused"), and produces a standalone executable that avoids the dev-server runtime overhead.
 
+## Update: Path Too Long & Tauri Bundling Failure (2026-02-01 16:15)
+
+**Current Status:** [BLOCKER] ❌ `tauri build` fails at the finish line.
+
+### Issues Encountered:
+1.  **Path Too Long (ggml-vulkan):**
+    - **Error:** CMake/Ninja failed because object file paths exceeded 250 characters.
+    - **Context:** `.../whisper-rs-sys-.../out/build/ggml/src/ggml-vulkan/vulkan-shaders-gen-prefix/...`
+    - **Attempted Fix:** Enabled `LongPathsEnabled` in Windows Registry.
+2.  **Tauri Build Failure (General):**
+    - Even with Long Paths enabled, `bun run tauri build --features cuda --no-sign` fails.
+    - **Symptom:** The final `.exe` in `target/release/` is **NOT updated**.
+    - **Hypothesis:** Tauri encounters an error during the post-compilation bundling phase (or while trying to move the binary into the bundle directory) and aborts, leaving the old `aivorelay.exe` in place.
+3.  **Manual `cargo build` vs. `tauri build`:**
+    - `cargo build --release` succeeds but **does NOT embed frontend assets**, resulting in "Connection Refused" at runtime (it still tries to hit the dev server).
+    - Only `tauri build` (or `tauri build --bundle none`) correctly injects the `dist/` folder into the binary.
+
+### Commands Attempted:
+```powershell
+# 1. Full building via script (Fails)
+.\build-cuda.ps1 -Full
+
+# 2. Manual Tauri Build with sign-skipping (Fails)
+bun run tauri build --features cuda --no-sign
+
+# 3. Manual cargo build (Succeeds but lacks frontend assets)
+cargo build --release --features cuda --manifest-path src-tauri/Cargo.toml
+```
+
+### Next Steps:
+- We need to find exactly why `tauri build` fails *after* compilation.
+- Try `bun run tauri build --features cuda --no-sign --bundle none` to see if we can get the embedded binary without the MSI packaging step.
+

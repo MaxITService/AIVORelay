@@ -1,0 +1,73 @@
+$ tauri build --features cuda --no-sign -- --no-default-features
+        Warn --no-sign flag detected: Signing will be skipped.
+        Info Looking up installed tauri packages to check mismatched versions...
+     Running beforeBuildCommand `bun run build`
+$ tsc && vite build
+[36mvite v6.4.1 [32mbuilding for production...[36m[39m
+transforming...
+[32m✓[39m 1930 modules transformed.
+rendering chunks...
+computing gzip size...
+[2mdist/[22m[32msrc/command-confirm/index.html       [39m[1m[2m  0.67 kB[22m[1m[22m[2m │ gzip:   0.34 kB[22m
+[2mdist/[22m[32mindex.html                           [39m[1m[2m  0.76 kB[22m[1m[22m[2m │ gzip:   0.36 kB[22m
+[2mdist/[22m[32msrc/region-capture/index.html        [39m[1m[2m  0.77 kB[22m[1m[22m[2m │ gzip:   0.42 kB[22m
+[2mdist/[22m[32msrc/overlay/index.html               [39m[1m[2m  0.85 kB[22m[1m[22m[2m │ gzip:   0.39 kB[22m
+[2mdist/[22m[32massets/large_logo-BcKai-50.jpg       [39m[1m[2m 38.91 kB[22m[1m[22m
+[2mdist/[22m[32massets/favicon-Bwkb6Z9H.ico          [39m[1m[2m107.57 kB[22m[1m[22m
+[2mdist/[22m[35massets/overlay-DCEFgc6T.css          [39m[1m[2m  1.69 kB[22m[1m[22m[2m │ gzip:   0.67 kB[22m
+[2mdist/[22m[35massets/region-capture-DgTzs-9G.css   [39m[1m[2m  2.06 kB[22m[1m[22m[2m │ gzip:   0.64 kB[22m
+[2mdist/[22m[35massets/command-confirm-z1nCyy-W.css  [39m[1m[2m  4.89 kB[22m[1m[22m[2m │ gzip:   1.54 kB[22m
+[2mdist/[22m[35massets/main-C-44VH24.css             [39m[1m[2m 85.23 kB[22m[1m[22m[2m │ gzip:  13.70 kB[22m
+[2mdist/[22m[36massets/region-capture-_BXiwsxR.js    [39m[1m[2m  5.03 kB[22m[1m[22m[2m │ gzip:   1.91 kB[22m
+[2mdist/[22m[36massets/command-confirm-sUWr5f-W.js   [39m[1m[2m  6.39 kB[22m[1m[22m[2m │ gzip:   2.28 kB[22m
+[2mdist/[22m[36massets/overlay-Bl47qneF.js           [39m[1m[2m 11.70 kB[22m[1m[22m[2m │ gzip:   4.65 kB[22m
+[2mdist/[22m[36massets/window-Bacv4pws.js            [39m[1m[2m 12.98 kB[22m[1m[22m[2m │ gzip:   3.18 kB[22m
+[2mdist/[22m[36massets/bindings-DdaIymWa.js          [39m[1m[2m 37.06 kB[22m[1m[22m[2m │ gzip:   4.51 kB[22m
+[2mdist/[22m[36massets/core-tTNBP5Tn.js              [39m[1m[2m145.86 kB[22m[1m[22m[2m │ gzip:  46.97 kB[22m
+[2mdist/[22m[36massets/index-BjJfs1xT.js             [39m[1m[2m304.81 kB[22m[1m[22m[2m │ gzip:  91.88 kB[22m
+[2mdist/[22m[36massets/main-DrLvlYJF.js              [39m[1m[2m493.48 kB[22m[1m[22m[2m │ gzip: 126.05 kB[22m
+[32m✓ built in 2.89s[39m
+   Compiling vswhom-sys v0.1.3
+   Compiling ring v0.17.14
+   Compiling whisper-rs-sys v0.11.2 (C:\Code\experiments\whisper-rs-test\sys)
+   Compiling libsqlite3-sys v0.35.0
+   Compiling vswhom v0.1.0
+   Compiling embed-resource v3.0.6
+   Compiling tauri-winres v0.3.5
+   Compiling tauri-build v2.5.3
+warning: whisper-rs-sys@0.11.2: AGENT_DIAGNOSTIC: bindgen configured with layout_tests(false)
+warning: whisper-rs-sys@0.11.2: Unable to generate bindings: clang diagnosed error: C:\Program Files (x86)\Windows Kits\10\include\10.0.26100.0\ucrt\corecrt.h:10:10: fatal error: 'vcruntime.h' file not found
+error: failed to run custom build command for `whisper-rs-sys v0.11.2 (C:\Code\experiments\whisper-rs-test\sys)`
+
+Caused by:
+  process didn't exit successfully: `C:\Code\Released Software\AIVORelay\src-tauri\target\release\build\whisper-rs-sys-c566360c7722ee7b\build-script-build` (exit code: 101)
+  --- stdout
+  cargo:rustc-link-lib=cublas
+  cargo:rustc-link-lib=cudart
+  cargo:rustc-link-lib=cublasLt
+  cargo:rustc-link-lib=cuda
+  cargo:rustc-link-search=C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.4\lib/x64
+  cargo:rerun-if-changed=wrapper.h
+  cargo:warning=AGENT_DIAGNOSTIC: bindgen configured with layout_tests(false)
+  cargo:rerun-if-env-changed=TARGET
+  cargo:rerun-if-env-changed=BINDGEN_EXTRA_CLANG_ARGS_x86_64-pc-windows-msvc
+  cargo:rerun-if-env-changed=BINDGEN_EXTRA_CLANG_ARGS_x86_64_pc_windows_msvc
+  cargo:rerun-if-env-changed=BINDGEN_EXTRA_CLANG_ARGS
+  cargo:rerun-if-changed=wrapper.h
+  cargo:warning=Unable to generate bindings: clang diagnosed error: C:\Program Files (x86)\Windows Kits\10\include\10.0.26100.0\ucrt\corecrt.h:10:10: fatal error: 'vcruntime.h' file not found
+
+
+  --- stderr
+  C:\Program Files (x86)\Windows Kits\10\include\10.0.26100.0\ucrt\corecrt.h:10:10: fatal error: 'vcruntime.h' file not found
+
+  thread 'main' panicked at C:\Code\experiments\whisper-rs-test\sys\build.rs:152:21:
+  BINDGEN FAILED ON WINDOWS!
+  Error: clang diagnosed error: C:\Program Files (x86)\Windows Kits\10\include\10.0.26100.0\ucrt\corecrt.h:10:10: fatal error: 'vcruntime.h' file not found
+
+  The bundled bindings.rs is for Linux and will cause 208-216 overflow.
+  Fix bindgen setup (LIBCLANG_PATH, INCLUDE, clang args) and retry.
+  note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+warning: build failed, waiting for other jobs to finish...
+failed to build app: failed to build app
+       Error failed to build app: failed to build app
+error: script "tauri" exited with code 1
