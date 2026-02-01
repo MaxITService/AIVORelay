@@ -90,7 +90,7 @@ export const HistorySettings: React.FC = () => {
     }
   };
 
-  const getAudioUrl = async (fileName: string) => {
+  const getAudioUrl = useCallback(async (fileName: string) => {
     try {
       const result = await commands.getAudioFilePath(fileName);
       if (result.status === "ok") {
@@ -101,7 +101,7 @@ export const HistorySettings: React.FC = () => {
       console.error("Failed to get audio file path:", error);
       return null;
     }
-  };
+  }, []);
 
   const deleteAudioEntry = async (id: number) => {
     try {
@@ -237,24 +237,14 @@ const HistoryEntryComponent: React.FC<HistoryEntryProps> = ({
   deleteAudio,
 }) => {
   const { t, i18n } = useTranslation();
-  const [audioUrl, setAudioUrl] = useState<string | null>(null);
   const [showCopied, setShowCopied] = useState(false);
 
   const isAiReplace = entry.action_type === "ai_replace";
 
-  useEffect(() => {
-    // AI Replace entries don't have audio files
-    if (isAiReplace) {
-      setAudioUrl(null);
-      return;
-    }
-
-    const loadAudio = async () => {
-      const url = await getAudioUrl(entry.file_name);
-      setAudioUrl(url);
-    };
-    loadAudio();
-  }, [entry.file_name, getAudioUrl, isAiReplace]);
+  const handleLoadAudio = useCallback(
+    () => getAudioUrl(entry.file_name),
+    [getAudioUrl, entry.file_name],
+  );
 
   const handleCopyText = () => {
     onCopyText();
@@ -343,7 +333,7 @@ const HistoryEntryComponent: React.FC<HistoryEntryProps> = ({
               <p className="text-xs text-mid-gray uppercase">
                 {t("settings.history.aiReplace.instruction")}
               </p>
-              <p className="italic text-text/90 text-sm">
+              <p className="italic text-text/90 text-sm select-text cursor-text">
                 {entry.transcription_text || t("settings.history.aiReplace.quickTap")}
               </p>
             </div>
@@ -355,7 +345,7 @@ const HistoryEntryComponent: React.FC<HistoryEntryProps> = ({
               <p className="text-xs text-mid-gray uppercase">
                 {t("settings.history.aiReplace.originalSelection")}
               </p>
-              <p className="text-text/70 text-sm">
+              <p className="text-text/70 text-sm select-text cursor-text">
                 {truncateText(entry.original_selection, 150)}
               </p>
             </div>
@@ -367,7 +357,7 @@ const HistoryEntryComponent: React.FC<HistoryEntryProps> = ({
               {t("settings.history.aiReplace.response")}
             </p>
             {entry.ai_response ? (
-              <p className="text-text/90 text-sm">{entry.ai_response}</p>
+              <p className="text-text/90 text-sm select-text cursor-text">{entry.ai_response}</p>
             ) : (
               <div className="flex items-center gap-2 text-amber-500">
                 <AlertTriangle width={14} height={14} />
@@ -381,10 +371,10 @@ const HistoryEntryComponent: React.FC<HistoryEntryProps> = ({
       ) : (
         // Regular Transcription Entry Display
         <>
-          <p className="italic text-text/90 text-sm pb-2">
+          <p className="italic text-text/90 text-sm pb-2 select-text cursor-text">
             {entry.post_processed_text || entry.transcription_text}
           </p>
-          {audioUrl && <AudioPlayer src={audioUrl} className="w-full" />}
+          <AudioPlayer onLoadRequest={handleLoadAudio} className="w-full" />
         </>
       )}
     </div>
