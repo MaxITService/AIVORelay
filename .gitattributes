@@ -1,0 +1,148 @@
+# ==============================================================================
+# Git Attributes - Line Ending Normalization
+# ==============================================================================
+# This file ensures consistent line endings across all platforms.
+# All text files are normalized to LF on commit, checked out as LF.
+# Binary files are left untouched to prevent corruption.
+# ==============================================================================
+
+# Default: auto-detect text files, normalize to LF
+* text=auto eol=lf
+
+# ==============================================================================
+# TEXT FILES - Force LF
+# ==============================================================================
+
+# Source code
+*.ts text eol=lf
+*.tsx text eol=lf
+*.js text eol=lf
+*.jsx text eol=lf
+*.mjs text eol=lf
+*.cjs text eol=lf
+*.rs text eol=lf
+*.c text eol=lf
+*.cpp text eol=lf
+*.h text eol=lf
+*.hpp text eol=lf
+
+# Configuration
+*.json text eol=lf
+*.yaml text eol=lf
+*.yml text eol=lf
+*.toml text eol=lf
+*.xml text eol=lf
+*.lock text eol=lf
+
+# Documentation
+*.md text eol=lf
+*.txt text eol=lf
+*.rst text eol=lf
+
+# Web
+*.html text eol=lf
+*.htm text eol=lf
+*.css text eol=lf
+*.scss text eol=lf
+*.sass text eol=lf
+*.less text eol=lf
+*.svg text eol=lf
+
+# Shell scripts (Unix)
+*.sh text eol=lf
+
+# Git/CI configs
+.gitignore text eol=lf
+.gitattributes text eol=lf
+.editorconfig text eol=lf
+Dockerfile text eol=lf
+
+# ==============================================================================
+# WINDOWS-SPECIFIC - Keep CRLF for native Windows tools
+# ==============================================================================
+*.ps1 text eol=crlf
+*.psm1 text eol=crlf
+*.psd1 text eol=crlf
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# WiX installer source (Windows-specific)
+*.wxs text eol=crlf
+*.wxi text eol=crlf
+
+# ==============================================================================
+# BINARY FILES - Never touch these!
+# ==============================================================================
+
+# Images
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.icns binary
+*.bmp binary
+*.tiff binary
+*.webp binary
+
+# Fonts
+*.ttf binary
+*.otf binary
+*.woff binary
+*.woff2 binary
+*.eot binary
+
+# Audio/Video
+*.mp3 binary
+*.mp4 binary
+*.wav binary
+*.ogg binary
+*.webm binary
+*.avi binary
+
+# Archives
+*.zip binary
+*.tar binary
+*.gz binary
+*.7z binary
+*.rar binary
+
+# Executables and libraries
+*.exe binary
+*.dll binary
+*.so binary
+*.dylib binary
+*.lib binary
+*.a binary
+*.o binary
+
+# Rust/Cargo build artifacts (if accidentally committed)
+*.rlib binary
+*.rmeta binary
+
+# macOS specific
+*.app binary
+*.dmg binary
+
+# Other binary formats
+*.pdf binary
+*.pdb binary
+*.msi binary
+*.msix binary
+*.appx binary
+
+# AI/ML models
+*.bin binary
+*.onnx binary
+*.pt binary
+*.pth binary
+*.ggml binary
+*.gguf binary
+
+# Certificate files
+*.cer binary
+*.crt binary
+*.der binary
+*.p12 binary
+*.pfx binary
+*.pem text eol=lf
