@@ -18,12 +18,12 @@ Harness: use PowerShell with -NoProfile only: avoid profile interference.
 
 ```powershell
 # Step 1: Run this ONCE at the start of conversation (standalone command)
-& "C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\Tools\Launch-VsDevShell.ps1" -Arch amd64 -HostArch amd64 -SkipAutomaticLocation
+$vsPath = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -property installationPath; cmd /c "`"$vsPath\Common7\Tools\VsDevCmd.bat`" -arch=x64 && set" | Where-Object { $_ -match '^(.+?)=(.*)$' } | ForEach-Object { Set-Item "Env:$($Matches[1])" $Matches[2] }
 ```
 
 After running Get-Dev once, cargo/rustc commands work for the rest of the conversation without needing to re-run it.
 
-**Note**: Use `Launch-VsDevShell.ps1` (native PowerShell script) instead of `VsDevCmd.bat` (CMD batch file). The native PowerShell script properly modifies the current session's environment including PATH for cl.exe. We specifically use VS Community installation, not BuildTools.
+**Note**: Uses `vswhere.exe` to auto-detect any VS 2022 installation (Community, Professional, Enterprise, or BuildTools). The command imports VS environment variables into the current PowerShell session.
 
 **CRITICAL: Concurrent Cargo Processes & Tooling**.
 
@@ -182,27 +182,34 @@ See [`fork-merge-guide.md`](fork-merge-guide.md) for upstream tracking and the m
 
 ## Local Builds (Unsigned)
 
-For testing builds locally without code signing (faster than GitHub Actions):
+### Quick Build (recommended)
+
+```bash
+bun run build:unsigned
+```
+
+This is the fastest way to build locally. Produces unsigned MSI without auto-update functionality.
+
+**Prerequisites:** VS environment configured, `vulkan-1.dll` in `src-tauri/` (copy from `C:\Windows\System32\` if missing).
+
+**Output:** `src-tauri\target\release\bundle\msi\AivoRelay_x.x.x_x64_en-US.msi`
+
+### Full Build Script (first-time setup)
+
+If environment is not configured or you're unsure:
 
 ```powershell
-# Build release MSI (unsigned, no auto-update)
-.\build-local.ps1
-
-# Build debug MSI
-.\build-local.ps1 -Debug
-
-# Skip process/environment checks
-.\build-local.ps1 -SkipChecks
+.\build-local.ps1           # Release build with all checks
+.\build-local.ps1 -Debug    # Debug build
+.\build-local.ps1 -SkipChecks  # Skip process/environment checks
 ```
 
 **What it does:**
-1. Checks for running cargo/tauri processes (can interfere with build)
-2. Sets up Visual Studio environment using Launch-VsDevShell.ps1
-3. Verifies Vulkan SDK and copies vulkan-1.dll to src-tauri
+1. Checks for running cargo/tauri processes
+2. Sets up Visual Studio environment
+3. Copies `vulkan-1.dll` to src-tauri (if missing)
 4. Checks for required tools (bun, cargo)
-5. Installs dependencies (bun install)
-6. Builds unsigned MSI via `bun run build:unsigned`
+5. Runs `bun install`
+6. Runs `bun run build:unsigned`
 
-**Output:** `src-tauri\target\release\bundle\msi\AivoRelay_0.7.11_x64_en-US.msi`
-
-**Note:** This build will NOT have auto-update functionality (no code signing). It's equivalent to what GitHub Actions produces but without the signing step.
+**Note:** Unsigned builds do NOT have auto-update functionality.
