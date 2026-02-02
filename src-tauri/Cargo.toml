@@ -1,6 +1,6 @@
 [package]
 name = "aivorelay"
-version = "0.7.11"
+version = "0.7.12"
 description = "A sophisticated AI voice relay application"
 authors = ["Maxim Fomin", "MaxITService"]
 edition = "2021"
