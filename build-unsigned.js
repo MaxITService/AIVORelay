@@ -19,13 +19,10 @@ try {
     console.log('Note: This build will NOT have auto-update functionality.');
 
     // Use --no-sign flag to skip code signing
-    // Pass inline config to disable the updater plugin
+    // Disable updater artifacts for unsigned builds (updater will still init but won't function without signing)
     const overrideConfig = JSON.stringify({
         bundle: {
             createUpdaterArtifacts: false
-        },
-        plugins: {
-            updater: null
         }
     });
 

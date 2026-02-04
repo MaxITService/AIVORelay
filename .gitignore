@@ -30,7 +30,6 @@ dist-ssr
 recording_*
 .crush/
 WARP.MD
-src/bindings.ts
 ~
 
 # Bundled DLLs (copied during CI build)
