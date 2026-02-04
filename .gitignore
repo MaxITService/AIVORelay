@@ -33,5 +33,4 @@ WARP.MD
 ~
 
 # Bundled DLLs (copied during CI build)
-src-tauri/vulkan-1.dll
 plans/
