@@ -77,5 +77,10 @@
       }
     }
   },
-  "plugins": {}
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEM4NjVDMjVCMEY3REY4OTYKUldTVytIMFBXOEpseUk1NCtIM0ROTklHdS9MVUNyNVZTM3c5ZFoxdXRRdWE5cjVUaWRpbUhTUHoK",
+      "endpoints": []
+    }
+  }
 }

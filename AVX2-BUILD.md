@@ -1,6 +1,8 @@
-# AivoRelay AVX2 Build
+# AVX2 Optimized Build (no auto-update)
 
-This is the **AVX2-optimized version** of AivoRelay. It is **recommended for most modern computers** (2013+).
+This is the **AVX2-optimized** AivoRelay build.
+
+If the **standard build crashes on your PC (for example, when clicking buttons)**, try this AVX2 build.
 
 ## What is AVX2?
 
@@ -10,8 +12,8 @@ AVX2 (Advanced Vector Extensions 2) is a set of CPU instructions that significan
 
 | Your situation | Recommendation |
 |----------------|----------------|
-| Modern PC (Intel 4th gen+ / AMD Ryzen+) | **Use AVX2 version** (this one) |
-| Older PC (pre-2013) | Use the standard version |
+| PC with AVX2 support (most 2013+ CPUs) | **Use AVX2 version** (this one) |
+| Older PC (no AVX2 support) | Use the standard version |
 | Unsure | Try AVX2 first - it will crash on startup if unsupported |
 
 ## How to check AVX2 support
