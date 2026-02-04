@@ -163,6 +163,15 @@ When adding new features, please prefer adding them in new files instead of edit
 
 ## Guidelines for Agents
 
+### TypeScript Bindings (`src/bindings.ts`)
+
+**IMPORTANT:** The file `src/bindings.ts` is auto-generated but **must be tracked in git**. Do NOT add it to `.gitignore`.
+
+- Bindings are generated when the **debug app actually runs** (not at compile time)
+- CI only compiles, it never runs the app — so CI cannot generate bindings
+- The file must be in git so CI has it available during build
+- After modifying any `#[tauri::command]` in Rust, run `bun tauri dev` to regenerate, then commit the updated file
+
 ### When Modifying Fork Features
 
 1. Check [`code-notes.md`](code-notes.md) to understand which files are fork-specific
