@@ -1,7 +1,6 @@
 {
   "tray": {
     "settings": "Einstellungen...",
-    "checkUpdates": "Nach Updates suchen...",
     "copyLastTranscript": "Letzte Transkription kopieren",
     "quit": "Beenden",
     "cancel": "Abbrechen"
