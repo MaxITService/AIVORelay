@@ -2,6 +2,7 @@ import React, { useState, useEffect } from "react";
 import { getVersion } from "@tauri-apps/api/app";
 
 import ModelSelector from "../model-selector";
+import UpdateChecker from "../update-checker";
 import VramMeter from "./VramMeter";
 
 const Footer: React.FC = () => {
