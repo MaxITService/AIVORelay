@@ -1,9 +1,10 @@
 # AivoRelay
+[![Hits](https://hits.sh/github.com/MaxITService/AIVORelay.svg?style=flat)](https://hits.sh/github.com/MaxITService/AIVORelay/)
 
 ![large_logo](Promo/large_logo.jpg)
 AI Voice Relay
 
-![AivoRelay Main Window](Promo/Aivorelay%20main%20Window.png)
+![AivoRelay Main Window](Promo/Main_window.png)
 
 > 🎙️ AI-powered voice-to-text with smart integrations for Windows  
 > A fork of [cjpais/Handy](https://github.com/cjpais/Handy) with additional features
