@@ -269,12 +269,17 @@ fn query_active_gpu_vram() -> Result<ActiveGpuVramSnapshot, String> {
                 adapter_name
             };
 
+            // Prefer the adapter with the largest total VRAM to avoid
+            // startup mis-detection where the UI renderer uses a small iGPU budget.
+            // If totals are equal, fall back to process usage/budget.
             let should_replace = match best {
                 None => true,
                 Some(ref best_snapshot) => {
-                    used_bytes > best_snapshot.process_used_bytes
-                        || (used_bytes == best_snapshot.process_used_bytes
-                            && budget_bytes > best_snapshot.process_budget_bytes)
+                    total_vram_bytes > best_snapshot.total_vram_bytes
+                        || (total_vram_bytes == best_snapshot.total_vram_bytes
+                            && (used_bytes > best_snapshot.process_used_bytes
+                                || (used_bytes == best_snapshot.process_used_bytes
+                                    && budget_bytes > best_snapshot.process_budget_bytes)))
                 }
             };
 
