@@ -61,13 +61,14 @@ This repository is a **fork** of [cjpais/Handy](https://github.com/cjpais/Handy)
 
 ## Important: Branches:
 
-Currently there are follwing active branches:
+Currently there are ONLY follwing active branches:
 
 - `main` - main branch, contains latest stable release
 - `Microsoft-store` - branch for Microsoft Store version, contains latest development version, avx512 turned off, avx2 is in use.
 - `AVX2` - branch for AVX2 version, identical to main butavx512 turned off, avx2 is in use for older processors.
 - `cuda-integration` - branch for CUDA integration, identical to main but with CUDA integration. In development.
 
+IGNORE OTHER BRANCHES! IGNORE UPSTREAM BRANCHES! WHEN USER SAID "ALL BRANCHES" OR "ALL BRANCHES", THEN ONLY THESE BRANCHES: `main`, `Microsoft-store`, `AVX2`, `cuda-integration`.
 
 ### Git Workflow: Cherry-picking
 
