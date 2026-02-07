@@ -2,10 +2,11 @@ import React, { useState, useEffect } from "react";
 import { getVersion } from "@tauri-apps/api/app";
 
 import ModelSelector from "../model-selector";
-import UpdateChecker from "../update-checker";
+import VramMeter from "./VramMeter";
 
 const Footer: React.FC = () => {
   const [version, setVersion] = useState("");
+  const [vramRefreshNonce, setVramRefreshNonce] = useState(0);
 
   useEffect(() => {
     const fetchVersion = async () => {
@@ -25,7 +26,10 @@ const Footer: React.FC = () => {
     <div className="w-full bg-[#0f0f0f] border-t border-[#282828] pt-3">
       <div className="flex justify-between items-center text-xs px-4 pb-3 text-[#b8b8b8]">
         <div className="flex items-center gap-4">
-          <ModelSelector />
+          <ModelSelector
+            onInteraction={() => setVramRefreshNonce((prev) => prev + 1)}
+          />
+          <VramMeter refreshNonce={vramRefreshNonce} />
         </div>
 
         {/* Update Status */}
