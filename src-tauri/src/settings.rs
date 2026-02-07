@@ -1746,7 +1746,8 @@ impl AppSettings {
     }
 
     /// Get AI Replace API key for a provider.
-    /// On Windows, fetches from secure storage. Falls back to post-processing API key if not set.
+    /// Uses post-processing API key only when AI Replace provider is set to
+    /// "same as post-processing" (ai_replace_provider_id = None).
     pub fn ai_replace_api_key(&self, provider_id: &str) -> String {
         // On Windows, use secure key storage
         #[cfg(target_os = "windows")]
@@ -1757,15 +1758,11 @@ impl AppSettings {
                 return crate::secure_keys::get_post_process_api_key(provider_id);
             }
 
-            // Try AI Replace specific key first, then fall back to post-processing key
-            let ai_key = crate::secure_keys::get_ai_replace_api_key(provider_id);
-            if !ai_key.is_empty() {
-                return ai_key;
-            }
-            return crate::secure_keys::get_post_process_api_key(provider_id);
+            // When AI Replace has its own provider selected, use only AI Replace key.
+            return crate::secure_keys::get_ai_replace_api_key(provider_id);
         }
 
-        // On non-Windows, use JSON settings (original behavior)
+        // On non-Windows, use JSON settings
         #[cfg(not(target_os = "windows"))]
         {
             if self.ai_replace_provider_id.as_deref() != Some(provider_id) {
@@ -1778,14 +1775,8 @@ impl AppSettings {
 
             self.ai_replace_api_keys
                 .get(provider_id)
-                .filter(|k| !k.is_empty())
                 .cloned()
-                .unwrap_or_else(|| {
-                    self.post_process_api_keys
-                        .get(provider_id)
-                        .cloned()
-                        .unwrap_or_default()
-                })
+                .unwrap_or_default()
         }
     }
 
@@ -1862,20 +1853,31 @@ impl AppSettings {
             LlmFeature::VoiceCommand => {
                 let provider = self.active_voice_command_provider()?;
 
-                // On Windows, use secure key storage with fallback to post-processing key
+                // Use post-processing key only when voice command provider is set to
+                // "same as post-processing" (voice_command_provider_id = None).
                 #[cfg(target_os = "windows")]
-                let api_key = crate::secure_keys::get_voice_command_api_key(&provider.id)
-                    .unwrap_or_else(|| crate::secure_keys::get_post_process_api_key(&provider.id));
+                let api_key = if self.voice_command_provider_id.as_deref()
+                    != Some(provider.id.as_str())
+                {
+                    crate::secure_keys::get_post_process_api_key(&provider.id)
+                } else {
+                    crate::secure_keys::get_voice_command_api_key(&provider.id).unwrap_or_default()
+                };
 
-                // On non-Windows, use JSON settings with fallback
                 #[cfg(not(target_os = "windows"))]
-                let api_key = self
-                    .voice_command_api_keys
-                    .get(&provider.id)
-                    .cloned()
-                    .filter(|k| !k.is_empty())
-                    .or_else(|| self.post_process_api_keys.get(&provider.id).cloned())
-                    .unwrap_or_default();
+                let api_key = if self.voice_command_provider_id.as_deref()
+                    != Some(provider.id.as_str())
+                {
+                    self.post_process_api_keys
+                        .get(&provider.id)
+                        .cloned()
+                        .unwrap_or_default()
+                } else {
+                    self.voice_command_api_keys
+                        .get(&provider.id)
+                        .cloned()
+                        .unwrap_or_default()
+                };
 
                 // Use voice command model with fallback to post-processing model
                 let model = self

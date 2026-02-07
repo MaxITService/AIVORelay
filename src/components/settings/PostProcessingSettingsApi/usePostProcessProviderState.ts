@@ -113,11 +113,9 @@ export const usePostProcessProviderState = (): PostProcessProviderState => {
   const handleApiKeyChange = useCallback(
     (value: string) => {
       const trimmed = value.trim();
-      if (trimmed !== apiKey) {
-        void updatePostProcessApiKey(selectedProviderId, trimmed);
-      }
+      void updatePostProcessApiKey(selectedProviderId, trimmed);
     },
-    [apiKey, selectedProviderId, updatePostProcessApiKey],
+    [selectedProviderId, updatePostProcessApiKey],
   );
 
   const handleModelChange = useCallback(

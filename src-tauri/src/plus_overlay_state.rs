@@ -98,8 +98,11 @@ pub fn categorize_error(err_string: &str) -> OverlayErrorCategory {
     }
 }
 
-/// Show the error overlay state with category and auto-hide after 3 seconds
-pub fn show_error_overlay(app: &AppHandle, category: OverlayErrorCategory) {
+fn show_error_overlay_internal(
+    app: &AppHandle,
+    category: OverlayErrorCategory,
+    error_message: Option<String>,
+) {
     let settings = crate::settings::get_settings(app);
     if settings.overlay_position == crate::settings::OverlayPosition::None {
         // Still need to reset tray icon even if overlay is disabled
@@ -116,11 +119,12 @@ pub fn show_error_overlay(app: &AppHandle, category: OverlayErrorCategory) {
         #[cfg(target_os = "windows")]
         overlay::force_overlay_topmost(&overlay_window);
 
-        let display_text = category.display_text().to_string();
+        let resolved_error_message =
+            error_message.unwrap_or_else(|| category.display_text().to_string());
         let payload = OverlayPayload {
             state: "error".to_string(),
             error_category: Some(category),
-            error_message: Some(display_text),
+            error_message: Some(resolved_error_message),
         };
         let _ = overlay_window.emit("show-overlay", payload);
 
@@ -144,6 +148,21 @@ pub fn show_error_overlay(app: &AppHandle, category: OverlayErrorCategory) {
         // If no overlay window, just reset tray icon
         change_tray_icon(app, TrayIconState::Idle);
     }
+}
+
+/// Show the error overlay state with category and auto-hide after 3 seconds.
+/// Uses the category display text as overlay message.
+pub fn show_error_overlay(app: &AppHandle, category: OverlayErrorCategory) {
+    show_error_overlay_internal(app, category, None);
+}
+
+/// Show the error overlay with a specific message and auto-hide after 3 seconds.
+pub fn show_error_overlay_with_message(
+    app: &AppHandle,
+    category: OverlayErrorCategory,
+    message: impl Into<String>,
+) {
+    show_error_overlay_internal(app, category, Some(message.into()));
 }
 
 /// Main hook function: handle transcription errors with categorized overlay

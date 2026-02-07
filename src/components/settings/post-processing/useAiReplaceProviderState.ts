@@ -75,14 +75,15 @@ export const useAiReplaceProviderState = (): AiReplaceProviderState => {
   const isAppleProvider = selectedProvider?.id === APPLE_PROVIDER_ID;
   const isCustomProvider = selectedProvider?.id === "custom";
 
-  // Use AI Replace-specific settings, falling back to post-processing
+  // Use post-processing key only when "Same as Post-Processing" is selected.
   const baseUrl = selectedProvider?.base_url ?? "";
   const apiKey = useMemo(() => {
-    const aiReplaceKey =
-      settings?.ai_replace_api_keys?.[effectiveProviderId] ?? "";
-    if (aiReplaceKey) return aiReplaceKey;
-    return settings?.post_process_api_keys?.[effectiveProviderId] ?? "";
+    if (useSameAsPostProcess) {
+      return settings?.post_process_api_keys?.[effectiveProviderId] ?? "";
+    }
+    return settings?.ai_replace_api_keys?.[effectiveProviderId] ?? "";
   }, [
+    useSameAsPostProcess,
     settings?.ai_replace_api_keys,
     settings?.post_process_api_keys,
     effectiveProviderId,

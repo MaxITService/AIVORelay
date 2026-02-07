@@ -33,6 +33,7 @@ const PostProcessingSettingsApiComponent: React.FC = () => {
         title={t("settings.postProcessing.api.transcription.title")}
         description={t("settings.postProcessing.api.transcription.description")}
         state={postProcessState}
+        apiKeyFeature="post_processing"
         reasoningSettingPrefix="post_process"
       />
     </div>

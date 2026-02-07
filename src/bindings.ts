@@ -1125,6 +1125,18 @@ async remoteSttSupportsTranslation() : Promise<boolean> {
 async checkAppleIntelligenceAvailable() : Promise<boolean> {
     return await TAURI_INVOKE("check_apple_intelligence_available");
 },
+/**
+ * Returns whether a feature-specific LLM API key is stored in secure storage.
+ * On non-Windows platforms this always returns false.
+ */
+async llmHasStoredApiKey(feature: LlmFeature, providerId: string) : Promise<Result<boolean, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("llm_has_stored_api_key", { feature, providerId }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async getAvailableModels() : Promise<Result<ModelInfo[], string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("get_available_models") };

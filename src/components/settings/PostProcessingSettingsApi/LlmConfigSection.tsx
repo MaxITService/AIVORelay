@@ -22,6 +22,7 @@ interface LlmConfigSectionProps {
   title: string;
   description: string;
   state: any; // Can be from usePostProcessProviderState or useAiReplaceProviderState
+  apiKeyFeature: "post_processing" | "ai_replace" | "voice_command";
   showBaseUrl?: boolean;
   /** Setting prefix for Extended Thinking: "post_process" or "ai_replace" */
   reasoningSettingPrefix?: "post_process" | "ai_replace";
@@ -35,6 +36,7 @@ export const LlmConfigSection: React.FC<LlmConfigSectionProps> = ({
   title,
   description,
   state,
+  apiKeyFeature,
   showBaseUrl = true,
   reasoningSettingPrefix,
   sameAsNoticeKey,
@@ -150,6 +152,14 @@ export const LlmConfigSection: React.FC<LlmConfigSectionProps> = ({
                     )}
                     disabled={state.isApiKeyUpdating}
                     className="min-w-[320px]"
+                    secureStorage={
+                      state.selectedProvider?.id
+                        ? {
+                            feature: apiKeyFeature,
+                            providerId: state.selectedProvider.id,
+                          }
+                        : undefined
+                    }
                   />
                 </div>
               </SettingContainer>
