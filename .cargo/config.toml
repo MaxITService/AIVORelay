@@ -1,1 +1,6 @@
 [build]
+
+[env]
+# Force non-native CPU tuning so whisper-rs-sys does not auto-pick AVX512
+# on the build machine. On x64 this resolves to AVX2 defaults in ggml.
+WHISPER_NATIVE = "OFF"
