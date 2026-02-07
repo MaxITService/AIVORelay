@@ -21,7 +21,7 @@ Harness: use PowerShell with -NoProfile only: avoid profile interference.
 $vsPath = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -property installationPath; cmd /c "`"$vsPath\Common7\Tools\VsDevCmd.bat`" -arch=x64 && set" | Where-Object { $_ -match '^(.+?)=(.*)$' } | ForEach-Object { Set-Item "Env:$($Matches[1])" $Matches[2] }
 ```
 
-After running Get-Dev once, cargo/rustc commands work for the rest of the conversation without needing to re-run it.
+After running this once, cargo/rustc commands work for the rest of the conversation without needing to re-run it.
 
 **Note**: Uses `vswhere.exe` to auto-detect any VS 2022 installation (Community, Professional, Enterprise, or BuildTools). The command imports VS environment variables into the current PowerShell session.
 
@@ -58,6 +58,34 @@ This repository is a **fork** of [cjpais/Handy](https://github.com/cjpais/Handy)
 
 - **Upstream**: https://github.com/cjpais/Handy (original project)
 - **This fork**: AivoRelay — Adds Windows-specific features and external service integrations
+
+## Important: Branches:
+
+Currently there are follwing active branches:
+
+- `main` - main branch, contains latest stable release
+- `Microsoft-store` - branch for Microsoft Store version, contains latest development version, avx512 turned off, avx2 is in use.
+- `AVX2` - branch for AVX2 version, identical to main butavx512 turned off, avx2 is in use for older processors.
+- `cuda-integration` - branch for CUDA integration, identical to main but with CUDA integration. In development.
+
+
+### Git Workflow: Cherry-picking
+
+When asked to "cherry-pick commit to all branches", this refers to these specific target branches:
+- `main`
+- `Microsoft-store`
+- `AVX2`
+- `cuda-integration`
+
+**Execution steps for Agent:**
+1. Record the current branch and ensure the git status is clean.
+2. For each target branch:
+   - Switch to the branch.
+   - Verify if the commit hash already exists in that branch's history (skip if it does).
+   - Run `git cherry-pick -x <hash>`.
+   - If conflicts occur, **stop and report immediately** (listing the branch and conflicting files).
+3. Return to the **original starting branch** at the end.
+4. Provide a concise status report: `branch -> status (success/skipped/conflict)` and the latest commit info for each target branch.
 
 ## Fork Documentation
 
