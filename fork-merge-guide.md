@@ -17,6 +17,8 @@ git log HEAD..upstream/main --oneline
 
 ## 🔀 Merge Guide (Upstream Sync)
 
+We will cherry-pick commits from upstream to our branches. ONE BY ONE. Ask user for guidance if needed. Ask user if next commit is good to cherry-pick, then do it, resolve conflicts, report back to user.
+Do not cherry-pick commits that are not for Windows! 
 When merging upstream changes, these files will likely have conflicts. Here's how to resolve them:
 
 ### High-Conflict Files (Modified by Fork)
@@ -27,7 +29,7 @@ When merging upstream changes, these files will likely have conflicts. Here's ho
 - `RemoteSttSettings` struct (base_url, model_id, debug_mode, debug_capture)
 - Fields in `AppSettings`: `transcription_provider`, `remote_stt`, `ai_replace_*`, `connector_*`, `screenshot_*`
 
-**Merge strategy:** Keep all our additions. Accept upstream changes to other fields. If upstream adds new settings, add them alongside ours.
+**Merge strategy:** Keep all our additions. Accept upstream changes to other fields. If upstream adds new settings, add them alongside ours. Think of best soltion, ask user if there is only one thing that we can keep. Below are just recommendations:
 
 #### `src-tauri/src/actions.rs`
 **Our additions (MUST KEEP):**
@@ -42,7 +44,7 @@ When merging upstream changes, these files will likely have conflicts. Here's ho
 - `find_recent_image()`, `watch_for_new_image()` functions
 - Entries in `ACTION_MAP` for: `ai_replace_selection`, `send_to_extension`, `send_to_extension_with_selection`, `send_screenshot_to_extension`
 
-**Merge strategy:** Keep all our actions intact. If upstream changes `TranscribeAction`, review changes but preserve our modifications to it (remote STT support). Accept upstream additions to `ACTION_MAP`.
+**Merge strategy:** Keep all our actions intact. If upstream changes `TranscribeAction`, review changes but preserve our modifications to it (remote STT support). Accept upstream additions to `ACTION_MAP`. 
 
 #### `src-tauri/src/lib.rs`
 **Our additions (MUST KEEP):**
@@ -94,11 +96,5 @@ These files are 100% ours — upstream won't have them:
 
 ### After Merge Checklist
 
-1. [ ] Run `bun run tauri dev` — check bindings regenerate
-2. [ ] Test Remote STT connection
-3. [ ] Test AI Replace with selection
-4. [ ] Test Send to Extension (both modes)
-5. [ ] Test Send Screenshot to Extension
-6. [ ] Verify settings UI loads without errors
-7. [ ] Check all fork settings persist after restart
-
+1.  Add latest upstream commit SHA and  message here in this file, so we know where we are diverged from upstream.
+   
