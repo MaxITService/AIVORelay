@@ -12,9 +12,9 @@
 Windows 11; PowerShell (pwsh) host.
 Harness: use PowerShell with -NoProfile only: avoid profile interference.
 
-**CRITICAL: Environment Setup**. This project requires Visual Studio 2022 build tools which are NOT in the path by default.
+**CRITICAL: Environment Setup if build is needed**. This project requires Visual Studio 2022 build tools which are NOT in the path by default.
 
-**Run Get-Dev ONCE per conversation** (not with every command). Run it as a standalone command first, then run cargo commands separately:
+**IF ASKED TO RUN: Run Get-Dev ONCE per conversation** (not with every command). Run it as a standalone command first, then run cargo commands separately:
 
 ```powershell
 # Step 1: Run this ONCE at the start of conversation (standalone command)
