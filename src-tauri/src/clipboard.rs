@@ -14,22 +14,73 @@ use std::process::Command;
 #[cfg(target_os = "windows")]
 mod win_clipboard {
     use log::{debug, warn};
+    use std::mem::size_of;
     use std::ptr;
+    use windows::core::{Free, PCWSTR};
     use windows::Win32::Foundation::{HANDLE, HGLOBAL};
+    use windows::Win32::Graphics::Gdi::{CopyEnhMetaFileW, CopyMetaFileW, HBITMAP, HENHMETAFILE, HMETAFILE};
     use windows::Win32::System::DataExchange::{
-        CloseClipboard, EmptyClipboard, EnumClipboardFormats, GetClipboardData, OpenClipboard,
-        SetClipboardData,
+        CloseClipboard, EmptyClipboard, EnumClipboardFormats, GetClipboardData, OpenClipboard, SetClipboardData,
+        METAFILEPICT,
     };
     use windows::Win32::System::Memory::{GlobalAlloc, GlobalLock, GlobalSize, GlobalUnlock, GHND};
+    use windows::Win32::UI::WindowsAndMessaging::{CopyImage, IMAGE_BITMAP, IMAGE_FLAGS};
 
-    /// Represents a single clipboard format and its data
-    pub struct ClipboardEntry {
-        pub format: u32,
-        pub data: Vec<u8>,
+    // Standard clipboard format IDs (Win32 API constants).
+    const CF_BITMAP_ID: u32 = 2;
+    const CF_METAFILEPICT_ID: u32 = 3;
+    const CF_PALETTE_ID: u32 = 9;
+    const CF_ENHMETAFILE_ID: u32 = 14;
+    const CF_OWNERDISPLAY_ID: u32 = 0x0080;
+    const CF_DSPBITMAP_ID: u32 = 0x0082;
+    const CF_DSPMETAFILEPICT_ID: u32 = 0x0083;
+    const CF_DSPENHMETAFILE_ID: u32 = 0x008E;
+
+    /// A typed snapshot of supported clipboard formats.
+    /// We only store handle types we can safely duplicate and restore.
+    pub struct ClipboardBackup {
+        entries: Vec<ClipboardEntry>,
+    }
+
+    impl ClipboardBackup {
+        pub fn len(&self) -> usize {
+            self.entries.len()
+        }
+    }
+
+    pub struct RestoreStats {
+        pub restored_formats: usize,
+        pub failed_formats: usize,
+    }
+
+    struct ClipboardEntry {
+        format: u32,
+        payload: ClipboardPayload,
+    }
+
+    enum ClipboardPayload {
+        GlobalMemory(Vec<u8>),
+        Bitmap(HBITMAP),
+        EnhancedMetafile(HENHMETAFILE),
+        MetafilePict {
+            mm: i32,
+            x_ext: i32,
+            y_ext: i32,
+            metafile: HMETAFILE,
+        },
+    }
+
+    #[derive(Clone, Copy)]
+    enum ClipboardFormatKind {
+        GlobalMemory,
+        Bitmap,
+        EnhancedMetafile,
+        MetafilePict,
+        Unsupported,
     }
 
     /// Backup all clipboard formats
-    pub fn backup_all_formats() -> Result<Vec<ClipboardEntry>, String> {
+    pub fn backup_all_formats() -> Result<ClipboardBackup, String> {
         let mut entries = Vec::new();
 
         unsafe {
@@ -38,37 +89,80 @@ mod win_clipboard {
                 return Err("Failed to open clipboard for backup".into());
             }
 
-            // Enumerate all formats
-            let mut format = EnumClipboardFormats(0);
-            while format != 0 {
-                if let Some(entry) = read_format(format) {
-                    debug!(
-                        "Backed up clipboard format {}: {} bytes",
-                        format,
-                        entry.data.len()
-                    );
-                    entries.push(entry);
+            let result = (|| -> Result<ClipboardBackup, String> {
+                // Enumerate all formats.
+                let mut format = EnumClipboardFormats(0);
+                while format != 0 {
+                    match read_format(format) {
+                        Ok(Some(entry)) => {
+                            debug!("Backed up clipboard format {}", format);
+                            entries.push(entry);
+                        }
+                        Ok(None) => {
+                            debug!(
+                                "Skipped clipboard format {} (unsupported or not safely copyable)",
+                                format
+                            );
+                        }
+                        Err(e) => {
+                            warn!("Failed to back up clipboard format {}: {}", format, e);
+                        }
+                    }
+                    format = EnumClipboardFormats(format);
                 }
-                format = EnumClipboardFormats(format);
-            }
+
+                debug!("Backed up {} clipboard formats", entries.len());
+                Ok(ClipboardBackup { entries })
+            })();
 
             let _ = CloseClipboard();
+            result
         }
-
-        debug!("Backed up {} clipboard formats", entries.len());
-        Ok(entries)
     }
 
-    /// Read data for a specific clipboard format
-    unsafe fn read_format(format: u32) -> Option<ClipboardEntry> {
-        let handle = GetClipboardData(format).ok()?;
+    /// Read data for a specific clipboard format using safe, typed duplication.
+    /// Never assume every clipboard handle is HGLOBAL.
+    unsafe fn read_format(format: u32) -> Result<Option<ClipboardEntry>, String> {
+        let handle =
+            GetClipboardData(format).map_err(|e| format!("GetClipboardData failed: {}", e))?;
         if handle.0.is_null() {
-            return None;
+            return Ok(None);
         }
 
-        // Convert HANDLE to HGLOBAL for memory operations
-        let hglobal = HGLOBAL(handle.0);
+        let payload = match format_kind(format) {
+            ClipboardFormatKind::GlobalMemory => match copy_global_memory_bytes(handle) {
+                Some(data) => ClipboardPayload::GlobalMemory(data),
+                None => return Ok(None),
+            },
+            ClipboardFormatKind::Bitmap => {
+                let copied = copy_bitmap_handle(handle)?;
+                ClipboardPayload::Bitmap(copied)
+            }
+            ClipboardFormatKind::EnhancedMetafile => {
+                let copied = copy_enh_metafile_handle(handle)?;
+                ClipboardPayload::EnhancedMetafile(copied)
+            }
+            ClipboardFormatKind::MetafilePict => copy_metafile_pict_payload(handle)?,
+            ClipboardFormatKind::Unsupported => return Ok(None),
+        };
 
+        Ok(Some(ClipboardEntry { format, payload }))
+    }
+
+    fn format_kind(format: u32) -> ClipboardFormatKind {
+        match format {
+            CF_BITMAP_ID | CF_DSPBITMAP_ID => ClipboardFormatKind::Bitmap,
+            CF_ENHMETAFILE_ID | CF_DSPENHMETAFILE_ID => ClipboardFormatKind::EnhancedMetafile,
+            CF_METAFILEPICT_ID | CF_DSPMETAFILEPICT_ID => ClipboardFormatKind::MetafilePict,
+            // Owner-display and palette require owner-specific or palette-specific handling.
+            CF_OWNERDISPLAY_ID | CF_PALETTE_ID => ClipboardFormatKind::Unsupported,
+            // Remaining formats are treated as HGLOBAL-backed data (text, DIB, HTML/RTF, HDROP, etc.).
+            _ => ClipboardFormatKind::GlobalMemory,
+        }
+    }
+
+    unsafe fn copy_global_memory_bytes(handle: HANDLE) -> Option<Vec<u8>> {
+        let hglobal = HGLOBAL(handle.0);
         let size = GlobalSize(hglobal);
         if size == 0 {
             return None;
@@ -81,71 +175,217 @@ mod win_clipboard {
 
         let data = std::slice::from_raw_parts(ptr as *const u8, size).to_vec();
         let _ = GlobalUnlock(hglobal);
+        Some(data)
+    }
 
-        Some(ClipboardEntry { format, data })
+    unsafe fn copy_bitmap_handle(handle: HANDLE) -> Result<HBITMAP, String> {
+        let copied = CopyImage(handle, IMAGE_BITMAP, 0, 0, IMAGE_FLAGS(0))
+            .map_err(|e| format!("CopyImage(IMAGE_BITMAP) failed: {}", e))?;
+        let bitmap = HBITMAP(copied.0);
+        if bitmap.is_invalid() {
+            return Err("CopyImage returned invalid bitmap handle".into());
+        }
+        Ok(bitmap)
+    }
+
+    unsafe fn copy_enh_metafile_handle(handle: HANDLE) -> Result<HENHMETAFILE, String> {
+        let copied = CopyEnhMetaFileW(HENHMETAFILE(handle.0), PCWSTR::null());
+        if copied.is_invalid() {
+            return Err("CopyEnhMetaFileW failed".into());
+        }
+        Ok(copied)
+    }
+
+    unsafe fn copy_metafile_pict_payload(handle: HANDLE) -> Result<ClipboardPayload, String> {
+        let hglobal = HGLOBAL(handle.0);
+        let raw_ptr = GlobalLock(hglobal) as *const METAFILEPICT;
+        if raw_ptr.is_null() {
+            return Err("GlobalLock failed for CF_METAFILEPICT".into());
+        }
+
+        let pict = *raw_ptr;
+        let _ = GlobalUnlock(hglobal);
+
+        if pict.hMF.is_invalid() {
+            return Err("CF_METAFILEPICT contained invalid HMETAFILE".into());
+        }
+
+        let copied_mf = CopyMetaFileW(pict.hMF, PCWSTR::null());
+        if copied_mf.is_invalid() {
+            return Err("CopyMetaFileW failed for CF_METAFILEPICT".into());
+        }
+
+        Ok(ClipboardPayload::MetafilePict {
+            mm: pict.mm,
+            x_ext: pict.xExt,
+            y_ext: pict.yExt,
+            metafile: copied_mf,
+        })
     }
 
     /// Restore all backed-up clipboard formats
-    pub fn restore_all_formats(entries: Vec<ClipboardEntry>) -> Result<(), String> {
-        if entries.is_empty() {
+    pub fn restore_all_formats(backup: ClipboardBackup) -> Result<RestoreStats, String> {
+        if backup.entries.is_empty() {
             debug!("No clipboard entries to restore");
-            return Ok(());
+            return Ok(RestoreStats {
+                restored_formats: 0,
+                failed_formats: 0,
+            });
         }
+
+        let entries = backup.entries;
 
         unsafe {
             // Open clipboard (None = current task)
             if OpenClipboard(None).is_err() {
+                cleanup_entries(entries);
                 return Err("Failed to open clipboard for restore".into());
             }
 
             // Clear existing content
             if EmptyClipboard().is_err() {
+                cleanup_entries(entries);
                 let _ = CloseClipboard();
                 return Err("Failed to empty clipboard".into());
             }
 
+            let mut restored_formats = 0usize;
+            let mut failed_formats = 0usize;
+
             // Restore each format
             for entry in entries {
-                if let Err(e) = write_format(entry.format, &entry.data) {
-                    warn!("Failed to restore clipboard format {}: {}", entry.format, e);
-                    // Continue with other formats
+                let format = entry.format;
+                if let Err(e) = write_entry(entry) {
+                    failed_formats += 1;
+                    warn!("Failed to restore clipboard format {}: {}", format, e);
                 } else {
-                    debug!(
-                        "Restored clipboard format {}: {} bytes",
-                        entry.format,
-                        entry.data.len()
-                    );
+                    restored_formats += 1;
+                    debug!("Restored clipboard format {}", format);
                 }
             }
 
             let _ = CloseClipboard();
-        }
 
-        Ok(())
+            Ok(RestoreStats {
+                restored_formats,
+                failed_formats,
+            })
+        }
     }
 
-    /// Write data for a specific clipboard format
-    unsafe fn write_format(format: u32, data: &[u8]) -> Result<(), String> {
-        // Allocate global memory
+    unsafe fn write_entry(entry: ClipboardEntry) -> Result<(), String> {
+        match entry.payload {
+            ClipboardPayload::GlobalMemory(data) => write_global_memory(entry.format, &data),
+            ClipboardPayload::Bitmap(bitmap) => write_bitmap(entry.format, bitmap),
+            ClipboardPayload::EnhancedMetafile(meta) => write_enh_metafile(entry.format, meta),
+            ClipboardPayload::MetafilePict {
+                mm,
+                x_ext,
+                y_ext,
+                metafile,
+            } => write_metafile_pict(entry.format, mm, x_ext, y_ext, metafile),
+        }
+    }
+
+    unsafe fn write_global_memory(format: u32, data: &[u8]) -> Result<(), String> {
         let hmem =
             GlobalAlloc(GHND, data.len()).map_err(|e| format!("GlobalAlloc failed: {}", e))?;
 
         let ptr = GlobalLock(hmem);
         if ptr.is_null() {
+            let mut h = hmem;
+            h.free();
             return Err("GlobalLock failed".into());
         }
 
-        // Copy data
         ptr::copy_nonoverlapping(data.as_ptr(), ptr as *mut u8, data.len());
         let _ = GlobalUnlock(hmem);
 
-        // Set clipboard data (clipboard takes ownership of memory)
-        // Convert HGLOBAL to HANDLE for SetClipboardData
         let handle = HANDLE(hmem.0);
-        SetClipboardData(format, Some(handle))
-            .map_err(|e| format!("SetClipboardData failed: {}", e))?;
+        if let Err(e) = SetClipboardData(format, Some(handle)) {
+            let mut h = hmem;
+            h.free();
+            return Err(format!("SetClipboardData failed: {}", e));
+        }
 
         Ok(())
+    }
+
+    unsafe fn write_bitmap(format: u32, bitmap: HBITMAP) -> Result<(), String> {
+        let handle = HANDLE(bitmap.0);
+        if let Err(e) = SetClipboardData(format, Some(handle)) {
+            let mut bitmap = bitmap;
+            bitmap.free();
+            return Err(format!("SetClipboardData failed for bitmap: {}", e));
+        }
+        Ok(())
+    }
+
+    unsafe fn write_enh_metafile(format: u32, metafile: HENHMETAFILE) -> Result<(), String> {
+        let handle = HANDLE(metafile.0);
+        if let Err(e) = SetClipboardData(format, Some(handle)) {
+            let mut metafile = metafile;
+            metafile.free();
+            return Err(format!("SetClipboardData failed for enhanced metafile: {}", e));
+        }
+        Ok(())
+    }
+
+    unsafe fn write_metafile_pict(
+        format: u32,
+        mm: i32,
+        x_ext: i32,
+        y_ext: i32,
+        metafile: HMETAFILE,
+    ) -> Result<(), String> {
+        let hmem = GlobalAlloc(GHND, size_of::<METAFILEPICT>())
+            .map_err(|e| format!("GlobalAlloc failed for CF_METAFILEPICT: {}", e))?;
+
+        let ptr = GlobalLock(hmem);
+        if ptr.is_null() {
+            let mut h = hmem;
+            h.free();
+            let mut metafile = metafile;
+            metafile.free();
+            return Err("GlobalLock failed".into());
+        }
+
+        let payload_ptr = ptr as *mut METAFILEPICT;
+        *payload_ptr = METAFILEPICT {
+            mm,
+            xExt: x_ext,
+            yExt: y_ext,
+            hMF: metafile,
+        };
+        let _ = GlobalUnlock(hmem);
+
+        let handle = HANDLE(hmem.0);
+        if let Err(e) = SetClipboardData(format, Some(handle)) {
+            let mut h = hmem;
+            h.free();
+            let mut metafile = metafile;
+            metafile.free();
+            return Err(format!("SetClipboardData failed for CF_METAFILEPICT: {}", e));
+        }
+
+        Ok(())
+    }
+
+    fn cleanup_entries(entries: Vec<ClipboardEntry>) {
+        for entry in entries {
+            cleanup_entry(entry);
+        }
+    }
+
+    fn cleanup_entry(entry: ClipboardEntry) {
+        unsafe {
+            match entry.payload {
+                ClipboardPayload::GlobalMemory(_) => {}
+                ClipboardPayload::Bitmap(mut bitmap) => bitmap.free(),
+                ClipboardPayload::EnhancedMetafile(mut metafile) => metafile.free(),
+                ClipboardPayload::MetafilePict { mut metafile, .. } => metafile.free(),
+            }
+        }
     }
 }
 
@@ -180,8 +420,13 @@ fn paste_via_clipboard(
         None
     };
 
-    // Text-only backup for non-advanced modes
-    let text_backup = if clipboard_handling == ClipboardHandling::DontModify {
+    // Capture text backup for:
+    // - DontModify mode (existing behavior)
+    // - RestoreAdvanced fallback when rich-format restore is partial/failed
+    let text_backup = if matches!(
+        clipboard_handling,
+        ClipboardHandling::DontModify | ClipboardHandling::RestoreAdvanced
+    ) {
         clipboard.read_text().unwrap_or_default()
     } else {
         String::new()
@@ -226,15 +471,39 @@ fn paste_via_clipboard(
 
     // Restore clipboard based on handling mode
     #[cfg(target_os = "windows")]
-    if let Some(entries) = advanced_backup {
-        if let Err(e) = win_clipboard::restore_all_formats(entries) {
-            warn!(
-                "Advanced clipboard restore failed: {}. Clipboard may contain transcription.",
-                e
-            );
-        } else {
-            info!("Advanced clipboard restore completed successfully");
+    if let Some(backup) = advanced_backup {
+        let mut needs_text_fallback = true;
+
+        match win_clipboard::restore_all_formats(backup) {
+            Ok(stats) if stats.failed_formats == 0 && stats.restored_formats > 0 => {
+                info!(
+                    "Advanced clipboard restore completed successfully ({} formats)",
+                    stats.restored_formats
+                );
+                needs_text_fallback = false;
+            }
+            Ok(stats) => {
+                warn!(
+                    "Advanced clipboard restore incomplete: restored={}, failed={}. Falling back to text restore.",
+                    stats.restored_formats, stats.failed_formats
+                );
+            }
+            Err(e) => {
+                warn!(
+                    "Advanced clipboard restore failed: {}. Falling back to text restore.",
+                    e
+                );
+            }
         }
+
+        if needs_text_fallback {
+            if let Err(e) = clipboard.write_text(&text_backup) {
+                warn!("Fallback text clipboard restore failed: {}", e);
+            } else {
+                info!("Fallback text clipboard restore completed");
+            }
+        }
+
         return Ok(());
     }
 
