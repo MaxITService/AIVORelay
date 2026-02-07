@@ -218,6 +218,24 @@ When adding new features, please prefer adding them in new files instead of edit
 
 See [`fork-merge-guide.md`](fork-merge-guide.md) for upstream tracking and the merge/conflict-resolution checklist.
 
+## Version Bump Checklist
+
+When releasing a new version, update these files:
+
+| File | Line | Format | Notes |
+|------|------|--------|-------|
+| `package.json` | 4 | `"version": "x.y.z"` | Manual |
+| `src-tauri/tauri.conf.json` | 4 | `"version": "x.y.z"` | Manual |
+| `src-tauri/Cargo.toml` | 3 | `version = "x.y.z"` | Manual |
+| `src-tauri/Cargo.lock` | — | Auto | Regenerates on `cargo build/check` |
+
+**Release steps:**
+1. Update 3 files above
+2. Run `cargo check --manifest-path src-tauri/Cargo.toml` to update Cargo.lock
+3. Commit: `git commit -am "chore: bump version to x.y.z"`
+4. Tag: `git tag vx.y.z`
+5. Push: `git push origin main && git push origin vx.y.z`
+
 ## Local Builds (Unsigned)
 
 ### Quick Build (recommended)
