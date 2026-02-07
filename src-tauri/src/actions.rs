@@ -376,6 +376,16 @@ fn emit_ai_replace_error(app: &AppHandle, message: impl Into<String>) {
     let _ = app.emit("ai-replace-error", message.into());
 }
 
+fn show_ai_replace_error_overlay(app: &AppHandle, message: impl Into<String>) {
+    let message = message.into();
+    emit_ai_replace_error(app, message.clone());
+    crate::plus_overlay_state::show_error_overlay_with_message(
+        app,
+        crate::plus_overlay_state::OverlayErrorCategory::Unknown,
+        message,
+    );
+}
+
 // ============================================================================
 // Shared Recording Helpers - Reduces duplication across action implementations
 // ============================================================================
@@ -1020,6 +1030,12 @@ async fn ai_replace_with_llm(
     );
 
     let api_key = settings.ai_replace_api_key(&provider.id);
+    if api_key.trim().is_empty() {
+        return Err(format!(
+            "No API key configured for provider '{}'",
+            provider.label
+        ));
+    }
 
     // Build reasoning config from settings
     let reasoning_config = crate::llm_client::ReasoningConfig::new(
@@ -1039,6 +1055,9 @@ async fn ai_replace_with_llm(
     .await
     {
         Ok(Some(content)) => {
+            if content.trim().is_empty() {
+                return Err("LLM API response is empty".to_string());
+            }
             debug!("AI replace LLM response length: {} chars", content.len());
             Ok(content)
         }
@@ -1771,9 +1790,7 @@ impl ShortcutAction for AiReplaceSelectionAction {
 
             if transcription.trim().is_empty() {
                 if !settings.ai_replace_allow_quick_tap {
-                    emit_ai_replace_error(&ah, "No instruction captured.");
-                    utils::hide_recording_overlay(&ah);
-                    change_tray_icon(&ah, TrayIconState::Idle);
+                    show_ai_replace_error_overlay(&ah, "No instruction captured.");
                     session_manager::exit_processing(&ah);
                     return;
                 }
@@ -1789,9 +1806,7 @@ impl ShortcutAction for AiReplaceSelectionAction {
             });
 
             if selected_text == "ERROR_NO_SELECTION" {
-                emit_ai_replace_error(&ah, "Could not capture selection.");
-                utils::hide_recording_overlay(&ah);
-                change_tray_icon(&ah, TrayIconState::Idle);
+                show_ai_replace_error_overlay(&ah, "Could not capture selection.");
                 session_manager::exit_processing(&ah);
                 return;
             }
@@ -1838,14 +1853,32 @@ impl ShortcutAction for AiReplaceSelectionAction {
                     });
 
                     let ah_clone = ah.clone();
+                    let restore_text = selected_text.clone();
                     ah.run_on_main_thread(move || {
-                        let _ = utils::paste(output, ah_clone.clone());
+                        if let Err(e) = utils::paste(output, ah_clone.clone()) {
+                            error!("Failed to paste AI Replace output: {}", e);
+                            if !restore_text.is_empty() {
+                                if let Err(restore_err) =
+                                    utils::paste(restore_text.clone(), ah_clone.clone())
+                                {
+                                    error!(
+                                        "Failed to restore original selection after paste error: {}",
+                                        restore_err
+                                    );
+                                }
+                            }
+                            show_ai_replace_error_overlay(
+                                &ah_clone,
+                                "AI replace failed while applying result.",
+                            );
+                            return;
+                        }
                         utils::hide_recording_overlay(&ah_clone);
                         change_tray_icon(&ah_clone, TrayIconState::Idle);
                     })
                     .ok();
                 }
-                Err(_) => {
+                Err(err_message) => {
                     // Check if cancelled - if so, skip error reporting
                     if llm_tracker.is_cancelled(operation_id) {
                         debug!(
@@ -1870,9 +1903,18 @@ impl ShortcutAction for AiReplaceSelectionAction {
                         }
                     });
 
-                    emit_ai_replace_error(&ah, "AI replace failed.");
-                    utils::hide_recording_overlay(&ah);
-                    change_tray_icon(&ah, TrayIconState::Idle);
+                    if !selected_text.is_empty() {
+                        let ah_restore = ah.clone();
+                        let restore_text = selected_text.clone();
+                        ah.run_on_main_thread(move || {
+                            if let Err(e) = utils::paste(restore_text, ah_restore.clone()) {
+                                error!("Failed to restore original selection: {}", e);
+                            }
+                        })
+                        .ok();
+                    }
+
+                    show_ai_replace_error_overlay(&ah, err_message);
                 }
             }
 
@@ -2270,20 +2312,32 @@ pub async fn generate_command_with_llm(
     let system_prompt = settings.voice_command_system_prompt.clone();
     let user_prompt = spoken_text.to_string();
 
-    // Use Voice Command specific API key, fallback to post-processing key
+    // Use post-processing key only when voice command provider is set to
+    // "same as post-processing" (voice_command_provider_id = None).
+    let use_post_process_key =
+        settings.voice_command_provider_id.as_deref() != Some(provider.id.as_str());
+
     #[cfg(target_os = "windows")]
-    let api_key = crate::secure_keys::get_voice_command_api_key(&provider.id)
-        .filter(|k| !k.is_empty())
-        .unwrap_or_else(|| crate::secure_keys::get_post_process_api_key(&provider.id));
+    let api_key = if use_post_process_key {
+        crate::secure_keys::get_post_process_api_key(&provider.id)
+    } else {
+        crate::secure_keys::get_voice_command_api_key(&provider.id).unwrap_or_default()
+    };
 
     #[cfg(not(target_os = "windows"))]
-    let api_key = settings
-        .voice_command_api_keys
-        .get(&provider.id)
-        .cloned()
-        .filter(|k| !k.is_empty())
-        .or_else(|| settings.post_process_api_keys.get(&provider.id).cloned())
-        .unwrap_or_default();
+    let api_key = if use_post_process_key {
+        settings
+            .post_process_api_keys
+            .get(&provider.id)
+            .cloned()
+            .unwrap_or_default()
+    } else {
+        settings
+            .voice_command_api_keys
+            .get(&provider.id)
+            .cloned()
+            .unwrap_or_default()
+    };
 
     // Build reasoning config from settings
     let reasoning_config = crate::llm_client::ReasoningConfig::new(

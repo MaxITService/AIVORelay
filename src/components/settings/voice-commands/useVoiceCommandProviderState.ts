@@ -71,14 +71,15 @@ export const useVoiceCommandProviderState = (): VoiceCommandProviderState => {
   const isAppleProvider = selectedProvider?.id === APPLE_PROVIDER_ID;
   const isCustomProvider = selectedProvider?.id === "custom";
 
-  // Use Voice Command-specific settings, falling back to post-processing
+  // Use post-processing key only when "Same as Post-Processing" is selected.
   const baseUrl = selectedProvider?.base_url ?? "";
   const apiKey = useMemo(() => {
-    const voiceCommandKey =
-      settings?.voice_command_api_keys?.[effectiveProviderId] ?? "";
-    if (voiceCommandKey) return voiceCommandKey;
-    return settings?.post_process_api_keys?.[effectiveProviderId] ?? "";
+    if (useSameAsPostProcess) {
+      return settings?.post_process_api_keys?.[effectiveProviderId] ?? "";
+    }
+    return settings?.voice_command_api_keys?.[effectiveProviderId] ?? "";
   }, [
+    useSameAsPostProcess,
     settings?.voice_command_api_keys,
     settings?.post_process_api_keys,
     effectiveProviderId,

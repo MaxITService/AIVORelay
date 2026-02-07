@@ -635,6 +635,16 @@ export default function VoiceCommandSettings() {
                               disabled={
                                 voiceCommandProviderState.isApiKeyUpdating
                               }
+                              secureStorage={
+                                voiceCommandProviderState.selectedProvider?.id
+                                  ? {
+                                      feature: "voice_command",
+                                      providerId:
+                                        voiceCommandProviderState.selectedProvider
+                                          .id,
+                                    }
+                                  : undefined
+                              }
                             />
                           </div>
                         </div>

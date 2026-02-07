@@ -27,22 +27,20 @@ function App() {
   }, []);
 
   useEffect(() => {
+    const ERROR_TOAST_DURATION_MS = 8000;
+
     const unlistenRemote = listen<string>("remote-stt-error", (event) => {
-      toast.error(event.payload);
-    });
-    const unlistenAiReplace = listen<string>("ai-replace-error", (event) => {
-      toast.error(event.payload);
+      toast.error(event.payload, { duration: ERROR_TOAST_DURATION_MS });
     });
     const unlistenScreenshot = listen<string>("screenshot-error", (event) => {
-      toast.error(event.payload, { duration: 5000 });
+      toast.error(event.payload, { duration: ERROR_TOAST_DURATION_MS });
     });
     const unlistenVoiceCommand = listen<string>("voice-command-error", (event) => {
-      toast.error(event.payload, { duration: 4000 });
+      toast.error(event.payload, { duration: ERROR_TOAST_DURATION_MS });
     });
 
     return () => {
       unlistenRemote.then((unlisten) => unlisten());
-      unlistenAiReplace.then((unlisten) => unlisten());
       unlistenScreenshot.then((unlisten) => unlisten());
       unlistenVoiceCommand.then((unlisten) => unlisten());
     };
