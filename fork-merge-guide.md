@@ -19,6 +19,14 @@ git log HEAD..upstream/main --oneline
 
 We will cherry-pick commits from upstream to our branches. ONE BY ONE. Ask user for guidance if needed. Ask user if next commit is good to cherry-pick, then do it, resolve conflicts, report back to user.
 Do not cherry-pick commits that are not for Windows! 
+
+**⚠️ NEVER cherry-pick `src-tauri/Cargo.lock`!** This file auto-regenerates on `cargo build/check`. When conflicts occur:
+```bash
+git checkout --ours src-tauri/Cargo.lock
+git add src-tauri/Cargo.lock
+```
+Then continue with the cherry-pick. The lock file will update correctly on the next build.
+
 When merging upstream changes, these files will likely have conflicts. Here's how to resolve them:
 
 ### High-Conflict Files (Modified by Fork)
