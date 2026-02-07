@@ -639,6 +639,7 @@ async fn perform_transcription_for_profile(
                             &text,
                             &settings.custom_words,
                             settings.word_correction_threshold,
+                            settings.custom_words_ngram_enabled,
                         )
                     } else {
                         text

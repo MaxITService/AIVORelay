@@ -451,6 +451,7 @@ impl TranscriptionManager {
                 &result.text,
                 &settings.custom_words,
                 settings.word_correction_threshold,
+                settings.custom_words_ngram_enabled,
             )
         } else {
             result.text
@@ -607,6 +608,7 @@ impl TranscriptionManager {
                 &result.text,
                 &settings.custom_words,
                 settings.word_correction_threshold,
+                settings.custom_words_ngram_enabled,
             )
         } else {
             result.text
@@ -766,6 +768,7 @@ impl TranscriptionManager {
                             &seg.text,
                             &settings.custom_words,
                             settings.word_correction_threshold,
+                            settings.custom_words_ngram_enabled,
                         )
                     } else {
                         seg.text
@@ -784,6 +787,7 @@ impl TranscriptionManager {
                 &result.text,
                 &settings.custom_words,
                 settings.word_correction_threshold,
+                settings.custom_words_ngram_enabled,
             )
         } else {
             result.text

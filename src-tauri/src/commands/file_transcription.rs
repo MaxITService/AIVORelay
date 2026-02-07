@@ -158,6 +158,7 @@ pub async fn transcribe_audio_file(
                 &text,
                 &settings.custom_words,
                 settings.word_correction_threshold,
+                settings.custom_words_ngram_enabled,
             )
         } else {
             text

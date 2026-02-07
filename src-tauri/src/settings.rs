@@ -755,6 +755,8 @@ pub struct AppSettings {
     pub custom_words: Vec<String>,
     #[serde(default = "default_custom_words_enabled")]
     pub custom_words_enabled: bool,
+    #[serde(default = "default_custom_words_ngram_enabled")]
+    pub custom_words_ngram_enabled: bool,
     #[serde(default)]
     pub model_unload_timeout: ModelUnloadTimeout,
     #[serde(default = "default_word_correction_threshold")]
@@ -1090,6 +1092,10 @@ fn default_word_correction_threshold() -> f64 {
 }
 
 fn default_custom_words_enabled() -> bool {
+    true
+}
+
+fn default_custom_words_ngram_enabled() -> bool {
     true
 }
 
@@ -1573,6 +1579,7 @@ pub fn get_default_settings() -> AppSettings {
         log_level: default_log_level(),
         custom_words: Vec::new(),
         custom_words_enabled: default_custom_words_enabled(),
+        custom_words_ngram_enabled: default_custom_words_ngram_enabled(),
         model_unload_timeout: ModelUnloadTimeout::Never,
         word_correction_threshold: default_word_correction_threshold(),
         history_limit: default_history_limit(),

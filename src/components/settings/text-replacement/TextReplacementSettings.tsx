@@ -783,6 +783,21 @@ export const TextReplacementSettings: React.FC = () => {
         </div>
 
         <CustomWords descriptionMode="inline" grouped={true} />
+
+        {/* N-gram toggle for multi-word fuzzy correction */}
+        <div className="px-4 py-3 border-t border-white/[0.05]">
+          <ToggleSwitch
+            checked={(settings as any)?.custom_words_ngram_enabled ?? true}
+            onChange={(enabled) =>
+              (updateSetting as any)("custom_words_ngram_enabled", enabled)
+            }
+            isUpdating={isUpdating("custom_words_ngram_enabled")}
+            label="Enable Multi-word Matching (N-grams)"
+            description="Match up to 3 spoken tokens as one custom term (example: 'Chat G P T' -> 'ChatGPT'). Disable if corrections are too aggressive."
+            descriptionMode="inline"
+            grouped={true}
+          />
+        </div>
         
         {/* Word Correction Threshold */}
         <div className="px-4 py-3 border-t border-white/[0.05]">
