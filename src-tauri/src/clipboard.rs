@@ -2,6 +2,7 @@ use crate::input::{self, EnigoState};
 use crate::settings::{get_settings, ClipboardHandling, PasteMethod};
 use enigo::Enigo;
 use log::{info, warn};
+use std::time::Duration;
 use tauri::{AppHandle, Manager};
 use tauri_plugin_clipboard_manager::ClipboardExt;
 
@@ -395,6 +396,7 @@ fn paste_via_clipboard(
     text: &str,
     app_handle: &AppHandle,
     paste_method: &PasteMethod,
+    paste_delay_ms: u64,
     convert_lf_to_crlf: bool,
     clipboard_handling: ClipboardHandling,
 ) -> Result<(), String> {
@@ -448,7 +450,7 @@ fn paste_via_clipboard(
         .write_text(&text)
         .map_err(|e| format!("Failed to write to clipboard: {}", e))?;
 
-    std::thread::sleep(std::time::Duration::from_millis(50));
+    std::thread::sleep(Duration::from_millis(paste_delay_ms));
 
     // Send paste key combo
     #[cfg(target_os = "linux")]
@@ -828,6 +830,7 @@ pub fn paste(text: String, app_handle: AppHandle) -> Result<(), String> {
     let settings = get_settings(&app_handle);
     let paste_method = settings.paste_method;
     let clipboard_handling = settings.clipboard_handling;
+    let paste_delay_ms = settings.paste_delay_ms;
 
     // Append trailing space if setting is enabled
     let text = if settings.append_trailing_space {
@@ -837,8 +840,8 @@ pub fn paste(text: String, app_handle: AppHandle) -> Result<(), String> {
     };
 
     info!(
-        "Using paste method: {:?}, clipboard handling: {:?}",
-        paste_method, clipboard_handling
+        "Using paste method: {:?}, clipboard handling: {:?}, delay: {}ms",
+        paste_method, clipboard_handling, paste_delay_ms
     );
 
     // Get the managed Enigo instance
@@ -864,6 +867,7 @@ pub fn paste(text: String, app_handle: AppHandle) -> Result<(), String> {
                 &text,
                 &app_handle,
                 &paste_method,
+                paste_delay_ms,
                 settings.convert_lf_to_crlf,
                 clipboard_handling,
             )?

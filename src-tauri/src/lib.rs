@@ -304,6 +304,7 @@ pub fn run() {
         shortcut::change_debug_mode_setting,
         shortcut::change_word_correction_threshold_setting,
         shortcut::change_paste_method_setting,
+        shortcut::change_paste_delay_ms_setting,
         shortcut::change_clipboard_handling_setting,
         shortcut::change_convert_lf_to_crlf_setting,
         shortcut::change_remote_stt_base_url_setting,

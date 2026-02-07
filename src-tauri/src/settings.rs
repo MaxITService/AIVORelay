@@ -767,6 +767,8 @@ pub struct AppSettings {
     pub recording_retention_period: RecordingRetentionPeriod,
     #[serde(default)]
     pub paste_method: PasteMethod,
+    #[serde(default = "default_paste_delay_ms")]
+    pub paste_delay_ms: u64,
     /// Convert LF to CRLF before clipboard paste (fixes newlines on Windows)
     #[serde(default = "default_true")]
     pub convert_lf_to_crlf: bool,
@@ -1089,6 +1091,10 @@ fn default_log_level() -> LogLevel {
 
 fn default_word_correction_threshold() -> f64 {
     0.18
+}
+
+fn default_paste_delay_ms() -> u64 {
+    60
 }
 
 fn default_custom_words_enabled() -> bool {
@@ -1585,6 +1591,7 @@ pub fn get_default_settings() -> AppSettings {
         history_limit: default_history_limit(),
         recording_retention_period: default_recording_retention_period(),
         paste_method: PasteMethod::default(),
+        paste_delay_ms: default_paste_delay_ms(),
         convert_lf_to_crlf: true,
         clipboard_handling: ClipboardHandling::default(),
         post_process_enabled: default_post_process_enabled(),

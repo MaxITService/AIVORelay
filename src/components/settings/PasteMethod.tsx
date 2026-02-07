@@ -2,6 +2,7 @@ import React, { useEffect, useState } from "react";
 import { useTranslation, Trans } from "react-i18next";
 import { type as getOsType } from "@tauri-apps/plugin-os";
 import { Dropdown } from "../ui/Dropdown";
+import { Slider } from "../ui/Slider";
 import { SettingContainer } from "../ui/SettingContainer";
 import { ToggleSwitch } from "../ui/ToggleSwitch";
 import { TellMeMore } from "../ui/TellMeMore";
@@ -67,6 +68,7 @@ export const PasteMethodSetting: React.FC<PasteMethodProps> = React.memo(
     const selectedMethod = (getSetting("paste_method") ||
       "ctrl_v") as PasteMethod;
     const convertLfToCrlf = (getSetting("convert_lf_to_crlf" as any) ?? true) as boolean;
+    const pasteDelayMs = (getSetting("paste_delay_ms") ?? 60) as number;
 
     const pasteMethodOptions = getPasteMethodOptions(osType);
 
@@ -108,6 +110,22 @@ export const PasteMethodSetting: React.FC<PasteMethodProps> = React.memo(
           />
         )}
 
+        {isClipboardMethod && (
+          <Slider
+            value={pasteDelayMs}
+            onChange={(value) => updateSetting("paste_delay_ms", Math.round(value))}
+            min={10}
+            max={200}
+            step={10}
+            disabled={isUpdating("paste_delay_ms")}
+            label={t("settings.advanced.pasteMethod.pasteDelay.title")}
+            description={t("settings.advanced.pasteMethod.pasteDelay.description")}
+            descriptionMode={descriptionMode}
+            grouped={grouped}
+            formatValue={(value) => `${Math.round(value)}ms`}
+          />
+        )}
+
         <TellMeMore title={t("settings.advanced.pasteMethod.tellMeMore.title")}>
           <div className="space-y-3">
             <p className="mb-2">
@@ -129,6 +147,10 @@ export const PasteMethodSetting: React.FC<PasteMethodProps> = React.memo(
               <p>
                 <strong>{t("settings.advanced.pasteMethod.tellMeMore.none.title")}</strong>{" "}
                 {t("settings.advanced.pasteMethod.tellMeMore.none.description")}
+              </p>
+              <p>
+                <strong>{t("settings.advanced.pasteMethod.tellMeMore.pasteDelay.title")}</strong>{" "}
+                {t("settings.advanced.pasteMethod.tellMeMore.pasteDelay.description")}
               </p>
             </div>
 

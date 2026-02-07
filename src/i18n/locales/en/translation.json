@@ -531,6 +531,10 @@
           "label": "Convert LF to CRLF (Windows)",
           "description": "Normalize Unix-style line breaks (LF) to Windows-style (CRLF) when pasting via clipboard. Fixes newlines being 'eaten' in some applications."
         },
+        "pasteDelay": {
+          "title": "Paste Delay",
+          "description": "Delay before sending paste keystroke (in milliseconds). Increase if wrong text is being pasted."
+        },
         "tellMeMore": {
           "title": "Tell me more: Paste Methods Explained",
           "headline": "Understanding Paste Methods",
@@ -546,6 +550,10 @@
           "none": {
             "title": "None:",
             "description": "Skips the paste step entirely. Useful if you only want to save the transcription to history or manually copy it later. The text is processed and stored, but no input simulation occurs."
+          },
+          "pasteDelay": {
+            "title": "Paste Delay:",
+            "description": "Some applications read the clipboard too quickly and may paste older content. This delay gives the OS a moment to commit the new text before the paste keystroke is sent."
           },
           "crlfNote": {
             "title": "Windows Line Endings:",
