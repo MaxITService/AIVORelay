@@ -1282,7 +1282,20 @@
     "downloading": "Downloading... {{progress}}%",
     "installing": "Installing...",
     "preparing": "Preparing...",
-    "checkForUpdates": "Check for updates"
+    "checkForUpdates": "Check for updates",
+    "vramLabel": "VRAM",
+    "vramUnavailable": "VRAM N/A",
+    "vramLoading": "VRAM...",
+    "vramSystemFreeCompact": "Free {{free}}/{{total}} GB",
+    "vramLastUpdated": "Updated {{time}}",
+    "vramClickToRefresh": "Click to refresh VRAM usage",
+    "vramUnknownAdapter": "Unknown adapter",
+    "vramTooltipAdapter": "GPU: {{adapter}}",
+    "vramTooltipAppUsed": "AivoRelay used: {{used}} GB (current process usage)",
+    "vramTooltipAppBudget": "AivoRelay budget: {{budget}} GB (budget available to this process)",
+    "vramTooltipAppFree": "AivoRelay free: {{free}} GB (budget minus current process usage)",
+    "vramTooltipSystemUsed": "System used: {{used}} GB (all processes on this GPU)",
+    "vramTooltipSystemFree": "System free: {{free}} / {{total}} GB (total is physical VRAM)"
   },
   "common": {
     "loading": "Loading...",

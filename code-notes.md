@@ -268,6 +268,12 @@ On app startup
 | Quick Tap (AI Replace)   | Skips STT if < 800ms; uses `ai_replace_quick_tap_system_prompt`            |
 | Allow No Voice           | If enabled, sends `${output}` only with specific "No Voice" system prompt  |
 
+### Footer VRAM Meter (Microsoft Store Edition)
+
+- New backend command: `commands::models::get_active_gpu_vram_status` uses DXGI to report active GPU local memory usage and budget.
+- New frontend component: `src/components/footer/VramMeter.tsx` shows `AivoRelay used/budget`, `system free/total VRAM`, refreshes on demand, and displays the last update time.
+- Footer integration: `src/components/footer/Footer.tsx` places VRAM meter next to the model picker and triggers refresh when the model picker is clicked.
+
 ## Platform Limitations
 
 - **Remote STT**: Windows only (uses Windows Credential Manager for API key storage)

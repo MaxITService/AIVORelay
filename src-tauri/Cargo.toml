@@ -104,6 +104,9 @@ windows = { version = "0.61.3", features = [
   "Win32_System_DataExchange",
   "Win32_System_Memory",
   "Win32_Graphics_Gdi",
+  "Win32_Graphics_Dxgi",
+  "Win32_Graphics_Dxgi_Common",
+  "Wdk_Graphics_Direct3D",
 ] }
 screenshots = "0.8"
 

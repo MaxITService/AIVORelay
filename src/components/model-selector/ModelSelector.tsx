@@ -40,9 +40,13 @@ interface DownloadStats {
 
 interface ModelSelectorProps {
   onError?: (error: string) => void;
+  onInteraction?: () => void;
 }
 
-const ModelSelector: React.FC<ModelSelectorProps> = ({ onError }) => {
+const ModelSelector: React.FC<ModelSelectorProps> = ({
+  onError,
+  onInteraction,
+}) => {
   const { t } = useTranslation();
   const { getSetting, setTranscriptionProvider } = useSettings();
   const [models, setModels] = useState<ModelInfo[]>([]);
@@ -459,7 +463,10 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({ onError }) => {
           status={isRemoteProvider ? "ready" : modelStatus}
           displayText={getModelDisplayText()}
           isDropdownOpen={showModelDropdown}
-          onClick={() => setShowModelDropdown(!showModelDropdown)}
+          onClick={() => {
+            onInteraction?.();
+            setShowModelDropdown(!showModelDropdown);
+          }}
           disabled={false}
           isRemote={isRemoteProvider}
         />
