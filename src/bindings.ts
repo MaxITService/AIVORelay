@@ -1233,6 +1233,14 @@ async getRecommendedFirstModel() : Promise<Result<string, string>> {
     else return { status: "error", error: e  as any };
 }
 },
+async getActiveGpuVramStatus() : Promise<Result<GpuVramStatus, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("get_active_gpu_vram_status") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async updateMicrophoneMode(alwaysOn: boolean) : Promise<Result<null, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("update_microphone_mode", { alwaysOn }) };
@@ -1922,6 +1930,7 @@ saved_file_path: string | null;
  * The segments with timestamps (only populated for SRT/VTT formats)
  */
 segments: SubtitleSegment[] | null }
+export type GpuVramStatus = { is_supported: boolean; adapter_name: string | null; used_bytes: number; budget_bytes: number; system_used_bytes: number; system_free_bytes: number; total_vram_bytes: number; updated_at_unix_ms: number; error: string | null }
 export type HistoryEntry = { id: number; file_name: string; timestamp: number; saved: boolean; title: string; transcription_text: string; post_processed_text: string | null; post_process_prompt: string | null; 
 /**
  * Type of action: "transcribe", "ai_replace", etc.
