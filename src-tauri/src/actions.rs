@@ -280,11 +280,15 @@ async fn maybe_post_process_transcription(
             }
 
             // Strip invisible Unicode characters that some LLMs (e.g., Qwen) may insert
-            let content = content
-                .replace('\u{200B}', "") // Zero-Width Space
-                .replace('\u{200C}', "") // Zero-Width Non-Joiner
-                .replace('\u{200D}', "") // Zero-Width Joiner
-                .replace('\u{FEFF}', ""); // Byte Order Mark / Zero-Width No-Break Space
+            let content = if settings.zero_width_filter_enabled {
+                content
+                    .replace('\u{200B}', "") // Zero-Width Space
+                    .replace('\u{200C}', "") // Zero-Width Non-Joiner
+                    .replace('\u{200D}', "") // Zero-Width Joiner
+                    .replace('\u{FEFF}', "") // Byte Order Mark / Zero-Width No-Break Space
+            } else {
+                content
+            };
             debug!(
                 "LLM post-processing succeeded for provider '{}'. Output length: {} chars",
                 provider.id,
@@ -1064,6 +1068,16 @@ async fn ai_replace_with_llm(
             if content.trim().is_empty() {
                 return Err("LLM API response is empty".to_string());
             }
+            // Strip invisible Unicode characters that some LLMs may insert
+            let content = if settings.zero_width_filter_enabled {
+                content
+                    .replace('\u{200B}', "") // Zero-Width Space
+                    .replace('\u{200C}', "") // Zero-Width Non-Joiner
+                    .replace('\u{200D}', "") // Zero-Width Joiner
+                    .replace('\u{FEFF}', "") // Byte Order Mark / Zero-Width No-Break Space
+            } else {
+                content
+            };
             debug!("AI replace LLM response length: {} chars", content.len());
             Ok(content)
         }

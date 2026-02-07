@@ -680,6 +680,80 @@ export const TextReplacementSettings: React.FC = () => {
             </div>
           </details>
         </div>
+
+        {/* Zero-Width Character Filter */}
+        <div className="px-4 py-3 border-t border-white/[0.05]">
+          <ToggleSwitch
+            checked={settings?.zero_width_filter_enabled ?? true}
+            onChange={(enabled) =>
+              updateSetting("zero_width_filter_enabled", enabled)
+            }
+            isUpdating={isUpdating("zero_width_filter_enabled")}
+            label={t("audioProcessing.zeroWidthFilter", "Strip Invisible Characters")}
+            description={t(
+              "audioProcessing.zeroWidthFilterDescription",
+              "Remove invisible Unicode characters from LLM output (post-processing and AI Replace)."
+            )}
+            descriptionMode="inline"
+          />
+        </div>
+
+        {/* Zero-Width Filter Help */}
+        <div className="px-4 py-3 border-t border-white/[0.05]">
+          <details className="group">
+            <summary className="flex items-center gap-2 text-sm text-[#9b5de5] hover:text-[#b47eff] transition-colors cursor-pointer list-none">
+              <HelpCircle className="w-4 h-4" />
+              {t("audioProcessing.zeroWidthHelpTitle", "Tell me more about invisible character removal")}
+              <ChevronDown className="w-4 h-4 group-open:rotate-180 transition-transform" />
+            </summary>
+            <div className="mt-3 p-4 bg-[#1a1a1a] rounded-lg border border-[#333333] text-sm">
+              <p className="text-[#b8b8b8] mb-3">
+                {t(
+                  "audioProcessing.zeroWidthExplanation",
+                  "Some LLM providers (notably Qwen) insert invisible Unicode characters into their responses. These are zero-width characters that you can't see, but they can cause issues when pasted into other applications."
+                )}
+              </p>
+              <h4 className="font-medium text-[#f5f5f5] mb-2">
+                {t("audioProcessing.zeroWidthWhatRemoved", "Characters removed:")}
+              </h4>
+              <ul className="space-y-1 text-[#b8b8b8] mb-3">
+                <li className="flex items-start gap-2">
+                  <code className="px-2 py-0.5 bg-[#252525] rounded text-[#9b5de5] text-xs whitespace-nowrap shrink-0">U+200B</code>
+                  <span>{t("audioProcessing.zeroWidthZWS", "Zero-Width Space (U+200B)")}</span>
+                </li>
+                <li className="flex items-start gap-2">
+                  <code className="px-2 py-0.5 bg-[#252525] rounded text-[#9b5de5] text-xs whitespace-nowrap shrink-0">U+200C</code>
+                  <span>{t("audioProcessing.zeroWidthZWNJ", "Zero-Width Non-Joiner (U+200C)")}</span>
+                </li>
+                <li className="flex items-start gap-2">
+                  <code className="px-2 py-0.5 bg-[#252525] rounded text-[#9b5de5] text-xs whitespace-nowrap shrink-0">U+200D</code>
+                  <span>{t("audioProcessing.zeroWidthZWJ", "Zero-Width Joiner (U+200D)")}</span>
+                </li>
+                <li className="flex items-start gap-2">
+                  <code className="px-2 py-0.5 bg-[#252525] rounded text-[#9b5de5] text-xs whitespace-nowrap shrink-0">U+FEFF</code>
+                  <span>{t("audioProcessing.zeroWidthBOM", "Byte Order Mark / Zero-Width No-Break Space (U+FEFF)")}</span>
+                </li>
+              </ul>
+              <p className="text-[#b8b8b8] mb-3">
+                {t(
+                  "audioProcessing.zeroWidthIssues",
+                  "These invisible characters can cause unexpected behavior: broken text searches, incorrect string lengths, copy-paste issues, and invisible formatting problems in documents."
+                )}
+              </p>
+              <div className="mt-3 p-3 bg-[#252525] rounded border border-[#444444]">
+                <p className="text-[#b8b8b8] text-xs">
+                  <strong className="text-[#f5f5f5]">
+                    {t("audioProcessing.noteTitle", "Note:")}
+                  </strong>{" "}
+                  {t(
+                    "audioProcessing.zeroWidthNote",
+                    "This filter applies to all LLM output — both post-processing and AI Replace. It's safe to leave enabled for all providers."
+                  )}
+                </p>
+              </div>
+            </div>
+          </details>
+        </div>
       </SettingsGroup>
 
       {/* Fuzzy Word Correction Group */}

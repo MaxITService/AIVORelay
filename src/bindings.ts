@@ -1829,6 +1829,10 @@ text_replacements_before_llm?: boolean;
  */
 filler_word_filter_enabled?: boolean; 
 /**
+ * Whether to strip invisible Unicode characters (zero-width spaces, BOM) from LLM output
+ */
+zero_width_filter_enabled?: boolean; 
+/**
  * VAD (Voice Activity Detection) threshold for speech detection (0.1-0.9)
  * Lower = more sensitive (captures quieter speech but may include noise)
  * Higher = less sensitive (cleaner input but may cut off quiet speech)

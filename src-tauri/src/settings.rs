@@ -990,6 +990,9 @@ pub struct AppSettings {
     /// Whether to filter filler words (uh, um, hmm, etc.) from transcriptions
     #[serde(default)]
     pub filler_word_filter_enabled: bool,
+    /// Whether to strip invisible Unicode characters (zero-width spaces, BOM) from LLM output
+    #[serde(default = "default_true")]
+    pub zero_width_filter_enabled: bool,
     /// VAD (Voice Activity Detection) threshold for speech detection (0.1-0.9)
     /// Lower = more sensitive (captures quieter speech but may include noise)
     /// Higher = less sensitive (cleaner input but may cut off quiet speech)
@@ -1669,6 +1672,7 @@ pub fn get_default_settings() -> AppSettings {
         text_replacements_before_llm: false,
         // Audio Processing
         filler_word_filter_enabled: false,
+        zero_width_filter_enabled: true,
         vad_threshold: default_vad_threshold(),
         // Shortcut Engine (Windows only)
         shortcut_engine: ShortcutEngine::default(),
