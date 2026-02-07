@@ -911,22 +911,26 @@ async fn apply_post_processing_and_history(
     }
 
     if let Some(converted_text) = maybe_convert_chinese_variant(&settings, &final_text).await {
-        final_text = converted_text.clone();
-        post_processed_text = Some(converted_text);
-    } else {
-        match maybe_post_process_transcription(app, &settings, &final_text, profile).await {
-            PostProcessTranscriptionOutcome::Skipped => {}
-            PostProcessTranscriptionOutcome::Cancelled => {
-                return None;
+        final_text = converted_text;
+    }
+
+    match maybe_post_process_transcription(app, &settings, &final_text, profile).await {
+        PostProcessTranscriptionOutcome::Skipped => {
+            if final_text != transcription {
+                // Chinese conversion was applied but LLM post-processing was not.
+                post_processed_text = Some(final_text.clone());
             }
-            PostProcessTranscriptionOutcome::Processed {
-                text,
-                prompt_template,
-            } => {
-                final_text = text.clone();
-                post_processed_text = Some(text);
-                post_process_prompt = Some(prompt_template);
-            }
+        }
+        PostProcessTranscriptionOutcome::Cancelled => {
+            return None;
+        }
+        PostProcessTranscriptionOutcome::Processed {
+            text,
+            prompt_template,
+        } => {
+            final_text = text.clone();
+            post_processed_text = Some(text);
+            post_process_prompt = Some(prompt_template);
         }
     }
 
