@@ -28,6 +28,64 @@ pub type RdevShortcutsSet = std::sync::Mutex<HashSet<String>>;
 /// Track which shortcut engine is actually running (set at startup, doesn't change until restart)
 pub type ActiveShortcutEngine = std::sync::Mutex<ShortcutEngine>;
 
+/// Whether a binding should be active based on feature toggle settings.
+fn is_binding_enabled_for_settings(settings: &settings::AppSettings, binding_id: &str) -> bool {
+    match binding_id {
+        "send_to_extension" => settings.send_to_extension_enabled,
+        "send_to_extension_with_selection" => settings.send_to_extension_with_selection_enabled,
+        "send_screenshot_to_extension" => settings.send_screenshot_to_extension_enabled,
+        "voice_command" => settings.voice_command_enabled,
+        _ => true,
+    }
+}
+
+/// Best-effort check whether a binding is currently registered.
+fn is_binding_currently_registered(app: &AppHandle, binding: &ShortcutBinding) -> bool {
+    if let Some(rdev_set) = app.try_state::<RdevShortcutsSet>() {
+        let rdev_shortcuts = rdev_set.lock().expect("Failed to lock rdev shortcuts");
+        if rdev_shortcuts.contains(&binding.id) {
+            return true;
+        }
+    }
+
+    if binding.current_binding.trim().is_empty() {
+        return false;
+    }
+
+    match binding.current_binding.parse::<Shortcut>() {
+        Ok(shortcut) => app.global_shortcut().is_registered(shortcut),
+        Err(_) => false,
+    }
+}
+
+/// Synchronize the physical registration lifecycle for feature-gated shortcuts.
+fn sync_feature_shortcut_registration(
+    app: &AppHandle,
+    settings: &settings::AppSettings,
+    binding_id: &str,
+    enabled: bool,
+) -> Result<(), String> {
+    let Some(binding) = settings.bindings.get(binding_id).cloned() else {
+        return Ok(());
+    };
+
+    if enabled {
+        if binding.current_binding.trim().is_empty() {
+            return Ok(());
+        }
+        if !is_binding_currently_registered(app, &binding) {
+            register_shortcut(app, binding)?;
+        }
+        return Ok(());
+    }
+
+    if is_binding_currently_registered(app, &binding) {
+        unregister_shortcut(app, binding)?;
+    }
+
+    Ok(())
+}
+
 pub fn init_shortcuts(app: &AppHandle) {
     let default_bindings = settings::get_default_settings().bindings;
     let user_settings = settings::load_or_create_app_settings(app);
@@ -71,6 +129,11 @@ pub fn init_shortcuts(app: &AppHandle) {
             .get(&id)
             .cloned()
             .unwrap_or(default_binding);
+
+        // Skip shortcuts that belong to disabled feature-toggled actions.
+        if !is_binding_enabled_for_settings(&user_settings, &id) {
+            continue;
+        }
 
         // Skip empty bindings (intentionally unbound shortcuts like voice_command, cycle_profile)
         if !binding.current_binding.is_empty() {
@@ -157,15 +220,8 @@ fn handle_rdev_shortcut_event(app: &AppHandle, event: ShortcutEvent) {
         return;
     }
 
-    // Check if action is enabled
-    let action_enabled = match binding_id.as_str() {
-        "send_to_extension" => settings.send_to_extension_enabled,
-        "send_to_extension_with_selection" => settings.send_to_extension_with_selection_enabled,
-        "send_screenshot_to_extension" => settings.send_screenshot_to_extension_enabled,
-        "voice_command" => settings.voice_command_enabled,
-        _ => true,
-    };
-    if !action_enabled {
+    // Skip actions that are feature-disabled.
+    if !is_binding_enabled_for_settings(&settings, &binding_id) {
         return;
     }
 
@@ -295,24 +351,27 @@ pub fn change_binding(
     }
 
     // 4. Register the new binding WITH ROLLBACK on failure
-    if let Err(e) = register_shortcut(&app, updated_binding.clone()) {
-        error!("change_binding: failed to register new shortcut: {}", e);
+    //    Only register if this binding's feature is currently enabled.
+    if is_binding_enabled_for_settings(&settings, &id) {
+        if let Err(e) = register_shortcut(&app, updated_binding.clone()) {
+            error!("change_binding: failed to register new shortcut: {}", e);
 
-        // Rollback: attempt to restore the old binding (only if it wasn't empty)
-        if !binding_to_modify.current_binding.is_empty() {
-            if let Err(rollback_err) = register_shortcut(&app, binding_to_modify) {
-                let combined_error = format!(
-                    "Failed to register shortcut: {}. Additionally, failed to restore previous shortcut: {}",
-                    e, rollback_err
-                );
-                error!("change_binding: CRITICAL - {}", combined_error);
-                return Err(combined_error);
-            } else {
-                warn!("change_binding: rolled back to previous shortcut");
+            // Rollback: attempt to restore the old binding (only if it wasn't empty)
+            if !binding_to_modify.current_binding.is_empty() {
+                if let Err(rollback_err) = register_shortcut(&app, binding_to_modify) {
+                    let combined_error = format!(
+                        "Failed to register shortcut: {}. Additionally, failed to restore previous shortcut: {}",
+                        e, rollback_err
+                    );
+                    error!("change_binding: CRITICAL - {}", combined_error);
+                    return Err(combined_error);
+                } else {
+                    warn!("change_binding: rolled back to previous shortcut");
+                }
             }
-        }
 
-        return Err(format!("Failed to register shortcut: {}", e));
+            return Err(format!("Failed to register shortcut: {}", e));
+        }
     }
 
     // 5. Update the binding in the settings
@@ -810,6 +869,7 @@ pub fn change_voice_command_reasoning_budget_setting(
 pub fn change_voice_command_enabled_setting(app: AppHandle, enabled: bool) -> Result<(), String> {
     let mut settings = settings::get_settings(&app);
     settings.voice_command_enabled = enabled;
+    sync_feature_shortcut_registration(&app, &settings, "voice_command", enabled)?;
     settings::write_settings(&app, settings);
     Ok(())
 }
@@ -1773,6 +1833,7 @@ pub fn change_send_to_extension_enabled_setting(
 ) -> Result<(), String> {
     let mut settings = settings::get_settings(&app);
     settings.send_to_extension_enabled = enabled;
+    sync_feature_shortcut_registration(&app, &settings, "send_to_extension", enabled)?;
     settings::write_settings(&app, settings);
     Ok(())
 }
@@ -1821,6 +1882,12 @@ pub fn change_send_to_extension_with_selection_enabled_setting(
 ) -> Result<(), String> {
     let mut settings = settings::get_settings(&app);
     settings.send_to_extension_with_selection_enabled = enabled;
+    sync_feature_shortcut_registration(
+        &app,
+        &settings,
+        "send_to_extension_with_selection",
+        enabled,
+    )?;
     settings::write_settings(&app, settings);
     Ok(())
 }
@@ -2074,6 +2141,7 @@ pub fn change_send_screenshot_to_extension_enabled_setting(
 ) -> Result<(), String> {
     let mut settings = settings::get_settings(&app);
     settings.send_screenshot_to_extension_enabled = enabled;
+    sync_feature_shortcut_registration(&app, &settings, "send_screenshot_to_extension", enabled)?;
     settings::write_settings(&app, settings);
     Ok(())
 }
@@ -2217,12 +2285,13 @@ pub fn get_tauri_incompatible_shortcuts(app: AppHandle) -> Vec<ShortcutBinding> 
     }
 }
 
-/// Validate that a shortcut is not empty and has valid structure.
+/// Validate that a shortcut has valid structure.
+/// Empty string is allowed and means "unbound".
 /// On Windows, modifier-only shortcuts (like Ctrl+Alt) are allowed via rdev.
 /// On other platforms, tauri-plugin-global-shortcut requires a main key.
 fn validate_shortcut_string(raw: &str) -> Result<(), String> {
     if raw.trim().is_empty() {
-        return Err("Shortcut cannot be empty".into());
+        return Ok(());
     }
 
     // On Windows, we use rdev which supports modifier-only shortcuts
@@ -2320,6 +2389,10 @@ pub fn unregister_cancel_shortcut(app: &AppHandle) {
 }
 
 pub fn register_shortcut(app: &AppHandle, binding: ShortcutBinding) -> Result<(), String> {
+    if binding.current_binding.trim().is_empty() {
+        return Ok(());
+    }
+
     let settings = get_settings(app);
 
     // On Windows, check the shortcut_engine setting to decide which engine to use
@@ -2453,15 +2526,8 @@ fn register_shortcut_tauri(app: &AppHandle, binding: ShortcutBinding) -> Result<
                         return;
                     }
 
-                    // Check if risky extension actions or voice commands are enabled before executing
-                    let action_enabled = match binding_id_for_closure.as_str() {
-                        "send_to_extension" => settings.send_to_extension_enabled,
-                        "send_to_extension_with_selection" => settings.send_to_extension_with_selection_enabled,
-                        "send_screenshot_to_extension" => settings.send_screenshot_to_extension_enabled,
-                        "voice_command" => settings.voice_command_enabled,
-                        _ => true, // Other actions are always enabled
-                    };
-                    if !action_enabled {
+                    // Skip actions that are feature-disabled.
+                    if !is_binding_enabled_for_settings(&settings, &binding_id_for_closure) {
                         log::debug!(
                             "Action '{}' is disabled, ignoring shortcut press",
                             binding_id_for_closure
