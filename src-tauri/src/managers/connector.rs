@@ -15,7 +15,7 @@ use axum::{
     routing::{get, post},
     Json, Router,
 };
-use log::{debug, error, info};
+use log::{debug, error, info, warn};
 use serde::{Deserialize, Serialize};
 use specta::Type;
 use std::collections::{HashMap, HashSet, VecDeque};
@@ -1144,39 +1144,21 @@ fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
 }
 
 /// Generate a secure random password (32 hex characters)
-fn generate_secure_password() -> String {
-    let ts_nanos = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_nanos();
-
-    let pid = std::process::id();
-    let thread_id = format!("{:?}", std::thread::current().id());
-
-    let seed = format!(
-        "{}{}{}{}",
-        ts_nanos,
-        pid,
-        thread_id,
-        ts_nanos.wrapping_mul(0x517cc1b727220a95)
-    );
+fn generate_secure_password() -> Option<String> {
+    let mut bytes = [0u8; 16];
+    if let Err(err) = getrandom::getrandom(&mut bytes) {
+        error!(
+            "Failed to generate connector password from OS CSPRNG: {}",
+            err
+        );
+        return None;
+    }
 
     let mut result = String::with_capacity(32);
-    let bytes = seed.as_bytes();
-    let mut acc: u64 = 0;
-    for (i, &b) in bytes.iter().enumerate() {
-        acc = acc.wrapping_add((b as u64).wrapping_mul((i as u64).wrapping_add(1)));
-        acc = acc.wrapping_mul(0x517cc1b727220a95);
+    for byte in bytes {
+        result.push_str(&format!("{:02x}", byte));
     }
-
-    for i in 0..4 {
-        let chunk = acc
-            .wrapping_mul((i + 1) as u64)
-            .wrapping_add(ts_nanos as u64);
-        result.push_str(&format!("{:08x}", chunk as u32));
-    }
-
-    result
+    Some(result)
 }
 
 /// Check if we should generate a new password and do so if needed.
@@ -1197,7 +1179,10 @@ fn maybe_generate_new_password(app_handle: &AppHandle) -> Option<String> {
     );
 
     if is_default {
-        let new_password = generate_secure_password();
+        let Some(new_password) = generate_secure_password() else {
+            warn!("Skipping connector password rotation: secure RNG unavailable");
+            return None;
+        };
         info!("Generating new secure connector password (default password detected) - awaiting acknowledgement");
 
         let mut new_settings = settings.clone();
