@@ -17,7 +17,7 @@ use crate::settings::APPLE_INTELLIGENCE_DEFAULT_MODEL_ID;
 use crate::settings::{
     self, get_settings, ClipboardHandling, LLMPrompt, OverlayPosition, PasteMethod,
     RemoteSttDebugMode, ShortcutEngine, SoundTheme, TranscriptionProvider,
-    APPLE_INTELLIGENCE_PROVIDER_ID, SONIOX_DEFAULT_LIVE_FINALIZE_TIMEOUT_SECONDS,
+    APPLE_INTELLIGENCE_PROVIDER_ID, SONIOX_DEFAULT_LIVE_FINALIZE_TIMEOUT_MS,
     SONIOX_DEFAULT_MAX_ENDPOINT_DELAY_MS, SONIOX_DEFAULT_MODEL,
 };
 use crate::tray;
@@ -935,16 +935,16 @@ pub fn change_soniox_keepalive_interval_seconds_setting(
 
 #[tauri::command]
 #[specta::specta]
-pub fn change_soniox_live_finalize_timeout_seconds_setting(
+pub fn change_soniox_live_finalize_timeout_ms_setting(
     app: AppHandle,
-    seconds: u32,
+    timeout_ms: u32,
 ) -> Result<(), String> {
-    if !(1..=20).contains(&seconds) {
-        return Err("Soniox live finalize timeout must be between 1 and 20 seconds".to_string());
+    if !(100..=20000).contains(&timeout_ms) {
+        return Err("Soniox live finalize timeout must be between 100 and 20000 ms".to_string());
     }
 
     let mut settings = settings::get_settings(&app);
-    settings.soniox_live_finalize_timeout_seconds = seconds;
+    settings.soniox_live_finalize_timeout_ms = timeout_ms;
     settings::write_settings(&app, settings);
     Ok(())
 }
@@ -973,7 +973,7 @@ pub fn reset_soniox_settings_to_defaults(app: AppHandle) -> Result<(), String> {
     settings.soniox_enable_language_identification = true;
     settings.soniox_enable_speaker_diarization = true;
     settings.soniox_keepalive_interval_seconds = 10;
-    settings.soniox_live_finalize_timeout_seconds = SONIOX_DEFAULT_LIVE_FINALIZE_TIMEOUT_SECONDS;
+    settings.soniox_live_finalize_timeout_ms = SONIOX_DEFAULT_LIVE_FINALIZE_TIMEOUT_MS;
     settings.soniox_live_instant_stop = false;
     settings::write_settings(&app, settings);
     Ok(())

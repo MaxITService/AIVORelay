@@ -413,7 +413,7 @@ impl SonioxRealtimeManager {
         }
     }
 
-    pub async fn finish_session(&self, timeout_seconds: u32) -> Result<String> {
+    pub async fn finish_session(&self, timeout_ms: u32) -> Result<String> {
         let mut session = {
             let mut guard = self
                 .active_session
@@ -445,8 +445,8 @@ impl SonioxRealtimeManager {
 
         // Bound stop/finalization wait to a short, predictable window so
         // stop action can return to idle promptly even on unstable networks.
-        let wait_seconds = timeout_seconds.clamp(1, 20) as u64;
-        let join_result = timeout(Duration::from_secs(wait_seconds), &mut join_handle).await;
+        let wait_ms = timeout_ms.clamp(100, 20000) as u64;
+        let join_result = timeout(Duration::from_millis(wait_ms), &mut join_handle).await;
 
         match join_result {
             Ok(Ok(Ok(()))) => {}
@@ -477,8 +477,8 @@ impl SonioxRealtimeManager {
                 let partial = read_final_text();
                 if !partial.is_empty() {
                     warn!(
-                        "Soniox live session timed out after partial output (binding='{}', wait={}s)",
-                        binding_id, wait_seconds
+                        "Soniox live session timed out after partial output (binding='{}', wait={}ms)",
+                        binding_id, wait_ms
                     );
                     return Ok(partial);
                 }

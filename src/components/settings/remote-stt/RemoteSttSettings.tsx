@@ -68,8 +68,8 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
   const sonioxKeepaliveSeconds = Number(
     (settings as any)?.soniox_keepalive_interval_seconds ?? 10,
   );
-  const sonioxLiveFinalizeTimeoutSeconds = Number(
-    (settings as any)?.soniox_live_finalize_timeout_seconds ?? 1,
+  const sonioxLiveFinalizeTimeoutMs = Number(
+    (settings as any)?.soniox_live_finalize_timeout_ms ?? 500,
   );
   const sonioxLiveInstantStop = Boolean(
     (settings as any)?.soniox_live_instant_stop ?? false,
@@ -97,7 +97,7 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
   const [sonioxKeepaliveSecondsInput, setSonioxKeepaliveSecondsInput] =
     useState(String(sonioxKeepaliveSeconds));
   const [sonioxLiveFinalizeTimeoutInput, setSonioxLiveFinalizeTimeoutInput] =
-    useState(String(sonioxLiveFinalizeTimeoutSeconds));
+    useState(String(sonioxLiveFinalizeTimeoutMs));
 
   const [apiKeyInput, setApiKeyInput] = useState("");
   const [hasApiKey, setHasApiKey] = useState(false);
@@ -146,8 +146,8 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
   }, [sonioxKeepaliveSeconds]);
 
   useEffect(() => {
-    setSonioxLiveFinalizeTimeoutInput(String(sonioxLiveFinalizeTimeoutSeconds));
-  }, [sonioxLiveFinalizeTimeoutSeconds]);
+    setSonioxLiveFinalizeTimeoutInput(String(sonioxLiveFinalizeTimeoutMs));
+  }, [sonioxLiveFinalizeTimeoutMs]);
 
   useEffect(() => {
     if (!isWindows) {
@@ -339,11 +339,11 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
   const handleSonioxLiveFinalizeTimeoutBlur = () => {
     const parsed = Number.parseInt(sonioxLiveFinalizeTimeoutInput, 10);
     if (Number.isNaN(parsed)) {
-      setSonioxLiveFinalizeTimeoutInput(String(sonioxLiveFinalizeTimeoutSeconds));
+      setSonioxLiveFinalizeTimeoutInput(String(sonioxLiveFinalizeTimeoutMs));
       return;
     }
-    if (parsed !== sonioxLiveFinalizeTimeoutSeconds) {
-      void updateSetting("soniox_live_finalize_timeout_seconds" as any, parsed as any);
+    if (parsed !== sonioxLiveFinalizeTimeoutMs) {
+      void updateSetting("soniox_live_finalize_timeout_ms" as any, parsed as any);
     }
   };
 
@@ -828,8 +828,8 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
                     setSonioxLiveFinalizeTimeoutInput(event.target.value)
                   }
                   onBlur={handleSonioxLiveFinalizeTimeoutBlur}
-                  min={1}
-                  max={20}
+                  min={100}
+                  max={20000}
                   className="w-full"
                 />
               </SettingContainer>

@@ -1679,7 +1679,7 @@ impl ShortcutAction for TranscribeAction {
                             soniox_live_manager.cancel();
                         } else {
                             let _ = soniox_live_manager
-                                .finish_session(settings.soniox_live_finalize_timeout_seconds)
+                                .finish_session(settings.soniox_live_finalize_timeout_ms)
                                 .await;
                         }
                         rm.clear_stream_frame_callback();
@@ -1717,7 +1717,7 @@ impl ShortcutAction for TranscribeAction {
                 }
 
                 let transcription_result = soniox_live_manager
-                    .finish_session(settings.soniox_live_finalize_timeout_seconds)
+                    .finish_session(settings.soniox_live_finalize_timeout_ms)
                     .await;
                 let transcription = match transcription_result {
                     Ok(text) => apply_soniox_output_filters(&settings, text),

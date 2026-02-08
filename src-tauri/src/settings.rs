@@ -538,7 +538,7 @@ pub enum TranscriptionProvider {
 
 pub const SONIOX_DEFAULT_MODEL: &str = "stt-rt-v4";
 pub const SONIOX_DEFAULT_MAX_ENDPOINT_DELAY_MS: u32 = 2000;
-pub const SONIOX_DEFAULT_LIVE_FINALIZE_TIMEOUT_SECONDS: u32 = 1;
+pub const SONIOX_DEFAULT_LIVE_FINALIZE_TIMEOUT_MS: u32 = 500;
 
 /// Shortcut engine selection for Windows.
 /// Controls which mechanism is used to listen for global hotkeys.
@@ -761,8 +761,8 @@ pub struct AppSettings {
     pub soniox_enable_speaker_diarization: bool,
     #[serde(default = "default_soniox_keepalive_interval_seconds")]
     pub soniox_keepalive_interval_seconds: u32,
-    #[serde(default = "default_soniox_live_finalize_timeout_seconds")]
-    pub soniox_live_finalize_timeout_seconds: u32,
+    #[serde(default = "default_soniox_live_finalize_timeout_ms")]
+    pub soniox_live_finalize_timeout_ms: u32,
     #[serde(default = "default_false")]
     pub soniox_live_instant_stop: bool,
     #[serde(default = "default_always_on_microphone")]
@@ -1117,8 +1117,8 @@ fn default_soniox_keepalive_interval_seconds() -> u32 {
     10
 }
 
-fn default_soniox_live_finalize_timeout_seconds() -> u32 {
-    SONIOX_DEFAULT_LIVE_FINALIZE_TIMEOUT_SECONDS
+fn default_soniox_live_finalize_timeout_ms() -> u32 {
+    SONIOX_DEFAULT_LIVE_FINALIZE_TIMEOUT_MS
 }
 
 fn default_vad_threshold() -> f32 {
@@ -1684,7 +1684,7 @@ pub fn get_default_settings() -> AppSettings {
         soniox_enable_language_identification: default_true(),
         soniox_enable_speaker_diarization: default_true(),
         soniox_keepalive_interval_seconds: default_soniox_keepalive_interval_seconds(),
-        soniox_live_finalize_timeout_seconds: default_soniox_live_finalize_timeout_seconds(),
+        soniox_live_finalize_timeout_ms: default_soniox_live_finalize_timeout_ms(),
         soniox_live_instant_stop: default_false(),
         always_on_microphone: false,
         selected_microphone: None,

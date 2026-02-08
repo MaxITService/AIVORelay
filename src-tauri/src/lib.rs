@@ -343,7 +343,7 @@ pub fn run() {
         shortcut::change_soniox_language_identification_setting,
         shortcut::change_soniox_speaker_diarization_setting,
         shortcut::change_soniox_keepalive_interval_seconds_setting,
-        shortcut::change_soniox_live_finalize_timeout_seconds_setting,
+        shortcut::change_soniox_live_finalize_timeout_ms_setting,
         shortcut::change_soniox_live_instant_stop_setting,
         shortcut::reset_soniox_settings_to_defaults,
         shortcut::change_remote_stt_debug_capture_setting,
