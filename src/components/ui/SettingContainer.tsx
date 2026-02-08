@@ -1,5 +1,12 @@
-import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
+import React, {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 import { createPortal } from "react-dom";
+import { computeTooltipLayout, TooltipLayout } from "./tooltipPositioning";
 
 interface SettingContainerProps {
   title: string;
@@ -25,11 +32,29 @@ export const SettingContainer: React.FC<SettingContainerProps> = ({
 }) => {
   const [showTooltip, setShowTooltip] = useState(false);
   const tooltipRef = useRef<HTMLDivElement>(null);
-  const [tooltipCoords, setTooltipCoords] = useState<{
-    top: number;
-    left: number;
-    height: number;
-  } | null>(null);
+  const tooltipContentRef = useRef<HTMLDivElement>(null);
+  const [tooltipLayout, setTooltipLayout] = useState<TooltipLayout | null>(
+    null
+  );
+
+  const updateTooltipLayout = useCallback(() => {
+    if (!showTooltip || !tooltipRef.current || !tooltipContentRef.current) {
+      return;
+    }
+
+    const triggerRect = tooltipRef.current.getBoundingClientRect();
+    const tooltipRect = tooltipContentRef.current.getBoundingClientRect();
+
+    setTooltipLayout(
+      computeTooltipLayout({
+        triggerRect,
+        tooltipRect,
+        preferredPlacement: tooltipPosition,
+        viewportWidth: window.innerWidth,
+        viewportHeight: window.innerHeight,
+      })
+    );
+  }, [showTooltip, tooltipPosition]);
 
   // Handle click outside to close tooltip
   useEffect(() => {
@@ -46,40 +71,25 @@ export const SettingContainer: React.FC<SettingContainerProps> = ({
 
     if (showTooltip) {
       document.addEventListener("mousedown", handleClickOutside);
-      // Update coords on scroll/resize
-      const updateCoords = () => {
-        if (tooltipRef.current) {
-          const rect = tooltipRef.current.getBoundingClientRect();
-          setTooltipCoords({
-            top: rect.top,
-            left: rect.left + rect.width / 2,
-            height: rect.height,
-          });
-        }
-      };
-
-      window.addEventListener("scroll", updateCoords, true);
-      window.addEventListener("resize", updateCoords);
+      window.addEventListener("scroll", updateTooltipLayout, true);
+      window.addEventListener("resize", updateTooltipLayout);
 
       return () => {
         document.removeEventListener("mousedown", handleClickOutside);
-        window.removeEventListener("scroll", updateCoords, true);
-        window.removeEventListener("resize", updateCoords);
+        window.removeEventListener("scroll", updateTooltipLayout, true);
+        window.removeEventListener("resize", updateTooltipLayout);
       };
     }
-  }, [showTooltip]);
+  }, [showTooltip, updateTooltipLayout]);
 
-  // Update coords when tooltip opens - useLayoutEffect to prevent visual flash
+  // Update layout when tooltip opens and content is available
   useLayoutEffect(() => {
-    if (showTooltip && tooltipRef.current) {
-      const rect = tooltipRef.current.getBoundingClientRect();
-      setTooltipCoords({
-        top: rect.top,
-        left: rect.left + rect.width / 2,
-        height: rect.height,
-      });
+    if (showTooltip) {
+      updateTooltipLayout();
+    } else {
+      setTooltipLayout(null);
     }
-  }, [showTooltip]);
+  }, [showTooltip, updateTooltipLayout, description]);
 
   const toggleTooltip = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -91,34 +101,43 @@ export const SettingContainer: React.FC<SettingContainerProps> = ({
     : "px-6 py-4 rounded-lg bg-[#2b2b2b]/40 border border-[#2f2f2f] hover:bg-[#323232]/50 hover:border-[#3c3c3c] transition-all duration-200";
 
   const renderTooltipPortal = () => {
-    if (!showTooltip || !tooltipCoords) return null;
+    if (!showTooltip) return null;
+
+    const activePlacement = tooltipLayout?.placement ?? tooltipPosition;
+    const wrapperStyle: React.CSSProperties = tooltipLayout
+      ? {
+          top: tooltipLayout.top,
+          left: tooltipLayout.left,
+        }
+      : {
+          top: 0,
+          left: 0,
+          visibility: "hidden",
+        };
 
     return createPortal(
       <div
         className="fixed z-[9999] pointer-events-none"
-        style={{
-          top:
-            tooltipPosition === "top"
-              ? tooltipCoords.top - 10
-              : tooltipCoords.top + tooltipCoords.height + 10,
-          left: tooltipCoords.left,
-        }}
+        style={wrapperStyle}
       >
         <div
-          className={`relative transform -translate-x-1/2 ${
-            tooltipPosition === "top" ? "-translate-y-full" : ""
-          } px-4 py-2.5 bg-[#323232]/98 backdrop-blur-xl border border-[#4a4a4a] rounded-lg shadow-[0_8px_24px_rgba(0,0,0,0.5)] max-w-xs min-w-[200px] whitespace-normal animate-in fade-in-0 zoom-in-95 duration-200`}
+          ref={tooltipContentRef}
+          className="relative px-4 py-2.5 bg-[#323232]/98 backdrop-blur-xl border border-[#4a4a4a] rounded-lg shadow-[0_8px_24px_rgba(0,0,0,0.5)] max-w-xs min-w-[200px] whitespace-normal animate-in fade-in-0 zoom-in-95 duration-200"
         >
           <p className="text-sm text-[#e8e8e8] text-center leading-relaxed">
             {description}
           </p>
           {/* Arrow */}
           <div
-            className={`absolute left-1/2 transform -translate-x-1/2 w-0 h-0 border-l-[6px] border-r-[6px] border-[6px] border-l-transparent border-r-transparent ${
-              tooltipPosition === "top"
+            className={`absolute w-0 h-0 border-l-[6px] border-r-[6px] border-[6px] border-l-transparent border-r-transparent ${
+              activePlacement === "top"
                 ? "top-full border-t-[#4a4a4a] border-b-transparent"
                 : "bottom-full border-b-[#4a4a4a] border-t-transparent"
             }`}
+            style={{
+              left: tooltipLayout ? tooltipLayout.arrowLeft : "50%",
+              transform: "translateX(-50%)",
+            }}
           ></div>
         </div>
       </div>,
