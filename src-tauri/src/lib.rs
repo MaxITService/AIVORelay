@@ -9,6 +9,7 @@ mod commands;
 mod helpers;
 mod input;
 mod input_source;
+mod language_resolver;
 mod llm_client;
 mod managers;
 mod overlay;

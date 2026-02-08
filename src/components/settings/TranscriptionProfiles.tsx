@@ -29,7 +29,8 @@ import { InfoTooltip } from "../ui/InfoTooltip";
 import type { ModelOption } from "./PostProcessingSettingsApi/types";
 import { useSettings } from "../../hooks/useSettings";
 import { useModels } from "../../hooks/useModels";
-import { LANGUAGES } from "../../lib/constants/languages";
+import { LANGUAGES, type Language } from "../../lib/constants/languages";
+import { isLanguageSupportedBySoniox } from "../../lib/constants/sonioxLanguages";
 import { getModelPromptInfo } from "./TranscriptionSystemPrompt";
 
 const APPLE_PROVIDER_ID = "apple_intelligence";
@@ -56,6 +57,7 @@ interface ExtendedTranscriptionProfile extends TranscriptionProfile {
 
 interface ProfileCardProps {
   profile: ExtendedTranscriptionProfile;
+  languageOptions: Language[];
   isExpanded: boolean;
   onToggleExpand: () => void;
   onUpdate: (profile: ExtendedTranscriptionProfile) => Promise<void>;
@@ -72,11 +74,13 @@ interface ProfileCardProps {
   onRefreshModels: () => void;
   isFetchingModels: boolean;
   defaultLlmPrompt: string;
+  showSonioxLanguageFallbackWarning: boolean;
   // Note: resolvedOsLanguage removed - language is detected at transcription time, not in UI
 }
 
 const ProfileCard: React.FC<ProfileCardProps> = ({
   profile,
+  languageOptions,
   isExpanded,
   onToggleExpand,
   onUpdate,
@@ -93,6 +97,7 @@ const ProfileCard: React.FC<ProfileCardProps> = ({
   onRefreshModels,
   isFetchingModels,
   defaultLlmPrompt,
+  showSonioxLanguageFallbackWarning,
 }) => {
   const { t } = useTranslation();
   const [isUpdating, setIsUpdating] = useState(false);
@@ -114,8 +119,23 @@ const ProfileCard: React.FC<ProfileCardProps> = ({
 
   const languageLabel = useMemo(() => {
     const lang = LANGUAGES.find((l) => l.value === profile.language);
-    return lang?.label || t("settings.general.language.auto");
+    return lang?.label || profile.language || t("settings.general.language.auto");
   }, [profile.language, t]);
+
+  const effectiveLanguageOptions = useMemo(() => {
+    if (languageOptions.some((option) => option.value === profile.language)) {
+      return languageOptions;
+    }
+
+    return [
+      {
+        value: profile.language,
+        label: `${languageLabel} (fallback to auto in Soniox)`,
+        className: "text-amber-400",
+      },
+      ...languageOptions,
+    ];
+  }, [languageLabel, languageOptions, profile.language]);
 
   const promptLength = (profile.system_prompt || "").length;
   const isOverLimit = promptLimit > 0 && promptLength > promptLimit;
@@ -394,7 +414,7 @@ const ProfileCard: React.FC<ProfileCardProps> = ({
               </label>
               <Dropdown
                 selectedValue={profile.language}
-                options={LANGUAGES.map((l) => ({
+                options={effectiveLanguageOptions.map((l) => ({
                   value: l.value,
                   label: l.label,
                   className: l.className,
@@ -403,6 +423,14 @@ const ProfileCard: React.FC<ProfileCardProps> = ({
                 placeholder={t("settings.general.language.auto")}
                 disabled={isUpdating}
               />
+              {showSonioxLanguageFallbackWarning && (
+                <p className="text-xs text-amber-400/90">
+                  {t(
+                    "settings.transcriptionProfiles.sonioxLanguageFallbackWarning",
+                    "This language is not supported by Soniox. Soniox requests will fallback to auto-detect.",
+                  )}
+                </p>
+              )}
             </div>
 
             {/* Translate to English Toggle */}
@@ -714,6 +742,44 @@ export const TranscriptionProfiles: React.FC = () => {
   // Get prompt limit based on active transcription settings
   const promptLimit = modelInfo.supportsPrompt ? modelInfo.charLimit : 0;
   const supportsTranslation = settings?.transcription_provider !== "remote_soniox";
+  const isSonioxProvider = settings?.transcription_provider === "remote_soniox";
+
+  const sonioxFilteredLanguages = useMemo(() => {
+    if (!isSonioxProvider) {
+      return LANGUAGES;
+    }
+
+    return LANGUAGES.filter((language) =>
+      isLanguageSupportedBySoniox(language.value),
+    );
+  }, [isSonioxProvider]);
+
+  const selectedGlobalLanguage = settings?.selected_language || "auto";
+  const showDefaultLanguageFallbackWarning =
+    isSonioxProvider && !isLanguageSupportedBySoniox(selectedGlobalLanguage);
+
+  const defaultProfileLanguageOptions = useMemo(() => {
+    if (
+      sonioxFilteredLanguages.some(
+        (language) => language.value === selectedGlobalLanguage,
+      )
+    ) {
+      return sonioxFilteredLanguages;
+    }
+
+    const fallbackLabel =
+      LANGUAGES.find((language) => language.value === selectedGlobalLanguage)
+        ?.label || selectedGlobalLanguage;
+
+    return [
+      {
+        value: selectedGlobalLanguage,
+        label: `${fallbackLabel} (fallback to auto in Soniox)`,
+        className: "text-amber-400",
+      },
+      ...sonioxFilteredLanguages,
+    ];
+  }, [selectedGlobalLanguage, sonioxFilteredLanguages]);
 
   const newPromptLength = newSystemPrompt.length;
   const isNewPromptOverLimit = promptLimit > 0 && newPromptLength > promptLimit;
@@ -1063,12 +1129,20 @@ export const TranscriptionProfiles: React.FC = () => {
                         updateSetting &&
                         updateSetting("selected_language" as any, value)
                       }
-                      options={LANGUAGES.map((lang) => ({
+                      options={defaultProfileLanguageOptions.map((lang) => ({
                         value: lang.value,
                         label: lang.label,
                         className: lang.className,
                       }))}
                     />
+                    {showDefaultLanguageFallbackWarning && (
+                      <p className="text-xs text-amber-400/90">
+                        {t(
+                          "settings.transcriptionProfiles.sonioxLanguageFallbackWarning",
+                          "This language is not supported by Soniox. Soniox requests will fallback to auto-detect.",
+                        )}
+                      </p>
+                    )}
                   </div>
                   <div className="space-y-2 min-w-0">
                     <label className="text-xs font-semibold text-text/70">
@@ -1148,6 +1222,7 @@ export const TranscriptionProfiles: React.FC = () => {
             <ProfileCard
               key={profile.id}
               profile={profile}
+              languageOptions={sonioxFilteredLanguages}
               isExpanded={isExpanded(profile.id)}
               onToggleExpand={() => toggleExpanded(profile.id)}
               onUpdate={handleUpdate}
@@ -1164,6 +1239,9 @@ export const TranscriptionProfiles: React.FC = () => {
               onRefreshModels={handleRefreshModels}
               isFetchingModels={isFetchingModels}
               defaultLlmPrompt={globalPromptText}
+              showSonioxLanguageFallbackWarning={
+                isSonioxProvider && !isLanguageSupportedBySoniox(profile.language)
+              }
             />
           ))}
         </div>
@@ -1201,7 +1279,7 @@ export const TranscriptionProfiles: React.FC = () => {
               </label>
               <Dropdown
                 selectedValue={newLanguage}
-                options={LANGUAGES.map((l) => ({
+                options={sonioxFilteredLanguages.map((l) => ({
                   value: l.value,
                   label: l.label,
                   className: l.className,

@@ -6,6 +6,7 @@ import { type } from "@tauri-apps/plugin-os";
 import { toast } from "sonner";
 import { commands } from "@/bindings";
 import { useSettings } from "../../../hooks/useSettings";
+import { parseAndNormalizeSonioxLanguageHints } from "../../../lib/constants/sonioxLanguages";
 import { Button } from "../../ui/Button";
 import { Input } from "../../ui/Input";
 import { Select, type SelectOption } from "../../ui/Select";
@@ -290,15 +291,26 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
   };
 
   const handleSonioxLanguageHintsBlur = () => {
-    const parsed = sonioxLanguageHintsInput
-      .split(",")
-      .map((hint) => hint.trim().toLowerCase())
-      .filter((hint, index, list) => hint.length > 0 && list.indexOf(hint) === index);
-    const current = [...sonioxLanguageHints]
-      .map((hint) => hint.trim().toLowerCase())
-      .filter((hint) => hint.length > 0);
-    if (JSON.stringify(parsed) !== JSON.stringify(current)) {
-      void updateSetting("soniox_language_hints" as any, parsed as any);
+    const parsed = parseAndNormalizeSonioxLanguageHints(sonioxLanguageHintsInput);
+    const current = parseAndNormalizeSonioxLanguageHints(
+      sonioxLanguageHints.join(","),
+    );
+
+    if (parsed.rejected.length > 0) {
+      toast.warning(
+        `Ignored unsupported Soniox language hints: ${parsed.rejected.join(", ")}`,
+      );
+      setSonioxLanguageHintsInput(parsed.normalized.join(", "));
+    }
+
+    if (
+      JSON.stringify(parsed.normalized) !== JSON.stringify(current.normalized) ||
+      current.rejected.length > 0
+    ) {
+      void updateSetting(
+        "soniox_language_hints" as any,
+        parsed.normalized as any,
+      );
     }
   };
 

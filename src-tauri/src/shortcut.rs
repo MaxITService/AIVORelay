@@ -827,16 +827,16 @@ pub fn change_soniox_language_hints_setting(
     app: AppHandle,
     hints: Vec<String>,
 ) -> Result<(), String> {
-    let mut seen = std::collections::HashSet::new();
-    let normalized: Vec<String> = hints
-        .into_iter()
-        .map(|hint| hint.trim().to_lowercase())
-        .filter(|hint| !hint.is_empty() && seen.insert(hint.clone()))
-        .take(100)
-        .collect();
+    let normalized_hints = crate::language_resolver::normalize_soniox_hint_list(hints);
+    if !normalized_hints.rejected.is_empty() {
+        warn!(
+            "Ignoring unsupported Soniox language hints from settings update: {}",
+            normalized_hints.rejected.join(", ")
+        );
+    }
 
     let mut settings = settings::get_settings(&app);
-    settings.soniox_language_hints = normalized;
+    settings.soniox_language_hints = normalized_hints.normalized.into_iter().take(100).collect();
     settings::write_settings(&app, settings);
     Ok(())
 }

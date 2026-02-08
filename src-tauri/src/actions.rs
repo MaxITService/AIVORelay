@@ -1195,41 +1195,56 @@ fn should_use_soniox_live_streaming(settings: &AppSettings) -> bool {
         && SonioxRealtimeManager::is_realtime_model(&settings.soniox_model)
 }
 
-fn normalize_soniox_hint_from_language(language: &str) -> Option<String> {
-    let mut resolved = language.trim().to_string();
-    if resolved.is_empty() || resolved == "auto" {
-        return None;
+fn resolve_soniox_hint_from_language(language: &str) -> Option<String> {
+    let resolution = crate::language_resolver::resolve_requested_language_for_soniox(Some(language));
+
+    match resolution.status {
+        crate::language_resolver::SonioxLanguageResolutionStatus::Supported => {
+            if let Some(normalized) = &resolution.normalized {
+                debug!(
+                    "Soniox language resolved: '{}' -> '{}'",
+                    resolution.original.as_deref().unwrap_or(""),
+                    normalized
+                );
+            }
+        }
+        crate::language_resolver::SonioxLanguageResolutionStatus::AutoOrEmpty => {
+            debug!("Soniox language set to auto-detect (no language hint)");
+        }
+        crate::language_resolver::SonioxLanguageResolutionStatus::OsInputUnavailable => {
+            warn!(
+                "Soniox language fallback: OS input language could not be resolved, using auto-detect"
+            );
+        }
+        crate::language_resolver::SonioxLanguageResolutionStatus::Unsupported => {
+            warn!(
+                "Soniox language fallback: unsupported language '{}' (normalized='{}'), using auto-detect",
+                resolution.original.as_deref().unwrap_or(""),
+                resolution.normalized.as_deref().unwrap_or("")
+            );
+        }
     }
 
-    if resolved == "os_input" {
-        resolved = match crate::input_source::get_language_from_input_source() {
-            Some(lang) if !lang.trim().is_empty() => lang,
-            _ => return None,
-        };
-    }
-
-    if resolved == "zh-Hans" || resolved == "zh-Hant" {
-        resolved = "zh".to_string();
-    }
-
-    let normalized = resolved.trim().to_lowercase();
-    if normalized.is_empty() {
-        None
-    } else {
-        Some(normalized)
-    }
+    resolution.hint
 }
 
 fn build_soniox_realtime_options(settings: &AppSettings, language: &str) -> SonioxRealtimeOptions {
     let mut language_hints = if settings.soniox_use_profile_language_hint_only {
-        normalize_soniox_hint_from_language(language)
-            .into_iter()
-            .collect()
+        Vec::new()
     } else {
-        settings.soniox_language_hints.clone()
+        let normalized_hints =
+            crate::language_resolver::normalize_soniox_hint_list(settings.soniox_language_hints.clone());
+        if !normalized_hints.rejected.is_empty() {
+            warn!(
+                "Ignoring unsupported Soniox language hints: {}",
+                normalized_hints.rejected.join(", ")
+            );
+        }
+        normalized_hints.normalized
     };
-    if language_hints.is_empty() {
-        if let Some(profile_hint) = normalize_soniox_hint_from_language(language) {
+
+    if settings.soniox_use_profile_language_hint_only || language_hints.is_empty() {
+        if let Some(profile_hint) = resolve_soniox_hint_from_language(language) {
             language_hints.push(profile_hint);
         }
     }

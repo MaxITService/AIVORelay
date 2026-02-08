@@ -127,17 +127,18 @@ impl SonioxRealtimeManager {
     }
 
     fn normalize_language_hints(language_hints: Vec<String>) -> Option<Vec<String>> {
-        let mut seen = std::collections::HashSet::new();
-        let normalized: Vec<String> = language_hints
-            .into_iter()
-            .map(|hint| hint.trim().to_lowercase())
-            .filter(|hint| !hint.is_empty() && seen.insert(hint.clone()))
-            .collect();
+        let normalized_hints = crate::language_resolver::normalize_soniox_hint_list(language_hints);
+        if !normalized_hints.rejected.is_empty() {
+            warn!(
+                "Ignoring unsupported Soniox live language hints: {}",
+                normalized_hints.rejected.join(", ")
+            );
+        }
 
-        if normalized.is_empty() {
+        if normalized_hints.normalized.is_empty() {
             None
         } else {
-            Some(normalized)
+            Some(normalized_hints.normalized)
         }
     }
 

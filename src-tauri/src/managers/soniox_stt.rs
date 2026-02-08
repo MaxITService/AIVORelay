@@ -175,31 +175,33 @@ impl SonioxSttManager {
     }
 
     fn normalized_language_hints(language: Option<&str>) -> Option<Vec<String>> {
-        let mut language = match language {
-            Some(value) => value.trim().to_string(),
-            None => return None,
-        };
-
-        if language.is_empty() || language == "auto" {
-            return None;
+        let resolution = crate::language_resolver::resolve_requested_language_for_soniox(language);
+        match resolution.status {
+            crate::language_resolver::SonioxLanguageResolutionStatus::Supported => {
+                if let Some(normalized) = &resolution.normalized {
+                    debug!(
+                        "Soniox request language resolved: '{}' -> '{}'",
+                        resolution.original.as_deref().unwrap_or(""),
+                        normalized
+                    );
+                }
+            }
+            crate::language_resolver::SonioxLanguageResolutionStatus::AutoOrEmpty => {}
+            crate::language_resolver::SonioxLanguageResolutionStatus::OsInputUnavailable => {
+                warn!(
+                    "Soniox language fallback: OS input language could not be resolved, using auto-detect"
+                );
+            }
+            crate::language_resolver::SonioxLanguageResolutionStatus::Unsupported => {
+                warn!(
+                    "Soniox language fallback: unsupported language '{}' (normalized='{}'), using auto-detect",
+                    resolution.original.as_deref().unwrap_or(""),
+                    resolution.normalized.as_deref().unwrap_or("")
+                );
+            }
         }
 
-        if language == "os_input" {
-            language = match crate::input_source::get_language_from_input_source() {
-                Some(lang) if !lang.trim().is_empty() => lang,
-                _ => return None,
-            };
-        }
-
-        if language == "zh-Hans" || language == "zh-Hant" {
-            language = "zh".to_string();
-        }
-
-        if language.trim().is_empty() {
-            None
-        } else {
-            Some(vec![language])
-        }
+        resolution.hint.map(|hint| vec![hint])
     }
 
     fn normalize_model_for_realtime(model: &str) -> String {
