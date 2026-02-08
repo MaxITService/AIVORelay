@@ -99,6 +99,9 @@ struct LlmTemplateContext {
 static RECORDING_APP_CONTEXT: Lazy<Mutex<HashMap<String, String>>> =
     Lazy::new(|| Mutex::new(HashMap::new()));
 
+/// Live Soniox stop should finish quickly; long waits block returning to idle.
+const SONIOX_LIVE_STOP_TIMEOUT_SECONDS: u32 = 4;
+
 fn capture_recording_app_context(binding_id: &str) {
     #[cfg(target_os = "windows")]
     let app_name = crate::active_app::get_frontmost_app_name().unwrap_or_default();
@@ -1609,6 +1612,9 @@ impl ShortcutAction for TranscribeAction {
                 Some(context) => context,
                 None => return, // No active session - nothing to do
             };
+            // Live mode already streamed text while recording.
+            // On stop, hide overlay immediately to reflect that recording has ended.
+            utils::hide_recording_overlay(app);
             let profile_id_for_postprocess = stop_context.captured_profile_id.clone();
             let current_app = stop_context.current_app.clone();
 
@@ -1620,7 +1626,9 @@ impl ShortcutAction for TranscribeAction {
                 let samples = match rm.stop_recording(&binding_id) {
                     Some(samples) => samples,
                     None => {
-                        let _ = soniox_live_manager.finish_session(settings.soniox_timeout_seconds).await;
+                        let _ = soniox_live_manager
+                            .finish_session(SONIOX_LIVE_STOP_TIMEOUT_SECONDS)
+                            .await;
                         rm.clear_stream_frame_callback();
                         let _ = crate::clipboard::end_streaming_paste_session(&ah);
                         utils::hide_recording_overlay(&ah);
@@ -1632,7 +1640,7 @@ impl ShortcutAction for TranscribeAction {
                 rm.clear_stream_frame_callback();
 
                 let transcription_result = soniox_live_manager
-                    .finish_session(settings.soniox_timeout_seconds)
+                    .finish_session(SONIOX_LIVE_STOP_TIMEOUT_SECONDS)
                     .await;
                 let transcription = match transcription_result {
                     Ok(text) => apply_soniox_output_filters(&settings, text),

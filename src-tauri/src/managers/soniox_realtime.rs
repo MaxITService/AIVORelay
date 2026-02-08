@@ -437,7 +437,9 @@ impl SonioxRealtimeManager {
         sleep(Duration::from_millis(220)).await;
         let _ = control_tx.send(ControlMessage::Finish);
 
-        let wait_seconds = timeout_seconds.max(5) as u64 + 5;
+        // Bound stop/finalization wait to a short, predictable window so
+        // stop action can return to idle promptly even on unstable networks.
+        let wait_seconds = timeout_seconds.clamp(2, 20) as u64;
         let join_result = timeout(Duration::from_secs(wait_seconds), &mut join_handle).await;
 
         match join_result {
