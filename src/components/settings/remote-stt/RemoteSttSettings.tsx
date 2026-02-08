@@ -705,6 +705,16 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
                 layout="stacked"
                 disabled={sonioxUseProfileLanguageHintOnly}
               >
+                <div className="mb-2 flex justify-end">
+                  <a
+                    href="https://soniox.com/docs/stt/concepts/supported-languages"
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-xs text-accent hover:underline"
+                  >
+                    {t("settings.advanced.soniox.languageHints.supportedLanguagesLink")}
+                  </a>
+                </div>
                 <Input
                   type="text"
                   value={sonioxLanguageHintsInput}

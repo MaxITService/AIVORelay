@@ -781,7 +781,8 @@
         "languageHints": {
           "title": "Language Hints",
           "description": "Comma-separated ISO language codes (for example: en, es). Soniox is biased toward these languages, which usually improves recognition accuracy in AivoRelay and reduces wrong-language token guesses. This does not hard-lock recognition unless strict mode is enabled.",
-          "placeholder": "en, es"
+          "placeholder": "en, es",
+          "supportedLanguagesLink": "Supported languages (Open Web Documentation)"
         },
         "profileLanguageHintOnly": {
           "title": "Use Current Profile Language As Hint",
@@ -789,7 +790,7 @@
         },
         "languageHintsStrict": {
           "title": "Strict Language Restriction",
-          "description": "Strongly restrict recognition to the languages in Language Hints (works best with one language). In AivoRelay this can reduce accidental language switching, but if your speech truly mixes languages it may lower output quality for out-of-list phrases."
+          "description": "Recommended usage: Use a single language whenever possible. Language restriction is most robust when only one language is provided. Example: { \"language_hints\": [\"en\"], \"language_hints_strict\": true }. Multiple languages reduce robustness: you can provide more than one language, but accuracy may degrade when language identification becomes ambiguous (for example heavy accents or acoustically similar languages). Example: { \"language_hints\": [\"en\", \"es\"], \"language_hints_strict\": true }. In difficult cases, Soniox may still choose a wrong language/script, so single-language strict mode is strongly recommended when correctness is critical. In AivoRelay, this setting is best for known single-language workflows."
         },
         "endpointDetection": {
           "title": "Endpoint Detection",
