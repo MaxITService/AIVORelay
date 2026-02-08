@@ -377,7 +377,7 @@ impl ConnectorManager {
                     let now = now_ms();
                     {
                         let mut state_guard = keepalive_state.lock().unwrap();
-                        
+
                         // Check if we need to send a keepalive
                         if now - state_guard.last_keepalive > KEEPALIVE_INTERVAL_MS {
                             state_guard.last_keepalive = now;
@@ -830,6 +830,7 @@ async fn handle_get_messages(
         &settings.connector_password,
         settings.connector_pending_password.as_deref(),
     ) {
+        apply_random_auth_delay().await;
         return unauthorized_response();
     }
 
@@ -946,6 +947,7 @@ async fn handle_post_messages(
         &settings.connector_password,
         settings.connector_pending_password.as_deref(),
     ) {
+        apply_random_auth_delay().await;
         return unauthorized_response();
     }
 
@@ -983,6 +985,7 @@ async fn handle_get_blob(
         &settings.connector_password,
         settings.connector_pending_password.as_deref(),
     ) {
+        apply_random_auth_delay().await;
         return unauthorized_response();
     }
 
@@ -1040,6 +1043,18 @@ fn get_pending_messages(
 
     let ids: Vec<_> = filtered.iter().map(|m| m.id.clone()).collect();
     (filtered, ids)
+}
+
+/// Apply a random delay between 30 and 60 ms to unauthorized responses
+/// to mask timing differences and prevent brute-force/probing attacks.
+async fn apply_random_auth_delay() {
+    let mut buffer = [0u8; 1];
+    let delay = if getrandom::getrandom(&mut buffer).is_ok() {
+        30 + (buffer[0] % 31) as u64
+    } else {
+        45 // Fallback
+    };
+    tokio::time::sleep(std::time::Duration::from_millis(delay)).await;
 }
 
 /// Create unauthorized response
@@ -1132,15 +1147,20 @@ fn uuid_simple() -> String {
     format!("{:032x}", ts)
 }
 
-/// Constant-time comparison to prevent timing attacks
+/// Constant-time comparison to prevent timing attacks.
+/// Accumulates length mismatch and byte differences without early returns.
 fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
-    if a.len() != b.len() {
-        return false;
+    // res will be 0 only if lengths are equal
+    let mut res = if a.len() == b.len() { 0u8 } else { 1u8 };
+
+    // Iterate over the minimum length. The random delay in the handler
+    // will mask any timing leak from the floor of this loop's duration.
+    let n = std::cmp::min(a.len(), b.len());
+    for i in 0..n {
+        res |= a[i] ^ b[i];
     }
-    a.iter()
-        .zip(b.iter())
-        .fold(0u8, |acc, (x, y)| acc | (x ^ y))
-        == 0
+
+    res == 0
 }
 
 /// Generate a secure random password (32 hex characters)
