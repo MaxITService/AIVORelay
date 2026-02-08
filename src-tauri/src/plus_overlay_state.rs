@@ -12,6 +12,12 @@ use tauri::{AppHandle, Emitter, Manager};
 
 static OVERLAY_GENERATION: AtomicU64 = AtomicU64::new(0);
 
+/// Invalidate pending error auto-hide timers.
+/// Call this when showing any non-error overlay state.
+pub fn invalidate_error_overlay_auto_hide() {
+    OVERLAY_GENERATION.fetch_add(1, Ordering::SeqCst);
+}
+
 /// Error categories for overlay display
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "PascalCase")]

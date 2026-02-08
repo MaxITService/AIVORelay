@@ -1,4 +1,5 @@
 use crate::input;
+use crate::plus_overlay_state;
 use crate::settings;
 use crate::settings::OverlayPosition;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -220,6 +221,9 @@ pub fn create_recording_overlay(app_handle: &AppHandle) {
 
 /// Shows the recording overlay window with fade-in animation
 pub fn show_recording_overlay(app_handle: &AppHandle) {
+    // Cancel pending error auto-hide timers so a new active overlay is not hidden.
+    plus_overlay_state::invalidate_error_overlay_auto_hide();
+
     // Cancel any pending profile switch overlay auto-hide timer
     // by incrementing the generation counter
     PROFILE_OVERLAY_GENERATION.fetch_add(1, Ordering::SeqCst);
@@ -250,6 +254,9 @@ pub fn show_recording_overlay(app_handle: &AppHandle) {
 
 /// Shows the transcribing overlay window
 pub fn show_transcribing_overlay(app_handle: &AppHandle) {
+    // Cancel pending error auto-hide timers so a new active overlay is not hidden.
+    plus_overlay_state::invalidate_error_overlay_auto_hide();
+
     // Check if overlay should be shown based on position setting
     let settings = settings::get_settings(app_handle);
     if settings.overlay_position == OverlayPosition::None {
@@ -272,6 +279,9 @@ pub fn show_transcribing_overlay(app_handle: &AppHandle) {
 
 /// Shows the sending overlay window (for remote API calls)
 pub fn show_sending_overlay(app_handle: &AppHandle) {
+    // Cancel pending error auto-hide timers so a new active overlay is not hidden.
+    plus_overlay_state::invalidate_error_overlay_auto_hide();
+
     // Check if overlay should be shown based on position setting
     let settings = settings::get_settings(app_handle);
     if settings.overlay_position == OverlayPosition::None {
@@ -294,6 +304,9 @@ pub fn show_sending_overlay(app_handle: &AppHandle) {
 
 /// Shows the thinking overlay window (for LLM processing)
 pub fn show_thinking_overlay(app_handle: &AppHandle) {
+    // Cancel pending error auto-hide timers so a new active overlay is not hidden.
+    plus_overlay_state::invalidate_error_overlay_auto_hide();
+
     // Check if overlay should be shown based on position setting
     let settings = settings::get_settings(app_handle);
     if settings.overlay_position == OverlayPosition::None {
@@ -623,6 +636,9 @@ pub fn show_command_confirm_overlay(
 /// Shows a brief overlay notification when switching transcription profiles.
 /// Uses the existing recording overlay to display the profile name, then auto-hides.
 pub fn show_profile_switch_overlay(app_handle: &AppHandle, profile_name: &str) {
+    // Cancel pending error auto-hide timers so a new active overlay is not hidden.
+    plus_overlay_state::invalidate_error_overlay_auto_hide();
+
     let settings = settings::get_settings(app_handle);
     if settings.overlay_position == OverlayPosition::None {
         return;
