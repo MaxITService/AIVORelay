@@ -6,7 +6,14 @@
 /**
  * Extended overlay state type including new states
  */
-export type ExtendedOverlayState = "recording" | "sending" | "transcribing" | "thinking" | "error" | "profile_switch";
+export type ExtendedOverlayState =
+  | "recording"
+  | "sending"
+  | "transcribing"
+  | "thinking"
+  | "finalizing"
+  | "error"
+  | "profile_switch";
 
 /**
  * Error categories matching Rust OverlayErrorCategory enum
@@ -60,5 +67,4 @@ export function getErrorDisplayText(category: OverlayErrorCategory): string {
   };
   return messages[category];
 }
-
 

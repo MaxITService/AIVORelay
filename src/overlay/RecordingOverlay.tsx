@@ -96,6 +96,8 @@ const RecordingOverlay: React.FC = () => {
         return <SendingIcon />;
       case "thinking":
         return <ThinkingIcon />;
+      case "finalizing":
+        return <TranscriptionIcon />;
       case "error":
         return <span className="overlay-icon-emoji">❌</span>;
       case "profile_switch":
@@ -132,6 +134,9 @@ const RecordingOverlay: React.FC = () => {
         {state === "thinking" && (
           <div className="thinking-text">Thinking...</div>
         )}
+        {state === "finalizing" && (
+          <div className="transcribing-text">{t("overlay.finalizing", "Finalizing...")}</div>
+        )}
         {state === "transcribing" && (
           <div className="transcribing-text">{t("overlay.transcribing")}</div>
         )}
@@ -144,8 +149,11 @@ const RecordingOverlay: React.FC = () => {
       </div>
 
       <div className="overlay-right">
-        {/* Show cancel button for: recording, sending, thinking */}
-        {(state === "recording" || state === "sending" || state === "thinking") && (
+        {/* Show cancel button for: recording, sending, thinking, finalizing */}
+        {(state === "recording" ||
+          state === "sending" ||
+          state === "thinking" ||
+          state === "finalizing") && (
           <div
             className="cancel-button"
             onClick={() => {

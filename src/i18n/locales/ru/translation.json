@@ -662,7 +662,8 @@
     "description": "Изменить языка интерфейса Handy"
   },
   "overlay": {
-    "transcribing": "Расшифровка..."
+    "transcribing": "Расшифровка...",
+    "finalizing": "Финализация..."
   }
 }
 

@@ -17,7 +17,7 @@ use crate::settings::{
 };
 use crate::tray::{change_tray_icon, TrayIconState};
 use crate::utils::{
-    self, show_recording_overlay, show_sending_overlay, show_thinking_overlay,
+    self, show_finalizing_overlay, show_recording_overlay, show_sending_overlay, show_thinking_overlay,
     show_transcribing_overlay,
 };
 use crate::ManagedToggleState;
@@ -1610,8 +1610,12 @@ impl ShortcutAction for TranscribeAction {
                 None => return, // No active session - nothing to do
             };
             // Live mode already streamed text while recording.
-            // On stop, hide overlay immediately to reflect that recording has ended.
-            utils::hide_recording_overlay(app);
+            // On stop, show explicit finalizing state unless instant-stop is enabled.
+            if settings.soniox_live_instant_stop {
+                utils::hide_recording_overlay(app);
+            } else {
+                show_finalizing_overlay(app);
+            }
             let profile_id_for_postprocess = stop_context.captured_profile_id.clone();
             let current_app = stop_context.current_app.clone();
 

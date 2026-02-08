@@ -1512,7 +1512,8 @@
     "englishOnlyNote": "Sorry, I mostly only made english version of this application."
   },
   "overlay": {
-    "transcribing": "Transcribing..."
+    "transcribing": "Transcribing...",
+    "finalizing": "Finalizing..."
   },
   "transcribeFile": {
     "title": "Transcribe Audio File",

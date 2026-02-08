@@ -327,6 +327,31 @@ pub fn show_thinking_overlay(app_handle: &AppHandle) {
     }
 }
 
+/// Shows the finalizing overlay window (for Soniox live stop/finalization)
+pub fn show_finalizing_overlay(app_handle: &AppHandle) {
+    // Cancel pending error auto-hide timers so a new active overlay is not hidden.
+    plus_overlay_state::invalidate_error_overlay_auto_hide();
+
+    // Check if overlay should be shown based on position setting
+    let settings = settings::get_settings(app_handle);
+    if settings.overlay_position == OverlayPosition::None {
+        return;
+    }
+
+    update_overlay_position(app_handle);
+
+    if let Some(overlay_window) = app_handle.get_webview_window("recording_overlay") {
+        let _ = overlay_window.show();
+
+        // On Windows, aggressively re-assert "topmost" in the native Z-order after showing
+        #[cfg(target_os = "windows")]
+        force_overlay_topmost(&overlay_window);
+
+        // Emit event to switch to finalizing state
+        let _ = overlay_window.emit("show-overlay", "finalizing");
+    }
+}
+
 /// Updates the overlay window position based on current settings
 pub fn update_overlay_position(app_handle: &AppHandle) {
     if let Some(overlay_window) = app_handle.get_webview_window("recording_overlay") {
