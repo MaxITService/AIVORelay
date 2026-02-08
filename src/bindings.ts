@@ -921,6 +921,14 @@ async changeBetaVoiceCommandsEnabledSetting(enabled: boolean) : Promise<Result<n
     else return { status: "error", error: e  as any };
 }
 },
+async changeVoiceButtonShowAotToggleSetting(enabled: boolean) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("change_voice_button_show_aot_toggle_setting", { enabled }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async changeTextReplacementsEnabledSetting(enabled: boolean) : Promise<Result<null, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("change_text_replacements_enabled_setting", { enabled }) };
@@ -1534,6 +1542,46 @@ async testVoiceCommandMock(mockText: string) : Promise<Result<string, string>> {
     else return { status: "error", error: e  as any };
 }
 },
+async spawnVoiceActivationButtonWindow() : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("spawn_voice_activation_button_window") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async voiceActivationButtonGetPushToTalk() : Promise<Result<boolean, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("voice_activation_button_get_push_to_talk") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async voiceActivationButtonGetShowAotToggle() : Promise<Result<boolean, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("voice_activation_button_get_show_aot_toggle") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async voiceActivationButtonPress() : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("voice_activation_button_press") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async voiceActivationButtonRelease() : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("voice_activation_button_release") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 /**
  * Get the list of supported audio file extensions
  */
@@ -1826,6 +1874,10 @@ voice_command_word_similarity_threshold?: number;
  * Whether Voice Commands beta feature is enabled in the UI (Debug menu toggle)
  */
 beta_voice_commands_enabled?: boolean; 
+/**
+ * Whether to show the bottom always-on-top toggle row in the floating voice button window
+ */
+voice_button_show_aot_toggle?: boolean; 
 /**
  * Whether text replacement feature is enabled globally
  */

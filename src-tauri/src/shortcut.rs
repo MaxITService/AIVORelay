@@ -622,6 +622,27 @@ pub fn change_beta_voice_commands_enabled_setting(
 
 #[tauri::command]
 #[specta::specta]
+pub fn change_voice_button_show_aot_toggle_setting(
+    app: AppHandle,
+    enabled: bool,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.voice_button_show_aot_toggle = enabled;
+    settings::write_settings(&app, settings);
+
+    let _ = app.emit(
+        "settings-changed",
+        serde_json::json!({
+            "setting": "voice_button_show_aot_toggle",
+            "value": enabled
+        }),
+    );
+
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
 pub fn update_custom_words(app: AppHandle, words: Vec<String>) -> Result<(), String> {
     let mut settings = settings::get_settings(&app);
     settings.custom_words = words;

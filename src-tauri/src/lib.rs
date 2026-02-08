@@ -399,6 +399,7 @@ pub fn run() {
         shortcut::change_app_language_setting,
         shortcut::change_update_checks_setting,
         shortcut::change_beta_voice_commands_enabled_setting,
+        shortcut::change_voice_button_show_aot_toggle_setting,
         shortcut::change_text_replacements_enabled_setting,
         shortcut::change_text_replacements_setting,
         shortcut::change_text_replacements_before_llm_setting,
@@ -476,6 +477,11 @@ pub fn run() {
         commands::region_capture::region_capture_cancel,
         commands::voice_command::execute_voice_command,
         commands::voice_command::test_voice_command_mock,
+        commands::voice_activation_button::spawn_voice_activation_button_window,
+        commands::voice_activation_button::voice_activation_button_get_push_to_talk,
+        commands::voice_activation_button::voice_activation_button_get_show_aot_toggle,
+        commands::voice_activation_button::voice_activation_button_press,
+        commands::voice_activation_button::voice_activation_button_release,
         commands::file_transcription::get_supported_audio_extensions,
         commands::file_transcription::transcribe_audio_file,
         commands::key_listener::key_listener_start,
@@ -573,15 +579,19 @@ pub fn run() {
         })
         .on_window_event(|window, event| match event {
             tauri::WindowEvent::CloseRequested { api, .. } => {
-                api.prevent_close();
-                let _res = window.hide();
-                #[cfg(target_os = "macos")]
-                {
-                    let res = window
-                        .app_handle()
-                        .set_activation_policy(tauri::ActivationPolicy::Accessory);
-                    if let Err(e) = res {
-                        log::error!("Failed to set activation policy: {}", e);
+                // Only the main window should be hidden-to-tray on close.
+                // Auxiliary windows (e.g. voice activation button) must be allowed to close.
+                if window.label() == "main" {
+                    api.prevent_close();
+                    let _res = window.hide();
+                    #[cfg(target_os = "macos")]
+                    {
+                        let res = window
+                            .app_handle()
+                            .set_activation_policy(tauri::ActivationPolicy::Accessory);
+                        if let Err(e) = res {
+                            log::error!("Failed to set activation policy: {}", e);
+                        }
                     }
                 }
             }

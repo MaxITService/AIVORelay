@@ -25,6 +25,10 @@ export default defineConfig(async () => ({
         overlay: resolve(__dirname, "src/overlay/index.html"),
         "region-capture": resolve(__dirname, "src/region-capture/index.html"),
         "command-confirm": resolve(__dirname, "src/command-confirm/index.html"),
+        "voice-activation-button": resolve(
+          __dirname,
+          "src/voice-activation-button/index.html",
+        ),
       },
     },
   },

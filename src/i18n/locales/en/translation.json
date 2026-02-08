@@ -309,6 +309,10 @@
           "repaste_last": {
             "name": "Repaste Last",
             "description": "Paste the most recent transcription or AI response again."
+          },
+          "spawn_button": {
+            "name": "Spawn Voice Activation Button",
+            "description": "Open a floating on-screen voice activation button window."
           }
         },
         "errors": {

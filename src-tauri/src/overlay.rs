@@ -11,6 +11,8 @@ static PROFILE_OVERLAY_GENERATION: AtomicU64 = AtomicU64::new(0);
 
 #[cfg(not(target_os = "macos"))]
 use log::debug;
+#[cfg(target_os = "windows")]
+use log::info;
 
 #[cfg(not(target_os = "macos"))]
 use tauri::WebviewWindowBuilder;
@@ -37,6 +39,8 @@ const OVERLAY_HEIGHT: f64 = 36.0;
 // Command Confirmation Overlay dimensions
 const COMMAND_CONFIRM_WIDTH: f64 = 520.0;
 const COMMAND_CONFIRM_HEIGHT: f64 = 280.0;
+const VOICE_BUTTON_WIDTH: f64 = 80.0;
+const VOICE_BUTTON_HEIGHT: f64 = 80.0;
 
 #[cfg(target_os = "macos")]
 const OVERLAY_TOP_OFFSET: f64 = 46.0;
@@ -377,6 +381,131 @@ fn calculate_command_confirm_position(app_handle: &AppHandle) -> Option<(f64, f6
     }
     None
 }
+
+/// Calculates bottom-center position for the floating voice activation button window.
+fn calculate_voice_button_position(app_handle: &AppHandle) -> Option<(f64, f64)> {
+    if let Some(monitor) = get_monitor_with_cursor(app_handle) {
+        let work_area = monitor.work_area();
+        let scale = monitor.scale_factor();
+        let work_area_width = work_area.size.width as f64 / scale;
+        let work_area_height = work_area.size.height as f64 / scale;
+        let work_area_x = work_area.position.x as f64 / scale;
+        let work_area_y = work_area.position.y as f64 / scale;
+
+        let x = work_area_x + (work_area_width - VOICE_BUTTON_WIDTH) / 2.0;
+        let y = work_area_y + work_area_height - VOICE_BUTTON_HEIGHT - 40.0;
+        return Some((x, y));
+    }
+    None
+}
+
+/// Shows the floating voice activation button window.
+/// Creates the window if it doesn't exist yet.
+#[cfg(target_os = "windows")]
+pub fn show_voice_activation_button_window(app_handle: &AppHandle) -> Result<(), String> {
+    let window_label = "voice_activation_button";
+    info!("show_voice_activation_button_window called");
+    let initial_position = calculate_voice_button_position(app_handle);
+
+    // Track whether this is a new window (need to set initial position)
+    let is_new_window;
+
+    let window = if let Some(existing) = app_handle.get_webview_window(window_label) {
+        info!("Reusing existing voice activation button window");
+        is_new_window = false;
+        existing
+    } else if let Some((x, y)) = initial_position {
+        is_new_window = true;
+        info!(
+            "Creating new voice activation button window at ({}, {})",
+            x, y
+        );
+        match WebviewWindowBuilder::new(
+            app_handle,
+            window_label,
+            tauri::WebviewUrl::App("src/voice-activation-button/index.html".into()),
+        )
+        .title("Voice Activation Button")
+        .position(x, y)
+        .inner_size(VOICE_BUTTON_WIDTH, VOICE_BUTTON_HEIGHT)
+        .resizable(true)
+        .maximizable(false)
+        .minimizable(false)
+        .closable(true)
+        .decorations(false)
+        .always_on_top(true)
+        .skip_taskbar(true)
+        .transparent(false)
+        .focused(false)
+        .visible(false)
+        .build()
+        {
+            Ok(window) => window,
+            Err(e) => {
+                let msg = format!("Failed to create voice activation button window: {}", e);
+                log::error!("{}", msg);
+                return Err(msg);
+            }
+        }
+    } else {
+        is_new_window = true;
+        info!("Primary position unavailable; using fallback position (100, 100)");
+        // Fallback if monitor detection fails.
+        match WebviewWindowBuilder::new(
+            app_handle,
+            window_label,
+            tauri::WebviewUrl::App("src/voice-activation-button/index.html".into()),
+        )
+        .title("Voice Activation Button")
+        .position(100.0, 100.0)
+        .inner_size(VOICE_BUTTON_WIDTH, VOICE_BUTTON_HEIGHT)
+        .resizable(true)
+        .maximizable(false)
+        .minimizable(false)
+        .closable(true)
+        .decorations(false)
+        .always_on_top(true)
+        .skip_taskbar(true)
+        .transparent(false)
+        .focused(false)
+        .visible(false)
+        .build()
+        {
+            Ok(window) => window,
+            Err(e) => {
+                let msg = format!(
+                    "Could not calculate position and fallback window creation failed: {}",
+                    e
+                );
+                log::error!("{}", msg);
+                return Err(msg);
+            }
+        }
+    };
+
+    // Only set position for new windows - preserve user's drag position for existing ones
+    if is_new_window {
+        let _ = window.set_size(tauri::Size::Logical(tauri::LogicalSize {
+            width: VOICE_BUTTON_WIDTH,
+            height: VOICE_BUTTON_HEIGHT,
+        }));
+    }
+
+    if let Err(e) = window.show() {
+        let msg = format!("Failed to show voice activation button window: {}", e);
+        log::error!("{}", msg);
+        return Err(msg);
+    }
+    info!("Voice activation button window shown");
+    force_overlay_topmost(&window);
+    let _ = window.set_focus();
+    Ok(())
+}
+
+#[cfg(not(target_os = "windows"))]
+pub fn show_voice_activation_button_window(_app_handle: &AppHandle) -> Result<(), String> {
+    Err("Voice activation button window is currently Windows-only.".to_string())
+}
 /// Shows the command confirmation overlay with the given payload.
 /// Creates the window if it doesn't exist yet.
 #[cfg(target_os = "windows")]
@@ -412,7 +541,7 @@ pub fn show_command_confirm_overlay(
             .title("Voice Command")
             .position(x, y)
             .inner_size(COMMAND_CONFIRM_WIDTH, COMMAND_CONFIRM_HEIGHT)
-            .resizable(true)  // Allow programmatic resizing for error display
+            .resizable(true) // Allow programmatic resizing for error display
             .maximizable(false)
             .minimizable(false)
             .closable(true)

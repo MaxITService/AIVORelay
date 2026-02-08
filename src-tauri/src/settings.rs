@@ -978,6 +978,9 @@ pub struct AppSettings {
     /// Whether Voice Commands beta feature is enabled in the UI (Debug menu toggle)
     #[serde(default = "default_true")]
     pub beta_voice_commands_enabled: bool,
+    /// Whether to show the bottom always-on-top toggle row in the floating voice button window
+    #[serde(default)]
+    pub voice_button_show_aot_toggle: bool,
     // ==================== Text Replacement ====================
     /// Whether text replacement feature is enabled globally
     #[serde(default)]
@@ -1538,6 +1541,18 @@ pub fn get_default_settings() -> AppSettings {
             current_binding: "".to_string(),
         },
     );
+    #[cfg(target_os = "windows")]
+    bindings.insert(
+        "spawn_button".to_string(),
+        ShortcutBinding {
+            id: "spawn_button".to_string(),
+            name: "Spawn Voice Activation Button".to_string(),
+            description:
+                "Open a floating on-screen voice activation button window.".to_string(),
+            default_binding: "".to_string(),
+            current_binding: "".to_string(),
+        },
+    );
     // Default profile shortcut (optional - uses global settings when active)
     bindings.insert(
         "transcribe_default".to_string(),
@@ -1680,6 +1695,7 @@ pub fn get_default_settings() -> AppSettings {
         voice_command_word_similarity_threshold: default_voice_command_word_similarity_threshold(),
         // Beta Feature Flags
         beta_voice_commands_enabled: false,
+        voice_button_show_aot_toggle: false,
         // Text Replacement
         text_replacements_enabled: false,
         text_replacements: Vec::new(),

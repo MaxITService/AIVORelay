@@ -57,6 +57,8 @@ struct SendScreenshotToExtensionAction;
 struct RepastLastAction;
 
 struct CycleProfileAction;
+#[cfg(target_os = "windows")]
+struct SpawnVoiceButtonAction;
 
 use crate::settings::TranscriptionProfile;
 
@@ -2095,6 +2097,29 @@ impl ShortcutAction for CycleProfileAction {
     }
 }
 
+#[cfg(target_os = "windows")]
+impl ShortcutAction for SpawnVoiceButtonAction {
+    fn start(&self, app: &AppHandle, _binding_id: &str, _shortcut_str: &str) {
+        let ah = app.clone();
+        tauri::async_runtime::spawn(async move {
+            if let Err(e) =
+                crate::commands::voice_activation_button::spawn_voice_activation_button_window(ah)
+                    .await
+            {
+                warn!("Failed to spawn voice activation button window: {}", e);
+            }
+        });
+    }
+
+    fn stop(&self, _app: &AppHandle, _binding_id: &str, _shortcut_str: &str) {
+        // Instant action: nothing to do on key release.
+    }
+
+    fn is_instant(&self) -> bool {
+        true
+    }
+}
+
 // ============================================================================
 // Voice Command Action (Windows only)
 // ============================================================================
@@ -2572,6 +2597,11 @@ pub static ACTION_MAP: Lazy<HashMap<String, Arc<dyn ShortcutAction>>> = Lazy::ne
     map.insert(
         "cycle_profile".to_string(),
         Arc::new(CycleProfileAction) as Arc<dyn ShortcutAction>,
+    );
+    #[cfg(target_os = "windows")]
+    map.insert(
+        "spawn_button".to_string(),
+        Arc::new(SpawnVoiceButtonAction) as Arc<dyn ShortcutAction>,
     );
     #[cfg(target_os = "windows")]
     map.insert(
