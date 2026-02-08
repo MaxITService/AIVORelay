@@ -46,6 +46,9 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
   );
   const sonioxLanguageHints = ((settings as any)?.soniox_language_hints ??
     ["en"]) as string[];
+  const sonioxUseProfileLanguageHintOnly = Boolean(
+    (settings as any)?.soniox_use_profile_language_hint_only ?? false,
+  );
   const sonioxLanguageHintsStrict = Boolean(
     (settings as any)?.soniox_language_hints_strict ?? false,
   );
@@ -595,6 +598,7 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
                     "finalizeTimeout",
                     "instantStop",
                     "languageHints",
+                    "profileLanguageHintOnly",
                     "strict",
                     "endpoint",
                     "keepalive",
@@ -676,12 +680,30 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
                 </p>
               )}
 
+              <ToggleSwitch
+                label={t("settings.advanced.soniox.profileLanguageHintOnly.title")}
+                description={t(
+                  "settings.advanced.soniox.profileLanguageHintOnly.description",
+                )}
+                checked={sonioxUseProfileLanguageHintOnly}
+                onChange={(enabled) =>
+                  void updateSetting(
+                    "soniox_use_profile_language_hint_only" as any,
+                    enabled as any,
+                  )
+                }
+                isUpdating={isUpdating("soniox_use_profile_language_hint_only")}
+                descriptionMode={descriptionMode}
+                grouped={grouped}
+              />
+
               <SettingContainer
                 title={t("settings.advanced.soniox.languageHints.title")}
                 description={t("settings.advanced.soniox.languageHints.description")}
                 descriptionMode={descriptionMode}
                 grouped={grouped}
                 layout="stacked"
+                disabled={sonioxUseProfileLanguageHintOnly}
               >
                 <Input
                   type="text"
@@ -692,6 +714,7 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
                   onBlur={handleSonioxLanguageHintsBlur}
                   placeholder={t("settings.advanced.soniox.languageHints.placeholder")}
                   className="w-full"
+                  disabled={sonioxUseProfileLanguageHintOnly}
                 />
               </SettingContainer>
 

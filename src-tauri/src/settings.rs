@@ -748,6 +748,8 @@ pub struct AppSettings {
     #[serde(default = "default_soniox_language_hints")]
     pub soniox_language_hints: Vec<String>,
     #[serde(default = "default_false")]
+    pub soniox_use_profile_language_hint_only: bool,
+    #[serde(default = "default_false")]
     pub soniox_language_hints_strict: bool,
     #[serde(default = "default_true")]
     pub soniox_enable_endpoint_detection: bool,
@@ -1675,6 +1677,7 @@ pub fn get_default_settings() -> AppSettings {
         soniox_timeout_seconds: default_soniox_timeout_seconds(),
         soniox_live_enabled: default_soniox_live_enabled(),
         soniox_language_hints: default_soniox_language_hints(),
+        soniox_use_profile_language_hint_only: default_false(),
         soniox_language_hints_strict: default_false(),
         soniox_enable_endpoint_detection: default_true(),
         soniox_max_endpoint_delay_ms: default_soniox_max_endpoint_delay_ms(),

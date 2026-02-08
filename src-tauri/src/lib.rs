@@ -335,6 +335,7 @@ pub fn run() {
         shortcut::change_soniox_timeout_setting,
         shortcut::change_soniox_live_enabled_setting,
         shortcut::change_soniox_language_hints_setting,
+        shortcut::change_soniox_use_profile_language_hint_only_setting,
         shortcut::change_soniox_language_hints_strict_setting,
         shortcut::change_soniox_endpoint_detection_setting,
         shortcut::change_soniox_max_endpoint_delay_ms_setting,

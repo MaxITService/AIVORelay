@@ -220,6 +220,8 @@ const settingUpdaters: {
   invoke("change_soniox_live_enabled_setting", { enabled: value });
 (settingUpdaters as any).soniox_language_hints = (value: any) =>
   invoke("change_soniox_language_hints_setting", { hints: value });
+(settingUpdaters as any).soniox_use_profile_language_hint_only = (value: any) =>
+  invoke("change_soniox_use_profile_language_hint_only_setting", { enabled: value });
 (settingUpdaters as any).soniox_language_hints_strict = (value: any) =>
   invoke("change_soniox_language_hints_strict_setting", { enabled: value });
 (settingUpdaters as any).soniox_enable_endpoint_detection = (value: any) =>

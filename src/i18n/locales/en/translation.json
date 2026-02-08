@@ -755,6 +755,7 @@
             "finalizeTimeout": "Live Finalization Timeout: after you press Stop, AivoRelay waits this long for Soniox to return remaining final tokens. During this window, recording is already stopped in UI, but trailing words can still be appended if they arrive. When timeout is reached, session is force-closed.",
             "instantStop": "Instant Stop (AivoRelay feature): ends live session immediately on Stop and ignores late chunks; fastest UX but highest risk of cutting last words.",
             "languageHints": "Language Hints: biases recognition toward listed languages.",
+            "profileLanguageHintOnly": "Use Current Profile Language As Hint: ignores manual Language Hints and sends exactly one hint derived from the active profile language (or global language if no profile is active).",
             "strict": "Strict Language Restriction: strongly constrains output to language hints.",
             "endpoint": "Endpoint Detection: Soniox semantic end-of-utterance detection.",
             "keepalive": "Keepalive Interval: ping period during silence to keep WebSocket alive (recommended 5-10s, should never exceed 20s idle).",
@@ -781,6 +782,10 @@
           "title": "Language Hints",
           "description": "Comma-separated ISO language codes (for example: en, es). Soniox is biased toward these languages, which usually improves recognition accuracy in AivoRelay and reduces wrong-language token guesses. This does not hard-lock recognition unless strict mode is enabled.",
           "placeholder": "en, es"
+        },
+        "profileLanguageHintOnly": {
+          "title": "Use Current Profile Language As Hint",
+          "description": "When enabled, AivoRelay ignores the Language Hints list and sends exactly one hint derived from the active profile language (or global language if no profile is active). This keeps Soniox language bias aligned with the profile and avoids stale manual hints."
         },
         "languageHintsStrict": {
           "title": "Strict Language Restriction",

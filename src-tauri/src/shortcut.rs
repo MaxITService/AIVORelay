@@ -843,6 +843,18 @@ pub fn change_soniox_language_hints_setting(
 
 #[tauri::command]
 #[specta::specta]
+pub fn change_soniox_use_profile_language_hint_only_setting(
+    app: AppHandle,
+    enabled: bool,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.soniox_use_profile_language_hint_only = enabled;
+    settings::write_settings(&app, settings);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
 pub fn change_soniox_language_hints_strict_setting(
     app: AppHandle,
     enabled: bool,
@@ -954,6 +966,7 @@ pub fn reset_soniox_settings_to_defaults(app: AppHandle) -> Result<(), String> {
     settings.soniox_timeout_seconds = 30;
     settings.soniox_live_enabled = true;
     settings.soniox_language_hints = vec!["en".to_string()];
+    settings.soniox_use_profile_language_hint_only = false;
     settings.soniox_language_hints_strict = false;
     settings.soniox_enable_endpoint_detection = true;
     settings.soniox_max_endpoint_delay_ms = SONIOX_DEFAULT_MAX_ENDPOINT_DELAY_MS;

@@ -345,6 +345,7 @@
             "finalizeTimeout": "Live Finalization Timeout: сколько ждать финальные токены после Stop перед принудительным закрытием сессии.",
             "instantStop": "Instant Stop (фича AivoRelay): мгновенно завершает live-сессию по Stop и игнорирует поздние чанки; самый быстрый UX, но выше риск обрезать последние слова.",
             "languageHints": "Language Hints: повышает вероятность распознавания указанных языков.",
+            "profileLanguageHintOnly": "Использовать язык текущего профиля как hint: игнорирует ручной список Language Hints и отправляет ровно один hint из активного профиля (или глобального языка, если профиль не активен).",
             "strict": "Strict Language Restriction: максимально ограничивает вывод языками из hints.",
             "endpoint": "Endpoint Detection: семантическое определение конца фразы в Soniox.",
             "keepalive": "Keepalive Interval: период keepalive во время тишины для удержания WebSocket (рекомендуемо 5-10s, нежелательно простаивать >20s).",
@@ -371,6 +372,10 @@
           "title": "Language hints",
           "description": "Коды языков ISO через запятую (например: en, es). Soniox будет склоняться к этим языкам, что в AivoRelay обычно улучшает точность и уменьшает случайные переключения на другой язык.",
           "placeholder": "en, es"
+        },
+        "profileLanguageHintOnly": {
+          "title": "Использовать язык текущего профиля как hint",
+          "description": "Если включено, AivoRelay игнорирует список Language Hints и отправляет ровно один hint из языка активного профиля (или глобального языка, если профиль не активен). Это синхронизирует языковой bias Soniox с профилем и исключает устаревшие ручные hints."
         },
         "languageHintsStrict": {
           "title": "Строгое ограничение языка",

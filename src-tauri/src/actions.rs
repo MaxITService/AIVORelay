@@ -1195,10 +1195,43 @@ fn should_use_soniox_live_streaming(settings: &AppSettings) -> bool {
         && SonioxRealtimeManager::is_realtime_model(&settings.soniox_model)
 }
 
+fn normalize_soniox_hint_from_language(language: &str) -> Option<String> {
+    let mut resolved = language.trim().to_string();
+    if resolved.is_empty() || resolved == "auto" {
+        return None;
+    }
+
+    if resolved == "os_input" {
+        resolved = match crate::input_source::get_language_from_input_source() {
+            Some(lang) if !lang.trim().is_empty() => lang,
+            _ => return None,
+        };
+    }
+
+    if resolved == "zh-Hans" || resolved == "zh-Hant" {
+        resolved = "zh".to_string();
+    }
+
+    let normalized = resolved.trim().to_lowercase();
+    if normalized.is_empty() {
+        None
+    } else {
+        Some(normalized)
+    }
+}
+
 fn build_soniox_realtime_options(settings: &AppSettings, language: &str) -> SonioxRealtimeOptions {
-    let mut language_hints = settings.soniox_language_hints.clone();
-    if language_hints.is_empty() && !language.trim().is_empty() && language != "auto" {
-        language_hints.push(language.trim().to_lowercase());
+    let mut language_hints = if settings.soniox_use_profile_language_hint_only {
+        normalize_soniox_hint_from_language(language)
+            .into_iter()
+            .collect()
+    } else {
+        settings.soniox_language_hints.clone()
+    };
+    if language_hints.is_empty() {
+        if let Some(profile_hint) = normalize_soniox_hint_from_language(language) {
+            language_hints.push(profile_hint);
+        }
     }
 
     SonioxRealtimeOptions {
