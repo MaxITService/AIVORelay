@@ -9,11 +9,13 @@ import { RemoteSttWizard } from "./RemoteSttWizard";
 interface OnboardingProps {
   onModelSelected: () => void;
   onRemoteSelected: () => void;
+  showFullCatalog?: boolean;
 }
 
 const Onboarding: React.FC<OnboardingProps> = ({
   onModelSelected,
   onRemoteSelected,
+  showFullCatalog = false,
 }) => {
   const { t } = useTranslation();
   const isWindows = type() === "windows";
@@ -25,14 +27,17 @@ const Onboarding: React.FC<OnboardingProps> = ({
 
   useEffect(() => {
     loadModels();
-  }, []);
+  }, [showFullCatalog]);
 
   const loadModels = async () => {
     try {
       const result = await commands.getAvailableModels();
       if (result.status === "ok") {
-        // Only show downloadable models for onboarding
-        setAvailableModels(result.data.filter((m) => !m.is_downloaded));
+        // First-run onboarding shows only downloadable models.
+        // Debug re-run mode shows the full catalog.
+        setAvailableModels(
+          showFullCatalog ? result.data : result.data.filter((m) => !m.is_downloaded),
+        );
       } else {
         setError(t("onboarding.errors.loadModels"));
       }
@@ -42,7 +47,21 @@ const Onboarding: React.FC<OnboardingProps> = ({
     }
   };
 
-  const handleDownloadModel = async (modelId: string) => {
+  const handleModelSelection = async (model: ModelInfo) => {
+    if (model.is_downloaded) {
+      try {
+        const result = await commands.setActiveModel(model.id);
+        if (result.status === "ok") {
+          onModelSelected();
+          return;
+        }
+        setError(t("onboarding.errors.selectModel", { error: result.error }));
+      } catch (err) {
+        setError(t("onboarding.errors.selectModel", { error: String(err) }));
+      }
+      return;
+    }
+
     setDownloading(true);
     setError(null);
 
@@ -50,7 +69,7 @@ const Onboarding: React.FC<OnboardingProps> = ({
     onModelSelected();
 
     try {
-      const result = await commands.downloadModel(modelId);
+      const result = await commands.downloadModel(model.id);
       if (result.status === "error") {
         console.error("Download failed:", result.error);
         setError(t("onboarding.errors.downloadModel", { error: result.error }));
@@ -101,7 +120,7 @@ const Onboarding: React.FC<OnboardingProps> = ({
   };
 
   return (
-    <div className="h-screen w-screen flex flex-col p-8 gap-6 inset-0 bg-gradient-to-br from-[#1e1e1e] via-[#222222] to-[#1a1a1a]">
+    <div className="min-h-screen w-screen flex flex-col p-8 gap-6 inset-0 bg-gradient-to-br from-[#1e1e1e] via-[#222222] to-[#1a1a1a]">
       <div className="flex flex-col items-center gap-3 shrink-0">
         <HandyTextLogo width={220} className="drop-shadow-[0_0_20px_rgba(255,107,157,0.4)]" />
         <p className="text-[#a0a0a0] max-w-md font-medium mx-auto text-center">
@@ -178,7 +197,7 @@ const Onboarding: React.FC<OnboardingProps> = ({
                     model={model}
                     variant="featured"
                     disabled={downloading}
-                    onSelect={handleDownloadModel}
+                    onSelect={handleModelSelection}
                   />
                 ))}
 
@@ -190,7 +209,7 @@ const Onboarding: React.FC<OnboardingProps> = ({
                     key={model.id}
                     model={model}
                     disabled={downloading}
-                    onSelect={handleDownloadModel}
+                    onSelect={handleModelSelection}
                   />
                 ))}
             </>

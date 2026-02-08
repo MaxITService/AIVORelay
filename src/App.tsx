@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Toaster, toast } from "sonner";
 import "./App.css";
 import AccessibilityPermissions from "./components/AccessibilityPermissions";
@@ -10,6 +10,7 @@ import { useSettings } from "./hooks/useSettings";
 import { commands } from "@/bindings";
 import { listen } from "@tauri-apps/api/event";
 import { useNavigationStore } from "./stores/navigationStore";
+import { OPEN_FIRST_START_WIZARD_EVENT } from "./constants/appEvents";
 
 const renderSettingsContent = (section: SidebarSection) => {
   const ActiveComponent =
@@ -19,12 +20,63 @@ const renderSettingsContent = (section: SidebarSection) => {
 
 function App() {
   const [showOnboarding, setShowOnboarding] = useState<boolean | null>(null);
+  const [onboardingFromDebug, setOnboardingFromDebug] = useState(false);
+  const [showHotkeyWelcomeHint, setShowHotkeyWelcomeHint] = useState(false);
+  const previousOnboardingState = useRef<boolean | null>(null);
   const { currentSection, setSection: setCurrentSection } = useNavigationStore();
   const { settings, updateSetting, refreshSettings } = useSettings();
 
   useEffect(() => {
     checkOnboardingStatus();
   }, []);
+
+  useEffect(() => {
+    const handleOpenFirstStartWizard = () => {
+      setOnboardingFromDebug(true);
+      setShowOnboarding(true);
+    };
+
+    window.addEventListener(
+      OPEN_FIRST_START_WIZARD_EVENT,
+      handleOpenFirstStartWizard,
+    );
+
+    return () => {
+      window.removeEventListener(
+        OPEN_FIRST_START_WIZARD_EVENT,
+        handleOpenFirstStartWizard,
+      );
+    };
+  }, []);
+
+  useEffect(() => {
+    const previous = previousOnboardingState.current;
+    if (previous === true && showOnboarding === false) {
+      setShowHotkeyWelcomeHint(true);
+    }
+    previousOnboardingState.current = showOnboarding;
+  }, [showOnboarding]);
+
+  useEffect(() => {
+    if (!showHotkeyWelcomeHint) {
+      return;
+    }
+
+    const handleWindowClick = () => {
+      setShowHotkeyWelcomeHint(false);
+    };
+
+    window.addEventListener("click", handleWindowClick);
+
+    const timeoutId = window.setTimeout(() => {
+      setShowHotkeyWelcomeHint(false);
+    }, 16000);
+
+    return () => {
+      window.removeEventListener("click", handleWindowClick);
+      window.clearTimeout(timeoutId);
+    };
+  }, [showHotkeyWelcomeHint]);
 
   useEffect(() => {
     const ERROR_TOAST_DURATION_MS = 8000;
@@ -100,10 +152,12 @@ function App() {
 
   const handleModelSelected = () => {
     // Transition to main app - user has started a download
+    setOnboardingFromDebug(false);
     setShowOnboarding(false);
   };
 
   const handleRemoteSelected = () => {
+    setOnboardingFromDebug(false);
     setShowOnboarding(false);
     setCurrentSection("general");
     refreshSettings();
@@ -114,6 +168,7 @@ function App() {
       <Onboarding
         onModelSelected={handleModelSelected}
         onRemoteSelected={handleRemoteSelected}
+        showFullCatalog={onboardingFromDebug}
       />
     );
   }
@@ -150,7 +205,10 @@ function App() {
       {/* Fixed footer at bottom */}
       <Footer />
       {/* Hotkey sidebar on the right edge */}
-      <HotkeySidebar />
+      <HotkeySidebar
+        showNewcomerHint={showHotkeyWelcomeHint}
+        onDismissNewcomerHint={() => setShowHotkeyWelcomeHint(false)}
+      />
     </div>
   );
 }

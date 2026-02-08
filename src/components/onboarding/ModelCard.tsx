@@ -14,7 +14,7 @@ interface ModelCardProps {
   variant?: "default" | "featured";
   disabled?: boolean;
   className?: string;
-  onSelect: (modelId: string) => void;
+  onSelect: (model: ModelInfo) => void;
 }
 
 const ModelCard: React.FC<ModelCardProps> = ({
@@ -40,7 +40,7 @@ const ModelCard: React.FC<ModelCardProps> = ({
 
   return (
     <button
-      onClick={() => onSelect(model.id)}
+      onClick={() => onSelect(model)}
       disabled={disabled}
       className={[baseButtonClasses, variantClasses, className]
         .filter(Boolean)

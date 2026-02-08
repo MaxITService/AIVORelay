@@ -28,6 +28,10 @@
     "openSidebar": "Open hotkey sidebar",
     "closeSidebar": "Close hotkey sidebar",
     "configureHint": "Configure in Settings",
+    "newcomer": {
+      "title": "New here?",
+      "message": "Open the all key mappings menu to see every shortcut and quickly learn what AivoRelay can do."
+    },
     "categories": {
       "recording": "Recording",
       "actions": "Actions",
@@ -165,6 +169,7 @@
     "errors": {
       "loadModels": "Failed to load available models",
       "downloadModel": "Failed to download model: {{error}}",
+      "selectModel": "Failed to select model: {{error}}",
       "selectLocal": "Failed to select local mode",
       "selectRemote": "Failed to select remote mode"
     },
@@ -831,6 +836,14 @@
     },
     "debug": {
       "title": "Debug",
+      "tools": {
+        "title": "Debug Tools"
+      },
+      "firstStartWizard": {
+        "title": "First Start Wizard",
+        "description": "Open the first start wizard again.",
+        "button": "Open first start wizard"
+      },
       "shortcutEngine": {
         "title": "Shortcut Engine",
         "description": "Choose the keyboard shortcut detection method. rdev supports all keys but uses more CPU: read warning in \"tell me more\" below. Tauri is faster but has limited key support.",
