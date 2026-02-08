@@ -282,8 +282,17 @@
         "tellMeMore": {
           "title": "Подробнее: Soniox Real-time",
           "headline": "Как real-time Soniox работает в AivoRelay.",
-          "liveFlow": "Когда включен Live-режим, звук с микрофона отправляется в Soniox по WebSocket, а подтвержденные токены вставляются прямо во время речи.",
+          "liveFlow": "Когда включен Live-режим, звук с микрофона отправляется в Soniox по WebSocket. Soniox может отдавать черновые и финальные токены, но AivoRelay ориентирован на стабильный финальный вывод, чтобы текст не «мигал».",
           "stopFlow": "При Stop AivoRelay останавливает локальный захват, запрашивает финализацию, коротко ждёт хвостовые токены и возвращается в idle.",
+          "realtimeBehavior": {
+            "title": "Поведение real-time по документации Soniox (в контексте AivoRelay)",
+            "tokenDraft": "Нефинальные токены (is_final=false) черновые и могут меняться; финальные (is_final=true) уже не изменятся.",
+            "tokenFinal": "Цель UX в AivoRelay: стабильный вставляемый текст во время речи и минимум потерь хвоста при Stop.",
+            "manualFinalize": "При Stop AivoRelay отправляет {\"type\":\"finalize\"}, чтобы Soniox финализировал накопленную речь перед закрытием сессии.",
+            "finMarker": "После ручной финализации Soniox может прислать маркер <fin>; это служебный сигнал, а не пользовательский текст.",
+            "keepalive": "Во время тишины нужны keepalive-сообщения, чтобы соединение не протухло (рекомендация Soniox: минимум раз в 20 секунд).",
+            "silenceRule": "Для баланса точности и задержки лучше финализировать после короткой тишины (~200 мс), а не слишком рано."
+          },
           "userStory": {
             "title": "User story в нашем приложении",
             "item1": "Как пользователь, я нажимаю один шорткат, говорю естественно и вижу стабильный текст ещё во время речи.",
@@ -334,11 +343,11 @@
             "live": "Live Real-time Streaming: включает прямой WebSocket-путь для моделей stt-rt.",
             "timeout": "Soniox Timeout: таймаут для не-live/legacy Soniox запросов.",
             "finalizeTimeout": "Live Finalization Timeout: сколько ждать финальные токены после Stop перед принудительным закрытием сессии.",
-            "instantStop": "Instant Stop (фича AivoRelay): мгновенно завершает live-сессию по Stop и игнорирует поздние чанки.",
+            "instantStop": "Instant Stop (фича AivoRelay): мгновенно завершает live-сессию по Stop и игнорирует поздние чанки; самый быстрый UX, но выше риск обрезать последние слова.",
             "languageHints": "Language Hints: повышает вероятность распознавания указанных языков.",
             "strict": "Strict Language Restriction: максимально ограничивает вывод языками из hints.",
             "endpoint": "Endpoint Detection: семантическое определение конца фразы в Soniox.",
-            "keepalive": "Keepalive Interval: период keepalive во время тишины для удержания WebSocket.",
+            "keepalive": "Keepalive Interval: период keepalive во время тишины для удержания WebSocket (рекомендуемо 5-10s, нежелательно простаивать >20s).",
             "languageIdentification": "Language Identification: добавляет метаданные обнаруженного языка по токенам.",
             "speakerDiarization": "Speaker Diarization: добавляет метки спикеров в метаданные токенов."
           },
@@ -377,7 +386,7 @@
         },
         "keepalive": {
           "title": "Интервал keepalive (сек)",
-          "description": "Как часто отправлять keepalive при тишине (5-20 секунд), чтобы WebSocket-сессия не закрывалась. В AivoRelay это уменьшает количество переподключений между фразами и делает live-поток стабильнее."
+          "description": "Как часто отправлять keepalive при тишине (5-20 секунд), чтобы WebSocket-сессия не закрывалась. Рекомендация Soniox: если аудио не отправляется, keepalive должен приходить минимум раз в 20 секунд. В AivoRelay это снижает переподключения между фразами и делает live-поток стабильнее."
         },
         "finalizeTimeout": {
           "title": "Таймаут финализации live (секунды)",

@@ -513,7 +513,6 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
             <>
               <TellMeMore
                 title={t("settings.advanced.soniox.tellMeMore.title")}
-                collapsible={false}
               >
                 <p className="mb-2">
                   <strong>{t("settings.advanced.soniox.tellMeMore.headline")}</strong>
@@ -524,6 +523,23 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
                 <p className="mb-2">
                   {t("settings.advanced.soniox.tellMeMore.stopFlow")}
                 </p>
+                <p className="mb-1 font-medium">
+                  {t("settings.advanced.soniox.tellMeMore.realtimeBehavior.title")}
+                </p>
+                <ul className="list-disc space-y-1 pl-5 mb-3 text-sm text-text/90">
+                  {[
+                    "tokenDraft",
+                    "tokenFinal",
+                    "manualFinalize",
+                    "finMarker",
+                    "keepalive",
+                    "silenceRule",
+                  ].map((id) => (
+                    <li key={id}>
+                      {t(`settings.advanced.soniox.tellMeMore.realtimeBehavior.${id}`)}
+                    </li>
+                  ))}
+                </ul>
                 <p className="mb-1 font-medium">
                   {t("settings.advanced.soniox.tellMeMore.userStory.title")}
                 </p>
@@ -568,6 +584,28 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
                     </div>
                   ))}
                 </div>
+                <p className="mb-1 font-medium">
+                  {t("settings.advanced.soniox.tellMeMore.parametersTitle")}
+                </p>
+                <ul className="list-disc space-y-1 pl-5 mb-3 text-sm text-text/90">
+                  {[
+                    "model",
+                    "live",
+                    "timeout",
+                    "finalizeTimeout",
+                    "instantStop",
+                    "languageHints",
+                    "strict",
+                    "endpoint",
+                    "keepalive",
+                    "languageIdentification",
+                    "speakerDiarization",
+                  ].map((id) => (
+                    <li key={id}>
+                      {t(`settings.advanced.soniox.tellMeMore.parameters.${id}`)}
+                    </li>
+                  ))}
+                </ul>
                 <p className="text-text/80">
                   {t("settings.advanced.soniox.tellMeMore.tip")}
                 </p>

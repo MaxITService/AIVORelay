@@ -692,8 +692,17 @@
         "tellMeMore": {
           "title": "Tell me more: Soniox Real-time",
           "headline": "How Soniox real-time behaves in AivoRelay.",
-          "liveFlow": "When Live mode is enabled, microphone audio is streamed directly to Soniox over WebSocket and confirmed tokens are inserted while you speak.",
-          "stopFlow": "On Stop, AivoRelay stops local capture, requests finalization, waits briefly for tail tokens, then returns to idle.",
+          "liveFlow": "When Live mode is enabled, microphone audio is streamed directly to Soniox over WebSocket. Soniox can emit provisional and final tokens, but AivoRelay focuses on stable final output so your typed text does not flicker.",
+          "stopFlow": "On Stop, AivoRelay immediately stops microphone capture in the UI, then sends Soniox finalization, waits up to your configured timeout for late final tokens, and finally closes the live session. In practice: recording feels stopped instantly, while the app may still collect the last 1-2 words in the background.",
+          "realtimeBehavior": {
+            "title": "Real-time behavior from Soniox docs (as applied in AivoRelay)",
+            "tokenDraft": "Non-final tokens (is_final=false) are provisional and may change; final tokens (is_final=true) are stable and will not change afterward.",
+            "tokenFinal": "AivoRelay UX goal is stable inserted text while speaking, with minimal tail loss when you stop.",
+            "manualFinalize": "On Stop, AivoRelay sends {\"type\":\"finalize\"} to ask Soniox to finalize pending audio before session shutdown.",
+            "finMarker": "Soniox may emit a <fin> token after manual finalization; this is a control marker, not user text to type.",
+            "keepalive": "During silence, keepalive messages should be sent regularly to avoid connection timeout (Soniox guidance: at least once every 20s).",
+            "silenceRule": "For best accuracy/latency balance, finalize after a short silence (~200ms) at end of speech, not too early."
+          },
           "userStory": {
             "title": "User story in this app",
             "item1": "As a user, I press one shortcut, speak naturally, and see stable text appear while I am still talking.",
@@ -714,9 +723,9 @@
               },
               "finalizeTimeout": {
                 "title": "Live Finalization Timeout",
-                "whenToUse": "You notice missing last words after pressing Stop.",
-                "tradeoff": "Higher value captures more tail words but delays full completion.",
-                "recommended": "4-6 seconds for normal use; increase on unstable networks."
+                "whenToUse": "Use this when the transcript sometimes cuts the ending after you press Stop, or when your network is inconsistent and final tokens arrive late.",
+                "tradeoff": "Higher values improve completeness (fewer missing tail words) but keep the session alive longer in the background before full completion. Lower values feel faster but increase the chance of dropping the very end of speech.",
+                "recommended": "Start with 4-6 seconds. Raise to 8-10 seconds only if endings are frequently cut. For near-zero wait behavior, keep this low and enable Instant Stop."
               },
               "instantStop": {
                 "title": "Instant Stop (AivoRelay local feature)",
@@ -743,12 +752,12 @@
             "model": "Model: choose stt-rt-* for real-time streaming or stt-async-* for async pipeline.",
             "live": "Live Real-time Streaming: enables direct WebSocket streaming path for stt-rt models.",
             "timeout": "Soniox Timeout: timeout for non-live/legacy Soniox requests.",
-            "finalizeTimeout": "Live Finalization Timeout: how long Stop waits for final tokens before force-closing live session.",
-            "instantStop": "Instant Stop (AivoRelay feature): ends live session immediately on Stop and ignores late chunks.",
+            "finalizeTimeout": "Live Finalization Timeout: after you press Stop, AivoRelay waits this long for Soniox to return remaining final tokens. During this window, recording is already stopped in UI, but trailing words can still be appended if they arrive. When timeout is reached, session is force-closed.",
+            "instantStop": "Instant Stop (AivoRelay feature): ends live session immediately on Stop and ignores late chunks; fastest UX but highest risk of cutting last words.",
             "languageHints": "Language Hints: biases recognition toward listed languages.",
             "strict": "Strict Language Restriction: strongly constrains output to language hints.",
             "endpoint": "Endpoint Detection: Soniox semantic end-of-utterance detection.",
-            "keepalive": "Keepalive Interval: ping period during silence to keep WebSocket alive.",
+            "keepalive": "Keepalive Interval: ping period during silence to keep WebSocket alive (recommended 5-10s, should never exceed 20s idle).",
             "languageIdentification": "Language Identification: includes per-token detected language metadata.",
             "speakerDiarization": "Speaker Diarization: includes per-token speaker label metadata."
           },
@@ -787,11 +796,11 @@
         },
         "keepalive": {
           "title": "Keepalive Interval (seconds)",
-          "description": "How often keepalive is sent during silence (5-20s). In AivoRelay this helps keep the live Soniox session open between pauses, so the next phrase continues in the same session instead of reconnecting after idle timeout."
+          "description": "How often keepalive is sent during silence (5-20s). Soniox guidance: send at least once every 20 seconds whenever audio is not being sent. In AivoRelay this keeps the same live session alive between pauses, preserves session context, and reduces reconnect-related instability."
         },
         "finalizeTimeout": {
           "title": "Live Finalization Timeout (seconds)",
-          "description": "After you press Stop in Soniox live mode, AivoRelay waits this long for late final tokens before force-closing and returning to idle (2-20s). Higher values recover more tail words, lower values make Stop feel more immediate."
+          "description": "What you see: when you press Stop, recording ends immediately in UI. What happens next: AivoRelay still waits in background for late Soniox final tokens, up to this timeout, then force-closes the session (2-20s). Increase this value if last words are often missing; decrease it if you want faster completion and can accept occasional tail truncation. If you want almost instant finish, use Instant Stop."
         },
         "instantStop": {
           "title": "Instant Stop (Local Feature)",
