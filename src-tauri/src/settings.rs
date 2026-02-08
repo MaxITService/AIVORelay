@@ -788,6 +788,15 @@ pub struct AppSettings {
     pub post_process_prompts: Vec<LLMPrompt>,
     #[serde(default)]
     pub post_process_selected_prompt_id: Option<String>,
+    /// Whether ${short_prev_transcript} is enabled in LLM prompt templates.
+    #[serde(default = "default_true")]
+    pub llm_context_prev_transcript_enabled: bool,
+    /// Max words retained for ${short_prev_transcript}.
+    #[serde(default = "default_llm_context_prev_transcript_max_words")]
+    pub llm_context_prev_transcript_max_words: usize,
+    /// Expiry window (seconds) for ${short_prev_transcript}.
+    #[serde(default = "default_llm_context_prev_transcript_expiry_seconds")]
+    pub llm_context_prev_transcript_expiry_seconds: u64,
     #[serde(default = "default_ai_replace_system_prompt")]
     pub ai_replace_system_prompt: String,
     #[serde(default = "default_ai_replace_user_prompt")]
@@ -1129,6 +1138,14 @@ fn default_sound_theme() -> SoundTheme {
 
 fn default_post_process_enabled() -> bool {
     false
+}
+
+fn default_llm_context_prev_transcript_max_words() -> usize {
+    200
+}
+
+fn default_llm_context_prev_transcript_expiry_seconds() -> u64 {
+    300
 }
 
 fn default_app_language() -> String {
@@ -1619,6 +1636,10 @@ pub fn get_default_settings() -> AppSettings {
         post_process_models: default_post_process_models(),
         post_process_prompts: default_post_process_prompts(),
         post_process_selected_prompt_id: None,
+        llm_context_prev_transcript_enabled: true,
+        llm_context_prev_transcript_max_words: default_llm_context_prev_transcript_max_words(),
+        llm_context_prev_transcript_expiry_seconds:
+            default_llm_context_prev_transcript_expiry_seconds(),
         ai_replace_system_prompt: default_ai_replace_system_prompt(),
         ai_replace_user_prompt: default_ai_replace_user_prompt(),
         ai_replace_max_chars: default_ai_replace_max_chars(),

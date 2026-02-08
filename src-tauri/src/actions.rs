@@ -6,6 +6,7 @@ use crate::managers::audio::AudioRecordingManager;
 use crate::managers::connector::ConnectorManager;
 use crate::managers::history::HistoryManager;
 use crate::managers::llm_operation::LlmOperationTracker;
+use crate::managers::model::{EngineType, ModelManager};
 use crate::managers::remote_stt::RemoteSttManager;
 use crate::managers::transcription::TranscriptionManager;
 use crate::session_manager::{self, ManagedSessionState};
@@ -25,8 +26,8 @@ use natural::phonetics::soundex;
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use strsim::normalized_levenshtein;
-use std::sync::Arc;
-use std::time::Instant;
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter, Manager};
 
 // Shortcut Action Trait
@@ -71,6 +72,172 @@ enum PostProcessTranscriptionOutcome {
     },
 }
 
+#[derive(Clone, Debug, Default)]
+struct StopRecordingContext {
+    captured_profile_id: Option<String>,
+    current_app: String,
+}
+
+#[derive(Clone, Debug, Default)]
+struct LlmTemplateContext {
+    output: String,
+    instruction: String,
+    selection: String,
+    current_app: String,
+    short_prev_transcript: String,
+    language: String,
+    profile_name: String,
+    time_local: String,
+    date_iso: String,
+    translate_to_english: String,
+}
+
+/// Tracks the frontmost app captured at recording start, keyed by binding_id.
+static RECORDING_APP_CONTEXT: Lazy<Mutex<HashMap<String, String>>> =
+    Lazy::new(|| Mutex::new(HashMap::new()));
+
+fn capture_recording_app_context(binding_id: &str) {
+    #[cfg(target_os = "windows")]
+    let app_name = crate::active_app::get_frontmost_app_name().unwrap_or_default();
+
+    #[cfg(not(target_os = "windows"))]
+    let app_name = String::new();
+
+    if let Ok(mut context) = RECORDING_APP_CONTEXT.lock() {
+        context.insert(binding_id.to_string(), app_name);
+    }
+}
+
+fn take_recording_app_context(binding_id: &str) -> String {
+    if let Ok(mut context) = RECORDING_APP_CONTEXT.lock() {
+        return context.remove(binding_id).unwrap_or_default();
+    }
+    String::new()
+}
+
+fn clamp_prev_transcript_words(settings: &AppSettings) -> usize {
+    settings
+        .llm_context_prev_transcript_max_words
+        .clamp(1, 2000)
+}
+
+fn clamp_prev_transcript_expiry(settings: &AppSettings) -> Duration {
+    Duration::from_secs(
+        settings
+            .llm_context_prev_transcript_expiry_seconds
+            .clamp(10, 86_400),
+    )
+}
+
+fn resolve_effective_language(
+    app: &AppHandle,
+    settings: &AppSettings,
+    profile: Option<&TranscriptionProfile>,
+) -> String {
+    let requested = profile
+        .map(|p| p.language.clone())
+        .unwrap_or_else(|| settings.selected_language.clone());
+
+    if settings.transcription_provider == TranscriptionProvider::RemoteOpenAiCompatible {
+        return requested;
+    }
+
+    let mm = app.state::<Arc<ModelManager>>();
+    let is_whisper = mm
+        .get_model_info(&settings.selected_model)
+        .map(|m| matches!(m.engine_type, EngineType::Whisper))
+        .unwrap_or(false);
+
+    if is_whisper && !requested.trim().is_empty() {
+        requested
+    } else {
+        "auto".to_string()
+    }
+}
+
+fn resolve_effective_translate_to_english(
+    settings: &AppSettings,
+    profile: Option<&TranscriptionProfile>,
+) -> bool {
+    profile
+        .map(|p| p.translate_to_english)
+        .unwrap_or(settings.translate_to_english)
+}
+
+fn resolve_profile_name(profile: Option<&TranscriptionProfile>) -> String {
+    profile
+        .map(|p| p.name.clone())
+        .unwrap_or_else(|| "Default".to_string())
+}
+
+fn resolve_short_prev_transcript(settings: &AppSettings, current_app: &str) -> String {
+    if !settings.llm_context_prev_transcript_enabled || current_app.trim().is_empty() {
+        return String::new();
+    }
+
+    crate::transcript_context::get_short_prev_transcript(
+        current_app,
+        clamp_prev_transcript_words(settings),
+        clamp_prev_transcript_expiry(settings),
+    )
+}
+
+fn update_short_prev_transcript(settings: &AppSettings, current_app: &str, transcription: &str) {
+    if !settings.llm_context_prev_transcript_enabled
+        || current_app.trim().is_empty()
+        || transcription.trim().is_empty()
+    {
+        return;
+    }
+
+    crate::transcript_context::update_transcript_context(
+        current_app,
+        transcription,
+        clamp_prev_transcript_words(settings),
+        clamp_prev_transcript_expiry(settings),
+    );
+}
+
+fn build_llm_template_context(
+    app: &AppHandle,
+    settings: &AppSettings,
+    profile: Option<&TranscriptionProfile>,
+    current_app: &str,
+    output: &str,
+    instruction: &str,
+    selection: &str,
+) -> LlmTemplateContext {
+    let now = chrono::Local::now();
+    let translate_to_english = resolve_effective_translate_to_english(settings, profile);
+
+    LlmTemplateContext {
+        output: output.to_string(),
+        instruction: instruction.to_string(),
+        selection: selection.to_string(),
+        current_app: current_app.to_string(),
+        short_prev_transcript: resolve_short_prev_transcript(settings, current_app),
+        language: resolve_effective_language(app, settings, profile),
+        profile_name: resolve_profile_name(profile),
+        time_local: now.format("%A, %B %-d, %Y %-I:%M:%S %p").to_string(),
+        date_iso: now.to_rfc3339(),
+        translate_to_english: translate_to_english.to_string(),
+    }
+}
+
+fn apply_llm_template_vars(template: &str, context: &LlmTemplateContext) -> String {
+    template
+        .replace("${output}", &context.output)
+        .replace("${instruction}", &context.instruction)
+        .replace("${selection}", &context.selection)
+        .replace("${current_app}", &context.current_app)
+        .replace("${short_prev_transcript}", &context.short_prev_transcript)
+        .replace("${language}", &context.language)
+        .replace("${profile_name}", &context.profile_name)
+        .replace("${time_local}", &context.time_local)
+        .replace("${date_iso}", &context.date_iso)
+        .replace("${translate_to_english}", &context.translate_to_english)
+}
+
 /// Post-process transcription with LLM, optionally using profile-specific settings.
 ///
 /// If `profile` is Some, uses the profile's LLM settings:
@@ -82,8 +249,8 @@ enum PostProcessTranscriptionOutcome {
 async fn maybe_post_process_transcription(
     app: &AppHandle,
     settings: &AppSettings,
-    transcription: &str,
     profile: Option<&TranscriptionProfile>,
+    template_context: &LlmTemplateContext,
 ) -> PostProcessTranscriptionOutcome {
     // Determine if post-processing is enabled based on profile or global setting
     let is_enabled = match profile {
@@ -177,8 +344,7 @@ async fn maybe_post_process_transcription(
         provider.id, model
     );
 
-    // Replace ${output} variable in the prompt with the actual text
-    let processed_prompt = prompt_template.replace("${output}", transcription);
+    let processed_prompt = apply_llm_template_vars(&prompt_template, template_context);
     debug!("Processed prompt length: {} chars", processed_prompt.len());
 
     if provider.id == APPLE_INTELLIGENCE_PROVIDER_ID {
@@ -467,6 +633,9 @@ fn start_recording_with_feedback(app: &AppHandle, binding_id: &str) -> bool {
         captured_profile_id,
     };
 
+    // Capture the active app context at recording start for prompt variables.
+    capture_recording_app_context(binding_id);
+
     // Now release the lock before doing I/O operations
     drop(state_guard);
 
@@ -514,6 +683,9 @@ fn start_recording_with_feedback(app: &AppHandle, binding_id: &str) -> bool {
         // Register cancel shortcut now that recording is confirmed
         session.register_cancel_shortcut();
     } else {
+        // Drop captured app context for failed recordings.
+        let _ = take_recording_app_context(binding_id);
+
         // Recording failed - clean up
         // Take the session back and let it drop (which will clean up)
         let state = app.state::<ManagedSessionState>();
@@ -730,12 +902,11 @@ async fn perform_transcription_for_profile(
 /// The session's finish() method handles cleanup (unregistering cancel shortcut).
 /// Pass the binding_id to ensure we only stop our own recording.
 ///
-/// Returns Some(captured_profile_id) on success, None if no active session.
-/// The captured_profile_id is the profile that was active when recording started.
+/// Returns context captured at recording start on success, None if no active session.
 ///
 /// IMPORTANT: After calling this, the caller MUST call exit_processing() when
 /// the async work is complete (success or error).
-fn prepare_stop_recording(app: &AppHandle, binding_id: &str) -> Option<Option<String>> {
+fn prepare_stop_recording(app: &AppHandle, binding_id: &str) -> Option<StopRecordingContext> {
     // Take the session and transition to Processing state
     let state = app.state::<ManagedSessionState>();
     let mut state_guard = state.lock().expect("Failed to lock session state");
@@ -781,6 +952,8 @@ fn prepare_stop_recording(app: &AppHandle, binding_id: &str) -> Option<Option<St
     drop(state_guard);
 
     if let Some((session, captured_profile_id)) = result {
+        let current_app = take_recording_app_context(binding_id);
+
         // Explicitly finish the session to trigger cleanup
         // This unregisters the cancel shortcut exactly once
         session.finish();
@@ -798,7 +971,10 @@ fn prepare_stop_recording(app: &AppHandle, binding_id: &str) -> Option<Option<St
         rm.remove_mute();
 
         play_feedback_sound(app, SoundType::Stop);
-        Some(captured_profile_id)
+        Some(StopRecordingContext {
+            captured_profile_id,
+            current_app,
+        })
     } else {
         None
     }
@@ -876,6 +1052,7 @@ async fn apply_post_processing_and_history(
     transcription: String,
     samples: Vec<f32>,
     profile_id: Option<String>,
+    current_app: &str,
 ) -> Option<String> {
     let settings = get_settings(app);
     let mut final_text = transcription.clone();
@@ -916,7 +1093,17 @@ async fn apply_post_processing_and_history(
         final_text = converted_text;
     }
 
-    match maybe_post_process_transcription(app, &settings, &final_text, profile).await {
+    let template_context = build_llm_template_context(
+        app,
+        &settings,
+        profile,
+        current_app,
+        &final_text,
+        "",
+        "",
+    );
+
+    match maybe_post_process_transcription(app, &settings, profile, &template_context).await {
         PostProcessTranscriptionOutcome::Skipped => {
             if final_text != transcription {
                 // Chinese conversion was applied but LLM post-processing was not.
@@ -941,6 +1128,10 @@ async fn apply_post_processing_and_history(
         final_text = apply_replacements(&final_text);
     }
 
+    // Keep recent transcript context per app for prompt variable ${short_prev_transcript}.
+    // Use raw transcription (before post-processing) to avoid compounding LLM output.
+    update_short_prev_transcript(&settings, current_app, &transcription);
+
     let hm = Arc::clone(&app.state::<Arc<HistoryManager>>());
     tauri::async_runtime::spawn(async move {
         if let Err(e) = hm
@@ -961,7 +1152,13 @@ async fn apply_post_processing_and_history(
 
 // ============================================================================
 
-fn build_extension_message(settings: &AppSettings, instruction: &str, selection: &str) -> String {
+fn build_extension_message(
+    app: &AppHandle,
+    settings: &AppSettings,
+    instruction: &str,
+    selection: &str,
+    current_app: &str,
+) -> String {
     let instruction_trimmed = instruction.trim();
     let selection_trimmed = selection.trim();
 
@@ -991,9 +1188,16 @@ fn build_extension_message(settings: &AppSettings, instruction: &str, selection:
             instruction_trimmed, selection
         )
     } else {
-        user_template
-            .replace("${instruction}", instruction_trimmed)
-            .replace("${output}", selection)
+        let template_context = build_llm_template_context(
+            app,
+            settings,
+            None,
+            current_app,
+            selection_trimmed,
+            instruction_trimmed,
+            selection_trimmed,
+        );
+        apply_llm_template_vars(user_template, &template_context)
     };
 
     let system_prompt = settings
@@ -1007,9 +1211,11 @@ fn build_extension_message(settings: &AppSettings, instruction: &str, selection:
 }
 
 async fn ai_replace_with_llm(
+    app: &AppHandle,
     settings: &AppSettings,
     selected_text: &str,
     instruction: &str,
+    current_app: &str,
 ) -> Result<String, String> {
     let provider = settings
         .active_ai_replace_provider()
@@ -1037,9 +1243,17 @@ async fn ai_replace_with_llm(
         return Err("AI replace prompt template is empty".to_string());
     }
 
-    let user_prompt = user_template
-        .replace("${output}", selected_text)
-        .replace("${instruction}", instruction);
+    let template_context = build_llm_template_context(
+        app,
+        settings,
+        None,
+        current_app,
+        selected_text,
+        instruction,
+        selected_text,
+    );
+
+    let user_prompt = apply_llm_template_vars(&user_template, &template_context);
 
     debug!(
         "AI replace LLM request using provider '{}' (model: {})",
@@ -1111,10 +1325,12 @@ impl ShortcutAction for TranscribeAction {
     }
 
     fn stop(&self, app: &AppHandle, binding_id: &str, _shortcut_str: &str) {
-        let captured_profile_id = match prepare_stop_recording(app, binding_id) {
-            Some(profile_id) => profile_id,
+        let stop_context = match prepare_stop_recording(app, binding_id) {
+            Some(context) => context,
             None => return, // No active session - nothing to do
         };
+        let captured_profile_id = stop_context.captured_profile_id.clone();
+        let current_app = stop_context.current_app.clone();
 
         let ah = app.clone();
         let binding_id = binding_id.to_string();
@@ -1142,6 +1358,7 @@ impl ShortcutAction for TranscribeAction {
                 transcription,
                 samples,
                 profile_id_for_postprocess,
+                &current_app,
             )
             .await
             {
@@ -1204,12 +1421,15 @@ impl ShortcutAction for SendToExtensionAction {
         if !cm.is_online() {
             // Extension went offline - take session to trigger cleanup via Drop
             let _ = session_manager::take_session_if_matches(app, binding_id);
+            let _ = take_recording_app_context(binding_id);
             return;
         }
 
-        if prepare_stop_recording(app, binding_id).is_none() {
-            return; // No active session - nothing to do
-        }
+        let stop_context = match prepare_stop_recording(app, binding_id) {
+            Some(context) => context,
+            None => return, // No active session - nothing to do
+        };
+        let current_app = stop_context.current_app;
 
         let ah = app.clone();
         let cm = Arc::clone(&app.state::<Arc<ConnectorManager>>());
@@ -1234,7 +1454,15 @@ impl ShortcutAction for SendToExtensionAction {
 
             // Use default profile (None) for extension actions
             let final_text =
-                match apply_post_processing_and_history(&ah, transcription, samples, None).await {
+                match apply_post_processing_and_history(
+                    &ah,
+                    transcription,
+                    samples,
+                    None,
+                    &current_app,
+                )
+                .await
+                {
                     Some(text) => text,
                     None => {
                         session_manager::exit_processing(&ah);
@@ -1293,12 +1521,15 @@ impl ShortcutAction for SendToExtensionWithSelectionAction {
         if !cm.is_online() {
             // Extension went offline - take session to trigger cleanup via Drop
             let _ = session_manager::take_session_if_matches(app, binding_id);
+            let _ = take_recording_app_context(binding_id);
             return;
         }
 
-        if prepare_stop_recording(app, binding_id).is_none() {
-            return; // No active session - nothing to do
-        }
+        let stop_context = match prepare_stop_recording(app, binding_id) {
+            Some(context) => context,
+            None => return, // No active session - nothing to do
+        };
+        let current_app = stop_context.current_app;
 
         let ah = app.clone();
         let cm = Arc::clone(&app.state::<Arc<ConnectorManager>>());
@@ -1325,7 +1556,15 @@ impl ShortcutAction for SendToExtensionWithSelectionAction {
                 String::new()
             } else {
                 // Use default profile (None) for extension actions
-                match apply_post_processing_and_history(&ah, transcription, samples, None).await {
+                match apply_post_processing_and_history(
+                    &ah,
+                    transcription,
+                    samples,
+                    None,
+                    &current_app,
+                )
+                .await
+                {
                     Some(text) => text,
                     None => {
                         session_manager::exit_processing(&ah);
@@ -1335,7 +1574,13 @@ impl ShortcutAction for SendToExtensionWithSelectionAction {
             };
 
             let selected_text = utils::capture_selection_text_copy(&ah).unwrap_or_default();
-            let message = build_extension_message(&settings, &final_transcription, &selected_text);
+            let message = build_extension_message(
+                &ah,
+                &settings,
+                &final_transcription,
+                &selected_text,
+                &current_app,
+            );
 
             if !message.trim().is_empty() {
                 let _ = cm.queue_message(&message);
@@ -1636,6 +1881,7 @@ impl ShortcutAction for SendScreenshotToExtensionAction {
         if !cm.is_online() {
             // Extension went offline - take session to trigger cleanup via Drop
             let _ = session_manager::take_session_if_matches(app, binding_id);
+            let _ = take_recording_app_context(binding_id);
             return;
         }
 
@@ -1796,9 +2042,11 @@ impl ShortcutAction for AiReplaceSelectionAction {
     }
 
     fn stop(&self, app: &AppHandle, binding_id: &str, _shortcut_str: &str) {
-        if prepare_stop_recording(app, binding_id).is_none() {
-            return; // No active session - nothing to do
-        }
+        let stop_context = match prepare_stop_recording(app, binding_id) {
+            Some(context) => context,
+            None => return, // No active session - nothing to do
+        };
+        let current_app = stop_context.current_app;
 
         let ah = app.clone();
         let binding_id = binding_id.to_string();
@@ -1848,7 +2096,15 @@ impl ShortcutAction for AiReplaceSelectionAction {
             let instruction_for_history = transcription.clone();
             let selection_for_history = selected_text.clone();
 
-            match ai_replace_with_llm(&settings, &selected_text, &transcription).await {
+            match ai_replace_with_llm(
+                &ah,
+                &settings,
+                &selected_text,
+                &transcription,
+                &current_app,
+            )
+            .await
+            {
                 Ok(output) => {
                     // Check if operation was cancelled while we were waiting
                     if llm_tracker.is_cancelled(operation_id) {
@@ -2359,7 +2615,17 @@ pub async fn generate_command_with_llm(
         ));
     }
 
-    let system_prompt = settings.voice_command_system_prompt.clone();
+    let current_app = crate::active_app::get_frontmost_app_name().unwrap_or_default();
+    let template_context = build_llm_template_context(
+        app,
+        &settings,
+        None,
+        &current_app,
+        spoken_text,
+        spoken_text,
+        "",
+    );
+    let system_prompt = apply_llm_template_vars(&settings.voice_command_system_prompt, &template_context);
     let user_prompt = spoken_text.to_string();
 
     // Use post-processing key only when voice command provider is set to
