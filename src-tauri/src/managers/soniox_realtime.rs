@@ -7,7 +7,7 @@ use std::time::{Duration, Instant};
 use tauri::async_runtime::JoinHandle;
 use tauri::AppHandle;
 use tokio::sync::mpsc;
-use tokio::time::{sleep, timeout, MissedTickBehavior};
+use tokio::time::{timeout, MissedTickBehavior};
 use tokio_tungstenite::{connect_async, tungstenite::Message};
 
 const SONIOX_WS_URL: &str = "wss://stt-rt.soniox.com/transcribe-websocket";
@@ -441,7 +441,6 @@ impl SonioxRealtimeManager {
 
         // Manual finalization first, then graceful stream end.
         let _ = control_tx.send(ControlMessage::Finalize);
-        sleep(Duration::from_millis(220)).await;
         let _ = control_tx.send(ControlMessage::Finish);
 
         // Bound stop/finalization wait to a short, predictable window so
