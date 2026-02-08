@@ -11,6 +11,7 @@ export { default as VoiceCommandSettings } from "./voice-commands/VoiceCommandSe
 export { default as TranscribeFileSettings } from "./transcribe-file/TranscribeFileSettings";
 export { default as TextReplacementSettings } from "./text-replacement/TextReplacementSettings";
 export { default as AudioProcessingSettings } from "./audio-processing/AudioProcessingSettings";
+export { UserInterfaceSettings } from "./user-interface/UserInterfaceSettings";
 
 // Individual setting components
 export { MicrophoneSelector } from "./MicrophoneSelector";

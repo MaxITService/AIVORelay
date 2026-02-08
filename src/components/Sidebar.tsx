@@ -18,6 +18,7 @@ import {
   TranscribeFileSettings,
   TextReplacementSettings,
   AudioProcessingSettings,
+  UserInterfaceSettings,
 } from "./settings";
 
 export type SidebarSection = keyof typeof SECTIONS_CONFIG;
@@ -93,6 +94,12 @@ export const SECTIONS_CONFIG = {
     icon: Mic,
     component: AudioProcessingSettings,
     enabled: () => true,
+  },
+  userInterface: {
+    labelKey: "sidebar.userInterface",
+    icon: Cog,
+    component: UserInterfaceSettings,
+    enabled: () => isWindows,
   },
   history: {
     labelKey: "sidebar.history",

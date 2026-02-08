@@ -16,6 +16,7 @@
     "transcribeFile": "Transcribe File",
     "textReplacement": "Text Replace",
     "audioProcessing": "Speech Processing",
+    "userInterface": "User Interface",
     "history": "History",
     "debug": "Debug",
     "about": "About"

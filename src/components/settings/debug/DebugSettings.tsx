@@ -1,9 +1,7 @@
 import React, { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { type } from "@tauri-apps/plugin-os";
-import { invoke } from "@tauri-apps/api/core";
 import { AlertTriangle } from "lucide-react";
-import { toast } from "sonner";
 import { LogDirectory } from "./LogDirectory";
 import { LogLevelSelector } from "./LogLevelSelector";
 import { ShortcutEngineSelector } from "./ShortcutEngineSelector";
@@ -34,8 +32,6 @@ export const DebugSettings: React.FC = () => {
   const [showVoiceCommandsWarning, setShowVoiceCommandsWarning] = useState(false);
 
   const betaVoiceCommandsEnabled = (settings as any)?.beta_voice_commands_enabled ?? false;
-  const voiceButtonShowAotToggle =
-    (settings as any)?.voice_button_show_aot_toggle ?? false;
 
   const handleVoiceCommandsToggle = (enabled: boolean) => {
     if (enabled) {
@@ -47,15 +43,6 @@ export const DebugSettings: React.FC = () => {
 
   const handleOpenFirstStartWizard = () => {
     window.dispatchEvent(new Event(OPEN_FIRST_START_WIZARD_EVENT));
-  };
-
-  const handleSpawnVoiceButton = async () => {
-    try {
-      await invoke("spawn_voice_activation_button_window");
-    } catch (error) {
-      console.error("Failed to spawn voice activation button window:", error);
-      toast.error(String(error));
-    }
   };
 
   return (
@@ -137,42 +124,6 @@ export const DebugSettings: React.FC = () => {
       </SettingsGroup>
 
       <SettingsGroup title={t("settings.debug.tools.title")}>
-        {isWindows && (
-          <>
-            <SettingContainer
-              title="Spawn Voice Activation Button"
-              description="Open a floating on-screen voice activation button window."
-              descriptionMode="inline"
-              grouped={true}
-            >
-              <button
-                type="button"
-                onClick={handleSpawnVoiceButton}
-                className="px-3 py-1.5 bg-[#2b2b2b] hover:bg-[#3c3c3c] border border-[#3c3c3c] rounded-lg text-xs text-gray-200 font-medium transition-colors"
-              >
-                Spawn button
-              </button>
-            </SettingContainer>
-            <SettingContainer
-              title="Show AOT Toggle in Button Window"
-              description="Show the bottom always-on-top control inside the floating voice button window."
-              descriptionMode="inline"
-              grouped={true}
-            >
-              <ToggleSwitch
-                checked={voiceButtonShowAotToggle}
-                onChange={(enabled) =>
-                  void updateSetting(
-                    "voice_button_show_aot_toggle" as any,
-                    enabled as any,
-                  )
-                }
-                disabled={isUpdating("voice_button_show_aot_toggle")}
-              />
-            </SettingContainer>
-            <HandyShortcut shortcutId="spawn_button" grouped={true} />
-          </>
-        )}
         <SettingContainer
           title={t("settings.debug.firstStartWizard.title")}
           description={t("settings.debug.firstStartWizard.description")}
