@@ -3,6 +3,7 @@
     "settings": "Settings...",
     "checkUpdates": "Check for Updates...",
     "copyLastTranscript": "Copy Last Transcript",
+    "unloadModel": "Unload Model",
     "quit": "Quit",
     "cancel": "Cancel"
   },
@@ -1456,3 +1457,4 @@
     "empty": "No replacement rules yet. Add one above to get started."
   }
 }
+

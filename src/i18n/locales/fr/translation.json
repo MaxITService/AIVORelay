@@ -4,6 +4,7 @@
     "settings": "Paramètres...",
     "checkUpdates": "Rechercher des mises à jour...",
     "copyLastTranscript": "Copier la dernière transcription",
+    "unloadModel": "Unload Model",
     "quit": "Quitter",
     "cancel": "Annuler"
   },
@@ -424,3 +425,4 @@
     "transcribing": "Transcription..."
   }
 }
+

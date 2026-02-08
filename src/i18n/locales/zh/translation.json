@@ -3,6 +3,7 @@
     "settings": "设置...",
     "checkUpdates": "检查更新...",
     "copyLastTranscript": "复制最新转录",
+    "unloadModel": "Unload Model",
     "quit": "退出",
     "cancel": "取消"
   },
@@ -423,3 +424,4 @@
     "transcribing": "正在转录..."
   }
 }
+

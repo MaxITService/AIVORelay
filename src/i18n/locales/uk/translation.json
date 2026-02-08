@@ -3,6 +3,7 @@
     "settings": "Налаштування...",
     "checkUpdates": "Перевірити оновлення...",
     "copyLastTranscript": "Скопіювати останню транскрипцію",
+    "unloadModel": "Unload Model",
     "quit": "Вийти",
     "cancel": "Скасувати"
   },
@@ -423,3 +424,4 @@
     "transcribing": "Обробка..."
   }
 }
+

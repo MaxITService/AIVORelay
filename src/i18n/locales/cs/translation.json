@@ -3,6 +3,7 @@
     "settings": "Nastavení...",
     "checkUpdates": "Zkontrolovat aktualizace...",
     "copyLastTranscript": "Zkopírovat poslední přepis",
+    "unloadModel": "Unload Model",
     "quit": "Ukončit",
     "cancel": "Zrušit"
   },
@@ -423,3 +424,4 @@
     "transcribing": "Přepisuji..."
   }
 }
+

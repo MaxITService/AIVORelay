@@ -4,6 +4,7 @@
     "settings": "Cài đặt...",
     "checkUpdates": "Kiểm tra cập nhật...",
     "copyLastTranscript": "Sao chép bản chép lời mới nhất",
+    "unloadModel": "Unload Model",
     "quit": "Thoát",
     "cancel": "Hủy"
   },
@@ -424,3 +425,4 @@
     "transcribing": "Đang chuyển đổi..."
   }
 }
+
