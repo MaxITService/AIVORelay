@@ -1,6 +1,6 @@
 import React from "react";
 import { useTranslation } from "react-i18next";
-import { Cog, FlaskConical, Globe, History, Info, Sparkles, Wand2, Terminal, FileAudio, Replace, Mic } from "lucide-react";
+import { Cog, FlaskConical, Globe, History, Info, Sparkles, Wand2, Terminal, FileAudio, Replace, Mic, Palette } from "lucide-react";
 import { type } from "@tauri-apps/plugin-os";
 import HandyTextLogo from "./icons/HandyTextLogo";
 import HandyHand from "./icons/HandyHand";
@@ -97,7 +97,7 @@ export const SECTIONS_CONFIG = {
   },
   userInterface: {
     labelKey: "sidebar.userInterface",
-    icon: Cog,
+    icon: Palette,
     component: UserInterfaceSettings,
     enabled: () => true,
   },

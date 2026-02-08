@@ -754,7 +754,7 @@
             "timeout": "Soniox Timeout: timeout for non-live/legacy Soniox requests.",
             "finalizeTimeout": "Live Finalization Timeout: after you press Stop, AivoRelay waits this many milliseconds for Soniox to return remaining final tokens. During this window, recording is already stopped in UI, but trailing words can still be appended if they arrive. When timeout is reached, session is force-closed.",
             "instantStop": "Instant Stop (AivoRelay feature): ends live session immediately on Stop and ignores late chunks; fastest UX but highest risk of cutting last words.",
-            "languageHints": "Language Hints: biases recognition toward listed languages.",
+            "languageHints": "Language Hints: enter comma-separated codes in the field (for example: en, es). Do not type JSON in the UI input; JSON docs show only API payload shape.",
             "profileLanguageHintOnly": "Use Current Profile Language As Hint: ignores manual Language Hints and sends exactly one hint derived from the active profile language (or global language if no profile is active).",
             "strict": "Strict Language Restriction: strongly constrains output to language hints.",
             "endpoint": "Endpoint Detection: Soniox semantic end-of-utterance detection.",
@@ -780,8 +780,8 @@
         },
         "languageHints": {
           "title": "Language Hints",
-          "description": "Comma-separated ISO language codes (for example: en, es). Soniox is biased toward these languages, which usually improves recognition accuracy and reduces wrong-language guesses. Mode scope: applied in Live mode and used as defaults for Soniox File Transcription; not currently used as-is by the non-live shortcut fallback path, which derives hint from current profile/global language.",
-          "placeholder": "en, es",
+          "description": "Type language codes as a comma-separated list in this input field (for example: en, es or en, es, ru). Do not type JSON here. API equivalent for two languages is: { \"language_hints\": [\"en\", \"es\"] }. Soniox is biased toward these languages, which usually improves recognition accuracy and reduces wrong-language guesses. Mode scope: applied in Live mode and used as defaults for Soniox File Transcription; not currently used as-is by the non-live shortcut fallback path, which derives hint from current profile/global language.",
+          "placeholder": "en, es, ru",
           "supportedLanguagesLink": "Supported languages (Open Web Documentation)"
         },
         "profileLanguageHintOnly": {
@@ -822,7 +822,8 @@
         },
         "apiKey": {
           "title": "Soniox API Key",
-          "description": "Stored securely in Windows Credential Manager."
+          "description": "Stored securely in Windows Credential Manager.",
+          "placeholder": "Enter the key."
         }
       },
       "translateToEnglish": {
@@ -1553,8 +1554,8 @@
       "title": "Soniox File Transcription Options",
       "usesGlobalDefaults": "Defaults are loaded from your global Soniox API settings. You can override them for this transcription.",
       "autoSwitchNotice": "Soniox API detected. We are auto switching for the following model: {{targetModel}}. Selected model was '{{selectedModel}}'. Reason: Transcribe File uses Soniox async endpoint (/v1/transcriptions), and latest-only mode enforces the latest async model.",
-      "languageHintsLabel": "Language hints (comma-separated)",
-      "languageHintsPlaceholder": "e.g. en, fr",
+      "languageHintsLabel": "Language hints (comma-separated, not JSON)",
+      "languageHintsPlaceholder": "e.g. en, es, ru",
       "speakerDiarizationLabel": "Enable speaker diarization",
       "languageIdentificationLabel": "Enable language identification",
       "invalidHints": "Unsupported Soniox language hints: {{hints}}"

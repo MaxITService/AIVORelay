@@ -941,9 +941,11 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
                       type="password"
                       value={apiKeyInput}
                       onChange={(event) => setApiKeyInput(event.target.value)}
-                      placeholder={t(
-                        "settings.advanced.remoteStt.apiKey.placeholder",
-                      )}
+                      placeholder={
+                        isSonioxProvider
+                          ? t("settings.advanced.soniox.apiKey.placeholder")
+                          : t("settings.advanced.remoteStt.apiKey.placeholder")
+                      }
                       disabled={apiKeyLoading}
                     />
                     <Button
