@@ -761,7 +761,7 @@
             "languageIdentification": "Language Identification: includes per-token detected language metadata.",
             "speakerDiarization": "Speaker Diarization: includes per-token speaker label metadata."
           },
-          "tip": "Recommended baseline: stt-rt-v4, Live ON, endpoint detection ON, keepalive 10s, finalize timeout 1s (increase only if needed)."
+          "tip": "Recommended baseline: stt-rt-v4, Live ON, endpoint detection ON, keepalive 10s, finalize timeout 1s (increase only if needed). Default settings are good. Just try to input your API key and try them out."
         },
         "model": {
           "title": "Soniox Model",
