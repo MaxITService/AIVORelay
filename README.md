@@ -10,6 +10,18 @@ AI Voice Relay
 > A fork of [cjpais/Handy](https://github.com/cjpais/Handy) with additional features
 
 ## ✨ Key Features
+
+### 🔴 Soniox Live Transcription
+
+Real-time speech-to-text streaming — see your words appear as you speak!
+
+![Soniox Live Transcription](Promo/soniox-api.gif)
+
+- **Live streaming** — Words appear instantly during speech
+- **Language hints** — Guide recognition with expected languages  
+
+**Setup:** Settings → Advanced → Transcription Provider → Soniox
+
 ### 🎚️ Transcription Profiles
 
 Quick-switch between language, prompt, and LLM post-processing presets with dedicated shortcuts: swithc currently active profile or assign each profile its own hotkey!
