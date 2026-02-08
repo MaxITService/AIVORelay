@@ -105,14 +105,20 @@ export const TranscriptionSystemPrompt: React.FC<{ grouped?: boolean }> = ({
 
   // Determine active model ID
   const transcriptionProvider = settings?.transcription_provider;
-  const isRemote = transcriptionProvider === "remote_openai_compatible";
+  const isRemoteOpenAi = transcriptionProvider === "remote_openai_compatible";
+  const isSoniox = transcriptionProvider === "remote_soniox";
 
   const activeModelId = useMemo(() => {
-    if (isRemote) {
+    if (isRemoteOpenAi) {
       return settings?.remote_stt?.model_id || "remote-unknown";
     }
     return settings?.selected_model || modelIdFromHook || "";
-  }, [isRemote, settings?.remote_stt?.model_id, settings?.selected_model, modelIdFromHook]);
+  }, [
+    isRemoteOpenAi,
+    settings?.remote_stt?.model_id,
+    settings?.selected_model,
+    modelIdFromHook,
+  ]);
 
   // Get model info for prompt configuration
   const modelInfo = useMemo(() => {
@@ -120,13 +126,13 @@ export const TranscriptionSystemPrompt: React.FC<{ grouped?: boolean }> = ({
       return { supportsPrompt: true, isWhisperLike: true, isParakeet: false, charLimit: WHISPER_CHAR_LIMIT, modelId: "" };
     }
 
-    if (isRemote) {
+    if (isRemoteOpenAi) {
       return getModelPromptInfo(activeModelId);
     }
 
     const localModelInfo = getModelInfo(activeModelId);
     return getModelPromptInfo(activeModelId, localModelInfo?.engine_type);
-  }, [activeModelId, isRemote, getModelInfo]);
+  }, [activeModelId, isRemoteOpenAi, getModelInfo]);
 
   // Get current prompt for this model
   const currentPrompt = useMemo(() => {
@@ -146,6 +152,10 @@ export const TranscriptionSystemPrompt: React.FC<{ grouped?: boolean }> = ({
     },
     [activeModelId, refreshSettings]
   );
+
+  if (isSoniox) {
+    return null;
+  }
 
   // Don't show for models without prompt support
   if (!modelInfo.supportsPrompt) {
@@ -246,7 +256,7 @@ export const TranscriptionSystemPrompt: React.FC<{ grouped?: boolean }> = ({
         )}
 
         {/* Remote API note for unknown models */}
-        {isRemote && !modelInfo.isWhisperLike && !isNearLimit && (
+        {isRemoteOpenAi && !modelInfo.isWhisperLike && !isNearLimit && (
           <div className="flex items-start space-x-2 p-2 rounded bg-blue-500/5 border border-blue-500/10">
             <svg
               className="w-4 h-4 text-blue-400/70 mt-0.5 flex-shrink-0"

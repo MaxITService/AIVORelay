@@ -17,7 +17,7 @@ use crate::settings::APPLE_INTELLIGENCE_DEFAULT_MODEL_ID;
 use crate::settings::{
     self, get_settings, ClipboardHandling, LLMPrompt, OverlayPosition, PasteMethod,
     RemoteSttDebugMode, ShortcutEngine, SoundTheme, TranscriptionProvider,
-    APPLE_INTELLIGENCE_PROVIDER_ID,
+    APPLE_INTELLIGENCE_PROVIDER_ID, SONIOX_DEFAULT_MODEL,
 };
 use crate::tray;
 use crate::ManagedToggleState;
@@ -472,6 +472,7 @@ pub fn change_transcription_provider_setting(
     let parsed = match provider.as_str() {
         "local" => TranscriptionProvider::Local,
         "remote_openai_compatible" => TranscriptionProvider::RemoteOpenAiCompatible,
+        "remote_soniox" => TranscriptionProvider::RemoteSoniox,
         other => {
             warn!(
                 "Invalid transcription provider '{}', defaulting to local",
@@ -483,8 +484,11 @@ pub fn change_transcription_provider_setting(
 
     #[cfg(not(target_os = "windows"))]
     {
-        if parsed == TranscriptionProvider::RemoteOpenAiCompatible {
-            return Err("Remote STT is only available on Windows".to_string());
+        if matches!(
+            parsed,
+            TranscriptionProvider::RemoteOpenAiCompatible | TranscriptionProvider::RemoteSoniox
+        ) {
+            return Err("Remote transcription providers are only available on Windows".to_string());
         }
     }
 
@@ -777,6 +781,32 @@ pub fn change_remote_stt_base_url_setting(app: AppHandle, base_url: String) -> R
 pub fn change_remote_stt_model_id_setting(app: AppHandle, model_id: String) -> Result<(), String> {
     let mut settings = settings::get_settings(&app);
     settings.remote_stt.model_id = model_id;
+    settings::write_settings(&app, settings);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_soniox_model_setting(app: AppHandle, model: String) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.soniox_model = if model.trim().is_empty() {
+        SONIOX_DEFAULT_MODEL.to_string()
+    } else {
+        model.trim().to_string()
+    };
+    settings::write_settings(&app, settings);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_soniox_timeout_setting(app: AppHandle, timeout_seconds: u32) -> Result<(), String> {
+    if !(10..=300).contains(&timeout_seconds) {
+        return Err("Timeout must be between 10 and 300 seconds".to_string());
+    }
+
+    let mut settings = settings::get_settings(&app);
+    settings.soniox_timeout_seconds = timeout_seconds;
     settings::write_settings(&app, settings);
     Ok(())
 }

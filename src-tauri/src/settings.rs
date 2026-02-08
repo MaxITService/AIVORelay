@@ -532,7 +532,11 @@ pub enum TranscriptionProvider {
     Local,
     #[serde(rename = "remote_openai_compatible")]
     RemoteOpenAiCompatible,
+    #[serde(rename = "remote_soniox")]
+    RemoteSoniox,
 }
+
+pub const SONIOX_DEFAULT_MODEL: &str = "stt-rt-v4";
 
 /// Shortcut engine selection for Windows.
 /// Controls which mechanism is used to listen for global hotkeys.
@@ -733,6 +737,10 @@ pub struct AppSettings {
     pub transcription_provider: TranscriptionProvider,
     #[serde(default = "default_remote_stt_settings")]
     pub remote_stt: RemoteSttSettings,
+    #[serde(default = "default_soniox_model")]
+    pub soniox_model: String,
+    #[serde(default = "default_soniox_timeout_seconds")]
+    pub soniox_timeout_seconds: u32,
     #[serde(default = "default_always_on_microphone")]
     pub always_on_microphone: bool,
     #[serde(default)]
@@ -1059,6 +1067,14 @@ fn default_remote_stt_settings() -> RemoteSttSettings {
         debug_capture: default_remote_stt_debug_capture(),
         debug_mode: default_remote_stt_debug_mode(),
     }
+}
+
+fn default_soniox_model() -> String {
+    SONIOX_DEFAULT_MODEL.to_string()
+}
+
+fn default_soniox_timeout_seconds() -> u32 {
+    30
 }
 
 fn default_vad_threshold() -> f32 {
@@ -1609,6 +1625,8 @@ pub fn get_default_settings() -> AppSettings {
         selected_model: "".to_string(),
         transcription_provider: default_transcription_provider(),
         remote_stt: default_remote_stt_settings(),
+        soniox_model: default_soniox_model(),
+        soniox_timeout_seconds: default_soniox_timeout_seconds(),
         always_on_microphone: false,
         selected_microphone: None,
         clamshell_microphone: None,

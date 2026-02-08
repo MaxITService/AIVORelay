@@ -132,8 +132,9 @@ function App() {
 
       if (
         settingsResult.status === "ok" &&
-        settingsResult.data.transcription_provider ===
-          "remote_openai_compatible"
+        (settingsResult.data.transcription_provider ===
+          "remote_openai_compatible" ||
+          settingsResult.data.transcription_provider === "remote_soniox")
       ) {
         setShowOnboarding(false);
         return;

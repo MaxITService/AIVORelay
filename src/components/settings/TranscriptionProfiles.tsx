@@ -61,6 +61,8 @@ interface ProfileCardProps {
   onUpdate: (profile: ExtendedTranscriptionProfile) => Promise<void>;
   onDelete: (id: string) => Promise<void>;
   canDelete: boolean;
+  supportsTranslation: boolean;
+  supportsSttPrompt: boolean;
   promptLimit: number;
   isActive: boolean;
   onSetActive: (id: string) => Promise<void>;
@@ -80,6 +82,8 @@ const ProfileCard: React.FC<ProfileCardProps> = ({
   onUpdate,
   onDelete,
   canDelete,
+  supportsTranslation,
+  supportsSttPrompt,
   promptLimit,
   isActive,
   onSetActive,
@@ -417,7 +421,7 @@ const ProfileCard: React.FC<ProfileCardProps> = ({
                   onClick={() =>
                     handleTranslateChange(!profile.translate_to_english)
                   }
-                  disabled={isUpdating}
+                  disabled={isUpdating || !supportsTranslation}
                   className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors shrink-0 ${
                     profile.translate_to_english
                       ? "bg-purple-500"
@@ -433,11 +437,18 @@ const ProfileCard: React.FC<ProfileCardProps> = ({
                   />
                 </button>
               </div>
+              {!supportsTranslation && (
+                <p className="text-xs text-mid-gray">
+                  {t(
+                    "settings.advanced.translateToEnglish.descriptionRemoteUnsupported",
+                  )}
+                </p>
+              )}
             </div>
           </div>
 
           {/* Voice Model Prompt Override */}
-          <div className="space-y-2">
+          {supportsSttPrompt && <div className="space-y-2">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <label className="text-xs font-semibold text-text/70">
@@ -498,7 +509,7 @@ const ProfileCard: React.FC<ProfileCardProps> = ({
                 )}
               </>
             )}
-          </div>
+          </div>}
 
           {/* LLM Post-Processing Section */}
           {llmConfigured && (
@@ -668,11 +679,14 @@ export const TranscriptionProfiles: React.FC = () => {
 
   // Compute the active model ID based on provider - used for prompt limits and prompt storage
   const activeModelId = useMemo(() => {
-    const isRemote =
-      settings?.transcription_provider === "remote_openai_compatible";
-    return isRemote
-      ? settings?.remote_stt?.model_id || ""
-      : settings?.selected_model || "";
+    const provider = settings?.transcription_provider;
+    if (provider === "remote_openai_compatible") {
+      return settings?.remote_stt?.model_id || "";
+    }
+    if (provider === "remote_soniox") {
+      return "";
+    }
+    return settings?.selected_model || "";
   }, [
     settings?.transcription_provider,
     settings?.remote_stt?.model_id,
@@ -681,11 +695,15 @@ export const TranscriptionProfiles: React.FC = () => {
 
   // Get model info for prompt configuration (same logic as TranscriptionSystemPrompt)
   const modelInfo = useMemo(() => {
+    const provider = settings?.transcription_provider;
+    if (provider === "remote_soniox") {
+      return { supportsPrompt: false, charLimit: 0, modelId: "" };
+    }
+
     if (!activeModelId) {
       return { supportsPrompt: true, charLimit: 896, modelId: "" };
     }
-    const isRemote = settings?.transcription_provider === "remote_openai_compatible";
-    if (isRemote) {
+    if (provider === "remote_openai_compatible") {
       return getModelPromptInfo(activeModelId);
     }
     // For local models, get engine_type from model info
@@ -695,6 +713,7 @@ export const TranscriptionProfiles: React.FC = () => {
 
   // Get prompt limit based on active transcription settings
   const promptLimit = modelInfo.supportsPrompt ? modelInfo.charLimit : 0;
+  const supportsTranslation = settings?.transcription_provider !== "remote_soniox";
 
   const newPromptLength = newSystemPrompt.length;
   const isNewPromptOverLimit = promptLimit > 0 && newPromptLength > promptLimit;
@@ -1134,6 +1153,8 @@ export const TranscriptionProfiles: React.FC = () => {
               onUpdate={handleUpdate}
               onDelete={handleDelete}
               canDelete={true}
+              supportsTranslation={supportsTranslation}
+              supportsSttPrompt={modelInfo.supportsPrompt}
               promptLimit={promptLimit}
               isActive={activeProfileId === profile.id}
               onSetActive={handleSetActive}
@@ -1202,12 +1223,19 @@ export const TranscriptionProfiles: React.FC = () => {
                 <ToggleSwitch
                   checked={newTranslate}
                   onChange={setNewTranslate}
-                  disabled={isCreating}
+                  disabled={isCreating || !supportsTranslation}
                 />
                 <span className="text-xs text-mid-gray leading-snug">
                   {t("settings.transcriptionProfiles.translateToEnglishTooltip")}
                 </span>
               </div>
+              {!supportsTranslation && (
+                <p className="text-xs text-mid-gray">
+                  {t(
+                    "settings.advanced.translateToEnglish.descriptionRemoteUnsupported",
+                  )}
+                </p>
+              )}
             </div>
             <div className="space-y-2 min-w-0">
               <label className="text-xs font-semibold text-text/70">
@@ -1244,7 +1272,7 @@ export const TranscriptionProfiles: React.FC = () => {
           </div>
 
           {/* Voice Model Prompt Override */}
-          <div className="space-y-2">
+          {modelInfo.supportsPrompt && <div className="space-y-2">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <label className="text-xs font-semibold text-text/70">
@@ -1305,7 +1333,7 @@ export const TranscriptionProfiles: React.FC = () => {
                 )}
               </>
             )}
-          </div>
+          </div>}
 
           {/* LLM Post-Processing Section */}
           {isLlmConfigured && (

@@ -209,6 +209,9 @@ const settingUpdaters: {
   app_language: (value) => commands.changeAppLanguageSetting(value as string),
   transcription_provider: (value) =>
     commands.changeTranscriptionProviderSetting(value as string),
+  soniox_model: (value) => commands.changeSonioxModelSetting(value as string),
+  soniox_timeout_seconds: (value) =>
+    commands.changeSonioxTimeoutSetting(Math.round(value as number)),
   vad_threshold: (value) =>
     commands.changeVadThresholdSetting(value as number),
 };

@@ -67,7 +67,8 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({
   const transcriptionProvider =
     getSetting("transcription_provider") || "local";
   const isRemoteProvider =
-    transcriptionProvider === "remote_openai_compatible";
+    transcriptionProvider === "remote_openai_compatible" ||
+    transcriptionProvider === "remote_soniox";
 
   const dropdownRef = useRef<HTMLDivElement>(null);
 

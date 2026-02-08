@@ -5,6 +5,7 @@
 
 use crate::audio_toolkit::apply_custom_words;
 use crate::managers::remote_stt::RemoteSttManager;
+use crate::managers::soniox_stt::SonioxSttManager;
 use crate::managers::transcription::TranscriptionManager;
 use crate::settings::{get_settings, TranscriptionProvider};
 use crate::subtitle::{
@@ -118,6 +119,8 @@ pub async fn transcribe_audio_file(
     // Otherwise, check if we should use remote.
     let use_remote = model_override.is_none()
         && settings.transcription_provider == TranscriptionProvider::RemoteOpenAiCompatible;
+    let use_soniox = model_override.is_none()
+        && settings.transcription_provider == TranscriptionProvider::RemoteSoniox;
 
     let (transcription_text, segments) = if use_remote {
         // Remote STT - currently doesn't support segments
@@ -175,6 +178,73 @@ pub async fn transcribe_audio_file(
         // spanning the estimated duration if subtitle format is requested
         let segs = if needs_segments {
             // Estimate duration: ~150 words per minute average
+            let word_count = corrected.split_whitespace().count();
+            let estimated_duration = (word_count as f32 / 150.0) * 60.0;
+            Some(vec![SubtitleSegment {
+                start: 0.0,
+                end: estimated_duration.max(1.0),
+                text: corrected.clone(),
+            }])
+        } else {
+            None
+        };
+
+        (corrected, segs)
+    } else if use_soniox {
+        // Soniox remote STT - currently doesn't support segments
+        let soniox_manager = app.state::<Arc<SonioxSttManager>>();
+        let operation_id = soniox_manager.start_operation();
+
+        // Determine language: use profile setting if available, otherwise global setting
+        let language = profile
+            .as_ref()
+            .map(|p| p.language.clone())
+            .unwrap_or_else(|| settings.selected_language.clone());
+
+        #[cfg(target_os = "windows")]
+        let api_key = crate::secure_keys::get_soniox_api_key();
+
+        #[cfg(not(target_os = "windows"))]
+        let api_key = String::new();
+
+        let text = soniox_manager
+            .transcribe_file_async(
+                Some(operation_id),
+                &api_key,
+                &settings.soniox_model,
+                settings.soniox_timeout_seconds,
+                &samples,
+                Some(language.as_str()),
+            )
+            .await
+            .map_err(|e| format!("Soniox transcription failed: {}", e))?;
+
+        if soniox_manager.is_cancelled(operation_id) {
+            return Err("Soniox transcription was cancelled".to_string());
+        }
+
+        // Apply custom word corrections
+        let corrected = if should_apply_custom_words {
+            apply_custom_words(
+                &text,
+                &settings.custom_words,
+                settings.word_correction_threshold,
+                settings.custom_words_ngram_enabled,
+            )
+        } else {
+            text
+        };
+
+        // Apply filler word filter (if enabled)
+        let corrected = if settings.filler_word_filter_enabled {
+            crate::audio_toolkit::filter_transcription_output(&corrected)
+        } else {
+            corrected
+        };
+
+        // For remote STT without segment support, create a single segment
+        // spanning the estimated duration if subtitle format is requested
+        let segs = if needs_segments {
             let word_count = corrected.split_whitespace().count();
             let estimated_duration = (word_count as f32 / 150.0) * 60.0;
             Some(vec![SubtitleSegment {

@@ -8,6 +8,7 @@ use crate::managers::history::HistoryManager;
 use crate::managers::llm_operation::LlmOperationTracker;
 use crate::managers::model::{EngineType, ModelManager};
 use crate::managers::remote_stt::RemoteSttManager;
+use crate::managers::soniox_stt::SonioxSttManager;
 use crate::managers::transcription::TranscriptionManager;
 use crate::session_manager::{self, ManagedSessionState};
 use crate::settings::{
@@ -138,7 +139,7 @@ fn resolve_effective_language(
         .map(|p| p.language.clone())
         .unwrap_or_else(|| settings.selected_language.clone());
 
-    if settings.transcription_provider == TranscriptionProvider::RemoteOpenAiCompatible {
+    if settings.transcription_provider != TranscriptionProvider::Local {
         return requested;
     }
 
@@ -847,6 +848,91 @@ async fn perform_transcription_for_profile(
                 }
             }
         }
+    } else if settings.transcription_provider == TranscriptionProvider::RemoteSoniox {
+        // Determine language: use profile setting if available, otherwise global setting
+        let language = profile
+            .as_ref()
+            .map(|p| p.language.clone())
+            .unwrap_or_else(|| settings.selected_language.clone());
+
+        #[cfg(target_os = "windows")]
+        let api_key = crate::secure_keys::get_soniox_api_key();
+
+        #[cfg(not(target_os = "windows"))]
+        let api_key = String::new();
+
+        if let Some(p) = &profile {
+            log::info!(
+                "Transcription using Soniox with profile '{}' (lang={}): model={}",
+                p.name,
+                language,
+                settings.soniox_model
+            );
+        } else {
+            log::info!(
+                "Transcription using Soniox: model={}, lang={}",
+                settings.soniox_model,
+                language
+            );
+        }
+
+        let soniox_manager = app.state::<Arc<SonioxSttManager>>();
+        let operation_id = soniox_manager.start_operation();
+
+        let result = soniox_manager
+            .transcribe(
+                Some(operation_id),
+                &api_key,
+                &settings.soniox_model,
+                settings.soniox_timeout_seconds,
+                &samples,
+                Some(language.as_str()),
+            )
+            .await
+            .map(|text| {
+                let corrected =
+                    if settings.custom_words_enabled && !settings.custom_words.is_empty() {
+                        apply_custom_words(
+                            &text,
+                            &settings.custom_words,
+                            settings.word_correction_threshold,
+                            settings.custom_words_ngram_enabled,
+                        )
+                    } else {
+                        text
+                    };
+                if settings.filler_word_filter_enabled {
+                    crate::audio_toolkit::filter_transcription_output(&corrected)
+                } else {
+                    corrected
+                }
+            });
+
+        if soniox_manager.is_cancelled(operation_id) {
+            debug!(
+                "Soniox transcription operation {} was cancelled, discarding result",
+                operation_id
+            );
+            return TranscriptionOutcome::Cancelled;
+        }
+
+        match result {
+            Ok(text) => TranscriptionOutcome::Success(text),
+            Err(err) => {
+                let err_str = format!("{}", err);
+                if soniox_manager.is_cancelled(operation_id)
+                    || err_str.to_lowercase().contains("cancelled")
+                {
+                    return TranscriptionOutcome::Cancelled;
+                }
+                let _ = app.emit("remote-stt-error", err_str.clone());
+                crate::plus_overlay_state::handle_transcription_error(app, &err_str);
+                TranscriptionOutcome::Error {
+                    message: err_str,
+                    shown_in_overlay: true,
+                }
+            }
+        }
     } else {
         let tm = app.state::<Arc<TranscriptionManager>>();
 
@@ -961,7 +1047,7 @@ fn prepare_stop_recording(app: &AppHandle, binding_id: &str) -> Option<StopRecor
         let settings = get_settings(app);
 
         change_tray_icon(app, TrayIconState::Transcribing);
-        if settings.transcription_provider == TranscriptionProvider::RemoteOpenAiCompatible {
+        if settings.transcription_provider != TranscriptionProvider::Local {
             show_sending_overlay(app);
         } else {
             show_transcribing_overlay(app);

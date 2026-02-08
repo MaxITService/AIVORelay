@@ -18,6 +18,8 @@ pub enum KeyType {
     AiReplace,
     /// Voice Command LLM API key (per provider)
     VoiceCommand,
+    /// Soniox cloud STT API key
+    SonioxStt,
 }
 
 impl KeyType {
@@ -26,6 +28,7 @@ impl KeyType {
             KeyType::PostProcess => "post_process_api_key",
             KeyType::AiReplace => "ai_replace_api_key",
             KeyType::VoiceCommand => "voice_command_api_key",
+            KeyType::SonioxStt => "soniox_api_key",
         }
     }
 
@@ -132,6 +135,26 @@ pub fn get_voice_command_api_key(provider_id: &str) -> Option<String> {
 /// Set a Voice Command API key for a specific provider
 pub fn set_voice_command_api_key(provider_id: &str, key: &str) -> Result<()> {
     set_api_key(KeyType::VoiceCommand, Some(provider_id), key)
+}
+
+/// Get Soniox STT API key
+pub fn get_soniox_api_key() -> String {
+    get_api_key(KeyType::SonioxStt, None).unwrap_or_default()
+}
+
+/// Set Soniox STT API key
+pub fn set_soniox_api_key(key: &str) -> Result<()> {
+    set_api_key(KeyType::SonioxStt, None, key)
+}
+
+/// Clear Soniox STT API key
+pub fn clear_soniox_api_key() -> Result<()> {
+    set_api_key(KeyType::SonioxStt, None, "")
+}
+
+/// Returns whether Soniox STT API key is present
+pub fn has_soniox_api_key() -> bool {
+    !get_soniox_api_key().trim().is_empty()
 }
 
 // ============================================================================

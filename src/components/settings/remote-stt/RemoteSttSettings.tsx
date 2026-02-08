@@ -26,6 +26,7 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
   const {
     settings,
     isUpdating,
+    updateSetting,
     setTranscriptionProvider,
     updateRemoteSttBaseUrl,
     updateRemoteSttModelId,
@@ -35,12 +36,21 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
 
   const provider = settings?.transcription_provider ?? "local";
   const remoteSettings = settings?.remote_stt;
+  const sonioxModel = (settings as any)?.soniox_model ?? "stt-rt-v4";
+  const sonioxTimeout = Number((settings as any)?.soniox_timeout_seconds ?? 30);
+  const isRemoteOpenAiProvider = provider === "remote_openai_compatible";
+  const isSonioxProvider = provider === "remote_soniox";
+  const isCloudProvider = isRemoteOpenAiProvider || isSonioxProvider;
 
   const [baseUrlInput, setBaseUrlInput] = useState(
     remoteSettings?.base_url ?? "",
   );
   const [modelIdInput, setModelIdInput] = useState(
     remoteSettings?.model_id ?? "",
+  );
+  const [sonioxModelInput, setSonioxModelInput] = useState(sonioxModel);
+  const [sonioxTimeoutInput, setSonioxTimeoutInput] = useState(
+    String(sonioxTimeout),
   );
 
   const [apiKeyInput, setApiKeyInput] = useState("");
@@ -70,6 +80,14 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
   }, [remoteSettings?.model_id]);
 
   useEffect(() => {
+    setSonioxModelInput(sonioxModel);
+  }, [sonioxModel]);
+
+  useEffect(() => {
+    setSonioxTimeoutInput(String(sonioxTimeout));
+  }, [sonioxTimeout]);
+
+  useEffect(() => {
     if (!isWindows) {
       setHasApiKey(false);
       setHasKeyStatusLoaded(true);
@@ -78,7 +96,9 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
 
     const loadApiKeyStatus = async () => {
       try {
-        const result = await commands.remoteSttHasApiKey();
+        const result = isSonioxProvider
+          ? await commands.sonioxHasApiKey()
+          : await commands.remoteSttHasApiKey();
         if (result.status === "ok") {
           setHasApiKey(result.data);
         }
@@ -90,7 +110,7 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
     };
 
     loadApiKeyStatus();
-  }, [isWindows, provider]);
+  }, [isWindows, provider, isSonioxProvider]);
 
   useEffect(() => {
     if (!hasKeyStatusLoaded) {
@@ -107,7 +127,7 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
   }, [baseUrlInput, hasApiKey, provider]);
 
   useEffect(() => {
-    if (!isWindows || provider !== "remote_openai_compatible") {
+    if (!isWindows || !isRemoteOpenAiProvider) {
       setDebugLines([]);
       return;
     }
@@ -124,10 +144,10 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
     };
 
     loadDebugDump();
-  }, [isWindows, provider, debugCap]);
+  }, [isWindows, isRemoteOpenAiProvider, debugCap]);
 
   useEffect(() => {
-    if (!isWindows || provider !== "remote_openai_compatible") {
+    if (!isWindows || !isRemoteOpenAiProvider) {
       return;
     }
 
@@ -144,7 +164,7 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
     return () => {
       unlistenPromise.then((unlisten) => unlisten());
     };
-  }, [isWindows, provider, debugCap]);
+  }, [isWindows, isRemoteOpenAiProvider, debugCap]);
 
   useEffect(() => {
     if (!debugCapture) {
@@ -161,6 +181,11 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
       {
         value: "remote_openai_compatible",
         label: t("settings.advanced.transcriptionProvider.options.remote"),
+        isDisabled: !isWindows,
+      },
+      {
+        value: "remote_soniox",
+        label: t("settings.advanced.transcriptionProvider.options.soniox"),
         isDisabled: !isWindows,
       },
     ];
@@ -185,11 +210,31 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
     }
   };
 
+  const handleSonioxModelBlur = () => {
+    const trimmed = sonioxModelInput.trim();
+    if (trimmed !== sonioxModel) {
+      void updateSetting("soniox_model" as any, trimmed || "stt-rt-v4");
+    }
+  };
+
+  const handleSonioxTimeoutBlur = () => {
+    const parsed = Number.parseInt(sonioxTimeoutInput, 10);
+    if (Number.isNaN(parsed)) {
+      setSonioxTimeoutInput(String(sonioxTimeout));
+      return;
+    }
+    if (parsed !== sonioxTimeout) {
+      void updateSetting("soniox_timeout_seconds" as any, parsed as any);
+    }
+  };
+
   const handleSaveApiKey = async () => {
     if (!apiKeyInput.trim()) return;
     setApiKeyLoading(true);
     try {
-      const result = await commands.remoteSttSetApiKey(apiKeyInput.trim());
+      const result = isSonioxProvider
+        ? await commands.sonioxSetApiKey(apiKeyInput.trim())
+        : await commands.remoteSttSetApiKey(apiKeyInput.trim());
       if (result.status === "ok") {
         setApiKeyInput("");
         setHasApiKey(true);
@@ -207,7 +252,9 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
   const handleClearApiKey = async () => {
     setApiKeyLoading(true);
     try {
-      const result = await commands.remoteSttClearApiKey();
+      const result = isSonioxProvider
+        ? await commands.sonioxClearApiKey()
+        : await commands.remoteSttClearApiKey();
       if (result.status === "ok") {
         setHasApiKey(false);
         setApiKeyInput("");
@@ -273,9 +320,14 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
   };
 
   const showRemoteFields =
-    isWindows && provider === "remote_openai_compatible";
+    isWindows && isCloudProvider;
+  const showOpenAiFields = isWindows && isRemoteOpenAiProvider;
+  const showSonioxFields = isWindows && isSonioxProvider;
   const canTestConnection =
-    hasApiKey && baseUrlInput.trim().length > 0 && !apiKeyLoading;
+    isRemoteOpenAiProvider &&
+    hasApiKey &&
+    baseUrlInput.trim().length > 0 &&
+    !apiKeyLoading;
 
   return (
     <div className="space-y-2">
@@ -303,43 +355,94 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
 
       {showRemoteFields && (
         <>
-          <SettingContainer
-            title={t("settings.advanced.remoteStt.baseUrl.title")}
-            description={t("settings.advanced.remoteStt.baseUrl.description")}
-            descriptionMode={descriptionMode}
-            grouped={grouped}
-            layout="stacked"
-          >
-            <Input
-              type="text"
-              value={baseUrlInput}
-              onChange={(event) => setBaseUrlInput(event.target.value)}
-              onBlur={handleBaseUrlBlur}
-              placeholder={t("settings.advanced.remoteStt.baseUrl.placeholder")}
-              className="w-full"
-            />
-          </SettingContainer>
+          {showOpenAiFields && (
+            <>
+              <SettingContainer
+                title={t("settings.advanced.remoteStt.baseUrl.title")}
+                description={t("settings.advanced.remoteStt.baseUrl.description")}
+                descriptionMode={descriptionMode}
+                grouped={grouped}
+                layout="stacked"
+              >
+                <Input
+                  type="text"
+                  value={baseUrlInput}
+                  onChange={(event) => setBaseUrlInput(event.target.value)}
+                  onBlur={handleBaseUrlBlur}
+                  placeholder={t("settings.advanced.remoteStt.baseUrl.placeholder")}
+                  className="w-full"
+                />
+              </SettingContainer>
+
+              <SettingContainer
+                title={t("settings.advanced.remoteStt.modelId.title")}
+                description={t("settings.advanced.remoteStt.modelId.description")}
+                descriptionMode={descriptionMode}
+                grouped={grouped}
+                layout="stacked"
+              >
+                <Input
+                  type="text"
+                  value={modelIdInput}
+                  onChange={(event) => setModelIdInput(event.target.value)}
+                  onBlur={handleModelIdBlur}
+                  placeholder={t("settings.advanced.remoteStt.modelId.placeholder")}
+                  className="w-full"
+                />
+              </SettingContainer>
+            </>
+          )}
+
+          {showSonioxFields && (
+            <>
+              <SettingContainer
+                title={t("settings.advanced.soniox.model.title")}
+                description={t("settings.advanced.soniox.model.description")}
+                descriptionMode={descriptionMode}
+                grouped={grouped}
+                layout="stacked"
+              >
+                <Input
+                  type="text"
+                  value={sonioxModelInput}
+                  onChange={(event) => setSonioxModelInput(event.target.value)}
+                  onBlur={handleSonioxModelBlur}
+                  placeholder={t("settings.advanced.soniox.model.placeholder")}
+                  className="w-full"
+                />
+              </SettingContainer>
+
+              <SettingContainer
+                title={t("settings.advanced.soniox.timeout.title")}
+                description={t("settings.advanced.soniox.timeout.description")}
+                descriptionMode={descriptionMode}
+                grouped={grouped}
+                layout="stacked"
+              >
+                <Input
+                  type="number"
+                  value={sonioxTimeoutInput}
+                  onChange={(event) => setSonioxTimeoutInput(event.target.value)}
+                  onBlur={handleSonioxTimeoutBlur}
+                  min={10}
+                  max={300}
+                  className="w-full"
+                />
+              </SettingContainer>
+            </>
+          )}
 
           <SettingContainer
-            title={t("settings.advanced.remoteStt.modelId.title")}
-            description={t("settings.advanced.remoteStt.modelId.description")}
-            descriptionMode={descriptionMode}
-            grouped={grouped}
-            layout="stacked"
-          >
-            <Input
-              type="text"
-              value={modelIdInput}
-              onChange={(event) => setModelIdInput(event.target.value)}
-              onBlur={handleModelIdBlur}
-              placeholder={t("settings.advanced.remoteStt.modelId.placeholder")}
-              className="w-full"
-            />
-          </SettingContainer>
-
-          <SettingContainer
-            title={t("settings.advanced.remoteStt.apiKey.title")}
-            description={t("settings.advanced.remoteStt.apiKey.description")}
+            title={
+              isSonioxProvider
+                ? t("settings.advanced.soniox.apiKey.title")
+                : t("settings.advanced.remoteStt.apiKey.title")
+            }
+            description={
+              isSonioxProvider
+                ? t("settings.advanced.soniox.apiKey.description")
+                : t("settings.advanced.remoteStt.apiKey.description")
+            }
             descriptionMode={descriptionMode}
             grouped={grouped}
             layout="stacked"
@@ -421,98 +524,112 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
               )}
 
               <div className="flex flex-col gap-2">
-                <div className="flex items-center gap-2">
-                  <Button
-                    variant="secondary"
-                    size="sm"
-                    onClick={handleTestConnection}
-                    disabled={
-                      !canTestConnection || connectionStatus === "checking"
-                    }
-                  >
-                    {connectionStatus === "checking"
-                      ? t("settings.advanced.remoteStt.connection.testing")
-                      : t("settings.advanced.remoteStt.connection.test")}
-                  </Button>
-                </div>
-                {connectionMessage && (
-                  <span
-                    className={`text-xs ${
-                      connectionStatus === "success"
-                        ? "text-green-400"
-                        : "text-red-400"
-                    }`}
-                  >
-                    {connectionMessage}
-                  </span>
+                {showOpenAiFields && (
+                  <>
+                    <div className="flex items-center gap-2">
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        onClick={handleTestConnection}
+                        disabled={
+                          !canTestConnection || connectionStatus === "checking"
+                        }
+                      >
+                        {connectionStatus === "checking"
+                          ? t("settings.advanced.remoteStt.connection.testing")
+                          : t("settings.advanced.remoteStt.connection.test")}
+                      </Button>
+                    </div>
+                    {connectionMessage && (
+                      <span
+                        className={`text-xs ${
+                          connectionStatus === "success"
+                            ? "text-green-400"
+                            : "text-red-400"
+                        }`}
+                      >
+                        {connectionMessage}
+                      </span>
+                    )}
+                  </>
                 )}
               </div>
             </div>
           </SettingContainer>
 
-          <ToggleSwitch
-            checked={debugCapture}
-            onChange={(enabled) => updateRemoteSttDebugCapture(enabled)}
-            isUpdating={isUpdating("remote_stt_debug_capture")}
-            label={t("settings.advanced.remoteStt.debug.capture.title")}
-            description={t("settings.advanced.remoteStt.debug.capture.description")}
-            descriptionMode={descriptionMode}
-            grouped={grouped}
-          />
-
-          <SettingContainer
-            title={t("settings.advanced.remoteStt.debug.mode.title")}
-            description={t("settings.advanced.remoteStt.debug.mode.description")}
-            descriptionMode={descriptionMode}
-            grouped={grouped}
-          >
-            <Select
-              value={debugMode}
-              options={[
-                {
-                  value: "normal",
-                  label: t("settings.advanced.remoteStt.debug.mode.options.normal"),
-                },
-                {
-                  value: "verbose",
-                  label: t("settings.advanced.remoteStt.debug.mode.options.verbose"),
-                },
-              ]}
-              onChange={(value) => value && updateRemoteSttDebugMode(value)}
-              isClearable={false}
-              disabled={!debugCapture}
-            />
-          </SettingContainer>
-
-          <SettingContainer
-            title={t("settings.advanced.remoteStt.debug.output.title")}
-            description={t("settings.advanced.remoteStt.debug.output.description")}
-            descriptionMode={descriptionMode}
-            grouped={grouped}
-            layout="stacked"
-          >
-            <div className="flex flex-col gap-2">
-              <Textarea
-                value={
-                  debugLines.length > 0
-                    ? debugLines.join("\n")
-                    : t("settings.advanced.remoteStt.debug.output.empty")
-                }
-                readOnly
-                className="min-h-[160px] max-h-[300px] overflow-y-auto font-mono text-xs"
+          {showOpenAiFields && (
+            <>
+              <ToggleSwitch
+                checked={debugCapture}
+                onChange={(enabled) => updateRemoteSttDebugCapture(enabled)}
+                isUpdating={isUpdating("remote_stt_debug_capture")}
+                label={t("settings.advanced.remoteStt.debug.capture.title")}
+                description={t(
+                  "settings.advanced.remoteStt.debug.capture.description",
+                )}
+                descriptionMode={descriptionMode}
+                grouped={grouped}
               />
-              <div className="flex justify-end">
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  onClick={handleClearDebug}
-                  disabled={debugLines.length === 0}
-                >
-                  {t("settings.advanced.remoteStt.debug.output.clear")}
-                </Button>
-              </div>
-            </div>
-          </SettingContainer>
+
+              <SettingContainer
+                title={t("settings.advanced.remoteStt.debug.mode.title")}
+                description={t("settings.advanced.remoteStt.debug.mode.description")}
+                descriptionMode={descriptionMode}
+                grouped={grouped}
+              >
+                <Select
+                  value={debugMode}
+                  options={[
+                    {
+                      value: "normal",
+                      label: t(
+                        "settings.advanced.remoteStt.debug.mode.options.normal",
+                      ),
+                    },
+                    {
+                      value: "verbose",
+                      label: t(
+                        "settings.advanced.remoteStt.debug.mode.options.verbose",
+                      ),
+                    },
+                  ]}
+                  onChange={(value) => value && updateRemoteSttDebugMode(value)}
+                  isClearable={false}
+                  disabled={!debugCapture}
+                />
+              </SettingContainer>
+
+              <SettingContainer
+                title={t("settings.advanced.remoteStt.debug.output.title")}
+                description={t("settings.advanced.remoteStt.debug.output.description")}
+                descriptionMode={descriptionMode}
+                grouped={grouped}
+                layout="stacked"
+              >
+                <div className="flex flex-col gap-2">
+                  <Textarea
+                    value={
+                      debugLines.length > 0
+                        ? debugLines.join("\n")
+                        : t("settings.advanced.remoteStt.debug.output.empty")
+                    }
+                    readOnly
+                    className="min-h-[160px] max-h-[300px] overflow-y-auto font-mono text-xs"
+                  />
+                  <div className="flex justify-end">
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      onClick={handleClearDebug}
+                      disabled={debugLines.length === 0}
+                    >
+                      {t("settings.advanced.remoteStt.debug.output.clear")}
+                    </Button>
+                  </div>
+                </div>
+              </SettingContainer>
+            </>
+          )}
         </>
       )}
     </div>

@@ -37,6 +37,7 @@ use managers::key_listener::KeyListenerState;
 use managers::llm_operation::LlmOperationTracker;
 use managers::model::ModelManager;
 use managers::remote_stt::RemoteSttManager;
+use managers::soniox_stt::SonioxSttManager;
 use managers::transcription::TranscriptionManager;
 #[cfg(unix)]
 use signal_hook::consts::SIGUSR2;
@@ -148,6 +149,8 @@ fn initialize_core_logic(app_handle: &AppHandle) {
     );
     let remote_stt_manager =
         Arc::new(RemoteSttManager::new(app_handle).expect("Failed to initialize remote STT"));
+    let soniox_stt_manager =
+        Arc::new(SonioxSttManager::new(app_handle).expect("Failed to initialize Soniox STT"));
     let history_manager =
         Arc::new(HistoryManager::new(app_handle).expect("Failed to initialize history manager"));
     let connector_manager = Arc::new(
@@ -163,6 +166,7 @@ fn initialize_core_logic(app_handle: &AppHandle) {
     app_handle.manage(model_manager.clone());
     app_handle.manage(transcription_manager.clone());
     app_handle.manage(remote_stt_manager.clone());
+    app_handle.manage(soniox_stt_manager.clone());
     app_handle.manage(llm_operation_tracker.clone());
     app_handle.manage(history_manager.clone());
     app_handle.manage(connector_manager.clone());
@@ -322,6 +326,8 @@ pub fn run() {
         shortcut::change_convert_lf_to_crlf_setting,
         shortcut::change_remote_stt_base_url_setting,
         shortcut::change_remote_stt_model_id_setting,
+        shortcut::change_soniox_model_setting,
+        shortcut::change_soniox_timeout_setting,
         shortcut::change_remote_stt_debug_capture_setting,
         shortcut::change_remote_stt_debug_mode_setting,
         shortcut::change_post_process_enabled_setting,
@@ -436,6 +442,9 @@ pub fn run() {
         commands::remote_stt::remote_stt_has_api_key,
         commands::remote_stt::remote_stt_set_api_key,
         commands::remote_stt::remote_stt_clear_api_key,
+        commands::remote_stt::soniox_has_api_key,
+        commands::remote_stt::soniox_set_api_key,
+        commands::remote_stt::soniox_clear_api_key,
         commands::remote_stt::remote_stt_get_debug_dump,
         commands::remote_stt::remote_stt_clear_debug,
         commands::remote_stt::remote_stt_test_connection,

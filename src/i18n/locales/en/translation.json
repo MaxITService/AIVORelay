@@ -625,7 +625,8 @@
         "placeholder": "Select provider",
         "options": {
           "local": "Local (Offline, Privacy-focused, Needs powerful GPU, drivers and Vulkan softaware)",
-          "remote": "Remote (Cloud API, High Accuracy)"
+          "remote": "Remote (Cloud API, High Accuracy)",
+          "soniox": "Remote (Soniox Cloud API)"
         },
         "windowsOnly": "Remote transcription is currently Windows-only."
       },
@@ -678,6 +679,21 @@
             "empty": "No remote debug output yet.",
             "clear": "Clear"
           }
+        }
+      },
+      "soniox": {
+        "model": {
+          "title": "Soniox Model",
+          "description": "Model identifier used for Soniox transcription jobs.",
+          "placeholder": "stt-rt-v4"
+        },
+        "timeout": {
+          "title": "Soniox Timeout (seconds)",
+          "description": "Maximum wait time for Soniox job completion (10-300 seconds)."
+        },
+        "apiKey": {
+          "title": "Soniox API Key",
+          "description": "Stored securely in Windows Credential Manager."
         }
       },
       "translateToEnglish": {
@@ -1457,4 +1473,3 @@
     "empty": "No replacement rules yet. Add one above to get started."
   }
 }
-

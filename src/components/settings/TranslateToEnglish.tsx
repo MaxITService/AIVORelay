@@ -29,8 +29,9 @@ export const TranslateToEnglish: React.FC<TranslateToEnglishProps> = React.memo(
     const transcriptionProvider =
       getSetting("transcription_provider") || "local";
     const remoteModelId = getSetting("remote_stt")?.model_id || "";
-    const isRemoteProvider =
+    const isRemoteOpenAiProvider =
       transcriptionProvider === "remote_openai_compatible";
+    const isSonioxProvider = transcriptionProvider === "remote_soniox";
 
     // Track whether the remote model supports translation
     const [remoteSupportsTranslation, setRemoteSupportsTranslation] =
@@ -38,11 +39,13 @@ export const TranslateToEnglish: React.FC<TranslateToEnglishProps> = React.memo(
 
     // Check remote model translation support
     const checkRemoteTranslationSupport = useCallback(async () => {
-      if (isRemoteProvider) {
+      if (isRemoteOpenAiProvider) {
         const result = await commands.remoteSttSupportsTranslation();
         setRemoteSupportsTranslation(result);
+      } else {
+        setRemoteSupportsTranslation(false);
       }
-    }, [isRemoteProvider]);
+    }, [isRemoteOpenAiProvider]);
 
     // Check translation support when provider or remote model changes
     useEffect(() => {
@@ -51,21 +54,38 @@ export const TranslateToEnglish: React.FC<TranslateToEnglishProps> = React.memo(
 
     // Determine if translation is disabled
     const isDisabledTranslation = useMemo(() => {
-      if (isRemoteProvider) {
+      if (isSonioxProvider) {
+        return true;
+      }
+      if (isRemoteOpenAiProvider) {
         // For remote: disabled if model doesn't support translation
         return !remoteSupportsTranslation;
       }
       // For local: disabled if model is in unsupported list
       return unsupportedLocalModels.includes(currentModel);
-    }, [isRemoteProvider, remoteSupportsTranslation, currentModel]);
+    }, [
+      isSonioxProvider,
+      isRemoteOpenAiProvider,
+      remoteSupportsTranslation,
+      currentModel,
+    ]);
 
     const description = useMemo(() => {
-      if (isRemoteProvider && !remoteSupportsTranslation) {
+      if (isSonioxProvider) {
         return t(
           "settings.advanced.translateToEnglish.descriptionRemoteUnsupported",
         );
       }
-      if (!isRemoteProvider && unsupportedLocalModels.includes(currentModel)) {
+      if (isRemoteOpenAiProvider && !remoteSupportsTranslation) {
+        return t(
+          "settings.advanced.translateToEnglish.descriptionRemoteUnsupported",
+        );
+      }
+      if (
+        !isRemoteOpenAiProvider &&
+        !isSonioxProvider &&
+        unsupportedLocalModels.includes(currentModel)
+      ) {
         const currentModelDisplayName = models.find(
           (model) => model.id === currentModel,
         )?.name;
@@ -82,7 +102,8 @@ export const TranslateToEnglish: React.FC<TranslateToEnglishProps> = React.memo(
       t,
       models,
       currentModel,
-      isRemoteProvider,
+      isSonioxProvider,
+      isRemoteOpenAiProvider,
       remoteSupportsTranslation,
     ]);
 
