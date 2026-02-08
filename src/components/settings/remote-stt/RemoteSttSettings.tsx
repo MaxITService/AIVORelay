@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { listen } from "@tauri-apps/api/event";
+import { invoke } from "@tauri-apps/api/core";
 import { type } from "@tauri-apps/plugin-os";
 import { toast } from "sonner";
 import { commands } from "@/bindings";
@@ -10,6 +11,7 @@ import { Input } from "../../ui/Input";
 import { Select, type SelectOption } from "../../ui/Select";
 import { SettingContainer } from "../../ui/SettingContainer";
 import { Textarea } from "../../ui/Textarea";
+import { TellMeMore } from "../../ui/TellMeMore";
 import { ToggleSwitch } from "../../ui/ToggleSwitch";
 
 interface RemoteSttSettingsProps {
@@ -27,6 +29,7 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
     settings,
     isUpdating,
     updateSetting,
+    refreshSettings,
     setTranscriptionProvider,
     updateRemoteSttBaseUrl,
     updateRemoteSttModelId,
@@ -61,6 +64,12 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
   const sonioxKeepaliveSeconds = Number(
     (settings as any)?.soniox_keepalive_interval_seconds ?? 10,
   );
+  const sonioxLiveFinalizeTimeoutSeconds = Number(
+    (settings as any)?.soniox_live_finalize_timeout_seconds ?? 4,
+  );
+  const sonioxLiveInstantStop = Boolean(
+    (settings as any)?.soniox_live_instant_stop ?? false,
+  );
   const isRemoteOpenAiProvider = provider === "remote_openai_compatible";
   const isSonioxProvider = provider === "remote_soniox";
   const isCloudProvider = isRemoteOpenAiProvider || isSonioxProvider;
@@ -83,6 +92,8 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
     useState(String(sonioxMaxEndpointDelayMs));
   const [sonioxKeepaliveSecondsInput, setSonioxKeepaliveSecondsInput] =
     useState(String(sonioxKeepaliveSeconds));
+  const [sonioxLiveFinalizeTimeoutInput, setSonioxLiveFinalizeTimeoutInput] =
+    useState(String(sonioxLiveFinalizeTimeoutSeconds));
 
   const [apiKeyInput, setApiKeyInput] = useState("");
   const [hasApiKey, setHasApiKey] = useState(false);
@@ -129,6 +140,10 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
   useEffect(() => {
     setSonioxKeepaliveSecondsInput(String(sonioxKeepaliveSeconds));
   }, [sonioxKeepaliveSeconds]);
+
+  useEffect(() => {
+    setSonioxLiveFinalizeTimeoutInput(String(sonioxLiveFinalizeTimeoutSeconds));
+  }, [sonioxLiveFinalizeTimeoutSeconds]);
 
   useEffect(() => {
     if (!isWindows) {
@@ -306,6 +321,29 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
     }
   };
 
+  const handleSonioxLiveFinalizeTimeoutBlur = () => {
+    const parsed = Number.parseInt(sonioxLiveFinalizeTimeoutInput, 10);
+    if (Number.isNaN(parsed)) {
+      setSonioxLiveFinalizeTimeoutInput(String(sonioxLiveFinalizeTimeoutSeconds));
+      return;
+    }
+    if (parsed !== sonioxLiveFinalizeTimeoutSeconds) {
+      void updateSetting("soniox_live_finalize_timeout_seconds" as any, parsed as any);
+    }
+  };
+
+  const handleResetSonioxDefaults = async () => {
+    try {
+      await invoke("reset_soniox_settings_to_defaults");
+      await refreshSettings();
+      toast.success(t("settings.advanced.soniox.reset.success"));
+    } catch (error) {
+      toast.error(
+        t("settings.advanced.soniox.reset.failed", { error: String(error) }),
+      );
+    }
+  };
+
   const handleSaveApiKey = async () => {
     if (!apiKeyInput.trim()) return;
     setApiKeyLoading(true);
@@ -473,6 +511,79 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
 
           {showSonioxFields && (
             <>
+              <TellMeMore
+                title={t("settings.advanced.soniox.tellMeMore.title")}
+                collapsible={false}
+              >
+                <p className="mb-2">
+                  <strong>{t("settings.advanced.soniox.tellMeMore.headline")}</strong>
+                </p>
+                <p className="mb-2">
+                  {t("settings.advanced.soniox.tellMeMore.liveFlow")}
+                </p>
+                <p className="mb-2">
+                  {t("settings.advanced.soniox.tellMeMore.stopFlow")}
+                </p>
+                <p className="mb-1 font-medium">
+                  {t("settings.advanced.soniox.tellMeMore.userStory.title")}
+                </p>
+                <ul className="list-disc space-y-1 pl-5 mb-3 text-sm text-text/90">
+                  <li>{t("settings.advanced.soniox.tellMeMore.userStory.item1")}</li>
+                  <li>{t("settings.advanced.soniox.tellMeMore.userStory.item2")}</li>
+                  <li>{t("settings.advanced.soniox.tellMeMore.userStory.item3")}</li>
+                </ul>
+                <p className="mb-1 font-medium">
+                  {t("settings.advanced.soniox.tellMeMore.matrix.title")}
+                </p>
+                <div className="space-y-2 mb-3 text-sm text-text/90">
+                  {[
+                    "live",
+                    "finalizeTimeout",
+                    "instantStop",
+                    "languageHints",
+                    "endpointDetection",
+                  ].map((id) => (
+                    <div key={id} className="rounded border border-mid-gray/25 bg-mid-gray/10 p-2">
+                      <p className="font-medium">
+                        {t(`settings.advanced.soniox.tellMeMore.matrix.items.${id}.title`)}
+                      </p>
+                      <p>
+                        <strong>
+                          {t("settings.advanced.soniox.tellMeMore.matrix.whenToUseLabel")}
+                        </strong>{" "}
+                        {t(`settings.advanced.soniox.tellMeMore.matrix.items.${id}.whenToUse`)}
+                      </p>
+                      <p>
+                        <strong>
+                          {t("settings.advanced.soniox.tellMeMore.matrix.tradeoffLabel")}
+                        </strong>{" "}
+                        {t(`settings.advanced.soniox.tellMeMore.matrix.items.${id}.tradeoff`)}
+                      </p>
+                      <p>
+                        <strong>
+                          {t("settings.advanced.soniox.tellMeMore.matrix.recommendedLabel")}
+                        </strong>{" "}
+                        {t(`settings.advanced.soniox.tellMeMore.matrix.items.${id}.recommended`)}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+                <p className="text-text/80">
+                  {t("settings.advanced.soniox.tellMeMore.tip")}
+                </p>
+              </TellMeMore>
+
+              <SettingContainer
+                title={t("settings.advanced.soniox.reset.title")}
+                description={t("settings.advanced.soniox.reset.description")}
+                descriptionMode={descriptionMode}
+                grouped={grouped}
+              >
+                <Button variant="secondary" size="sm" onClick={handleResetSonioxDefaults}>
+                  {t("settings.advanced.soniox.reset.button")}
+                </Button>
+              </SettingContainer>
+
               <SettingContainer
                 title={t("settings.advanced.soniox.model.title")}
                 description={t("settings.advanced.soniox.model.description")}
@@ -619,6 +730,38 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
                   className="w-full"
                 />
               </SettingContainer>
+
+              <SettingContainer
+                title={t("settings.advanced.soniox.finalizeTimeout.title")}
+                description={t("settings.advanced.soniox.finalizeTimeout.description")}
+                descriptionMode={descriptionMode}
+                grouped={grouped}
+                layout="stacked"
+              >
+                <Input
+                  type="number"
+                  value={sonioxLiveFinalizeTimeoutInput}
+                  onChange={(event) =>
+                    setSonioxLiveFinalizeTimeoutInput(event.target.value)
+                  }
+                  onBlur={handleSonioxLiveFinalizeTimeoutBlur}
+                  min={2}
+                  max={20}
+                  className="w-full"
+                />
+              </SettingContainer>
+
+              <ToggleSwitch
+                label={t("settings.advanced.soniox.instantStop.title")}
+                description={t("settings.advanced.soniox.instantStop.description")}
+                checked={sonioxLiveInstantStop}
+                onChange={(enabled) =>
+                  void updateSetting("soniox_live_instant_stop" as any, enabled as any)
+                }
+                isUpdating={isUpdating("soniox_live_instant_stop")}
+                descriptionMode={descriptionMode}
+                grouped={grouped}
+              />
 
               <ToggleSwitch
                 label={t("settings.advanced.soniox.languageIdentification.title")}

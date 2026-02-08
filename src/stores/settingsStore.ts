@@ -232,6 +232,10 @@ const settingUpdaters: {
   invoke("change_soniox_speaker_diarization_setting", { enabled: value });
 (settingUpdaters as any).soniox_keepalive_interval_seconds = (value: any) =>
   invoke("change_soniox_keepalive_interval_seconds_setting", { seconds: value });
+(settingUpdaters as any).soniox_live_finalize_timeout_seconds = (value: any) =>
+  invoke("change_soniox_live_finalize_timeout_seconds_setting", { seconds: value });
+(settingUpdaters as any).soniox_live_instant_stop = (value: any) =>
+  invoke("change_soniox_live_instant_stop_setting", { enabled: value });
 
 // Fork-specific settings not yet present in generated bindings.
 (settingUpdaters as any).native_region_capture_mode = (value: any) =>

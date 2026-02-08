@@ -682,48 +682,128 @@
         }
       },
       "soniox": {
+        "reset": {
+          "title": "Soniox Quick Actions",
+          "description": "Reset all Soniox settings in this section to recommended defaults.",
+          "button": "Reset Soniox Settings",
+          "success": "Soniox settings were reset to defaults.",
+          "failed": "Failed to reset Soniox settings: {{error}}"
+        },
+        "tellMeMore": {
+          "title": "Tell me more: Soniox Real-time",
+          "headline": "How Soniox real-time behaves in AivoRelay.",
+          "liveFlow": "When Live mode is enabled, microphone audio is streamed directly to Soniox over WebSocket and confirmed tokens are inserted while you speak.",
+          "stopFlow": "On Stop, AivoRelay stops local capture, requests finalization, waits briefly for tail tokens, then returns to idle.",
+          "userStory": {
+            "title": "User story in this app",
+            "item1": "As a user, I press one shortcut, speak naturally, and see stable text appear while I am still talking.",
+            "item2": "When I press Stop, recording ends immediately in UI, while AivoRelay finalizes remaining words in background.",
+            "item3": "I can tune speed vs completeness: faster stop for responsiveness, or longer finalization for fewer cut tail words."
+          },
+          "matrix": {
+            "title": "When to use / Tradeoff / Recommended value",
+            "whenToUseLabel": "When to use:",
+            "tradeoffLabel": "Tradeoff:",
+            "recommendedLabel": "Recommended value:",
+            "items": {
+              "live": {
+                "title": "Live Real-time Streaming",
+                "whenToUse": "You want words to appear while speaking and minimum interaction latency.",
+                "tradeoff": "More sensitive to network stability than async mode.",
+                "recommended": "ON for stt-rt models; OFF only if you explicitly prefer non-live flow."
+              },
+              "finalizeTimeout": {
+                "title": "Live Finalization Timeout",
+                "whenToUse": "You notice missing last words after pressing Stop.",
+                "tradeoff": "Higher value captures more tail words but delays full completion.",
+                "recommended": "4-6 seconds for normal use; increase on unstable networks."
+              },
+              "instantStop": {
+                "title": "Instant Stop (AivoRelay local feature)",
+                "whenToUse": "You need immediate stop feedback and can accept occasional tail truncation.",
+                "tradeoff": "Late final chunks are ignored; last words can be cut.",
+                "recommended": "OFF by default; enable only for ultra-fast interaction workflows."
+              },
+              "languageHints": {
+                "title": "Language Hints",
+                "whenToUse": "You mostly speak known language(s) and want fewer misdetections.",
+                "tradeoff": "Wrong hints can bias recognition away from actual speech.",
+                "recommended": "Use one primary language code first (for example: en)."
+              },
+              "endpointDetection": {
+                "title": "Endpoint Detection",
+                "whenToUse": "You want automatic utterance finalization without manual timing.",
+                "tradeoff": "Very aggressive endpoint settings may finalize slightly too early in edge cases.",
+                "recommended": "ON for most users; keep max endpoint delay around 2000ms as baseline."
+              }
+            }
+          },
+          "parametersTitle": "What each setting controls:",
+          "parameters": {
+            "model": "Model: choose stt-rt-* for real-time streaming or stt-async-* for async pipeline.",
+            "live": "Live Real-time Streaming: enables direct WebSocket streaming path for stt-rt models.",
+            "timeout": "Soniox Timeout: timeout for non-live/legacy Soniox requests.",
+            "finalizeTimeout": "Live Finalization Timeout: how long Stop waits for final tokens before force-closing live session.",
+            "instantStop": "Instant Stop (AivoRelay feature): ends live session immediately on Stop and ignores late chunks.",
+            "languageHints": "Language Hints: biases recognition toward listed languages.",
+            "strict": "Strict Language Restriction: strongly constrains output to language hints.",
+            "endpoint": "Endpoint Detection: Soniox semantic end-of-utterance detection.",
+            "keepalive": "Keepalive Interval: ping period during silence to keep WebSocket alive.",
+            "languageIdentification": "Language Identification: includes per-token detected language metadata.",
+            "speakerDiarization": "Speaker Diarization: includes per-token speaker label metadata."
+          },
+          "tip": "Recommended baseline: stt-rt-v4, Live ON, endpoint detection ON, keepalive 10s, finalize timeout 4-6s."
+        },
         "model": {
           "title": "Soniox Model",
-          "description": "Model identifier used for Soniox transcription jobs.",
+          "description": "Model identifier sent to Soniox on each request. In AivoRelay, stt-rt-* enables live streaming where text appears while you speak; stt-async-* uses the non-live pipeline where text appears after processing finishes. If behavior feels wrong, model type is usually the first thing to verify.",
           "placeholder": "stt-rt-v4"
         },
         "timeout": {
           "title": "Soniox Timeout (seconds)",
-          "description": "Maximum wait time for Soniox job completion (10-300 seconds)."
+          "description": "Overall timeout for Soniox non-live/legacy requests and async operations (10-300s). In AivoRelay UX, higher values reduce premature failures on slow networks but can make you wait longer before an error is shown; lower values fail faster but are more sensitive to temporary latency."
         },
         "live": {
           "title": "Live Real-time Streaming",
-          "description": "When enabled with stt-rt models, streams microphone audio directly to Soniox and inserts confirmed tokens while you speak.",
+          "description": "When enabled with stt-rt models, AivoRelay streams microphone audio directly to Soniox over WebSocket and inserts confirmed tokens while you are speaking. This gives the fastest interactive typing experience, but it also depends more on connection stability than async mode.",
           "realtimeOnly": "Live streaming is only available for real-time Soniox models (stt-rt-*)."
         },
         "languageHints": {
           "title": "Language Hints",
-          "description": "Comma-separated ISO language codes (for example: en, es). Soniox is biased toward these languages.",
+          "description": "Comma-separated ISO language codes (for example: en, es). Soniox is biased toward these languages, which usually improves recognition accuracy in AivoRelay and reduces wrong-language token guesses. This does not hard-lock recognition unless strict mode is enabled.",
           "placeholder": "en, es"
         },
         "languageHintsStrict": {
           "title": "Strict Language Restriction",
-          "description": "Strongly restrict recognition to language hints (best with a single language)."
+          "description": "Strongly restrict recognition to the languages in Language Hints (works best with one language). In AivoRelay this can reduce accidental language switching, but if your speech truly mixes languages it may lower output quality for out-of-list phrases."
         },
         "endpointDetection": {
           "title": "Endpoint Detection",
-          "description": "Enable Soniox semantic endpoint detection and <end> markers for finished utterances."
+          "description": "Lets Soniox detect natural end-of-utterance moments and finalize tokens automatically (emits <end>). In AivoRelay this improves perceived responsiveness because final words stabilize sooner, especially during conversational pauses."
         },
         "maxEndpointDelay": {
           "title": "Max Endpoint Delay (ms)",
-          "description": "Maximum endpoint delay in milliseconds (500-3000, default 2000)."
+          "description": "Upper bound for endpoint latency after speech stops (500-3000, default 2000). Lower values feel snappier in AivoRelay but may finalize slightly earlier; higher values wait longer, which can preserve accuracy when speech cadence is irregular."
         },
         "keepalive": {
           "title": "Keepalive Interval (seconds)",
-          "description": "Keepalive interval during silence (5-20 seconds)."
+          "description": "How often keepalive is sent during silence (5-20s). In AivoRelay this helps keep the live Soniox session open between pauses, so the next phrase continues in the same session instead of reconnecting after idle timeout."
+        },
+        "finalizeTimeout": {
+          "title": "Live Finalization Timeout (seconds)",
+          "description": "After you press Stop in Soniox live mode, AivoRelay waits this long for late final tokens before force-closing and returning to idle (2-20s). Higher values recover more tail words, lower values make Stop feel more immediate."
+        },
+        "instantStop": {
+          "title": "Instant Stop (Local Feature)",
+          "description": "AivoRelay-only behavior: on Stop, immediately cancels Soniox live session and ignores late chunks. UX becomes very snappy, but final trailing words are more likely to be cut when network or server finalization is delayed."
         },
         "languageIdentification": {
           "title": "Language Identification",
-          "description": "Include detected language metadata in Soniox tokens."
+          "description": "Requests per-token language metadata from Soniox. In AivoRelay this mostly affects metadata/diagnostics and multilingual analysis flows; it does not directly change normal plain-text insertion behavior."
         },
         "speakerDiarization": {
           "title": "Speaker Diarization",
-          "description": "Enable speaker labeling in Soniox token metadata."
+          "description": "Requests speaker labels in token metadata. In AivoRelay this is mainly useful for multi-speaker scenarios and downstream analysis; regular typing output remains clean text unless speaker labels are explicitly used in a specific flow."
         },
         "apiKey": {
           "title": "Soniox API Key",

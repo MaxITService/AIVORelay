@@ -17,7 +17,8 @@ use crate::settings::APPLE_INTELLIGENCE_DEFAULT_MODEL_ID;
 use crate::settings::{
     self, get_settings, ClipboardHandling, LLMPrompt, OverlayPosition, PasteMethod,
     RemoteSttDebugMode, ShortcutEngine, SoundTheme, TranscriptionProvider,
-    APPLE_INTELLIGENCE_PROVIDER_ID, SONIOX_DEFAULT_MODEL,
+    APPLE_INTELLIGENCE_PROVIDER_ID, SONIOX_DEFAULT_LIVE_FINALIZE_TIMEOUT_SECONDS,
+    SONIOX_DEFAULT_MAX_ENDPOINT_DELAY_MS, SONIOX_DEFAULT_MODEL,
 };
 use crate::tray;
 use crate::ManagedToggleState;
@@ -916,6 +917,51 @@ pub fn change_soniox_keepalive_interval_seconds_setting(
 
     let mut settings = settings::get_settings(&app);
     settings.soniox_keepalive_interval_seconds = seconds;
+    settings::write_settings(&app, settings);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_soniox_live_finalize_timeout_seconds_setting(
+    app: AppHandle,
+    seconds: u32,
+) -> Result<(), String> {
+    if !(2..=20).contains(&seconds) {
+        return Err("Soniox live finalize timeout must be between 2 and 20 seconds".to_string());
+    }
+
+    let mut settings = settings::get_settings(&app);
+    settings.soniox_live_finalize_timeout_seconds = seconds;
+    settings::write_settings(&app, settings);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_soniox_live_instant_stop_setting(app: AppHandle, enabled: bool) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.soniox_live_instant_stop = enabled;
+    settings::write_settings(&app, settings);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn reset_soniox_settings_to_defaults(app: AppHandle) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.soniox_model = SONIOX_DEFAULT_MODEL.to_string();
+    settings.soniox_timeout_seconds = 30;
+    settings.soniox_live_enabled = true;
+    settings.soniox_language_hints = vec!["en".to_string()];
+    settings.soniox_language_hints_strict = false;
+    settings.soniox_enable_endpoint_detection = true;
+    settings.soniox_max_endpoint_delay_ms = SONIOX_DEFAULT_MAX_ENDPOINT_DELAY_MS;
+    settings.soniox_enable_language_identification = true;
+    settings.soniox_enable_speaker_diarization = true;
+    settings.soniox_keepalive_interval_seconds = 10;
+    settings.soniox_live_finalize_timeout_seconds = SONIOX_DEFAULT_LIVE_FINALIZE_TIMEOUT_SECONDS;
+    settings.soniox_live_instant_stop = false;
     settings::write_settings(&app, settings);
     Ok(())
 }

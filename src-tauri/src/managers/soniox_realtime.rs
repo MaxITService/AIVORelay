@@ -431,6 +431,12 @@ impl SonioxRealtimeManager {
             mut join_handle,
             ..
         } = session;
+        let read_final_text = || -> String {
+            final_text
+                .lock()
+                .map(|guard| guard.trim().to_string())
+                .unwrap_or_default()
+        };
 
         // Manual finalization first, then graceful stream end.
         let _ = control_tx.send(ControlMessage::Finalize);
@@ -444,27 +450,52 @@ impl SonioxRealtimeManager {
 
         match join_result {
             Ok(Ok(Ok(()))) => {}
-            Ok(Ok(Err(e))) => return Err(e),
-            Ok(Err(e)) => return Err(anyhow!("Soniox live session join failed: {}", e)),
+            Ok(Ok(Err(e))) => {
+                let partial = read_final_text();
+                if !partial.is_empty() {
+                    warn!(
+                        "Soniox live session ended with error after partial output (binding='{}'): {}",
+                        binding_id, e
+                    );
+                    return Ok(partial);
+                }
+                return Err(e);
+            }
+            Ok(Err(e)) => {
+                let partial = read_final_text();
+                if !partial.is_empty() {
+                    warn!(
+                        "Soniox live session join failed after partial output (binding='{}'): {}",
+                        binding_id, e
+                    );
+                    return Ok(partial);
+                }
+                return Err(anyhow!("Soniox live session join failed: {}", e));
+            }
             Err(_) => {
                 join_handle.abort();
+                let partial = read_final_text();
+                if !partial.is_empty() {
+                    warn!(
+                        "Soniox live session timed out after partial output (binding='{}', wait={}s)",
+                        binding_id, wait_seconds
+                    );
+                    return Ok(partial);
+                }
                 return Err(anyhow!(
                     "Timed out while waiting for Soniox live session completion"
                 ));
             }
         }
 
-        let text = final_text
-            .lock()
-            .map(|guard| guard.clone())
-            .unwrap_or_default();
+        let text = read_final_text();
 
         info!(
             "Completed Soniox live session for binding '{}', output_len={}",
             binding_id,
             text.len()
         );
-        Ok(text.trim().to_string())
+        Ok(text)
     }
 
     pub fn cancel(&self) {

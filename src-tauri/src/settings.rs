@@ -538,6 +538,7 @@ pub enum TranscriptionProvider {
 
 pub const SONIOX_DEFAULT_MODEL: &str = "stt-rt-v4";
 pub const SONIOX_DEFAULT_MAX_ENDPOINT_DELAY_MS: u32 = 2000;
+pub const SONIOX_DEFAULT_LIVE_FINALIZE_TIMEOUT_SECONDS: u32 = 4;
 
 /// Shortcut engine selection for Windows.
 /// Controls which mechanism is used to listen for global hotkeys.
@@ -758,6 +759,10 @@ pub struct AppSettings {
     pub soniox_enable_speaker_diarization: bool,
     #[serde(default = "default_soniox_keepalive_interval_seconds")]
     pub soniox_keepalive_interval_seconds: u32,
+    #[serde(default = "default_soniox_live_finalize_timeout_seconds")]
+    pub soniox_live_finalize_timeout_seconds: u32,
+    #[serde(default = "default_false")]
+    pub soniox_live_instant_stop: bool,
     #[serde(default = "default_always_on_microphone")]
     pub always_on_microphone: bool,
     #[serde(default)]
@@ -1108,6 +1113,10 @@ fn default_soniox_max_endpoint_delay_ms() -> u32 {
 
 fn default_soniox_keepalive_interval_seconds() -> u32 {
     10
+}
+
+fn default_soniox_live_finalize_timeout_seconds() -> u32 {
+    SONIOX_DEFAULT_LIVE_FINALIZE_TIMEOUT_SECONDS
 }
 
 fn default_vad_threshold() -> f32 {
@@ -1672,6 +1681,8 @@ pub fn get_default_settings() -> AppSettings {
         soniox_enable_language_identification: default_true(),
         soniox_enable_speaker_diarization: default_true(),
         soniox_keepalive_interval_seconds: default_soniox_keepalive_interval_seconds(),
+        soniox_live_finalize_timeout_seconds: default_soniox_live_finalize_timeout_seconds(),
+        soniox_live_instant_stop: default_false(),
         always_on_microphone: false,
         selected_microphone: None,
         clamshell_microphone: None,

@@ -5,11 +5,32 @@ import { useTranslation } from "react-i18next";
 interface TellMeMoreProps {
   title?: string;
   children: React.ReactNode;
+  collapsible?: boolean;
+  defaultOpen?: boolean;
 }
 
-export const TellMeMore: React.FC<TellMeMoreProps> = ({ title, children }) => {
-  const [isOpen, setIsOpen] = useState(false);
+export const TellMeMore: React.FC<TellMeMoreProps> = ({
+  title,
+  children,
+  collapsible = true,
+  defaultOpen = false,
+}) => {
+  const [isOpen, setIsOpen] = useState(defaultOpen || !collapsible);
   const { t } = useTranslation();
+
+  if (!collapsible) {
+    return (
+      <div className="mb-6 rounded-lg border border-mid-gray/30 bg-mid-gray/5 overflow-hidden">
+        <div className="flex w-full items-center gap-2 p-3 text-sm font-medium text-accent border-b border-mid-gray/20">
+          <Info className="h-4 w-4" />
+          <span>{title || t("common.tellMeMore", "Tell me more: How to use")}</span>
+        </div>
+        <div className="px-4 pb-4 pt-3 text-sm text-text/90 leading-relaxed">
+          {children}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="mb-6 rounded-lg border border-mid-gray/30 bg-mid-gray/5 overflow-hidden transition-all duration-300">

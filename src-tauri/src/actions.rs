@@ -99,9 +99,6 @@ struct LlmTemplateContext {
 static RECORDING_APP_CONTEXT: Lazy<Mutex<HashMap<String, String>>> =
     Lazy::new(|| Mutex::new(HashMap::new()));
 
-/// Live Soniox stop should finish quickly; long waits block returning to idle.
-const SONIOX_LIVE_STOP_TIMEOUT_SECONDS: u32 = 4;
-
 fn capture_recording_app_context(binding_id: &str) {
     #[cfg(target_os = "windows")]
     let app_name = crate::active_app::get_frontmost_app_name().unwrap_or_default();
@@ -1626,9 +1623,13 @@ impl ShortcutAction for TranscribeAction {
                 let samples = match rm.stop_recording(&binding_id) {
                     Some(samples) => samples,
                     None => {
-                        let _ = soniox_live_manager
-                            .finish_session(SONIOX_LIVE_STOP_TIMEOUT_SECONDS)
-                            .await;
+                        if settings.soniox_live_instant_stop {
+                            soniox_live_manager.cancel();
+                        } else {
+                            let _ = soniox_live_manager
+                                .finish_session(settings.soniox_live_finalize_timeout_seconds)
+                                .await;
+                        }
                         rm.clear_stream_frame_callback();
                         let _ = crate::clipboard::end_streaming_paste_session(&ah);
                         utils::hide_recording_overlay(&ah);
@@ -1639,8 +1640,32 @@ impl ShortcutAction for TranscribeAction {
                 };
                 rm.clear_stream_frame_callback();
 
+                if settings.soniox_live_instant_stop {
+                    soniox_live_manager.cancel();
+                    let _ = crate::clipboard::end_streaming_paste_session(&ah);
+
+                    let ah_clone = ah.clone();
+                    let binding_id_clone = binding_id.clone();
+                    ah.run_on_main_thread(move || {
+                        let settings = get_settings(&ah_clone);
+                        if settings.append_trailing_space {
+                            let _ =
+                                crate::clipboard::paste_stream_chunk(" ".to_string(), ah_clone.clone());
+                        }
+                        utils::hide_recording_overlay(&ah_clone);
+                        change_tray_icon(&ah_clone, TrayIconState::Idle);
+                        if let Ok(mut states) = ah_clone.state::<ManagedToggleState>().lock() {
+                            states.active_toggles.insert(binding_id_clone, false);
+                        }
+                    })
+                    .ok();
+
+                    session_manager::exit_processing(&ah);
+                    return;
+                }
+
                 let transcription_result = soniox_live_manager
-                    .finish_session(SONIOX_LIVE_STOP_TIMEOUT_SECONDS)
+                    .finish_session(settings.soniox_live_finalize_timeout_seconds)
                     .await;
                 let transcription = match transcription_result {
                     Ok(text) => apply_soniox_output_filters(&settings, text),
