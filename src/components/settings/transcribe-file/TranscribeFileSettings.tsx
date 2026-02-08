@@ -13,13 +13,14 @@ import { open } from "@tauri-apps/plugin-dialog";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { stat } from "@tauri-apps/plugin-fs";
-import { commands, ModelInfo } from "@/bindings";
+import { commands, ModelInfo, SonioxFileTranscriptionOptions } from "@/bindings";
 import { useSettings } from "@/hooks/useSettings";
 import { SettingsGroup } from "@/components/ui/SettingsGroup";
 import { Button } from "@/components/ui/Button";
 import { AudioPlayer } from "@/components/ui/AudioPlayer";
 import { Dropdown } from "@/components/ui/Dropdown";
 import { useTranscribeFileStore } from "@/stores/transcribeFileStore";
+import { parseAndNormalizeSonioxLanguageHints } from "@/lib/constants/sonioxLanguages";
 
 const supportedExtensions = ["wav", "mp3", "m4a", "ogg", "flac", "webm"];
 
@@ -53,8 +54,42 @@ export const TranscribeFileSettings: React.FC = () => {
   const [copied, setCopied] = useState(false);
   const [isDragOver, setIsDragOver] = useState(false);
   const [availableModels, setAvailableModels] = useState<ModelInfo[]>([]);
+  const [infoMessage, setInfoMessage] = useState<string | null>(null);
+  const [sonioxLanguageHintsInput, setSonioxLanguageHintsInput] = useState("");
+  const [sonioxEnableSpeakerDiarization, setSonioxEnableSpeakerDiarization] =
+    useState(true);
+  const [
+    sonioxEnableLanguageIdentification,
+    setSonioxEnableLanguageIdentification,
+  ] = useState(true);
 
   const dropZoneRef = useRef<HTMLDivElement>(null);
+  const sonioxModel = (settings as any)?.soniox_model ?? "stt-rt-v4";
+  const isSonioxProvider = settings?.transcription_provider === "remote_soniox";
+  const showSonioxFileOptions = !!selectedFile && isSonioxProvider && !overrideModelId;
+  const settingsSonioxLanguageHints = (settings as any)?.soniox_language_hints as
+    | string[]
+    | undefined;
+  const globalSonioxLanguageHints = useMemo(
+    () => settingsSonioxLanguageHints ?? ["en"],
+    [settingsSonioxLanguageHints],
+  );
+  const globalSonioxEnableLanguageIdentification = Boolean(
+    (settings as any)?.soniox_enable_language_identification ?? true,
+  );
+  const globalSonioxEnableSpeakerDiarization = Boolean(
+    (settings as any)?.soniox_enable_speaker_diarization ?? true,
+  );
+
+  useEffect(() => {
+    setSonioxLanguageHintsInput(globalSonioxLanguageHints.join(", "));
+    setSonioxEnableSpeakerDiarization(globalSonioxEnableSpeakerDiarization);
+    setSonioxEnableLanguageIdentification(globalSonioxEnableLanguageIdentification);
+  }, [
+    globalSonioxEnableLanguageIdentification,
+    globalSonioxEnableSpeakerDiarization,
+    globalSonioxLanguageHints,
+  ]);
 
   // Listen for Tauri file drop events
   useEffect(() => {
@@ -101,6 +136,7 @@ export const TranscribeFileSettings: React.FC = () => {
           });
           setTranscriptionResult("");
           setSavedFilePath(null);
+          setInfoMessage(null);
           setError(null);
         }
       }
@@ -204,6 +240,7 @@ export const TranscribeFileSettings: React.FC = () => {
         });
         setTranscriptionResult("");
         setSavedFilePath(null);
+        setInfoMessage(null);
         setError(null);
       }
     } catch (err) {
@@ -220,8 +257,32 @@ export const TranscribeFileSettings: React.FC = () => {
     setError(null);
     setTranscriptionResult("");
     setSavedFilePath(null);
+    setInfoMessage(null);
 
     try {
+      let sonioxOptionsOverride: SonioxFileTranscriptionOptions | null = null;
+      if (showSonioxFileOptions) {
+        const parsedHints = parseAndNormalizeSonioxLanguageHints(
+          sonioxLanguageHintsInput,
+        );
+        if (parsedHints.rejected.length > 0) {
+          setError(
+            t("transcribeFile.soniox.invalidHints", {
+              hints: parsedHints.rejected.join(", "),
+            }),
+          );
+          setIsTranscribing(false);
+          return;
+        }
+
+        sonioxOptionsOverride = {
+          languageHints:
+            parsedHints.normalized.length > 0 ? parsedHints.normalized : null,
+          enableSpeakerDiarization: sonioxEnableSpeakerDiarization,
+          enableLanguageIdentification: sonioxEnableLanguageIdentification,
+        };
+      }
+
       const result = await commands.transcribeAudioFile(
         selectedFile.path,
         effectiveProfileId === "default" ? null : effectiveProfileId,
@@ -229,10 +290,12 @@ export const TranscribeFileSettings: React.FC = () => {
         outputFormat,
         overrideModelId,
         customWordsEnabledOverride,
+        sonioxOptionsOverride,
       );
 
       if (result.status === "ok") {
         setTranscriptionResult(result.data.text);
+        setInfoMessage(result.data.info_message ?? null);
         if (result.data.saved_file_path) {
           setSavedFilePath(result.data.saved_file_path);
         }
@@ -264,6 +327,7 @@ export const TranscribeFileSettings: React.FC = () => {
     setSelectedFile(null);
     setTranscriptionResult("");
     setSavedFilePath(null);
+    setInfoMessage(null);
     setError(null);
   };
 
@@ -429,6 +493,18 @@ export const TranscribeFileSettings: React.FC = () => {
                 "Accurate timestamps (SRT/VTT) require a local model. Remote STT returns text-only output in this version.",
               )}
             </p>
+            {showSonioxFileOptions &&
+              sonioxModel.trim() !== "stt-async-v4" &&
+              !infoMessage && (
+              <div className="mt-3 rounded-lg border border-[#9b5de5]/40 bg-[#9b5de5]/10 p-3">
+                <p className="text-xs text-[#d7b9ff]">
+                  {t("transcribeFile.soniox.autoSwitchNotice", {
+                    targetModel: "stt-async-v4",
+                    selectedModel: sonioxModel.trim() || "(empty)",
+                  })}
+                </p>
+              </div>
+            )}
 
             {/* Custom Words Toggle */}
             <div className="mt-4 space-y-2">
@@ -455,6 +531,57 @@ export const TranscribeFileSettings: React.FC = () => {
                 )}
               </p>
             </div>
+
+            {showSonioxFileOptions && (
+              <div className="mt-4 space-y-3 rounded-lg border border-[#333333] bg-[#151515] p-3">
+                <p className="text-sm text-[#f5f5f5]">
+                  {t("transcribeFile.soniox.title")}
+                </p>
+                <p className="text-xs text-[#808080]">
+                  {t("transcribeFile.soniox.usesGlobalDefaults")}
+                </p>
+                <div className="space-y-2">
+                  <label className="text-xs text-[#808080]">
+                    {t("transcribeFile.soniox.languageHintsLabel")}
+                  </label>
+                  <input
+                    type="text"
+                    value={sonioxLanguageHintsInput}
+                    onChange={(event) =>
+                      setSonioxLanguageHintsInput(event.target.value)
+                    }
+                    className="w-full rounded border border-[#333333] bg-[#0f0f0f] px-3 py-2 text-sm text-[#f5f5f5] focus:border-[#9b5de5] focus:outline-none"
+                    placeholder={t("transcribeFile.soniox.languageHintsPlaceholder")}
+                  />
+                </div>
+                <label className="flex items-center gap-2 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={sonioxEnableSpeakerDiarization}
+                    onChange={(e) =>
+                      setSonioxEnableSpeakerDiarization(e.target.checked)
+                    }
+                    className="accent-[#9b5de5] w-4 h-4 rounded border-[#333333] bg-[#1a1a1a]"
+                  />
+                  <span className="text-sm text-[#f5f5f5]">
+                    {t("transcribeFile.soniox.speakerDiarizationLabel")}
+                  </span>
+                </label>
+                <label className="flex items-center gap-2 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={sonioxEnableLanguageIdentification}
+                    onChange={(e) =>
+                      setSonioxEnableLanguageIdentification(e.target.checked)
+                    }
+                    className="accent-[#9b5de5] w-4 h-4 rounded border-[#333333] bg-[#1a1a1a]"
+                  />
+                  <span className="text-sm text-[#f5f5f5]">
+                    {t("transcribeFile.soniox.languageIdentificationLabel")}
+                  </span>
+                </label>
+              </div>
+            )}
 
             {/* Override Model Option */}
             <div className="mt-4 space-y-3">
@@ -533,6 +660,13 @@ export const TranscribeFileSettings: React.FC = () => {
           <div className="px-4 py-3 border-t border-white/[0.05]">
             <div className="p-3 bg-red-500/10 border border-red-500/30 rounded-lg">
               <p className="text-sm text-red-400">{error}</p>
+            </div>
+          </div>
+        )}
+        {infoMessage && (
+          <div className="px-4 py-3 border-t border-white/[0.05]">
+            <div className="p-3 bg-[#9b5de5]/10 border border-[#9b5de5]/30 rounded-lg">
+              <p className="text-sm text-[#d7b9ff]">{infoMessage}</p>
             </div>
           </div>
         )}

@@ -59,6 +59,17 @@ struct CreateTranscriptionRequest {
     model: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     language_hints: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    enable_speaker_diarization: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    enable_language_identification: Option<bool>,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct SonioxAsyncTranscriptionOptions {
+    pub language_hints: Option<Vec<String>>,
+    pub enable_speaker_diarization: Option<bool>,
+    pub enable_language_identification: Option<bool>,
 }
 
 #[derive(Deserialize, Debug)]
@@ -551,11 +562,15 @@ impl SonioxSttManager {
         file_id: &str,
         model: &str,
         language_hints: Option<Vec<String>>,
+        enable_speaker_diarization: Option<bool>,
+        enable_language_identification: Option<bool>,
     ) -> Result<String> {
         let request = CreateTranscriptionRequest {
             file_id: file_id.to_string(),
             model: model.to_string(),
             language_hints,
+            enable_speaker_diarization,
+            enable_language_identification,
         };
 
         let response = self
@@ -799,6 +814,7 @@ impl SonioxSttManager {
         timeout_seconds: u32,
         audio_samples: &[f32],
         language: Option<&str>,
+        options: SonioxAsyncTranscriptionOptions,
     ) -> Result<String> {
         if audio_samples.is_empty() {
             return Ok(String::new());
@@ -811,7 +827,13 @@ impl SonioxSttManager {
 
         let model = Self::normalize_model_for_async(model);
         let wav_data = encode_wav_bytes(audio_samples)?;
-        let language_hints = Self::normalized_language_hints(language);
+        let SonioxAsyncTranscriptionOptions {
+            language_hints: explicit_language_hints,
+            enable_speaker_diarization,
+            enable_language_identification,
+        } = options;
+        let language_hints =
+            explicit_language_hints.or_else(|| Self::normalized_language_hints(language));
         let started_at = Instant::now();
 
         let file_id = self
@@ -828,6 +850,8 @@ impl SonioxSttManager {
                         &file_id,
                         &model,
                         language_hints.clone(),
+                        enable_speaker_diarization,
+                        enable_language_identification,
                     )
                     .await
                 })

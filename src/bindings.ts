@@ -1749,13 +1749,14 @@ async getSupportedAudioExtensions() : Promise<string[]> {
  * * `save_to_file` - If true, saves the transcription to a file in Documents folder
  * * `output_format` - Output format: "text" (default), "srt", or "vtt"
  * * `custom_words_enabled_override` - Optional override for applying custom words
+ * * `soniox_options_override` - Optional Soniox async options for language hints and recognition flags
  * 
  * # Returns
  * FileTranscriptionResult with the transcribed text and optional saved file path
  */
-async transcribeAudioFile(filePath: string, profileId: string | null, saveToFile: boolean, outputFormat: OutputFormat | null, modelOverride: string | null, customWordsEnabledOverride: boolean | null) : Promise<Result<FileTranscriptionResult, string>> {
+async transcribeAudioFile(filePath: string, profileId: string | null, saveToFile: boolean, outputFormat: OutputFormat | null, modelOverride: string | null, customWordsEnabledOverride: boolean | null, sonioxOptionsOverride: SonioxFileTranscriptionOptions | null) : Promise<Result<FileTranscriptionResult, string>> {
     try {
-    return { status: "ok", data: await TAURI_INVOKE("transcribe_audio_file", { filePath, profileId, saveToFile, outputFormat, modelOverride, customWordsEnabledOverride }) };
+    return { status: "ok", data: await TAURI_INVOKE("transcribe_audio_file", { filePath, profileId, saveToFile, outputFormat, modelOverride, customWordsEnabledOverride, sonioxOptionsOverride }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
@@ -2169,7 +2170,11 @@ saved_file_path: string | null;
 /**
  * The segments with timestamps (only populated for SRT/VTT formats)
  */
-segments: SubtitleSegment[] | null }
+segments: SubtitleSegment[] | null; 
+/**
+ * Optional informational message for UI display
+ */
+info_message: string | null }
 export type GpuVramStatus = { is_supported: boolean; adapter_name: string | null; used_bytes: number; budget_bytes: number; system_used_bytes: number; system_free_bytes: number; total_vram_bytes: number; updated_at_unix_ms: number; error: string | null }
 export type HistoryEntry = { id: number; file_name: string; timestamp: number; saved: boolean; title: string; transcription_text: string; post_processed_text: string | null; post_process_prompt: string | null; 
 /**
@@ -2287,6 +2292,7 @@ export type ShortcutEngine =
  * Supports ALL keys including Caps Lock, Num Lock, and modifier-only shortcuts
  */
 "rdev"
+export type SonioxFileTranscriptionOptions = { languageHints: string[] | null; enableSpeakerDiarization: boolean | null; enableLanguageIdentification: boolean | null }
 export type SoundTheme = "marimba" | "pop" | "custom"
 /**
  * A transcription segment with timing information

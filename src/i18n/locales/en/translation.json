@@ -1549,6 +1549,16 @@
       "placeholder": "Select a model...",
       "hint": "Select a specific local model for this transcription. Local models support accurate timestamping for SRT/VTT."
     },
+    "soniox": {
+      "title": "Soniox File Transcription Options",
+      "usesGlobalDefaults": "Defaults are loaded from your global Soniox API settings. You can override them for this transcription.",
+      "autoSwitchNotice": "Soniox API detected. We are auto switching for the following model: {{targetModel}}. Selected model was '{{selectedModel}}'. Reason: Transcribe File uses Soniox async endpoint (/v1/transcriptions), and latest-only mode enforces the latest async model.",
+      "languageHintsLabel": "Language hints (comma-separated)",
+      "languageHintsPlaceholder": "e.g. en, fr",
+      "speakerDiarizationLabel": "Enable speaker diarization",
+      "languageIdentificationLabel": "Enable language identification",
+      "invalidHints": "Unsupported Soniox language hints: {{hints}}"
+    },
     "transcribe": "Transcribe",
     "transcribing": "Transcribing...",
     "clear": "Clear",
