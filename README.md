@@ -9,6 +9,8 @@ AI Voice Relay
 > 🎙️ AI-powered voice-to-text with smart integrations for Windows  
 > A fork of [cjpais/Handy](https://github.com/cjpais/Handy) with additional features
 
+> ## 📥 **[Download AivoRelay](https://github.com/MaxITService/AIVORelay/releases/latest)** — Get the latest release!
+
 ## ✨ Key Features
 
 ### 🔴 Soniox Live Transcription
