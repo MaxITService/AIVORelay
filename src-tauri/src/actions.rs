@@ -8,6 +8,7 @@ use crate::managers::history::HistoryManager;
 use crate::managers::llm_operation::LlmOperationTracker;
 use crate::managers::model::{EngineType, ModelManager};
 use crate::managers::remote_stt::RemoteSttManager;
+use crate::managers::soniox_realtime::{FinalChunkCallback, SonioxRealtimeManager, SonioxRealtimeOptions};
 use crate::managers::soniox_stt::SonioxSttManager;
 use crate::managers::transcription::TranscriptionManager;
 use crate::session_manager::{self, ManagedSessionState};
@@ -30,6 +31,7 @@ use strsim::normalized_levenshtein;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter, Manager};
+use tauri_plugin_clipboard_manager::ClipboardExt;
 
 // Shortcut Action Trait
 pub trait ShortcutAction: Send + Sync {
@@ -253,6 +255,11 @@ async fn maybe_post_process_transcription(
     profile: Option<&TranscriptionProfile>,
     template_context: &LlmTemplateContext,
 ) -> PostProcessTranscriptionOutcome {
+    if settings.transcription_provider == TranscriptionProvider::RemoteSoniox {
+        debug!("Skipping post-processing for Soniox streaming transcription");
+        return PostProcessTranscriptionOutcome::Skipped;
+    }
+
     // Determine if post-processing is enabled based on profile or global setting
     let is_enabled = match profile {
         Some(p) => p.llm_post_process_enabled,
@@ -878,35 +885,65 @@ async fn perform_transcription_for_profile(
 
         let soniox_manager = app.state::<Arc<SonioxSttManager>>();
         let operation_id = soniox_manager.start_operation();
+        let should_stream_insert = binding_id
+            .map(|id| id == "transcribe" || id.starts_with("transcribe_profile_"))
+            .unwrap_or(false);
 
-        let result = soniox_manager
-            .transcribe(
-                Some(operation_id),
-                &api_key,
-                &settings.soniox_model,
-                settings.soniox_timeout_seconds,
-                &samples,
-                Some(language.as_str()),
-            )
-            .await
-            .map(|text| {
-                let corrected =
-                    if settings.custom_words_enabled && !settings.custom_words.is_empty() {
-                        apply_custom_words(
-                            &text,
-                            &settings.custom_words,
-                            settings.word_correction_threshold,
-                            settings.custom_words_ngram_enabled,
-                        )
-                    } else {
-                        text
-                    };
-                if settings.filler_word_filter_enabled {
-                    crate::audio_toolkit::filter_transcription_output(&corrected)
-                } else {
-                    corrected
-                }
-            });
+        let result = if should_stream_insert {
+            let app_handle = app.clone();
+            soniox_manager
+                .transcribe_with_streaming_callback(
+                    Some(operation_id),
+                    &api_key,
+                    &settings.soniox_model,
+                    settings.soniox_timeout_seconds,
+                    &samples,
+                    Some(language.as_str()),
+                    move |chunk| {
+                        if chunk.is_empty() {
+                            return Ok(());
+                        }
+                        let chunk = chunk.to_string();
+                        let ah_for_call = app_handle.clone();
+                        let ah_for_closure = ah_for_call.clone();
+                        ah_for_call.run_on_main_thread(move || {
+                            let _ =
+                                crate::clipboard::paste_stream_chunk(chunk, ah_for_closure.clone());
+                        })
+                        .map_err(|e| anyhow::anyhow!("Failed to queue stream chunk paste: {}", e))
+                    },
+                )
+                .await
+        } else {
+            soniox_manager
+                .transcribe(
+                    Some(operation_id),
+                    &api_key,
+                    &settings.soniox_model,
+                    settings.soniox_timeout_seconds,
+                    &samples,
+                    Some(language.as_str()),
+                )
+                .await
+        };
+
+        let result = result.map(|text| {
+            let corrected = if settings.custom_words_enabled && !settings.custom_words.is_empty() {
+                apply_custom_words(
+                    &text,
+                    &settings.custom_words,
+                    settings.word_correction_threshold,
+                    settings.custom_words_ngram_enabled,
+                )
+            } else {
+                text
+            };
+            if settings.filler_word_filter_enabled {
+                crate::audio_toolkit::filter_transcription_output(&corrected)
+            } else {
+                corrected
+            }
+        });
 
         if soniox_manager.is_cancelled(operation_id) {
             debug!(
@@ -992,7 +1029,11 @@ async fn perform_transcription_for_profile(
 ///
 /// IMPORTANT: After calling this, the caller MUST call exit_processing() when
 /// the async work is complete (success or error).
-fn prepare_stop_recording(app: &AppHandle, binding_id: &str) -> Option<StopRecordingContext> {
+fn prepare_stop_recording_with_options(
+    app: &AppHandle,
+    binding_id: &str,
+    show_processing_overlay: bool,
+) -> Option<StopRecordingContext> {
     // Take the session and transition to Processing state
     let state = app.state::<ManagedSessionState>();
     let mut state_guard = state.lock().expect("Failed to lock session state");
@@ -1047,10 +1088,12 @@ fn prepare_stop_recording(app: &AppHandle, binding_id: &str) -> Option<StopRecor
         let settings = get_settings(app);
 
         change_tray_icon(app, TrayIconState::Transcribing);
-        if settings.transcription_provider != TranscriptionProvider::Local {
-            show_sending_overlay(app);
-        } else {
-            show_transcribing_overlay(app);
+        if show_processing_overlay {
+            if settings.transcription_provider != TranscriptionProvider::Local {
+                show_sending_overlay(app);
+            } else {
+                show_transcribing_overlay(app);
+            }
         }
 
         let rm = app.state::<Arc<AudioRecordingManager>>();
@@ -1064,6 +1107,10 @@ fn prepare_stop_recording(app: &AppHandle, binding_id: &str) -> Option<StopRecor
     } else {
         None
     }
+}
+
+fn prepare_stop_recording(app: &AppHandle, binding_id: &str) -> Option<StopRecordingContext> {
+    prepare_stop_recording_with_options(app, binding_id, true)
 }
 
 /// Asynchronously stops recording and performs transcription.
@@ -1122,6 +1169,65 @@ async fn get_transcription_or_cleanup(
         utils::hide_recording_overlay(app);
         change_tray_icon(app, TrayIconState::Idle);
         None
+    }
+}
+
+fn resolve_profile_for_binding<'a>(
+    settings: &'a AppSettings,
+    binding_id: &str,
+) -> Option<&'a TranscriptionProfile> {
+    if binding_id == "transcribe" && settings.active_profile_id != "default" {
+        return settings.transcription_profile(&settings.active_profile_id);
+    }
+
+    if binding_id.starts_with("transcribe_profile_") {
+        if let Some(profile_id) = binding_id.strip_prefix("transcribe_") {
+            return settings.transcription_profile(profile_id);
+        }
+    }
+
+    None
+}
+
+fn should_use_soniox_live_streaming(settings: &AppSettings) -> bool {
+    settings.transcription_provider == TranscriptionProvider::RemoteSoniox
+        && settings.soniox_live_enabled
+        && SonioxRealtimeManager::is_realtime_model(&settings.soniox_model)
+}
+
+fn build_soniox_realtime_options(settings: &AppSettings, language: &str) -> SonioxRealtimeOptions {
+    let mut language_hints = settings.soniox_language_hints.clone();
+    if language_hints.is_empty() && !language.trim().is_empty() && language != "auto" {
+        language_hints.push(language.trim().to_lowercase());
+    }
+
+    SonioxRealtimeOptions {
+        language_hints,
+        language_hints_strict: settings.soniox_language_hints_strict,
+        enable_speaker_diarization: settings.soniox_enable_speaker_diarization,
+        enable_language_identification: settings.soniox_enable_language_identification,
+        enable_endpoint_detection: settings.soniox_enable_endpoint_detection,
+        max_endpoint_delay_ms: settings.soniox_max_endpoint_delay_ms,
+        keepalive_interval_seconds: settings.soniox_keepalive_interval_seconds,
+    }
+}
+
+fn apply_soniox_output_filters(settings: &AppSettings, text: String) -> String {
+    let corrected = if settings.custom_words_enabled && !settings.custom_words.is_empty() {
+        apply_custom_words(
+            &text,
+            &settings.custom_words,
+            settings.word_correction_threshold,
+            settings.custom_words_ngram_enabled,
+        )
+    } else {
+        text
+    };
+
+    if settings.filler_word_filter_enabled {
+        crate::audio_toolkit::filter_transcription_output(&corrected)
+    } else {
+        corrected
     }
 }
 
@@ -1398,10 +1504,92 @@ impl ShortcutAction for TranscribeAction {
         let start_time = Instant::now();
         debug!("TranscribeAction::start called for binding: {}", binding_id);
 
+        let settings = get_settings(app);
+        let use_soniox_live = should_use_soniox_live_streaming(&settings);
+
+        if use_soniox_live {
+            let soniox_live_manager = Arc::clone(&app.state::<Arc<SonioxRealtimeManager>>());
+            soniox_live_manager.cancel();
+            let audio_manager = Arc::clone(&app.state::<Arc<AudioRecordingManager>>());
+            audio_manager.set_stream_frame_callback(Arc::new(move |frame| {
+                soniox_live_manager.push_audio_frame(frame);
+            }));
+        }
+
         if !start_recording_with_feedback(app, binding_id) {
+            if use_soniox_live {
+                let soniox_live_manager = Arc::clone(&app.state::<Arc<SonioxRealtimeManager>>());
+                soniox_live_manager.cancel();
+                let audio_manager = Arc::clone(&app.state::<Arc<AudioRecordingManager>>());
+                audio_manager.clear_stream_frame_callback();
+            }
             // Recording failed to start (e.g., system busy) - reset toggle state
             // so next press will try to start again instead of calling stop
             reset_toggle_state(app, binding_id);
+            return;
+        }
+
+        if use_soniox_live {
+            if let Err(e) = crate::clipboard::begin_streaming_paste_session(app) {
+                warn!("Failed to begin streaming clipboard session: {}", e);
+            }
+
+            let profile = resolve_profile_for_binding(&settings, binding_id);
+            let language = profile
+                .as_ref()
+                .map(|p| p.language.clone())
+                .unwrap_or_else(|| settings.selected_language.clone());
+            let options = build_soniox_realtime_options(&settings, &language);
+            let model = settings.soniox_model.clone();
+            let timeout_seconds = settings.soniox_timeout_seconds;
+            let binding_id = binding_id.to_string();
+            let app_handle = app.clone();
+            let soniox_live_manager = Arc::clone(&app.state::<Arc<SonioxRealtimeManager>>());
+
+            #[cfg(target_os = "windows")]
+            let api_key = crate::secure_keys::get_soniox_api_key();
+            #[cfg(not(target_os = "windows"))]
+            let api_key = String::new();
+
+            let chunk_callback: FinalChunkCallback = Arc::new({
+                let ah_for_cb = app_handle.clone();
+                move |chunk: String| {
+                    if chunk.is_empty() {
+                        return;
+                    }
+                    let ah_for_call = ah_for_cb.clone();
+                    let ah_for_clip = ah_for_call.clone();
+                    let _ = ah_for_call.run_on_main_thread(move || {
+                        let _ =
+                            crate::clipboard::paste_stream_chunk(chunk, ah_for_clip.clone());
+                    });
+                }
+            });
+
+            let start_result = soniox_live_manager.start_session(
+                &binding_id,
+                &api_key,
+                &model,
+                options,
+                Some(chunk_callback),
+            );
+
+            if let Err(err) = start_result {
+                let err_str = format!("{}", err);
+                let _ = app_handle.emit("remote-stt-error", err_str.clone());
+                crate::plus_overlay_state::handle_transcription_error(&app_handle, &err_str);
+                let _ = crate::clipboard::end_streaming_paste_session(&app_handle);
+                app_handle
+                    .state::<Arc<AudioRecordingManager>>()
+                    .clear_stream_frame_callback();
+                // Cancel the recording and return to idle if session startup fails.
+                crate::utils::cancel_current_operation(&app_handle);
+            } else {
+                debug!(
+                    "Soniox live session started for binding '{}' (timeout={}s)",
+                    binding_id, timeout_seconds
+                );
+            }
         }
 
         debug!(
@@ -1411,6 +1599,116 @@ impl ShortcutAction for TranscribeAction {
     }
 
     fn stop(&self, app: &AppHandle, binding_id: &str, _shortcut_str: &str) {
+        let settings = get_settings(app);
+        let soniox_live_manager = Arc::clone(&app.state::<Arc<SonioxRealtimeManager>>());
+        let use_soniox_live =
+            should_use_soniox_live_streaming(&settings) && soniox_live_manager.has_active_session();
+
+        if use_soniox_live {
+            let stop_context = match prepare_stop_recording_with_options(app, binding_id, false) {
+                Some(context) => context,
+                None => return, // No active session - nothing to do
+            };
+            let profile_id_for_postprocess = stop_context.captured_profile_id.clone();
+            let current_app = stop_context.current_app.clone();
+
+            let ah = app.clone();
+            let binding_id = binding_id.to_string();
+            tauri::async_runtime::spawn(async move {
+                let settings = get_settings(&ah);
+                let rm = Arc::clone(&ah.state::<Arc<AudioRecordingManager>>());
+                let samples = match rm.stop_recording(&binding_id) {
+                    Some(samples) => samples,
+                    None => {
+                        let _ = soniox_live_manager.finish_session(settings.soniox_timeout_seconds).await;
+                        rm.clear_stream_frame_callback();
+                        let _ = crate::clipboard::end_streaming_paste_session(&ah);
+                        utils::hide_recording_overlay(&ah);
+                        change_tray_icon(&ah, TrayIconState::Idle);
+                        session_manager::exit_processing(&ah);
+                        return;
+                    }
+                };
+                rm.clear_stream_frame_callback();
+
+                let transcription_result = soniox_live_manager
+                    .finish_session(settings.soniox_timeout_seconds)
+                    .await;
+                let transcription = match transcription_result {
+                    Ok(text) => apply_soniox_output_filters(&settings, text),
+                    Err(err) => {
+                        let err_str = format!("{}", err);
+                        let _ = ah.emit("remote-stt-error", err_str.clone());
+                        crate::plus_overlay_state::handle_transcription_error(&ah, &err_str);
+                        let _ = crate::clipboard::end_streaming_paste_session(&ah);
+                        session_manager::exit_processing(&ah);
+                        return;
+                    }
+                };
+
+                if transcription.is_empty() {
+                    let _ = crate::clipboard::end_streaming_paste_session(&ah);
+                    utils::hide_recording_overlay(&ah);
+                    change_tray_icon(&ah, TrayIconState::Idle);
+                    session_manager::exit_processing(&ah);
+                    return;
+                }
+
+                let final_text = match apply_post_processing_and_history(
+                    &ah,
+                    transcription,
+                    samples,
+                    profile_id_for_postprocess,
+                    &current_app,
+                )
+                .await
+                {
+                    Some(text) => text,
+                    None => {
+                        let _ = crate::clipboard::end_streaming_paste_session(&ah);
+                        session_manager::exit_processing(&ah);
+                        return;
+                    }
+                };
+
+                let ah_clone = ah.clone();
+                let binding_id_clone = binding_id.clone();
+                ah.run_on_main_thread(move || {
+                    // Soniox live mode already inserted text incrementally while chunks arrived.
+                    // Only append final trailing space once if requested.
+                    let settings = get_settings(&ah_clone);
+                    if settings.append_trailing_space {
+                        let _ =
+                            crate::clipboard::paste_stream_chunk(" ".to_string(), ah_clone.clone());
+                    }
+                    if settings.clipboard_handling
+                        == crate::settings::ClipboardHandling::CopyToClipboard
+                    {
+                        let text = if settings.append_trailing_space {
+                            format!("{} ", final_text)
+                        } else {
+                            final_text
+                        };
+                        let _ = ah_clone.clipboard().write_text(text);
+                    }
+
+                    utils::hide_recording_overlay(&ah_clone);
+                    change_tray_icon(&ah_clone, TrayIconState::Idle);
+                    if let Ok(mut states) = ah_clone.state::<ManagedToggleState>().lock() {
+                        states.active_toggles.insert(binding_id_clone, false);
+                    }
+                })
+                .ok();
+
+                if let Err(e) = crate::clipboard::end_streaming_paste_session(&ah) {
+                    warn!("Failed to end streaming clipboard session: {}", e);
+                }
+
+                session_manager::exit_processing(&ah);
+            });
+            return;
+        }
+
         let stop_context = match prepare_stop_recording(app, binding_id) {
             Some(context) => context,
             None => return, // No active session - nothing to do
@@ -1422,17 +1720,30 @@ impl ShortcutAction for TranscribeAction {
         let binding_id = binding_id.to_string();
 
         tauri::async_runtime::spawn(async move {
+            let is_soniox_provider =
+                get_settings(&ah).transcription_provider == TranscriptionProvider::RemoteSoniox;
+            if is_soniox_provider {
+                if let Err(e) = crate::clipboard::begin_streaming_paste_session(&ah) {
+                    warn!("Failed to begin streaming clipboard session: {}", e);
+                }
+            }
             let profile_id_for_postprocess = captured_profile_id.clone();
             let (transcription, samples) =
                 match get_transcription_or_cleanup(&ah, &binding_id, captured_profile_id).await {
                     Some(res) => res,
                     None => {
+                        if is_soniox_provider {
+                            let _ = crate::clipboard::end_streaming_paste_session(&ah);
+                        }
                         session_manager::exit_processing(&ah);
                         return;
                     }
                 };
 
             if transcription.is_empty() {
+                if is_soniox_provider {
+                    let _ = crate::clipboard::end_streaming_paste_session(&ah);
+                }
                 utils::hide_recording_overlay(&ah);
                 change_tray_icon(&ah, TrayIconState::Idle);
                 session_manager::exit_processing(&ah);
@@ -1450,6 +1761,9 @@ impl ShortcutAction for TranscribeAction {
             {
                 Some(text) => text,
                 None => {
+                    if is_soniox_provider {
+                        let _ = crate::clipboard::end_streaming_paste_session(&ah);
+                    }
                     session_manager::exit_processing(&ah);
                     return;
                 }
@@ -1458,7 +1772,24 @@ impl ShortcutAction for TranscribeAction {
             let ah_clone = ah.clone();
             let binding_id_clone = binding_id.clone();
             ah.run_on_main_thread(move || {
-                let _ = utils::paste(final_text, ah_clone.clone());
+                if is_soniox_provider {
+                    // Soniox live mode already inserted text incrementally while chunks arrived.
+                    // Only append final trailing space once if requested.
+                    let settings = get_settings(&ah_clone);
+                    if settings.append_trailing_space {
+                        let _ = crate::clipboard::paste_stream_chunk(" ".to_string(), ah_clone.clone());
+                    }
+                    if settings.clipboard_handling == crate::settings::ClipboardHandling::CopyToClipboard {
+                        let text = if settings.append_trailing_space {
+                            format!("{} ", final_text)
+                        } else {
+                            final_text
+                        };
+                        let _ = ah_clone.clipboard().write_text(text);
+                    }
+                } else {
+                    let _ = utils::paste(final_text, ah_clone.clone());
+                }
                 utils::hide_recording_overlay(&ah_clone);
                 change_tray_icon(&ah_clone, TrayIconState::Idle);
                 // Clear toggle state now that transcription is complete
@@ -1467,6 +1798,12 @@ impl ShortcutAction for TranscribeAction {
                 }
             })
             .ok();
+
+            if is_soniox_provider {
+                if let Err(e) = crate::clipboard::end_streaming_paste_session(&ah) {
+                    warn!("Failed to end streaming clipboard session: {}", e);
+                }
+            }
 
             session_manager::exit_processing(&ah);
         });

@@ -813,6 +813,115 @@ pub fn change_soniox_timeout_setting(app: AppHandle, timeout_seconds: u32) -> Re
 
 #[tauri::command]
 #[specta::specta]
+pub fn change_soniox_live_enabled_setting(app: AppHandle, enabled: bool) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.soniox_live_enabled = enabled;
+    settings::write_settings(&app, settings);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_soniox_language_hints_setting(
+    app: AppHandle,
+    hints: Vec<String>,
+) -> Result<(), String> {
+    let mut seen = std::collections::HashSet::new();
+    let normalized: Vec<String> = hints
+        .into_iter()
+        .map(|hint| hint.trim().to_lowercase())
+        .filter(|hint| !hint.is_empty() && seen.insert(hint.clone()))
+        .take(100)
+        .collect();
+
+    let mut settings = settings::get_settings(&app);
+    settings.soniox_language_hints = normalized;
+    settings::write_settings(&app, settings);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_soniox_language_hints_strict_setting(
+    app: AppHandle,
+    enabled: bool,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.soniox_language_hints_strict = enabled;
+    settings::write_settings(&app, settings);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_soniox_endpoint_detection_setting(
+    app: AppHandle,
+    enabled: bool,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.soniox_enable_endpoint_detection = enabled;
+    settings::write_settings(&app, settings);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_soniox_max_endpoint_delay_ms_setting(
+    app: AppHandle,
+    delay_ms: u32,
+) -> Result<(), String> {
+    if !(500..=3000).contains(&delay_ms) {
+        return Err("Soniox endpoint delay must be between 500 and 3000 ms".to_string());
+    }
+
+    let mut settings = settings::get_settings(&app);
+    settings.soniox_max_endpoint_delay_ms = delay_ms;
+    settings::write_settings(&app, settings);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_soniox_language_identification_setting(
+    app: AppHandle,
+    enabled: bool,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.soniox_enable_language_identification = enabled;
+    settings::write_settings(&app, settings);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_soniox_speaker_diarization_setting(
+    app: AppHandle,
+    enabled: bool,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.soniox_enable_speaker_diarization = enabled;
+    settings::write_settings(&app, settings);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_soniox_keepalive_interval_seconds_setting(
+    app: AppHandle,
+    seconds: u32,
+) -> Result<(), String> {
+    if !(5..=20).contains(&seconds) {
+        return Err("Soniox keepalive interval must be between 5 and 20 seconds".to_string());
+    }
+
+    let mut settings = settings::get_settings(&app);
+    settings.soniox_keepalive_interval_seconds = seconds;
+    settings::write_settings(&app, settings);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
 pub fn change_transcription_prompt_setting(
     app: AppHandle,
     model_id: String,

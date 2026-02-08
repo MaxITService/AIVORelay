@@ -37,6 +37,7 @@ use managers::key_listener::KeyListenerState;
 use managers::llm_operation::LlmOperationTracker;
 use managers::model::ModelManager;
 use managers::remote_stt::RemoteSttManager;
+use managers::soniox_realtime::SonioxRealtimeManager;
 use managers::soniox_stt::SonioxSttManager;
 use managers::transcription::TranscriptionManager;
 #[cfg(unix)]
@@ -149,6 +150,9 @@ fn initialize_core_logic(app_handle: &AppHandle) {
     );
     let remote_stt_manager =
         Arc::new(RemoteSttManager::new(app_handle).expect("Failed to initialize remote STT"));
+    let soniox_realtime_manager = Arc::new(
+        SonioxRealtimeManager::new(app_handle).expect("Failed to initialize Soniox realtime STT"),
+    );
     let soniox_stt_manager =
         Arc::new(SonioxSttManager::new(app_handle).expect("Failed to initialize Soniox STT"));
     let history_manager =
@@ -166,6 +170,7 @@ fn initialize_core_logic(app_handle: &AppHandle) {
     app_handle.manage(model_manager.clone());
     app_handle.manage(transcription_manager.clone());
     app_handle.manage(remote_stt_manager.clone());
+    app_handle.manage(soniox_realtime_manager.clone());
     app_handle.manage(soniox_stt_manager.clone());
     app_handle.manage(llm_operation_tracker.clone());
     app_handle.manage(history_manager.clone());
@@ -328,6 +333,14 @@ pub fn run() {
         shortcut::change_remote_stt_model_id_setting,
         shortcut::change_soniox_model_setting,
         shortcut::change_soniox_timeout_setting,
+        shortcut::change_soniox_live_enabled_setting,
+        shortcut::change_soniox_language_hints_setting,
+        shortcut::change_soniox_language_hints_strict_setting,
+        shortcut::change_soniox_endpoint_detection_setting,
+        shortcut::change_soniox_max_endpoint_delay_ms_setting,
+        shortcut::change_soniox_language_identification_setting,
+        shortcut::change_soniox_speaker_diarization_setting,
+        shortcut::change_soniox_keepalive_interval_seconds_setting,
         shortcut::change_remote_stt_debug_capture_setting,
         shortcut::change_remote_stt_debug_mode_setting,
         shortcut::change_post_process_enabled_setting,

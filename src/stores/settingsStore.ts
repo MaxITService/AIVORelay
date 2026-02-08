@@ -216,6 +216,23 @@ const settingUpdaters: {
     commands.changeVadThresholdSetting(value as number),
 };
 
+(settingUpdaters as any).soniox_live_enabled = (value: any) =>
+  invoke("change_soniox_live_enabled_setting", { enabled: value });
+(settingUpdaters as any).soniox_language_hints = (value: any) =>
+  invoke("change_soniox_language_hints_setting", { hints: value });
+(settingUpdaters as any).soniox_language_hints_strict = (value: any) =>
+  invoke("change_soniox_language_hints_strict_setting", { enabled: value });
+(settingUpdaters as any).soniox_enable_endpoint_detection = (value: any) =>
+  invoke("change_soniox_endpoint_detection_setting", { enabled: value });
+(settingUpdaters as any).soniox_max_endpoint_delay_ms = (value: any) =>
+  invoke("change_soniox_max_endpoint_delay_ms_setting", { delayMs: value });
+(settingUpdaters as any).soniox_enable_language_identification = (value: any) =>
+  invoke("change_soniox_language_identification_setting", { enabled: value });
+(settingUpdaters as any).soniox_enable_speaker_diarization = (value: any) =>
+  invoke("change_soniox_speaker_diarization_setting", { enabled: value });
+(settingUpdaters as any).soniox_keepalive_interval_seconds = (value: any) =>
+  invoke("change_soniox_keepalive_interval_seconds_setting", { seconds: value });
+
 // Fork-specific settings not yet present in generated bindings.
 (settingUpdaters as any).native_region_capture_mode = (value: any) =>
   invoke("change_native_region_capture_mode_setting", { mode: value });

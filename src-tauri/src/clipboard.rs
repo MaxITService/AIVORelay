@@ -2,6 +2,8 @@ use crate::input::{self, EnigoState};
 use crate::settings::{get_settings, ClipboardHandling, PasteMethod};
 use enigo::Enigo;
 use log::{info, warn};
+use once_cell::sync::Lazy;
+use std::sync::Mutex;
 use std::time::Duration;
 use tauri::{AppHandle, Manager};
 use tauri_plugin_clipboard_manager::ClipboardExt;
@@ -10,6 +12,17 @@ use tauri_plugin_clipboard_manager::ClipboardExt;
 use crate::utils::is_wayland;
 #[cfg(target_os = "linux")]
 use std::process::Command;
+
+struct StreamingPasteSession {
+    paste_method: PasteMethod,
+    clipboard_handling: ClipboardHandling,
+    paste_delay_ms: u64,
+    convert_lf_to_crlf: bool,
+    text_backup: String,
+}
+
+static STREAMING_PASTE_SESSION: Lazy<Mutex<Option<StreamingPasteSession>>> =
+    Lazy::new(|| Mutex::new(None));
 
 /// Windows-only: Advanced clipboard backup/restore that preserves all formats
 #[cfg(target_os = "windows")]
@@ -390,6 +403,143 @@ mod win_clipboard {
     }
 }
 
+fn convert_text_for_clipboard(text: &str, convert_lf_to_crlf: bool) -> String {
+    #[cfg(target_os = "windows")]
+    {
+        if convert_lf_to_crlf {
+            // First normalize any existing CRLF to LF, then convert all LF to CRLF.
+            return text.replace("\r\n", "\n").replace('\n', "\r\n");
+        }
+    }
+    text.to_string()
+}
+
+fn send_paste_shortcut(enigo: &mut Enigo, paste_method: &PasteMethod) -> Result<(), String> {
+    #[cfg(target_os = "linux")]
+    let key_combo_sent = try_send_key_combo_linux(paste_method)?;
+
+    #[cfg(not(target_os = "linux"))]
+    let key_combo_sent = false;
+
+    // Fall back to enigo if no native tool handled it.
+    if !key_combo_sent {
+        match paste_method {
+            PasteMethod::CtrlV => input::send_paste_ctrl_v(enigo)?,
+            PasteMethod::CtrlShiftV => input::send_paste_ctrl_shift_v(enigo)?,
+            PasteMethod::ShiftInsert => input::send_paste_shift_insert(enigo)?,
+            _ => return Err("Invalid paste method for clipboard paste".into()),
+        }
+    }
+
+    Ok(())
+}
+
+fn paste_via_clipboard_no_restore(
+    enigo: &mut Enigo,
+    text: &str,
+    app_handle: &AppHandle,
+    paste_method: &PasteMethod,
+    paste_delay_ms: u64,
+    convert_lf_to_crlf: bool,
+) -> Result<(), String> {
+    let clipboard = app_handle.clipboard();
+    let text = convert_text_for_clipboard(text, convert_lf_to_crlf);
+
+    clipboard
+        .write_text(&text)
+        .map_err(|e| format!("Failed to write to clipboard: {}", e))?;
+
+    std::thread::sleep(Duration::from_millis(paste_delay_ms));
+    send_paste_shortcut(enigo, paste_method)?;
+    std::thread::sleep(Duration::from_millis(50));
+    Ok(())
+}
+
+fn restore_streaming_session(
+    session: StreamingPasteSession,
+    app_handle: &AppHandle,
+) -> Result<(), String> {
+    let clipboard = app_handle.clipboard();
+
+    if matches!(
+        session.clipboard_handling,
+        ClipboardHandling::DontModify | ClipboardHandling::RestoreAdvanced
+    ) {
+        clipboard
+            .write_text(&session.text_backup)
+            .map_err(|e| format!("Failed to restore clipboard: {}", e))?;
+    }
+
+    Ok(())
+}
+
+pub fn begin_streaming_paste_session(app_handle: &AppHandle) -> Result<(), String> {
+    let settings = get_settings(app_handle);
+    if !matches!(
+        settings.paste_method,
+        PasteMethod::CtrlV | PasteMethod::CtrlShiftV | PasteMethod::ShiftInsert
+    ) {
+        return Ok(());
+    }
+
+    let clipboard = app_handle.clipboard();
+
+    if settings.clipboard_handling == ClipboardHandling::RestoreAdvanced {
+        warn!(
+            "Streaming clipboard session: RestoreAdvanced is downgraded to text-only restore for stream performance"
+        );
+    }
+
+    let text_backup = if matches!(
+        settings.clipboard_handling,
+        ClipboardHandling::DontModify | ClipboardHandling::RestoreAdvanced
+    ) {
+        clipboard.read_text().unwrap_or_default()
+    } else {
+        String::new()
+    };
+
+    let new_session = StreamingPasteSession {
+        paste_method: settings.paste_method,
+        clipboard_handling: settings.clipboard_handling,
+        paste_delay_ms: settings.paste_delay_ms,
+        convert_lf_to_crlf: settings.convert_lf_to_crlf,
+        text_backup,
+    };
+
+    // Replace any stale session safely by restoring it first.
+    let previous = {
+        let mut guard = STREAMING_PASTE_SESSION
+            .lock()
+            .map_err(|_| "Streaming clipboard session lock poisoned".to_string())?;
+        let previous = guard.take();
+        *guard = Some(new_session);
+        previous
+    };
+
+    if let Some(previous) = previous {
+        warn!("Replacing stale streaming clipboard session; restoring previous backup");
+        let _ = restore_streaming_session(previous, app_handle);
+    }
+
+    Ok(())
+}
+
+pub fn end_streaming_paste_session(app_handle: &AppHandle) -> Result<(), String> {
+    let session = {
+        let mut guard = STREAMING_PASTE_SESSION
+            .lock()
+            .map_err(|_| "Streaming clipboard session lock poisoned".to_string())?;
+        guard.take()
+    };
+
+    if let Some(session) = session {
+        restore_streaming_session(session, app_handle)?;
+    }
+
+    Ok(())
+}
+
 /// Pastes text using the clipboard: saves current content, writes text, sends paste keystroke, restores clipboard.
 fn paste_via_clipboard(
     enigo: &mut Enigo,
@@ -402,7 +552,7 @@ fn paste_via_clipboard(
 ) -> Result<(), String> {
     let clipboard = app_handle.clipboard();
 
-    // Backup clipboard content based on handling mode
+    // Backup clipboard content based on handling mode.
     #[cfg(target_os = "windows")]
     let advanced_backup = if clipboard_handling == ClipboardHandling::RestoreAdvanced {
         match win_clipboard::backup_all_formats() {
@@ -434,44 +584,16 @@ fn paste_via_clipboard(
         String::new()
     };
 
-    // Convert LF to CRLF on Windows if enabled (fixes newlines being eaten by some apps)
-    #[cfg(target_os = "windows")]
-    let text = if convert_lf_to_crlf {
-        // First normalize any existing CRLF to LF, then convert all LF to CRLF
-        text.replace("\r\n", "\n").replace('\n', "\r\n")
-    } else {
-        text.to_string()
-    };
-    #[cfg(not(target_os = "windows"))]
-    let text = text.to_string();
+    paste_via_clipboard_no_restore(
+        enigo,
+        text,
+        app_handle,
+        paste_method,
+        paste_delay_ms,
+        convert_lf_to_crlf,
+    )?;
 
-    // Write text to clipboard first
-    clipboard
-        .write_text(&text)
-        .map_err(|e| format!("Failed to write to clipboard: {}", e))?;
-
-    std::thread::sleep(Duration::from_millis(paste_delay_ms));
-
-    // Send paste key combo
-    #[cfg(target_os = "linux")]
-    let key_combo_sent = try_send_key_combo_linux(paste_method)?;
-
-    #[cfg(not(target_os = "linux"))]
-    let key_combo_sent = false;
-
-    // Fall back to enigo if no native tool handled it
-    if !key_combo_sent {
-        match paste_method {
-            PasteMethod::CtrlV => input::send_paste_ctrl_v(enigo)?,
-            PasteMethod::CtrlShiftV => input::send_paste_ctrl_shift_v(enigo)?,
-            PasteMethod::ShiftInsert => input::send_paste_shift_insert(enigo)?,
-            _ => return Err("Invalid paste method for clipboard paste".into()),
-        }
-    }
-
-    std::thread::sleep(std::time::Duration::from_millis(50));
-
-    // Restore clipboard based on handling mode
+    // Restore clipboard based on handling mode.
     #[cfg(target_os = "windows")]
     if let Some(backup) = advanced_backup {
         let mut needs_text_fallback = true;
@@ -509,7 +631,7 @@ fn paste_via_clipboard(
         return Ok(());
     }
 
-    // Text-only restore for DontModify mode
+    // Text-only restore for DontModify mode.
     if clipboard_handling == ClipboardHandling::DontModify {
         clipboard
             .write_text(&text_backup)
@@ -881,6 +1003,82 @@ pub fn paste(text: String, app_handle: AppHandle) -> Result<(), String> {
         clipboard
             .write_text(&text)
             .map_err(|e| format!("Failed to copy to clipboard: {}", e))?;
+    }
+
+    Ok(())
+}
+
+/// Pastes a streaming chunk without appending trailing space and without
+/// overriding clipboard contents in CopyToClipboard mode.
+pub fn paste_stream_chunk(text: String, app_handle: AppHandle) -> Result<(), String> {
+    if text.is_empty() {
+        return Ok(());
+    }
+
+    let active_stream_config = {
+        let guard = STREAMING_PASTE_SESSION
+            .lock()
+            .map_err(|_| "Streaming clipboard session lock poisoned".to_string())?;
+        guard
+            .as_ref()
+            .map(|session| {
+                (
+                    session.paste_method,
+                    session.paste_delay_ms,
+                    session.convert_lf_to_crlf,
+                )
+            })
+    };
+
+    let enigo_state = app_handle
+        .try_state::<EnigoState>()
+        .ok_or("Enigo state not initialized")?;
+    let mut enigo = enigo_state
+        .0
+        .lock()
+        .map_err(|e| format!("Failed to lock Enigo: {}", e))?;
+
+    if let Some((paste_method, paste_delay_ms, convert_lf_to_crlf)) = active_stream_config {
+        match paste_method {
+            PasteMethod::None => {
+                info!("PasteMethod::None selected - skipping streaming chunk paste");
+            }
+            PasteMethod::Direct => {
+                paste_direct(&mut enigo, &text)?;
+            }
+            PasteMethod::CtrlV | PasteMethod::CtrlShiftV | PasteMethod::ShiftInsert => {
+                paste_via_clipboard_no_restore(
+                    &mut enigo,
+                    &text,
+                    &app_handle,
+                    &paste_method,
+                    paste_delay_ms,
+                    convert_lf_to_crlf,
+                )?
+            }
+        }
+    } else {
+        // No active streaming session: preserve safe fallback behavior.
+        let settings = get_settings(&app_handle);
+        match settings.paste_method {
+            PasteMethod::None => {
+                info!("PasteMethod::None selected - skipping streaming chunk paste");
+            }
+            PasteMethod::Direct => {
+                paste_direct(&mut enigo, &text)?;
+            }
+            PasteMethod::CtrlV | PasteMethod::CtrlShiftV | PasteMethod::ShiftInsert => {
+                paste_via_clipboard(
+                    &mut enigo,
+                    &text,
+                    &app_handle,
+                    &settings.paste_method,
+                    settings.paste_delay_ms,
+                    settings.convert_lf_to_crlf,
+                    ClipboardHandling::DontModify,
+                )?
+            }
+        }
     }
 
     Ok(())

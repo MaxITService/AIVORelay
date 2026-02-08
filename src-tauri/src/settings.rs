@@ -537,6 +537,7 @@ pub enum TranscriptionProvider {
 }
 
 pub const SONIOX_DEFAULT_MODEL: &str = "stt-rt-v4";
+pub const SONIOX_DEFAULT_MAX_ENDPOINT_DELAY_MS: u32 = 2000;
 
 /// Shortcut engine selection for Windows.
 /// Controls which mechanism is used to listen for global hotkeys.
@@ -741,6 +742,22 @@ pub struct AppSettings {
     pub soniox_model: String,
     #[serde(default = "default_soniox_timeout_seconds")]
     pub soniox_timeout_seconds: u32,
+    #[serde(default = "default_soniox_live_enabled")]
+    pub soniox_live_enabled: bool,
+    #[serde(default = "default_soniox_language_hints")]
+    pub soniox_language_hints: Vec<String>,
+    #[serde(default = "default_false")]
+    pub soniox_language_hints_strict: bool,
+    #[serde(default = "default_true")]
+    pub soniox_enable_endpoint_detection: bool,
+    #[serde(default = "default_soniox_max_endpoint_delay_ms")]
+    pub soniox_max_endpoint_delay_ms: u32,
+    #[serde(default = "default_true")]
+    pub soniox_enable_language_identification: bool,
+    #[serde(default = "default_true")]
+    pub soniox_enable_speaker_diarization: bool,
+    #[serde(default = "default_soniox_keepalive_interval_seconds")]
+    pub soniox_keepalive_interval_seconds: u32,
     #[serde(default = "default_always_on_microphone")]
     pub always_on_microphone: bool,
     #[serde(default)]
@@ -1077,6 +1094,22 @@ fn default_soniox_timeout_seconds() -> u32 {
     30
 }
 
+fn default_soniox_live_enabled() -> bool {
+    true
+}
+
+fn default_soniox_language_hints() -> Vec<String> {
+    vec!["en".to_string()]
+}
+
+fn default_soniox_max_endpoint_delay_ms() -> u32 {
+    SONIOX_DEFAULT_MAX_ENDPOINT_DELAY_MS
+}
+
+fn default_soniox_keepalive_interval_seconds() -> u32 {
+    10
+}
+
 fn default_vad_threshold() -> f32 {
     0.3 // Original Handy default - more sensitive
 }
@@ -1290,6 +1323,10 @@ fn default_ai_replace_allow_no_selection() -> bool {
 
 fn default_true() -> bool {
     true
+}
+
+fn default_false() -> bool {
+    false
 }
 
 fn default_ai_replace_no_selection_system_prompt() -> String {
@@ -1627,6 +1664,14 @@ pub fn get_default_settings() -> AppSettings {
         remote_stt: default_remote_stt_settings(),
         soniox_model: default_soniox_model(),
         soniox_timeout_seconds: default_soniox_timeout_seconds(),
+        soniox_live_enabled: default_soniox_live_enabled(),
+        soniox_language_hints: default_soniox_language_hints(),
+        soniox_language_hints_strict: default_false(),
+        soniox_enable_endpoint_detection: default_true(),
+        soniox_max_endpoint_delay_ms: default_soniox_max_endpoint_delay_ms(),
+        soniox_enable_language_identification: default_true(),
+        soniox_enable_speaker_diarization: default_true(),
+        soniox_keepalive_interval_seconds: default_soniox_keepalive_interval_seconds(),
         always_on_microphone: false,
         selected_microphone: None,
         clamshell_microphone: None,

@@ -1,4 +1,6 @@
-use crate::audio_toolkit::{list_input_devices, vad::SmoothedVad, AudioRecorder, SileroVad};
+use crate::audio_toolkit::{
+    list_input_devices, vad::SmoothedVad, AudioRecorder, SileroVad, StreamFrameCallback,
+};
 use crate::helpers::clamshell;
 use crate::settings::{get_settings, AppSettings};
 use crate::utils;
@@ -150,6 +152,7 @@ pub struct AudioRecordingManager {
     is_open: Arc<Mutex<bool>>,
     is_recording: Arc<Mutex<bool>>,
     did_mute: Arc<Mutex<bool>>,
+    stream_frame_callback: Arc<Mutex<Option<StreamFrameCallback>>>,
 }
 
 impl AudioRecordingManager {
@@ -172,6 +175,7 @@ impl AudioRecordingManager {
             is_open: Arc::new(Mutex::new(false)),
             is_recording: Arc::new(Mutex::new(false)),
             did_mute: Arc::new(Mutex::new(false)),
+            stream_frame_callback: Arc::new(Mutex::new(None)),
         };
 
         // Always-on?  Open immediately.
@@ -262,11 +266,20 @@ impl AudioRecordingManager {
         let settings = get_settings(&self.app_handle);
 
         if recorder_opt.is_none() {
-            *recorder_opt = Some(create_audio_recorder(
+            let recorder = create_audio_recorder(
                 vad_path.to_str().unwrap(),
                 &self.app_handle,
                 settings.vad_threshold,
-            )?);
+            )?;
+            if let Some(cb) = self
+                .stream_frame_callback
+                .lock()
+                .ok()
+                .and_then(|guard| guard.clone())
+            {
+                recorder.set_stream_frame_callback(Some(cb));
+            }
+            *recorder_opt = Some(recorder);
         }
 
         let selected_device = self.get_effective_microphone_device(&settings);
@@ -447,6 +460,24 @@ impl AudioRecordingManager {
     pub fn update_vad_threshold(&self, threshold: f32) {
         if let Some(rec) = self.recorder.lock().unwrap().as_ref() {
             rec.set_vad_threshold(threshold);
+        }
+    }
+
+    pub fn set_stream_frame_callback(&self, callback: StreamFrameCallback) {
+        if let Ok(mut guard) = self.stream_frame_callback.lock() {
+            *guard = Some(callback.clone());
+        }
+        if let Some(rec) = self.recorder.lock().unwrap().as_ref() {
+            rec.set_stream_frame_callback(Some(callback));
+        }
+    }
+
+    pub fn clear_stream_frame_callback(&self) {
+        if let Ok(mut guard) = self.stream_frame_callback.lock() {
+            *guard = None;
+        }
+        if let Some(rec) = self.recorder.lock().unwrap().as_ref() {
+            rec.set_stream_frame_callback(None);
         }
     }
 }

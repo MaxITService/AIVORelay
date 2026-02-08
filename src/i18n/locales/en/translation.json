@@ -691,6 +691,40 @@
           "title": "Soniox Timeout (seconds)",
           "description": "Maximum wait time for Soniox job completion (10-300 seconds)."
         },
+        "live": {
+          "title": "Live Real-time Streaming",
+          "description": "When enabled with stt-rt models, streams microphone audio directly to Soniox and inserts confirmed tokens while you speak.",
+          "realtimeOnly": "Live streaming is only available for real-time Soniox models (stt-rt-*)."
+        },
+        "languageHints": {
+          "title": "Language Hints",
+          "description": "Comma-separated ISO language codes (for example: en, es). Soniox is biased toward these languages.",
+          "placeholder": "en, es"
+        },
+        "languageHintsStrict": {
+          "title": "Strict Language Restriction",
+          "description": "Strongly restrict recognition to language hints (best with a single language)."
+        },
+        "endpointDetection": {
+          "title": "Endpoint Detection",
+          "description": "Enable Soniox semantic endpoint detection and <end> markers for finished utterances."
+        },
+        "maxEndpointDelay": {
+          "title": "Max Endpoint Delay (ms)",
+          "description": "Maximum endpoint delay in milliseconds (500-3000, default 2000)."
+        },
+        "keepalive": {
+          "title": "Keepalive Interval (seconds)",
+          "description": "Keepalive interval during silence (5-20 seconds)."
+        },
+        "languageIdentification": {
+          "title": "Language Identification",
+          "description": "Include detected language metadata in Soniox tokens."
+        },
+        "speakerDiarization": {
+          "title": "Speaker Diarization",
+          "description": "Enable speaker labeling in Soniox token metadata."
+        },
         "apiKey": {
           "title": "Soniox API Key",
           "description": "Stored securely in Windows Credential Manager."

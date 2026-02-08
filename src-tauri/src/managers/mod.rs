@@ -5,5 +5,6 @@ pub mod key_listener;
 pub mod llm_operation;
 pub mod model;
 pub mod remote_stt;
+pub mod soniox_realtime;
 pub mod soniox_stt;
 pub mod transcription;

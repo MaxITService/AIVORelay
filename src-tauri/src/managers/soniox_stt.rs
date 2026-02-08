@@ -377,6 +377,148 @@ impl SonioxSttManager {
         Ok(final_tokens.concat().trim().to_string())
     }
 
+    async fn transcribe_once_ws_with_callback<F>(
+        &self,
+        operation_id: Option<u64>,
+        api_key: &str,
+        model: &str,
+        timeout_seconds: u32,
+        wav_data: &[u8],
+        language_hints: Option<Vec<String>>,
+        on_final_chunk: &mut F,
+    ) -> Result<String>
+    where
+        F: FnMut(&str) -> Result<()>,
+    {
+        let started = Instant::now();
+        self.ensure_not_cancelled(operation_id)?;
+        Self::ensure_within_timeout(started, timeout_seconds)?;
+
+        let (stream, _) = timeout(
+            Duration::from_secs(DEFAULT_CONNECT_TIMEOUT_SECS),
+            connect_async(SONIOX_WS_URL),
+        )
+        .await
+        .map_err(|_| anyhow!("Timed out while connecting to Soniox WebSocket"))?
+        .map_err(|e| anyhow!("Failed to connect to Soniox WebSocket: {}", e))?;
+
+        let (mut write, mut read) = stream.split();
+
+        let start_request = SonioxStartRequest {
+            api_key: api_key.to_string(),
+            model: model.to_string(),
+            audio_format: "auto".to_string(),
+            language_hints,
+            enable_endpoint_detection: true,
+        };
+
+        let start_payload = serde_json::to_string(&start_request)
+            .map_err(|e| anyhow!("Failed to build Soniox start payload: {}", e))?;
+
+        write
+            .send(Message::Text(start_payload.into()))
+            .await
+            .map_err(|e| anyhow!("Failed to send Soniox start request: {}", e))?;
+
+        for chunk in wav_data.chunks(AUDIO_CHUNK_SIZE_BYTES) {
+            self.ensure_not_cancelled(operation_id)?;
+            Self::ensure_within_timeout(started, timeout_seconds)?;
+
+            write
+                .send(Message::Binary(chunk.to_vec().into()))
+                .await
+                .map_err(|e| anyhow!("Failed to send audio chunk to Soniox: {}", e))?;
+        }
+
+        write
+            .send(Message::Binary(Vec::new().into()))
+            .await
+            .map_err(|e| anyhow!("Failed to finalize Soniox audio stream: {}", e))?;
+
+        write
+            .flush()
+            .await
+            .map_err(|e| anyhow!("Failed to flush Soniox WebSocket stream: {}", e))?;
+
+        let mut final_tokens: Vec<String> = Vec::new();
+        let mut finished = false;
+
+        while let Some(frame) = read.next().await {
+            self.ensure_not_cancelled(operation_id)?;
+            Self::ensure_within_timeout(started, timeout_seconds)?;
+
+            let frame = frame.map_err(|e| anyhow!("Soniox WebSocket read failed: {}", e))?;
+
+            match frame {
+                Message::Text(text) => {
+                    let payload: SonioxResponse = serde_json::from_str(text.as_ref()).map_err(|e| {
+                        let preview: String = text.chars().take(200).collect();
+                        anyhow!(
+                            "Invalid Soniox WebSocket payload: {} (body: {})",
+                            e,
+                            preview
+                        )
+                    })?;
+
+                    if let Some(code) = payload.error_code {
+                        let message = payload
+                            .error_message
+                            .unwrap_or_else(|| "Unknown Soniox WebSocket error".to_string());
+                        return Err(anyhow!("Soniox WebSocket error {}: {}", code, message));
+                    }
+
+                    let mut chunk_text = String::new();
+                    for token in payload.tokens.into_iter().filter(|token| token.is_final) {
+                        if token.text.is_empty() || token.text == "<fin>" {
+                            continue;
+                        }
+                        chunk_text.push_str(&token.text);
+                        final_tokens.push(token.text);
+                    }
+
+                    if !chunk_text.is_empty() {
+                        on_final_chunk(&chunk_text)?;
+                    }
+
+                    if payload.finished {
+                        if let Some(ms) = payload.audio_final_proc_ms {
+                            debug!("Soniox final audio processing: {}ms", ms);
+                        }
+                        if let Some(ms) = payload.audio_total_proc_ms {
+                            debug!("Soniox total audio processing: {}ms", ms);
+                        }
+                        finished = true;
+                        break;
+                    }
+                }
+                Message::Binary(_) => {}
+                Message::Ping(_) | Message::Pong(_) => {}
+                Message::Close(frame) => {
+                    if !finished {
+                        if let Some(frame) = frame {
+                            return Err(anyhow!(
+                                "Soniox WebSocket closed before completion (code: {}, reason: {})",
+                                frame.code,
+                                frame.reason
+                            ));
+                        }
+                        return Err(anyhow!("Soniox WebSocket closed before completion"));
+                    }
+                    break;
+                }
+                _ => {}
+            }
+        }
+
+        if !finished {
+            return Err(anyhow!(
+                "Soniox WebSocket transcription did not report completion"
+            ));
+        }
+
+        Ok(final_tokens.concat().trim().to_string())
+    }
+
     async fn upload_file_impl(&self, api_key: &str, wav_data: &[u8]) -> Result<String> {
         let part = multipart::Part::bytes(wav_data.to_vec())
             .file_name("audio.wav")
@@ -589,6 +731,56 @@ impl SonioxSttManager {
 
         info!(
             "Soniox WebSocket transcription completed in {}ms, output_len={}",
+            started_at.elapsed().as_millis(),
+            text.len()
+        );
+
+        Ok(text)
+    }
+
+    // Live transcription path with streaming callback for final chunks.
+    // NOTE: This path intentionally avoids retry after output has started, to prevent duplicate insertions.
+    pub async fn transcribe_with_streaming_callback<F>(
+        &self,
+        operation_id: Option<u64>,
+        api_key: &str,
+        model: &str,
+        timeout_seconds: u32,
+        audio_samples: &[f32],
+        language: Option<&str>,
+        mut on_final_chunk: F,
+    ) -> Result<String>
+    where
+        F: FnMut(&str) -> Result<()>,
+    {
+        if audio_samples.is_empty() {
+            return Ok(String::new());
+        }
+        if api_key.trim().is_empty() {
+            return Err(anyhow!("Soniox API key is missing"));
+        }
+
+        self.ensure_not_cancelled(operation_id)?;
+
+        let model = Self::normalize_model_for_realtime(model);
+        let wav_data = encode_wav_bytes(audio_samples)?;
+        let language_hints = Self::normalized_language_hints(language);
+        let started_at = Instant::now();
+
+        let text = self
+            .transcribe_once_ws_with_callback(
+                operation_id,
+                api_key,
+                &model,
+                timeout_seconds,
+                &wav_data,
+                language_hints,
+                &mut on_final_chunk,
+            )
+            .await?;
+
+        info!(
+            "Soniox WebSocket streaming transcription completed in {}ms, output_len={}",
             started_at.elapsed().as_millis(),
             text.len()
         );

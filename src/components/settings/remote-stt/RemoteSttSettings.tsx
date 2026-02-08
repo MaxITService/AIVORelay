@@ -38,9 +38,33 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
   const remoteSettings = settings?.remote_stt;
   const sonioxModel = (settings as any)?.soniox_model ?? "stt-rt-v4";
   const sonioxTimeout = Number((settings as any)?.soniox_timeout_seconds ?? 30);
+  const sonioxLiveEnabled = Boolean(
+    (settings as any)?.soniox_live_enabled ?? true,
+  );
+  const sonioxLanguageHints = ((settings as any)?.soniox_language_hints ??
+    ["en"]) as string[];
+  const sonioxLanguageHintsStrict = Boolean(
+    (settings as any)?.soniox_language_hints_strict ?? false,
+  );
+  const sonioxEnableEndpointDetection = Boolean(
+    (settings as any)?.soniox_enable_endpoint_detection ?? true,
+  );
+  const sonioxMaxEndpointDelayMs = Number(
+    (settings as any)?.soniox_max_endpoint_delay_ms ?? 2000,
+  );
+  const sonioxEnableLanguageIdentification = Boolean(
+    (settings as any)?.soniox_enable_language_identification ?? true,
+  );
+  const sonioxEnableSpeakerDiarization = Boolean(
+    (settings as any)?.soniox_enable_speaker_diarization ?? true,
+  );
+  const sonioxKeepaliveSeconds = Number(
+    (settings as any)?.soniox_keepalive_interval_seconds ?? 10,
+  );
   const isRemoteOpenAiProvider = provider === "remote_openai_compatible";
   const isSonioxProvider = provider === "remote_soniox";
   const isCloudProvider = isRemoteOpenAiProvider || isSonioxProvider;
+  const isSonioxRealtimeModel = sonioxModel.trim().startsWith("stt-rt");
 
   const [baseUrlInput, setBaseUrlInput] = useState(
     remoteSettings?.base_url ?? "",
@@ -52,6 +76,13 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
   const [sonioxTimeoutInput, setSonioxTimeoutInput] = useState(
     String(sonioxTimeout),
   );
+  const [sonioxLanguageHintsInput, setSonioxLanguageHintsInput] = useState(
+    sonioxLanguageHints.join(", "),
+  );
+  const [sonioxMaxEndpointDelayMsInput, setSonioxMaxEndpointDelayMsInput] =
+    useState(String(sonioxMaxEndpointDelayMs));
+  const [sonioxKeepaliveSecondsInput, setSonioxKeepaliveSecondsInput] =
+    useState(String(sonioxKeepaliveSeconds));
 
   const [apiKeyInput, setApiKeyInput] = useState("");
   const [hasApiKey, setHasApiKey] = useState(false);
@@ -86,6 +117,18 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
   useEffect(() => {
     setSonioxTimeoutInput(String(sonioxTimeout));
   }, [sonioxTimeout]);
+
+  useEffect(() => {
+    setSonioxLanguageHintsInput(sonioxLanguageHints.join(", "));
+  }, [sonioxLanguageHints]);
+
+  useEffect(() => {
+    setSonioxMaxEndpointDelayMsInput(String(sonioxMaxEndpointDelayMs));
+  }, [sonioxMaxEndpointDelayMs]);
+
+  useEffect(() => {
+    setSonioxKeepaliveSecondsInput(String(sonioxKeepaliveSeconds));
+  }, [sonioxKeepaliveSeconds]);
 
   useEffect(() => {
     if (!isWindows) {
@@ -225,6 +268,41 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
     }
     if (parsed !== sonioxTimeout) {
       void updateSetting("soniox_timeout_seconds" as any, parsed as any);
+    }
+  };
+
+  const handleSonioxLanguageHintsBlur = () => {
+    const parsed = sonioxLanguageHintsInput
+      .split(",")
+      .map((hint) => hint.trim().toLowerCase())
+      .filter((hint, index, list) => hint.length > 0 && list.indexOf(hint) === index);
+    const current = [...sonioxLanguageHints]
+      .map((hint) => hint.trim().toLowerCase())
+      .filter((hint) => hint.length > 0);
+    if (JSON.stringify(parsed) !== JSON.stringify(current)) {
+      void updateSetting("soniox_language_hints" as any, parsed as any);
+    }
+  };
+
+  const handleSonioxMaxEndpointDelayBlur = () => {
+    const parsed = Number.parseInt(sonioxMaxEndpointDelayMsInput, 10);
+    if (Number.isNaN(parsed)) {
+      setSonioxMaxEndpointDelayMsInput(String(sonioxMaxEndpointDelayMs));
+      return;
+    }
+    if (parsed !== sonioxMaxEndpointDelayMs) {
+      void updateSetting("soniox_max_endpoint_delay_ms" as any, parsed as any);
+    }
+  };
+
+  const handleSonioxKeepaliveBlur = () => {
+    const parsed = Number.parseInt(sonioxKeepaliveSecondsInput, 10);
+    if (Number.isNaN(parsed)) {
+      setSonioxKeepaliveSecondsInput(String(sonioxKeepaliveSeconds));
+      return;
+    }
+    if (parsed !== sonioxKeepaliveSeconds) {
+      void updateSetting("soniox_keepalive_interval_seconds" as any, parsed as any);
     }
   };
 
@@ -429,6 +507,152 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
                   className="w-full"
                 />
               </SettingContainer>
+
+              <ToggleSwitch
+                label={t("settings.advanced.soniox.live.title")}
+                description={t("settings.advanced.soniox.live.description")}
+                checked={sonioxLiveEnabled}
+                onChange={(enabled) =>
+                  void updateSetting("soniox_live_enabled" as any, enabled as any)
+                }
+                isUpdating={isUpdating("soniox_live_enabled")}
+                disabled={!isSonioxRealtimeModel}
+                descriptionMode={descriptionMode}
+                grouped={grouped}
+              />
+
+              {!isSonioxRealtimeModel && (
+                <p className="text-xs text-text/60">
+                  {t("settings.advanced.soniox.live.realtimeOnly")}
+                </p>
+              )}
+
+              <SettingContainer
+                title={t("settings.advanced.soniox.languageHints.title")}
+                description={t("settings.advanced.soniox.languageHints.description")}
+                descriptionMode={descriptionMode}
+                grouped={grouped}
+                layout="stacked"
+              >
+                <Input
+                  type="text"
+                  value={sonioxLanguageHintsInput}
+                  onChange={(event) =>
+                    setSonioxLanguageHintsInput(event.target.value)
+                  }
+                  onBlur={handleSonioxLanguageHintsBlur}
+                  placeholder={t("settings.advanced.soniox.languageHints.placeholder")}
+                  className="w-full"
+                />
+              </SettingContainer>
+
+              <ToggleSwitch
+                label={t("settings.advanced.soniox.languageHintsStrict.title")}
+                description={t(
+                  "settings.advanced.soniox.languageHintsStrict.description",
+                )}
+                checked={sonioxLanguageHintsStrict}
+                onChange={(enabled) =>
+                  void updateSetting(
+                    "soniox_language_hints_strict" as any,
+                    enabled as any,
+                  )
+                }
+                isUpdating={isUpdating("soniox_language_hints_strict")}
+                descriptionMode={descriptionMode}
+                grouped={grouped}
+              />
+
+              <ToggleSwitch
+                label={t("settings.advanced.soniox.endpointDetection.title")}
+                description={t(
+                  "settings.advanced.soniox.endpointDetection.description",
+                )}
+                checked={sonioxEnableEndpointDetection}
+                onChange={(enabled) =>
+                  void updateSetting(
+                    "soniox_enable_endpoint_detection" as any,
+                    enabled as any,
+                  )
+                }
+                isUpdating={isUpdating("soniox_enable_endpoint_detection")}
+                descriptionMode={descriptionMode}
+                grouped={grouped}
+              />
+
+              <SettingContainer
+                title={t("settings.advanced.soniox.maxEndpointDelay.title")}
+                description={t("settings.advanced.soniox.maxEndpointDelay.description")}
+                descriptionMode={descriptionMode}
+                grouped={grouped}
+                layout="stacked"
+              >
+                <Input
+                  type="number"
+                  value={sonioxMaxEndpointDelayMsInput}
+                  onChange={(event) =>
+                    setSonioxMaxEndpointDelayMsInput(event.target.value)
+                  }
+                  onBlur={handleSonioxMaxEndpointDelayBlur}
+                  min={500}
+                  max={3000}
+                  className="w-full"
+                />
+              </SettingContainer>
+
+              <SettingContainer
+                title={t("settings.advanced.soniox.keepalive.title")}
+                description={t("settings.advanced.soniox.keepalive.description")}
+                descriptionMode={descriptionMode}
+                grouped={grouped}
+                layout="stacked"
+              >
+                <Input
+                  type="number"
+                  value={sonioxKeepaliveSecondsInput}
+                  onChange={(event) =>
+                    setSonioxKeepaliveSecondsInput(event.target.value)
+                  }
+                  onBlur={handleSonioxKeepaliveBlur}
+                  min={5}
+                  max={20}
+                  className="w-full"
+                />
+              </SettingContainer>
+
+              <ToggleSwitch
+                label={t("settings.advanced.soniox.languageIdentification.title")}
+                description={t(
+                  "settings.advanced.soniox.languageIdentification.description",
+                )}
+                checked={sonioxEnableLanguageIdentification}
+                onChange={(enabled) =>
+                  void updateSetting(
+                    "soniox_enable_language_identification" as any,
+                    enabled as any,
+                  )
+                }
+                isUpdating={isUpdating("soniox_enable_language_identification")}
+                descriptionMode={descriptionMode}
+                grouped={grouped}
+              />
+
+              <ToggleSwitch
+                label={t("settings.advanced.soniox.speakerDiarization.title")}
+                description={t(
+                  "settings.advanced.soniox.speakerDiarization.description",
+                )}
+                checked={sonioxEnableSpeakerDiarization}
+                onChange={(enabled) =>
+                  void updateSetting(
+                    "soniox_enable_speaker_diarization" as any,
+                    enabled as any,
+                  )
+                }
+                isUpdating={isUpdating("soniox_enable_speaker_diarization")}
+                descriptionMode={descriptionMode}
+                grouped={grouped}
+              />
             </>
           )}
 
