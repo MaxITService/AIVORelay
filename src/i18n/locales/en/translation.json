@@ -766,12 +766,12 @@
         },
         "model": {
           "title": "Soniox Model",
-          "description": "Model identifier sent to Soniox on each request. In AivoRelay, stt-rt-* enables live streaming where text appears while you speak; stt-async-* uses the non-live pipeline where text appears after processing finishes. If behavior feels wrong, model type is usually the first thing to verify.",
+          "description": "Model identifier sent to Soniox on each request. In AivoRelay, stt-rt-* with Live ON uses the live WebSocket path where text appears while you speak; stt-async-* (or Live OFF) uses non-live processing where text appears after processing finishes. If behavior feels wrong, model family and Live toggle are the first things to verify.",
           "placeholder": "stt-rt-v4"
         },
         "timeout": {
           "title": "Soniox Timeout (seconds)",
-          "description": "Overall timeout for Soniox non-live/legacy requests and async operations (10-300s). In AivoRelay UX, higher values reduce premature failures on slow networks but can make you wait longer before an error is shown; lower values fail faster but are more sensitive to temporary latency."
+          "description": "Overall timeout for Soniox non-live requests and async file operations (10-300s). In AivoRelay UX, higher values reduce premature failures on slow networks but can make you wait longer before an error is shown; lower values fail faster but are more sensitive to temporary latency. Mode scope: this setting does not control active Live streaming session timing."
         },
         "live": {
           "title": "Live Real-time Streaming",
@@ -780,45 +780,45 @@
         },
         "languageHints": {
           "title": "Language Hints",
-          "description": "Comma-separated ISO language codes (for example: en, es). Soniox is biased toward these languages, which usually improves recognition accuracy in AivoRelay and reduces wrong-language token guesses. This does not hard-lock recognition unless strict mode is enabled.",
+          "description": "Comma-separated ISO language codes (for example: en, es). Soniox is biased toward these languages, which usually improves recognition accuracy and reduces wrong-language guesses. Mode scope: applied in Live mode and used as defaults for Soniox File Transcription; not currently used as-is by the non-live shortcut fallback path, which derives hint from current profile/global language.",
           "placeholder": "en, es",
           "supportedLanguagesLink": "Supported languages (Open Web Documentation)"
         },
         "profileLanguageHintOnly": {
           "title": "Use Current Profile Language As Hint",
-          "description": "When enabled, AivoRelay ignores the Language Hints list and sends exactly one hint derived from the active profile language (or global language if no profile is active). This keeps Soniox language bias aligned with the profile and avoids stale manual hints."
+          "description": "When enabled, AivoRelay ignores the Language Hints list and sends exactly one hint derived from the active profile language (or global language if no profile is active). This keeps Soniox language bias aligned with the profile and avoids stale manual hints. Mode scope: Live mode behavior; this setting does not reconfigure Soniox async file options or non-live shortcut fallback behavior."
         },
         "languageHintsStrict": {
           "title": "Strict Language Restriction",
-          "description": "Recommended usage: Use a single language whenever possible. Language restriction is most robust when only one language is provided. Example: { \"language_hints\": [\"en\"], \"language_hints_strict\": true }. Multiple languages reduce robustness: you can provide more than one language, but accuracy may degrade when language identification becomes ambiguous (for example heavy accents or acoustically similar languages). Example: { \"language_hints\": [\"en\", \"es\"], \"language_hints_strict\": true }. In difficult cases, Soniox may still choose a wrong language/script, so single-language strict mode is strongly recommended when correctness is critical. In AivoRelay, this setting is best for known single-language workflows."
+          "description": "Recommended usage: use a single language whenever possible. Language restriction is most robust when only one language is provided. Example: { \"language_hints\": [\"en\"], \"language_hints_strict\": true }. Multiple languages reduce robustness: you can provide more than one language, but accuracy may degrade when language identification becomes ambiguous (for example heavy accents or acoustically similar languages). Example: { \"language_hints\": [\"en\", \"es\"], \"language_hints_strict\": true }. In difficult cases, Soniox may still choose a wrong language/script, so single-language strict mode is strongly recommended when correctness is critical. Mode scope: currently Live mode only; this flag is not sent in non-live shortcut fallback or Soniox async file requests."
         },
         "endpointDetection": {
           "title": "Endpoint Detection",
-          "description": "Lets Soniox detect natural end-of-utterance moments and finalize tokens automatically (emits <end>). In AivoRelay this improves perceived responsiveness because final words stabilize sooner, especially during conversational pauses."
+          "description": "Lets Soniox detect natural end-of-utterance moments and finalize tokens automatically (emits <end>). In AivoRelay this improves perceived responsiveness because final words stabilize sooner, especially during conversational pauses. Mode scope: intended as Live tuning; in current non-live shortcut fallback this is forced ON internally, and Soniox async file API does not expose this control."
         },
         "maxEndpointDelay": {
           "title": "Max Endpoint Delay (ms)",
-          "description": "Upper bound for endpoint latency after speech stops (500-3000, default 2000). Lower values feel snappier in AivoRelay but may finalize slightly earlier; higher values wait longer, which can preserve accuracy when speech cadence is irregular."
+          "description": "Upper bound for endpoint latency after speech stops (500-3000, default 2000). Lower values feel snappier in AivoRelay but may finalize slightly earlier; higher values wait longer, which can preserve accuracy when speech cadence is irregular. Mode scope: Live mode only; not applied in non-live shortcut fallback or Soniox async file transcription."
         },
         "keepalive": {
           "title": "Keepalive Interval (seconds)",
-          "description": "How often keepalive is sent during silence (5-20s). Soniox guidance: send at least once every 20 seconds whenever audio is not being sent. In AivoRelay this keeps the same live session alive between pauses, preserves session context, and reduces reconnect-related instability."
+          "description": "How often keepalive is sent during silence (5-20s). Soniox guidance: send at least once every 20 seconds whenever audio is not being sent. In AivoRelay this keeps the same live session alive between pauses, preserves session context, and reduces reconnect-related instability. Mode scope: Live WebSocket sessions only."
         },
         "finalizeTimeout": {
           "title": "Live Finalization Timeout (ms)",
-          "description": "What you see: when you press Stop, recording ends immediately in UI. What happens next: AivoRelay still waits in background for late Soniox final tokens, up to this timeout, then force-closes the session (100-20000ms). Default is 500ms. Increase this value if last words are often missing; decrease it only if you want even more aggressive completion and can accept occasional tail truncation. If you want almost instant finish, use Instant Stop."
+          "description": "What you see: when you press Stop, recording ends immediately in UI. What happens next: AivoRelay still waits in background for late Soniox final tokens, up to this timeout, then force-closes the session (100-20000ms). Default is 500ms. Increase this value if last words are often missing; decrease it only if you want even more aggressive completion and can accept occasional tail truncation. If you want almost instant finish, use Instant Stop. Mode scope: Live mode only."
         },
         "instantStop": {
           "title": "Instant Stop (Local Feature)",
-          "description": "AivoRelay-only behavior: on Stop, immediately cancels Soniox live session and ignores late chunks. UX becomes very snappy, but final trailing words are more likely to be cut when network or server finalization is delayed."
+          "description": "AivoRelay-only behavior: on Stop, immediately cancels Soniox live session and ignores late chunks. UX becomes very snappy, but final trailing words are more likely to be cut when network or server finalization is delayed. Mode scope: Live mode only."
         },
         "languageIdentification": {
           "title": "Language Identification",
-          "description": "Requests per-token language metadata from Soniox. In AivoRelay this mostly affects metadata/diagnostics and multilingual analysis flows; it does not directly change normal plain-text insertion behavior."
+          "description": "Requests per-token language metadata from Soniox. In AivoRelay this mostly affects metadata/diagnostics and multilingual analysis flows; it does not directly change normal plain-text insertion behavior. Mode scope: sent in Live mode and Soniox async file jobs; currently not sent in non-live shortcut fallback WebSocket path."
         },
         "speakerDiarization": {
           "title": "Speaker Diarization",
-          "description": "Requests speaker labels in token metadata. In AivoRelay this is mainly useful for multi-speaker scenarios and downstream analysis; regular typing output remains clean text unless speaker labels are explicitly used in a specific flow."
+          "description": "Requests speaker labels in token metadata. In AivoRelay this is mainly useful for multi-speaker scenarios and downstream analysis; regular typing output remains clean text unless speaker labels are explicitly used in a specific flow. Mode scope: sent in Live mode and Soniox async file jobs; currently not sent in non-live shortcut fallback WebSocket path."
         },
         "apiKey": {
           "title": "Soniox API Key",

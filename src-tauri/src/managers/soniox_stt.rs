@@ -27,6 +27,8 @@ struct SonioxStartRequest {
     audio_format: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     language_hints: Option<Vec<String>>,
+    // This fallback WS path keeps endpoint detection enabled to ensure the
+    // server emits proper completion/finalization signals for full-clip uploads.
     enable_endpoint_detection: bool,
 }
 
@@ -280,6 +282,9 @@ impl SonioxSttManager {
             model: model.to_string(),
             audio_format: "auto".to_string(),
             language_hints,
+            // This manager's WS mode is a non-live full-clip upload fallback.
+            // We currently keep this fixed instead of exposing the full live
+            // tuning surface from soniox_realtime.rs.
             enable_endpoint_detection: true,
         };
 
@@ -708,7 +713,8 @@ impl SonioxSttManager {
         }
     }
 
-    // Live transcription path: Soniox WebSocket realtime API.
+    // Non-live shortcut fallback path: collect full audio locally, then
+    // transcribe via Soniox WebSocket in one request/response session.
     pub async fn transcribe(
         &self,
         operation_id: Option<u64>,
@@ -806,6 +812,9 @@ impl SonioxSttManager {
     }
 
     // File transcription path: Soniox async REST API.
+    // This path uses the async transcriptions contract (language hints +
+    // diarization/language-identification flags) and intentionally remains
+    // separate from WS/live-only controls.
     pub async fn transcribe_file_async(
         &self,
         operation_id: Option<u64>,
