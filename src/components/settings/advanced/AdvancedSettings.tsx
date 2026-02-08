@@ -1,6 +1,5 @@
 import React from "react";
 import { useTranslation } from "react-i18next";
-import { ShowOverlay } from "../ShowOverlay";
 import { ModelUnloadTimeoutSetting } from "../ModelUnloadTimeout";
 import { SettingsGroup } from "../../ui/SettingsGroup";
 import { StartHidden } from "../StartHidden";
@@ -45,10 +44,6 @@ export const AdvancedSettings: React.FC = () => {
               {t("settings.advanced.tellMeMore.startup.description")}
             </li>
             <li>
-              <strong>{t("settings.advanced.tellMeMore.overlay.title")}</strong>{" "}
-              {t("settings.advanced.tellMeMore.overlay.description")}
-            </li>
-            <li>
               <strong>{t("settings.advanced.tellMeMore.pasteMethod.title")}</strong>{" "}
               {t("settings.advanced.tellMeMore.pasteMethod.description")}
               <ul className="list-disc list-inside ml-5 mt-1 text-text/80 text-xs">
@@ -78,7 +73,6 @@ export const AdvancedSettings: React.FC = () => {
       <SettingsGroup title={t("settings.advanced.title")}>
         <StartHidden descriptionMode="tooltip" grouped={true} />
         <AutostartToggle descriptionMode="tooltip" grouped={true} />
-        <ShowOverlay descriptionMode="tooltip" grouped={true} />
         <PasteMethodSetting descriptionMode="tooltip" grouped={true} />
         <ClipboardHandlingSetting descriptionMode="tooltip" grouped={true} />
         <ModelUnloadTimeoutSetting descriptionMode="tooltip" grouped={true} />

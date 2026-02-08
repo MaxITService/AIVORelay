@@ -99,7 +99,7 @@ export const SECTIONS_CONFIG = {
     labelKey: "sidebar.userInterface",
     icon: Cog,
     component: UserInterfaceSettings,
-    enabled: () => isWindows,
+    enabled: () => true,
   },
   history: {
     labelKey: "sidebar.history",
