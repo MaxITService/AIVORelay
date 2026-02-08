@@ -3,6 +3,7 @@ import {
   useEffect,
   useRef,
   useState,
+  type MouseEvent,
   type PointerEvent,
 } from "react";
 import { invoke } from "@tauri-apps/api/core";
@@ -25,7 +26,9 @@ export default function VoiceActivationButton() {
   const [isRecording, setIsRecording] = useState(false);
   const [isAlwaysOnTop, setIsAlwaysOnTop] = useState(true);
   const [showAotToggle, setShowAotToggle] = useState(false);
+  const [isSingleClickClose, setIsSingleClickClose] = useState(false);
   const [isBusy, setIsBusy] = useState(false);
+  const closeButtonSuppressClickRef = useRef(false);
   const closeButtonDragRef = useRef({
     pointerId: -1,
     startX: 0,
@@ -82,10 +85,23 @@ export default function VoiceActivationButton() {
     }
   }, [applyWindowMode]);
 
+  const refreshSingleClickClose = useCallback(async () => {
+    try {
+      const enabled = await invoke<boolean>(
+        "voice_activation_button_get_single_click_close",
+      );
+      setIsSingleClickClose(enabled);
+    } catch (error) {
+      console.error("Failed to read voice button close-click setting:", error);
+      setIsSingleClickClose(false);
+    }
+  }, []);
+
   useEffect(() => {
     void refreshPushToTalk();
     void refreshRecordingState();
     void refreshShowAotToggle();
+    void refreshSingleClickClose();
 
     const unlistenProfile = listen("active-profile-changed", () => {
       void refreshPushToTalk();
@@ -96,6 +112,10 @@ export default function VoiceActivationButton() {
       (event) => {
         if (event.payload?.setting === "voice_button_show_aot_toggle") {
           void refreshShowAotToggle();
+        } else if (
+          event.payload?.setting === "voice_button_single_click_close"
+        ) {
+          void refreshSingleClickClose();
         }
       },
     );
@@ -104,7 +124,12 @@ export default function VoiceActivationButton() {
       unlistenProfile.then((fn) => fn());
       unlistenSettings.then((fn) => fn());
     };
-  }, [refreshPushToTalk, refreshRecordingState, refreshShowAotToggle]);
+  }, [
+    refreshPushToTalk,
+    refreshRecordingState,
+    refreshShowAotToggle,
+    refreshSingleClickClose,
+  ]);
 
   const handlePointerDown = async () => {
     if (isBusy || !isPushToTalk) return;
@@ -188,6 +213,7 @@ export default function VoiceActivationButton() {
   ) => {
     if (e.button !== 0) return;
     e.stopPropagation();
+    closeButtonSuppressClickRef.current = false;
     closeButtonDragRef.current = {
       pointerId: e.pointerId,
       startX: e.clientX,
@@ -211,6 +237,7 @@ export default function VoiceActivationButton() {
     if (distance < CLOSE_DRAG_THRESHOLD) return;
 
     dragState.dragging = true;
+    closeButtonSuppressClickRef.current = true;
     void windowRef.startDragging().catch((error) => {
       console.error("Failed to start window dragging from close button:", error);
     });
@@ -222,6 +249,28 @@ export default function VoiceActivationButton() {
     e.stopPropagation();
     if (closeButtonDragRef.current.pointerId !== e.pointerId) return;
     resetCloseButtonDragState();
+  };
+
+  const closeWindow = () => {
+    resetCloseButtonDragState();
+    closeButtonSuppressClickRef.current = false;
+    void windowRef.hide();
+  };
+
+  const handleCloseButtonClick = (e: MouseEvent<HTMLButtonElement>) => {
+    e.stopPropagation();
+    if (closeButtonSuppressClickRef.current) {
+      closeButtonSuppressClickRef.current = false;
+      return;
+    }
+    if (!isSingleClickClose) return;
+    closeWindow();
+  };
+
+  const handleCloseButtonDoubleClick = (e: MouseEvent<HTMLButtonElement>) => {
+    e.stopPropagation();
+    if (isSingleClickClose) return;
+    closeWindow();
   };
 
   return (
@@ -249,16 +298,17 @@ export default function VoiceActivationButton() {
         <button
           type="button"
           className="close-button"
-          title="Drag to move. Double-click to close."
+          title={
+            isSingleClickClose
+              ? "Drag to move. Click once to close."
+              : "Drag to move. Double-click to close."
+          }
           onPointerDown={handleCloseButtonPointerDown}
           onPointerMove={handleCloseButtonPointerMove}
           onPointerUp={handleCloseButtonPointerEnd}
           onPointerCancel={handleCloseButtonPointerEnd}
-          onDoubleClick={(e) => {
-            e.stopPropagation();
-            resetCloseButtonDragState();
-            void windowRef.hide();
-          }}
+          onClick={handleCloseButtonClick}
+          onDoubleClick={handleCloseButtonDoubleClick}
         >
           <span className="close-button-icons" aria-hidden="true">
             <span className="close-button-arrows">↕</span>

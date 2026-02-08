@@ -220,6 +220,8 @@ const settingUpdaters: {
   invoke("change_beta_voice_commands_enabled_setting", { enabled: value });
 (settingUpdaters as any).voice_button_show_aot_toggle = (value: any) =>
   invoke("change_voice_button_show_aot_toggle_setting", { enabled: value });
+(settingUpdaters as any).voice_button_single_click_close = (value: any) =>
+  invoke("change_voice_button_single_click_close_setting", { enabled: value });
 
 // Extended Thinking / Reasoning settings
 (settingUpdaters as any).post_process_reasoning_enabled = (value: any) =>

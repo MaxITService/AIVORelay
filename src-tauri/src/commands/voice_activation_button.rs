@@ -37,6 +37,12 @@ pub fn voice_activation_button_get_show_aot_toggle(app: AppHandle) -> Result<boo
 
 #[tauri::command]
 #[specta::specta]
+pub fn voice_activation_button_get_single_click_close(app: AppHandle) -> Result<bool, String> {
+    Ok(get_settings(&app).voice_button_single_click_close)
+}
+
+#[tauri::command]
+#[specta::specta]
 pub fn voice_activation_button_press(app: AppHandle) -> Result<(), String> {
     let action = ACTION_MAP
         .get("transcribe")

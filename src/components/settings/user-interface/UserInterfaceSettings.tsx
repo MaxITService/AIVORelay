@@ -15,6 +15,8 @@ export const UserInterfaceSettings: React.FC = () => {
 
   const voiceButtonShowAotToggle =
     (settings as any)?.voice_button_show_aot_toggle ?? false;
+  const voiceButtonSingleClickClose =
+    (settings as any)?.voice_button_single_click_close ?? false;
 
   const handleSpawnVoiceButton = async () => {
     try {
@@ -61,6 +63,23 @@ export const UserInterfaceSettings: React.FC = () => {
                     )
                   }
                   disabled={isUpdating("voice_button_show_aot_toggle")}
+                />
+              </SettingContainer>
+              <SettingContainer
+                title="Pressing x once, not twice closes the window"
+                description="When enabled, one click on the x button closes the floating voice button window."
+                descriptionMode="inline"
+                grouped={true}
+              >
+                <ToggleSwitch
+                  checked={voiceButtonSingleClickClose}
+                  onChange={(enabled) =>
+                    void updateSetting(
+                      "voice_button_single_click_close" as any,
+                      enabled as any,
+                    )
+                  }
+                  disabled={isUpdating("voice_button_single_click_close")}
                 />
               </SettingContainer>
               <HandyShortcut shortcutId="spawn_button" grouped={true} />

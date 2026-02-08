@@ -929,6 +929,14 @@ async changeVoiceButtonShowAotToggleSetting(enabled: boolean) : Promise<Result<n
     else return { status: "error", error: e  as any };
 }
 },
+async changeVoiceButtonSingleClickCloseSetting(enabled: boolean) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("change_voice_button_single_click_close_setting", { enabled }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async changeTextReplacementsEnabledSetting(enabled: boolean) : Promise<Result<null, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("change_text_replacements_enabled_setting", { enabled }) };
@@ -1566,6 +1574,14 @@ async voiceActivationButtonGetShowAotToggle() : Promise<Result<boolean, string>>
     else return { status: "error", error: e  as any };
 }
 },
+async voiceActivationButtonGetSingleClickClose() : Promise<Result<boolean, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("voice_activation_button_get_single_click_close") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async voiceActivationButtonPress() : Promise<Result<null, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("voice_activation_button_press") };
@@ -1878,6 +1894,10 @@ beta_voice_commands_enabled?: boolean;
  * Whether to show the bottom always-on-top toggle row in the floating voice button window
  */
 voice_button_show_aot_toggle?: boolean; 
+/**
+ * Whether clicking the close "x" once should close the floating voice button window
+ */
+voice_button_single_click_close?: boolean; 
 /**
  * Whether text replacement feature is enabled globally
  */

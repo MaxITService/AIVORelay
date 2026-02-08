@@ -981,6 +981,9 @@ pub struct AppSettings {
     /// Whether to show the bottom always-on-top toggle row in the floating voice button window
     #[serde(default)]
     pub voice_button_show_aot_toggle: bool,
+    /// Whether clicking the close "x" once should close the floating voice button window
+    #[serde(default)]
+    pub voice_button_single_click_close: bool,
     // ==================== Text Replacement ====================
     /// Whether text replacement feature is enabled globally
     #[serde(default)]
@@ -1696,6 +1699,7 @@ pub fn get_default_settings() -> AppSettings {
         // Beta Feature Flags
         beta_voice_commands_enabled: false,
         voice_button_show_aot_toggle: false,
+        voice_button_single_click_close: false,
         // Text Replacement
         text_replacements_enabled: false,
         text_replacements: Vec::new(),
