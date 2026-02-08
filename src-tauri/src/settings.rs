@@ -538,7 +538,7 @@ pub enum TranscriptionProvider {
 
 pub const SONIOX_DEFAULT_MODEL: &str = "stt-rt-v4";
 pub const SONIOX_DEFAULT_MAX_ENDPOINT_DELAY_MS: u32 = 2000;
-pub const SONIOX_DEFAULT_LIVE_FINALIZE_TIMEOUT_SECONDS: u32 = 4;
+pub const SONIOX_DEFAULT_LIVE_FINALIZE_TIMEOUT_SECONDS: u32 = 1;
 
 /// Shortcut engine selection for Windows.
 /// Controls which mechanism is used to listen for global hotkeys.

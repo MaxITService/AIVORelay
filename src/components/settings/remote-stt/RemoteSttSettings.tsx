@@ -65,7 +65,7 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
     (settings as any)?.soniox_keepalive_interval_seconds ?? 10,
   );
   const sonioxLiveFinalizeTimeoutSeconds = Number(
-    (settings as any)?.soniox_live_finalize_timeout_seconds ?? 4,
+    (settings as any)?.soniox_live_finalize_timeout_seconds ?? 1,
   );
   const sonioxLiveInstantStop = Boolean(
     (settings as any)?.soniox_live_instant_stop ?? false,
@@ -783,7 +783,7 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
                     setSonioxLiveFinalizeTimeoutInput(event.target.value)
                   }
                   onBlur={handleSonioxLiveFinalizeTimeoutBlur}
-                  min={2}
+                  min={1}
                   max={20}
                   className="w-full"
                 />

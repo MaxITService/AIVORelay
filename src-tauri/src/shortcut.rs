@@ -927,8 +927,8 @@ pub fn change_soniox_live_finalize_timeout_seconds_setting(
     app: AppHandle,
     seconds: u32,
 ) -> Result<(), String> {
-    if !(2..=20).contains(&seconds) {
-        return Err("Soniox live finalize timeout must be between 2 and 20 seconds".to_string());
+    if !(1..=20).contains(&seconds) {
+        return Err("Soniox live finalize timeout must be between 1 and 20 seconds".to_string());
     }
 
     let mut settings = settings::get_settings(&app);
