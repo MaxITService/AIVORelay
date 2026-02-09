@@ -881,6 +881,14 @@ async changeAiReplaceSelectionPushToTalkSetting(enabled: boolean) : Promise<Resu
     else return { status: "error", error: e  as any };
 }
 },
+async changeVoiceCommandPushToTalkSetting(enabled: boolean) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("change_voice_command_push_to_talk_setting", { enabled }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async changeConnectorAutoOpenEnabledSetting(enabled: boolean) : Promise<Result<null, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("change_connector_auto_open_enabled_setting", { enabled }) };

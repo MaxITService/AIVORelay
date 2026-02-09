@@ -171,6 +171,8 @@ const settingUpdaters: {
     ),
   ai_replace_selection_push_to_talk: (value) =>
     commands.changeAiReplaceSelectionPushToTalkSetting(value as boolean),
+  voice_command_push_to_talk: (value) =>
+    commands.changeVoiceCommandPushToTalkSetting(value as boolean),
   connector_auto_open_enabled: (value) =>
     commands.changeConnectorAutoOpenEnabledSetting(value as boolean),
   connector_auto_open_url: (value) =>

@@ -2215,6 +2215,18 @@ pub fn change_ai_replace_selection_push_to_talk_setting(
 
 #[tauri::command]
 #[specta::specta]
+pub fn change_voice_command_push_to_talk_setting(
+    app: AppHandle,
+    enabled: bool,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.voice_command_push_to_talk = enabled;
+    settings::write_settings(&app, settings);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
 pub fn change_connector_auto_open_enabled_setting(
     app: AppHandle,
     enabled: bool,
