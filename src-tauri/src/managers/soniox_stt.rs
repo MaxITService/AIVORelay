@@ -161,7 +161,10 @@ impl SonioxSttManager {
 
             match operation().await {
                 Ok(result) => return Ok(result),
-                Err(err) if attempt < MAX_RETRIES - 1 => {
+                Err(err)
+                    if attempt < MAX_RETRIES - 1
+                        && Self::should_retry(operation_name, &err) =>
+                {
                     warn!(
                         "{} attempt {}/{} failed: {}. Retrying in {:?}",
                         operation_name,
@@ -185,6 +188,19 @@ impl SonioxSttManager {
         }
 
         unreachable!()
+    }
+
+    fn should_retry(operation_name: &str, err: &anyhow::Error) -> bool {
+        // For non-live Soniox WS transcription, server-side 408 usually means
+        // the request already timed out in a non-recoverable way for this clip.
+        // Retrying the same payload tends to extend "sending" UX without benefit.
+        if operation_name == "Soniox WebSocket transcription" {
+            let message = err.to_string();
+            if message.contains("Soniox WebSocket error 408") {
+                return false;
+            }
+        }
+        true
     }
 
     fn normalized_language_hints(language: Option<&str>) -> Option<Vec<String>> {
@@ -254,6 +270,18 @@ impl SonioxSttManager {
         Ok(())
     }
 
+    fn remaining_timeout(start: Instant, timeout_seconds: u32) -> Result<Duration> {
+        let total = Duration::from_secs(timeout_seconds.max(MIN_TIMEOUT_SECONDS) as u64);
+        let elapsed = start.elapsed();
+        if elapsed >= total {
+            return Err(anyhow!(
+                "Transcription timed out after {} seconds",
+                timeout_seconds
+            ));
+        }
+        Ok(total - elapsed)
+    }
+
     async fn transcribe_once_ws(
         &self,
         operation_id: Option<u64>,
@@ -306,6 +334,15 @@ impl SonioxSttManager {
                 .map_err(|e| anyhow!("Failed to send audio chunk to Soniox: {}", e))?;
         }
 
+        // Ask Soniox to finalize any pending tail audio before stream close.
+        // This improves end-of-utterance completeness for non-live fallback flows
+        // (AI Replace / Connector / Screenshot voice text), which do not use the
+        // dedicated live session manager.
+        write
+            .send(Message::Text(r#"{"type":"finalize"}"#.to_string().into()))
+            .await
+            .map_err(|e| anyhow!("Failed to send Soniox finalize control message: {}", e))?;
+
         // Empty binary message signals end-of-audio for Soniox WebSocket API.
         write
             .send(Message::Binary(Vec::new().into()))
@@ -320,10 +357,17 @@ impl SonioxSttManager {
         let mut final_tokens: Vec<String> = Vec::new();
         let mut finished = false;
 
-        while let Some(frame) = read.next().await {
+        loop {
             self.ensure_not_cancelled(operation_id)?;
             Self::ensure_within_timeout(started, timeout_seconds)?;
 
+            let wait = Self::remaining_timeout(started, timeout_seconds)?;
+            let frame = timeout(wait, read.next())
+                .await
+                .map_err(|_| anyhow!("Soniox WebSocket read timed out"))?;
+            let Some(frame) = frame else {
+                break;
+            };
             let frame = frame.map_err(|e| anyhow!("Soniox WebSocket read failed: {}", e))?;
 
             match frame {
@@ -345,7 +389,7 @@ impl SonioxSttManager {
                     }
 
                     for token in payload.tokens.into_iter().filter(|token| token.is_final) {
-                        if !token.text.is_empty() {
+                        if !token.text.is_empty() && token.text != "<fin>" && token.text != "<end>" {
                             final_tokens.push(token.text);
                         }
                     }
@@ -448,6 +492,12 @@ impl SonioxSttManager {
                 .map_err(|e| anyhow!("Failed to send audio chunk to Soniox: {}", e))?;
         }
 
+        // Ask Soniox to finalize pending tail audio before closing the stream.
+        write
+            .send(Message::Text(r#"{"type":"finalize"}"#.to_string().into()))
+            .await
+            .map_err(|e| anyhow!("Failed to send Soniox finalize control message: {}", e))?;
+
         write
             .send(Message::Binary(Vec::new().into()))
             .await
@@ -461,10 +511,17 @@ impl SonioxSttManager {
         let mut final_tokens: Vec<String> = Vec::new();
         let mut finished = false;
 
-        while let Some(frame) = read.next().await {
+        loop {
             self.ensure_not_cancelled(operation_id)?;
             Self::ensure_within_timeout(started, timeout_seconds)?;
 
+            let wait = Self::remaining_timeout(started, timeout_seconds)?;
+            let frame = timeout(wait, read.next())
+                .await
+                .map_err(|_| anyhow!("Soniox WebSocket read timed out"))?;
+            let Some(frame) = frame else {
+                break;
+            };
             let frame = frame.map_err(|e| anyhow!("Soniox WebSocket read failed: {}", e))?;
 
             match frame {
@@ -487,7 +544,7 @@ impl SonioxSttManager {
 
                     let mut chunk_text = String::new();
                     for token in payload.tokens.into_iter().filter(|token| token.is_final) {
-                        if token.text.is_empty() || token.text == "<fin>" {
+                        if token.text.is_empty() || token.text == "<fin>" || token.text == "<end>" {
                             continue;
                         }
                         chunk_text.push_str(&token.text);
