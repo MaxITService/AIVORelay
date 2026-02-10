@@ -765,6 +765,10 @@ pub struct AppSettings {
     pub soniox_live_finalize_timeout_ms: u32,
     #[serde(default = "default_false")]
     pub soniox_live_instant_stop: bool,
+    #[serde(default = "default_false")]
+    pub soniox_realtime_fuzzy_correction_enabled: bool,
+    #[serde(default = "default_false")]
+    pub soniox_realtime_keep_safety_buffer_enabled: bool,
     #[serde(default = "default_always_on_microphone")]
     pub always_on_microphone: bool,
     #[serde(default)]
@@ -1689,6 +1693,8 @@ pub fn get_default_settings() -> AppSettings {
         soniox_keepalive_interval_seconds: default_soniox_keepalive_interval_seconds(),
         soniox_live_finalize_timeout_ms: default_soniox_live_finalize_timeout_ms(),
         soniox_live_instant_stop: default_false(),
+        soniox_realtime_fuzzy_correction_enabled: default_false(),
+        soniox_realtime_keep_safety_buffer_enabled: default_false(),
         always_on_microphone: false,
         selected_microphone: None,
         clamshell_microphone: None,

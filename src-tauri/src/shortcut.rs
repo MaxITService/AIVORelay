@@ -960,6 +960,30 @@ pub fn change_soniox_live_instant_stop_setting(app: AppHandle, enabled: bool) ->
 
 #[tauri::command]
 #[specta::specta]
+pub fn change_soniox_realtime_fuzzy_correction_enabled_setting(
+    app: AppHandle,
+    enabled: bool,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.soniox_realtime_fuzzy_correction_enabled = enabled;
+    settings::write_settings(&app, settings);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_soniox_realtime_keep_safety_buffer_enabled_setting(
+    app: AppHandle,
+    enabled: bool,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.soniox_realtime_keep_safety_buffer_enabled = enabled;
+    settings::write_settings(&app, settings);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
 pub fn reset_soniox_settings_to_defaults(app: AppHandle) -> Result<(), String> {
     let mut settings = settings::get_settings(&app);
     settings.soniox_model = SONIOX_DEFAULT_MODEL.to_string();
@@ -975,6 +999,8 @@ pub fn reset_soniox_settings_to_defaults(app: AppHandle) -> Result<(), String> {
     settings.soniox_keepalive_interval_seconds = 10;
     settings.soniox_live_finalize_timeout_ms = SONIOX_DEFAULT_LIVE_FINALIZE_TIMEOUT_MS;
     settings.soniox_live_instant_stop = false;
+    settings.soniox_realtime_fuzzy_correction_enabled = false;
+    settings.soniox_realtime_keep_safety_buffer_enabled = false;
     settings::write_settings(&app, settings);
     Ok(())
 }

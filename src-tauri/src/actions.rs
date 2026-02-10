@@ -12,6 +12,7 @@ use crate::managers::soniox_realtime::{FinalChunkCallback, SonioxRealtimeManager
 use crate::managers::soniox_stt::SonioxSttManager;
 use crate::managers::transcription::TranscriptionManager;
 use crate::session_manager::{self, ManagedSessionState};
+use crate::soniox_stream_processor::SonioxStreamProcessor;
 use crate::settings::{
     get_settings, AppSettings, TranscriptionProvider, APPLE_INTELLIGENCE_PROVIDER_ID,
 };
@@ -25,7 +26,6 @@ use ferrous_opencc::{config::BuiltinConfig, OpenCC};
 use log::{debug, error, warn};
 use once_cell::sync::Lazy;
 use natural::phonetics::soundex;
-use regex::Regex;
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use strsim::normalized_levenshtein;
@@ -99,6 +99,9 @@ struct LlmTemplateContext {
 /// Tracks the frontmost app captured at recording start, keyed by binding_id.
 static RECORDING_APP_CONTEXT: Lazy<Mutex<HashMap<String, String>>> =
     Lazy::new(|| Mutex::new(HashMap::new()));
+type SharedSonioxStreamProcessor = Arc<Mutex<SonioxStreamProcessor>>;
+static SONIOX_STREAM_PROCESSORS: Lazy<Mutex<HashMap<String, SharedSonioxStreamProcessor>>> =
+    Lazy::new(|| Mutex::new(HashMap::new()));
 
 fn capture_recording_app_context(binding_id: &str) {
     #[cfg(target_os = "windows")]
@@ -117,6 +120,24 @@ fn take_recording_app_context(binding_id: &str) -> String {
         return context.remove(binding_id).unwrap_or_default();
     }
     String::new()
+}
+
+fn register_soniox_stream_processor(
+    binding_id: &str,
+    settings: &AppSettings,
+) -> SharedSonioxStreamProcessor {
+    let processor = Arc::new(Mutex::new(SonioxStreamProcessor::from_settings(settings)));
+    if let Ok(mut processors) = SONIOX_STREAM_PROCESSORS.lock() {
+        processors.insert(binding_id.to_string(), Arc::clone(&processor));
+    }
+    processor
+}
+
+fn take_soniox_stream_processor(binding_id: &str) -> Option<SharedSonioxStreamProcessor> {
+    SONIOX_STREAM_PROCESSORS
+        .lock()
+        .ok()
+        .and_then(|mut processors| processors.remove(binding_id))
 }
 
 fn clamp_prev_transcript_words(settings: &AppSettings) -> usize {
@@ -898,12 +919,12 @@ async fn perform_transcription_for_profile(
         let should_stream_insert = binding_id
             .map(|id| id == "transcribe" || id.starts_with("transcribe_profile_"))
             .unwrap_or(false);
-        let stream_chunk_replacements = StreamChunkReplacementEngine::from_settings(&settings);
 
         let result = if should_stream_insert {
             let app_handle = app.clone();
-            let stream_chunk_replacements = stream_chunk_replacements.clone();
-            soniox_manager
+            let stream_processor = Arc::new(Mutex::new(SonioxStreamProcessor::from_settings(&settings)));
+            let stream_processor_for_callback = Arc::clone(&stream_processor);
+            let streamed_result = soniox_manager
                 .transcribe_with_streaming_callback(
                     Some(operation_id),
                     &api_key,
@@ -916,23 +937,57 @@ async fn perform_transcription_for_profile(
                         if chunk.is_empty() {
                             return Ok(());
                         }
-                        let chunk = apply_stream_chunk_text_replacements(
-                            chunk,
-                            stream_chunk_replacements.as_ref(),
-                        );
-                        if chunk.is_empty() {
+                        let delta = match stream_processor_for_callback.lock() {
+                            Ok(mut processor) => processor.push_chunk(chunk),
+                            Err(_) => {
+                                return Err(anyhow::anyhow!("Failed to lock Soniox stream processor"));
+                            }
+                        };
+                        if delta.is_empty() {
                             return Ok(());
                         }
                         let ah_for_call = app_handle.clone();
                         let ah_for_closure = ah_for_call.clone();
                         ah_for_call.run_on_main_thread(move || {
                             let _ =
-                                crate::clipboard::paste_stream_chunk(chunk, ah_for_closure.clone());
+                                crate::clipboard::paste_stream_chunk(delta, ah_for_closure.clone());
                         })
                         .map_err(|e| anyhow::anyhow!("Failed to queue stream chunk paste: {}", e))
                     },
                 )
-                .await
+                .await;
+
+            match streamed_result {
+                Ok(text) => {
+                    match stream_processor.lock() {
+                        Ok(mut processor) => {
+                            let tail_delta = processor.flush();
+                            drop(processor);
+
+                            if tail_delta.is_empty() {
+                                Ok(text)
+                            } else {
+                                let ah_for_call = app.clone();
+                                let ah_for_closure = ah_for_call.clone();
+                                match ah_for_call.run_on_main_thread(move || {
+                                    let _ = crate::clipboard::paste_stream_chunk(
+                                        tail_delta,
+                                        ah_for_closure.clone(),
+                                    );
+                                }) {
+                                    Ok(_) => Ok(text),
+                                    Err(err) => Err(anyhow::anyhow!(
+                                        "Failed to queue stream tail paste: {}",
+                                        err
+                                    )),
+                                }
+                            }
+                        }
+                        Err(_) => Err(anyhow::anyhow!("Failed to lock Soniox stream processor")),
+                    }
+                }
+                Err(err) => Err(err),
+            }
         } else {
             soniox_manager
                 .transcribe(
@@ -1362,214 +1417,6 @@ fn build_soniox_realtime_options(settings: &AppSettings, language: &str) -> Soni
     }
 }
 
-#[derive(Clone)]
-enum StreamReplacementRule {
-    Plain {
-        from: String,
-        to: String,
-        case_sensitive: bool,
-    },
-    Regex {
-        regex: Regex,
-        to: String,
-    },
-}
-
-#[derive(Clone, Default)]
-struct StreamChunkReplacementEngine {
-    rules: Vec<StreamReplacementRule>,
-}
-
-impl StreamChunkReplacementEngine {
-    fn from_settings(settings: &AppSettings) -> Option<Self> {
-        if !settings.text_replacements_enabled || settings.text_replacements.is_empty() {
-            return None;
-        }
-
-        let mut rules = Vec::new();
-        for replacement in settings
-            .text_replacements
-            .iter()
-            .filter(|replacement| replacement.enabled && !replacement.from.is_empty())
-        {
-            let to_processed = process_text_replacement_escapes(&replacement.to);
-            if replacement.is_regex {
-                let pattern = if replacement.case_sensitive {
-                    replacement.from.clone()
-                } else {
-                    format!("(?i){}", replacement.from)
-                };
-
-                match Regex::new(&pattern) {
-                    Ok(regex) => rules.push(StreamReplacementRule::Regex {
-                        regex,
-                        to: to_processed,
-                    }),
-                    Err(err) => {
-                        warn!(
-                            "Invalid regex pattern '{}' in stream text replacement: {}",
-                            replacement.from, err
-                        );
-                    }
-                }
-                continue;
-            }
-
-            let from_processed = process_text_replacement_escapes(&replacement.from);
-            if from_processed.is_empty() {
-                continue;
-            }
-
-            rules.push(StreamReplacementRule::Plain {
-                from: from_processed,
-                to: to_processed,
-                case_sensitive: replacement.case_sensitive,
-            });
-        }
-
-        if rules.is_empty() {
-            None
-        } else {
-            Some(Self { rules })
-        }
-    }
-
-    fn apply(&self, text: &str) -> String {
-        let mut result = text.to_string();
-        for rule in &self.rules {
-            result = match rule {
-                StreamReplacementRule::Plain {
-                    from,
-                    to,
-                    case_sensitive,
-                } => {
-                    if *case_sensitive {
-                        result.replace(from, to)
-                    } else {
-                        replace_case_insensitive(&result, from, to)
-                    }
-                }
-                StreamReplacementRule::Regex { regex, to } => {
-                    regex.replace_all(&result, to.as_str()).to_string()
-                }
-            };
-        }
-        result
-    }
-}
-
-fn process_text_replacement_escapes(s: &str) -> String {
-    let mut result = String::with_capacity(s.len());
-    let mut chars = s.chars().peekable();
-
-    while let Some(c) = chars.next() {
-        if c == '\\' {
-            match chars.peek() {
-                Some('n') => {
-                    result.push('\n');
-                    chars.next();
-                }
-                Some('r') => {
-                    chars.next();
-                    if chars.peek() == Some(&'\\') {
-                        let mut temp = chars.clone();
-                        temp.next();
-                        if temp.peek() == Some(&'n') {
-                            result.push_str("\r\n");
-                            chars.next();
-                            chars.next();
-                        } else {
-                            result.push('\r');
-                        }
-                    } else {
-                        result.push('\r');
-                    }
-                }
-                Some('t') => {
-                    result.push('\t');
-                    chars.next();
-                }
-                Some('\\') => {
-                    result.push('\\');
-                    chars.next();
-                }
-                Some('u') => {
-                    chars.next();
-                    if chars.peek() == Some(&'{') {
-                        chars.next();
-                        let mut hex_str = String::new();
-                        while let Some(&ch) = chars.peek() {
-                            if ch == '}' {
-                                chars.next();
-                                break;
-                            }
-                            if ch.is_ascii_hexdigit() && hex_str.len() < 6 {
-                                hex_str.push(ch);
-                                chars.next();
-                            } else {
-                                break;
-                            }
-                        }
-                        if let Ok(code_point) = u32::from_str_radix(&hex_str, 16) {
-                            if let Some(unicode_char) = char::from_u32(code_point) {
-                                result.push(unicode_char);
-                            } else {
-                                result.push_str("\\u{");
-                                result.push_str(&hex_str);
-                                result.push('}');
-                            }
-                        } else {
-                            result.push_str("\\u{");
-                            result.push_str(&hex_str);
-                            result.push('}');
-                        }
-                    } else {
-                        result.push('\\');
-                        result.push('u');
-                    }
-                }
-                _ => result.push(c),
-            }
-        } else {
-            result.push(c);
-        }
-    }
-
-    result
-}
-
-fn replace_case_insensitive(text: &str, from: &str, to: &str) -> String {
-    if from.is_empty() {
-        return text.to_string();
-    }
-
-    let lower_from = from.to_lowercase();
-    let mut result = String::with_capacity(text.len());
-    let mut remaining = text;
-
-    while let Some(start) = remaining.to_lowercase().find(&lower_from) {
-        result.push_str(&remaining[..start]);
-        result.push_str(to);
-        remaining = &remaining[start + from.len()..];
-    }
-    result.push_str(remaining);
-    result
-}
-
-fn apply_stream_chunk_text_replacements(
-    text: &str,
-    engine: Option<&StreamChunkReplacementEngine>,
-) -> String {
-    if text.is_empty() {
-        return String::new();
-    }
-
-    match engine {
-        Some(engine) => engine.apply(text),
-        None => text.to_string(),
-    }
-}
-
 fn apply_soniox_output_filters(settings: &AppSettings, text: String) -> String {
     let corrected = if settings.custom_words_enabled && !settings.custom_words.is_empty() {
         apply_custom_words(
@@ -1897,8 +1744,8 @@ impl ShortcutAction for TranscribeAction {
             let binding_id = binding_id.to_string();
             let app_handle = app.clone();
             let soniox_live_manager = Arc::clone(&app.state::<Arc<SonioxRealtimeManager>>());
-            let stream_chunk_replacements =
-                StreamChunkReplacementEngine::from_settings(&settings).map(Arc::new);
+            let _ = take_soniox_stream_processor(&binding_id);
+            let stream_processor = register_soniox_stream_processor(&binding_id, &settings);
 
             #[cfg(target_os = "windows")]
             let api_key = crate::secure_keys::get_soniox_api_key();
@@ -1907,23 +1754,26 @@ impl ShortcutAction for TranscribeAction {
 
             let chunk_callback: FinalChunkCallback = Arc::new({
                 let ah_for_cb = app_handle.clone();
-                let stream_chunk_replacements = stream_chunk_replacements.clone();
+                let stream_processor = Arc::clone(&stream_processor);
                 move |chunk: String| {
                     if chunk.is_empty() {
                         return;
                     }
-                    let chunk = apply_stream_chunk_text_replacements(
-                        &chunk,
-                        stream_chunk_replacements.as_deref(),
-                    );
-                    if chunk.is_empty() {
+                    let delta = match stream_processor.lock() {
+                        Ok(mut processor) => processor.push_chunk(&chunk),
+                        Err(_) => {
+                            warn!("Failed to lock Soniox stream processor");
+                            String::new()
+                        }
+                    };
+                    if delta.is_empty() {
                         return;
                     }
                     let ah_for_call = ah_for_cb.clone();
                     let ah_for_clip = ah_for_call.clone();
                     let _ = ah_for_call.run_on_main_thread(move || {
                         let _ =
-                            crate::clipboard::paste_stream_chunk(chunk, ah_for_clip.clone());
+                            crate::clipboard::paste_stream_chunk(delta, ah_for_clip.clone());
                     });
                 }
             });
@@ -1937,6 +1787,7 @@ impl ShortcutAction for TranscribeAction {
             );
 
             if let Err(err) = start_result {
+                let _ = take_soniox_stream_processor(&binding_id);
                 let err_str = format!("{}", err);
                 let _ = app_handle.emit("remote-stt-error", err_str.clone());
                 crate::plus_overlay_state::handle_transcription_error(&app_handle, &err_str);
@@ -1969,7 +1820,10 @@ impl ShortcutAction for TranscribeAction {
         if use_soniox_live {
             let stop_context = match prepare_stop_recording_with_options(app, binding_id, false) {
                 Some(context) => context,
-                None => return, // No active session - nothing to do
+                None => {
+                    let _ = take_soniox_stream_processor(binding_id);
+                    return; // No active session - nothing to do
+                }
             };
             // Live mode already streamed text while recording.
             // On stop, show explicit finalizing state unless instant-stop is enabled.
@@ -1985,6 +1839,7 @@ impl ShortcutAction for TranscribeAction {
             let binding_id = binding_id.to_string();
             tauri::async_runtime::spawn(async move {
                 let settings = get_settings(&ah);
+                let stream_processor = take_soniox_stream_processor(&binding_id);
                 let rm = Arc::clone(&ah.state::<Arc<AudioRecordingManager>>());
                 let samples = match rm.stop_recording(&binding_id) {
                     Some(samples) => samples,
@@ -2044,6 +1899,28 @@ impl ShortcutAction for TranscribeAction {
                         return;
                     }
                 };
+
+                if let Some(processor) = stream_processor.as_ref() {
+                    let tail_delta = match processor.lock() {
+                        Ok(mut processor) => processor.flush(),
+                        Err(_) => {
+                            warn!("Failed to lock Soniox stream processor");
+                            String::new()
+                        }
+                    };
+                    if !tail_delta.is_empty() {
+                        let ah_for_call = ah.clone();
+                        let ah_for_clip = ah_for_call.clone();
+                        if let Err(err) = ah_for_call.run_on_main_thread(move || {
+                            let _ = crate::clipboard::paste_stream_chunk(
+                                tail_delta,
+                                ah_for_clip.clone(),
+                            );
+                        }) {
+                            warn!("Failed to queue Soniox stream tail paste: {}", err);
+                        }
+                    }
+                }
 
                 if transcription.is_empty() {
                     let _ = crate::clipboard::end_streaming_paste_session(&ah);

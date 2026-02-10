@@ -1620,6 +1620,12 @@
     "save": "Save",
     "cancel": "Cancel",
     "clickToEdit": "Click to edit",
-    "empty": "No replacement rules yet. Add one above to get started."
+    "empty": "No replacement rules yet. Add one above to get started.",
+    "sonioxRealtimeChunkTitle": "Soniox Realtime Chunks",
+    "sonioxRealtimeChunkDescription": "Controls chunk-time correction while Soniox Live typing is active.",
+    "sonioxRealtimeChunkFuzzyLabel": "Enable Fuzzy Word Correction for Soniox Live Chunks",
+    "sonioxRealtimeChunkFuzzyDescription": "When enabled, Soniox Live chunk typing applies Custom Words fuzzy correction before Text Replacement rules.",
+    "sonioxRealtimeChunkSafetyBufferLabel": "Keep Safety Buffer for Cross-chunk Matching",
+    "sonioxRealtimeChunkSafetyBufferDescription": "When enabled, Soniox Live keeps a short 2-3 word tail before typing so fuzzy correction can match across chunk boundaries. This may delay the newest words slightly."
   }
 }

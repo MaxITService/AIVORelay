@@ -840,6 +840,55 @@ export const TextReplacementSettings: React.FC = () => {
           />
         </div>
       </SettingsGroup>
+
+      <SettingsGroup
+        title={t(
+          "textReplacement.sonioxRealtimeChunkTitle",
+          "Soniox Realtime Chunks"
+        )}
+        description={t(
+          "textReplacement.sonioxRealtimeChunkDescription",
+          "Controls chunk-time correction while Soniox Live typing is active."
+        )}
+      >
+        <div className="px-4 py-3">
+          <ToggleSwitch
+            checked={settings?.soniox_realtime_fuzzy_correction_enabled ?? false}
+            onChange={(enabled) =>
+              updateSetting("soniox_realtime_fuzzy_correction_enabled", enabled)
+            }
+            isUpdating={isUpdating("soniox_realtime_fuzzy_correction_enabled")}
+            label={t(
+              "textReplacement.sonioxRealtimeChunkFuzzyLabel",
+              "Enable Fuzzy Word Correction for Soniox Live Chunks"
+            )}
+            description={t(
+              "textReplacement.sonioxRealtimeChunkFuzzyDescription",
+              "When enabled, Soniox Live chunk typing applies Custom Words fuzzy correction before Text Replacement rules."
+            )}
+            descriptionMode="inline"
+          />
+        </div>
+
+        <div className="px-4 py-3 border-t border-white/[0.05]">
+          <ToggleSwitch
+            checked={settings?.soniox_realtime_keep_safety_buffer_enabled ?? false}
+            onChange={(enabled) =>
+              updateSetting("soniox_realtime_keep_safety_buffer_enabled", enabled)
+            }
+            isUpdating={isUpdating("soniox_realtime_keep_safety_buffer_enabled")}
+            label={t(
+              "textReplacement.sonioxRealtimeChunkSafetyBufferLabel",
+              "Keep Safety Buffer for Cross-chunk Matching"
+            )}
+            description={t(
+              "textReplacement.sonioxRealtimeChunkSafetyBufferDescription",
+              "When enabled, Soniox Live keeps a short 2-3 word tail before typing so fuzzy correction can match across chunk boundaries. This may delay the newest words slightly."
+            )}
+            descriptionMode="inline"
+          />
+        </div>
+      </SettingsGroup>
     </div>
   );
 };
