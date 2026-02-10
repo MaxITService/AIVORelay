@@ -1197,6 +1197,25 @@
         "title": "Report Issues",
         "description": "Found a bug or have a feature request? Open an issue on GitHub.",
         "button": "Open Issues"
+      },
+      "moreProjects": {
+        "title": "More Free & Open Source Software from Author",
+        "oneClickPrompts": {
+          "title": "OneClickPrompts",
+          "description": "Your Quick Prompt Companion for Multiple AI Chats! Insert frequently used prompts with a single click across ChatGPT, Claude, Gemini, DeepSeek, Copilot, and more. Free, open-source Chrome extension that respects your privacy."
+        },
+        "console2Ai": {
+          "title": "Console2Ai",
+          "description": "Send PowerShell buffer to AI"
+        },
+        "aiForBeginners": {
+          "title": "(Article) AI for Complete Beginners",
+          "description": "Guide to LLMs"
+        },
+        "pingPlotter": {
+          "title": "Ping-Plotter",
+          "description": "PowerShell only Ping Plotting script"
+        }
       }
     },
     "browserConnector": {

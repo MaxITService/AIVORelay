@@ -2,11 +2,13 @@ import React, { useState, useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import { getVersion } from "@tauri-apps/api/app";
 import { openUrl } from "@tauri-apps/plugin-opener";
+import { ExternalLink } from "lucide-react";
 import { SettingsGroup } from "../../ui/SettingsGroup";
 import { SettingContainer } from "../../ui/SettingContainer";
 import { Button } from "../../ui/Button";
 import { AppDataDirectory } from "../AppDataDirectory";
 import { AppLanguageSelector } from "../AppLanguageSelector";
+import oneClickPromptsScreenshot from "../../../assets/OneClickPrompts-screenshot.png";
 
 export const AboutSettings: React.FC = () => {
   const { t } = useTranslation();
@@ -179,6 +181,81 @@ export const AboutSettings: React.FC = () => {
             {t("settings.about.acknowledgments.vulkan.details")}
           </div>
         </SettingContainer>
+      </SettingsGroup>
+
+      <SettingsGroup title={t("settings.about.moreProjects.title")}>
+        {/* OneClickPrompts - featured with screenshot */}
+        <div className="p-4 space-y-3">
+          <button
+            onClick={() => openUrl("https://github.com/MaxITService/OneClickPrompts")}
+            className="group cursor-pointer text-left w-full"
+          >
+            <div className="flex items-center gap-2 mb-2">
+              <span className="text-sm font-semibold text-text group-hover:text-[#ff4d8d] transition-colors">
+                {t("settings.about.moreProjects.oneClickPrompts.title")}
+              </span>
+              <ExternalLink className="w-3.5 h-3.5 text-mid-gray group-hover:text-[#ff4d8d] transition-colors" />
+            </div>
+            <p className="text-xs text-mid-gray mb-3">
+              {t("settings.about.moreProjects.oneClickPrompts.description")}
+            </p>
+            <div className="inline-block rounded-lg border border-[#3c3c3c] overflow-hidden shadow-lg">
+              <img
+                src={oneClickPromptsScreenshot}
+                alt="OneClickPrompts"
+                className="max-w-full h-auto block"
+              />
+            </div>
+          </button>
+        </div>
+
+        {/* Other projects as links */}
+        <div className="divide-y divide-white/[0.05]">
+          <button
+            onClick={() => openUrl("https://github.com/MaxITService/Console2Ai")}
+            className="group w-full flex items-center justify-between px-4 py-3 cursor-pointer hover:bg-white/[0.02] transition-colors"
+          >
+            <div className="text-left">
+              <span className="text-sm font-medium text-text group-hover:text-[#ff4d8d] transition-colors">
+                {t("settings.about.moreProjects.console2Ai.title")}
+              </span>
+              <p className="text-xs text-mid-gray">
+                {t("settings.about.moreProjects.console2Ai.description")}
+              </p>
+            </div>
+            <ExternalLink className="w-4 h-4 text-mid-gray group-hover:text-[#ff4d8d] transition-colors flex-shrink-0" />
+          </button>
+
+          <button
+            onClick={() => openUrl("https://github.com/MaxITService/Ping-Plotter-PS51")}
+            className="group w-full flex items-center justify-between px-4 py-3 cursor-pointer hover:bg-white/[0.02] transition-colors"
+          >
+            <div className="text-left">
+              <span className="text-sm font-medium text-text group-hover:text-[#ff4d8d] transition-colors">
+                {t("settings.about.moreProjects.pingPlotter.title")}
+              </span>
+              <p className="text-xs text-mid-gray">
+                {t("settings.about.moreProjects.pingPlotter.description")}
+              </p>
+            </div>
+            <ExternalLink className="w-4 h-4 text-mid-gray group-hover:text-[#ff4d8d] transition-colors flex-shrink-0" />
+          </button>
+
+          <button
+            onClick={() => openUrl("https://medium.com/@maxim.fomins/ai-for-complete-beginners-guide-llms-f19c4b8a8a79")}
+            className="group w-full flex items-center justify-between px-4 py-3 cursor-pointer hover:bg-white/[0.02] transition-colors"
+          >
+            <div className="text-left">
+              <span className="text-sm font-medium text-text group-hover:text-[#ff4d8d] transition-colors">
+                {t("settings.about.moreProjects.aiForBeginners.title")}
+              </span>
+              <p className="text-xs text-mid-gray">
+                {t("settings.about.moreProjects.aiForBeginners.description")}
+              </p>
+            </div>
+            <ExternalLink className="w-4 h-4 text-mid-gray group-hover:text-[#ff4d8d] transition-colors flex-shrink-0" />
+          </button>
+        </div>
       </SettingsGroup>
     </div>
   );
