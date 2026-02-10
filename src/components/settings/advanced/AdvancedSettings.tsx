@@ -76,6 +76,9 @@ export const AdvancedSettings: React.FC = () => {
         <PasteMethodSetting descriptionMode="tooltip" grouped={true} />
         <ClipboardHandlingSetting descriptionMode="tooltip" grouped={true} />
         <ModelUnloadTimeoutSetting descriptionMode="tooltip" grouped={true} />
+      </SettingsGroup>
+
+      <SettingsGroup title={t("settings.advanced.voiceApiTitle")}>
         <RemoteSttSettings descriptionMode="tooltip" grouped={true} />
       </SettingsGroup>
     </div>

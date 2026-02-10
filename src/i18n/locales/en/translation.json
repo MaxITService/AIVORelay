@@ -178,8 +178,15 @@
     "remoteSttWizard": {
       "title": "Configure Remote STT",
       "subtitle": "Enter your API credentials to use cloud transcription",
-      "recommendation": "We recommend using Groq for fast, free cloud transcription. The fields below are prefilled with Groq defaults.",
-      "freeTier": "Groq offers a generous free tier. Just create an API key on their website and enter it below.",
+      "engineLabel": "Voice Provider",
+      "engineOptions": {
+        "openai": "OpenAI API Compatible",
+        "soniox": "Soniox"
+      },
+      "recommendation": "Any OpenAI-compatible speech-to-text API will work. I tested the app with Groq and it worked well, so the fields below are pre-filled with Groq defaults. The Groq website is linked below because it's easy to register a free account there, but you are free to use any provider you prefer.",
+      "freeTier": "Create an API key on your provider's website and enter it below.",
+      "sonioxInfo": "Soniox provides real-time speech-to-text with streaming support. Create an API key on their website and enter it below.",
+      "sonioxRealtimeWarning": "The LLM post processing does not work with realtime API. LLM post processing settings will be ignored in this mode.",
       "baseUrl": {
         "label": "Server URL",
         "hint": "OpenAI-compatible transcription API endpoint"
@@ -196,7 +203,8 @@
       "testing": "Testing...",
       "finishConfig": "Finish Setup",
       "connectionSuccess": "Connection successful!",
-      "connectionFailed": "Connection failed: {{error}}"
+      "connectionFailed": "Connection failed: {{error}}",
+      "apiConfigHeader": "API Configuration"
     }
   },
   "modelSelector": {
@@ -465,6 +473,7 @@
     },
     "advanced": {
       "title": "Advanced",
+      "voiceApiTitle": "Voice API",
       "help": {
         "title": "Voice Model Configuration",
         "description": "This is where you can configure voice models for speech to text, but only remote ones. Local models can be selected from the menu at the bottom-left of the application."

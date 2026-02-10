@@ -526,6 +526,9 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
 
           {showSonioxFields && (
             <>
+              <div className="p-3 bg-yellow-500/10 border border-yellow-500/30 rounded-lg text-sm text-yellow-400 mx-4 mt-2">
+                {t("onboarding.remoteSttWizard.sonioxRealtimeWarning")}
+              </div>
               <TellMeMore
                 title={t("settings.advanced.soniox.tellMeMore.title")}
               >
