@@ -259,6 +259,7 @@ pub async fn transcribe_audio_file(
                 settings.soniox_timeout_seconds,
                 &samples,
                 Some(language.as_str()),
+                settings.trim_transcription_output_enabled,
                 soniox_options,
             )
             .await

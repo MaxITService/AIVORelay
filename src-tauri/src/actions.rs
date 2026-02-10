@@ -911,6 +911,7 @@ async fn perform_transcription_for_profile(
                     settings.soniox_timeout_seconds,
                     &samples,
                     Some(language.as_str()),
+                    settings.trim_transcription_output_enabled,
                     move |chunk| {
                         if chunk.is_empty() {
                             return Ok(());
@@ -941,6 +942,7 @@ async fn perform_transcription_for_profile(
                     settings.soniox_timeout_seconds,
                     &samples,
                     Some(language.as_str()),
+                    settings.trim_transcription_output_enabled,
                 )
                 .await
         };

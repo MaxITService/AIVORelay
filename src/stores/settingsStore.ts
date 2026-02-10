@@ -304,6 +304,8 @@ const settingUpdaters: {
   invoke("change_text_replacements_setting", { replacements: value });
 (settingUpdaters as any).text_replacements_before_llm = (value: any) =>
   invoke("change_text_replacements_before_llm_setting", { enabled: value });
+(settingUpdaters as any).trim_transcription_output_enabled = (value: any) =>
+  invoke("change_trim_transcription_output_enabled_setting", { enabled: value });
 (settingUpdaters as any).custom_words_ngram_enabled = (value: any) =>
   invoke("change_custom_words_ngram_enabled_setting", { enabled: value });
 

@@ -1081,6 +1081,14 @@ async changeTextReplacementsBeforeLlmSetting(enabled: boolean) : Promise<Result<
     else return { status: "error", error: e  as any };
 }
 },
+async changeTrimTranscriptionOutputEnabledSetting(enabled: boolean) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("change_trim_transcription_output_enabled_setting", { enabled }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async changeSidebarPinnedSetting(pinned: boolean) : Promise<Result<null, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("change_sidebar_pinned_setting", { pinned }) };
@@ -2077,6 +2085,10 @@ filler_word_filter_enabled?: boolean;
  * Whether to strip invisible Unicode characters (zero-width spaces, BOM) from LLM output
  */
 zero_width_filter_enabled?: boolean; 
+/**
+ * Whether to trim leading/trailing whitespace from transcription outputs.
+ */
+trim_transcription_output_enabled?: boolean; 
 /**
  * VAD (Voice Activity Detection) threshold for speech detection (0.1-0.9)
  * Lower = more sensitive (captures quieter speech but may include noise)

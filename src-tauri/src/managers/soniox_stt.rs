@@ -259,6 +259,14 @@ impl SonioxSttManager {
         trimmed.to_string()
     }
 
+    fn maybe_trim_output(text: String, trim_output: bool) -> String {
+        if trim_output {
+            text.trim().to_string()
+        } else {
+            text
+        }
+    }
+
     fn ensure_within_timeout(start: Instant, timeout_seconds: u32) -> Result<()> {
         let timeout = Duration::from_secs(timeout_seconds.max(MIN_TIMEOUT_SECONDS) as u64);
         if start.elapsed() > timeout {
@@ -436,7 +444,7 @@ impl SonioxSttManager {
             ));
         }
 
-        Ok(final_tokens.concat().trim().to_string())
+        Ok(final_tokens.concat())
     }
 
     async fn transcribe_once_ws_with_callback<F>(
@@ -591,7 +599,7 @@ impl SonioxSttManager {
             ));
         }
 
-        Ok(final_tokens.concat().trim().to_string())
+        Ok(final_tokens.concat())
     }
 
     async fn upload_file_impl(&self, api_key: &str, wav_data: &[u8]) -> Result<String> {
@@ -722,7 +730,7 @@ impl SonioxSttManager {
             )
         })?;
 
-        Ok(payload.text.trim().to_string())
+        Ok(payload.text)
     }
 
     async fn delete_file(&self, api_key: &str, file_id: &str) -> Result<()> {
@@ -780,6 +788,7 @@ impl SonioxSttManager {
         timeout_seconds: u32,
         audio_samples: &[f32],
         language: Option<&str>,
+        trim_output: bool,
     ) -> Result<String> {
         if audio_samples.is_empty() {
             return Ok(String::new());
@@ -808,6 +817,7 @@ impl SonioxSttManager {
                 .await
             })
             .await?;
+        let text = Self::maybe_trim_output(text, trim_output);
 
         info!(
             "Soniox WebSocket transcription completed in {}ms, output_len={}",
@@ -828,6 +838,7 @@ impl SonioxSttManager {
         timeout_seconds: u32,
         audio_samples: &[f32],
         language: Option<&str>,
+        trim_output: bool,
         mut on_final_chunk: F,
     ) -> Result<String>
     where
@@ -858,6 +869,7 @@ impl SonioxSttManager {
                 &mut on_final_chunk,
             )
             .await?;
+        let text = Self::maybe_trim_output(text, trim_output);
 
         info!(
             "Soniox WebSocket streaming transcription completed in {}ms, output_len={}",
@@ -880,6 +892,7 @@ impl SonioxSttManager {
         timeout_seconds: u32,
         audio_samples: &[f32],
         language: Option<&str>,
+        trim_output: bool,
         options: SonioxAsyncTranscriptionOptions,
     ) -> Result<String> {
         if audio_samples.is_empty() {
@@ -932,6 +945,7 @@ impl SonioxSttManager {
             .await
         }
         .await;
+        let result = result.map(|text| Self::maybe_trim_output(text, trim_output));
 
         self.delete_file_with_retry(api_key, &file_id).await;
 

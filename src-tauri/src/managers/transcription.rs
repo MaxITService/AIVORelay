@@ -634,7 +634,11 @@ impl TranscriptionManager {
             translation_note
         );
 
-        let final_result = filtered_result.trim().to_string();
+        let final_result = if settings.trim_transcription_output_enabled {
+            filtered_result.trim().to_string()
+        } else {
+            filtered_result
+        };
 
         if settings.model_unload_timeout == ModelUnloadTimeout::Immediately {
             info!("Immediately unloading model after transcription");
@@ -813,7 +817,11 @@ impl TranscriptionManager {
             translation_note
         );
 
-        let final_result = filtered_result.trim().to_string();
+        let final_result = if settings.trim_transcription_output_enabled {
+            filtered_result.trim().to_string()
+        } else {
+            filtered_result
+        };
 
         if settings.model_unload_timeout == ModelUnloadTimeout::Immediately {
             info!("Immediately unloading model after transcription");

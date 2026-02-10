@@ -813,6 +813,33 @@ export const TextReplacementSettings: React.FC = () => {
           />
         </div>
       </SettingsGroup>
+
+      <SettingsGroup
+        title={t("textReplacement.outputWhitespaceTitle", "Output Whitespace")}
+        description={t(
+          "textReplacement.outputWhitespaceDescription",
+          "Control whether transcriptions keep or trim leading/trailing whitespace."
+        )}
+      >
+        <div className="px-4 py-3">
+          <ToggleSwitch
+            checked={settings?.trim_transcription_output_enabled ?? true}
+            onChange={(enabled) =>
+              updateSetting("trim_transcription_output_enabled", enabled)
+            }
+            isUpdating={isUpdating("trim_transcription_output_enabled")}
+            label={t(
+              "textReplacement.trimOutputLabel",
+              "Trim Leading/Trailing Whitespace"
+            )}
+            description={t(
+              "textReplacement.trimOutputDescription",
+              "When enabled, transcription outputs are trimmed before final processing/output."
+            )}
+            descriptionMode="inline"
+          />
+        </div>
+      </SettingsGroup>
     </div>
   );
 };

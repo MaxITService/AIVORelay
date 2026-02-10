@@ -3042,6 +3042,18 @@ pub fn change_text_replacements_before_llm_setting(
     Ok(())
 }
 
+#[tauri::command]
+#[specta::specta]
+pub fn change_trim_transcription_output_enabled_setting(
+    app: AppHandle,
+    enabled: bool,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.trim_transcription_output_enabled = enabled;
+    settings::write_settings(&app, settings);
+    Ok(())
+}
+
 // ============================================================================
 // UI State Settings
 // ============================================================================
