@@ -25,6 +25,7 @@ use ferrous_opencc::{config::BuiltinConfig, OpenCC};
 use log::{debug, error, warn};
 use once_cell::sync::Lazy;
 use natural::phonetics::soundex;
+use regex::Regex;
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use strsim::normalized_levenshtein;
@@ -897,9 +898,11 @@ async fn perform_transcription_for_profile(
         let should_stream_insert = binding_id
             .map(|id| id == "transcribe" || id.starts_with("transcribe_profile_"))
             .unwrap_or(false);
+        let stream_chunk_replacements = StreamChunkReplacementEngine::from_settings(&settings);
 
         let result = if should_stream_insert {
             let app_handle = app.clone();
+            let stream_chunk_replacements = stream_chunk_replacements.clone();
             soniox_manager
                 .transcribe_with_streaming_callback(
                     Some(operation_id),
@@ -912,7 +915,13 @@ async fn perform_transcription_for_profile(
                         if chunk.is_empty() {
                             return Ok(());
                         }
-                        let chunk = chunk.to_string();
+                        let chunk = apply_stream_chunk_text_replacements(
+                            chunk,
+                            stream_chunk_replacements.as_ref(),
+                        );
+                        if chunk.is_empty() {
+                            return Ok(());
+                        }
                         let ah_for_call = app_handle.clone();
                         let ah_for_closure = ah_for_call.clone();
                         ah_for_call.run_on_main_thread(move || {
@@ -1351,6 +1360,214 @@ fn build_soniox_realtime_options(settings: &AppSettings, language: &str) -> Soni
     }
 }
 
+#[derive(Clone)]
+enum StreamReplacementRule {
+    Plain {
+        from: String,
+        to: String,
+        case_sensitive: bool,
+    },
+    Regex {
+        regex: Regex,
+        to: String,
+    },
+}
+
+#[derive(Clone, Default)]
+struct StreamChunkReplacementEngine {
+    rules: Vec<StreamReplacementRule>,
+}
+
+impl StreamChunkReplacementEngine {
+    fn from_settings(settings: &AppSettings) -> Option<Self> {
+        if !settings.text_replacements_enabled || settings.text_replacements.is_empty() {
+            return None;
+        }
+
+        let mut rules = Vec::new();
+        for replacement in settings
+            .text_replacements
+            .iter()
+            .filter(|replacement| replacement.enabled && !replacement.from.is_empty())
+        {
+            let to_processed = process_text_replacement_escapes(&replacement.to);
+            if replacement.is_regex {
+                let pattern = if replacement.case_sensitive {
+                    replacement.from.clone()
+                } else {
+                    format!("(?i){}", replacement.from)
+                };
+
+                match Regex::new(&pattern) {
+                    Ok(regex) => rules.push(StreamReplacementRule::Regex {
+                        regex,
+                        to: to_processed,
+                    }),
+                    Err(err) => {
+                        warn!(
+                            "Invalid regex pattern '{}' in stream text replacement: {}",
+                            replacement.from, err
+                        );
+                    }
+                }
+                continue;
+            }
+
+            let from_processed = process_text_replacement_escapes(&replacement.from);
+            if from_processed.is_empty() {
+                continue;
+            }
+
+            rules.push(StreamReplacementRule::Plain {
+                from: from_processed,
+                to: to_processed,
+                case_sensitive: replacement.case_sensitive,
+            });
+        }
+
+        if rules.is_empty() {
+            None
+        } else {
+            Some(Self { rules })
+        }
+    }
+
+    fn apply(&self, text: &str) -> String {
+        let mut result = text.to_string();
+        for rule in &self.rules {
+            result = match rule {
+                StreamReplacementRule::Plain {
+                    from,
+                    to,
+                    case_sensitive,
+                } => {
+                    if *case_sensitive {
+                        result.replace(from, to)
+                    } else {
+                        replace_case_insensitive(&result, from, to)
+                    }
+                }
+                StreamReplacementRule::Regex { regex, to } => {
+                    regex.replace_all(&result, to.as_str()).to_string()
+                }
+            };
+        }
+        result
+    }
+}
+
+fn process_text_replacement_escapes(s: &str) -> String {
+    let mut result = String::with_capacity(s.len());
+    let mut chars = s.chars().peekable();
+
+    while let Some(c) = chars.next() {
+        if c == '\\' {
+            match chars.peek() {
+                Some('n') => {
+                    result.push('\n');
+                    chars.next();
+                }
+                Some('r') => {
+                    chars.next();
+                    if chars.peek() == Some(&'\\') {
+                        let mut temp = chars.clone();
+                        temp.next();
+                        if temp.peek() == Some(&'n') {
+                            result.push_str("\r\n");
+                            chars.next();
+                            chars.next();
+                        } else {
+                            result.push('\r');
+                        }
+                    } else {
+                        result.push('\r');
+                    }
+                }
+                Some('t') => {
+                    result.push('\t');
+                    chars.next();
+                }
+                Some('\\') => {
+                    result.push('\\');
+                    chars.next();
+                }
+                Some('u') => {
+                    chars.next();
+                    if chars.peek() == Some(&'{') {
+                        chars.next();
+                        let mut hex_str = String::new();
+                        while let Some(&ch) = chars.peek() {
+                            if ch == '}' {
+                                chars.next();
+                                break;
+                            }
+                            if ch.is_ascii_hexdigit() && hex_str.len() < 6 {
+                                hex_str.push(ch);
+                                chars.next();
+                            } else {
+                                break;
+                            }
+                        }
+                        if let Ok(code_point) = u32::from_str_radix(&hex_str, 16) {
+                            if let Some(unicode_char) = char::from_u32(code_point) {
+                                result.push(unicode_char);
+                            } else {
+                                result.push_str("\\u{");
+                                result.push_str(&hex_str);
+                                result.push('}');
+                            }
+                        } else {
+                            result.push_str("\\u{");
+                            result.push_str(&hex_str);
+                            result.push('}');
+                        }
+                    } else {
+                        result.push('\\');
+                        result.push('u');
+                    }
+                }
+                _ => result.push(c),
+            }
+        } else {
+            result.push(c);
+        }
+    }
+
+    result
+}
+
+fn replace_case_insensitive(text: &str, from: &str, to: &str) -> String {
+    if from.is_empty() {
+        return text.to_string();
+    }
+
+    let lower_from = from.to_lowercase();
+    let mut result = String::with_capacity(text.len());
+    let mut remaining = text;
+
+    while let Some(start) = remaining.to_lowercase().find(&lower_from) {
+        result.push_str(&remaining[..start]);
+        result.push_str(to);
+        remaining = &remaining[start + from.len()..];
+    }
+    result.push_str(remaining);
+    result
+}
+
+fn apply_stream_chunk_text_replacements(
+    text: &str,
+    engine: Option<&StreamChunkReplacementEngine>,
+) -> String {
+    if text.is_empty() {
+        return String::new();
+    }
+
+    match engine {
+        Some(engine) => engine.apply(text),
+        None => text.to_string(),
+    }
+}
+
 fn apply_soniox_output_filters(settings: &AppSettings, text: String) -> String {
     let corrected = if settings.custom_words_enabled && !settings.custom_words.is_empty() {
         apply_custom_words(
@@ -1678,6 +1895,8 @@ impl ShortcutAction for TranscribeAction {
             let binding_id = binding_id.to_string();
             let app_handle = app.clone();
             let soniox_live_manager = Arc::clone(&app.state::<Arc<SonioxRealtimeManager>>());
+            let stream_chunk_replacements =
+                StreamChunkReplacementEngine::from_settings(&settings).map(Arc::new);
 
             #[cfg(target_os = "windows")]
             let api_key = crate::secure_keys::get_soniox_api_key();
@@ -1686,7 +1905,15 @@ impl ShortcutAction for TranscribeAction {
 
             let chunk_callback: FinalChunkCallback = Arc::new({
                 let ah_for_cb = app_handle.clone();
+                let stream_chunk_replacements = stream_chunk_replacements.clone();
                 move |chunk: String| {
+                    if chunk.is_empty() {
+                        return;
+                    }
+                    let chunk = apply_stream_chunk_text_replacements(
+                        &chunk,
+                        stream_chunk_replacements.as_deref(),
+                    );
                     if chunk.is_empty() {
                         return;
                     }
