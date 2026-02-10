@@ -818,7 +818,7 @@ export const TextReplacementSettings: React.FC = () => {
         title={t("textReplacement.outputWhitespaceTitle", "Output Whitespace")}
         description={t(
           "textReplacement.outputWhitespaceDescription",
-          "Control whether transcriptions keep or trim leading/trailing whitespace."
+          "Control whether transcription output keeps or removes leading/trailing whitespace."
         )}
       >
         <div className="px-4 py-3">
@@ -834,7 +834,7 @@ export const TextReplacementSettings: React.FC = () => {
             )}
             description={t(
               "textReplacement.trimOutputDescription",
-              "When enabled, transcription outputs are trimmed before final processing/output."
+              "When enabled, whitespace at the start and end of transcription output is removed before final output. Whitespace inside the text is preserved."
             )}
             descriptionMode="inline"
           />
