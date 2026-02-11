@@ -56,36 +56,41 @@ const ModelCard: React.FC<ModelCardProps> = ({
           {isFeatured && (
             <Badge variant="primary">{t("onboarding.recommended")}</Badge>
           )}
+          {model.is_custom && (
+            <Badge variant="secondary">{t("modelSelector.custom")}</Badge>
+          )}
         </div>
         <p className="text-[#a0a0a0] text-sm leading-relaxed mt-1">
           {displayDescription}
         </p>
       </div>
 
-      <div className="space-y-2">
-        <div className="flex items-center gap-2">
-          <p className="text-xs text-[#6b6b6b] w-16 text-right">
-            {t("onboarding.modelCard.accuracy")}
-          </p>
-          <div className="w-20 h-1.5 bg-[#2b2b2b] rounded-full overflow-hidden">
-            <div
-              className="h-full bg-gradient-to-r from-[#ff4d8d] to-[#9b5de5] rounded-full transition-all duration-300"
-              style={{ width: `${model.accuracy_score * 100}%` }}
-            />
+      {(model.accuracy_score > 0 || model.speed_score > 0) && (
+        <div className="space-y-2">
+          <div className="flex items-center gap-2">
+            <p className="text-xs text-[#6b6b6b] w-16 text-right">
+              {t("onboarding.modelCard.accuracy")}
+            </p>
+            <div className="w-20 h-1.5 bg-[#2b2b2b] rounded-full overflow-hidden">
+              <div
+                className="h-full bg-gradient-to-r from-[#ff4d8d] to-[#9b5de5] rounded-full transition-all duration-300"
+                style={{ width: `${model.accuracy_score * 100}%` }}
+              />
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <p className="text-xs text-[#6b6b6b] w-16 text-right">
+              {t("onboarding.modelCard.speed")}
+            </p>
+            <div className="w-20 h-1.5 bg-[#2b2b2b] rounded-full overflow-hidden">
+              <div
+                className="h-full bg-gradient-to-r from-[#ff4d8d] to-[#9b5de5] rounded-full transition-all duration-300"
+                style={{ width: `${model.speed_score * 100}%` }}
+              />
+            </div>
           </div>
         </div>
-        <div className="flex items-center gap-2">
-          <p className="text-xs text-[#6b6b6b] w-16 text-right">
-            {t("onboarding.modelCard.speed")}
-          </p>
-          <div className="w-20 h-1.5 bg-[#2b2b2b] rounded-full overflow-hidden">
-            <div
-              className="h-full bg-gradient-to-r from-[#ff4d8d] to-[#9b5de5] rounded-full transition-all duration-300"
-              style={{ width: `${model.speed_score * 100}%` }}
-            />
-          </div>
-        </div>
-      </div>
+      )}
     </button>
   );
 };

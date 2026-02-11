@@ -15,7 +15,7 @@ use crate::settings::ShortcutBinding;
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 use crate::settings::APPLE_INTELLIGENCE_DEFAULT_MODEL_ID;
 use crate::settings::{
-    self, get_settings, ClipboardHandling, LLMPrompt, OverlayPosition, PasteMethod,
+    self, get_settings, AutoSubmitKey, ClipboardHandling, LLMPrompt, OverlayPosition, PasteMethod,
     RemoteSttDebugMode, ShortcutEngine, SoundTheme, TranscriptionProvider,
     APPLE_INTELLIGENCE_PROVIDER_ID, SONIOX_DEFAULT_LIVE_FINALIZE_TIMEOUT_MS,
     SONIOX_DEFAULT_MAX_ENDPOINT_DELAY_MS, SONIOX_DEFAULT_MODEL,
@@ -755,6 +755,33 @@ pub fn change_clipboard_handling_setting(app: AppHandle, handling: String) -> Re
         }
     };
     settings.clipboard_handling = parsed;
+    settings::write_settings(&app, settings);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_auto_submit_setting(app: AppHandle, enabled: bool) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.auto_submit = enabled;
+    settings::write_settings(&app, settings);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_auto_submit_key_setting(app: AppHandle, key: String) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    let parsed = match key.as_str() {
+        "enter" => AutoSubmitKey::Enter,
+        "ctrl_enter" => AutoSubmitKey::CtrlEnter,
+        "cmd_enter" => AutoSubmitKey::CmdEnter,
+        other => {
+            warn!("Invalid auto submit key '{}', defaulting to enter", other);
+            AutoSubmitKey::Enter
+        }
+    };
+    settings.auto_submit_key = parsed;
     settings::write_settings(&app, settings);
     Ok(())
 }
@@ -1909,6 +1936,35 @@ pub fn change_append_trailing_space_setting(app: AppHandle, enabled: bool) -> Re
 
 #[tauri::command]
 #[specta::specta]
+pub fn change_filter_silence_setting(app: AppHandle, enabled: bool) -> Result<(), String> {
+    // Don't allow recorder reconfiguration while an active capture is in progress.
+    if let Some(audio_mgr) = app.try_state::<Arc<AudioRecordingManager>>() {
+        if audio_mgr.is_recording() {
+            return Err("Cannot change Filter Silence while recording is active".to_string());
+        }
+    }
+
+    let mut settings = settings::get_settings(&app);
+    let previous = settings.filter_silence;
+    settings.filter_silence = enabled;
+    settings::write_settings(&app, settings);
+
+    if let Some(audio_mgr) = app.try_state::<Arc<AudioRecordingManager>>() {
+        // Recording may start between the pre-check and invalidation; rollback to avoid
+        // persisting a setting that could not be safely applied.
+        if !audio_mgr.invalidate_recorder() {
+            let mut rollback = settings::get_settings(&app);
+            rollback.filter_silence = previous;
+            settings::write_settings(&app, rollback);
+            return Err("Cannot change Filter Silence while recording is active".to_string());
+        }
+    }
+
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
 pub fn change_ai_replace_system_prompt_setting(
     app: AppHandle,
     prompt: String,
@@ -2470,6 +2526,18 @@ pub fn change_app_language_setting(app: AppHandle, language: String) -> Result<(
     Ok(())
 }
 
+#[tauri::command]
+#[specta::specta]
+pub fn change_show_tray_icon_setting(app: AppHandle, enabled: bool) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.show_tray_icon = enabled;
+    settings::write_settings(&app, settings);
+
+    tray::set_tray_visibility(&app, enabled);
+
+    Ok(())
+}
+
 // ============================================================================
 // Shortcut Engine Settings
 // ============================================================================
@@ -2603,11 +2671,12 @@ fn validate_shortcut_string(raw: &str) -> Result<(), String> {
     // On other platforms, require a main key for tauri-plugin compatibility
     #[cfg(not(target_os = "windows"))]
     {
+        let normalized = normalize_shortcut_binding(raw);
         let modifiers = [
             "ctrl", "control", "shift", "alt", "option", "meta", "command", "cmd", "super", "win",
             "windows",
         ];
-        let has_non_modifier = raw
+        let has_non_modifier = normalized
             .split('+')
             .any(|part| !modifiers.contains(&part.trim().to_lowercase().as_str()));
 
@@ -2726,8 +2795,8 @@ pub fn register_shortcut(app: &AppHandle, binding: ShortcutBinding) -> Result<()
 /// Check if a shortcut string is compatible with tauri-plugin-global-shortcut.
 /// Returns false for keys that only rdev supports (Caps Lock, Num Lock, modifier-only, etc.)
 pub fn is_shortcut_tauri_compatible(shortcut: &str) -> bool {
-    let lower = shortcut.to_lowercase();
-    let parts: Vec<&str> = lower.split('+').map(|s| s.trim()).collect();
+    let normalized = normalize_shortcut_binding(shortcut);
+    let parts: Vec<&str> = normalized.split('+').map(|s| s.trim()).collect();
 
     // Keys that only rdev supports
     let rdev_only_keys = [
@@ -2761,7 +2830,14 @@ pub fn is_shortcut_tauri_compatible(shortcut: &str) -> bool {
     }
 
     // Try to parse with tauri-plugin to verify
-    shortcut.parse::<Shortcut>().is_ok()
+    normalized.parse::<Shortcut>().is_ok()
+}
+
+fn normalize_shortcut_binding(raw: &str) -> String {
+    let mut normalized = raw.trim().to_lowercase();
+    // Legacy frontend token used "numpad +" which collides with '+' as the delimiter.
+    normalized = normalized.replace("numpad +", "numadd");
+    normalized.replace("numpad+", "numadd")
 }
 
 /// Register shortcut via tauri-plugin-global-shortcut (used on macOS/Linux, and Windows when Tauri engine selected)

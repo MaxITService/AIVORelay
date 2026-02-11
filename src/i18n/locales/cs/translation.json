@@ -9,6 +9,7 @@
   },
   "sidebar": {
     "general": "Obecné",
+    "models": "Modely",
     "advanced": "Pokročilé",
     "postProcessing": "Následné zpracování",
     "history": "Historie",
@@ -24,6 +25,7 @@
       "accuracy": "přesnost",
       "speed": "rychlost"
     },
+    "customModelDescription": "User-provided model in local models folder",
     "models": {
       "small": {
         "name": "Whisper Small",
@@ -80,7 +82,12 @@
     "modelError": "Chyba modelu",
     "modelUnloaded": "Model uvolněn",
     "noModelDownloadRequired": "Žádný model - je nutné stáhnout",
-    "deleteModel": "Smazat {{modelName}}"
+    "deleteModel": "Smazat {{modelName}}",
+    "custom": "Custom",
+    "customModelsHelpTitle": "Custom Whisper Models",
+    "customModelsHelpDescription": "Place Whisper GGML .bin files into the app models folder. They are detected on startup and shown here as custom models.",
+    "customModelsHelpHint": "After adding files, restart AivoRelay to refresh the model list.",
+    "customModelsDetected": "Detected custom models: {{count}}"
   },
   "settings": {
     "general": {
@@ -154,6 +161,10 @@
         "label": "Spouštět při startu",
         "description": "Automaticky spustit Handy po přihlášení do počítače."
       },
+      "showTrayIcon": {
+        "label": "Zobrazit ikonu v systémové liště",
+        "description": "Zobrazit ikonu AivoRelay v systémové liště."
+      },
       "overlay": {
         "title": "Pozice překryvu",
         "description": "Zobrazovat vizuální překryv během nahrávání a přepisu. Na Linuxu je doporučeno 'Žádné'.",
@@ -180,6 +191,17 @@
         "options": {
           "dontModify": "Neměnit schránku",
           "copyToClipboard": "Kopírovat do schránky"
+        }
+      },
+      "autoSubmit": {
+        "title": "Automatické odeslání",
+        "description": "Automaticky odešle vybranou kombinaci kláves po vložení textu. Cmd+Enter platí pro macOS, zatímco Windows/Linux používají Super+Enter.",
+        "options": {
+          "off": "Vypnuto",
+          "enter": "Enter",
+          "cmdEnter": "Cmd+Enter",
+          "superEnter": "Super+Enter",
+          "ctrlEnter": "Ctrl+Enter"
         }
       },
       "translateToEnglish": {
@@ -334,6 +356,10 @@
       "appendTrailingSpace": {
         "label": "Přidat koncovou mezeru",
         "description": "Přidat mezeru po vloženém přepisu"
+      },
+      "filterSilence": {
+        "label": "Filtrovat ticho",
+        "description": "Použít detekci hlasové aktivity k odstranění ticha z nahrávek před přepisem. Zkuste vypnout, pokud narazíte na problémy, jako je odstraňování částí řeči. Vypnutí může vést k častějším \"halucinacím\" ve výstupu."
       },
       "paths": {
         "appData": "Data aplikace:",

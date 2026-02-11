@@ -9,6 +9,7 @@
   },
   "sidebar": {
     "general": "Genel",
+    "models": "Modeller",
     "advanced": "Gelişmiş",
     "postProcessing": "Son İşlem",
     "history": "Geçmiş",
@@ -24,6 +25,7 @@
       "accuracy": "doğruluk",
       "speed": "hız"
     },
+    "customModelDescription": "User-provided model in local models folder",
     "models": {
       "small": {
         "name": "Whisper Small",
@@ -100,7 +102,12 @@
     "modelError": "Model Hatası",
     "modelUnloaded": "Model Boşaltıldı",
     "noModelDownloadRequired": "Model Yok – İndirme Gerekli",
-    "deleteModel": "{{modelName}} Sil"
+    "deleteModel": "{{modelName}} Sil",
+    "custom": "Custom",
+    "customModelsHelpTitle": "Custom Whisper Models",
+    "customModelsHelpDescription": "Place Whisper GGML .bin files into the app models folder. They are detected on startup and shown here as custom models.",
+    "customModelsHelpHint": "After adding files, restart AivoRelay to refresh the model list.",
+    "customModelsDetected": "Detected custom models: {{count}}"
   },
   "settings": {
     "general": {
@@ -174,6 +181,10 @@
         "label": "Başlangıçta Çalıştır",
         "description": "Bilgisayara giriş yaptığınızda Handy otomatik olarak başlatılır."
       },
+      "showTrayIcon": {
+        "label": "Tepsi simgesini göster",
+        "description": "AivoRelay simgesini sistem tepsisinde göster."
+      },
       "overlay": {
         "title": "Overlay Konumu",
         "description": "Kayıt ve transkripsiyon sırasında görsel geri bildirim kaplamasını gösterir. Linux'ta 'Yok' önerilir.",
@@ -200,6 +211,17 @@
         "options": {
           "dontModify": "Panoyu Değiştirme",
           "copyToClipboard": "Panoya Kopyala"
+        }
+      },
+      "autoSubmit": {
+        "title": "Otomatik Gönder",
+        "description": "Metin eklendikten sonra seçilen tuş kombinasyonunu otomatik olarak gönderir. macOS'ta Cmd+Enter, Windows/Linux'ta Super+Enter geçerlidir.",
+        "options": {
+          "off": "Kapalı",
+          "enter": "Enter",
+          "cmdEnter": "Cmd+Enter",
+          "superEnter": "Super+Enter",
+          "ctrlEnter": "Ctrl+Enter"
         }
       },
       "translateToEnglish": {
@@ -354,6 +376,10 @@
       "appendTrailingSpace": {
         "label": "Sonuna Boşluk Ekle",
         "description": "Yapıştırılan transkripsiyondan sonra boşluk ekler"
+      },
+      "filterSilence": {
+        "label": "Sessizliği filtrele",
+        "description": "Transkripsiyon öncesi kayıtlardan sessizliği kaldırmak için ses etkinliği algılama kullan. Konuşmanın bazı bölümlerinin kaldırılması gibi sorunlarla karşılaşırsan devre dışı bırakmayı dene. Devre dışı bırakma, çıktıda daha sık \"halüsinasyonlara\" yol açabilir."
       },
       "paths": {
         "appData": "Uygulama Verileri:",

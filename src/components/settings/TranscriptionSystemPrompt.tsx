@@ -17,7 +17,7 @@ const CHARS_PER_TOKEN = 4;
 // Model patterns
 const WHISPER_PATTERNS = ["whisper"];
 const DEEPGRAM_PATTERNS = ["deepgram", "nova"];
-const NO_PROMPT_PATTERNS = ["parakeet", "nemo", "canary"];
+const NO_PROMPT_PATTERNS = ["parakeet", "nemo", "canary", "sense-voice", "sense_voice"];
 
 export interface ModelPromptInfo {
   supportsPrompt: boolean;
@@ -40,6 +40,15 @@ export function getModelPromptInfo(
         supportsPrompt: false, // Parakeet uses word boosting, not string prompts
         isWhisperLike: false,
         isParakeet: true,
+        charLimit: 0,
+        modelId,
+      };
+    }
+    if (engineType === "SenseVoice") {
+      return {
+        supportsPrompt: false,
+        isWhisperLike: false,
+        isParakeet: false,
         charLimit: 0,
         modelId,
       };

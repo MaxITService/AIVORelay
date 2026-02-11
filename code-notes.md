@@ -2,6 +2,29 @@
 
 Files that differentiate this fork from the original [cjpais/Handy](https://github.com/cjpais/Handy).
 
+## Recent Convergence (Fork-Safe)
+
+These changes move selected areas toward upstream behavior without removing fork-only features:
+
+- `scripts/check-translations.ts`
+  - Translation consistency checker used in CI to detect missing/extra locale keys.
+- `.github/workflows/lint.yml`
+  - Runs `bun run check:translations` before lint.
+- `src/components/settings/models/ModelsSettings.tsx`
+  - Additive Models management page in Settings (download/select/cancel/delete).
+  - Added custom-model help text and custom badges.
+- `src/components/Sidebar.tsx`
+  - Added a Models navigation section (reuses existing translation keys).
+- `src-tauri/src/managers/model.rs`
+  - `ModelInfo` now includes `supports_translation`, `is_recommended`, `supported_languages`.
+  - Added `is_custom` and startup auto-discovery of user-provided Whisper `.bin` models from the models folder.
+  - Custom model deletion now removes the in-memory entry immediately.
+  - Added `EngineType::SenseVoice` and local model entries `sense-voice-int8` + `breeze-asr`.
+  - Emits `model-deleted` event after successful deletion.
+- `src-tauri/src/commands/models.rs`
+  - Deleting active model now unloads it and clears selected model safely.
+  - Compatibility command `get_recommended_first_model` now consults model metadata first.
+
 ## New Files (Fork-Specific)
 
 ### Backend (Rust)
@@ -63,7 +86,7 @@ Files that differentiate this fork from the original [cjpais/Handy](https://gith
 
 | File                         | Changes                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
 | ---------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `src-tauri/src/actions.rs`   | Added new shortcut actions: `AiReplaceSelectionAction`, `SendToExtensionAction`, `SendToExtensionWithSelectionAction`, `SendScreenshotToExtensionAction`. These handle the new voice-to-LLM, connector, and screenshot workflows. **Uses `show_sending_overlay()` for Remote STT instead of `show_transcribing_overlay()`.** Also adds reusable LLM template variable resolution for prompts (`${current_app}`, `${short_prev_transcript}`, `${language}`, `${profile_name}`, `${time_local}`, `${date_iso}`, `${translate_to_english}`, `${selection}`). Includes Soniox language resolution for live mode so profile/default/OS language values are normalized and unsupported values fall back safely. |
+| `src-tauri/src/actions.rs`   | Added new shortcut actions: `AiReplaceSelectionAction`, `SendToExtensionAction`, `SendToExtensionWithSelectionAction`, `SendScreenshotToExtensionAction`. These handle the new voice-to-LLM, connector, and screenshot workflows. **Uses `show_sending_overlay()` for Remote STT instead of `show_transcribing_overlay()`.** Also adds reusable LLM template variable resolution for prompts (`${current_app}`, `${short_prev_transcript}`, `${language}`, `${profile_name}`, `${time_local}`, `${date_iso}`, `${translate_to_english}`, `${selection}`). Includes Soniox language resolution for live mode so profile/default/OS language values are normalized and unsupported values fall back safely. Local-language resolution for local models now treats Whisper and SenseVoice as language-selectable engines. |
 | `src-tauri/src/overlay.rs`   | Added `show_sending_overlay()` function, Soniox live finalization overlay helpers, and made `force_overlay_topmost()` public for reuse.                                                                                                                                                                                                                                                                                                                                                                                  |
 | `src-tauri/src/settings.rs`  | Extended `AppSettings` with: `transcription_provider`, `remote_stt` settings, **Soniox settings** (`soniox_model`, live toggle, language hints, strict/profile hint mode, endpoint/language-id/speaker options, keepalive/finalize timing), `ai_replace_*` fields, `connector_*` fields (including `connector_password` for auth), `screenshot_*` fields, individual push-to-talk settings, `shortcut_engine` (Windows). Added `RemoteSttSettings`, `TranscriptionProvider`, `ShortcutEngine` enums. Added explicit `store.save()` in `write_settings()` to prevent race conditions on restart. Includes safety controls for transcript context variable caching (`llm_context_prev_transcript_*`). |
 | `src-tauri/src/lib.rs`       | Registered new managers (`RemoteSttManager`, `ConnectorManager`, `SonioxSttManager`, `SonioxRealtimeManager`) and commands including individual push-to-talk commands and screenshot settings commands. Starts connector server on app init. Handles tray icon creation and event loop. Also registers the shared `language_resolver` module used by Soniox paths. |
@@ -81,11 +104,12 @@ Files that differentiate this fork from the original [cjpais/Handy](https://gith
 | `src-tauri/src/audio_toolkit/mod.rs`         | Added `encode_wav_bytes()` for Remote STT API.                                                                                                                    |
 | `src-tauri/src/audio_toolkit/audio/utils.rs` | WAV encoding utilities.                                                                                                                                           |
 | `src-tauri/src/audio_toolkit/audio/recorder.rs` | Mic error handling logic: detects and reports when the microphone is unavailable or used by another process. |
+| `src-tauri/src/managers/transcription.rs` | Local engine runtime now includes SenseVoice (load/unload + transcription paths for regular, override, and segment-returning calls). |
 | `src-tauri/src/commands/file_transcription.rs` | Soniox async integration for file transcription: provider routing, **latest-only model enforcement (`stt-async-v4`)** for Soniox file jobs, optional Soniox overrides, and informational `info_message` payload for UI display when auto-switching. |
 | `src-tauri/src/managers/soniox_stt.rs`       | Centralized Soniox language handling via resolver: normalizes requested language and falls back to auto when unsupported/invalid for non-live transcription. |
 | `src-tauri/src/managers/soniox_realtime.rs`  | Live-session language hints are normalized/validated via resolver before request payload creation. |
 | `src-tauri/src/utils.rs`                     | Central cancellation path now also cancels Soniox live/non-live operations to avoid orphaned requests after user stop/cancel. |
-| `src-tauri/Cargo.toml`                       | Added dependencies: `keyring` (credential storage), `reqwest` features, `tiny_http` (HTTP server for connector), `notify` (file system watching for screenshots), `windows` crates for input language detection. |
+| `src-tauri/Cargo.toml`                       | Added dependencies/features: `keyring` (credential storage), `reqwest` features, `tiny_http` (HTTP server for connector), `notify` (file system watching for screenshots), `windows` crates for input language detection, and `transcribe-rs = 0.2.3` with `sense_voice` feature for local STT. |
 | `src-tauri/resources/default_settings.json`  | Default values for new settings, including Soniox defaults (model, hints, strict/profile-hint options, live behavior toggles). |
 
 ### Frontend Settings UI
@@ -99,13 +123,14 @@ Files that differentiate this fork from the original [cjpais/Handy](https://gith
 | `src/components/Sidebar.tsx`                                             | Navigation for new settings sections.                                                                |
 | `src/hooks/useSettings.ts`                                               | Hooks for new settings: `setTranscriptionProvider`, `updateRemoteStt*`, `updateAiReplace*`, and Soniox-related updates via settings store actions.          |
 | `src/components/settings/remote-stt/RemoteSttSettings.tsx`              | Soniox hint input now parses/normalizes codes and surfaces warnings for rejected hints.              |
-| `src/components/settings/TranscriptionProfiles.tsx`                      | Provider-aware language handling: filters language choices for Soniox-supported codes and warns when stored profile language is unsupported (fallback to auto). |
-| `src/components/settings/TranscriptionSystemPrompt.tsx`                 | Prompt editor is hidden when Soniox provider is active (Soniox path does not use this per-model system prompt UI). |
+| `src/components/settings/TranscriptionProfiles.tsx`                      | Provider-aware language handling: filters language choices for Soniox-supported codes and warns when stored profile language is unsupported (fallback to auto). Also filters local-language options by the selected local model `supported_languages` while keeping `auto`/`os_input` fallbacks. |
+| `src/components/settings/TranscriptionSystemPrompt.tsx`                 | Prompt editor is hidden when Soniox provider is active (Soniox path does not use this per-model system prompt UI). SenseVoice is treated as non-promptable in prompt-capability detection. |
 | `src/components/settings/TranslateToEnglish.tsx`                        | Translate-to-English toggle is disabled for Soniox provider and shows provider-specific unsupported description text. |
+| `src/lib/constants/languages.ts`                                        | Added `yue` (Cantonese) to language options used in transcription settings and profiles. |
 | `src/stores/settingsStore.ts`                                            | State management for new settings including Soniox-specific setter wiring (model, live flags, hints, strictness, endpoint/language-id/speaker flags, timing). |
 | `src/i18n/locales/en/translation.json`                                   | English UI strings including Soniox settings/help, hints, live-mode explanations, and validation messages. |
 | `src/i18n/locales/ru/translation.json`                                   | Russian localization for Soniox settings/help text and behavior explanations. |
-| `src/bindings.ts`                                                        | Auto-generated Tauri command bindings including Soniox commands/types (`RemoteSoniox` provider, Soniox settings commands, file override types). |
+| `src/bindings.ts`                                                        | Auto-generated Tauri command bindings including Soniox commands/types (`RemoteSoniox` provider, Soniox settings commands, file override types). `EngineType` now includes `SenseVoice`. |
 
 ### Other Modified
 
@@ -284,6 +309,7 @@ On app startup
 | `RemoteSttSettings`     | `settings.rs`           | base_url, model_id, debug_mode, debug_capture                                    |
 | `TranscriptionProfile`  | `settings.rs`           | Custom shortcut profile: id, name, language, translate_to_english, system_prompt |
 | `TranscriptionProvider` | `settings.rs`           | Enum: `Local`, `RemoteOpenAiCompatible`, `RemoteSoniox`                          |
+| `EngineType`            | `managers/model.rs`     | Local engine enum used by model metadata/runtime (`Whisper`, `Parakeet`, `Moonshine`, `SenseVoice`) |
 | `SonioxLanguageResolution` | `language_resolver.rs` | Result object for profile/default/OS language normalization and fallback status |
 | `SonioxHintListNormalization` | `language_resolver.rs` | Normalized Soniox hint list + rejected hints metadata for UI/backend validation |
 | `SonioxRealtimeOptions` | `managers/soniox_realtime.rs` | Live Soniox stream options: language hints, strictness, endpoint and metadata toggles |
@@ -301,6 +327,7 @@ On app startup
 | `AppSettings` fields     | `default_settings.json`, `useSettings.ts`, `settingsStore.ts`              |
 | Tauri commands           | Run `bun run tauri dev` to regenerate `bindings.ts`                        |
 | Remote STT API format    | `encode_wav_bytes()` in audio_toolkit                                      |
+| Local model engine/language behavior | `managers/model.rs`, `managers/transcription.rs`, `actions.rs`, `TranscriptionProfiles.tsx`, `TranscriptionSystemPrompt.tsx` |
 | Connector message format | Extension expects `{id, type, text, ts, attachments?}` from polling server |
 | Connector auth           | Extension uses `Authorization: Bearer <password>` header                   |
 | Prompt templates         | Variables: `${instruction}` (voice), `${output}` (selected/input text)     |

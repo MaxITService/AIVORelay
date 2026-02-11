@@ -98,6 +98,8 @@ const settingUpdaters: {
   start_hidden: (value) => commands.changeStartHiddenSetting(value as boolean),
   autostart_enabled: (value) =>
     commands.changeAutostartSetting(value as boolean),
+  show_tray_icon: (value) =>
+    commands.changeShowTrayIconSetting(value as boolean),
   update_checks_enabled: (value) =>
     commands.changeUpdateChecksSetting(value as boolean),
   push_to_talk: (value) => commands.changePttSetting(value as boolean),
@@ -136,6 +138,9 @@ const settingUpdaters: {
     commands.changePasteDelayMsSetting(Math.round(value as number)),
   clipboard_handling: (value) =>
     commands.changeClipboardHandlingSetting(value as string),
+  auto_submit: (value) => commands.changeAutoSubmitSetting(value as boolean),
+  auto_submit_key: (value) =>
+    commands.changeAutoSubmitKeySetting(value as string),
   history_limit: (value) => commands.updateHistoryLimit(value as number),
   post_process_enabled: (value) =>
     commands.changePostProcessEnabledSetting(value as boolean),
@@ -207,6 +212,8 @@ const settingUpdaters: {
     commands.changeMuteWhileRecordingSetting(value as boolean),
   append_trailing_space: (value) =>
     commands.changeAppendTrailingSpaceSetting(value as boolean),
+  filter_silence: (value) =>
+    commands.changeFilterSilenceSetting(value as boolean),
   log_level: (value) => commands.setLogLevel(value as any),
   app_language: (value) => commands.changeAppLanguageSetting(value as string),
   transcription_provider: (value) =>
@@ -436,9 +443,9 @@ export const useSettingsStore = create<SettingsStore>()(
       key: K,
       value: Settings[K],
     ) => {
-      const { settings, setUpdating } = get();
+      const { setUpdating } = get();
       const updateKey = String(key);
-      const originalValue = settings?.[key];
+      const originalValue = get().settings?.[key];
 
       setUpdating(updateKey, true);
 
@@ -463,9 +470,11 @@ export const useSettingsStore = create<SettingsStore>()(
         }
       } catch (error) {
         console.error(`Failed to update setting ${String(key)}:`, error);
-        if (settings) {
-          set({ settings: { ...settings, [key]: originalValue } });
-        }
+        set((state) => ({
+          settings: state.settings
+            ? { ...state.settings, [key]: originalValue }
+            : state.settings,
+        }));
       } finally {
         setUpdating(updateKey, false);
       }

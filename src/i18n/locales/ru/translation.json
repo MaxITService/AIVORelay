@@ -9,6 +9,7 @@
   },
   "sidebar": {
     "general": "Общие",
+    "models": "Модели",
     "advanced": "Продвинутые",
     "postProcessing": "Постобработка",
     "history": "История",
@@ -84,6 +85,7 @@
       "accuracy": "точность",
       "speed": "скорость"
     },
+    "customModelDescription": "User-provided model in local models folder",
     "models": {
       "small": {
         "name": "Whisper Small",
@@ -140,7 +142,12 @@
     "modelError": "Ошибка модели",
     "modelUnloaded": "Модель выгружена",
     "noModelDownloadRequired": "Нет модели – требуется загрузка",
-    "deleteModel": "Удалить {{modelName}}"
+    "deleteModel": "Удалить {{modelName}}",
+    "custom": "Custom",
+    "customModelsHelpTitle": "Custom Whisper Models",
+    "customModelsHelpDescription": "Place Whisper GGML .bin files into the app models folder. They are detected on startup and shown here as custom models.",
+    "customModelsHelpHint": "After adding files, restart AivoRelay to refresh the model list.",
+    "customModelsDetected": "Detected custom models: {{count}}"
   },
   "settings": {
     "general": {
@@ -217,6 +224,10 @@
         "label": "Запуск при запуске",
         "description": "Автоматически запускать Handy при входе в систему."
       },
+      "showTrayIcon": {
+        "label": "Показать значок в трее",
+        "description": "Отображать значок AivoRelay в системном трее."
+      },
       "overlay": {
         "title": "Позиция наложения",
         "description": "Отображение наложения визуальной обратной связи во время записи и транскрипции. В Linux рекомендуется выбрать «Нет».",
@@ -243,6 +254,17 @@
         "options": {
           "dontModify": "Не изменять буфер обмена",
           "copyToClipboard": "Копировать в буфер обмена"
+        }
+      },
+      "autoSubmit": {
+        "title": "Автоматическая отправка",
+        "description": "Автоматически отправляет выбранную комбинацию клавиш после вставки текста. Cmd+Enter применяется на macOS, а Windows/Linux используют Super+Enter.",
+        "options": {
+          "off": "Выкл.",
+          "enter": "Enter",
+          "cmdEnter": "Cmd+Enter",
+          "superEnter": "Super+Enter",
+          "ctrlEnter": "Ctrl+Enter"
         }
       },
       "translateToEnglish": {
@@ -542,6 +564,10 @@
       "appendTrailingSpace": {
         "label": "Добавить конечный пробел",
         "description": "Добавить пробел после вставленной транскрипции"
+      },
+      "filterSilence": {
+        "label": "Фильтровать тишину",
+        "description": "Использовать обнаружение голосовой активности для удаления тишины из записей перед транскрибацией. Попробуйте отключить, если возникают проблемы, например, удаление частей речи. Отключение может привести к более частым \"галлюцинациям\" в выводе."
       },
       "paths": {
         "appData": "Данные приложения:",

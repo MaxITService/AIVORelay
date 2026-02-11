@@ -4,13 +4,20 @@ This file contains the upstream-tracking + merge/conflict-resolution notes for t
 
 ## Upstream Tracking
 
-Last sync point: Check git history for merge commits from upstream.
+Last upstream review cursor: `b02873d` — feat(linux): Add option to select typing tool (#760).
 
-To check upstream changes:
+This is a **review point**, not a merge base. We cherry-pick selectively.
+
+To check only commits newer than this review cursor:
 ```bash
 git remote add upstream https://github.com/cjpais/Handy.git
 git fetch upstream
-git log HEAD..upstream/main --oneline
+git log b02873d..upstream/main --oneline
+```
+
+To see upstream commits not yet patch-equivalent in this fork:
+```bash
+git cherry -v main upstream/main
 ```
 
 ---

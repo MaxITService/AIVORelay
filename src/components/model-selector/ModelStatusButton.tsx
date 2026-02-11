@@ -17,6 +17,7 @@ interface ModelStatusButtonProps {
   disabled?: boolean;
   className?: string;
   isRemote?: boolean;
+  remoteProvider?: string;
 }
 
 const ModelStatusButton: React.FC<ModelStatusButtonProps> = ({
@@ -27,10 +28,13 @@ const ModelStatusButton: React.FC<ModelStatusButtonProps> = ({
   disabled = false,
   className = "",
   isRemote = false,
+  remoteProvider,
 }) => {
   const getStatusColor = (status: ModelStatus, isRemote: boolean): string => {
     if (isRemote) {
-      return "bg-blue-400"; // Blue for remote/cloud mode
+      return remoteProvider === "remote_soniox"
+        ? "bg-teal-400"
+        : "bg-blue-400";
     }
     switch (status) {
       case "ready":

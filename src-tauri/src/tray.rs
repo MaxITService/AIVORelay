@@ -1,4 +1,5 @@
 use crate::managers::history::{HistoryEntry, HistoryManager};
+use crate::managers::transcription::TranscriptionManager;
 use crate::settings;
 use crate::tray_i18n::get_tray_translations;
 use log::{error, info, warn};
@@ -123,11 +124,12 @@ pub fn update_tray_menu(app: &AppHandle, state: &TrayIconState, locale: Option<&
         None::<&str>,
     )
     .expect("failed to create copy last transcript item");
+    let model_loaded = app.state::<Arc<TranscriptionManager>>().is_model_loaded();
     let unload_model_i = MenuItem::with_id(
         app,
         "unload_model",
         &strings.unload_model,
-        true,
+        model_loaded,
         None::<&str>,
     )
     .expect("failed to create unload model item");
@@ -176,6 +178,19 @@ pub fn update_tray_menu(app: &AppHandle, state: &TrayIconState, locale: Option<&
     let tray = app.state::<TrayIcon>();
     let _ = tray.set_menu(Some(menu));
     let _ = tray.set_icon_as_template(true);
+}
+
+pub fn set_tray_visibility(app: &AppHandle, visible: bool) {
+    let Some(tray) = app.try_state::<TrayIcon>() else {
+        warn!("Tray icon state unavailable while setting visibility.");
+        return;
+    };
+
+    if let Err(err) = tray.set_visible(visible) {
+        error!("Failed to set tray visibility: {}", err);
+    } else {
+        info!("Tray visibility set to {}", visible);
+    }
 }
 
 fn last_transcript_text(entry: &HistoryEntry) -> &str {

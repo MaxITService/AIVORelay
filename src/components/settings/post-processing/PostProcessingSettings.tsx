@@ -325,9 +325,17 @@ PostProcessingSettingsPrompts.displayName = "PostProcessingSettingsPrompts";
 
 export const PostProcessingSettings: React.FC = () => {
   const { t } = useTranslation();
+  const { getSetting } = useSettings();
+  const isSonioxProvider = getSetting("transcription_provider") === "remote_soniox";
 
   return (
     <div className="max-w-3xl w-full mx-auto space-y-6">
+      {isSonioxProvider && (
+        <div className="p-3 bg-yellow-500/10 border border-yellow-500/30 rounded-lg text-sm text-yellow-400">
+          {t("settings.postProcessing.sonioxWarning")}
+        </div>
+      )}
+
       {/* Help Section */}
       <TellMeMore title={t("settings.postProcessing.tellMeMore.title")}>
         <div className="space-y-3">

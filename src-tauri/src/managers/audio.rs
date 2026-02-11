@@ -4,7 +4,7 @@ use crate::audio_toolkit::{
 use crate::helpers::clamshell;
 use crate::settings::{get_settings, AppSettings};
 use crate::utils;
-use log::{debug, error, info};
+use log::{debug, error, info, warn};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 use tauri::Manager;
@@ -121,21 +121,25 @@ fn create_audio_recorder(
     app_handle: &tauri::AppHandle,
     vad_threshold: f32,
 ) -> Result<AudioRecorder, anyhow::Error> {
-    let silero = SileroVad::new(vad_path, vad_threshold)
-        .map_err(|e| anyhow::anyhow!("Failed to create SileroVad: {}", e))?;
-    let smoothed_vad = SmoothedVad::new(Box::new(silero), 15, 15, 2);
+    let settings = get_settings(app_handle);
 
-    // Recorder with VAD plus a spectrum-level callback that forwards updates to
-    // the frontend.
-    let recorder = AudioRecorder::new()
-        .map_err(|e| anyhow::anyhow!("Failed to create AudioRecorder: {}", e))?
-        .with_vad(Box::new(smoothed_vad))
-        .with_level_callback({
-            let app_handle = app_handle.clone();
-            move |levels| {
-                utils::emit_levels(&app_handle, &levels);
-            }
-        });
+    let mut recorder =
+        AudioRecorder::new().map_err(|e| anyhow::anyhow!("Failed to create AudioRecorder: {}", e))?;
+
+    // Attach VAD when silence filtering is enabled.
+    if settings.filter_silence {
+        let silero = SileroVad::new(vad_path, vad_threshold)
+            .map_err(|e| anyhow::anyhow!("Failed to create SileroVad: {}", e))?;
+        let smoothed_vad = SmoothedVad::new(Box::new(silero), 15, 15, 2);
+        recorder = recorder.with_vad(Box::new(smoothed_vad));
+    }
+
+    recorder = recorder.with_level_callback({
+        let app_handle = app_handle.clone();
+        move |levels| {
+            utils::emit_levels(&app_handle, &levels);
+        }
+    });
 
     Ok(recorder)
 }
@@ -384,6 +388,35 @@ impl AudioRecordingManager {
             self.start_microphone_stream()?;
         }
         Ok(())
+    }
+
+    /// Recreate the recorder from current settings (for VAD/silence toggle changes).
+    /// Restarts the stream if it was already open.
+    /// Returns false if invalidation is unsafe (e.g. while actively recording).
+    pub fn invalidate_recorder(&self) -> bool {
+        // Keep state locked for the full operation so a new recording cannot begin
+        // between our safety check and stream restart.
+        let state_guard = self.state.lock().unwrap();
+        if !matches!(*state_guard, RecordingState::Idle) {
+            warn!("Refusing to invalidate recorder while recording is active");
+            return false;
+        }
+
+        let was_open = *self.is_open.lock().unwrap();
+        if was_open {
+            self.stop_microphone_stream();
+        }
+
+        *self.recorder.lock().unwrap() = None;
+        debug!("Recorder invalidated (will be re-created on next use)");
+
+        if was_open {
+            if let Err(e) = self.start_microphone_stream() {
+                error!("Failed to restart microphone stream after recorder invalidation: {e}");
+            }
+        }
+
+        true
     }
 
     pub fn stop_recording(&self, binding_id: &str) -> Option<Vec<f32>> {

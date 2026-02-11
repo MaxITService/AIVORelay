@@ -9,7 +9,7 @@ import { createPortal } from "react-dom";
 import { computeTooltipLayout, TooltipLayout } from "./tooltipPositioning";
 
 interface SettingContainerProps {
-  title: string;
+  title: React.ReactNode;
   description: React.ReactNode;
   children: React.ReactNode;
   descriptionMode?: "inline" | "tooltip" | "none";

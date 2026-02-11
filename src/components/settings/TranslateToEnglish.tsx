@@ -11,14 +11,6 @@ interface TranslateToEnglishProps {
   grouped?: boolean;
 }
 
-// Local models that don't support translation
-const unsupportedLocalModels = [
-  "parakeet-tdt-0.6b-v2",
-  "parakeet-tdt-0.6b-v3",
-  "turbo",
-  "moonshine-base",
-];
-
 export const TranslateToEnglish: React.FC<TranslateToEnglishProps> = React.memo(
   ({ descriptionMode = "tooltip", grouped = false }) => {
     const { t } = useTranslation();
@@ -36,6 +28,7 @@ export const TranslateToEnglish: React.FC<TranslateToEnglishProps> = React.memo(
     // Track whether the remote model supports translation
     const [remoteSupportsTranslation, setRemoteSupportsTranslation] =
       useState(false);
+    const currentModelInfo = models.find((model) => model.id === currentModel);
 
     // Check remote model translation support
     const checkRemoteTranslationSupport = useCallback(async () => {
@@ -62,12 +55,16 @@ export const TranslateToEnglish: React.FC<TranslateToEnglishProps> = React.memo(
         return !remoteSupportsTranslation;
       }
       // For local: disabled if model is in unsupported list
-      return unsupportedLocalModels.includes(currentModel);
+      if (currentModelInfo) {
+        return !currentModelInfo.supports_translation;
+      }
+      // Conservative fallback for unknown local model metadata
+      return false;
     }, [
       isSonioxProvider,
       isRemoteOpenAiProvider,
       remoteSupportsTranslation,
-      currentModel,
+      currentModelInfo,
     ]);
 
     const description = useMemo(() => {
@@ -84,15 +81,13 @@ export const TranslateToEnglish: React.FC<TranslateToEnglishProps> = React.memo(
       if (
         !isRemoteOpenAiProvider &&
         !isSonioxProvider &&
-        unsupportedLocalModels.includes(currentModel)
+        currentModelInfo &&
+        !currentModelInfo.supports_translation
       ) {
-        const currentModelDisplayName = models.find(
-          (model) => model.id === currentModel,
-        )?.name;
         return t(
           "settings.advanced.translateToEnglish.descriptionUnsupported",
           {
-            model: currentModelDisplayName,
+            model: currentModelInfo.name,
           },
         );
       }
@@ -100,8 +95,7 @@ export const TranslateToEnglish: React.FC<TranslateToEnglishProps> = React.memo(
       return t("settings.advanced.translateToEnglish.description");
     }, [
       t,
-      models,
-      currentModel,
+      currentModelInfo,
       isSonioxProvider,
       isRemoteOpenAiProvider,
       remoteSupportsTranslation,

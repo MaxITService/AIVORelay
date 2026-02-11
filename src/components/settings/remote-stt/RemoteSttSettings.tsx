@@ -18,11 +18,13 @@ import { ToggleSwitch } from "../../ui/ToggleSwitch";
 interface RemoteSttSettingsProps {
   descriptionMode?: "inline" | "tooltip";
   grouped?: boolean;
+  hideProviderSelector?: boolean;
 }
 
 export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
   descriptionMode = "tooltip",
   grouped = false,
+  hideProviderSelector = false,
 }) => {
   const { t } = useTranslation();
   const isWindows = type() === "windows";
@@ -462,27 +464,29 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
 
   return (
     <div className="space-y-2">
-      <SettingContainer
-        title={t("settings.advanced.transcriptionProvider.title")}
-        description={t("settings.advanced.transcriptionProvider.description")}
-        descriptionMode={descriptionMode}
-        grouped={grouped}
-      >
-        <div className="flex flex-col gap-2 min-w-[220px]">
-          <Select
-            value={provider}
-            options={providerOptions}
-            onChange={(value) => handleProviderChange(value)}
-            placeholder={t("settings.advanced.transcriptionProvider.placeholder")}
-            isClearable={false}
-          />
-          {!isWindows && (
-            <p className="text-xs text-text/60">
-              {t("settings.advanced.transcriptionProvider.windowsOnly")}
-            </p>
-          )}
-        </div>
-      </SettingContainer>
+      {!hideProviderSelector && (
+        <SettingContainer
+          title={t("settings.advanced.transcriptionProvider.title")}
+          description={t("settings.advanced.transcriptionProvider.description")}
+          descriptionMode={descriptionMode}
+          grouped={grouped}
+        >
+          <div className="flex flex-col gap-2 min-w-[220px]">
+            <Select
+              value={provider}
+              options={providerOptions}
+              onChange={(value) => handleProviderChange(value)}
+              placeholder={t("settings.advanced.transcriptionProvider.placeholder")}
+              isClearable={false}
+            />
+            {!isWindows && (
+              <p className="text-xs text-text/60">
+                {t("settings.advanced.transcriptionProvider.windowsOnly")}
+              </p>
+            )}
+          </div>
+        </SettingContainer>
+      )}
 
       {showRemoteFields && (
         <>

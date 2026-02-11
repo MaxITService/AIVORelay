@@ -464,19 +464,27 @@ impl TextReplacement {
             if self.case_sensitive {
                 text.replace(&from_processed, &to_processed)
             } else {
-                // Case-insensitive plain text replacement
-                let lower_from = from_processed.to_lowercase();
-                let mut result = String::with_capacity(text.len());
-                let mut remaining = text;
-
-                while let Some(start) = remaining.to_lowercase().find(&lower_from) {
-                    result.push_str(&remaining[..start]);
-                    result.push_str(&to_processed);
-                    remaining = &remaining[start + from_processed.len()..];
-                }
-                result.push_str(remaining);
-                result
+                // Case-insensitive plain text replacement with Unicode-safe indexing
+                replace_case_insensitive_literal(text, &from_processed, &to_processed)
             }
+        }
+    }
+}
+
+fn replace_case_insensitive_literal(text: &str, from: &str, to: &str) -> String {
+    if from.is_empty() {
+        return text.to_string();
+    }
+
+    let pattern = format!("(?i){}", regex::escape(from));
+    match regex::Regex::new(&pattern) {
+        Ok(re) => re.replace_all(text, regex::NoExpand(to)).into_owned(),
+        Err(err) => {
+            warn!(
+                "Failed to build case-insensitive replacement regex for '{}': {}",
+                from, err
+            );
+            text.to_string()
         }
     }
 }
@@ -637,6 +645,14 @@ pub enum ClipboardHandling {
 
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Type)]
 #[serde(rename_all = "snake_case")]
+pub enum AutoSubmitKey {
+    Enter,
+    CtrlEnter,
+    CmdEnter,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Type)]
+#[serde(rename_all = "snake_case")]
 pub enum RecordingRetentionPeriod {
     Never,
     PreserveLimit,
@@ -664,6 +680,12 @@ impl Default for PasteMethod {
 impl Default for ClipboardHandling {
     fn default() -> Self {
         ClipboardHandling::DontModify
+    }
+}
+
+impl Default for AutoSubmitKey {
+    fn default() -> Self {
+        AutoSubmitKey::Enter
     }
 }
 
@@ -731,6 +753,8 @@ pub struct AppSettings {
     pub start_hidden: bool,
     #[serde(default = "default_autostart_enabled")]
     pub autostart_enabled: bool,
+    #[serde(default = "default_show_tray_icon")]
+    pub show_tray_icon: bool,
     #[serde(default = "default_update_checks_enabled")]
     pub update_checks_enabled: bool,
     #[serde(default = "default_model")]
@@ -810,6 +834,10 @@ pub struct AppSettings {
     pub convert_lf_to_crlf: bool,
     #[serde(default)]
     pub clipboard_handling: ClipboardHandling,
+    #[serde(default = "default_auto_submit")]
+    pub auto_submit: bool,
+    #[serde(default)]
+    pub auto_submit_key: AutoSubmitKey,
     #[serde(default = "default_post_process_enabled")]
     pub post_process_enabled: bool,
     #[serde(default = "default_post_process_provider_id")]
@@ -884,6 +912,8 @@ pub struct AppSettings {
     pub mute_while_recording: bool,
     #[serde(default)]
     pub append_trailing_space: bool,
+    #[serde(default = "default_filter_silence")]
+    pub filter_silence: bool,
     #[serde(default = "default_connector_port")]
     pub connector_port: u16,
     #[serde(default = "default_connector_auto_open_enabled")]
@@ -1179,6 +1209,10 @@ fn default_paste_delay_ms() -> u64 {
     60
 }
 
+fn default_auto_submit() -> bool {
+    false
+}
+
 fn default_custom_words_enabled() -> bool {
     true
 }
@@ -1219,6 +1253,14 @@ fn default_app_language() -> String {
     tauri_plugin_os::locale()
         .and_then(|l| l.split(['-', '_']).next().map(String::from))
         .unwrap_or_else(|| "en".to_string())
+}
+
+fn default_show_tray_icon() -> bool {
+    true
+}
+
+fn default_filter_silence() -> bool {
+    true
 }
 
 fn default_connector_port() -> u16 {
@@ -1638,8 +1680,7 @@ pub fn get_default_settings() -> AppSettings {
         ShortcutBinding {
             id: "spawn_button".to_string(),
             name: "Spawn Voice Activation Button".to_string(),
-            description:
-                "Open a floating on-screen voice activation button window.".to_string(),
+            description: "Open a floating on-screen voice activation button window.".to_string(),
             default_binding: "".to_string(),
             current_binding: "".to_string(),
         },
@@ -1676,6 +1717,7 @@ pub fn get_default_settings() -> AppSettings {
         sound_theme: default_sound_theme(),
         start_hidden: default_start_hidden(),
         autostart_enabled: default_autostart_enabled(),
+        show_tray_icon: default_show_tray_icon(),
         update_checks_enabled: default_update_checks_enabled(),
         selected_model: "".to_string(),
         transcription_provider: default_transcription_provider(),
@@ -1715,6 +1757,8 @@ pub fn get_default_settings() -> AppSettings {
         paste_delay_ms: default_paste_delay_ms(),
         convert_lf_to_crlf: true,
         clipboard_handling: ClipboardHandling::default(),
+        auto_submit: default_auto_submit(),
+        auto_submit_key: AutoSubmitKey::default(),
         post_process_enabled: default_post_process_enabled(),
         post_process_provider_id: default_post_process_provider_id(),
         post_process_providers: default_post_process_providers(),
@@ -1751,6 +1795,7 @@ pub fn get_default_settings() -> AppSettings {
         ai_replace_selection_push_to_talk: true,
         mute_while_recording: false,
         append_trailing_space: false,
+        filter_silence: default_filter_silence(),
         connector_port: default_connector_port(),
         connector_auto_open_enabled: default_connector_auto_open_enabled(),
         connector_auto_open_url: default_connector_auto_open_url(),
@@ -2011,19 +2056,18 @@ impl AppSettings {
                 };
 
                 #[cfg(not(target_os = "windows"))]
-                let api_key = if self.voice_command_provider_id.as_deref()
-                    != Some(provider.id.as_str())
-                {
-                    self.post_process_api_keys
-                        .get(&provider.id)
-                        .cloned()
-                        .unwrap_or_default()
-                } else {
-                    self.voice_command_api_keys
-                        .get(&provider.id)
-                        .cloned()
-                        .unwrap_or_default()
-                };
+                let api_key =
+                    if self.voice_command_provider_id.as_deref() != Some(provider.id.as_str()) {
+                        self.post_process_api_keys
+                            .get(&provider.id)
+                            .cloned()
+                            .unwrap_or_default()
+                    } else {
+                        self.voice_command_api_keys
+                            .get(&provider.id)
+                            .cloned()
+                            .unwrap_or_default()
+                    };
 
                 // Use voice command model with fallback to post-processing model
                 let model = self
@@ -2132,12 +2176,6 @@ pub fn load_or_create_app_settings(app: &AppHandle) -> AppSettings {
     };
 
     if ensure_post_process_defaults(&mut settings) {
-        store.set("settings", serde_json::to_value(&settings).unwrap());
-    }
-
-    // Force beta features to be enabled (removing "debug only" status)
-    if !settings.beta_voice_commands_enabled {
-        settings.beta_voice_commands_enabled = true;
         store.set("settings", serde_json::to_value(&settings).unwrap());
     }
 

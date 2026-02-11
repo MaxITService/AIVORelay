@@ -9,6 +9,7 @@
   },
   "sidebar": {
     "general": "Speech / Mic",
+    "models": "Models",
     "advanced": "Advanced",
     "postProcessing": "LLM Post Processing",
     "aiReplace": "AI Replace",
@@ -44,6 +45,7 @@
   "audioProcessing": {
     "title": "Speech Processing",
     "description": "Configure voice activity detection and speech artifact filtering.",
+    "sonioxRealtimeBypassWarning": "Soniox realtime mode ignores Filter Silence and Voice Detection Sensitivity.",
     "fillerFilter": "Remove Filler Words",
     "fillerFilterDescription": "Automatically remove 'uh', 'um', 'hmm' and similar filler words from transcriptions.",
     "fillerHelpTitle": "Tell me more about filler word removal",
@@ -138,6 +140,7 @@
       "accuracy": "accuracy",
       "speed": "speed"
     },
+    "customModelDescription": "User-provided model in local models folder",
     "models": {
       "small": {
         "name": "Whisper Small",
@@ -208,9 +211,27 @@
     }
   },
   "modelSelector": {
+    "tellMeMore": {
+      "title": "Tell me more about Models",
+      "headline": "AivoRelay supports multiple transcription methods.",
+      "intro": "You can use a local on-device model or a remote cloud API. Only one method can be active at a time — switching to a remote provider deactivates the local model, and selecting a local model deactivates the remote provider.",
+      "remoteApi": {
+        "title": "Remote via API",
+        "description": "Connects to any OpenAI-compatible speech-to-text endpoint (Groq, OpenAI, etc.). Requires an API key and base URL."
+      },
+      "remoteSoniox": {
+        "title": "Remote via Soniox",
+        "description": "Uses the Soniox realtime streaming service. Supports live partial transcriptions and advanced language options."
+      },
+      "localModels": {
+        "title": "Local Models",
+        "description": "Run Whisper or Parakeet models entirely on your device — no internet required. Larger models are more accurate but use more resources."
+      },
+      "tip": "Tip: You can quickly switch the active method from the footer dropdown in the main window."
+    },
     "welcome": "Welcome to AivoRelay!",
     "downloadPrompt": "Download a model below to get started with transcription.",
-    "availableModels": "Available Models",
+    "availableModels": "Available Local Models",
     "downloadModels": "Download Models",
     "chooseModel": "Choose a Model",
     "active": "Active",
@@ -230,7 +251,18 @@
     "noModelDownloadRequired": "No Model - Download Required",
     "remoteMode": "Remote STT",
     "remoteModeDescription": "Uses cloud API for transcription",
-    "deleteModel": "Delete {{modelName}}"
+    "remoteApiMode": "Remote via API",
+    "remoteApiModeDescription": "OpenAI-compatible cloud API (Groq, OpenAI, etc.)",
+    "remoteSonioxMode": "Remote via Soniox",
+    "remoteSonioxModeDescription": "Soniox realtime streaming service",
+    "remoteApiActive": "Remote API",
+    "remoteSonioxActive": "Remote Soniox",
+    "deleteModel": "Delete {{modelName}}",
+    "custom": "Custom",
+    "customModelsHelpTitle": "Custom Whisper Models",
+    "customModelsHelpDescription": "Place Whisper GGML .bin files into the app models folder. They are detected on startup and shown here as custom models.",
+    "customModelsHelpHint": "After adding files, restart AivoRelay to refresh the model list.",
+    "customModelsDetected": "Detected custom models: {{count}}"
   },
   "settings": {
     "general": {
@@ -430,6 +462,7 @@
         "overrideModelHint": "Leave empty to use the global model.",
         "modelPlaceholder": "e.g., gpt-4-turbo",
         "usingGlobalModel": "Using global model: {{model}}",
+        "sonioxWarning": "LLM post-processing is not supported when using Soniox realtime models.",
         "defaultNote": "Custom profiles can override this setting individually.",
         "outputVariableDoc": {
           "title": "Template Variable: ${output}",
@@ -528,6 +561,10 @@
         "label": "Launch on Startup",
         "description": "Automatically start AivoRelay when you log in to your computer."
       },
+      "showTrayIcon": {
+        "label": "Show Tray Icon",
+        "description": "Display the AivoRelay icon in the system tray."
+      },
       "overlay": {
         "title": "Overlay Position",
         "description": "Display visual feedback overlay during recording and transcription. On Linux 'None' is recommended.",
@@ -590,6 +627,17 @@
           "dontModify": "Restore previous text",
           "copyToClipboard": "Keep transcription in clipboard",
           "restoreAdvanced": "⚠️ Experimental: Restore all formats (Windows)"
+        }
+      },
+      "autoSubmit": {
+        "title": "Auto Submit",
+        "description": "Automatically send the selected key combination after text insertion. Cmd+Enter applies on macOS, while Windows/Linux use Super+Enter.",
+        "options": {
+          "off": "Off",
+          "enter": "Enter",
+          "cmdEnter": "Cmd+Enter",
+          "superEnter": "Super+Enter",
+          "ctrlEnter": "Ctrl+Enter"
         }
       },
       "aiReplace": {
@@ -898,6 +946,7 @@
           "description": "When you use LLM features (AI Replace, Post-Processing), your text is sent over the Internet to the provider's servers. This includes your transcriptions and any selected text. The provider processes your data according to their privacy policy. Only use providers you trust with your information."
         }
       },
+      "sonioxWarning": "You are using the Soniox real-time provider. LLM post-processing is skipped during real-time streaming. These settings will apply when you switch to a local model or OpenAI-compatible provider.",
       "disabledNotice": "Post processing is currently disabled. Enable it in Debug settings to configure.",
       "api": {
         "title": "API Configuration",
@@ -1133,6 +1182,11 @@
       "appendTrailingSpace": {
         "label": "Append Trailing Space",
         "description": "Add a space after pasted transcription"
+      },
+      "filterSilence": {
+        "label": "Filter Silence",
+        "description": "Use voice activity detection to remove silence from recordings before transcription. Try disabling if encountering issues, like parts of the speech getting removed. Disabling may result in more frequent \"hallucinations\" in the output.",
+        "sonioxRealtimeNote": "Does not apply to Soniox realtime mode."
       },
       "paths": {
         "appData": "App Data:",

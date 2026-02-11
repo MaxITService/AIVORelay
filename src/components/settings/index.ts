@@ -12,6 +12,7 @@ export { default as TranscribeFileSettings } from "./transcribe-file/TranscribeF
 export { default as TextReplacementSettings } from "./text-replacement/TextReplacementSettings";
 export { default as AudioProcessingSettings } from "./audio-processing/AudioProcessingSettings";
 export { UserInterfaceSettings } from "./user-interface/UserInterfaceSettings";
+export { ModelsSettings } from "./models/ModelsSettings";
 
 // Individual setting components
 export { MicrophoneSelector } from "./MicrophoneSelector";

@@ -9,6 +9,7 @@
   },
   "sidebar": {
     "general": "一般",
+    "models": "モデル",
     "advanced": "詳細設定",
     "postProcessing": "後処理",
     "history": "履歴",
@@ -24,6 +25,7 @@
       "accuracy": "精度",
       "speed": "速度"
     },
+    "customModelDescription": "User-provided model in local models folder",
     "models": {
       "small": {
         "name": "Whisper Small",
@@ -80,7 +82,12 @@
     "modelError": "モデルエラー",
     "modelUnloaded": "モデルがアンロードされました",
     "noModelDownloadRequired": "モデルなし - ダウンロードが必要",
-    "deleteModel": "{{modelName}}を削除"
+    "deleteModel": "{{modelName}}を削除",
+    "custom": "Custom",
+    "customModelsHelpTitle": "Custom Whisper Models",
+    "customModelsHelpDescription": "Place Whisper GGML .bin files into the app models folder. They are detected on startup and shown here as custom models.",
+    "customModelsHelpHint": "After adding files, restart AivoRelay to refresh the model list.",
+    "customModelsDetected": "Detected custom models: {{count}}"
   },
   "settings": {
     "general": {
@@ -154,6 +161,10 @@
         "label": "起動時に実行",
         "description": "コンピューターにログインしたときにAivoRelayを自動的に起動。"
       },
+      "showTrayIcon": {
+        "label": "トレイアイコンを表示",
+        "description": "システムトレイにAivoRelayのアイコンを表示します。"
+      },
       "overlay": {
         "title": "オーバーレイ位置",
         "description": "録音と文字起こし中に視覚的なフィードバックオーバーレイを表示。Linuxでは「なし」を推奨。",
@@ -180,6 +191,17 @@
         "options": {
           "dontModify": "クリップボードを変更しない",
           "copyToClipboard": "クリップボードにコピー"
+        }
+      },
+      "autoSubmit": {
+        "title": "自動送信",
+        "description": "テキスト挿入後に選択したキーの組み合わせを自動的に送信します。macOSではCmd+Enter、Windows/LinuxではSuper+Enterが適用されます。",
+        "options": {
+          "off": "オフ",
+          "enter": "Enter",
+          "cmdEnter": "Cmd+Enter",
+          "superEnter": "Super+Enter",
+          "ctrlEnter": "Ctrl+Enter"
         }
       },
       "translateToEnglish": {
@@ -334,6 +356,10 @@
       "appendTrailingSpace": {
         "label": "末尾にスペースを追加",
         "description": "貼り付けた文字起こしの後にスペースを追加"
+      },
+      "filterSilence": {
+        "label": "無音をフィルタリング",
+        "description": "音声アクティビティ検出を使用して、文字起こし前に録音から無音部分を除去します。音声の一部が削除されるなどの問題が発生した場合は、無効化を試してください。無効化すると、出力に「幻覚」が頻繁に現れる可能性があります。"
       },
       "paths": {
         "appData": "アプリデータ:",

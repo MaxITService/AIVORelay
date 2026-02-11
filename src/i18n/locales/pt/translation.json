@@ -9,6 +9,7 @@
   },
   "sidebar": {
     "general": "Geral",
+    "models": "Modelos",
     "advanced": "Avançado",
     "postProcessing": "Pós-Processamento",
     "history": "Histórico",
@@ -24,6 +25,7 @@
       "accuracy": "precisão",
       "speed": "velocidade"
     },
+    "customModelDescription": "User-provided model in local models folder",
     "models": {
       "small": {
         "name": "Whisper Small",
@@ -80,7 +82,12 @@
     "modelError": "Erro no Modelo",
     "modelUnloaded": "Modelo Descarregado",
     "noModelDownloadRequired": "Sem Modelo - Download Necessário",
-    "deleteModel": "Excluir {{modelName}}"
+    "deleteModel": "Excluir {{modelName}}",
+    "custom": "Custom",
+    "customModelsHelpTitle": "Custom Whisper Models",
+    "customModelsHelpDescription": "Place Whisper GGML .bin files into the app models folder. They are detected on startup and shown here as custom models.",
+    "customModelsHelpHint": "After adding files, restart AivoRelay to refresh the model list.",
+    "customModelsDetected": "Detected custom models: {{count}}"
   },
   "settings": {
     "general": {
@@ -154,6 +161,10 @@
         "label": "Iniciar na Inicialização",
         "description": "Iniciar automaticamente o Handy quando você fizer login no seu computador."
       },
+      "showTrayIcon": {
+        "label": "Mostrar ícone na bandeja",
+        "description": "Exibir o ícone do AivoRelay na bandeja do sistema."
+      },
       "overlay": {
         "title": "Posição da Sobreposição",
         "description": "Exibir sobreposição de feedback visual durante gravação e transcrição. No Linux, 'Nenhum' é recomendado.",
@@ -180,6 +191,17 @@
         "options": {
           "dontModify": "Não Modificar Área de Transferência",
           "copyToClipboard": "Copiar para Área de Transferência"
+        }
+      },
+      "autoSubmit": {
+        "title": "Envio automático",
+        "description": "Envia automaticamente a combinação de teclas selecionada após a inserção do texto. Cmd+Enter aplica-se no macOS, enquanto Windows/Linux usam Super+Enter.",
+        "options": {
+          "off": "Desativado",
+          "enter": "Enter",
+          "cmdEnter": "Cmd+Enter",
+          "superEnter": "Super+Enter",
+          "ctrlEnter": "Ctrl+Enter"
         }
       },
       "translateToEnglish": {
@@ -334,6 +356,10 @@
       "appendTrailingSpace": {
         "label": "Adicionar Espaço Final",
         "description": "Adicionar um espaço após a transcrição colada"
+      },
+      "filterSilence": {
+        "label": "Filtrar silêncio",
+        "description": "Usar detecção de atividade de voz para remover silêncio das gravações antes da transcrição. Tente desativar se encontrar problemas, como partes da fala sendo removidas. Desativar pode resultar em \"alucinações\" mais frequentes na saída."
       },
       "paths": {
         "appData": "Dados do App:",

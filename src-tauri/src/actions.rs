@@ -168,12 +168,17 @@ fn resolve_effective_language(
     }
 
     let mm = app.state::<Arc<ModelManager>>();
-    let is_whisper = mm
+    let supports_language_selection = mm
         .get_model_info(&settings.selected_model)
-        .map(|m| matches!(m.engine_type, EngineType::Whisper))
+        .map(|m| {
+            matches!(
+                m.engine_type,
+                EngineType::Whisper | EngineType::SenseVoice
+            )
+        })
         .unwrap_or(false);
 
-    if is_whisper && !requested.trim().is_empty() {
+    if supports_language_selection && !requested.trim().is_empty() {
         requested
     } else {
         "auto".to_string()

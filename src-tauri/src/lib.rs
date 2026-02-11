@@ -277,6 +277,12 @@ fn initialize_core_logic(app_handle: &AppHandle) {
     // Initialize tray menu with idle state
     utils::update_tray_menu(app_handle, &utils::TrayIconState::Idle, None);
 
+    // Apply tray visibility setting on startup
+    let settings = settings::get_settings(app_handle);
+    if !settings.show_tray_icon {
+        tray::set_tray_visibility(app_handle, false);
+    }
+
     // Get the autostart manager and configure based on user setting
     let autostart_manager = app_handle.autolaunch();
     let settings = settings::get_settings(&app_handle);
@@ -330,6 +336,8 @@ pub fn run() {
         shortcut::change_paste_method_setting,
         shortcut::change_paste_delay_ms_setting,
         shortcut::change_clipboard_handling_setting,
+        shortcut::change_auto_submit_setting,
+        shortcut::change_auto_submit_key_setting,
         shortcut::change_convert_lf_to_crlf_setting,
         shortcut::change_remote_stt_base_url_setting,
         shortcut::change_remote_stt_model_id_setting,
@@ -396,6 +404,7 @@ pub fn run() {
         shortcut::resume_binding,
         shortcut::change_mute_while_recording_setting,
         shortcut::change_append_trailing_space_setting,
+        shortcut::change_filter_silence_setting,
         shortcut::change_ai_replace_system_prompt_setting,
         shortcut::change_ai_replace_user_prompt_setting,
         shortcut::change_ai_replace_max_chars_setting,
@@ -438,6 +447,7 @@ pub fn run() {
         shortcut::change_send_screenshot_to_extension_enabled_setting,
         shortcut::change_send_screenshot_to_extension_push_to_talk_setting,
         shortcut::change_app_language_setting,
+        shortcut::change_show_tray_icon_setting,
         shortcut::change_update_checks_setting,
         shortcut::change_beta_voice_commands_enabled_setting,
         shortcut::change_voice_button_show_aot_toggle_setting,
@@ -629,6 +639,12 @@ pub fn run() {
                 // Only the main window should be hidden-to-tray on close.
                 // Auxiliary windows (e.g. voice activation button) must be allowed to close.
                 if window.label() == "main" {
+                    let settings = get_settings(&window.app_handle());
+                    if !settings.show_tray_icon {
+                        window.app_handle().exit(0);
+                        return;
+                    }
+
                     api.prevent_close();
                     let _res = window.hide();
                     #[cfg(target_os = "macos")]

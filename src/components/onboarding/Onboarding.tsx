@@ -82,8 +82,8 @@ const Onboarding: React.FC<OnboardingProps> = ({
     }
   };
 
-  const getRecommendedBadge = (modelId: string): boolean => {
-    return modelId === "parakeet-tdt-0.6b-v3";
+  const getRecommendedBadge = (model: ModelInfo): boolean => {
+    return model.is_recommended;
   };
 
   const handleSelectLocal = async () => {
@@ -190,7 +190,7 @@ const Onboarding: React.FC<OnboardingProps> = ({
           ) : (
             <>
               {availableModels
-                .filter((model) => getRecommendedBadge(model.id))
+                .filter((model) => getRecommendedBadge(model))
                 .map((model) => (
                   <ModelCard
                     key={model.id}
@@ -202,7 +202,7 @@ const Onboarding: React.FC<OnboardingProps> = ({
                 ))}
 
               {availableModels
-                .filter((model) => !getRecommendedBadge(model.id))
+                .filter((model) => !getRecommendedBadge(model))
                 .sort((a, b) => Number(a.size_mb) - Number(b.size_mb))
                 .map((model) => (
                   <ModelCard

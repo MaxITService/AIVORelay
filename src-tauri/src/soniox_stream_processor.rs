@@ -362,15 +362,15 @@ fn replace_case_insensitive(text: &str, from: &str, to: &str) -> String {
         return text.to_string();
     }
 
-    let lower_from = from.to_lowercase();
-    let mut result = String::with_capacity(text.len());
-    let mut remaining = text;
-
-    while let Some(start) = remaining.to_lowercase().find(&lower_from) {
-        result.push_str(&remaining[..start]);
-        result.push_str(to);
-        remaining = &remaining[start + from.len()..];
+    let pattern = format!("(?i){}", regex::escape(from));
+    match Regex::new(&pattern) {
+        Ok(re) => re.replace_all(text, regex::NoExpand(to)).into_owned(),
+        Err(err) => {
+            warn!(
+                "Failed to build case-insensitive replacement regex for '{}': {}",
+                from, err
+            );
+            text.to_string()
+        }
     }
-    result.push_str(remaining);
-    result
 }

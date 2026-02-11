@@ -9,6 +9,7 @@
   },
   "sidebar": {
     "general": "Загальні",
+    "models": "Моделі",
     "advanced": "Розширені",
     "postProcessing": "Постобробка",
     "history": "Історія",
@@ -24,6 +25,7 @@
       "accuracy": "точність",
       "speed": "швидкість"
     },
+    "customModelDescription": "User-provided model in local models folder",
     "models": {
       "small": {
         "name": "Whisper Small",
@@ -80,7 +82,12 @@
     "modelError": "Помилка моделі",
     "modelUnloaded": "Модель вивантажена",
     "noModelDownloadRequired": "Немає моделі - потрібно завантажити",
-    "deleteModel": "Видалити {{modelName}}"
+    "deleteModel": "Видалити {{modelName}}",
+    "custom": "Custom",
+    "customModelsHelpTitle": "Custom Whisper Models",
+    "customModelsHelpDescription": "Place Whisper GGML .bin files into the app models folder. They are detected on startup and shown here as custom models.",
+    "customModelsHelpHint": "After adding files, restart AivoRelay to refresh the model list.",
+    "customModelsDetected": "Detected custom models: {{count}}"
   },
   "settings": {
     "general": {
@@ -154,6 +161,10 @@
         "label": "Запуск при старті системи",
         "description": "Автоматично запускати Handy при вході в систему"
       },
+      "showTrayIcon": {
+        "label": "Показати значок у треї",
+        "description": "Відображати значок AivoRelay у системному треї."
+      },
       "overlay": {
         "title": "Позиція оверлею",
         "description": "Показувати візуальний оверлей під час запису та транскрипції. На Linux рекомендовано «Немає»",
@@ -180,6 +191,17 @@
         "options": {
           "dontModify": "Не змінювати буфер обміну",
           "copyToClipboard": "Копіювати в буфер обміну"
+        }
+      },
+      "autoSubmit": {
+        "title": "Автоматичне надсилання",
+        "description": "Автоматично надсилає вибрану комбінацію клавіш після вставки тексту. Cmd+Enter застосовується на macOS, тоді як Windows/Linux використовують Super+Enter.",
+        "options": {
+          "off": "Вимк.",
+          "enter": "Enter",
+          "cmdEnter": "Cmd+Enter",
+          "superEnter": "Super+Enter",
+          "ctrlEnter": "Ctrl+Enter"
         }
       },
       "translateToEnglish": {
@@ -334,6 +356,10 @@
       "appendTrailingSpace": {
         "label": "Додавати пробіл в кінці",
         "description": "Додавати пробіл після вставленої транскрипції"
+      },
+      "filterSilence": {
+        "label": "Фільтрувати тишу",
+        "description": "Використовувати виявлення голосової активності для видалення тиші із записів перед транскрибуванням. Спробуйте вимкнути, якщо виникають проблеми, наприклад, видалення частин мови. Вимкнення може призвести до більш частих \"галюцинацій\" у виході."
       },
       "paths": {
         "appData": "Дані програми:",

@@ -5,11 +5,11 @@ use futures_util::StreamExt;
 use log::{debug, info, warn};
 use serde::{Deserialize, Serialize};
 use specta::Type;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::fs::File;
 use std::io::Write;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use tar::Archive;
 use tauri::{AppHandle, Emitter, Manager};
@@ -20,6 +20,7 @@ pub enum EngineType {
     Whisper,
     Parakeet,
     Moonshine,
+    SenseVoice,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
@@ -35,8 +36,12 @@ pub struct ModelInfo {
     pub partial_size: u64,
     pub is_directory: bool,
     pub engine_type: EngineType,
-    pub accuracy_score: f32, // 0.0 to 1.0, higher is more accurate
-    pub speed_score: f32,    // 0.0 to 1.0, higher is faster
+    pub accuracy_score: f32,        // 0.0 to 1.0, higher is more accurate
+    pub speed_score: f32,           // 0.0 to 1.0, higher is faster
+    pub supports_translation: bool, // Whether the model supports translating to English
+    pub is_recommended: bool,       // Whether this is the recommended model for new users
+    pub supported_languages: Vec<String>, // Languages this model can transcribe
+    pub is_custom: bool,            // Whether this is a user-provided custom model
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
@@ -70,6 +75,39 @@ impl ModelManager {
 
         let mut available_models = HashMap::new();
 
+        // Whisper supported languages (99 languages from tokenizer)
+        // Including zh-Hans and zh-Hant variants to match frontend language codes
+        let whisper_languages: Vec<String> = vec![
+            "en", "zh", "zh-Hans", "zh-Hant", "de", "es", "ru", "ko", "fr", "ja", "pt", "tr", "pl",
+            "ca", "nl", "ar", "sv", "it", "id", "hi", "fi", "vi", "he", "uk", "el", "ms", "cs",
+            "ro", "da", "hu", "ta", "no", "th", "ur", "hr", "bg", "lt", "la", "mi", "ml", "cy",
+            "sk", "te", "fa", "lv", "bn", "sr", "az", "sl", "kn", "et", "mk", "br", "eu", "is",
+            "hy", "ne", "mn", "bs", "kk", "sq", "sw", "gl", "mr", "pa", "si", "km", "sn", "yo",
+            "so", "af", "oc", "ka", "be", "tg", "sd", "gu", "am", "yi", "lo", "uz", "fo", "ht",
+            "ps", "tk", "nn", "mt", "sa", "lb", "my", "bo", "tl", "mg", "as", "tt", "haw", "ln",
+            "ha", "ba", "jw", "su", "yue",
+        ]
+        .into_iter()
+        .map(String::from)
+        .collect();
+
+        // Parakeet V3 supported languages (25 EU languages + Russian/Ukrainian):
+        // bg, hr, cs, da, nl, en, et, fi, fr, de, el, hu, it, lv, lt, mt, pl, pt, ro, sk, sl, es, sv, ru, uk
+        let parakeet_v3_languages: Vec<String> = vec![
+            "bg", "hr", "cs", "da", "nl", "en", "et", "fi", "fr", "de", "el", "hu", "it", "lv",
+            "lt", "mt", "pl", "pt", "ro", "sk", "sl", "es", "sv", "ru", "uk",
+        ]
+        .into_iter()
+        .map(String::from)
+        .collect();
+
+        // SenseVoice supported languages
+        let sense_voice_languages: Vec<String> =
+            vec!["zh", "zh-Hans", "zh-Hant", "en", "yue", "ja", "ko"]
+                .into_iter()
+                .map(String::from)
+                .collect();
+
         // TODO this should be read from a JSON file or something..
         available_models.insert(
             "small".to_string(),
@@ -87,6 +125,10 @@ impl ModelManager {
                 engine_type: EngineType::Whisper,
                 accuracy_score: 0.60,
                 speed_score: 0.85,
+                supports_translation: true,
+                is_recommended: false,
+                supported_languages: whisper_languages.clone(),
+                is_custom: false,
             },
         );
 
@@ -107,6 +149,10 @@ impl ModelManager {
                 engine_type: EngineType::Whisper,
                 accuracy_score: 0.75,
                 speed_score: 0.60,
+                supports_translation: true,
+                is_recommended: false,
+                supported_languages: whisper_languages.clone(),
+                is_custom: false,
             },
         );
 
@@ -126,6 +172,10 @@ impl ModelManager {
                 engine_type: EngineType::Whisper,
                 accuracy_score: 0.80,
                 speed_score: 0.40,
+                supports_translation: false, // Turbo doesn't support translation
+                is_recommended: false,
+                supported_languages: whisper_languages.clone(),
+                is_custom: false,
             },
         );
 
@@ -145,6 +195,34 @@ impl ModelManager {
                 engine_type: EngineType::Whisper,
                 accuracy_score: 0.85,
                 speed_score: 0.30,
+                supports_translation: true,
+                is_recommended: false,
+                supported_languages: whisper_languages.clone(),
+                is_custom: false,
+            },
+        );
+
+        available_models.insert(
+            "breeze-asr".to_string(),
+            ModelInfo {
+                id: "breeze-asr".to_string(),
+                name: "Breeze ASR".to_string(),
+                description: "Optimized for Taiwanese Mandarin. Code-switching support."
+                    .to_string(),
+                filename: "breeze-asr-q5_k.bin".to_string(),
+                url: Some("https://blob.handy.computer/breeze-asr-q5_k.bin".to_string()),
+                size_mb: 1080,
+                is_downloaded: false,
+                is_downloading: false,
+                partial_size: 0,
+                is_directory: false,
+                engine_type: EngineType::Whisper,
+                accuracy_score: 0.85,
+                speed_score: 0.35,
+                supports_translation: false,
+                is_recommended: false,
+                supported_languages: whisper_languages.clone(),
+                is_custom: false,
             },
         );
 
@@ -165,6 +243,10 @@ impl ModelManager {
                 engine_type: EngineType::Parakeet,
                 accuracy_score: 0.85,
                 speed_score: 0.85,
+                supports_translation: false,
+                is_recommended: false,
+                supported_languages: vec!["en".to_string()],
+                is_custom: false,
             },
         );
 
@@ -173,7 +255,7 @@ impl ModelManager {
             ModelInfo {
                 id: "parakeet-tdt-0.6b-v3".to_string(),
                 name: "Parakeet V3".to_string(),
-                description: "Fast and accurate".to_string(),
+                description: "Fast and accurate. Supports 25 European languages.".to_string(),
                 filename: "parakeet-tdt-0.6b-v3-int8".to_string(), // Directory name
                 url: Some("https://blob.handy.computer/parakeet-v3-int8.tar.gz".to_string()),
                 size_mb: 478, // Approximate size for int8 quantized model
@@ -184,6 +266,10 @@ impl ModelManager {
                 engine_type: EngineType::Parakeet,
                 accuracy_score: 0.80,
                 speed_score: 0.85,
+                supports_translation: false,
+                is_recommended: true,
+                supported_languages: parakeet_v3_languages,
+                is_custom: false,
             },
         );
 
@@ -203,8 +289,41 @@ impl ModelManager {
                 engine_type: EngineType::Moonshine,
                 accuracy_score: 0.70,
                 speed_score: 0.90,
+                supports_translation: false,
+                is_recommended: false,
+                supported_languages: vec!["en".to_string()],
+                is_custom: false,
             },
         );
+
+        available_models.insert(
+            "sense-voice-int8".to_string(),
+            ModelInfo {
+                id: "sense-voice-int8".to_string(),
+                name: "SenseVoice".to_string(),
+                description: "Very fast. Chinese, English, Japanese, Korean, Cantonese."
+                    .to_string(),
+                filename: "sense-voice-int8".to_string(),
+                url: Some("https://blob.handy.computer/sense-voice-int8.tar.gz".to_string()),
+                size_mb: 160,
+                is_downloaded: false,
+                is_downloading: false,
+                partial_size: 0,
+                is_directory: true,
+                engine_type: EngineType::SenseVoice,
+                accuracy_score: 0.65,
+                speed_score: 0.95,
+                supports_translation: false,
+                is_recommended: false,
+                supported_languages: sense_voice_languages,
+                is_custom: false,
+            },
+        );
+
+        // Auto-discover custom Whisper models (.bin files) in the models directory
+        if let Err(e) = Self::discover_custom_whisper_models(&models_dir, &mut available_models) {
+            warn!("Failed to discover custom models: {}", e);
+        }
 
         let manager = Self {
             app_handle: app_handle.clone(),
@@ -310,10 +429,25 @@ impl ModelManager {
     }
 
     fn auto_select_model_if_needed(&self) -> Result<()> {
-        // Check if we have a selected model in settings
-        let settings = get_settings(&self.app_handle);
-        let models = self.available_models.lock().unwrap();
+        let mut settings = get_settings(&self.app_handle);
 
+        // Clear stale selection when selected model no longer exists in available list.
+        if !settings.selected_model.is_empty() {
+            let models = self.available_models.lock().unwrap();
+            let exists = models.contains_key(&settings.selected_model);
+            drop(models);
+
+            if !exists {
+                info!(
+                    "Selected model '{}' not found in available models, clearing selection",
+                    settings.selected_model
+                );
+                settings.selected_model = String::new();
+                write_settings(&self.app_handle, settings.clone());
+            }
+        }
+
+        let models = self.available_models.lock().unwrap();
         let selected_model_available = if settings.selected_model.is_empty() {
             false
         } else {
@@ -323,7 +457,7 @@ impl ModelManager {
                 .unwrap_or(false)
         };
 
-        // If no model is selected or the selected model isn't available, auto-select
+        // If no model is selected or selected model is unavailable, auto-select the first downloaded model.
         if settings.selected_model.is_empty() || !selected_model_available {
             // Find the first available (downloaded) model
             if let Some(available_model) = models.values().find(|model| model.is_downloaded) {
@@ -344,6 +478,114 @@ impl ModelManager {
                     settings.selected_model
                 );
             }
+        }
+
+        Ok(())
+    }
+
+    /// Discover custom Whisper models (.bin files) in the models directory.
+    /// Skips files that match predefined model filenames.
+    fn discover_custom_whisper_models(
+        models_dir: &Path,
+        available_models: &mut HashMap<String, ModelInfo>,
+    ) -> Result<()> {
+        if !models_dir.exists() {
+            return Ok(());
+        }
+
+        // Collect predefined Whisper file model names to avoid duplicate entries.
+        let predefined_filenames: HashSet<String> = available_models
+            .values()
+            .filter(|m| matches!(m.engine_type, EngineType::Whisper) && !m.is_directory)
+            .map(|m| m.filename.clone())
+            .collect();
+
+        for entry in fs::read_dir(models_dir)? {
+            let entry = match entry {
+                Ok(entry) => entry,
+                Err(e) => {
+                    warn!("Failed to read models directory entry: {}", e);
+                    continue;
+                }
+            };
+
+            let path = entry.path();
+            if !path.is_file() {
+                continue;
+            }
+
+            let filename = match path.file_name().and_then(|name| name.to_str()) {
+                Some(name) => name.to_string(),
+                None => continue,
+            };
+
+            // Skip hidden files.
+            if filename.starts_with('.') {
+                continue;
+            }
+
+            // Custom discovery currently supports Whisper GGML .bin files only.
+            if !filename.ends_with(".bin") {
+                continue;
+            }
+
+            if predefined_filenames.contains(&filename) {
+                continue;
+            }
+
+            let model_id = filename.trim_end_matches(".bin").to_string();
+            if available_models.contains_key(&model_id) {
+                continue;
+            }
+
+            let display_name = model_id
+                .replace(['-', '_'], " ")
+                .split_whitespace()
+                .map(|word| {
+                    let mut chars = word.chars();
+                    match chars.next() {
+                        None => String::new(),
+                        Some(first) => first.to_uppercase().collect::<String>() + chars.as_str(),
+                    }
+                })
+                .collect::<Vec<_>>()
+                .join(" ");
+
+            let size_mb = match path.metadata() {
+                Ok(metadata) => metadata.len() / (1024 * 1024),
+                Err(e) => {
+                    warn!("Failed to read metadata for {}: {}", filename, e);
+                    0
+                }
+            };
+
+            info!(
+                "Discovered custom Whisper model: {} ({}, {} MB)",
+                model_id, filename, size_mb
+            );
+
+            available_models.insert(
+                model_id.clone(),
+                ModelInfo {
+                    id: model_id,
+                    name: display_name,
+                    description: "Not officially supported".to_string(),
+                    filename,
+                    url: None,
+                    size_mb,
+                    is_downloaded: true,
+                    is_downloading: false,
+                    partial_size: 0,
+                    is_directory: false,
+                    engine_type: EngineType::Whisper,
+                    accuracy_score: 0.0,
+                    speed_score: 0.0,
+                    supports_translation: false,
+                    is_recommended: false,
+                    supported_languages: vec![],
+                    is_custom: true,
+                },
+            );
         }
 
         Ok(())
@@ -722,9 +964,18 @@ impl ModelManager {
             return Err(anyhow::anyhow!("No model files found to delete"));
         }
 
-        // Update download status
-        self.update_download_status()?;
-        debug!("ModelManager: download status updated");
+        // Custom models have no download URL and should disappear after deletion.
+        if model_info.is_custom {
+            let mut models = self.available_models.lock().unwrap();
+            models.remove(model_id);
+            debug!("ModelManager: removed custom model from available models");
+        } else {
+            self.update_download_status()?;
+            debug!("ModelManager: download status updated");
+        }
+
+        // Notify UI/state stores that a model was deleted
+        let _ = self.app_handle.emit("model-deleted", model_id);
 
         Ok(())
     }

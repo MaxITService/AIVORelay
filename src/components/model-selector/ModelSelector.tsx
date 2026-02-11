@@ -255,6 +255,12 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({
       setModelStatus("error");
     });
 
+    // Listen for model deletion (e.g. from Models settings page)
+    const modelDeletedUnlisten = listen<string>("model-deleted", () => {
+      loadModels();
+      loadCurrentModel();
+    });
+
     // Click outside to close dropdown
     const handleClickOutside = (event: MouseEvent) => {
       if (
@@ -276,6 +282,7 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({
       extractionStartedUnlisten.then((fn) => fn());
       extractionCompletedUnlisten.then((fn) => fn());
       extractionFailedUnlisten.then((fn) => fn());
+      modelDeletedUnlisten.then((fn) => fn());
     };
   }, []);
 
@@ -370,8 +377,11 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({
   };
 
   const getModelDisplayText = (): string => {
-    if (isRemoteProvider) {
-      return t("modelSelector.remoteMode");
+    if (transcriptionProvider === "remote_openai_compatible") {
+      return t("modelSelector.remoteApiActive");
+    }
+    if (transcriptionProvider === "remote_soniox") {
+      return t("modelSelector.remoteSonioxActive");
     }
 
     if (extractingModels.size > 0) {
@@ -438,15 +448,18 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({
     }
   };
 
-  const handleRemoteSttSelect = useCallback(async () => {
-    try {
-      setShowModelDropdown(false);
-      await setTranscriptionProvider("remote_openai_compatible");
-    } catch (err) {
-      const errorMsg = `Failed to switch to Remote STT: ${err}`;
-      onError?.(errorMsg);
-    }
-  }, [setTranscriptionProvider, onError]);
+  const handleRemoteProviderSelect = useCallback(
+    async (provider: string) => {
+      try {
+        setShowModelDropdown(false);
+        await setTranscriptionProvider(provider);
+      } catch (err) {
+        const errorMsg = `Failed to switch to remote provider: ${err}`;
+        onError?.(errorMsg);
+      }
+    },
+    [setTranscriptionProvider, onError],
+  );
 
   const handleModelDelete = async (modelId: string) => {
     const result = await commands.deleteModel(modelId);
@@ -470,6 +483,7 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({
           }}
           disabled={false}
           isRemote={isRemoteProvider}
+          remoteProvider={isRemoteProvider ? transcriptionProvider : undefined}
         />
 
         {/* Model Dropdown */}
@@ -489,8 +503,8 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({
             }}
             onModelDelete={handleModelDelete}
             onError={onError}
-            isRemoteProvider={isRemoteProvider}
-            onRemoteSttSelect={handleRemoteSttSelect}
+            currentProvider={transcriptionProvider}
+            onRemoteProviderSelect={handleRemoteProviderSelect}
           />
         )}
       </div>

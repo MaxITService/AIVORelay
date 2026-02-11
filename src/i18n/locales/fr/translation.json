@@ -10,6 +10,7 @@
   },
   "sidebar": {
     "general": "Général",
+    "models": "Modèles",
     "advanced": "Avancé",
     "postProcessing": "Post-traitement",
     "history": "Historique",
@@ -25,6 +26,7 @@
       "accuracy": "précision",
       "speed": "vitesse"
     },
+    "customModelDescription": "User-provided model in local models folder",
     "models": {
       "small": {
         "name": "Whisper Small",
@@ -81,7 +83,12 @@
     "modelError": "Erreur du Modèle",
     "modelUnloaded": "Modèle Déchargé",
     "noModelDownloadRequired": "Aucun Modèle - Téléchargement Requis",
-    "deleteModel": "Supprimer {{modelName}}"
+    "deleteModel": "Supprimer {{modelName}}",
+    "custom": "Custom",
+    "customModelsHelpTitle": "Custom Whisper Models",
+    "customModelsHelpDescription": "Place Whisper GGML .bin files into the app models folder. They are detected on startup and shown here as custom models.",
+    "customModelsHelpHint": "After adding files, restart AivoRelay to refresh the model list.",
+    "customModelsDetected": "Detected custom models: {{count}}"
   },
   "settings": {
     "general": {
@@ -155,6 +162,10 @@
         "label": "Lancer au démarrage",
         "description": "Démarrer automatiquement AivoRelay lorsque vous vous connectez à votre ordinateur."
       },
+      "showTrayIcon": {
+        "label": "Afficher l'icône de la barre système",
+        "description": "Afficher l'icône d'AivoRelay dans la barre système."
+      },
       "overlay": {
         "title": "Position de la fenêtre d'enregistrement",
         "description": "Afficher un retour visuel pendant l'enregistrement et la transcription. Sur Linux, 'Aucune' est recommandé.",
@@ -181,6 +192,17 @@
         "options": {
           "dontModify": "Ne pas modifier le presse-papiers",
           "copyToClipboard": "Copier dans le presse-papiers"
+        }
+      },
+      "autoSubmit": {
+        "title": "Envoi automatique",
+        "description": "Envoie automatiquement la combinaison de touches sélectionnée après l'insertion du texte. Cmd+Enter s'applique sur macOS, tandis que Windows/Linux utilisent Super+Enter.",
+        "options": {
+          "off": "Désactivé",
+          "enter": "Entrée",
+          "cmdEnter": "Cmd+Enter",
+          "superEnter": "Super+Enter",
+          "ctrlEnter": "Ctrl+Enter"
         }
       },
       "translateToEnglish": {
@@ -335,6 +357,10 @@
       "appendTrailingSpace": {
         "label": "Ajouter un espace final",
         "description": "Ajouter un espace après la transcription collée"
+      },
+      "filterSilence": {
+        "label": "Filtrer le silence",
+        "description": "Utiliser la détection d'activité vocale pour supprimer les silences des enregistrements avant la transcription. Essayez de désactiver si vous rencontrez des problèmes, comme la suppression de parties de la parole. La désactivation peut entraîner des \"hallucinations\" plus fréquentes dans la sortie."
       },
       "paths": {
         "appData": "Données de l'application :",

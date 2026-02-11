@@ -9,6 +9,7 @@
   },
   "sidebar": {
     "general": "通用",
+    "models": "模型",
     "advanced": "高级",
     "postProcessing": "后处理",
     "history": "历史记录",
@@ -24,6 +25,7 @@
       "accuracy": "准确度",
       "speed": "速度"
     },
+    "customModelDescription": "User-provided model in local models folder",
     "models": {
       "small": {
         "name": "Whisper Small",
@@ -80,7 +82,12 @@
     "modelError": "模型错误",
     "modelUnloaded": "模型已卸载",
     "noModelDownloadRequired": "无模型 - 需要下载",
-    "deleteModel": "删除 {{modelName}}"
+    "deleteModel": "删除 {{modelName}}",
+    "custom": "Custom",
+    "customModelsHelpTitle": "Custom Whisper Models",
+    "customModelsHelpDescription": "Place Whisper GGML .bin files into the app models folder. They are detected on startup and shown here as custom models.",
+    "customModelsHelpHint": "After adding files, restart AivoRelay to refresh the model list.",
+    "customModelsDetected": "Detected custom models: {{count}}"
   },
   "settings": {
     "general": {
@@ -154,6 +161,10 @@
         "label": "开机启动",
         "description": "登录计算机时自动启动 AivoRelay。"
       },
+      "showTrayIcon": {
+        "label": "显示托盘图标",
+        "description": "在系统托盘中显示 AivoRelay 图标。"
+      },
       "overlay": {
         "title": "悬浮窗位置",
         "description": "在录制和转录期间显示可视反馈悬浮窗。在 Linux 上建议选择「无」。",
@@ -180,6 +191,17 @@
         "options": {
           "dontModify": "不修改剪贴板",
           "copyToClipboard": "复制到剪贴板"
+        }
+      },
+      "autoSubmit": {
+        "title": "自动提交",
+        "description": "在文本插入后自动发送所选的按键组合。macOS 上使用 Cmd+Enter，Windows/Linux 上使用 Super+Enter。",
+        "options": {
+          "off": "关闭",
+          "enter": "Enter",
+          "cmdEnter": "Cmd+Enter",
+          "superEnter": "Super+Enter",
+          "ctrlEnter": "Ctrl+Enter"
         }
       },
       "translateToEnglish": {
@@ -334,6 +356,10 @@
       "appendTrailingSpace": {
         "label": "追加尾部空格",
         "description": "在粘贴的转录后添加空格"
+      },
+      "filterSilence": {
+        "label": "过滤静音",
+        "description": "使用语音活动检测在转录前去除录音中的静音部分。如果遇到问题（例如语音部分被删除），请尝试禁用。禁用可能导致输出中出现更频繁的\"幻觉\"。"
       },
       "paths": {
         "appData": "应用数据:",

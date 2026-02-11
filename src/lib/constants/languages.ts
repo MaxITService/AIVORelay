@@ -54,6 +54,7 @@ export const LANGUAGES: Language[] = [
   { value: "te", label: "Telugu" },
   { value: "th", label: "Thai" },
   { value: "zh-Hant", label: "Traditional Chinese" },
+  { value: "yue", label: "Cantonese" },
   { value: "tr", label: "Turkish" },
   { value: "uk", label: "Ukrainian" },
   { value: "ur", label: "Urdu" },
