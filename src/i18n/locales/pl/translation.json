@@ -2,11 +2,13 @@
   "tray": {
     "settings": "Ustawienia...",
     "copyLastTranscript": "Kopiuj ostatnią transkrypcję",
+    "unloadModel": "Unload Model",
     "quit": "Zamknij",
     "cancel": "Anuluj"
   },
   "sidebar": {
     "general": "Ogólne",
+    "models": "Modele",
     "advanced": "Zaawansowane",
     "postProcessing": "Postproces",
     "history": "Historia",
@@ -22,6 +24,7 @@
       "accuracy": "dokładność",
       "speed": "szybkość"
     },
+    "customModelDescription": "User-provided model in local models folder",
     "models": {
       "small": {
         "name": "Whisper Small",
@@ -78,7 +81,12 @@
     "modelError": "Błąd modelu",
     "modelUnloaded": "Model wyładowany",
     "noModelDownloadRequired": "Brak modelu – wymagane pobranie",
-    "deleteModel": "Usuń {{modelName}}"
+    "deleteModel": "Usuń {{modelName}}",
+    "custom": "Custom",
+    "customModelsHelpTitle": "Custom Whisper Models",
+    "customModelsHelpDescription": "Place Whisper GGML .bin files into the app models folder. They are detected on startup and shown here as custom models.",
+    "customModelsHelpHint": "After adding files, restart AivoRelay to refresh the model list.",
+    "customModelsDetected": "Detected custom models: {{count}}"
   },
   "settings": {
     "general": {
@@ -152,6 +160,10 @@
         "label": "Uruchamiaj przy starcie",
         "description": "Automatycznie uruchamiaj AivoRelay po zalogowaniu."
       },
+      "showTrayIcon": {
+        "label": "Pokaż ikonę w zasobniku",
+        "description": "Wyświetlaj ikonę AivoRelay w zasobniku systemowym."
+      },
       "overlay": {
         "title": "Pozycja nakładki",
         "description": "Wyświetlaj wizualną nakładkę podczas nagrywania i transkrypcji. Na Linuxie zalecane 'Brak'.",
@@ -178,6 +190,17 @@
         "options": {
           "dontModify": "Nie modyfikuj schowka",
           "copyToClipboard": "Kopiuj do schowka"
+        }
+      },
+      "autoSubmit": {
+        "title": "Automatyczne wysyłanie",
+        "description": "Automatycznie wysyła wybraną kombinację klawiszy po wstawieniu tekstu. Cmd+Enter dotyczy macOS, natomiast Windows/Linux używają Super+Enter.",
+        "options": {
+          "off": "Wyłączone",
+          "enter": "Enter",
+          "cmdEnter": "Cmd+Enter",
+          "superEnter": "Super+Enter",
+          "ctrlEnter": "Ctrl+Enter"
         }
       },
       "translateToEnglish": {
@@ -333,6 +356,10 @@
         "label": "Dodaj spację na końcu",
         "description": "Dodaj spację po wklejonej transkrypcji"
       },
+      "filterSilence": {
+        "label": "Filtruj ciszę",
+        "description": "Użyj detekcji aktywności głosowej, aby usunąć ciszę z nagrań przed transkrypcją. Spróbuj wyłączyć, jeśli napotkasz problemy, takie jak usuwanie części mowy. Wyłączenie może prowadzić do częstszych \"halucynacji\" na wyjściu."
+      },
       "paths": {
         "appData": "Dane aplikacji:",
         "models": "Modele:",
@@ -422,3 +449,4 @@
     "transcribing": "Transkrypcja..."
   }
 }
+

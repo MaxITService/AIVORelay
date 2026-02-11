@@ -22,12 +22,15 @@ enum Cmd {
     Shutdown,
 }
 
+pub type StreamFrameCallback = Arc<dyn Fn(Vec<f32>) + Send + Sync + 'static>;
+
 pub struct AudioRecorder {
     device: Option<Device>,
     cmd_tx: Option<mpsc::Sender<Cmd>>,
     worker_handle: Option<std::thread::JoinHandle<()>>,
     vad: Option<Arc<Mutex<Box<dyn vad::VoiceActivityDetector>>>>,
     level_cb: Option<Arc<dyn Fn(Vec<f32>) + Send + Sync + 'static>>,
+    stream_frame_cb: Arc<Mutex<Option<StreamFrameCallback>>>,
 }
 
 impl AudioRecorder {
@@ -38,6 +41,7 @@ impl AudioRecorder {
             worker_handle: None,
             vad: None,
             level_cb: None,
+            stream_frame_cb: Arc::new(Mutex::new(None)),
         })
     }
 
@@ -52,6 +56,12 @@ impl AudioRecorder {
     {
         self.level_cb = Some(Arc::new(cb));
         self
+    }
+
+    pub fn set_stream_frame_callback(&self, callback: Option<StreamFrameCallback>) {
+        if let Ok(mut guard) = self.stream_frame_cb.lock() {
+            *guard = callback;
+        }
     }
 
     pub fn open(&mut self, device: Option<Device>) -> Result<(), Box<dyn std::error::Error>> {
@@ -77,6 +87,7 @@ impl AudioRecorder {
         let vad = self.vad.clone();
         // Move the optional level callback into the worker thread
         let level_cb = self.level_cb.clone();
+        let stream_frame_cb = Arc::clone(&self.stream_frame_cb);
 
         let worker = std::thread::spawn(move || {
             // Wrap all fallible operations in a closure that returns Result
@@ -127,7 +138,7 @@ impl AudioRecorder {
                     // Signal success
                     let _ = init_tx.send(Ok(()));
                     // Keep stream alive while processing
-                    run_consumer(sample_rate, vad, sample_rx, cmd_rx, level_cb);
+                    run_consumer(sample_rate, vad, sample_rx, cmd_rx, level_cb, stream_frame_cb);
                     drop(stream);
                 }
                 Err(e) => {
@@ -279,6 +290,7 @@ fn run_consumer(
     sample_rx: mpsc::Receiver<Vec<f32>>,
     cmd_rx: mpsc::Receiver<Cmd>,
     level_cb: Option<Arc<dyn Fn(Vec<f32>) + Send + Sync + 'static>>,
+    stream_frame_cb: Arc<Mutex<Option<StreamFrameCallback>>>,
 ) {
     let mut frame_resampler = FrameResampler::new(
         in_sample_rate as usize,
@@ -336,6 +348,12 @@ fn run_consumer(
 
         // ---------- existing pipeline ------------------------------------ //
         frame_resampler.push(&raw, &mut |frame: &[f32]| {
+            if recording {
+                let callback = stream_frame_cb.lock().ok().and_then(|guard| guard.clone());
+                if let Some(cb) = callback {
+                    cb(frame.to_vec());
+                }
+            }
             handle_frame(frame, recording, &vad, &mut processed_samples)
         });
 

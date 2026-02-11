@@ -15,9 +15,10 @@ use crate::settings::ShortcutBinding;
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 use crate::settings::APPLE_INTELLIGENCE_DEFAULT_MODEL_ID;
 use crate::settings::{
-    self, get_settings, ClipboardHandling, LLMPrompt, OverlayPosition, PasteMethod,
+    self, get_settings, AutoSubmitKey, ClipboardHandling, LLMPrompt, OverlayPosition, PasteMethod,
     RemoteSttDebugMode, ShortcutEngine, SoundTheme, TranscriptionProvider,
-    APPLE_INTELLIGENCE_PROVIDER_ID,
+    APPLE_INTELLIGENCE_PROVIDER_ID, SONIOX_DEFAULT_LIVE_FINALIZE_TIMEOUT_MS,
+    SONIOX_DEFAULT_MAX_ENDPOINT_DELAY_MS, SONIOX_DEFAULT_MODEL,
 };
 use crate::tray;
 use crate::ManagedToggleState;
@@ -472,6 +473,7 @@ pub fn change_transcription_provider_setting(
     let parsed = match provider.as_str() {
         "local" => TranscriptionProvider::Local,
         "remote_openai_compatible" => TranscriptionProvider::RemoteOpenAiCompatible,
+        "remote_soniox" => TranscriptionProvider::RemoteSoniox,
         other => {
             warn!(
                 "Invalid transcription provider '{}', defaulting to local",
@@ -483,8 +485,11 @@ pub fn change_transcription_provider_setting(
 
     #[cfg(not(target_os = "windows"))]
     {
-        if parsed == TranscriptionProvider::RemoteOpenAiCompatible {
-            return Err("Remote STT is only available on Windows".to_string());
+        if matches!(
+            parsed,
+            TranscriptionProvider::RemoteOpenAiCompatible | TranscriptionProvider::RemoteSoniox
+        ) {
+            return Err("Remote transcription providers are only available on Windows".to_string());
         }
     }
 
@@ -622,6 +627,48 @@ pub fn change_beta_voice_commands_enabled_setting(
 
 #[tauri::command]
 #[specta::specta]
+pub fn change_voice_button_show_aot_toggle_setting(
+    app: AppHandle,
+    enabled: bool,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.voice_button_show_aot_toggle = enabled;
+    settings::write_settings(&app, settings);
+
+    let _ = app.emit(
+        "settings-changed",
+        serde_json::json!({
+            "setting": "voice_button_show_aot_toggle",
+            "value": enabled
+        }),
+    );
+
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_voice_button_single_click_close_setting(
+    app: AppHandle,
+    enabled: bool,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.voice_button_single_click_close = enabled;
+    settings::write_settings(&app, settings);
+
+    let _ = app.emit(
+        "settings-changed",
+        serde_json::json!({
+            "setting": "voice_button_single_click_close",
+            "value": enabled
+        }),
+    );
+
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
 pub fn update_custom_words(app: AppHandle, words: Vec<String>) -> Result<(), String> {
     let mut settings = settings::get_settings(&app);
     settings.custom_words = words;
@@ -634,6 +681,18 @@ pub fn update_custom_words(app: AppHandle, words: Vec<String>) -> Result<(), Str
 pub fn change_custom_words_enabled_setting(app: AppHandle, enabled: bool) -> Result<(), String> {
     let mut settings = settings::get_settings(&app);
     settings.custom_words_enabled = enabled;
+    settings::write_settings(&app, settings);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_custom_words_ngram_enabled_setting(
+    app: AppHandle,
+    enabled: bool,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.custom_words_ngram_enabled = enabled;
     settings::write_settings(&app, settings);
     Ok(())
 }
@@ -672,6 +731,15 @@ pub fn change_paste_method_setting(app: AppHandle, method: String) -> Result<(),
 
 #[tauri::command]
 #[specta::specta]
+pub fn change_paste_delay_ms_setting(app: AppHandle, delay: u64) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.paste_delay_ms = delay;
+    settings::write_settings(&app, settings);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
 pub fn change_clipboard_handling_setting(app: AppHandle, handling: String) -> Result<(), String> {
     let mut settings = settings::get_settings(&app);
     let parsed = match handling.as_str() {
@@ -687,6 +755,33 @@ pub fn change_clipboard_handling_setting(app: AppHandle, handling: String) -> Re
         }
     };
     settings.clipboard_handling = parsed;
+    settings::write_settings(&app, settings);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_auto_submit_setting(app: AppHandle, enabled: bool) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.auto_submit = enabled;
+    settings::write_settings(&app, settings);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_auto_submit_key_setting(app: AppHandle, key: String) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    let parsed = match key.as_str() {
+        "enter" => AutoSubmitKey::Enter,
+        "ctrl_enter" => AutoSubmitKey::CtrlEnter,
+        "cmd_enter" => AutoSubmitKey::CmdEnter,
+        other => {
+            warn!("Invalid auto submit key '{}', defaulting to enter", other);
+            AutoSubmitKey::Enter
+        }
+    };
+    settings.auto_submit_key = parsed;
     settings::write_settings(&app, settings);
     Ok(())
 }
@@ -714,6 +809,225 @@ pub fn change_remote_stt_base_url_setting(app: AppHandle, base_url: String) -> R
 pub fn change_remote_stt_model_id_setting(app: AppHandle, model_id: String) -> Result<(), String> {
     let mut settings = settings::get_settings(&app);
     settings.remote_stt.model_id = model_id;
+    settings::write_settings(&app, settings);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_soniox_model_setting(app: AppHandle, model: String) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.soniox_model = if model.trim().is_empty() {
+        SONIOX_DEFAULT_MODEL.to_string()
+    } else {
+        model.trim().to_string()
+    };
+    settings::write_settings(&app, settings);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_soniox_timeout_setting(app: AppHandle, timeout_seconds: u32) -> Result<(), String> {
+    if !(10..=300).contains(&timeout_seconds) {
+        return Err("Timeout must be between 10 and 300 seconds".to_string());
+    }
+
+    let mut settings = settings::get_settings(&app);
+    settings.soniox_timeout_seconds = timeout_seconds;
+    settings::write_settings(&app, settings);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_soniox_live_enabled_setting(app: AppHandle, enabled: bool) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.soniox_live_enabled = enabled;
+    settings::write_settings(&app, settings);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_soniox_language_hints_setting(
+    app: AppHandle,
+    hints: Vec<String>,
+) -> Result<(), String> {
+    let normalized_hints = crate::language_resolver::normalize_soniox_hint_list(hints);
+    if !normalized_hints.rejected.is_empty() {
+        warn!(
+            "Ignoring unsupported Soniox language hints from settings update: {}",
+            normalized_hints.rejected.join(", ")
+        );
+    }
+
+    let mut settings = settings::get_settings(&app);
+    settings.soniox_language_hints = normalized_hints.normalized.into_iter().take(100).collect();
+    settings::write_settings(&app, settings);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_soniox_use_profile_language_hint_only_setting(
+    app: AppHandle,
+    enabled: bool,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.soniox_use_profile_language_hint_only = enabled;
+    settings::write_settings(&app, settings);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_soniox_language_hints_strict_setting(
+    app: AppHandle,
+    enabled: bool,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.soniox_language_hints_strict = enabled;
+    settings::write_settings(&app, settings);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_soniox_endpoint_detection_setting(
+    app: AppHandle,
+    enabled: bool,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.soniox_enable_endpoint_detection = enabled;
+    settings::write_settings(&app, settings);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_soniox_max_endpoint_delay_ms_setting(
+    app: AppHandle,
+    delay_ms: u32,
+) -> Result<(), String> {
+    if !(500..=3000).contains(&delay_ms) {
+        return Err("Soniox endpoint delay must be between 500 and 3000 ms".to_string());
+    }
+
+    let mut settings = settings::get_settings(&app);
+    settings.soniox_max_endpoint_delay_ms = delay_ms;
+    settings::write_settings(&app, settings);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_soniox_language_identification_setting(
+    app: AppHandle,
+    enabled: bool,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.soniox_enable_language_identification = enabled;
+    settings::write_settings(&app, settings);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_soniox_speaker_diarization_setting(
+    app: AppHandle,
+    enabled: bool,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.soniox_enable_speaker_diarization = enabled;
+    settings::write_settings(&app, settings);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_soniox_keepalive_interval_seconds_setting(
+    app: AppHandle,
+    seconds: u32,
+) -> Result<(), String> {
+    if !(5..=20).contains(&seconds) {
+        return Err("Soniox keepalive interval must be between 5 and 20 seconds".to_string());
+    }
+
+    let mut settings = settings::get_settings(&app);
+    settings.soniox_keepalive_interval_seconds = seconds;
+    settings::write_settings(&app, settings);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_soniox_live_finalize_timeout_ms_setting(
+    app: AppHandle,
+    timeout_ms: u32,
+) -> Result<(), String> {
+    if !(100..=20000).contains(&timeout_ms) {
+        return Err("Soniox live finalize timeout must be between 100 and 20000 ms".to_string());
+    }
+
+    let mut settings = settings::get_settings(&app);
+    settings.soniox_live_finalize_timeout_ms = timeout_ms;
+    settings::write_settings(&app, settings);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_soniox_live_instant_stop_setting(app: AppHandle, enabled: bool) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.soniox_live_instant_stop = enabled;
+    settings::write_settings(&app, settings);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_soniox_realtime_fuzzy_correction_enabled_setting(
+    app: AppHandle,
+    enabled: bool,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.soniox_realtime_fuzzy_correction_enabled = enabled;
+    settings::write_settings(&app, settings);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_soniox_realtime_keep_safety_buffer_enabled_setting(
+    app: AppHandle,
+    enabled: bool,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.soniox_realtime_keep_safety_buffer_enabled = enabled;
+    settings::write_settings(&app, settings);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn reset_soniox_settings_to_defaults(app: AppHandle) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.soniox_model = SONIOX_DEFAULT_MODEL.to_string();
+    settings.soniox_timeout_seconds = 30;
+    settings.soniox_live_enabled = true;
+    settings.soniox_language_hints = vec!["en".to_string()];
+    settings.soniox_use_profile_language_hint_only = false;
+    settings.soniox_language_hints_strict = false;
+    settings.soniox_enable_endpoint_detection = true;
+    settings.soniox_max_endpoint_delay_ms = SONIOX_DEFAULT_MAX_ENDPOINT_DELAY_MS;
+    settings.soniox_enable_language_identification = true;
+    settings.soniox_enable_speaker_diarization = true;
+    settings.soniox_keepalive_interval_seconds = 10;
+    settings.soniox_live_finalize_timeout_ms = SONIOX_DEFAULT_LIVE_FINALIZE_TIMEOUT_MS;
+    settings.soniox_live_instant_stop = false;
+    settings.soniox_realtime_fuzzy_correction_enabled = false;
+    settings.soniox_realtime_keep_safety_buffer_enabled = false;
     settings::write_settings(&app, settings);
     Ok(())
 }
@@ -1622,6 +1936,35 @@ pub fn change_append_trailing_space_setting(app: AppHandle, enabled: bool) -> Re
 
 #[tauri::command]
 #[specta::specta]
+pub fn change_filter_silence_setting(app: AppHandle, enabled: bool) -> Result<(), String> {
+    // Don't allow recorder reconfiguration while an active capture is in progress.
+    if let Some(audio_mgr) = app.try_state::<Arc<AudioRecordingManager>>() {
+        if audio_mgr.is_recording() {
+            return Err("Cannot change Filter Silence while recording is active".to_string());
+        }
+    }
+
+    let mut settings = settings::get_settings(&app);
+    let previous = settings.filter_silence;
+    settings.filter_silence = enabled;
+    settings::write_settings(&app, settings);
+
+    if let Some(audio_mgr) = app.try_state::<Arc<AudioRecordingManager>>() {
+        // Recording may start between the pre-check and invalidation; rollback to avoid
+        // persisting a setting that could not be safely applied.
+        if !audio_mgr.invalidate_recorder() {
+            let mut rollback = settings::get_settings(&app);
+            rollback.filter_silence = previous;
+            settings::write_settings(&app, rollback);
+            return Err("Cannot change Filter Silence while recording is active".to_string());
+        }
+    }
+
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
 pub fn change_ai_replace_system_prompt_setting(
     app: AppHandle,
     prompt: String,
@@ -1954,6 +2297,18 @@ pub fn change_ai_replace_selection_push_to_talk_setting(
 
 #[tauri::command]
 #[specta::specta]
+pub fn change_voice_command_push_to_talk_setting(
+    app: AppHandle,
+    enabled: bool,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.voice_command_push_to_talk = enabled;
+    settings::write_settings(&app, settings);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
 pub fn change_connector_auto_open_enabled_setting(
     app: AppHandle,
     enabled: bool,
@@ -2171,6 +2526,18 @@ pub fn change_app_language_setting(app: AppHandle, language: String) -> Result<(
     Ok(())
 }
 
+#[tauri::command]
+#[specta::specta]
+pub fn change_show_tray_icon_setting(app: AppHandle, enabled: bool) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.show_tray_icon = enabled;
+    settings::write_settings(&app, settings);
+
+    tray::set_tray_visibility(&app, enabled);
+
+    Ok(())
+}
+
 // ============================================================================
 // Shortcut Engine Settings
 // ============================================================================
@@ -2304,11 +2671,12 @@ fn validate_shortcut_string(raw: &str) -> Result<(), String> {
     // On other platforms, require a main key for tauri-plugin compatibility
     #[cfg(not(target_os = "windows"))]
     {
+        let normalized = normalize_shortcut_binding(raw);
         let modifiers = [
             "ctrl", "control", "shift", "alt", "option", "meta", "command", "cmd", "super", "win",
             "windows",
         ];
-        let has_non_modifier = raw
+        let has_non_modifier = normalized
             .split('+')
             .any(|part| !modifiers.contains(&part.trim().to_lowercase().as_str()));
 
@@ -2427,8 +2795,8 @@ pub fn register_shortcut(app: &AppHandle, binding: ShortcutBinding) -> Result<()
 /// Check if a shortcut string is compatible with tauri-plugin-global-shortcut.
 /// Returns false for keys that only rdev supports (Caps Lock, Num Lock, modifier-only, etc.)
 pub fn is_shortcut_tauri_compatible(shortcut: &str) -> bool {
-    let lower = shortcut.to_lowercase();
-    let parts: Vec<&str> = lower.split('+').map(|s| s.trim()).collect();
+    let normalized = normalize_shortcut_binding(shortcut);
+    let parts: Vec<&str> = normalized.split('+').map(|s| s.trim()).collect();
 
     // Keys that only rdev supports
     let rdev_only_keys = [
@@ -2462,7 +2830,14 @@ pub fn is_shortcut_tauri_compatible(shortcut: &str) -> bool {
     }
 
     // Try to parse with tauri-plugin to verify
-    shortcut.parse::<Shortcut>().is_ok()
+    normalized.parse::<Shortcut>().is_ok()
+}
+
+fn normalize_shortcut_binding(raw: &str) -> String {
+    let mut normalized = raw.trim().to_lowercase();
+    // Legacy frontend token used "numpad +" which collides with '+' as the delimiter.
+    normalized = normalized.replace("numpad +", "numadd");
+    normalized.replace("numpad+", "numadd")
 }
 
 /// Register shortcut via tauri-plugin-global-shortcut (used on macOS/Linux, and Windows when Tauri engine selected)
@@ -2765,6 +3140,18 @@ pub fn change_text_replacements_before_llm_setting(
 ) -> Result<(), String> {
     let mut settings = settings::get_settings(&app);
     settings.text_replacements_before_llm = enabled;
+    settings::write_settings(&app, settings);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_trim_transcription_output_enabled_setting(
+    app: AppHandle,
+    enabled: bool,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.trim_transcription_output_enabled = enabled;
     settings::write_settings(&app, settings);
     Ok(())
 }

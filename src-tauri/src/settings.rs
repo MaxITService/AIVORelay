@@ -464,19 +464,27 @@ impl TextReplacement {
             if self.case_sensitive {
                 text.replace(&from_processed, &to_processed)
             } else {
-                // Case-insensitive plain text replacement
-                let lower_from = from_processed.to_lowercase();
-                let mut result = String::with_capacity(text.len());
-                let mut remaining = text;
-
-                while let Some(start) = remaining.to_lowercase().find(&lower_from) {
-                    result.push_str(&remaining[..start]);
-                    result.push_str(&to_processed);
-                    remaining = &remaining[start + from_processed.len()..];
-                }
-                result.push_str(remaining);
-                result
+                // Case-insensitive plain text replacement with Unicode-safe indexing
+                replace_case_insensitive_literal(text, &from_processed, &to_processed)
             }
+        }
+    }
+}
+
+fn replace_case_insensitive_literal(text: &str, from: &str, to: &str) -> String {
+    if from.is_empty() {
+        return text.to_string();
+    }
+
+    let pattern = format!("(?i){}", regex::escape(from));
+    match regex::Regex::new(&pattern) {
+        Ok(re) => re.replace_all(text, regex::NoExpand(to)).into_owned(),
+        Err(err) => {
+            warn!(
+                "Failed to build case-insensitive replacement regex for '{}': {}",
+                from, err
+            );
+            text.to_string()
         }
     }
 }
@@ -532,7 +540,13 @@ pub enum TranscriptionProvider {
     Local,
     #[serde(rename = "remote_openai_compatible")]
     RemoteOpenAiCompatible,
+    #[serde(rename = "remote_soniox")]
+    RemoteSoniox,
 }
+
+pub const SONIOX_DEFAULT_MODEL: &str = "stt-rt-v4";
+pub const SONIOX_DEFAULT_MAX_ENDPOINT_DELAY_MS: u32 = 2000;
+pub const SONIOX_DEFAULT_LIVE_FINALIZE_TIMEOUT_MS: u32 = 500;
 
 /// Shortcut engine selection for Windows.
 /// Controls which mechanism is used to listen for global hotkeys.
@@ -631,6 +645,14 @@ pub enum ClipboardHandling {
 
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Type)]
 #[serde(rename_all = "snake_case")]
+pub enum AutoSubmitKey {
+    Enter,
+    CtrlEnter,
+    CmdEnter,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Type)]
+#[serde(rename_all = "snake_case")]
 pub enum RecordingRetentionPeriod {
     Never,
     PreserveLimit,
@@ -658,6 +680,12 @@ impl Default for PasteMethod {
 impl Default for ClipboardHandling {
     fn default() -> Self {
         ClipboardHandling::DontModify
+    }
+}
+
+impl Default for AutoSubmitKey {
+    fn default() -> Self {
+        AutoSubmitKey::Enter
     }
 }
 
@@ -725,6 +753,8 @@ pub struct AppSettings {
     pub start_hidden: bool,
     #[serde(default = "default_autostart_enabled")]
     pub autostart_enabled: bool,
+    #[serde(default = "default_show_tray_icon")]
+    pub show_tray_icon: bool,
     #[serde(default = "default_update_checks_enabled")]
     pub update_checks_enabled: bool,
     #[serde(default = "default_model")]
@@ -733,6 +763,36 @@ pub struct AppSettings {
     pub transcription_provider: TranscriptionProvider,
     #[serde(default = "default_remote_stt_settings")]
     pub remote_stt: RemoteSttSettings,
+    #[serde(default = "default_soniox_model")]
+    pub soniox_model: String,
+    #[serde(default = "default_soniox_timeout_seconds")]
+    pub soniox_timeout_seconds: u32,
+    #[serde(default = "default_soniox_live_enabled")]
+    pub soniox_live_enabled: bool,
+    #[serde(default = "default_soniox_language_hints")]
+    pub soniox_language_hints: Vec<String>,
+    #[serde(default = "default_false")]
+    pub soniox_use_profile_language_hint_only: bool,
+    #[serde(default = "default_false")]
+    pub soniox_language_hints_strict: bool,
+    #[serde(default = "default_true")]
+    pub soniox_enable_endpoint_detection: bool,
+    #[serde(default = "default_soniox_max_endpoint_delay_ms")]
+    pub soniox_max_endpoint_delay_ms: u32,
+    #[serde(default = "default_true")]
+    pub soniox_enable_language_identification: bool,
+    #[serde(default = "default_true")]
+    pub soniox_enable_speaker_diarization: bool,
+    #[serde(default = "default_soniox_keepalive_interval_seconds")]
+    pub soniox_keepalive_interval_seconds: u32,
+    #[serde(default = "default_soniox_live_finalize_timeout_ms")]
+    pub soniox_live_finalize_timeout_ms: u32,
+    #[serde(default = "default_false")]
+    pub soniox_live_instant_stop: bool,
+    #[serde(default = "default_false")]
+    pub soniox_realtime_fuzzy_correction_enabled: bool,
+    #[serde(default = "default_false")]
+    pub soniox_realtime_keep_safety_buffer_enabled: bool,
     #[serde(default = "default_always_on_microphone")]
     pub always_on_microphone: bool,
     #[serde(default)]
@@ -755,6 +815,8 @@ pub struct AppSettings {
     pub custom_words: Vec<String>,
     #[serde(default = "default_custom_words_enabled")]
     pub custom_words_enabled: bool,
+    #[serde(default = "default_custom_words_ngram_enabled")]
+    pub custom_words_ngram_enabled: bool,
     #[serde(default)]
     pub model_unload_timeout: ModelUnloadTimeout,
     #[serde(default = "default_word_correction_threshold")]
@@ -765,11 +827,17 @@ pub struct AppSettings {
     pub recording_retention_period: RecordingRetentionPeriod,
     #[serde(default)]
     pub paste_method: PasteMethod,
+    #[serde(default = "default_paste_delay_ms")]
+    pub paste_delay_ms: u64,
     /// Convert LF to CRLF before clipboard paste (fixes newlines on Windows)
     #[serde(default = "default_true")]
     pub convert_lf_to_crlf: bool,
     #[serde(default)]
     pub clipboard_handling: ClipboardHandling,
+    #[serde(default = "default_auto_submit")]
+    pub auto_submit: bool,
+    #[serde(default)]
+    pub auto_submit_key: AutoSubmitKey,
     #[serde(default = "default_post_process_enabled")]
     pub post_process_enabled: bool,
     #[serde(default = "default_post_process_provider_id")]
@@ -784,6 +852,15 @@ pub struct AppSettings {
     pub post_process_prompts: Vec<LLMPrompt>,
     #[serde(default)]
     pub post_process_selected_prompt_id: Option<String>,
+    /// Whether ${short_prev_transcript} is enabled in LLM prompt templates.
+    #[serde(default = "default_true")]
+    pub llm_context_prev_transcript_enabled: bool,
+    /// Max words retained for ${short_prev_transcript}.
+    #[serde(default = "default_llm_context_prev_transcript_max_words")]
+    pub llm_context_prev_transcript_max_words: usize,
+    /// Expiry window (seconds) for ${short_prev_transcript}.
+    #[serde(default = "default_llm_context_prev_transcript_expiry_seconds")]
+    pub llm_context_prev_transcript_expiry_seconds: u64,
     #[serde(default = "default_ai_replace_system_prompt")]
     pub ai_replace_system_prompt: String,
     #[serde(default = "default_ai_replace_user_prompt")]
@@ -835,6 +912,8 @@ pub struct AppSettings {
     pub mute_while_recording: bool,
     #[serde(default)]
     pub append_trailing_space: bool,
+    #[serde(default = "default_filter_silence")]
+    pub filter_silence: bool,
     #[serde(default = "default_connector_port")]
     pub connector_port: u16,
     #[serde(default = "default_connector_auto_open_enabled")]
@@ -974,6 +1053,12 @@ pub struct AppSettings {
     /// Whether Voice Commands beta feature is enabled in the UI (Debug menu toggle)
     #[serde(default = "default_true")]
     pub beta_voice_commands_enabled: bool,
+    /// Whether to show the bottom always-on-top toggle row in the floating voice button window
+    #[serde(default)]
+    pub voice_button_show_aot_toggle: bool,
+    /// Whether clicking the close "x" once should close the floating voice button window
+    #[serde(default)]
+    pub voice_button_single_click_close: bool,
     // ==================== Text Replacement ====================
     /// Whether text replacement feature is enabled globally
     #[serde(default)]
@@ -990,6 +1075,12 @@ pub struct AppSettings {
     /// Whether to filter filler words (uh, um, hmm, etc.) from transcriptions
     #[serde(default)]
     pub filler_word_filter_enabled: bool,
+    /// Whether to strip invisible Unicode characters (zero-width spaces, BOM) from LLM output
+    #[serde(default = "default_true")]
+    pub zero_width_filter_enabled: bool,
+    /// Whether to trim leading/trailing whitespace from transcription outputs.
+    #[serde(default = "default_true")]
+    pub trim_transcription_output_enabled: bool,
     /// VAD (Voice Activity Detection) threshold for speech detection (0.1-0.9)
     /// Lower = more sensitive (captures quieter speech but may include noise)
     /// Higher = less sensitive (cleaner input but may cut off quiet speech)
@@ -1039,6 +1130,34 @@ fn default_remote_stt_settings() -> RemoteSttSettings {
     }
 }
 
+fn default_soniox_model() -> String {
+    SONIOX_DEFAULT_MODEL.to_string()
+}
+
+fn default_soniox_timeout_seconds() -> u32 {
+    30
+}
+
+fn default_soniox_live_enabled() -> bool {
+    true
+}
+
+fn default_soniox_language_hints() -> Vec<String> {
+    vec!["en".to_string()]
+}
+
+fn default_soniox_max_endpoint_delay_ms() -> u32 {
+    SONIOX_DEFAULT_MAX_ENDPOINT_DELAY_MS
+}
+
+fn default_soniox_keepalive_interval_seconds() -> u32 {
+    10
+}
+
+fn default_soniox_live_finalize_timeout_ms() -> u32 {
+    SONIOX_DEFAULT_LIVE_FINALIZE_TIMEOUT_MS
+}
+
 fn default_vad_threshold() -> f32 {
     0.3 // Original Handy default - more sensitive
 }
@@ -1086,7 +1205,19 @@ fn default_word_correction_threshold() -> f64 {
     0.18
 }
 
+fn default_paste_delay_ms() -> u64 {
+    60
+}
+
+fn default_auto_submit() -> bool {
+    false
+}
+
 fn default_custom_words_enabled() -> bool {
+    true
+}
+
+fn default_custom_words_ngram_enabled() -> bool {
     true
 }
 
@@ -1110,10 +1241,26 @@ fn default_post_process_enabled() -> bool {
     false
 }
 
+fn default_llm_context_prev_transcript_max_words() -> usize {
+    200
+}
+
+fn default_llm_context_prev_transcript_expiry_seconds() -> u64 {
+    300
+}
+
 fn default_app_language() -> String {
     tauri_plugin_os::locale()
         .and_then(|l| l.split(['-', '_']).next().map(String::from))
         .unwrap_or_else(|| "en".to_string())
+}
+
+fn default_show_tray_icon() -> bool {
+    true
+}
+
+fn default_filter_silence() -> bool {
+    true
 }
 
 fn default_connector_port() -> u16 {
@@ -1236,6 +1383,10 @@ fn default_ai_replace_allow_no_selection() -> bool {
 
 fn default_true() -> bool {
     true
+}
+
+fn default_false() -> bool {
+    false
 }
 
 fn default_ai_replace_no_selection_system_prompt() -> String {
@@ -1523,6 +1674,17 @@ pub fn get_default_settings() -> AppSettings {
             current_binding: "".to_string(),
         },
     );
+    #[cfg(target_os = "windows")]
+    bindings.insert(
+        "spawn_button".to_string(),
+        ShortcutBinding {
+            id: "spawn_button".to_string(),
+            name: "Spawn Voice Activation Button".to_string(),
+            description: "Open a floating on-screen voice activation button window.".to_string(),
+            default_binding: "".to_string(),
+            current_binding: "".to_string(),
+        },
+    );
     // Default profile shortcut (optional - uses global settings when active)
     bindings.insert(
         "transcribe_default".to_string(),
@@ -1555,10 +1717,26 @@ pub fn get_default_settings() -> AppSettings {
         sound_theme: default_sound_theme(),
         start_hidden: default_start_hidden(),
         autostart_enabled: default_autostart_enabled(),
+        show_tray_icon: default_show_tray_icon(),
         update_checks_enabled: default_update_checks_enabled(),
         selected_model: "".to_string(),
         transcription_provider: default_transcription_provider(),
         remote_stt: default_remote_stt_settings(),
+        soniox_model: default_soniox_model(),
+        soniox_timeout_seconds: default_soniox_timeout_seconds(),
+        soniox_live_enabled: default_soniox_live_enabled(),
+        soniox_language_hints: default_soniox_language_hints(),
+        soniox_use_profile_language_hint_only: default_false(),
+        soniox_language_hints_strict: default_false(),
+        soniox_enable_endpoint_detection: default_true(),
+        soniox_max_endpoint_delay_ms: default_soniox_max_endpoint_delay_ms(),
+        soniox_enable_language_identification: default_true(),
+        soniox_enable_speaker_diarization: default_true(),
+        soniox_keepalive_interval_seconds: default_soniox_keepalive_interval_seconds(),
+        soniox_live_finalize_timeout_ms: default_soniox_live_finalize_timeout_ms(),
+        soniox_live_instant_stop: default_false(),
+        soniox_realtime_fuzzy_correction_enabled: default_false(),
+        soniox_realtime_keep_safety_buffer_enabled: default_false(),
         always_on_microphone: false,
         selected_microphone: None,
         clamshell_microphone: None,
@@ -1570,13 +1748,17 @@ pub fn get_default_settings() -> AppSettings {
         log_level: default_log_level(),
         custom_words: Vec::new(),
         custom_words_enabled: default_custom_words_enabled(),
+        custom_words_ngram_enabled: default_custom_words_ngram_enabled(),
         model_unload_timeout: ModelUnloadTimeout::Never,
         word_correction_threshold: default_word_correction_threshold(),
         history_limit: default_history_limit(),
         recording_retention_period: default_recording_retention_period(),
         paste_method: PasteMethod::default(),
+        paste_delay_ms: default_paste_delay_ms(),
         convert_lf_to_crlf: true,
         clipboard_handling: ClipboardHandling::default(),
+        auto_submit: default_auto_submit(),
+        auto_submit_key: AutoSubmitKey::default(),
         post_process_enabled: default_post_process_enabled(),
         post_process_provider_id: default_post_process_provider_id(),
         post_process_providers: default_post_process_providers(),
@@ -1584,6 +1766,10 @@ pub fn get_default_settings() -> AppSettings {
         post_process_models: default_post_process_models(),
         post_process_prompts: default_post_process_prompts(),
         post_process_selected_prompt_id: None,
+        llm_context_prev_transcript_enabled: true,
+        llm_context_prev_transcript_max_words: default_llm_context_prev_transcript_max_words(),
+        llm_context_prev_transcript_expiry_seconds:
+            default_llm_context_prev_transcript_expiry_seconds(),
         ai_replace_system_prompt: default_ai_replace_system_prompt(),
         ai_replace_user_prompt: default_ai_replace_user_prompt(),
         ai_replace_max_chars: default_ai_replace_max_chars(),
@@ -1609,6 +1795,7 @@ pub fn get_default_settings() -> AppSettings {
         ai_replace_selection_push_to_talk: true,
         mute_while_recording: false,
         append_trailing_space: false,
+        filter_silence: default_filter_silence(),
         connector_port: default_connector_port(),
         connector_auto_open_enabled: default_connector_auto_open_enabled(),
         connector_auto_open_url: default_connector_auto_open_url(),
@@ -1663,12 +1850,16 @@ pub fn get_default_settings() -> AppSettings {
         voice_command_word_similarity_threshold: default_voice_command_word_similarity_threshold(),
         // Beta Feature Flags
         beta_voice_commands_enabled: false,
+        voice_button_show_aot_toggle: false,
+        voice_button_single_click_close: false,
         // Text Replacement
         text_replacements_enabled: false,
         text_replacements: Vec::new(),
         text_replacements_before_llm: false,
         // Audio Processing
         filler_word_filter_enabled: false,
+        zero_width_filter_enabled: true,
+        trim_transcription_output_enabled: true,
         vad_threshold: default_vad_threshold(),
         // Shortcut Engine (Windows only)
         shortcut_engine: ShortcutEngine::default(),
@@ -1865,19 +2056,18 @@ impl AppSettings {
                 };
 
                 #[cfg(not(target_os = "windows"))]
-                let api_key = if self.voice_command_provider_id.as_deref()
-                    != Some(provider.id.as_str())
-                {
-                    self.post_process_api_keys
-                        .get(&provider.id)
-                        .cloned()
-                        .unwrap_or_default()
-                } else {
-                    self.voice_command_api_keys
-                        .get(&provider.id)
-                        .cloned()
-                        .unwrap_or_default()
-                };
+                let api_key =
+                    if self.voice_command_provider_id.as_deref() != Some(provider.id.as_str()) {
+                        self.post_process_api_keys
+                            .get(&provider.id)
+                            .cloned()
+                            .unwrap_or_default()
+                    } else {
+                        self.voice_command_api_keys
+                            .get(&provider.id)
+                            .cloned()
+                            .unwrap_or_default()
+                    };
 
                 // Use voice command model with fallback to post-processing model
                 let model = self
@@ -1986,12 +2176,6 @@ pub fn load_or_create_app_settings(app: &AppHandle) -> AppSettings {
     };
 
     if ensure_post_process_defaults(&mut settings) {
-        store.set("settings", serde_json::to_value(&settings).unwrap());
-    }
-
-    // Force beta features to be enabled (removing "debug only" status)
-    if !settings.beta_voice_commands_enabled {
-        settings.beta_voice_commands_enabled = true;
         store.set("settings", serde_json::to_value(&settings).unwrap());
     }
 

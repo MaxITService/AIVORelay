@@ -31,6 +31,7 @@ const Footer: React.FC = () => {
           />
           <VramMeter refreshNonce={vramRefreshNonce} />
         </div>
+
         {/* Version Info */}
         <div className="flex items-center gap-2">
           {/* eslint-disable-next-line i18next/no-literal-string */}

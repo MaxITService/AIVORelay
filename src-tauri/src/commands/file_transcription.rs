@@ -5,13 +5,14 @@
 
 use crate::audio_toolkit::apply_custom_words;
 use crate::managers::remote_stt::RemoteSttManager;
+use crate::managers::soniox_stt::{SonioxAsyncTranscriptionOptions, SonioxSttManager};
 use crate::managers::transcription::TranscriptionManager;
 use crate::settings::{get_settings, TranscriptionProvider};
 use crate::subtitle::{
     get_format_extension, segments_to_srt, segments_to_vtt, OutputFormat, SubtitleSegment,
 };
 use log::{debug, error, info};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use specta::Type;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -26,10 +27,21 @@ pub struct FileTranscriptionResult {
     pub saved_file_path: Option<String>,
     /// The segments with timestamps (only populated for SRT/VTT formats)
     pub segments: Option<Vec<SubtitleSegment>>,
+    /// Optional informational message for UI display
+    pub info_message: Option<String>,
+}
+
+#[derive(Serialize, Deserialize, Type, Debug, Clone, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct SonioxFileTranscriptionOptions {
+    pub language_hints: Option<Vec<String>>,
+    pub enable_speaker_diarization: Option<bool>,
+    pub enable_language_identification: Option<bool>,
 }
 
 /// Supported audio file extensions
 const SUPPORTED_EXTENSIONS: &[&str] = &["wav", "mp3", "m4a", "ogg", "flac", "webm"];
+const SONIOX_LATEST_ASYNC_MODEL: &str = "stt-async-v4";
 
 /// Get the list of supported audio file extensions
 #[tauri::command]
@@ -46,6 +58,7 @@ pub fn get_supported_audio_extensions() -> Vec<String> {
 /// * `save_to_file` - If true, saves the transcription to a file in Documents folder
 /// * `output_format` - Output format: "text" (default), "srt", or "vtt"
 /// * `custom_words_enabled_override` - Optional override for applying custom words
+/// * `soniox_options_override` - Optional Soniox async options for language hints and recognition flags
 ///
 /// # Returns
 /// FileTranscriptionResult with the transcribed text and optional saved file path
@@ -59,6 +72,7 @@ pub async fn transcribe_audio_file(
     output_format: Option<OutputFormat>,
     model_override: Option<String>,
     custom_words_enabled_override: Option<bool>,
+    soniox_options_override: Option<SonioxFileTranscriptionOptions>,
 ) -> Result<FileTranscriptionResult, String> {
     let path = PathBuf::from(&file_path);
     let format = output_format.unwrap_or_default();
@@ -110,6 +124,7 @@ pub async fn transcribe_audio_file(
     let apply_custom_words_enabled =
         custom_words_enabled_override.unwrap_or(settings.custom_words_enabled);
     let should_apply_custom_words = apply_custom_words_enabled && !settings.custom_words.is_empty();
+    let mut info_message: Option<String> = None;
 
     // Perform transcription - get segments for subtitle formats
     let needs_segments = matches!(format, OutputFormat::Srt | OutputFormat::Vtt);
@@ -118,6 +133,8 @@ pub async fn transcribe_audio_file(
     // Otherwise, check if we should use remote.
     let use_remote = model_override.is_none()
         && settings.transcription_provider == TranscriptionProvider::RemoteOpenAiCompatible;
+    let use_soniox = model_override.is_none()
+        && settings.transcription_provider == TranscriptionProvider::RemoteSoniox;
 
     let (transcription_text, segments) = if use_remote {
         // Remote STT - currently doesn't support segments
@@ -158,6 +175,7 @@ pub async fn transcribe_audio_file(
                 &text,
                 &settings.custom_words,
                 settings.word_correction_threshold,
+                settings.custom_words_ngram_enabled,
             )
         } else {
             text
@@ -174,6 +192,105 @@ pub async fn transcribe_audio_file(
         // spanning the estimated duration if subtitle format is requested
         let segs = if needs_segments {
             // Estimate duration: ~150 words per minute average
+            let word_count = corrected.split_whitespace().count();
+            let estimated_duration = (word_count as f32 / 150.0) * 60.0;
+            Some(vec![SubtitleSegment {
+                start: 0.0,
+                end: estimated_duration.max(1.0),
+                text: corrected.clone(),
+            }])
+        } else {
+            None
+        };
+
+        (corrected, segs)
+    } else if use_soniox {
+        // Soniox remote STT - currently doesn't support segments
+        let soniox_manager = app.state::<Arc<SonioxSttManager>>();
+        let operation_id = soniox_manager.start_operation();
+        let selected_soniox_model = settings.soniox_model.trim();
+        let selected_model_for_message = if selected_soniox_model.is_empty() {
+            "(empty)"
+        } else {
+            selected_soniox_model
+        };
+
+        if selected_soniox_model != SONIOX_LATEST_ASYNC_MODEL {
+            info_message = Some(format!(
+                "Soniox API detected. We are auto switching for the following model: {}. Selected model was '{}'. Reason: Transcribe File uses Soniox async endpoint (/v1/transcriptions), and latest-only mode enforces the latest async model.",
+                SONIOX_LATEST_ASYNC_MODEL, selected_model_for_message
+            ));
+        }
+
+        // Determine language: use profile setting if available, otherwise global setting
+        let language = profile
+            .as_ref()
+            .map(|p| p.language.clone())
+            .unwrap_or_else(|| settings.selected_language.clone());
+
+        let soniox_options_override = soniox_options_override.unwrap_or_default();
+        let language_hints = normalize_soniox_language_hints(
+            soniox_options_override.language_hints.clone(),
+        )
+        .or_else(|| normalize_soniox_language_hints(Some(settings.soniox_language_hints.clone())));
+        let enable_speaker_diarization = soniox_options_override
+            .enable_speaker_diarization
+            .unwrap_or(settings.soniox_enable_speaker_diarization);
+        let enable_language_identification = soniox_options_override
+            .enable_language_identification
+            .unwrap_or(settings.soniox_enable_language_identification);
+        let soniox_options = SonioxAsyncTranscriptionOptions {
+            language_hints,
+            enable_speaker_diarization: Some(enable_speaker_diarization),
+            enable_language_identification: Some(enable_language_identification),
+        };
+
+        #[cfg(target_os = "windows")]
+        let api_key = crate::secure_keys::get_soniox_api_key();
+
+        #[cfg(not(target_os = "windows"))]
+        let api_key = String::new();
+
+        let text = soniox_manager
+            .transcribe_file_async(
+                Some(operation_id),
+                &api_key,
+                SONIOX_LATEST_ASYNC_MODEL,
+                settings.soniox_timeout_seconds,
+                &samples,
+                Some(language.as_str()),
+                settings.trim_transcription_output_enabled,
+                soniox_options,
+            )
+            .await
+            .map_err(|e| format!("Soniox transcription failed: {}", e))?;
+
+        if soniox_manager.is_cancelled(operation_id) {
+            return Err("Soniox transcription was cancelled".to_string());
+        }
+
+        // Apply custom word corrections
+        let corrected = if should_apply_custom_words {
+            apply_custom_words(
+                &text,
+                &settings.custom_words,
+                settings.word_correction_threshold,
+                settings.custom_words_ngram_enabled,
+            )
+        } else {
+            text
+        };
+
+        // Apply filler word filter (if enabled)
+        let corrected = if settings.filler_word_filter_enabled {
+            crate::audio_toolkit::filter_transcription_output(&corrected)
+        } else {
+            corrected
+        };
+
+        // For remote STT without segment support, create a single segment
+        // spanning the estimated duration if subtitle format is requested
+        let segs = if needs_segments {
             let word_count = corrected.split_whitespace().count();
             let estimated_duration = (word_count as f32 / 150.0) * 60.0;
             Some(vec![SubtitleSegment {
@@ -333,7 +450,42 @@ pub async fn transcribe_audio_file(
         text: output_text,
         saved_file_path,
         segments,
+        info_message,
     })
+}
+
+fn normalize_soniox_language_hints(hints: Option<Vec<String>>) -> Option<Vec<String>> {
+    let Some(hints) = hints else {
+        return None;
+    };
+
+    let mut deduped = Vec::new();
+    for hint in hints {
+        let normalized = hint.trim().to_lowercase().replace('_', "-");
+        if normalized.is_empty() || normalized == "auto" || normalized == "os_input" {
+            continue;
+        }
+        let normalized = if normalized == "zh-hans" || normalized == "zh-hant" {
+            "zh".to_string()
+        } else {
+            normalized
+                .split('-')
+                .next()
+                .unwrap_or_default()
+                .trim()
+                .to_string()
+        };
+        if normalized.is_empty() || deduped.iter().any(|value| value == &normalized) {
+            continue;
+        }
+        deduped.push(normalized);
+    }
+
+    if deduped.is_empty() {
+        None
+    } else {
+        Some(deduped)
+    }
 }
 
 /// Decode an audio file to f32 PCM samples at 16kHz

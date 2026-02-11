@@ -19,6 +19,7 @@ import { UpdateChecksToggle } from "../UpdateChecksToggle";
 import { ToggleSwitch } from "../../ui/ToggleSwitch";
 import { ConfirmationModal } from "../../ui/ConfirmationModal";
 import { useSettings } from "../../../hooks/useSettings";
+import { OPEN_FIRST_START_WIZARD_EVENT } from "../../../constants/appEvents";
 
 export const DebugSettings: React.FC = () => {
   const { t } = useTranslation();
@@ -40,7 +41,9 @@ export const DebugSettings: React.FC = () => {
     }
   };
 
-
+  const handleOpenFirstStartWizard = () => {
+    window.dispatchEvent(new Event(OPEN_FIRST_START_WIZARD_EVENT));
+  };
 
   return (
     <div className="max-w-3xl w-full mx-auto space-y-6">
@@ -60,7 +63,7 @@ export const DebugSettings: React.FC = () => {
         <AlwaysOnMicrophone descriptionMode="tooltip" grouped={true} />
         <ClamshellMicrophoneSelector descriptionMode="tooltip" grouped={true} />
         <MuteWhileRecording descriptionMode="tooltip" grouped={true} />
-        <AppendTrailingSpace descriptionMode="tooltip" grouped={true} />
+        <AppendTrailingSpace descriptionMode="inline" grouped={true} />
         {/* Cancel shortcut is disabled on Linux due to instability with dynamic shortcut registration */}
         {!isLinux && (
           <HandyShortcut
@@ -118,6 +121,23 @@ export const DebugSettings: React.FC = () => {
             <ShortcutEngineSelector />
           </>
         )}
+      </SettingsGroup>
+
+      <SettingsGroup title={t("settings.debug.tools.title")}>
+        <SettingContainer
+          title={t("settings.debug.firstStartWizard.title")}
+          description={t("settings.debug.firstStartWizard.description")}
+          descriptionMode="inline"
+          grouped={true}
+        >
+          <button
+            type="button"
+            onClick={handleOpenFirstStartWizard}
+            className="px-3 py-1.5 bg-[#2b2b2b] hover:bg-[#3c3c3c] border border-[#3c3c3c] rounded-lg text-xs text-gray-200 font-medium transition-colors"
+          >
+            {t("settings.debug.firstStartWizard.button")}
+          </button>
+        </SettingContainer>
       </SettingsGroup>
 
       {/* Confirmation Modal for Voice Commands */}

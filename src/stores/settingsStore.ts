@@ -98,6 +98,8 @@ const settingUpdaters: {
   start_hidden: (value) => commands.changeStartHiddenSetting(value as boolean),
   autostart_enabled: (value) =>
     commands.changeAutostartSetting(value as boolean),
+  show_tray_icon: (value) =>
+    commands.changeShowTrayIconSetting(value as boolean),
   update_checks_enabled: (value) =>
     commands.changeUpdateChecksSetting(value as boolean),
   push_to_talk: (value) => commands.changePttSetting(value as boolean),
@@ -132,8 +134,13 @@ const settingUpdaters: {
   word_correction_threshold: (value) =>
     commands.changeWordCorrectionThresholdSetting(value as number),
   paste_method: (value) => commands.changePasteMethodSetting(value as string),
+  paste_delay_ms: (value) =>
+    commands.changePasteDelayMsSetting(Math.round(value as number)),
   clipboard_handling: (value) =>
     commands.changeClipboardHandlingSetting(value as string),
+  auto_submit: (value) => commands.changeAutoSubmitSetting(value as boolean),
+  auto_submit_key: (value) =>
+    commands.changeAutoSubmitKeySetting(value as string),
   history_limit: (value) => commands.updateHistoryLimit(value as number),
   post_process_enabled: (value) =>
     commands.changePostProcessEnabledSetting(value as boolean),
@@ -169,6 +176,8 @@ const settingUpdaters: {
     ),
   ai_replace_selection_push_to_talk: (value) =>
     commands.changeAiReplaceSelectionPushToTalkSetting(value as boolean),
+  voice_command_push_to_talk: (value) =>
+    commands.changeVoiceCommandPushToTalkSetting(value as boolean),
   connector_auto_open_enabled: (value) =>
     commands.changeConnectorAutoOpenEnabledSetting(value as boolean),
   connector_auto_open_url: (value) =>
@@ -203,19 +212,55 @@ const settingUpdaters: {
     commands.changeMuteWhileRecordingSetting(value as boolean),
   append_trailing_space: (value) =>
     commands.changeAppendTrailingSpaceSetting(value as boolean),
+  filter_silence: (value) =>
+    commands.changeFilterSilenceSetting(value as boolean),
   log_level: (value) => commands.setLogLevel(value as any),
   app_language: (value) => commands.changeAppLanguageSetting(value as string),
   transcription_provider: (value) =>
     commands.changeTranscriptionProviderSetting(value as string),
+  soniox_model: (value) => commands.changeSonioxModelSetting(value as string),
+  soniox_timeout_seconds: (value) =>
+    commands.changeSonioxTimeoutSetting(Math.round(value as number)),
   vad_threshold: (value) =>
     commands.changeVadThresholdSetting(value as number),
 };
+
+(settingUpdaters as any).soniox_live_enabled = (value: any) =>
+  invoke("change_soniox_live_enabled_setting", { enabled: value });
+(settingUpdaters as any).soniox_language_hints = (value: any) =>
+  invoke("change_soniox_language_hints_setting", { hints: value });
+(settingUpdaters as any).soniox_use_profile_language_hint_only = (value: any) =>
+  invoke("change_soniox_use_profile_language_hint_only_setting", { enabled: value });
+(settingUpdaters as any).soniox_language_hints_strict = (value: any) =>
+  invoke("change_soniox_language_hints_strict_setting", { enabled: value });
+(settingUpdaters as any).soniox_enable_endpoint_detection = (value: any) =>
+  invoke("change_soniox_endpoint_detection_setting", { enabled: value });
+(settingUpdaters as any).soniox_max_endpoint_delay_ms = (value: any) =>
+  invoke("change_soniox_max_endpoint_delay_ms_setting", { delayMs: value });
+(settingUpdaters as any).soniox_enable_language_identification = (value: any) =>
+  invoke("change_soniox_language_identification_setting", { enabled: value });
+(settingUpdaters as any).soniox_enable_speaker_diarization = (value: any) =>
+  invoke("change_soniox_speaker_diarization_setting", { enabled: value });
+(settingUpdaters as any).soniox_keepalive_interval_seconds = (value: any) =>
+  invoke("change_soniox_keepalive_interval_seconds_setting", { seconds: value });
+(settingUpdaters as any).soniox_live_finalize_timeout_ms = (value: any) =>
+  invoke("change_soniox_live_finalize_timeout_ms_setting", { timeoutMs: value });
+(settingUpdaters as any).soniox_live_instant_stop = (value: any) =>
+  invoke("change_soniox_live_instant_stop_setting", { enabled: value });
+(settingUpdaters as any).soniox_realtime_fuzzy_correction_enabled = (value: any) =>
+  invoke("change_soniox_realtime_fuzzy_correction_enabled_setting", { enabled: value });
+(settingUpdaters as any).soniox_realtime_keep_safety_buffer_enabled = (value: any) =>
+  invoke("change_soniox_realtime_keep_safety_buffer_enabled_setting", { enabled: value });
 
 // Fork-specific settings not yet present in generated bindings.
 (settingUpdaters as any).native_region_capture_mode = (value: any) =>
   invoke("change_native_region_capture_mode_setting", { mode: value });
 (settingUpdaters as any).beta_voice_commands_enabled = (value: any) =>
   invoke("change_beta_voice_commands_enabled_setting", { enabled: value });
+(settingUpdaters as any).voice_button_show_aot_toggle = (value: any) =>
+  invoke("change_voice_button_show_aot_toggle_setting", { enabled: value });
+(settingUpdaters as any).voice_button_single_click_close = (value: any) =>
+  invoke("change_voice_button_single_click_close_setting", { enabled: value });
 
 // Extended Thinking / Reasoning settings
 (settingUpdaters as any).post_process_reasoning_enabled = (value: any) =>
@@ -270,6 +315,10 @@ const settingUpdaters: {
   invoke("change_text_replacements_setting", { replacements: value });
 (settingUpdaters as any).text_replacements_before_llm = (value: any) =>
   invoke("change_text_replacements_before_llm_setting", { enabled: value });
+(settingUpdaters as any).trim_transcription_output_enabled = (value: any) =>
+  invoke("change_trim_transcription_output_enabled_setting", { enabled: value });
+(settingUpdaters as any).custom_words_ngram_enabled = (value: any) =>
+  invoke("change_custom_words_ngram_enabled_setting", { enabled: value });
 
 // UI State settings
 (settingUpdaters as any).sidebar_pinned = (value: any) =>
@@ -394,9 +443,9 @@ export const useSettingsStore = create<SettingsStore>()(
       key: K,
       value: Settings[K],
     ) => {
-      const { settings, setUpdating } = get();
+      const { setUpdating } = get();
       const updateKey = String(key);
-      const originalValue = settings?.[key];
+      const originalValue = get().settings?.[key];
 
       setUpdating(updateKey, true);
 
@@ -421,9 +470,11 @@ export const useSettingsStore = create<SettingsStore>()(
         }
       } catch (error) {
         console.error(`Failed to update setting ${String(key)}:`, error);
-        if (settings) {
-          set({ settings: { ...settings, [key]: originalValue } });
-        }
+        set((state) => ({
+          settings: state.settings
+            ? { ...state.settings, [key]: originalValue }
+            : state.settings,
+        }));
       } finally {
         setUpdating(updateKey, false);
       }

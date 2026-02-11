@@ -1,13 +1,12 @@
 import React from "react";
 import { useTranslation } from "react-i18next";
-import { ShowOverlay } from "../ShowOverlay";
 import { ModelUnloadTimeoutSetting } from "../ModelUnloadTimeout";
 import { SettingsGroup } from "../../ui/SettingsGroup";
 import { StartHidden } from "../StartHidden";
 import { AutostartToggle } from "../AutostartToggle";
 import { PasteMethodSetting } from "../PasteMethod";
 import { ClipboardHandlingSetting } from "../ClipboardHandling";
-import { RemoteSttSettings } from "../remote-stt/RemoteSttSettings";
+import { AutoSubmit } from "../AutoSubmit";
 import { TellMeMore } from "../../ui/TellMeMore";
 
 export const AdvancedSettings: React.FC = () => {
@@ -25,28 +24,8 @@ export const AdvancedSettings: React.FC = () => {
           </p>
           <ul className="list-disc list-inside space-y-2 ml-1 opacity-90">
             <li>
-              <strong>{t("settings.advanced.tellMeMore.remoteStt.title")}</strong>{" "}
-              {t("settings.advanced.tellMeMore.remoteStt.description")}
-              <div className="ml-5 mt-2 p-2 bg-accent/10 border border-accent/20 rounded-md text-xs">
-                <p className="mb-1">{t("settings.advanced.tellMeMore.remoteStt.recommendation")}</p>
-                <a
-                  href="https://console.groq.com"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-accent hover:underline font-medium"
-                >
-                  console.groq.com
-                </a>
-                <p className="mt-1 text-text/70">{t("settings.advanced.tellMeMore.remoteStt.freeTier")}</p>
-              </div>
-            </li>
-            <li>
               <strong>{t("settings.advanced.tellMeMore.startup.title")}</strong>{" "}
               {t("settings.advanced.tellMeMore.startup.description")}
-            </li>
-            <li>
-              <strong>{t("settings.advanced.tellMeMore.overlay.title")}</strong>{" "}
-              {t("settings.advanced.tellMeMore.overlay.description")}
             </li>
             <li>
               <strong>{t("settings.advanced.tellMeMore.pasteMethod.title")}</strong>{" "}
@@ -78,12 +57,12 @@ export const AdvancedSettings: React.FC = () => {
       <SettingsGroup title={t("settings.advanced.title")}>
         <StartHidden descriptionMode="tooltip" grouped={true} />
         <AutostartToggle descriptionMode="tooltip" grouped={true} />
-        <ShowOverlay descriptionMode="tooltip" grouped={true} />
         <PasteMethodSetting descriptionMode="tooltip" grouped={true} />
         <ClipboardHandlingSetting descriptionMode="tooltip" grouped={true} />
+        <AutoSubmit descriptionMode="tooltip" grouped={true} />
         <ModelUnloadTimeoutSetting descriptionMode="tooltip" grouped={true} />
-        <RemoteSttSettings descriptionMode="tooltip" grouped={true} />
       </SettingsGroup>
+
     </div>
   );
 };

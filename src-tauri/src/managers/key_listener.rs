@@ -321,8 +321,8 @@ impl KeyListenerManager {
 /// Parse a shortcut string like "ctrl+shift+a", "caps lock", or "ctrl+alt" into key and modifiers
 /// Returns (Option<Key>, ModifierState) - key is None for modifier-only shortcuts
 pub fn parse_shortcut_string(binding: &str) -> Result<(Option<Key>, ModifierState), String> {
-    let binding = binding.to_lowercase().trim().to_string();
-    let parts: Vec<&str> = binding.split('+').map(|s| s.trim()).collect();
+    let normalized = normalize_shortcut_binding(binding);
+    let parts: Vec<&str> = normalized.split('+').map(|s| s.trim()).collect();
 
     let mut modifiers = ModifierState::default();
     let mut main_key: Option<Key> = None;
@@ -357,6 +357,13 @@ pub fn parse_shortcut_string(binding: &str) -> Result<(Option<Key>, ModifierStat
     }
 
     Ok((main_key, modifiers))
+}
+
+fn normalize_shortcut_binding(raw: &str) -> String {
+    let mut normalized = raw.trim().to_lowercase();
+    // Legacy frontend token used "numpad +" which collides with '+' as the delimiter.
+    normalized = normalized.replace("numpad +", "numadd");
+    normalized.replace("numpad+", "numadd")
 }
 
 /// Convert a string to an rdev::Key

@@ -3,96 +3,141 @@ use once_cell::sync::Lazy;
 use regex::Regex;
 use strsim::levenshtein;
 
+/// Builds an n-gram string by cleaning and concatenating words.
+///
+/// Strips non-alphanumeric chars from each token, lowercases, and joins
+/// without spaces so split-token artifacts can match compact terms.
+fn build_ngram(words: &[&str]) -> String {
+    words
+        .iter()
+        .map(|w| w.trim_matches(|c: char| !c.is_alphanumeric()).to_lowercase())
+        .collect::<Vec<_>>()
+        .concat()
+}
+
+/// Finds the best matching custom word for a normalized candidate string.
+///
+/// Returns the original custom word and best score when a match under
+/// `threshold` is found.
+fn find_best_match<'a>(
+    candidate: &str,
+    custom_words: &'a [String],
+    custom_words_nospace: &[String],
+    threshold: f64,
+) -> Option<(&'a String, f64)> {
+    if candidate.is_empty() || candidate.len() > 50 {
+        return None;
+    }
+
+    let mut best_match: Option<&String> = None;
+    let mut best_score = f64::MAX;
+
+    for (idx, custom_word_nospace) in custom_words_nospace.iter().enumerate() {
+        // Guard against over-matching very different lengths.
+        let len_diff = (candidate.len() as i32 - custom_word_nospace.len() as i32).abs() as f64;
+        let max_len = candidate.len().max(custom_word_nospace.len()) as f64;
+        let max_allowed_diff = (max_len * 0.25).max(2.0);
+        if len_diff > max_allowed_diff {
+            continue;
+        }
+
+        let levenshtein_dist = levenshtein(candidate, custom_word_nospace);
+        let levenshtein_score = if max_len > 0.0 {
+            levenshtein_dist as f64 / max_len
+        } else {
+            1.0
+        };
+
+        let phonetic_match = soundex(candidate, custom_word_nospace);
+        let combined_score = if phonetic_match {
+            levenshtein_score * 0.3
+        } else {
+            levenshtein_score
+        };
+
+        if combined_score < threshold && combined_score < best_score {
+            best_match = Some(&custom_words[idx]);
+            best_score = combined_score;
+        }
+    }
+
+    best_match.map(|m| (m, best_score))
+}
+
 /// Applies custom word corrections to transcribed text using fuzzy matching
 ///
 /// This function corrects words in the input text by finding the best matches
 /// from a list of custom words using a combination of:
 /// - Levenshtein distance for string similarity
 /// - Soundex phonetic matching for pronunciation similarity
+/// - N-gram matching for split-token artifacts (e.g., "Chat G P T" -> "ChatGPT")
 ///
 /// # Arguments
 /// * `text` - The input text to correct
 /// * `custom_words` - List of custom words to match against
 /// * `threshold` - Maximum similarity score to accept (0.0 = exact match, 1.0 = any match)
+/// * `enable_ngram` - Enable 2-3 token greedy n-gram matching
 ///
 /// # Returns
 /// The corrected text with custom words applied
-pub fn apply_custom_words(text: &str, custom_words: &[String], threshold: f64) -> String {
+pub fn apply_custom_words(
+    text: &str,
+    custom_words: &[String],
+    threshold: f64,
+    enable_ngram: bool,
+) -> String {
     if custom_words.is_empty() {
         return text.to_string();
     }
 
     // Pre-compute lowercase versions to avoid repeated allocations
     let custom_words_lower: Vec<String> = custom_words.iter().map(|w| w.to_lowercase()).collect();
+    // Remove spaces for robust matching against split terms
+    let custom_words_nospace: Vec<String> =
+        custom_words_lower.iter().map(|w| w.replace(' ', "")).collect();
 
     let words: Vec<&str> = text.split_whitespace().collect();
-    let mut corrected_words = Vec::new();
+    let mut result = Vec::new();
+    let mut i = 0;
+    let max_ngram = if enable_ngram { 3 } else { 1 };
 
-    for word in words {
-        let cleaned_word = word
-            .trim_matches(|c: char| !c.is_alphabetic())
-            .to_lowercase();
+    while i < words.len() {
+        let mut matched = false;
 
-        if cleaned_word.is_empty() {
-            corrected_words.push(word.to_string());
-            continue;
-        }
-
-        // Skip extremely long words to avoid performance issues
-        if cleaned_word.len() > 50 {
-            corrected_words.push(word.to_string());
-            continue;
-        }
-
-        let mut best_match: Option<&String> = None;
-        let mut best_score = f64::MAX;
-
-        for (i, custom_word_lower) in custom_words_lower.iter().enumerate() {
-            // Skip if lengths are too different (optimization)
-            let len_diff = (cleaned_word.len() as i32 - custom_word_lower.len() as i32).abs();
-            if len_diff > 5 {
+        // Try longest n-grams first for greedy matching.
+        for n in (1..=max_ngram).rev() {
+            if i + n > words.len() {
                 continue;
             }
 
-            // Calculate Levenshtein distance (normalized by length)
-            let levenshtein_dist = levenshtein(&cleaned_word, custom_word_lower);
-            let max_len = cleaned_word.len().max(custom_word_lower.len()) as f64;
-            let levenshtein_score = if max_len > 0.0 {
-                levenshtein_dist as f64 / max_len
-            } else {
-                1.0
-            };
+            let ngram_words = &words[i..i + n];
+            let ngram = build_ngram(ngram_words);
+            if ngram.is_empty() {
+                continue;
+            }
 
-            // Calculate phonetic similarity using Soundex
-            let phonetic_match = soundex(&cleaned_word, custom_word_lower);
+            if let Some((replacement, _score)) =
+                find_best_match(&ngram, custom_words, &custom_words_nospace, threshold)
+            {
+                let (prefix, _) = extract_punctuation(ngram_words[0]);
+                let (_, suffix) = extract_punctuation(ngram_words[n - 1]);
 
-            // Combine scores: favor phonetic matches, but also consider string similarity
-            let combined_score = if phonetic_match {
-                levenshtein_score * 0.3 // Give significant boost to phonetic matches
-            } else {
-                levenshtein_score
-            };
+                let corrected = preserve_case_pattern(ngram_words[0], replacement);
+                result.push(format!("{}{}{}", prefix, corrected, suffix));
 
-            // Accept if the score is good enough (configurable threshold)
-            if combined_score < threshold && combined_score < best_score {
-                best_match = Some(&custom_words[i]);
-                best_score = combined_score;
+                i += n;
+                matched = true;
+                break;
             }
         }
 
-        if let Some(replacement) = best_match {
-            // Preserve the original case pattern as much as possible
-            let corrected = preserve_case_pattern(word, replacement);
-
-            // Preserve punctuation from original word
-            let (prefix, suffix) = extract_punctuation(word);
-            corrected_words.push(format!("{}{}{}", prefix, corrected, suffix));
-        } else {
-            corrected_words.push(word.to_string());
+        if !matched {
+            result.push(words[i].to_string());
+            i += 1;
         }
     }
 
-    corrected_words.join(" ")
+    result.join(" ")
 }
 
 /// Preserves the case pattern of the original word when applying a replacement
@@ -112,11 +157,11 @@ fn preserve_case_pattern(original: &str, replacement: &str) -> String {
 
 /// Extracts punctuation prefix and suffix from a word
 fn extract_punctuation(word: &str) -> (&str, &str) {
-    let prefix_end = word.chars().take_while(|c| !c.is_alphabetic()).count();
+    let prefix_end = word.chars().take_while(|c| !c.is_alphanumeric()).count();
     let suffix_start = word
         .char_indices()
         .rev()
-        .take_while(|(_, c)| !c.is_alphabetic())
+        .take_while(|(_, c)| !c.is_alphanumeric())
         .count();
 
     let prefix = if prefix_end > 0 {
@@ -250,7 +295,7 @@ mod tests {
     fn test_apply_custom_words_exact_match() {
         let text = "hello world";
         let custom_words = vec!["Hello".to_string(), "World".to_string()];
-        let result = apply_custom_words(text, &custom_words, 0.5);
+        let result = apply_custom_words(text, &custom_words, 0.5, true);
         assert_eq!(result, "Hello World");
     }
 
@@ -258,7 +303,7 @@ mod tests {
     fn test_apply_custom_words_fuzzy_match() {
         let text = "helo wrold";
         let custom_words = vec!["hello".to_string(), "world".to_string()];
-        let result = apply_custom_words(text, &custom_words, 0.5);
+        let result = apply_custom_words(text, &custom_words, 0.5, true);
         assert_eq!(result, "hello world");
     }
 
@@ -280,8 +325,53 @@ mod tests {
     fn test_empty_custom_words() {
         let text = "hello world";
         let custom_words = vec![];
-        let result = apply_custom_words(text, &custom_words, 0.5);
+        let result = apply_custom_words(text, &custom_words, 0.5, true);
         assert_eq!(result, "hello world");
+    }
+
+    #[test]
+    fn test_apply_custom_words_ngram_two_words() {
+        let text = "il cui nome e Charge B, che permette";
+        let custom_words = vec!["ChargeBee".to_string()];
+        let result = apply_custom_words(text, &custom_words, 0.5, true);
+        assert!(result.contains("ChargeBee,"));
+        assert!(!result.contains("Charge B"));
+    }
+
+    #[test]
+    fn test_apply_custom_words_ngram_three_words() {
+        let text = "use Chat G P T for this";
+        let custom_words = vec!["ChatGPT".to_string()];
+        let result = apply_custom_words(text, &custom_words, 0.5, true);
+        assert!(result.contains("ChatGPT"));
+    }
+
+    #[test]
+    fn test_apply_custom_words_ngram_preserves_case() {
+        let text = "CHARGE B is great";
+        let custom_words = vec!["ChargeBee".to_string()];
+        let result = apply_custom_words(text, &custom_words, 0.5, true);
+        assert!(result.contains("CHARGEBEE"));
+    }
+
+    #[test]
+    fn test_apply_custom_words_ngram_can_be_disabled() {
+        let text = "use Chat G P T for this";
+        let custom_words = vec!["ChatGPT".to_string()];
+        let result = apply_custom_words(text, &custom_words, 0.5, false);
+        assert_eq!(result, text);
+    }
+
+    #[test]
+    fn test_apply_custom_words_trailing_number_not_doubled() {
+        let text = "use GPT4 for this";
+        let custom_words = vec!["GPT-4".to_string()];
+        let result = apply_custom_words(text, &custom_words, 0.5, true);
+        assert!(
+            !result.contains("GPT-44"),
+            "got double-counted result: {}",
+            result
+        );
     }
 
     #[test]

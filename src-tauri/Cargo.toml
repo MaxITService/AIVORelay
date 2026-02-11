@@ -1,6 +1,6 @@
 [package]
 name = "aivorelay"
-version = "0.7.15"
+version = "0.8.1"
 description = "A sophisticated AI voice relay application"
 authors = ["Maxim Fomin", "MaxITService"]
 edition = "2021"
@@ -64,6 +64,7 @@ rodio = { git = "https://github.com/cjpais/rodio.git" }
 reqwest = { version = "0.12", features = ["json", "multipart", "stream"] }
 futures = "0.3"
 futures-util = "0.3"
+tokio-tungstenite = { version = "0.24", features = ["rustls-tls-native-roots"] }
 rustfft = "6.4.0"
 strsim = "0.11.0"
 natural = "0.5.0"
@@ -72,7 +73,7 @@ chrono = "0.4"
 rusqlite = { version = "0.37", features = ["bundled"] }
 tar = "0.4.44"
 flate2 = "1.0"
-transcribe-rs = { version = "0.2.2", features = ["whisper", "parakeet", "moonshine"] }
+transcribe-rs = { version = "0.2.3", features = ["whisper", "parakeet", "moonshine", "sense_voice"] }
 ferrous-opencc = "0.2.3"
 keyring = "2.3.3"
 axum = "0.8"
@@ -83,6 +84,7 @@ specta = "=2.0.0-rc.22"
 specta-typescript = "0.0.9"
 tauri-specta = { version = "=2.0.0-rc.21", features = ["derive", "typescript"] }
 tauri-plugin-dialog = "2.5.0"
+getrandom = "0.2"
 
 [target.'cfg(unix)'.dependencies]
 signal-hook = "0.3"

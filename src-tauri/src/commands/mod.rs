@@ -7,6 +7,7 @@ pub mod models;
 pub mod region_capture;
 pub mod remote_stt;
 pub mod transcription;
+pub mod voice_activation_button;
 pub mod voice_command;
 
 use crate::settings::{get_settings, write_settings, AppSettings, LlmFeature, LogLevel};

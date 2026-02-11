@@ -15,7 +15,7 @@ use axum::{
     routing::{get, post},
     Json, Router,
 };
-use log::{debug, error, info};
+use log::{debug, error, info, warn};
 use serde::{Deserialize, Serialize};
 use specta::Type;
 use std::collections::{HashMap, HashSet, VecDeque};
@@ -377,7 +377,7 @@ impl ConnectorManager {
                     let now = now_ms();
                     {
                         let mut state_guard = keepalive_state.lock().unwrap();
-                        
+
                         // Check if we need to send a keepalive
                         if now - state_guard.last_keepalive > KEEPALIVE_INTERVAL_MS {
                             state_guard.last_keepalive = now;
@@ -830,6 +830,7 @@ async fn handle_get_messages(
         &settings.connector_password,
         settings.connector_pending_password.as_deref(),
     ) {
+        apply_random_auth_delay().await;
         return unauthorized_response();
     }
 
@@ -946,6 +947,7 @@ async fn handle_post_messages(
         &settings.connector_password,
         settings.connector_pending_password.as_deref(),
     ) {
+        apply_random_auth_delay().await;
         return unauthorized_response();
     }
 
@@ -983,6 +985,7 @@ async fn handle_get_blob(
         &settings.connector_password,
         settings.connector_pending_password.as_deref(),
     ) {
+        apply_random_auth_delay().await;
         return unauthorized_response();
     }
 
@@ -1040,6 +1043,18 @@ fn get_pending_messages(
 
     let ids: Vec<_> = filtered.iter().map(|m| m.id.clone()).collect();
     (filtered, ids)
+}
+
+/// Apply a random delay between 30 and 60 ms to unauthorized responses
+/// to mask timing differences and prevent brute-force/probing attacks.
+async fn apply_random_auth_delay() {
+    let mut buffer = [0u8; 1];
+    let delay = if getrandom::getrandom(&mut buffer).is_ok() {
+        30 + (buffer[0] % 31) as u64
+    } else {
+        45 // Fallback
+    };
+    tokio::time::sleep(std::time::Duration::from_millis(delay)).await;
 }
 
 /// Create unauthorized response
@@ -1132,51 +1147,38 @@ fn uuid_simple() -> String {
     format!("{:032x}", ts)
 }
 
-/// Constant-time comparison to prevent timing attacks
+/// Constant-time comparison to prevent timing attacks.
+/// Accumulates length mismatch and byte differences without early returns.
 fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
-    if a.len() != b.len() {
-        return false;
+    // res will be 0 only if lengths are equal
+    let mut res = if a.len() == b.len() { 0u8 } else { 1u8 };
+
+    // Iterate over the minimum length. The random delay in the handler
+    // will mask any timing leak from the floor of this loop's duration.
+    let n = std::cmp::min(a.len(), b.len());
+    for i in 0..n {
+        res |= a[i] ^ b[i];
     }
-    a.iter()
-        .zip(b.iter())
-        .fold(0u8, |acc, (x, y)| acc | (x ^ y))
-        == 0
+
+    res == 0
 }
 
 /// Generate a secure random password (32 hex characters)
-fn generate_secure_password() -> String {
-    let ts_nanos = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_nanos();
-
-    let pid = std::process::id();
-    let thread_id = format!("{:?}", std::thread::current().id());
-
-    let seed = format!(
-        "{}{}{}{}",
-        ts_nanos,
-        pid,
-        thread_id,
-        ts_nanos.wrapping_mul(0x517cc1b727220a95)
-    );
+fn generate_secure_password() -> Option<String> {
+    let mut bytes = [0u8; 16];
+    if let Err(err) = getrandom::getrandom(&mut bytes) {
+        error!(
+            "Failed to generate connector password from OS CSPRNG: {}",
+            err
+        );
+        return None;
+    }
 
     let mut result = String::with_capacity(32);
-    let bytes = seed.as_bytes();
-    let mut acc: u64 = 0;
-    for (i, &b) in bytes.iter().enumerate() {
-        acc = acc.wrapping_add((b as u64).wrapping_mul((i as u64).wrapping_add(1)));
-        acc = acc.wrapping_mul(0x517cc1b727220a95);
+    for byte in bytes {
+        result.push_str(&format!("{:02x}", byte));
     }
-
-    for i in 0..4 {
-        let chunk = acc
-            .wrapping_mul((i + 1) as u64)
-            .wrapping_add(ts_nanos as u64);
-        result.push_str(&format!("{:08x}", chunk as u32));
-    }
-
-    result
+    Some(result)
 }
 
 /// Check if we should generate a new password and do so if needed.
@@ -1197,7 +1199,10 @@ fn maybe_generate_new_password(app_handle: &AppHandle) -> Option<String> {
     );
 
     if is_default {
-        let new_password = generate_secure_password();
+        let Some(new_password) = generate_secure_password() else {
+            warn!("Skipping connector password rotation: secure RNG unavailable");
+            return None;
+        };
         info!("Generating new secure connector password (default password detected) - awaiting acknowledgement");
 
         let mut new_settings = settings.clone();

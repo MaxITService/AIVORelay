@@ -1,10 +1,11 @@
-import React, { useState } from "react";
+import React, { useState, useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import { X, Cloud, ExternalLink } from "lucide-react";
 import { toast } from "sonner";
 import { commands } from "@/bindings";
 import { Button } from "../ui/Button";
 import { Input } from "../ui/Input";
+import { Select, type SelectOption } from "../ui/Select";
 import { useSettings } from "../../hooks/useSettings";
 
 interface RemoteSttWizardProps {
@@ -12,6 +13,8 @@ interface RemoteSttWizardProps {
   onClose: () => void;
   onComplete: () => void;
 }
+
+type EngineType = "openai" | "soniox";
 
 const DEFAULT_BASE_URL = "https://api.groq.com/openai/v1";
 const DEFAULT_MODEL_ID = "whisper-large-v3-turbo";
@@ -22,8 +25,9 @@ export const RemoteSttWizard: React.FC<RemoteSttWizardProps> = ({
   onComplete,
 }) => {
   const { t } = useTranslation();
-  const { updateRemoteSttBaseUrl, updateRemoteSttModelId } = useSettings();
+  const { updateRemoteSttBaseUrl, updateRemoteSttModelId, setTranscriptionProvider } = useSettings();
 
+  const [engine, setEngine] = useState<EngineType>("openai");
   const [baseUrl, setBaseUrl] = useState(DEFAULT_BASE_URL);
   const [modelId, setModelId] = useState(DEFAULT_MODEL_ID);
   const [apiKey, setApiKey] = useState("");
@@ -33,40 +37,63 @@ export const RemoteSttWizard: React.FC<RemoteSttWizardProps> = ({
   >("idle");
   const [connectionMessage, setConnectionMessage] = useState<string | null>(null);
 
+  const engineOptions = useMemo<SelectOption[]>(
+    () => [
+      { value: "openai", label: t("onboarding.remoteSttWizard.engineOptions.openai") },
+      { value: "soniox", label: t("onboarding.remoteSttWizard.engineOptions.soniox") },
+    ],
+    [t],
+  );
+
+  const isSoniox = engine === "soniox";
+
   if (!isOpen) return null;
 
   const handleSaveAndTest = async () => {
-    if (!apiKey.trim() || !baseUrl.trim()) return;
+    if (!apiKey.trim()) return;
+    if (!isSoniox && !baseUrl.trim()) return;
 
     setIsLoading(true);
     setConnectionStatus("testing");
     setConnectionMessage(null);
 
     try {
-      // Save base URL
-      await updateRemoteSttBaseUrl(baseUrl.trim());
-
-      // Save model ID
-      await updateRemoteSttModelId(modelId.trim());
-
-      // Save API key
-      const keyResult = await commands.remoteSttSetApiKey(apiKey.trim());
-      if (keyResult.status === "error") {
-        throw new Error(keyResult.error);
-      }
-
-      // Test connection
-      const testResult = await commands.remoteSttTestConnection(baseUrl.trim());
-      if (testResult.status === "ok") {
+      if (isSoniox) {
+        // Save Soniox API key
+        const keyResult = await commands.sonioxSetApiKey(apiKey.trim());
+        if (keyResult.status === "error") {
+          throw new Error(keyResult.error);
+        }
+        // Soniox doesn't have a test connection command in the wizard,
+        // just mark as success if the key was saved
         setConnectionStatus("success");
         setConnectionMessage(t("onboarding.remoteSttWizard.connectionSuccess"));
       } else {
-        setConnectionStatus("error");
-        setConnectionMessage(
-          t("onboarding.remoteSttWizard.connectionFailed", {
-            error: testResult.error,
-          }),
-        );
+        // Save base URL
+        await updateRemoteSttBaseUrl(baseUrl.trim());
+
+        // Save model ID
+        await updateRemoteSttModelId(modelId.trim());
+
+        // Save API key
+        const keyResult = await commands.remoteSttSetApiKey(apiKey.trim());
+        if (keyResult.status === "error") {
+          throw new Error(keyResult.error);
+        }
+
+        // Test connection
+        const testResult = await commands.remoteSttTestConnection(baseUrl.trim());
+        if (testResult.status === "ok") {
+          setConnectionStatus("success");
+          setConnectionMessage(t("onboarding.remoteSttWizard.connectionSuccess"));
+        } else {
+          setConnectionStatus("error");
+          setConnectionMessage(
+            t("onboarding.remoteSttWizard.connectionFailed", {
+              error: testResult.error,
+            }),
+          );
+        }
       }
     } catch (error) {
       setConnectionStatus("error");
@@ -79,25 +106,39 @@ export const RemoteSttWizard: React.FC<RemoteSttWizardProps> = ({
 
   const handleFinish = async () => {
     // If not tested yet, save settings first
-    if (connectionStatus !== "success" && apiKey.trim() && baseUrl.trim()) {
+    if (connectionStatus !== "success" && apiKey.trim()) {
       setIsLoading(true);
       try {
-        // Save base URL
-        await updateRemoteSttBaseUrl(baseUrl.trim());
-        // Save model ID
-        await updateRemoteSttModelId(modelId.trim());
-        // Save API key
-        await commands.remoteSttSetApiKey(apiKey.trim());
+        if (isSoniox) {
+          await commands.sonioxSetApiKey(apiKey.trim());
+        } else if (baseUrl.trim()) {
+          // Save base URL
+          await updateRemoteSttBaseUrl(baseUrl.trim());
+          // Save model ID
+          await updateRemoteSttModelId(modelId.trim());
+          // Save API key
+          await commands.remoteSttSetApiKey(apiKey.trim());
+        }
       } catch (error) {
         toast.error(String(error));
       } finally {
         setIsLoading(false);
       }
     }
+
+    // Set the transcription provider based on engine selection
+    try {
+      await setTranscriptionProvider(
+        isSoniox ? "remote_soniox" : "remote_openai_compatible",
+      );
+    } catch (error) {
+      toast.error(String(error));
+    }
+
     onComplete();
   };
 
-  const canTest = apiKey.trim().length > 0 && baseUrl.trim().length > 0;
+  const canTest = apiKey.trim().length > 0 && (isSoniox || baseUrl.trim().length > 0);
   const canFinish = apiKey.trim().length > 0;
 
   return (
@@ -137,58 +178,111 @@ export const RemoteSttWizard: React.FC<RemoteSttWizardProps> = ({
 
         {/* Content */}
         <div className="p-6 space-y-5">
-          {/* Info box with Groq recommendation */}
-          <div className="p-4 bg-purple-500/10 border border-purple-500/30 rounded-xl text-sm space-y-2">
-            <p className="text-text/90">
-              {t("onboarding.remoteSttWizard.recommendation")}
-            </p>
-            <a
-              href="https://console.groq.com"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center gap-1.5 text-purple-400 hover:text-purple-300 font-medium transition-colors"
-            >
-              console.groq.com
-              <ExternalLink className="w-3.5 h-3.5" />
-            </a>
-            <p className="text-text/60 text-xs">
-              {t("onboarding.remoteSttWizard.freeTier")}
-            </p>
-          </div>
-
-          {/* Base URL input */}
+          {/* Engine selector */}
           <div className="space-y-2">
             <label className="text-sm font-medium text-text/80">
-              {t("onboarding.remoteSttWizard.baseUrl.label")}
+              {t("onboarding.remoteSttWizard.engineLabel")}
             </label>
-            <Input
-              type="text"
-              value={baseUrl}
-              onChange={(e) => setBaseUrl(e.target.value)}
-              placeholder={DEFAULT_BASE_URL}
-              disabled={isLoading}
+            <Select
+              value={engine}
+              options={engineOptions}
+              onChange={(value) => {
+                if (value) {
+                  setEngine(value as EngineType);
+                  setConnectionStatus("idle");
+                  setConnectionMessage(null);
+                }
+              }}
+              isClearable={false}
             />
-            <p className="text-xs text-mid-gray">
-              {t("onboarding.remoteSttWizard.baseUrl.hint")}
-            </p>
           </div>
 
-          {/* Model ID input */}
-          <div className="space-y-2">
-            <label className="text-sm font-medium text-text/80">
-              {t("onboarding.remoteSttWizard.modelId.label")}
-            </label>
-            <Input
-              type="text"
-              value={modelId}
-              onChange={(e) => setModelId(e.target.value)}
-              placeholder={DEFAULT_MODEL_ID}
-              disabled={isLoading}
-            />
-            <p className="text-xs text-mid-gray">
-              {t("onboarding.remoteSttWizard.modelId.hint")}
-            </p>
+          {/* Info box */}
+          {isSoniox ? (
+            <>
+              <div className="p-4 bg-purple-500/10 border border-purple-500/30 rounded-xl text-sm space-y-2">
+                <p className="text-text/90">
+                  {t("onboarding.remoteSttWizard.sonioxInfo")}
+                </p>
+                <a
+                  href="https://soniox.com"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1.5 text-purple-400 hover:text-purple-300 font-medium transition-colors"
+                >
+                  soniox.com
+                  <ExternalLink className="w-3.5 h-3.5" />
+                </a>
+              </div>
+              <div className="p-3 bg-yellow-500/10 border border-yellow-500/30 rounded-lg text-sm text-yellow-400">
+                {t("onboarding.remoteSttWizard.sonioxRealtimeWarning")}
+              </div>
+            </>
+          ) : (
+            <div className="p-4 bg-purple-500/10 border border-purple-500/30 rounded-xl text-sm space-y-2">
+              <p className="text-text/90">
+                {t("onboarding.remoteSttWizard.recommendation")}
+              </p>
+              <a
+                href="https://console.groq.com"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1.5 text-purple-400 hover:text-purple-300 font-medium transition-colors"
+              >
+                console.groq.com
+                <ExternalLink className="w-3.5 h-3.5" />
+              </a>
+              <p className="text-text/60 text-xs">
+                {t("onboarding.remoteSttWizard.freeTier")}
+              </p>
+            </div>
+          )}
+
+          {/* API Configuration section header */}
+          <div className="border-t border-mid-gray/20 pt-4">
+            <h3 className="text-sm font-semibold text-text/70 uppercase tracking-wide">
+              {t("onboarding.remoteSttWizard.apiConfigHeader")}
+            </h3>
           </div>
+
+          {/* OpenAI-specific fields */}
+          {!isSoniox && (
+            <>
+              {/* Base URL input */}
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-text/80">
+                  {t("onboarding.remoteSttWizard.baseUrl.label")}
+                </label>
+                <Input
+                  type="text"
+                  value={baseUrl}
+                  onChange={(e) => setBaseUrl(e.target.value)}
+                  placeholder={DEFAULT_BASE_URL}
+                  disabled={isLoading}
+                />
+                <p className="text-xs text-mid-gray">
+                  {t("onboarding.remoteSttWizard.baseUrl.hint")}
+                </p>
+              </div>
+
+              {/* Model ID input */}
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-text/80">
+                  {t("onboarding.remoteSttWizard.modelId.label")}
+                </label>
+                <Input
+                  type="text"
+                  value={modelId}
+                  onChange={(e) => setModelId(e.target.value)}
+                  placeholder={DEFAULT_MODEL_ID}
+                  disabled={isLoading}
+                />
+                <p className="text-xs text-mid-gray">
+                  {t("onboarding.remoteSttWizard.modelId.hint")}
+                </p>
+              </div>
+            </>
+          )}
 
           {/* API Key input */}
           <div className="space-y-2">

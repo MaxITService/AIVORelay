@@ -1,14 +1,29 @@
 # AivoRelay
+[![Hits](https://hits.sh/github.com/MaxITService/AIVORelay.svg?style=flat)](https://hits.sh/github.com/MaxITService/AIVORelay/)
 
 ![large_logo](Promo/large_logo.jpg)
 AI Voice Relay
 
-![AivoRelay Main Window](Promo/Aivorelay%20main%20Window.png)
+![AivoRelay Main Window](Promo/Main_window.png)
 
 > 🎙️ AI-powered voice-to-text with smart integrations for Windows  
 > A fork of [cjpais/Handy](https://github.com/cjpais/Handy) with additional features
 
+> ## 📥 **[Download AivoRelay](https://github.com/MaxITService/AIVORelay/releases/latest)** — Get the latest release!
+
 ## ✨ Key Features
+
+### 🔴 Soniox Live Transcription
+
+Real-time speech-to-text streaming — see your words appear as you speak!
+
+![Soniox Live Transcription](Promo/soniox-api.gif)
+
+- **Live streaming** — Words appear instantly during speech
+- **Language hints** — Guide recognition with expected languages  
+
+**Setup:** Settings → Advanced → Transcription Provider → Soniox
+
 ### 🎚️ Transcription Profiles
 
 Quick-switch between language, prompt, and LLM post-processing presets with dedicated shortcuts: swithc currently active profile or assign each profile its own hotkey!

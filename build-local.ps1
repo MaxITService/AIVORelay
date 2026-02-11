@@ -69,41 +69,50 @@ if (-not $SkipChecks) {
     Write-Host "  Skipping VS environment setup (-SkipChecks)" -ForegroundColor Gray
 }
 
-# Step 3: Check Vulkan SDK
+# Step 3: Check Vulkan DLL
 Write-Host ""
-Write-Host "[3/6] Checking Vulkan SDK..." -ForegroundColor Yellow
+Write-Host "[3/6] Checking Vulkan DLL..." -ForegroundColor Yellow
 
-if ($env:VULKAN_SDK) {
-    Write-Host "  Found VULKAN_SDK: $env:VULKAN_SDK" -ForegroundColor Gray
+$targetDir = "src-tauri"
+$targetDll = Join-Path $targetDir "vulkan-1.dll"
 
-    # Check for vulkan-1.dll
-    $vulkanDll = Join-Path $env:VULKAN_SDK "Bin\vulkan-1.dll"
-    $targetDir = "src-tauri"
-    $targetDll = Join-Path $targetDir "vulkan-1.dll"
+if (Test-Path $targetDll) {
+    # DLL already exists - skip copying
+    $size = [math]::Round((Get-Item $targetDll).Length / 1MB, 2)
+    Write-Host "  OK - vulkan-1.dll already exists ($size MB)" -ForegroundColor Green
+} else {
+    # Need to copy DLL
+    Write-Host "  vulkan-1.dll not found in $targetDir, copying..." -ForegroundColor Gray
 
-    if (Test-Path $vulkanDll) {
-        # Copy vulkan-1.dll to src-tauri for bundling
-        Write-Host "  Copying vulkan-1.dll to $targetDir for bundling..." -ForegroundColor Gray
-        Copy-Item $vulkanDll -Destination $targetDir -Force
-        $size = [math]::Round((Get-Item $targetDll).Length / 1MB, 2)
-        Write-Host "  OK - Copied vulkan-1.dll $size MB" -ForegroundColor Green
-    } else {
-        Write-Host "  WARNING: vulkan-1.dll not found at $vulkanDll" -ForegroundColor Yellow
-        Write-Host "  Trying System32 fallback..." -ForegroundColor Gray
+    $copied = $false
 
+    # Try Vulkan SDK first (some versions have it in Bin)
+    if ($env:VULKAN_SDK) {
+        $sdkDll = Join-Path $env:VULKAN_SDK "Bin\vulkan-1.dll"
+        if (Test-Path $sdkDll) {
+            Copy-Item $sdkDll -Destination $targetDir -Force
+            $copied = $true
+            Write-Host "  OK - Copied from Vulkan SDK" -ForegroundColor Green
+        }
+    }
+
+    # Fallback to System32 (installed with GPU drivers)
+    if (-not $copied) {
         $systemDll = "C:\Windows\System32\vulkan-1.dll"
         if (Test-Path $systemDll) {
             Copy-Item $systemDll -Destination $targetDir -Force
-            Write-Host "  OK - Copied vulkan-1.dll from System32" -ForegroundColor Green
-        } else {
-            Write-Host "  WARNING: Could not find vulkan-1.dll anywhere!" -ForegroundColor Yellow
-            Write-Host "  Build may fail. Install Vulkan SDK from https://vulkan.lunarg.com/" -ForegroundColor Yellow
+            $copied = $true
+            Write-Host "  OK - Copied from System32" -ForegroundColor Green
         }
     }
-} else {
-    Write-Host "  WARNING: VULKAN_SDK environment variable not set!" -ForegroundColor Yellow
-    Write-Host "  Install from: https://vulkan.lunarg.com/sdk/home#windows" -ForegroundColor Yellow
-    Write-Host "  Build will continue but may fail..." -ForegroundColor Yellow
+
+    if (-not $copied) {
+        Write-Host "  WARNING: Could not find vulkan-1.dll anywhere!" -ForegroundColor Yellow
+        Write-Host "  Build may fail. Install GPU drivers or Vulkan SDK." -ForegroundColor Yellow
+    } else {
+        $size = [math]::Round((Get-Item $targetDll).Length / 1MB, 2)
+        Write-Host "  Size: $size MB" -ForegroundColor Gray
+    }
 }
 
 # Step 4: Check required tools

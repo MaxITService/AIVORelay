@@ -479,6 +479,28 @@ export default function VoiceCommandSettings() {
 
           <div className="setting-row">
             <div className="setting-label">
+              <span>{t("voiceCommands.pushToTalk", "Push To Talk")}</span>
+              <span className="setting-sublabel">
+                {t(
+                  "voiceCommands.pushToTalkDesc",
+                  "When ON: hold key to record. When OFF: tap once to start, tap again to stop.",
+                )}
+              </span>
+            </div>
+            <label className="toggle-switch">
+              <input
+                type="checkbox"
+                checked={settings.voice_command_push_to_talk ?? true}
+                onChange={(e) =>
+                  updateSetting("voice_command_push_to_talk", e.target.checked)
+                }
+              />
+              <span className="slider"></span>
+            </label>
+          </div>
+
+          <div className="setting-row">
+            <div className="setting-label">
               <span>{t("voiceCommands.llmFallback", "LLM Fallback")}</span>
               <span className="setting-sublabel">
                 {t(

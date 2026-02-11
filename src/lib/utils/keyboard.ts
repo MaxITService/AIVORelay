@@ -88,7 +88,7 @@ export const getKeyName = (
       Pause: "pause",
       ContextMenu: "menu",
       NumpadMultiply: "numpad *",
-      NumpadAdd: "numpad +",
+      NumpadAdd: "numadd",
       NumpadSubtract: "numpad -",
       NumpadDecimal: "numpad .",
       NumpadDivide: "numpad /",
@@ -156,44 +156,73 @@ export const getKeyName = (
 };
 
 /**
- * Get display-friendly key combination string for the current OS
- * Returns basic plus-separated format with correct platform key names
+ * Capitalize a key name for display (e.g. "space" -> "Space", "f1" -> "F1")
+ */
+const capitalizeKey = (key: string): string => {
+  if (key === "fn") return "fn";
+  if (/^f\d+$/.test(key)) return key.toUpperCase();
+  if (key.length === 1) return key.toUpperCase();
+  return key.replace(/\b\w/g, (c) => c.toUpperCase());
+};
+
+/**
+ * Format a single key part for display.
+ * Handles _left/_right suffixes, OS-aware modifier names, and capitalization.
+ * e.g. "shift_left" -> "Left Shift", "super" -> "Win" (on Windows)
+ */
+const formatKeyPart = (part: string, osType: OSType): string => {
+  const trimmed = part.trim().toLowerCase();
+  if (!trimmed) return "";
+
+  // Extract _left/_right suffix and base name
+  let baseName = trimmed;
+  let side: "left" | "right" | null = null;
+  if (trimmed.endsWith("_left")) {
+    baseName = trimmed.slice(0, -5);
+    side = "left";
+  } else if (trimmed.endsWith("_right")) {
+    baseName = trimmed.slice(0, -6);
+    side = "right";
+  }
+
+  // OS-aware modifier mapping
+  const modifierMap: Record<string, Record<string, string>> = {
+    super: { macos: "Cmd", windows: "Win", linux: "Super", unknown: "Super" },
+    meta: { macos: "Cmd", windows: "Win", linux: "Super", unknown: "Super" },
+    command: { macos: "Cmd", windows: "Win", linux: "Super", unknown: "Super" },
+    win: { macos: "Cmd", windows: "Win", linux: "Super", unknown: "Super" },
+    alt: { macos: "Opt", windows: "Alt", linux: "Alt", unknown: "Alt" },
+    option: { macos: "Opt", windows: "Alt", linux: "Alt", unknown: "Alt" },
+    ctrl: { macos: "Ctrl", windows: "Ctrl", linux: "Ctrl", unknown: "Ctrl" },
+    control: { macos: "Ctrl", windows: "Ctrl", linux: "Ctrl", unknown: "Ctrl" },
+    shift: { macos: "Shift", windows: "Shift", linux: "Shift", unknown: "Shift" },
+  };
+
+  if (baseName === "numadd") {
+    return "Numpad +";
+  }
+
+  const mapped = modifierMap[baseName]?.[osType];
+  const displayName = mapped ?? capitalizeKey(baseName);
+
+  if (side === "left") return `Left ${displayName}`;
+  if (side === "right") return `Right ${displayName}`;
+  return displayName;
+};
+
+/**
+ * Get display-friendly key combination string for the current OS.
+ * Formats raw hotkey strings like "option_left+shift+space" into
+ * human-readable form like "Left Opt + Shift + Space" (on macOS)
+ * or "Left Alt + Shift + Space" (on Windows).
  */
 export const formatKeyCombination = (
   combination: string,
   osType: OSType,
 ): string => {
   if (!combination) return "";
-
-  // If the combination is stored as "super+k", we want to display it correctly
-  // for the current operating system.
-  let formatted = combination.toLowerCase();
-
-  if (osType === "macos") {
-    formatted = formatted
-      .replace(/\bsuper\b/g, "command")
-      .replace(/\bmeta\b/g, "command")
-      .replace(/\bwin\b/g, "command");
-  } else if (osType === "windows") {
-    formatted = formatted
-      .replace(/\bsuper\b/g, "win")
-      .replace(/\bmeta\b/g, "win")
-      .replace(/\bcommand\b/g, "win");
-  }
-
-  // Capitalize each part for better display
-  return formatted
-    .split("+")
-    .map((part) => {
-      if (part === "ctrl") return "Ctrl";
-      if (part === "shift") return "Shift";
-      if (part === "alt") return "Alt";
-      if (part === "win") return "Win";
-      if (part === "command") return "Cmd";
-      if (part === "option") return "Opt";
-      return part.charAt(0).toUpperCase() + part.slice(1);
-    })
-    .join("+");
+  const normalized = combination.replace(/numpad\s*\+/gi, "numadd");
+  return normalized.split("+").map((part) => formatKeyPart(part, osType)).join(" + ");
 };
 
 /**

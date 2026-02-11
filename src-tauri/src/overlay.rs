@@ -1,4 +1,5 @@
 use crate::input;
+use crate::plus_overlay_state;
 use crate::settings;
 use crate::settings::OverlayPosition;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -11,6 +12,8 @@ static PROFILE_OVERLAY_GENERATION: AtomicU64 = AtomicU64::new(0);
 
 #[cfg(not(target_os = "macos"))]
 use log::debug;
+#[cfg(target_os = "windows")]
+use log::info;
 
 #[cfg(not(target_os = "macos"))]
 use tauri::WebviewWindowBuilder;
@@ -37,6 +40,8 @@ const OVERLAY_HEIGHT: f64 = 36.0;
 // Command Confirmation Overlay dimensions
 const COMMAND_CONFIRM_WIDTH: f64 = 520.0;
 const COMMAND_CONFIRM_HEIGHT: f64 = 280.0;
+const VOICE_BUTTON_WIDTH: f64 = 80.0;
+const VOICE_BUTTON_HEIGHT: f64 = 80.0;
 
 #[cfg(target_os = "macos")]
 const OVERLAY_TOP_OFFSET: f64 = 46.0;
@@ -131,8 +136,7 @@ fn calculate_overlay_position(app_handle: &AppHandle) -> Option<(f64, f64)> {
         let y = match settings.overlay_position {
             OverlayPosition::Top => work_area_y + OVERLAY_TOP_OFFSET,
             OverlayPosition::Bottom | OverlayPosition::None => {
-                // don't subtract the overlay height it puts it too far up
-                work_area_y + work_area_height - OVERLAY_BOTTOM_OFFSET
+                work_area_y + work_area_height - OVERLAY_HEIGHT - OVERLAY_BOTTOM_OFFSET
             }
         };
 
@@ -216,6 +220,9 @@ pub fn create_recording_overlay(app_handle: &AppHandle) {
 
 /// Shows the recording overlay window with fade-in animation
 pub fn show_recording_overlay(app_handle: &AppHandle) {
+    // Cancel pending error auto-hide timers so a new active overlay is not hidden.
+    plus_overlay_state::invalidate_error_overlay_auto_hide();
+
     // Cancel any pending profile switch overlay auto-hide timer
     // by incrementing the generation counter
     PROFILE_OVERLAY_GENERATION.fetch_add(1, Ordering::SeqCst);
@@ -246,6 +253,9 @@ pub fn show_recording_overlay(app_handle: &AppHandle) {
 
 /// Shows the transcribing overlay window
 pub fn show_transcribing_overlay(app_handle: &AppHandle) {
+    // Cancel pending error auto-hide timers so a new active overlay is not hidden.
+    plus_overlay_state::invalidate_error_overlay_auto_hide();
+
     // Check if overlay should be shown based on position setting
     let settings = settings::get_settings(app_handle);
     if settings.overlay_position == OverlayPosition::None {
@@ -268,6 +278,9 @@ pub fn show_transcribing_overlay(app_handle: &AppHandle) {
 
 /// Shows the sending overlay window (for remote API calls)
 pub fn show_sending_overlay(app_handle: &AppHandle) {
+    // Cancel pending error auto-hide timers so a new active overlay is not hidden.
+    plus_overlay_state::invalidate_error_overlay_auto_hide();
+
     // Check if overlay should be shown based on position setting
     let settings = settings::get_settings(app_handle);
     if settings.overlay_position == OverlayPosition::None {
@@ -290,6 +303,9 @@ pub fn show_sending_overlay(app_handle: &AppHandle) {
 
 /// Shows the thinking overlay window (for LLM processing)
 pub fn show_thinking_overlay(app_handle: &AppHandle) {
+    // Cancel pending error auto-hide timers so a new active overlay is not hidden.
+    plus_overlay_state::invalidate_error_overlay_auto_hide();
+
     // Check if overlay should be shown based on position setting
     let settings = settings::get_settings(app_handle);
     if settings.overlay_position == OverlayPosition::None {
@@ -310,6 +326,31 @@ pub fn show_thinking_overlay(app_handle: &AppHandle) {
     }
 }
 
+/// Shows the finalizing overlay window (for Soniox live stop/finalization)
+pub fn show_finalizing_overlay(app_handle: &AppHandle) {
+    // Cancel pending error auto-hide timers so a new active overlay is not hidden.
+    plus_overlay_state::invalidate_error_overlay_auto_hide();
+
+    // Check if overlay should be shown based on position setting
+    let settings = settings::get_settings(app_handle);
+    if settings.overlay_position == OverlayPosition::None {
+        return;
+    }
+
+    update_overlay_position(app_handle);
+
+    if let Some(overlay_window) = app_handle.get_webview_window("recording_overlay") {
+        let _ = overlay_window.show();
+
+        // On Windows, aggressively re-assert "topmost" in the native Z-order after showing
+        #[cfg(target_os = "windows")]
+        force_overlay_topmost(&overlay_window);
+
+        // Emit event to switch to finalizing state
+        let _ = overlay_window.emit("show-overlay", "finalizing");
+    }
+}
+
 /// Updates the overlay window position based on current settings
 pub fn update_overlay_position(app_handle: &AppHandle) {
     if let Some(overlay_window) = app_handle.get_webview_window("recording_overlay") {
@@ -327,12 +368,8 @@ pub fn hide_recording_overlay(app_handle: &AppHandle) {
     if let Some(overlay_window) = app_handle.get_webview_window("recording_overlay") {
         // Emit event to trigger fade-out animation
         let _ = overlay_window.emit("hide-overlay", ());
-        // Hide the window after a short delay to allow animation to complete
-        let window_clone = overlay_window.clone();
-        std::thread::spawn(move || {
-            std::thread::sleep(std::time::Duration::from_millis(300));
-            let _ = window_clone.hide();
-        });
+        // Hide immediately for faster stop/finalization response.
+        let _ = overlay_window.hide();
     }
 }
 
@@ -377,6 +414,131 @@ fn calculate_command_confirm_position(app_handle: &AppHandle) -> Option<(f64, f6
     }
     None
 }
+
+/// Calculates bottom-center position for the floating voice activation button window.
+fn calculate_voice_button_position(app_handle: &AppHandle) -> Option<(f64, f64)> {
+    if let Some(monitor) = get_monitor_with_cursor(app_handle) {
+        let work_area = monitor.work_area();
+        let scale = monitor.scale_factor();
+        let work_area_width = work_area.size.width as f64 / scale;
+        let work_area_height = work_area.size.height as f64 / scale;
+        let work_area_x = work_area.position.x as f64 / scale;
+        let work_area_y = work_area.position.y as f64 / scale;
+
+        let x = work_area_x + (work_area_width - VOICE_BUTTON_WIDTH) / 2.0;
+        let y = work_area_y + work_area_height - VOICE_BUTTON_HEIGHT - 40.0;
+        return Some((x, y));
+    }
+    None
+}
+
+/// Shows the floating voice activation button window.
+/// Creates the window if it doesn't exist yet.
+#[cfg(target_os = "windows")]
+pub fn show_voice_activation_button_window(app_handle: &AppHandle) -> Result<(), String> {
+    let window_label = "voice_activation_button";
+    info!("show_voice_activation_button_window called");
+    let initial_position = calculate_voice_button_position(app_handle);
+
+    // Track whether this is a new window (need to set initial position)
+    let is_new_window;
+
+    let window = if let Some(existing) = app_handle.get_webview_window(window_label) {
+        info!("Reusing existing voice activation button window");
+        is_new_window = false;
+        existing
+    } else if let Some((x, y)) = initial_position {
+        is_new_window = true;
+        info!(
+            "Creating new voice activation button window at ({}, {})",
+            x, y
+        );
+        match WebviewWindowBuilder::new(
+            app_handle,
+            window_label,
+            tauri::WebviewUrl::App("src/voice-activation-button/index.html".into()),
+        )
+        .title("Voice Activation Button")
+        .position(x, y)
+        .inner_size(VOICE_BUTTON_WIDTH, VOICE_BUTTON_HEIGHT)
+        .resizable(true)
+        .maximizable(false)
+        .minimizable(false)
+        .closable(true)
+        .decorations(false)
+        .always_on_top(true)
+        .skip_taskbar(true)
+        .transparent(false)
+        .focused(false)
+        .visible(false)
+        .build()
+        {
+            Ok(window) => window,
+            Err(e) => {
+                let msg = format!("Failed to create voice activation button window: {}", e);
+                log::error!("{}", msg);
+                return Err(msg);
+            }
+        }
+    } else {
+        is_new_window = true;
+        info!("Primary position unavailable; using fallback position (100, 100)");
+        // Fallback if monitor detection fails.
+        match WebviewWindowBuilder::new(
+            app_handle,
+            window_label,
+            tauri::WebviewUrl::App("src/voice-activation-button/index.html".into()),
+        )
+        .title("Voice Activation Button")
+        .position(100.0, 100.0)
+        .inner_size(VOICE_BUTTON_WIDTH, VOICE_BUTTON_HEIGHT)
+        .resizable(true)
+        .maximizable(false)
+        .minimizable(false)
+        .closable(true)
+        .decorations(false)
+        .always_on_top(true)
+        .skip_taskbar(true)
+        .transparent(false)
+        .focused(false)
+        .visible(false)
+        .build()
+        {
+            Ok(window) => window,
+            Err(e) => {
+                let msg = format!(
+                    "Could not calculate position and fallback window creation failed: {}",
+                    e
+                );
+                log::error!("{}", msg);
+                return Err(msg);
+            }
+        }
+    };
+
+    // Only set position for new windows - preserve user's drag position for existing ones
+    if is_new_window {
+        let _ = window.set_size(tauri::Size::Logical(tauri::LogicalSize {
+            width: VOICE_BUTTON_WIDTH,
+            height: VOICE_BUTTON_HEIGHT,
+        }));
+    }
+
+    if let Err(e) = window.show() {
+        let msg = format!("Failed to show voice activation button window: {}", e);
+        log::error!("{}", msg);
+        return Err(msg);
+    }
+    info!("Voice activation button window shown");
+    force_overlay_topmost(&window);
+    let _ = window.set_focus();
+    Ok(())
+}
+
+#[cfg(not(target_os = "windows"))]
+pub fn show_voice_activation_button_window(_app_handle: &AppHandle) -> Result<(), String> {
+    Err("Voice activation button window is currently Windows-only.".to_string())
+}
 /// Shows the command confirmation overlay with the given payload.
 /// Creates the window if it doesn't exist yet.
 #[cfg(target_os = "windows")]
@@ -412,7 +574,7 @@ pub fn show_command_confirm_overlay(
             .title("Voice Command")
             .position(x, y)
             .inner_size(COMMAND_CONFIRM_WIDTH, COMMAND_CONFIRM_HEIGHT)
-            .resizable(true)  // Allow programmatic resizing for error display
+            .resizable(true) // Allow programmatic resizing for error display
             .maximizable(false)
             .minimizable(false)
             .closable(true)
@@ -494,6 +656,9 @@ pub fn show_command_confirm_overlay(
 /// Shows a brief overlay notification when switching transcription profiles.
 /// Uses the existing recording overlay to display the profile name, then auto-hides.
 pub fn show_profile_switch_overlay(app_handle: &AppHandle, profile_name: &str) {
+    // Cancel pending error auto-hide timers so a new active overlay is not hidden.
+    plus_overlay_state::invalidate_error_overlay_auto_hide();
+
     let settings = settings::get_settings(app_handle);
     if settings.overlay_position == OverlayPosition::None {
         return;

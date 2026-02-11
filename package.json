@@ -1,7 +1,7 @@
 {
   "name": "aivorelay-app",
   "private": true,
-  "version": "0.7.15",
+  "version": "0.8.1",
   "license": "MIT",
   "type": "module",
   "scripts": {
@@ -16,7 +16,8 @@
     "format:check": "prettier --check . && cd src-tauri && cargo fmt -- --check",
     "format:frontend": "prettier --write .",
     "format:backend": "cd src-tauri && cargo fmt",
-    "build:unsigned": "bun run build-unsigned.js"
+    "build:unsigned": "bun run build-unsigned.js",
+    "check:translations": "bun scripts/check-translations.ts"
   },
   "dependencies": {
     "@tailwindcss/vite": "^4.1.16",

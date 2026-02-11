@@ -9,6 +9,51 @@ This is the Microsoft Store version of AivoRelay.
 | Installation | Microsoft Store | MSI Installer |
 | Updates | Automatic (via Store) | Built-in Updater |
 | Environment | Sandboxed | Standard Application |
+| CPU Instructions | AVX2 only (wider compatibility) | AVX-512 auto-detected (faster on supported CPUs) |
+
+## AVX-512 Disablement (AVX2 Build)
+
+The Microsoft Store version targets a wider range of CPUs by **disabling AVX-512** and forcing **AVX2**. This ensures the app works on older processors that don't support AVX-512.
+
+### How it works
+
+Two config files control this:
+
+1. **`.cargo/config.toml`** (project root):
+   ```toml
+   [env]
+   # Force non-native CPU tuning so whisper-rs-sys does not auto-pick AVX512
+   # on the build machine. On x64 this resolves to AVX2 defaults in ggml.
+   WHISPER_NATIVE = "OFF"
+   ```
+   This prevents the whisper build system from detecting and using AVX-512 instructions on the CI/build machine.
+
+2. **`src-tauri/.cargo/config.toml`** (does NOT exist on `main`):
+   ```toml
+   [build]
+   rustflags = ["-C", "target-feature=+avx2"]
+   ```
+   This explicitly enables AVX2 optimizations for the Rust compiler.
+
+### ⚠️ Do NOT remove these files or merge main's `.cargo/config.toml` over them
+
+If these configs are lost during a merge, the build will auto-detect AVX-512 on the GitHub Actions runner, producing a binary that **crashes on older CPUs**.
+
+## Branch-Specific File Changes (Merge Checklist)
+
+When merging `main` into `Microsoft-store`, verify these differences are preserved:
+
+| File | MS-store difference | What to check |
+|------|-------------------|---------------|
+| `.cargo/config.toml` | `WHISPER_NATIVE = "OFF"` | Must have the `[env]` section |
+| `src-tauri/.cargo/config.toml` | `rustflags = ["-C", "target-feature=+avx2"]` | Must exist (not on `main`) |
+| `src-tauri/tauri.conf.json` | Title: "AivoRelay (Store Edition)", empty `endpoints: []` | No update endpoints |
+| `src-tauri/src/tray.rs` | "Check for Updates" menu item removed | No `check_updates_i` item |
+| `src/components/footer/Footer.tsx` | No `UpdateChecker`, version shows "(Microsoft Store Edition)" | Must not import UpdateChecker |
+| `src/components/settings/about/AboutSettings.tsx` | Version shows "(Microsoft Store Edition)" | Check line with `v{version}` |
+| `src/i18n/locales/en/translation.json` | `tray.checkUpdates` key removed | Must not have this key |
+| All other locale `translation.json` | `tray.checkUpdates` key removed | Already removed |
+| `.github/workflows/build.yml` | Removed (not needed for store) | Should not exist |
 
 ## Updates
 

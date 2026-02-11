@@ -1,8 +1,9 @@
 import React from "react";
 import { useTranslation } from "react-i18next";
-import { HelpCircle, ChevronDown, RotateCcw } from "lucide-react";
+import { HelpCircle, ChevronDown, RotateCcw, AlertTriangle } from "lucide-react";
 import { useSettings } from "@/hooks/useSettings";
 import { SettingsGroup } from "@/components/ui/SettingsGroup";
+import { FilterSilence } from "@/components/settings/FilterSilence";
 
 export const AudioProcessingSettings: React.FC = () => {
   const { t } = useTranslation();
@@ -14,6 +15,18 @@ export const AudioProcessingSettings: React.FC = () => {
 
   return (
     <div className="max-w-3xl w-full mx-auto space-y-6 pb-12">
+      <div className="px-4 py-3 bg-red-500/10 border border-red-500/30 rounded-lg">
+        <div className="flex items-start gap-2">
+          <AlertTriangle className="w-4 h-4 text-red-400 mt-0.5 flex-shrink-0" />
+          <p className="text-sm text-red-300/90">
+            {t(
+              "audioProcessing.sonioxRealtimeBypassWarning",
+              "Soniox realtime mode ignores Filter Silence and Voice Detection Sensitivity."
+            )}
+          </p>
+        </div>
+      </div>
+
       <SettingsGroup
         title={t("audioProcessing.title", "Speech Processing")}
         description={t(
@@ -21,6 +34,8 @@ export const AudioProcessingSettings: React.FC = () => {
           "Configure voice activity detection and speech artifact filtering."
         )}
       >
+        <FilterSilence descriptionMode="tooltip" grouped={true} />
+
         {/* VAD Threshold */}
         <div className="px-4 py-4">
           <div className="flex items-center justify-between mb-2">

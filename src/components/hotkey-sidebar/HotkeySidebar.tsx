@@ -84,7 +84,15 @@ const categorizeHotkeys = (
   return categories;
 };
 
-export const HotkeySidebar: React.FC = () => {
+interface HotkeySidebarProps {
+  showNewcomerHint?: boolean;
+  onDismissNewcomerHint?: () => void;
+}
+
+export const HotkeySidebar: React.FC<HotkeySidebarProps> = ({
+  showNewcomerHint = false,
+  onDismissNewcomerHint,
+}) => {
   const { t } = useTranslation();
   const { settings, updateSetting } = useSettings();
   const [isOpen, setIsOpen] = useState(false);
@@ -130,17 +138,23 @@ export const HotkeySidebar: React.FC = () => {
 
   // Handle click always toggles, regardless of pin state
   const handleToggleOpen = useCallback(() => {
+    if (showNewcomerHint) {
+      onDismissNewcomerHint?.();
+    }
     setIsOpen((prev) => !prev);
-  }, []);
+  }, [showNewcomerHint, onDismissNewcomerHint]);
 
   // Drag handling for the edge handle (works regardless of pin state)
   const handleMouseDown = useCallback(
     (e: React.MouseEvent) => {
+      if (showNewcomerHint) {
+        onDismissNewcomerHint?.();
+      }
       setIsDragging(true);
       dragStartX.current = e.clientX;
       e.preventDefault();
     },
-    []
+    [showNewcomerHint, onDismissNewcomerHint]
   );
 
   const handleMouseMove = useCallback(
@@ -231,8 +245,10 @@ export const HotkeySidebar: React.FC = () => {
         title={shouldShow ? t("hotkeySidebar.closeSidebar") : t("hotkeySidebar.openSidebar")}
       >
         <div
-          className={`flex items-center justify-center w-6 h-20 rounded-l-lg bg-gradient-to-b from-[#2a2a2a] to-[#1a1a1a] border border-r-0 border-[#3a3a3a] shadow-lg transition-all duration-200 hover:w-8 hover:bg-gradient-to-b hover:from-[#353535] hover:to-[#252525] ${
+          className={`relative flex items-center justify-center w-6 h-20 rounded-l-lg bg-gradient-to-b from-[#2a2a2a] to-[#1a1a1a] border border-r-0 border-[#3a3a3a] shadow-lg transition-all duration-200 hover:w-8 hover:bg-gradient-to-b hover:from-[#353535] hover:to-[#252525] ${
             isDragging ? "w-8 bg-gradient-to-b from-[#404040] to-[#303030]" : ""
+          } ${
+            showNewcomerHint ? "hotkey-edge-nudge" : ""
           }`}
         >
           {shouldShow ? (
@@ -241,6 +257,19 @@ export const HotkeySidebar: React.FC = () => {
             <ChevronLeft className="w-4 h-4 text-[#808080]" />
           )}
         </div>
+        {showNewcomerHint && (
+          <div className="absolute right-10 top-1/2 -translate-y-1/2 w-64 pointer-events-none">
+            <div className="hotkey-newcomer-tooltip hotkey-tooltip-red-flow relative rounded-lg border border-[#ff4d8d]/40 bg-[#1a1a1a]/95 backdrop-blur-md px-3 py-2 shadow-[0_8px_24px_rgba(0,0,0,0.45)]">
+              <p className="text-xs font-semibold text-[#ffd1e6]">
+                {t("hotkeySidebar.newcomer.title")}
+              </p>
+              <p className="text-xs text-[#d0d0d0] mt-1 leading-relaxed">
+                {t("hotkeySidebar.newcomer.message")}
+              </p>
+              <div className="absolute -right-[7px] top-1/2 -translate-y-1/2 w-3 h-3 rotate-45 border-t border-r border-[#ff4d8d]/40 bg-[#1a1a1a]/95" />
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Sidebar Panel */}

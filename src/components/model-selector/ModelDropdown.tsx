@@ -24,8 +24,8 @@ interface ModelDropdownProps {
   onModelDownloadCancel: (modelId: string) => void;
   onModelDelete: (modelId: string) => Promise<void>;
   onError?: (error: string) => void;
-  isRemoteProvider?: boolean;
-  onRemoteSttSelect?: () => void;
+  currentProvider?: string;
+  onRemoteProviderSelect?: (provider: string) => void;
 }
 
 const ModelDropdown: React.FC<ModelDropdownProps> = ({
@@ -37,9 +37,12 @@ const ModelDropdown: React.FC<ModelDropdownProps> = ({
   onModelDownloadCancel,
   onModelDelete,
   onError,
-  isRemoteProvider = false,
-  onRemoteSttSelect,
+  currentProvider = "local",
+  onRemoteProviderSelect,
 }) => {
+  const isRemoteProvider =
+    currentProvider === "remote_openai_compatible" ||
+    currentProvider === "remote_soniox";
   const { t } = useTranslation();
   const availableModels = models.filter((m) => m.is_downloaded);
   const downloadableModels = models.filter((m) => !m.is_downloaded);
@@ -78,22 +81,23 @@ const ModelDropdown: React.FC<ModelDropdownProps> = ({
   };
 
   return (
-    <div className="absolute bottom-full left-0 mb-2 w-64 bg-background border border-mid-gray/20 rounded-lg shadow-lg py-2 z-50">
-      {/* Remote STT Option */}
-      {onRemoteSttSelect && (
+    <div className="absolute bottom-full left-0 mb-2 w-64 max-h-[calc(100vh-4rem)] overflow-y-auto bg-background border border-mid-gray/20 rounded-lg shadow-lg py-2 z-50">
+      {/* Remote STT Options */}
+      {onRemoteProviderSelect && (
         <div>
+          {/* Remote via API */}
           <div
-            onClick={onRemoteSttSelect}
+            onClick={() => onRemoteProviderSelect("remote_openai_compatible")}
             onKeyDown={(e) => {
               if (e.key === "Enter" || e.key === " ") {
                 e.preventDefault();
-                onRemoteSttSelect();
+                onRemoteProviderSelect("remote_openai_compatible");
               }
             }}
             tabIndex={0}
             role="button"
             className={`w-full px-3 py-2 text-left hover:bg-mid-gray/10 transition-colors cursor-pointer focus:outline-none ${
-              isRemoteProvider
+              currentProvider === "remote_openai_compatible"
                 ? "bg-blue-500/10 text-blue-400"
                 : ""
             }`}
@@ -115,14 +119,62 @@ const ModelDropdown: React.FC<ModelDropdownProps> = ({
                   />
                 </svg>
                 <div>
-                  <div className="text-sm">{t("modelSelector.remoteMode")}</div>
+                  <div className="text-sm">{t("modelSelector.remoteApiMode")}</div>
                   <div className="text-xs text-text/40 italic">
-                    {t("modelSelector.remoteModeDescription")}
+                    {t("modelSelector.remoteApiModeDescription")}
                   </div>
                 </div>
               </div>
-              {isRemoteProvider && (
+              {currentProvider === "remote_openai_compatible" && (
                 <div className="text-xs text-blue-400">
+                  {t("modelSelector.active")}
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Remote via Soniox */}
+          <div
+            onClick={() => onRemoteProviderSelect("remote_soniox")}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                onRemoteProviderSelect("remote_soniox");
+              }
+            }}
+            tabIndex={0}
+            role="button"
+            className={`w-full px-3 py-2 text-left hover:bg-mid-gray/10 transition-colors cursor-pointer focus:outline-none ${
+              currentProvider === "remote_soniox"
+                ? "bg-teal-500/10 text-teal-400"
+                : ""
+            }`}
+          >
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                {/* Signal/wave icon */}
+                <svg
+                  className="w-4 h-4"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M9.348 14.651a3.75 3.75 0 010-5.303m5.304 0a3.75 3.75 0 010 5.303m-7.425 2.122a6.75 6.75 0 010-9.546m9.546 0a6.75 6.75 0 010 9.546M5.106 18.894c-3.808-3.808-3.808-9.98 0-13.789m13.788 0c3.808 3.808 3.808 9.981 0 13.79"
+                  />
+                </svg>
+                <div>
+                  <div className="text-sm">{t("modelSelector.remoteSonioxMode")}</div>
+                  <div className="text-xs text-text/40 italic">
+                    {t("modelSelector.remoteSonioxModeDescription")}
+                  </div>
+                </div>
+              </div>
+              {currentProvider === "remote_soniox" && (
+                <div className="text-xs text-teal-400">
                   {t("modelSelector.active")}
                 </div>
               )}
@@ -172,6 +224,11 @@ const ModelDropdown: React.FC<ModelDropdownProps> = ({
                 <div>
                   <div className="text-sm">
                     {getTranslatedModelName(model, t)}
+                    {model.is_custom && (
+                      <span className="ml-1.5 text-[10px] font-medium text-text/40 uppercase">
+                        {t("modelSelector.custom")}
+                      </span>
+                    )}
                   </div>
                   <div className="text-xs text-text/40 italic pr-4">
                     {getTranslatedModelDescription(model, t)}
@@ -239,7 +296,7 @@ const ModelDropdown: React.FC<ModelDropdownProps> = ({
               <div>
                 <div className="text-sm">
                   {getTranslatedModelName(model, t)}
-                  {model.id === "parakeet-tdt-0.6b-v3" && isFirstRun && (
+                  {model.is_recommended && isFirstRun && (
                     <span className="ml-2 text-xs bg-logo-primary/20 text-logo-primary px-1.5 py-0.5 rounded">
                       {t("onboarding.recommended")}
                     </span>

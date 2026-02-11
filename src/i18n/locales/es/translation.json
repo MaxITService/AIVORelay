@@ -2,11 +2,13 @@
   "tray": {
     "settings": "Configuración...",
     "copyLastTranscript": "Copiar la última transcripción",
+    "unloadModel": "Unload Model",
     "quit": "Salir",
     "cancel": "Cancelar"
   },
   "sidebar": {
     "general": "General",
+    "models": "Modelos",
     "advanced": "Avanzado",
     "postProcessing": "Post Proceso",
     "history": "Historial",
@@ -22,6 +24,7 @@
       "accuracy": "precisión",
       "speed": "velocidad"
     },
+    "customModelDescription": "User-provided model in local models folder",
     "models": {
       "small": {
         "name": "Whisper Small",
@@ -78,7 +81,12 @@
     "modelError": "Error del Modelo",
     "modelUnloaded": "Modelo Descargado",
     "noModelDownloadRequired": "Sin Modelo - Descarga Requerida",
-    "deleteModel": "Eliminar {{modelName}}"
+    "deleteModel": "Eliminar {{modelName}}",
+    "custom": "Custom",
+    "customModelsHelpTitle": "Custom Whisper Models",
+    "customModelsHelpDescription": "Place Whisper GGML .bin files into the app models folder. They are detected on startup and shown here as custom models.",
+    "customModelsHelpHint": "After adding files, restart AivoRelay to refresh the model list.",
+    "customModelsDetected": "Detected custom models: {{count}}"
   },
   "settings": {
     "general": {
@@ -152,6 +160,10 @@
         "label": "Iniciar al Arranque",
         "description": "Iniciar AivoRelay automáticamente cuando inicies sesión en tu computadora."
       },
+      "showTrayIcon": {
+        "label": "Mostrar Icono de Bandeja",
+        "description": "Mostrar el icono de AivoRelay en la bandeja del sistema."
+      },
       "overlay": {
         "title": "Posición de Superposición",
         "description": "Mostrar superposición de retroalimentación visual durante la grabación y transcripción. En Linux se recomienda 'Ninguna'.",
@@ -178,6 +190,17 @@
         "options": {
           "dontModify": "No Modificar Portapapeles",
           "copyToClipboard": "Copiar al Portapapeles"
+        }
+      },
+      "autoSubmit": {
+        "title": "Envío automático",
+        "description": "Envía automáticamente la combinación de teclas seleccionada después de insertar el texto. Cmd+Enter se aplica en macOS, mientras que Windows/Linux usan Super+Enter.",
+        "options": {
+          "off": "Desactivado",
+          "enter": "Enter",
+          "cmdEnter": "Cmd+Enter",
+          "superEnter": "Super+Enter",
+          "ctrlEnter": "Ctrl+Enter"
         }
       },
       "translateToEnglish": {
@@ -333,6 +356,10 @@
         "label": "Agregar Espacio Final",
         "description": "Agregar un espacio después de la transcripción pegada"
       },
+      "filterSilence": {
+        "label": "Filtrar silencio",
+        "description": "Usar detección de actividad de voz para eliminar el silencio de las grabaciones antes de la transcripción. Intente desactivar si encuentra problemas, como que se eliminen partes del discurso. Desactivar puede resultar en \"alucinaciones\" más frecuentes en la salida."
+      },
       "paths": {
         "appData": "Datos de la Aplicación:",
         "models": "Modelos:",
@@ -427,3 +454,4 @@
     "transcribing": "Transcribiendo..."
   }
 }
+

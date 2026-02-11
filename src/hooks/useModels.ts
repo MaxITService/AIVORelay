@@ -132,6 +132,32 @@ export const useModels = () => {
     }
   };
 
+  const cancelDownload = async (modelId: string) => {
+    try {
+      setError(null);
+      const result = await commands.cancelDownload(modelId);
+      if (result.status === "ok") {
+        setDownloadingModels((prev) => {
+          const next = new Set(prev);
+          next.delete(modelId);
+          return next;
+        });
+        setDownloadProgress((prev) => {
+          const next = new Map(prev);
+          next.delete(modelId);
+          return next;
+        });
+        await loadModels();
+        return true;
+      }
+      setError(`Failed to cancel download: ${result.error}`);
+      return false;
+    } catch (err) {
+      setError(`Failed to cancel download: ${err}`);
+      return false;
+    }
+  };
+
   const getModelInfo = (modelId: string): ModelInfo | undefined => {
     return models.find((model) => model.id === modelId);
   };
@@ -185,6 +211,22 @@ export const useModels = () => {
       },
     );
 
+    // Listen for cancellation so UIs using this hook stay in sync
+    const cancelUnlisten = listen<string>("model-download-cancelled", (event) => {
+      const modelId = event.payload;
+      setDownloadingModels((prev) => {
+        const next = new Set(prev);
+        next.delete(modelId);
+        return next;
+      });
+      setDownloadProgress((prev) => {
+        const next = new Map(prev);
+        next.delete(modelId);
+        return next;
+      });
+      loadModels();
+    });
+
     // Listen for extraction events
     const extractionStartedUnlisten = listen<string>(
       "model-extraction-started",
@@ -221,12 +263,19 @@ export const useModels = () => {
       setError(`Failed to extract model: ${event.payload.error}`);
     });
 
+    const modelDeletedUnlisten = listen<string>("model-deleted", async () => {
+      await loadModels();
+      await loadCurrentModel();
+    });
+
     return () => {
       progressUnlisten.then((fn) => fn());
       completeUnlisten.then((fn) => fn());
+      cancelUnlisten.then((fn) => fn());
       extractionStartedUnlisten.then((fn) => fn());
       extractionCompletedUnlisten.then((fn) => fn());
       extractionFailedUnlisten.then((fn) => fn());
+      modelDeletedUnlisten.then((fn) => fn());
     };
   }, []);
 
@@ -245,6 +294,7 @@ export const useModels = () => {
     checkFirstRun,
     selectModel,
     downloadModel,
+    cancelDownload,
     deleteModel,
     getModelInfo,
     isModelDownloading,

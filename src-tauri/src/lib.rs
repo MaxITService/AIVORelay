@@ -1,4 +1,5 @@
 mod actions;
+mod active_app;
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 mod apple_intelligence;
 mod audio_feedback;
@@ -8,6 +9,7 @@ mod commands;
 mod helpers;
 mod input;
 mod input_source;
+mod language_resolver;
 mod llm_client;
 mod managers;
 mod overlay;
@@ -19,7 +21,9 @@ mod session_manager;
 mod settings;
 mod shortcut;
 mod signal_handle;
+mod soniox_stream_processor;
 pub mod subtitle;
+mod transcript_context;
 mod tray;
 mod tray_i18n;
 mod utils;
@@ -35,6 +39,8 @@ use managers::key_listener::KeyListenerState;
 use managers::llm_operation::LlmOperationTracker;
 use managers::model::ModelManager;
 use managers::remote_stt::RemoteSttManager;
+use managers::soniox_realtime::SonioxRealtimeManager;
+use managers::soniox_stt::SonioxSttManager;
 use managers::transcription::TranscriptionManager;
 #[cfg(unix)]
 use signal_hook::consts::SIGUSR2;
@@ -46,7 +52,6 @@ use std::sync::{Arc, Mutex};
 use tauri::image::Image;
 
 use tauri::tray::TrayIconBuilder;
-use tauri::Emitter;
 use tauri::{AppHandle, Manager};
 use tauri_plugin_autostart::{MacosLauncher, ManagerExt};
 use tauri_plugin_log::{Builder as LogBuilder, RotationStrategy, Target, TargetKind};
@@ -146,6 +151,11 @@ fn initialize_core_logic(app_handle: &AppHandle) {
     );
     let remote_stt_manager =
         Arc::new(RemoteSttManager::new(app_handle).expect("Failed to initialize remote STT"));
+    let soniox_realtime_manager = Arc::new(
+        SonioxRealtimeManager::new(app_handle).expect("Failed to initialize Soniox realtime STT"),
+    );
+    let soniox_stt_manager =
+        Arc::new(SonioxSttManager::new(app_handle).expect("Failed to initialize Soniox STT"));
     let history_manager =
         Arc::new(HistoryManager::new(app_handle).expect("Failed to initialize history manager"));
     let connector_manager = Arc::new(
@@ -161,6 +171,8 @@ fn initialize_core_logic(app_handle: &AppHandle) {
     app_handle.manage(model_manager.clone());
     app_handle.manage(transcription_manager.clone());
     app_handle.manage(remote_stt_manager.clone());
+    app_handle.manage(soniox_realtime_manager.clone());
+    app_handle.manage(soniox_stt_manager.clone());
     app_handle.manage(llm_operation_tracker.clone());
     app_handle.manage(history_manager.clone());
     app_handle.manage(connector_manager.clone());
@@ -225,15 +237,20 @@ fn initialize_core_logic(app_handle: &AppHandle) {
             "settings" => {
                 show_main_window(app);
             }
-            "check_updates" => {
-                let settings = settings::get_settings(app);
-                if settings.update_checks_enabled {
-                    show_main_window(app);
-                    let _ = app.emit("check-for-updates", ());
-                }
-            }
+
             "copy_last_transcript" => {
                 tray::copy_last_transcript(app);
+            }
+            "unload_model" => {
+                let transcription_manager = app.state::<Arc<TranscriptionManager>>();
+                if !transcription_manager.is_model_loaded() {
+                    log::warn!("No model is currently loaded.");
+                    return;
+                }
+                match transcription_manager.unload_model() {
+                    Ok(()) => log::info!("Model unloaded via tray."),
+                    Err(e) => log::error!("Failed to unload model via tray: {}", e),
+                }
             }
             "cancel" => {
                 use crate::utils::cancel_current_operation;
@@ -253,6 +270,12 @@ fn initialize_core_logic(app_handle: &AppHandle) {
     // Initialize tray menu with idle state
     utils::update_tray_menu(app_handle, &utils::TrayIconState::Idle, None);
 
+    // Apply tray visibility setting on startup
+    let settings = settings::get_settings(app_handle);
+    if !settings.show_tray_icon {
+        tray::set_tray_visibility(app_handle, false);
+    }
+
     // Get the autostart manager and configure based on user setting
     let autostart_manager = app_handle.autolaunch();
     let settings = settings::get_settings(&app_handle);
@@ -267,18 +290,6 @@ fn initialize_core_logic(app_handle: &AppHandle) {
 
     // Create the recording overlay window (hidden by default)
     utils::create_recording_overlay(app_handle);
-}
-
-#[tauri::command]
-#[specta::specta]
-fn trigger_update_check(app: AppHandle) -> Result<(), String> {
-    let settings = settings::get_settings(&app);
-    if !settings.update_checks_enabled {
-        return Ok(());
-    }
-    app.emit("check-for-updates", ())
-        .map_err(|e| e.to_string())?;
-    Ok(())
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -304,10 +315,29 @@ pub fn run() {
         shortcut::change_debug_mode_setting,
         shortcut::change_word_correction_threshold_setting,
         shortcut::change_paste_method_setting,
+        shortcut::change_paste_delay_ms_setting,
         shortcut::change_clipboard_handling_setting,
+        shortcut::change_auto_submit_setting,
+        shortcut::change_auto_submit_key_setting,
         shortcut::change_convert_lf_to_crlf_setting,
         shortcut::change_remote_stt_base_url_setting,
         shortcut::change_remote_stt_model_id_setting,
+        shortcut::change_soniox_model_setting,
+        shortcut::change_soniox_timeout_setting,
+        shortcut::change_soniox_live_enabled_setting,
+        shortcut::change_soniox_language_hints_setting,
+        shortcut::change_soniox_use_profile_language_hint_only_setting,
+        shortcut::change_soniox_language_hints_strict_setting,
+        shortcut::change_soniox_endpoint_detection_setting,
+        shortcut::change_soniox_max_endpoint_delay_ms_setting,
+        shortcut::change_soniox_language_identification_setting,
+        shortcut::change_soniox_speaker_diarization_setting,
+        shortcut::change_soniox_keepalive_interval_seconds_setting,
+        shortcut::change_soniox_live_finalize_timeout_ms_setting,
+        shortcut::change_soniox_live_instant_stop_setting,
+        shortcut::change_soniox_realtime_fuzzy_correction_enabled_setting,
+        shortcut::change_soniox_realtime_keep_safety_buffer_enabled_setting,
+        shortcut::reset_soniox_settings_to_defaults,
         shortcut::change_remote_stt_debug_capture_setting,
         shortcut::change_remote_stt_debug_mode_setting,
         shortcut::change_post_process_enabled_setting,
@@ -350,10 +380,12 @@ pub fn run() {
         shortcut::change_profile_switch_overlay_enabled_setting,
         shortcut::update_custom_words,
         shortcut::change_custom_words_enabled_setting,
+        shortcut::change_custom_words_ngram_enabled_setting,
         shortcut::suspend_binding,
         shortcut::resume_binding,
         shortcut::change_mute_while_recording_setting,
         shortcut::change_append_trailing_space_setting,
+        shortcut::change_filter_silence_setting,
         shortcut::change_ai_replace_system_prompt_setting,
         shortcut::change_ai_replace_user_prompt_setting,
         shortcut::change_ai_replace_max_chars_setting,
@@ -378,6 +410,7 @@ pub fn run() {
         shortcut::change_send_to_extension_with_selection_quick_tap_threshold_ms_setting,
         shortcut::change_send_to_extension_with_selection_no_voice_system_prompt_setting,
         shortcut::change_ai_replace_selection_push_to_talk_setting,
+        shortcut::change_voice_command_push_to_talk_setting,
         shortcut::change_connector_auto_open_enabled_setting,
         shortcut::change_connector_auto_open_url_setting,
         shortcut::change_connector_port_setting,
@@ -395,18 +428,21 @@ pub fn run() {
         shortcut::change_send_screenshot_to_extension_enabled_setting,
         shortcut::change_send_screenshot_to_extension_push_to_talk_setting,
         shortcut::change_app_language_setting,
+        shortcut::change_show_tray_icon_setting,
         shortcut::change_update_checks_setting,
         shortcut::change_beta_voice_commands_enabled_setting,
+        shortcut::change_voice_button_show_aot_toggle_setting,
+        shortcut::change_voice_button_single_click_close_setting,
         shortcut::change_text_replacements_enabled_setting,
         shortcut::change_text_replacements_setting,
         shortcut::change_text_replacements_before_llm_setting,
+        shortcut::change_trim_transcription_output_enabled_setting,
         shortcut::change_sidebar_pinned_setting,
         shortcut::change_sidebar_width_setting,
         shortcut::get_language_from_os_input,
         shortcut::get_current_shortcut_engine,
         shortcut::set_shortcut_engine_setting,
         shortcut::get_tauri_incompatible_shortcuts,
-        trigger_update_check,
         commands::cancel_operation,
         commands::get_app_dir_path,
         commands::get_app_settings,
@@ -419,6 +455,9 @@ pub fn run() {
         commands::remote_stt::remote_stt_has_api_key,
         commands::remote_stt::remote_stt_set_api_key,
         commands::remote_stt::remote_stt_clear_api_key,
+        commands::remote_stt::soniox_has_api_key,
+        commands::remote_stt::soniox_set_api_key,
+        commands::remote_stt::soniox_clear_api_key,
         commands::remote_stt::remote_stt_get_debug_dump,
         commands::remote_stt::remote_stt_clear_debug,
         commands::remote_stt::remote_stt_test_connection,
@@ -474,6 +513,12 @@ pub fn run() {
         commands::region_capture::region_capture_cancel,
         commands::voice_command::execute_voice_command,
         commands::voice_command::test_voice_command_mock,
+        commands::voice_activation_button::spawn_voice_activation_button_window,
+        commands::voice_activation_button::voice_activation_button_get_push_to_talk,
+        commands::voice_activation_button::voice_activation_button_get_show_aot_toggle,
+        commands::voice_activation_button::voice_activation_button_get_single_click_close,
+        commands::voice_activation_button::voice_activation_button_press,
+        commands::voice_activation_button::voice_activation_button_release,
         commands::file_transcription::get_supported_audio_extensions,
         commands::file_transcription::transcribe_audio_file,
         commands::key_listener::key_listener_start,
@@ -547,8 +592,12 @@ pub fn run() {
         .manage(Mutex::new(ShortcutToggleStates::default()))
         .manage(Mutex::new(PressTimestamps::default()))
         .manage(Mutex::new(session_manager::SessionState::default()))
-        .manage(std::sync::Mutex::new(std::collections::HashSet::<String>::new()) as shortcut::RdevShortcutsSet)
-        .manage(std::sync::Mutex::new(settings::ShortcutEngine::default()) as shortcut::ActiveShortcutEngine)
+        .manage(
+            std::sync::Mutex::new(std::collections::HashSet::<String>::new())
+                as shortcut::RdevShortcutsSet,
+        )
+        .manage(std::sync::Mutex::new(settings::ShortcutEngine::default())
+            as shortcut::ActiveShortcutEngine)
         .setup(move |app| {
             let settings = get_settings(&app.handle());
             let tauri_log_level: tauri_plugin_log::LogLevel = settings.log_level.into();
@@ -571,15 +620,25 @@ pub fn run() {
         })
         .on_window_event(|window, event| match event {
             tauri::WindowEvent::CloseRequested { api, .. } => {
-                api.prevent_close();
-                let _res = window.hide();
-                #[cfg(target_os = "macos")]
-                {
-                    let res = window
-                        .app_handle()
-                        .set_activation_policy(tauri::ActivationPolicy::Accessory);
-                    if let Err(e) = res {
-                        log::error!("Failed to set activation policy: {}", e);
+                // Only the main window should be hidden-to-tray on close.
+                // Auxiliary windows (e.g. voice activation button) must be allowed to close.
+                if window.label() == "main" {
+                    let settings = get_settings(&window.app_handle());
+                    if !settings.show_tray_icon {
+                        window.app_handle().exit(0);
+                        return;
+                    }
+
+                    api.prevent_close();
+                    let _res = window.hide();
+                    #[cfg(target_os = "macos")]
+                    {
+                        let res = window
+                            .app_handle()
+                            .set_activation_policy(tauri::ActivationPolicy::Accessory);
+                        if let Err(e) = res {
+                            log::error!("Failed to set activation policy: {}", e);
+                        }
                     }
                 }
             }

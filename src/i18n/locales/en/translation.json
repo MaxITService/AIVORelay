@@ -2,11 +2,13 @@
   "tray": {
     "settings": "Settings...",
     "copyLastTranscript": "Copy Last Transcript",
+    "unloadModel": "Unload Model",
     "quit": "Quit",
     "cancel": "Cancel"
   },
   "sidebar": {
     "general": "Speech / Mic",
+    "models": "Models",
     "advanced": "Advanced",
     "postProcessing": "LLM Post Processing",
     "aiReplace": "AI Replace",
@@ -15,6 +17,7 @@
     "transcribeFile": "Transcribe File",
     "textReplacement": "Text Replace",
     "audioProcessing": "Speech Processing",
+    "userInterface": "User Interface",
     "history": "History",
     "debug": "Debug",
     "about": "About"
@@ -27,6 +30,10 @@
     "openSidebar": "Open hotkey sidebar",
     "closeSidebar": "Close hotkey sidebar",
     "configureHint": "Configure in Settings",
+    "newcomer": {
+      "title": "New here?",
+      "message": "Open the all key mappings menu to see every shortcut and quickly learn what AivoRelay can do."
+    },
     "categories": {
       "recording": "Recording",
       "actions": "Actions",
@@ -37,6 +44,7 @@
   "audioProcessing": {
     "title": "Speech Processing",
     "description": "Configure voice activity detection and speech artifact filtering.",
+    "sonioxRealtimeBypassWarning": "Soniox realtime mode ignores Filter Silence and Voice Detection Sensitivity.",
     "fillerFilter": "Remove Filler Words",
     "fillerFilterDescription": "Automatically remove 'uh', 'um', 'hmm' and similar filler words from transcriptions.",
     "fillerHelpTitle": "Tell me more about filler word removal",
@@ -56,6 +64,17 @@
     "languageWarning": "This feature is optimized for English. If you experience issues with other languages (missing words, incorrect filtering), try disabling this option.",
     "noteTitle": "Note:",
     "fillerNote": "This is especially useful with AI models like Parakeet that may produce filler words or stuttering artifacts. Most professional dictation systems include similar filtering.",
+    "zeroWidthFilter": "Strip Invisible Characters",
+    "zeroWidthFilterDescription": "Remove invisible Unicode characters from LLM output (post-processing and AI Replace).",
+    "zeroWidthHelpTitle": "Tell me more about invisible character removal",
+    "zeroWidthExplanation": "Some LLM providers (notably Qwen) insert invisible Unicode characters into their responses. These are zero-width characters that you can't see, but they can cause issues when pasted into other applications.",
+    "zeroWidthWhatRemoved": "Characters removed:",
+    "zeroWidthZWS": "Zero-Width Space (U+200B)",
+    "zeroWidthZWNJ": "Zero-Width Non-Joiner (U+200C)",
+    "zeroWidthZWJ": "Zero-Width Joiner (U+200D)",
+    "zeroWidthBOM": "Byte Order Mark / Zero-Width No-Break Space (U+FEFF)",
+    "zeroWidthIssues": "These invisible characters can cause unexpected behavior: broken text searches, incorrect string lengths, copy-paste issues, and invisible formatting problems in documents.",
+    "zeroWidthNote": "This filter applies to all LLM output — both post-processing and AI Replace. It's safe to leave enabled for all providers.",
     "vadThreshold": "Voice Detection Sensitivity",
     "moreSensitive": "More sensitive",
     "lessSensitive": "Less sensitive",
@@ -120,6 +139,7 @@
       "accuracy": "accuracy",
       "speed": "speed"
     },
+    "customModelDescription": "User-provided model in local models folder",
     "models": {
       "small": {
         "name": "Whisper Small",
@@ -153,14 +173,22 @@
     "errors": {
       "loadModels": "Failed to load available models",
       "downloadModel": "Failed to download model: {{error}}",
+      "selectModel": "Failed to select model: {{error}}",
       "selectLocal": "Failed to select local mode",
       "selectRemote": "Failed to select remote mode"
     },
     "remoteSttWizard": {
       "title": "Configure Remote STT",
       "subtitle": "Enter your API credentials to use cloud transcription",
-      "recommendation": "We recommend using Groq for fast, free cloud transcription. The fields below are prefilled with Groq defaults.",
-      "freeTier": "Groq offers a generous free tier. Just create an API key on their website and enter it below.",
+      "engineLabel": "Voice Provider",
+      "engineOptions": {
+        "openai": "OpenAI API Compatible",
+        "soniox": "Soniox"
+      },
+      "recommendation": "Any OpenAI-compatible speech-to-text API will work. I tested the app with Groq and it worked well, so the fields below are pre-filled with Groq defaults. The Groq website is linked below because it's easy to register a free account there, but you are free to use any provider you prefer.",
+      "freeTier": "Create an API key on your provider's website and enter it below.",
+      "sonioxInfo": "Soniox provides real-time speech-to-text with streaming support. Create an API key on their website and enter it below.",
+      "sonioxRealtimeWarning": "The LLM post processing does not work with realtime API. LLM post processing settings will be ignored in this mode.",
       "baseUrl": {
         "label": "Server URL",
         "hint": "OpenAI-compatible transcription API endpoint"
@@ -177,13 +205,32 @@
       "testing": "Testing...",
       "finishConfig": "Finish Setup",
       "connectionSuccess": "Connection successful!",
-      "connectionFailed": "Connection failed: {{error}}"
+      "connectionFailed": "Connection failed: {{error}}",
+      "apiConfigHeader": "API Configuration"
     }
   },
   "modelSelector": {
+    "tellMeMore": {
+      "title": "Tell me more about Models",
+      "headline": "AivoRelay supports multiple transcription methods.",
+      "intro": "You can use a local on-device model or a remote cloud API. Only one method can be active at a time — switching to a remote provider deactivates the local model, and selecting a local model deactivates the remote provider.",
+      "remoteApi": {
+        "title": "Remote via API",
+        "description": "Connects to any OpenAI-compatible speech-to-text endpoint (Groq, OpenAI, etc.). Requires an API key and base URL."
+      },
+      "remoteSoniox": {
+        "title": "Remote via Soniox",
+        "description": "Uses the Soniox realtime streaming service. Supports live partial transcriptions and advanced language options."
+      },
+      "localModels": {
+        "title": "Local Models",
+        "description": "Run Whisper or Parakeet models entirely on your device — no internet required. Larger models are more accurate but use more resources."
+      },
+      "tip": "Tip: You can quickly switch the active method from the footer dropdown in the main window."
+    },
     "welcome": "Welcome to AivoRelay!",
     "downloadPrompt": "Download a model below to get started with transcription.",
-    "availableModels": "Available Models",
+    "availableModels": "Available Local Models",
     "downloadModels": "Download Models",
     "chooseModel": "Choose a Model",
     "active": "Active",
@@ -203,7 +250,18 @@
     "noModelDownloadRequired": "No Model - Download Required",
     "remoteMode": "Remote STT",
     "remoteModeDescription": "Uses cloud API for transcription",
-    "deleteModel": "Delete {{modelName}}"
+    "remoteApiMode": "Remote via API",
+    "remoteApiModeDescription": "OpenAI-compatible cloud API (Groq, OpenAI, etc.)",
+    "remoteSonioxMode": "Remote via Soniox",
+    "remoteSonioxModeDescription": "Soniox realtime streaming service",
+    "remoteApiActive": "Remote API",
+    "remoteSonioxActive": "Remote Soniox",
+    "deleteModel": "Delete {{modelName}}",
+    "custom": "Custom",
+    "customModelsHelpTitle": "Custom Whisper Models",
+    "customModelsHelpDescription": "Place Whisper GGML .bin files into the app models folder. They are detected on startup and shown here as custom models.",
+    "customModelsHelpHint": "After adding files, restart AivoRelay to refresh the model list.",
+    "customModelsDetected": "Detected custom models: {{count}}"
   },
   "settings": {
     "general": {
@@ -292,6 +350,10 @@
           "repaste_last": {
             "name": "Repaste Last",
             "description": "Paste the most recent transcription or AI response again."
+          },
+          "spawn_button": {
+            "name": "Spawn Voice Activation Button",
+            "description": "Open a floating on-screen voice activation button window."
           }
         },
         "errors": {
@@ -399,6 +461,7 @@
         "overrideModelHint": "Leave empty to use the global model.",
         "modelPlaceholder": "e.g., gpt-4-turbo",
         "usingGlobalModel": "Using global model: {{model}}",
+        "sonioxWarning": "LLM post-processing is not supported when using Soniox realtime models.",
         "defaultNote": "Custom profiles can override this setting individually.",
         "outputVariableDoc": {
           "title": "Template Variable: ${output}",
@@ -442,6 +505,7 @@
     },
     "advanced": {
       "title": "Advanced",
+      "voiceApiTitle": "Voice API",
       "help": {
         "title": "Voice Model Configuration",
         "description": "This is where you can configure voice models for speech to text, but only remote ones. Local models can be selected from the menu at the bottom-left of the application."
@@ -496,6 +560,10 @@
         "label": "Launch on Startup",
         "description": "Automatically start AivoRelay when you log in to your computer."
       },
+      "showTrayIcon": {
+        "label": "Show Tray Icon",
+        "description": "Display the AivoRelay icon in the system tray."
+      },
       "overlay": {
         "title": "Overlay Position",
         "description": "Display visual feedback overlay during recording and transcription. On Linux 'None' is recommended.",
@@ -519,6 +587,10 @@
           "label": "Convert LF to CRLF (Windows)",
           "description": "Normalize Unix-style line breaks (LF) to Windows-style (CRLF) when pasting via clipboard. Fixes newlines being 'eaten' in some applications."
         },
+        "pasteDelay": {
+          "title": "Paste Delay",
+          "description": "Delay before sending paste keystroke (in milliseconds). Increase if wrong text is being pasted."
+        },
         "tellMeMore": {
           "title": "Tell me more: Paste Methods Explained",
           "headline": "Understanding Paste Methods",
@@ -535,6 +607,10 @@
             "title": "None:",
             "description": "Skips the paste step entirely. Useful if you only want to save the transcription to history or manually copy it later. The text is processed and stored, but no input simulation occurs."
           },
+          "pasteDelay": {
+            "title": "Paste Delay:",
+            "description": "Some applications read the clipboard too quickly and may paste older content. This delay gives the OS a moment to commit the new text before the paste keystroke is sent."
+          },
           "crlfNote": {
             "title": "Windows Line Endings:",
             "description": "LLM responses and some APIs use Unix-style line breaks (LF). Windows applications often expect Windows-style line breaks (CRLF). When enabled, this option converts LF to CRLF before pasting, preventing newlines from being ignored or collapsed."
@@ -550,6 +626,17 @@
           "dontModify": "Restore previous text",
           "copyToClipboard": "Keep transcription in clipboard",
           "restoreAdvanced": "⚠️ Experimental: Restore all formats (Windows)"
+        }
+      },
+      "autoSubmit": {
+        "title": "Auto Submit",
+        "description": "Automatically send the selected key combination after text insertion. Cmd+Enter applies on macOS, while Windows/Linux use Super+Enter.",
+        "options": {
+          "off": "Off",
+          "enter": "Enter",
+          "cmdEnter": "Cmd+Enter",
+          "superEnter": "Super+Enter",
+          "ctrlEnter": "Ctrl+Enter"
         }
       },
       "aiReplace": {
@@ -594,7 +681,8 @@
         "placeholder": "Select provider",
         "options": {
           "local": "Local (Offline, Privacy-focused, Needs powerful GPU, drivers and Vulkan softaware)",
-          "remote": "Remote (Cloud API, High Accuracy)"
+          "remote": "Remote (Cloud API, High Accuracy)",
+          "soniox": "Remote (Soniox Cloud API)"
         },
         "windowsOnly": "Remote transcription is currently Windows-only."
       },
@@ -647,6 +735,151 @@
             "empty": "No remote debug output yet.",
             "clear": "Clear"
           }
+        }
+      },
+      "soniox": {
+        "reset": {
+          "title": "Soniox Quick Actions",
+          "description": "Reset all Soniox settings in this section to recommended defaults.",
+          "button": "Reset Soniox Settings",
+          "success": "Soniox settings were reset to defaults.",
+          "failed": "Failed to reset Soniox settings: {{error}}"
+        },
+        "tellMeMore": {
+          "title": "Tell me more: Soniox Real-time",
+          "headline": "How Soniox real-time behaves in AivoRelay.",
+          "liveFlow": "When Live mode is enabled, microphone audio is streamed directly to Soniox over WebSocket. Soniox can emit provisional and final tokens, but AivoRelay focuses on stable final output so your typed text does not flicker.",
+          "stopFlow": "On Stop, AivoRelay immediately stops microphone capture in the UI, then sends Soniox finalization, waits up to your configured timeout for late final tokens, and finally closes the live session. In practice: recording feels stopped instantly, while the app may still collect the last 1-2 words in the background.",
+          "realtimeBehavior": {
+            "title": "Real-time behavior from Soniox docs (as applied in AivoRelay)",
+            "tokenDraft": "Non-final tokens (is_final=false) are provisional and may change; final tokens (is_final=true) are stable and will not change afterward.",
+            "tokenFinal": "AivoRelay UX goal is stable inserted text while speaking, with minimal tail loss when you stop.",
+            "manualFinalize": "On Stop, AivoRelay sends {\"type\":\"finalize\"} to ask Soniox to finalize pending audio before session shutdown.",
+            "finMarker": "Soniox may emit a <fin> token after manual finalization; this is a control marker, not user text to type.",
+            "keepalive": "During silence, keepalive messages should be sent regularly to avoid connection timeout (Soniox guidance: at least once every 20s).",
+            "silenceRule": "For best accuracy/latency balance, finalize after a short silence (~200ms) at end of speech, not too early."
+          },
+          "userStory": {
+            "title": "User story in this app",
+            "item1": "As a user, I press one shortcut, speak naturally, and see stable text appear while I am still talking.",
+            "item2": "When I press Stop, recording ends immediately in UI, while AivoRelay finalizes remaining words in background.",
+            "item3": "I can tune speed vs completeness: faster stop for responsiveness, or longer finalization for fewer cut tail words."
+          },
+          "matrix": {
+            "title": "When to use / Tradeoff / Recommended value",
+            "whenToUseLabel": "When to use:",
+            "tradeoffLabel": "Tradeoff:",
+            "recommendedLabel": "Recommended value:",
+            "items": {
+              "live": {
+                "title": "Live Real-time Streaming",
+                "whenToUse": "You want words to appear while speaking and minimum interaction latency.",
+                "tradeoff": "More sensitive to network stability than async mode.",
+                "recommended": "ON for stt-rt models; OFF only if you explicitly prefer non-live flow."
+              },
+              "finalizeTimeout": {
+                "title": "Live Finalization Timeout",
+                "whenToUse": "Use this when the transcript sometimes cuts the ending after you press Stop, or when your network is inconsistent and final tokens arrive late.",
+                "tradeoff": "Higher values improve completeness (fewer missing tail words) but keep the session alive longer in the background before full completion. Lower values feel faster but increase the chance of dropping the very end of speech.",
+                "recommended": "Default is 500ms for fast stop. Increase if tail words are often cut; raise further only on unstable networks."
+              },
+              "instantStop": {
+                "title": "Instant Stop (AivoRelay local feature)",
+                "whenToUse": "You need immediate stop feedback and can accept occasional tail truncation.",
+                "tradeoff": "Late final chunks are ignored; last words can be cut.",
+                "recommended": "OFF by default; enable only for ultra-fast interaction workflows."
+              },
+              "languageHints": {
+                "title": "Language Hints",
+                "whenToUse": "You mostly speak known language(s) and want fewer misdetections.",
+                "tradeoff": "Wrong hints can bias recognition away from actual speech.",
+                "recommended": "Use one primary language code first (for example: en)."
+              },
+              "endpointDetection": {
+                "title": "Endpoint Detection",
+                "whenToUse": "You want automatic utterance finalization without manual timing.",
+                "tradeoff": "Very aggressive endpoint settings may finalize slightly too early in edge cases.",
+                "recommended": "ON for most users; keep max endpoint delay around 2000ms as baseline."
+              }
+            }
+          },
+          "parametersTitle": "What each setting controls:",
+          "parameters": {
+            "model": "Model: choose stt-rt-* for real-time streaming or stt-async-* for async pipeline.",
+            "live": "Live Real-time Streaming: enables direct WebSocket streaming path for stt-rt models.",
+            "timeout": "Soniox Timeout: timeout for non-live/legacy Soniox requests.",
+            "finalizeTimeout": "Live Finalization Timeout: after you press Stop, AivoRelay waits this many milliseconds for Soniox to return remaining final tokens. During this window, recording is already stopped in UI, but trailing words can still be appended if they arrive. When timeout is reached, session is force-closed.",
+            "instantStop": "Instant Stop (AivoRelay feature): ends live session immediately on Stop and ignores late chunks; fastest UX but highest risk of cutting last words.",
+            "languageHints": "Language Hints: enter comma-separated codes in the field (for example: en, es). Do not type JSON in the UI input; JSON docs show only API payload shape.",
+            "profileLanguageHintOnly": "Use Current Profile Language As Hint: ignores manual Language Hints and sends exactly one hint derived from the active profile language (or global language if no profile is active).",
+            "strict": "Strict Language Restriction: strongly constrains output to language hints.",
+            "endpoint": "Endpoint Detection: Soniox semantic end-of-utterance detection.",
+            "keepalive": "Keepalive Interval: ping period during silence to keep WebSocket alive (recommended 5-10s, should never exceed 20s idle).",
+            "languageIdentification": "Language Identification: includes per-token detected language metadata.",
+            "speakerDiarization": "Speaker Diarization: includes per-token speaker label metadata."
+          },
+          "tip": "Recommended baseline: stt-rt-v4, Live ON, endpoint detection ON, keepalive 10s, finalize timeout 500ms (increase only if needed). Default settings are good. Just try to input your API key and try them out."
+        },
+        "model": {
+          "title": "Soniox Model",
+          "description": "Model identifier sent to Soniox on each request. In AivoRelay, stt-rt-* with Live ON uses the live WebSocket path where text appears while you speak; stt-async-* (or Live OFF) uses non-live processing where text appears after processing finishes. If behavior feels wrong, model family and Live toggle are the first things to verify.",
+          "placeholder": "stt-rt-v4"
+        },
+        "timeout": {
+          "title": "Soniox Timeout (seconds)",
+          "description": "Overall timeout for Soniox non-live requests and async file operations (10-300s). In AivoRelay UX, higher values reduce premature failures on slow networks but can make you wait longer before an error is shown; lower values fail faster but are more sensitive to temporary latency. Mode scope: this setting does not control active Live streaming session timing."
+        },
+        "live": {
+          "title": "Live Real-time Streaming",
+          "description": "When enabled with stt-rt models, AivoRelay streams microphone audio directly to Soniox over WebSocket and inserts confirmed tokens while you are speaking. This gives the fastest interactive typing experience, but it also depends more on connection stability than async mode.",
+          "realtimeOnly": "Live streaming is only available for real-time Soniox models (stt-rt-*)."
+        },
+        "languageHints": {
+          "title": "Language Hints",
+          "description": "Type language codes as a comma-separated list in this input field (for example: en, es or en, es, ru). Do not type JSON here. API equivalent for two languages is: { \"language_hints\": [\"en\", \"es\"] }. Soniox is biased toward these languages, which usually improves recognition accuracy and reduces wrong-language guesses. Mode scope: applied in Live mode and used as defaults for Soniox File Transcription; not currently used as-is by the non-live shortcut fallback path, which derives hint from current profile/global language.",
+          "placeholder": "en, es, ru",
+          "supportedLanguagesLink": "Supported languages (Open Web Documentation)"
+        },
+        "profileLanguageHintOnly": {
+          "title": "Use Current Profile Language As Hint",
+          "description": "When enabled, AivoRelay ignores the Language Hints list and sends exactly one hint derived from the active profile language (or global language if no profile is active). This keeps Soniox language bias aligned with the profile and avoids stale manual hints. Mode scope: Live mode behavior; this setting does not reconfigure Soniox async file options or non-live shortcut fallback behavior."
+        },
+        "languageHintsStrict": {
+          "title": "Strict Language Restriction",
+          "description": "Recommended usage: use a single language whenever possible. Language restriction is most robust when only one language is provided. Example: { \"language_hints\": [\"en\"], \"language_hints_strict\": true }. Multiple languages reduce robustness: you can provide more than one language, but accuracy may degrade when language identification becomes ambiguous (for example heavy accents or acoustically similar languages). Example: { \"language_hints\": [\"en\", \"es\"], \"language_hints_strict\": true }. In difficult cases, Soniox may still choose a wrong language/script, so single-language strict mode is strongly recommended when correctness is critical. Mode scope: currently Live mode only; this flag is not sent in non-live shortcut fallback or Soniox async file requests."
+        },
+        "endpointDetection": {
+          "title": "Endpoint Detection",
+          "description": "Lets Soniox detect natural end-of-utterance moments and finalize tokens automatically (emits <end>). In AivoRelay this improves perceived responsiveness because final words stabilize sooner, especially during conversational pauses. Mode scope: intended as Live tuning; in current non-live shortcut fallback this is forced ON internally, and Soniox async file API does not expose this control."
+        },
+        "maxEndpointDelay": {
+          "title": "Max Endpoint Delay (ms)",
+          "description": "Upper bound for endpoint latency after speech stops (500-3000, default 2000). Lower values feel snappier in AivoRelay but may finalize slightly earlier; higher values wait longer, which can preserve accuracy when speech cadence is irregular. Mode scope: Live mode only; not applied in non-live shortcut fallback or Soniox async file transcription."
+        },
+        "keepalive": {
+          "title": "Keepalive Interval (seconds)",
+          "description": "How often keepalive is sent during silence (5-20s). Soniox guidance: send at least once every 20 seconds whenever audio is not being sent. In AivoRelay this keeps the same live session alive between pauses, preserves session context, and reduces reconnect-related instability. Mode scope: Live WebSocket sessions only."
+        },
+        "finalizeTimeout": {
+          "title": "Live Finalization Timeout (ms)",
+          "description": "What you see: when you press Stop, recording ends immediately in UI. What happens next: AivoRelay still waits in background for late Soniox final tokens, up to this timeout, then force-closes the session (100-20000ms). Default is 500ms. Increase this value if last words are often missing; decrease it only if you want even more aggressive completion and can accept occasional tail truncation. If you want almost instant finish, use Instant Stop. Mode scope: Live mode only."
+        },
+        "instantStop": {
+          "title": "Instant Stop (Local Feature)",
+          "description": "AivoRelay-only behavior: on Stop, immediately cancels Soniox live session and ignores late chunks. UX becomes very snappy, but final trailing words are more likely to be cut when network or server finalization is delayed. Mode scope: Live mode only."
+        },
+        "languageIdentification": {
+          "title": "Language Identification",
+          "description": "Requests per-token language metadata from Soniox. In AivoRelay this mostly affects metadata/diagnostics and multilingual analysis flows; it does not directly change normal plain-text insertion behavior. Mode scope: sent in Live mode and Soniox async file jobs; currently not sent in non-live shortcut fallback WebSocket path."
+        },
+        "speakerDiarization": {
+          "title": "Speaker Diarization",
+          "description": "Requests speaker labels in token metadata. In AivoRelay this is mainly useful for multi-speaker scenarios and downstream analysis; regular typing output remains clean text unless speaker labels are explicitly used in a specific flow. Mode scope: sent in Live mode and Soniox async file jobs; currently not sent in non-live shortcut fallback WebSocket path."
+        },
+        "apiKey": {
+          "title": "Soniox API Key",
+          "description": "Stored securely in Windows Credential Manager.",
+          "placeholder": "Enter the key."
         }
       },
       "translateToEnglish": {
@@ -712,6 +945,7 @@
           "description": "When you use LLM features (AI Replace, Post-Processing), your text is sent over the Internet to the provider's servers. This includes your transcriptions and any selected text. The provider processes your data according to their privacy policy. Only use providers you trust with your information."
         }
       },
+      "sonioxWarning": "You are using the Soniox real-time provider. LLM post-processing is skipped during real-time streaming. These settings will apply when you switch to a local model or OpenAI-compatible provider.",
       "disabledNotice": "Post processing is currently disabled. Enable it in Debug settings to configure.",
       "api": {
         "title": "API Configuration",
@@ -811,6 +1045,14 @@
     },
     "debug": {
       "title": "Debug",
+      "tools": {
+        "title": "Debug Tools"
+      },
+      "firstStartWizard": {
+        "title": "First Start Wizard",
+        "description": "Open the first start wizard again.",
+        "button": "Open first start wizard"
+      },
       "shortcutEngine": {
         "title": "Shortcut Engine",
         "description": "Choose the keyboard shortcut detection method. rdev supports all keys but uses more CPU: read warning in \"tell me more\" below. Tauri is faster but has limited key support.",
@@ -940,6 +1182,11 @@
         "label": "Append Trailing Space",
         "description": "Add a space after pasted transcription"
       },
+      "filterSilence": {
+        "label": "Filter Silence",
+        "description": "Use voice activity detection to remove silence from recordings before transcription. Try disabling if encountering issues, like parts of the speech getting removed. Disabling may result in more frequent \"hallucinations\" in the output.",
+        "sonioxRealtimeNote": "Does not apply to Soniox realtime mode."
+      },
       "paths": {
         "appData": "App Data:",
         "models": "Models:",
@@ -1003,6 +1250,25 @@
         "title": "Report Issues",
         "description": "Found a bug or have a feature request? Open an issue on GitHub.",
         "button": "Open Issues"
+      },
+      "moreProjects": {
+        "title": "More Free & Open Source Software from Author",
+        "oneClickPrompts": {
+          "title": "OneClickPrompts",
+          "description": "Your Quick Prompt Companion for Multiple AI Chats! Insert frequently used prompts with a single click across ChatGPT, Claude, Gemini, DeepSeek, Copilot, and more. Free, open-source Chrome extension that respects your privacy."
+        },
+        "console2Ai": {
+          "title": "Console2Ai",
+          "description": "Send PowerShell buffer to AI"
+        },
+        "aiForBeginners": {
+          "title": "(Article) AI for Complete Beginners",
+          "description": "Guide to LLMs"
+        },
+        "pingPlotter": {
+          "title": "Ping-Plotter",
+          "description": "PowerShell only Ping Plotting script"
+        }
       }
     },
     "browserConnector": {
@@ -1334,7 +1600,8 @@
     "englishOnlyNote": "Sorry, I mostly only made english version of this application."
   },
   "overlay": {
-    "transcribing": "Transcribing..."
+    "transcribing": "Transcribing...",
+    "finalizing": "Finalizing..."
   },
   "transcribeFile": {
     "title": "Transcribe Audio File",
@@ -1363,6 +1630,16 @@
       "label": "Override Model",
       "placeholder": "Select a model...",
       "hint": "Select a specific local model for this transcription. Local models support accurate timestamping for SRT/VTT."
+    },
+    "soniox": {
+      "title": "Soniox File Transcription Options",
+      "usesGlobalDefaults": "Defaults are loaded from your global Soniox API settings. You can override them for this transcription.",
+      "autoSwitchNotice": "Soniox API detected. We are auto switching for the following model: {{targetModel}}. Selected model was '{{selectedModel}}'. Reason: Transcribe File uses Soniox async endpoint (/v1/transcriptions), and latest-only mode enforces the latest async model.",
+      "languageHintsLabel": "Language hints (comma-separated, not JSON)",
+      "languageHintsPlaceholder": "e.g. en, es, ru",
+      "speakerDiarizationLabel": "Enable speaker diarization",
+      "languageIdentificationLabel": "Enable language identification",
+      "invalidHints": "Unsupported Soniox language hints: {{hints}}"
     },
     "transcribe": "Transcribe",
     "transcribing": "Transcribing...",
@@ -1415,6 +1692,12 @@
     "save": "Save",
     "cancel": "Cancel",
     "clickToEdit": "Click to edit",
-    "empty": "No replacement rules yet. Add one above to get started."
+    "empty": "No replacement rules yet. Add one above to get started.",
+    "sonioxRealtimeChunkTitle": "Soniox Realtime Chunks",
+    "sonioxRealtimeChunkDescription": "Controls chunk-time correction while Soniox Live typing is active.",
+    "sonioxRealtimeChunkFuzzyLabel": "Enable Fuzzy Word Correction for Soniox Live Chunks",
+    "sonioxRealtimeChunkFuzzyDescription": "When enabled, Soniox Live chunk typing applies Custom Words fuzzy correction before Text Replacement rules.",
+    "sonioxRealtimeChunkSafetyBufferLabel": "Keep Safety Buffer for Cross-chunk Matching",
+    "sonioxRealtimeChunkSafetyBufferDescription": "When enabled, Soniox Live keeps a short 2-3 word tail before typing so fuzzy correction can match across chunk boundaries. This may delay the newest words slightly."
   }
 }
