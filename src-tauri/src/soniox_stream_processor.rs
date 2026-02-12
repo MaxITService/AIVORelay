@@ -179,10 +179,12 @@ impl SonioxStreamProcessor {
             text.to_string()
         };
 
-        match &self.replacements {
+        let processed = match &self.replacements {
             Some(engine) => engine.apply(&corrected),
             None => corrected,
-        }
+        };
+
+        crate::text_replacement_decapitalize::maybe_decapitalize_next_chunk_realtime(&processed)
     }
 }
 

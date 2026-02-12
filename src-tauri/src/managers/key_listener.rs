@@ -4,6 +4,8 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use tauri::{AppHandle, Emitter};
 
+const DECAPITALIZE_MONITOR_SHORTCUT_ID: &str = "__text_replacement_decapitalize_monitor__";
+
 /// State for tracking active key modifiers (Ctrl, Shift, Alt, Win)
 #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize, specta::Type)]
 pub struct ModifierState {
@@ -32,6 +34,14 @@ impl ModifierState {
             && self.alt == required.alt
             && self.win == required.win
     }
+
+    /// Check if all required modifiers are currently pressed.
+    pub fn contains_required(&self, required: &ModifierState) -> bool {
+        (!required.ctrl || self.ctrl)
+            && (!required.shift || self.shift)
+            && (!required.alt || self.alt)
+            && (!required.win || self.win)
+    }
 }
 
 /// A registered shortcut with its trigger key and required modifiers
@@ -41,6 +51,9 @@ pub struct RegisteredShortcut {
     pub key: Option<Key>,
     pub modifiers: ModifierState,
     pub original_binding: String,
+    /// When true, a shortcut with a main key matches regardless of extra modifiers.
+    /// Used by passive monitor features that should trigger on key presence in combos.
+    pub match_main_key_in_any_combo: bool,
 }
 
 /// Shortcut event sent to the app
@@ -76,11 +89,13 @@ impl KeyListenerManager {
     /// Register a shortcut from a string like "ctrl+shift+a" or "caps lock"
     pub async fn register_shortcut(&self, id: String, binding: String) -> Result<(), String> {
         let (key, modifiers) = parse_shortcut_string(&binding)?;
+        let match_main_key_in_any_combo = id == DECAPITALIZE_MONITOR_SHORTCUT_ID;
 
         let shortcut = RegisteredShortcut {
             key,
             modifiers,
             original_binding: binding.clone(),
+            match_main_key_in_any_combo,
         };
 
         let mut shortcuts = self.shortcuts.lock().map_err(|e| e.to_string())?;
@@ -201,12 +216,21 @@ impl KeyListenerManager {
                     let matches = match shortcut.key {
                         // Regular shortcut with main key
                         Some(shortcut_key) => {
-                            shortcut_key == key && current_mods.matches(&shortcut.modifiers)
+                            shortcut_key == key
+                                && if shortcut.match_main_key_in_any_combo {
+                                    true
+                                } else {
+                                    current_mods.matches(&shortcut.modifiers)
+                                }
                         }
-                        // Modifier-only shortcut - fire when modifiers match exactly
+                        // Modifier-only shortcut
                         None => {
-                            current_mods.matches(&shortcut.modifiers)
-                                && Self::is_modifier_key(key)
+                            Self::is_modifier_key(key)
+                                && if shortcut.match_main_key_in_any_combo {
+                                    current_mods.contains_required(&shortcut.modifiers)
+                                } else {
+                                    current_mods.matches(&shortcut.modifiers)
+                                }
                         }
                     };
 
@@ -251,11 +275,21 @@ impl KeyListenerManager {
                         // Release if main key is released
                         Some(shortcut_key) => shortcut_key == key,
                         // For modifier-only: release if any required modifier is released
-                        None => !current_mods.matches(&shortcut.modifiers),
+                        None => {
+                            if shortcut.match_main_key_in_any_combo {
+                                !current_mods.contains_required(&shortcut.modifiers)
+                            } else {
+                                !current_mods.matches(&shortcut.modifiers)
+                            }
+                        }
                     };
 
                     // Also release if a required modifier is released (for regular shortcuts too)
-                    let modifier_released = !current_mods.matches(&shortcut.modifiers);
+                    let modifier_released = if shortcut.match_main_key_in_any_combo {
+                        false
+                    } else {
+                        !current_mods.matches(&shortcut.modifiers)
+                    };
 
                     if should_release || modifier_released {
                         if active_guard.get(id).copied().unwrap_or(false) {

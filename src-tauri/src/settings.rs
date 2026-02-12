@@ -1071,6 +1071,19 @@ pub struct AppSettings {
     /// When false (default): STT → LLM → Text Replacement → Output
     #[serde(default)]
     pub text_replacements_before_llm: bool,
+    /// Enable passive key monitoring to decapitalize the next inserted chunk after manual edits.
+    #[serde(default)]
+    pub text_replacement_decapitalize_after_edit_key_enabled: bool,
+    /// Keyboard key (or shortcut) to monitor for manual edits. Default: backspace.
+    #[serde(default = "default_text_replacement_decapitalize_after_edit_key")]
+    pub text_replacement_decapitalize_after_edit_key: String,
+    /// How long the decapitalize trigger remains active after the monitored key is pressed.
+    #[serde(default = "default_text_replacement_decapitalize_timeout_ms")]
+    pub text_replacement_decapitalize_timeout_ms: u32,
+    /// For standard (non-realtime) STT only: how long after stop-recording
+    /// we keep monitoring for the edit key to arm decapitalization on the next output.
+    #[serde(default = "default_text_replacement_decapitalize_standard_post_recording_monitor_ms")]
+    pub text_replacement_decapitalize_standard_post_recording_monitor_ms: u32,
     // ==================== Audio Processing ====================
     /// Whether to filter filler words (uh, um, hmm, etc.) from transcriptions
     #[serde(default)]
@@ -1305,6 +1318,18 @@ fn default_screenshot_no_voice_default_prompt() -> String {
 
 fn default_quick_tap_threshold_ms() -> u32 {
     500
+}
+
+fn default_text_replacement_decapitalize_after_edit_key() -> String {
+    "backspace".to_string()
+}
+
+fn default_text_replacement_decapitalize_timeout_ms() -> u32 {
+    5000
+}
+
+fn default_text_replacement_decapitalize_standard_post_recording_monitor_ms() -> u32 {
+    5000
 }
 
 fn default_voice_command_threshold() -> f64 {
@@ -1856,6 +1881,13 @@ pub fn get_default_settings() -> AppSettings {
         text_replacements_enabled: false,
         text_replacements: Vec::new(),
         text_replacements_before_llm: false,
+        text_replacement_decapitalize_after_edit_key_enabled: false,
+        text_replacement_decapitalize_after_edit_key:
+            default_text_replacement_decapitalize_after_edit_key(),
+        text_replacement_decapitalize_timeout_ms:
+            default_text_replacement_decapitalize_timeout_ms(),
+        text_replacement_decapitalize_standard_post_recording_monitor_ms:
+            default_text_replacement_decapitalize_standard_post_recording_monitor_ms(),
         // Audio Processing
         filler_word_filter_enabled: false,
         zero_width_filter_enabled: true,

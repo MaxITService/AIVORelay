@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Plus, Trash2, ArrowRight, HelpCircle, ChevronDown, ChevronUp, CaseSensitive, Regex, Check, X } from "lucide-react";
 import { useSettings } from "@/hooks/useSettings";
@@ -19,6 +19,26 @@ interface TextReplacementRule {
   is_regex: boolean;
 }
 
+const MODIFIER_SHORTCUT_TOKENS = new Set([
+  "ctrl",
+  "control",
+  "shift",
+  "alt",
+  "option",
+  "win",
+  "windows",
+  "meta",
+  "cmd",
+  "command",
+  "super",
+]);
+
+const splitShortcutTokens = (binding: string): string[] =>
+  binding
+    .split("+")
+    .map((part) => part.trim().toLowerCase())
+    .filter((part) => part.length > 0);
+
 export const TextReplacementSettings: React.FC = () => {
   const { t } = useTranslation();
   const { settings, updateSetting, isUpdating } = useSettings();
@@ -33,6 +53,7 @@ export const TextReplacementSettings: React.FC = () => {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editFrom, setEditFrom] = useState("");
   const [editTo, setEditTo] = useState("");
+  const [isCapturingDecapKey, setIsCapturingDecapKey] = useState(false);
 
   const replacements: TextReplacementRule[] = (settings?.text_replacements ?? []).map((r: any) => ({
     ...r,
@@ -40,6 +61,232 @@ export const TextReplacementSettings: React.FC = () => {
     is_regex: r.is_regex ?? false,
   }));
   const isEnabled = settings?.text_replacements_enabled ?? false;
+  const decapitalizeAfterEditEnabled =
+    settings?.text_replacement_decapitalize_after_edit_key_enabled ?? false;
+  const decapitalizeAfterEditKey =
+    settings?.text_replacement_decapitalize_after_edit_key ?? "backspace";
+  const decapitalizeAfterEditTimeoutMs =
+    settings?.text_replacement_decapitalize_timeout_ms ?? 5000;
+  const decapitalizeStandardPostRecordingMonitorMs =
+    settings?.text_replacement_decapitalize_standard_post_recording_monitor_ms ?? 5000;
+
+  const decapConflicts = useMemo(() => {
+    const monitoredTokens = splitShortcutTokens(decapitalizeAfterEditKey);
+    const monitoredMainKey =
+      monitoredTokens.find((token) => !MODIFIER_SHORTCUT_TOKENS.has(token)) ?? null;
+    const monitoredModifiers = monitoredTokens.filter((token) =>
+      MODIFIER_SHORTCUT_TOKENS.has(token)
+    );
+
+    const bindings = settings?.bindings ?? {};
+    const conflicts: Array<{ id: string; name: string; binding: string }> = [];
+
+    for (const [id, binding] of Object.entries(bindings)) {
+      const currentBinding = binding?.current_binding?.trim() ?? "";
+      if (!currentBinding) continue;
+
+      const otherTokens = splitShortcutTokens(currentBinding);
+      if (otherTokens.length === 0) continue;
+
+      const overlaps = monitoredMainKey
+        ? otherTokens.includes(monitoredMainKey)
+        : monitoredModifiers.length > 0 &&
+          monitoredModifiers.every((mod) => otherTokens.includes(mod));
+
+      if (!overlaps) continue;
+
+      const displayName = t(
+        `settings.general.shortcut.bindings.${id}.name`,
+        binding?.name || id
+      );
+
+      conflicts.push({
+        id,
+        name: displayName,
+        binding: currentBinding,
+      });
+    }
+
+    conflicts.sort((a, b) => a.name.localeCompare(b.name));
+    return conflicts;
+  }, [decapitalizeAfterEditKey, settings?.bindings, t]);
+
+  const normalizeMonitoredKeyFromEvent = (
+    event: KeyboardEvent
+  ): string | null => {
+    const key = event.key;
+    const code = event.code;
+
+    const normalizedKey = (() => {
+      if (/^Key[A-Z]$/.test(code)) {
+        return code.slice(3).toLowerCase();
+      }
+      if (/^Digit[0-9]$/.test(code)) {
+        return code.slice(5);
+      }
+
+      const codeBasedKeyMap: Record<string, string> = {
+        Backquote: "`",
+        Minus: "-",
+        Equal: "=",
+        BracketLeft: "[",
+        BracketRight: "]",
+        Backslash: "\\",
+        Semicolon: ";",
+        Quote: "'",
+        Comma: ",",
+        Period: ".",
+        Slash: "/",
+      };
+      if (codeBasedKeyMap[code]) {
+        return codeBasedKeyMap[code];
+      }
+
+      switch (key) {
+        case "Backspace": return "backspace";
+        case "Tab": return "tab";
+        case "Enter": return "enter";
+        case "Escape": return "escape";
+        case "Delete": return "delete";
+        case "Insert": return "insert";
+        case "CapsLock": return "caps lock";
+        case "NumLock": return "numlock";
+        case "ScrollLock": return "scrolllock";
+        case "Pause": return "pause";
+        case "PrintScreen": return "printscreen";
+        case "Home": return "home";
+        case "End": return "end";
+        case "PageUp": return "pageup";
+        case "PageDown": return "pagedown";
+        case "ArrowUp": return "up";
+        case "ArrowDown": return "down";
+        case "ArrowLeft": return "left";
+        case "ArrowRight": return "right";
+        case " ": return "space";
+        case "Control": return "ctrl";
+        case "Shift": return "shift";
+        case "Alt": return "alt";
+        case "Meta": return "win";
+      }
+
+      if (/^F([1-9]|1[0-9]|2[0-4])$/.test(key)) {
+        return key.toLowerCase();
+      }
+
+      switch (code) {
+        case "NumpadAdd": return "numadd";
+        case "NumpadSubtract": return "numsubtract";
+        case "NumpadMultiply": return "nummultiply";
+        case "NumpadDivide": return "numdivide";
+        case "NumpadDecimal": return "numdecimal";
+      }
+
+      if (/^Numpad[0-9]$/.test(code)) {
+        return `num${code.slice(-1)}`;
+      }
+
+      if (key.length === 1) {
+        return key.toLowerCase();
+      }
+
+      return null;
+    })();
+
+    if (!normalizedKey) {
+      return null;
+    }
+
+    const isModifierOnly =
+      normalizedKey === "ctrl" ||
+      normalizedKey === "shift" ||
+      normalizedKey === "alt" ||
+      normalizedKey === "win";
+    if (isModifierOnly) {
+      return normalizedKey;
+    }
+
+    const parts: string[] = [];
+    if (event.ctrlKey) parts.push("ctrl");
+    if (event.shiftKey) parts.push("shift");
+    if (event.altKey) parts.push("alt");
+    if (event.metaKey) parts.push("win");
+    parts.push(normalizedKey);
+    return parts.join("+");
+  };
+
+  const formatMonitoredKeyLabel = (binding: string): string => {
+    const labelMap: Record<string, string> = {
+      ctrl: "Ctrl",
+      shift: "Shift",
+      alt: "Alt",
+      win: "Win",
+      backspace: "Backspace",
+      enter: "Enter",
+      tab: "Tab",
+      escape: "Escape",
+      delete: "Delete",
+      insert: "Insert",
+      "caps lock": "Caps Lock",
+      numlock: "Num Lock",
+      scrolllock: "Scroll Lock",
+      pause: "Pause",
+      printscreen: "Print Screen",
+      pageup: "Page Up",
+      pagedown: "Page Down",
+      up: "Up",
+      down: "Down",
+      left: "Left",
+      right: "Right",
+      space: "Space",
+      home: "Home",
+      end: "End",
+      numadd: "Num +",
+      numsubtract: "Num -",
+      nummultiply: "Num *",
+      numdivide: "Num /",
+      numdecimal: "Num .",
+    };
+
+    return binding
+      .split("+")
+      .filter((part) => part.trim().length > 0)
+      .map((part) => labelMap[part] ?? (part.length === 1 ? part.toUpperCase() : part))
+      .join(" + ");
+  };
+
+  useEffect(() => {
+    if (!isCapturingDecapKey) return;
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      event.preventDefault();
+      event.stopPropagation();
+
+      if (event.key === "Escape") {
+        setIsCapturingDecapKey(false);
+        return;
+      }
+
+      const normalized = normalizeMonitoredKeyFromEvent(event);
+      if (!normalized) return;
+
+      void updateSetting(
+        "text_replacement_decapitalize_after_edit_key",
+        normalized
+      );
+      setIsCapturingDecapKey(false);
+    };
+
+    window.addEventListener("keydown", handleKeyDown, true);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown, true);
+    };
+  }, [isCapturingDecapKey, normalizeMonitoredKeyFromEvent, updateSetting]);
+
+  useEffect(() => {
+    if (!decapitalizeAfterEditEnabled) {
+      setIsCapturingDecapKey(false);
+    }
+  }, [decapitalizeAfterEditEnabled]);
 
   const handleAddRule = () => {
     if (!newFrom.trim()) return;
@@ -145,6 +392,211 @@ export const TextReplacementSettings: React.FC = () => {
 
   return (
     <div className="max-w-3xl w-full mx-auto space-y-6 pb-12">
+      <SettingsGroup
+        title={t(
+          "textReplacement.decapitalizeAfterEditTitle",
+          "Decapitalize After Manual Edit"
+        )}
+        description={t(
+          "textReplacement.decapitalizeAfterEditGroupDescription",
+          "Independent feature: monitors your edit key and can lowercase the next suitable transcript chunk even when Text Replacement rules are disabled."
+        )}
+      >
+        <div className="px-4 py-3">
+          <ToggleSwitch
+            checked={decapitalizeAfterEditEnabled}
+            onChange={(enabled) =>
+              updateSetting(
+                "text_replacement_decapitalize_after_edit_key_enabled",
+                enabled
+              )
+            }
+            isUpdating={isUpdating("text_replacement_decapitalize_after_edit_key_enabled")}
+            label={t(
+              "textReplacement.decapitalizeAfterEditEnableLabel",
+              "Enable Decapitalize After Edit Key"
+            )}
+            description={t(
+              "textReplacement.decapitalizeAfterEditEnableDescription",
+              "Use a passive keyboard hook (non-blocking) to detect manual edits and lowercase the next matching chunk."
+            )}
+            descriptionMode="inline"
+          />
+        </div>
+
+        {decapitalizeAfterEditEnabled && (
+          <>
+            <div className="px-4 py-3 border-t border-white/[0.05]">
+              <div className="space-y-2">
+                <div className="text-sm font-medium text-[#f5f5f5]">
+                  {t("textReplacement.decapitalizeAfterEditKeyLabel", "Monitored Key")}
+                </div>
+                <div className="text-xs text-[#b8b8b8]">
+                  {t(
+                    "textReplacement.decapitalizeAfterEditKeyDescription",
+                    "Click the field and press any key or key combination. Monitoring is passive, and any combo containing the monitored key also counts."
+                  )}
+                </div>
+                <div className="text-xs text-[#f2c97b]">
+                  {t(
+                    "textReplacement.decapitalizeAfterEditComboHint",
+                    "If you choose Backspace, Ctrl+Backspace also triggers."
+                  )}
+                </div>
+                <div className="flex items-center gap-2">
+                  <Input
+                    value={formatMonitoredKeyLabel(decapitalizeAfterEditKey)}
+                    readOnly={true}
+                    className="flex-1"
+                  />
+                  <Button
+                    variant={isCapturingDecapKey ? "primary" : "secondary"}
+                    onClick={() => setIsCapturingDecapKey((prev) => !prev)}
+                    disabled={isUpdating("text_replacement_decapitalize_after_edit_key")}
+                  >
+                    {isCapturingDecapKey
+                      ? t(
+                          "textReplacement.decapitalizeAfterEditCaptureButtonListening",
+                          "Press keys..."
+                        )
+                      : t(
+                          "textReplacement.decapitalizeAfterEditCaptureButton",
+                          "Capture Key"
+                        )}
+                  </Button>
+                </div>
+
+                {decapConflicts.length > 0 && (
+                  <div className="rounded-md border border-[#7a5d2a]/80 bg-[#4a3a1c]/40 px-3 py-2 text-xs text-[#f2d8a6]">
+                    <div className="font-medium">
+                      {t(
+                        "textReplacement.decapitalizeAfterEditConflictWarningTitle",
+                        "Potential overlap with other shortcuts:"
+                      )}
+                    </div>
+                    <div className="mt-1">
+                      {t(
+                        "textReplacement.decapitalizeAfterEditConflictWarningDescription",
+                        "Decap monitor may also trigger when these shortcuts are pressed."
+                      )}
+                    </div>
+                    <ul className="mt-1 list-disc list-inside space-y-0.5">
+                      {decapConflicts.map((item) => (
+                        <li key={item.id}>
+                          {item.name}: {formatMonitoredKeyLabel(item.binding)}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="px-4 py-3 border-t border-white/[0.05]">
+              <Slider
+                value={decapitalizeAfterEditTimeoutMs}
+                onChange={(value) =>
+                  updateSetting(
+                    "text_replacement_decapitalize_timeout_ms",
+                    Math.round(value)
+                  )
+                }
+                min={100}
+                max={60000}
+                step={100}
+                label={t(
+                  "textReplacement.decapitalizeAfterEditTimeoutLabel",
+                  "Trigger Timeout"
+                )}
+                description={t(
+                  "textReplacement.decapitalizeAfterEditTimeoutDescription",
+                  "How long (in milliseconds) the decapitalize trigger stays active after pressing the monitored key."
+                )}
+                descriptionMode="inline"
+                formatValue={(value) => `${Math.round(value)} ms`}
+              />
+            </div>
+
+            <div className="px-4 py-3 border-t border-white/[0.05]">
+              <Slider
+                value={decapitalizeStandardPostRecordingMonitorMs}
+                onChange={(value) =>
+                  updateSetting(
+                    "text_replacement_decapitalize_standard_post_recording_monitor_ms",
+                    Math.round(value)
+                  )
+                }
+                min={0}
+                max={60000}
+                step={100}
+                label={t(
+                  "textReplacement.decapitalizeAfterEditStandardPostMonitorLabel",
+                  "Standard STT Post-stop Monitor Window"
+                )}
+                description={t(
+                  "textReplacement.decapitalizeAfterEditStandardPostMonitorDescription",
+                  "After stopping a standard (non-realtime) recording, keep listening for the monitored key for this many milliseconds. 0 disables this extra window."
+                )}
+                descriptionMode="inline"
+                formatValue={(value) => `${Math.round(value)} ms`}
+              />
+            </div>
+
+            <div className="px-4 py-3 border-t border-white/[0.05]">
+              <TellMeMore
+                title={t(
+                  "textReplacement.decapitalizeAfterEditTellMeMoreTitle",
+                  "Tell me more: Decapitalize After Manual Edit"
+                )}
+              >
+                <div className="space-y-2 text-sm">
+                  <p className="text-[#b8b8b8]">
+                    {t(
+                      "textReplacement.decapitalizeAfterEditDescription",
+                      "Passively monitor one key (default: Backspace). After pressing it, the next suitable transcription chunk can start with lowercase to avoid unwanted sentence capitalization."
+                    )}
+                  </p>
+                  <p className="text-[#f5f5f5] font-medium">
+                    {t("textReplacement.decapitalizeAfterEditHowItWorksTitle", "How it works")}
+                  </p>
+                  <ul className="list-disc list-inside space-y-1 text-[#b8b8b8]">
+                    <li>
+                      <strong>{t("textReplacement.decapitalizeAfterEditStandardModeTitle", "Standard STT:")}</strong>{" "}
+                      {t(
+                        "textReplacement.decapitalizeAfterEditStandardModeDesc",
+                        "after stop-recording in standard STT, AivoRelay can keep monitoring for the configured post-stop window. If you press the monitored key there, the next matching uppercase-start output is decapitalized."
+                      )}
+                    </li>
+                    <li>
+                      <strong>{t("textReplacement.decapitalizeAfterEditRealtimeModeTitle", "Realtime API:")}</strong>{" "}
+                      {t(
+                        "textReplacement.decapitalizeAfterEditRealtimeModeDesc",
+                        "while live chunk typing is running, the next incoming matching chunk that starts uppercase is decapitalized immediately, then the trigger is consumed."
+                      )}
+                    </li>
+                  </ul>
+                  <p className="text-[#b8b8b8]">
+                    {t(
+                      "textReplacement.decapitalizeAfterEditLanguageNote",
+                      "If the language/script has no uppercase/lowercase distinction, nothing is changed."
+                    )}
+                  </p>
+                  <p className="text-[#f5f5f5] font-medium">
+                    {t("textReplacement.decapitalizeAfterEditExampleTitle", "Example")}
+                  </p>
+                  <ol className="list-decimal list-inside space-y-1 text-[#b8b8b8]">
+                    <li>{t("textReplacement.decapitalizeAfterEditExample1", "You dictated: This is knight.")}</li>
+                    <li>{t("textReplacement.decapitalizeAfterEditExample2", "You delete the last word with Backspace.")}</li>
+                    <li>{t("textReplacement.decapitalizeAfterEditExample3", "You dictate again: night.")}</li>
+                    <li>{t("textReplacement.decapitalizeAfterEditExample4", "Result becomes: This is night. (not This is Night.)")}</li>
+                  </ol>
+                </div>
+              </TellMeMore>
+            </div>
+          </>
+        )}
+      </SettingsGroup>
+
       {/* Main Settings Group */}
       <SettingsGroup
         title={t("textReplacement.title", "Text Replacement")}

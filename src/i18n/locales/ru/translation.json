@@ -26,7 +26,35 @@
     "cleanupTitle": "Очистка речи",
     "cleanupDescription": "Автоматическое удаление артефактов речи из итогового текста.",
     "beforeLlm": "Применять перед постобработкой LLM",
-    "beforeLlmDescription": "Если включено, замена текста применяется ДО обработки LLM. Это предотвращает изменение LLM ваших шаблонов замены."
+    "beforeLlmDescription": "Если включено, замена текста применяется ДО обработки LLM. Это предотвращает изменение LLM ваших шаблонов замены.",
+    "decapitalizeAfterEditTitle": "Снижение регистра после ручной правки",
+    "decapitalizeAfterEditGroupDescription": "Независимая функция: отслеживает клавишу правки и может переводить в нижний регистр следующий подходящий фрагмент даже при отключенных правилах Text Replacement.",
+    "decapitalizeAfterEditDescription": "Пассивно отслеживает одну клавишу (по умолчанию Backspace). После нажатия следующий подходящий фрагмент может начинаться с маленькой буквы, чтобы избежать нежелательной капитализации.",
+    "decapitalizeAfterEditEnableLabel": "Включить снижение регистра после клавиши правки",
+    "decapitalizeAfterEditEnableDescription": "Использует пассивный хук клавиатуры (без перехвата) для определения ручной правки и перевода в нижний регистр следующего подходящего фрагмента.",
+    "decapitalizeAfterEditKeyLabel": "Отслеживаемая клавиша",
+    "decapitalizeAfterEditKeyDescription": "Нажмите поле и затем любую клавишу или комбинацию. Мониторинг пассивный, и любая комбинация с этой клавишей тоже считается.",
+    "decapitalizeAfterEditComboHint": "Если выбрана Backspace, то Ctrl+Backspace тоже сработает.",
+    "decapitalizeAfterEditConflictWarningTitle": "Возможное пересечение с другими хоткеями:",
+    "decapitalizeAfterEditConflictWarningDescription": "Мониторинг декапитализации может также срабатывать при нажатии этих хоткеев.",
+    "decapitalizeAfterEditTimeoutLabel": "Таймаут триггера",
+    "decapitalizeAfterEditTimeoutDescription": "Сколько миллисекунд после нажатия клавиши правки триггер остается активным.",
+    "decapitalizeAfterEditStandardPostMonitorLabel": "Окно мониторинга после стопа (обычный STT)",
+    "decapitalizeAfterEditStandardPostMonitorDescription": "После остановки обычной (не realtime) записи продолжать слушать отслеживаемую клавишу в течение этого времени. 0 отключает это дополнительное окно.",
+    "decapitalizeAfterEditCaptureButton": "Назначить клавишу",
+    "decapitalizeAfterEditCaptureButtonListening": "Нажмите клавиши...",
+    "decapitalizeAfterEditTellMeMoreTitle": "Подробнее: снижение регистра после ручной правки",
+    "decapitalizeAfterEditHowItWorksTitle": "Как это работает",
+    "decapitalizeAfterEditStandardModeTitle": "Обычный STT:",
+    "decapitalizeAfterEditStandardModeDesc": "после остановки записи в обычном STT AivoRelay может продолжать мониторинг в заданном окне после стопа. Если в это время нажать отслеживаемую клавишу, следующий подходящий вывод с заглавной буквы будет декапитализирован.",
+    "decapitalizeAfterEditRealtimeModeTitle": "Realtime API:",
+    "decapitalizeAfterEditRealtimeModeDesc": "во время live-ввода чанков следующий подходящий входящий chunk, начинающийся с заглавной буквы, сразу декапитализируется, после чего триггер сбрасывается.",
+    "decapitalizeAfterEditLanguageNote": "Если язык/письменность не различает верхний и нижний регистр, изменений не будет.",
+    "decapitalizeAfterEditExampleTitle": "Пример",
+    "decapitalizeAfterEditExample1": "Вы надиктовали: This is knight.",
+    "decapitalizeAfterEditExample2": "Удаляете последнее слово клавишей Backspace.",
+    "decapitalizeAfterEditExample3": "Диктуете снова: night.",
+    "decapitalizeAfterEditExample4": "Результат: This is night. (а не This is Night.)"
   },
   "audioProcessing": {
     "title": "Обработка аудио",
@@ -699,4 +727,3 @@
     "finalizing": "Финализация..."
   }
 }
-

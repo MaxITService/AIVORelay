@@ -29,6 +29,65 @@ pub type RdevShortcutsSet = std::sync::Mutex<HashSet<String>>;
 /// Track which shortcut engine is actually running (set at startup, doesn't change until restart)
 pub type ActiveShortcutEngine = std::sync::Mutex<ShortcutEngine>;
 
+const DECAPITALIZE_MONITOR_SHORTCUT_ID: &str = "__text_replacement_decapitalize_monitor__";
+const MIN_DECAPITALIZE_TIMEOUT_MS: u32 = 100;
+const MAX_DECAPITALIZE_TIMEOUT_MS: u32 = 60_000;
+const MIN_DECAPITALIZE_STANDARD_POST_MONITOR_MS: u32 = 0;
+const MAX_DECAPITALIZE_STANDARD_POST_MONITOR_MS: u32 = 60_000;
+
+fn clamp_decapitalize_timeout_ms(value: u32) -> u32 {
+    value.clamp(MIN_DECAPITALIZE_TIMEOUT_MS, MAX_DECAPITALIZE_TIMEOUT_MS)
+}
+
+fn clamp_decapitalize_standard_post_monitor_ms(value: u32) -> u32 {
+    value.clamp(
+        MIN_DECAPITALIZE_STANDARD_POST_MONITOR_MS,
+        MAX_DECAPITALIZE_STANDARD_POST_MONITOR_MS,
+    )
+}
+
+fn build_decapitalize_monitor_binding(settings: &settings::AppSettings) -> Option<ShortcutBinding> {
+    if !settings.text_replacement_decapitalize_after_edit_key_enabled {
+        return None;
+    }
+
+    let normalized_binding = normalize_shortcut_binding(
+        &settings.text_replacement_decapitalize_after_edit_key,
+    );
+    if normalized_binding.is_empty() {
+        return None;
+    }
+
+    Some(ShortcutBinding {
+        id: DECAPITALIZE_MONITOR_SHORTCUT_ID.to_string(),
+        name: "Text Replacement Decapitalize Monitor".to_string(),
+        description: "Passive monitor key for decapitalizing the next chunk after manual edits"
+            .to_string(),
+        default_binding: normalized_binding.clone(),
+        current_binding: normalized_binding,
+    })
+}
+
+fn sync_decapitalize_monitor_shortcut(
+    app: &AppHandle,
+    settings: &settings::AppSettings,
+) -> Result<(), String> {
+    if let Some(rdev_set) = app.try_state::<RdevShortcutsSet>() {
+        let mut rdev_shortcuts = rdev_set.lock().expect("Failed to lock rdev shortcuts");
+        if rdev_shortcuts.contains(DECAPITALIZE_MONITOR_SHORTCUT_ID) {
+            unregister_shortcut_via_rdev(app, DECAPITALIZE_MONITOR_SHORTCUT_ID, &mut rdev_shortcuts)?;
+        }
+    }
+
+    let Some(binding) = build_decapitalize_monitor_binding(settings) else {
+        return Ok(());
+    };
+
+    // The monitor key must be passive, so it is always registered via rdev.
+    start_rdev_listener(app);
+    register_shortcut_via_rdev(app, binding)
+}
+
 /// Whether a binding should be active based on feature toggle settings.
 fn is_binding_enabled_for_settings(settings: &settings::AppSettings, binding_id: &str) -> bool {
     match binding_id {
@@ -102,12 +161,19 @@ pub fn init_shortcuts(app: &AppHandle) {
             }
         }
 
+        // Always install the event bridge once so feature-specific rdev registrations can work
+        // even when the main shortcut engine is Tauri.
+        setup_rdev_shortcut_handler(app);
+
         if user_settings.shortcut_engine == ShortcutEngine::Rdev {
             // Start the rdev key listener
             start_rdev_listener(app);
-            // Set up listener for rdev-shortcut events
-            setup_rdev_shortcut_handler(app);
             info!("Using rdev shortcut engine (processes all keystrokes)");
+        } else if user_settings.text_replacement_decapitalize_after_edit_key_enabled {
+            start_rdev_listener(app);
+            info!(
+                "Using Tauri shortcut engine with rdev monitor key for text replacement decapitalize trigger"
+            );
         } else {
             info!("Using Tauri shortcut engine (high performance, limited key support)");
         }
@@ -159,6 +225,13 @@ pub fn init_shortcuts(app: &AppHandle) {
             }
         }
     }
+
+    if let Err(err) = sync_decapitalize_monitor_shortcut(app, &user_settings) {
+        warn!(
+            "Failed to sync text replacement decapitalize monitor shortcut during init: {}",
+            err
+        );
+    }
 }
 
 /// Start the rdev key listener
@@ -194,6 +267,17 @@ fn handle_rdev_shortcut_event(app: &AppHandle, event: ShortcutEvent) {
     let pressed = event.pressed;
 
     let settings = get_settings(app);
+
+    if binding_id == DECAPITALIZE_MONITOR_SHORTCUT_ID {
+        if pressed && settings.text_replacement_decapitalize_after_edit_key_enabled {
+            crate::text_replacement_decapitalize::mark_edit_key_pressed(
+                clamp_decapitalize_timeout_ms(
+                    settings.text_replacement_decapitalize_timeout_ms,
+                ),
+            );
+        }
+        return;
+    }
 
     // Look up action - for profile-based bindings, fall back to "transcribe" action
     let action = ACTION_MAP.get(&binding_id).or_else(|| {
@@ -3140,6 +3224,62 @@ pub fn change_text_replacements_before_llm_setting(
 ) -> Result<(), String> {
     let mut settings = settings::get_settings(&app);
     settings.text_replacements_before_llm = enabled;
+    settings::write_settings(&app, settings);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_text_replacement_decapitalize_after_edit_key_enabled_setting(
+    app: AppHandle,
+    enabled: bool,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.text_replacement_decapitalize_after_edit_key_enabled = enabled;
+    settings::write_settings(&app, settings.clone());
+    sync_decapitalize_monitor_shortcut(&app, &settings)
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_text_replacement_decapitalize_after_edit_key_setting(
+    app: AppHandle,
+    key: String,
+) -> Result<(), String> {
+    let normalized_key = normalize_shortcut_binding(&key);
+    if normalized_key.is_empty() {
+        return Err("Monitored key cannot be empty".to_string());
+    }
+
+    crate::managers::key_listener::parse_shortcut_string(&normalized_key)?;
+
+    let mut settings = settings::get_settings(&app);
+    settings.text_replacement_decapitalize_after_edit_key = normalized_key;
+    settings::write_settings(&app, settings.clone());
+    sync_decapitalize_monitor_shortcut(&app, &settings)
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_text_replacement_decapitalize_timeout_ms_setting(
+    app: AppHandle,
+    timeout_ms: u32,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.text_replacement_decapitalize_timeout_ms = clamp_decapitalize_timeout_ms(timeout_ms);
+    settings::write_settings(&app, settings);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_text_replacement_decapitalize_standard_post_recording_monitor_ms_setting(
+    app: AppHandle,
+    timeout_ms: u32,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.text_replacement_decapitalize_standard_post_recording_monitor_ms =
+        clamp_decapitalize_standard_post_monitor_ms(timeout_ms);
     settings::write_settings(&app, settings);
     Ok(())
 }

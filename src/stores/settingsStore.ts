@@ -315,6 +315,14 @@ const settingUpdaters: {
   invoke("change_text_replacements_setting", { replacements: value });
 (settingUpdaters as any).text_replacements_before_llm = (value: any) =>
   invoke("change_text_replacements_before_llm_setting", { enabled: value });
+(settingUpdaters as any).text_replacement_decapitalize_after_edit_key_enabled = (value: any) =>
+  invoke("change_text_replacement_decapitalize_after_edit_key_enabled_setting", { enabled: value });
+(settingUpdaters as any).text_replacement_decapitalize_after_edit_key = (value: any) =>
+  invoke("change_text_replacement_decapitalize_after_edit_key_setting", { key: value });
+(settingUpdaters as any).text_replacement_decapitalize_timeout_ms = (value: any) =>
+  invoke("change_text_replacement_decapitalize_timeout_ms_setting", { timeoutMs: value });
+(settingUpdaters as any).text_replacement_decapitalize_standard_post_recording_monitor_ms = (value: any) =>
+  invoke("change_text_replacement_decapitalize_standard_post_recording_monitor_ms_setting", { timeoutMs: value });
 (settingUpdaters as any).trim_transcription_output_enabled = (value: any) =>
   invoke("change_trim_transcription_output_enabled_setting", { enabled: value });
 (settingUpdaters as any).custom_words_ngram_enabled = (value: any) =>

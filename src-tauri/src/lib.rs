@@ -23,6 +23,7 @@ mod shortcut;
 mod signal_handle;
 mod soniox_stream_processor;
 pub mod subtitle;
+mod text_replacement_decapitalize;
 mod transcript_context;
 mod tray;
 mod tray_i18n;
@@ -455,6 +456,10 @@ pub fn run() {
         shortcut::change_text_replacements_enabled_setting,
         shortcut::change_text_replacements_setting,
         shortcut::change_text_replacements_before_llm_setting,
+        shortcut::change_text_replacement_decapitalize_after_edit_key_enabled_setting,
+        shortcut::change_text_replacement_decapitalize_after_edit_key_setting,
+        shortcut::change_text_replacement_decapitalize_timeout_ms_setting,
+        shortcut::change_text_replacement_decapitalize_standard_post_recording_monitor_ms_setting,
         shortcut::change_trim_transcription_output_enabled_setting,
         shortcut::change_sidebar_pinned_setting,
         shortcut::change_sidebar_width_setting,

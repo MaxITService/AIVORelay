@@ -1265,6 +1265,14 @@ async fn get_transcription_or_cleanup_detailed(
             }
         }
 
+        if is_transcribe_binding_id(binding_id)
+            && settings.text_replacement_decapitalize_after_edit_key_enabled
+        {
+            crate::text_replacement_decapitalize::begin_standard_post_recording_monitor(
+                settings.text_replacement_decapitalize_standard_post_recording_monitor_ms,
+            );
+        }
+
         match perform_transcription_for_profile(
             app,
             samples.clone(),
@@ -1313,6 +1321,10 @@ fn resolve_profile_for_binding<'a>(
     }
 
     None
+}
+
+fn is_transcribe_binding_id(binding_id: &str) -> bool {
+    binding_id == "transcribe" || binding_id.starts_with("transcribe_")
 }
 
 fn should_use_soniox_live_streaming(settings: &AppSettings) -> bool {
@@ -1529,6 +1541,11 @@ async fn apply_post_processing_and_history(
     if !settings.text_replacements_before_llm {
         final_text = apply_replacements(&final_text);
     }
+
+    // If the user recently edited text manually (for example with Backspace),
+    // lower the first alphabetic uppercase character in the next matching output.
+    final_text =
+        crate::text_replacement_decapitalize::maybe_decapitalize_next_chunk_standard(&final_text);
 
     // Keep recent transcript context per app for prompt variable ${short_prev_transcript}.
     // Use raw transcription (before post-processing) to avoid compounding LLM output.

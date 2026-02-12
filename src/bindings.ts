@@ -1129,6 +1129,38 @@ async changeTextReplacementsBeforeLlmSetting(enabled: boolean) : Promise<Result<
     else return { status: "error", error: e  as any };
 }
 },
+async changeTextReplacementDecapitalizeAfterEditKeyEnabledSetting(enabled: boolean) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("change_text_replacement_decapitalize_after_edit_key_enabled_setting", { enabled }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async changeTextReplacementDecapitalizeAfterEditKeySetting(key: string) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("change_text_replacement_decapitalize_after_edit_key_setting", { key }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async changeTextReplacementDecapitalizeTimeoutMsSetting(timeoutMs: number) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("change_text_replacement_decapitalize_timeout_ms_setting", { timeoutMs }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async changeTextReplacementDecapitalizeStandardPostRecordingMonitorMsSetting(timeoutMs: number) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("change_text_replacement_decapitalize_standard_post_recording_monitor_ms_setting", { timeoutMs }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async changeTrimTranscriptionOutputEnabledSetting(enabled: boolean) : Promise<Result<null, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("change_trim_transcription_output_enabled_setting", { enabled }) };
@@ -2125,6 +2157,23 @@ text_replacements?: TextReplacement[];
  * When false (default): STT → LLM → Text Replacement → Output
  */
 text_replacements_before_llm?: boolean; 
+/**
+ * Enable passive key monitoring to decapitalize the next inserted chunk after manual edits.
+ */
+text_replacement_decapitalize_after_edit_key_enabled?: boolean; 
+/**
+ * Keyboard key (or shortcut) to monitor for manual edits. Default: backspace.
+ */
+text_replacement_decapitalize_after_edit_key?: string; 
+/**
+ * How long the decapitalize trigger remains active after the monitored key is pressed.
+ */
+text_replacement_decapitalize_timeout_ms?: number; 
+/**
+ * For standard (non-realtime) STT only: how long after stop-recording
+ * we keep monitoring for the edit key to arm decapitalization on the next output.
+ */
+text_replacement_decapitalize_standard_post_recording_monitor_ms?: number; 
 /**
  * Whether to filter filler words (uh, um, hmm, etc.) from transcriptions
  */
