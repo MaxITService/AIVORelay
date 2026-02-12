@@ -210,8 +210,6 @@ const settingUpdaters: {
     commands.changeScreenshotNoVoiceDefaultPromptSetting(value as string),
   mute_while_recording: (value) =>
     commands.changeMuteWhileRecordingSetting(value as boolean),
-  append_trailing_space: (value) =>
-    commands.changeAppendTrailingSpaceSetting(value as boolean),
   filter_silence: (value) =>
     commands.changeFilterSilenceSetting(value as boolean),
   log_level: (value) => commands.setLogLevel(value as any),
@@ -323,8 +321,10 @@ const settingUpdaters: {
   invoke("change_text_replacement_decapitalize_timeout_ms_setting", { timeoutMs: value });
 (settingUpdaters as any).text_replacement_decapitalize_standard_post_recording_monitor_ms = (value: any) =>
   invoke("change_text_replacement_decapitalize_standard_post_recording_monitor_ms_setting", { timeoutMs: value });
-(settingUpdaters as any).trim_transcription_output_enabled = (value: any) =>
-  invoke("change_trim_transcription_output_enabled_setting", { enabled: value });
+(settingUpdaters as any).output_whitespace_leading_mode = (value: any) =>
+  commands.changeOutputWhitespaceLeadingModeSetting(value);
+(settingUpdaters as any).output_whitespace_trailing_mode = (value: any) =>
+  commands.changeOutputWhitespaceTrailingModeSetting(value);
 (settingUpdaters as any).custom_words_ngram_enabled = (value: any) =>
   invoke("change_custom_words_ngram_enabled_setting", { enabled: value });
 

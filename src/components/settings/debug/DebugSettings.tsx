@@ -11,7 +11,6 @@ import { HistoryLimit } from "../HistoryLimit";
 import { AlwaysOnMicrophone } from "../AlwaysOnMicrophone";
 import { SoundPicker } from "../SoundPicker";
 import { MuteWhileRecording } from "../MuteWhileRecording";
-import { AppendTrailingSpace } from "../AppendTrailingSpace";
 import { RecordingRetentionPeriodSelector } from "../RecordingRetentionPeriod";
 import { ClamshellMicrophoneSelector } from "../ClamshellMicrophoneSelector";
 import { HandyShortcut } from "../HandyShortcut";
@@ -63,7 +62,6 @@ export const DebugSettings: React.FC = () => {
         <AlwaysOnMicrophone descriptionMode="tooltip" grouped={true} />
         <ClamshellMicrophoneSelector descriptionMode="tooltip" grouped={true} />
         <MuteWhileRecording descriptionMode="tooltip" grouped={true} />
-        <AppendTrailingSpace descriptionMode="inline" grouped={true} />
         {/* Cancel shortcut is disabled on Linux due to instability with dynamic shortcut registration */}
         {!isLinux && (
           <HandyShortcut

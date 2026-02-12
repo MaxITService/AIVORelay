@@ -25,6 +25,38 @@ These changes move selected areas toward upstream behavior without removing fork
   - Deleting active model now unloads it and clears selected model safely.
   - Compatibility command `get_recommended_first_model` now consults model metadata first.
 
+## Whitespace Policy Refactor (Text Processing)
+
+- Settings navigation and page title are now **Text Processing**.
+- Legacy debug toggle for trailing-space append is no longer used; whitespace behavior lives in Text Processing.
+- Output whitespace behavior is defined by explicit policy modes in settings schema:
+  - `output_whitespace_leading_mode` (`preserve` | `remove_if_present` | `add_if_missing`)
+  - `output_whitespace_trailing_mode` (`preserve` | `remove_if_present` | `add_if_missing`)
+- Text Processing UI exposes 4 whitespace controls as 2 mutually-exclusive pairs:
+  - leading: remove vs add
+  - trailing: remove vs add
+- Backend uses centralized helper `apply_output_whitespace_policy(...)` for final output normalization.
+- The same whitespace policy is applied consistently across local, remote, Soniox, and file-transcription text output paths.
+- Soniox streaming applies leading policy on first emitted chunk and trailing policy at finalization.
+
+Touched files in this refactor:
+
+- `src/components/settings/debug/DebugSettings.tsx`
+- `src/components/settings/text-replacement/TextReplacementSettings.tsx`
+- `src/i18n/locales/en/translation.json`
+- `src/i18n/locales/ru/translation.json`
+- `src/stores/settingsStore.ts`
+- `src-tauri/src/settings.rs`
+- `src-tauri/src/shortcut.rs`
+- `src-tauri/src/lib.rs`
+- `src-tauri/src/actions.rs`
+- `src-tauri/src/clipboard.rs`
+- `src-tauri/src/managers/transcription.rs`
+- `src-tauri/src/managers/soniox_stt.rs`
+- `src-tauri/src/commands/file_transcription.rs`
+- `src-tauri/src/soniox_stream_processor.rs`
+- `src/bindings.ts`
+
 ## New Files (Fork-Specific)
 
 ### Backend (Rust)

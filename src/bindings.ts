@@ -713,14 +713,6 @@ async changeMuteWhileRecordingSetting(enabled: boolean) : Promise<Result<null, s
     else return { status: "error", error: e  as any };
 }
 },
-async changeAppendTrailingSpaceSetting(enabled: boolean) : Promise<Result<null, string>> {
-    try {
-    return { status: "ok", data: await TAURI_INVOKE("change_append_trailing_space_setting", { enabled }) };
-} catch (e) {
-    if(e instanceof Error) throw e;
-    else return { status: "error", error: e  as any };
-}
-},
 async changeFilterSilenceSetting(enabled: boolean) : Promise<Result<null, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("change_filter_silence_setting", { enabled }) };
@@ -1161,9 +1153,17 @@ async changeTextReplacementDecapitalizeStandardPostRecordingMonitorMsSetting(tim
     else return { status: "error", error: e  as any };
 }
 },
-async changeTrimTranscriptionOutputEnabledSetting(enabled: boolean) : Promise<Result<null, string>> {
+async changeOutputWhitespaceLeadingModeSetting(mode: OutputWhitespaceMode) : Promise<Result<null, string>> {
     try {
-    return { status: "ok", data: await TAURI_INVOKE("change_trim_transcription_output_enabled_setting", { enabled }) };
+    return { status: "ok", data: await TAURI_INVOKE("change_output_whitespace_leading_mode_setting", { mode }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async changeOutputWhitespaceTrailingModeSetting(mode: OutputWhitespaceMode) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("change_output_whitespace_trailing_mode_setting", { mode }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
@@ -2007,7 +2007,7 @@ send_to_extension_enabled?: boolean; send_to_extension_push_to_talk?: boolean;
 /**
  * Whether the "Send Transcription + Selection to Extension" action is enabled (risky feature)
  */
-send_to_extension_with_selection_enabled?: boolean; send_to_extension_with_selection_push_to_talk?: boolean; send_to_extension_with_selection_allow_no_voice?: boolean; send_to_extension_with_selection_quick_tap_threshold_ms?: number; send_to_extension_with_selection_no_voice_system_prompt?: string; ai_replace_selection_push_to_talk?: boolean; mute_while_recording?: boolean; append_trailing_space?: boolean; filter_silence?: boolean; connector_port?: number; connector_auto_open_enabled?: boolean; connector_auto_open_url?: string; screenshot_capture_method?: ScreenshotCaptureMethod; native_region_capture_mode?: NativeRegionCaptureMode; screenshot_capture_command?: string; screenshot_folder?: string; screenshot_require_recent?: boolean; screenshot_timeout_seconds?: number; screenshot_include_subfolders?: boolean; screenshot_allow_no_voice?: boolean; screenshot_quick_tap_threshold_ms?: number; screenshot_no_voice_default_prompt?: string; 
+send_to_extension_with_selection_enabled?: boolean; send_to_extension_with_selection_push_to_talk?: boolean; send_to_extension_with_selection_allow_no_voice?: boolean; send_to_extension_with_selection_quick_tap_threshold_ms?: number; send_to_extension_with_selection_no_voice_system_prompt?: string; ai_replace_selection_push_to_talk?: boolean; mute_while_recording?: boolean; filter_silence?: boolean; connector_port?: number; connector_auto_open_enabled?: boolean; connector_auto_open_url?: string; screenshot_capture_method?: ScreenshotCaptureMethod; native_region_capture_mode?: NativeRegionCaptureMode; screenshot_capture_command?: string; screenshot_folder?: string; screenshot_require_recent?: boolean; screenshot_timeout_seconds?: number; screenshot_include_subfolders?: boolean; screenshot_allow_no_voice?: boolean; screenshot_quick_tap_threshold_ms?: number; screenshot_no_voice_default_prompt?: string; 
 /**
  * Whether the "Send Transcription + Screenshot to Extension" action is enabled (risky feature)
  */
@@ -2175,6 +2175,20 @@ text_replacement_decapitalize_timeout_ms?: number;
  */
 text_replacement_decapitalize_standard_post_recording_monitor_ms?: number; 
 /**
+ * Output whitespace policy for the leading boundary.
+ * - preserve: keep provider/processing output as-is
+ * - remove_if_present: remove leading whitespace
+ * - add_if_missing: prefix one leading space when missing
+ */
+output_whitespace_leading_mode?: OutputWhitespaceMode; 
+/**
+ * Output whitespace policy for the trailing boundary.
+ * - preserve: keep provider/processing output as-is
+ * - remove_if_present: remove trailing whitespace
+ * - add_if_missing: suffix one trailing space when missing
+ */
+output_whitespace_trailing_mode?: OutputWhitespaceMode; 
+/**
  * Whether to filter filler words (uh, um, hmm, etc.) from transcriptions
  */
 filler_word_filter_enabled?: boolean; 
@@ -2182,10 +2196,6 @@ filler_word_filter_enabled?: boolean;
  * Whether to strip invisible Unicode characters (zero-width spaces, BOM) from LLM output
  */
 zero_width_filter_enabled?: boolean; 
-/**
- * Whether to trim leading/trailing whitespace from transcription outputs.
- */
-trim_transcription_output_enabled?: boolean; 
 /**
  * VAD (Voice Activity Detection) threshold for speech detection (0.1-0.9)
  * Lower = more sensitive (captures quieter speech but may include noise)
@@ -2358,6 +2368,7 @@ export type OutputFormat =
  * WebVTT subtitle format
  */
 "vtt"
+export type OutputWhitespaceMode = "preserve" | "remove_if_present" | "add_if_missing"
 export type OverlayPosition = "none" | "top" | "bottom"
 export type PasteMethod = "ctrl_v" | "direct" | "none" | "shift_insert" | "ctrl_shift_v"
 export type PostProcessProvider = { id: string; label: string; base_url: string; allow_base_url_edit?: boolean; models_endpoint?: string | null }

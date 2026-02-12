@@ -7,7 +7,7 @@ use crate::audio_toolkit::apply_custom_words;
 use crate::managers::remote_stt::RemoteSttManager;
 use crate::managers::soniox_stt::{SonioxAsyncTranscriptionOptions, SonioxSttManager};
 use crate::managers::transcription::TranscriptionManager;
-use crate::settings::{get_settings, TranscriptionProvider};
+use crate::settings::{apply_output_whitespace_policy_for_settings, get_settings, TranscriptionProvider};
 use crate::subtitle::{
     get_format_extension, segments_to_srt, segments_to_vtt, OutputFormat, SubtitleSegment,
 };
@@ -259,7 +259,6 @@ pub async fn transcribe_audio_file(
                 settings.soniox_timeout_seconds,
                 &samples,
                 Some(language.as_str()),
-                settings.trim_transcription_output_enabled,
                 soniox_options,
             )
             .await
@@ -402,7 +401,9 @@ pub async fn transcribe_audio_file(
 
     // Format the output based on requested format
     let output_text = match format {
-        OutputFormat::Text => transcription_text.clone(),
+        OutputFormat::Text => {
+            apply_output_whitespace_policy_for_settings(&transcription_text, &settings)
+        }
         OutputFormat::Srt => {
             if let Some(ref segs) = segments {
                 segments_to_srt(segs)

@@ -500,6 +500,65 @@ pub fn apply_text_replacements(text: &str, replacements: &[TextReplacement]) -> 
     result
 }
 
+pub fn text_has_leading_whitespace(text: &str) -> bool {
+    text.chars().next().map(|ch| ch.is_whitespace()).unwrap_or(false)
+}
+
+pub fn text_has_trailing_whitespace(text: &str) -> bool {
+    text.chars().last().map(|ch| ch.is_whitespace()).unwrap_or(false)
+}
+
+pub fn apply_output_whitespace_policy(
+    text: &str,
+    leading_mode: OutputWhitespaceMode,
+    trailing_mode: OutputWhitespaceMode,
+) -> String {
+    if text.is_empty() {
+        return String::new();
+    }
+
+    let mut result = match leading_mode {
+        OutputWhitespaceMode::Preserve => text.to_string(),
+        OutputWhitespaceMode::RemoveIfPresent => text.trim_start_matches(char::is_whitespace).to_string(),
+        OutputWhitespaceMode::AddIfMissing => {
+            if text_has_leading_whitespace(text) {
+                text.to_string()
+            } else {
+                format!(" {}", text)
+            }
+        }
+    };
+
+    if result.is_empty() {
+        return result;
+    }
+
+    result = match trailing_mode {
+        OutputWhitespaceMode::Preserve => result,
+        OutputWhitespaceMode::RemoveIfPresent => {
+            result.trim_end_matches(char::is_whitespace).to_string()
+        }
+        OutputWhitespaceMode::AddIfMissing => {
+            if text_has_trailing_whitespace(&result) {
+                result
+            } else {
+                result.push(' ');
+                result
+            }
+        }
+    };
+
+    result
+}
+
+pub fn apply_output_whitespace_policy_for_settings(text: &str, settings: &AppSettings) -> String {
+    apply_output_whitespace_policy(
+        text,
+        settings.output_whitespace_leading_mode,
+        settings.output_whitespace_trailing_mode,
+    )
+}
+
 #[derive(Serialize, Deserialize, Debug, Clone, Type)]
 pub struct PostProcessProvider {
     pub id: String,
@@ -653,6 +712,14 @@ pub enum AutoSubmitKey {
 
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Type)]
 #[serde(rename_all = "snake_case")]
+pub enum OutputWhitespaceMode {
+    Preserve,
+    RemoveIfPresent,
+    AddIfMissing,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Type)]
+#[serde(rename_all = "snake_case")]
 pub enum RecordingRetentionPeriod {
     Never,
     PreserveLimit,
@@ -686,6 +753,13 @@ impl Default for ClipboardHandling {
 impl Default for AutoSubmitKey {
     fn default() -> Self {
         AutoSubmitKey::Enter
+    }
+}
+
+impl Default for OutputWhitespaceMode {
+    fn default() -> Self {
+        // Default to trimmed output boundaries.
+        OutputWhitespaceMode::RemoveIfPresent
     }
 }
 
@@ -910,8 +984,6 @@ pub struct AppSettings {
     pub ai_replace_selection_push_to_talk: bool,
     #[serde(default)]
     pub mute_while_recording: bool,
-    #[serde(default)]
-    pub append_trailing_space: bool,
     #[serde(default = "default_filter_silence")]
     pub filter_silence: bool,
     #[serde(default = "default_connector_port")]
@@ -1084,6 +1156,18 @@ pub struct AppSettings {
     /// we keep monitoring for the edit key to arm decapitalization on the next output.
     #[serde(default = "default_text_replacement_decapitalize_standard_post_recording_monitor_ms")]
     pub text_replacement_decapitalize_standard_post_recording_monitor_ms: u32,
+    /// Output whitespace policy for the leading boundary.
+    /// - preserve: keep provider/processing output as-is
+    /// - remove_if_present: remove leading whitespace
+    /// - add_if_missing: prefix one leading space when missing
+    #[serde(default)]
+    pub output_whitespace_leading_mode: OutputWhitespaceMode,
+    /// Output whitespace policy for the trailing boundary.
+    /// - preserve: keep provider/processing output as-is
+    /// - remove_if_present: remove trailing whitespace
+    /// - add_if_missing: suffix one trailing space when missing
+    #[serde(default)]
+    pub output_whitespace_trailing_mode: OutputWhitespaceMode,
     // ==================== Audio Processing ====================
     /// Whether to filter filler words (uh, um, hmm, etc.) from transcriptions
     #[serde(default)]
@@ -1091,9 +1175,6 @@ pub struct AppSettings {
     /// Whether to strip invisible Unicode characters (zero-width spaces, BOM) from LLM output
     #[serde(default = "default_true")]
     pub zero_width_filter_enabled: bool,
-    /// Whether to trim leading/trailing whitespace from transcription outputs.
-    #[serde(default = "default_true")]
-    pub trim_transcription_output_enabled: bool,
     /// VAD (Voice Activity Detection) threshold for speech detection (0.1-0.9)
     /// Lower = more sensitive (captures quieter speech but may include noise)
     /// Higher = less sensitive (cleaner input but may cut off quiet speech)
@@ -1819,7 +1900,6 @@ pub fn get_default_settings() -> AppSettings {
         send_to_extension_with_selection_push_to_talk: true,
         ai_replace_selection_push_to_talk: true,
         mute_while_recording: false,
-        append_trailing_space: false,
         filter_silence: default_filter_silence(),
         connector_port: default_connector_port(),
         connector_auto_open_enabled: default_connector_auto_open_enabled(),
@@ -1888,10 +1968,11 @@ pub fn get_default_settings() -> AppSettings {
             default_text_replacement_decapitalize_timeout_ms(),
         text_replacement_decapitalize_standard_post_recording_monitor_ms:
             default_text_replacement_decapitalize_standard_post_recording_monitor_ms(),
+        output_whitespace_leading_mode: OutputWhitespaceMode::default(),
+        output_whitespace_trailing_mode: OutputWhitespaceMode::default(),
         // Audio Processing
         filler_word_filter_enabled: false,
         zero_width_filter_enabled: true,
-        trim_transcription_output_enabled: true,
         vad_threshold: default_vad_threshold(),
         // Shortcut Engine (Windows only)
         shortcut_engine: ShortcutEngine::default(),

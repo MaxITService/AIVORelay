@@ -14,7 +14,8 @@ use crate::managers::transcription::TranscriptionManager;
 use crate::session_manager::{self, ManagedSessionState};
 use crate::soniox_stream_processor::SonioxStreamProcessor;
 use crate::settings::{
-    get_settings, AppSettings, TranscriptionProvider, APPLE_INTELLIGENCE_PROVIDER_ID,
+    apply_output_whitespace_policy_for_settings, get_settings, AppSettings, TranscriptionProvider,
+    APPLE_INTELLIGENCE_PROVIDER_ID,
 };
 use crate::tray::{change_tray_icon, TrayIconState};
 use crate::utils::{
@@ -937,7 +938,6 @@ async fn perform_transcription_for_profile(
                     settings.soniox_timeout_seconds,
                     &samples,
                     Some(language.as_str()),
-                    settings.trim_transcription_output_enabled,
                     move |chunk| {
                         if chunk.is_empty() {
                             return Ok(());
@@ -1002,7 +1002,6 @@ async fn perform_transcription_for_profile(
                     settings.soniox_timeout_seconds,
                     &samples,
                     Some(language.as_str()),
-                    settings.trim_transcription_output_enabled,
                 )
                 .await
         };
@@ -1453,6 +1452,53 @@ fn apply_soniox_output_filters(settings: &AppSettings, text: String) -> String {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum StreamTrailingAdjustment {
+    None,
+    AppendSpaces(usize),
+    RemoveCharacters(usize),
+}
+
+fn count_trailing_whitespace_chars(text: &str) -> usize {
+    text.chars()
+        .rev()
+        .take_while(|ch| ch.is_whitespace())
+        .count()
+}
+
+fn resolve_stream_trailing_adjustment(
+    settings: &AppSettings,
+    original_text: &str,
+) -> StreamTrailingAdjustment {
+    let adjusted = apply_output_whitespace_policy_for_settings(original_text, settings);
+    let original_trailing_count = count_trailing_whitespace_chars(original_text);
+    let adjusted_trailing_count = count_trailing_whitespace_chars(&adjusted);
+
+    if adjusted_trailing_count > original_trailing_count {
+        StreamTrailingAdjustment::AppendSpaces(adjusted_trailing_count - original_trailing_count)
+    } else if original_trailing_count > adjusted_trailing_count {
+        StreamTrailingAdjustment::RemoveCharacters(original_trailing_count - adjusted_trailing_count)
+    } else {
+        StreamTrailingAdjustment::None
+    }
+}
+
+fn apply_stream_trailing_adjustment(app: &AppHandle, adjustment: StreamTrailingAdjustment) {
+    match adjustment {
+        StreamTrailingAdjustment::None => {}
+        StreamTrailingAdjustment::AppendSpaces(count) => {
+            if count > 0 {
+                let _ = crate::clipboard::paste_stream_chunk(" ".repeat(count), app.clone());
+            }
+        }
+        StreamTrailingAdjustment::RemoveCharacters(count) => {
+            if count > 0 {
+                let _ = crate::clipboard::delete_last_stream_characters(app.clone(), count);
+            }
+        }
+    }
+}
+
 /// Applies Chinese conversion, LLM post-processing and saves to history.
 ///
 /// `profile_id` is the ID of the active transcription profile (e.g., "default" or "profile_1234").
@@ -1546,6 +1592,8 @@ async fn apply_post_processing_and_history(
     // lower the first alphabetic uppercase character in the next matching output.
     final_text =
         crate::text_replacement_decapitalize::maybe_decapitalize_next_chunk_standard(&final_text);
+
+    final_text = apply_output_whitespace_policy_for_settings(&final_text, &settings);
 
     // Keep recent transcript context per app for prompt variable ${short_prev_transcript}.
     // Use raw transcription (before post-processing) to avoid compounding LLM output.
@@ -1890,11 +1938,6 @@ impl ShortcutAction for TranscribeAction {
                     let ah_clone = ah.clone();
                     let binding_id_clone = binding_id.clone();
                     ah.run_on_main_thread(move || {
-                        let settings = get_settings(&ah_clone);
-                        if settings.append_trailing_space {
-                            let _ =
-                                crate::clipboard::paste_stream_chunk(" ".to_string(), ah_clone.clone());
-                        }
                         utils::hide_recording_overlay(&ah_clone);
                         change_tray_icon(&ah_clone, TrayIconState::Idle);
                         if let Ok(mut states) = ah_clone.state::<ManagedToggleState>().lock() {
@@ -1952,6 +1995,11 @@ impl ShortcutAction for TranscribeAction {
                     return;
                 }
 
+                let stream_trailing_adjustment =
+                    resolve_stream_trailing_adjustment(&settings, &transcription);
+                let copy_to_clipboard =
+                    settings.clipboard_handling == crate::settings::ClipboardHandling::CopyToClipboard;
+
                 let final_text = match apply_post_processing_and_history(
                     &ah,
                     transcription,
@@ -1973,21 +2021,10 @@ impl ShortcutAction for TranscribeAction {
                 let binding_id_clone = binding_id.clone();
                 ah.run_on_main_thread(move || {
                     // Soniox live mode already inserted text incrementally while chunks arrived.
-                    // Only append final trailing space once if requested.
-                    let settings = get_settings(&ah_clone);
-                    if settings.append_trailing_space {
-                        let _ =
-                            crate::clipboard::paste_stream_chunk(" ".to_string(), ah_clone.clone());
-                    }
-                    if settings.clipboard_handling
-                        == crate::settings::ClipboardHandling::CopyToClipboard
-                    {
-                        let text = if settings.append_trailing_space {
-                            format!("{} ", final_text)
-                        } else {
-                            final_text
-                        };
-                        let _ = ah_clone.clipboard().write_text(text);
+                    // Apply only boundary-level trailing adjustment at finalization.
+                    apply_stream_trailing_adjustment(&ah_clone, stream_trailing_adjustment);
+                    if copy_to_clipboard {
+                        let _ = ah_clone.clipboard().write_text(final_text.clone());
                     }
 
                     utils::hide_recording_overlay(&ah_clone);
@@ -2048,6 +2085,18 @@ impl ShortcutAction for TranscribeAction {
                 return;
             }
 
+            let stream_trailing_adjustment = if is_soniox_provider {
+                let settings = get_settings(&ah);
+                resolve_stream_trailing_adjustment(&settings, &transcription)
+            } else {
+                StreamTrailingAdjustment::None
+            };
+            let copy_to_clipboard = if is_soniox_provider {
+                get_settings(&ah).clipboard_handling == crate::settings::ClipboardHandling::CopyToClipboard
+            } else {
+                false
+            };
+
             let final_text = match apply_post_processing_and_history(
                 &ah,
                 transcription,
@@ -2071,22 +2120,14 @@ impl ShortcutAction for TranscribeAction {
             let binding_id_clone = binding_id.clone();
             ah.run_on_main_thread(move || {
                 if is_soniox_provider {
-                    // Soniox live mode already inserted text incrementally while chunks arrived.
-                    // Only append final trailing space once if requested.
-                    let settings = get_settings(&ah_clone);
-                    if settings.append_trailing_space {
-                        let _ = crate::clipboard::paste_stream_chunk(" ".to_string(), ah_clone.clone());
-                    }
-                    if settings.clipboard_handling == crate::settings::ClipboardHandling::CopyToClipboard {
-                        let text = if settings.append_trailing_space {
-                            format!("{} ", final_text)
-                        } else {
-                            final_text
-                        };
-                        let _ = ah_clone.clipboard().write_text(text);
+                    // Soniox path already inserted text incrementally while chunks arrived.
+                    // Apply only boundary-level trailing adjustment at finalization.
+                    apply_stream_trailing_adjustment(&ah_clone, stream_trailing_adjustment);
+                    if copy_to_clipboard {
+                        let _ = ah_clone.clipboard().write_text(final_text.clone());
                     }
                 } else {
-                    let _ = utils::paste(final_text, ah_clone.clone());
+                    let _ = utils::paste(final_text.clone(), ah_clone.clone());
                 }
                 utils::hide_recording_overlay(&ah_clone);
                 change_tray_icon(&ah_clone, TrayIconState::Idle);

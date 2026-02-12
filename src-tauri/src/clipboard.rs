@@ -1001,13 +1001,6 @@ pub fn paste(text: String, app_handle: AppHandle) -> Result<(), String> {
     let clipboard_handling = settings.clipboard_handling;
     let paste_delay_ms = settings.paste_delay_ms;
 
-    // Append trailing space if setting is enabled
-    let text = if settings.append_trailing_space {
-        format!("{} ", text)
-    } else {
-        text
-    };
-
     info!(
         "Using paste method: {:?}, clipboard handling: {:?}, delay: {}ms",
         paste_method, clipboard_handling, paste_delay_ms
@@ -1131,6 +1124,31 @@ pub fn paste_stream_chunk(text: String, app_handle: AppHandle) -> Result<(), Str
                 )?
             }
         }
+    }
+
+    Ok(())
+}
+
+pub fn delete_last_stream_characters(app_handle: AppHandle, count: usize) -> Result<(), String> {
+    if count == 0 {
+        return Ok(());
+    }
+
+    let enigo_state = app_handle
+        .try_state::<EnigoState>()
+        .ok_or("Enigo state not initialized")?;
+    let mut enigo = enigo_state
+        .0
+        .lock()
+        .map_err(|e| format!("Failed to lock Enigo: {}", e))?;
+
+    for _ in 0..count {
+        enigo
+            .key(Key::Backspace, Direction::Press)
+            .map_err(|e| format!("Failed to press Backspace key: {}", e))?;
+        enigo
+            .key(Key::Backspace, Direction::Release)
+            .map_err(|e| format!("Failed to release Backspace key: {}", e))?;
     }
 
     Ok(())

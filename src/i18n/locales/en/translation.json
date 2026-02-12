@@ -16,7 +16,7 @@
     "voiceCommands": "Voice Commands",
     "browserConnector": "Connector",
     "transcribeFile": "Transcribe File",
-    "textReplacement": "Text Replace",
+    "textReplacement": "Text Processing",
     "audioProcessing": "Speech Processing",
     "userInterface": "User Interface",
     "history": "History",
@@ -1180,8 +1180,8 @@
         "description": "Mute system audio during recording"
       },
       "appendTrailingSpace": {
-        "label": "Append Trailing Space",
-        "description": "Add a space after pasted transcription"
+        "label": "[Legacy] Append Trailing Space",
+        "description": "[Legacy] Deprecated debug option, no longer used."
       },
       "filterSilence": {
         "label": "Filter Silence",
@@ -1654,10 +1654,20 @@
     "recordingInProgress": "Recording in progress. Please wait for it to finish."
   },
   "textReplacement": {
-    "title": "Text Replacement",
+    "title": "Text Processing",
     "description": "Automatically replace text patterns in transcriptions. Useful for fixing commonly misheard words or applying consistent formatting.",
     "enable": "Enable Text Replacement",
     "enableDescription": "Apply replacement rules to all transcriptions after processing.",
+    "outputWhitespaceTitle": "Output Whitespace",
+    "outputWhitespaceDescription": "Configure how leading/trailing spaces are normalized in final transcription output.",
+    "outputWhitespaceLeadingRemoveLabel": "Remove leading space if provider returned one",
+    "outputWhitespaceLeadingRemoveDescription": "If output starts with whitespace, remove it.",
+    "outputWhitespaceLeadingAddLabel": "Add leading space if provider did not return one",
+    "outputWhitespaceLeadingAddDescription": "If output starts without whitespace, prefix one space.",
+    "outputWhitespaceTrailingRemoveLabel": "Remove trailing space if provider returned one",
+    "outputWhitespaceTrailingRemoveDescription": "If output ends with whitespace, remove it.",
+    "outputWhitespaceTrailingAddLabel": "Add trailing space if provider did not return one",
+    "outputWhitespaceTrailingAddDescription": "If output ends without whitespace, append one space.",
     "cleanupTitle": "Speech Clean-up",
     "cleanupDescription": "Automatically remove common speech artifacts from the final text.",
     "beforeLlm": "Apply Before LLM Post-Processing",

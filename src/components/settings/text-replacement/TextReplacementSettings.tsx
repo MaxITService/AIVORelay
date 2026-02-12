@@ -19,6 +19,8 @@ interface TextReplacementRule {
   is_regex: boolean;
 }
 
+type OutputWhitespaceMode = "preserve" | "remove_if_present" | "add_if_missing";
+
 const MODIFIER_SHORTCUT_TOKENS = new Set([
   "ctrl",
   "control",
@@ -69,6 +71,15 @@ export const TextReplacementSettings: React.FC = () => {
     settings?.text_replacement_decapitalize_timeout_ms ?? 5000;
   const decapitalizeStandardPostRecordingMonitorMs =
     settings?.text_replacement_decapitalize_standard_post_recording_monitor_ms ?? 5000;
+  const leadingWhitespaceMode =
+    (settings?.output_whitespace_leading_mode ?? "remove_if_present") as OutputWhitespaceMode;
+  const trailingWhitespaceMode =
+    (settings?.output_whitespace_trailing_mode ?? "remove_if_present") as OutputWhitespaceMode;
+
+  const setLeadingWhitespaceMode = (mode: OutputWhitespaceMode) =>
+    (updateSetting as any)("output_whitespace_leading_mode", mode);
+  const setTrailingWhitespaceMode = (mode: OutputWhitespaceMode) =>
+    (updateSetting as any)("output_whitespace_trailing_mode", mode);
 
   const decapConflicts = useMemo(() => {
     const monitoredTokens = splitShortcutTokens(decapitalizeAfterEditKey);
@@ -599,7 +610,7 @@ export const TextReplacementSettings: React.FC = () => {
 
       {/* Main Settings Group */}
       <SettingsGroup
-        title={t("textReplacement.title", "Text Replacement")}
+        title={t("textReplacement.title", "Text Processing")}
         description={t(
           "textReplacement.description",
           "Automatically replace text patterns in transcriptions. Useful for fixing commonly misheard words or applying consistent formatting."
@@ -1270,23 +1281,77 @@ export const TextReplacementSettings: React.FC = () => {
         title={t("textReplacement.outputWhitespaceTitle", "Output Whitespace")}
         description={t(
           "textReplacement.outputWhitespaceDescription",
-          "Control whether transcription output keeps or removes leading/trailing whitespace."
+          "Configure how leading/trailing spaces are normalized in final transcription output."
         )}
       >
         <div className="px-4 py-3">
           <ToggleSwitch
-            checked={settings?.trim_transcription_output_enabled ?? true}
+            checked={leadingWhitespaceMode === "remove_if_present"}
             onChange={(enabled) =>
-              updateSetting("trim_transcription_output_enabled", enabled)
+              setLeadingWhitespaceMode(enabled ? "remove_if_present" : "preserve")
             }
-            isUpdating={isUpdating("trim_transcription_output_enabled")}
+            isUpdating={isUpdating("output_whitespace_leading_mode")}
             label={t(
-              "textReplacement.trimOutputLabel",
-              "Trim Leading/Trailing Whitespace"
+              "textReplacement.outputWhitespaceLeadingRemoveLabel",
+              "Remove leading space if provider returned one"
             )}
             description={t(
-              "textReplacement.trimOutputDescription",
-              "When enabled, whitespace at the start and end of transcription output is removed before final output. Whitespace inside the text is preserved."
+              "textReplacement.outputWhitespaceLeadingRemoveDescription",
+              "If output starts with whitespace, remove it."
+            )}
+            descriptionMode="inline"
+          />
+        </div>
+        <div className="px-4 py-3 border-t border-white/[0.05]">
+          <ToggleSwitch
+            checked={leadingWhitespaceMode === "add_if_missing"}
+            onChange={(enabled) =>
+              setLeadingWhitespaceMode(enabled ? "add_if_missing" : "preserve")
+            }
+            isUpdating={isUpdating("output_whitespace_leading_mode")}
+            label={t(
+              "textReplacement.outputWhitespaceLeadingAddLabel",
+              "Add leading space if provider did not return one"
+            )}
+            description={t(
+              "textReplacement.outputWhitespaceLeadingAddDescription",
+              "If output starts without whitespace, prefix one space."
+            )}
+            descriptionMode="inline"
+          />
+        </div>
+        <div className="px-4 py-3 border-t border-white/[0.05]">
+          <ToggleSwitch
+            checked={trailingWhitespaceMode === "remove_if_present"}
+            onChange={(enabled) =>
+              setTrailingWhitespaceMode(enabled ? "remove_if_present" : "preserve")
+            }
+            isUpdating={isUpdating("output_whitespace_trailing_mode")}
+            label={t(
+              "textReplacement.outputWhitespaceTrailingRemoveLabel",
+              "Remove trailing space if provider returned one"
+            )}
+            description={t(
+              "textReplacement.outputWhitespaceTrailingRemoveDescription",
+              "If output ends with whitespace, remove it."
+            )}
+            descriptionMode="inline"
+          />
+        </div>
+        <div className="px-4 py-3 border-t border-white/[0.05]">
+          <ToggleSwitch
+            checked={trailingWhitespaceMode === "add_if_missing"}
+            onChange={(enabled) =>
+              setTrailingWhitespaceMode(enabled ? "add_if_missing" : "preserve")
+            }
+            isUpdating={isUpdating("output_whitespace_trailing_mode")}
+            label={t(
+              "textReplacement.outputWhitespaceTrailingAddLabel",
+              "Add trailing space if provider did not return one"
+            )}
+            description={t(
+              "textReplacement.outputWhitespaceTrailingAddDescription",
+              "If output ends without whitespace, append one space."
             )}
             descriptionMode="inline"
           />

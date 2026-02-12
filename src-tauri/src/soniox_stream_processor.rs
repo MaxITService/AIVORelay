@@ -1,5 +1,5 @@
 use crate::audio_toolkit::apply_custom_words;
-use crate::settings::{AppSettings, TextReplacement};
+use crate::settings::{AppSettings, OutputWhitespaceMode, TextReplacement};
 use log::warn;
 use regex::Regex;
 
@@ -112,6 +112,8 @@ pub struct SonioxStreamProcessor {
     word_correction_threshold: f64,
     custom_words_ngram_enabled: bool,
     replacements: Option<StreamChunkReplacementEngine>,
+    leading_mode: OutputWhitespaceMode,
+    leading_applied: bool,
 }
 
 impl SonioxStreamProcessor {
@@ -133,6 +135,8 @@ impl SonioxStreamProcessor {
             word_correction_threshold: settings.word_correction_threshold,
             custom_words_ngram_enabled: settings.custom_words_ngram_enabled,
             replacements: StreamChunkReplacementEngine::from_settings(settings),
+            leading_mode: settings.output_whitespace_leading_mode,
+            leading_applied: false,
         }
     }
 
@@ -161,7 +165,7 @@ impl SonioxStreamProcessor {
         self.process_pipeline(&remaining)
     }
 
-    fn process_pipeline(&self, text: &str) -> String {
+    fn process_pipeline(&mut self, text: &str) -> String {
         if text.is_empty() {
             return String::new();
         }
@@ -179,10 +183,44 @@ impl SonioxStreamProcessor {
             text.to_string()
         };
 
-        let processed = match &self.replacements {
+        let mut processed = match &self.replacements {
             Some(engine) => engine.apply(&corrected),
             None => corrected,
         };
+
+        if !self.leading_applied {
+            if processed.is_empty() {
+                return processed;
+            }
+
+            processed = match self.leading_mode {
+                OutputWhitespaceMode::Preserve => processed,
+                OutputWhitespaceMode::RemoveIfPresent => {
+                    processed.trim_start_matches(char::is_whitespace).to_string()
+                }
+                OutputWhitespaceMode::AddIfMissing => {
+                    if processed
+                        .chars()
+                        .next()
+                        .map(|ch| ch.is_whitespace())
+                        .unwrap_or(false)
+                    {
+                        processed
+                    } else {
+                        format!(" {}", processed)
+                    }
+                }
+            };
+
+            // For remove-if-present, keep applying until the first non-whitespace
+            // character is emitted; this handles initial whitespace-only chunks.
+            self.leading_applied = self.leading_mode != OutputWhitespaceMode::RemoveIfPresent
+                || !processed.is_empty();
+
+            if processed.is_empty() {
+                return processed;
+            }
+        }
 
         crate::text_replacement_decapitalize::maybe_decapitalize_next_chunk_realtime(&processed)
     }

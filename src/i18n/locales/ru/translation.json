@@ -15,7 +15,7 @@
     "history": "История",
     "debug": "Отладка",
     "about": "О программе",
-    "textReplacement": "Замена текста",
+    "textReplacement": "Обработка текста",
     "transcribeFile": "Транскрипция файла",
     "voiceCommands": "Голосовые команды",
     "aiReplace": "AI Замена",
@@ -23,10 +23,22 @@
     "audioProcessing": "Обработка речи"
   },
   "textReplacement": {
+    "title": "Обработка текста",
+    "description": "Автоматически заменяет текстовые шаблоны в транскрипции и управляет пробелами на границах вывода.",
     "cleanupTitle": "Очистка речи",
     "cleanupDescription": "Автоматическое удаление артефактов речи из итогового текста.",
     "beforeLlm": "Применять перед постобработкой LLM",
     "beforeLlmDescription": "Если включено, замена текста применяется ДО обработки LLM. Это предотвращает изменение LLM ваших шаблонов замены.",
+    "outputWhitespaceTitle": "Пробелы в выводе",
+    "outputWhitespaceDescription": "Настройка нормализации начальных и конечных пробелов в финальном тексте транскрипции.",
+    "outputWhitespaceLeadingRemoveLabel": "Убирать начальный пробел, если провайдер его вернул",
+    "outputWhitespaceLeadingRemoveDescription": "Если вывод начинается с пробельного символа, удалить его.",
+    "outputWhitespaceLeadingAddLabel": "Добавлять начальный пробел, если провайдер его не вернул",
+    "outputWhitespaceLeadingAddDescription": "Если вывод начинается без пробельного символа, добавить один пробел.",
+    "outputWhitespaceTrailingRemoveLabel": "Убирать конечный пробел, если провайдер его вернул",
+    "outputWhitespaceTrailingRemoveDescription": "Если вывод заканчивается пробельным символом, удалить его.",
+    "outputWhitespaceTrailingAddLabel": "Добавлять конечный пробел, если провайдер его не вернул",
+    "outputWhitespaceTrailingAddDescription": "Если вывод заканчивается без пробельного символа, добавить один пробел.",
     "decapitalizeAfterEditTitle": "Снижение регистра после ручной правки",
     "decapitalizeAfterEditGroupDescription": "Независимая функция: отслеживает клавишу правки и может переводить в нижний регистр следующий подходящий фрагмент даже при отключенных правилах Text Replacement.",
     "decapitalizeAfterEditDescription": "Пассивно отслеживает одну клавишу (по умолчанию Backspace). После нажатия следующий подходящий фрагмент может начинаться с маленькой буквы, чтобы избежать нежелательной капитализации.",
@@ -590,8 +602,8 @@
         "description": "Отключение звука системы во время записи"
       },
       "appendTrailingSpace": {
-        "label": "Добавить конечный пробел",
-        "description": "Добавить пробел после вставленной транскрипции"
+        "label": "[Legacy] Добавить конечный пробел",
+        "description": "[Legacy] Устаревшая debug-опция, больше не используется."
       },
       "filterSilence": {
         "label": "Фильтровать тишину",
