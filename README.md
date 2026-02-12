@@ -151,6 +151,21 @@ Applied after LLM post-processing, so you get the final word on the output!
 
 **Setup:** Settings → Text Replace
 
+### 🔠 Smart Decapitalize After Edit
+
+Avoid unwanted capitalization when continuing a sentence after a manual correction.
+
+![Smart Decapitalize](Promo/Backspace-handling.png)
+
+AivoRelay passively monitors your "edit" key (default: **Backspace**). If you press it to correct a transcription and then resume speaking, the next inserted text chunk will automatically start with a **lowercase** letter. This prevents the system from starting a new "sentence" with a capital letter when you are actually in the middle of a sentence.
+
+- **Non-Blocking** — Uses a passive listener, so your edit keys work exactly as usual.
+- **One-Shot Trigger** — The logic fires only once after a correction and then resets.
+- **Configurable Timeout** — Set how long the "resume" window remains active after your edit.
+- **Real-time Support** — Works seamlessly with Soniox Live transcription and standard modes.
+
+**Setup:** Settings → Text Replace → Decapitalize After Manual Edit
+
 ### ☁️ Cloud STT Option
 
 Use Groq, Deepgram, or other OpenAI-compatible APIs — _or_ keep using local Whisper. Your choice!
