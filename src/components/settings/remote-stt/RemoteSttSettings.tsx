@@ -724,7 +724,7 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
                 layout="stacked"
                 disabled={sonioxUseProfileLanguageHintOnly}
               >
-                <div className="mb-2 flex justify-end">
+                <div className="mb-2 flex justify-end gap-2">
                   <a
                     href="https://soniox.com/docs/stt/concepts/supported-languages"
                     target="_blank"
@@ -732,6 +732,15 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
                     className="text-xs text-accent hover:underline"
                   >
                     {t("settings.advanced.soniox.languageHints.supportedLanguagesLink")}
+                  </a>
+                  <span className="text-xs text-mid-gray/40">·</span>
+                  <a
+                    href="https://soniox.com/docs/stt/concepts/language-hints"
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-xs text-accent hover:underline"
+                  >
+                    {t("settings.advanced.soniox.languageHints.languageHintsDocsLink", "Language hints docs")}
                   </a>
                 </div>
                 <Input

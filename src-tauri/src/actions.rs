@@ -536,21 +536,23 @@ async fn maybe_post_process_transcription(
 }
 
 async fn maybe_convert_chinese_variant(
-    settings: &AppSettings,
+    requested_language: &str,
     transcription: &str,
 ) -> Option<String> {
     // Check if language is set to Simplified or Traditional Chinese
-    let is_simplified = settings.selected_language == "zh-Hans";
-    let is_traditional = settings.selected_language == "zh-Hant";
+    let is_simplified = requested_language == "zh-Hans";
+    let is_traditional = requested_language == "zh-Hant";
 
     if !is_simplified && !is_traditional {
-        debug!("selected_language is not Simplified or Traditional Chinese; skipping translation");
+        debug!(
+            "requested language is not Simplified or Traditional Chinese; skipping translation"
+        );
         return None;
     }
 
     debug!(
         "Starting Chinese translation using OpenCC for language: {}",
-        settings.selected_language
+        requested_language
     );
 
     // Use OpenCC to convert based on selected language
@@ -1552,12 +1554,12 @@ fn apply_stream_trailing_adjustment(app: &AppHandle, adjustment: StreamTrailingA
 /// - When false: STT → LLM → Text Replacement → Output (default)
 async fn apply_post_processing_and_history(
     app: &AppHandle,
+    settings: &AppSettings,
     transcription: String,
     samples: Vec<f32>,
     profile_id: Option<String>,
     current_app: &str,
 ) -> Option<String> {
-    let settings = get_settings(app);
     let mut final_text = transcription.clone();
     let mut post_processed_text: Option<String> = None;
     let mut post_process_prompt: Option<String> = None;
@@ -1592,13 +1594,17 @@ async fn apply_post_processing_and_history(
         final_text = apply_replacements(&final_text);
     }
 
-    if let Some(converted_text) = maybe_convert_chinese_variant(&settings, &final_text).await {
+    let requested_language = profile
+        .map(|p| p.language.as_str())
+        .unwrap_or(settings.selected_language.as_str());
+    if let Some(converted_text) = maybe_convert_chinese_variant(requested_language, &final_text).await
+    {
         final_text = converted_text;
     }
 
     let template_context = build_llm_template_context(
         app,
-        &settings,
+        settings,
         profile,
         current_app,
         &final_text,
@@ -1606,7 +1612,7 @@ async fn apply_post_processing_and_history(
         "",
     );
 
-    match maybe_post_process_transcription(app, &settings, profile, &template_context).await {
+    match maybe_post_process_transcription(app, settings, profile, &template_context).await {
         PostProcessTranscriptionOutcome::Skipped => {
             if final_text != transcription {
                 // Chinese conversion was applied but LLM post-processing was not.
@@ -1636,11 +1642,11 @@ async fn apply_post_processing_and_history(
     final_text =
         crate::text_replacement_decapitalize::maybe_decapitalize_next_chunk_standard(&final_text);
 
-    final_text = apply_output_whitespace_policy_for_settings(&final_text, &settings);
+    final_text = apply_output_whitespace_policy_for_settings(&final_text, settings);
 
     // Keep recent transcript context per app for prompt variable ${short_prev_transcript}.
     // Use raw transcription (before post-processing) to avoid compounding LLM output.
-    update_short_prev_transcript(&settings, current_app, &transcription);
+    update_short_prev_transcript(settings, current_app, &transcription);
 
     let hm = Arc::clone(&app.state::<Arc<HistoryManager>>());
     tauri::async_runtime::spawn(async move {
@@ -2044,6 +2050,7 @@ impl ShortcutAction for TranscribeAction {
 
                 let final_text = match apply_post_processing_and_history(
                     &ah,
+                    &recording_settings,
                     transcription,
                     samples,
                     profile_id_for_postprocess,
@@ -2149,6 +2156,7 @@ impl ShortcutAction for TranscribeAction {
 
             let final_text = match apply_post_processing_and_history(
                 &ah,
+                &recording_settings,
                 transcription,
                 samples,
                 profile_id_for_postprocess,
@@ -2292,6 +2300,7 @@ impl ShortcutAction for SendToExtensionAction {
             let final_text =
                 match apply_post_processing_and_history(
                     &ah,
+                    &recording_settings,
                     transcription,
                     samples,
                     None,
@@ -2405,9 +2414,8 @@ impl ShortcutAction for SendToExtensionWithSelectionAction {
                     }
                 };
 
-            let settings = get_settings(&ah);
             let final_transcription = if transcription.trim().is_empty() {
-                if !settings.send_to_extension_with_selection_allow_no_voice {
+                if !recording_settings.send_to_extension_with_selection_allow_no_voice {
                     utils::hide_recording_overlay(&ah);
                     change_tray_icon(&ah, TrayIconState::Idle);
                     session_manager::exit_processing(&ah);
@@ -2418,6 +2426,7 @@ impl ShortcutAction for SendToExtensionWithSelectionAction {
                 // Use default profile (None) for extension actions
                 match apply_post_processing_and_history(
                     &ah,
+                    &recording_settings,
                     transcription,
                     samples,
                     None,
@@ -2436,7 +2445,7 @@ impl ShortcutAction for SendToExtensionWithSelectionAction {
             let selected_text = utils::capture_selection_text_copy(&ah).unwrap_or_default();
             let message = build_extension_message(
                 &ah,
-                &settings,
+                &recording_settings,
                 &final_transcription,
                 &selected_text,
                 &current_app,
@@ -2784,10 +2793,9 @@ impl ShortcutAction for SendScreenshotToExtensionAction {
                 }
             };
 
-            let settings = get_settings(&ah);
             let final_voice_text =
-                if voice_text.trim().is_empty() && settings.screenshot_allow_no_voice {
-                    settings.screenshot_no_voice_default_prompt.clone()
+                if voice_text.trim().is_empty() && recording_settings.screenshot_allow_no_voice {
+                    recording_settings.screenshot_no_voice_default_prompt.clone()
                 } else {
                     voice_text
                 };
@@ -2796,7 +2804,7 @@ impl ShortcutAction for SendScreenshotToExtensionAction {
             utils::hide_recording_overlay_immediately(&ah);
             change_tray_icon(&ah, TrayIconState::Idle);
 
-            if settings.screenshot_capture_method
+            if recording_settings.screenshot_capture_method
                 == crate::settings::ScreenshotCaptureMethod::Native
             {
                 // Native region capture (Windows only)
@@ -2804,7 +2812,8 @@ impl ShortcutAction for SendScreenshotToExtensionAction {
                 {
                     use crate::region_capture::{open_region_picker, RegionCaptureResult};
 
-                    match open_region_picker(&ah, settings.native_region_capture_mode).await {
+                    match open_region_picker(&ah, recording_settings.native_region_capture_mode).await
+                    {
                         RegionCaptureResult::Selected { region, image_data } => {
                             debug!("Screenshot captured for region: {:?}", region);
                             // Send screenshot bytes directly to connector
@@ -2836,7 +2845,8 @@ impl ShortcutAction for SendScreenshotToExtensionAction {
             }
 
             // Validate screenshot folder before launching capture tool
-            let screenshot_folder = PathBuf::from(expand_env_vars(&settings.screenshot_folder));
+            let screenshot_folder =
+                PathBuf::from(expand_env_vars(&recording_settings.screenshot_folder));
             if !screenshot_folder.exists() {
                 emit_screenshot_error(
                     &ah,
@@ -2862,11 +2872,14 @@ impl ShortcutAction for SendScreenshotToExtensionAction {
 
             // Snapshot existing files to prevent picking up old ones
             let existing_files =
-                collect_existing_images(&screenshot_folder, settings.screenshot_include_subfolders);
+                collect_existing_images(
+                    &screenshot_folder,
+                    recording_settings.screenshot_include_subfolders,
+                );
             let start_time = std::time::SystemTime::now();
 
             // Launch screenshot tool
-            let capture_command = settings.screenshot_capture_command.clone();
+            let capture_command = recording_settings.screenshot_capture_command.clone();
             if !capture_command.trim().is_empty() {
                 #[cfg(target_os = "windows")]
                 let _ = std::process::Command::new("powershell")
@@ -2875,14 +2888,14 @@ impl ShortcutAction for SendScreenshotToExtensionAction {
             }
 
             // Wait for screenshot
-            let timeout = settings.screenshot_timeout_seconds as u64;
+            let timeout = recording_settings.screenshot_timeout_seconds as u64;
             match watch_for_new_image(
                 screenshot_folder,
                 timeout,
-                settings.screenshot_include_subfolders,
+                recording_settings.screenshot_include_subfolders,
                 existing_files,
                 start_time,
-                !settings.screenshot_require_recent, // Fallback if requirement is disabled
+                !recording_settings.screenshot_require_recent, // Fallback if requirement is disabled
             )
             .await
             {
@@ -2974,10 +2987,8 @@ impl ShortcutAction for AiReplaceSelectionAction {
                     }
                 };
 
-            let settings = get_settings(&ah);
-
             if transcription.trim().is_empty() {
-                if !settings.ai_replace_allow_quick_tap {
+                if !recording_settings.ai_replace_allow_quick_tap {
                     show_ai_replace_error_overlay(&ah, "No instruction captured.");
                     session_manager::exit_processing(&ah);
                     return;
@@ -2986,7 +2997,7 @@ impl ShortcutAction for AiReplaceSelectionAction {
             }
 
             let selected_text = utils::capture_selection_text(&ah).unwrap_or_else(|_| {
-                if settings.ai_replace_allow_no_selection {
+                if recording_settings.ai_replace_allow_no_selection {
                     String::new()
                 } else {
                     "ERROR_NO_SELECTION".to_string()
@@ -3011,7 +3022,7 @@ impl ShortcutAction for AiReplaceSelectionAction {
 
             match ai_replace_with_llm(
                 &ah,
-                &settings,
+                &recording_settings,
                 &selected_text,
                 &transcription,
                 &current_app,
@@ -3501,12 +3512,11 @@ pub fn find_matching_command(
 
 /// Generates a PowerShell command using LLM based on user's spoken request
 #[cfg(target_os = "windows")]
-pub async fn generate_command_with_llm(
+async fn generate_command_with_llm_with_settings(
     app: &AppHandle,
+    settings: &AppSettings,
     spoken_text: &str,
 ) -> Result<String, String> {
-    let settings = get_settings(app);
-
     // Use Voice Command specific provider (falls back to post-processing if not set)
     let provider = settings
         .active_voice_command_provider()
@@ -3531,14 +3541,15 @@ pub async fn generate_command_with_llm(
     let current_app = crate::active_app::get_frontmost_app_name().unwrap_or_default();
     let template_context = build_llm_template_context(
         app,
-        &settings,
+        settings,
         None,
         &current_app,
         spoken_text,
         spoken_text,
         "",
     );
-    let system_prompt = apply_llm_template_vars(&settings.voice_command_system_prompt, &template_context);
+    let system_prompt =
+        apply_llm_template_vars(&settings.voice_command_system_prompt, &template_context);
     let user_prompt = spoken_text.to_string();
 
     // Use post-processing key only when voice command provider is set to
@@ -3595,6 +3606,15 @@ pub async fn generate_command_with_llm(
         Ok(None) => Err("LLM returned empty response".to_string()),
         Err(e) => Err(format!("LLM request failed: {}", e)),
     }
+}
+
+#[cfg(target_os = "windows")]
+pub async fn generate_command_with_llm(
+    app: &AppHandle,
+    spoken_text: &str,
+) -> Result<String, String> {
+    let settings = get_settings(app);
+    generate_command_with_llm_with_settings(app, &settings, spoken_text).await
 }
 
 fn emit_voice_command_error(app: &AppHandle, message: impl Into<String>) {
@@ -3668,14 +3688,13 @@ impl ShortcutAction for VoiceCommandAction {
                 return;
             }
 
-            let settings = get_settings(&ah);
-            let fuzzy_config = FuzzyMatchConfig::from_settings(&settings);
+            let fuzzy_config = FuzzyMatchConfig::from_settings(&recording_settings);
 
             // Step 1: Try to match against predefined commands
             if let Some((matched_cmd, score)) = find_matching_command(
                 &transcription,
-                &settings.voice_commands,
-                settings.voice_command_default_threshold,
+                &recording_settings.voice_commands,
+                recording_settings.voice_command_default_threshold,
                 &fuzzy_config,
             ) {
                 debug!(
@@ -3684,7 +3703,8 @@ impl ShortcutAction for VoiceCommandAction {
                 );
 
                 // Resolve execution options for this command
-                let resolved = matched_cmd.resolve_execution_options(&settings.voice_command_defaults);
+                let resolved = matched_cmd
+                    .resolve_execution_options(&recording_settings.voice_command_defaults);
 
                 // Show confirmation overlay
                 crate::overlay::show_command_confirm_overlay(
@@ -3698,8 +3718,8 @@ impl ShortcutAction for VoiceCommandAction {
                         use_pwsh: resolved.use_pwsh,
                         execution_policy: format_execution_policy(resolved.execution_policy),
                         working_directory: resolved.working_directory,
-                        auto_run: settings.voice_command_auto_run,
-                        auto_run_seconds: settings.voice_command_auto_run_seconds,
+                        auto_run: recording_settings.voice_command_auto_run,
+                        auto_run_seconds: recording_settings.voice_command_auto_run_seconds,
                     },
                 );
 
@@ -3710,7 +3730,7 @@ impl ShortcutAction for VoiceCommandAction {
             }
 
             // Step 2: No predefined match - try LLM fallback if enabled
-            if settings.voice_command_llm_fallback {
+            if recording_settings.voice_command_llm_fallback {
                 debug!(
                     "No predefined match, using LLM fallback for: '{}'",
                     transcription
@@ -3718,12 +3738,19 @@ impl ShortcutAction for VoiceCommandAction {
 
                 show_thinking_overlay(&ah);
 
-                match generate_command_with_llm(&ah, &transcription).await {
+                match generate_command_with_llm_with_settings(
+                    &ah,
+                    &recording_settings,
+                    &transcription,
+                )
+                .await
+                {
                     Ok(suggested_command) => {
                         debug!("LLM suggested command: '{}'", suggested_command);
 
                         // LLM fallback uses global defaults
-                        let resolved = settings.voice_command_defaults.to_resolved_options();
+                        let resolved =
+                            recording_settings.voice_command_defaults.to_resolved_options();
 
                         // Show confirmation overlay
                         crate::overlay::show_command_confirm_overlay(

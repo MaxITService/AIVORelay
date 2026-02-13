@@ -292,17 +292,30 @@ export const SonioxContextEditor: React.FC<SonioxContextEditorProps> = ({
 
   return (
     <div className="space-y-2 pt-2 border-t border-mid-gray/10">
-      <div className="text-xs text-mid-gray">
-        {t(
-          "settings.transcriptionProfiles.sonioxContext.description",
-          "Soniox context improves recognition for domain terms and names. Fields stay saved when you switch providers.",
-        )}
+      <div className="flex items-baseline justify-between gap-2">
+        <div className="text-xs text-mid-gray">
+          {t(
+            "settings.transcriptionProfiles.sonioxContext.description",
+            "Soniox context improves recognition for domain terms and names. Fields stay saved when you switch providers.",
+          )}
+        </div>
+        <a
+          href="https://soniox.com/docs/stt/concepts/context"
+          target="_blank"
+          rel="noreferrer"
+          className="text-xs text-accent hover:underline whitespace-nowrap shrink-0"
+        >
+          {t("settings.transcriptionProfiles.sonioxContext.docsLink", "Context docs")}
+        </a>
       </div>
       {contextSize > 0 && (
         <div
           className={`text-xs ${contextSizeError ? "text-red-400" : "text-mid-gray"}`}
         >
           {contextSize} / {SONIOX_CONTEXT_MAX_CHARS}
+          <span className="ml-2 text-mid-gray/60">
+            {t("settings.transcriptionProfiles.sonioxContext.sizeLimit", "Maximum ~8,000 tokens (~10,000 characters). If exceeded, the API returns an error — trim or summarize first.")}
+          </span>
         </div>
       )}
 
@@ -360,22 +373,42 @@ export const SonioxContextEditor: React.FC<SonioxContextEditorProps> = ({
             <TellMeMore
               title={t(
                 "settings.transcriptionProfiles.sonioxContext.helpGeneralTitle",
-                "Examples and AI prompt",
+                "General context — docs & AI prompt",
               )}
             >
               <p className="text-xs text-text/80">
+                {t(
+                  "settings.transcriptionProfiles.sonioxContext.helpGeneralDocIntro",
+                  "General information provides baseline context that guides the AI model. It helps adapt vocabulary to the correct domain, improving transcription and translation quality.",
+                )}
+              </p>
+              <p className="mt-1 text-xs text-text/70">
+                {t(
+                  "settings.transcriptionProfiles.sonioxContext.helpGeneralDocContent",
+                  "Structured key-value pairs describing conversation domain, topic, intent, and other relevant metadata such as participants' names, organization, setting, location, etc.",
+                )}
+              </p>
+              <p className="mt-1 text-xs text-amber-400/80">
+                {t(
+                  "settings.transcriptionProfiles.sonioxContext.helpGeneralDocTip",
+                  "Tip: keep it short — ideally no more than 10 key-value pairs.",
+                )}
+              </p>
+              <pre className="mt-2 text-[11px] bg-mid-gray/20 p-2 rounded overflow-x-auto">
+{`[
+  { "key": "domain", "value": "Healthcare" },
+  { "key": "topic", "value": "Diabetes management consultation" },
+  { "key": "doctor", "value": "Dr. Martha Smith" },
+  { "key": "patient", "value": "Mr. David Miller" },
+  { "key": "organization", "value": "St John's Hospital" }
+]`}
+              </pre>
+              <p className="mt-2 text-xs text-text/60">
                 {t(
                   "settings.transcriptionProfiles.sonioxContext.helpGeneralAskAi",
                   "Ask AI: Generate Soniox context.general JSON array for a customer support call. Return only JSON with key/value pairs.",
                 )}
               </p>
-              <pre className="mt-2 text-[11px] bg-mid-gray/20 p-2 rounded overflow-x-auto">
-{`[
-  { "key": "domain", "value": "Customer Support" },
-  { "key": "topic", "value": "Billing dispute" },
-  { "key": "product", "value": "Pro subscription" }
-]`}
-              </pre>
             </TellMeMore>
           </div>
         )}
@@ -432,7 +465,7 @@ export const SonioxContextEditor: React.FC<SonioxContextEditorProps> = ({
             <TellMeMore
               title={t(
                 "settings.transcriptionProfiles.sonioxContext.helpTextTitle",
-                "What to put in Context Text",
+                "Context Text — what to put here",
               )}
             >
               <p className="text-xs text-text/80">
@@ -441,6 +474,17 @@ export const SonioxContextEditor: React.FC<SonioxContextEditorProps> = ({
                   "Add short background notes, participant names, product names, or meeting context that may appear in speech.",
                 )}
               </p>
+              <p className="mt-1 text-xs text-text/70">
+                {t(
+                  "settings.transcriptionProfiles.sonioxContext.helpTextDocIntro",
+                  "Provide longer unstructured text that expands on general information. Examples:",
+                )}
+              </p>
+              <ul className="mt-1 list-disc pl-4 text-xs text-text/70 space-y-0.5">
+                <li>{t("settings.transcriptionProfiles.sonioxContext.helpTextDocItem1", "History of prior interactions with a customer.")}</li>
+                <li>{t("settings.transcriptionProfiles.sonioxContext.helpTextDocItem2", "Reference documents or background summaries.")}</li>
+                <li>{t("settings.transcriptionProfiles.sonioxContext.helpTextDocItem3", "Meeting notes or prior conversation context.")}</li>
+              </ul>
             </TellMeMore>
           </div>
         )}
@@ -500,10 +544,21 @@ export const SonioxContextEditor: React.FC<SonioxContextEditorProps> = ({
             <TellMeMore
               title={t(
                 "settings.transcriptionProfiles.sonioxContext.helpTermsTitle",
-                "Terms examples",
+                "Transcription Terms — docs & examples",
               )}
             >
-              <pre className="text-[11px] bg-mid-gray/20 p-2 rounded overflow-x-auto">
+              <p className="text-xs text-text/80">
+                {t(
+                  "settings.transcriptionProfiles.sonioxContext.helpTermsDocIntro",
+                  "Improve transcription accuracy of important or uncommon words and phrases that you expect in the audio:",
+                )}
+              </p>
+              <ul className="mt-1 list-disc pl-4 text-xs text-text/70 space-y-0.5">
+                <li>{t("settings.transcriptionProfiles.sonioxContext.helpTermsDocItem1", "Domain or industry-specific terminology.")}</li>
+                <li>{t("settings.transcriptionProfiles.sonioxContext.helpTermsDocItem2", "Brand or product names.")}</li>
+                <li>{t("settings.transcriptionProfiles.sonioxContext.helpTermsDocItem3", "Rare, uncommon, or invented words.")}</li>
+              </ul>
+              <pre className="mt-2 text-[11px] bg-mid-gray/20 p-2 rounded overflow-x-auto">
 {`Celebrex
 Prilosec
 Amoxicillin Clavulanate Potassium
