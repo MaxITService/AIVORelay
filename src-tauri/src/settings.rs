@@ -102,6 +102,28 @@ pub struct ProfileLlmSettings {
     pub model_override: Option<String>,
 }
 
+#[derive(Serialize, Deserialize, Debug, Clone, Type)]
+pub struct SonioxContextGeneralItem {
+    pub key: String,
+    pub value: String,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, Type, Default)]
+pub struct SonioxContext {
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub general: Vec<SonioxContextGeneralItem>,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub text: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub terms: Vec<String>,
+}
+
+impl SonioxContext {
+    pub fn is_empty(&self) -> bool {
+        self.general.is_empty() && self.text.trim().is_empty() && self.terms.is_empty()
+    }
+}
+
 /// A custom transcription profile with its own language and translation settings.
 /// Each profile creates a separate shortcut binding (e.g., "transcribe_profile_abc123").
 #[derive(Serialize, Deserialize, Debug, Clone, Type)]
@@ -145,6 +167,15 @@ pub struct TranscriptionProfile {
     /// If Some, uses this model instead of the global model for the current provider
     #[serde(default)]
     pub llm_model_override: Option<String>,
+    /// Soniox context.general as JSON array string.
+    #[serde(default)]
+    pub soniox_context_general_json: String,
+    /// Soniox context.text free-form text.
+    #[serde(default)]
+    pub soniox_context_text: String,
+    /// Soniox context.terms list.
+    #[serde(default)]
+    pub soniox_context_terms: Vec<String>,
 }
 
 impl TranscriptionProfile {
@@ -184,6 +215,109 @@ pub fn resolve_stt_prompt(
         .get(model_id)
         .filter(|p| !p.trim().is_empty())
         .cloned()
+}
+
+const SONIOX_CONTEXT_MAX_CHARS: usize = 10_000;
+
+pub fn parse_soniox_context_general_json(
+    raw_json: &str,
+) -> Result<Vec<SonioxContextGeneralItem>, String> {
+    let trimmed = raw_json.trim();
+    if trimmed.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let parsed: Vec<SonioxContextGeneralItem> = serde_json::from_str(trimmed)
+        .map_err(|e| format!("Invalid Soniox general JSON: {}", e))?;
+
+    for (idx, item) in parsed.iter().enumerate() {
+        if item.key.trim().is_empty() {
+            return Err(format!(
+                "Invalid Soniox general JSON at item {}: key must not be empty",
+                idx
+            ));
+        }
+        if item.value.trim().is_empty() {
+            return Err(format!(
+                "Invalid Soniox general JSON at item {}: value must not be empty",
+                idx
+            ));
+        }
+    }
+
+    Ok(parsed)
+}
+
+pub fn normalize_soniox_terms(terms: &[String]) -> Vec<String> {
+    let mut out = Vec::new();
+    for term in terms {
+        let trimmed = term.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        if !out.iter().any(|existing: &String| existing == trimmed) {
+            out.push(trimmed.to_string());
+        }
+    }
+    out
+}
+
+pub fn build_soniox_context_from_parts(
+    general_json: &str,
+    text: &str,
+    terms: &[String],
+) -> Result<Option<SonioxContext>, String> {
+    let general = parse_soniox_context_general_json(general_json)?;
+    let text = text.trim().to_string();
+    let terms = normalize_soniox_terms(terms);
+
+    let context = SonioxContext {
+        general,
+        text,
+        terms,
+    };
+
+    if context.is_empty() {
+        return Ok(None);
+    }
+
+    let context_json = serde_json::to_string(&context)
+        .map_err(|e| format!("Failed to serialize Soniox context: {}", e))?;
+    if context_json.chars().count() > SONIOX_CONTEXT_MAX_CHARS {
+        return Err(format!(
+            "Soniox context is too long (max {} characters).",
+            SONIOX_CONTEXT_MAX_CHARS
+        ));
+    }
+
+    Ok(Some(context))
+}
+
+pub fn resolve_soniox_context(
+    profile: Option<&TranscriptionProfile>,
+    settings: &AppSettings,
+) -> Option<SonioxContext> {
+    let (general_json, text, terms) = if let Some(profile) = profile {
+        (
+            profile.soniox_context_general_json.as_str(),
+            profile.soniox_context_text.as_str(),
+            profile.soniox_context_terms.as_slice(),
+        )
+    } else {
+        (
+            settings.soniox_context_general_json.as_str(),
+            settings.soniox_context_text.as_str(),
+            settings.soniox_context_terms.as_slice(),
+        )
+    };
+
+    match build_soniox_context_from_parts(general_json, text, terms) {
+        Ok(context) => context,
+        Err(err) => {
+            warn!("Ignoring invalid Soniox context settings: {}", err);
+            None
+        }
+    }
 }
 
 /// PowerShell execution policy for voice commands.
@@ -845,6 +979,12 @@ pub struct AppSettings {
     pub soniox_live_enabled: bool,
     #[serde(default = "default_soniox_language_hints")]
     pub soniox_language_hints: Vec<String>,
+    #[serde(default)]
+    pub soniox_context_general_json: String,
+    #[serde(default)]
+    pub soniox_context_text: String,
+    #[serde(default)]
+    pub soniox_context_terms: Vec<String>,
     #[serde(default = "default_false")]
     pub soniox_use_profile_language_hint_only: bool,
     #[serde(default = "default_false")]
@@ -1832,6 +1972,9 @@ pub fn get_default_settings() -> AppSettings {
         soniox_timeout_seconds: default_soniox_timeout_seconds(),
         soniox_live_enabled: default_soniox_live_enabled(),
         soniox_language_hints: default_soniox_language_hints(),
+        soniox_context_general_json: String::new(),
+        soniox_context_text: String::new(),
+        soniox_context_terms: Vec::new(),
         soniox_use_profile_language_hint_only: default_false(),
         soniox_language_hints_strict: default_false(),
         soniox_enable_endpoint_detection: default_true(),

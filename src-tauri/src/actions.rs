@@ -77,10 +77,11 @@ enum PostProcessTranscriptionOutcome {
     },
 }
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug)]
 struct StopRecordingContext {
     captured_profile_id: Option<String>,
     current_app: String,
+    recording_settings: AppSettings,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -667,6 +668,7 @@ fn start_recording_with_feedback(app: &AppHandle, binding_id: &str) -> bool {
         session: Arc::clone(&session),
         binding_id: binding_id.to_string(),
         captured_profile_id,
+        captured_settings: settings.clone(),
     };
 
     // Capture the active app context at recording start for prompt variables.
@@ -781,9 +783,8 @@ async fn perform_transcription_for_profile(
     samples: Vec<f32>,
     binding_id: Option<&str>,
     captured_profile_id: Option<String>,
+    settings: &AppSettings,
 ) -> TranscriptionOutcome {
-    let settings = get_settings(app);
-
     // Use the captured profile ID from recording start, not the current active_profile_id.
     // This ensures that if the user switches profiles mid-recording, we still use
     // the profile that was active when recording started.
@@ -922,6 +923,7 @@ async fn perform_transcription_for_profile(
 
         let soniox_manager = app.state::<Arc<SonioxSttManager>>();
         let operation_id = soniox_manager.start_operation();
+        let soniox_context = crate::settings::resolve_soniox_context(profile, &settings);
         let should_stream_insert = binding_id
             .map(|id| id == "transcribe" || id.starts_with("transcribe_profile_"))
             .unwrap_or(false);
@@ -938,6 +940,7 @@ async fn perform_transcription_for_profile(
                     settings.soniox_timeout_seconds,
                     &samples,
                     Some(language.as_str()),
+                    soniox_context.clone(),
                     move |chunk| {
                         if chunk.is_empty() {
                             return Ok(());
@@ -1002,6 +1005,7 @@ async fn perform_transcription_for_profile(
                     settings.soniox_timeout_seconds,
                     &samples,
                     Some(language.as_str()),
+                    soniox_context,
                 )
                 .await
         };
@@ -1122,14 +1126,16 @@ fn prepare_stop_recording_with_options(
             binding_id: current_binding_id,
             session,
             captured_profile_id,
+            captured_settings,
         } if current_binding_id == binding_id => {
             let session = Arc::clone(session);
             let captured = captured_profile_id.clone();
+            let recording_settings = captured_settings.clone();
             // Transition to Processing state
             *state_guard = session_manager::SessionState::Processing {
                 binding_id: binding_id.to_string(),
             };
-            Some((session, captured))
+            Some((session, captured, recording_settings))
         }
         session_manager::SessionState::Recording {
             binding_id: current_binding_id,
@@ -1157,18 +1163,16 @@ fn prepare_stop_recording_with_options(
     // Release lock before doing I/O
     drop(state_guard);
 
-    if let Some((session, captured_profile_id)) = result {
+    if let Some((session, captured_profile_id, recording_settings)) = result {
         let current_app = take_recording_app_context(binding_id);
 
         // Explicitly finish the session to trigger cleanup
         // This unregisters the cancel shortcut exactly once
         session.finish();
 
-        let settings = get_settings(app);
-
         change_tray_icon(app, TrayIconState::Transcribing);
         if show_processing_overlay {
-            if settings.transcription_provider != TranscriptionProvider::Local {
+            if recording_settings.transcription_provider != TranscriptionProvider::Local {
                 show_sending_overlay(app);
             } else {
                 show_transcribing_overlay(app);
@@ -1182,6 +1186,7 @@ fn prepare_stop_recording_with_options(
         Some(StopRecordingContext {
             captured_profile_id,
             current_app,
+            recording_settings,
         })
     } else {
         None
@@ -1201,8 +1206,16 @@ async fn get_transcription_or_cleanup(
     app: &AppHandle,
     binding_id: &str,
     captured_profile_id: Option<String>,
+    recording_settings: AppSettings,
 ) -> Option<(String, Vec<f32>)> {
-    match get_transcription_or_cleanup_detailed(app, binding_id, captured_profile_id).await {
+    match get_transcription_or_cleanup_detailed(
+        app,
+        binding_id,
+        captured_profile_id,
+        recording_settings,
+    )
+    .await
+    {
         TranscriptionFetchOutcome::Success(result) => Some(result),
         TranscriptionFetchOutcome::Cancelled
         | TranscriptionFetchOutcome::ErrorOverlayShown
@@ -1214,6 +1227,7 @@ async fn get_transcription_or_cleanup_detailed(
     app: &AppHandle,
     binding_id: &str,
     captured_profile_id: Option<String>,
+    recording_settings: AppSettings,
 ) -> TranscriptionFetchOutcome {
     let rm = Arc::clone(&app.state::<Arc<AudioRecordingManager>>());
     let soniox_live_manager = Arc::clone(&app.state::<Arc<SonioxRealtimeManager>>());
@@ -1225,11 +1239,11 @@ async fn get_transcription_or_cleanup_detailed(
         }
 
         // Quick Tap Optimization: Only apply to AI Replace action
-        let settings = get_settings(app);
         let is_ai_replace = binding_id.starts_with("ai_replace");
         let should_skip = is_ai_replace && {
             let threshold_samples =
-                (settings.ai_replace_quick_tap_threshold_ms as f32 / 1000.0 * 16000.0) as usize;
+                (recording_settings.ai_replace_quick_tap_threshold_ms as f32 / 1000.0 * 16000.0)
+                    as usize;
             samples.len() < threshold_samples
         };
 
@@ -1237,7 +1251,8 @@ async fn get_transcription_or_cleanup_detailed(
             debug!(
                 "Quick tap detected for AI Replace ({} samples < {}), skipping transcription",
                 samples.len(),
-                (settings.ai_replace_quick_tap_threshold_ms as f32 / 1000.0 * 16000.0) as usize
+                (recording_settings.ai_replace_quick_tap_threshold_ms as f32 / 1000.0 * 16000.0)
+                    as usize
             );
             if has_live_session {
                 soniox_live_manager.cancel();
@@ -1248,11 +1263,11 @@ async fn get_transcription_or_cleanup_detailed(
         // Soniox live consolidation: finalize session and return accumulated text
         if has_live_session {
             match soniox_live_manager
-                .finish_session(settings.soniox_live_finalize_timeout_ms)
+                .finish_session(recording_settings.soniox_live_finalize_timeout_ms)
                 .await
             {
                 Ok(text) => {
-                    let filtered = apply_soniox_output_filters(&settings, text);
+                    let filtered = apply_soniox_output_filters(&recording_settings, text);
                     return TranscriptionFetchOutcome::Success((filtered, samples));
                 }
                 Err(err) => {
@@ -1265,10 +1280,10 @@ async fn get_transcription_or_cleanup_detailed(
         }
 
         if is_transcribe_binding_id(binding_id)
-            && settings.text_replacement_decapitalize_after_edit_key_enabled
+            && recording_settings.text_replacement_decapitalize_after_edit_key_enabled
         {
             crate::text_replacement_decapitalize::begin_standard_post_recording_monitor(
-                settings.text_replacement_decapitalize_standard_post_recording_monitor_ms,
+                recording_settings.text_replacement_decapitalize_standard_post_recording_monitor_ms,
             );
         }
 
@@ -1277,6 +1292,7 @@ async fn get_transcription_or_cleanup_detailed(
             samples.clone(),
             Some(binding_id),
             captured_profile_id,
+            &recording_settings,
         )
         .await
         {
@@ -1332,6 +1348,24 @@ fn should_use_soniox_live_streaming(settings: &AppSettings) -> bool {
         && SonioxRealtimeManager::is_realtime_model(&settings.soniox_model)
 }
 
+fn should_use_soniox_live_for_recording(app: &AppHandle, binding_id: &str) -> bool {
+    let soniox_live_manager = Arc::clone(&app.state::<Arc<SonioxRealtimeManager>>());
+    if !soniox_live_manager.has_active_session() {
+        return false;
+    }
+
+    let state = app.state::<ManagedSessionState>();
+    let state_guard = state.lock().expect("Failed to lock session state");
+    match &*state_guard {
+        session_manager::SessionState::Recording {
+            binding_id: current_binding_id,
+            captured_settings,
+            ..
+        } if current_binding_id == binding_id => should_use_soniox_live_streaming(captured_settings),
+        _ => false,
+    }
+}
+
 /// Sets up Soniox live streaming for an action: installs the audio callback,
 /// cancels any previous session, and starts a new accumulation-only session.
 /// Call AFTER start_recording_with_feedback() succeeds — push_audio_frame()
@@ -1351,8 +1385,12 @@ fn setup_and_start_soniox_live(
     }));
 
     // Start session (flushes buffered audio)
-    let language = settings.selected_language.clone();
-    let options = build_soniox_realtime_options(settings, &language);
+    let profile = resolve_profile_for_binding(settings, binding_id);
+    let language = profile
+        .as_ref()
+        .map(|p| p.language.clone())
+        .unwrap_or_else(|| settings.selected_language.clone());
+    let options = build_soniox_realtime_options(settings, &language, profile);
     let soniox_live_manager = Arc::clone(&app.state::<Arc<SonioxRealtimeManager>>());
     #[cfg(target_os = "windows")]
     let api_key = crate::secure_keys::get_soniox_api_key();
@@ -1401,7 +1439,11 @@ fn resolve_soniox_hint_from_language(language: &str) -> Option<String> {
     resolution.hint
 }
 
-fn build_soniox_realtime_options(settings: &AppSettings, language: &str) -> SonioxRealtimeOptions {
+fn build_soniox_realtime_options(
+    settings: &AppSettings,
+    language: &str,
+    profile: Option<&TranscriptionProfile>,
+) -> SonioxRealtimeOptions {
     let mut language_hints = if settings.soniox_use_profile_language_hint_only {
         Vec::new()
     } else {
@@ -1430,6 +1472,7 @@ fn build_soniox_realtime_options(settings: &AppSettings, language: &str) -> Soni
         enable_endpoint_detection: settings.soniox_enable_endpoint_detection,
         max_endpoint_delay_ms: settings.soniox_max_endpoint_delay_ms,
         keepalive_interval_seconds: settings.soniox_keepalive_interval_seconds,
+        context: crate::settings::resolve_soniox_context(profile, settings),
     }
 }
 
@@ -1808,7 +1851,7 @@ impl ShortcutAction for TranscribeAction {
                 .as_ref()
                 .map(|p| p.language.clone())
                 .unwrap_or_else(|| settings.selected_language.clone());
-            let options = build_soniox_realtime_options(&settings, &language);
+            let options = build_soniox_realtime_options(&settings, &language, profile);
             let model = settings.soniox_model.clone();
             let timeout_seconds = settings.soniox_timeout_seconds;
             let binding_id = binding_id.to_string();
@@ -1882,10 +1925,8 @@ impl ShortcutAction for TranscribeAction {
     }
 
     fn stop(&self, app: &AppHandle, binding_id: &str, _shortcut_str: &str) {
-        let settings = get_settings(app);
         let soniox_live_manager = Arc::clone(&app.state::<Arc<SonioxRealtimeManager>>());
-        let use_soniox_live =
-            should_use_soniox_live_streaming(&settings) && soniox_live_manager.has_active_session();
+        let use_soniox_live = should_use_soniox_live_for_recording(app, binding_id);
 
         if use_soniox_live {
             let stop_context = match prepare_stop_recording_with_options(app, binding_id, false) {
@@ -1895,9 +1936,10 @@ impl ShortcutAction for TranscribeAction {
                     return; // No active session - nothing to do
                 }
             };
+            let recording_settings = stop_context.recording_settings.clone();
             // Live mode already streamed text while recording.
             // On stop, show explicit finalizing state unless instant-stop is enabled.
-            if settings.soniox_live_instant_stop {
+            if recording_settings.soniox_live_instant_stop {
                 utils::hide_recording_overlay(app);
             } else {
                 show_finalizing_overlay(app);
@@ -1908,17 +1950,16 @@ impl ShortcutAction for TranscribeAction {
             let ah = app.clone();
             let binding_id = binding_id.to_string();
             tauri::async_runtime::spawn(async move {
-                let settings = get_settings(&ah);
                 let stream_processor = take_soniox_stream_processor(&binding_id);
                 let rm = Arc::clone(&ah.state::<Arc<AudioRecordingManager>>());
                 let samples = match rm.stop_recording(&binding_id) {
                     Some(samples) => samples,
                     None => {
-                        if settings.soniox_live_instant_stop {
+                        if recording_settings.soniox_live_instant_stop {
                             soniox_live_manager.cancel();
                         } else {
                             let _ = soniox_live_manager
-                                .finish_session(settings.soniox_live_finalize_timeout_ms)
+                                .finish_session(recording_settings.soniox_live_finalize_timeout_ms)
                                 .await;
                         }
                         rm.clear_stream_frame_callback();
@@ -1931,7 +1972,7 @@ impl ShortcutAction for TranscribeAction {
                 };
                 rm.clear_stream_frame_callback();
 
-                if settings.soniox_live_instant_stop {
+                if recording_settings.soniox_live_instant_stop {
                     soniox_live_manager.cancel();
                     let _ = crate::clipboard::end_streaming_paste_session(&ah);
 
@@ -1951,10 +1992,10 @@ impl ShortcutAction for TranscribeAction {
                 }
 
                 let transcription_result = soniox_live_manager
-                    .finish_session(settings.soniox_live_finalize_timeout_ms)
+                    .finish_session(recording_settings.soniox_live_finalize_timeout_ms)
                     .await;
                 let transcription = match transcription_result {
-                    Ok(text) => apply_soniox_output_filters(&settings, text),
+                    Ok(text) => apply_soniox_output_filters(&recording_settings, text),
                     Err(err) => {
                         let err_str = format!("{}", err);
                         let _ = ah.emit("remote-stt-error", err_str.clone());
@@ -1996,9 +2037,10 @@ impl ShortcutAction for TranscribeAction {
                 }
 
                 let stream_trailing_adjustment =
-                    resolve_stream_trailing_adjustment(&settings, &transcription);
+                    resolve_stream_trailing_adjustment(&recording_settings, &transcription);
                 let copy_to_clipboard =
-                    settings.clipboard_handling == crate::settings::ClipboardHandling::CopyToClipboard;
+                    recording_settings.clipboard_handling
+                        == crate::settings::ClipboardHandling::CopyToClipboard;
 
                 let final_text = match apply_post_processing_and_history(
                     &ah,
@@ -2050,13 +2092,14 @@ impl ShortcutAction for TranscribeAction {
         };
         let captured_profile_id = stop_context.captured_profile_id.clone();
         let current_app = stop_context.current_app.clone();
+        let recording_settings = stop_context.recording_settings.clone();
 
         let ah = app.clone();
         let binding_id = binding_id.to_string();
 
         tauri::async_runtime::spawn(async move {
             let is_soniox_provider =
-                get_settings(&ah).transcription_provider == TranscriptionProvider::RemoteSoniox;
+                recording_settings.transcription_provider == TranscriptionProvider::RemoteSoniox;
             if is_soniox_provider {
                 if let Err(e) = crate::clipboard::begin_streaming_paste_session(&ah) {
                     warn!("Failed to begin streaming clipboard session: {}", e);
@@ -2064,7 +2107,14 @@ impl ShortcutAction for TranscribeAction {
             }
             let profile_id_for_postprocess = captured_profile_id.clone();
             let (transcription, samples) =
-                match get_transcription_or_cleanup(&ah, &binding_id, captured_profile_id).await {
+                match get_transcription_or_cleanup(
+                    &ah,
+                    &binding_id,
+                    captured_profile_id,
+                    recording_settings.clone(),
+                )
+                .await
+                {
                     Some(res) => res,
                     None => {
                         if is_soniox_provider {
@@ -2086,13 +2136,13 @@ impl ShortcutAction for TranscribeAction {
             }
 
             let stream_trailing_adjustment = if is_soniox_provider {
-                let settings = get_settings(&ah);
-                resolve_stream_trailing_adjustment(&settings, &transcription)
+                resolve_stream_trailing_adjustment(&recording_settings, &transcription)
             } else {
                 StreamTrailingAdjustment::None
             };
             let copy_to_clipboard = if is_soniox_provider {
-                get_settings(&ah).clipboard_handling == crate::settings::ClipboardHandling::CopyToClipboard
+                recording_settings.clipboard_handling
+                    == crate::settings::ClipboardHandling::CopyToClipboard
             } else {
                 false
             };
@@ -2204,7 +2254,11 @@ impl ShortcutAction for SendToExtensionAction {
             Some(context) => context,
             None => return, // No active session - nothing to do
         };
-        let current_app = stop_context.current_app;
+        let StopRecordingContext {
+            current_app,
+            recording_settings,
+            ..
+        } = stop_context;
 
         let ah = app.clone();
         let cm = Arc::clone(&app.state::<Arc<ConnectorManager>>());
@@ -2212,7 +2266,14 @@ impl ShortcutAction for SendToExtensionAction {
 
         tauri::async_runtime::spawn(async move {
             let (transcription, samples) =
-                match get_transcription_or_cleanup(&ah, &binding_id, None).await {
+                match get_transcription_or_cleanup(
+                    &ah,
+                    &binding_id,
+                    None,
+                    recording_settings.clone(),
+                )
+                .await
+                {
                     Some(res) => res,
                     None => {
                         session_manager::exit_processing(&ah);
@@ -2317,7 +2378,11 @@ impl ShortcutAction for SendToExtensionWithSelectionAction {
             Some(context) => context,
             None => return, // No active session - nothing to do
         };
-        let current_app = stop_context.current_app;
+        let StopRecordingContext {
+            current_app,
+            recording_settings,
+            ..
+        } = stop_context;
 
         let ah = app.clone();
         let cm = Arc::clone(&app.state::<Arc<ConnectorManager>>());
@@ -2325,7 +2390,14 @@ impl ShortcutAction for SendToExtensionWithSelectionAction {
 
         tauri::async_runtime::spawn(async move {
             let (transcription, samples) =
-                match get_transcription_or_cleanup(&ah, &binding_id, None).await {
+                match get_transcription_or_cleanup(
+                    &ah,
+                    &binding_id,
+                    None,
+                    recording_settings.clone(),
+                )
+                .await
+                {
                     Some(res) => res,
                     None => {
                         session_manager::exit_processing(&ah);
@@ -2686,16 +2758,25 @@ impl ShortcutAction for SendScreenshotToExtensionAction {
             return;
         }
 
-        if prepare_stop_recording(app, binding_id).is_none() {
-            return; // No active session - nothing to do
-        }
+        let stop_context = match prepare_stop_recording(app, binding_id) {
+            Some(context) => context,
+            None => return, // No active session - nothing to do
+        };
+        let recording_settings = stop_context.recording_settings;
 
         let ah = app.clone();
         let cm = Arc::clone(&app.state::<Arc<ConnectorManager>>());
         let binding_id = binding_id.to_string();
 
         tauri::async_runtime::spawn(async move {
-            let (voice_text, _) = match get_transcription_or_cleanup(&ah, &binding_id, None).await {
+            let (voice_text, _) = match get_transcription_or_cleanup(
+                &ah,
+                &binding_id,
+                None,
+                recording_settings.clone(),
+            )
+            .await
+            {
                 Some(res) => res,
                 None => {
                     session_manager::exit_processing(&ah);
@@ -2860,14 +2941,25 @@ impl ShortcutAction for AiReplaceSelectionAction {
             Some(context) => context,
             None => return,
         };
-        let current_app = stop_context.current_app;
+        let StopRecordingContext {
+            current_app,
+            recording_settings,
+            ..
+        } = stop_context;
 
         let ah = app.clone();
         let binding_id = binding_id.to_string();
 
         tauri::async_runtime::spawn(async move {
             let (transcription, _) =
-                match get_transcription_or_cleanup_detailed(&ah, &binding_id, None).await {
+                match get_transcription_or_cleanup_detailed(
+                    &ah,
+                    &binding_id,
+                    None,
+                    recording_settings.clone(),
+                )
+                .await
+                {
                     TranscriptionFetchOutcome::Success(res) => res,
                     TranscriptionFetchOutcome::Cancelled
                     | TranscriptionFetchOutcome::ErrorOverlayShown => {
@@ -3542,16 +3634,25 @@ impl ShortcutAction for VoiceCommandAction {
     }
 
     fn stop(&self, app: &AppHandle, binding_id: &str, _shortcut_str: &str) {
-        if prepare_stop_recording(app, binding_id).is_none() {
-            return;
-        }
+        let stop_context = match prepare_stop_recording(app, binding_id) {
+            Some(context) => context,
+            None => return,
+        };
+        let recording_settings = stop_context.recording_settings;
 
         let ah = app.clone();
         let binding_id = binding_id.to_string();
 
         tauri::async_runtime::spawn(async move {
             let (transcription, _) =
-                match get_transcription_or_cleanup(&ah, &binding_id, None).await {
+                match get_transcription_or_cleanup(
+                    &ah,
+                    &binding_id,
+                    None,
+                    recording_settings.clone(),
+                )
+                .await
+                {
                     Some(res) => res,
                     None => {
                         session_manager::exit_processing(&ah);

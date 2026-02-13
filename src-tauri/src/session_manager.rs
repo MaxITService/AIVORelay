@@ -10,6 +10,7 @@
 //! - Tracks what resources were acquired to only release what was actually acquired
 
 use crate::managers::audio::AudioRecordingManager;
+use crate::settings::AppSettings;
 use crate::shortcut;
 use crate::tray::{change_tray_icon, TrayIconState};
 use crate::utils::hide_recording_overlay;
@@ -32,6 +33,10 @@ pub enum SessionState {
         /// This is used to ensure transcription uses the correct profile
         /// even if the user switches profiles mid-recording.
         captured_profile_id: Option<String>,
+        /// Full settings snapshot captured when recording started.
+        /// Stop/transcription logic must use this snapshot to avoid routing
+        /// drift when the user changes settings mid-recording.
+        captured_settings: AppSettings,
     },
     /// Recording finished, now processing (transcription, LLM, etc.)
     /// New recordings are blocked during this state, only cancellation is allowed.
@@ -170,6 +175,7 @@ pub fn take_session(app: &AppHandle) -> Option<(Arc<RecordingSession>, String)> 
             session,
             binding_id,
             captured_profile_id: _,
+            captured_settings: _,
         } => {
             debug!("take_session: Took session for {}", binding_id);
             Some((session, binding_id))

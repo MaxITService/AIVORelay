@@ -221,6 +221,30 @@ async changeSonioxLanguageHintsSetting(hints: string[]) : Promise<Result<null, s
     else return { status: "error", error: e  as any };
 }
 },
+async changeSonioxContextGeneralJsonSetting(generalJson: string) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("change_soniox_context_general_json_setting", { generalJson }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async changeSonioxContextTextSetting(text: string) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("change_soniox_context_text_setting", { text }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async changeSonioxContextTermsSetting(terms: string[]) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("change_soniox_context_terms_setting", { terms }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async changeSonioxUseProfileLanguageHintOnlySetting(enabled: boolean) : Promise<Result<null, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("change_soniox_use_profile_language_hint_only_setting", { enabled }) };
@@ -589,9 +613,9 @@ async setPostProcessSelectedPrompt(id: string) : Promise<Result<null, string>> {
  * Creates a new transcription profile with its own language/translation settings.
  * This also creates a corresponding shortcut binding and registers it.
  */
-async addTranscriptionProfile(name: string, language: string, translateToEnglish: boolean, systemPrompt: string, pushToTalk: boolean, includeInCycle: boolean | null, llmSettings: ProfileLlmSettings | null) : Promise<Result<TranscriptionProfile, string>> {
+async addTranscriptionProfile(payload: AddTranscriptionProfilePayload) : Promise<Result<TranscriptionProfile, string>> {
     try {
-    return { status: "ok", data: await TAURI_INVOKE("add_transcription_profile", { name, language, translateToEnglish, systemPrompt, pushToTalk, includeInCycle, llmSettings }) };
+    return { status: "ok", data: await TAURI_INVOKE("add_transcription_profile", { payload }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
@@ -600,9 +624,9 @@ async addTranscriptionProfile(name: string, language: string, translateToEnglish
 /**
  * Updates an existing transcription profile.
  */
-async updateTranscriptionProfile(id: string, name: string, language: string, translateToEnglish: boolean, systemPrompt: string, sttPromptOverrideEnabled: boolean, includeInCycle: boolean, pushToTalk: boolean, llmSettings: ProfileLlmSettings) : Promise<Result<null, string>> {
+async updateTranscriptionProfile(payload: UpdateTranscriptionProfilePayload) : Promise<Result<null, string>> {
     try {
-    return { status: "ok", data: await TAURI_INVOKE("update_transcription_profile", { id, name, language, translateToEnglish, systemPrompt, sttPromptOverrideEnabled, includeInCycle, pushToTalk, llmSettings }) };
+    return { status: "ok", data: await TAURI_INVOKE("update_transcription_profile", { payload }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
@@ -1971,7 +1995,8 @@ async isLaptop() : Promise<Result<boolean, string>> {
 
 /** user-defined types **/
 
-export type AppSettings = { bindings: Partial<{ [key in string]: ShortcutBinding }>; push_to_talk: boolean; audio_feedback: boolean; audio_feedback_volume?: number; sound_theme?: SoundTheme; start_hidden?: boolean; autostart_enabled?: boolean; show_tray_icon?: boolean; update_checks_enabled?: boolean; selected_model?: string; transcription_provider?: TranscriptionProvider; remote_stt?: RemoteSttSettings; soniox_model?: string; soniox_timeout_seconds?: number; soniox_live_enabled?: boolean; soniox_language_hints?: string[]; soniox_use_profile_language_hint_only?: boolean; soniox_language_hints_strict?: boolean; soniox_enable_endpoint_detection?: boolean; soniox_max_endpoint_delay_ms?: number; soniox_enable_language_identification?: boolean; soniox_enable_speaker_diarization?: boolean; soniox_keepalive_interval_seconds?: number; soniox_live_finalize_timeout_ms?: number; soniox_live_instant_stop?: boolean; soniox_realtime_fuzzy_correction_enabled?: boolean; soniox_realtime_keep_safety_buffer_enabled?: boolean; always_on_microphone?: boolean; selected_microphone?: string | null; clamshell_microphone?: string | null; selected_output_device?: string | null; translate_to_english?: boolean; selected_language?: string; overlay_position?: OverlayPosition; debug_mode?: boolean; log_level?: LogLevel; custom_words?: string[]; custom_words_enabled?: boolean; custom_words_ngram_enabled?: boolean; model_unload_timeout?: ModelUnloadTimeout; word_correction_threshold?: number; history_limit?: number; recording_retention_period?: RecordingRetentionPeriod; paste_method?: PasteMethod; paste_delay_ms?: number; 
+export type AddTranscriptionProfilePayload = { name: string; language: string; translateToEnglish: boolean; systemPrompt: string; sttPromptOverrideEnabled?: boolean; pushToTalk: boolean; includeInCycle: boolean | null; llmSettings: ProfileLlmSettings | null; sonioxContextGeneralJson: string | null; sonioxContextText: string | null; sonioxContextTerms: string[] | null }
+export type AppSettings = { bindings: Partial<{ [key in string]: ShortcutBinding }>; push_to_talk: boolean; audio_feedback: boolean; audio_feedback_volume?: number; sound_theme?: SoundTheme; start_hidden?: boolean; autostart_enabled?: boolean; show_tray_icon?: boolean; update_checks_enabled?: boolean; selected_model?: string; transcription_provider?: TranscriptionProvider; remote_stt?: RemoteSttSettings; soniox_model?: string; soniox_timeout_seconds?: number; soniox_live_enabled?: boolean; soniox_language_hints?: string[]; soniox_context_general_json?: string; soniox_context_text?: string; soniox_context_terms?: string[]; soniox_use_profile_language_hint_only?: boolean; soniox_language_hints_strict?: boolean; soniox_enable_endpoint_detection?: boolean; soniox_max_endpoint_delay_ms?: number; soniox_enable_language_identification?: boolean; soniox_enable_speaker_diarization?: boolean; soniox_keepalive_interval_seconds?: number; soniox_live_finalize_timeout_ms?: number; soniox_live_instant_stop?: boolean; soniox_realtime_fuzzy_correction_enabled?: boolean; soniox_realtime_keep_safety_buffer_enabled?: boolean; always_on_microphone?: boolean; selected_microphone?: string | null; clamshell_microphone?: string | null; selected_output_device?: string | null; translate_to_english?: boolean; selected_language?: string; overlay_position?: OverlayPosition; debug_mode?: boolean; log_level?: LogLevel; custom_words?: string[]; custom_words_enabled?: boolean; custom_words_ngram_enabled?: boolean; model_unload_timeout?: ModelUnloadTimeout; word_correction_threshold?: number; history_limit?: number; recording_retention_period?: RecordingRetentionPeriod; paste_method?: PasteMethod; paste_delay_ms?: number; 
 /**
  * Convert LF to CRLF before clipboard paste (fixes newlines on Windows)
  */
@@ -2529,8 +2554,21 @@ llm_prompt_override?: string | null;
  * Override the global LLM model for this profile
  * If Some, uses this model instead of the global model for the current provider
  */
-llm_model_override?: string | null }
+llm_model_override?: string | null; 
+/**
+ * Soniox context.general as JSON array string.
+ */
+soniox_context_general_json?: string; 
+/**
+ * Soniox context.text free-form text.
+ */
+soniox_context_text?: string; 
+/**
+ * Soniox context.terms list.
+ */
+soniox_context_terms?: string[] }
 export type TranscriptionProvider = "local" | "remote_openai_compatible" | "remote_soniox"
+export type UpdateTranscriptionProfilePayload = { id: string; name: string; language: string; translateToEnglish: boolean; systemPrompt: string; sttPromptOverrideEnabled: boolean; includeInCycle: boolean; pushToTalk: boolean; llmSettings: ProfileLlmSettings; sonioxContextGeneralJson: string | null; sonioxContextText: string | null; sonioxContextTerms: string[] | null }
 /**
  * Information about the virtual screen (all monitors combined).
  */

@@ -227,6 +227,12 @@ const settingUpdaters: {
   invoke("change_soniox_live_enabled_setting", { enabled: value });
 (settingUpdaters as any).soniox_language_hints = (value: any) =>
   invoke("change_soniox_language_hints_setting", { hints: value });
+(settingUpdaters as any).soniox_context_general_json = (value: any) =>
+  invoke("change_soniox_context_general_json_setting", { generalJson: value });
+(settingUpdaters as any).soniox_context_text = (value: any) =>
+  invoke("change_soniox_context_text_setting", { text: value });
+(settingUpdaters as any).soniox_context_terms = (value: any) =>
+  invoke("change_soniox_context_terms_setting", { terms: value });
 (settingUpdaters as any).soniox_use_profile_language_hint_only = (value: any) =>
   invoke("change_soniox_use_profile_language_hint_only_setting", { enabled: value });
 (settingUpdaters as any).soniox_language_hints_strict = (value: any) =>

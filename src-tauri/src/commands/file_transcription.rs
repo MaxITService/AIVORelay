@@ -241,6 +241,7 @@ pub async fn transcribe_audio_file(
             .unwrap_or(settings.soniox_enable_language_identification);
         let soniox_options = SonioxAsyncTranscriptionOptions {
             language_hints,
+            context: crate::settings::resolve_soniox_context(profile, &settings),
             enable_speaker_diarization: Some(enable_speaker_diarization),
             enable_language_identification: Some(enable_language_identification),
         };

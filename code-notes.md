@@ -6,6 +6,10 @@ Files that differentiate this fork from the original [cjpais/Handy](https://gith
 
 These changes move selected areas toward upstream behavior without removing fork-only features:
 
+- Soniox context support for profiles/default:
+  - Added Soniox context fields (`context.general` JSON, `context.text`, `context.terms`) to global/default settings and transcription profiles.
+  - `TranscriptionProfiles` now shows Soniox-specific collapsible context editors when Soniox provider is active, while hiding non-Soniox STT prompt UI.
+  - Soniox live/non-live/file request payloads now include validated context when present.
 - `scripts/check-translations.ts`
   - Translation consistency checker used in CI to detect missing/extra locale keys.
 - `.github/workflows/lint.yml`
@@ -90,6 +94,7 @@ Touched files in this refactor:
 | File                                                                   | Purpose                                                                                                                                                                 |
 | ---------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `src/components/settings/remote-stt/RemoteSttSettings.tsx`             | UI for Remote STT configuration: base URL, model ID, API key management, connection testing, debug log viewer.                                                          |
+| `src/components/settings/SonioxContextEditor.tsx`                       | Reusable Soniox context editor used in transcription profile cards (default/custom/new): collapsible `context.general` JSON, `context.text`, `context.terms` inputs with inline validation and help/examples. |
 | `src/components/settings/advanced/AiReplaceSettings.tsx`               | UI for AI Replace feature: system/user prompts, max chars limit, "no selection" mode toggle.                                                                            |
 | `src/components/settings/browser-connector/ConnectorStatus.tsx`        | Extension status indicator component showing online/offline status with "last seen" time when offline.                                                                  |
 | `src/components/icons/SendingIcon.tsx`                                 | Monochrome SVG icon (upload arrow) for "sending" overlay state. Matches pink style (`#FAA2CA`) of other icons.                                                          |

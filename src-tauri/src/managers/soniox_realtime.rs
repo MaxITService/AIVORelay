@@ -9,6 +9,7 @@ use tauri::AppHandle;
 use tokio::sync::mpsc;
 use tokio::time::{timeout, MissedTickBehavior};
 use tokio_tungstenite::{connect_async, tungstenite::Message};
+use crate::settings::SonioxContext;
 
 const SONIOX_WS_URL: &str = "wss://stt-rt.soniox.com/transcribe-websocket";
 const DEFAULT_CONNECT_TIMEOUT_SECS: u64 = 10;
@@ -28,6 +29,7 @@ pub struct SonioxRealtimeOptions {
     pub enable_endpoint_detection: bool,
     pub max_endpoint_delay_ms: u32,
     pub keepalive_interval_seconds: u32,
+    pub context: Option<SonioxContext>,
 }
 
 impl Default for SonioxRealtimeOptions {
@@ -40,6 +42,7 @@ impl Default for SonioxRealtimeOptions {
             enable_endpoint_detection: true,
             max_endpoint_delay_ms: 2000,
             keepalive_interval_seconds: DEFAULT_KEEPALIVE_INTERVAL_SECONDS,
+            context: None,
         }
     }
 }
@@ -53,6 +56,8 @@ struct SonioxStartRequest {
     num_channels: u8,
     #[serde(skip_serializing_if = "Option::is_none")]
     language_hints: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    context: Option<SonioxContext>,
     language_hints_strict: bool,
     enable_speaker_diarization: bool,
     enable_language_identification: bool,
@@ -161,7 +166,18 @@ impl SonioxRealtimeManager {
             ));
         }
 
-        let mut keepalive_interval_seconds = options.keepalive_interval_seconds;
+        let SonioxRealtimeOptions {
+            language_hints,
+            language_hints_strict,
+            enable_speaker_diarization,
+            enable_language_identification,
+            enable_endpoint_detection,
+            max_endpoint_delay_ms,
+            keepalive_interval_seconds,
+            context,
+        } = options;
+
+        let mut keepalive_interval_seconds = keepalive_interval_seconds;
         keepalive_interval_seconds = keepalive_interval_seconds.clamp(
             MIN_KEEPALIVE_INTERVAL_SECONDS,
             MAX_KEEPALIVE_INTERVAL_SECONDS,
@@ -173,12 +189,13 @@ impl SonioxRealtimeManager {
             audio_format: "pcm_s16le".to_string(),
             sample_rate: 16_000,
             num_channels: 1,
-            language_hints: Self::normalize_language_hints(options.language_hints),
-            language_hints_strict: options.language_hints_strict,
-            enable_speaker_diarization: options.enable_speaker_diarization,
-            enable_language_identification: options.enable_language_identification,
-            enable_endpoint_detection: options.enable_endpoint_detection,
-            max_endpoint_delay_ms: options.max_endpoint_delay_ms.clamp(500, 3000),
+            language_hints: Self::normalize_language_hints(language_hints),
+            context,
+            language_hints_strict,
+            enable_speaker_diarization,
+            enable_language_identification,
+            enable_endpoint_detection,
+            max_endpoint_delay_ms: max_endpoint_delay_ms.clamp(500, 3000),
         };
 
         let start_payload = serde_json::to_string(&start_request)

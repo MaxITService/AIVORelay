@@ -1,5 +1,5 @@
 use log::{error, info, warn};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use specta::Type;
 use std::collections::HashSet;
 use std::sync::Arc;
@@ -954,6 +954,55 @@ pub fn change_soniox_language_hints_setting(
 
 #[tauri::command]
 #[specta::specta]
+pub fn change_soniox_context_general_json_setting(
+    app: AppHandle,
+    general_json: String,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings::build_soniox_context_from_parts(
+        &general_json,
+        &settings.soniox_context_text,
+        &settings.soniox_context_terms,
+    )?;
+    settings.soniox_context_general_json = general_json.trim().to_string();
+    settings::write_settings(&app, settings);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_soniox_context_text_setting(app: AppHandle, text: String) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings::build_soniox_context_from_parts(
+        &settings.soniox_context_general_json,
+        &text,
+        &settings.soniox_context_terms,
+    )?;
+    settings.soniox_context_text = text.trim().to_string();
+    settings::write_settings(&app, settings);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_soniox_context_terms_setting(
+    app: AppHandle,
+    terms: Vec<String>,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    let normalized_terms = settings::normalize_soniox_terms(&terms);
+    settings::build_soniox_context_from_parts(
+        &settings.soniox_context_general_json,
+        &settings.soniox_context_text,
+        &normalized_terms,
+    )?;
+    settings.soniox_context_terms = normalized_terms;
+    settings::write_settings(&app, settings);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
 pub fn change_soniox_use_profile_language_hint_only_setting(
     app: AppHandle,
     enabled: bool,
@@ -1101,6 +1150,9 @@ pub fn reset_soniox_settings_to_defaults(app: AppHandle) -> Result<(), String> {
     settings.soniox_timeout_seconds = 30;
     settings.soniox_live_enabled = true;
     settings.soniox_language_hints = vec!["en".to_string()];
+    settings.soniox_context_general_json = String::new();
+    settings.soniox_context_text = String::new();
+    settings.soniox_context_terms = Vec::new();
     settings.soniox_use_profile_language_hint_only = false;
     settings.soniox_language_hints_strict = false;
     settings.soniox_enable_endpoint_detection = true;
@@ -1617,20 +1669,62 @@ pub fn delete_post_process_prompt(app: AppHandle, id: String) -> Result<(), Stri
 // Transcription Profile Management
 // ============================================================================
 
+#[derive(Deserialize, Debug, Clone, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct AddTranscriptionProfilePayload {
+    pub name: String,
+    pub language: String,
+    pub translate_to_english: bool,
+    pub system_prompt: String,
+    #[serde(default)]
+    pub stt_prompt_override_enabled: bool,
+    pub push_to_talk: bool,
+    pub include_in_cycle: Option<bool>,
+    pub llm_settings: Option<settings::ProfileLlmSettings>,
+    pub soniox_context_general_json: Option<String>,
+    pub soniox_context_text: Option<String>,
+    pub soniox_context_terms: Option<Vec<String>>,
+}
+
+#[derive(Deserialize, Debug, Clone, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateTranscriptionProfilePayload {
+    pub id: String,
+    pub name: String,
+    pub language: String,
+    pub translate_to_english: bool,
+    pub system_prompt: String,
+    pub stt_prompt_override_enabled: bool,
+    pub include_in_cycle: bool,
+    pub push_to_talk: bool,
+    pub llm_settings: settings::ProfileLlmSettings,
+    pub soniox_context_general_json: Option<String>,
+    pub soniox_context_text: Option<String>,
+    pub soniox_context_terms: Option<Vec<String>>,
+}
+
 /// Creates a new transcription profile with its own language/translation settings.
 /// This also creates a corresponding shortcut binding and registers it.
 #[tauri::command]
 #[specta::specta]
 pub fn add_transcription_profile(
     app: AppHandle,
-    name: String,
-    language: String,
-    translate_to_english: bool,
-    system_prompt: String,
-    push_to_talk: bool,
-    include_in_cycle: Option<bool>,
-    llm_settings: Option<settings::ProfileLlmSettings>,
+    payload: AddTranscriptionProfilePayload,
 ) -> Result<settings::TranscriptionProfile, String> {
+    let AddTranscriptionProfilePayload {
+        name,
+        language,
+        translate_to_english,
+        system_prompt,
+        stt_prompt_override_enabled,
+        push_to_talk,
+        include_in_cycle,
+        llm_settings,
+        soniox_context_general_json,
+        soniox_context_text,
+        soniox_context_terms,
+    } = payload;
+
     let mut settings = settings::get_settings(&app);
 
     // Generate unique ID using timestamp
@@ -1652,6 +1746,11 @@ pub fn add_transcription_profile(
             (settings.post_process_enabled, None, None)
         };
 
+    let general_json = soniox_context_general_json.unwrap_or_default();
+    let context_text = soniox_context_text.unwrap_or_default();
+    let context_terms = settings::normalize_soniox_terms(&soniox_context_terms.unwrap_or_default());
+    settings::build_soniox_context_from_parts(&general_json, &context_text, &context_terms)?;
+
     let new_profile = settings::TranscriptionProfile {
         id: profile_id.clone(),
         name: name.clone(),
@@ -1659,12 +1758,15 @@ pub fn add_transcription_profile(
         translate_to_english,
         description: description.clone(),
         system_prompt,
-        stt_prompt_override_enabled: false, // Default: use global per-model prompt
+        stt_prompt_override_enabled,
         include_in_cycle: include_in_cycle.unwrap_or(true), // Include in cycle by default
         push_to_talk,
         llm_post_process_enabled,
         llm_prompt_override,
         llm_model_override,
+        soniox_context_general_json: general_json.trim().to_string(),
+        soniox_context_text: context_text.trim().to_string(),
+        soniox_context_terms: context_terms,
     };
 
     // Create a corresponding shortcut binding (no default key assigned)
@@ -1689,16 +1791,23 @@ pub fn add_transcription_profile(
 #[specta::specta]
 pub fn update_transcription_profile(
     app: AppHandle,
-    id: String,
-    name: String,
-    language: String,
-    translate_to_english: bool,
-    system_prompt: String,
-    stt_prompt_override_enabled: bool,
-    include_in_cycle: bool,
-    push_to_talk: bool,
-    llm_settings: settings::ProfileLlmSettings,
+    payload: UpdateTranscriptionProfilePayload,
 ) -> Result<(), String> {
+    let UpdateTranscriptionProfilePayload {
+        id,
+        name,
+        language,
+        translate_to_english,
+        system_prompt,
+        stt_prompt_override_enabled,
+        include_in_cycle,
+        push_to_talk,
+        llm_settings,
+        soniox_context_general_json,
+        soniox_context_text,
+        soniox_context_terms,
+    } = payload;
+
     let mut settings = settings::get_settings(&app);
 
     // Find and update the profile
@@ -1725,6 +1834,13 @@ pub fn update_transcription_profile(
     profile.llm_post_process_enabled = llm_settings.enabled;
     profile.llm_prompt_override = llm_settings.prompt_override;
     profile.llm_model_override = llm_settings.model_override;
+    let general_json = soniox_context_general_json.unwrap_or_default();
+    let context_text = soniox_context_text.unwrap_or_default();
+    let context_terms = settings::normalize_soniox_terms(&soniox_context_terms.unwrap_or_default());
+    settings::build_soniox_context_from_parts(&general_json, &context_text, &context_terms)?;
+    profile.soniox_context_general_json = general_json.trim().to_string();
+    profile.soniox_context_text = context_text.trim().to_string();
+    profile.soniox_context_terms = context_terms;
 
     // Update the binding name/description as well
     let binding_id = format!("transcribe_{}", id);

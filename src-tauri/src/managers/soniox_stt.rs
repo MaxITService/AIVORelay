@@ -1,4 +1,5 @@
 use crate::audio_toolkit::encode_wav_bytes;
+use crate::settings::SonioxContext;
 use anyhow::{anyhow, Result};
 use futures_util::{SinkExt, StreamExt};
 use log::{debug, info, warn};
@@ -27,6 +28,8 @@ struct SonioxStartRequest {
     audio_format: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     language_hints: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    context: Option<SonioxContext>,
     // This fallback WS path keeps endpoint detection enabled to ensure the
     // server emits proper completion/finalization signals for full-clip uploads.
     enable_endpoint_detection: bool,
@@ -62,6 +65,8 @@ struct CreateTranscriptionRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
     language_hints: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    context: Option<SonioxContext>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     enable_speaker_diarization: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     enable_language_identification: Option<bool>,
@@ -70,6 +75,7 @@ struct CreateTranscriptionRequest {
 #[derive(Debug, Clone, Default)]
 pub struct SonioxAsyncTranscriptionOptions {
     pub language_hints: Option<Vec<String>>,
+    pub context: Option<SonioxContext>,
     pub enable_speaker_diarization: Option<bool>,
     pub enable_language_identification: Option<bool>,
 }
@@ -290,6 +296,7 @@ impl SonioxSttManager {
         timeout_seconds: u32,
         wav_data: &[u8],
         language_hints: Option<Vec<String>>,
+        context: Option<SonioxContext>,
     ) -> Result<String> {
         let started = Instant::now();
         self.ensure_not_cancelled(operation_id)?;
@@ -310,6 +317,7 @@ impl SonioxSttManager {
             model: model.to_string(),
             audio_format: "auto".to_string(),
             language_hints,
+            context,
             // This manager's WS mode is a non-live full-clip upload fallback.
             // We currently keep this fixed instead of exposing the full live
             // tuning surface from soniox_realtime.rs.
@@ -447,6 +455,7 @@ impl SonioxSttManager {
         timeout_seconds: u32,
         wav_data: &[u8],
         language_hints: Option<Vec<String>>,
+        context: Option<SonioxContext>,
         on_final_chunk: &mut F,
     ) -> Result<String>
     where
@@ -471,6 +480,7 @@ impl SonioxSttManager {
             model: model.to_string(),
             audio_format: "auto".to_string(),
             language_hints,
+            context,
             enable_endpoint_detection: true,
         };
 
@@ -624,6 +634,7 @@ impl SonioxSttManager {
         file_id: &str,
         model: &str,
         language_hints: Option<Vec<String>>,
+        context: Option<SonioxContext>,
         enable_speaker_diarization: Option<bool>,
         enable_language_identification: Option<bool>,
     ) -> Result<String> {
@@ -631,6 +642,7 @@ impl SonioxSttManager {
             file_id: file_id.to_string(),
             model: model.to_string(),
             language_hints,
+            context,
             enable_speaker_diarization,
             enable_language_identification,
         };
@@ -780,6 +792,7 @@ impl SonioxSttManager {
         timeout_seconds: u32,
         audio_samples: &[f32],
         language: Option<&str>,
+        context: Option<SonioxContext>,
     ) -> Result<String> {
         if audio_samples.is_empty() {
             return Ok(String::new());
@@ -804,6 +817,7 @@ impl SonioxSttManager {
                     timeout_seconds,
                     &wav_data,
                     language_hints.clone(),
+                    context.clone(),
                 )
                 .await
             })
@@ -827,6 +841,7 @@ impl SonioxSttManager {
         timeout_seconds: u32,
         audio_samples: &[f32],
         language: Option<&str>,
+        context: Option<SonioxContext>,
         mut on_final_chunk: F,
     ) -> Result<String>
     where
@@ -854,6 +869,7 @@ impl SonioxSttManager {
                 timeout_seconds,
                 &wav_data,
                 language_hints,
+                context,
                 &mut on_final_chunk,
             )
             .await?;
@@ -893,6 +909,7 @@ impl SonioxSttManager {
         let wav_data = encode_wav_bytes(audio_samples)?;
         let SonioxAsyncTranscriptionOptions {
             language_hints: explicit_language_hints,
+            context,
             enable_speaker_diarization,
             enable_language_identification,
         } = options;
@@ -914,6 +931,7 @@ impl SonioxSttManager {
                         &file_id,
                         &model,
                         language_hints.clone(),
+                        context.clone(),
                         enable_speaker_diarization,
                         enable_language_identification,
                     )

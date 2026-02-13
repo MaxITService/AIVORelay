@@ -26,6 +26,7 @@ import { TranslateToEnglish } from "./TranslateToEnglish";
 import { ModelSelect } from "./PostProcessingSettingsApi/ModelSelect";
 import { ResetButton } from "../ui/ResetButton";
 import { InfoTooltip } from "../ui/InfoTooltip";
+import { SonioxContextEditor } from "./SonioxContextEditor";
 import type { ModelOption } from "./PostProcessingSettingsApi/types";
 import { useSettings } from "../../hooks/useSettings";
 import { useModels } from "../../hooks/useModels";
@@ -53,6 +54,9 @@ interface ExtendedTranscriptionProfile extends TranscriptionProfile {
   include_in_cycle: boolean;
   push_to_talk: boolean;
   stt_prompt_override_enabled: boolean;
+  soniox_context_general_json: string;
+  soniox_context_text: string;
+  soniox_context_terms: string[];
 }
 
 interface ProfileCardProps {
@@ -208,6 +212,51 @@ const ProfileCard: React.FC<ProfileCardProps> = ({
     setIsUpdating(true);
     try {
       await onUpdate({ ...profile, stt_prompt_override_enabled: newValue });
+    } finally {
+      setIsUpdating(false);
+    }
+  };
+
+  const handleSonioxGeneralJsonChange = async (newValue: string) => {
+    if (newValue.trim() === (profile.soniox_context_general_json || "").trim()) return;
+    setIsUpdating(true);
+    try {
+      await onUpdate({
+        ...profile,
+        soniox_context_general_json: newValue,
+      });
+    } finally {
+      setIsUpdating(false);
+    }
+  };
+
+  const handleSonioxContextTextChange = async (newValue: string) => {
+    if (newValue.trim() === (profile.soniox_context_text || "").trim()) return;
+    setIsUpdating(true);
+    try {
+      await onUpdate({
+        ...profile,
+        soniox_context_text: newValue,
+      });
+    } finally {
+      setIsUpdating(false);
+    }
+  };
+
+  const handleSonioxTermsChange = async (newValue: string[]) => {
+    const previous = profile.soniox_context_terms || [];
+    if (
+      previous.length === newValue.length &&
+      previous.every((value, idx) => value === newValue[idx])
+    ) {
+      return;
+    }
+    setIsUpdating(true);
+    try {
+      await onUpdate({
+        ...profile,
+        soniox_context_terms: newValue,
+      });
     } finally {
       setIsUpdating(false);
     }
@@ -484,8 +533,20 @@ const ProfileCard: React.FC<ProfileCardProps> = ({
             </div>
           </div>
 
+          {isSonioxProvider && (
+            <SonioxContextEditor
+              generalJson={profile.soniox_context_general_json || ""}
+              text={profile.soniox_context_text || ""}
+              terms={profile.soniox_context_terms || []}
+              disabled={isUpdating}
+              onCommitGeneralJson={handleSonioxGeneralJsonChange}
+              onCommitText={handleSonioxContextTextChange}
+              onCommitTerms={handleSonioxTermsChange}
+            />
+          )}
+
           {/* Voice Model Prompt Override */}
-          {supportsSttPrompt && <div className="space-y-2">
+          {!isSonioxProvider && supportsSttPrompt && <div className="space-y-2">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <label className="text-xs font-semibold text-text/70">
@@ -687,6 +748,10 @@ export const TranscriptionProfiles: React.FC = () => {
   const [newLlmEnabled, setNewLlmEnabled] = useState(false);
   const [newLlmPromptOverride, setNewLlmPromptOverride] = useState("");
   const [newLlmModelOverride, setNewLlmModelOverride] = useState<string | null>(null);
+  const [newSonioxContextGeneralJson, setNewSonioxContextGeneralJson] = useState("");
+  const [newSonioxContextText, setNewSonioxContextText] = useState("");
+  const [newSonioxContextTerms, setNewSonioxContextTerms] = useState<string[]>([]);
+  const [newProfileError, setNewProfileError] = useState<string | null>(null);
 
   const profiles = (settings?.transcription_profiles ||
     []) as ExtendedTranscriptionProfile[];
@@ -864,20 +929,26 @@ export const TranscriptionProfiles: React.FC = () => {
   const handleCreate = async () => {
     if (!newName.trim()) return;
     if (isNewPromptOverLimit) return;
+    setNewProfileError(null);
     setIsCreating(true);
     try {
       const newProfile = await invoke<TranscriptionProfile>("add_transcription_profile", {
-        name: newName.trim(),
-        language: newLanguage,
-        translateToEnglish: newTranslate,
-        systemPrompt: newSystemPrompt,
-        sttPromptOverrideEnabled: newSttPromptOverrideEnabled,
-        pushToTalk: newPushToTalk,
-        includeInCycle: newIncludeInCycle,
-        llmSettings: {
-          enabled: newLlmEnabled,
-          prompt_override: newLlmPromptOverride.trim() || null,
-          model_override: newLlmModelOverride,
+        payload: {
+          name: newName.trim(),
+          language: newLanguage,
+          translateToEnglish: newTranslate,
+          systemPrompt: newSystemPrompt,
+          sttPromptOverrideEnabled: newSttPromptOverrideEnabled,
+          pushToTalk: newPushToTalk,
+          includeInCycle: newIncludeInCycle,
+          llmSettings: {
+            enabled: newLlmEnabled,
+            promptOverride: newLlmPromptOverride.trim() || null,
+            modelOverride: newLlmModelOverride,
+          },
+          sonioxContextGeneralJson: newSonioxContextGeneralJson,
+          sonioxContextText: newSonioxContextText,
+          sonioxContextTerms: newSonioxContextTerms,
         },
       });
       await refreshSettings();
@@ -891,6 +962,9 @@ export const TranscriptionProfiles: React.FC = () => {
       setNewLlmEnabled(false);
       setNewLlmPromptOverride("");
       setNewLlmModelOverride(null);
+      setNewSonioxContextGeneralJson("");
+      setNewSonioxContextText("");
+      setNewSonioxContextTerms([]);
       setExpandedIds((prev) => {
         const next = new Set(prev);
         next.add(newProfile.id);
@@ -898,6 +972,14 @@ export const TranscriptionProfiles: React.FC = () => {
       });
     } catch (error) {
       console.error("Failed to create profile:", error);
+      setNewProfileError(
+        error instanceof Error
+          ? error.message
+          : t(
+              "settings.transcriptionProfiles.createFailed",
+              "Failed to create profile.",
+            ),
+      );
     } finally {
       setIsCreating(false);
     }
@@ -906,23 +988,29 @@ export const TranscriptionProfiles: React.FC = () => {
   const handleUpdate = async (profile: ExtendedTranscriptionProfile) => {
     try {
       await invoke("update_transcription_profile", {
-        id: profile.id,
-        name: profile.name,
-        language: profile.language,
-        translateToEnglish: profile.translate_to_english,
-        systemPrompt: profile.system_prompt || "",
-        sttPromptOverrideEnabled: profile.stt_prompt_override_enabled ?? false,
-        includeInCycle: profile.include_in_cycle,
-        pushToTalk: profile.push_to_talk,
-        llmSettings: {
-          enabled: profile.llm_post_process_enabled ?? false,
-          promptOverride: profile.llm_prompt_override ?? null,
-          modelOverride: profile.llm_model_override ?? null,
+        payload: {
+          id: profile.id,
+          name: profile.name,
+          language: profile.language,
+          translateToEnglish: profile.translate_to_english,
+          systemPrompt: profile.system_prompt || "",
+          sttPromptOverrideEnabled: profile.stt_prompt_override_enabled ?? false,
+          includeInCycle: profile.include_in_cycle,
+          pushToTalk: profile.push_to_talk,
+          llmSettings: {
+            enabled: profile.llm_post_process_enabled ?? false,
+            promptOverride: profile.llm_prompt_override ?? null,
+            modelOverride: profile.llm_model_override ?? null,
+          },
+          sonioxContextGeneralJson: profile.soniox_context_general_json || "",
+          sonioxContextText: profile.soniox_context_text || "",
+          sonioxContextTerms: profile.soniox_context_terms || [],
         },
       });
       await refreshSettings();
     } catch (error) {
       console.error("Failed to update profile:", error);
+      throw error;
     }
   };
 
@@ -1209,8 +1297,37 @@ export const TranscriptionProfiles: React.FC = () => {
                 {/* Translate to English */}
                 <TranslateToEnglish grouped={true} descriptionMode="inline" />
 
+                {isSonioxProvider && (
+                  <SonioxContextEditor
+                    generalJson={settings?.soniox_context_general_json || ""}
+                    text={settings?.soniox_context_text || ""}
+                    terms={settings?.soniox_context_terms || []}
+                    onCommitGeneralJson={async (value) => {
+                      const result = await commands.changeSonioxContextGeneralJsonSetting(value);
+                      if (result.status === "error") {
+                        throw new Error(String(result.error));
+                      }
+                      await refreshSettings();
+                    }}
+                    onCommitText={async (value) => {
+                      const result = await commands.changeSonioxContextTextSetting(value);
+                      if (result.status === "error") {
+                        throw new Error(String(result.error));
+                      }
+                      await refreshSettings();
+                    }}
+                    onCommitTerms={async (value) => {
+                      const result = await commands.changeSonioxContextTermsSetting(value);
+                      if (result.status === "error") {
+                        throw new Error(String(result.error));
+                      }
+                      await refreshSettings();
+                    }}
+                  />
+                )}
+
                 {/* Voice Model Prompt - only show if model supports prompts */}
-                {modelInfo.supportsPrompt && (
+                {!isSonioxProvider && modelInfo.supportsPrompt && (
                   <div className="space-y-2">
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-2">
@@ -1393,8 +1510,29 @@ export const TranscriptionProfiles: React.FC = () => {
             </span>
           </div>
 
+          {isSonioxProvider && (
+            <SonioxContextEditor
+              generalJson={newSonioxContextGeneralJson}
+              text={newSonioxContextText}
+              terms={newSonioxContextTerms}
+              disabled={isCreating}
+              onCommitGeneralJson={async (value) => {
+                setNewSonioxContextGeneralJson(value);
+              }}
+              onCommitText={async (value) => {
+                setNewSonioxContextText(value);
+              }}
+              onCommitTerms={async (value) => {
+                setNewSonioxContextTerms(value);
+              }}
+              onDraftGeneralJsonChange={setNewSonioxContextGeneralJson}
+              onDraftTextChange={setNewSonioxContextText}
+              onDraftTermsChange={setNewSonioxContextTerms}
+            />
+          )}
+
           {/* Voice Model Prompt Override */}
-          {modelInfo.supportsPrompt && <div className="space-y-2">
+          {!isSonioxProvider && modelInfo.supportsPrompt && <div className="space-y-2">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <label className="text-xs font-semibold text-text/70">
@@ -1568,6 +1706,10 @@ export const TranscriptionProfiles: React.FC = () => {
                 </div>
               )}
             </div>
+          )}
+
+          {newProfileError && (
+            <p className="text-xs text-red-400">{newProfileError}</p>
           )}
 
           {/* Create Button */}
