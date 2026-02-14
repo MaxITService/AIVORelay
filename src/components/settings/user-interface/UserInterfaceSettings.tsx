@@ -24,6 +24,9 @@ export const UserInterfaceSettings: React.FC = () => {
     (settings as any)?.soniox_live_preview_enabled ?? true;
   const sonioxLivePreviewPosition =
     ((settings as any)?.soniox_live_preview_position ?? "bottom") as string;
+  const sonioxLivePreviewCursorOffsetPx = Number(
+    (settings as any)?.soniox_live_preview_cursor_offset_px ?? 96,
+  );
   const sonioxLivePreviewSize =
     ((settings as any)?.soniox_live_preview_size ?? "medium") as string;
   const sonioxLivePreviewTheme =
@@ -83,6 +86,7 @@ export const UserInterfaceSettings: React.FC = () => {
                 options={[
                   { value: "bottom", label: "Bottom" },
                   { value: "top", label: "Top" },
+                  { value: "near_cursor", label: "Near Cursor (Dynamic)" },
                 ]}
                 selectedValue={sonioxLivePreviewPosition}
                 onSelect={(value) =>
@@ -97,6 +101,28 @@ export const UserInterfaceSettings: React.FC = () => {
                 }
               />
             </SettingContainer>
+            <Slider
+              label="Cursor Distance (Dynamic Mode)"
+              description="Vertical distance from cursor to preview window when using Near Cursor position."
+              descriptionMode="inline"
+              grouped={true}
+              min={24}
+              max={320}
+              step={1}
+              value={sonioxLivePreviewCursorOffsetPx}
+              formatValue={(value) => `${Math.round(value)} px`}
+              onChange={(value) =>
+                void updateSetting(
+                  "soniox_live_preview_cursor_offset_px" as any,
+                  Math.round(value) as any,
+                )
+              }
+              disabled={
+                !sonioxLivePreviewEnabled ||
+                sonioxLivePreviewPosition !== "near_cursor" ||
+                isUpdating("soniox_live_preview_cursor_offset_px")
+              }
+            />
             <SettingContainer
               title="Soniox Live Preview Size"
               description="Set the size of the Soniox live preview window."
@@ -240,6 +266,51 @@ export const UserInterfaceSettings: React.FC = () => {
                 isUpdating("soniox_live_preview_interim_opacity_percent")
               }
             />
+            <div className="px-6 py-3 border-t border-white/[0.05]">
+              <details className="group">
+                <summary className="flex items-center gap-2 text-sm text-[#9b5de5] hover:text-[#b47eff] transition-colors cursor-pointer list-none">
+                  <span>Positioning Help</span>
+                  <span className="text-xs text-[#707070] group-open:hidden">(expand)</span>
+                  <span className="text-xs text-[#707070] hidden group-open:inline">(collapse)</span>
+                </summary>
+                <div className="mt-3 p-4 bg-[#1a1a1a] rounded-lg border border-[#333333] text-sm text-[#b8b8b8] space-y-2">
+                  <p>
+                    <strong className="text-[#f5f5f5]">Near Cursor (Dynamic)</strong> repositions the preview every time
+                    a new Soniox live session starts. The window appears above your cursor.
+                  </p>
+                  <p>
+                    Use <strong className="text-[#f5f5f5]">Cursor Distance</strong> to control how far above the cursor
+                    the preview should appear.
+                  </p>
+                  <p>
+                    If there is not enough space near screen edges, the app keeps the window inside the active monitor.
+                  </p>
+                </div>
+              </details>
+            </div>
+            <div className="px-6 py-3 border-t border-white/[0.05]">
+              <details className="group">
+                <summary className="flex items-center gap-2 text-sm text-[#9b5de5] hover:text-[#b47eff] transition-colors cursor-pointer list-none">
+                  <span>Appearance Help</span>
+                  <span className="text-xs text-[#707070] group-open:hidden">(expand)</span>
+                  <span className="text-xs text-[#707070] hidden group-open:inline">(collapse)</span>
+                </summary>
+                <div className="mt-3 p-4 bg-[#1a1a1a] rounded-lg border border-[#333333] text-sm text-[#b8b8b8] space-y-2">
+                  <p>
+                    <strong className="text-[#f5f5f5]">Transparency</strong> controls panel background opacity.
+                  </p>
+                  <p>
+                    <strong className="text-[#f5f5f5]">Font Color</strong> affects final recognized text.
+                  </p>
+                  <p>
+                    <strong className="text-[#f5f5f5]">Interim Text Opacity</strong> controls how faded non-final tokens look.
+                  </p>
+                  <p>
+                    <strong className="text-[#f5f5f5]">Accent Color</strong> changes the header/accent tone.
+                  </p>
+                </div>
+              </details>
+            </div>
           </>
         )}
       </SettingsGroup>

@@ -793,6 +793,7 @@ pub enum OverlayPosition {
 pub enum SonioxLivePreviewPosition {
     Top,
     Bottom,
+    NearCursor,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Type)]
@@ -1048,6 +1049,8 @@ pub struct AppSettings {
     pub soniox_live_preview_enabled: bool,
     #[serde(default = "default_soniox_live_preview_position")]
     pub soniox_live_preview_position: SonioxLivePreviewPosition,
+    #[serde(default = "default_soniox_live_preview_cursor_offset_px")]
+    pub soniox_live_preview_cursor_offset_px: u16,
     #[serde(default = "default_soniox_live_preview_size")]
     pub soniox_live_preview_size: SonioxLivePreviewSize,
     #[serde(default = "default_soniox_live_preview_theme")]
@@ -1479,6 +1482,10 @@ fn default_soniox_live_preview_enabled() -> bool {
 
 fn default_soniox_live_preview_position() -> SonioxLivePreviewPosition {
     SonioxLivePreviewPosition::Bottom
+}
+
+fn default_soniox_live_preview_cursor_offset_px() -> u16 {
+    96
 }
 
 fn default_soniox_live_preview_size() -> SonioxLivePreviewSize {
@@ -2077,6 +2084,7 @@ pub fn get_default_settings() -> AppSettings {
         overlay_position: default_overlay_position(),
         soniox_live_preview_enabled: default_soniox_live_preview_enabled(),
         soniox_live_preview_position: default_soniox_live_preview_position(),
+        soniox_live_preview_cursor_offset_px: default_soniox_live_preview_cursor_offset_px(),
         soniox_live_preview_size: default_soniox_live_preview_size(),
         soniox_live_preview_theme: default_soniox_live_preview_theme(),
         soniox_live_preview_opacity_percent: default_soniox_live_preview_opacity_percent(),

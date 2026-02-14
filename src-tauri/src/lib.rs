@@ -336,6 +336,7 @@ pub fn run() {
         shortcut::change_overlay_position_setting,
         shortcut::change_soniox_live_preview_enabled_setting,
         shortcut::change_soniox_live_preview_position_setting,
+        shortcut::change_soniox_live_preview_cursor_offset_setting,
         shortcut::change_soniox_live_preview_size_setting,
         shortcut::change_soniox_live_preview_theme_setting,
         shortcut::change_soniox_live_preview_opacity_setting,

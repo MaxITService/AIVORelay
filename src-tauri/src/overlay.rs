@@ -55,6 +55,7 @@ const SONIOX_LIVE_PREVIEW_LARGE_WIDTH: f64 = 960.0;
 const SONIOX_LIVE_PREVIEW_LARGE_HEIGHT: f64 = 260.0;
 const SONIOX_LIVE_PREVIEW_TOP_OFFSET: f64 = 52.0;
 const SONIOX_LIVE_PREVIEW_BOTTOM_OFFSET: f64 = 86.0;
+const SONIOX_LIVE_PREVIEW_CURSOR_EDGE_MARGIN: f64 = 12.0;
 
 #[derive(Serialize, Clone)]
 struct OverlayStatePayload {
@@ -213,6 +214,13 @@ fn soniox_live_preview_dimensions(size: SonioxLivePreviewSize) -> (f64, f64) {
     }
 }
 
+fn clamp_f64(value: f64, min: f64, max: f64) -> f64 {
+    if max <= min {
+        return min;
+    }
+    value.max(min).min(max)
+}
+
 fn normalize_preview_color(value: &str, fallback: &str) -> String {
     let trimmed = value.trim();
     if trimmed.len() == 7
@@ -262,13 +270,38 @@ fn resolve_soniox_live_preview_geometry(app_handle: &AppHandle) -> Option<(f64, 
         let app_settings = settings::get_settings(app_handle);
         let (width, height) = soniox_live_preview_dimensions(app_settings.soniox_live_preview_size);
 
-        let x = work_area_x + (work_area_width - width) / 2.0;
-        let y = match app_settings.soniox_live_preview_position {
-            SonioxLivePreviewPosition::Top => work_area_y + SONIOX_LIVE_PREVIEW_TOP_OFFSET,
-            SonioxLivePreviewPosition::Bottom => {
-                work_area_y + work_area_height - height - SONIOX_LIVE_PREVIEW_BOTTOM_OFFSET
+        let x;
+        let y;
+
+        match app_settings.soniox_live_preview_position {
+            SonioxLivePreviewPosition::Top => {
+                x = work_area_x + (work_area_width - width) / 2.0;
+                y = work_area_y + SONIOX_LIVE_PREVIEW_TOP_OFFSET;
             }
-        };
+            SonioxLivePreviewPosition::Bottom => {
+                x = work_area_x + (work_area_width - width) / 2.0;
+                y = work_area_y + work_area_height - height - SONIOX_LIVE_PREVIEW_BOTTOM_OFFSET;
+            }
+            SonioxLivePreviewPosition::NearCursor => {
+                let (cursor_x, cursor_y) = input::get_cursor_position(app_handle)
+                    .unwrap_or((
+                        (work_area.position.x + (work_area.size.width as i32 / 2)),
+                        (work_area.position.y + (work_area.size.height as i32 / 2)),
+                    ));
+
+                let cursor_x_logical = cursor_x as f64 / scale;
+                let cursor_y_logical = cursor_y as f64 / scale;
+                let distance = app_settings.soniox_live_preview_cursor_offset_px as f64;
+
+                let min_x = work_area_x + SONIOX_LIVE_PREVIEW_CURSOR_EDGE_MARGIN;
+                let max_x = work_area_x + work_area_width - width - SONIOX_LIVE_PREVIEW_CURSOR_EDGE_MARGIN;
+                let min_y = work_area_y + SONIOX_LIVE_PREVIEW_CURSOR_EDGE_MARGIN;
+                let max_y = work_area_y + work_area_height - height - SONIOX_LIVE_PREVIEW_CURSOR_EDGE_MARGIN;
+
+                x = clamp_f64(cursor_x_logical - (width / 2.0), min_x, max_x);
+                y = clamp_f64(cursor_y_logical - height - distance, min_y, max_y);
+            }
+        }
 
         return Some((x, y, width, height));
     }

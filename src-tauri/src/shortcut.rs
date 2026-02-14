@@ -41,6 +41,8 @@ const SONIOX_LIVE_PREVIEW_MIN_OPACITY_PERCENT: u8 = 35;
 const SONIOX_LIVE_PREVIEW_MAX_OPACITY_PERCENT: u8 = 100;
 const SONIOX_LIVE_PREVIEW_MIN_INTERIM_OPACITY_PERCENT: u8 = 20;
 const SONIOX_LIVE_PREVIEW_MAX_INTERIM_OPACITY_PERCENT: u8 = 95;
+const SONIOX_LIVE_PREVIEW_MIN_CURSOR_OFFSET_PX: u16 = 24;
+const SONIOX_LIVE_PREVIEW_MAX_CURSOR_OFFSET_PX: u16 = 320;
 const SONIOX_LIVE_PREVIEW_DEFAULT_FONT_COLOR: &str = "#f5f5f5";
 const SONIOX_LIVE_PREVIEW_DEFAULT_ACCENT_COLOR: &str = "#ff4d8d";
 
@@ -66,6 +68,13 @@ fn clamp_soniox_live_preview_interim_opacity_percent(value: u8) -> u8 {
     value.clamp(
         SONIOX_LIVE_PREVIEW_MIN_INTERIM_OPACITY_PERCENT,
         SONIOX_LIVE_PREVIEW_MAX_INTERIM_OPACITY_PERCENT,
+    )
+}
+
+fn clamp_soniox_live_preview_cursor_offset_px(value: u16) -> u16 {
+    value.clamp(
+        SONIOX_LIVE_PREVIEW_MIN_CURSOR_OFFSET_PX,
+        SONIOX_LIVE_PREVIEW_MAX_CURSOR_OFFSET_PX,
     )
 }
 
@@ -714,6 +723,7 @@ pub fn change_soniox_live_preview_position_setting(
     let parsed = match position.as_str() {
         "top" => SonioxLivePreviewPosition::Top,
         "bottom" => SonioxLivePreviewPosition::Bottom,
+        "near_cursor" => SonioxLivePreviewPosition::NearCursor,
         other => {
             warn!(
                 "Invalid soniox live preview position '{}', defaulting to bottom",
@@ -723,6 +733,22 @@ pub fn change_soniox_live_preview_position_setting(
         }
     };
     settings.soniox_live_preview_position = parsed;
+    settings::write_settings(&app, settings);
+
+    crate::overlay::update_soniox_live_preview_window(&app);
+
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_soniox_live_preview_cursor_offset_setting(
+    app: AppHandle,
+    distance_px: u16,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.soniox_live_preview_cursor_offset_px =
+        clamp_soniox_live_preview_cursor_offset_px(distance_px);
     settings::write_settings(&app, settings);
 
     crate::overlay::update_soniox_live_preview_window(&app);

@@ -269,6 +269,8 @@ const settingUpdaters: {
   invoke("change_soniox_live_preview_enabled_setting", { enabled: value });
 (settingUpdaters as any).soniox_live_preview_position = (value: any) =>
   invoke("change_soniox_live_preview_position_setting", { position: value });
+(settingUpdaters as any).soniox_live_preview_cursor_offset_px = (value: any) =>
+  invoke("change_soniox_live_preview_cursor_offset_setting", { distancePx: value });
 (settingUpdaters as any).soniox_live_preview_size = (value: any) =>
   invoke("change_soniox_live_preview_size_setting", { size: value });
 (settingUpdaters as any).soniox_live_preview_theme = (value: any) =>
