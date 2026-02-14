@@ -104,6 +104,7 @@ static RECORDING_APP_CONTEXT: Lazy<Mutex<HashMap<String, String>>> =
 type SharedSonioxStreamProcessor = Arc<Mutex<SonioxStreamProcessor>>;
 static SONIOX_STREAM_PROCESSORS: Lazy<Mutex<HashMap<String, SharedSonioxStreamProcessor>>> =
     Lazy::new(|| Mutex::new(HashMap::new()));
+const RECORDING_SAMPLE_RATE_HZ: f32 = 16_000.0;
 
 fn capture_recording_app_context(binding_id: &str) {
     #[cfg(target_os = "windows")]
@@ -122,6 +123,10 @@ fn take_recording_app_context(binding_id: &str) -> String {
         return context.remove(binding_id).unwrap_or_default();
     }
     String::new()
+}
+
+fn quick_tap_threshold_samples(threshold_ms: u32) -> usize {
+    ((threshold_ms.max(1) as f32 / 1000.0) * RECORDING_SAMPLE_RATE_HZ) as usize
 }
 
 fn register_soniox_stream_processor(
@@ -1242,19 +1247,17 @@ async fn get_transcription_or_cleanup_detailed(
 
         // Quick Tap Optimization: Only apply to AI Replace action
         let is_ai_replace = binding_id.starts_with("ai_replace");
+        let quick_tap_threshold_samples =
+            quick_tap_threshold_samples(recording_settings.ai_replace_quick_tap_threshold_ms);
         let should_skip = is_ai_replace && {
-            let threshold_samples =
-                (recording_settings.ai_replace_quick_tap_threshold_ms as f32 / 1000.0 * 16000.0)
-                    as usize;
-            samples.len() < threshold_samples
+            samples.len() < quick_tap_threshold_samples
         };
 
         if should_skip {
             debug!(
                 "Quick tap detected for AI Replace ({} samples < {}), skipping transcription",
                 samples.len(),
-                (recording_settings.ai_replace_quick_tap_threshold_ms as f32 / 1000.0 * 16000.0)
-                    as usize
+                quick_tap_threshold_samples
             );
             if has_live_session {
                 soniox_live_manager.cancel();
@@ -2421,6 +2424,20 @@ impl ShortcutAction for SendToExtensionWithSelectionAction {
                     session_manager::exit_processing(&ah);
                     return;
                 }
+                let quick_tap_threshold_samples = quick_tap_threshold_samples(
+                    recording_settings.send_to_extension_with_selection_quick_tap_threshold_ms,
+                );
+                if samples.len() >= quick_tap_threshold_samples {
+                    debug!(
+                        "Ignoring no-voice SendToExtensionWithSelection ({} samples >= quick tap threshold {})",
+                        samples.len(),
+                        quick_tap_threshold_samples
+                    );
+                    utils::hide_recording_overlay(&ah);
+                    change_tray_icon(&ah, TrayIconState::Idle);
+                    session_manager::exit_processing(&ah);
+                    return;
+                }
                 String::new()
             } else {
                 // Use default profile (None) for extension actions
@@ -2778,7 +2795,7 @@ impl ShortcutAction for SendScreenshotToExtensionAction {
         let binding_id = binding_id.to_string();
 
         tauri::async_runtime::spawn(async move {
-            let (voice_text, _) = match get_transcription_or_cleanup(
+            let (voice_text, samples) = match get_transcription_or_cleanup(
                 &ah,
                 &binding_id,
                 None,
@@ -2793,12 +2810,40 @@ impl ShortcutAction for SendScreenshotToExtensionAction {
                 }
             };
 
-            let final_voice_text =
-                if voice_text.trim().is_empty() && recording_settings.screenshot_allow_no_voice {
-                    recording_settings.screenshot_no_voice_default_prompt.clone()
-                } else {
-                    voice_text
-                };
+            let final_voice_text = if voice_text.trim().is_empty() {
+                if !recording_settings.screenshot_allow_no_voice {
+                    emit_screenshot_error(
+                        &ah,
+                        "No voice instruction captured. Enable Allow Quick Tap to send screenshot without voice.",
+                    );
+                    utils::hide_recording_overlay(&ah);
+                    change_tray_icon(&ah, TrayIconState::Idle);
+                    session_manager::exit_processing(&ah);
+                    return;
+                }
+
+                let quick_tap_threshold_samples =
+                    quick_tap_threshold_samples(recording_settings.screenshot_quick_tap_threshold_ms);
+                if samples.len() >= quick_tap_threshold_samples {
+                    debug!(
+                        "Ignoring no-voice screenshot send ({} samples >= quick tap threshold {})",
+                        samples.len(),
+                        quick_tap_threshold_samples
+                    );
+                    emit_screenshot_error(
+                        &ah,
+                        "Quick Tap threshold exceeded. Speak an instruction or tap faster.",
+                    );
+                    utils::hide_recording_overlay(&ah);
+                    change_tray_icon(&ah, TrayIconState::Idle);
+                    session_manager::exit_processing(&ah);
+                    return;
+                }
+
+                recording_settings.screenshot_no_voice_default_prompt.clone()
+            } else {
+                voice_text
+            };
 
             // Hide overlay immediately after transcription (avoid capturing it in screenshots)
             utils::hide_recording_overlay_immediately(&ah);
