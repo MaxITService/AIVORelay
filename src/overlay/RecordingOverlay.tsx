@@ -1,4 +1,5 @@
 import { listen } from "@tauri-apps/api/event";
+import { invoke } from "@tauri-apps/api/core";
 import React, { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
@@ -13,7 +14,6 @@ import { commands } from "@/bindings";
 import { syncLanguageFromSettings } from "@/i18n";
 import {
   ExtendedOverlayState,
-  OverlayPayload,
   isExtendedPayload,
 } from "./plus_overlay_states";
 
@@ -21,22 +21,28 @@ const RecordingOverlay: React.FC = () => {
   const { t } = useTranslation();
   const [isVisible, setIsVisible] = useState(false);
   const [state, setState] = useState<ExtendedOverlayState>("recording");
+  const [decapIndicatorEligible, setDecapIndicatorEligible] = useState(false);
+  const [decapIndicatorArmed, setDecapIndicatorArmed] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [levels, setLevels] = useState<number[]>(Array(16).fill(0));
   const [profileName, setProfileName] = useState<string>("");
   const smoothedLevelsRef = useRef<number[]>(Array(16).fill(0));
 
   useEffect(() => {
+    let cleanup: (() => void) | undefined;
+
     const setupEventListeners = async () => {
       // Listen for show-overlay event from Rust
       const unlistenShow = await listen("show-overlay", async (event) => {
         // Sync language from settings each time overlay is shown
         await syncLanguageFromSettings();
-        
+
         const payload = event.payload;
         // Handle both extended payload objects and legacy string payloads
         if (isExtendedPayload(payload)) {
           setState(payload.state);
+          setDecapIndicatorEligible(payload.decapitalize_eligible ?? false);
+          setDecapIndicatorArmed(payload.decapitalize_armed ?? false);
           if (payload.state === "error" && payload.error_message) {
             setErrorMessage(payload.error_message);
           } else {
@@ -45,6 +51,8 @@ const RecordingOverlay: React.FC = () => {
         } else {
           // Legacy string payload (e.g., "recording" or "transcribing")
           setState(payload as ExtendedOverlayState);
+          setDecapIndicatorEligible(false);
+          setDecapIndicatorArmed(false);
           setErrorMessage(null);
         }
         setIsVisible(true);
@@ -54,12 +62,16 @@ const RecordingOverlay: React.FC = () => {
       const unlistenProfileSwitch = await listen<string>("show-profile-switch", (event) => {
         setProfileName(event.payload);
         setState("profile_switch");
+        setDecapIndicatorEligible(false);
+        setDecapIndicatorArmed(false);
         setIsVisible(true);
       });
 
       // Listen for hide-overlay event from Rust
       const unlistenHide = await listen("hide-overlay", () => {
         setIsVisible(false);
+        setDecapIndicatorEligible(false);
+        setDecapIndicatorArmed(false);
       });
 
       // Listen for mic-level updates
@@ -76,8 +88,7 @@ const RecordingOverlay: React.FC = () => {
         setLevels(smoothed.slice(0, 9));
       });
 
-      // Cleanup function
-      return () => {
+      cleanup = () => {
         unlistenShow();
         unlistenProfileSwitch();
         unlistenHide();
@@ -85,8 +96,60 @@ const RecordingOverlay: React.FC = () => {
       };
     };
 
-    setupEventListeners();
+    void setupEventListeners();
+
+    return () => {
+      cleanup?.();
+    };
   }, []);
+
+  useEffect(() => {
+    const shouldPoll =
+      isVisible &&
+      decapIndicatorEligible &&
+      state !== "profile_switch" &&
+      state !== "error";
+    if (!shouldPoll) {
+      if (!decapIndicatorEligible || !isVisible) {
+        setDecapIndicatorArmed(false);
+      }
+      return;
+    }
+
+    let cancelled = false;
+    let inFlight = false;
+
+    const refreshArmState = async () => {
+      if (inFlight) return;
+      inFlight = true;
+      try {
+        const payload = await invoke<{
+          decapitalizeEligible: boolean;
+          decapitalizeArmed: boolean;
+        }>("get_text_replacement_decapitalize_overlay_state");
+
+        if (cancelled) return;
+        setDecapIndicatorEligible(payload.decapitalizeEligible);
+        setDecapIndicatorArmed(payload.decapitalizeArmed);
+      } catch {
+        if (cancelled) return;
+        setDecapIndicatorEligible(false);
+        setDecapIndicatorArmed(false);
+      } finally {
+        inFlight = false;
+      }
+    };
+
+    void refreshArmState();
+    const intervalId = window.setInterval(() => {
+      void refreshArmState();
+    }, 250);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(intervalId);
+    };
+  }, [decapIndicatorEligible, isVisible, state]);
 
   const getIcon = () => {
     switch (state) {
@@ -110,6 +173,15 @@ const RecordingOverlay: React.FC = () => {
 
   return (
     <div className={`recording-overlay ${isVisible ? "fade-in" : ""} ${state === "error" ? "overlay-error" : ""}`}>
+      {decapIndicatorEligible &&
+        decapIndicatorArmed &&
+        state !== "profile_switch" &&
+        state !== "error" && (
+        <div className="overlay-decapitalize-indicator">
+          {t("overlay.decapitalizationIndicator", "Decapitalization")}
+        </div>
+      )}
+
       <div className="overlay-left">{getIcon()}</div>
 
       <div className="overlay-middle">

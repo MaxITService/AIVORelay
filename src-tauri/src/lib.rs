@@ -462,6 +462,7 @@ pub fn run() {
         shortcut::change_text_replacement_decapitalize_after_edit_key_setting,
         shortcut::change_text_replacement_decapitalize_after_edit_secondary_key_enabled_setting,
         shortcut::change_text_replacement_decapitalize_after_edit_secondary_key_setting,
+        shortcut::get_text_replacement_decapitalize_overlay_state,
         shortcut::change_text_replacement_decapitalize_timeout_ms_setting,
         shortcut::change_text_replacement_decapitalize_standard_post_recording_monitor_ms_setting,
         shortcut::change_output_whitespace_leading_mode_setting,

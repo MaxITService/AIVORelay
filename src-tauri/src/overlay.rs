@@ -2,6 +2,7 @@ use crate::input;
 use crate::plus_overlay_state;
 use crate::settings;
 use crate::settings::OverlayPosition;
+use serde::Serialize;
 use std::sync::atomic::{AtomicU64, Ordering};
 use tauri::{AppHandle, Emitter, Manager, PhysicalPosition, PhysicalSize};
 
@@ -42,6 +43,29 @@ const COMMAND_CONFIRM_WIDTH: f64 = 520.0;
 const COMMAND_CONFIRM_HEIGHT: f64 = 280.0;
 const VOICE_BUTTON_WIDTH: f64 = 80.0;
 const VOICE_BUTTON_HEIGHT: f64 = 80.0;
+
+#[derive(Serialize, Clone)]
+struct OverlayStatePayload {
+    state: String,
+    decapitalize_eligible: bool,
+    decapitalize_armed: bool,
+}
+
+fn decapitalize_indicator_eligible(settings: &settings::AppSettings) -> bool {
+    settings.text_replacement_decapitalize_after_edit_key_enabled
+        && settings.transcription_provider == settings::TranscriptionProvider::RemoteSoniox
+        && settings.soniox_live_enabled
+}
+
+fn build_overlay_state_payload(state: &str, settings: &settings::AppSettings) -> OverlayStatePayload {
+    let eligible = decapitalize_indicator_eligible(settings);
+    let armed = eligible && crate::text_replacement_decapitalize::is_realtime_trigger_armed_now();
+    OverlayStatePayload {
+        state: state.to_string(),
+        decapitalize_eligible: eligible,
+        decapitalize_armed: armed,
+    }
+}
 
 #[cfg(target_os = "macos")]
 const OVERLAY_TOP_OFFSET: f64 = 46.0;
@@ -247,7 +271,8 @@ pub fn show_recording_overlay(app_handle: &AppHandle) {
         force_overlay_topmost(&overlay_window);
 
         // Emit event to trigger fade-in animation with recording state
-        let _ = overlay_window.emit("show-overlay", "recording");
+        let payload = build_overlay_state_payload("recording", &settings);
+        let _ = overlay_window.emit("show-overlay", payload);
     }
 }
 
@@ -272,7 +297,8 @@ pub fn show_transcribing_overlay(app_handle: &AppHandle) {
         force_overlay_topmost(&overlay_window);
 
         // Emit event to switch to transcribing state
-        let _ = overlay_window.emit("show-overlay", "transcribing");
+        let payload = build_overlay_state_payload("transcribing", &settings);
+        let _ = overlay_window.emit("show-overlay", payload);
     }
 }
 
@@ -297,7 +323,8 @@ pub fn show_sending_overlay(app_handle: &AppHandle) {
         force_overlay_topmost(&overlay_window);
 
         // Emit event to switch to sending state
-        let _ = overlay_window.emit("show-overlay", "sending");
+        let payload = build_overlay_state_payload("sending", &settings);
+        let _ = overlay_window.emit("show-overlay", payload);
     }
 }
 
@@ -322,7 +349,8 @@ pub fn show_thinking_overlay(app_handle: &AppHandle) {
         force_overlay_topmost(&overlay_window);
 
         // Emit event to switch to thinking state
-        let _ = overlay_window.emit("show-overlay", "thinking");
+        let payload = build_overlay_state_payload("thinking", &settings);
+        let _ = overlay_window.emit("show-overlay", payload);
     }
 }
 
@@ -347,7 +375,8 @@ pub fn show_finalizing_overlay(app_handle: &AppHandle) {
         force_overlay_topmost(&overlay_window);
 
         // Emit event to switch to finalizing state
-        let _ = overlay_window.emit("show-overlay", "finalizing");
+        let payload = build_overlay_state_payload("finalizing", &settings);
+        let _ = overlay_window.emit("show-overlay", payload);
     }
 }
 

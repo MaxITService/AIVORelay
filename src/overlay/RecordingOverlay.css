@@ -3,6 +3,7 @@
   width: 172px;
   display: grid;
   grid-template-columns: auto 1fr auto;
+  position: relative;
   align-items: center;
   padding: 6px;
   background: #000000cc;
@@ -128,4 +129,18 @@
 .recording-overlay.overlay-error {
   background: #1a0000cc;
   border: 1px solid #ff6b6b44;
+}
+
+.overlay-decapitalize-indicator {
+  position: absolute;
+  top: 1px;
+  left: 50%;
+  transform: translateX(-50%);
+  color: #72f29a;
+  font-size: 16px;
+  line-height: 1;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  pointer-events: none;
+  user-select: none;
 }

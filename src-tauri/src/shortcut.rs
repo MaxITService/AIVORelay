@@ -426,6 +426,13 @@ pub struct BindingResponse {
     error: Option<String>,
 }
 
+#[derive(Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct DecapitalizeOverlayStateResponse {
+    decapitalize_eligible: bool,
+    decapitalize_armed: bool,
+}
+
 #[tauri::command]
 #[specta::specta]
 pub fn change_binding(
@@ -3435,6 +3442,23 @@ pub fn change_text_replacement_decapitalize_after_edit_secondary_key_setting(
     settings.text_replacement_decapitalize_after_edit_secondary_key = normalized_key;
     settings::write_settings(&app, settings.clone());
     sync_decapitalize_monitor_shortcut(&app, &settings)
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn get_text_replacement_decapitalize_overlay_state(
+    app: AppHandle,
+) -> DecapitalizeOverlayStateResponse {
+    let settings = settings::get_settings(&app);
+    let eligible = settings.text_replacement_decapitalize_after_edit_key_enabled
+        && settings.transcription_provider == TranscriptionProvider::RemoteSoniox
+        && settings.soniox_live_enabled;
+    let armed = eligible && crate::text_replacement_decapitalize::is_realtime_trigger_armed_now();
+
+    DecapitalizeOverlayStateResponse {
+        decapitalize_eligible: eligible,
+        decapitalize_armed: armed,
+    }
 }
 
 #[tauri::command]

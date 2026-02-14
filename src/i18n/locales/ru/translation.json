@@ -739,6 +739,7 @@
   },
   "overlay": {
     "transcribing": "Расшифровка...",
-    "finalizing": "Финализация..."
+    "finalizing": "Финализация...",
+    "decapitalizationIndicator": "Декапитализация"
   }
 }

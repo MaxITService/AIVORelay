@@ -1177,6 +1177,9 @@ async changeTextReplacementDecapitalizeAfterEditSecondaryKeySetting(key: string)
     else return { status: "error", error: e  as any };
 }
 },
+async getTextReplacementDecapitalizeOverlayState() : Promise<DecapitalizeOverlayStateResponse> {
+    return await TAURI_INVOKE("get_text_replacement_decapitalize_overlay_state");
+},
 async changeTextReplacementDecapitalizeTimeoutMsSetting(timeoutMs: number) : Promise<Result<null, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("change_text_replacement_decapitalize_timeout_ms_setting", { timeoutMs }) };
@@ -2295,6 +2298,7 @@ port: number;
  */
 server_error: string | null }
 export type CustomSounds = { start: boolean; stop: boolean }
+export type DecapitalizeOverlayStateResponse = { decapitalizeEligible: boolean; decapitalizeArmed: boolean }
 export type EngineType = "Whisper" | "Parakeet" | "Moonshine" | "SenseVoice"
 /**
  * PowerShell execution policy for voice commands.

@@ -58,6 +58,24 @@ pub fn maybe_decapitalize_next_chunk_standard(text: &str) -> String {
     maybe_decapitalize_next_chunk_impl(text, ApplyMode::StandardOutput)
 }
 
+/// Returns true when the realtime decapitalize trigger is currently armed.
+/// Expired pending state is cleaned up on read.
+pub fn is_realtime_trigger_armed_now() -> bool {
+    let now = Instant::now();
+    let Ok(mut state) = DECAPITALIZE_STATE.lock() else {
+        return false;
+    };
+
+    match state.pending_until {
+        Some(deadline) if now <= deadline => true,
+        Some(_) => {
+            state.pending_until = None;
+            false
+        }
+        None => false,
+    }
+}
+
 fn maybe_decapitalize_next_chunk_impl(text: &str, mode: ApplyMode) -> String {
     if text.is_empty() || !is_trigger_pending(mode) {
         return text.to_string();

@@ -36,6 +36,8 @@ export interface OverlayPayload {
   state: ExtendedOverlayState;
   error_category?: OverlayErrorCategory;
   error_message?: string;
+  decapitalize_eligible?: boolean;
+  decapitalize_armed?: boolean;
 }
 
 /**
@@ -67,4 +69,3 @@ export function getErrorDisplayText(category: OverlayErrorCategory): string {
   };
   return messages[category];
 }
-
