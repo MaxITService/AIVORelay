@@ -794,6 +794,7 @@ pub enum SonioxLivePreviewPosition {
     Top,
     Bottom,
     NearCursor,
+    CustomXY,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Type)]
@@ -802,6 +803,7 @@ pub enum SonioxLivePreviewSize {
     Small,
     Medium,
     Large,
+    Custom,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Type)]
@@ -1051,14 +1053,24 @@ pub struct AppSettings {
     pub soniox_live_preview_position: SonioxLivePreviewPosition,
     #[serde(default = "default_soniox_live_preview_cursor_offset_px")]
     pub soniox_live_preview_cursor_offset_px: u16,
+    #[serde(default = "default_soniox_live_preview_custom_x_px")]
+    pub soniox_live_preview_custom_x_px: i32,
+    #[serde(default = "default_soniox_live_preview_custom_y_px")]
+    pub soniox_live_preview_custom_y_px: i32,
     #[serde(default = "default_soniox_live_preview_size")]
     pub soniox_live_preview_size: SonioxLivePreviewSize,
+    #[serde(default = "default_soniox_live_preview_custom_width_px")]
+    pub soniox_live_preview_custom_width_px: u16,
+    #[serde(default = "default_soniox_live_preview_custom_height_px")]
+    pub soniox_live_preview_custom_height_px: u16,
     #[serde(default = "default_soniox_live_preview_theme")]
     pub soniox_live_preview_theme: SonioxLivePreviewTheme,
     #[serde(default = "default_soniox_live_preview_opacity_percent")]
     pub soniox_live_preview_opacity_percent: u8,
     #[serde(default = "default_soniox_live_preview_font_color")]
     pub soniox_live_preview_font_color: String,
+    #[serde(default = "default_soniox_live_preview_interim_font_color")]
+    pub soniox_live_preview_interim_font_color: String,
     #[serde(default = "default_soniox_live_preview_accent_color")]
     pub soniox_live_preview_accent_color: String,
     #[serde(default = "default_soniox_live_preview_interim_opacity_percent")]
@@ -1488,8 +1500,24 @@ fn default_soniox_live_preview_cursor_offset_px() -> u16 {
     96
 }
 
+fn default_soniox_live_preview_custom_x_px() -> i32 {
+    240
+}
+
+fn default_soniox_live_preview_custom_y_px() -> i32 {
+    120
+}
+
 fn default_soniox_live_preview_size() -> SonioxLivePreviewSize {
     SonioxLivePreviewSize::Medium
+}
+
+fn default_soniox_live_preview_custom_width_px() -> u16 {
+    760
+}
+
+fn default_soniox_live_preview_custom_height_px() -> u16 {
+    200
 }
 
 fn default_soniox_live_preview_theme() -> SonioxLivePreviewTheme {
@@ -1501,6 +1529,10 @@ fn default_soniox_live_preview_opacity_percent() -> u8 {
 }
 
 fn default_soniox_live_preview_font_color() -> String {
+    "#f5f5f5".to_string()
+}
+
+fn default_soniox_live_preview_interim_font_color() -> String {
     "#f5f5f5".to_string()
 }
 
@@ -2086,9 +2118,14 @@ pub fn get_default_settings() -> AppSettings {
         soniox_live_preview_position: default_soniox_live_preview_position(),
         soniox_live_preview_cursor_offset_px: default_soniox_live_preview_cursor_offset_px(),
         soniox_live_preview_size: default_soniox_live_preview_size(),
+        soniox_live_preview_custom_x_px: default_soniox_live_preview_custom_x_px(),
+        soniox_live_preview_custom_y_px: default_soniox_live_preview_custom_y_px(),
+        soniox_live_preview_custom_width_px: default_soniox_live_preview_custom_width_px(),
+        soniox_live_preview_custom_height_px: default_soniox_live_preview_custom_height_px(),
         soniox_live_preview_theme: default_soniox_live_preview_theme(),
         soniox_live_preview_opacity_percent: default_soniox_live_preview_opacity_percent(),
         soniox_live_preview_font_color: default_soniox_live_preview_font_color(),
+        soniox_live_preview_interim_font_color: default_soniox_live_preview_interim_font_color(),
         soniox_live_preview_accent_color: default_soniox_live_preview_accent_color(),
         soniox_live_preview_interim_opacity_percent:
             default_soniox_live_preview_interim_opacity_percent(),

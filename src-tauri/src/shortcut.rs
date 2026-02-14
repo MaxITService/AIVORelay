@@ -43,7 +43,14 @@ const SONIOX_LIVE_PREVIEW_MIN_INTERIM_OPACITY_PERCENT: u8 = 20;
 const SONIOX_LIVE_PREVIEW_MAX_INTERIM_OPACITY_PERCENT: u8 = 95;
 const SONIOX_LIVE_PREVIEW_MIN_CURSOR_OFFSET_PX: u16 = 24;
 const SONIOX_LIVE_PREVIEW_MAX_CURSOR_OFFSET_PX: u16 = 320;
+const SONIOX_LIVE_PREVIEW_MIN_CUSTOM_WIDTH_PX: u16 = 320;
+const SONIOX_LIVE_PREVIEW_MAX_CUSTOM_WIDTH_PX: u16 = 2200;
+const SONIOX_LIVE_PREVIEW_MIN_CUSTOM_HEIGHT_PX: u16 = 100;
+const SONIOX_LIVE_PREVIEW_MAX_CUSTOM_HEIGHT_PX: u16 = 1400;
+const SONIOX_LIVE_PREVIEW_MIN_CUSTOM_COORD_PX: i32 = -10_000;
+const SONIOX_LIVE_PREVIEW_MAX_CUSTOM_COORD_PX: i32 = 10_000;
 const SONIOX_LIVE_PREVIEW_DEFAULT_FONT_COLOR: &str = "#f5f5f5";
+const SONIOX_LIVE_PREVIEW_DEFAULT_INTERIM_FONT_COLOR: &str = "#f5f5f5";
 const SONIOX_LIVE_PREVIEW_DEFAULT_ACCENT_COLOR: &str = "#ff4d8d";
 
 fn clamp_decapitalize_timeout_ms(value: u32) -> u32 {
@@ -78,6 +85,27 @@ fn clamp_soniox_live_preview_cursor_offset_px(value: u16) -> u16 {
     )
 }
 
+fn clamp_soniox_live_preview_custom_width_px(value: u16) -> u16 {
+    value.clamp(
+        SONIOX_LIVE_PREVIEW_MIN_CUSTOM_WIDTH_PX,
+        SONIOX_LIVE_PREVIEW_MAX_CUSTOM_WIDTH_PX,
+    )
+}
+
+fn clamp_soniox_live_preview_custom_height_px(value: u16) -> u16 {
+    value.clamp(
+        SONIOX_LIVE_PREVIEW_MIN_CUSTOM_HEIGHT_PX,
+        SONIOX_LIVE_PREVIEW_MAX_CUSTOM_HEIGHT_PX,
+    )
+}
+
+fn clamp_soniox_live_preview_custom_coord_px(value: i32) -> i32 {
+    value.clamp(
+        SONIOX_LIVE_PREVIEW_MIN_CUSTOM_COORD_PX,
+        SONIOX_LIVE_PREVIEW_MAX_CUSTOM_COORD_PX,
+    )
+}
+
 fn normalize_soniox_live_preview_color(value: &str, fallback: &str) -> String {
     let trimmed = value.trim();
     if trimmed.len() == 7
@@ -91,6 +119,10 @@ fn normalize_soniox_live_preview_color(value: &str, fallback: &str) -> String {
         value, fallback
     );
     fallback.to_string()
+}
+
+fn refresh_soniox_live_preview_window(app: &AppHandle) {
+    crate::overlay::update_soniox_live_preview_window(app);
 }
 
 fn is_decapitalize_monitor_shortcut_id(id: &str) -> bool {
@@ -707,8 +739,7 @@ pub fn change_soniox_live_preview_enabled_setting(
     let mut settings = settings::get_settings(&app);
     settings.soniox_live_preview_enabled = enabled;
     settings::write_settings(&app, settings);
-
-    crate::overlay::update_soniox_live_preview_window(&app);
+    refresh_soniox_live_preview_window(&app);
 
     Ok(())
 }
@@ -724,6 +755,7 @@ pub fn change_soniox_live_preview_position_setting(
         "top" => SonioxLivePreviewPosition::Top,
         "bottom" => SonioxLivePreviewPosition::Bottom,
         "near_cursor" => SonioxLivePreviewPosition::NearCursor,
+        "custom_xy" => SonioxLivePreviewPosition::CustomXY,
         other => {
             warn!(
                 "Invalid soniox live preview position '{}', defaulting to bottom",
@@ -734,9 +766,34 @@ pub fn change_soniox_live_preview_position_setting(
     };
     settings.soniox_live_preview_position = parsed;
     settings::write_settings(&app, settings);
+    refresh_soniox_live_preview_window(&app);
 
-    crate::overlay::update_soniox_live_preview_window(&app);
+    Ok(())
+}
 
+#[tauri::command]
+#[specta::specta]
+pub fn change_soniox_live_preview_custom_x_setting(
+    app: AppHandle,
+    x_px: i32,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.soniox_live_preview_custom_x_px = clamp_soniox_live_preview_custom_coord_px(x_px);
+    settings::write_settings(&app, settings);
+    refresh_soniox_live_preview_window(&app);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_soniox_live_preview_custom_y_setting(
+    app: AppHandle,
+    y_px: i32,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.soniox_live_preview_custom_y_px = clamp_soniox_live_preview_custom_coord_px(y_px);
+    settings::write_settings(&app, settings);
+    refresh_soniox_live_preview_window(&app);
     Ok(())
 }
 
@@ -750,8 +807,7 @@ pub fn change_soniox_live_preview_cursor_offset_setting(
     settings.soniox_live_preview_cursor_offset_px =
         clamp_soniox_live_preview_cursor_offset_px(distance_px);
     settings::write_settings(&app, settings);
-
-    crate::overlay::update_soniox_live_preview_window(&app);
+    refresh_soniox_live_preview_window(&app);
 
     Ok(())
 }
@@ -764,6 +820,7 @@ pub fn change_soniox_live_preview_size_setting(app: AppHandle, size: String) -> 
         "small" => SonioxLivePreviewSize::Small,
         "medium" => SonioxLivePreviewSize::Medium,
         "large" => SonioxLivePreviewSize::Large,
+        "custom" => SonioxLivePreviewSize::Custom,
         other => {
             warn!(
                 "Invalid soniox live preview size '{}', defaulting to medium",
@@ -774,9 +831,36 @@ pub fn change_soniox_live_preview_size_setting(app: AppHandle, size: String) -> 
     };
     settings.soniox_live_preview_size = parsed;
     settings::write_settings(&app, settings);
+    refresh_soniox_live_preview_window(&app);
 
-    crate::overlay::update_soniox_live_preview_window(&app);
+    Ok(())
+}
 
+#[tauri::command]
+#[specta::specta]
+pub fn change_soniox_live_preview_custom_width_setting(
+    app: AppHandle,
+    width_px: u16,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.soniox_live_preview_custom_width_px =
+        clamp_soniox_live_preview_custom_width_px(width_px);
+    settings::write_settings(&app, settings);
+    refresh_soniox_live_preview_window(&app);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_soniox_live_preview_custom_height_setting(
+    app: AppHandle,
+    height_px: u16,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.soniox_live_preview_custom_height_px =
+        clamp_soniox_live_preview_custom_height_px(height_px);
+    settings::write_settings(&app, settings);
+    refresh_soniox_live_preview_window(&app);
     Ok(())
 }
 
@@ -801,7 +885,7 @@ pub fn change_soniox_live_preview_theme_setting(
     };
     settings.soniox_live_preview_theme = parsed;
     settings::write_settings(&app, settings);
-    crate::overlay::update_soniox_live_preview_window(&app);
+    refresh_soniox_live_preview_window(&app);
     Ok(())
 }
 
@@ -815,7 +899,7 @@ pub fn change_soniox_live_preview_opacity_setting(
     settings.soniox_live_preview_opacity_percent =
         clamp_soniox_live_preview_opacity_percent(opacity_percent);
     settings::write_settings(&app, settings);
-    crate::overlay::update_soniox_live_preview_window(&app);
+    refresh_soniox_live_preview_window(&app);
     Ok(())
 }
 
@@ -829,7 +913,23 @@ pub fn change_soniox_live_preview_font_color_setting(
     settings.soniox_live_preview_font_color =
         normalize_soniox_live_preview_color(&color, SONIOX_LIVE_PREVIEW_DEFAULT_FONT_COLOR);
     settings::write_settings(&app, settings);
-    crate::overlay::update_soniox_live_preview_window(&app);
+    refresh_soniox_live_preview_window(&app);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_soniox_live_preview_interim_font_color_setting(
+    app: AppHandle,
+    color: String,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.soniox_live_preview_interim_font_color = normalize_soniox_live_preview_color(
+        &color,
+        SONIOX_LIVE_PREVIEW_DEFAULT_INTERIM_FONT_COLOR,
+    );
+    settings::write_settings(&app, settings);
+    refresh_soniox_live_preview_window(&app);
     Ok(())
 }
 
@@ -843,7 +943,7 @@ pub fn change_soniox_live_preview_accent_color_setting(
     settings.soniox_live_preview_accent_color =
         normalize_soniox_live_preview_color(&color, SONIOX_LIVE_PREVIEW_DEFAULT_ACCENT_COLOR);
     settings::write_settings(&app, settings);
-    crate::overlay::update_soniox_live_preview_window(&app);
+    refresh_soniox_live_preview_window(&app);
     Ok(())
 }
 
@@ -857,7 +957,7 @@ pub fn change_soniox_live_preview_interim_opacity_setting(
     settings.soniox_live_preview_interim_opacity_percent =
         clamp_soniox_live_preview_interim_opacity_percent(opacity_percent);
     settings::write_settings(&app, settings);
-    crate::overlay::update_soniox_live_preview_window(&app);
+    refresh_soniox_live_preview_window(&app);
     Ok(())
 }
 

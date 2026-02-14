@@ -16,6 +16,8 @@ type SonioxLivePreviewAppearancePayload = {
   opacityPercent?: number;
   font_color?: string;
   fontColor?: string;
+  interim_font_color?: string;
+  interimFontColor?: string;
   accent_color?: string;
   accentColor?: string;
   interim_opacity_percent?: number;
@@ -26,6 +28,7 @@ type SonioxLivePreviewAppearance = {
   theme: string;
   opacityPercent: number;
   fontColor: string;
+  interimFontColor: string;
   accentColor: string;
   interimOpacityPercent: number;
 };
@@ -41,9 +44,12 @@ const DEFAULT_APPEARANCE: SonioxLivePreviewAppearance = {
   theme: "main_dark",
   opacityPercent: 88,
   fontColor: "#f5f5f5",
+  interimFontColor: "#f5f5f5",
   accentColor: "#ff4d8d",
   interimOpacityPercent: 58,
 };
+const EMPTY_SAMPLE_CONFIRMED = "Confirmed Text: This part is stable. ";
+const EMPTY_SAMPLE_DRAFT = "Live Draft: this part may still change...";
 
 const THEME_PRESETS: Record<string, ThemePreset> = {
   // Matches main application palette.
@@ -183,6 +189,12 @@ export default function SonioxLivePreview() {
         typeof data.font_color === "string" ? data.font_color : data.fontColor,
         DEFAULT_APPEARANCE.fontColor,
       );
+      const interimFontColor = parseHexColor(
+        typeof data.interim_font_color === "string"
+          ? data.interim_font_color
+          : data.interimFontColor,
+        DEFAULT_APPEARANCE.interimFontColor,
+      );
       const accentColor = parseHexColor(
         typeof data.accent_color === "string"
           ? data.accent_color
@@ -202,6 +214,7 @@ export default function SonioxLivePreview() {
         theme,
         opacityPercent,
         fontColor,
+        interimFontColor,
         accentColor,
         interimOpacityPercent,
       });
@@ -317,6 +330,7 @@ export default function SonioxLivePreview() {
     const panelAlpha = appearance.opacityPercent / 100;
     const interimAlpha = appearance.interimOpacityPercent / 100;
     const fontRgb = hexToRgb(appearance.fontColor, [245, 245, 245]);
+    const interimFontRgb = hexToRgb(appearance.interimFontColor, [245, 245, 245]);
     const accentRgb = hexToRgb(appearance.accentColor, [255, 77, 141]);
 
     return {
@@ -324,9 +338,8 @@ export default function SonioxLivePreview() {
       "--slp-bg-bottom": rgba(preset.bottom, panelAlpha),
       "--slp-border-color": rgba(accentRgb, 0.45),
       "--slp-shadow-color": rgba(accentRgb, 0.2),
-      "--slp-header-color": rgba(accentRgb, 1),
       "--slp-final-color": rgba(fontRgb, 1),
-      "--slp-interim-color": rgba(fontRgb, interimAlpha),
+      "--slp-interim-color": rgba(interimFontRgb, interimAlpha),
       "--slp-empty-color": rgba(preset.empty, 1),
     } as CSSProperties;
   }, [appearance]);
@@ -341,10 +354,13 @@ export default function SonioxLivePreview() {
 
   return (
     <div className="soniox-live-preview-root" style={rootStyle}>
-      <div className="soniox-live-preview-header">Soniox Live</div>
       <div className="soniox-live-preview-body" ref={scrollRef}>
         {fullText.length === 0 ? (
-          <span className="soniox-live-preview-empty">Waiting for speech...</span>
+          <>
+            <span className="soniox-live-preview-final">{EMPTY_SAMPLE_CONFIRMED}</span>
+            <span className="soniox-live-preview-interim">{EMPTY_SAMPLE_DRAFT}</span>
+            <div className="soniox-live-preview-empty">Speak to replace this demo text.</div>
+          </>
         ) : (
           <>
             <span className="soniox-live-preview-final">{finalText}</span>

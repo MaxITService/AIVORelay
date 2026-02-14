@@ -269,16 +269,26 @@ const settingUpdaters: {
   invoke("change_soniox_live_preview_enabled_setting", { enabled: value });
 (settingUpdaters as any).soniox_live_preview_position = (value: any) =>
   invoke("change_soniox_live_preview_position_setting", { position: value });
+(settingUpdaters as any).soniox_live_preview_custom_x_px = (value: any) =>
+  invoke("change_soniox_live_preview_custom_x_setting", { xPx: value });
+(settingUpdaters as any).soniox_live_preview_custom_y_px = (value: any) =>
+  invoke("change_soniox_live_preview_custom_y_setting", { yPx: value });
 (settingUpdaters as any).soniox_live_preview_cursor_offset_px = (value: any) =>
   invoke("change_soniox_live_preview_cursor_offset_setting", { distancePx: value });
 (settingUpdaters as any).soniox_live_preview_size = (value: any) =>
   invoke("change_soniox_live_preview_size_setting", { size: value });
+(settingUpdaters as any).soniox_live_preview_custom_width_px = (value: any) =>
+  invoke("change_soniox_live_preview_custom_width_setting", { widthPx: value });
+(settingUpdaters as any).soniox_live_preview_custom_height_px = (value: any) =>
+  invoke("change_soniox_live_preview_custom_height_setting", { heightPx: value });
 (settingUpdaters as any).soniox_live_preview_theme = (value: any) =>
   invoke("change_soniox_live_preview_theme_setting", { theme: value });
 (settingUpdaters as any).soniox_live_preview_opacity_percent = (value: any) =>
   invoke("change_soniox_live_preview_opacity_setting", { opacityPercent: value });
 (settingUpdaters as any).soniox_live_preview_font_color = (value: any) =>
   invoke("change_soniox_live_preview_font_color_setting", { color: value });
+(settingUpdaters as any).soniox_live_preview_interim_font_color = (value: any) =>
+  invoke("change_soniox_live_preview_interim_font_color_setting", { color: value });
 (settingUpdaters as any).soniox_live_preview_accent_color = (value: any) =>
   invoke("change_soniox_live_preview_accent_color_setting", { color: value });
 (settingUpdaters as any).soniox_live_preview_interim_opacity_percent = (value: any) =>
