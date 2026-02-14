@@ -1,0 +1,72 @@
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&display=swap");
+
+html,
+body,
+#root {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: transparent;
+  font-family: "Inter", "Segoe UI", "Noto Sans", sans-serif;
+}
+
+.soniox-live-preview-root {
+  --slp-bg-top: rgba(26, 26, 26, 0.88);
+  --slp-bg-bottom: rgba(18, 18, 18, 0.88);
+  --slp-border-color: rgba(255, 77, 141, 0.45);
+  --slp-shadow-color: rgba(255, 77, 141, 0.2);
+  --slp-header-color: rgba(255, 77, 141, 1);
+  --slp-final-color: rgba(245, 245, 245, 1);
+  --slp-interim-color: rgba(245, 245, 245, 0.58);
+  --slp-empty-color: rgba(160, 160, 160, 1);
+  box-sizing: border-box;
+  width: 100%;
+  height: 100%;
+  padding: 12px 14px;
+  border-radius: 14px;
+  border: 1px solid var(--slp-border-color);
+  background: linear-gradient(180deg, var(--slp-bg-top), var(--slp-bg-bottom));
+  color: var(--slp-final-color);
+  backdrop-filter: blur(14px) saturate(160%);
+  -webkit-backdrop-filter: blur(14px) saturate(160%);
+  box-shadow:
+    0 10px 28px rgba(0, 0, 0, 0.4),
+    0 0 0 1px rgba(255, 255, 255, 0.04) inset,
+    0 0 24px var(--slp-shadow-color);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.soniox-live-preview-header {
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--slp-header-color);
+  font-weight: 700;
+  user-select: none;
+}
+
+.soniox-live-preview-body {
+  flex: 1;
+  overflow-y: auto;
+  font-size: 20px;
+  line-height: 1.4;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.soniox-live-preview-final {
+  color: var(--slp-final-color);
+}
+
+.soniox-live-preview-interim {
+  color: var(--slp-interim-color);
+}
+
+.soniox-live-preview-empty {
+  color: var(--slp-empty-color);
+}

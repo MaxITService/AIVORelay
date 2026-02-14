@@ -1,8 +1,12 @@
 use crate::input;
 use crate::plus_overlay_state;
 use crate::settings;
-use crate::settings::OverlayPosition;
+use crate::settings::{
+    OverlayPosition, SonioxLivePreviewPosition, SonioxLivePreviewSize, SonioxLivePreviewTheme,
+};
+use specta::Type;
 use serde::Serialize;
+use std::sync::{LazyLock, Mutex};
 use std::sync::atomic::{AtomicU64, Ordering};
 use tauri::{AppHandle, Emitter, Manager, PhysicalPosition, PhysicalSize};
 
@@ -43,6 +47,14 @@ const COMMAND_CONFIRM_WIDTH: f64 = 520.0;
 const COMMAND_CONFIRM_HEIGHT: f64 = 280.0;
 const VOICE_BUTTON_WIDTH: f64 = 80.0;
 const VOICE_BUTTON_HEIGHT: f64 = 80.0;
+const SONIOX_LIVE_PREVIEW_SMALL_WIDTH: f64 = 560.0;
+const SONIOX_LIVE_PREVIEW_SMALL_HEIGHT: f64 = 140.0;
+const SONIOX_LIVE_PREVIEW_MEDIUM_WIDTH: f64 = 760.0;
+const SONIOX_LIVE_PREVIEW_MEDIUM_HEIGHT: f64 = 200.0;
+const SONIOX_LIVE_PREVIEW_LARGE_WIDTH: f64 = 960.0;
+const SONIOX_LIVE_PREVIEW_LARGE_HEIGHT: f64 = 260.0;
+const SONIOX_LIVE_PREVIEW_TOP_OFFSET: f64 = 52.0;
+const SONIOX_LIVE_PREVIEW_BOTTOM_OFFSET: f64 = 86.0;
 
 #[derive(Serialize, Clone)]
 struct OverlayStatePayload {
@@ -50,6 +62,24 @@ struct OverlayStatePayload {
     decapitalize_eligible: bool,
     decapitalize_armed: bool,
 }
+
+#[derive(Serialize, Clone, Default, Type)]
+pub struct SonioxLivePreviewPayload {
+    pub final_text: String,
+    pub interim_text: String,
+}
+
+#[derive(Serialize, Clone, Type)]
+pub struct SonioxLivePreviewAppearancePayload {
+    pub theme: String,
+    pub opacity_percent: u8,
+    pub font_color: String,
+    pub accent_color: String,
+    pub interim_opacity_percent: u8,
+}
+
+static SONIOX_LIVE_PREVIEW_STATE: LazyLock<Mutex<SonioxLivePreviewPayload>> =
+    LazyLock::new(|| Mutex::new(SonioxLivePreviewPayload::default()));
 
 fn decapitalize_indicator_eligible(settings: &settings::AppSettings) -> bool {
     settings.text_replacement_decapitalize_after_edit_key_enabled
@@ -169,6 +199,82 @@ fn calculate_overlay_position(app_handle: &AppHandle) -> Option<(f64, f64)> {
     None
 }
 
+fn soniox_live_preview_dimensions(size: SonioxLivePreviewSize) -> (f64, f64) {
+    match size {
+        SonioxLivePreviewSize::Small => {
+            (SONIOX_LIVE_PREVIEW_SMALL_WIDTH, SONIOX_LIVE_PREVIEW_SMALL_HEIGHT)
+        }
+        SonioxLivePreviewSize::Medium => {
+            (SONIOX_LIVE_PREVIEW_MEDIUM_WIDTH, SONIOX_LIVE_PREVIEW_MEDIUM_HEIGHT)
+        }
+        SonioxLivePreviewSize::Large => {
+            (SONIOX_LIVE_PREVIEW_LARGE_WIDTH, SONIOX_LIVE_PREVIEW_LARGE_HEIGHT)
+        }
+    }
+}
+
+fn normalize_preview_color(value: &str, fallback: &str) -> String {
+    let trimmed = value.trim();
+    if trimmed.len() == 7
+        && trimmed.starts_with('#')
+        && trimmed.chars().skip(1).all(|c| c.is_ascii_hexdigit())
+    {
+        return format!("#{}", trimmed[1..].to_ascii_lowercase());
+    }
+    fallback.to_string()
+}
+
+fn soniox_live_preview_theme_key(theme: SonioxLivePreviewTheme) -> &'static str {
+    match theme {
+        SonioxLivePreviewTheme::MainDark => "main_dark",
+        SonioxLivePreviewTheme::Ocean => "ocean",
+        SonioxLivePreviewTheme::Light => "light",
+    }
+}
+
+fn build_soniox_live_preview_appearance_payload(
+    app_handle: &AppHandle,
+) -> SonioxLivePreviewAppearancePayload {
+    let app_settings = settings::get_settings(app_handle);
+    SonioxLivePreviewAppearancePayload {
+        theme: soniox_live_preview_theme_key(app_settings.soniox_live_preview_theme).to_string(),
+        opacity_percent: app_settings.soniox_live_preview_opacity_percent.clamp(35, 100),
+        font_color: normalize_preview_color(&app_settings.soniox_live_preview_font_color, "#f5f5f5"),
+        accent_color: normalize_preview_color(
+            &app_settings.soniox_live_preview_accent_color,
+            "#ff4d8d",
+        ),
+        interim_opacity_percent: app_settings
+            .soniox_live_preview_interim_opacity_percent
+            .clamp(20, 95),
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn resolve_soniox_live_preview_geometry(app_handle: &AppHandle) -> Option<(f64, f64, f64, f64)> {
+    if let Some(monitor) = get_monitor_with_cursor(app_handle) {
+        let work_area = monitor.work_area();
+        let scale = monitor.scale_factor();
+        let work_area_width = work_area.size.width as f64 / scale;
+        let work_area_height = work_area.size.height as f64 / scale;
+        let work_area_x = work_area.position.x as f64 / scale;
+        let work_area_y = work_area.position.y as f64 / scale;
+        let app_settings = settings::get_settings(app_handle);
+        let (width, height) = soniox_live_preview_dimensions(app_settings.soniox_live_preview_size);
+
+        let x = work_area_x + (work_area_width - width) / 2.0;
+        let y = match app_settings.soniox_live_preview_position {
+            SonioxLivePreviewPosition::Top => work_area_y + SONIOX_LIVE_PREVIEW_TOP_OFFSET,
+            SonioxLivePreviewPosition::Bottom => {
+                work_area_y + work_area_height - height - SONIOX_LIVE_PREVIEW_BOTTOM_OFFSET
+            }
+        };
+
+        return Some((x, y, width, height));
+    }
+    None
+}
+
 /// Creates the recording overlay window and keeps it hidden by default
 #[cfg(not(target_os = "macos"))]
 pub fn create_recording_overlay(app_handle: &AppHandle) {
@@ -204,6 +310,50 @@ pub fn create_recording_overlay(app_handle: &AppHandle) {
         }
     }
 }
+
+#[cfg(target_os = "windows")]
+pub fn create_soniox_live_preview_window(app_handle: &AppHandle) {
+    if app_handle
+        .get_webview_window("soniox_live_preview")
+        .is_some()
+    {
+        return;
+    }
+
+    if let Some((x, y, width, height)) = resolve_soniox_live_preview_geometry(app_handle) {
+        match WebviewWindowBuilder::new(
+            app_handle,
+            "soniox_live_preview",
+            tauri::WebviewUrl::App("src/soniox-live-preview/index.html".into()),
+        )
+        .title("Soniox Live Preview")
+        .position(x, y)
+        .resizable(false)
+        .inner_size(width, height)
+        .maximizable(false)
+        .minimizable(false)
+        .closable(false)
+        .accept_first_mouse(true)
+        .decorations(false)
+        .always_on_top(true)
+        .skip_taskbar(true)
+        .transparent(true)
+        .focused(false)
+        .visible(false)
+        .build()
+        {
+            Ok(_window) => {
+                debug!("Soniox live preview window created successfully (hidden)");
+            }
+            Err(e) => {
+                debug!("Failed to create Soniox live preview window: {}", e);
+            }
+        }
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
+pub fn create_soniox_live_preview_window(_app_handle: &AppHandle) {}
 
 /// Creates the recording overlay panel and keeps it hidden by default (macOS)
 #[cfg(target_os = "macos")]
@@ -409,6 +559,143 @@ pub fn hide_recording_overlay_immediately(app_handle: &AppHandle) {
     if let Some(overlay_window) = app_handle.get_webview_window("recording_overlay") {
         let _ = overlay_window.hide();
     }
+}
+
+#[cfg(target_os = "windows")]
+pub fn show_soniox_live_preview_window(app_handle: &AppHandle) {
+    let app_settings = settings::get_settings(app_handle);
+    if !app_settings.soniox_live_preview_enabled {
+        return;
+    }
+
+    if let Some(window) = app_handle.get_webview_window("soniox_live_preview") {
+        if let Some((x, y, width, height)) = resolve_soniox_live_preview_geometry(app_handle) {
+            let _ = window.set_size(tauri::Size::Logical(tauri::LogicalSize { width, height }));
+            let _ = window.set_position(tauri::Position::Logical(tauri::LogicalPosition { x, y }));
+        }
+        let _ = window.show();
+        force_overlay_topmost(&window);
+        emit_soniox_live_preview_appearance_update(app_handle);
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
+pub fn show_soniox_live_preview_window(_app_handle: &AppHandle) {}
+
+#[cfg(target_os = "windows")]
+pub fn hide_soniox_live_preview_window(app_handle: &AppHandle) {
+    if let Some(window) = app_handle.get_webview_window("soniox_live_preview") {
+        let _ = window.hide();
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
+pub fn hide_soniox_live_preview_window(_app_handle: &AppHandle) {}
+
+#[cfg(target_os = "windows")]
+pub fn reset_soniox_live_preview(app_handle: &AppHandle) {
+    if let Ok(mut state) = SONIOX_LIVE_PREVIEW_STATE.lock() {
+        state.final_text.clear();
+        state.interim_text.clear();
+    }
+    let _ = app_handle.emit("soniox-live-preview-reset", ());
+    let _ = app_handle.emit("soniox_live_preview_reset", ());
+    if let Some(window) = app_handle.get_webview_window("soniox_live_preview") {
+        let _ = window.emit("soniox-live-preview-reset", ());
+        let _ = window.emit("soniox_live_preview_reset", ());
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
+pub fn reset_soniox_live_preview(_app_handle: &AppHandle) {}
+
+#[cfg(target_os = "windows")]
+pub fn emit_soniox_live_preview_update(
+    app_handle: &AppHandle,
+    final_text: &str,
+    interim_text: &str,
+) {
+    if let Ok(mut state) = SONIOX_LIVE_PREVIEW_STATE.lock() {
+        state.final_text.clear();
+        state.final_text.push_str(final_text);
+        state.interim_text.clear();
+        state.interim_text.push_str(interim_text);
+    }
+
+    let payload = SonioxLivePreviewPayload {
+        final_text: final_text.to_string(),
+        interim_text: interim_text.to_string(),
+    };
+
+    let _ = app_handle.emit("soniox-live-preview-update", payload.clone());
+    let _ = app_handle.emit("soniox_live_preview_update", payload.clone());
+
+    if let Some(window) = app_handle.get_webview_window("soniox_live_preview") {
+        let _ = window.emit("soniox-live-preview-update", payload.clone());
+        let _ = window.emit("soniox_live_preview_update", payload);
+    }
+}
+
+#[cfg(target_os = "windows")]
+pub fn emit_soniox_live_preview_appearance_update(app_handle: &AppHandle) {
+    let payload = build_soniox_live_preview_appearance_payload(app_handle);
+
+    let _ = app_handle.emit("soniox-live-preview-appearance-update", payload.clone());
+    let _ = app_handle.emit("soniox_live_preview_appearance_update", payload.clone());
+
+    if let Some(window) = app_handle.get_webview_window("soniox_live_preview") {
+        let _ = window.emit("soniox-live-preview-appearance-update", payload.clone());
+        let _ = window.emit("soniox_live_preview_appearance_update", payload);
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
+pub fn emit_soniox_live_preview_appearance_update(_app_handle: &AppHandle) {}
+
+#[cfg(target_os = "windows")]
+pub fn update_soniox_live_preview_window(app_handle: &AppHandle) {
+    let app_settings = settings::get_settings(app_handle);
+    if let Some(window) = app_handle.get_webview_window("soniox_live_preview") {
+        if !app_settings.soniox_live_preview_enabled {
+            let _ = window.hide();
+            return;
+        }
+
+        if let Some((x, y, width, height)) = resolve_soniox_live_preview_geometry(app_handle) {
+            let _ = window.set_size(tauri::Size::Logical(tauri::LogicalSize { width, height }));
+            let _ = window.set_position(tauri::Position::Logical(tauri::LogicalPosition { x, y }));
+        }
+
+        emit_soniox_live_preview_appearance_update(app_handle);
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
+pub fn update_soniox_live_preview_window(_app_handle: &AppHandle) {}
+
+#[tauri::command]
+#[specta::specta]
+pub fn get_soniox_live_preview_state() -> SonioxLivePreviewPayload {
+    SONIOX_LIVE_PREVIEW_STATE
+        .lock()
+        .map(|state| state.clone())
+        .unwrap_or_default()
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn get_soniox_live_preview_appearance(
+    app_handle: AppHandle,
+) -> SonioxLivePreviewAppearancePayload {
+    build_soniox_live_preview_appearance_payload(&app_handle)
+}
+
+#[cfg(not(target_os = "windows"))]
+pub fn emit_soniox_live_preview_update(
+    _app_handle: &AppHandle,
+    _final_text: &str,
+    _interim_text: &str,
+) {
 }
 
 pub fn emit_levels(app_handle: &AppHandle, levels: &Vec<f32>) {

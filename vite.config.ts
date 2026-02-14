@@ -29,6 +29,10 @@ export default defineConfig(async () => ({
           __dirname,
           "src/voice-activation-button/index.html",
         ),
+        "soniox-live-preview": resolve(
+          __dirname,
+          "src/soniox-live-preview/index.html",
+        ),
       },
     },
   },

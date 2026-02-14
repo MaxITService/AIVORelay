@@ -16,7 +16,8 @@ use crate::settings::ShortcutBinding;
 use crate::settings::APPLE_INTELLIGENCE_DEFAULT_MODEL_ID;
 use crate::settings::{
     self, get_settings, AutoSubmitKey, ClipboardHandling, LLMPrompt, OverlayPosition, PasteMethod,
-    OutputWhitespaceMode, RemoteSttDebugMode, ShortcutEngine, SoundTheme, TranscriptionProvider,
+    OutputWhitespaceMode, RemoteSttDebugMode, ShortcutEngine, SonioxLivePreviewPosition,
+    SonioxLivePreviewSize, SonioxLivePreviewTheme, SoundTheme, TranscriptionProvider,
     APPLE_INTELLIGENCE_PROVIDER_ID, SONIOX_DEFAULT_LIVE_FINALIZE_TIMEOUT_MS,
     SONIOX_DEFAULT_MAX_ENDPOINT_DELAY_MS, SONIOX_DEFAULT_MODEL,
 };
@@ -36,6 +37,12 @@ const MIN_DECAPITALIZE_TIMEOUT_MS: u32 = 100;
 const MAX_DECAPITALIZE_TIMEOUT_MS: u32 = 60_000;
 const MIN_DECAPITALIZE_STANDARD_POST_MONITOR_MS: u32 = 0;
 const MAX_DECAPITALIZE_STANDARD_POST_MONITOR_MS: u32 = 60_000;
+const SONIOX_LIVE_PREVIEW_MIN_OPACITY_PERCENT: u8 = 35;
+const SONIOX_LIVE_PREVIEW_MAX_OPACITY_PERCENT: u8 = 100;
+const SONIOX_LIVE_PREVIEW_MIN_INTERIM_OPACITY_PERCENT: u8 = 20;
+const SONIOX_LIVE_PREVIEW_MAX_INTERIM_OPACITY_PERCENT: u8 = 95;
+const SONIOX_LIVE_PREVIEW_DEFAULT_FONT_COLOR: &str = "#f5f5f5";
+const SONIOX_LIVE_PREVIEW_DEFAULT_ACCENT_COLOR: &str = "#ff4d8d";
 
 fn clamp_decapitalize_timeout_ms(value: u32) -> u32 {
     value.clamp(MIN_DECAPITALIZE_TIMEOUT_MS, MAX_DECAPITALIZE_TIMEOUT_MS)
@@ -46,6 +53,35 @@ fn clamp_decapitalize_standard_post_monitor_ms(value: u32) -> u32 {
         MIN_DECAPITALIZE_STANDARD_POST_MONITOR_MS,
         MAX_DECAPITALIZE_STANDARD_POST_MONITOR_MS,
     )
+}
+
+fn clamp_soniox_live_preview_opacity_percent(value: u8) -> u8 {
+    value.clamp(
+        SONIOX_LIVE_PREVIEW_MIN_OPACITY_PERCENT,
+        SONIOX_LIVE_PREVIEW_MAX_OPACITY_PERCENT,
+    )
+}
+
+fn clamp_soniox_live_preview_interim_opacity_percent(value: u8) -> u8 {
+    value.clamp(
+        SONIOX_LIVE_PREVIEW_MIN_INTERIM_OPACITY_PERCENT,
+        SONIOX_LIVE_PREVIEW_MAX_INTERIM_OPACITY_PERCENT,
+    )
+}
+
+fn normalize_soniox_live_preview_color(value: &str, fallback: &str) -> String {
+    let trimmed = value.trim();
+    if trimmed.len() == 7
+        && trimmed.starts_with('#')
+        && trimmed.chars().skip(1).all(|c| c.is_ascii_hexdigit())
+    {
+        return format!("#{}", trimmed[1..].to_ascii_lowercase());
+    }
+    warn!(
+        "Invalid Soniox live preview color '{}', defaulting to {}",
+        value, fallback
+    );
+    fallback.to_string()
 }
 
 fn is_decapitalize_monitor_shortcut_id(id: &str) -> bool {
@@ -650,6 +686,152 @@ pub fn change_overlay_position_setting(app: AppHandle, position: String) -> Resu
     // Update overlay position without recreating window
     crate::utils::update_overlay_position(&app);
 
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_soniox_live_preview_enabled_setting(
+    app: AppHandle,
+    enabled: bool,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.soniox_live_preview_enabled = enabled;
+    settings::write_settings(&app, settings);
+
+    crate::overlay::update_soniox_live_preview_window(&app);
+
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_soniox_live_preview_position_setting(
+    app: AppHandle,
+    position: String,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    let parsed = match position.as_str() {
+        "top" => SonioxLivePreviewPosition::Top,
+        "bottom" => SonioxLivePreviewPosition::Bottom,
+        other => {
+            warn!(
+                "Invalid soniox live preview position '{}', defaulting to bottom",
+                other
+            );
+            SonioxLivePreviewPosition::Bottom
+        }
+    };
+    settings.soniox_live_preview_position = parsed;
+    settings::write_settings(&app, settings);
+
+    crate::overlay::update_soniox_live_preview_window(&app);
+
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_soniox_live_preview_size_setting(app: AppHandle, size: String) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    let parsed = match size.as_str() {
+        "small" => SonioxLivePreviewSize::Small,
+        "medium" => SonioxLivePreviewSize::Medium,
+        "large" => SonioxLivePreviewSize::Large,
+        other => {
+            warn!(
+                "Invalid soniox live preview size '{}', defaulting to medium",
+                other
+            );
+            SonioxLivePreviewSize::Medium
+        }
+    };
+    settings.soniox_live_preview_size = parsed;
+    settings::write_settings(&app, settings);
+
+    crate::overlay::update_soniox_live_preview_window(&app);
+
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_soniox_live_preview_theme_setting(
+    app: AppHandle,
+    theme: String,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    let parsed = match theme.as_str() {
+        "main_dark" => SonioxLivePreviewTheme::MainDark,
+        "ocean" => SonioxLivePreviewTheme::Ocean,
+        "light" => SonioxLivePreviewTheme::Light,
+        other => {
+            warn!(
+                "Invalid soniox live preview theme '{}', defaulting to main_dark",
+                other
+            );
+            SonioxLivePreviewTheme::MainDark
+        }
+    };
+    settings.soniox_live_preview_theme = parsed;
+    settings::write_settings(&app, settings);
+    crate::overlay::update_soniox_live_preview_window(&app);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_soniox_live_preview_opacity_setting(
+    app: AppHandle,
+    opacity_percent: u8,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.soniox_live_preview_opacity_percent =
+        clamp_soniox_live_preview_opacity_percent(opacity_percent);
+    settings::write_settings(&app, settings);
+    crate::overlay::update_soniox_live_preview_window(&app);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_soniox_live_preview_font_color_setting(
+    app: AppHandle,
+    color: String,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.soniox_live_preview_font_color =
+        normalize_soniox_live_preview_color(&color, SONIOX_LIVE_PREVIEW_DEFAULT_FONT_COLOR);
+    settings::write_settings(&app, settings);
+    crate::overlay::update_soniox_live_preview_window(&app);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_soniox_live_preview_accent_color_setting(
+    app: AppHandle,
+    color: String,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.soniox_live_preview_accent_color =
+        normalize_soniox_live_preview_color(&color, SONIOX_LIVE_PREVIEW_DEFAULT_ACCENT_COLOR);
+    settings::write_settings(&app, settings);
+    crate::overlay::update_soniox_live_preview_window(&app);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_soniox_live_preview_interim_opacity_setting(
+    app: AppHandle,
+    opacity_percent: u8,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.soniox_live_preview_interim_opacity_percent =
+        clamp_soniox_live_preview_interim_opacity_percent(opacity_percent);
+    settings::write_settings(&app, settings);
+    crate::overlay::update_soniox_live_preview_window(&app);
     Ok(())
 }
 

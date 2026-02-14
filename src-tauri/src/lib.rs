@@ -298,6 +298,8 @@ fn initialize_core_logic(app_handle: &AppHandle) {
 
     // Create the recording overlay window (hidden by default)
     utils::create_recording_overlay(app_handle);
+    // Create Soniox live preview window (hidden by default)
+    utils::create_soniox_live_preview_window(app_handle);
 }
 
 #[tauri::command]
@@ -332,6 +334,14 @@ pub fn run() {
         shortcut::change_transcription_provider_setting,
         shortcut::change_transcription_prompt_setting,
         shortcut::change_overlay_position_setting,
+        shortcut::change_soniox_live_preview_enabled_setting,
+        shortcut::change_soniox_live_preview_position_setting,
+        shortcut::change_soniox_live_preview_size_setting,
+        shortcut::change_soniox_live_preview_theme_setting,
+        shortcut::change_soniox_live_preview_opacity_setting,
+        shortcut::change_soniox_live_preview_font_color_setting,
+        shortcut::change_soniox_live_preview_accent_color_setting,
+        shortcut::change_soniox_live_preview_interim_opacity_setting,
         shortcut::change_debug_mode_setting,
         shortcut::change_word_correction_threshold_setting,
         shortcut::change_paste_method_setting,
@@ -560,6 +570,8 @@ pub fn run() {
         commands::key_listener::key_listener_unregister_shortcut,
         commands::key_listener::key_listener_is_shortcut_registered,
         commands::key_listener::key_listener_get_registered_shortcuts,
+        overlay::get_soniox_live_preview_state,
+        overlay::get_soniox_live_preview_appearance,
         helpers::clamshell::is_laptop,
     ]);
 

@@ -6,6 +6,8 @@ import { SettingsGroup } from "../../ui/SettingsGroup";
 import { SettingContainer } from "../../ui/SettingContainer";
 import { HandyShortcut } from "../HandyShortcut";
 import { ToggleSwitch } from "../../ui/ToggleSwitch";
+import { Dropdown } from "../../ui/Dropdown";
+import { Slider } from "../../ui/Slider";
 import { useSettings } from "../../../hooks/useSettings";
 import { ShowOverlay } from "../ShowOverlay";
 import { ShowTrayIcon } from "../ShowTrayIcon";
@@ -18,6 +20,24 @@ export const UserInterfaceSettings: React.FC = () => {
     (settings as any)?.voice_button_show_aot_toggle ?? false;
   const voiceButtonSingleClickClose =
     (settings as any)?.voice_button_single_click_close ?? false;
+  const sonioxLivePreviewEnabled =
+    (settings as any)?.soniox_live_preview_enabled ?? true;
+  const sonioxLivePreviewPosition =
+    ((settings as any)?.soniox_live_preview_position ?? "bottom") as string;
+  const sonioxLivePreviewSize =
+    ((settings as any)?.soniox_live_preview_size ?? "medium") as string;
+  const sonioxLivePreviewTheme =
+    ((settings as any)?.soniox_live_preview_theme ?? "main_dark") as string;
+  const sonioxLivePreviewOpacityPercent = Number(
+    (settings as any)?.soniox_live_preview_opacity_percent ?? 88,
+  );
+  const sonioxLivePreviewFontColor =
+    ((settings as any)?.soniox_live_preview_font_color ?? "#f5f5f5") as string;
+  const sonioxLivePreviewAccentColor =
+    ((settings as any)?.soniox_live_preview_accent_color ?? "#ff4d8d") as string;
+  const sonioxLivePreviewInterimOpacityPercent = Number(
+    (settings as any)?.soniox_live_preview_interim_opacity_percent ?? 58,
+  );
 
   const handleSpawnVoiceButton = async () => {
     try {
@@ -33,6 +53,195 @@ export const UserInterfaceSettings: React.FC = () => {
       <SettingsGroup title="User Interface">
         <ShowTrayIcon descriptionMode="tooltip" grouped={true} />
         <ShowOverlay descriptionMode="tooltip" grouped={true} />
+        {isWindows && (
+          <>
+            <SettingContainer
+              title="Soniox Live Preview Window"
+              description="Show a separate visual window with Soniox live interim/final text updates."
+              descriptionMode="inline"
+              grouped={true}
+            >
+              <ToggleSwitch
+                checked={sonioxLivePreviewEnabled}
+                onChange={(enabled) =>
+                  void updateSetting(
+                    "soniox_live_preview_enabled" as any,
+                    enabled as any,
+                  )
+                }
+                disabled={isUpdating("soniox_live_preview_enabled")}
+              />
+            </SettingContainer>
+            <SettingContainer
+              title="Soniox Live Preview Position"
+              description="Choose where to place the Soniox live preview window."
+              descriptionMode="inline"
+              grouped={true}
+              disabled={!sonioxLivePreviewEnabled}
+            >
+              <Dropdown
+                options={[
+                  { value: "bottom", label: "Bottom" },
+                  { value: "top", label: "Top" },
+                ]}
+                selectedValue={sonioxLivePreviewPosition}
+                onSelect={(value) =>
+                  void updateSetting(
+                    "soniox_live_preview_position" as any,
+                    value as any,
+                  )
+                }
+                disabled={
+                  !sonioxLivePreviewEnabled ||
+                  isUpdating("soniox_live_preview_position")
+                }
+              />
+            </SettingContainer>
+            <SettingContainer
+              title="Soniox Live Preview Size"
+              description="Set the size of the Soniox live preview window."
+              descriptionMode="inline"
+              grouped={true}
+              disabled={!sonioxLivePreviewEnabled}
+            >
+              <Dropdown
+                options={[
+                  { value: "small", label: "Small" },
+                  { value: "medium", label: "Medium" },
+                  { value: "large", label: "Large" },
+                ]}
+                selectedValue={sonioxLivePreviewSize}
+                onSelect={(value) =>
+                  void updateSetting("soniox_live_preview_size" as any, value as any)
+                }
+                disabled={
+                  !sonioxLivePreviewEnabled || isUpdating("soniox_live_preview_size")
+                }
+              />
+            </SettingContainer>
+            <SettingContainer
+              title="Soniox Live Preview Theme"
+              description="Use the app-matching theme by default, or switch to alternate palettes."
+              descriptionMode="inline"
+              grouped={true}
+              disabled={!sonioxLivePreviewEnabled}
+            >
+              <Dropdown
+                options={[
+                  { value: "main_dark", label: "Main App Dark" },
+                  { value: "ocean", label: "Ocean Glass" },
+                  { value: "light", label: "Light" },
+                ]}
+                selectedValue={sonioxLivePreviewTheme}
+                onSelect={(value) =>
+                  void updateSetting("soniox_live_preview_theme" as any, value as any)
+                }
+                disabled={
+                  !sonioxLivePreviewEnabled ||
+                  isUpdating("soniox_live_preview_theme")
+                }
+              />
+            </SettingContainer>
+            <Slider
+              label="Soniox Live Preview Transparency"
+              description="Controls panel transparency."
+              descriptionMode="inline"
+              grouped={true}
+              min={35}
+              max={100}
+              step={1}
+              value={sonioxLivePreviewOpacityPercent}
+              formatValue={(value) => `${Math.round(value)}%`}
+              onChange={(value) =>
+                void updateSetting(
+                  "soniox_live_preview_opacity_percent" as any,
+                  Math.round(value) as any,
+                )
+              }
+              disabled={
+                !sonioxLivePreviewEnabled ||
+                isUpdating("soniox_live_preview_opacity_percent")
+              }
+            />
+            <SettingContainer
+              title="Soniox Live Preview Font Color"
+              description="Final text color in preview."
+              descriptionMode="inline"
+              grouped={true}
+              disabled={!sonioxLivePreviewEnabled}
+            >
+              <div className="flex items-center gap-3">
+                <input
+                  type="color"
+                  value={sonioxLivePreviewFontColor}
+                  onChange={(event) =>
+                    void updateSetting(
+                      "soniox_live_preview_font_color" as any,
+                      event.target.value as any,
+                    )
+                  }
+                  disabled={
+                    !sonioxLivePreviewEnabled ||
+                    isUpdating("soniox_live_preview_font_color")
+                  }
+                  className="h-8 w-12 rounded border border-[#3c3c3c] bg-transparent disabled:opacity-40"
+                />
+                <span className="text-xs text-[#a0a0a0] font-mono">
+                  {sonioxLivePreviewFontColor}
+                </span>
+              </div>
+            </SettingContainer>
+            <SettingContainer
+              title="Soniox Live Preview Accent Color"
+              description="Header and accent color."
+              descriptionMode="inline"
+              grouped={true}
+              disabled={!sonioxLivePreviewEnabled}
+            >
+              <div className="flex items-center gap-3">
+                <input
+                  type="color"
+                  value={sonioxLivePreviewAccentColor}
+                  onChange={(event) =>
+                    void updateSetting(
+                      "soniox_live_preview_accent_color" as any,
+                      event.target.value as any,
+                    )
+                  }
+                  disabled={
+                    !sonioxLivePreviewEnabled ||
+                    isUpdating("soniox_live_preview_accent_color")
+                  }
+                  className="h-8 w-12 rounded border border-[#3c3c3c] bg-transparent disabled:opacity-40"
+                />
+                <span className="text-xs text-[#a0a0a0] font-mono">
+                  {sonioxLivePreviewAccentColor}
+                </span>
+              </div>
+            </SettingContainer>
+            <Slider
+              label="Soniox Live Interim Text Opacity"
+              description="Opacity of non-final (interim) text."
+              descriptionMode="inline"
+              grouped={true}
+              min={20}
+              max={95}
+              step={1}
+              value={sonioxLivePreviewInterimOpacityPercent}
+              formatValue={(value) => `${Math.round(value)}%`}
+              onChange={(value) =>
+                void updateSetting(
+                  "soniox_live_preview_interim_opacity_percent" as any,
+                  Math.round(value) as any,
+                )
+              }
+              disabled={
+                !sonioxLivePreviewEnabled ||
+                isUpdating("soniox_live_preview_interim_opacity_percent")
+              }
+            />
+          </>
+        )}
       </SettingsGroup>
 
       {isWindows && (

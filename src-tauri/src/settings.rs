@@ -790,6 +790,29 @@ pub enum OverlayPosition {
 
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Type)]
 #[serde(rename_all = "snake_case")]
+pub enum SonioxLivePreviewPosition {
+    Top,
+    Bottom,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Type)]
+#[serde(rename_all = "snake_case")]
+pub enum SonioxLivePreviewSize {
+    Small,
+    Medium,
+    Large,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Type)]
+#[serde(rename_all = "snake_case")]
+pub enum SonioxLivePreviewTheme {
+    MainDark,
+    Ocean,
+    Light,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Type)]
+#[serde(rename_all = "snake_case")]
 pub enum ScreenshotCaptureMethod {
     ExternalProgram,
     Native,
@@ -1021,6 +1044,22 @@ pub struct AppSettings {
     pub selected_language: String,
     #[serde(default = "default_overlay_position")]
     pub overlay_position: OverlayPosition,
+    #[serde(default = "default_soniox_live_preview_enabled")]
+    pub soniox_live_preview_enabled: bool,
+    #[serde(default = "default_soniox_live_preview_position")]
+    pub soniox_live_preview_position: SonioxLivePreviewPosition,
+    #[serde(default = "default_soniox_live_preview_size")]
+    pub soniox_live_preview_size: SonioxLivePreviewSize,
+    #[serde(default = "default_soniox_live_preview_theme")]
+    pub soniox_live_preview_theme: SonioxLivePreviewTheme,
+    #[serde(default = "default_soniox_live_preview_opacity_percent")]
+    pub soniox_live_preview_opacity_percent: u8,
+    #[serde(default = "default_soniox_live_preview_font_color")]
+    pub soniox_live_preview_font_color: String,
+    #[serde(default = "default_soniox_live_preview_accent_color")]
+    pub soniox_live_preview_accent_color: String,
+    #[serde(default = "default_soniox_live_preview_interim_opacity_percent")]
+    pub soniox_live_preview_interim_opacity_percent: u8,
     #[serde(default = "default_debug_mode")]
     pub debug_mode: bool,
     #[serde(default = "default_log_level")]
@@ -1432,6 +1471,38 @@ fn default_overlay_position() -> OverlayPosition {
     return OverlayPosition::None;
     #[cfg(not(target_os = "linux"))]
     return OverlayPosition::Bottom;
+}
+
+fn default_soniox_live_preview_enabled() -> bool {
+    true
+}
+
+fn default_soniox_live_preview_position() -> SonioxLivePreviewPosition {
+    SonioxLivePreviewPosition::Bottom
+}
+
+fn default_soniox_live_preview_size() -> SonioxLivePreviewSize {
+    SonioxLivePreviewSize::Medium
+}
+
+fn default_soniox_live_preview_theme() -> SonioxLivePreviewTheme {
+    SonioxLivePreviewTheme::MainDark
+}
+
+fn default_soniox_live_preview_opacity_percent() -> u8 {
+    88
+}
+
+fn default_soniox_live_preview_font_color() -> String {
+    "#f5f5f5".to_string()
+}
+
+fn default_soniox_live_preview_accent_color() -> String {
+    "#ff4d8d".to_string()
+}
+
+fn default_soniox_live_preview_interim_opacity_percent() -> u8 {
+    58
 }
 
 fn default_debug_mode() -> bool {
@@ -2004,6 +2075,15 @@ pub fn get_default_settings() -> AppSettings {
         translate_to_english: false,
         selected_language: "auto".to_string(),
         overlay_position: default_overlay_position(),
+        soniox_live_preview_enabled: default_soniox_live_preview_enabled(),
+        soniox_live_preview_position: default_soniox_live_preview_position(),
+        soniox_live_preview_size: default_soniox_live_preview_size(),
+        soniox_live_preview_theme: default_soniox_live_preview_theme(),
+        soniox_live_preview_opacity_percent: default_soniox_live_preview_opacity_percent(),
+        soniox_live_preview_font_color: default_soniox_live_preview_font_color(),
+        soniox_live_preview_accent_color: default_soniox_live_preview_accent_color(),
+        soniox_live_preview_interim_opacity_percent:
+            default_soniox_live_preview_interim_opacity_percent(),
         debug_mode: false,
         log_level: default_log_level(),
         custom_words: Vec::new(),

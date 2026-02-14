@@ -265,6 +265,24 @@ const settingUpdaters: {
   invoke("change_voice_button_show_aot_toggle_setting", { enabled: value });
 (settingUpdaters as any).voice_button_single_click_close = (value: any) =>
   invoke("change_voice_button_single_click_close_setting", { enabled: value });
+(settingUpdaters as any).soniox_live_preview_enabled = (value: any) =>
+  invoke("change_soniox_live_preview_enabled_setting", { enabled: value });
+(settingUpdaters as any).soniox_live_preview_position = (value: any) =>
+  invoke("change_soniox_live_preview_position_setting", { position: value });
+(settingUpdaters as any).soniox_live_preview_size = (value: any) =>
+  invoke("change_soniox_live_preview_size_setting", { size: value });
+(settingUpdaters as any).soniox_live_preview_theme = (value: any) =>
+  invoke("change_soniox_live_preview_theme_setting", { theme: value });
+(settingUpdaters as any).soniox_live_preview_opacity_percent = (value: any) =>
+  invoke("change_soniox_live_preview_opacity_setting", { opacityPercent: value });
+(settingUpdaters as any).soniox_live_preview_font_color = (value: any) =>
+  invoke("change_soniox_live_preview_font_color_setting", { color: value });
+(settingUpdaters as any).soniox_live_preview_accent_color = (value: any) =>
+  invoke("change_soniox_live_preview_accent_color_setting", { color: value });
+(settingUpdaters as any).soniox_live_preview_interim_opacity_percent = (value: any) =>
+  invoke("change_soniox_live_preview_interim_opacity_setting", {
+    opacityPercent: value,
+  });
 
 // Extended Thinking / Reasoning settings
 (settingUpdaters as any).post_process_reasoning_enabled = (value: any) =>

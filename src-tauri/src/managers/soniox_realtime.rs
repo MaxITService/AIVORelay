@@ -100,13 +100,15 @@ struct ActiveSession {
 }
 
 pub struct SonioxRealtimeManager {
+    app_handle: AppHandle,
     active_session: Mutex<Option<ActiveSession>>,
     pending_audio: Mutex<Vec<Vec<u8>>>,
 }
 
 impl SonioxRealtimeManager {
-    pub fn new(_app_handle: &AppHandle) -> Result<Self> {
+    pub fn new(app_handle: &AppHandle) -> Result<Self> {
         Ok(Self {
+            app_handle: app_handle.clone(),
             active_session: Mutex::new(None),
             pending_audio: Mutex::new(Vec::new()),
         })
@@ -206,6 +208,7 @@ impl SonioxRealtimeManager {
         let final_text = Arc::new(Mutex::new(String::new()));
         let final_text_for_task = Arc::clone(&final_text);
         let start_payload_for_task = start_payload;
+        let app_handle_for_task = self.app_handle.clone();
 
         let join_handle = tauri::async_runtime::spawn(async move {
             let (stream, _) = timeout(
@@ -229,6 +232,7 @@ impl SonioxRealtimeManager {
                 control_rx,
                 final_text_for_task,
                 keepalive_interval_seconds,
+                app_handle_for_task,
                 on_final_chunk,
             )
             .await
@@ -264,6 +268,9 @@ impl SonioxRealtimeManager {
             }
         }
 
+        crate::overlay::reset_soniox_live_preview(&self.app_handle);
+        crate::overlay::show_soniox_live_preview_window(&self.app_handle);
+
         info!("Started Soniox live session for binding '{}'", binding_id);
         Ok(())
     }
@@ -283,6 +290,7 @@ impl SonioxRealtimeManager {
         mut control_rx: mpsc::UnboundedReceiver<ControlMessage>,
         final_text: Arc<Mutex<String>>,
         keepalive_interval_seconds: u32,
+        app_handle: AppHandle,
         on_final_chunk: Option<FinalChunkCallback>,
     ) -> Result<()>
     where
@@ -297,6 +305,7 @@ impl SonioxRealtimeManager {
         keepalive_tick.set_missed_tick_behavior(MissedTickBehavior::Delay);
 
         let mut finished = false;
+        let mut preview_final_text = String::new();
 
         loop {
             tokio::select! {
@@ -348,24 +357,55 @@ impl SonioxRealtimeManager {
                                 return Err(anyhow!("Soniox WebSocket error {}: {}", code, message));
                             }
 
+                            let is_finished_payload = payload.finished;
                             let mut chunk_text = String::new();
-                            for token in payload.tokens.into_iter().filter(|token| token.is_final) {
+                            let mut interim_text = String::new();
+                            let mut final_token_count = 0usize;
+                            let mut non_final_token_count = 0usize;
+                            for token in payload.tokens {
                                 if token.text.is_empty() || token.text == "<fin>" || token.text == "<end>" {
                                     continue;
                                 }
-                                chunk_text.push_str(&token.text);
+                                if token.is_final {
+                                    chunk_text.push_str(&token.text);
+                                    final_token_count += 1;
+                                } else {
+                                    interim_text.push_str(&token.text);
+                                    non_final_token_count += 1;
+                                }
                             }
 
                             if !chunk_text.is_empty() {
+                                preview_final_text.push_str(&chunk_text);
                                 if let Ok(mut guard) = final_text.lock() {
                                     guard.push_str(&chunk_text);
                                 }
                                 if let Some(cb) = &on_final_chunk {
-                                    cb(chunk_text);
+                                    cb(chunk_text.clone());
                                 }
                             }
 
-                            if payload.finished {
+                            if is_finished_payload {
+                                interim_text.clear();
+                            }
+
+                            if !chunk_text.is_empty() || !interim_text.is_empty() || is_finished_payload {
+                                debug!(
+                                    "Soniox live preview update: final_tokens={}, non_final_tokens={}, final_chars={}, interim_chars={}, finished={}",
+                                    final_token_count,
+                                    non_final_token_count,
+                                    chunk_text.len(),
+                                    interim_text.len(),
+                                    is_finished_payload
+                                );
+                                crate::overlay::emit_soniox_live_preview_update(
+                                    &app_handle,
+                                    &preview_final_text,
+                                    &interim_text,
+                                );
+                            }
+
+                            if is_finished_payload {
                                 finished = true;
                                 break;
                             }
@@ -431,15 +471,23 @@ impl SonioxRealtimeManager {
     }
 
     pub async fn finish_session(&self, timeout_ms: u32) -> Result<String> {
+        let hide_preview = || {
+            crate::overlay::hide_soniox_live_preview_window(&self.app_handle);
+        };
+
         let mut session = {
-            let mut guard = self
-                .active_session
-                .lock()
-                .map_err(|_| anyhow!("Failed to lock Soniox live session state"))?;
+            let mut guard = match self.active_session.lock() {
+                Ok(guard) => guard,
+                Err(_) => {
+                    hide_preview();
+                    return Err(anyhow!("Failed to lock Soniox live session state"));
+                }
+            };
             guard.take()
         };
 
         let Some(session) = session.take() else {
+            hide_preview();
             return Ok(String::new());
         };
         let ActiveSession {
@@ -474,8 +522,10 @@ impl SonioxRealtimeManager {
                         "Soniox live session ended with error after partial output (binding='{}'): {}",
                         binding_id, e
                     );
+                    hide_preview();
                     return Ok(partial);
                 }
+                hide_preview();
                 return Err(e);
             }
             Ok(Err(e)) => {
@@ -485,8 +535,10 @@ impl SonioxRealtimeManager {
                         "Soniox live session join failed after partial output (binding='{}'): {}",
                         binding_id, e
                     );
+                    hide_preview();
                     return Ok(partial);
                 }
+                hide_preview();
                 return Err(anyhow!("Soniox live session join failed: {}", e));
             }
             Err(_) => {
@@ -497,8 +549,10 @@ impl SonioxRealtimeManager {
                         "Soniox live session timed out after partial output (binding='{}', wait={}ms)",
                         binding_id, wait_ms
                     );
+                    hide_preview();
                     return Ok(partial);
                 }
+                hide_preview();
                 return Err(anyhow!(
                     "Timed out while waiting for Soniox live session completion"
                 ));
@@ -512,6 +566,7 @@ impl SonioxRealtimeManager {
             binding_id,
             text.len()
         );
+        hide_preview();
         Ok(text)
     }
 
@@ -519,7 +574,10 @@ impl SonioxRealtimeManager {
         let active = {
             let mut guard = match self.active_session.lock() {
                 Ok(guard) => guard,
-                Err(_) => return,
+                Err(_) => {
+                    crate::overlay::hide_soniox_live_preview_window(&self.app_handle);
+                    return;
+                }
             };
             guard.take()
         };
@@ -535,6 +593,7 @@ impl SonioxRealtimeManager {
         if let Ok(mut pending) = self.pending_audio.lock() {
             pending.clear();
         }
+        crate::overlay::hide_soniox_live_preview_window(&self.app_handle);
     }
 }
 
