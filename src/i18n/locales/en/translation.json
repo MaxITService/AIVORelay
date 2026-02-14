@@ -460,7 +460,7 @@
         "textPlaceholder": "Background notes, names, prior context, product details, etc.",
         "termsHint": "One term per line. Empty lines are ignored and duplicates are removed.",
         "helpGeneralTitle": "General context — docs & AI prompt",
-        "helpGeneralAskAi": "Ask AI: Generate Soniox context.general JSON array for a customer support call. Return only JSON with key/value pairs.",
+        "helpGeneralAskAi": "Pro tip: Ask AI to Generate Soniox context. For example: general JSON array for a customer support call. Return only JSON with key/value pairs.",
         "helpGeneralDocIntro": "General information provides baseline context that guides the AI model. It helps adapt vocabulary to the correct domain, improving transcription and translation quality.",
         "helpGeneralDocContent": "Structured key-value pairs describing conversation domain, topic, intent, and other relevant metadata such as participants' names, organization, setting, location, etc.",
         "helpGeneralDocTip": "Tip: keep it short — ideally no more than 10 key-value pairs.",

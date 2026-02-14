@@ -406,7 +406,7 @@ export const SonioxContextEditor: React.FC<SonioxContextEditorProps> = ({
               <p className="mt-2 text-xs text-text/60">
                 {t(
                   "settings.transcriptionProfiles.sonioxContext.helpGeneralAskAi",
-                  "Ask AI: Generate Soniox context.general JSON array for a customer support call. Return only JSON with key/value pairs.",
+                  "Pro tip: Ask AI to Generate Soniox context. For example: general JSON array for a customer support call. Return only JSON with key/value pairs.",
                 )}
               </p>
             </TellMeMore>
