@@ -1161,6 +1161,22 @@ async changeTextReplacementDecapitalizeAfterEditKeySetting(key: string) : Promis
     else return { status: "error", error: e  as any };
 }
 },
+async changeTextReplacementDecapitalizeAfterEditSecondaryKeyEnabledSetting(enabled: boolean) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("change_text_replacement_decapitalize_after_edit_secondary_key_enabled_setting", { enabled }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async changeTextReplacementDecapitalizeAfterEditSecondaryKeySetting(key: string) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("change_text_replacement_decapitalize_after_edit_secondary_key_setting", { key }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async changeTextReplacementDecapitalizeTimeoutMsSetting(timeoutMs: number) : Promise<Result<null, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("change_text_replacement_decapitalize_timeout_ms_setting", { timeoutMs }) };
@@ -2190,6 +2206,15 @@ text_replacement_decapitalize_after_edit_key_enabled?: boolean;
  * Keyboard key (or shortcut) to monitor for manual edits. Default: backspace.
  */
 text_replacement_decapitalize_after_edit_key?: string; 
+/**
+ * Enable an optional second monitored key for decapitalize-after-edit.
+ * When enabled, either primary OR secondary key can arm decapitalization.
+ */
+text_replacement_decapitalize_after_edit_secondary_key_enabled?: boolean; 
+/**
+ * Optional secondary keyboard key (or shortcut) for manual edits. Default: delete.
+ */
+text_replacement_decapitalize_after_edit_secondary_key?: string; 
 /**
  * How long the decapitalize trigger remains active after the monitored key is pressed.
  */

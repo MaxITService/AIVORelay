@@ -44,6 +44,7 @@ const splitShortcutTokens = (binding: string): string[] =>
 export const TextReplacementSettings: React.FC = () => {
   const { t } = useTranslation();
   const { settings, updateSetting, isUpdating } = useSettings();
+  type DecapCaptureTarget = "primary" | "secondary";
 
   const [newFrom, setNewFrom] = useState("");
   const [newTo, setNewTo] = useState("");
@@ -55,7 +56,8 @@ export const TextReplacementSettings: React.FC = () => {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editFrom, setEditFrom] = useState("");
   const [editTo, setEditTo] = useState("");
-  const [isCapturingDecapKey, setIsCapturingDecapKey] = useState(false);
+  const [capturingDecapTarget, setCapturingDecapTarget] =
+    useState<DecapCaptureTarget | null>(null);
 
   const replacements: TextReplacementRule[] = (settings?.text_replacements ?? []).map((r: any) => ({
     ...r,
@@ -67,6 +69,10 @@ export const TextReplacementSettings: React.FC = () => {
     settings?.text_replacement_decapitalize_after_edit_key_enabled ?? false;
   const decapitalizeAfterEditKey =
     settings?.text_replacement_decapitalize_after_edit_key ?? "backspace";
+  const decapitalizeAfterEditSecondaryKeyEnabled =
+    settings?.text_replacement_decapitalize_after_edit_secondary_key_enabled ?? false;
+  const decapitalizeAfterEditSecondaryKey =
+    settings?.text_replacement_decapitalize_after_edit_secondary_key ?? "delete";
   const decapitalizeAfterEditTimeoutMs =
     settings?.text_replacement_decapitalize_timeout_ms ?? 5000;
   const decapitalizeStandardPostRecordingMonitorMs =
@@ -81,13 +87,42 @@ export const TextReplacementSettings: React.FC = () => {
   const setTrailingWhitespaceMode = (mode: OutputWhitespaceMode) =>
     (updateSetting as any)("output_whitespace_trailing_mode", mode);
 
-  const decapConflicts = useMemo(() => {
-    const monitoredTokens = splitShortcutTokens(decapitalizeAfterEditKey);
-    const monitoredMainKey =
-      monitoredTokens.find((token) => !MODIFIER_SHORTCUT_TOKENS.has(token)) ?? null;
-    const monitoredModifiers = monitoredTokens.filter((token) =>
-      MODIFIER_SHORTCUT_TOKENS.has(token)
+  const monitoredDecapBindings = useMemo(() => {
+    const bindings = [decapitalizeAfterEditKey];
+    if (decapitalizeAfterEditSecondaryKeyEnabled) {
+      bindings.push(decapitalizeAfterEditSecondaryKey);
+    }
+
+    return Array.from(
+      new Set(bindings.map((binding) => binding.trim()).filter((binding) => binding.length > 0))
     );
+  }, [
+    decapitalizeAfterEditKey,
+    decapitalizeAfterEditSecondaryKeyEnabled,
+    decapitalizeAfterEditSecondaryKey,
+  ]);
+
+  const decapConflicts = useMemo(() => {
+    const monitoredBindingsParsed = monitoredDecapBindings
+      .map((binding) => {
+        const monitoredTokens = splitShortcutTokens(binding);
+        const monitoredMainKey =
+          monitoredTokens.find((token) => !MODIFIER_SHORTCUT_TOKENS.has(token)) ?? null;
+        const monitoredModifiers = monitoredTokens.filter((token) =>
+          MODIFIER_SHORTCUT_TOKENS.has(token)
+        );
+
+        if (!monitoredMainKey && monitoredModifiers.length === 0) {
+          return null;
+        }
+
+        return { mainKey: monitoredMainKey, modifiers: monitoredModifiers };
+      })
+      .filter((item): item is { mainKey: string | null; modifiers: string[] } => item !== null);
+
+    if (monitoredBindingsParsed.length === 0) {
+      return [];
+    }
 
     const bindings = settings?.bindings ?? {};
     const conflicts: Array<{ id: string; name: string; binding: string }> = [];
@@ -99,10 +134,12 @@ export const TextReplacementSettings: React.FC = () => {
       const otherTokens = splitShortcutTokens(currentBinding);
       if (otherTokens.length === 0) continue;
 
-      const overlaps = monitoredMainKey
-        ? otherTokens.includes(monitoredMainKey)
-        : monitoredModifiers.length > 0 &&
-          monitoredModifiers.every((mod) => otherTokens.includes(mod));
+      const overlaps = monitoredBindingsParsed.some((monitoredBinding) =>
+        monitoredBinding.mainKey
+          ? otherTokens.includes(monitoredBinding.mainKey)
+          : monitoredBinding.modifiers.length > 0 &&
+            monitoredBinding.modifiers.every((mod) => otherTokens.includes(mod))
+      );
 
       if (!overlaps) continue;
 
@@ -120,7 +157,7 @@ export const TextReplacementSettings: React.FC = () => {
 
     conflicts.sort((a, b) => a.name.localeCompare(b.name));
     return conflicts;
-  }, [decapitalizeAfterEditKey, settings?.bindings, t]);
+  }, [monitoredDecapBindings, settings?.bindings, t]);
 
   const normalizeMonitoredKeyFromEvent = (
     event: KeyboardEvent
@@ -266,38 +303,51 @@ export const TextReplacementSettings: React.FC = () => {
   };
 
   useEffect(() => {
-    if (!isCapturingDecapKey) return;
+    if (!capturingDecapTarget) return;
 
     const handleKeyDown = (event: KeyboardEvent) => {
       event.preventDefault();
       event.stopPropagation();
 
       if (event.key === "Escape") {
-        setIsCapturingDecapKey(false);
+        setCapturingDecapTarget(null);
         return;
       }
 
       const normalized = normalizeMonitoredKeyFromEvent(event);
       if (!normalized) return;
 
-      void updateSetting(
-        "text_replacement_decapitalize_after_edit_key",
-        normalized
-      );
-      setIsCapturingDecapKey(false);
+      const targetKey =
+        capturingDecapTarget === "secondary"
+          ? "text_replacement_decapitalize_after_edit_secondary_key"
+          : "text_replacement_decapitalize_after_edit_key";
+      void (updateSetting as any)(targetKey, normalized);
+      setCapturingDecapTarget(null);
     };
 
     window.addEventListener("keydown", handleKeyDown, true);
     return () => {
       window.removeEventListener("keydown", handleKeyDown, true);
     };
-  }, [isCapturingDecapKey, normalizeMonitoredKeyFromEvent, updateSetting]);
+  }, [capturingDecapTarget, normalizeMonitoredKeyFromEvent, updateSetting]);
 
   useEffect(() => {
     if (!decapitalizeAfterEditEnabled) {
-      setIsCapturingDecapKey(false);
+      setCapturingDecapTarget(null);
+      return;
     }
-  }, [decapitalizeAfterEditEnabled]);
+
+    if (
+      !decapitalizeAfterEditSecondaryKeyEnabled &&
+      capturingDecapTarget === "secondary"
+    ) {
+      setCapturingDecapTarget(null);
+    }
+  }, [
+    decapitalizeAfterEditEnabled,
+    decapitalizeAfterEditSecondaryKeyEnabled,
+    capturingDecapTarget,
+  ]);
 
   const handleAddRule = () => {
     if (!newFrom.trim()) return;
@@ -461,11 +511,13 @@ export const TextReplacementSettings: React.FC = () => {
                     className="flex-1"
                   />
                   <Button
-                    variant={isCapturingDecapKey ? "primary" : "secondary"}
-                    onClick={() => setIsCapturingDecapKey((prev) => !prev)}
+                    variant={capturingDecapTarget === "primary" ? "primary" : "secondary"}
+                    onClick={() =>
+                      setCapturingDecapTarget((prev) => (prev === "primary" ? null : "primary"))
+                    }
                     disabled={isUpdating("text_replacement_decapitalize_after_edit_key")}
                   >
-                    {isCapturingDecapKey
+                    {capturingDecapTarget === "primary"
                       ? t(
                           "textReplacement.decapitalizeAfterEditCaptureButtonListening",
                           "Press keys..."
@@ -475,6 +527,69 @@ export const TextReplacementSettings: React.FC = () => {
                           "Capture Key"
                         )}
                   </Button>
+                </div>
+
+                <div className="mt-3 rounded-md border border-white/[0.08] bg-white/[0.02] px-3 py-3">
+                  <ToggleSwitch
+                    checked={decapitalizeAfterEditSecondaryKeyEnabled}
+                    onChange={(enabled) =>
+                      (updateSetting as any)(
+                        "text_replacement_decapitalize_after_edit_secondary_key_enabled",
+                        enabled
+                      )
+                    }
+                    isUpdating={isUpdating(
+                      "text_replacement_decapitalize_after_edit_secondary_key_enabled"
+                    )}
+                    label={t(
+                      "textReplacement.decapitalizeAfterEditSecondaryKeyEnableLabel",
+                      "Enable Secondary Monitored Key (OR)"
+                    )}
+                    description={t(
+                      "textReplacement.decapitalizeAfterEditSecondaryKeyEnableDescription",
+                      "Default is OFF. When enabled, pressing either primary or secondary key triggers decapitalize monitoring."
+                    )}
+                    descriptionMode="inline"
+                  />
+
+                  {decapitalizeAfterEditSecondaryKeyEnabled && (
+                    <div className="mt-3 space-y-2">
+                      <div className="text-xs text-[#b8b8b8]">
+                        {t(
+                          "textReplacement.decapitalizeAfterEditSecondaryKeyDescription",
+                          "Optional second key. Works with OR logic together with the primary key."
+                        )}
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Input
+                          value={formatMonitoredKeyLabel(decapitalizeAfterEditSecondaryKey)}
+                          readOnly={true}
+                          className="flex-1"
+                        />
+                        <Button
+                          variant={capturingDecapTarget === "secondary" ? "primary" : "secondary"}
+                          onClick={() =>
+                            setCapturingDecapTarget((prev) =>
+                              prev === "secondary" ? null : "secondary"
+                            )
+                          }
+                          disabled={isUpdating(
+                            "text_replacement_decapitalize_after_edit_secondary_key"
+                          )}
+                        >
+                          {capturingDecapTarget === "secondary"
+                            ? t(
+                                "textReplacement.decapitalizeAfterEditCaptureButtonListening",
+                                "Press keys..."
+                              )
+                            : t(
+                                "textReplacement.decapitalizeAfterEditCaptureButton",
+                                "Capture Key"
+                              )}
+                        </Button>
+                      </div>
+                    </div>
+                  )}
                 </div>
 
                 {decapConflicts.length > 0 && (

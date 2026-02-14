@@ -29,7 +29,9 @@ pub type RdevShortcutsSet = std::sync::Mutex<HashSet<String>>;
 /// Track which shortcut engine is actually running (set at startup, doesn't change until restart)
 pub type ActiveShortcutEngine = std::sync::Mutex<ShortcutEngine>;
 
-const DECAPITALIZE_MONITOR_SHORTCUT_ID: &str = "__text_replacement_decapitalize_monitor__";
+const DECAPITALIZE_MONITOR_SHORTCUT_ID_PRIMARY: &str = "__text_replacement_decapitalize_monitor__";
+const DECAPITALIZE_MONITOR_SHORTCUT_ID_SECONDARY: &str =
+    "__text_replacement_decapitalize_monitor__secondary";
 const MIN_DECAPITALIZE_TIMEOUT_MS: u32 = 100;
 const MAX_DECAPITALIZE_TIMEOUT_MS: u32 = 60_000;
 const MIN_DECAPITALIZE_STANDARD_POST_MONITOR_MS: u32 = 0;
@@ -46,26 +48,55 @@ fn clamp_decapitalize_standard_post_monitor_ms(value: u32) -> u32 {
     )
 }
 
-fn build_decapitalize_monitor_binding(settings: &settings::AppSettings) -> Option<ShortcutBinding> {
+fn is_decapitalize_monitor_shortcut_id(id: &str) -> bool {
+    matches!(
+        id,
+        DECAPITALIZE_MONITOR_SHORTCUT_ID_PRIMARY | DECAPITALIZE_MONITOR_SHORTCUT_ID_SECONDARY
+    )
+}
+
+fn build_decapitalize_monitor_bindings(settings: &settings::AppSettings) -> Vec<ShortcutBinding> {
     if !settings.text_replacement_decapitalize_after_edit_key_enabled {
-        return None;
+        return Vec::new();
     }
 
-    let normalized_binding = normalize_shortcut_binding(
+    let normalized_primary_binding = normalize_shortcut_binding(
         &settings.text_replacement_decapitalize_after_edit_key,
     );
-    if normalized_binding.is_empty() {
-        return None;
+    let mut bindings = Vec::new();
+
+    if !normalized_primary_binding.is_empty() {
+        bindings.push(ShortcutBinding {
+            id: DECAPITALIZE_MONITOR_SHORTCUT_ID_PRIMARY.to_string(),
+            name: "Text Replacement Decapitalize Monitor".to_string(),
+            description: "Passive monitor key for decapitalizing the next chunk after manual edits"
+                .to_string(),
+            default_binding: normalized_primary_binding.clone(),
+            current_binding: normalized_primary_binding.clone(),
+        });
     }
 
-    Some(ShortcutBinding {
-        id: DECAPITALIZE_MONITOR_SHORTCUT_ID.to_string(),
-        name: "Text Replacement Decapitalize Monitor".to_string(),
-        description: "Passive monitor key for decapitalizing the next chunk after manual edits"
-            .to_string(),
-        default_binding: normalized_binding.clone(),
-        current_binding: normalized_binding,
-    })
+    if settings.text_replacement_decapitalize_after_edit_secondary_key_enabled {
+        let normalized_secondary_binding = normalize_shortcut_binding(
+            &settings.text_replacement_decapitalize_after_edit_secondary_key,
+        );
+
+        if !normalized_secondary_binding.is_empty()
+            && normalized_secondary_binding != normalized_primary_binding
+        {
+            bindings.push(ShortcutBinding {
+                id: DECAPITALIZE_MONITOR_SHORTCUT_ID_SECONDARY.to_string(),
+                name: "Text Replacement Decapitalize Monitor (Secondary)".to_string(),
+                description:
+                    "Optional second passive monitor key for decapitalizing the next chunk"
+                        .to_string(),
+                default_binding: normalized_secondary_binding.clone(),
+                current_binding: normalized_secondary_binding,
+            });
+        }
+    }
+
+    bindings
 }
 
 fn sync_decapitalize_monitor_shortcut(
@@ -74,18 +105,28 @@ fn sync_decapitalize_monitor_shortcut(
 ) -> Result<(), String> {
     if let Some(rdev_set) = app.try_state::<RdevShortcutsSet>() {
         let mut rdev_shortcuts = rdev_set.lock().expect("Failed to lock rdev shortcuts");
-        if rdev_shortcuts.contains(DECAPITALIZE_MONITOR_SHORTCUT_ID) {
-            unregister_shortcut_via_rdev(app, DECAPITALIZE_MONITOR_SHORTCUT_ID, &mut rdev_shortcuts)?;
+        for monitor_id in [
+            DECAPITALIZE_MONITOR_SHORTCUT_ID_PRIMARY,
+            DECAPITALIZE_MONITOR_SHORTCUT_ID_SECONDARY,
+        ] {
+            if rdev_shortcuts.contains(monitor_id) {
+                unregister_shortcut_via_rdev(app, monitor_id, &mut rdev_shortcuts)?;
+            }
         }
     }
 
-    let Some(binding) = build_decapitalize_monitor_binding(settings) else {
+    let monitor_bindings = build_decapitalize_monitor_bindings(settings);
+    if monitor_bindings.is_empty() {
         return Ok(());
-    };
+    }
 
     // The monitor key must be passive, so it is always registered via rdev.
     start_rdev_listener(app);
-    register_shortcut_via_rdev(app, binding)
+    for binding in monitor_bindings {
+        register_shortcut_via_rdev(app, binding)?;
+    }
+
+    Ok(())
 }
 
 /// Whether a binding should be active based on feature toggle settings.
@@ -268,7 +309,7 @@ fn handle_rdev_shortcut_event(app: &AppHandle, event: ShortcutEvent) {
 
     let settings = get_settings(app);
 
-    if binding_id == DECAPITALIZE_MONITOR_SHORTCUT_ID {
+    if is_decapitalize_monitor_shortcut_id(&binding_id) {
         if pressed && settings.text_replacement_decapitalize_after_edit_key_enabled {
             crate::text_replacement_decapitalize::mark_edit_key_pressed(
                 clamp_decapitalize_timeout_ms(
@@ -3361,6 +3402,37 @@ pub fn change_text_replacement_decapitalize_after_edit_key_setting(
 
     let mut settings = settings::get_settings(&app);
     settings.text_replacement_decapitalize_after_edit_key = normalized_key;
+    settings::write_settings(&app, settings.clone());
+    sync_decapitalize_monitor_shortcut(&app, &settings)
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_text_replacement_decapitalize_after_edit_secondary_key_enabled_setting(
+    app: AppHandle,
+    enabled: bool,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.text_replacement_decapitalize_after_edit_secondary_key_enabled = enabled;
+    settings::write_settings(&app, settings.clone());
+    sync_decapitalize_monitor_shortcut(&app, &settings)
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_text_replacement_decapitalize_after_edit_secondary_key_setting(
+    app: AppHandle,
+    key: String,
+) -> Result<(), String> {
+    let normalized_key = normalize_shortcut_binding(&key);
+    if normalized_key.is_empty() {
+        return Err("Secondary monitored key cannot be empty".to_string());
+    }
+
+    crate::managers::key_listener::parse_shortcut_string(&normalized_key)?;
+
+    let mut settings = settings::get_settings(&app);
+    settings.text_replacement_decapitalize_after_edit_secondary_key = normalized_key;
     settings::write_settings(&app, settings.clone());
     sync_decapitalize_monitor_shortcut(&app, &settings)
 }

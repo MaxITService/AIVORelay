@@ -1289,6 +1289,13 @@ pub struct AppSettings {
     /// Keyboard key (or shortcut) to monitor for manual edits. Default: backspace.
     #[serde(default = "default_text_replacement_decapitalize_after_edit_key")]
     pub text_replacement_decapitalize_after_edit_key: String,
+    /// Enable an optional second monitored key for decapitalize-after-edit.
+    /// When enabled, either primary OR secondary key can arm decapitalization.
+    #[serde(default)]
+    pub text_replacement_decapitalize_after_edit_secondary_key_enabled: bool,
+    /// Optional secondary keyboard key (or shortcut) for manual edits. Default: delete.
+    #[serde(default = "default_text_replacement_decapitalize_after_edit_secondary_key")]
+    pub text_replacement_decapitalize_after_edit_secondary_key: String,
     /// How long the decapitalize trigger remains active after the monitored key is pressed.
     #[serde(default = "default_text_replacement_decapitalize_timeout_ms")]
     pub text_replacement_decapitalize_timeout_ms: u32,
@@ -1543,6 +1550,10 @@ fn default_quick_tap_threshold_ms() -> u32 {
 
 fn default_text_replacement_decapitalize_after_edit_key() -> String {
     "backspace".to_string()
+}
+
+fn default_text_replacement_decapitalize_after_edit_secondary_key() -> String {
+    "delete".to_string()
 }
 
 fn default_text_replacement_decapitalize_timeout_ms() -> u32 {
@@ -2107,6 +2118,9 @@ pub fn get_default_settings() -> AppSettings {
         text_replacement_decapitalize_after_edit_key_enabled: false,
         text_replacement_decapitalize_after_edit_key:
             default_text_replacement_decapitalize_after_edit_key(),
+        text_replacement_decapitalize_after_edit_secondary_key_enabled: false,
+        text_replacement_decapitalize_after_edit_secondary_key:
+            default_text_replacement_decapitalize_after_edit_secondary_key(),
         text_replacement_decapitalize_timeout_ms:
             default_text_replacement_decapitalize_timeout_ms(),
         text_replacement_decapitalize_standard_post_recording_monitor_ms:

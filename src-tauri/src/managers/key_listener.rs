@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use tauri::{AppHandle, Emitter};
 
-const DECAPITALIZE_MONITOR_SHORTCUT_ID: &str = "__text_replacement_decapitalize_monitor__";
+const DECAPITALIZE_MONITOR_SHORTCUT_ID_PREFIX: &str = "__text_replacement_decapitalize_monitor__";
 
 /// State for tracking active key modifiers (Ctrl, Shift, Alt, Win)
 #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize, specta::Type)]
@@ -89,7 +89,8 @@ impl KeyListenerManager {
     /// Register a shortcut from a string like "ctrl+shift+a" or "caps lock"
     pub async fn register_shortcut(&self, id: String, binding: String) -> Result<(), String> {
         let (key, modifiers) = parse_shortcut_string(&binding)?;
-        let match_main_key_in_any_combo = id == DECAPITALIZE_MONITOR_SHORTCUT_ID;
+        let match_main_key_in_any_combo =
+            id.starts_with(DECAPITALIZE_MONITOR_SHORTCUT_ID_PREFIX);
 
         let shortcut = RegisteredShortcut {
             key,
