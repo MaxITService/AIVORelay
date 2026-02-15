@@ -8,7 +8,7 @@ import { HandyShortcut } from "../HandyShortcut";
 import { ToggleSwitch } from "../../ui/ToggleSwitch";
 import { Dropdown } from "../../ui/Dropdown";
 import { Slider } from "../../ui/Slider";
-import { Input } from "../../ui/input";
+import { Input } from "../../ui/Input";
 import { useSettings } from "../../../hooks/useSettings";
 import { ShowOverlay } from "../ShowOverlay";
 import { ShowTrayIcon } from "../ShowTrayIcon";
@@ -148,7 +148,6 @@ export const UserInterfaceSettings: React.FC = () => {
             description="Choose where to place the Soniox live preview window."
             descriptionMode="inline"
             grouped={true}
-            disabled={!sonioxLivePreviewEnabled}
           >
             <Dropdown
               options={[
@@ -163,10 +162,6 @@ export const UserInterfaceSettings: React.FC = () => {
                   "soniox_live_preview_position" as any,
                   value as any,
                 )
-              }
-              disabled={
-                !sonioxLivePreviewEnabled ||
-                isUpdating("soniox_live_preview_position")
               }
             />
           </SettingContainer>

@@ -269,7 +269,6 @@ impl SonioxRealtimeManager {
         }
 
         crate::overlay::reset_soniox_live_preview(&self.app_handle);
-        crate::overlay::hide_soniox_live_preview_demo_window(&self.app_handle);
         crate::overlay::show_soniox_live_preview_window(&self.app_handle);
 
         info!("Started Soniox live session for binding '{}'", binding_id);

@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 
 type SonioxLivePreviewPayload = {
   final_text?: string;
@@ -48,8 +47,6 @@ const DEFAULT_APPEARANCE: SonioxLivePreviewAppearance = {
   accentColor: "#ff4d8d",
   interimOpacityPercent: 58,
 };
-const EMPTY_SAMPLE_CONFIRMED = "Confirmed Text: This part is stable. ";
-const EMPTY_SAMPLE_DRAFT = "Live Draft: this part may still change...";
 
 const THEME_PRESETS: Record<string, ThemePreset> = {
   // Matches main application palette.
@@ -106,6 +103,40 @@ function rgba([r, g, b]: RgbTuple, alpha: number): string {
   return `rgba(${r}, ${g}, ${b}, ${alpha.toFixed(3)})`;
 }
 
+function srgbToLinear(channel: number): number {
+  const normalized = channel / 255;
+  if (normalized <= 0.04045) {
+    return normalized / 12.92;
+  }
+  return ((normalized + 0.055) / 1.055) ** 2.4;
+}
+
+function relativeLuminance([r, g, b]: RgbTuple): number {
+  const rl = srgbToLinear(r);
+  const gl = srgbToLinear(g);
+  const bl = srgbToLinear(b);
+  return 0.2126 * rl + 0.7152 * gl + 0.0722 * bl;
+}
+
+function contrastRatio(a: RgbTuple, b: RgbTuple): number {
+  const l1 = relativeLuminance(a);
+  const l2 = relativeLuminance(b);
+  const lighter = Math.max(l1, l2);
+  const darker = Math.min(l1, l2);
+  return (lighter + 0.05) / (darker + 0.05);
+}
+
+function ensureReadableTextColor(text: RgbTuple, bg: RgbTuple): RgbTuple {
+  const minContrast = 2.8;
+  if (contrastRatio(text, bg) >= minContrast) {
+    return text;
+  }
+
+  const dark: RgbTuple = [24, 24, 27];
+  const light: RgbTuple = [245, 245, 245];
+  return contrastRatio(dark, bg) >= contrastRatio(light, bg) ? dark : light;
+}
+
 export default function SonioxLivePreview() {
   const [finalText, setFinalText] = useState("");
   const [interimText, setInterimText] = useState("");
@@ -117,7 +148,6 @@ export default function SonioxLivePreview() {
     const unlistenFns: Array<() => void> = [];
     let pollId: number | null = null;
     let active = true;
-    const currentWindow = getCurrentWebviewWindow();
 
     const applyPayload = (raw: unknown) => {
       if (!active) {
@@ -261,14 +291,6 @@ export default function SonioxLivePreview() {
           applyPayload(event.payload);
         });
         unlistenFns.push(unlistenApp);
-
-        const unlistenWindow = await currentWindow.listen<unknown>(
-          eventName,
-          (event) => {
-            applyPayload(event.payload);
-          },
-        );
-        unlistenFns.push(unlistenWindow);
       }
 
       for (const eventName of appearanceEvents) {
@@ -276,14 +298,6 @@ export default function SonioxLivePreview() {
           applyAppearancePayload(event.payload);
         });
         unlistenFns.push(unlistenApp);
-
-        const unlistenWindow = await currentWindow.listen<unknown>(
-          eventName,
-          (event) => {
-            applyAppearancePayload(event.payload);
-          },
-        );
-        unlistenFns.push(unlistenWindow);
       }
 
       for (const eventName of resetEvents) {
@@ -297,9 +311,6 @@ export default function SonioxLivePreview() {
 
         const unlistenApp = await listen(eventName, resetHandler);
         unlistenFns.push(unlistenApp);
-
-        const unlistenWindow = await currentWindow.listen(eventName, resetHandler);
-        unlistenFns.push(unlistenWindow);
       }
     };
 
@@ -329,8 +340,19 @@ export default function SonioxLivePreview() {
     const preset = THEME_PRESETS[appearance.theme] ?? THEME_PRESETS.main_dark;
     const panelAlpha = appearance.opacityPercent / 100;
     const interimAlpha = appearance.interimOpacityPercent / 100;
-    const fontRgb = hexToRgb(appearance.fontColor, [245, 245, 245]);
-    const interimFontRgb = hexToRgb(appearance.interimFontColor, [245, 245, 245]);
+    const panelBase: RgbTuple = [
+      Math.round((preset.top[0] + preset.bottom[0]) / 2),
+      Math.round((preset.top[1] + preset.bottom[1]) / 2),
+      Math.round((preset.top[2] + preset.bottom[2]) / 2),
+    ];
+    const fontRgb = ensureReadableTextColor(
+      hexToRgb(appearance.fontColor, [245, 245, 245]),
+      panelBase,
+    );
+    const interimFontRgb = ensureReadableTextColor(
+      hexToRgb(appearance.interimFontColor, [245, 245, 245]),
+      panelBase,
+    );
     const accentRgb = hexToRgb(appearance.accentColor, [255, 77, 141]);
 
     return {
@@ -356,11 +378,7 @@ export default function SonioxLivePreview() {
     <div className="soniox-live-preview-root" style={rootStyle}>
       <div className="soniox-live-preview-body" ref={scrollRef}>
         {fullText.length === 0 ? (
-          <>
-            <span className="soniox-live-preview-final">{EMPTY_SAMPLE_CONFIRMED}</span>
-            <span className="soniox-live-preview-interim">{EMPTY_SAMPLE_DRAFT}</span>
-            <div className="soniox-live-preview-empty">Speak to replace this demo text.</div>
-          </>
+          <span className="soniox-live-preview-empty">Waiting for speech...</span>
         ) : (
           <>
             <span className="soniox-live-preview-final">{finalText}</span>

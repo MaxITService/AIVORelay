@@ -48,7 +48,7 @@ use signal_hook::consts::SIGUSR2;
 #[cfg(unix)]
 use signal_hook::iterator::Signals;
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicU8, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use std::sync::{Arc, Mutex};
 use tauri::image::Image;
 
@@ -63,6 +63,7 @@ use crate::settings::get_settings;
 // Global atomic to store the file log level filter
 // We use u8 to store the log::LevelFilter as a number
 pub static FILE_LOG_LEVEL: AtomicU8 = AtomicU8::new(log::LevelFilter::Debug as u8);
+static APP_QUIT_REQUESTED: AtomicBool = AtomicBool::new(false);
 
 fn level_filter_from_u8(value: u8) -> log::LevelFilter {
     match value {
@@ -267,6 +268,7 @@ fn initialize_core_logic(app_handle: &AppHandle) {
                 cancel_current_operation(app);
             }
             "quit" => {
+                APP_QUIT_REQUESTED.store(true, Ordering::SeqCst);
                 app.exit(0);
             }
             _ => {}
@@ -669,6 +671,10 @@ pub fn run() {
                 // Only the main window should be hidden-to-tray on close.
                 // Auxiliary windows (e.g. voice activation button) must be allowed to close.
                 if window.label() == "main" {
+                    if APP_QUIT_REQUESTED.load(Ordering::SeqCst) {
+                        return;
+                    }
+
                     let settings = get_settings(&window.app_handle());
                     if !settings.show_tray_icon {
                         window.app_handle().exit(0);

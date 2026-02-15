@@ -1,5 +1,3 @@
-@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&display=swap");
-
 html,
 body,
 #root {
@@ -10,7 +8,7 @@ body,
 
 body {
   background: transparent;
-  font-family: "Inter", "Segoe UI", "Noto Sans", sans-serif;
+  font-family: "Segoe UI", "Noto Sans", sans-serif;
 }
 
 .soniox-live-preview-root {
