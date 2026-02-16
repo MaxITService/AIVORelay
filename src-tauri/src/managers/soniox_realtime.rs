@@ -160,6 +160,11 @@ impl SonioxRealtimeManager {
         if api_key.trim().is_empty() {
             return Err(anyhow!("Soniox API key is missing"));
         }
+        if self.has_active_session() {
+            return Err(anyhow!(
+                "Soniox live session is already active for this profile"
+            ));
+        }
 
         let model = Self::normalize_model_for_realtime(model);
         if !Self::is_realtime_model(&model) {
@@ -268,6 +273,7 @@ impl SonioxRealtimeManager {
             }
         }
 
+        crate::overlay::begin_soniox_live_preview_session();
         crate::overlay::reset_soniox_live_preview(&self.app_handle);
         crate::overlay::show_soniox_live_preview_window(&self.app_handle);
 
@@ -472,6 +478,7 @@ impl SonioxRealtimeManager {
 
     pub async fn finish_session(&self, timeout_ms: u32) -> Result<String> {
         let hide_preview = || {
+            crate::overlay::end_soniox_live_preview_session();
             crate::overlay::hide_soniox_live_preview_window(&self.app_handle);
         };
 
@@ -575,6 +582,7 @@ impl SonioxRealtimeManager {
             let mut guard = match self.active_session.lock() {
                 Ok(guard) => guard,
                 Err(_) => {
+                    crate::overlay::end_soniox_live_preview_session();
                     crate::overlay::hide_soniox_live_preview_window(&self.app_handle);
                     return;
                 }
@@ -593,6 +601,7 @@ impl SonioxRealtimeManager {
         if let Ok(mut pending) = self.pending_audio.lock() {
             pending.clear();
         }
+        crate::overlay::end_soniox_live_preview_session();
         crate::overlay::hide_soniox_live_preview_window(&self.app_handle);
     }
 }

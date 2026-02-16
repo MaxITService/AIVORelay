@@ -75,6 +75,27 @@ pub struct SonioxLivePreviewPayload {
     pub interim_text: String,
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum SonioxLivePreviewMode {
+    UiDemo,
+    Live,
+}
+
+#[derive(Clone, Copy)]
+struct SonioxLivePreviewRuntimeState {
+    mode: SonioxLivePreviewMode,
+    live_active: bool,
+}
+
+impl Default for SonioxLivePreviewRuntimeState {
+    fn default() -> Self {
+        Self {
+            mode: SonioxLivePreviewMode::UiDemo,
+            live_active: false,
+        }
+    }
+}
+
 #[derive(Serialize, Clone, Type)]
 pub struct SonioxLivePreviewAppearancePayload {
     pub theme: String,
@@ -87,6 +108,8 @@ pub struct SonioxLivePreviewAppearancePayload {
 
 static SONIOX_LIVE_PREVIEW_STATE: LazyLock<Mutex<SonioxLivePreviewPayload>> =
     LazyLock::new(|| Mutex::new(SonioxLivePreviewPayload::default()));
+static SONIOX_LIVE_PREVIEW_RUNTIME_STATE: LazyLock<Mutex<SonioxLivePreviewRuntimeState>> =
+    LazyLock::new(|| Mutex::new(SonioxLivePreviewRuntimeState::default()));
 
 fn decapitalize_indicator_eligible(settings: &settings::AppSettings) -> bool {
     settings.text_replacement_decapitalize_after_edit_key_enabled
@@ -632,6 +655,29 @@ pub fn hide_recording_overlay_immediately(app_handle: &AppHandle) {
     }
 }
 
+pub fn begin_soniox_live_preview_session() {
+    if let Ok(mut runtime_state) = SONIOX_LIVE_PREVIEW_RUNTIME_STATE.lock() {
+        runtime_state.mode = SonioxLivePreviewMode::Live;
+        runtime_state.live_active = true;
+    }
+}
+
+pub fn end_soniox_live_preview_session() {
+    if let Ok(mut runtime_state) = SONIOX_LIVE_PREVIEW_RUNTIME_STATE.lock() {
+        runtime_state.mode = SonioxLivePreviewMode::UiDemo;
+        runtime_state.live_active = false;
+    }
+}
+
+fn is_soniox_live_preview_session_active() -> bool {
+    SONIOX_LIVE_PREVIEW_RUNTIME_STATE
+        .lock()
+        .map(|runtime_state| {
+            runtime_state.live_active && runtime_state.mode == SonioxLivePreviewMode::Live
+        })
+        .unwrap_or(false)
+}
+
 #[cfg(target_os = "windows")]
 pub fn show_soniox_live_preview_window(app_handle: &AppHandle) {
     let app_settings = settings::get_settings(app_handle);
@@ -689,7 +735,7 @@ pub fn reset_soniox_live_preview(app_handle: &AppHandle) {
 pub fn reset_soniox_live_preview(_app_handle: &AppHandle) {}
 
 #[cfg(target_os = "windows")]
-pub fn emit_soniox_live_preview_update(
+fn emit_soniox_live_preview_update_internal(
     app_handle: &AppHandle,
     final_text: &str,
     interim_text: &str,
@@ -713,6 +759,30 @@ pub fn emit_soniox_live_preview_update(
         let _ = window.emit("soniox-live-preview-update", payload.clone());
         let _ = window.emit("soniox_live_preview_update", payload.clone());
     }
+}
+
+#[cfg(target_os = "windows")]
+pub fn emit_soniox_live_preview_update(
+    app_handle: &AppHandle,
+    final_text: &str,
+    interim_text: &str,
+) {
+    if !is_soniox_live_preview_session_active() {
+        return;
+    }
+    emit_soniox_live_preview_update_internal(app_handle, final_text, interim_text);
+}
+
+#[cfg(target_os = "windows")]
+fn emit_soniox_live_preview_demo_update(
+    app_handle: &AppHandle,
+    final_text: &str,
+    interim_text: &str,
+) {
+    if is_soniox_live_preview_session_active() {
+        return;
+    }
+    emit_soniox_live_preview_update_internal(app_handle, final_text, interim_text);
 }
 
 #[cfg(target_os = "windows")]
@@ -771,6 +841,15 @@ pub fn get_soniox_live_preview_appearance(
 pub fn preview_soniox_live_preview_window(app_handle: AppHandle) -> Result<(), String> {
     #[cfg(target_os = "windows")]
     {
+        if is_soniox_live_preview_session_active() {
+            // Live capture preview has strict priority over UI demo preview.
+            return Ok(());
+        }
+
+        if let Ok(mut runtime_state) = SONIOX_LIVE_PREVIEW_RUNTIME_STATE.lock() {
+            runtime_state.mode = SonioxLivePreviewMode::UiDemo;
+        }
+
         if app_handle
             .get_webview_window(SONIOX_LIVE_PREVIEW_WINDOW_LABEL)
             .is_none()
@@ -783,16 +862,17 @@ pub fn preview_soniox_live_preview_window(app_handle: AppHandle) -> Result<(), S
                 let _ = window.set_size(tauri::Size::Logical(tauri::LogicalSize { width, height }));
                 let _ = window.set_position(tauri::Position::Logical(tauri::LogicalPosition { x, y }));
             }
-            emit_soniox_live_preview_update(
-                &app_handle,
-                "Confirmed Text: The quick brown fox jumps over the lazy dog. ",
-                "Live Draft: this part may still change before confirmation...",
-            );
             emit_soniox_live_preview_appearance_update(&app_handle);
             let _ = window.unminimize();
             let _ = window.show();
             force_overlay_topmost(&window);
+            emit_soniox_live_preview_demo_update(
+                &app_handle,
+                "Confirmed Text: The quick brown fox jumps over the lazy dog. ",
+                "Live Draft: this part may still change before confirmation...",
+            );
             let _ = window.set_focus();
+
             return Ok(());
         }
 
