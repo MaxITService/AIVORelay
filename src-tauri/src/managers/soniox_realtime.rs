@@ -160,16 +160,23 @@ impl SonioxRealtimeManager {
         if api_key.trim().is_empty() {
             return Err(anyhow!("Soniox API key is missing"));
         }
-        if self.has_active_session() {
-            return Err(anyhow!(
-                "Soniox live session is already active for this profile"
-            ));
-        }
 
         let model = Self::normalize_model_for_realtime(model);
         if !Self::is_realtime_model(&model) {
             return Err(anyhow!(
                 "Soniox live mode requires a real-time model (stt-rt-*)"
+            ));
+        }
+
+        // Reserve the active-session slot atomically so concurrent start calls
+        // cannot both pass the "already active" check.
+        let mut active_session_guard = self
+            .active_session
+            .lock()
+            .map_err(|_| anyhow!("Failed to lock Soniox live session state"))?;
+        if active_session_guard.is_some() {
+            return Err(anyhow!(
+                "Soniox live session is already active for this profile"
             ));
         }
 
@@ -214,6 +221,7 @@ impl SonioxRealtimeManager {
         let final_text_for_task = Arc::clone(&final_text);
         let start_payload_for_task = start_payload;
         let app_handle_for_task = self.app_handle.clone();
+        let session_audio_tx = audio_tx.clone();
 
         let join_handle = tauri::async_runtime::spawn(async move {
             let (stream, _) = timeout(
@@ -250,12 +258,8 @@ impl SonioxRealtimeManager {
             final_text,
             join_handle,
         };
-
-        if let Ok(mut guard) = self.active_session.lock() {
-            *guard = Some(active);
-        } else {
-            return Err(anyhow!("Failed to store Soniox live session state"));
-        }
+        *active_session_guard = Some(active);
+        drop(active_session_guard);
 
         // Flush short buffered audio captured while websocket was connecting.
         let buffered = if let Ok(mut guard) = self.pending_audio.lock() {
@@ -263,13 +267,9 @@ impl SonioxRealtimeManager {
         } else {
             Vec::new()
         };
-        if let Ok(guard) = self.active_session.lock() {
-            if let Some(session) = guard.as_ref() {
-                for chunk in buffered {
-                    if session.audio_tx.try_send(chunk).is_err() {
-                        break;
-                    }
-                }
+        for chunk in buffered {
+            if session_audio_tx.try_send(chunk).is_err() {
+                break;
             }
         }
 
