@@ -154,6 +154,10 @@ pub struct TranscriptionProfile {
     /// Push-to-talk mode for this profile (hold key to record vs toggle)
     #[serde(default = "default_true")]
     pub push_to_talk: bool,
+    /// Route transcription output to the preview window instead of auto-inserting.
+    /// The user explicitly controls when text is inserted via preview actions.
+    #[serde(default)]
+    pub preview_output_only_enabled: bool,
     // ==================== LLM Post-Processing Settings ====================
     /// Whether LLM post-processing is enabled for this profile
     /// Inherits from global post_process_enabled when profile is created
@@ -978,6 +982,8 @@ impl SoundTheme {
 pub struct AppSettings {
     pub bindings: HashMap<String, ShortcutBinding>,
     pub push_to_talk: bool,
+    #[serde(default)]
+    pub preview_output_only_enabled: bool,
     pub audio_feedback: bool,
     #[serde(default = "default_audio_feedback_volume")]
     pub audio_feedback_volume: f32,
@@ -2079,6 +2085,7 @@ pub fn get_default_settings() -> AppSettings {
     AppSettings {
         bindings,
         push_to_talk: true,
+        preview_output_only_enabled: false,
         audio_feedback: false,
         audio_feedback_volume: default_audio_feedback_volume(),
         sound_theme: default_sound_theme(),

@@ -22,7 +22,7 @@ body {
   box-sizing: border-box;
   width: 100%;
   height: 100%;
-  padding: 12px 14px;
+  padding: 10px 12px;
   border-radius: 14px;
   border: 1px solid var(--slp-border-color);
   background: linear-gradient(180deg, var(--slp-bg-top), var(--slp-bg-bottom));
@@ -35,12 +35,45 @@ body {
     0 0 24px var(--slp-shadow-color);
   display: flex;
   flex-direction: column;
+  gap: 8px;
+}
+
+.soniox-live-preview-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 26px;
+}
+
+.soniox-live-preview-title {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--slp-empty-color);
+}
+
+.soniox-live-preview-close {
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: rgba(0, 0, 0, 0.22);
+  color: var(--slp-final-color);
+  font-size: 11px;
+  line-height: 1;
+  width: 22px;
+  height: 22px;
+  border-radius: 7px;
+  cursor: pointer;
+  transition: background-color 120ms ease;
+}
+
+.soniox-live-preview-close:hover {
+  background: rgba(255, 77, 141, 0.2);
 }
 
 .soniox-live-preview-body {
   flex: 1;
+  min-height: 0;
   overflow-y: auto;
-  font-size: 20px;
+  font-size: 19px;
   line-height: 1.4;
   white-space: pre-wrap;
   word-break: break-word;
@@ -56,4 +89,55 @@ body {
 
 .soniox-live-preview-empty {
   color: var(--slp-empty-color);
+}
+
+.soniox-live-preview-error {
+  font-size: 12px;
+  line-height: 1.35;
+  color: #ffb3c8;
+  border: 1px solid rgba(255, 77, 141, 0.35);
+  border-radius: 8px;
+  background: rgba(80, 12, 36, 0.35);
+  padding: 6px 8px;
+}
+
+.soniox-live-preview-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.soniox-live-preview-action-button {
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: rgba(15, 15, 15, 0.4);
+  color: var(--slp-final-color);
+  border-radius: 8px;
+  height: 28px;
+  padding: 0 10px;
+  font-size: 12px;
+  cursor: pointer;
+  transition:
+    background-color 120ms ease,
+    border-color 120ms ease,
+    opacity 120ms ease;
+}
+
+.soniox-live-preview-action-button:hover:not(:disabled) {
+  border-color: rgba(255, 77, 141, 0.55);
+  background: rgba(255, 77, 141, 0.15);
+}
+
+.soniox-live-preview-action-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.soniox-live-preview-action-button-primary {
+  background: rgba(255, 77, 141, 0.24);
+  border-color: rgba(255, 77, 141, 0.58);
+}
+
+.soniox-live-preview-action-button-primary:hover:not(:disabled) {
+  background: rgba(255, 77, 141, 0.34);
 }

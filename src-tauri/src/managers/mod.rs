@@ -4,6 +4,7 @@ pub mod history;
 pub mod key_listener;
 pub mod llm_operation;
 pub mod model;
+pub mod preview_output_mode;
 pub mod remote_stt;
 pub mod soniox_realtime;
 pub mod soniox_stt;

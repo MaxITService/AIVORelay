@@ -283,25 +283,29 @@ fn apply_llm_template_vars(template: &str, context: &LlmTemplateContext) -> Stri
 /// - `profile.llm_model_override` overrides the global model (if set and valid for current provider)
 ///
 /// If `profile` is None (default profile), uses global settings.
+/// If `force_manual` is true, the enable flag gates are bypassed.
 async fn maybe_post_process_transcription(
     app: &AppHandle,
     settings: &AppSettings,
     profile: Option<&TranscriptionProfile>,
     template_context: &LlmTemplateContext,
+    force_manual: bool,
 ) -> PostProcessTranscriptionOutcome {
-    if settings.transcription_provider == TranscriptionProvider::RemoteSoniox {
+    if !force_manual && settings.transcription_provider == TranscriptionProvider::RemoteSoniox {
         debug!("Skipping post-processing for Soniox streaming transcription");
         return PostProcessTranscriptionOutcome::Skipped;
     }
 
-    // Determine if post-processing is enabled based on profile or global setting
-    let is_enabled = match profile {
-        Some(p) => p.llm_post_process_enabled,
-        None => settings.post_process_enabled,
-    };
+    if !force_manual {
+        // Determine if post-processing is enabled based on profile or global setting.
+        let is_enabled = match profile {
+            Some(p) => p.llm_post_process_enabled,
+            None => settings.post_process_enabled,
+        };
 
-    if !is_enabled {
-        return PostProcessTranscriptionOutcome::Skipped;
+        if !is_enabled {
+            return PostProcessTranscriptionOutcome::Skipped;
+        }
     }
 
     let provider = match settings.active_post_process_provider().cloned() {
@@ -808,6 +812,8 @@ async fn perform_transcription_for_profile(
         profile.as_ref().map(|p| &p.name)
     );
 
+    let preview_output_only_enabled = is_preview_output_only_profile(settings, profile);
+
     if settings.transcription_provider == TranscriptionProvider::RemoteOpenAiCompatible {
         // Determine translate_to_english: use profile setting if available, otherwise global setting
         let translate_to_english = profile
@@ -931,7 +937,8 @@ async fn perform_transcription_for_profile(
         let soniox_manager = app.state::<Arc<SonioxSttManager>>();
         let operation_id = soniox_manager.start_operation();
         let soniox_context = crate::settings::resolve_soniox_context(profile, &settings);
-        let should_stream_insert = binding_id
+        let should_stream_insert = !preview_output_only_enabled
+            && binding_id
             .map(|id| id == "transcribe" || id.starts_with("transcribe_profile_"))
             .unwrap_or(false);
 
@@ -1343,6 +1350,170 @@ fn resolve_profile_for_binding<'a>(
     None
 }
 
+fn is_preview_output_only_profile(
+    settings: &AppSettings,
+    profile: Option<&TranscriptionProfile>,
+) -> bool {
+    profile
+        .map(|p| p.preview_output_only_enabled)
+        .unwrap_or(settings.preview_output_only_enabled)
+}
+
+fn is_preview_output_only_for_captured_profile(
+    settings: &AppSettings,
+    captured_profile_id: Option<&String>,
+) -> bool {
+    captured_profile_id
+        .and_then(|profile_id| settings.transcription_profile(profile_id))
+        .map(|profile| profile.preview_output_only_enabled)
+        .unwrap_or(settings.preview_output_only_enabled)
+}
+
+fn update_preview_text_for_output_mode(app: &AppHandle, text: &str) {
+    let mut next_final = crate::managers::preview_output_mode::recording_prefix_text();
+    next_final.push_str(text);
+    crate::overlay::emit_soniox_live_preview_update(app, &next_final, "");
+}
+
+fn current_preview_buffer_text() -> String {
+    let state = crate::overlay::get_soniox_live_preview_state();
+    format!("{}{}", state.final_text, state.interim_text)
+}
+
+fn current_preview_final_text() -> String {
+    crate::overlay::get_soniox_live_preview_state().final_text
+}
+
+async fn paste_preview_buffer_to_target(app: &AppHandle, text: String) -> Result<(), String> {
+    if text.trim().is_empty() {
+        return Ok(());
+    }
+
+    // Avoid pasting back into the preview window itself after an action click.
+    crate::overlay::hide_soniox_live_preview_window(app);
+    tokio::time::sleep(Duration::from_millis(90)).await;
+
+    let ah_for_call = app.clone();
+    let ah_for_paste = app.clone();
+    ah_for_call
+        .run_on_main_thread(move || {
+            if let Err(err) = utils::paste(text, ah_for_paste.clone()) {
+                warn!("Preview paste failed: {}", err);
+            }
+        })
+        .map_err(|err| format!("Failed to dispatch paste operation: {}", err))?;
+
+    Ok(())
+}
+
+async fn finalize_preview_workflow_after_stop(app: &AppHandle, text: String) -> Result<(), String> {
+    if !text.trim().is_empty() {
+        paste_preview_buffer_to_target(app, text).await?;
+    }
+    close_preview_output_mode_workflow(app, true);
+    Ok(())
+}
+
+fn transcribe_action_for_binding(binding_id: &str) -> Option<Arc<dyn ShortcutAction>> {
+    ACTION_MAP.get(binding_id).cloned().or_else(|| {
+        if binding_id.starts_with("transcribe_") {
+            ACTION_MAP.get("transcribe").cloned()
+        } else {
+            None
+        }
+    })
+}
+
+fn stop_transcribe_binding_from_preview(app: &AppHandle, binding_id: &str) -> Result<(), String> {
+    let action = transcribe_action_for_binding(binding_id).ok_or_else(|| {
+        format!(
+            "No transcription action is registered for binding '{}'",
+            binding_id
+        )
+    })?;
+    action.stop(app, binding_id, "preview_output_mode");
+    Ok(())
+}
+
+fn start_transcribe_binding_from_preview(app: &AppHandle, binding_id: &str) -> Result<(), String> {
+    let action = transcribe_action_for_binding(binding_id).ok_or_else(|| {
+        format!(
+            "No transcription action is registered for binding '{}'",
+            binding_id
+        )
+    })?;
+    action.start(app, binding_id, "preview_output_mode");
+    Ok(())
+}
+
+fn is_recording_for_binding(app: &AppHandle, binding_id: &str) -> bool {
+    let state = app.state::<ManagedSessionState>();
+    let guard = match state.lock() {
+        Ok(guard) => guard,
+        Err(_) => return false,
+    };
+    matches!(
+        &*guard,
+        session_manager::SessionState::Recording {
+            binding_id: current_binding_id,
+            ..
+        } if current_binding_id == binding_id
+    )
+}
+
+fn use_push_to_talk_for_transcribe_binding(settings: &AppSettings, binding_id: &str) -> bool {
+    if binding_id == "transcribe" {
+        if settings.active_profile_id == "default" {
+            settings.push_to_talk
+        } else {
+            settings
+                .transcription_profile(&settings.active_profile_id)
+                .map(|p| p.push_to_talk)
+                .unwrap_or(settings.push_to_talk)
+        }
+    } else if binding_id.starts_with("transcribe_") {
+        settings
+            .transcription_profile_by_binding(binding_id)
+            .map(|p| p.push_to_talk)
+            .unwrap_or(settings.push_to_talk)
+    } else {
+        settings.push_to_talk
+    }
+}
+
+async fn wait_for_session_idle(app: &AppHandle, timeout: Duration) -> bool {
+    let start = Instant::now();
+    loop {
+        let is_idle = {
+            let state = app.state::<ManagedSessionState>();
+            let idle = match state.lock() {
+                Ok(guard) => matches!(&*guard, session_manager::SessionState::Idle),
+                Err(_) => false,
+            };
+            idle
+        };
+
+        if is_idle {
+            return true;
+        }
+
+        if start.elapsed() >= timeout {
+            return false;
+        }
+
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    }
+}
+
+fn close_preview_output_mode_workflow(app: &AppHandle, clear_text: bool) {
+    crate::managers::preview_output_mode::deactivate_session(app);
+    crate::overlay::end_soniox_live_preview_session();
+    if clear_text {
+        crate::overlay::reset_soniox_live_preview(app);
+    }
+    crate::overlay::hide_soniox_live_preview_window(app);
+}
+
 fn is_transcribe_binding_id(binding_id: &str) -> bool {
     binding_id == "transcribe" || binding_id.starts_with("transcribe_")
 }
@@ -1615,7 +1786,7 @@ async fn apply_post_processing_and_history(
         "",
     );
 
-    match maybe_post_process_transcription(app, settings, profile, &template_context).await {
+    match maybe_post_process_transcription(app, settings, profile, &template_context, false).await {
         PostProcessTranscriptionOutcome::Skipped => {
             if final_text != transcription {
                 // Chinese conversion was applied but LLM post-processing was not.
@@ -1833,12 +2004,33 @@ impl ShortcutAction for TranscribeAction {
 
         let settings = get_settings(app);
         let use_soniox_live = should_use_soniox_live_streaming(&settings);
+        let profile = resolve_profile_for_binding(&settings, binding_id);
+        let preview_output_only_enabled = is_preview_output_only_profile(&settings, profile);
 
         if !start_recording_with_feedback(app, binding_id) {
             // Recording failed to start (e.g., system busy) - reset toggle state
             // so next press will try to start again instead of calling stop
             reset_toggle_state(app, binding_id);
             return;
+        }
+
+        if preview_output_only_enabled {
+            let was_active_for_binding =
+                crate::managers::preview_output_mode::is_active_for_binding(binding_id);
+            let mut recording_prefix = crate::overlay::get_soniox_live_preview_state().final_text;
+            if !was_active_for_binding {
+                crate::overlay::begin_soniox_live_preview_session();
+                crate::overlay::reset_soniox_live_preview(app);
+                recording_prefix.clear();
+            }
+            crate::managers::preview_output_mode::activate_session(
+                app,
+                binding_id.to_string(),
+                profile.map(|p| p.id.clone()),
+                use_soniox_live,
+                recording_prefix,
+            );
+            crate::overlay::show_soniox_live_preview_window(app);
         }
 
         if use_soniox_live {
@@ -1851,11 +2043,12 @@ impl ShortcutAction for TranscribeAction {
             audio_manager.set_stream_frame_callback(Arc::new(move |frame| {
                 soniox_live_manager.push_audio_frame(frame);
             }));
-            if let Err(e) = crate::clipboard::begin_streaming_paste_session(app) {
-                warn!("Failed to begin streaming clipboard session: {}", e);
+            if !preview_output_only_enabled {
+                if let Err(e) = crate::clipboard::begin_streaming_paste_session(app) {
+                    warn!("Failed to begin streaming clipboard session: {}", e);
+                }
             }
 
-            let profile = resolve_profile_for_binding(&settings, binding_id);
             let language = profile
                 .as_ref()
                 .map(|p| p.language.clone())
@@ -1867,37 +2060,42 @@ impl ShortcutAction for TranscribeAction {
             let app_handle = app.clone();
             let soniox_live_manager = Arc::clone(&app.state::<Arc<SonioxRealtimeManager>>());
             let _ = take_soniox_stream_processor(&binding_id);
-            let stream_processor = register_soniox_stream_processor(&binding_id, &settings);
+            let stream_processor = if preview_output_only_enabled {
+                None
+            } else {
+                Some(register_soniox_stream_processor(&binding_id, &settings))
+            };
 
             #[cfg(target_os = "windows")]
             let api_key = crate::secure_keys::get_soniox_api_key();
             #[cfg(not(target_os = "windows"))]
             let api_key = String::new();
 
-            let chunk_callback: FinalChunkCallback = Arc::new({
-                let ah_for_cb = app_handle.clone();
-                let stream_processor = Arc::clone(&stream_processor);
-                move |chunk: String| {
-                    if chunk.is_empty() {
-                        return;
-                    }
-                    let delta = match stream_processor.lock() {
-                        Ok(mut processor) => processor.push_chunk(&chunk),
-                        Err(_) => {
-                            warn!("Failed to lock Soniox stream processor");
-                            String::new()
+            let chunk_callback = stream_processor.map(|stream_processor| {
+                Arc::new({
+                    let ah_for_cb = app_handle.clone();
+                    move |chunk: String| {
+                        if chunk.is_empty() {
+                            return;
                         }
-                    };
-                    if delta.is_empty() {
-                        return;
+                        let delta = match stream_processor.lock() {
+                            Ok(mut processor) => processor.push_chunk(&chunk),
+                            Err(_) => {
+                                warn!("Failed to lock Soniox stream processor");
+                                String::new()
+                            }
+                        };
+                        if delta.is_empty() {
+                            return;
+                        }
+                        let ah_for_call = ah_for_cb.clone();
+                        let ah_for_clip = ah_for_call.clone();
+                        let _ = ah_for_call.run_on_main_thread(move || {
+                            let _ =
+                                crate::clipboard::paste_stream_chunk(delta, ah_for_clip.clone());
+                        });
                     }
-                    let ah_for_call = ah_for_cb.clone();
-                    let ah_for_clip = ah_for_call.clone();
-                    let _ = ah_for_call.run_on_main_thread(move || {
-                        let _ =
-                            crate::clipboard::paste_stream_chunk(delta, ah_for_clip.clone());
-                    });
-                }
+                }) as FinalChunkCallback
             });
 
             let start_result = soniox_live_manager.start_session(
@@ -1905,7 +2103,7 @@ impl ShortcutAction for TranscribeAction {
                 &api_key,
                 &model,
                 options,
-                Some(chunk_callback),
+                chunk_callback,
             );
 
             if let Err(err) = start_result {
@@ -1913,10 +2111,18 @@ impl ShortcutAction for TranscribeAction {
                 let err_str = format!("{}", err);
                 let _ = app_handle.emit("remote-stt-error", err_str.clone());
                 crate::plus_overlay_state::handle_transcription_error(&app_handle, &err_str);
-                let _ = crate::clipboard::end_streaming_paste_session(&app_handle);
+                if !preview_output_only_enabled {
+                    let _ = crate::clipboard::end_streaming_paste_session(&app_handle);
+                }
                 app_handle
                     .state::<Arc<AudioRecordingManager>>()
                     .clear_stream_frame_callback();
+                if preview_output_only_enabled {
+                    crate::managers::preview_output_mode::deactivate_session(&app_handle);
+                    crate::overlay::end_soniox_live_preview_session();
+                    crate::overlay::hide_soniox_live_preview_window(&app_handle);
+                    crate::overlay::reset_soniox_live_preview(&app_handle);
+                }
                 // Cancel the recording and return to idle if session startup fails.
                 crate::utils::cancel_current_operation(&app_handle);
             } else {
@@ -1933,9 +2139,10 @@ impl ShortcutAction for TranscribeAction {
         );
     }
 
-    fn stop(&self, app: &AppHandle, binding_id: &str, _shortcut_str: &str) {
+    fn stop(&self, app: &AppHandle, binding_id: &str, shortcut_str: &str) {
         let soniox_live_manager = Arc::clone(&app.state::<Arc<SonioxRealtimeManager>>());
         let use_soniox_live = should_use_soniox_live_for_recording(app, binding_id);
+        let invoked_from_preview_action = shortcut_str == "preview_output_mode";
 
         if use_soniox_live {
             let stop_context = match prepare_stop_recording_with_options(app, binding_id, false) {
@@ -1946,9 +2153,17 @@ impl ShortcutAction for TranscribeAction {
                 }
             };
             let recording_settings = stop_context.recording_settings.clone();
+            let preview_output_only_enabled = is_preview_output_only_for_captured_profile(
+                &recording_settings,
+                stop_context.captured_profile_id.as_ref(),
+            );
+            if preview_output_only_enabled {
+                crate::managers::preview_output_mode::set_recording(app, false);
+                crate::managers::preview_output_mode::set_error(app, None);
+            }
             // Live mode already streamed text while recording.
             // On stop, show explicit finalizing state unless instant-stop is enabled.
-            if recording_settings.soniox_live_instant_stop {
+            if recording_settings.soniox_live_instant_stop && !preview_output_only_enabled {
                 utils::hide_recording_overlay(app);
             } else {
                 show_finalizing_overlay(app);
@@ -1958,6 +2173,8 @@ impl ShortcutAction for TranscribeAction {
 
             let ah = app.clone();
             let binding_id = binding_id.to_string();
+            let preview_output_only_enabled = preview_output_only_enabled;
+            let invoked_from_preview_action = invoked_from_preview_action;
             tauri::async_runtime::spawn(async move {
                 let stream_processor = take_soniox_stream_processor(&binding_id);
                 let rm = Arc::clone(&ah.state::<Arc<AudioRecordingManager>>());
@@ -1972,7 +2189,11 @@ impl ShortcutAction for TranscribeAction {
                                 .await;
                         }
                         rm.clear_stream_frame_callback();
-                        let _ = crate::clipboard::end_streaming_paste_session(&ah);
+                        if !preview_output_only_enabled {
+                            let _ = crate::clipboard::end_streaming_paste_session(&ah);
+                        } else if !invoked_from_preview_action {
+                            close_preview_output_mode_workflow(&ah, true);
+                        }
                         utils::hide_recording_overlay(&ah);
                         change_tray_icon(&ah, TrayIconState::Idle);
                         session_manager::exit_processing(&ah);
@@ -1981,9 +2202,11 @@ impl ShortcutAction for TranscribeAction {
                 };
                 rm.clear_stream_frame_callback();
 
-                if recording_settings.soniox_live_instant_stop {
+                if recording_settings.soniox_live_instant_stop && !preview_output_only_enabled {
                     soniox_live_manager.cancel();
-                    let _ = crate::clipboard::end_streaming_paste_session(&ah);
+                    if !preview_output_only_enabled {
+                        let _ = crate::clipboard::end_streaming_paste_session(&ah);
+                    }
 
                     let ah_clone = ah.clone();
                     let binding_id_clone = binding_id.clone();
@@ -2009,7 +2232,15 @@ impl ShortcutAction for TranscribeAction {
                         let err_str = format!("{}", err);
                         let _ = ah.emit("remote-stt-error", err_str.clone());
                         crate::plus_overlay_state::handle_transcription_error(&ah, &err_str);
-                        let _ = crate::clipboard::end_streaming_paste_session(&ah);
+                        if !preview_output_only_enabled {
+                            let _ = crate::clipboard::end_streaming_paste_session(&ah);
+                        }
+                        if preview_output_only_enabled {
+                            crate::managers::preview_output_mode::set_error(
+                                &ah,
+                                Some(err_str.clone()),
+                            );
+                        }
                         session_manager::exit_processing(&ah);
                         return;
                     }
@@ -2038,7 +2269,11 @@ impl ShortcutAction for TranscribeAction {
                 }
 
                 if transcription.is_empty() {
-                    let _ = crate::clipboard::end_streaming_paste_session(&ah);
+                    if !preview_output_only_enabled {
+                        let _ = crate::clipboard::end_streaming_paste_session(&ah);
+                    } else if !invoked_from_preview_action {
+                        close_preview_output_mode_workflow(&ah, true);
+                    }
                     utils::hide_recording_overlay(&ah);
                     change_tray_icon(&ah, TrayIconState::Idle);
                     session_manager::exit_processing(&ah);
@@ -2063,7 +2298,11 @@ impl ShortcutAction for TranscribeAction {
                 {
                     Some(text) => text,
                     None => {
-                        let _ = crate::clipboard::end_streaming_paste_session(&ah);
+                        if !preview_output_only_enabled {
+                            let _ = crate::clipboard::end_streaming_paste_session(&ah);
+                        } else if !invoked_from_preview_action {
+                            close_preview_output_mode_workflow(&ah, true);
+                        }
                         session_manager::exit_processing(&ah);
                         return;
                     }
@@ -2071,12 +2310,23 @@ impl ShortcutAction for TranscribeAction {
 
                 let ah_clone = ah.clone();
                 let binding_id_clone = binding_id.clone();
+                let final_text_for_ui = final_text.clone();
+                let final_text_for_insert =
+                    if preview_output_only_enabled && !invoked_from_preview_action {
+                    let mut combined_text = crate::managers::preview_output_mode::recording_prefix_text();
+                    combined_text.push_str(&final_text);
+                    Some(combined_text)
+                } else {
+                    None
+                };
                 ah.run_on_main_thread(move || {
-                    // Soniox live mode already inserted text incrementally while chunks arrived.
-                    // Apply only boundary-level trailing adjustment at finalization.
-                    apply_stream_trailing_adjustment(&ah_clone, stream_trailing_adjustment);
-                    if copy_to_clipboard {
-                        let _ = ah_clone.clipboard().write_text(final_text.clone());
+                    if !preview_output_only_enabled {
+                        // Soniox live mode already inserted text incrementally while chunks arrived.
+                        // Apply only boundary-level trailing adjustment at finalization.
+                        apply_stream_trailing_adjustment(&ah_clone, stream_trailing_adjustment);
+                        if copy_to_clipboard {
+                            let _ = ah_clone.clipboard().write_text(final_text_for_ui.clone());
+                        }
                     }
 
                     utils::hide_recording_overlay(&ah_clone);
@@ -2087,8 +2337,22 @@ impl ShortcutAction for TranscribeAction {
                 })
                 .ok();
 
-                if let Err(e) = crate::clipboard::end_streaming_paste_session(&ah) {
-                    warn!("Failed to end streaming clipboard session: {}", e);
+                if preview_output_only_enabled {
+                    if let Some(text_to_insert) = final_text_for_insert {
+                        if let Err(err) =
+                            finalize_preview_workflow_after_stop(&ah, text_to_insert).await
+                        {
+                            crate::managers::preview_output_mode::set_error(&ah, Some(err));
+                        }
+                    } else if invoked_from_preview_action {
+                        update_preview_text_for_output_mode(&ah, &final_text);
+                    }
+                }
+
+                if !preview_output_only_enabled {
+                    if let Err(e) = crate::clipboard::end_streaming_paste_session(&ah) {
+                        warn!("Failed to end streaming clipboard session: {}", e);
+                    }
                 }
 
                 session_manager::exit_processing(&ah);
@@ -2103,14 +2367,22 @@ impl ShortcutAction for TranscribeAction {
         let captured_profile_id = stop_context.captured_profile_id.clone();
         let current_app = stop_context.current_app.clone();
         let recording_settings = stop_context.recording_settings.clone();
+        let preview_output_only_enabled =
+            is_preview_output_only_for_captured_profile(&recording_settings, captured_profile_id.as_ref());
+        if preview_output_only_enabled {
+            crate::managers::preview_output_mode::set_recording(app, false);
+            crate::managers::preview_output_mode::set_error(app, None);
+        }
 
         let ah = app.clone();
         let binding_id = binding_id.to_string();
+        let preview_output_only_enabled = preview_output_only_enabled;
+        let invoked_from_preview_action = invoked_from_preview_action;
 
         tauri::async_runtime::spawn(async move {
             let is_soniox_provider =
                 recording_settings.transcription_provider == TranscriptionProvider::RemoteSoniox;
-            if is_soniox_provider {
+            if is_soniox_provider && !preview_output_only_enabled {
                 if let Err(e) = crate::clipboard::begin_streaming_paste_session(&ah) {
                     warn!("Failed to begin streaming clipboard session: {}", e);
                 }
@@ -2127,8 +2399,10 @@ impl ShortcutAction for TranscribeAction {
                 {
                     Some(res) => res,
                     None => {
-                        if is_soniox_provider {
+                        if is_soniox_provider && !preview_output_only_enabled {
                             let _ = crate::clipboard::end_streaming_paste_session(&ah);
+                        } else if preview_output_only_enabled && !invoked_from_preview_action {
+                            close_preview_output_mode_workflow(&ah, true);
                         }
                         session_manager::exit_processing(&ah);
                         return;
@@ -2136,8 +2410,10 @@ impl ShortcutAction for TranscribeAction {
                 };
 
             if transcription.is_empty() {
-                if is_soniox_provider {
+                if is_soniox_provider && !preview_output_only_enabled {
                     let _ = crate::clipboard::end_streaming_paste_session(&ah);
+                } else if preview_output_only_enabled && !invoked_from_preview_action {
+                    close_preview_output_mode_workflow(&ah, true);
                 }
                 utils::hide_recording_overlay(&ah);
                 change_tray_icon(&ah, TrayIconState::Idle);
@@ -2169,8 +2445,10 @@ impl ShortcutAction for TranscribeAction {
             {
                 Some(text) => text,
                 None => {
-                    if is_soniox_provider {
+                    if is_soniox_provider && !preview_output_only_enabled {
                         let _ = crate::clipboard::end_streaming_paste_session(&ah);
+                    } else if preview_output_only_enabled && !invoked_from_preview_action {
+                        close_preview_output_mode_workflow(&ah, true);
                     }
                     session_manager::exit_processing(&ah);
                     return;
@@ -2179,16 +2457,25 @@ impl ShortcutAction for TranscribeAction {
 
             let ah_clone = ah.clone();
             let binding_id_clone = binding_id.clone();
+            let final_text_for_ui = final_text.clone();
+            let final_text_for_insert =
+                if preview_output_only_enabled && !invoked_from_preview_action {
+                let mut combined_text = crate::managers::preview_output_mode::recording_prefix_text();
+                combined_text.push_str(&final_text);
+                Some(combined_text)
+            } else {
+                None
+            };
             ah.run_on_main_thread(move || {
-                if is_soniox_provider {
+                if is_soniox_provider && !preview_output_only_enabled {
                     // Soniox path already inserted text incrementally while chunks arrived.
                     // Apply only boundary-level trailing adjustment at finalization.
                     apply_stream_trailing_adjustment(&ah_clone, stream_trailing_adjustment);
                     if copy_to_clipboard {
-                        let _ = ah_clone.clipboard().write_text(final_text.clone());
+                        let _ = ah_clone.clipboard().write_text(final_text_for_ui.clone());
                     }
-                } else {
-                    let _ = utils::paste(final_text.clone(), ah_clone.clone());
+                } else if !preview_output_only_enabled {
+                    let _ = utils::paste(final_text_for_ui.clone(), ah_clone.clone());
                 }
                 utils::hide_recording_overlay(&ah_clone);
                 change_tray_icon(&ah_clone, TrayIconState::Idle);
@@ -2199,7 +2486,18 @@ impl ShortcutAction for TranscribeAction {
             })
             .ok();
 
-            if is_soniox_provider {
+            if preview_output_only_enabled {
+                if let Some(text_to_insert) = final_text_for_insert {
+                    if let Err(err) = finalize_preview_workflow_after_stop(&ah, text_to_insert).await
+                    {
+                        crate::managers::preview_output_mode::set_error(&ah, Some(err));
+                    }
+                } else if invoked_from_preview_action {
+                    update_preview_text_for_output_mode(&ah, &final_text);
+                }
+            }
+
+            if is_soniox_provider && !preview_output_only_enabled {
                 if let Err(e) = crate::clipboard::end_streaming_paste_session(&ah) {
                     warn!("Failed to end streaming clipboard session: {}", e);
                 }
@@ -3830,6 +4128,258 @@ impl ShortcutAction for VoiceCommandAction {
             session_manager::exit_processing(&ah);
         });
     }
+}
+
+fn resolve_preview_current_app_name() -> String {
+    #[cfg(target_os = "windows")]
+    {
+        crate::active_app::get_frontmost_app_name().unwrap_or_default()
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        String::new()
+    }
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn preview_close_action(app: AppHandle) -> Result<(), String> {
+    if crate::managers::preview_output_mode::is_active() {
+        let state = crate::managers::preview_output_mode::get_state_payload();
+        if state.processing_llm
+            || state
+                .binding_id
+                .as_deref()
+                .map(|binding_id| is_recording_for_binding(&app, binding_id))
+                .unwrap_or(false)
+        {
+            utils::cancel_current_operation(&app);
+        } else {
+            session_manager::exit_processing(&app);
+        }
+
+        close_preview_output_mode_workflow(&app, true);
+        return Ok(());
+    }
+
+    crate::overlay::hide_soniox_live_preview_window(&app);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn preview_clear_action(app: AppHandle) -> Result<(), String> {
+    crate::overlay::reset_soniox_live_preview(&app);
+    if crate::managers::preview_output_mode::is_active() {
+        crate::managers::preview_output_mode::set_recording_prefix_text(&app, String::new());
+        crate::managers::preview_output_mode::set_error(&app, None);
+    }
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn preview_insert_action(app: AppHandle) -> Result<(), String> {
+    let state = crate::managers::preview_output_mode::get_state_payload();
+    if !state.active {
+        return Err("Preview output mode is not active.".to_string());
+    }
+
+    let binding_id = state
+        .binding_id
+        .ok_or_else(|| "No active transcription binding for preview output mode.".to_string())?;
+
+    if is_recording_for_binding(&app, &binding_id) {
+        crate::managers::preview_output_mode::set_recording(&app, false);
+        stop_transcribe_binding_from_preview(&app, &binding_id)?;
+    }
+
+    if !wait_for_session_idle(&app, Duration::from_secs(20)).await {
+        return Err("Timed out while finalizing active recording.".to_string());
+    }
+
+    let full_text = current_preview_buffer_text();
+    paste_preview_buffer_to_target(&app, full_text).await?;
+
+    close_preview_output_mode_workflow(&app, true);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn preview_llm_process_action(app: AppHandle) -> Result<(), String> {
+    let state = crate::managers::preview_output_mode::get_state_payload();
+    if !state.active {
+        return Err("Preview output mode is not active.".to_string());
+    }
+    if state.processing_llm {
+        return Err("LLM processing is already running.".to_string());
+    }
+
+    let binding_id = state
+        .binding_id
+        .ok_or_else(|| "No active transcription binding for preview output mode.".to_string())?;
+
+    let was_recording = is_recording_for_binding(&app, &binding_id);
+    crate::managers::preview_output_mode::set_processing_llm(&app, true);
+    crate::managers::preview_output_mode::set_error(&app, None);
+
+    let mut final_result: Result<(), String> = Ok(());
+
+    if was_recording {
+        crate::managers::preview_output_mode::set_recording(&app, false);
+        if let Err(err) = stop_transcribe_binding_from_preview(&app, &binding_id) {
+            final_result = Err(err);
+        }
+    }
+
+    if final_result.is_ok() && !wait_for_session_idle(&app, Duration::from_secs(20)).await {
+        final_result = Err("Timed out while preparing text for LLM processing.".to_string());
+    }
+
+    let original_text = current_preview_final_text();
+    if final_result.is_ok() && original_text.trim().is_empty() {
+        final_result = Err("Preview text is empty.".to_string());
+    }
+
+    if final_result.is_ok() {
+        let settings = get_settings(&app);
+        let profile_id = crate::managers::preview_output_mode::current_profile_id();
+        let profile = profile_id
+            .as_ref()
+            .and_then(|profile_id| settings.transcription_profile(profile_id));
+        let current_app = resolve_preview_current_app_name();
+        let template_context = build_llm_template_context(
+            &app,
+            &settings,
+            profile,
+            &current_app,
+            &original_text,
+            "",
+            "",
+        );
+
+        final_result = match maybe_post_process_transcription(
+            &app,
+            &settings,
+            profile,
+            &template_context,
+            true,
+        )
+        .await
+        {
+            PostProcessTranscriptionOutcome::Processed { text, .. } => {
+                crate::overlay::emit_soniox_live_preview_update(&app, &text, "");
+                Ok(())
+            }
+            PostProcessTranscriptionOutcome::Skipped => {
+                Err(
+                    "LLM processing could not run. Check provider, model, and prompt settings."
+                        .to_string(),
+                )
+            }
+            PostProcessTranscriptionOutcome::Cancelled => {
+                Err("LLM processing was cancelled.".to_string())
+            }
+        };
+    }
+
+    if was_recording {
+        let settings = get_settings(&app);
+        let use_push_to_talk = use_push_to_talk_for_transcribe_binding(&settings, &binding_id);
+        match start_transcribe_binding_from_preview(&app, &binding_id) {
+            Ok(()) => {
+                if !use_push_to_talk {
+                    if let Ok(mut states) = app.state::<ManagedToggleState>().lock() {
+                        states.active_toggles.insert(binding_id.clone(), true);
+                    }
+                }
+            }
+            Err(start_err) => {
+                final_result = match final_result {
+                    Ok(()) => Err(start_err),
+                    Err(previous_error) => {
+                        Err(format!("{}; resume failed: {}", previous_error, start_err))
+                    }
+                };
+            }
+        }
+    }
+
+    crate::managers::preview_output_mode::set_processing_llm(&app, false);
+
+    match final_result {
+        Ok(()) => {
+            crate::managers::preview_output_mode::set_error(&app, None);
+            Ok(())
+        }
+        Err(err) => {
+            crate::managers::preview_output_mode::set_error(&app, Some(err.clone()));
+            Err(err)
+        }
+    }
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn preview_flush_action(app: AppHandle) -> Result<(), String> {
+    let state = crate::managers::preview_output_mode::get_state_payload();
+    if !state.active {
+        return Err("Preview output mode is not active.".to_string());
+    }
+    if state.is_realtime {
+        return Err("Flush is only available for non-realtime transcription.".to_string());
+    }
+
+    let binding_id = state
+        .binding_id
+        .ok_or_else(|| "No active transcription binding for preview output mode.".to_string())?;
+
+    let was_recording = is_recording_for_binding(&app, &binding_id);
+    if was_recording {
+        crate::managers::preview_output_mode::set_recording(&app, false);
+        stop_transcribe_binding_from_preview(&app, &binding_id)?;
+    }
+
+    if was_recording && !wait_for_session_idle(&app, Duration::from_secs(20)).await {
+        return Err("Timed out while finalizing active recording.".to_string());
+    }
+
+    let full_text = current_preview_buffer_text();
+    if full_text.trim().is_empty() {
+        if was_recording {
+            let settings = get_settings(&app);
+            let use_push_to_talk = use_push_to_talk_for_transcribe_binding(&settings, &binding_id);
+            start_transcribe_binding_from_preview(&app, &binding_id)?;
+            if !use_push_to_talk {
+                if let Ok(mut states) = app.state::<ManagedToggleState>().lock() {
+                    states.active_toggles.insert(binding_id.clone(), true);
+                }
+            }
+        }
+        return Ok(());
+    }
+
+    paste_preview_buffer_to_target(&app, full_text).await?;
+    crate::overlay::show_soniox_live_preview_window(&app);
+
+    crate::overlay::reset_soniox_live_preview(&app);
+    crate::managers::preview_output_mode::set_recording_prefix_text(&app, String::new());
+    crate::managers::preview_output_mode::set_error(&app, None);
+
+    if was_recording {
+        let settings = get_settings(&app);
+        let use_push_to_talk = use_push_to_talk_for_transcribe_binding(&settings, &binding_id);
+        start_transcribe_binding_from_preview(&app, &binding_id)?;
+        if !use_push_to_talk {
+            if let Ok(mut states) = app.state::<ManagedToggleState>().lock() {
+                states.active_toggles.insert(binding_id, true);
+            }
+        }
+    }
+
+    Ok(())
 }
 
 // Static Action Map

@@ -32,6 +32,28 @@ type SonioxLivePreviewAppearance = {
   interimOpacityPercent: number;
 };
 
+type PreviewOutputModeStatePayload = {
+  active?: boolean;
+  recording?: boolean;
+  processing_llm?: boolean;
+  processingLlm?: boolean;
+  flush_visible?: boolean;
+  flushVisible?: boolean;
+  is_realtime?: boolean;
+  isRealtime?: boolean;
+  error_message?: string | null;
+  errorMessage?: string | null;
+};
+
+type PreviewOutputModeState = {
+  active: boolean;
+  recording: boolean;
+  processingLlm: boolean;
+  flushVisible: boolean;
+  isRealtime: boolean;
+  errorMessage: string | null;
+};
+
 type RgbTuple = [number, number, number];
 type ThemePreset = {
   top: RgbTuple;
@@ -46,6 +68,15 @@ const DEFAULT_APPEARANCE: SonioxLivePreviewAppearance = {
   interimFontColor: "#f5f5f5",
   accentColor: "#ff4d8d",
   interimOpacityPercent: 58,
+};
+
+const DEFAULT_WORKFLOW_STATE: PreviewOutputModeState = {
+  active: false,
+  recording: false,
+  processingLlm: false,
+  flushVisible: false,
+  isRealtime: false,
+  errorMessage: null,
 };
 
 const THEME_PRESETS: Record<string, ThemePreset> = {
@@ -142,6 +173,9 @@ export default function SonioxLivePreview() {
   const [interimText, setInterimText] = useState("");
   const [appearance, setAppearance] =
     useState<SonioxLivePreviewAppearance>(DEFAULT_APPEARANCE);
+  const [workflowState, setWorkflowState] =
+    useState<PreviewOutputModeState>(DEFAULT_WORKFLOW_STATE);
+  const [isActionBusy, setIsActionBusy] = useState(false);
   const scrollRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
@@ -250,6 +284,49 @@ export default function SonioxLivePreview() {
       });
     };
 
+    const applyWorkflowPayload = (raw: unknown) => {
+      if (!active) {
+        return;
+      }
+
+      let payload = raw;
+      if (typeof payload === "string") {
+        try {
+          payload = JSON.parse(payload);
+        } catch {
+          return;
+        }
+      }
+
+      if (!payload || typeof payload !== "object") {
+        return;
+      }
+
+      const data = payload as PreviewOutputModeStatePayload;
+      setWorkflowState({
+        active: Boolean(data.active),
+        recording: Boolean(data.recording),
+        processingLlm:
+          typeof data.processing_llm === "boolean"
+            ? data.processing_llm
+            : Boolean(data.processingLlm),
+        flushVisible:
+          typeof data.flush_visible === "boolean"
+            ? data.flush_visible
+            : Boolean(data.flushVisible),
+        isRealtime:
+          typeof data.is_realtime === "boolean"
+            ? data.is_realtime
+            : Boolean(data.isRealtime),
+        errorMessage:
+          typeof data.error_message === "string"
+            ? data.error_message
+            : typeof data.errorMessage === "string"
+              ? data.errorMessage
+              : null,
+      });
+    };
+
     const refreshFromBackend = async () => {
       try {
         const payload = await invoke<SonioxLivePreviewPayload>(
@@ -272,6 +349,17 @@ export default function SonioxLivePreview() {
       }
     };
 
+    const refreshWorkflowFromBackend = async () => {
+      try {
+        const payload = await invoke<PreviewOutputModeStatePayload>(
+          "get_preview_output_mode_state",
+        );
+        applyWorkflowPayload(payload);
+      } catch {
+        // Ignore workflow polling errors.
+      }
+    };
+
     const setup = async () => {
       const updateEvents = [
         "soniox-live-preview-update",
@@ -284,6 +372,10 @@ export default function SonioxLivePreview() {
       const resetEvents = [
         "soniox-live-preview-reset",
         "soniox_live_preview_reset",
+      ];
+      const workflowEvents = [
+        "preview-output-mode-state",
+        "preview_output_mode_state",
       ];
 
       for (const eventName of updateEvents) {
@@ -312,13 +404,22 @@ export default function SonioxLivePreview() {
         const unlistenApp = await listen(eventName, resetHandler);
         unlistenFns.push(unlistenApp);
       }
+
+      for (const eventName of workflowEvents) {
+        const unlistenApp = await listen<unknown>(eventName, (event) => {
+          applyWorkflowPayload(event.payload);
+        });
+        unlistenFns.push(unlistenApp);
+      }
     };
 
     void setup();
     void refreshFromBackend();
     void refreshAppearanceFromBackend();
+    void refreshWorkflowFromBackend();
     pollId = window.setInterval(() => {
       void refreshFromBackend();
+      void refreshWorkflowFromBackend();
     }, 120);
 
     return () => {
@@ -336,6 +437,24 @@ export default function SonioxLivePreview() {
     () => `${finalText}${interimText}`,
     [finalText, interimText],
   );
+  const hasText = useMemo(() => fullText.trim().length > 0, [fullText]);
+  const actionLocked = workflowState.processingLlm || isActionBusy;
+  const canRunTextActions = hasText || workflowState.recording;
+  const emptyStateMessage = useMemo(() => {
+    if (
+      workflowState.active &&
+      workflowState.recording &&
+      !workflowState.isRealtime
+    ) {
+      return "Recording... text appears after stop/flush in non-realtime mode.";
+    }
+    return "Waiting for speech...";
+  }, [
+    workflowState.active,
+    workflowState.isRealtime,
+    workflowState.recording,
+  ]);
+
   const rootStyle = useMemo(() => {
     const preset = THEME_PRESETS[appearance.theme] ?? THEME_PRESETS.main_dark;
     const panelAlpha = appearance.opacityPercent / 100;
@@ -374,11 +493,55 @@ export default function SonioxLivePreview() {
     element.scrollTop = element.scrollHeight;
   }, [fullText]);
 
+  const invokePreviewAction = async (command: string) => {
+    setIsActionBusy(true);
+    try {
+      await invoke(command);
+    } catch (error) {
+      console.error(`Preview command failed: ${command}`, error);
+    } finally {
+      setIsActionBusy(false);
+    }
+  };
+
+  const handleClose = () => {
+    void invokePreviewAction("preview_close_action");
+  };
+
+  const handleClear = () => {
+    void invokePreviewAction("preview_clear_action");
+  };
+
+  const handleInsert = () => {
+    void invokePreviewAction("preview_insert_action");
+  };
+
+  const handleProcess = () => {
+    void invokePreviewAction("preview_llm_process_action");
+  };
+
+  const handleFlush = () => {
+    void invokePreviewAction("preview_flush_action");
+  };
+
   return (
     <div className="soniox-live-preview-root" style={rootStyle}>
+      <div className="soniox-live-preview-header">
+        <div className="soniox-live-preview-title">
+          {workflowState.active ? "Output Only to Preview" : "Live Preview"}
+        </div>
+        <button
+          type="button"
+          className="soniox-live-preview-close"
+          onClick={handleClose}
+          title="Close"
+        >
+          X
+        </button>
+      </div>
       <div className="soniox-live-preview-body" ref={scrollRef}>
         {fullText.length === 0 ? (
-          <span className="soniox-live-preview-empty">Waiting for speech...</span>
+          <span className="soniox-live-preview-empty">{emptyStateMessage}</span>
         ) : (
           <>
             <span className="soniox-live-preview-final">{finalText}</span>
@@ -386,6 +549,47 @@ export default function SonioxLivePreview() {
           </>
         )}
       </div>
+      {workflowState.errorMessage && (
+        <div className="soniox-live-preview-error">{workflowState.errorMessage}</div>
+      )}
+      {workflowState.active && (
+        <div className="soniox-live-preview-actions">
+          <button
+            type="button"
+            className="soniox-live-preview-action-button"
+            onClick={handleClear}
+            disabled={actionLocked || !hasText}
+          >
+            Clear all
+          </button>
+          {workflowState.flushVisible && (
+            <button
+              type="button"
+              className="soniox-live-preview-action-button"
+              onClick={handleFlush}
+              disabled={actionLocked || !canRunTextActions}
+            >
+              Flush
+            </button>
+          )}
+          <button
+            type="button"
+            className="soniox-live-preview-action-button"
+            onClick={handleProcess}
+            disabled={actionLocked || !canRunTextActions}
+          >
+            {workflowState.processingLlm ? "Processing..." : "Processing via LLM"}
+          </button>
+          <button
+            type="button"
+            className="soniox-live-preview-action-button soniox-live-preview-action-button-primary"
+            onClick={handleInsert}
+            disabled={actionLocked || (!hasText && !workflowState.recording)}
+          >
+            Insert
+          </button>
+        </div>
+      )}
     </div>
   );
 }

@@ -1,4 +1,5 @@
 use crate::input;
+use crate::managers::preview_output_mode::PreviewOutputModeStatePayload;
 use crate::plus_overlay_state;
 use crate::settings;
 use crate::settings::{
@@ -681,7 +682,8 @@ fn is_soniox_live_preview_session_active() -> bool {
 #[cfg(target_os = "windows")]
 pub fn show_soniox_live_preview_window(app_handle: &AppHandle) {
     let app_settings = settings::get_settings(app_handle);
-    if !app_settings.soniox_live_preview_enabled {
+    let preview_output_mode_active = crate::managers::preview_output_mode::is_active();
+    if !app_settings.soniox_live_preview_enabled && !preview_output_mode_active {
         return;
     }
 
@@ -804,8 +806,10 @@ pub fn emit_soniox_live_preview_appearance_update(_app_handle: &AppHandle) {}
 #[cfg(target_os = "windows")]
 pub fn update_soniox_live_preview_window(app_handle: &AppHandle) {
     let app_settings = settings::get_settings(app_handle);
+    let should_show =
+        app_settings.soniox_live_preview_enabled || crate::managers::preview_output_mode::is_active();
     if let Some(window) = app_handle.get_webview_window(SONIOX_LIVE_PREVIEW_WINDOW_LABEL) {
-        if !app_settings.soniox_live_preview_enabled {
+        if !should_show {
             let _ = window.hide();
         } else if let Some((x, y, width, height)) = resolve_soniox_live_preview_geometry(app_handle) {
             let _ = window.set_size(tauri::Size::Logical(tauri::LogicalSize { width, height }));
@@ -834,6 +838,12 @@ pub fn get_soniox_live_preview_appearance(
     app_handle: AppHandle,
 ) -> SonioxLivePreviewAppearancePayload {
     build_soniox_live_preview_appearance_payload(&app_handle)
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn get_preview_output_mode_state() -> PreviewOutputModeStatePayload {
+    crate::managers::preview_output_mode::get_state_payload()
 }
 
 #[tauri::command]

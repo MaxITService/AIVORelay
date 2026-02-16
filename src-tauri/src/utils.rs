@@ -74,6 +74,12 @@ pub fn cancel_current_operation(app: &AppHandle) {
     // Ensure UI is in idle state (redundant if session Drop ran, but safe)
     change_tray_icon(app, crate::tray::TrayIconState::Idle);
     hide_recording_overlay(app);
+    if crate::managers::preview_output_mode::is_active() {
+        crate::managers::preview_output_mode::deactivate_session(app);
+        crate::overlay::end_soniox_live_preview_session();
+        crate::overlay::reset_soniox_live_preview(app);
+        crate::overlay::hide_soniox_live_preview_window(app);
+    }
 
     // Unload model if immediate unload is enabled
     let tm = app.state::<Arc<TranscriptionManager>>();

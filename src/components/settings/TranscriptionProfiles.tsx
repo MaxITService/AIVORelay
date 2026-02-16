@@ -53,6 +53,7 @@ Transcript:
 interface ExtendedTranscriptionProfile extends TranscriptionProfile {
   include_in_cycle: boolean;
   push_to_talk: boolean;
+  preview_output_only_enabled: boolean;
   stt_prompt_override_enabled: boolean;
   soniox_context_general_json: string;
   soniox_context_text: string;
@@ -203,6 +204,15 @@ const ProfileCard: React.FC<ProfileCardProps> = ({
     setIsUpdating(true);
     try {
       await onUpdate({ ...profile, push_to_talk: newValue });
+    } finally {
+      setIsUpdating(false);
+    }
+  };
+
+  const handlePreviewOutputOnlyChange = async (newValue: boolean) => {
+    setIsUpdating(true);
+    try {
+      await onUpdate({ ...profile, preview_output_only_enabled: newValue });
     } finally {
       setIsUpdating(false);
     }
@@ -396,7 +406,7 @@ const ProfileCard: React.FC<ProfileCardProps> = ({
       {isExpanded && (
         <div className="px-4 pb-4 pt-3 border-t border-mid-gray/20 space-y-3">
           {/* Cycle & Push-to-Talk Controls */}
-          <div className="grid gap-3 md:grid-cols-2 bg-mid-gray/5 p-3 rounded-lg border border-mid-gray/10">
+          <div className="grid gap-3 md:grid-cols-3 bg-mid-gray/5 p-3 rounded-lg border border-mid-gray/10">
             <div className="min-w-0">
               <label className="text-xs font-semibold text-text/70 block mb-2">
                 {t("settings.transcriptionProfiles.includeInCycle")}
@@ -429,6 +439,28 @@ const ProfileCard: React.FC<ProfileCardProps> = ({
                 />
                 <span className="text-xs text-mid-gray leading-snug">
                   {t("settings.general.pushToTalk.description")}
+                </span>
+              </div>
+            </div>
+
+            <div className="min-w-0">
+              <label className="text-xs font-semibold text-text/70 block mb-2">
+                {t(
+                  "settings.transcriptionProfiles.previewOutputOnly.title",
+                  "Output Only to Preview",
+                )}
+              </label>
+              <div className="flex items-center gap-2">
+                <ToggleSwitch
+                  checked={profile.preview_output_only_enabled ?? false}
+                  onChange={handlePreviewOutputOnlyChange}
+                  disabled={isUpdating}
+                />
+                <span className="text-xs text-mid-gray leading-snug">
+                  {t(
+                    "settings.transcriptionProfiles.previewOutputOnly.description",
+                    "Do not auto-insert text. Keep output in Preview until you insert it manually.",
+                  )}
                 </span>
               </div>
             </div>
@@ -743,6 +775,7 @@ export const TranscriptionProfiles: React.FC = () => {
   const [newTranslate, setNewTranslate] = useState(false);
   const [newSystemPrompt, setNewSystemPrompt] = useState("");
   const [newPushToTalk, setNewPushToTalk] = useState(true);
+  const [newPreviewOutputOnly, setNewPreviewOutputOnly] = useState(false);
   const [newIncludeInCycle, setNewIncludeInCycle] = useState(true);
   const [newSttPromptOverrideEnabled, setNewSttPromptOverrideEnabled] = useState(false);
   const [newLlmEnabled, setNewLlmEnabled] = useState(false);
@@ -940,6 +973,7 @@ export const TranscriptionProfiles: React.FC = () => {
           systemPrompt: newSystemPrompt,
           sttPromptOverrideEnabled: newSttPromptOverrideEnabled,
           pushToTalk: newPushToTalk,
+          previewOutputOnlyEnabled: newPreviewOutputOnly,
           includeInCycle: newIncludeInCycle,
           llmSettings: {
             enabled: newLlmEnabled,
@@ -958,6 +992,7 @@ export const TranscriptionProfiles: React.FC = () => {
       setNewSystemPrompt("");
       setNewSttPromptOverrideEnabled(false);
       setNewPushToTalk(true);
+      setNewPreviewOutputOnly(false);
       setNewIncludeInCycle(true);
       setNewLlmEnabled(false);
       setNewLlmPromptOverride("");
@@ -997,6 +1032,7 @@ export const TranscriptionProfiles: React.FC = () => {
           sttPromptOverrideEnabled: profile.stt_prompt_override_enabled ?? false,
           includeInCycle: profile.include_in_cycle,
           pushToTalk: profile.push_to_talk,
+          previewOutputOnlyEnabled: profile.preview_output_only_enabled ?? false,
           llmSettings: {
             enabled: profile.llm_post_process_enabled ?? false,
             promptOverride: profile.llm_prompt_override ?? null,
@@ -1243,8 +1279,8 @@ export const TranscriptionProfiles: React.FC = () => {
                   <HandyShortcut shortcutId="transcribe_default" grouped={true} />
                 </div>
 
-                {/* Language & Push-to-Talk in a row */}
-                <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                {/* Language, Push-to-Talk, and Preview output mode */}
+                <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
                   <div className="space-y-2 min-w-0">
                     <label className="text-xs font-semibold text-text/70">
                       {t("settings.general.language.title")}
@@ -1289,6 +1325,32 @@ export const TranscriptionProfiles: React.FC = () => {
                       />
                       <span className="text-xs text-mid-gray leading-snug">
                         {t("settings.general.pushToTalk.description")}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="space-y-2 min-w-0">
+                    <label className="text-xs font-semibold text-text/70">
+                      {t(
+                        "settings.transcriptionProfiles.previewOutputOnly.title",
+                        "Output Only to Preview",
+                      )}
+                    </label>
+                    <div className="flex items-start gap-2">
+                      <ToggleSwitch
+                        checked={
+                          ((settings as any)?.preview_output_only_enabled as boolean) ?? false
+                        }
+                        onChange={(checked) =>
+                          updateSetting &&
+                          updateSetting("preview_output_only_enabled" as any, checked as any)
+                        }
+                      />
+                      <span className="text-xs text-mid-gray leading-snug">
+                        {t(
+                          "settings.transcriptionProfiles.previewOutputOnly.description",
+                          "Do not auto-insert text. Keep output in Preview until you insert it manually.",
+                        )}
                       </span>
                     </div>
                   </div>
@@ -1453,7 +1515,7 @@ export const TranscriptionProfiles: React.FC = () => {
           </div>
 
           {/* Translate to English & Push to Talk */}
-          <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
             <div className="space-y-2 min-w-0">
               <label className="text-xs font-semibold text-text/70">
                 {t("settings.transcriptionProfiles.translateToEnglish")}
@@ -1488,6 +1550,28 @@ export const TranscriptionProfiles: React.FC = () => {
                 />
                 <span className="text-xs text-mid-gray leading-snug">
                   {t("settings.general.pushToTalk.description")}
+                </span>
+              </div>
+            </div>
+
+            <div className="space-y-2 min-w-0">
+              <label className="text-xs font-semibold text-text/70">
+                {t(
+                  "settings.transcriptionProfiles.previewOutputOnly.title",
+                  "Output Only to Preview",
+                )}
+              </label>
+              <div className="flex items-center gap-2">
+                <ToggleSwitch
+                  checked={newPreviewOutputOnly}
+                  onChange={setNewPreviewOutputOnly}
+                  disabled={isCreating}
+                />
+                <span className="text-xs text-mid-gray leading-snug">
+                  {t(
+                    "settings.transcriptionProfiles.previewOutputOnly.description",
+                    "Do not auto-insert text. Keep output in Preview until you insert it manually.",
+                  )}
                 </span>
               </div>
             </div>

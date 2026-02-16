@@ -621,6 +621,24 @@ pub fn change_ptt_setting(app: AppHandle, enabled: bool) -> Result<(), String> {
 
 #[tauri::command]
 #[specta::specta]
+pub fn change_preview_output_only_enabled_setting(
+    app: AppHandle,
+    enabled: bool,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.preview_output_only_enabled = enabled;
+    settings::write_settings(&app, settings);
+    if !enabled && crate::managers::preview_output_mode::is_active() {
+        crate::managers::preview_output_mode::deactivate_session(&app);
+        crate::overlay::end_soniox_live_preview_session();
+        crate::overlay::reset_soniox_live_preview(&app);
+        crate::overlay::hide_soniox_live_preview_window(&app);
+    }
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
 pub fn change_audio_feedback_setting(app: AppHandle, enabled: bool) -> Result<(), String> {
     let mut settings = settings::get_settings(&app);
     settings.audio_feedback = enabled;
@@ -2035,6 +2053,8 @@ pub struct AddTranscriptionProfilePayload {
     #[serde(default)]
     pub stt_prompt_override_enabled: bool,
     pub push_to_talk: bool,
+    #[serde(default)]
+    pub preview_output_only_enabled: bool,
     pub include_in_cycle: Option<bool>,
     pub llm_settings: Option<settings::ProfileLlmSettings>,
     pub soniox_context_general_json: Option<String>,
@@ -2053,6 +2073,7 @@ pub struct UpdateTranscriptionProfilePayload {
     pub stt_prompt_override_enabled: bool,
     pub include_in_cycle: bool,
     pub push_to_talk: bool,
+    pub preview_output_only_enabled: bool,
     pub llm_settings: settings::ProfileLlmSettings,
     pub soniox_context_general_json: Option<String>,
     pub soniox_context_text: Option<String>,
@@ -2074,6 +2095,7 @@ pub fn add_transcription_profile(
         system_prompt,
         stt_prompt_override_enabled,
         push_to_talk,
+        preview_output_only_enabled,
         include_in_cycle,
         llm_settings,
         soniox_context_general_json,
@@ -2117,6 +2139,7 @@ pub fn add_transcription_profile(
         stt_prompt_override_enabled,
         include_in_cycle: include_in_cycle.unwrap_or(true), // Include in cycle by default
         push_to_talk,
+        preview_output_only_enabled,
         llm_post_process_enabled,
         llm_prompt_override,
         llm_model_override,
@@ -2158,6 +2181,7 @@ pub fn update_transcription_profile(
         stt_prompt_override_enabled,
         include_in_cycle,
         push_to_talk,
+        preview_output_only_enabled,
         llm_settings,
         soniox_context_general_json,
         soniox_context_text,
@@ -2187,6 +2211,7 @@ pub fn update_transcription_profile(
     profile.stt_prompt_override_enabled = stt_prompt_override_enabled;
     profile.include_in_cycle = include_in_cycle;
     profile.push_to_talk = push_to_talk;
+    profile.preview_output_only_enabled = preview_output_only_enabled;
     profile.llm_post_process_enabled = llm_settings.enabled;
     profile.llm_prompt_override = llm_settings.prompt_override;
     profile.llm_model_override = llm_settings.model_override;

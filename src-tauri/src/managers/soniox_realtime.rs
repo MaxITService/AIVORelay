@@ -273,8 +273,12 @@ impl SonioxRealtimeManager {
             }
         }
 
+        let preserve_existing_preview =
+            crate::managers::preview_output_mode::is_active_for_binding(binding_id);
         crate::overlay::begin_soniox_live_preview_session();
-        crate::overlay::reset_soniox_live_preview(&self.app_handle);
+        if !preserve_existing_preview {
+            crate::overlay::reset_soniox_live_preview(&self.app_handle);
+        }
         crate::overlay::show_soniox_live_preview_window(&self.app_handle);
 
         info!("Started Soniox live session for binding '{}'", binding_id);
@@ -311,8 +315,6 @@ impl SonioxRealtimeManager {
         keepalive_tick.set_missed_tick_behavior(MissedTickBehavior::Delay);
 
         let mut finished = false;
-        let mut preview_final_text = String::new();
-
         loop {
             tokio::select! {
                 Some(control) = control_rx.recv() => {
@@ -382,7 +384,6 @@ impl SonioxRealtimeManager {
                             }
 
                             if !chunk_text.is_empty() {
-                                preview_final_text.push_str(&chunk_text);
                                 if let Ok(mut guard) = final_text.lock() {
                                     guard.push_str(&chunk_text);
                                 }
@@ -396,6 +397,10 @@ impl SonioxRealtimeManager {
                             }
 
                             if !chunk_text.is_empty() || !interim_text.is_empty() || is_finished_payload {
+                                let mut preview_final_text = crate::overlay::get_soniox_live_preview_state().final_text;
+                                if !chunk_text.is_empty() {
+                                    preview_final_text.push_str(&chunk_text);
+                                }
                                 debug!(
                                     "Soniox live preview update: final_tokens={}, non_final_tokens={}, final_chars={}, interim_chars={}, finished={}",
                                     final_token_count,
@@ -478,6 +483,9 @@ impl SonioxRealtimeManager {
 
     pub async fn finish_session(&self, timeout_ms: u32) -> Result<String> {
         let hide_preview = || {
+            if crate::managers::preview_output_mode::is_active() {
+                return;
+            }
             crate::overlay::end_soniox_live_preview_session();
             crate::overlay::hide_soniox_live_preview_window(&self.app_handle);
         };
@@ -578,12 +586,18 @@ impl SonioxRealtimeManager {
     }
 
     pub fn cancel(&self) {
+        let hide_preview_if_needed = || {
+            if !crate::managers::preview_output_mode::is_active() {
+                crate::overlay::end_soniox_live_preview_session();
+                crate::overlay::hide_soniox_live_preview_window(&self.app_handle);
+            }
+        };
+
         let active = {
             let mut guard = match self.active_session.lock() {
                 Ok(guard) => guard,
                 Err(_) => {
-                    crate::overlay::end_soniox_live_preview_session();
-                    crate::overlay::hide_soniox_live_preview_window(&self.app_handle);
+                    hide_preview_if_needed();
                     return;
                 }
             };
@@ -601,8 +615,7 @@ impl SonioxRealtimeManager {
         if let Ok(mut pending) = self.pending_audio.lock() {
             pending.clear();
         }
-        crate::overlay::end_soniox_live_preview_session();
-        crate::overlay::hide_soniox_live_preview_window(&self.app_handle);
+        hide_preview_if_needed();
     }
 }
 

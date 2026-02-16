@@ -337,6 +337,8 @@ const settingUpdaters: {
   invoke("set_active_profile", { id: value });
 (settingUpdaters as any).profile_switch_overlay_enabled = (value: any) =>
   invoke("change_profile_switch_overlay_enabled_setting", { enabled: value });
+(settingUpdaters as any).preview_output_only_enabled = (value: any) =>
+  invoke("change_preview_output_only_enabled_setting", { enabled: value });
 
 // Clipboard / Paste settings
 (settingUpdaters as any).convert_lf_to_crlf = (value: any) =>
