@@ -190,6 +190,17 @@ When adding new features, please prefer adding them in new files instead of edit
 - Each rule can be individually enabled/disabled
 - **Use Cases**: Fix commonly misheard words, apply formatting, normalize punctuation, remove repeated words
 
+### 9. Live Preview
+
+- Files: `src/soniox-live-preview/`, `src/lib/utils/previewHotkeys.ts`, `src/components/ui/HotkeyCapture.tsx`
+- **Real-time visual stream**: Shows live transcription (final + interim) in a separate always-on-top window.
+- **Customizable Appearance**: Settings for opacity, theme, accent colors, and separate interim/final font colors.
+- **Positioning**: Supports dynamic near-cursor placement, screen corners, or custom X/Y coordinates.
+- **Interactive Controls**:
+  - **Hotkey Capture**: Configure custom hotkeys to toggle visibility or trigger actions.
+  - **Action Toggles**: Control behavior directly from the preview window or assigned shortcuts.
+  - **Demo Mode**: Includes a resizable demo window for visual tuning and appearance testing.
+
 ## Guidelines for Agents
 
 ### TypeScript Bindings (`src/bindings.ts`)
