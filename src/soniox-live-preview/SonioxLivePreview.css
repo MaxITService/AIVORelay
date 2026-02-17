@@ -33,35 +33,28 @@ body {
     0 10px 28px rgba(0, 0, 0, 0.4),
     0 0 0 1px rgba(255, 255, 255, 0.04) inset,
     0 0 24px var(--slp-shadow-color);
+  position: relative;
   display: flex;
   flex-direction: column;
   gap: 8px;
 }
 
-.soniox-live-preview-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  min-height: 26px;
-}
-
-.soniox-live-preview-title {
-  font-size: 12px;
-  font-weight: 600;
-  letter-spacing: 0.02em;
-  color: var(--slp-empty-color);
-}
-
 .soniox-live-preview-close {
+  position: absolute;
+  top: 10px;
+  right: 12px;
+  z-index: 2;
   border: 1px solid rgba(255, 255, 255, 0.2);
   background: rgba(0, 0, 0, 0.22);
   color: var(--slp-final-color);
   font-size: 11px;
   line-height: 1;
-  width: 22px;
+  min-width: 22px;
   height: 22px;
+  padding: 0 7px;
   border-radius: 7px;
   cursor: pointer;
+  white-space: nowrap;
   transition: background-color 120ms ease;
 }
 

@@ -1,6 +1,20 @@
-import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+} from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import { type as getOsType } from "@tauri-apps/plugin-os";
+import type { OSType } from "../lib/utils/keyboard";
+import {
+  buildPreviewHotkeyFromKeyboardEvent,
+  formatPreviewHotkeyForDisplay,
+  normalizePreviewHotkeyString,
+} from "../lib/utils/previewHotkeys";
 
 type SonioxLivePreviewPayload = {
   final_text?: string;
@@ -21,6 +35,24 @@ type SonioxLivePreviewAppearancePayload = {
   accentColor?: string;
   interim_opacity_percent?: number;
   interimOpacityPercent?: number;
+  close_hotkey?: string;
+  closeHotkey?: string;
+  clear_hotkey?: string;
+  clearHotkey?: string;
+  flush_hotkey?: string;
+  flushHotkey?: string;
+  process_hotkey?: string;
+  processHotkey?: string;
+  insert_hotkey?: string;
+  insertHotkey?: string;
+  show_clear_button?: boolean;
+  showClearButton?: boolean;
+  show_flush_button?: boolean;
+  showFlushButton?: boolean;
+  show_process_button?: boolean;
+  showProcessButton?: boolean;
+  show_insert_button?: boolean;
+  showInsertButton?: boolean;
 };
 
 type SonioxLivePreviewAppearance = {
@@ -30,6 +62,15 @@ type SonioxLivePreviewAppearance = {
   interimFontColor: string;
   accentColor: string;
   interimOpacityPercent: number;
+  closeHotkey: string;
+  clearHotkey: string;
+  flushHotkey: string;
+  processHotkey: string;
+  insertHotkey: string;
+  showClearButton: boolean;
+  showFlushButton: boolean;
+  showProcessButton: boolean;
+  showInsertButton: boolean;
 };
 
 type PreviewOutputModeStatePayload = {
@@ -68,6 +109,15 @@ const DEFAULT_APPEARANCE: SonioxLivePreviewAppearance = {
   interimFontColor: "#f5f5f5",
   accentColor: "#ff4d8d",
   interimOpacityPercent: 58,
+  closeHotkey: "",
+  clearHotkey: "",
+  flushHotkey: "",
+  processHotkey: "",
+  insertHotkey: "",
+  showClearButton: true,
+  showFlushButton: true,
+  showProcessButton: true,
+  showInsertButton: true,
 };
 
 const DEFAULT_WORKFLOW_STATE: PreviewOutputModeState = {
@@ -169,6 +219,11 @@ function ensureReadableTextColor(text: RgbTuple, bg: RgbTuple): RgbTuple {
 }
 
 export default function SonioxLivePreview() {
+  const osKind = getOsType();
+  const osType: OSType =
+    osKind === "windows" || osKind === "macos" || osKind === "linux"
+      ? osKind
+      : "unknown";
   const [finalText, setFinalText] = useState("");
   const [interimText, setInterimText] = useState("");
   const [appearance, setAppearance] =
@@ -273,6 +328,65 @@ export default function SonioxLivePreview() {
         95,
         DEFAULT_APPEARANCE.interimOpacityPercent,
       );
+      const closeHotkey = normalizePreviewHotkeyString(
+        typeof data.close_hotkey === "string"
+          ? data.close_hotkey
+          : typeof data.closeHotkey === "string"
+            ? data.closeHotkey
+            : "",
+      );
+      const clearHotkey = normalizePreviewHotkeyString(
+        typeof data.clear_hotkey === "string"
+          ? data.clear_hotkey
+          : typeof data.clearHotkey === "string"
+            ? data.clearHotkey
+            : "",
+      );
+      const flushHotkey = normalizePreviewHotkeyString(
+        typeof data.flush_hotkey === "string"
+          ? data.flush_hotkey
+          : typeof data.flushHotkey === "string"
+            ? data.flushHotkey
+            : "",
+      );
+      const processHotkey = normalizePreviewHotkeyString(
+        typeof data.process_hotkey === "string"
+          ? data.process_hotkey
+          : typeof data.processHotkey === "string"
+            ? data.processHotkey
+            : "",
+      );
+      const insertHotkey = normalizePreviewHotkeyString(
+        typeof data.insert_hotkey === "string"
+          ? data.insert_hotkey
+          : typeof data.insertHotkey === "string"
+            ? data.insertHotkey
+            : "",
+      );
+      const showClearButton =
+        typeof data.show_clear_button === "boolean"
+          ? data.show_clear_button
+          : typeof data.showClearButton === "boolean"
+            ? data.showClearButton
+            : DEFAULT_APPEARANCE.showClearButton;
+      const showFlushButton =
+        typeof data.show_flush_button === "boolean"
+          ? data.show_flush_button
+          : typeof data.showFlushButton === "boolean"
+            ? data.showFlushButton
+            : DEFAULT_APPEARANCE.showFlushButton;
+      const showProcessButton =
+        typeof data.show_process_button === "boolean"
+          ? data.show_process_button
+          : typeof data.showProcessButton === "boolean"
+            ? data.showProcessButton
+            : DEFAULT_APPEARANCE.showProcessButton;
+      const showInsertButton =
+        typeof data.show_insert_button === "boolean"
+          ? data.show_insert_button
+          : typeof data.showInsertButton === "boolean"
+            ? data.showInsertButton
+            : DEFAULT_APPEARANCE.showInsertButton;
 
       setAppearance({
         theme,
@@ -281,6 +395,15 @@ export default function SonioxLivePreview() {
         interimFontColor,
         accentColor,
         interimOpacityPercent,
+        closeHotkey,
+        clearHotkey,
+        flushHotkey,
+        processHotkey,
+        insertHotkey,
+        showClearButton,
+        showFlushButton,
+        showProcessButton,
+        showInsertButton,
       });
     };
 
@@ -440,6 +563,30 @@ export default function SonioxLivePreview() {
   const hasText = useMemo(() => fullText.trim().length > 0, [fullText]);
   const actionLocked = workflowState.processingLlm || isActionBusy;
   const canRunTextActions = hasText || workflowState.recording;
+  const canClear = !actionLocked && hasText;
+  const canFlush = !actionLocked && workflowState.flushVisible && canRunTextActions;
+  const canProcess = !actionLocked && canRunTextActions;
+  const canInsert = !actionLocked && (hasText || workflowState.recording);
+  const closeHotkeyLabel = useMemo(
+    () => formatPreviewHotkeyForDisplay(appearance.closeHotkey, osType),
+    [appearance.closeHotkey, osType],
+  );
+  const clearHotkeyLabel = useMemo(
+    () => formatPreviewHotkeyForDisplay(appearance.clearHotkey, osType),
+    [appearance.clearHotkey, osType],
+  );
+  const flushHotkeyLabel = useMemo(
+    () => formatPreviewHotkeyForDisplay(appearance.flushHotkey, osType),
+    [appearance.flushHotkey, osType],
+  );
+  const processHotkeyLabel = useMemo(
+    () => formatPreviewHotkeyForDisplay(appearance.processHotkey, osType),
+    [appearance.processHotkey, osType],
+  );
+  const insertHotkeyLabel = useMemo(
+    () => formatPreviewHotkeyForDisplay(appearance.insertHotkey, osType),
+    [appearance.insertHotkey, osType],
+  );
   const emptyStateMessage = useMemo(() => {
     if (
       workflowState.active &&
@@ -493,7 +640,10 @@ export default function SonioxLivePreview() {
     element.scrollTop = element.scrollHeight;
   }, [fullText]);
 
-  const invokePreviewAction = async (command: string) => {
+  const labelWithHotkey = (label: string, hotkeyLabel: string): string =>
+    hotkeyLabel ? `${label} (${hotkeyLabel})` : label;
+
+  const invokePreviewAction = useCallback(async (command: string) => {
     setIsActionBusy(true);
     try {
       await invoke(command);
@@ -502,7 +652,7 @@ export default function SonioxLivePreview() {
     } finally {
       setIsActionBusy(false);
     }
-  };
+  }, []);
 
   const handleClose = () => {
     void invokePreviewAction("preview_close_action");
@@ -524,21 +674,98 @@ export default function SonioxLivePreview() {
     void invokePreviewAction("preview_flush_action");
   };
 
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      const currentHotkey = buildPreviewHotkeyFromKeyboardEvent(event, osType);
+      if (!currentHotkey) {
+        return;
+      }
+
+      const triggerIfMatches = (
+        configuredHotkey: string,
+        canRun: boolean,
+        command: string,
+      ): boolean => {
+        const normalizedConfigured = normalizePreviewHotkeyString(configuredHotkey);
+        if (!normalizedConfigured || !canRun) {
+          return false;
+        }
+        if (normalizedConfigured !== currentHotkey) {
+          return false;
+        }
+        event.preventDefault();
+        event.stopPropagation();
+        void invokePreviewAction(command);
+        return true;
+      };
+
+      if (
+        triggerIfMatches(
+          appearance.closeHotkey,
+          true,
+          "preview_close_action",
+        )
+      ) {
+        return;
+      }
+      if (
+        triggerIfMatches(
+          appearance.insertHotkey,
+          canInsert,
+          "preview_insert_action",
+        )
+      ) {
+        return;
+      }
+      if (
+        triggerIfMatches(
+          appearance.processHotkey,
+          canProcess,
+          "preview_llm_process_action",
+        )
+      ) {
+        return;
+      }
+      if (
+        triggerIfMatches(
+          appearance.flushHotkey,
+          canFlush,
+          "preview_flush_action",
+        )
+      ) {
+        return;
+      }
+      triggerIfMatches(appearance.clearHotkey, canClear, "preview_clear_action");
+    };
+
+    window.addEventListener("keydown", handleKeyDown, true);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown, true);
+    };
+  }, [
+    appearance.clearHotkey,
+    appearance.closeHotkey,
+    appearance.flushHotkey,
+    appearance.insertHotkey,
+    appearance.processHotkey,
+    canClear,
+    canFlush,
+    canInsert,
+    canProcess,
+    invokePreviewAction,
+    osType,
+  ]);
+
   return (
     <div className="soniox-live-preview-root" style={rootStyle}>
-      <div className="soniox-live-preview-header">
-        <div className="soniox-live-preview-title">
-          {workflowState.active ? "Output Only to Preview" : "Live Preview"}
-        </div>
-        <button
-          type="button"
-          className="soniox-live-preview-close"
-          onClick={handleClose}
-          title="Close"
-        >
-          X
-        </button>
-      </div>
+      <button
+        type="button"
+        className="soniox-live-preview-close"
+        onClick={handleClose}
+        title={labelWithHotkey("Close", closeHotkeyLabel)}
+      >
+        {labelWithHotkey("X", closeHotkeyLabel)}
+      </button>
       <div className="soniox-live-preview-body" ref={scrollRef}>
         {fullText.length === 0 ? (
           <span className="soniox-live-preview-empty">{emptyStateMessage}</span>
@@ -554,40 +781,49 @@ export default function SonioxLivePreview() {
       )}
       {workflowState.active && (
         <div className="soniox-live-preview-actions">
-          <button
-            type="button"
-            className="soniox-live-preview-action-button"
-            onClick={handleClear}
-            disabled={actionLocked || !hasText}
-          >
-            Clear all
-          </button>
-          {workflowState.flushVisible && (
+          {appearance.showClearButton && (
+            <button
+              type="button"
+              className="soniox-live-preview-action-button"
+              onClick={handleClear}
+              disabled={!canClear}
+            >
+              {labelWithHotkey("Clear all", clearHotkeyLabel)}
+            </button>
+          )}
+          {appearance.showFlushButton && workflowState.flushVisible && (
             <button
               type="button"
               className="soniox-live-preview-action-button"
               onClick={handleFlush}
-              disabled={actionLocked || !canRunTextActions}
+              disabled={!canFlush}
             >
-              Flush
+              {labelWithHotkey("Flush", flushHotkeyLabel)}
             </button>
           )}
-          <button
-            type="button"
-            className="soniox-live-preview-action-button"
-            onClick={handleProcess}
-            disabled={actionLocked || !canRunTextActions}
-          >
-            {workflowState.processingLlm ? "Processing..." : "Processing via LLM"}
-          </button>
-          <button
-            type="button"
-            className="soniox-live-preview-action-button soniox-live-preview-action-button-primary"
-            onClick={handleInsert}
-            disabled={actionLocked || (!hasText && !workflowState.recording)}
-          >
-            Insert
-          </button>
+          {appearance.showProcessButton && (
+            <button
+              type="button"
+              className="soniox-live-preview-action-button"
+              onClick={handleProcess}
+              disabled={!canProcess}
+            >
+              {labelWithHotkey(
+                workflowState.processingLlm ? "Processing..." : "Processing via LLM",
+                processHotkeyLabel,
+              )}
+            </button>
+          )}
+          {appearance.showInsertButton && (
+            <button
+              type="button"
+              className="soniox-live-preview-action-button soniox-live-preview-action-button-primary"
+              onClick={handleInsert}
+              disabled={!canInsert}
+            >
+              {labelWithHotkey("Insert", insertHotkeyLabel)}
+            </button>
+          )}
         </div>
       )}
     </div>

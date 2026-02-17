@@ -1081,6 +1081,24 @@ pub struct AppSettings {
     pub soniox_live_preview_accent_color: String,
     #[serde(default = "default_soniox_live_preview_interim_opacity_percent")]
     pub soniox_live_preview_interim_opacity_percent: u8,
+    #[serde(default)]
+    pub soniox_live_preview_close_hotkey: String,
+    #[serde(default)]
+    pub soniox_live_preview_clear_hotkey: String,
+    #[serde(default)]
+    pub soniox_live_preview_flush_hotkey: String,
+    #[serde(default)]
+    pub soniox_live_preview_process_hotkey: String,
+    #[serde(default)]
+    pub soniox_live_preview_insert_hotkey: String,
+    #[serde(default = "default_true")]
+    pub soniox_live_preview_show_clear_button: bool,
+    #[serde(default = "default_true")]
+    pub soniox_live_preview_show_flush_button: bool,
+    #[serde(default = "default_true")]
+    pub soniox_live_preview_show_process_button: bool,
+    #[serde(default = "default_true")]
+    pub soniox_live_preview_show_insert_button: bool,
     #[serde(default = "default_debug_mode")]
     pub debug_mode: bool,
     #[serde(default = "default_log_level")]
@@ -2136,6 +2154,15 @@ pub fn get_default_settings() -> AppSettings {
         soniox_live_preview_accent_color: default_soniox_live_preview_accent_color(),
         soniox_live_preview_interim_opacity_percent:
             default_soniox_live_preview_interim_opacity_percent(),
+        soniox_live_preview_close_hotkey: String::new(),
+        soniox_live_preview_clear_hotkey: String::new(),
+        soniox_live_preview_flush_hotkey: String::new(),
+        soniox_live_preview_process_hotkey: String::new(),
+        soniox_live_preview_insert_hotkey: String::new(),
+        soniox_live_preview_show_clear_button: default_true(),
+        soniox_live_preview_show_flush_button: default_true(),
+        soniox_live_preview_show_process_button: default_true(),
+        soniox_live_preview_show_insert_button: default_true(),
         debug_mode: false,
         log_level: default_log_level(),
         custom_words: Vec::new(),

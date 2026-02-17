@@ -115,10 +115,14 @@ fn normalize_soniox_live_preview_color(value: &str, fallback: &str) -> String {
         return format!("#{}", trimmed[1..].to_ascii_lowercase());
     }
     warn!(
-        "Invalid Soniox live preview color '{}', defaulting to {}",
+        "Invalid live preview color '{}', defaulting to {}",
         value, fallback
     );
     fallback.to_string()
+}
+
+fn normalize_soniox_live_preview_hotkey(value: &str) -> String {
+    value.trim().to_lowercase()
 }
 
 fn refresh_soniox_live_preview_window(app: &AppHandle) {
@@ -776,7 +780,7 @@ pub fn change_soniox_live_preview_position_setting(
         "custom_xy" => SonioxLivePreviewPosition::CustomXY,
         other => {
             warn!(
-                "Invalid soniox live preview position '{}', defaulting to bottom",
+                "Invalid live preview position '{}', defaulting to bottom",
                 other
             );
             SonioxLivePreviewPosition::Bottom
@@ -841,7 +845,7 @@ pub fn change_soniox_live_preview_size_setting(app: AppHandle, size: String) -> 
         "custom" => SonioxLivePreviewSize::Custom,
         other => {
             warn!(
-                "Invalid soniox live preview size '{}', defaulting to medium",
+                "Invalid live preview size '{}', defaulting to medium",
                 other
             );
             SonioxLivePreviewSize::Medium
@@ -895,7 +899,7 @@ pub fn change_soniox_live_preview_theme_setting(
         "light" => SonioxLivePreviewTheme::Light,
         other => {
             warn!(
-                "Invalid soniox live preview theme '{}', defaulting to main_dark",
+                "Invalid live preview theme '{}', defaulting to main_dark",
                 other
             );
             SonioxLivePreviewTheme::MainDark
@@ -974,6 +978,123 @@ pub fn change_soniox_live_preview_interim_opacity_setting(
     let mut settings = settings::get_settings(&app);
     settings.soniox_live_preview_interim_opacity_percent =
         clamp_soniox_live_preview_interim_opacity_percent(opacity_percent);
+    settings::write_settings(&app, settings);
+    refresh_soniox_live_preview_window(&app);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_soniox_live_preview_close_hotkey_setting(
+    app: AppHandle,
+    hotkey: String,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.soniox_live_preview_close_hotkey = normalize_soniox_live_preview_hotkey(&hotkey);
+    settings::write_settings(&app, settings);
+    refresh_soniox_live_preview_window(&app);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_soniox_live_preview_clear_hotkey_setting(
+    app: AppHandle,
+    hotkey: String,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.soniox_live_preview_clear_hotkey = normalize_soniox_live_preview_hotkey(&hotkey);
+    settings::write_settings(&app, settings);
+    refresh_soniox_live_preview_window(&app);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_soniox_live_preview_flush_hotkey_setting(
+    app: AppHandle,
+    hotkey: String,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.soniox_live_preview_flush_hotkey = normalize_soniox_live_preview_hotkey(&hotkey);
+    settings::write_settings(&app, settings);
+    refresh_soniox_live_preview_window(&app);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_soniox_live_preview_process_hotkey_setting(
+    app: AppHandle,
+    hotkey: String,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.soniox_live_preview_process_hotkey = normalize_soniox_live_preview_hotkey(&hotkey);
+    settings::write_settings(&app, settings);
+    refresh_soniox_live_preview_window(&app);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_soniox_live_preview_insert_hotkey_setting(
+    app: AppHandle,
+    hotkey: String,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.soniox_live_preview_insert_hotkey = normalize_soniox_live_preview_hotkey(&hotkey);
+    settings::write_settings(&app, settings);
+    refresh_soniox_live_preview_window(&app);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_soniox_live_preview_show_clear_button_setting(
+    app: AppHandle,
+    enabled: bool,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.soniox_live_preview_show_clear_button = enabled;
+    settings::write_settings(&app, settings);
+    refresh_soniox_live_preview_window(&app);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_soniox_live_preview_show_flush_button_setting(
+    app: AppHandle,
+    enabled: bool,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.soniox_live_preview_show_flush_button = enabled;
+    settings::write_settings(&app, settings);
+    refresh_soniox_live_preview_window(&app);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_soniox_live_preview_show_process_button_setting(
+    app: AppHandle,
+    enabled: bool,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.soniox_live_preview_show_process_button = enabled;
+    settings::write_settings(&app, settings);
+    refresh_soniox_live_preview_window(&app);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_soniox_live_preview_show_insert_button_setting(
+    app: AppHandle,
+    enabled: bool,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.soniox_live_preview_show_insert_button = enabled;
     settings::write_settings(&app, settings);
     refresh_soniox_live_preview_window(&app);
     Ok(())

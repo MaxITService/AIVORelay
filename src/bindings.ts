@@ -229,6 +229,78 @@ async changeSonioxLivePreviewInterimOpacitySetting(opacityPercent: number) : Pro
     else return { status: "error", error: e  as any };
 }
 },
+async changeSonioxLivePreviewCloseHotkeySetting(hotkey: string) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("change_soniox_live_preview_close_hotkey_setting", { hotkey }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async changeSonioxLivePreviewClearHotkeySetting(hotkey: string) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("change_soniox_live_preview_clear_hotkey_setting", { hotkey }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async changeSonioxLivePreviewFlushHotkeySetting(hotkey: string) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("change_soniox_live_preview_flush_hotkey_setting", { hotkey }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async changeSonioxLivePreviewProcessHotkeySetting(hotkey: string) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("change_soniox_live_preview_process_hotkey_setting", { hotkey }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async changeSonioxLivePreviewInsertHotkeySetting(hotkey: string) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("change_soniox_live_preview_insert_hotkey_setting", { hotkey }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async changeSonioxLivePreviewShowClearButtonSetting(enabled: boolean) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("change_soniox_live_preview_show_clear_button_setting", { enabled }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async changeSonioxLivePreviewShowFlushButtonSetting(enabled: boolean) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("change_soniox_live_preview_show_flush_button_setting", { enabled }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async changeSonioxLivePreviewShowProcessButtonSetting(enabled: boolean) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("change_soniox_live_preview_show_process_button_setting", { enabled }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async changeSonioxLivePreviewShowInsertButtonSetting(enabled: boolean) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("change_soniox_live_preview_show_insert_button_setting", { enabled }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async changeDebugModeSetting(enabled: boolean) : Promise<Result<null, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("change_debug_mode_setting", { enabled }) };
@@ -2192,7 +2264,7 @@ async isLaptop() : Promise<Result<boolean, string>> {
 /** user-defined types **/
 
 export type AddTranscriptionProfilePayload = { name: string; language: string; translateToEnglish: boolean; systemPrompt: string; sttPromptOverrideEnabled?: boolean; pushToTalk: boolean; previewOutputOnlyEnabled?: boolean; includeInCycle: boolean | null; llmSettings: ProfileLlmSettings | null; sonioxContextGeneralJson: string | null; sonioxContextText: string | null; sonioxContextTerms: string[] | null }
-export type AppSettings = { bindings: Partial<{ [key in string]: ShortcutBinding }>; push_to_talk: boolean; preview_output_only_enabled?: boolean; audio_feedback: boolean; audio_feedback_volume?: number; sound_theme?: SoundTheme; start_hidden?: boolean; autostart_enabled?: boolean; show_tray_icon?: boolean; update_checks_enabled?: boolean; selected_model?: string; transcription_provider?: TranscriptionProvider; remote_stt?: RemoteSttSettings; soniox_model?: string; soniox_timeout_seconds?: number; soniox_live_enabled?: boolean; soniox_language_hints?: string[]; soniox_context_general_json?: string; soniox_context_text?: string; soniox_context_terms?: string[]; soniox_use_profile_language_hint_only?: boolean; soniox_language_hints_strict?: boolean; soniox_enable_endpoint_detection?: boolean; soniox_max_endpoint_delay_ms?: number; soniox_enable_language_identification?: boolean; soniox_enable_speaker_diarization?: boolean; soniox_keepalive_interval_seconds?: number; soniox_live_finalize_timeout_ms?: number; soniox_live_instant_stop?: boolean; soniox_realtime_fuzzy_correction_enabled?: boolean; soniox_realtime_keep_safety_buffer_enabled?: boolean; always_on_microphone?: boolean; selected_microphone?: string | null; clamshell_microphone?: string | null; selected_output_device?: string | null; translate_to_english?: boolean; selected_language?: string; overlay_position?: OverlayPosition; soniox_live_preview_enabled?: boolean; soniox_live_preview_position?: SonioxLivePreviewPosition; soniox_live_preview_cursor_offset_px?: number; soniox_live_preview_custom_x_px?: number; soniox_live_preview_custom_y_px?: number; soniox_live_preview_size?: SonioxLivePreviewSize; soniox_live_preview_custom_width_px?: number; soniox_live_preview_custom_height_px?: number; soniox_live_preview_theme?: SonioxLivePreviewTheme; soniox_live_preview_opacity_percent?: number; soniox_live_preview_font_color?: string; soniox_live_preview_interim_font_color?: string; soniox_live_preview_accent_color?: string; soniox_live_preview_interim_opacity_percent?: number; debug_mode?: boolean; log_level?: LogLevel; custom_words?: string[]; custom_words_enabled?: boolean; custom_words_ngram_enabled?: boolean; model_unload_timeout?: ModelUnloadTimeout; word_correction_threshold?: number; history_limit?: number; recording_retention_period?: RecordingRetentionPeriod; paste_method?: PasteMethod; paste_delay_ms?: number; 
+export type AppSettings = { bindings: Partial<{ [key in string]: ShortcutBinding }>; push_to_talk: boolean; preview_output_only_enabled?: boolean; audio_feedback: boolean; audio_feedback_volume?: number; sound_theme?: SoundTheme; start_hidden?: boolean; autostart_enabled?: boolean; show_tray_icon?: boolean; update_checks_enabled?: boolean; selected_model?: string; transcription_provider?: TranscriptionProvider; remote_stt?: RemoteSttSettings; soniox_model?: string; soniox_timeout_seconds?: number; soniox_live_enabled?: boolean; soniox_language_hints?: string[]; soniox_context_general_json?: string; soniox_context_text?: string; soniox_context_terms?: string[]; soniox_use_profile_language_hint_only?: boolean; soniox_language_hints_strict?: boolean; soniox_enable_endpoint_detection?: boolean; soniox_max_endpoint_delay_ms?: number; soniox_enable_language_identification?: boolean; soniox_enable_speaker_diarization?: boolean; soniox_keepalive_interval_seconds?: number; soniox_live_finalize_timeout_ms?: number; soniox_live_instant_stop?: boolean; soniox_realtime_fuzzy_correction_enabled?: boolean; soniox_realtime_keep_safety_buffer_enabled?: boolean; always_on_microphone?: boolean; selected_microphone?: string | null; clamshell_microphone?: string | null; selected_output_device?: string | null; translate_to_english?: boolean; selected_language?: string; overlay_position?: OverlayPosition; soniox_live_preview_enabled?: boolean; soniox_live_preview_position?: SonioxLivePreviewPosition; soniox_live_preview_cursor_offset_px?: number; soniox_live_preview_custom_x_px?: number; soniox_live_preview_custom_y_px?: number; soniox_live_preview_size?: SonioxLivePreviewSize; soniox_live_preview_custom_width_px?: number; soniox_live_preview_custom_height_px?: number; soniox_live_preview_theme?: SonioxLivePreviewTheme; soniox_live_preview_opacity_percent?: number; soniox_live_preview_font_color?: string; soniox_live_preview_interim_font_color?: string; soniox_live_preview_accent_color?: string; soniox_live_preview_interim_opacity_percent?: number; soniox_live_preview_close_hotkey?: string; soniox_live_preview_clear_hotkey?: string; soniox_live_preview_flush_hotkey?: string; soniox_live_preview_process_hotkey?: string; soniox_live_preview_insert_hotkey?: string; soniox_live_preview_show_clear_button?: boolean; soniox_live_preview_show_flush_button?: boolean; soniox_live_preview_show_process_button?: boolean; soniox_live_preview_show_insert_button?: boolean; debug_mode?: boolean; log_level?: LogLevel; custom_words?: string[]; custom_words_enabled?: boolean; custom_words_ngram_enabled?: boolean; model_unload_timeout?: ModelUnloadTimeout; word_correction_threshold?: number; history_limit?: number; recording_retention_period?: RecordingRetentionPeriod; paste_method?: PasteMethod; paste_delay_ms?: number; 
 /**
  * Convert LF to CRLF before clipboard paste (fixes newlines on Windows)
  */
@@ -2654,7 +2726,7 @@ export type ShortcutEngine =
  */
 "rdev"
 export type SonioxFileTranscriptionOptions = { languageHints: string[] | null; enableSpeakerDiarization: boolean | null; enableLanguageIdentification: boolean | null }
-export type SonioxLivePreviewAppearancePayload = { theme: string; opacity_percent: number; font_color: string; interim_font_color: string; accent_color: string; interim_opacity_percent: number }
+export type SonioxLivePreviewAppearancePayload = { theme: string; opacity_percent: number; font_color: string; interim_font_color: string; accent_color: string; interim_opacity_percent: number; close_hotkey: string; clear_hotkey: string; flush_hotkey: string; process_hotkey: string; insert_hotkey: string; show_clear_button: boolean; show_flush_button: boolean; show_process_button: boolean; show_insert_button: boolean }
 export type SonioxLivePreviewPayload = { final_text: string; interim_text: string }
 export type SonioxLivePreviewPosition = "top" | "bottom" | "near_cursor" | "custom_xy"
 export type SonioxLivePreviewSize = "small" | "medium" | "large" | "custom"

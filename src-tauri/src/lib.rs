@@ -300,7 +300,7 @@ fn initialize_core_logic(app_handle: &AppHandle) {
 
     // Create the recording overlay window (hidden by default)
     utils::create_recording_overlay(app_handle);
-    // Create Soniox live preview window (hidden by default)
+    // Create live preview window (hidden by default)
     utils::create_soniox_live_preview_window(app_handle);
 }
 
@@ -351,6 +351,15 @@ pub fn run() {
         shortcut::change_soniox_live_preview_interim_font_color_setting,
         shortcut::change_soniox_live_preview_accent_color_setting,
         shortcut::change_soniox_live_preview_interim_opacity_setting,
+        shortcut::change_soniox_live_preview_close_hotkey_setting,
+        shortcut::change_soniox_live_preview_clear_hotkey_setting,
+        shortcut::change_soniox_live_preview_flush_hotkey_setting,
+        shortcut::change_soniox_live_preview_process_hotkey_setting,
+        shortcut::change_soniox_live_preview_insert_hotkey_setting,
+        shortcut::change_soniox_live_preview_show_clear_button_setting,
+        shortcut::change_soniox_live_preview_show_flush_button_setting,
+        shortcut::change_soniox_live_preview_show_process_button_setting,
+        shortcut::change_soniox_live_preview_show_insert_button_setting,
         shortcut::change_debug_mode_setting,
         shortcut::change_word_correction_threshold_setting,
         shortcut::change_paste_method_setting,

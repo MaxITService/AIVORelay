@@ -105,6 +105,15 @@ pub struct SonioxLivePreviewAppearancePayload {
     pub interim_font_color: String,
     pub accent_color: String,
     pub interim_opacity_percent: u8,
+    pub close_hotkey: String,
+    pub clear_hotkey: String,
+    pub flush_hotkey: String,
+    pub process_hotkey: String,
+    pub insert_hotkey: String,
+    pub show_clear_button: bool,
+    pub show_flush_button: bool,
+    pub show_process_button: bool,
+    pub show_insert_button: bool,
 }
 
 static SONIOX_LIVE_PREVIEW_STATE: LazyLock<Mutex<SonioxLivePreviewPayload>> =
@@ -303,6 +312,18 @@ fn build_soniox_live_preview_appearance_payload(
         interim_opacity_percent: app_settings
             .soniox_live_preview_interim_opacity_percent
             .clamp(20, 95),
+        close_hotkey: app_settings.soniox_live_preview_close_hotkey.trim().to_string(),
+        clear_hotkey: app_settings.soniox_live_preview_clear_hotkey.trim().to_string(),
+        flush_hotkey: app_settings.soniox_live_preview_flush_hotkey.trim().to_string(),
+        process_hotkey: app_settings
+            .soniox_live_preview_process_hotkey
+            .trim()
+            .to_string(),
+        insert_hotkey: app_settings.soniox_live_preview_insert_hotkey.trim().to_string(),
+        show_clear_button: app_settings.soniox_live_preview_show_clear_button,
+        show_flush_button: app_settings.soniox_live_preview_show_flush_button,
+        show_process_button: app_settings.soniox_live_preview_show_process_button,
+        show_insert_button: app_settings.soniox_live_preview_show_insert_button,
     }
 }
 
@@ -438,10 +459,10 @@ pub fn create_soniox_live_preview_window(app_handle: &AppHandle) {
         .build()
         {
             Ok(_window) => {
-                debug!("Soniox live preview window created successfully (hidden)");
+                debug!("Live preview window created successfully (hidden)");
             }
             Err(e) => {
-                debug!("Failed to create Soniox live preview window: {}", e);
+                debug!("Failed to create live preview window: {}", e);
             }
         }
     }
@@ -886,12 +907,12 @@ pub fn preview_soniox_live_preview_window(app_handle: AppHandle) -> Result<(), S
             return Ok(());
         }
 
-        return Err("Failed to open Soniox live preview window.".to_string());
+        return Err("Failed to open live preview window.".to_string());
     }
 
     #[cfg(not(target_os = "windows"))]
     {
-        Err("Soniox live preview is available on Windows only.".to_string())
+        Err("Live preview is available on Windows only.".to_string())
     }
 }
 

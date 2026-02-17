@@ -447,7 +447,7 @@ const ProfileCard: React.FC<ProfileCardProps> = ({
               <label className="text-xs font-semibold text-text/70 block mb-2">
                 {t(
                   "settings.transcriptionProfiles.previewOutputOnly.title",
-                  "Output Only to Preview",
+                  "Output to Preview",
                 )}
               </label>
               <div className="flex items-center gap-2">
@@ -1333,7 +1333,7 @@ export const TranscriptionProfiles: React.FC = () => {
                     <label className="text-xs font-semibold text-text/70">
                       {t(
                         "settings.transcriptionProfiles.previewOutputOnly.title",
-                        "Output Only to Preview",
+                        "Output to Preview",
                       )}
                     </label>
                     <div className="flex items-start gap-2">
@@ -1558,7 +1558,7 @@ export const TranscriptionProfiles: React.FC = () => {
               <label className="text-xs font-semibold text-text/70">
                 {t(
                   "settings.transcriptionProfiles.previewOutputOnly.title",
-                  "Output Only to Preview",
+                  "Output to Preview",
                 )}
               </label>
               <div className="flex items-center gap-2">

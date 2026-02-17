@@ -144,20 +144,6 @@ pub fn is_active() -> bool {
         .unwrap_or(false)
 }
 
-pub fn is_realtime() -> bool {
-    PREVIEW_OUTPUT_MODE_STATE
-        .lock()
-        .map(|state| state.active && state.is_realtime)
-        .unwrap_or(false)
-}
-
-pub fn is_recording() -> bool {
-    PREVIEW_OUTPUT_MODE_STATE
-        .lock()
-        .map(|state| state.active && state.recording)
-        .unwrap_or(false)
-}
-
 pub fn is_active_for_binding(binding_id: &str) -> bool {
     PREVIEW_OUTPUT_MODE_STATE
         .lock()
@@ -165,13 +151,6 @@ pub fn is_active_for_binding(binding_id: &str) -> bool {
             state.active && state.binding_id.as_deref().map(|id| id == binding_id).unwrap_or(false)
         })
         .unwrap_or(false)
-}
-
-pub fn current_binding_id() -> Option<String> {
-    PREVIEW_OUTPUT_MODE_STATE
-        .lock()
-        .ok()
-        .and_then(|state| state.binding_id.clone())
 }
 
 pub fn current_profile_id() -> Option<String> {

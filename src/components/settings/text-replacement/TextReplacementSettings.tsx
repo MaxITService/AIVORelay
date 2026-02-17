@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Plus, Trash2, ArrowRight, HelpCircle, ChevronDown, ChevronUp, CaseSensitive, Regex, Check, X } from "lucide-react";
+import { type as getOsType } from "@tauri-apps/plugin-os";
 import { useSettings } from "@/hooks/useSettings";
 import { SettingsGroup } from "@/components/ui/SettingsGroup";
 import { Button } from "@/components/ui/Button";
@@ -9,6 +10,8 @@ import { ToggleSwitch } from "@/components/ui/ToggleSwitch";
 import { CustomWords } from "@/components/settings/CustomWords";
 import { Slider } from "@/components/ui/Slider";
 import { TellMeMore } from "@/components/ui/TellMeMore";
+import { HotkeyCapture } from "@/components/ui/HotkeyCapture";
+import { formatKeyCombination, type OSType } from "@/lib/utils/keyboard";
 
 interface TextReplacementRule {
   id: string;
@@ -58,6 +61,12 @@ export const TextReplacementSettings: React.FC = () => {
   const [editTo, setEditTo] = useState("");
   const [capturingDecapTarget, setCapturingDecapTarget] =
     useState<DecapCaptureTarget | null>(null);
+
+  const osKind = getOsType();
+  const hotkeyOsType: OSType =
+    osKind === "windows" || osKind === "macos" || osKind === "linux"
+      ? osKind
+      : "unknown";
 
   const replacements: TextReplacementRule[] = (settings?.text_replacements ?? []).map((r: any) => ({
     ...r,
@@ -158,178 +167,6 @@ export const TextReplacementSettings: React.FC = () => {
     conflicts.sort((a, b) => a.name.localeCompare(b.name));
     return conflicts;
   }, [monitoredDecapBindings, settings?.bindings, t]);
-
-  const normalizeMonitoredKeyFromEvent = (
-    event: KeyboardEvent
-  ): string | null => {
-    const key = event.key;
-    const code = event.code;
-
-    const normalizedKey = (() => {
-      if (/^Key[A-Z]$/.test(code)) {
-        return code.slice(3).toLowerCase();
-      }
-      if (/^Digit[0-9]$/.test(code)) {
-        return code.slice(5);
-      }
-
-      const codeBasedKeyMap: Record<string, string> = {
-        Backquote: "`",
-        Minus: "-",
-        Equal: "=",
-        BracketLeft: "[",
-        BracketRight: "]",
-        Backslash: "\\",
-        Semicolon: ";",
-        Quote: "'",
-        Comma: ",",
-        Period: ".",
-        Slash: "/",
-      };
-      if (codeBasedKeyMap[code]) {
-        return codeBasedKeyMap[code];
-      }
-
-      switch (key) {
-        case "Backspace": return "backspace";
-        case "Tab": return "tab";
-        case "Enter": return "enter";
-        case "Escape": return "escape";
-        case "Delete": return "delete";
-        case "Insert": return "insert";
-        case "CapsLock": return "caps lock";
-        case "NumLock": return "numlock";
-        case "ScrollLock": return "scrolllock";
-        case "Pause": return "pause";
-        case "PrintScreen": return "printscreen";
-        case "Home": return "home";
-        case "End": return "end";
-        case "PageUp": return "pageup";
-        case "PageDown": return "pagedown";
-        case "ArrowUp": return "up";
-        case "ArrowDown": return "down";
-        case "ArrowLeft": return "left";
-        case "ArrowRight": return "right";
-        case " ": return "space";
-        case "Control": return "ctrl";
-        case "Shift": return "shift";
-        case "Alt": return "alt";
-        case "Meta": return "win";
-      }
-
-      if (/^F([1-9]|1[0-9]|2[0-4])$/.test(key)) {
-        return key.toLowerCase();
-      }
-
-      switch (code) {
-        case "NumpadAdd": return "numadd";
-        case "NumpadSubtract": return "numsubtract";
-        case "NumpadMultiply": return "nummultiply";
-        case "NumpadDivide": return "numdivide";
-        case "NumpadDecimal": return "numdecimal";
-      }
-
-      if (/^Numpad[0-9]$/.test(code)) {
-        return `num${code.slice(-1)}`;
-      }
-
-      if (key.length === 1) {
-        return key.toLowerCase();
-      }
-
-      return null;
-    })();
-
-    if (!normalizedKey) {
-      return null;
-    }
-
-    const isModifierOnly =
-      normalizedKey === "ctrl" ||
-      normalizedKey === "shift" ||
-      normalizedKey === "alt" ||
-      normalizedKey === "win";
-    if (isModifierOnly) {
-      return normalizedKey;
-    }
-
-    const parts: string[] = [];
-    if (event.ctrlKey) parts.push("ctrl");
-    if (event.shiftKey) parts.push("shift");
-    if (event.altKey) parts.push("alt");
-    if (event.metaKey) parts.push("win");
-    parts.push(normalizedKey);
-    return parts.join("+");
-  };
-
-  const formatMonitoredKeyLabel = (binding: string): string => {
-    const labelMap: Record<string, string> = {
-      ctrl: "Ctrl",
-      shift: "Shift",
-      alt: "Alt",
-      win: "Win",
-      backspace: "Backspace",
-      enter: "Enter",
-      tab: "Tab",
-      escape: "Escape",
-      delete: "Delete",
-      insert: "Insert",
-      "caps lock": "Caps Lock",
-      numlock: "Num Lock",
-      scrolllock: "Scroll Lock",
-      pause: "Pause",
-      printscreen: "Print Screen",
-      pageup: "Page Up",
-      pagedown: "Page Down",
-      up: "Up",
-      down: "Down",
-      left: "Left",
-      right: "Right",
-      space: "Space",
-      home: "Home",
-      end: "End",
-      numadd: "Num +",
-      numsubtract: "Num -",
-      nummultiply: "Num *",
-      numdivide: "Num /",
-      numdecimal: "Num .",
-    };
-
-    return binding
-      .split("+")
-      .filter((part) => part.trim().length > 0)
-      .map((part) => labelMap[part] ?? (part.length === 1 ? part.toUpperCase() : part))
-      .join(" + ");
-  };
-
-  useEffect(() => {
-    if (!capturingDecapTarget) return;
-
-    const handleKeyDown = (event: KeyboardEvent) => {
-      event.preventDefault();
-      event.stopPropagation();
-
-      if (event.key === "Escape") {
-        setCapturingDecapTarget(null);
-        return;
-      }
-
-      const normalized = normalizeMonitoredKeyFromEvent(event);
-      if (!normalized) return;
-
-      const targetKey =
-        capturingDecapTarget === "secondary"
-          ? "text_replacement_decapitalize_after_edit_secondary_key"
-          : "text_replacement_decapitalize_after_edit_key";
-      void (updateSetting as any)(targetKey, normalized);
-      setCapturingDecapTarget(null);
-    };
-
-    window.addEventListener("keydown", handleKeyDown, true);
-    return () => {
-      window.removeEventListener("keydown", handleKeyDown, true);
-    };
-  }, [capturingDecapTarget, normalizeMonitoredKeyFromEvent, updateSetting]);
 
   useEffect(() => {
     if (!decapitalizeAfterEditEnabled) {
@@ -504,30 +341,18 @@ export const TextReplacementSettings: React.FC = () => {
                     "If you choose Backspace, Ctrl+Backspace also triggers."
                   )}
                 </div>
-                <div className="flex items-center gap-2">
-                  <Input
-                    value={formatMonitoredKeyLabel(decapitalizeAfterEditKey)}
-                    readOnly={true}
-                    className="flex-1"
-                  />
-                  <Button
-                    variant={capturingDecapTarget === "primary" ? "primary" : "secondary"}
-                    onClick={() =>
-                      setCapturingDecapTarget((prev) => (prev === "primary" ? null : "primary"))
-                    }
-                    disabled={isUpdating("text_replacement_decapitalize_after_edit_key")}
-                  >
-                    {capturingDecapTarget === "primary"
-                      ? t(
-                          "textReplacement.decapitalizeAfterEditCaptureButtonListening",
-                          "Press keys..."
-                        )
-                      : t(
-                          "textReplacement.decapitalizeAfterEditCaptureButton",
-                          "Capture Key"
-                        )}
-                  </Button>
-                </div>
+                <HotkeyCapture
+                  value={decapitalizeAfterEditKey}
+                  isCapturing={capturingDecapTarget === "primary"}
+                  onStartCapture={() => setCapturingDecapTarget("primary")}
+                  onCaptured={(hotkey) => {
+                    void (updateSetting as any)("text_replacement_decapitalize_after_edit_key", hotkey);
+                    setCapturingDecapTarget(null);
+                  }}
+                  onCancel={() => setCapturingDecapTarget(null)}
+                  disabled={isUpdating("text_replacement_decapitalize_after_edit_key")}
+                  osType={hotkeyOsType}
+                />
 
                 <div className="mt-3 rounded-md border border-white/[0.08] bg-white/[0.02] px-3 py-3">
                   <ToggleSwitch
@@ -560,34 +385,18 @@ export const TextReplacementSettings: React.FC = () => {
                           "Optional second key. Works with OR logic together with the primary key."
                         )}
                       </div>
-                      <div className="flex items-center gap-2">
-                        <Input
-                          value={formatMonitoredKeyLabel(decapitalizeAfterEditSecondaryKey)}
-                          readOnly={true}
-                          className="flex-1"
-                        />
-                        <Button
-                          variant={capturingDecapTarget === "secondary" ? "primary" : "secondary"}
-                          onClick={() =>
-                            setCapturingDecapTarget((prev) =>
-                              prev === "secondary" ? null : "secondary"
-                            )
-                          }
-                          disabled={isUpdating(
-                            "text_replacement_decapitalize_after_edit_secondary_key"
-                          )}
-                        >
-                          {capturingDecapTarget === "secondary"
-                            ? t(
-                                "textReplacement.decapitalizeAfterEditCaptureButtonListening",
-                                "Press keys..."
-                              )
-                            : t(
-                                "textReplacement.decapitalizeAfterEditCaptureButton",
-                                "Capture Key"
-                              )}
-                        </Button>
-                      </div>
+                      <HotkeyCapture
+                        value={decapitalizeAfterEditSecondaryKey}
+                        isCapturing={capturingDecapTarget === "secondary"}
+                        onStartCapture={() => setCapturingDecapTarget("secondary")}
+                        onCaptured={(hotkey) => {
+                          void (updateSetting as any)("text_replacement_decapitalize_after_edit_secondary_key", hotkey);
+                          setCapturingDecapTarget(null);
+                        }}
+                        onCancel={() => setCapturingDecapTarget(null)}
+                        disabled={isUpdating("text_replacement_decapitalize_after_edit_secondary_key")}
+                        osType={hotkeyOsType}
+                      />
                     </div>
                   )}
                 </div>
@@ -609,7 +418,7 @@ export const TextReplacementSettings: React.FC = () => {
                     <ul className="mt-1 list-disc list-inside space-y-0.5">
                       {decapConflicts.map((item) => (
                         <li key={item.id}>
-                          {item.name}: {formatMonitoredKeyLabel(item.binding)}
+                          {item.name}: {formatKeyCombination(item.binding, hotkeyOsType)}
                         </li>
                       ))}
                     </ul>

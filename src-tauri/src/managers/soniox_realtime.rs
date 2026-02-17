@@ -402,7 +402,7 @@ impl SonioxRealtimeManager {
                                     preview_final_text.push_str(&chunk_text);
                                 }
                                 debug!(
-                                    "Soniox live preview update: final_tokens={}, non_final_tokens={}, final_chars={}, interim_chars={}, finished={}",
+                                    "Live preview update: final_tokens={}, non_final_tokens={}, final_chars={}, interim_chars={}, finished={}",
                                     final_token_count,
                                     non_final_token_count,
                                     chunk_text.len(),
