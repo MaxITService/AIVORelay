@@ -2272,7 +2272,13 @@ impl ShortcutAction for TranscribeAction {
                     if !preview_output_only_enabled {
                         let _ = crate::clipboard::end_streaming_paste_session(&ah);
                     } else if !invoked_from_preview_action {
-                        close_preview_output_mode_workflow(&ah, true);
+                        let text_to_insert =
+                            crate::managers::preview_output_mode::recording_prefix_text();
+                        if let Err(err) =
+                            finalize_preview_workflow_after_stop(&ah, text_to_insert).await
+                        {
+                            crate::managers::preview_output_mode::set_error(&ah, Some(err));
+                        }
                     }
                     utils::hide_recording_overlay(&ah);
                     change_tray_icon(&ah, TrayIconState::Idle);
@@ -2413,7 +2419,13 @@ impl ShortcutAction for TranscribeAction {
                 if is_soniox_provider && !preview_output_only_enabled {
                     let _ = crate::clipboard::end_streaming_paste_session(&ah);
                 } else if preview_output_only_enabled && !invoked_from_preview_action {
-                    close_preview_output_mode_workflow(&ah, true);
+                    let text_to_insert =
+                        crate::managers::preview_output_mode::recording_prefix_text();
+                    if let Err(err) =
+                        finalize_preview_workflow_after_stop(&ah, text_to_insert).await
+                    {
+                        crate::managers::preview_output_mode::set_error(&ah, Some(err));
+                    }
                 }
                 utils::hide_recording_overlay(&ah);
                 change_tray_icon(&ah, TrayIconState::Idle);
