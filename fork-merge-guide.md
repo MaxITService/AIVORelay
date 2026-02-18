@@ -4,7 +4,7 @@ This file contains the upstream-tracking + merge/conflict-resolution notes for t
 
 ## Upstream Tracking
 
-Last upstream review cursor: `b02873d` — feat(linux): Add option to select typing tool (#760).
+Last upstream review cursor: `58b95c5c956abd6ddb28cc7f06279ca86e2812c4` — feat(linux): Add option to select typing tool (#760).
 
 This is a **review point**, not a merge base. We cherry-pick selectively.
 

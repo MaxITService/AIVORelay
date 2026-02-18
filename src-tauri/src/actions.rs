@@ -593,6 +593,27 @@ fn reset_toggle_state(app: &AppHandle, binding_id: &str) {
     }
 }
 
+/// Drop guard that ensures `exit_processing` and toggle-state reset run on
+/// every exit path of an async transcription task — including panics and
+/// early returns that previously missed the toggle reset.
+struct FinishGuard {
+    app: AppHandle,
+    binding_id: String,
+}
+
+impl FinishGuard {
+    fn new(app: AppHandle, binding_id: String) -> Self {
+        Self { app, binding_id }
+    }
+}
+
+impl Drop for FinishGuard {
+    fn drop(&mut self) {
+        session_manager::exit_processing(&self.app);
+        reset_toggle_state(&self.app, &self.binding_id);
+    }
+}
+
 fn emit_ai_replace_error(app: &AppHandle, message: impl Into<String>) {
     let _ = app.emit("ai-replace-error", message.into());
 }
@@ -2177,6 +2198,7 @@ impl ShortcutAction for TranscribeAction {
             let preview_output_only_enabled = preview_output_only_enabled;
             let invoked_from_preview_action = invoked_from_preview_action;
             tauri::async_runtime::spawn(async move {
+                let _guard = FinishGuard::new(ah.clone(), binding_id.clone());
                 let stream_processor = take_soniox_stream_processor(&binding_id);
                 let rm = Arc::clone(&ah.state::<Arc<AudioRecordingManager>>());
                 let samples = match rm.stop_recording(&binding_id) {
@@ -2389,6 +2411,7 @@ impl ShortcutAction for TranscribeAction {
         let invoked_from_preview_action = invoked_from_preview_action;
 
         tauri::async_runtime::spawn(async move {
+            let _guard = FinishGuard::new(ah.clone(), binding_id.clone());
             let is_soniox_provider =
                 recording_settings.transcription_provider == TranscriptionProvider::RemoteSoniox;
             if is_soniox_provider && !preview_output_only_enabled {
