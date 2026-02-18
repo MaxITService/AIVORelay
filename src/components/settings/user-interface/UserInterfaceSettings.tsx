@@ -277,7 +277,7 @@ export const UserInterfaceSettings: React.FC = () => {
           </div>
           <SettingContainer
             title="Live Preview Window"
-            description="Show a separate visual window with live interim/final text updates."
+            description="Warning: this changes how app inserts text! Preview window appears, then, text is first displayed here, only at the end of recording it is inserted into target application. Global toggle for preview window visibility across the app. Output to Preview workflow can still force its own preview window."
             descriptionMode="inline"
             grouped={true}
           >
