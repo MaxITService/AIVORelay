@@ -8,30 +8,32 @@ use crate::managers::history::HistoryManager;
 use crate::managers::llm_operation::LlmOperationTracker;
 use crate::managers::model::{EngineType, ModelManager};
 use crate::managers::remote_stt::RemoteSttManager;
-use crate::managers::soniox_realtime::{FinalChunkCallback, SonioxRealtimeManager, SonioxRealtimeOptions};
+use crate::managers::soniox_realtime::{
+    FinalChunkCallback, SonioxRealtimeManager, SonioxRealtimeOptions,
+};
 use crate::managers::soniox_stt::SonioxSttManager;
 use crate::managers::transcription::TranscriptionManager;
 use crate::session_manager::{self, ManagedSessionState};
-use crate::soniox_stream_processor::SonioxStreamProcessor;
 use crate::settings::{
     apply_output_whitespace_policy_for_settings, get_settings, AppSettings, TranscriptionProvider,
     APPLE_INTELLIGENCE_PROVIDER_ID,
 };
+use crate::soniox_stream_processor::SonioxStreamProcessor;
 use crate::tray::{change_tray_icon, TrayIconState};
 use crate::utils::{
-    self, show_finalizing_overlay, show_recording_overlay, show_sending_overlay, show_thinking_overlay,
-    show_transcribing_overlay,
+    self, show_finalizing_overlay, show_recording_overlay, show_sending_overlay,
+    show_thinking_overlay, show_transcribing_overlay,
 };
 use crate::ManagedToggleState;
 use ferrous_opencc::{config::BuiltinConfig, OpenCC};
 use log::{debug, error, warn};
-use once_cell::sync::Lazy;
 use natural::phonetics::soundex;
+use once_cell::sync::Lazy;
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
-use strsim::normalized_levenshtein;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
+use strsim::normalized_levenshtein;
 use tauri::{AppHandle, Emitter, Manager};
 use tauri_plugin_clipboard_manager::ClipboardExt;
 
@@ -177,12 +179,7 @@ fn resolve_effective_language(
     let mm = app.state::<Arc<ModelManager>>();
     let supports_language_selection = mm
         .get_model_info(&settings.selected_model)
-        .map(|m| {
-            matches!(
-                m.engine_type,
-                EngineType::Whisper | EngineType::SenseVoice
-            )
-        })
+        .map(|m| matches!(m.engine_type, EngineType::Whisper | EngineType::SenseVoice))
         .unwrap_or(false);
 
     if supports_language_selection && !requested.trim().is_empty() {
@@ -553,9 +550,7 @@ async fn maybe_convert_chinese_variant(
     let is_traditional = requested_language == "zh-Hant";
 
     if !is_simplified && !is_traditional {
-        debug!(
-            "requested language is not Simplified or Traditional Chinese; skipping translation"
-        );
+        debug!("requested language is not Simplified or Traditional Chinese; skipping translation");
         return None;
     }
 
@@ -939,12 +934,13 @@ async fn perform_transcription_for_profile(
         let soniox_context = crate::settings::resolve_soniox_context(profile, &settings);
         let should_stream_insert = !preview_output_only_enabled
             && binding_id
-            .map(|id| id == "transcribe" || id.starts_with("transcribe_profile_"))
-            .unwrap_or(false);
+                .map(|id| id == "transcribe" || id.starts_with("transcribe_profile_"))
+                .unwrap_or(false);
 
         let result = if should_stream_insert {
             let app_handle = app.clone();
-            let stream_processor = Arc::new(Mutex::new(SonioxStreamProcessor::from_settings(&settings)));
+            let stream_processor =
+                Arc::new(Mutex::new(SonioxStreamProcessor::from_settings(&settings)));
             let stream_processor_for_callback = Arc::clone(&stream_processor);
             let streamed_result = soniox_manager
                 .transcribe_with_streaming_callback(
@@ -962,7 +958,9 @@ async fn perform_transcription_for_profile(
                         let delta = match stream_processor_for_callback.lock() {
                             Ok(mut processor) => processor.push_chunk(chunk),
                             Err(_) => {
-                                return Err(anyhow::anyhow!("Failed to lock Soniox stream processor"));
+                                return Err(anyhow::anyhow!(
+                                    "Failed to lock Soniox stream processor"
+                                ));
                             }
                         };
                         if delta.is_empty() {
@@ -970,44 +968,47 @@ async fn perform_transcription_for_profile(
                         }
                         let ah_for_call = app_handle.clone();
                         let ah_for_closure = ah_for_call.clone();
-                        ah_for_call.run_on_main_thread(move || {
-                            let _ =
-                                crate::clipboard::paste_stream_chunk(delta, ah_for_closure.clone());
-                        })
-                        .map_err(|e| anyhow::anyhow!("Failed to queue stream chunk paste: {}", e))
+                        ah_for_call
+                            .run_on_main_thread(move || {
+                                let _ = crate::clipboard::paste_stream_chunk(
+                                    delta,
+                                    ah_for_closure.clone(),
+                                );
+                            })
+                            .map_err(|e| {
+                                anyhow::anyhow!("Failed to queue stream chunk paste: {}", e)
+                            })
                     },
                 )
                 .await;
 
             match streamed_result {
-                Ok(text) => {
-                    match stream_processor.lock() {
-                        Ok(mut processor) => {
-                            let tail_delta = processor.flush();
-                            drop(processor);
+                Ok(text) => match stream_processor.lock() {
+                    Ok(mut processor) => {
+                        let tail_delta = processor.flush();
+                        drop(processor);
 
-                            if tail_delta.is_empty() {
-                                Ok(text)
-                            } else {
-                                let ah_for_call = app.clone();
-                                let ah_for_closure = ah_for_call.clone();
-                                match ah_for_call.run_on_main_thread(move || {
-                                    let _ = crate::clipboard::paste_stream_chunk(
-                                        tail_delta,
-                                        ah_for_closure.clone(),
-                                    );
-                                }) {
-                                    Ok(_) => Ok(text),
-                                    Err(err) => Err(anyhow::anyhow!(
-                                        "Failed to queue stream tail paste: {}",
-                                        err
-                                    )),
-                                }
+                        if tail_delta.is_empty() {
+                            Ok(text)
+                        } else {
+                            let ah_for_call = app.clone();
+                            let ah_for_closure = ah_for_call.clone();
+                            match ah_for_call.run_on_main_thread(move || {
+                                let _ = crate::clipboard::paste_stream_chunk(
+                                    tail_delta,
+                                    ah_for_closure.clone(),
+                                );
+                            }) {
+                                Ok(_) => Ok(text),
+                                Err(err) => Err(anyhow::anyhow!(
+                                    "Failed to queue stream tail paste: {}",
+                                    err
+                                )),
                             }
                         }
-                        Err(_) => Err(anyhow::anyhow!("Failed to lock Soniox stream processor")),
                     }
-                }
+                    Err(_) => Err(anyhow::anyhow!("Failed to lock Soniox stream processor")),
+                },
                 Err(err) => Err(err),
             }
         } else {
@@ -1256,9 +1257,7 @@ async fn get_transcription_or_cleanup_detailed(
         let is_ai_replace = binding_id.starts_with("ai_replace");
         let quick_tap_threshold_samples =
             quick_tap_threshold_samples(recording_settings.ai_replace_quick_tap_threshold_ms);
-        let should_skip = is_ai_replace && {
-            samples.len() < quick_tap_threshold_samples
-        };
+        let should_skip = is_ai_replace && { samples.len() < quick_tap_threshold_samples };
 
         if should_skip {
             debug!(
@@ -1308,7 +1307,9 @@ async fn get_transcription_or_cleanup_detailed(
         )
         .await
         {
-            TranscriptionOutcome::Success(text) => TranscriptionFetchOutcome::Success((text, samples)),
+            TranscriptionOutcome::Success(text) => {
+                TranscriptionFetchOutcome::Success((text, samples))
+            }
             TranscriptionOutcome::Cancelled => TranscriptionFetchOutcome::Cancelled,
             TranscriptionOutcome::Error {
                 shown_in_overlay, ..
@@ -1537,7 +1538,9 @@ fn should_use_soniox_live_for_recording(app: &AppHandle, binding_id: &str) -> bo
             binding_id: current_binding_id,
             captured_settings,
             ..
-        } if current_binding_id == binding_id => should_use_soniox_live_streaming(captured_settings),
+        } if current_binding_id == binding_id => {
+            should_use_soniox_live_streaming(captured_settings)
+        }
         _ => false,
     }
 }
@@ -1583,7 +1586,8 @@ fn setup_and_start_soniox_live(
 }
 
 fn resolve_soniox_hint_from_language(language: &str) -> Option<String> {
-    let resolution = crate::language_resolver::resolve_requested_language_for_soniox(Some(language));
+    let resolution =
+        crate::language_resolver::resolve_requested_language_for_soniox(Some(language));
 
     match resolution.status {
         crate::language_resolver::SonioxLanguageResolutionStatus::Supported => {
@@ -1623,8 +1627,9 @@ fn build_soniox_realtime_options(
     let mut language_hints = if settings.soniox_use_profile_language_hint_only {
         Vec::new()
     } else {
-        let normalized_hints =
-            crate::language_resolver::normalize_soniox_hint_list(settings.soniox_language_hints.clone());
+        let normalized_hints = crate::language_resolver::normalize_soniox_hint_list(
+            settings.soniox_language_hints.clone(),
+        );
         if !normalized_hints.rejected.is_empty() {
             warn!(
                 "Ignoring unsupported Soniox language hints: {}",
@@ -1696,7 +1701,9 @@ fn resolve_stream_trailing_adjustment(
     if adjusted_trailing_count > original_trailing_count {
         StreamTrailingAdjustment::AppendSpaces(adjusted_trailing_count - original_trailing_count)
     } else if original_trailing_count > adjusted_trailing_count {
-        StreamTrailingAdjustment::RemoveCharacters(original_trailing_count - adjusted_trailing_count)
+        StreamTrailingAdjustment::RemoveCharacters(
+            original_trailing_count - adjusted_trailing_count,
+        )
     } else {
         StreamTrailingAdjustment::None
     }
@@ -1771,20 +1778,14 @@ async fn apply_post_processing_and_history(
     let requested_language = profile
         .map(|p| p.language.as_str())
         .unwrap_or(settings.selected_language.as_str());
-    if let Some(converted_text) = maybe_convert_chinese_variant(requested_language, &final_text).await
+    if let Some(converted_text) =
+        maybe_convert_chinese_variant(requested_language, &final_text).await
     {
         final_text = converted_text;
     }
 
-    let template_context = build_llm_template_context(
-        app,
-        settings,
-        profile,
-        current_app,
-        &final_text,
-        "",
-        "",
-    );
+    let template_context =
+        build_llm_template_context(app, settings, profile, current_app, &final_text, "", "");
 
     match maybe_post_process_transcription(app, settings, profile, &template_context, false).await {
         PostProcessTranscriptionOutcome::Skipped => {
@@ -2288,9 +2289,8 @@ impl ShortcutAction for TranscribeAction {
 
                 let stream_trailing_adjustment =
                     resolve_stream_trailing_adjustment(&recording_settings, &transcription);
-                let copy_to_clipboard =
-                    recording_settings.clipboard_handling
-                        == crate::settings::ClipboardHandling::CopyToClipboard;
+                let copy_to_clipboard = recording_settings.clipboard_handling
+                    == crate::settings::ClipboardHandling::CopyToClipboard;
 
                 let final_text = match apply_post_processing_and_history(
                     &ah,
@@ -2319,12 +2319,13 @@ impl ShortcutAction for TranscribeAction {
                 let final_text_for_ui = final_text.clone();
                 let final_text_for_insert =
                     if preview_output_only_enabled && !invoked_from_preview_action {
-                    let mut combined_text = crate::managers::preview_output_mode::recording_prefix_text();
-                    combined_text.push_str(&final_text);
-                    Some(combined_text)
-                } else {
-                    None
-                };
+                        let mut combined_text =
+                            crate::managers::preview_output_mode::recording_prefix_text();
+                        combined_text.push_str(&final_text);
+                        Some(combined_text)
+                    } else {
+                        None
+                    };
                 ah.run_on_main_thread(move || {
                     if !preview_output_only_enabled {
                         // Soniox live mode already inserted text incrementally while chunks arrived.
@@ -2373,8 +2374,10 @@ impl ShortcutAction for TranscribeAction {
         let captured_profile_id = stop_context.captured_profile_id.clone();
         let current_app = stop_context.current_app.clone();
         let recording_settings = stop_context.recording_settings.clone();
-        let preview_output_only_enabled =
-            is_preview_output_only_for_captured_profile(&recording_settings, captured_profile_id.as_ref());
+        let preview_output_only_enabled = is_preview_output_only_for_captured_profile(
+            &recording_settings,
+            captured_profile_id.as_ref(),
+        );
         if preview_output_only_enabled {
             crate::managers::preview_output_mode::set_recording(app, false);
             crate::managers::preview_output_mode::set_error(app, None);
@@ -2394,26 +2397,25 @@ impl ShortcutAction for TranscribeAction {
                 }
             }
             let profile_id_for_postprocess = captured_profile_id.clone();
-            let (transcription, samples) =
-                match get_transcription_or_cleanup(
-                    &ah,
-                    &binding_id,
-                    captured_profile_id,
-                    recording_settings.clone(),
-                )
-                .await
-                {
-                    Some(res) => res,
-                    None => {
-                        if is_soniox_provider && !preview_output_only_enabled {
-                            let _ = crate::clipboard::end_streaming_paste_session(&ah);
-                        } else if preview_output_only_enabled && !invoked_from_preview_action {
-                            close_preview_output_mode_workflow(&ah, true);
-                        }
-                        session_manager::exit_processing(&ah);
-                        return;
+            let (transcription, samples) = match get_transcription_or_cleanup(
+                &ah,
+                &binding_id,
+                captured_profile_id,
+                recording_settings.clone(),
+            )
+            .await
+            {
+                Some(res) => res,
+                None => {
+                    if is_soniox_provider && !preview_output_only_enabled {
+                        let _ = crate::clipboard::end_streaming_paste_session(&ah);
+                    } else if preview_output_only_enabled && !invoked_from_preview_action {
+                        close_preview_output_mode_workflow(&ah, true);
                     }
-                };
+                    session_manager::exit_processing(&ah);
+                    return;
+                }
+            };
 
             if transcription.is_empty() {
                 if is_soniox_provider && !preview_output_only_enabled {
@@ -2472,12 +2474,13 @@ impl ShortcutAction for TranscribeAction {
             let final_text_for_ui = final_text.clone();
             let final_text_for_insert =
                 if preview_output_only_enabled && !invoked_from_preview_action {
-                let mut combined_text = crate::managers::preview_output_mode::recording_prefix_text();
-                combined_text.push_str(&final_text);
-                Some(combined_text)
-            } else {
-                None
-            };
+                    let mut combined_text =
+                        crate::managers::preview_output_mode::recording_prefix_text();
+                    combined_text.push_str(&final_text);
+                    Some(combined_text)
+                } else {
+                    None
+                };
             ah.run_on_main_thread(move || {
                 if is_soniox_provider && !preview_output_only_enabled {
                     // Soniox path already inserted text incrementally while chunks arrived.
@@ -2500,7 +2503,8 @@ impl ShortcutAction for TranscribeAction {
 
             if preview_output_only_enabled {
                 if let Some(text_to_insert) = final_text_for_insert {
-                    if let Err(err) = finalize_preview_workflow_after_stop(&ah, text_to_insert).await
+                    if let Err(err) =
+                        finalize_preview_workflow_after_stop(&ah, text_to_insert).await
                     {
                         crate::managers::preview_output_mode::set_error(&ah, Some(err));
                     }
@@ -2586,21 +2590,20 @@ impl ShortcutAction for SendToExtensionAction {
         let binding_id = binding_id.to_string();
 
         tauri::async_runtime::spawn(async move {
-            let (transcription, samples) =
-                match get_transcription_or_cleanup(
-                    &ah,
-                    &binding_id,
-                    None,
-                    recording_settings.clone(),
-                )
-                .await
-                {
-                    Some(res) => res,
-                    None => {
-                        session_manager::exit_processing(&ah);
-                        return;
-                    }
-                };
+            let (transcription, samples) = match get_transcription_or_cleanup(
+                &ah,
+                &binding_id,
+                None,
+                recording_settings.clone(),
+            )
+            .await
+            {
+                Some(res) => res,
+                None => {
+                    session_manager::exit_processing(&ah);
+                    return;
+                }
+            };
 
             if transcription.is_empty() {
                 utils::hide_recording_overlay(&ah);
@@ -2610,23 +2613,22 @@ impl ShortcutAction for SendToExtensionAction {
             }
 
             // Use default profile (None) for extension actions
-            let final_text =
-                match apply_post_processing_and_history(
-                    &ah,
-                    &recording_settings,
-                    transcription,
-                    samples,
-                    None,
-                    &current_app,
-                )
-                .await
-                {
-                    Some(text) => text,
-                    None => {
-                        session_manager::exit_processing(&ah);
-                        return;
-                    }
-                };
+            let final_text = match apply_post_processing_and_history(
+                &ah,
+                &recording_settings,
+                transcription,
+                samples,
+                None,
+                &current_app,
+            )
+            .await
+            {
+                Some(text) => text,
+                None => {
+                    session_manager::exit_processing(&ah);
+                    return;
+                }
+            };
 
             match cm.queue_message(&final_text) {
                 Ok(id) => debug!("Connector message queued with id: {}", id),
@@ -2711,21 +2713,20 @@ impl ShortcutAction for SendToExtensionWithSelectionAction {
         let binding_id = binding_id.to_string();
 
         tauri::async_runtime::spawn(async move {
-            let (transcription, samples) =
-                match get_transcription_or_cleanup(
-                    &ah,
-                    &binding_id,
-                    None,
-                    recording_settings.clone(),
-                )
-                .await
-                {
-                    Some(res) => res,
-                    None => {
-                        session_manager::exit_processing(&ah);
-                        return;
-                    }
-                };
+            let (transcription, samples) = match get_transcription_or_cleanup(
+                &ah,
+                &binding_id,
+                None,
+                recording_settings.clone(),
+            )
+            .await
+            {
+                Some(res) => res,
+                None => {
+                    session_manager::exit_processing(&ah);
+                    return;
+                }
+            };
 
             let final_transcription = if transcription.trim().is_empty() {
                 if !recording_settings.send_to_extension_with_selection_allow_no_voice {
@@ -3132,8 +3133,9 @@ impl ShortcutAction for SendScreenshotToExtensionAction {
                     return;
                 }
 
-                let quick_tap_threshold_samples =
-                    quick_tap_threshold_samples(recording_settings.screenshot_quick_tap_threshold_ms);
+                let quick_tap_threshold_samples = quick_tap_threshold_samples(
+                    recording_settings.screenshot_quick_tap_threshold_ms,
+                );
                 if samples.len() >= quick_tap_threshold_samples {
                     debug!(
                         "Ignoring no-voice screenshot send ({} samples >= quick tap threshold {})",
@@ -3150,7 +3152,9 @@ impl ShortcutAction for SendScreenshotToExtensionAction {
                     return;
                 }
 
-                recording_settings.screenshot_no_voice_default_prompt.clone()
+                recording_settings
+                    .screenshot_no_voice_default_prompt
+                    .clone()
             } else {
                 voice_text
             };
@@ -3167,7 +3171,8 @@ impl ShortcutAction for SendScreenshotToExtensionAction {
                 {
                     use crate::region_capture::{open_region_picker, RegionCaptureResult};
 
-                    match open_region_picker(&ah, recording_settings.native_region_capture_mode).await
+                    match open_region_picker(&ah, recording_settings.native_region_capture_mode)
+                        .await
                     {
                         RegionCaptureResult::Selected { region, image_data } => {
                             debug!("Screenshot captured for region: {:?}", region);
@@ -3226,11 +3231,10 @@ impl ShortcutAction for SendScreenshotToExtensionAction {
             }
 
             // Snapshot existing files to prevent picking up old ones
-            let existing_files =
-                collect_existing_images(
-                    &screenshot_folder,
-                    recording_settings.screenshot_include_subfolders,
-                );
+            let existing_files = collect_existing_images(
+                &screenshot_folder,
+                recording_settings.screenshot_include_subfolders,
+            );
             let start_time = std::time::SystemTime::now();
 
             // Launch screenshot tool
@@ -3319,28 +3323,27 @@ impl ShortcutAction for AiReplaceSelectionAction {
         let binding_id = binding_id.to_string();
 
         tauri::async_runtime::spawn(async move {
-            let (transcription, _) =
-                match get_transcription_or_cleanup_detailed(
-                    &ah,
-                    &binding_id,
-                    None,
-                    recording_settings.clone(),
-                )
-                .await
-                {
-                    TranscriptionFetchOutcome::Success(res) => res,
-                    TranscriptionFetchOutcome::Cancelled
-                    | TranscriptionFetchOutcome::ErrorOverlayShown => {
-                        session_manager::exit_processing(&ah);
-                        return;
-                    }
-                    TranscriptionFetchOutcome::ErrorNoOverlay => {
-                        utils::hide_recording_overlay(&ah);
-                        change_tray_icon(&ah, TrayIconState::Idle);
-                        session_manager::exit_processing(&ah);
-                        return;
-                    }
-                };
+            let (transcription, _) = match get_transcription_or_cleanup_detailed(
+                &ah,
+                &binding_id,
+                None,
+                recording_settings.clone(),
+            )
+            .await
+            {
+                TranscriptionFetchOutcome::Success(res) => res,
+                TranscriptionFetchOutcome::Cancelled
+                | TranscriptionFetchOutcome::ErrorOverlayShown => {
+                    session_manager::exit_processing(&ah);
+                    return;
+                }
+                TranscriptionFetchOutcome::ErrorNoOverlay => {
+                    utils::hide_recording_overlay(&ah);
+                    change_tray_icon(&ah, TrayIconState::Idle);
+                    session_manager::exit_processing(&ah);
+                    return;
+                }
+            };
 
             if transcription.trim().is_empty() {
                 if !recording_settings.ai_replace_allow_quick_tap {
@@ -3753,7 +3756,8 @@ fn compute_word_similarity(word_a: &str, word_b: &str, config: &FuzzyMatchConfig
     // Phonetic matching (Soundex)
     if config.use_phonetic && soundex(word_a, word_b) {
         // Phonetic match - boost the score
-        let phonetic_score = config.word_similarity_threshold + config.phonetic_boost * (1.0 - config.word_similarity_threshold);
+        let phonetic_score = config.word_similarity_threshold
+            + config.phonetic_boost * (1.0 - config.word_similarity_threshold);
         score = score.max(phonetic_score.min(1.0));
     }
 
@@ -3811,8 +3815,8 @@ fn compute_similarity(a: &str, b: &str, config: &FuzzyMatchConfig) -> f64 {
     };
 
     // Length penalty - favor similar length phrases
-    let len_ratio = (a_words.len().min(b_words.len()) as f64)
-        / (a_words.len().max(b_words.len()) as f64);
+    let len_ratio =
+        (a_words.len().min(b_words.len()) as f64) / (a_words.len().max(b_words.len()) as f64);
 
     // Final score combines coverage, quality, and length similarity
     // Coverage is most important (70%), quality matters (20%), length is a tiebreaker (10%)
@@ -4019,21 +4023,20 @@ impl ShortcutAction for VoiceCommandAction {
         let binding_id = binding_id.to_string();
 
         tauri::async_runtime::spawn(async move {
-            let (transcription, _) =
-                match get_transcription_or_cleanup(
-                    &ah,
-                    &binding_id,
-                    None,
-                    recording_settings.clone(),
-                )
-                .await
-                {
-                    Some(res) => res,
-                    None => {
-                        session_manager::exit_processing(&ah);
-                        return;
-                    }
-                };
+            let (transcription, _) = match get_transcription_or_cleanup(
+                &ah,
+                &binding_id,
+                None,
+                recording_settings.clone(),
+            )
+            .await
+            {
+                Some(res) => res,
+                None => {
+                    session_manager::exit_processing(&ah);
+                    return;
+                }
+            };
 
             if transcription.trim().is_empty() {
                 emit_voice_command_error(&ah, "No command detected");
@@ -4104,8 +4107,9 @@ impl ShortcutAction for VoiceCommandAction {
                         debug!("LLM suggested command: '{}'", suggested_command);
 
                         // LLM fallback uses global defaults
-                        let resolved =
-                            recording_settings.voice_command_defaults.to_resolved_options();
+                        let resolved = recording_settings
+                            .voice_command_defaults
+                            .to_resolved_options();
 
                         // Show confirmation overlay
                         crate::overlay::show_command_confirm_overlay(
@@ -4117,7 +4121,9 @@ impl ShortcutAction for VoiceCommandAction {
                                 silent: resolved.silent,
                                 no_profile: resolved.no_profile,
                                 use_pwsh: resolved.use_pwsh,
-                                execution_policy: format_execution_policy(resolved.execution_policy),
+                                execution_policy: format_execution_policy(
+                                    resolved.execution_policy,
+                                ),
                                 working_directory: resolved.working_directory,
                                 auto_run: false, // Never auto-run LLM-generated commands
                                 auto_run_seconds: 0,
@@ -4210,9 +4216,9 @@ pub async fn preview_insert_action(app: AppHandle) -> Result<(), String> {
         return Err("Output to Preview workflow is not active.".to_string());
     }
 
-    let binding_id = state
-        .binding_id
-        .ok_or_else(|| "No active transcription binding for Output to Preview workflow.".to_string())?;
+    let binding_id = state.binding_id.ok_or_else(|| {
+        "No active transcription binding for Output to Preview workflow.".to_string()
+    })?;
 
     if is_recording_for_binding(&app, &binding_id) {
         crate::managers::preview_output_mode::set_recording(&app, false);
@@ -4241,9 +4247,9 @@ pub async fn preview_llm_process_action(app: AppHandle) -> Result<(), String> {
         return Err("LLM processing is already running.".to_string());
     }
 
-    let binding_id = state
-        .binding_id
-        .ok_or_else(|| "No active transcription binding for Output to Preview workflow.".to_string())?;
+    let binding_id = state.binding_id.ok_or_else(|| {
+        "No active transcription binding for Output to Preview workflow.".to_string()
+    })?;
 
     let was_recording = is_recording_for_binding(&app, &binding_id);
     crate::managers::preview_output_mode::set_processing_llm(&app, true);
@@ -4298,12 +4304,10 @@ pub async fn preview_llm_process_action(app: AppHandle) -> Result<(), String> {
                 crate::overlay::emit_soniox_live_preview_update(&app, &text, "");
                 Ok(())
             }
-            PostProcessTranscriptionOutcome::Skipped => {
-                Err(
-                    "LLM processing could not run. Check provider, model, and prompt settings."
-                        .to_string(),
-                )
-            }
+            PostProcessTranscriptionOutcome::Skipped => Err(
+                "LLM processing could not run. Check provider, model, and prompt settings."
+                    .to_string(),
+            ),
             PostProcessTranscriptionOutcome::Cancelled => {
                 llm_cancelled = true;
                 Ok(())
@@ -4311,8 +4315,8 @@ pub async fn preview_llm_process_action(app: AppHandle) -> Result<(), String> {
         };
     }
 
-    let should_resume_recording = was_recording
-        && crate::managers::preview_output_mode::is_active_for_binding(&binding_id);
+    let should_resume_recording =
+        was_recording && crate::managers::preview_output_mode::is_active_for_binding(&binding_id);
     let mut resumed_recording = false;
 
     if should_resume_recording {
@@ -4370,43 +4374,20 @@ pub async fn preview_flush_action(app: AppHandle) -> Result<(), String> {
         return Err("Flush is only available for non-realtime transcription.".to_string());
     }
 
-    let binding_id = state
-        .binding_id
-        .ok_or_else(|| "No active transcription binding for Output to Preview workflow.".to_string())?;
+    let binding_id = state.binding_id.ok_or_else(|| {
+        "No active transcription binding for Output to Preview workflow.".to_string()
+    })?;
 
     let was_recording = is_recording_for_binding(&app, &binding_id);
     if was_recording {
         crate::managers::preview_output_mode::set_recording(&app, false);
         stop_transcribe_binding_from_preview(&app, &binding_id)?;
-    }
 
-    if was_recording && !wait_for_session_idle(&app, Duration::from_secs(20)).await {
-        return Err("Timed out while finalizing active recording.".to_string());
-    }
-
-    let full_text = current_preview_buffer_text();
-    if full_text.trim().is_empty() {
-        if was_recording {
-            let settings = get_settings(&app);
-            let use_push_to_talk = use_push_to_talk_for_transcribe_binding(&settings, &binding_id);
-            start_transcribe_binding_from_preview(&app, &binding_id)?;
-            if !use_push_to_talk {
-                if let Ok(mut states) = app.state::<ManagedToggleState>().lock() {
-                    states.active_toggles.insert(binding_id.clone(), true);
-                }
-            }
+        if !wait_for_session_idle(&app, Duration::from_secs(20)).await {
+            return Err("Timed out while finalizing active recording.".to_string());
         }
-        return Ok(());
-    }
 
-    paste_preview_buffer_to_target(&app, full_text).await?;
-    crate::overlay::show_soniox_live_preview_window(&app);
-
-    crate::overlay::reset_soniox_live_preview(&app);
-    crate::managers::preview_output_mode::set_recording_prefix_text(&app, String::new());
-    crate::managers::preview_output_mode::set_error(&app, None);
-
-    if was_recording {
+        // Resume recording for the next chunk
         let settings = get_settings(&app);
         let use_push_to_talk = use_push_to_talk_for_transcribe_binding(&settings, &binding_id);
         start_transcribe_binding_from_preview(&app, &binding_id)?;
@@ -4417,6 +4398,7 @@ pub async fn preview_flush_action(app: AppHandle) -> Result<(), String> {
         }
     }
 
+    crate::managers::preview_output_mode::set_error(&app, None);
     Ok(())
 }
 

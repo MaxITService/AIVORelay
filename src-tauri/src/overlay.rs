@@ -716,9 +716,15 @@ pub fn show_soniox_live_preview_window(app_handle: &AppHandle) {
     }
 
     if let Some(window) = app_handle.get_webview_window(SONIOX_LIVE_PREVIEW_WINDOW_LABEL) {
-        if let Some((x, y, width, height)) = resolve_soniox_live_preview_geometry(app_handle) {
-            let _ = window.set_size(tauri::Size::Logical(tauri::LogicalSize { width, height }));
-            let _ = window.set_position(tauri::Position::Logical(tauri::LogicalPosition { x, y }));
+        // When resuming a preview session (e.g., after Flush), the window is already
+        // visible and positioned — skip repositioning to prevent jumping.
+        let is_resuming = preview_output_mode_active && window.is_visible().unwrap_or(false);
+        if !is_resuming {
+            if let Some((x, y, width, height)) = resolve_soniox_live_preview_geometry(app_handle) {
+                let _ = window.set_size(tauri::Size::Logical(tauri::LogicalSize { width, height }));
+                let _ =
+                    window.set_position(tauri::Position::Logical(tauri::LogicalPosition { x, y }));
+            }
         }
         let _ = window.unminimize();
         let _ = window.show();
