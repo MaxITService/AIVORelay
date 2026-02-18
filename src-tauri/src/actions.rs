@@ -2232,13 +2232,9 @@ impl ShortcutAction for TranscribeAction {
                     }
 
                     let ah_clone = ah.clone();
-                    let binding_id_clone = binding_id.clone();
                     ah.run_on_main_thread(move || {
                         utils::hide_recording_overlay(&ah_clone);
                         change_tray_icon(&ah_clone, TrayIconState::Idle);
-                        if let Ok(mut states) = ah_clone.state::<ManagedToggleState>().lock() {
-                            states.active_toggles.insert(binding_id_clone, false);
-                        }
                     })
                     .ok();
 
@@ -2337,7 +2333,6 @@ impl ShortcutAction for TranscribeAction {
                 };
 
                 let ah_clone = ah.clone();
-                let binding_id_clone = binding_id.clone();
                 let final_text_for_ui = final_text.clone();
                 let final_text_for_insert =
                     if preview_output_only_enabled && !invoked_from_preview_action {
@@ -2360,9 +2355,6 @@ impl ShortcutAction for TranscribeAction {
 
                     utils::hide_recording_overlay(&ah_clone);
                     change_tray_icon(&ah_clone, TrayIconState::Idle);
-                    if let Ok(mut states) = ah_clone.state::<ManagedToggleState>().lock() {
-                        states.active_toggles.insert(binding_id_clone, false);
-                    }
                 })
                 .ok();
 
@@ -2493,7 +2485,6 @@ impl ShortcutAction for TranscribeAction {
             };
 
             let ah_clone = ah.clone();
-            let binding_id_clone = binding_id.clone();
             let final_text_for_ui = final_text.clone();
             let final_text_for_insert =
                 if preview_output_only_enabled && !invoked_from_preview_action {
@@ -2517,10 +2508,6 @@ impl ShortcutAction for TranscribeAction {
                 }
                 utils::hide_recording_overlay(&ah_clone);
                 change_tray_icon(&ah_clone, TrayIconState::Idle);
-                // Clear toggle state now that transcription is complete
-                if let Ok(mut states) = ah_clone.state::<ManagedToggleState>().lock() {
-                    states.active_toggles.insert(binding_id_clone, false);
-                }
             })
             .ok();
 
