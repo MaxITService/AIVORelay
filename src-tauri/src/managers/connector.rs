@@ -919,8 +919,11 @@ async fn handle_get_messages(
             None
         };
 
-    // Set cursor to ts+1 so next poll with >= won't re-fetch same messages
-    let next_cursor = messages.last().map(|m| m.ts + 1).unwrap_or(cursor);
+    // Cursor tracks the timestamp boundary of the last returned message.
+    // Messages at the exact cursor timestamp are filtered against delivered_ids.
+    // This prevents duplicate replay while still allowing new same-millisecond
+    // messages to be delivered on subsequent polls.
+    let next_cursor = messages.last().map(|m| m.ts).unwrap_or(cursor);
 
     let response_body = MessagesResponse {
         cursor: next_cursor,
@@ -1032,12 +1035,24 @@ fn get_pending_messages(
     cursor: i64,
 ) -> (Vec<QueuedMessage>, Vec<String>) {
     let state_guard = state.lock().unwrap();
-    // Use >= to match original behavior - extension sends since=<last_cursor>
-    // where cursor from previous response points to next message position
+    // Include:
+    // - all messages newer than cursor
+    // - same-timestamp messages only if not previously delivered
+    //
+    // This avoids dropping new messages that share the same millisecond timestamp
+    // as the last returned message.
     let filtered: Vec<_> = state_guard
         .messages
         .iter()
-        .filter(|m| m.ts >= cursor)
+        .filter(|m| {
+            if m.ts > cursor {
+                return true;
+            }
+            if m.ts < cursor {
+                return false;
+            }
+            !state_guard.delivered_ids.contains(&m.id)
+        })
         .cloned()
         .collect();
 

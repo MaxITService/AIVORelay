@@ -224,9 +224,17 @@ impl AudioRecordingManager {
     /// Applies mute if mute_while_recording is enabled and stream is open
     pub fn apply_mute(&self) {
         let settings = get_settings(&self.app_handle);
-        let mut did_mute_guard = self.did_mute.lock().unwrap();
+        if !settings.mute_while_recording {
+            return;
+        }
 
-        if settings.mute_while_recording && *self.is_open.lock().unwrap() {
+        let is_open = *self.is_open.lock().unwrap();
+        if !is_open {
+            return;
+        }
+
+        let mut did_mute_guard = self.did_mute.lock().unwrap();
+        if !*did_mute_guard {
             set_mute(true);
             *did_mute_guard = true;
             debug!("Mute applied");
@@ -329,18 +337,15 @@ impl AudioRecordingManager {
     /* ---------- mode switching --------------------------------------------- */
 
     pub fn update_mode(&self, new_mode: MicrophoneMode) -> Result<(), anyhow::Error> {
-        let mode_guard = self.mode.lock().unwrap();
-        let cur_mode = mode_guard.clone();
+        let cur_mode = self.mode.lock().unwrap().clone();
 
         match (cur_mode, &new_mode) {
             (MicrophoneMode::AlwaysOn, MicrophoneMode::OnDemand) => {
                 if matches!(*self.state.lock().unwrap(), RecordingState::Idle) {
-                    drop(mode_guard);
                     self.stop_microphone_stream();
                 }
             }
             (MicrophoneMode::OnDemand, MicrophoneMode::AlwaysOn) => {
-                drop(mode_guard);
                 self.start_microphone_stream()?;
             }
             _ => {}

@@ -669,6 +669,14 @@ async changeVoiceCommandDefaultThresholdSetting(threshold: number) : Promise<Res
     else return { status: "error", error: e  as any };
 }
 },
+async changeVoiceCommandDefaultsSetting(defaults: VoiceCommandDefaults) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("change_voice_command_defaults_setting", { defaults }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async changeVoiceCommandsSetting(commands: VoiceCommand[]) : Promise<Result<null, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("change_voice_commands_setting", { commands }) };
@@ -1332,6 +1340,22 @@ async changeTextReplacementsSetting(replacements: TextReplacement[]) : Promise<R
 async changeTextReplacementsBeforeLlmSetting(enabled: boolean) : Promise<Result<null, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("change_text_replacements_before_llm_setting", { enabled }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async changeFillerWordFilterEnabledSetting(enabled: boolean) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("change_filler_word_filter_enabled_setting", { enabled }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async changeZeroWidthFilterEnabledSetting(enabled: boolean) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("change_zero_width_filter_enabled_setting", { enabled }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };

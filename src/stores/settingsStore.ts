@@ -152,10 +152,28 @@ const settingUpdaters: {
     commands.changeAiReplaceUserPromptSetting(value as string),
   ai_replace_max_chars: (value) =>
     commands.changeAiReplaceMaxCharsSetting(value as number),
+  ai_replace_allow_no_selection: (value) =>
+    commands.changeAiReplaceAllowNoSelectionSetting(value as boolean),
+  ai_replace_no_selection_system_prompt: (value) =>
+    commands.changeAiReplaceNoSelectionSystemPromptSetting(value as string),
+  ai_replace_allow_quick_tap: (value) =>
+    commands.changeAiReplaceAllowQuickTapSetting(value as boolean),
+  ai_replace_quick_tap_threshold_ms: (value) =>
+    commands.changeAiReplaceQuickTapThresholdMsSetting(value as number),
+  ai_replace_quick_tap_system_prompt: (value) =>
+    commands.changeAiReplaceQuickTapSystemPromptSetting(value as string),
   send_to_extension_enabled: (value) =>
     commands.changeSendToExtensionEnabledSetting(value as boolean),
   send_to_extension_push_to_talk: (value) =>
     commands.changeSendToExtensionPushToTalkSetting(value as boolean),
+  send_to_extension_with_selection_system_prompt: (value) =>
+    commands.changeSendToExtensionWithSelectionSystemPromptSetting(
+      value as string,
+    ),
+  send_to_extension_with_selection_user_prompt: (value) =>
+    commands.changeSendToExtensionWithSelectionUserPromptSetting(
+      value as string,
+    ),
   send_to_extension_with_selection_enabled: (value) =>
     commands.changeSendToExtensionWithSelectionEnabledSetting(value as boolean),
   send_to_extension_with_selection_push_to_talk: (value) =>
@@ -347,6 +365,8 @@ const settingUpdaters: {
   invoke("change_voice_command_default_threshold_setting", {
     threshold: value,
   });
+(settingUpdaters as any).voice_command_defaults = (value: any) =>
+  commands.changeVoiceCommandDefaultsSetting(value);
 (settingUpdaters as any).voice_commands = (value: any) =>
   invoke("change_voice_commands_setting", { commands: value });
 
@@ -369,6 +389,10 @@ const settingUpdaters: {
   invoke("change_text_replacements_setting", { replacements: value });
 (settingUpdaters as any).text_replacements_before_llm = (value: any) =>
   invoke("change_text_replacements_before_llm_setting", { enabled: value });
+(settingUpdaters as any).filler_word_filter_enabled = (value: any) =>
+  commands.changeFillerWordFilterEnabledSetting(value as boolean);
+(settingUpdaters as any).zero_width_filter_enabled = (value: any) =>
+  commands.changeZeroWidthFilterEnabledSetting(value as boolean);
 (settingUpdaters as any).text_replacement_decapitalize_after_edit_key_enabled = (value: any) =>
   invoke("change_text_replacement_decapitalize_after_edit_key_enabled_setting", { enabled: value });
 (settingUpdaters as any).text_replacement_decapitalize_after_edit_key = (value: any) =>

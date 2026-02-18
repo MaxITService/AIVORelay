@@ -1,6 +1,7 @@
 use log::{debug, error, info, warn};
 use rdev::{Event, EventType, Key};
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use tauri::{AppHandle, Emitter};
 
@@ -68,6 +69,7 @@ pub struct ShortcutEvent {
 pub struct KeyListenerManager {
     app_handle: Arc<AppHandle>,
     running: Arc<Mutex<bool>>,
+    listener_thread_started: Arc<AtomicBool>,
     modifiers: Arc<Mutex<ModifierState>>,
     shortcuts: Arc<Mutex<HashMap<String, RegisteredShortcut>>>,
     /// Track which shortcuts are currently "held down" to detect release
@@ -80,6 +82,7 @@ impl KeyListenerManager {
         Self {
             app_handle: Arc::new(app_handle),
             running: Arc::new(Mutex::new(false)),
+            listener_thread_started: Arc::new(AtomicBool::new(false)),
             modifiers: Arc::new(Mutex::new(ModifierState::default())),
             shortcuts: Arc::new(Mutex::new(HashMap::new())),
             active_shortcuts: Arc::new(Mutex::new(HashMap::new())),
@@ -133,19 +136,36 @@ impl KeyListenerManager {
             *running_guard = true;
         }
 
-        info!("Starting key listener");
+        if self.listener_thread_started.load(Ordering::SeqCst) {
+            info!("Key listener thread already initialized; event processing re-enabled");
+            return Ok(());
+        }
+
+        if self
+            .listener_thread_started
+            .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+            .is_err()
+        {
+            info!("Key listener thread already initialized; event processing re-enabled");
+            return Ok(());
+        }
+
+        info!("Starting key listener thread");
 
         let app_handle = self.app_handle.clone();
         let running = self.running.clone();
         let modifiers = self.modifiers.clone();
         let shortcuts = self.shortcuts.clone();
         let active_shortcuts = self.active_shortcuts.clone();
+        let listener_thread_started = self.listener_thread_started.clone();
 
         std::thread::spawn(move || {
+            let running_for_events = running.clone();
             if let Err(e) = rdev::listen(move |event| {
                 Self::handle_event(
                     event,
                     &app_handle,
+                    &running_for_events,
                     &modifiers,
                     &shortcuts,
                     &active_shortcuts,
@@ -155,10 +175,11 @@ impl KeyListenerManager {
                 if let Ok(mut running_lock) = running.lock() {
                     *running_lock = false;
                 }
+                listener_thread_started.store(false, Ordering::SeqCst);
             }
         });
 
-        info!("Key listener started successfully");
+        info!("Key listener enabled");
         Ok(())
     }
 
@@ -190,10 +211,19 @@ impl KeyListenerManager {
     fn handle_event(
         event: Event,
         app_handle: &Arc<AppHandle>,
+        running: &Arc<Mutex<bool>>,
         modifiers: &Arc<Mutex<ModifierState>>,
         shortcuts: &Arc<Mutex<HashMap<String, RegisteredShortcut>>>,
         active_shortcuts: &Arc<Mutex<HashMap<String, bool>>>,
     ) {
+        let Ok(running_guard) = running.try_lock() else {
+            return;
+        };
+        if !*running_guard {
+            return;
+        }
+        drop(running_guard);
+
         match event.event_type {
             EventType::KeyPress(key) => {
                 // Update modifiers - non-blocking with try_lock or unwrap_or_else

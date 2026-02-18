@@ -1902,6 +1902,18 @@ pub fn change_voice_command_default_threshold_setting(
 
 #[tauri::command]
 #[specta::specta]
+pub fn change_voice_command_defaults_setting(
+    app: AppHandle,
+    defaults: settings::VoiceCommandDefaults,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.voice_command_defaults = defaults;
+    settings::write_settings(&app, settings);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
 pub fn change_voice_commands_setting(
     app: AppHandle,
     commands: Vec<settings::VoiceCommand>,
@@ -3832,6 +3844,30 @@ pub fn change_text_replacements_before_llm_setting(
 ) -> Result<(), String> {
     let mut settings = settings::get_settings(&app);
     settings.text_replacements_before_llm = enabled;
+    settings::write_settings(&app, settings);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_filler_word_filter_enabled_setting(
+    app: AppHandle,
+    enabled: bool,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.filler_word_filter_enabled = enabled;
+    settings::write_settings(&app, settings);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_zero_width_filter_enabled_setting(
+    app: AppHandle,
+    enabled: bool,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.zero_width_filter_enabled = enabled;
     settings::write_settings(&app, settings);
     Ok(())
 }
