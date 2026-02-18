@@ -18,6 +18,10 @@ use tauri_plugin_opener::OpenerExt;
 #[tauri::command]
 #[specta::specta]
 pub fn cancel_operation(app: AppHandle) {
+    if crate::actions::cancel_preview_llm_processing_if_active(&app) {
+        return;
+    }
+
     cancel_current_operation(&app);
 }
 

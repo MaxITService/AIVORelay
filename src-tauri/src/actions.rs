@@ -4142,6 +4142,18 @@ fn resolve_preview_current_app_name() -> String {
     }
 }
 
+pub fn cancel_preview_llm_processing_if_active(app: &AppHandle) -> bool {
+    let state = crate::managers::preview_output_mode::get_state_payload();
+    if !state.active || !state.processing_llm {
+        return false;
+    }
+
+    let llm_tracker = app.state::<Arc<LlmOperationTracker>>();
+    llm_tracker.cancel();
+    crate::managers::preview_output_mode::set_error(app, None);
+    true
+}
+
 #[tauri::command]
 #[specta::specta]
 pub fn preview_close_action(app: AppHandle) -> Result<(), String> {
@@ -4183,12 +4195,12 @@ pub fn preview_clear_action(app: AppHandle) -> Result<(), String> {
 pub async fn preview_insert_action(app: AppHandle) -> Result<(), String> {
     let state = crate::managers::preview_output_mode::get_state_payload();
     if !state.active {
-        return Err("Preview output mode is not active.".to_string());
+        return Err("Output to Preview workflow is not active.".to_string());
     }
 
     let binding_id = state
         .binding_id
-        .ok_or_else(|| "No active transcription binding for preview output mode.".to_string())?;
+        .ok_or_else(|| "No active transcription binding for Output to Preview workflow.".to_string())?;
 
     if is_recording_for_binding(&app, &binding_id) {
         crate::managers::preview_output_mode::set_recording(&app, false);
@@ -4211,7 +4223,7 @@ pub async fn preview_insert_action(app: AppHandle) -> Result<(), String> {
 pub async fn preview_llm_process_action(app: AppHandle) -> Result<(), String> {
     let state = crate::managers::preview_output_mode::get_state_payload();
     if !state.active {
-        return Err("Preview output mode is not active.".to_string());
+        return Err("Output to Preview workflow is not active.".to_string());
     }
     if state.processing_llm {
         return Err("LLM processing is already running.".to_string());
@@ -4219,13 +4231,14 @@ pub async fn preview_llm_process_action(app: AppHandle) -> Result<(), String> {
 
     let binding_id = state
         .binding_id
-        .ok_or_else(|| "No active transcription binding for preview output mode.".to_string())?;
+        .ok_or_else(|| "No active transcription binding for Output to Preview workflow.".to_string())?;
 
     let was_recording = is_recording_for_binding(&app, &binding_id);
     crate::managers::preview_output_mode::set_processing_llm(&app, true);
     crate::managers::preview_output_mode::set_error(&app, None);
 
     let mut final_result: Result<(), String> = Ok(());
+    let mut llm_cancelled = false;
 
     if was_recording {
         crate::managers::preview_output_mode::set_recording(&app, false);
@@ -4280,16 +4293,22 @@ pub async fn preview_llm_process_action(app: AppHandle) -> Result<(), String> {
                 )
             }
             PostProcessTranscriptionOutcome::Cancelled => {
-                Err("LLM processing was cancelled.".to_string())
+                llm_cancelled = true;
+                Ok(())
             }
         };
     }
 
-    if was_recording {
+    let should_resume_recording = was_recording
+        && crate::managers::preview_output_mode::is_active_for_binding(&binding_id);
+    let mut resumed_recording = false;
+
+    if should_resume_recording {
         let settings = get_settings(&app);
         let use_push_to_talk = use_push_to_talk_for_transcribe_binding(&settings, &binding_id);
         match start_transcribe_binding_from_preview(&app, &binding_id) {
             Ok(()) => {
+                resumed_recording = true;
                 if !use_push_to_talk {
                     if let Ok(mut states) = app.state::<ManagedToggleState>().lock() {
                         states.active_toggles.insert(binding_id.clone(), true);
@@ -4307,10 +4326,17 @@ pub async fn preview_llm_process_action(app: AppHandle) -> Result<(), String> {
         }
     }
 
+    if !resumed_recording {
+        utils::hide_recording_overlay(&app);
+    }
+
     crate::managers::preview_output_mode::set_processing_llm(&app, false);
 
     match final_result {
         Ok(()) => {
+            if llm_cancelled {
+                debug!("Preview LLM processing cancelled by user");
+            }
             crate::managers::preview_output_mode::set_error(&app, None);
             Ok(())
         }
@@ -4326,7 +4352,7 @@ pub async fn preview_llm_process_action(app: AppHandle) -> Result<(), String> {
 pub async fn preview_flush_action(app: AppHandle) -> Result<(), String> {
     let state = crate::managers::preview_output_mode::get_state_payload();
     if !state.active {
-        return Err("Preview output mode is not active.".to_string());
+        return Err("Output to Preview workflow is not active.".to_string());
     }
     if state.is_realtime {
         return Err("Flush is only available for non-realtime transcription.".to_string());
@@ -4334,7 +4360,7 @@ pub async fn preview_flush_action(app: AppHandle) -> Result<(), String> {
 
     let binding_id = state
         .binding_id
-        .ok_or_else(|| "No active transcription binding for preview output mode.".to_string())?;
+        .ok_or_else(|| "No active transcription binding for Output to Preview workflow.".to_string())?;
 
     let was_recording = is_recording_for_binding(&app, &binding_id);
     if was_recording {

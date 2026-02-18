@@ -1279,7 +1279,7 @@ export const TranscriptionProfiles: React.FC = () => {
                   <HandyShortcut shortcutId="transcribe_default" grouped={true} />
                 </div>
 
-                {/* Language, Push-to-Talk, and Preview output mode */}
+                {/* Language, Push-to-Talk, and Output to Preview */}
                 <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
                   <div className="space-y-2 min-w-0">
                     <label className="text-xs font-semibold text-text/70">
