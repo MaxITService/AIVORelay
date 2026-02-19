@@ -48,7 +48,7 @@ interface SettingsStore {
   updatePostProcessModel: (providerId: string, model: string) => Promise<void>;
   fetchPostProcessModels: (providerId: string) => Promise<string[]>;
   fetchLlmModels: (
-    feature: "post_processing" | "ai_replace",
+    feature: "post_processing" | "ai_replace" | "voice_command",
   ) => Promise<string[]>;
   setPostProcessModelOptions: (providerId: string, models: string[]) => void;
   setTranscriptionProvider: (providerId: string) => Promise<void>;
@@ -365,6 +365,20 @@ const settingUpdaters: {
   invoke("change_voice_command_auto_run_seconds_setting", { seconds: value });
 (settingUpdaters as any).voice_command_default_threshold = (value: any) =>
   invoke("change_voice_command_default_threshold_setting", {
+    threshold: value,
+  });
+(settingUpdaters as any).voice_command_use_levenshtein = (value: any) =>
+  invoke("change_voice_command_use_levenshtein_setting", { enabled: value });
+(settingUpdaters as any).voice_command_levenshtein_threshold = (value: any) =>
+  invoke("change_voice_command_levenshtein_threshold_setting", {
+    threshold: value,
+  });
+(settingUpdaters as any).voice_command_use_phonetic = (value: any) =>
+  invoke("change_voice_command_use_phonetic_setting", { enabled: value });
+(settingUpdaters as any).voice_command_phonetic_boost = (value: any) =>
+  invoke("change_voice_command_phonetic_boost_setting", { boost: value });
+(settingUpdaters as any).voice_command_word_similarity_threshold = (value: any) =>
+  invoke("change_voice_command_word_similarity_threshold_setting", {
     threshold: value,
   });
 (settingUpdaters as any).voice_command_defaults = (value: any) =>
@@ -815,7 +829,9 @@ export const useSettingsStore = create<SettingsStore>()(
         },
       })),
 
-    fetchLlmModels: async (feature: "post_processing" | "ai_replace") => {
+    fetchLlmModels: async (
+      feature: "post_processing" | "ai_replace" | "voice_command",
+    ) => {
       const { setUpdating, setPostProcessModelOptions, settings } = get();
 
       // Get the effective provider ID for this feature
@@ -824,6 +840,10 @@ export const useSettingsStore = create<SettingsStore>()(
           ? settings?.ai_replace_provider_id ||
             settings?.post_process_provider_id ||
             "openai"
+          : feature === "voice_command"
+            ? settings?.voice_command_provider_id ||
+              settings?.post_process_provider_id ||
+              "openai"
           : settings?.post_process_provider_id || "openai";
 
       const updateKey = `llm_models_fetch:${feature}:${effectiveProviderId}`;

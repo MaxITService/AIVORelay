@@ -41,7 +41,9 @@ interface UseSettingsReturn {
   ) => Promise<void>;
   updatePostProcessModel: (providerId: string, model: string) => Promise<void>;
   fetchPostProcessModels: (providerId: string) => Promise<string[]>;
-  fetchLlmModels: (feature: "post_processing" | "ai_replace") => Promise<string[]>;
+  fetchLlmModels: (
+    feature: "post_processing" | "ai_replace" | "voice_command",
+  ) => Promise<string[]>;
   setTranscriptionProvider: (providerId: string) => Promise<void>;
   updateRemoteSttBaseUrl: (baseUrl: string) => Promise<void>;
   updateRemoteSttModelId: (modelId: string) => Promise<void>;

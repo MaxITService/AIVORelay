@@ -6,9 +6,6 @@ Files that differentiate this fork from the original [cjpais/Handy](https://gith
 
 Only reproducible, screen-level findings are listed here (detailed repro steps are in `plans/screen-bug-audit.md`):
 
-- `Voice Commands`
-  - `VC-001`: Fuzzy matching settings are not persisted because several `updateSetting(...)` keys are missing `settingUpdaters` wiring in `settingsStore`.
-  - `VC-002`: Voice Commands “Refresh models” currently calls `fetchLlmModels("post_processing")`, so when Voice Commands provider differs from Post-Processing provider, refresh targets the wrong provider bucket.
 - `Debug`
   - `DBG-002`: Switching shortcut engine to `Tauri` clears incompatible bindings immediately in backend, before user confirms restart; canceling restart does not restore cleared bindings.
   - `DBG-003`: Turning off experimental `Voice Commands` in Debug hides the menu item, but does not disable runtime `voice_command_enabled`; shortcut execution can remain active.

@@ -168,8 +168,7 @@ export const useVoiceCommandProviderState = (): VoiceCommandProviderState => {
 
   const handleRefreshModels = useCallback(() => {
     if (isAppleProvider) return;
-    // Use voice_command feature when available, fallback to post_processing for now
-    void fetchLlmModels("post_processing");
+    void fetchLlmModels("voice_command");
   }, [fetchLlmModels, isAppleProvider]);
 
   const availableModelsRaw =
@@ -201,7 +200,7 @@ export const useVoiceCommandProviderState = (): VoiceCommandProviderState => {
     `voice_command_model:${effectiveProviderId}`
   );
   const isFetchingModels = isUpdating(
-    `llm_models_fetch:post_processing:${effectiveProviderId}`
+    `llm_models_fetch:voice_command:${effectiveProviderId}`
   );
 
   // For the dropdown, represent "same as post-processing" selection
