@@ -28,6 +28,7 @@ export default function VoiceActivationButton() {
   const [showAotToggle, setShowAotToggle] = useState(false);
   const [isSingleClickClose, setIsSingleClickClose] = useState(false);
   const [isBusy, setIsBusy] = useState(false);
+  const activeVoicePointerIdRef = useRef<number | null>(null);
   const closeButtonSuppressClickRef = useRef(false);
   const closeButtonDragRef = useRef({
     pointerId: -1,
@@ -131,8 +132,15 @@ export default function VoiceActivationButton() {
     refreshSingleClickClose,
   ]);
 
-  const handlePointerDown = async () => {
+  const handlePointerDown = async (e: PointerEvent<HTMLButtonElement>) => {
     if (isBusy || !isPushToTalk) return;
+
+    activeVoicePointerIdRef.current = e.pointerId;
+    try {
+      e.currentTarget.setPointerCapture(e.pointerId);
+    } catch (error) {
+      console.debug("Failed to capture pointer for voice button:", error);
+    }
 
     setIsBusy(true);
     try {
@@ -146,7 +154,23 @@ export default function VoiceActivationButton() {
     }
   };
 
-  const handlePointerRelease = async () => {
+  const handlePointerRelease = async (e: PointerEvent<HTMLButtonElement>) => {
+    if (
+      activeVoicePointerIdRef.current !== null &&
+      e.pointerId !== activeVoicePointerIdRef.current
+    ) {
+      return;
+    }
+    activeVoicePointerIdRef.current = null;
+
+    try {
+      if (e.currentTarget.hasPointerCapture(e.pointerId)) {
+        e.currentTarget.releasePointerCapture(e.pointerId);
+      }
+    } catch (error) {
+      console.debug("Failed to release pointer capture for voice button:", error);
+    }
+
     if (isBusy || !isPushToTalk || !isRecording) return;
 
     setIsBusy(true);
@@ -286,10 +310,10 @@ export default function VoiceActivationButton() {
           className={`voice-button ${isRecording ? "recording" : ""}`}
           onPointerDown={(e) => {
             stopDragPropagation(e);
-            void handlePointerDown();
+            void handlePointerDown(e);
           }}
           onPointerUp={handlePointerRelease}
-          onPointerLeave={handlePointerRelease}
+          onPointerCancel={handlePointerRelease}
           onClick={handleToggleModeClick}
           disabled={isBusy}
         >

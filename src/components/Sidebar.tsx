@@ -84,22 +84,10 @@ export const SECTIONS_CONFIG = {
     component: BrowserConnectorSettings,
     enabled: () => true,
   },
-  transcribeFile: {
-    labelKey: "sidebar.transcribeFile",
-    icon: FileAudio,
-    component: TranscribeFileSettings,
-    enabled: () => true,
-  },
   textReplacement: {
     labelKey: "sidebar.textReplacement",
     icon: Replace,
     component: TextReplacementSettings,
-    enabled: () => true,
-  },
-  audioProcessing: {
-    labelKey: "sidebar.audioProcessing",
-    icon: Mic,
-    component: AudioProcessingSettings,
     enabled: () => true,
   },
   userInterface: {
@@ -114,11 +102,23 @@ export const SECTIONS_CONFIG = {
     component: HistorySettings,
     enabled: (_) => true,
   },
+  audioProcessing: {
+    labelKey: "sidebar.audioProcessing",
+    icon: Mic,
+    component: AudioProcessingSettings,
+    enabled: () => true,
+  },
   debug: {
     labelKey: "sidebar.debug",
     icon: FlaskConical,
     component: DebugSettings,
     enabled: (_) => true,
+  },
+  transcribeFile: {
+    labelKey: "sidebar.transcribeFile",
+    icon: FileAudio,
+    component: TranscribeFileSettings,
+    enabled: () => true,
   },
   about: {
     labelKey: "sidebar.about",

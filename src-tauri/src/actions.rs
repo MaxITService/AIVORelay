@@ -628,6 +628,34 @@ fn show_ai_replace_error_overlay(app: &AppHandle, message: impl Into<String>) {
     );
 }
 
+fn maybe_restore_ai_replace_selection(
+    app: &AppHandle,
+    original_text: &str,
+    enabled: bool,
+    reason: &str,
+) {
+    if !enabled || original_text.is_empty() {
+        return;
+    }
+
+    let ah = app.clone();
+    let restore_text = original_text.to_string();
+    let reason_owned = reason.to_string();
+    if let Err(err) = app.run_on_main_thread(move || {
+        if let Err(paste_err) = utils::paste(restore_text, ah.clone()) {
+            error!(
+                "Failed to restore original selection after {}: {}",
+                reason_owned, paste_err
+            );
+        }
+    }) {
+        error!(
+            "Failed to schedule original selection restore after {}: {}",
+            reason, err
+        );
+    }
+}
+
 // ============================================================================
 // Shared Recording Helpers - Reduces duplication across action implementations
 // ============================================================================
@@ -1274,11 +1302,14 @@ async fn get_transcription_or_cleanup_detailed(
             rm.clear_stream_frame_callback();
         }
 
-        // Quick Tap Optimization: Only apply to AI Replace action
+        // Quick Tap Optimization: only skip STT when AI Replace quick-tap is enabled.
+        // If quick-tap is disabled, threshold must not affect behavior.
         let is_ai_replace = binding_id.starts_with("ai_replace");
         let quick_tap_threshold_samples =
             quick_tap_threshold_samples(recording_settings.ai_replace_quick_tap_threshold_ms);
-        let should_skip = is_ai_replace && { samples.len() < quick_tap_threshold_samples };
+        let should_skip = is_ai_replace
+            && recording_settings.ai_replace_allow_quick_tap
+            && { samples.len() < quick_tap_threshold_samples };
 
         if should_skip {
             debug!(
@@ -1943,22 +1974,47 @@ async fn ai_replace_with_llm(
         ));
     }
 
-    let system_prompt = if instruction.trim().is_empty() && settings.ai_replace_allow_quick_tap {
-        settings.ai_replace_quick_tap_system_prompt.clone()
-    } else if selected_text.trim().is_empty() && settings.ai_replace_allow_no_selection {
-        settings.ai_replace_no_selection_system_prompt.clone()
-    } else {
-        settings.ai_replace_system_prompt.clone()
-    };
-    let user_template = settings.ai_replace_user_prompt.clone();
+    let selected_text_trimmed = selected_text.trim();
+    let selected_text_len = selected_text.chars().count();
+    let max_chars = settings.ai_replace_max_chars.max(1);
+    if !selected_text_trimmed.is_empty() && selected_text_len > max_chars {
+        return Err(format!(
+            "Selected text is too long for AI Replace ({} chars, limit is {}).",
+            selected_text_len, max_chars
+        ));
+    }
+
+    let (system_prompt, user_template) =
+        if instruction.trim().is_empty() && settings.ai_replace_allow_quick_tap {
+            (
+                settings.ai_replace_quick_tap_system_prompt.clone(),
+                settings.ai_replace_quick_tap_user_prompt.clone(),
+            )
+        } else if selected_text_trimmed.is_empty() && settings.ai_replace_allow_no_selection {
+            (
+                settings.ai_replace_no_selection_system_prompt.clone(),
+                settings.ai_replace_no_selection_user_prompt.clone(),
+            )
+        } else {
+            (
+                settings.ai_replace_system_prompt.clone(),
+                settings.ai_replace_user_prompt.clone(),
+            )
+        };
     if user_template.trim().is_empty() {
         return Err("AI replace prompt template is empty".to_string());
     }
 
+    let active_profile = if settings.active_profile_id == "default" {
+        None
+    } else {
+        settings.transcription_profile(&settings.active_profile_id)
+    };
+
     let template_context = build_llm_template_context(
         app,
         settings,
-        None,
+        active_profile,
         current_app,
         selected_text,
         instruction,
@@ -1966,6 +2022,7 @@ async fn ai_replace_with_llm(
     );
 
     let user_prompt = apply_llm_template_vars(&user_template, &template_context);
+    let system_prompt = apply_llm_template_vars(&system_prompt, &template_context);
 
     debug!(
         "AI replace LLM request using provider '{}' (model: {})",
@@ -2600,6 +2657,8 @@ impl ShortcutAction for SendToExtensionAction {
         let binding_id = binding_id.to_string();
 
         tauri::async_runtime::spawn(async move {
+            let _guard = FinishGuard::new(ah.clone(), binding_id.clone());
+
             let (transcription, samples) = match get_transcription_or_cleanup(
                 &ah,
                 &binding_id,
@@ -2723,6 +2782,8 @@ impl ShortcutAction for SendToExtensionWithSelectionAction {
         let binding_id = binding_id.to_string();
 
         tauri::async_runtime::spawn(async move {
+            let _guard = FinishGuard::new(ah.clone(), binding_id.clone());
+
             let (transcription, samples) = match get_transcription_or_cleanup(
                 &ah,
                 &binding_id,
@@ -3116,6 +3177,8 @@ impl ShortcutAction for SendScreenshotToExtensionAction {
         let binding_id = binding_id.to_string();
 
         tauri::async_runtime::spawn(async move {
+            let _guard = FinishGuard::new(ah.clone(), binding_id.clone());
+
             let (voice_text, samples) = match get_transcription_or_cleanup(
                 &ah,
                 &binding_id,
@@ -3333,6 +3396,13 @@ impl ShortcutAction for AiReplaceSelectionAction {
         let binding_id = binding_id.to_string();
 
         tauri::async_runtime::spawn(async move {
+            let _guard = FinishGuard::new(ah.clone(), binding_id.clone());
+
+            // Register LLM operation tracking before selection capture so cancel
+            // cannot be missed between destructive cut and LLM request start.
+            let llm_tracker = Arc::clone(&ah.state::<Arc<LlmOperationTracker>>());
+            let operation_id = llm_tracker.start_operation();
+
             let (transcription, _) = match get_transcription_or_cleanup_detailed(
                 &ah,
                 &binding_id,
@@ -3364,25 +3434,51 @@ impl ShortcutAction for AiReplaceSelectionAction {
                 // proceeding with empty transcription
             }
 
-            let selected_text = utils::capture_selection_text(&ah).unwrap_or_else(|_| {
-                if recording_settings.ai_replace_allow_no_selection {
-                    String::new()
-                } else {
-                    "ERROR_NO_SELECTION".to_string()
-                }
-            });
+            if llm_tracker.is_cancelled(operation_id) {
+                debug!(
+                    "LLM operation {} was cancelled before selection capture",
+                    operation_id
+                );
+                // cancel_current_operation already handled overlay/session cleanup.
+                return;
+            }
 
-            if selected_text == "ERROR_NO_SELECTION" {
+            let selected_text = match utils::capture_selection_text(&ah) {
+                Ok(text) => text,
+                Err(_) => {
+                    if recording_settings.ai_replace_allow_no_selection {
+                        String::new()
+                    } else {
+                        show_ai_replace_error_overlay(&ah, "Could not capture selection.");
+                        session_manager::exit_processing(&ah);
+                        return;
+                    }
+                }
+            };
+
+            if selected_text.trim().is_empty() && !recording_settings.ai_replace_allow_no_selection
+            {
                 show_ai_replace_error_overlay(&ah, "Could not capture selection.");
                 session_manager::exit_processing(&ah);
                 return;
             }
 
-            show_thinking_overlay(&ah);
+            if llm_tracker.is_cancelled(operation_id) {
+                debug!(
+                    "LLM operation {} was cancelled after selection capture",
+                    operation_id
+                );
+                maybe_restore_ai_replace_selection(
+                    &ah,
+                    &selected_text,
+                    recording_settings.ai_replace_restore_on_error,
+                    "LLM cancellation",
+                );
+                // cancel_current_operation already handled overlay/session cleanup.
+                return;
+            }
 
-            // Start LLM operation tracking for cancellation support
-            let llm_tracker = ah.state::<Arc<LlmOperationTracker>>();
-            let operation_id = llm_tracker.start_operation();
+            show_thinking_overlay(&ah);
 
             let hm = Arc::clone(&ah.state::<Arc<HistoryManager>>());
             let instruction_for_history = transcription.clone();
@@ -3403,6 +3499,12 @@ impl ShortcutAction for AiReplaceSelectionAction {
                         debug!(
                             "LLM operation {} was cancelled, discarding result",
                             operation_id
+                        );
+                        maybe_restore_ai_replace_selection(
+                            &ah,
+                            &selected_text,
+                            recording_settings.ai_replace_restore_on_error,
+                            "LLM cancellation",
                         );
                         // Overlay already hidden by cancel_current_operation
                         // exit_processing already called by cancel
@@ -3429,10 +3531,31 @@ impl ShortcutAction for AiReplaceSelectionAction {
 
                     let ah_clone = ah.clone();
                     let restore_text = selected_text.clone();
+                    let restore_on_error = recording_settings.ai_replace_restore_on_error;
+                    let llm_tracker_for_apply = Arc::clone(&llm_tracker);
+                    let operation_id_for_apply = operation_id;
                     ah.run_on_main_thread(move || {
+                        if llm_tracker_for_apply.is_cancelled(operation_id_for_apply) {
+                            debug!(
+                                "LLM operation {} was cancelled before applying output",
+                                operation_id_for_apply
+                            );
+                            if restore_on_error && !restore_text.is_empty() {
+                                if let Err(restore_err) =
+                                    utils::paste(restore_text.clone(), ah_clone.clone())
+                                {
+                                    error!(
+                                        "Failed to restore original selection after cancellation: {}",
+                                        restore_err
+                                    );
+                                }
+                            }
+                            return;
+                        }
+
                         if let Err(e) = utils::paste(output, ah_clone.clone()) {
                             error!("Failed to paste AI Replace output: {}", e);
-                            if !restore_text.is_empty() {
+                            if restore_on_error && !restore_text.is_empty() {
                                 if let Err(restore_err) =
                                     utils::paste(restore_text.clone(), ah_clone.clone())
                                 {
@@ -3460,6 +3583,12 @@ impl ShortcutAction for AiReplaceSelectionAction {
                             "LLM operation {} was cancelled, skipping error handling",
                             operation_id
                         );
+                        maybe_restore_ai_replace_selection(
+                            &ah,
+                            &selected_text,
+                            recording_settings.ai_replace_restore_on_error,
+                            "LLM cancellation",
+                        );
                         // exit_processing already called by cancel
                         return;
                     }
@@ -3478,16 +3607,12 @@ impl ShortcutAction for AiReplaceSelectionAction {
                         }
                     });
 
-                    if !selected_text.is_empty() {
-                        let ah_restore = ah.clone();
-                        let restore_text = selected_text.clone();
-                        ah.run_on_main_thread(move || {
-                            if let Err(e) = utils::paste(restore_text, ah_restore.clone()) {
-                                error!("Failed to restore original selection: {}", e);
-                            }
-                        })
-                        .ok();
-                    }
+                    maybe_restore_ai_replace_selection(
+                        &ah,
+                        &selected_text,
+                        recording_settings.ai_replace_restore_on_error,
+                        "AI Replace error",
+                    );
 
                     show_ai_replace_error_overlay(&ah, err_message);
                 }
@@ -4033,6 +4158,8 @@ impl ShortcutAction for VoiceCommandAction {
         let binding_id = binding_id.to_string();
 
         tauri::async_runtime::spawn(async move {
+            let _guard = FinishGuard::new(ah.clone(), binding_id.clone());
+
             let (transcription, _) = match get_transcription_or_cleanup(
                 &ah,
                 &binding_id,

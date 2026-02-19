@@ -22,7 +22,7 @@ import { OPEN_FIRST_START_WIZARD_EVENT } from "../../../constants/appEvents";
 
 export const DebugSettings: React.FC = () => {
   const { t } = useTranslation();
-  const { getSetting, updateSetting, isUpdating, settings } = useSettings();
+  const { getSetting, updateSetting, isUpdating, settings, refreshSettings } = useSettings();
   const pushToTalk = getSetting("push_to_talk");
   const isLinux = type() === "linux";
   const isWindows = type() === "windows";
@@ -36,7 +36,10 @@ export const DebugSettings: React.FC = () => {
     if (enabled) {
       setShowVoiceCommandsWarning(true);
     } else {
-      void updateSetting("beta_voice_commands_enabled" as any, false);
+      void (async () => {
+        await updateSetting("beta_voice_commands_enabled" as any, false);
+        await refreshSettings();
+      })();
     }
   };
 

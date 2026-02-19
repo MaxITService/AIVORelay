@@ -121,11 +121,12 @@ impl SonioxStreamProcessor {
         let fuzzy_enabled = settings.custom_words_enabled
             && !settings.custom_words.is_empty()
             && settings.soniox_realtime_fuzzy_correction_enabled;
-        let stable_tail_words = if settings.soniox_realtime_keep_safety_buffer_enabled {
-            DEFAULT_STABLE_TAIL_WORDS
-        } else {
-            0
-        };
+        let stable_tail_words =
+            if fuzzy_enabled && settings.soniox_realtime_keep_safety_buffer_enabled {
+                DEFAULT_STABLE_TAIL_WORDS
+            } else {
+                0
+            };
 
         Self {
             pending_raw: String::new(),

@@ -2,82 +2,7 @@
 
 Files that differentiate this fork from the original [cjpais/Handy](https://github.com/cjpais/Handy).
 
-## Verified UI Issues Snapshot (February 19, 2026)
-
-Only reproducible, screen-level findings are listed here (detailed repro steps are in `plans/screen-bug-audit.md`):
-
-- `Debug`
-  - `DBG-002`: Switching shortcut engine to `Tauri` clears incompatible bindings immediately in backend, before user confirms restart; canceling restart does not restore cleared bindings.
-  - `DBG-003`: Turning off experimental `Voice Commands` in Debug hides the menu item, but does not disable runtime `voice_command_enabled`; shortcut execution can remain active.
-- `Connector`
-  - `CON-001`: Port change can report success before actual bind health is known (bind failure is detected asynchronously), so inline port error handling may not trigger immediately.
-
-Sidebar screens reviewed without confirmed reproducible breakages in this cycle:
-- `General / Speech / Mic`, `Models`, `Advanced`, `LLM Post Processing`, `AI Replace`, `Transcribe File`, `Text Processing`, `Speech Processing`, `User Interface`, `History`, `About`.
-
-Reference audit log:
-- `plans/screen-bug-audit.md`
-
-## Recent Convergence (Fork-Safe)
-
-These changes move selected areas toward upstream behavior without removing fork-only features:
-
-- Soniox context support for profiles/default:
-  - Added Soniox context fields (`context.general` JSON, `context.text`, `context.terms`) to global/default settings and transcription profiles.
-  - `TranscriptionProfiles` now shows Soniox-specific collapsible context editors when Soniox provider is active, while hiding non-Soniox STT prompt UI.
-  - Soniox live/non-live/file request payloads now include validated context when present.
-- `scripts/check-translations.ts`
-  - Translation consistency checker used in CI to detect missing/extra locale keys.
-- `.github/workflows/lint.yml`
-  - Runs `bun run check:translations` before lint.
-- `src/components/settings/models/ModelsSettings.tsx`
-  - Additive Models management page in Settings (download/select/cancel/delete).
-  - Added custom-model help text and custom badges.
-- `src/components/Sidebar.tsx`
-  - Added a Models navigation section (reuses existing translation keys).
-- `src-tauri/src/managers/model.rs`
-  - `ModelInfo` now includes `supports_translation`, `is_recommended`, `supported_languages`.
-  - Added `is_custom` and startup auto-discovery of user-provided Whisper `.bin` models from the models folder.
-  - Custom model deletion now removes the in-memory entry immediately.
-  - Added `EngineType::SenseVoice` and local model entries `sense-voice-int8` + `breeze-asr`.
-  - Emits `model-deleted` event after successful deletion.
-- `src-tauri/src/commands/models.rs`
-  - Deleting active model now unloads it and clears selected model safely.
-  - Compatibility command `get_recommended_first_model` now consults model metadata first.
-
-## Whitespace Policy Refactor (Text Processing)
-
-- Settings navigation and page title are now **Text Processing**.
-- Legacy debug toggle for trailing-space append is no longer used; whitespace behavior lives in Text Processing.
-- Output whitespace behavior is defined by explicit policy modes in settings schema:
-  - `output_whitespace_leading_mode` (`preserve` | `remove_if_present` | `add_if_missing`)
-  - `output_whitespace_trailing_mode` (`preserve` | `remove_if_present` | `add_if_missing`)
-- Text Processing UI exposes 4 whitespace controls as 2 mutually-exclusive pairs:
-  - leading: remove vs add
-  - trailing: remove vs add
-- Backend uses centralized helper `apply_output_whitespace_policy(...)` for final output normalization.
-- The same whitespace policy is applied consistently across local, remote, Soniox, and file-transcription text output paths.
-- Soniox streaming applies leading policy on first emitted chunk and trailing policy at finalization.
-
-Touched files in this refactor:
-
-- `src/components/settings/debug/DebugSettings.tsx`
-- `src/components/settings/text-replacement/TextReplacementSettings.tsx`
-- `src/i18n/locales/en/translation.json`
-- `src/i18n/locales/ru/translation.json`
-- `src/stores/settingsStore.ts`
-- `src-tauri/src/settings.rs`
-- `src-tauri/src/shortcut.rs`
-- `src-tauri/src/lib.rs`
-- `src-tauri/src/actions.rs`
-- `src-tauri/src/clipboard.rs`
-- `src-tauri/src/managers/transcription.rs`
-- `src-tauri/src/managers/soniox_stt.rs`
-- `src-tauri/src/commands/file_transcription.rs`
-- `src-tauri/src/soniox_stream_processor.rs`
-- `src/bindings.ts`
-
-## New Files (Fork-Specific)
+## Fork-Specific Files
 
 ### Backend (Rust)
 
@@ -123,7 +48,7 @@ Touched files in this refactor:
 | `src/soniox-live-preview/SonioxLivePreview.tsx`                        | **Soniox Live Preview Window**: Separate visual-only window that renders Soniox live final + interim text updates without affecting paste behavior, with live appearance updates (theme/opacity/colors) and separate final/interim font-color rendering. Supports interactive actions and hotkey-driven visibility. |
 | `src/lib/utils/previewHotkeys.ts`                                     | **Preview Hotkeys Core**: Centralized logic for managing and executing hotkeys assigned to the live preview window. Handles global shortcut registration and action routing. |
 | `src/components/ui/HotkeyCapture.tsx`                                  | **Hotkey Capture UI**: Reusable component for capturing and validating keyboard shortcuts for the live preview feature. |
-| `src/soniox-live-preview/SonioxLivePreview.css`                        | Styles for Soniox live preview window (always-on-top visual stream panel), now driven by CSS variables from app settings.                                              |
+| `src/soniox-live-preview/SonioxLivePreview.css`                        | Styles for Soniox live preview window (always-on-top visual stream panel), driven by CSS variables from app settings.                                              |
 | `src/components/settings/voice-commands/VoiceCommandSettings.tsx`      | Settings UI for managing predefined voice commands, similarity thresholds, and LLM fallback toggle.                                                                     |
 | `src/components/settings/transcribe-file/TranscribeFileSettings.tsx`   | UI for "Transcribe Audio File" feature: Drag-and-drop zone, file info, output format selection (Text/SRT/VTT), optional model override, and results display. Includes Soniox-only per-run options (language hints + recognition flags) and async-model auto-switch notice. |
 | `src/components/settings/text-replacement/TextReplacementSettings.tsx` | UI for "Text Replacement" feature: Add/remove replacement rules with enable/disable toggles. Supports escape sequences for special characters (\\n, \\r\\n, \\t, \\\\), regex matching, and adjustable execution order (Before/After LLM). Also includes "Decapitalize After Manual Edit" controls (enable toggle, monitored key capture, combo-presence behavior hint, timeout, standard STT post-stop monitor window, tell-me-more help) plus non-blocking conflict warnings when monitored key overlaps other shortcuts. |
@@ -139,69 +64,69 @@ Touched files in this refactor:
 | `build-local.ps1`       | **Local Build Script** (Windows): Automates local unsigned builds without code signing. Sets up VS environment via Launch-VsDevShell.ps1, checks for Vulkan SDK, verifies tools, installs dependencies, and builds release/debug MSI. Equivalent to GitHub Actions build without signing. |
 | `build-unsigned.js`     | **Unsigned Build Helper**: Node.js script that cleans old artifacts and runs `tauri build --no-sign` with updater disabled. Called by `bun run build:unsigned` and by build-local.ps1.                                                                                                   |
 
-## Modified Files
+## Fork-Differing Existing Files
 
 ### Backend Core Logic
 
-| File                         | Changes                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| File | Current State |
 | ---------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `src-tauri/src/actions.rs`   | Added new shortcut actions: `AiReplaceSelectionAction`, `SendToExtensionAction`, `SendToExtensionWithSelectionAction`, `SendScreenshotToExtensionAction`. These handle the new voice-to-LLM, connector, and screenshot workflows. **Uses `show_sending_overlay()` for Remote STT instead of `show_transcribing_overlay()`.** Also adds reusable LLM template variable resolution for prompts (`${current_app}`, `${short_prev_transcript}`, `${language}`, `${profile_name}`, `${time_local}`, `${date_iso}`, `${translate_to_english}`, `${selection}`). Includes Soniox language resolution for live mode so profile/default/OS language values are normalized and unsupported values fall back safely. Local-language resolution for local models now treats Whisper and SenseVoice as language-selectable engines. Applies optional decapitalization trigger after manual edit key detection, with dedicated post-stop monitor arming for standard STT (non-realtime) only. |
-| `src-tauri/src/overlay.rs`   | Added `show_sending_overlay()` function, Soniox live finalization overlay helpers, and made `force_overlay_topmost()` public for reuse. Also includes Soniox live preview window lifecycle helpers (create/show/hide/reset/update) with settings-driven enable/position/size, dynamic near-cursor positioning, custom X/Y and custom pixel size support, plus appearance payload/events (theme/opacity/final+interim font colors/accent/interim opacity). Added a command to open a resizable demo preview window with sample text for visual tuning.                                                                                                   |
-| `src-tauri/src/settings.rs`  | Extended `AppSettings` with: `transcription_provider`, `remote_stt` settings, **Soniox settings** (`soniox_model`, live toggle, language hints, strict/profile hint mode, endpoint/language-id/speaker options, keepalive/finalize timing), Soniox live preview appearance/position fields (theme/opacity/font/accent/interim opacity, dynamic near-cursor distance), `ai_replace_*` fields, `connector_*` fields (including `connector_password` for auth), `screenshot_*` fields, individual push-to-talk settings, `shortcut_engine` (Windows). Added `RemoteSttSettings`, `TranscriptionProvider`, `ShortcutEngine` enums. Added explicit `store.save()` in `write_settings()` to prevent race conditions on restart. Includes safety controls for transcript context variable caching (`llm_context_prev_transcript_*`). |
-| `src-tauri/src/lib.rs`       | Registered new managers (`RemoteSttManager`, `ConnectorManager`, `SonioxSttManager`, `SonioxRealtimeManager`) and commands including individual push-to-talk commands and screenshot settings commands. Starts connector server on app init. Handles tray icon creation and event loop. Also registers the shared `language_resolver` module used by Soniox paths. Creates overlay windows at startup, including Soniox live preview. |
-| `src-tauri/src/shortcut.rs`  | Added shortcut bindings for new actions (AI Replace, Send to Extension, Send Screenshot to Extension). Added commands for individual push-to-talk settings and screenshot settings, plus logic to use per-binding push-to-talk instead of global setting for fork-specific actions. Integrated OS language detection for automatic profile switching. **Added dual-engine support (Windows)**: conditionally starts rdev listener, routes shortcuts to Tauri or rdev based on compatibility, clears incompatible bindings on engine switch. Soniox language-hint settings are validated/normalized before saving. Also manages passive monitored-key registration for text-replacement decapitalization trigger, exposes setting command for standard STT post-stop monitor window timeout, and now handles Soniox live preview appearance/position/size commands including custom X/Y, custom pixel width/height, and separate interim font color. |
-| `src-tauri/src/clipboard.rs` | Enhanced clipboard handling for AI Replace selection capture.                                                                                                                                                                                                                                                                                                                        |
-| `src-tauri/src/input.rs`     | Added selection capture utilities for Windows.                                                                                                                                                                                                                                                                                                                                       |
-| `src-tauri/src/tray.rs`      | Custom tray menu implementation: added "Copy Last Transcript" action and access to quick settings.                                                                                                                                                                                                                                                                                |
+| `src-tauri/src/actions.rs`   | Includes shortcut actions: `AiReplaceSelectionAction`, `SendToExtensionAction`, `SendToExtensionWithSelectionAction`, `SendScreenshotToExtensionAction`. These handle voice-to-LLM, connector, and screenshot workflows. **Uses `show_sending_overlay()` for Remote STT instead of `show_transcribing_overlay()`.** Also adds reusable LLM template variable resolution for prompts (`${current_app}`, `${short_prev_transcript}`, `${language}`, `${profile_name}`, `${time_local}`, `${date_iso}`, `${translate_to_english}`, `${selection}`). Includes Soniox language resolution for live mode so profile/default/OS language values are normalized and unsupported values fall back safely. Local-language resolution for local models now treats Whisper and SenseVoice as language-selectable engines. Applies optional decapitalization trigger after manual edit key detection, with dedicated post-stop monitor arming for standard STT (non-realtime) only. |
+| `src-tauri/src/overlay.rs`   | Provides `show_sending_overlay()`, Soniox live finalization overlay helpers, and made `force_overlay_topmost()` public for reuse. Also includes Soniox live preview window lifecycle helpers (create/show/hide/reset/update) with settings-driven enable/position/size, dynamic near-cursor positioning, custom X/Y and custom pixel size support, plus appearance payload/events (theme/opacity/final+interim font colors/accent/interim opacity). Includes a command to open a resizable demo preview window with sample text for visual tuning.                                                                                                   |
+| `src-tauri/src/settings.rs`  | `AppSettings` includes: `transcription_provider`, `remote_stt` settings, **Soniox settings** (`soniox_model`, live toggle, language hints, strict/profile hint mode, endpoint/language-id/speaker options, keepalive/finalize timing), Soniox live preview appearance/position fields (theme/opacity/font/accent/interim opacity, dynamic near-cursor distance), `ai_replace_*` fields, `connector_*` fields (including `connector_password` for auth), `screenshot_*` fields, individual push-to-talk settings, `shortcut_engine` (Windows). Defines `RemoteSttSettings`, `TranscriptionProvider`, `ShortcutEngine` enums. `write_settings()` performs explicit `store.save()` to prevent restart race conditions. Includes safety controls for transcript context variable caching (`llm_context_prev_transcript_*`). |
+| `src-tauri/src/lib.rs`       | Registers managers (`RemoteSttManager`, `ConnectorManager`, `SonioxSttManager`, `SonioxRealtimeManager`) and commands including individual push-to-talk commands and screenshot settings commands. Starts connector server on app init. Handles tray icon creation and event loop. Also registers the shared `language_resolver` module used by Soniox paths. Creates overlay windows at startup, including Soniox live preview. |
+| `src-tauri/src/shortcut.rs`  | Includes shortcut bindings for actions (AI Replace, Send to Extension, Send Screenshot to Extension). Includes commands for individual push-to-talk settings and screenshot settings, plus logic to use per-binding push-to-talk instead of global setting for fork-specific actions. Integrated OS language detection for automatic profile switching. **Dual-engine support (Windows)**: conditionally starts rdev listener, routes shortcuts to Tauri or rdev based on compatibility, clears incompatible bindings on engine switch. Soniox language-hint settings are validated/normalized before saving. Also manages passive monitored-key registration for text-replacement decapitalization trigger, exposes setting command for standard STT post-stop monitor window timeout, and handles Soniox live preview appearance/position/size commands including custom X/Y, custom pixel width/height, and separate interim font color. |
+| `src-tauri/src/clipboard.rs` | Handles clipboard behavior for AI Replace selection capture.                                                                                                                                                                                                                                                                                                                        |
+| `src-tauri/src/input.rs`     | Provides selection capture utilities for Windows.                                                                                                                                                                                                                                                                                                                                       |
+| `src-tauri/src/tray.rs`      | Custom tray menu implementation: includes "Copy Last Transcript" action and access to quick settings.                                                                                                                                                                                                                                                                                |
 
 ### Backend Support
 
-| File                                         | Changes                                                                                                                                                           |
+| File | Current State |
 | -------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `src-tauri/src/commands/mod.rs`              | Exports command modules including remote STT and file transcription paths used by Soniox provider features.                                                        |
 | `src-tauri/src/managers/mod.rs`              | Exports manager modules including `remote_stt`, `soniox_stt`, `soniox_realtime`, and `connector`.                                                                 |
-| `src-tauri/src/audio_toolkit/mod.rs`         | Added `encode_wav_bytes()` for Remote STT API.                                                                                                                    |
+| `src-tauri/src/audio_toolkit/mod.rs`         | Provides `encode_wav_bytes()` for Remote STT API.                                                                                                                    |
 | `src-tauri/src/audio_toolkit/audio/utils.rs` | WAV encoding utilities.                                                                                                                                           |
 | `src-tauri/src/audio_toolkit/audio/recorder.rs` | Mic error handling logic: detects and reports when the microphone is unavailable or used by another process. |
-| `src-tauri/src/managers/transcription.rs` | Local engine runtime now includes SenseVoice (load/unload + transcription paths for regular, override, and segment-returning calls). |
+| `src-tauri/src/managers/transcription.rs` | Local engine runtime includes SenseVoice (load/unload + transcription paths for regular, override, and segment-returning calls). |
 | `src-tauri/src/commands/file_transcription.rs` | Soniox async integration for file transcription: provider routing, **latest-only model enforcement (`stt-async-v4`)** for Soniox file jobs, optional Soniox overrides, and informational `info_message` payload for UI display when auto-switching. |
 | `src-tauri/src/managers/soniox_stt.rs`       | Centralized Soniox language handling via resolver: normalizes requested language and falls back to auto when unsupported/invalid for non-live transcription. |
 | `src-tauri/src/managers/soniox_realtime.rs`  | Live-session language hints are normalized/validated via resolver before request payload creation. Emits visual Soniox live preview updates (final + interim) and manages preview window visibility during session start/finish/cancel. |
-| `src-tauri/src/utils.rs`                     | Central cancellation path now also cancels Soniox live/non-live operations to avoid orphaned requests after user stop/cancel. |
-| `src-tauri/Cargo.toml`                       | Added dependencies/features: `keyring` (credential storage), `reqwest` features, `axum` + `tower-http` (HTTP server/CORS for connector), `notify` (file system watching for screenshots), `windows` crates for input language detection, and `transcribe-rs = 0.2.5` with `sense_voice` feature for local STT. |
-| `src-tauri/resources/default_settings.json`  | Default values for new settings, including Soniox defaults (model, hints, strict/profile-hint options, live behavior toggles). |
+| `src-tauri/src/utils.rs`                     | Central cancellation path also cancels Soniox live/non-live operations to avoid orphaned requests after user stop/cancel. |
+| `src-tauri/Cargo.toml`                       | Includes dependencies/features: `keyring` (credential storage), `reqwest` features, `axum` + `tower-http` (HTTP server/CORS for connector), `notify` (file system watching for screenshots), `windows` crates for input language detection, and `transcribe-rs = 0.2.5` with `sense_voice` feature for local STT. |
+| `src-tauri/resources/default_settings.json`  | Default values for fork settings, including Soniox defaults (model, hints, strict/profile-hint options, live behavior toggles). |
 
 ### Frontend Settings UI
 
-| File                                                                     | Changes                                                                                              |
+| File | Current State |
 | ------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------- |
 | `src/components/icons/index.ts`                                          | Exports `SendingIcon` component.                                                                     |
 | `src/components/settings/advanced/AdvancedSettings.tsx`                  | Advanced settings group for startup/paste behavior: Start Hidden, Autostart, Paste Method, Clipboard Handling, Auto Submit, and Model Unload Timeout.                                                   |
-| `src/components/settings/browser-connector/BrowserConnectorSettings.tsx` | Added extension status indicator section and screenshot settings (capture command, folder, timeout). |
-| `src/components/settings/general/GeneralSettings.tsx`                    | Minor adjustments for new settings layout.                                                           |
-| `src/components/settings/user-interface/UserInterfaceSettings.tsx`       | Added dedicated Soniox live preview settings group in User Interface with controls for enable/disable, preview demo window button, position (`top/bottom/near_cursor/custom_xy`), cursor distance, custom X/Y and custom width/height in px (both slider + number input), theme, transparency, separate final/interim font colors, accent color, interim opacity, and expandable help blocks. |
-| `src/components/Sidebar.tsx`                                             | Navigation for new settings sections.                                                                |
-| `src/hooks/useSettings.ts`                                               | Hooks for new settings: `setTranscriptionProvider`, `updateRemoteStt*`, `updateAiReplace*`, and Soniox-related updates via settings store actions.          |
-| `src/components/settings/remote-stt/RemoteSttSettings.tsx`              | Soniox hint input now parses/normalizes codes and surfaces warnings for rejected hints.              |
+| `src/components/settings/browser-connector/BrowserConnectorSettings.tsx` | Includes extension status indicator section and screenshot settings (capture command, folder, timeout). |
+| `src/components/settings/general/GeneralSettings.tsx`                    | Settings layout for fork fields.                                                           |
+| `src/components/settings/user-interface/UserInterfaceSettings.tsx`       | Includes dedicated Soniox live preview settings group in User Interface with controls for enable/disable, preview demo window button, position (`top/bottom/near_cursor/custom_xy`), cursor distance, custom X/Y and custom width/height in px (both slider + number input), theme, transparency, separate final/interim font colors, accent color, interim opacity, and expandable help blocks. |
+| `src/components/Sidebar.tsx`                                             | Navigation for fork settings sections.                                                                |
+| `src/hooks/useSettings.ts`                                               | Hooks for settings: `setTranscriptionProvider`, `updateRemoteStt*`, `updateAiReplace*`, and Soniox-related updates via settings store actions.          |
+| `src/components/settings/remote-stt/RemoteSttSettings.tsx`              | Soniox hint input parses/normalizes codes and surfaces warnings for rejected hints.              |
 | `src/components/settings/TranscriptionProfiles.tsx`                      | Provider-aware language handling: filters language choices for Soniox-supported codes and warns when stored profile language is unsupported (fallback to auto). Also filters local-language options by the selected local model `supported_languages` while keeping `auto`/`os_input` fallbacks. |
 | `src/components/settings/TranscriptionSystemPrompt.tsx`                 | Prompt editor is hidden when Soniox provider is active (Soniox path does not use this per-model system prompt UI). SenseVoice is treated as non-promptable in prompt-capability detection. |
 | `src/components/settings/TranslateToEnglish.tsx`                        | Translate-to-English toggle is disabled for Soniox provider and shows provider-specific unsupported description text. |
-| `src/lib/constants/languages.ts`                                        | Added `yue` (Cantonese) to language options used in transcription settings and profiles. |
-| `src/stores/settingsStore.ts`                                            | State management for new settings including Soniox-specific setter wiring (model, live flags, hints, strictness, endpoint/language-id/speaker flags, timing), plus Soniox live preview controls and appearance updater wiring. |
+| `src/lib/constants/languages.ts`                                        | Language options include `yue` (Cantonese) for transcription settings and profiles. |
+| `src/stores/settingsStore.ts`                                            | State management for settings including Soniox-specific setter wiring (model, live flags, hints, strictness, endpoint/language-id/speaker flags, timing), plus Soniox live preview controls and appearance updater wiring. |
 | `src/i18n/locales/en/translation.json`                                   | English UI strings including Soniox settings/help, hints, live-mode explanations, and validation messages. |
 | `src/i18n/locales/ru/translation.json`                                   | Russian localization for Soniox settings/help text and behavior explanations. |
-| `src/bindings.ts`                                                        | Auto-generated Tauri command bindings including Soniox commands/types (`RemoteSoniox` provider, Soniox settings commands, file override types). `EngineType` now includes `SenseVoice`. |
+| `src/bindings.ts`                                                        | Auto-generated Tauri command bindings including Soniox commands/types (`RemoteSoniox` provider, Soniox settings commands, file override types). `EngineType` includes `SenseVoice`. |
 
-### Other Modified
+### Other Fork-Differing Files
 
-| File                                       | Changes                                                                                                                                                                                |
+| File | Current State |
 | ------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `src/App.tsx`                              | Event listeners for new features (remote-stt-error, ai-replace-error, screenshot-error).                                                                                               |
-| `src/components/model-selector/ModelSelector.tsx` | Adjusted for provider switching, including Soniox provider behavior in remote/local model selection flow.                                                                                                                      |
-| `src/components/onboarding/Onboarding.tsx` | Updated for Remote STT option.                                                                                                                                                         |
-| `src/overlay/RecordingOverlay.tsx`         | Extended to handle `error` and `sending` states with categorized error messages. Uses `SendingIcon` for "sending" state. Accepts extended payload object instead of string-only state. |
-| `src/overlay/RecordingOverlay.css`         | Added `.error-text` and `.overlay-error` styles for error state display.                                                                                                               |
-| `vite.config.ts`                           | Added multi-entry build target for Soniox live preview window (`src/soniox-live-preview/index.html`).                                                                                 |
+| `src/App.tsx`                              | Event listeners for fork features (remote-stt-error, ai-replace-error, screenshot-error).                                                                                               |
+| `src/components/model-selector/ModelSelector.tsx` | Handles provider switching, including Soniox behavior in remote/local model selection flow.                                                                                                                      |
+| `src/components/onboarding/Onboarding.tsx` | Includes Remote STT option support.                                                                                                                                                         |
+| `src/overlay/RecordingOverlay.tsx`         | Handles `error` and `sending` states with categorized error messages. Uses `SendingIcon` for "sending" state. Accepts extended payload object instead of string-only state. |
+| `src/overlay/RecordingOverlay.css`         | Includes `.error-text` and `.overlay-error` styles for error state display.                                                                                                               |
+| `vite.config.ts`                           | Uses multi-entry build target for Soniox live preview window (`src/soniox-live-preview/index.html`).                                                                                 |
 
 ## Feature → File Mapping
 
@@ -247,7 +172,7 @@ User presses shortcut + speaks
     └─► shortcut.rs → actions.rs (SendToExtensionAction)
             └─► transcription
             └─► managers/connector.rs → queue_message() or queue_bundle_message()
-                    └─► message added to queue with {id, type, text, ts, attachments?}
+                    └─► message queued with {id, type, text, ts, attachments?}
 
 Extension polls server
     └─► GET http://127.0.0.1:38243/messages?since=<cursor>
@@ -263,7 +188,7 @@ Extension polls server
 - **Password rotation**: On first connect, server sends `passwordUpdate`; extension must POST `{"type":"password_ack"}` to commit
 - **Blob auth**: `/blob/*` endpoint requires Bearer auth (Extension provides this header automatically; it is NOT sent in metadata for security)
 
-### Voice Command Center (NEW)
+### Voice Command Center
 
 ```
 User presses voice_command shortcut + speaks
@@ -397,8 +322,8 @@ On app startup
 
 ### Footer VRAM Meter (Microsoft Store Edition)
 
-- New backend command: `commands::models::get_active_gpu_vram_status` uses DXGI to report active GPU local memory usage and budget.
-- New frontend component: `src/components/footer/VramMeter.tsx` shows `AivoRelay used/budget`, `system free/total VRAM`, refreshes on demand, and displays the last update time.
+- Backend command: `commands::models::get_active_gpu_vram_status` uses DXGI to report active GPU local memory usage and budget.
+- Frontend component: `src/components/footer/VramMeter.tsx` shows `AivoRelay used/budget`, `system free/total VRAM`, refreshes on demand, and displays the last update time.
 - Footer integration: `src/components/footer/Footer.tsx` places VRAM meter next to the model picker and triggers refresh when the model picker is clicked.
 
 ## Platform Limitations
@@ -406,3 +331,5 @@ On app startup
 - **Remote STT**: Windows only (uses Windows Credential Manager for API key storage)
 - **AI Replace Selection**: Windows only (uses Windows-specific selection capture via `input.rs`)
 - **Connector**: Cross-platform (simple HTTP client)
+
+

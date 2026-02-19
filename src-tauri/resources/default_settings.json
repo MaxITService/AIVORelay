@@ -19,5 +19,6 @@
   "ai_replace_system_prompt": "You are a text transformation engine.\nReturn ONLY the final transformed text that is ready to be pasted directly into another application.\nDo not include explanations, commentary, labels, headings, lists, markdown, code fences, or any surrounding quotes.\nPreserve the original language and keep the original formatting (line breaks, punctuation, and spacing) unless the instruction explicitly asks to change it.\nMake the smallest change that satisfies the instruction.\nIf the instruction conflicts with the text or is unclear, prefer minimal edits and do not invent new facts.",
   "ai_replace_user_prompt": "INSTRUCTION:\n${instruction}\n\nTEXT:\n${output}",
   "ai_replace_max_chars": 20000,
+  "ai_replace_restore_on_error": true,
   "connector_password": "fklejqwhfiu342lhk3"
 }

@@ -265,6 +265,48 @@ impl ConnectorManager {
             ));
         }
 
+        let addr = format!("127.0.0.1:{}", port);
+
+        // Bind synchronously so callers get immediate success/failure instead of
+        // a false-positive "started" status before async bind happens.
+        let std_listener = match std::net::TcpListener::bind(&addr) {
+            Ok(listener) => listener,
+            Err(e) => {
+                let error_msg = format!("Failed to bind to port {}: {}", port, e);
+                error!("Connector server: {}", error_msg);
+
+                {
+                    let mut err_guard = self.server_error.blocking_write();
+                    *err_guard = Some(error_msg.clone());
+                }
+
+                let _ = self.app_handle.emit("connector-server-error", error_msg.clone());
+                return Err(error_msg);
+            }
+        };
+
+        if let Err(e) = std_listener.set_nonblocking(true) {
+            let error_msg = format!(
+                "Failed to configure listener for port {}: {}",
+                port, e
+            );
+            error!("Connector server: {}", error_msg);
+
+            {
+                let mut err_guard = self.server_error.blocking_write();
+                *err_guard = Some(error_msg.clone());
+            }
+
+            let _ = self.app_handle.emit("connector-server-error", error_msg.clone());
+            return Err(error_msg);
+        }
+
+        // Clear any previous startup error once bind is confirmed.
+        {
+            let mut err_guard = self.server_error.blocking_write();
+            *err_guard = None;
+        }
+
         self.server_running.store(true, Ordering::SeqCst);
         self.stop_flag.store(false, Ordering::SeqCst);
 
@@ -284,6 +326,26 @@ impl ConnectorManager {
         let server_error = self.server_error.clone();
 
         tauri::async_runtime::spawn(async move {
+            let listener = match TcpListener::from_std(std_listener) {
+                Ok(listener) => listener,
+                Err(e) => {
+                    let error_msg = format!(
+                        "Failed to initialize async listener for port {}: {}",
+                        port, e
+                    );
+                    error!("Connector server: {}", error_msg);
+
+                    {
+                        let mut err_guard = server_error.write().await;
+                        *err_guard = Some(error_msg.clone());
+                    }
+
+                    server_running.store(false, Ordering::SeqCst);
+                    let _ = app_handle.emit("connector-server-error", error_msg);
+                    return;
+                }
+            };
+
             info!("Connector server starting on port {}", port);
 
             // Emit initial status
@@ -301,34 +363,6 @@ impl ConnectorManager {
                 .route("/blob/{att_id}", get(handle_get_blob))
                 .layer(cors)
                 .with_state(app_state.clone());
-
-            let addr = format!("127.0.0.1:{}", port);
-            let listener = match TcpListener::bind(&addr).await {
-                Ok(l) => {
-                    // Clear any previous error on successful bind
-                    {
-                        let mut err_guard = server_error.write().await;
-                        *err_guard = None;
-                    }
-                    l
-                }
-                Err(e) => {
-                    let error_msg = format!("Failed to bind to port {}: {}", port, e);
-                    error!("Connector server: {}", error_msg);
-
-                    // Store the error for status display
-                    {
-                        let mut err_guard = server_error.write().await;
-                        *err_guard = Some(error_msg.clone());
-                    }
-
-                    // Emit error event so UI can display it
-                    let _ = app_handle.emit("connector-server-error", error_msg);
-
-                    server_running.store(false, Ordering::SeqCst);
-                    return;
-                }
-            };
 
             info!("Connector server listening on {}", addr);
 

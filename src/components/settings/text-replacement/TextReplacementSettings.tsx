@@ -187,7 +187,7 @@ export const TextReplacementSettings: React.FC = () => {
   ]);
 
   const handleAddRule = () => {
-    if (!newFrom.trim()) return;
+    if (newFrom.length === 0) return;
 
     const newRule: TextReplacementRule = {
       id: `tr_${Date.now()}`,
@@ -250,7 +250,7 @@ export const TextReplacementSettings: React.FC = () => {
   };
 
   const saveEditing = () => {
-    if (!editingId || !editFrom.trim()) return;
+    if (!editingId || editFrom.length === 0) return;
     
     updateSetting(
       "text_replacements",
@@ -264,7 +264,7 @@ export const TextReplacementSettings: React.FC = () => {
   };
 
   const handleKeyPress = (e: React.KeyboardEvent) => {
-    if (e.key === "Enter" && newFrom.trim()) {
+    if (e.key === "Enter" && newFrom.length > 0) {
       e.preventDefault();
       handleAddRule();
     }
@@ -791,7 +791,7 @@ export const TextReplacementSettings: React.FC = () => {
             </div>
             <Button
               onClick={handleAddRule}
-              disabled={!newFrom.trim() || isUpdating("text_replacements")}
+              disabled={newFrom.length === 0 || isUpdating("text_replacements")}
               variant="primary"
               size="md"
               className="shrink-0"
@@ -1145,25 +1145,42 @@ export const TextReplacementSettings: React.FC = () => {
 
       {/* Fuzzy Word Correction Group */}
       <SettingsGroup
-        title="Fuzzy Word Correction"
-        description="Add words that are often misheard (names, technical terms). The system will automatically correct similar-sounding words."
+        title={t("textReplacement.fuzzyWordCorrectionTitle", "Fuzzy Word Correction")}
+        description={t(
+          "textReplacement.fuzzyWordCorrectionDescription",
+          "Add words that are often misheard (names, technical terms). The system will automatically correct similar-sounding words."
+        )}
       >
         <div className="px-4 py-3 bg-white/[0.02] border-b border-white/[0.05]">
-          <TellMeMore title="How Fuzzy Correction Works">
+          <TellMeMore title={t("textReplacement.fuzzyHowItWorksTitle", "How Fuzzy Correction Works")}>
             <div className="space-y-3 text-sm">
               <p>
-                This algorithm fixes misheard words by comparing them to your custom list using two methods:
+                {t(
+                  "textReplacement.fuzzyHowItWorksIntro",
+                  "This algorithm fixes misheard words by comparing them to your custom list using two methods:"
+                )}
               </p>
               <ul className="list-disc list-inside space-y-2 ml-1 opacity-90">
                 <li>
-                  <strong>Sounds Like (Phonetic):</strong> It recognizes that "edge" and "etch" sound similar.
+                  <strong>{t("textReplacement.fuzzySoundsLikeTitle", "Sounds Like (Phonetic):")}</strong>{" "}
+                  {t(
+                    "textReplacement.fuzzySoundsLikeDescription",
+                    "It recognizes that \"edge\" and \"etch\" sound similar."
+                  )}
                 </li>
                 <li>
-                  <strong>Looks Like (Levenshtein):</strong> It catches typos like "srart" instead of "start".
+                  <strong>{t("textReplacement.fuzzyLooksLikeTitle", "Looks Like (Levenshtein):")}</strong>{" "}
+                  {t(
+                    "textReplacement.fuzzyLooksLikeDescription",
+                    "It catches typos like \"srart\" instead of \"start\"."
+                  )}
                 </li>
               </ul>
               <p className="pt-1 text-xs text-text/70 italic">
-                Tip: If it corrects words too aggressively, lower the sensitivity slider below.
+                {t(
+                  "textReplacement.fuzzyTip",
+                  "Tip: If it corrects words too aggressively, lower the sensitivity slider below."
+                )}
               </p>
             </div>
           </TellMeMore>
@@ -1179,8 +1196,14 @@ export const TextReplacementSettings: React.FC = () => {
               (updateSetting as any)("custom_words_ngram_enabled", enabled)
             }
             isUpdating={isUpdating("custom_words_ngram_enabled")}
-            label="Enable Multi-word Matching (N-grams)"
-            description="Match up to 3 spoken tokens as one custom term (example: 'Chat G P T' -> 'ChatGPT'). Disable if corrections are too aggressive."
+            label={t(
+              "textReplacement.multiWordMatchingLabel",
+              "Enable Multi-word Matching (N-grams)"
+            )}
+            description={t(
+              "textReplacement.multiWordMatchingDescription",
+              "Match up to 3 spoken tokens as one custom term (example: 'Chat G P T' -> 'ChatGPT'). Disable if corrections are too aggressive."
+            )}
             descriptionMode="inline"
             grouped={true}
           />
@@ -1193,8 +1216,11 @@ export const TextReplacementSettings: React.FC = () => {
             onChange={(value) => updateSetting("word_correction_threshold", value)}
             min={0.0}
             max={1.0}
-            label="Correction Sensitivity"
-            description="Threshold for fuzzy match score (0.0 = exact match only, 1.0 = accept any). Default 0.18 means a word must be ~82% similar to be corrected."
+            label={t("textReplacement.correctionSensitivityLabel", "Correction Sensitivity")}
+            description={t(
+              "textReplacement.correctionSensitivityDescription",
+              "Threshold for fuzzy match score (0.0 = exact match only, 1.0 = accept any). Default 0.18 means a word must be ~82% similar to be corrected."
+            )}
             descriptionMode="inline"
             grouped={true}
           />
@@ -1289,7 +1315,7 @@ export const TextReplacementSettings: React.FC = () => {
         )}
         description={t(
           "textReplacement.sonioxRealtimeChunkDescription",
-          "Controls chunk-time correction while Soniox Live typing is active."
+          "Controls how Soniox Live chunk text is corrected before insertion. Default: both options are OFF."
         )}
       >
         <div className="px-4 py-3">
@@ -1305,7 +1331,7 @@ export const TextReplacementSettings: React.FC = () => {
             )}
             description={t(
               "textReplacement.sonioxRealtimeChunkFuzzyDescription",
-              "When enabled, Soniox Live chunk typing applies Custom Words fuzzy correction before Text Replacement rules."
+              "Uses typo-tolerant matching from Custom Words on each live chunk. If OFF, chunks skip fuzzy correction but regular Text Replacement rules still run."
             )}
             descriptionMode="inline"
           />
@@ -1324,10 +1350,16 @@ export const TextReplacementSettings: React.FC = () => {
             )}
             description={t(
               "textReplacement.sonioxRealtimeChunkSafetyBufferDescription",
-              "When enabled, Soniox Live keeps a short 2-3 word tail before typing so fuzzy correction can match across chunk boundaries. This may delay the newest words slightly."
+              "Keeps the newest 2-3 words briefly so fuzzy correction can match across chunk boundaries. This buffer is used only when fuzzy correction is ON."
             )}
             descriptionMode="inline"
           />
+        </div>
+        <div className="px-4 pb-3 text-xs text-white/60">
+          {t(
+            "textReplacement.sonioxRealtimeChunkBehaviorGuide",
+            "For fastest live appearance, keep both OFF. Enable both only when you need better cross-chunk fuzzy correction."
+          )}
         </div>
       </SettingsGroup>
     </div>

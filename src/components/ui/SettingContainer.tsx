@@ -18,6 +18,7 @@ interface SettingContainerProps {
   layout?: "horizontal" | "stacked";
   disabled?: boolean;
   tooltipPosition?: "top" | "bottom";
+  compact?: boolean;
 }
 
 export const SettingContainer: React.FC<SettingContainerProps> = ({
@@ -29,6 +30,7 @@ export const SettingContainer: React.FC<SettingContainerProps> = ({
   layout = "horizontal",
   disabled = false,
   tooltipPosition = "top",
+  compact = false,
 }) => {
   const [showTooltip, setShowTooltip] = useState(false);
   const tooltipRef = useRef<HTMLDivElement>(null);
@@ -96,9 +98,10 @@ export const SettingContainer: React.FC<SettingContainerProps> = ({
     setShowTooltip(!showTooltip);
   };
 
+  const basePadding = compact ? "px-6 py-2.5" : "px-6 py-4";
   const containerClasses = grouped
-    ? "px-6 py-4"
-    : "px-6 py-4 rounded-lg bg-[#2b2b2b]/40 border border-[#2f2f2f] hover:bg-[#323232]/50 hover:border-[#3c3c3c] transition-all duration-200";
+    ? basePadding
+    : `${basePadding} rounded-lg bg-[#2b2b2b]/40 border border-[#2f2f2f] hover:bg-[#323232]/50 hover:border-[#3c3c3c] transition-all duration-200`;
 
   const renderTooltipPortal = () => {
     if (!showTooltip) return null;
@@ -198,7 +201,7 @@ export const SettingContainer: React.FC<SettingContainerProps> = ({
 
     return (
       <div className={containerClasses}>
-        <div className="mb-2">
+        <div className={compact ? "mb-1" : "mb-2"}>
           <h3 className={`text-sm font-medium ${disabled ? "opacity-50" : ""}`}>
             {title}
           </h3>
@@ -215,8 +218,8 @@ export const SettingContainer: React.FC<SettingContainerProps> = ({
 
   // Horizontal layout (default) - responsive: stacks on small screens, side-by-side on md+
   const horizontalContainerClasses = grouped
-    ? "flex flex-col gap-2 md:flex-row md:items-center md:justify-between px-6 py-4"
-    : "flex flex-col gap-2 md:flex-row md:items-center md:justify-between px-6 py-4 rounded-lg bg-[#2b2b2b]/40 border border-[#2f2f2f] hover:bg-[#323232]/50 hover:border-[#3c3c3c] transition-all duration-200";
+    ? `flex flex-col ${compact ? "gap-1.5" : "gap-2"} md:flex-row md:items-center md:justify-between ${basePadding}`
+    : `flex flex-col ${compact ? "gap-1.5" : "gap-2"} md:flex-row md:items-center md:justify-between ${basePadding} rounded-lg bg-[#2b2b2b]/40 border border-[#2f2f2f] hover:bg-[#323232]/50 hover:border-[#3c3c3c] transition-all duration-200`;
 
   if (descriptionMode === "tooltip") {
     return (

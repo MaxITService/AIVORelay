@@ -24,6 +24,7 @@ export const ShortcutEngineSelector: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [activeEngine, setActiveEngine] = useState<string>("tauri");
   const [showRestartConfirm, setShowRestartConfirm] = useState(false);
+  const [pendingEngine, setPendingEngine] = useState<string | null>(null);
 
   // Configured engine from settings (may differ from active if restart needed)
   const configuredEngine = (settings as any)?.shortcut_engine ?? "tauri";
@@ -54,13 +55,18 @@ export const ShortcutEngineSelector: React.FC = () => {
     }
   };
 
-  const fetchIncompatibleShortcuts = async () => {
+  const getIncompatibleShortcuts = async (): Promise<ShortcutBinding[]> => {
     try {
-      const result = await invoke<ShortcutBinding[]>("get_tauri_incompatible_shortcuts");
-      setIncompatibleShortcuts(result);
+      return await invoke<ShortcutBinding[]>("get_tauri_incompatible_shortcuts");
     } catch (err) {
       console.error("Failed to fetch incompatible shortcuts:", err);
+      return [];
     }
+  };
+
+  const fetchIncompatibleShortcuts = async () => {
+    const shortcuts = await getIncompatibleShortcuts();
+    setIncompatibleShortcuts(shortcuts);
   };
 
   const handleEngineChange = async (newEngine: string) => {
@@ -70,17 +76,22 @@ export const ShortcutEngineSelector: React.FC = () => {
     setError(null);
 
     try {
-      // First, check what shortcuts would be incompatible
       if (newEngine === "tauri") {
-        await fetchIncompatibleShortcuts();
+        const shortcuts = await getIncompatibleShortcuts();
+        setIncompatibleShortcuts(shortcuts);
+
+        // Do not persist destructive changes until user explicitly confirms restart.
+        if (shortcuts.length > 0) {
+          setPendingEngine(newEngine);
+          setShowRestartConfirm(true);
+          return;
+        }
       } else {
         setIncompatibleShortcuts([]);
       }
 
-      // Call the backend to save the new engine setting
+      setPendingEngine(null);
       await invoke("set_shortcut_engine_setting", { engine: newEngine });
-
-      // Refresh settings to update the UI
       await refreshSettings();
     } catch (err: any) {
       console.error("Failed to change shortcut engine:", err);
@@ -101,11 +112,19 @@ export const ShortcutEngineSelector: React.FC = () => {
 
   const handleRestart = async () => {
     setShowRestartConfirm(false);
+    setIsChanging(true);
     try {
+      if (pendingEngine) {
+        await invoke("set_shortcut_engine_setting", { engine: pendingEngine });
+        await refreshSettings();
+        setPendingEngine(null);
+      }
       await relaunch();
     } catch (err) {
       console.error("Failed to restart app:", err);
       setError(`Failed to restart: ${err}`);
+    } finally {
+      setIsChanging(false);
     }
   };
 
@@ -215,7 +234,10 @@ export const ShortcutEngineSelector: React.FC = () => {
 
             <div className="flex gap-3 justify-end">
               <button
-                onClick={() => setShowRestartConfirm(false)}
+                onClick={() => {
+                  setShowRestartConfirm(false);
+                  setPendingEngine(null);
+                }}
                 className="px-4 py-2 bg-[#2b2b2b] hover:bg-[#3c3c3c] border border-[#3c3c3c] rounded-lg text-sm text-gray-300 font-medium transition-colors"
               >
                 {t("settings.debug.shortcutEngine.confirmRestart.cancel")}

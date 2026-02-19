@@ -1154,9 +1154,32 @@ pub fn delete_last_stream_characters(app_handle: AppHandle, count: usize) -> Res
     Ok(())
 }
 
+fn restore_cut_selection_from_backup(app_handle: &AppHandle, text: &str) -> Result<(), String> {
+    if text.is_empty() {
+        return Ok(());
+    }
+
+    let clipboard = app_handle.clipboard();
+    clipboard
+        .write_text(text)
+        .map_err(|e| format!("Failed to restore clipboard text for selection recovery: {}", e))?;
+
+    let enigo_state = app_handle
+        .try_state::<EnigoState>()
+        .ok_or("Enigo state not initialized")?;
+    let mut enigo = enigo_state
+        .0
+        .lock()
+        .map_err(|e| format!("Failed to lock Enigo: {}", e))?;
+    input::send_paste_ctrl_v(&mut enigo)?;
+
+    Ok(())
+}
+
 pub fn capture_selection_text(app_handle: &AppHandle) -> Result<String, String> {
     let clipboard = app_handle.clipboard();
     let clipboard_backup = clipboard.read_text().unwrap_or_default();
+    let mut cut_performed = false;
 
     let capture_result = (|| -> Result<String, String> {
         let enigo_state = app_handle
@@ -1171,12 +1194,22 @@ pub fn capture_selection_text(app_handle: &AppHandle) -> Result<String, String> 
         let _ = clipboard.write_text("");
 
         input::send_cut_ctrl_x(&mut enigo)?;
+        cut_performed = true;
         std::thread::sleep(std::time::Duration::from_millis(80));
 
         clipboard
             .read_text()
             .map_err(|e| format!("Failed to read clipboard: {}", e))
     })();
+
+    if capture_result.is_err() && cut_performed && !clipboard_backup.is_empty() {
+        if let Err(err) = restore_cut_selection_from_backup(app_handle, &clipboard_backup) {
+            warn!(
+                "Failed to restore selection after cut-based capture error: {}",
+                err
+            );
+        }
+    }
 
     if let Err(err) = clipboard.write_text(&clipboard_backup) {
         warn!(

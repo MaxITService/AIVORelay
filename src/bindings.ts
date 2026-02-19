@@ -969,6 +969,14 @@ async changeAiReplaceMaxCharsSetting(maxChars: number) : Promise<Result<null, st
     else return { status: "error", error: e  as any };
 }
 },
+async changeAiReplaceRestoreOnErrorSetting(enabled: boolean) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("change_ai_replace_restore_on_error_setting", { enabled }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async changeAiReplaceAllowNoSelectionSetting(allowed: boolean) : Promise<Result<null, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("change_ai_replace_allow_no_selection_setting", { allowed }) };
@@ -980,6 +988,14 @@ async changeAiReplaceAllowNoSelectionSetting(allowed: boolean) : Promise<Result<
 async changeAiReplaceNoSelectionSystemPromptSetting(prompt: string) : Promise<Result<null, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("change_ai_replace_no_selection_system_prompt_setting", { prompt }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async changeAiReplaceNoSelectionUserPromptSetting(prompt: string) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("change_ai_replace_no_selection_user_prompt_setting", { prompt }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
@@ -1004,6 +1020,14 @@ async changeAiReplaceQuickTapThresholdMsSetting(thresholdMs: number) : Promise<R
 async changeAiReplaceQuickTapSystemPromptSetting(prompt: string) : Promise<Result<null, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("change_ai_replace_quick_tap_system_prompt_setting", { prompt }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async changeAiReplaceQuickTapUserPromptSetting(prompt: string) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("change_ai_replace_quick_tap_user_prompt_setting", { prompt }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
@@ -2304,7 +2328,7 @@ llm_context_prev_transcript_max_words?: number;
 /**
  * Expiry window (seconds) for ${short_prev_transcript}.
  */
-llm_context_prev_transcript_expiry_seconds?: number; ai_replace_system_prompt?: string; ai_replace_user_prompt?: string; ai_replace_max_chars?: number; ai_replace_allow_no_selection?: boolean; ai_replace_no_selection_system_prompt?: string; ai_replace_allow_quick_tap?: boolean; ai_replace_quick_tap_threshold_ms?: number; ai_replace_quick_tap_system_prompt?: string; 
+llm_context_prev_transcript_expiry_seconds?: number; ai_replace_system_prompt?: string; ai_replace_user_prompt?: string; ai_replace_max_chars?: number; ai_replace_restore_on_error?: boolean; ai_replace_allow_no_selection?: boolean; ai_replace_no_selection_system_prompt?: string; ai_replace_no_selection_user_prompt?: string; ai_replace_allow_quick_tap?: boolean; ai_replace_quick_tap_threshold_ms?: number; ai_replace_quick_tap_system_prompt?: string; ai_replace_quick_tap_user_prompt?: string; 
 /**
  * AI Replace LLM provider ID (separate from post-processing)
  */

@@ -90,11 +90,16 @@ export const useAiReplaceProviderState = (): AiReplaceProviderState => {
   ]);
 
   const model = useMemo(() => {
+    if (useSameAsPostProcess) {
+      return settings?.post_process_models?.[effectiveProviderId] ?? "";
+    }
+
     const aiReplaceModel =
       settings?.ai_replace_models?.[effectiveProviderId] ?? "";
     if (aiReplaceModel) return aiReplaceModel;
     return settings?.post_process_models?.[effectiveProviderId] ?? "";
   }, [
+    useSameAsPostProcess,
     settings?.ai_replace_models,
     settings?.post_process_models,
     effectiveProviderId,

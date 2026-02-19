@@ -443,7 +443,7 @@
       "cycleActiveProfilesShort": "Global shortcut to cycle through active profiles",
       "existingProfiles": "Manage Profiles",
       "title": "Transcription Profiles",
-      "help": "Profiles allow you to quickly switch between different languages, STT models, and post-processing settings.",
+      "help": "You are in the main place where you can set a key to make speech to text active with a button! This is done via profiles. Profiles allow you to switch between different languages, STT models, and post-processing settings. You need at least to configure default profile, and then call it via key.",
       "createNew": "Create New Profile",
       "createNewDescription": "Create a new custom profile with independent settings.",
       "addProfile": "Add Profile",
@@ -505,6 +505,13 @@
         "chars": "chars",
         "terms": "terms"
       },
+      "badges": {
+        "sttPromptOverridden": "System prompt overridden",
+        "sttPromptEmpty": "System prompt is empty",
+        "llmActive": "LLM active",
+        "promptOverridden": "Prompt overridden",
+        "modelOverride": "Model: {{model}}"
+      },
       "llmPostProcessing": {
         "title": "LLM Post-Processing",
         "description": "Enable AI-powered text refinement for this profile",
@@ -513,7 +520,8 @@
         "notConfigured": "LLM API is not configured.",
         "configureLink": "Configure LLM settings",
         "overridePrompt": "Override system prompt",
-        "overridePromptHint": "Leave empty to use the global prompt configured in LLM Post Processing.",
+        "resetToGlobal": "Reset to Global",
+        "usingGlobalPrompt": "Using global prompt — edits will create a custom override.",
         "promptPlaceholder": "Custom LLM prompt for this profile...",
         "overrideModel": "Override LLM model",
         "overrideModelHint": "Leave empty to use the global model.",
@@ -564,10 +572,6 @@
     "advanced": {
       "title": "Advanced",
       "voiceApiTitle": "Voice API",
-      "help": {
-        "title": "Voice Model Configuration",
-        "description": "This is where you can configure voice models for speech to text, but only remote ones. Local models can be selected from the menu at the bottom-left of the application."
-      },
       "tellMeMore": {
         "title": "Tell me more: Fine-tuning the Engine",
         "headline": "Fine-tune the Engine.",
@@ -575,10 +579,6 @@
         "startup": {
           "title": "Startup Options:",
           "description": "Control whether AivoRelay launches when you turn on your PC and whether it starts minimized to the system tray."
-        },
-        "overlay": {
-          "title": "Overlay:",
-          "description": "That little pop-up that shows what you're saying while recording. You can move it to the top, bottom, or hide it entirely if it's distracting."
         },
         "pasteMethod": {
           "title": "Paste Method:",
@@ -590,23 +590,13 @@
           "title": "Clipboard Handling:",
           "description": "Choose whether to preserve your existing clipboard contents or leave the transcription in the clipboard after pasting."
         },
-        "translate": {
-          "title": "Translate to English:",
-          "description": "Automatically translate speech from other languages to English during transcription (requires compatible model)."
-        },
         "modelUnload": {
           "title": "Model Unload:",
           "description": "Automatically free GPU/CPU memory when the speech model hasn't been used for a while. Useful if you need resources for other apps."
         },
         "customWords": {
           "title": "Custom Words:",
-          "description": "Add words that are often misheard (names, technical terms, brand names). The system will correct similar-sounding words automatically."
-        },
-        "remoteStt": {
-          "title": "Remote STT (Cloud Transcription):",
-          "description": "Use a cloud API instead of local models for speech-to-text. You can specify the Base URL, API Key, and which model to use. Great if you don't have a powerful GPU or want faster/more accurate results.",
-          "recommendation": "One easy way to start with Cloud API is to register a free account on Groq:",
-          "freeTier": "Groq offers a generous free tier with fast transcription speeds. The Base URL and Model are prefilled with Groq defaults for your convenience. Just create an API key on the website and enter it in the field below."
+          "description": "Configure this in Text Processing > Fuzzy Word Correction. Add words that are often misheard (names, technical terms, brand names) so similar-sounding words are corrected automatically."
         },
         "tip": "Most users can leave these at their defaults. Adjust only if you experience specific issues."
       },
@@ -1523,7 +1513,11 @@
         "description": "Select text, speak an instruction, and let the LLM transform the text. If no text is selected, it generates new content based on the instruction.",
         "step1": "Edit, refactor, or translate text in any application using natural language.",
         "step2": "Press the shortcut and speak your instruction (e.g., \"translate to French\")",
-        "step3": "AI replaces your selection with the transformed result"
+        "step3": "AI replaces your selection with the transformed result",
+        "configRequiredTitle": "Configuration Required",
+        "configRequiredBody": "This feature requires an active LLM API connection to process instructions. Local speech models only handle speech-to-text conversion. Configure an API key in the API Configuration section at the bottom of this page.",
+        "proTipTitle": "Pro Tip: Generating New Text",
+        "proTipBody": "If you do not select any text, you can ask AI to write new content from scratch."
       },
       "shortcuts": {
         "title": "Shortcut"
@@ -1545,7 +1539,12 @@
         },
         "systemPrompt": {
           "title": "System Prompt (No Selection)",
-          "description": "System prompt used when generating text from scratch."
+          "description": "System prompt used when generating text from scratch.",
+          "variables": "Available variables: ${instruction} (your voice), ${current_app}, ${language}, ${profile_name}, ${time_local}, ${date_iso}, ${short_prev_transcript}"
+        },
+        "userPrompt": {
+          "title": "User Prompt (No Selection)",
+          "description": "Message body sent to AI when no text is selected."
         }
       },
       "quickTap": {
@@ -1553,16 +1552,57 @@
         "description": "When you tap the key without speaking.",
         "allowQuickTap": {
           "label": "Allow Quick Tap",
-          "description": "Enable to send without speaking. Usage: Quickly tap your hotkey and do not say anything to automatically improve/fix the selected text."
+          "description": "Enable to send without speaking. Usage: Quickly tap your hotkey and do not say anything to automatically improve/fix the selected text. Works best with Push-to-Talk mode enabled."
         },
         "systemPrompt": {
           "title": "System Prompt (Quick Tap)",
           "description": "System prompt used when you just tap the key without speaking (e.g. 'Fix grammar')."
         },
+        "userPrompt": {
+          "title": "User Prompt (Quick Tap)",
+          "description": "Message body sent to AI in quick-tap mode."
+        },
         "threshold": {
           "title": "Quick Tap Threshold",
           "description": "Maximum duration to consider a tap as a 'Quick Tap'.",
           "suffix": "ms"
+        }
+      },
+      "promptHelp": {
+        "toggleLabel": "Variables & examples",
+        "exampleLabel": "Template example:",
+        "modeNotes": {
+          "noSelection": "No-selection mode: AI generates from instruction only; ${output}/${selection} are empty.",
+          "quickTap": "Quick-tap mode: ${instruction} is always empty.",
+          "withSelection": "With-selection mode: include both ${instruction} and ${output}/${selection}."
+        },
+        "variables": {
+          "instruction": "Your spoken words (voice transcript)",
+          "output": "Selected text (empty when no text is selected)",
+          "selection": "Same as ${output}",
+          "currentApp": "Active window title (e.g. Notepad, VS Code)",
+          "language": "Transcription language code (e.g. en, fr, de)",
+          "profileName": "Active transcription profile name",
+          "timeLocal": "Local date/time (e.g. Wednesday, Feb 19, 2026 3:45 PM)",
+          "dateIso": "ISO 8601 date (e.g. 2026-02-19T15:45:00+05:00)",
+          "shortPrevTranscript": "Most recent prior transcription in the same app"
+        },
+        "examples": {
+          "noSelection": "INSTRUCTION:\n${instruction}",
+          "quickTap": "TEXT:\n${output}",
+          "withSelection": "INSTRUCTION:\n${instruction}\n\nTEXT:\n${output}"
+        },
+        "tooltips": {
+          "systemPrompt": {
+            "noSelection": "Sent first as the system message. Use it for stable rules like tone, output format, and hard constraints. No-selection mode: this drives pure text generation.",
+            "quickTap": "Sent first as the system message. Use it for stable rules like tone, output format, and hard constraints. Quick-tap mode: this controls rewrite behavior when no voice instruction is provided.",
+            "withSelection": "Sent first as the system message. Use it for stable rules like tone, output format, and hard constraints. With-selection mode: this defines how selected text should be transformed."
+          },
+          "userPrompt": {
+            "noSelection": "Sent second as the user message after variable substitution. Use it as the dynamic request template. No-selection mode: usually use ${instruction}; ${output}/${selection} are empty.",
+            "quickTap": "Sent second as the user message after variable substitution. Use it as the dynamic request template. Quick-tap mode: ${instruction} is empty, so rely on ${output}/${selection}.",
+            "withSelection": "Sent second as the user message after variable substitution. Use it as the dynamic request template. With-selection mode: combine ${instruction} (what to do) with ${output}/${selection} (what to edit)."
+          }
         }
       },
       "withSelection": {
@@ -1581,6 +1621,10 @@
           "title": "Max Characters",
           "description": "Limit selection size to avoid high API costs. Skips processing if exceeded.",
           "suffix": "characters"
+        },
+        "restoreOnError": {
+          "label": "Attempt Restore On Error",
+          "description": "Best-effort: if AI Replace fails or is cancelled after cutting selection, try to paste the original text back."
         }
       }
     },
@@ -1770,6 +1814,7 @@
     "escapeCarriageReturn": "Carriage return (CR - old Mac style)",
     "escapeTab": "Tab character",
     "escapeBackslash": "Literal backslash",
+    "escapeUnicode": "Unicode character (e.g., \\u{200D} for Zero Width Joiner)",
     "optionsTitle": "Options",
     "caseSensitiveTitle": "Case Sensitive",
     "caseSensitiveDesc": "When enabled, 'Hello' and 'hello' are treated as different. When disabled, both will match.",
@@ -1794,11 +1839,25 @@
     "cancel": "Cancel",
     "clickToEdit": "Click to edit",
     "empty": "No replacement rules yet. Add one above to get started.",
+    "fuzzyWordCorrectionTitle": "Fuzzy Word Correction",
+    "fuzzyWordCorrectionDescription": "Add words that are often misheard (names, technical terms). The system will automatically correct similar-sounding words.",
+    "fuzzyHowItWorksTitle": "How Fuzzy Correction Works",
+    "fuzzyHowItWorksIntro": "This algorithm fixes misheard words by comparing them to your custom list using two methods:",
+    "fuzzySoundsLikeTitle": "Sounds Like (Phonetic):",
+    "fuzzySoundsLikeDescription": "It recognizes that \"edge\" and \"etch\" sound similar.",
+    "fuzzyLooksLikeTitle": "Looks Like (Levenshtein):",
+    "fuzzyLooksLikeDescription": "It catches typos like \"srart\" instead of \"start\".",
+    "fuzzyTip": "Tip: If it corrects words too aggressively, lower the sensitivity slider below.",
+    "multiWordMatchingLabel": "Enable Multi-word Matching (N-grams)",
+    "multiWordMatchingDescription": "Match up to 3 spoken tokens as one custom term (example: 'Chat G P T' -> 'ChatGPT'). Disable if corrections are too aggressive.",
+    "correctionSensitivityLabel": "Correction Sensitivity",
+    "correctionSensitivityDescription": "Threshold for fuzzy match score (0.0 = exact match only, 1.0 = accept any). Default 0.18 means a word must be ~82% similar to be corrected.",
     "sonioxRealtimeChunkTitle": "Soniox Realtime Chunks",
-    "sonioxRealtimeChunkDescription": "Controls chunk-time correction while Soniox Live typing is active.",
+    "sonioxRealtimeChunkDescription": "Controls how Soniox Live chunk text is corrected before insertion. Default: both options are OFF.",
     "sonioxRealtimeChunkFuzzyLabel": "Enable Fuzzy Word Correction for Soniox Live Chunks",
-    "sonioxRealtimeChunkFuzzyDescription": "When enabled, Soniox Live chunk typing applies Custom Words fuzzy correction before Text Replacement rules.",
+    "sonioxRealtimeChunkFuzzyDescription": "Uses typo-tolerant matching from Custom Words on each live chunk. If OFF, chunks skip fuzzy correction but regular Text Replacement rules still run.",
     "sonioxRealtimeChunkSafetyBufferLabel": "Keep Safety Buffer for Cross-chunk Matching",
-    "sonioxRealtimeChunkSafetyBufferDescription": "When enabled, Soniox Live keeps a short 2-3 word tail before typing so fuzzy correction can match across chunk boundaries. This may delay the newest words slightly."
+    "sonioxRealtimeChunkSafetyBufferDescription": "Keeps the newest 2-3 words briefly so fuzzy correction can match across chunk boundaries. This buffer is used only when fuzzy correction is ON.",
+    "sonioxRealtimeChunkBehaviorGuide": "For fastest live appearance, keep both OFF. Enable both only when you need better cross-chunk fuzzy correction."
   }
 }

@@ -883,6 +883,14 @@ pub fn preview_soniox_live_preview_window(app_handle: AppHandle) -> Result<(), S
             return Ok(());
         }
 
+        let app_settings = settings::get_settings(&app_handle);
+        if !app_settings.soniox_live_preview_enabled {
+            return Err(
+                "Live Preview Window is disabled. Enable it in settings before opening demo preview."
+                    .to_string(),
+            );
+        }
+
         if let Ok(mut runtime_state) = SONIOX_LIVE_PREVIEW_RUNTIME_STATE.lock() {
             runtime_state.mode = SonioxLivePreviewMode::UiDemo;
         }

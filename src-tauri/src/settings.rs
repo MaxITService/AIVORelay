@@ -8,6 +8,7 @@ use tauri_plugin_store::StoreExt;
 
 pub const APPLE_INTELLIGENCE_PROVIDER_ID: &str = "apple_intelligence";
 pub const APPLE_INTELLIGENCE_DEFAULT_MODEL_ID: &str = "Apple Intelligence";
+pub const MAX_HISTORY_LIMIT: usize = 1000;
 
 #[derive(Serialize, Debug, Clone, Copy, PartialEq, Eq, Type)]
 #[serde(rename_all = "lowercase")]
@@ -1159,16 +1160,22 @@ pub struct AppSettings {
     pub ai_replace_user_prompt: String,
     #[serde(default = "default_ai_replace_max_chars")]
     pub ai_replace_max_chars: usize,
+    #[serde(default = "default_ai_replace_restore_on_error")]
+    pub ai_replace_restore_on_error: bool,
     #[serde(default = "default_ai_replace_allow_no_selection")]
     pub ai_replace_allow_no_selection: bool,
     #[serde(default = "default_ai_replace_no_selection_system_prompt")]
     pub ai_replace_no_selection_system_prompt: String,
+    #[serde(default = "default_ai_replace_no_selection_user_prompt")]
+    pub ai_replace_no_selection_user_prompt: String,
     #[serde(default = "default_ai_replace_allow_quick_tap")]
     pub ai_replace_allow_quick_tap: bool,
     #[serde(default = "default_ai_replace_quick_tap_threshold_ms")]
     pub ai_replace_quick_tap_threshold_ms: u32,
     #[serde(default = "default_ai_replace_quick_tap_system_prompt")]
     pub ai_replace_quick_tap_system_prompt: String,
+    #[serde(default = "default_ai_replace_user_prompt")]
+    pub ai_replace_quick_tap_user_prompt: String,
     /// AI Replace LLM provider ID (separate from post-processing)
     #[serde(default)]
     pub ai_replace_provider_id: Option<String>,
@@ -1764,8 +1771,16 @@ fn default_ai_replace_user_prompt() -> String {
     "INSTRUCTION:\n${instruction}\n\nTEXT:\n${output}".to_string()
 }
 
+fn default_ai_replace_no_selection_user_prompt() -> String {
+    "INSTRUCTION:\n${instruction}".to_string()
+}
+
 fn default_ai_replace_max_chars() -> usize {
     20000
+}
+
+fn default_ai_replace_restore_on_error() -> bool {
+    true
 }
 
 fn default_ai_replace_allow_no_selection() -> bool {
@@ -1781,7 +1796,7 @@ fn default_false() -> bool {
 }
 
 fn default_ai_replace_no_selection_system_prompt() -> String {
-    "You are a helpful assistant.\nAnswer the user's instruction directly and concisely.\nDo not include any preamble (like 'Here is the answer') or postscript.\nJust provide the content requested.".to_string()
+    "You are in selected text replacement mode.\nAnswer the user's instruction directly and concisely.\nDo not include any preamble (like 'Here is the answer') or postscript.\nJust provide the content requested.".to_string()
 }
 
 fn default_ai_replace_allow_quick_tap() -> bool {
@@ -2192,11 +2207,14 @@ pub fn get_default_settings() -> AppSettings {
         ai_replace_system_prompt: default_ai_replace_system_prompt(),
         ai_replace_user_prompt: default_ai_replace_user_prompt(),
         ai_replace_max_chars: default_ai_replace_max_chars(),
+        ai_replace_restore_on_error: default_ai_replace_restore_on_error(),
         ai_replace_allow_no_selection: default_ai_replace_allow_no_selection(),
         ai_replace_no_selection_system_prompt: default_ai_replace_no_selection_system_prompt(),
+        ai_replace_no_selection_user_prompt: default_ai_replace_no_selection_user_prompt(),
         ai_replace_allow_quick_tap: default_ai_replace_allow_quick_tap(),
         ai_replace_quick_tap_threshold_ms: default_ai_replace_quick_tap_threshold_ms(),
         ai_replace_quick_tap_system_prompt: default_ai_replace_quick_tap_system_prompt(),
+        ai_replace_quick_tap_user_prompt: default_ai_replace_user_prompt(),
         ai_replace_provider_id: None,
         ai_replace_api_keys: HashMap::new(),
         ai_replace_models: HashMap::new(),
@@ -2679,7 +2697,7 @@ pub fn get_stored_binding(app: &AppHandle, id: &str) -> ShortcutBinding {
 
 pub fn get_history_limit(app: &AppHandle) -> usize {
     let settings = get_settings(app);
-    settings.history_limit
+    settings.history_limit.min(MAX_HISTORY_LIMIT)
 }
 
 pub fn get_recording_retention_period(app: &AppHandle) -> RecordingRetentionPeriod {

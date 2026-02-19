@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect, useCallback } from "react";
+import React, { useState, useMemo, useEffect, useCallback, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import {
   Plus,
@@ -9,6 +9,8 @@ import {
   Check,
   RefreshCw,
   RefreshCcw,
+  RotateCcw,
+  Pencil,
 } from "lucide-react";
 import { commands, TranscriptionProfile } from "@/bindings";
 import { invoke } from "@tauri-apps/api/core";
@@ -22,7 +24,6 @@ import { Dropdown } from "../ui/Dropdown";
 import { Badge } from "../ui/Badge";
 import { ToggleSwitch } from "../ui/ToggleSwitch";
 import { HandyShortcut } from "./HandyShortcut";
-import { TranslateToEnglish } from "./TranslateToEnglish";
 import { ModelSelect } from "./PostProcessingSettingsApi/ModelSelect";
 import { ResetButton } from "../ui/ResetButton";
 import { InfoTooltip } from "../ui/InfoTooltip";
@@ -108,17 +109,30 @@ const ProfileCard: React.FC<ProfileCardProps> = ({
 }) => {
   const { t } = useTranslation();
   const [isUpdating, setIsUpdating] = useState(false);
-  // Local state for LLM prompt - initializes with override or default
-  const [localLlmPrompt, setLocalLlmPrompt] = useState(
-    profile.llm_prompt_override || defaultLlmPrompt
+  const [isEditingName, setIsEditingName] = useState(false);
+  const [tempName, setTempName] = useState(profile.name);
+  // Track whether user has a custom override (non-null) or uses global (null)
+  const [isCustomOverride, setIsCustomOverride] = useState(
+    profile.llm_prompt_override != null
   );
+  // Local state for LLM prompt
+  const [localLlmPrompt, setLocalLlmPrompt] = useState(
+    profile.llm_prompt_override ?? defaultLlmPrompt
+  );
+  // Track whether user is actively editing to prevent useEffect from clobbering
+  const isEditingRef = useRef(false);
 
-  // Update local prompt when default changes (settings loaded) or profile changes
+  // Sync local prompt when profile or global prompt changes (but not during active editing)
   useEffect(() => {
-    if (!profile.llm_prompt_override) {
+    if (isEditingRef.current) return;
+    if (profile.llm_prompt_override == null) {
+      // Using global prompt — auto-track global changes
       setLocalLlmPrompt(defaultLlmPrompt);
+      setIsCustomOverride(false);
     } else {
+      // Custom override — show saved value
       setLocalLlmPrompt(profile.llm_prompt_override);
+      setIsCustomOverride(true);
     }
   }, [profile.llm_prompt_override, defaultLlmPrompt]);
 
@@ -282,13 +296,29 @@ const ProfileCard: React.FC<ProfileCardProps> = ({
   };
 
   const handleLlmPromptChange = async (newPrompt: string) => {
-    const trimmed = newPrompt.trim();
-    if (trimmed === (profile.llm_prompt_override || "")) return;
+    if (newPrompt === (profile.llm_prompt_override ?? "")) return;
     setIsUpdating(true);
     try {
       await onUpdate({
         ...profile,
-        llm_prompt_override: trimmed || null,
+        llm_prompt_override: newPrompt,
+      });
+    } finally {
+      setIsUpdating(false);
+      isEditingRef.current = false;
+    }
+  };
+
+  const handleResetToGlobal = async () => {
+    if (profile.llm_prompt_override == null) return;
+    setLocalLlmPrompt(defaultLlmPrompt);
+    setIsCustomOverride(false);
+    isEditingRef.current = false;
+    setIsUpdating(true);
+    try {
+      await onUpdate({
+        ...profile,
+        llm_prompt_override: null,
       });
     } finally {
       setIsUpdating(false);
@@ -332,9 +362,70 @@ const ProfileCard: React.FC<ProfileCardProps> = ({
           />
           <div className="flex flex-col min-w-0">
             <div className="flex flex-wrap items-center gap-2 min-w-0">
-              <span className="font-medium text-sm break-words">
-                {profile.name}
-              </span>
+              {isEditingName ? (
+                <div className="flex items-center gap-1 min-w-0">
+                  <Input
+                    autoFocus
+                    value={tempName}
+                    onChange={(e) => setTempName(e.target.value)}
+                    onBlur={() => {
+                      if (tempName.trim() && tempName !== profile.name) {
+                        handleNameChange(tempName);
+                      } else {
+                        setTempName(profile.name);
+                      }
+                      setIsEditingName(false);
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        if (tempName.trim() && tempName !== profile.name) {
+                          handleNameChange(tempName);
+                        }
+                        setIsEditingName(false);
+                      } else if (e.key === "Escape") {
+                        setTempName(profile.name);
+                        setIsEditingName(false);
+                      }
+                    }}
+                    variant="compact"
+                    className="h-6 py-0 px-2 min-w-[120px] text-sm font-medium"
+                    onClick={(e) => e.stopPropagation()}
+                    disabled={isUpdating}
+                  />
+                  <div className="flex items-center gap-0.5">
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="p-1 h-6 w-6 text-green-400 hover:text-green-300"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (tempName.trim() && tempName !== profile.name) {
+                          handleNameChange(tempName);
+                        }
+                        setIsEditingName(false);
+                      }}
+                      disabled={isUpdating}
+                    >
+                      <Check className="w-3 h-3" />
+                    </Button>
+                  </div>
+                </div>
+              ) : (
+                <div 
+                  className="flex items-center gap-2 group/name cursor-pointer min-w-0"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setIsEditingName(true);
+                    setTempName(profile.name);
+                  }}
+                  title={t("settings.transcriptionProfiles.clickToRename", "Click to rename")}
+                >
+                  <span className="font-medium text-sm break-words">
+                    {profile.name}
+                  </span>
+                  <Pencil className="w-3 h-3 text-purple-400/70 opacity-60 group-hover/name:opacity-100 transition-opacity shrink-0" />
+                </div>
+              )}
               {isActive && (
                 <Badge
                   variant="secondary"
@@ -406,7 +497,7 @@ const ProfileCard: React.FC<ProfileCardProps> = ({
       {isExpanded && (
         <div className="px-4 pb-4 pt-3 border-t border-mid-gray/20 space-y-3">
           {/* Cycle & Push-to-Talk Controls */}
-          <div className="grid gap-3 md:grid-cols-3 bg-mid-gray/5 p-3 rounded-lg border border-mid-gray/10">
+          <div className="grid gap-3 lg:grid-cols-3 bg-mid-gray/5 p-3 rounded-lg border border-mid-gray/10">
             <div className="min-w-0">
               <label className="text-xs font-semibold text-text/70 block mb-2">
                 {t("settings.transcriptionProfiles.includeInCycle")}
@@ -466,32 +557,16 @@ const ProfileCard: React.FC<ProfileCardProps> = ({
             </div>
           </div>
 
+          {/* Shortcut */}
+          <div className="space-y-2 min-w-0">
+            <label className="text-xs font-semibold text-text/70">
+              {t("settings.transcriptionProfiles.shortcut")}
+            </label>
+            <HandyShortcut shortcutId={bindingId} grouped={true} />
+          </div>
+
+          {/* Language + Translate to English — same row */}
           <div className="grid gap-3 lg:grid-cols-2">
-            {/* Shortcut */}
-            <div className="space-y-2 min-w-0">
-              <label className="text-xs font-semibold text-text/70">
-                {t("settings.transcriptionProfiles.shortcut")}
-              </label>
-              <HandyShortcut shortcutId={bindingId} grouped={true} />
-            </div>
-
-            {/* Profile Name */}
-            <div className="space-y-2 min-w-0">
-              <label className="text-xs font-semibold text-text/70">
-                {t("settings.transcriptionProfiles.profileName")}
-              </label>
-              <Input
-                type="text"
-                defaultValue={profile.name}
-                onBlur={(e) => handleNameChange(e.target.value)}
-                placeholder={t(
-                  "settings.transcriptionProfiles.profileNamePlaceholder",
-                )}
-                variant="compact"
-                disabled={isUpdating}
-              />
-            </div>
-
             {/* Language Selection */}
             <div className="space-y-2 relative z-20 min-w-0">
               <label className="text-xs font-semibold text-text/70">
@@ -528,12 +603,7 @@ const ProfileCard: React.FC<ProfileCardProps> = ({
               <label className="text-xs font-semibold text-text/70">
                 {t("settings.transcriptionProfiles.translateToEnglish")}
               </label>
-              <div className="flex flex-col gap-2 rounded-md border border-mid-gray/10 bg-mid-gray/5 px-3 py-2 sm:flex-row sm:items-center sm:justify-between">
-                <p className="text-xs text-mid-gray leading-snug">
-                  {t(
-                    "settings.transcriptionProfiles.translateToEnglishDescription",
-                  )}
-                </p>
+              <div className="flex items-center gap-2">
                 <button
                   type="button"
                   onClick={() =>
@@ -544,7 +614,7 @@ const ProfileCard: React.FC<ProfileCardProps> = ({
                     profile.translate_to_english
                       ? "bg-purple-500"
                       : "bg-mid-gray/30"
-                  } ${isUpdating ? "opacity-50 cursor-not-allowed" : "cursor-pointer"}`}
+                  } ${isUpdating || !supportsTranslation ? "opacity-50 cursor-not-allowed" : "cursor-pointer"}`}
                 >
                   <span
                     className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
@@ -554,14 +624,12 @@ const ProfileCard: React.FC<ProfileCardProps> = ({
                     }`}
                   />
                 </button>
+                <span className="text-xs text-mid-gray leading-snug">
+                  {!supportsTranslation
+                    ? t("settings.advanced.translateToEnglish.descriptionRemoteUnsupported")
+                    : t("settings.transcriptionProfiles.translateToEnglishDescription")}
+                </span>
               </div>
-              {!supportsTranslation && (
-                <p className="text-xs text-mid-gray">
-                  {t(
-                    "settings.advanced.translateToEnglish.descriptionRemoteUnsupported",
-                  )}
-                </p>
-              )}
             </div>
           </div>
 
@@ -577,182 +645,256 @@ const ProfileCard: React.FC<ProfileCardProps> = ({
             />
           )}
 
-          {/* Voice Model Prompt Override */}
-          {!isSonioxProvider && supportsSttPrompt && <div className="space-y-2">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <label className="text-xs font-semibold text-text/70">
-                  {t("settings.transcriptionProfiles.overrideSystemPrompt")}
-                </label>
-                <InfoTooltip content={t("settings.transcriptionProfiles.voiceModelPromptTooltip")} />
-              </div>
-              <ToggleSwitch
-                checked={profile.stt_prompt_override_enabled ?? false}
-                onChange={handleSttPromptOverrideChange}
-                disabled={isUpdating}
-              />
-            </div>
-            <p className="text-xs text-mid-gray">
-              {profile.stt_prompt_override_enabled
-                ? t("settings.transcriptionProfiles.overrideSystemPromptOnDescription")
-                : t("settings.transcriptionProfiles.overrideSystemPromptOffDescription")}
-            </p>
-            {profile.stt_prompt_override_enabled && (
-              <>
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <label className="text-xs font-semibold text-text/70">
-                      {t("settings.transcriptionProfiles.systemPrompt")}
-                    </label>
-                    <InfoTooltip content={t("settings.transcriptionProfiles.voiceModelPromptTooltip")} />
-                  </div>
-                  <span
-                    className={`text-xs ${isOverLimit ? "text-red-400" : "text-mid-gray"}`}
-                  >
-                    {promptLength}
-                    {promptLimit > 0 && ` / ${promptLimit}`}
+          {/* Voice Model Prompt Override — collapsible */}
+          {!isSonioxProvider && supportsSttPrompt && (
+            <details className="group rounded-lg border border-mid-gray/20 bg-mid-gray/5 overflow-hidden transition-colors open:border-purple-500/30 open:bg-purple-500/5">
+              <summary className="flex items-center justify-between gap-2 px-3 py-2.5 cursor-pointer select-none list-none [&::-webkit-details-marker]:hidden hover:bg-mid-gray/10 transition-colors">
+                <div className="flex items-center gap-2 min-w-0">
+                  <ChevronDown className="w-3.5 h-3.5 text-mid-gray shrink-0 transition-transform group-open:rotate-180" />
+                  <span className="text-xs font-semibold text-text/70">
+                    {t("settings.transcriptionProfiles.overrideSystemPrompt")}
                   </span>
+                  <InfoTooltip content={t("settings.transcriptionProfiles.voiceModelPromptTooltip")} />
                 </div>
-                <textarea
-                  defaultValue={profile.system_prompt || ""}
-                  onBlur={(e) => handleSystemPromptChange(e.target.value)}
-                  placeholder={t(
-                    "settings.transcriptionProfiles.systemPromptPlaceholder",
+                <div className="flex items-center gap-2 shrink-0">
+                  {/* Status badges */}
+                  {(profile.stt_prompt_override_enabled) && (
+                    <span className={`text-[10px] px-1.5 py-0.5 rounded-full border whitespace-nowrap ${
+                      (profile.system_prompt || "").trim()
+                        ? "bg-purple-500/20 text-purple-400 border-purple-500/30"
+                        : "bg-amber-500/15 text-amber-400 border-amber-500/25"
+                    }`}>
+                      {(profile.system_prompt || "").trim()
+                        ? t("settings.transcriptionProfiles.badges.sttPromptOverridden", "System prompt overridden")
+                        : t("settings.transcriptionProfiles.badges.sttPromptEmpty", "System prompt is empty")}
+                    </span>
                   )}
-                  disabled={isUpdating}
-                  rows={3}
-                  className={`w-full px-3 py-2 text-sm bg-[#1e1e1e]/80 border rounded-md resize-none transition-colors ${
-                    isOverLimit
-                      ? "border-red-400 focus:border-red-400"
-                      : "border-[#3c3c3c] focus:border-[#4a4a4a]"
-                  } ${isUpdating ? "opacity-40 cursor-not-allowed" : ""} text-[#e8e8e8] placeholder-[#6b6b6b]`}
-                />
-                <p className="text-xs text-mid-gray">
-                  {t("settings.transcriptionProfiles.systemPromptDescription")}
-                </p>
-                {isOverLimit && (
-                  <p className="text-xs text-red-400">
-                    {t("settings.transcriptionProfiles.systemPromptTooLong", {
-                      limit: promptLimit,
-                    })}
-                  </p>
-                )}
-              </>
-            )}
-          </div>}
-
-          {/* LLM Post-Processing Section */}
-          {llmConfigured && (
-            <div className="space-y-2 pt-3 border-t border-mid-gray/10">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <label className="text-xs font-semibold text-text/70">
-                    {t("settings.transcriptionProfiles.llmPostProcessing.title")}
-                  </label>
-                  <InfoTooltip content={t("settings.transcriptionProfiles.llmPostProcessing.description")} />
-                </div>
-                <ToggleSwitch
-                  checked={profile.llm_post_process_enabled ?? false}
-                  onChange={handleLlmEnabledChange}
-                  disabled={isUpdating}
-                />
-              </div>
-              <p className="text-xs text-mid-gray">
-                {t("settings.transcriptionProfiles.llmPostProcessing.description")}
-              </p>
-
-              {isSonioxProvider && (
-                <div className="p-2 bg-red-500/10 border border-red-500/30 rounded text-xs text-red-400">
-                  {t("settings.transcriptionProfiles.llmPostProcessing.sonioxWarning")}
-                </div>
-              )}
-
-              {profile.llm_post_process_enabled && (
-                <div className="space-y-3 pl-3 border-l-2 border-purple-500/30">
-                  {/* Prompt Override */}
-                  <div className="space-y-1">
-                    <label className="text-xs text-text/60">
-                      {t("settings.transcriptionProfiles.llmPostProcessing.overridePrompt")}
-                    </label>
-                    <p className="text-xs text-mid-gray">
-                      {t("settings.transcriptionProfiles.llmPostProcessing.overridePromptHint")}
-                    </p>
-                    {/* ${output} Variable Documentation */}
-                    <div className="p-2 bg-blue-500/10 border border-blue-500/30 rounded text-xs space-y-1">
-                      <div className="font-semibold text-blue-400">
-                        {t("settings.transcriptionProfiles.llmPostProcessing.outputVariableDoc.title")}
-                      </div>
-                      <p className="text-text/70" dangerouslySetInnerHTML={{ __html: t("settings.transcriptionProfiles.llmPostProcessing.outputVariableDoc.description") }} />
-                      <details className="cursor-pointer">
-                        <summary className="text-blue-400 hover:text-blue-300">
-                          {t("settings.transcriptionProfiles.llmPostProcessing.outputVariableDoc.howItWorks")}
-                        </summary>
-                        <ol className="list-decimal list-inside text-text/60 mt-1 space-y-0.5 pl-2">
-                          <li>{t("settings.transcriptionProfiles.llmPostProcessing.outputVariableDoc.step1")}</li>
-                          <li dangerouslySetInnerHTML={{ __html: t("settings.transcriptionProfiles.llmPostProcessing.outputVariableDoc.step2") }} />
-                          <li>{t("settings.transcriptionProfiles.llmPostProcessing.outputVariableDoc.step3")}</li>
-                          <li>{t("settings.transcriptionProfiles.llmPostProcessing.outputVariableDoc.step4")}</li>
-                        </ol>
-                        <div className="mt-2 space-y-1">
-                          <div className="text-green-400">{t("settings.transcriptionProfiles.llmPostProcessing.outputVariableDoc.validExample")}</div>
-                          <code className="block bg-green-500/10 px-2 py-1 rounded text-green-300 whitespace-pre-wrap">
-                            {t("settings.transcriptionProfiles.llmPostProcessing.outputVariableDoc.validPrompt")}
-                          </code>
-                          <div className="text-red-400 mt-2">{t("settings.transcriptionProfiles.llmPostProcessing.outputVariableDoc.invalidExample")}</div>
-                          <code className="block bg-red-500/10 px-2 py-1 rounded text-red-300">
-                            {t("settings.transcriptionProfiles.llmPostProcessing.outputVariableDoc.invalidPrompt")}
-                          </code>
-                          <p className="text-red-400/80" dangerouslySetInnerHTML={{ __html: t("settings.transcriptionProfiles.llmPostProcessing.outputVariableDoc.invalidWarning") }} />
-                        </div>
-                        <p className="mt-2 text-text/60" dangerouslySetInnerHTML={{ __html: t("settings.transcriptionProfiles.llmPostProcessing.outputVariableDoc.tip") }} />
-                      </details>
-                    </div>
-                    <textarea
-                      value={localLlmPrompt || defaultLlmPrompt}
-                      onChange={(e) => setLocalLlmPrompt(e.target.value)}
-                      onBlur={(e) => handleLlmPromptChange(e.target.value)}
-                      placeholder={t("settings.transcriptionProfiles.llmPostProcessing.promptPlaceholder")}
+                  <div onClick={(e) => e.stopPropagation()}>
+                    <ToggleSwitch
+                      checked={profile.stt_prompt_override_enabled ?? false}
+                      onChange={handleSttPromptOverrideChange}
                       disabled={isUpdating}
-                      rows={6}
-                      className={`w-full px-3 py-2 text-sm bg-[#1e1e1e]/80 border rounded-md resize-none transition-colors border-[#3c3c3c] focus:border-[#4a4a4a] ${isUpdating ? "opacity-40 cursor-not-allowed" : ""} text-[#e8e8e8] placeholder-[#6b6b6b]`}
                     />
                   </div>
-
-                  {/* Model Override */}
-                  <div className="space-y-1">
-                    <label className="text-xs text-text/60">
-                      {t("settings.transcriptionProfiles.llmPostProcessing.overrideModel")}
-                    </label>
-                    <p className="text-xs text-mid-gray">
-                      {t("settings.transcriptionProfiles.llmPostProcessing.overrideModelHint")}
-                    </p>
-                    <div className="flex items-center gap-2">
-                      <ModelSelect
-                        value={profile.llm_model_override || ""}
-                        options={llmModelOptions}
-                        disabled={isUpdating}
-                        placeholder={
-                          globalLlmModel
-                            ? t("settings.transcriptionProfiles.llmPostProcessing.usingGlobalModel", { model: globalLlmModel })
-                            : t("settings.transcriptionProfiles.llmPostProcessing.modelPlaceholder")
-                        }
-                        onSelect={(value) => handleLlmModelChange(value || null)}
-                        onCreate={(value) => handleLlmModelChange(value)}
-                        onBlur={() => {}}
-                        className="flex-1"
-                      />
-                      <ResetButton
-                        onClick={onRefreshModels}
-                        disabled={isFetchingModels || isUpdating}
-                        title="Fetch Models from Server, then you can type part of model name for searching it in drop-down."
+                </div>
+              </summary>
+              <div className="px-3 pb-3 space-y-2 border-t border-mid-gray/10">
+                <p className="text-xs text-mid-gray pt-2">
+                  {profile.stt_prompt_override_enabled
+                    ? t("settings.transcriptionProfiles.overrideSystemPromptOnDescription")
+                    : t("settings.transcriptionProfiles.overrideSystemPromptOffDescription")}
+                </p>
+                {profile.stt_prompt_override_enabled && (
+                  <>
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <label className="text-xs font-semibold text-text/70">
+                          {t("settings.transcriptionProfiles.systemPrompt")}
+                        </label>
+                        <InfoTooltip content={t("settings.transcriptionProfiles.voiceModelPromptTooltip")} />
+                      </div>
+                      <span
+                        className={`text-xs ${isOverLimit ? "text-red-400" : "text-mid-gray"}`}
                       >
-                        <RefreshCcw className={`w-4 h-4 ${isFetchingModels ? "animate-spin" : ""}`} />
-                      </ResetButton>
+                        {promptLength}
+                        {promptLimit > 0 && ` / ${promptLimit}`}
+                      </span>
                     </div>
+                    <textarea
+                      defaultValue={profile.system_prompt || ""}
+                      onBlur={(e) => handleSystemPromptChange(e.target.value)}
+                      placeholder={t(
+                        "settings.transcriptionProfiles.systemPromptPlaceholder",
+                      )}
+                      disabled={isUpdating}
+                      rows={3}
+                      className={`w-full px-3 py-2 text-sm bg-[#1e1e1e]/80 border rounded-md resize-none transition-colors ${
+                        isOverLimit
+                          ? "border-red-400 focus:border-red-400"
+                          : "border-[#3c3c3c] focus:border-[#4a4a4a]"
+                      } ${isUpdating ? "opacity-40 cursor-not-allowed" : ""} text-[#e8e8e8] placeholder-[#6b6b6b]`}
+                    />
+                    <p className="text-xs text-mid-gray">
+                      {t("settings.transcriptionProfiles.systemPromptDescription")}
+                    </p>
+                    {isOverLimit && (
+                      <p className="text-xs text-red-400">
+                        {t("settings.transcriptionProfiles.systemPromptTooLong", {
+                          limit: promptLimit,
+                        })}
+                      </p>
+                    )}
+                  </>
+                )}
+              </div>
+            </details>
+          )}
+
+          {/* LLM Post-Processing Section — collapsible */}
+          {llmConfigured && (
+            <details className="group rounded-lg border border-mid-gray/20 bg-mid-gray/5 overflow-hidden transition-colors open:border-purple-500/30 open:bg-purple-500/5">
+              <summary className="flex items-center justify-between gap-2 px-3 py-2.5 cursor-pointer select-none list-none [&::-webkit-details-marker]:hidden hover:bg-mid-gray/10 transition-colors">
+                <div className="flex items-center gap-2 min-w-0">
+                  <ChevronDown className="w-3.5 h-3.5 text-mid-gray shrink-0 transition-transform group-open:rotate-180" />
+                  <span className="text-xs font-semibold text-text/70">
+                    {t("settings.transcriptionProfiles.llmPostProcessing.title")}
+                  </span>
+                  <InfoTooltip content={t("settings.transcriptionProfiles.llmPostProcessing.description")} />
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  {/* Status badges */}
+                  {(profile.llm_post_process_enabled) && (
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-purple-500/20 text-purple-400 border border-purple-500/30 whitespace-nowrap">
+                        {t("settings.transcriptionProfiles.badges.llmActive", "LLM active")}
+                      </span>
+                      {profile.llm_prompt_override && profile.llm_prompt_override !== defaultLlmPrompt && (
+                        <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-amber-500/15 text-amber-400 border border-amber-500/25 whitespace-nowrap">
+                          {t("settings.transcriptionProfiles.badges.promptOverridden", "Prompt overridden")}
+                        </span>
+                      )}
+                      {profile.llm_model_override && (
+                        <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-blue-500/15 text-blue-400 border border-blue-500/25 whitespace-nowrap">
+                          {t("settings.transcriptionProfiles.badges.modelOverride", "Model: {{model}}", { model: profile.llm_model_override })}
+                        </span>
+                      )}
+                    </div>
+                  )}
+                  <div onClick={(e) => e.stopPropagation()}>
+                    <ToggleSwitch
+                      checked={profile.llm_post_process_enabled ?? false}
+                      onChange={handleLlmEnabledChange}
+                      disabled={isUpdating}
+                    />
                   </div>
                 </div>
-              )}
-            </div>
+              </summary>
+              <div className="px-3 pb-3 space-y-2 border-t border-mid-gray/10">
+                <p className="text-xs text-mid-gray pt-2">
+                  {t("settings.transcriptionProfiles.llmPostProcessing.description")}
+                </p>
+
+                {isSonioxProvider && (
+                  <div className="p-2 bg-red-500/10 border border-red-500/30 rounded text-xs text-red-400">
+                    {t("settings.transcriptionProfiles.llmPostProcessing.sonioxWarning")}
+                  </div>
+                )}
+
+                {profile.llm_post_process_enabled && (
+                  <div className="space-y-3">
+                    {/* Prompt Override */}
+                    <div className="space-y-1">
+                      {/* ${output} Variable Documentation */}
+                      <div className="p-2 bg-blue-500/10 border border-blue-500/30 rounded text-xs space-y-1">
+                        <div className="font-semibold text-blue-400">
+                          {t("settings.transcriptionProfiles.llmPostProcessing.outputVariableDoc.title")}
+                        </div>
+                        <p className="text-text/70" dangerouslySetInnerHTML={{ __html: t("settings.transcriptionProfiles.llmPostProcessing.outputVariableDoc.description") }} />
+                        <details className="cursor-pointer">
+                          <summary className="text-blue-400 hover:text-blue-300">
+                            {t("settings.transcriptionProfiles.llmPostProcessing.outputVariableDoc.howItWorks")}
+                          </summary>
+                          <ol className="list-decimal list-inside text-text/60 mt-1 space-y-0.5 pl-2">
+                            <li>{t("settings.transcriptionProfiles.llmPostProcessing.outputVariableDoc.step1")}</li>
+                            <li dangerouslySetInnerHTML={{ __html: t("settings.transcriptionProfiles.llmPostProcessing.outputVariableDoc.step2") }} />
+                            <li>{t("settings.transcriptionProfiles.llmPostProcessing.outputVariableDoc.step3")}</li>
+                            <li>{t("settings.transcriptionProfiles.llmPostProcessing.outputVariableDoc.step4")}</li>
+                          </ol>
+                          <div className="mt-2 space-y-1">
+                            <div className="text-green-400">{t("settings.transcriptionProfiles.llmPostProcessing.outputVariableDoc.validExample")}</div>
+                            <code className="block bg-green-500/10 px-2 py-1 rounded text-green-300 whitespace-pre-wrap">
+                              {t("settings.transcriptionProfiles.llmPostProcessing.outputVariableDoc.validPrompt")}
+                            </code>
+                            <div className="text-red-400 mt-2">{t("settings.transcriptionProfiles.llmPostProcessing.outputVariableDoc.invalidExample")}</div>
+                            <code className="block bg-red-500/10 px-2 py-1 rounded text-red-300">
+                              {t("settings.transcriptionProfiles.llmPostProcessing.outputVariableDoc.invalidPrompt")}
+                            </code>
+                            <p className="text-red-400/80" dangerouslySetInnerHTML={{ __html: t("settings.transcriptionProfiles.llmPostProcessing.outputVariableDoc.invalidWarning") }} />
+                          </div>
+                          <p className="mt-2 text-text/60" dangerouslySetInnerHTML={{ __html: t("settings.transcriptionProfiles.llmPostProcessing.outputVariableDoc.tip") }} />
+                        </details>
+                      </div>
+
+                      <div className="flex items-center justify-between mt-2">
+                        <div className="flex flex-col">
+                          {!isCustomOverride ? (
+                            <span className="text-[10px] text-purple-400/70 font-medium">
+                              {t("settings.transcriptionProfiles.llmPostProcessing.usingGlobalPrompt")}
+                            </span>
+                          ) : (
+                            <span className="text-[10px] text-orange-400 font-medium">
+                              {t("settings.transcriptionProfiles.llmPostProcessing.customPromptActive", "Custom prompt active")}
+                            </span>
+                          )}
+                        </div>
+                        {isCustomOverride && (
+                          <button
+                            type="button"
+                            onClick={handleResetToGlobal}
+                            disabled={isUpdating}
+                            className="flex items-center gap-1.5 px-2 py-1 text-xs bg-purple-500/10 hover:bg-purple-500/20 border border-purple-500/30 rounded-md text-purple-300 transition-colors disabled:opacity-50"
+                          >
+                            <RotateCcw className="w-3.5 h-3.5" />
+                            {t("settings.transcriptionProfiles.llmPostProcessing.resetToGlobal")}
+                          </button>
+                        )}
+                      </div>
+                      <textarea
+                        value={localLlmPrompt}
+                        onChange={(e) => {
+                          setLocalLlmPrompt(e.target.value);
+                          setIsCustomOverride(true);
+                          isEditingRef.current = true;
+                        }}
+                        onBlur={(e) => {
+                          isEditingRef.current = false;
+                          if (isCustomOverride) {
+                            handleLlmPromptChange(e.target.value);
+                          }
+                        }}
+                        placeholder={t("settings.transcriptionProfiles.llmPostProcessing.promptPlaceholder")}
+                        disabled={isUpdating}
+                        rows={6}
+                        className={`w-full px-3 py-2 text-sm bg-[#1e1e1e]/80 border rounded-md resize-none transition-colors border-[#3c3c3c] focus:border-[#4a4a4a] ${isUpdating ? "opacity-40 cursor-not-allowed" : ""} text-[#e8e8e8] placeholder-[#6b6b6b]`}
+                      />
+                    </div>
+
+                    {/* Model Override */}
+                    <div className="space-y-1">
+                      <label className="text-xs text-text/60">
+                        {t("settings.transcriptionProfiles.llmPostProcessing.overrideModel")}
+                      </label>
+                      <p className="text-xs text-mid-gray">
+                        {t("settings.transcriptionProfiles.llmPostProcessing.overrideModelHint")}
+                      </p>
+                      <div className="flex items-center gap-2">
+                        <ModelSelect
+                          value={profile.llm_model_override || ""}
+                          options={llmModelOptions}
+                          disabled={isUpdating}
+                          placeholder={
+                            globalLlmModel
+                              ? t("settings.transcriptionProfiles.llmPostProcessing.usingGlobalModel", { model: globalLlmModel })
+                              : t("settings.transcriptionProfiles.llmPostProcessing.modelPlaceholder")
+                          }
+                          onSelect={(value) => handleLlmModelChange(value || null)}
+                          onCreate={(value) => handleLlmModelChange(value)}
+                          onBlur={() => {}}
+                          className="flex-1"
+                        />
+                        <ResetButton
+                          onClick={onRefreshModels}
+                          disabled={isFetchingModels || isUpdating}
+                          title="Fetch Models from Server, then you can type part of model name for searching it in drop-down."
+                        >
+                          <RefreshCcw className={`w-4 h-4 ${isFetchingModels ? "animate-spin" : ""}`} />
+                        </ResetButton>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </details>
           )}
 
         </div>
@@ -977,7 +1119,7 @@ export const TranscriptionProfiles: React.FC = () => {
           includeInCycle: newIncludeInCycle,
           llmSettings: {
             enabled: newLlmEnabled,
-            promptOverride: newLlmPromptOverride.trim() || null,
+            promptOverride: newLlmPromptOverride === "" ? null : newLlmPromptOverride,
             modelOverride: newLlmModelOverride,
           },
           sonioxContextGeneralJson: newSonioxContextGeneralJson,
@@ -1271,7 +1413,54 @@ export const TranscriptionProfiles: React.FC = () => {
             {/* Expanded content - Global settings */}
             {isExpanded("default") && (
               <div className="px-4 pb-4 pt-3 border-t border-mid-gray/20 space-y-3">
-                {/* Optional Shortcut for Default profile */}
+                {/* Push-to-Talk + Output to Preview — matches ProfileCard box style */}
+                <div className="grid gap-3 lg:grid-cols-2 bg-mid-gray/5 p-3 rounded-lg border border-mid-gray/10">
+                  <div className="min-w-0">
+                    <label className="text-xs font-semibold text-text/70 block mb-2">
+                      {t("settings.general.pushToTalk.label")}
+                    </label>
+                    <div className="flex items-center gap-2">
+                      <ToggleSwitch
+                        checked={settings?.push_to_talk ?? true}
+                        onChange={(checked) =>
+                          updateSetting &&
+                          updateSetting("push_to_talk" as any, checked)
+                        }
+                      />
+                      <span className="text-xs text-mid-gray leading-snug">
+                        {t("settings.general.pushToTalk.description")}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="min-w-0">
+                    <label className="text-xs font-semibold text-text/70 block mb-2">
+                      {t(
+                        "settings.transcriptionProfiles.previewOutputOnly.title",
+                        "Output to Preview",
+                      )}
+                    </label>
+                    <div className="flex items-center gap-2">
+                      <ToggleSwitch
+                        checked={
+                          ((settings as any)?.preview_output_only_enabled as boolean) ?? false
+                        }
+                        onChange={(checked) =>
+                          updateSetting &&
+                          updateSetting("preview_output_only_enabled" as any, checked as any)
+                        }
+                      />
+                      <span className="text-xs text-mid-gray leading-snug">
+                        {t(
+                          "settings.transcriptionProfiles.previewOutputOnly.description",
+                          "Do not auto-insert text. Keep output in Preview until you insert it manually.",
+                        )}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Shortcut */}
                 <div className="space-y-2">
                   <label className="text-xs font-semibold text-text/70">
                     {t("settings.transcriptionProfiles.shortcut")}
@@ -1279,8 +1468,8 @@ export const TranscriptionProfiles: React.FC = () => {
                   <HandyShortcut shortcutId="transcribe_default" grouped={true} />
                 </div>
 
-                {/* Language, Push-to-Talk, and Output to Preview */}
-                <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+                {/* Language + Translate to English — same row */}
+                <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
                   <div className="space-y-2 min-w-0">
                     <label className="text-xs font-semibold text-text/70">
                       {t("settings.general.language.title")}
@@ -1311,53 +1500,41 @@ export const TranscriptionProfiles: React.FC = () => {
                       </p>
                     )}
                   </div>
-                  <div className="space-y-2 min-w-0">
-                    <label className="text-xs font-semibold text-text/70">
-                      {t("settings.general.pushToTalk.label")}
-                    </label>
-                    <div className="flex items-start gap-2">
-                      <ToggleSwitch
-                        checked={settings?.push_to_talk ?? true}
-                        onChange={(checked) =>
-                          updateSetting &&
-                          updateSetting("push_to_talk" as any, checked)
-                        }
-                      />
-                      <span className="text-xs text-mid-gray leading-snug">
-                        {t("settings.general.pushToTalk.description")}
-                      </span>
-                    </div>
-                  </div>
 
                   <div className="space-y-2 min-w-0">
                     <label className="text-xs font-semibold text-text/70">
-                      {t(
-                        "settings.transcriptionProfiles.previewOutputOnly.title",
-                        "Output to Preview",
-                      )}
+                      {t("settings.transcriptionProfiles.translateToEnglish")}
                     </label>
-                    <div className="flex items-start gap-2">
-                      <ToggleSwitch
-                        checked={
-                          ((settings as any)?.preview_output_only_enabled as boolean) ?? false
-                        }
-                        onChange={(checked) =>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() =>
                           updateSetting &&
-                          updateSetting("preview_output_only_enabled" as any, checked as any)
+                          updateSetting("translate_to_english" as any, !(settings?.translate_to_english ?? false))
                         }
-                      />
+                        disabled={!supportsTranslation}
+                        className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors shrink-0 ${
+                          settings?.translate_to_english
+                            ? "bg-purple-500"
+                            : "bg-mid-gray/30"
+                        } ${!supportsTranslation ? "opacity-50 cursor-not-allowed" : "cursor-pointer"}`}
+                      >
+                        <span
+                          className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                            settings?.translate_to_english
+                              ? "translate-x-6"
+                              : "translate-x-1"
+                          }`}
+                        />
+                      </button>
                       <span className="text-xs text-mid-gray leading-snug">
-                        {t(
-                          "settings.transcriptionProfiles.previewOutputOnly.description",
-                          "Do not auto-insert text. Keep output in Preview until you insert it manually.",
-                        )}
+                        {!supportsTranslation
+                          ? t("settings.advanced.translateToEnglish.descriptionRemoteUnsupported")
+                          : t("settings.transcriptionProfiles.translateToEnglishDescription")}
                       </span>
                     </div>
                   </div>
                 </div>
-
-                {/* Translate to English */}
-                <TranslateToEnglish grouped={true} descriptionMode="inline" />
 
                 {isSonioxProvider && (
                   <SonioxContextEditor
@@ -1388,50 +1565,53 @@ export const TranscriptionProfiles: React.FC = () => {
                   />
                 )}
 
-                {/* Voice Model Prompt - only show if model supports prompts */}
+                {/* Voice Model Prompt — collapsible, matches ProfileCard details style */}
                 {!isSonioxProvider && modelInfo.supportsPrompt && (
-                  <div className="space-y-2">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        <label className="text-xs font-semibold text-text/70">
+                  <details className="group rounded-lg border border-mid-gray/20 bg-mid-gray/5 overflow-hidden transition-colors open:border-purple-500/30 open:bg-purple-500/5">
+                    <summary className="flex items-center justify-between gap-2 px-3 py-2.5 cursor-pointer select-none list-none [&::-webkit-details-marker]:hidden hover:bg-mid-gray/10 transition-colors">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <ChevronDown className="w-3.5 h-3.5 text-mid-gray shrink-0 transition-transform group-open:rotate-180" />
+                        <span className="text-xs font-semibold text-text/70">
                           {t("settings.transcriptionProfiles.systemPromptGlobal")}
-                        </label>
+                        </span>
                         <InfoTooltip content={t("settings.transcriptionProfiles.voiceModelPromptGlobalTooltip")} />
                       </div>
                       {promptLimit > 0 && (
                         <span
                           className={`text-xs ${activePromptValue.length > promptLimit ? "text-red-400" : "text-mid-gray"}`}
                         >
-                          {activePromptValue.length}
-                          /{promptLimit}
+                          {activePromptValue.length}/{promptLimit}
                         </span>
                       )}
-                    </div>
-                    <textarea
-                      value={activePromptValue}
-                      onChange={async (e) => {
-                        if (!hasActivePromptModel) return;
-                        await commands.changeTranscriptionPromptSetting(
-                          activeModelId,
-                          e.target.value,
-                        );
-                        refreshSettings();
-                      }}
-                      disabled={!hasActivePromptModel}
-                      placeholder={t(
-                        "settings.general.transcriptionSystemPrompt.placeholder",
-                      )}
-                      className="w-full h-20 px-3 py-2 bg-background border border-mid-gray/30 rounded-lg text-sm text-text placeholder-mid-gray/50 resize-none focus:outline-none focus:border-purple-500/50 disabled:opacity-50 disabled:cursor-not-allowed"
-                    />
-                    {!hasActivePromptModel && (
-                      <p className="text-xs text-amber-400/90">
-                        {t(
-                          "settings.transcriptionProfiles.selectModelToEditGlobalPrompt",
-                          "Select an active transcription model to edit this prompt.",
+                    </summary>
+                    <div className="px-3 pb-3 space-y-2 border-t border-mid-gray/10">
+                      <textarea
+                        defaultValue={activePromptValue}
+                        onBlur={async (e) => {
+                          if (!hasActivePromptModel) return;
+                          await commands.changeTranscriptionPromptSetting(
+                            activeModelId,
+                            e.target.value,
+                          );
+                          refreshSettings();
+                        }}
+                        disabled={!hasActivePromptModel}
+                        placeholder={t(
+                          "settings.general.transcriptionSystemPrompt.placeholder",
                         )}
-                      </p>
-                    )}
-                  </div>
+                        rows={3}
+                        className={`w-full px-3 py-2 text-sm bg-[#1e1e1e]/80 border rounded-md resize-none transition-colors border-[#3c3c3c] focus:border-[#4a4a4a] text-[#e8e8e8] placeholder-[#6b6b6b] ${!hasActivePromptModel ? "opacity-50 cursor-not-allowed" : ""}`}
+                      />
+                      {!hasActivePromptModel && (
+                        <p className="text-xs text-amber-400/90">
+                          {t(
+                            "settings.transcriptionProfiles.selectModelToEditGlobalPrompt",
+                            "Select an active transcription model to edit this prompt.",
+                          )}
+                        </p>
+                      )}
+                    </div>
+                  </details>
                 )}
               </div>
             )}
@@ -1479,67 +1659,28 @@ export const TranscriptionProfiles: React.FC = () => {
         grouped={true}
       >
         <div className="space-y-3 p-3 border border-dashed border-mid-gray/30 rounded-lg overflow-visible">
-          {/* Profile Name & Language */}
-          <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-            <div className="space-y-1 min-w-0">
-              <label className="text-xs font-semibold text-text/70">
-                {t("settings.transcriptionProfiles.profileName")}
-              </label>
-              <Input
-                type="text"
-                value={newName}
-                onChange={(e) => setNewName(e.target.value)}
-                placeholder={t(
-                  "settings.transcriptionProfiles.profileNamePlaceholder",
-                )}
-                variant="compact"
-                disabled={isCreating}
-              />
-            </div>
-            <div className="space-y-1 relative z-10 min-w-0">
-              <label className="text-xs font-semibold text-text/70">
-                {t("settings.transcriptionProfiles.language")}
-              </label>
-              <Dropdown
-                selectedValue={newLanguage}
-                options={filteredLanguages.map((l) => ({
-                  value: l.value,
-                  label: l.label,
-                  className: l.className,
-                }))}
-                onSelect={(value) => value && setNewLanguage(value)}
-                placeholder={t("settings.general.language.auto")}
-                disabled={isCreating}
-              />
-            </div>
-          </div>
-
-          {/* Translate to English & Push to Talk */}
-          <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
-            <div className="space-y-2 min-w-0">
-              <label className="text-xs font-semibold text-text/70">
-                {t("settings.transcriptionProfiles.translateToEnglish")}
+          {/* Cycle & Push-to-Talk & Preview Controls — matches ProfileCard layout */}
+          <div className="grid gap-3 lg:grid-cols-3 bg-mid-gray/5 p-3 rounded-lg border border-mid-gray/10">
+            <div className="min-w-0">
+              <label className="text-xs font-semibold text-text/70 block mb-2">
+                {t("settings.transcriptionProfiles.includeInCycle")}
               </label>
               <div className="flex items-center gap-2">
-                <ToggleSwitch
-                  checked={newTranslate}
-                  onChange={setNewTranslate}
-                  disabled={isCreating || !supportsTranslation}
+                <input
+                  type="checkbox"
+                  checked={newIncludeInCycle}
+                  onChange={(e) => setNewIncludeInCycle(e.target.checked)}
+                  disabled={isCreating}
+                  className="w-4 h-4 rounded border-mid-gray bg-background text-purple-500 focus:ring-purple-500/50"
                 />
                 <span className="text-xs text-mid-gray leading-snug">
-                  {t("settings.transcriptionProfiles.translateToEnglishTooltip")}
+                  {t("settings.transcriptionProfiles.includeInCycleDescription")}
                 </span>
               </div>
-              {!supportsTranslation && (
-                <p className="text-xs text-mid-gray">
-                  {t(
-                    "settings.advanced.translateToEnglish.descriptionRemoteUnsupported",
-                  )}
-                </p>
-              )}
             </div>
-            <div className="space-y-2 min-w-0">
-              <label className="text-xs font-semibold text-text/70">
+
+            <div className="min-w-0">
+              <label className="text-xs font-semibold text-text/70 block mb-2">
                 {t("settings.general.pushToTalk.label")}
               </label>
               <div className="flex items-center gap-2">
@@ -1554,8 +1695,8 @@ export const TranscriptionProfiles: React.FC = () => {
               </div>
             </div>
 
-            <div className="space-y-2 min-w-0">
-              <label className="text-xs font-semibold text-text/70">
+            <div className="min-w-0">
+              <label className="text-xs font-semibold text-text/70 block mb-2">
                 {t(
                   "settings.transcriptionProfiles.previewOutputOnly.title",
                   "Output to Preview",
@@ -1577,21 +1718,80 @@ export const TranscriptionProfiles: React.FC = () => {
             </div>
           </div>
 
-          {/* Include in Cycle */}
-          <div className="flex items-center gap-2">
-            <input
-              type="checkbox"
-              checked={newIncludeInCycle}
-              onChange={(e) => setNewIncludeInCycle(e.target.checked)}
-              disabled={isCreating}
-              className="w-4 h-4 rounded border-mid-gray bg-background text-purple-500 focus:ring-purple-500/50"
-            />
+          {/* Profile Name */}
+          <div className="space-y-2 min-w-0">
             <label className="text-xs font-semibold text-text/70">
-              {t("settings.transcriptionProfiles.includeInCycle")}
+              {t("settings.transcriptionProfiles.profileName")}
             </label>
-            <span className="text-xs text-mid-gray">
-              {t("settings.transcriptionProfiles.includeInCycleDescription")}
-            </span>
+            <Input
+              type="text"
+              value={newName}
+              onChange={(e) => setNewName(e.target.value)}
+              placeholder={t(
+                "settings.transcriptionProfiles.profileNamePlaceholder",
+              )}
+              variant="compact"
+              disabled={isCreating}
+            />
+          </div>
+
+          <div className="grid gap-3 lg:grid-cols-2">
+            {/* Language Selection */}
+            <div className="space-y-2 relative z-10 min-w-0">
+              <label className="text-xs font-semibold text-text/70">
+                {t("settings.transcriptionProfiles.language")}
+              </label>
+              <Dropdown
+                selectedValue={newLanguage}
+                options={filteredLanguages.map((l) => ({
+                  value: l.value,
+                  label: l.label,
+                  className: l.className,
+                }))}
+                onSelect={(value) => value && setNewLanguage(value)}
+                placeholder={t("settings.general.language.auto")}
+                disabled={isCreating}
+              />
+            </div>
+
+            {/* Translate to English Toggle — matches ProfileCard layout */}
+            <div className="space-y-2 min-w-0">
+              <label className="text-xs font-semibold text-text/70">
+                {t("settings.transcriptionProfiles.translateToEnglish")}
+              </label>
+              <div className="flex flex-col gap-2 rounded-md border border-mid-gray/10 bg-mid-gray/5 px-3 py-2 sm:flex-row sm:items-center sm:justify-between">
+                <p className="text-xs text-mid-gray leading-snug">
+                  {t(
+                    "settings.transcriptionProfiles.translateToEnglishDescription",
+                  )}
+                </p>
+                <button
+                  type="button"
+                  onClick={() => setNewTranslate(!newTranslate)}
+                  disabled={isCreating || !supportsTranslation}
+                  className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors shrink-0 ${
+                    newTranslate
+                      ? "bg-purple-500"
+                      : "bg-mid-gray/30"
+                  } ${isCreating ? "opacity-50 cursor-not-allowed" : "cursor-pointer"}`}
+                >
+                  <span
+                    className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                      newTranslate
+                        ? "translate-x-6"
+                        : "translate-x-1"
+                    }`}
+                  />
+                </button>
+              </div>
+              {!supportsTranslation && (
+                <p className="text-xs text-mid-gray">
+                  {t(
+                    "settings.advanced.translateToEnglish.descriptionRemoteUnsupported",
+                  )}
+                </p>
+              )}
+            </div>
           </div>
 
           {isSonioxProvider && (
@@ -1615,181 +1815,251 @@ export const TranscriptionProfiles: React.FC = () => {
             />
           )}
 
-          {/* Voice Model Prompt Override */}
-          {!isSonioxProvider && modelInfo.supportsPrompt && <div className="space-y-2">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <label className="text-xs font-semibold text-text/70">
-                  {t("settings.transcriptionProfiles.overrideSystemPrompt")}
-                </label>
-                <InfoTooltip content={t("settings.transcriptionProfiles.voiceModelPromptTooltip")} />
-              </div>
-              <ToggleSwitch
-                checked={newSttPromptOverrideEnabled}
-                onChange={setNewSttPromptOverrideEnabled}
-                disabled={isCreating}
-              />
-            </div>
-            <p className="text-xs text-mid-gray">
-              {newSttPromptOverrideEnabled
-                ? t("settings.transcriptionProfiles.overrideSystemPromptOnDescription")
-                : t("settings.transcriptionProfiles.overrideSystemPromptOffDescription")}
-            </p>
-            {newSttPromptOverrideEnabled && (
-              <>
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <label className="text-xs font-semibold text-text/70">
-                      {t("settings.transcriptionProfiles.systemPrompt")}
-                    </label>
-                    <InfoTooltip content={t("settings.transcriptionProfiles.voiceModelPromptTooltip")} />
-                  </div>
-                  <span
-                    className={`text-xs ${isNewPromptOverLimit ? "text-red-400" : "text-mid-gray"}`}
-                  >
-                    {newPromptLength}
-                    {promptLimit > 0 && ` / ${promptLimit}`}
+          {/* Voice Model Prompt Override — collapsible */}
+          {!isSonioxProvider && modelInfo.supportsPrompt && (
+            <details className="group rounded-lg border border-mid-gray/20 bg-mid-gray/5 overflow-hidden transition-colors open:border-purple-500/30 open:bg-purple-500/5">
+              <summary className="flex items-center justify-between gap-2 px-3 py-2.5 cursor-pointer select-none list-none [&::-webkit-details-marker]:hidden hover:bg-mid-gray/10 transition-colors">
+                <div className="flex items-center gap-2 min-w-0">
+                  <ChevronDown className="w-3.5 h-3.5 text-mid-gray shrink-0 transition-transform group-open:rotate-180" />
+                  <span className="text-xs font-semibold text-text/70">
+                    {t("settings.transcriptionProfiles.overrideSystemPrompt")}
                   </span>
+                  <InfoTooltip content={t("settings.transcriptionProfiles.voiceModelPromptTooltip")} />
                 </div>
-                <textarea
-                  value={newSystemPrompt}
-                  onChange={(e) => setNewSystemPrompt(e.target.value)}
-                  placeholder={t(
-                    "settings.transcriptionProfiles.systemPromptPlaceholder",
+                <div className="flex items-center gap-2 shrink-0">
+                  {newSttPromptOverrideEnabled && (
+                    <span className={`text-[10px] px-1.5 py-0.5 rounded-full border whitespace-nowrap ${
+                      newSystemPrompt.trim()
+                        ? "bg-purple-500/20 text-purple-400 border-purple-500/30"
+                        : "bg-amber-500/15 text-amber-400 border-amber-500/25"
+                    }`}>
+                      {newSystemPrompt.trim()
+                        ? t("settings.transcriptionProfiles.badges.sttPromptOverridden", "System prompt overridden")
+                        : t("settings.transcriptionProfiles.badges.sttPromptEmpty", "System prompt is empty")}
+                    </span>
                   )}
-                  disabled={isCreating}
-                  rows={2}
-                  className={`w-full px-3 py-2 text-sm bg-[#1e1e1e]/80 border rounded-md resize-none transition-colors ${
-                    isNewPromptOverLimit
-                      ? "border-red-400 focus:border-red-400"
-                      : "border-[#3c3c3c] focus:border-[#4a4a4a]"
-                  } ${isCreating ? "opacity-40 cursor-not-allowed" : ""} text-[#e8e8e8] placeholder-[#6b6b6b]`}
-                />
-                <p className="text-xs text-mid-gray">
-                  {t("settings.transcriptionProfiles.systemPromptDescription")}
-                </p>
-                {isNewPromptOverLimit && (
-                  <p className="text-xs text-red-400">
-                    {t("settings.transcriptionProfiles.systemPromptTooLong", {
-                      limit: promptLimit,
-                    })}
-                  </p>
-                )}
-              </>
-            )}
-          </div>}
-
-          {/* LLM Post-Processing Section */}
-          {isLlmConfigured && (
-            <div className="space-y-2 pt-3 border-t border-mid-gray/10">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <label className="text-xs font-semibold text-text/70">
-                    {t("settings.transcriptionProfiles.llmPostProcessing.title")}
-                  </label>
-                  <InfoTooltip content={t("settings.transcriptionProfiles.llmPostProcessing.description")} />
-                </div>
-                <ToggleSwitch
-                  checked={newLlmEnabled}
-                  onChange={setNewLlmEnabled}
-                  disabled={isCreating}
-                />
-              </div>
-              <p className="text-xs text-mid-gray">
-                {t("settings.transcriptionProfiles.llmPostProcessing.description")}
-              </p>
-
-              {isSonioxProvider && (
-                <div className="p-2 bg-red-500/10 border border-red-500/30 rounded text-xs text-red-400">
-                  {t("settings.transcriptionProfiles.llmPostProcessing.sonioxWarning")}
-                </div>
-              )}
-
-              {newLlmEnabled && (
-                <div className="space-y-3 pl-3 border-l-2 border-purple-500/30">
-                  {/* Prompt Override */}
-                  <div className="space-y-1">
-                    <label className="text-xs text-text/60">
-                      {t("settings.transcriptionProfiles.llmPostProcessing.overridePrompt")}
-                    </label>
-                    <p className="text-xs text-mid-gray">
-                      {t("settings.transcriptionProfiles.llmPostProcessing.overridePromptHint")}
-                    </p>
-                    {/* ${output} Variable Documentation */}
-                    <div className="p-2 bg-blue-500/10 border border-blue-500/30 rounded text-xs space-y-1">
-                      <div className="font-semibold text-blue-400">
-                        {t("settings.transcriptionProfiles.llmPostProcessing.outputVariableDoc.title")}
-                      </div>
-                      <p className="text-text/70" dangerouslySetInnerHTML={{ __html: t("settings.transcriptionProfiles.llmPostProcessing.outputVariableDoc.description") }} />
-                      <details className="cursor-pointer">
-                        <summary className="text-blue-400 hover:text-blue-300">
-                          {t("settings.transcriptionProfiles.llmPostProcessing.outputVariableDoc.howItWorks")}
-                        </summary>
-                        <ol className="list-decimal list-inside text-text/60 mt-1 space-y-0.5 pl-2">
-                          <li>{t("settings.transcriptionProfiles.llmPostProcessing.outputVariableDoc.step1")}</li>
-                          <li dangerouslySetInnerHTML={{ __html: t("settings.transcriptionProfiles.llmPostProcessing.outputVariableDoc.step2") }} />
-                          <li>{t("settings.transcriptionProfiles.llmPostProcessing.outputVariableDoc.step3")}</li>
-                          <li>{t("settings.transcriptionProfiles.llmPostProcessing.outputVariableDoc.step4")}</li>
-                        </ol>
-                        <div className="mt-2 space-y-1">
-                          <div className="text-green-400">{t("settings.transcriptionProfiles.llmPostProcessing.outputVariableDoc.validExample")}</div>
-                          <code className="block bg-green-500/10 px-2 py-1 rounded text-green-300 whitespace-pre-wrap">
-                            {t("settings.transcriptionProfiles.llmPostProcessing.outputVariableDoc.validPrompt")}
-                          </code>
-                          <div className="text-red-400 mt-2">{t("settings.transcriptionProfiles.llmPostProcessing.outputVariableDoc.invalidExample")}</div>
-                          <code className="block bg-red-500/10 px-2 py-1 rounded text-red-300">
-                            {t("settings.transcriptionProfiles.llmPostProcessing.outputVariableDoc.invalidPrompt")}
-                          </code>
-                          <p className="text-red-400/80" dangerouslySetInnerHTML={{ __html: t("settings.transcriptionProfiles.llmPostProcessing.outputVariableDoc.invalidWarning") }} />
-                        </div>
-                        <p className="mt-2 text-text/60" dangerouslySetInnerHTML={{ __html: t("settings.transcriptionProfiles.llmPostProcessing.outputVariableDoc.tip") }} />
-                      </details>
-                    </div>
-                    <textarea
-                      value={newLlmPromptOverride || globalPromptText}
-                      onChange={(e) => setNewLlmPromptOverride(e.target.value)}
-                      placeholder={t("settings.transcriptionProfiles.llmPostProcessing.promptPlaceholder")}
+                  {/* stopPropagation prevents details toggle when clicking the switch */}
+                  <div onClick={(e) => e.stopPropagation()}>
+                    <ToggleSwitch
+                      checked={newSttPromptOverrideEnabled}
+                      onChange={setNewSttPromptOverrideEnabled}
                       disabled={isCreating}
-                      rows={6}
-                      className={`w-full px-3 py-2 text-sm bg-[#1e1e1e]/80 border rounded-md resize-none transition-colors border-[#3c3c3c] focus:border-[#4a4a4a] ${isCreating ? "opacity-40 cursor-not-allowed" : ""} text-[#e8e8e8] placeholder-[#6b6b6b]`}
                     />
                   </div>
-
-                  {/* Model Override */}
-                  <div className="space-y-1">
-                    <label className="text-xs text-text/60">
-                      {t("settings.transcriptionProfiles.llmPostProcessing.overrideModel")}
-                    </label>
-                    <p className="text-xs text-mid-gray">
-                      {t("settings.transcriptionProfiles.llmPostProcessing.overrideModelHint")}
-                    </p>
-                    <div className="flex items-center gap-2">
-                      <ModelSelect
-                        value={newLlmModelOverride || ""}
-                        options={llmModelOptions}
-                        disabled={isCreating}
-                        placeholder={
-                          globalLlmModel
-                            ? t("settings.transcriptionProfiles.llmPostProcessing.usingGlobalModel", { model: globalLlmModel })
-                            : t("settings.transcriptionProfiles.llmPostProcessing.modelPlaceholder")
-                        }
-                        onSelect={(value) => setNewLlmModelOverride(value || null)}
-                        onCreate={(value) => setNewLlmModelOverride(value)}
-                        onBlur={() => {}}
-                        className="flex-1"
-                      />
-                      <ResetButton
-                        onClick={handleRefreshModels}
-                        disabled={isFetchingModels || isCreating}
-                        title="Fetch Models from Server, then you can type part of model name for searching it in drop-down."
+                </div>
+              </summary>
+              <div className="px-3 pb-3 space-y-2 border-t border-mid-gray/10">
+                <p className="text-xs text-mid-gray pt-2">
+                  {newSttPromptOverrideEnabled
+                    ? t("settings.transcriptionProfiles.overrideSystemPromptOnDescription")
+                    : t("settings.transcriptionProfiles.overrideSystemPromptOffDescription")}
+                </p>
+                {newSttPromptOverrideEnabled && (
+                  <>
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <label className="text-xs font-semibold text-text/70">
+                          {t("settings.transcriptionProfiles.systemPrompt")}
+                        </label>
+                        <InfoTooltip content={t("settings.transcriptionProfiles.voiceModelPromptTooltip")} />
+                      </div>
+                      <span
+                        className={`text-xs ${isNewPromptOverLimit ? "text-red-400" : "text-mid-gray"}`}
                       >
-                        <RefreshCcw className={`w-4 h-4 ${isFetchingModels ? "animate-spin" : ""}`} />
-                      </ResetButton>
+                        {newPromptLength}
+                        {promptLimit > 0 && ` / ${promptLimit}`}
+                      </span>
                     </div>
+                    <textarea
+                      value={newSystemPrompt}
+                      onChange={(e) => setNewSystemPrompt(e.target.value)}
+                      placeholder={t(
+                        "settings.transcriptionProfiles.systemPromptPlaceholder",
+                      )}
+                      disabled={isCreating}
+                      rows={2}
+                      className={`w-full px-3 py-2 text-sm bg-[#1e1e1e]/80 border rounded-md resize-none transition-colors ${
+                        isNewPromptOverLimit
+                          ? "border-red-400 focus:border-red-400"
+                          : "border-[#3c3c3c] focus:border-[#4a4a4a]"
+                      } ${isCreating ? "opacity-40 cursor-not-allowed" : ""} text-[#e8e8e8] placeholder-[#6b6b6b]`}
+                    />
+                    <p className="text-xs text-mid-gray">
+                      {t("settings.transcriptionProfiles.systemPromptDescription")}
+                    </p>
+                    {isNewPromptOverLimit && (
+                      <p className="text-xs text-red-400">
+                        {t("settings.transcriptionProfiles.systemPromptTooLong", {
+                          limit: promptLimit,
+                        })}
+                      </p>
+                    )}
+                  </>
+                )}
+              </div>
+            </details>
+          )}
+
+          {/* LLM Post-Processing Section — collapsible */}
+          {isLlmConfigured && (
+            <details className="group rounded-lg border border-mid-gray/20 bg-mid-gray/5 overflow-hidden transition-colors open:border-purple-500/30 open:bg-purple-500/5">
+              <summary className="flex items-center justify-between gap-2 px-3 py-2.5 cursor-pointer select-none list-none [&::-webkit-details-marker]:hidden hover:bg-mid-gray/10 transition-colors">
+                <div className="flex items-center gap-2 min-w-0">
+                  <ChevronDown className="w-3.5 h-3.5 text-mid-gray shrink-0 transition-transform group-open:rotate-180" />
+                  <span className="text-xs font-semibold text-text/70">
+                    {t("settings.transcriptionProfiles.llmPostProcessing.title")}
+                  </span>
+                  <InfoTooltip content={t("settings.transcriptionProfiles.llmPostProcessing.description")} />
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  {newLlmEnabled && (
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-purple-500/20 text-purple-400 border border-purple-500/30 whitespace-nowrap">
+                        {t("settings.transcriptionProfiles.badges.llmActive", "LLM active")}
+                      </span>
+                      {newLlmPromptOverride && newLlmPromptOverride !== globalPromptText && (
+                        <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-amber-500/15 text-amber-400 border border-amber-500/25 whitespace-nowrap">
+                          {t("settings.transcriptionProfiles.badges.promptOverridden", "Prompt overridden")}
+                        </span>
+                      )}
+                      {newLlmModelOverride && (
+                        <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-blue-500/15 text-blue-400 border border-blue-500/25 whitespace-nowrap">
+                          {t("settings.transcriptionProfiles.badges.modelOverride", "Model: {{model}}", { model: newLlmModelOverride })}
+                        </span>
+                      )}
+                    </div>
+                  )}
+                  {/* stopPropagation prevents details toggle when clicking the switch */}
+                  <div onClick={(e) => e.stopPropagation()}>
+                    <ToggleSwitch
+                      checked={newLlmEnabled}
+                      onChange={setNewLlmEnabled}
+                      disabled={isCreating}
+                    />
                   </div>
                 </div>
-              )}
-            </div>
+              </summary>
+              <div className="px-3 pb-3 space-y-2 border-t border-mid-gray/10">
+                <p className="text-xs text-mid-gray pt-2">
+                  {t("settings.transcriptionProfiles.llmPostProcessing.description")}
+                </p>
+
+                {isSonioxProvider && (
+                  <div className="p-2 bg-red-500/10 border border-red-500/30 rounded text-xs text-red-400">
+                    {t("settings.transcriptionProfiles.llmPostProcessing.sonioxWarning")}
+                  </div>
+                )}
+
+                {newLlmEnabled && (
+                  <div className="space-y-3">
+                    {/* Prompt Override */}
+                    <div className="space-y-1">
+                      {/* ${output} Variable Documentation */}
+                      <div className="p-2 bg-blue-500/10 border border-blue-500/30 rounded text-xs space-y-1">
+                        <div className="font-semibold text-blue-400">
+                          {t("settings.transcriptionProfiles.llmPostProcessing.outputVariableDoc.title")}
+                        </div>
+                        <p className="text-text/70" dangerouslySetInnerHTML={{ __html: t("settings.transcriptionProfiles.llmPostProcessing.outputVariableDoc.description") }} />
+                        <details className="cursor-pointer">
+                          <summary className="text-blue-400 hover:text-blue-300">
+                            {t("settings.transcriptionProfiles.llmPostProcessing.outputVariableDoc.howItWorks")}
+                          </summary>
+                          <ol className="list-decimal list-inside text-text/60 mt-1 space-y-0.5 pl-2">
+                            <li>{t("settings.transcriptionProfiles.llmPostProcessing.outputVariableDoc.step1")}</li>
+                            <li dangerouslySetInnerHTML={{ __html: t("settings.transcriptionProfiles.llmPostProcessing.outputVariableDoc.step2") }} />
+                            <li>{t("settings.transcriptionProfiles.llmPostProcessing.outputVariableDoc.step3")}</li>
+                            <li>{t("settings.transcriptionProfiles.llmPostProcessing.outputVariableDoc.step4")}</li>
+                          </ol>
+                          <div className="mt-2 space-y-1">
+                            <div className="text-green-400">{t("settings.transcriptionProfiles.llmPostProcessing.outputVariableDoc.validExample")}</div>
+                            <code className="block bg-green-500/10 px-2 py-1 rounded text-green-300 whitespace-pre-wrap">
+                              {t("settings.transcriptionProfiles.llmPostProcessing.outputVariableDoc.validPrompt")}
+                            </code>
+                            <div className="text-red-400 mt-2">{t("settings.transcriptionProfiles.llmPostProcessing.outputVariableDoc.invalidExample")}</div>
+                            <code className="block bg-red-500/10 px-2 py-1 rounded text-red-300">
+                              {t("settings.transcriptionProfiles.llmPostProcessing.outputVariableDoc.invalidPrompt")}
+                            </code>
+                            <p className="text-red-400/80" dangerouslySetInnerHTML={{ __html: t("settings.transcriptionProfiles.llmPostProcessing.outputVariableDoc.invalidWarning") }} />
+                          </div>
+                          <p className="mt-2 text-text/60" dangerouslySetInnerHTML={{ __html: t("settings.transcriptionProfiles.llmPostProcessing.outputVariableDoc.tip") }} />
+                        </details>
+                      </div>
+
+                      <div className="flex items-center justify-between mt-2">
+                        <div className="flex flex-col">
+                          {!newLlmPromptOverride ? (
+                            <span className="text-[10px] text-purple-400/70 font-medium">
+                              {t("settings.transcriptionProfiles.llmPostProcessing.usingGlobalPrompt")}
+                            </span>
+                          ) : (
+                            <span className="text-[10px] text-orange-400 font-medium">
+                              {t("settings.transcriptionProfiles.llmPostProcessing.customPromptActive", "Custom prompt active")}
+                            </span>
+                          )}
+                        </div>
+                        {newLlmPromptOverride !== "" && (
+                          <button
+                            type="button"
+                            onClick={() => setNewLlmPromptOverride("")}
+                            disabled={isCreating}
+                            className="flex items-center gap-1.5 px-2 py-1 text-xs bg-purple-500/10 hover:bg-purple-500/20 border border-purple-500/30 rounded-md text-purple-300 transition-colors disabled:opacity-50"
+                          >
+                            <RotateCcw className="w-3.5 h-3.5" />
+                            {t("settings.transcriptionProfiles.llmPostProcessing.resetToGlobal")}
+                          </button>
+                        )}
+                      </div>
+                      <textarea
+                        value={newLlmPromptOverride || globalPromptText}
+                        onChange={(e) => setNewLlmPromptOverride(e.target.value)}
+                        onFocus={() => {
+                          if (!newLlmPromptOverride) {
+                            setNewLlmPromptOverride(globalPromptText);
+                          }
+                        }}
+                        placeholder={t("settings.transcriptionProfiles.llmPostProcessing.promptPlaceholder")}
+                        disabled={isCreating}
+                        rows={6}
+                        className={`w-full px-3 py-2 text-sm bg-[#1e1e1e]/80 border rounded-md resize-none transition-colors border-[#3c3c3c] focus:border-[#4a4a4a] ${isCreating ? "opacity-40 cursor-not-allowed" : ""} text-[#e8e8e8] placeholder-[#6b6b6b]`}
+                      />
+                    </div>
+
+                    {/* Model Override */}
+                    <div className="space-y-1">
+                      <label className="text-xs text-text/60">
+                        {t("settings.transcriptionProfiles.llmPostProcessing.overrideModel")}
+                      </label>
+                      <p className="text-xs text-mid-gray">
+                        {t("settings.transcriptionProfiles.llmPostProcessing.overrideModelHint")}
+                      </p>
+                      <div className="flex items-center gap-2">
+                        <ModelSelect
+                          value={newLlmModelOverride || ""}
+                          options={llmModelOptions}
+                          disabled={isCreating}
+                          placeholder={
+                            globalLlmModel
+                              ? t("settings.transcriptionProfiles.llmPostProcessing.usingGlobalModel", { model: globalLlmModel })
+                              : t("settings.transcriptionProfiles.llmPostProcessing.modelPlaceholder")
+                          }
+                          onSelect={(value) => setNewLlmModelOverride(value || null)}
+                          onCreate={(value) => setNewLlmModelOverride(value)}
+                          onBlur={() => {}}
+                          className="flex-1"
+                        />
+                        <ResetButton
+                          onClick={handleRefreshModels}
+                          disabled={isFetchingModels || isCreating}
+                          title="Fetch Models from Server, then you can type part of model name for searching it in drop-down."
+                        >
+                          <RefreshCcw className={`w-4 h-4 ${isFetchingModels ? "animate-spin" : ""}`} />
+                        </ResetButton>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </details>
           )}
 
           {newProfileError && (

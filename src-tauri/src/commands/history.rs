@@ -60,8 +60,9 @@ pub async fn update_history_limit(
     history_manager: State<'_, Arc<HistoryManager>>,
     limit: usize,
 ) -> Result<(), String> {
+    let bounded_limit = limit.min(crate::settings::MAX_HISTORY_LIMIT);
     let mut settings = crate::settings::get_settings(&app);
-    settings.history_limit = limit;
+    settings.history_limit = bounded_limit;
     crate::settings::write_settings(&app, settings);
 
     history_manager

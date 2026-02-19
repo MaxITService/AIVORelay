@@ -4,7 +4,7 @@
 > This file provides guidance for AI code agents working with this fork.
 > CODE ONLY WHEN APPROVED BY USER. Otherwise, only your thoughts in chat are needed.
 > If you are not very sure that change will fix it, consult user first, user may want to revert unsuccessful fix, so user needs to commit and stuff.
-> Never Commit!
+> Never Commit unless received clear instruction to do so!
 > Start from writing instructions about building rules only in chat to user. Write them to user!!!!
 
 ## Environment:

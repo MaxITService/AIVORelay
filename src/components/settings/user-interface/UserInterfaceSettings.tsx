@@ -294,7 +294,7 @@ export const UserInterfaceSettings: React.FC = () => {
           </SettingContainer>
           <SettingContainer
             title="Preview of the Preview Window"
-            description="I heard you like previews? This appication has a preview for the preview window, so you can pen a resizable preview window that will help you adjust the looks."
+            description="I heard you like previews? This application has a preview for the preview window, so you can open a resizable preview window that will help you adjust the looks."
             descriptionMode="inline"
             grouped={true}
           >
@@ -407,6 +407,31 @@ export const UserInterfaceSettings: React.FC = () => {
               })}
             </div>
             )}
+          </div>
+          <div className="px-6 py-3 border-t border-white/[0.05]">
+            <details className="group">
+              <summary className="flex items-center gap-2 text-sm text-[#9b5de5] hover:text-[#b47eff] transition-colors cursor-pointer list-none">
+                <span>Positioning Help</span>
+                <span className="text-xs text-[#707070] group-open:hidden">(expand)</span>
+                <span className="text-xs text-[#707070] hidden group-open:inline">(collapse)</span>
+              </summary>
+              <div className="mt-3 p-4 bg-[#1a1a1a] rounded-lg border border-[#333333] text-sm text-[#b8b8b8] space-y-2">
+                <p>
+                  <strong className="text-[#f5f5f5]">Near Cursor (Dynamic)</strong> repositions the preview every time
+                  a new live preview session starts. The window appears above your cursor.
+                </p>
+                <p>
+                  <strong className="text-[#f5f5f5]">Custom X/Y (px)</strong> pins the window to exact screen coordinates.
+                </p>
+                <p>
+                  Use <strong className="text-[#f5f5f5]">Cursor Distance</strong> to control how far above the cursor
+                  the preview should appear.
+                </p>
+                <p>
+                  If there is not enough space near screen edges, the app keeps the window inside the active monitor.
+                </p>
+              </div>
+            </details>
           </div>
           <SettingContainer
             title="Live Preview Position"
@@ -888,6 +913,35 @@ export const UserInterfaceSettings: React.FC = () => {
               </SettingContainer>
             </>
           )}
+          <div className="px-6 py-3 border-t border-white/[0.05]">
+            <details className="group">
+              <summary className="flex items-center gap-2 text-sm text-[#9b5de5] hover:text-[#b47eff] transition-colors cursor-pointer list-none">
+                <span>Appearance Help</span>
+                <span className="text-xs text-[#707070] group-open:hidden">(expand)</span>
+                <span className="text-xs text-[#707070] hidden group-open:inline">(collapse)</span>
+              </summary>
+              <div className="mt-3 p-4 bg-[#1a1a1a] rounded-lg border border-[#333333] text-sm text-[#b8b8b8] space-y-2">
+                <p>
+                  <strong className="text-[#f5f5f5]">Transparency</strong> controls panel background opacity.
+                </p>
+                <p>
+                  <strong className="text-[#f5f5f5]">Confirmed Text Color</strong> affects stable text that will not change.
+                </p>
+                <p>
+                  <strong className="text-[#f5f5f5]">Live Draft Color</strong> affects text that may still change.
+                </p>
+                <p>
+                  <strong className="text-[#f5f5f5]">Live Draft Opacity</strong> controls how faded the draft text looks.
+                </p>
+                <p>
+                  <strong className="text-[#f5f5f5]">Accent Color</strong> changes the header/accent tone.
+                </p>
+                <p>
+                  Draft text is replaced by confirmed text as recognition stabilizes.
+                </p>
+              </div>
+            </details>
+          </div>
           <SettingContainer
             title="Live Preview Theme"
             description="Use the app-matching theme by default, or switch to alternate palettes."
@@ -1037,60 +1091,6 @@ export const UserInterfaceSettings: React.FC = () => {
               isUpdating("soniox_live_preview_interim_opacity_percent")
             }
           />
-          <div className="px-6 py-3 border-t border-white/[0.05]">
-            <details className="group">
-              <summary className="flex items-center gap-2 text-sm text-[#9b5de5] hover:text-[#b47eff] transition-colors cursor-pointer list-none">
-                <span>Positioning Help</span>
-                <span className="text-xs text-[#707070] group-open:hidden">(expand)</span>
-                <span className="text-xs text-[#707070] hidden group-open:inline">(collapse)</span>
-              </summary>
-              <div className="mt-3 p-4 bg-[#1a1a1a] rounded-lg border border-[#333333] text-sm text-[#b8b8b8] space-y-2">
-                <p>
-                  <strong className="text-[#f5f5f5]">Near Cursor (Dynamic)</strong> repositions the preview every time
-                  a new live preview session starts. The window appears above your cursor.
-                </p>
-                <p>
-                  <strong className="text-[#f5f5f5]">Custom X/Y (px)</strong> pins the window to exact screen coordinates.
-                </p>
-                <p>
-                  Use <strong className="text-[#f5f5f5]">Cursor Distance</strong> to control how far above the cursor
-                  the preview should appear.
-                </p>
-                <p>
-                  If there is not enough space near screen edges, the app keeps the window inside the active monitor.
-                </p>
-              </div>
-            </details>
-          </div>
-          <div className="px-6 py-3 border-t border-white/[0.05]">
-            <details className="group">
-              <summary className="flex items-center gap-2 text-sm text-[#9b5de5] hover:text-[#b47eff] transition-colors cursor-pointer list-none">
-                <span>Appearance Help</span>
-                <span className="text-xs text-[#707070] group-open:hidden">(expand)</span>
-                <span className="text-xs text-[#707070] hidden group-open:inline">(collapse)</span>
-              </summary>
-              <div className="mt-3 p-4 bg-[#1a1a1a] rounded-lg border border-[#333333] text-sm text-[#b8b8b8] space-y-2">
-                <p>
-                  <strong className="text-[#f5f5f5]">Transparency</strong> controls panel background opacity.
-                </p>
-                <p>
-                  <strong className="text-[#f5f5f5]">Confirmed Text Color</strong> affects stable text that will not change.
-                </p>
-                <p>
-                  <strong className="text-[#f5f5f5]">Live Draft Color</strong> affects text that may still change.
-                </p>
-                <p>
-                  <strong className="text-[#f5f5f5]">Live Draft Opacity</strong> controls how faded the draft text looks.
-                </p>
-                <p>
-                  <strong className="text-[#f5f5f5]">Accent Color</strong> changes the header/accent tone.
-                </p>
-                <p>
-                  Draft text is replaced by confirmed text as recognition stabilizes.
-                </p>
-              </div>
-            </details>
-          </div>
         </SettingsGroup>
       )}
 

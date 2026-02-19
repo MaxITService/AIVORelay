@@ -154,16 +154,28 @@ const settingUpdaters: {
     commands.changeAiReplaceUserPromptSetting(value as string),
   ai_replace_max_chars: (value) =>
     commands.changeAiReplaceMaxCharsSetting(value as number),
+  ai_replace_restore_on_error: (value) =>
+    invoke("change_ai_replace_restore_on_error_setting", {
+      enabled: value as boolean,
+    }),
   ai_replace_allow_no_selection: (value) =>
     commands.changeAiReplaceAllowNoSelectionSetting(value as boolean),
   ai_replace_no_selection_system_prompt: (value) =>
     commands.changeAiReplaceNoSelectionSystemPromptSetting(value as string),
+  ai_replace_no_selection_user_prompt: (value) =>
+    invoke("change_ai_replace_no_selection_user_prompt_setting", {
+      prompt: value as string,
+    }),
   ai_replace_allow_quick_tap: (value) =>
     commands.changeAiReplaceAllowQuickTapSetting(value as boolean),
   ai_replace_quick_tap_threshold_ms: (value) =>
     commands.changeAiReplaceQuickTapThresholdMsSetting(value as number),
   ai_replace_quick_tap_system_prompt: (value) =>
     commands.changeAiReplaceQuickTapSystemPromptSetting(value as string),
+  ai_replace_quick_tap_user_prompt: (value) =>
+    invoke("change_ai_replace_quick_tap_user_prompt_setting", {
+      prompt: value as string,
+    }),
   send_to_extension_enabled: (value) =>
     commands.changeSendToExtensionEnabledSetting(value as boolean),
   send_to_extension_push_to_talk: (value) =>

@@ -1141,17 +1141,21 @@ pub fn change_start_hidden_setting(app: AppHandle, enabled: bool) -> Result<(), 
 #[tauri::command]
 #[specta::specta]
 pub fn change_autostart_setting(app: AppHandle, enabled: bool) -> Result<(), String> {
+    // Apply OS-level autostart first so UI/store can roll back on failure.
+    let autostart_manager = app.autolaunch();
+    if enabled {
+        autostart_manager
+            .enable()
+            .map_err(|e| format!("Failed to enable autostart: {e}"))?;
+    } else {
+        autostart_manager
+            .disable()
+            .map_err(|e| format!("Failed to disable autostart: {e}"))?;
+    }
+
     let mut settings = settings::get_settings(&app);
     settings.autostart_enabled = enabled;
     settings::write_settings(&app, settings);
-
-    // Apply the autostart setting immediately
-    let autostart_manager = app.autolaunch();
-    if enabled {
-        let _ = autostart_manager.enable();
-    } else {
-        let _ = autostart_manager.disable();
-    }
 
     // Notify frontend
     let _ = app.emit(
@@ -1191,6 +1195,14 @@ pub fn change_beta_voice_commands_enabled_setting(
 ) -> Result<(), String> {
     let mut settings = settings::get_settings(&app);
     settings.beta_voice_commands_enabled = enabled;
+
+    let forced_voice_command_disable = !enabled && settings.voice_command_enabled;
+    if !enabled {
+        settings.voice_command_enabled = false;
+        // Keep runtime shortcut registration aligned with visibility toggle.
+        sync_feature_shortcut_registration(&app, &settings, "voice_command", false)?;
+    }
+
     settings::write_settings(&app, settings);
 
     let _ = app.emit(
@@ -1200,6 +1212,16 @@ pub fn change_beta_voice_commands_enabled_setting(
             "value": enabled
         }),
     );
+
+    if forced_voice_command_disable {
+        let _ = app.emit(
+            "settings-changed",
+            serde_json::json!({
+                "setting": "voice_command_enabled",
+                "value": false
+            }),
+        );
+    }
 
     Ok(())
 }
@@ -2699,6 +2721,18 @@ pub fn change_ai_replace_max_chars_setting(app: AppHandle, max_chars: usize) -> 
 
 #[tauri::command]
 #[specta::specta]
+pub fn change_ai_replace_restore_on_error_setting(
+    app: AppHandle,
+    enabled: bool,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.ai_replace_restore_on_error = enabled;
+    settings::write_settings(&app, settings);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
 pub fn change_ai_replace_allow_no_selection_setting(
     app: AppHandle,
     allowed: bool,
@@ -2723,6 +2757,18 @@ pub fn change_ai_replace_no_selection_system_prompt_setting(
 
 #[tauri::command]
 #[specta::specta]
+pub fn change_ai_replace_no_selection_user_prompt_setting(
+    app: AppHandle,
+    prompt: String,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.ai_replace_no_selection_user_prompt = prompt;
+    settings::write_settings(&app, settings);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
 pub fn change_ai_replace_allow_quick_tap_setting(
     app: AppHandle,
     allowed: bool,
@@ -2740,7 +2786,7 @@ pub fn change_ai_replace_quick_tap_threshold_ms_setting(
     threshold_ms: u32,
 ) -> Result<(), String> {
     let mut settings = settings::get_settings(&app);
-    settings.ai_replace_quick_tap_threshold_ms = threshold_ms;
+    settings.ai_replace_quick_tap_threshold_ms = threshold_ms.clamp(100, 2000);
     settings::write_settings(&app, settings);
     Ok(())
 }
@@ -2753,6 +2799,18 @@ pub fn change_ai_replace_quick_tap_system_prompt_setting(
 ) -> Result<(), String> {
     let mut settings = settings::get_settings(&app);
     settings.ai_replace_quick_tap_system_prompt = prompt;
+    settings::write_settings(&app, settings);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_ai_replace_quick_tap_user_prompt_setting(
+    app: AppHandle,
+    prompt: String,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.ai_replace_quick_tap_user_prompt = prompt;
     settings::write_settings(&app, settings);
     Ok(())
 }
@@ -3040,11 +3098,28 @@ pub fn change_connector_port_setting(
     connector_manager: State<'_, Arc<crate::managers::connector::ConnectorManager>>,
 ) -> Result<(), String> {
     let mut settings = settings::get_settings(&app);
-    settings.connector_port = port;
-    settings::write_settings(&app, settings);
+    let previous_port = settings.connector_port;
 
     // Restart server on new port if it's running
-    connector_manager.restart_on_port(port)?;
+    if let Err(change_err) = connector_manager.restart_on_port(port) {
+        // Best-effort rollback so a failed port change does not leave connector down.
+        if previous_port != port {
+            if let Err(rollback_err) = connector_manager.restart_on_port(previous_port) {
+                error!(
+                    "Failed to rollback connector port from {} to {}: {}",
+                    port, previous_port, rollback_err
+                );
+                return Err(format!(
+                    "{} (rollback to port {} failed: {})",
+                    change_err, previous_port, rollback_err
+                ));
+            }
+        }
+        return Err(change_err);
+    }
+
+    settings.connector_port = port;
+    settings::write_settings(&app, settings);
 
     Ok(())
 }

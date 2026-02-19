@@ -9,6 +9,9 @@ interface HistoryLimitProps {
   grouped?: boolean;
 }
 
+const HISTORY_LIMIT_MIN = 0;
+const HISTORY_LIMIT_MAX = 1000;
+
 export const HistoryLimit: React.FC<HistoryLimitProps> = ({
   descriptionMode = "inline",
   grouped = false,
@@ -16,12 +19,16 @@ export const HistoryLimit: React.FC<HistoryLimitProps> = ({
   const { t } = useTranslation();
   const { getSetting, updateSetting, isUpdating } = useSettings();
 
-  const historyLimit = getSetting("history_limit") ?? 5;
+  const historyLimitRaw = Number(getSetting("history_limit") ?? 5);
+  const historyLimit = Number.isFinite(historyLimitRaw)
+    ? Math.min(HISTORY_LIMIT_MAX, Math.max(HISTORY_LIMIT_MIN, Math.round(historyLimitRaw)))
+    : 5;
 
-  const handleChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
+  const handleChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const value = parseInt(event.target.value, 10);
-    if (!isNaN(value) && value >= 0) {
-      updateSetting("history_limit", value);
+    if (!isNaN(value)) {
+      const clamped = Math.min(HISTORY_LIMIT_MAX, Math.max(HISTORY_LIMIT_MIN, value));
+      updateSetting("history_limit", clamped);
     }
   };
 
@@ -36,8 +43,8 @@ export const HistoryLimit: React.FC<HistoryLimitProps> = ({
       <div className="flex items-center space-x-2">
         <Input
           type="number"
-          min="0"
-          max="1000"
+          min={HISTORY_LIMIT_MIN}
+          max={HISTORY_LIMIT_MAX}
           value={historyLimit}
           onChange={handleChange}
           disabled={isUpdating("history_limit")}
