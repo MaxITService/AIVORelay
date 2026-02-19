@@ -1857,7 +1857,7 @@
     "sonioxRealtimeChunkFuzzyLabel": "Enable Fuzzy Word Correction for Soniox Live Chunks",
     "sonioxRealtimeChunkFuzzyDescription": "Uses typo-tolerant matching from Custom Words on each live chunk. If OFF, chunks skip fuzzy correction but regular Text Replacement rules still run.",
     "sonioxRealtimeChunkSafetyBufferLabel": "Keep Safety Buffer for Cross-chunk Matching",
-    "sonioxRealtimeChunkSafetyBufferDescription": "Keeps the newest 2-3 words briefly so fuzzy correction can match across chunk boundaries. This buffer is used only when fuzzy correction is ON.",
+    "sonioxRealtimeChunkSafetyBufferDescription": "Keeps the newest ~3 words briefly so fuzzy correction can match across chunk boundaries. This buffer is used only when fuzzy correction is ON. It delays pasting by about those 3 words, so live output may feel a bit slower (often not noticeable).",
     "sonioxRealtimeChunkBehaviorGuide": "For fastest live appearance, keep both OFF. Enable both only when you need better cross-chunk fuzzy correction."
   }
 }

@@ -1350,7 +1350,7 @@ export const TextReplacementSettings: React.FC = () => {
             )}
             description={t(
               "textReplacement.sonioxRealtimeChunkSafetyBufferDescription",
-              "Keeps the newest 2-3 words briefly so fuzzy correction can match across chunk boundaries. This buffer is used only when fuzzy correction is ON."
+              "Keeps the newest ~3 words briefly so fuzzy correction can match across chunk boundaries. This buffer is used only when fuzzy correction is ON. It delays pasting by about those 3 words, so live output may feel a bit slower (often not noticeable)."
             )}
             descriptionMode="inline"
           />
