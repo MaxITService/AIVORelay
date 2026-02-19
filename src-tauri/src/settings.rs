@@ -1853,6 +1853,13 @@ fn default_post_process_providers() -> Vec<PostProcessProvider> {
             models_endpoint: Some("/models".to_string()),
         },
         PostProcessProvider {
+            id: "zai".to_string(),
+            label: "Z.AI".to_string(),
+            base_url: "https://api.z.ai/api/paas/v4".to_string(),
+            allow_base_url_edit: false,
+            models_endpoint: Some("/models".to_string()),
+        },
+        PostProcessProvider {
             id: "openrouter".to_string(),
             label: "OpenRouter".to_string(),
             base_url: "https://openrouter.ai/api/v1".to_string(),
