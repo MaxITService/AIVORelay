@@ -2,6 +2,25 @@
 
 Files that differentiate this fork from the original [cjpais/Handy](https://github.com/cjpais/Handy).
 
+## Verified UI Issues Snapshot (February 19, 2026)
+
+Only reproducible, screen-level findings are listed here (detailed repro steps are in `plans/screen-bug-audit.md`):
+
+- `Voice Commands`
+  - `VC-001`: Fuzzy matching settings are not persisted because several `updateSetting(...)` keys are missing `settingUpdaters` wiring in `settingsStore`.
+  - `VC-002`: Voice Commands “Refresh models” currently calls `fetchLlmModels("post_processing")`, so when Voice Commands provider differs from Post-Processing provider, refresh targets the wrong provider bucket.
+- `Debug`
+  - `DBG-002`: Switching shortcut engine to `Tauri` clears incompatible bindings immediately in backend, before user confirms restart; canceling restart does not restore cleared bindings.
+  - `DBG-003`: Turning off experimental `Voice Commands` in Debug hides the menu item, but does not disable runtime `voice_command_enabled`; shortcut execution can remain active.
+- `Connector`
+  - `CON-001`: Port change can report success before actual bind health is known (bind failure is detected asynchronously), so inline port error handling may not trigger immediately.
+
+Sidebar screens reviewed without confirmed reproducible breakages in this cycle:
+- `General / Speech / Mic`, `Models`, `Advanced`, `LLM Post Processing`, `AI Replace`, `Transcribe File`, `Text Processing`, `Speech Processing`, `User Interface`, `History`, `About`.
+
+Reference audit log:
+- `plans/screen-bug-audit.md`
+
 ## Recent Convergence (Fork-Safe)
 
 These changes move selected areas toward upstream behavior without removing fork-only features:
@@ -68,7 +87,7 @@ Touched files in this refactor:
 | File                                           | Purpose                                                                                                                                                                                                                                                                                                                                                    |
 | ---------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `src-tauri/src/managers/connector.rs`          | **Main connector module**: HTTP server (port 38243) for extension communication. Extension polls `GET /messages` with Bearer auth, AivoRelay returns `{cursor, messages[], config, passwordUpdate?}`. Handles text messages, bundle (with image attachments via `/blob/*`), and keepalive messages. **Includes two-phase password rotation** for security. |
-| `src-tauri/src/commands/connector.rs`          | Tauri commands for connector: `connector_get_status`, `connector_is_online`, `connector_start_server`, `connector_stop_server`, `connector_queue_message`.                                                                                                                                                                                                 |
+| `src-tauri/src/commands/connector.rs`          | Tauri commands for connector: `connector_get_status`, `connector_is_online`, `connector_start_server`, `connector_stop_server`, `connector_queue_message`, `connector_cancel_message`.                                                                                                                                                                       |
 | `src-tauri/src/managers/remote_stt.rs`         | Remote Speech-to-Text manager. Handles OpenAI-compatible API calls, WAV encoding, API key storage (Windows Credential Manager), debug logging.                                                                                                                                                                                                             |
 | `src-tauri/src/commands/remote_stt.rs`         | Tauri commands exposing remote transcription functionality to frontend: OpenAI-compatible commands plus Soniox API-key commands (`soniox_has_api_key`, `soniox_set_api_key`, `soniox_clear_api_key`).                                                                                                                                                       |
 | `src-tauri/src/managers/soniox_stt.rs`         | Soniox non-live/async transcription manager: request payload construction, cancellation tracking, language handling, and async file transcription calls. Includes async create-transcription options (`language_hints`, `enable_speaker_diarization`, `enable_language_identification`) for file jobs.                                                                                                                                                                                                    |
@@ -85,7 +104,7 @@ Touched files in this refactor:
 | `src-tauri/src/active_app.rs`                  | **Active App Context**: Captures frontmost window title (Windows) for LLM template variables like `${current_app}`.                                                                                                                                                                                                                                         |
 | `src-tauri/src/transcript_context.rs`          | **Prompt Context Cache**: Stores short per-app transcript history with expiry, used for `${short_prev_transcript}`.                                                                                                                                                                                                                                          |
 | `src-tauri/src/managers/key_listener.rs`       | **rdev Key Listener** (Windows): Low-level keyboard hook using rdev library. Tracks modifier state, parses shortcut strings (e.g., "ctrl+shift+a", "caps lock"), emits `rdev-shortcut` events. Supports keys that Tauri can't handle: CapsLock, NumLock, ScrollLock, Pause, modifier-only shortcuts.                                                       |
-| `src-tauri/src/commands/key_listener.rs`       | Tauri commands for key listener: `register_rdev_shortcut`, `unregister_rdev_shortcut`, `is_rdev_shortcut_registered`.                                                                                                                                                                                                                                       |
+| `src-tauri/src/commands/key_listener.rs`       | Tauri commands for key listener lifecycle + shortcuts: `key_listener_start`, `key_listener_stop`, `key_listener_is_running`, `key_listener_get_modifiers`, `key_listener_register_shortcut`, `key_listener_unregister_shortcut`, `key_listener_is_shortcut_registered`, `key_listener_get_registered_shortcuts`.                                                                                 |
 | `src-tauri/src/language_resolver.rs`           | **Soniox language compatibility resolver**: Canonicalizes profile/default/OS language values, maps locale variants to Soniox ISO base codes, validates support, and normalizes Soniox hint lists with safe fallback behavior.                                                                                                                           |
 | `src-tauri/src/text_replacement_decapitalize.rs` | Decapitalize trigger state machine for manual edits: one-shot timeout trigger + standard STT post-stop monitoring window, with separate handling for realtime chunk flow vs. standard final-output flow and Unicode-safe first-letter lowercasing. |
 
@@ -95,7 +114,8 @@ Touched files in this refactor:
 | ---------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `src/components/settings/remote-stt/RemoteSttSettings.tsx`             | UI for Remote STT configuration: base URL, model ID, API key management, connection testing, debug log viewer.                                                          |
 | `src/components/settings/SonioxContextEditor.tsx`                       | Reusable Soniox context editor used in transcription profile cards (default/custom/new): collapsible `context.general` JSON, `context.text`, `context.terms` inputs with inline validation and help/examples. |
-| `src/components/settings/advanced/AiReplaceSettings.tsx`               | UI for AI Replace feature: system/user prompts, max chars limit, "no selection" mode toggle.                                                                            |
+| `src/components/settings/ai-replace/AiReplaceSelectionSettings.tsx`    | Main AI Replace settings page in sidebar: shortcut/push-to-talk, no-selection mode, quick-tap controls, prompt fields, and AI Replace-specific LLM provider/model config. |
+| `src/components/settings/advanced/AiReplaceSettings.tsx`               | Legacy AI Replace settings component kept in tree (not mounted in current sidebar flow).                                                                               |
 | `src/components/settings/browser-connector/ConnectorStatus.tsx`        | Extension status indicator component showing online/offline status with "last seen" time when offline.                                                                  |
 | `src/components/icons/SendingIcon.tsx`                                 | Monochrome SVG icon (upload arrow) for "sending" overlay state. Matches pink style (`#FAA2CA`) of other icons.                                                          |
 | `src/overlay/plus_overlay_states.ts`                                   | TypeScript types for extended overlay states (`error`, `sending`). Error category enum and display text mapping.                                                        |
@@ -151,7 +171,7 @@ Touched files in this refactor:
 | `src-tauri/src/managers/soniox_stt.rs`       | Centralized Soniox language handling via resolver: normalizes requested language and falls back to auto when unsupported/invalid for non-live transcription. |
 | `src-tauri/src/managers/soniox_realtime.rs`  | Live-session language hints are normalized/validated via resolver before request payload creation. Emits visual Soniox live preview updates (final + interim) and manages preview window visibility during session start/finish/cancel. |
 | `src-tauri/src/utils.rs`                     | Central cancellation path now also cancels Soniox live/non-live operations to avoid orphaned requests after user stop/cancel. |
-| `src-tauri/Cargo.toml`                       | Added dependencies/features: `keyring` (credential storage), `reqwest` features, `tiny_http` (HTTP server for connector), `notify` (file system watching for screenshots), `windows` crates for input language detection, and `transcribe-rs = 0.2.3` with `sense_voice` feature for local STT. |
+| `src-tauri/Cargo.toml`                       | Added dependencies/features: `keyring` (credential storage), `reqwest` features, `axum` + `tower-http` (HTTP server/CORS for connector), `notify` (file system watching for screenshots), `windows` crates for input language detection, and `transcribe-rs = 0.2.5` with `sense_voice` feature for local STT. |
 | `src-tauri/resources/default_settings.json`  | Default values for new settings, including Soniox defaults (model, hints, strict/profile-hint options, live behavior toggles). |
 
 ### Frontend Settings UI
@@ -159,7 +179,7 @@ Touched files in this refactor:
 | File                                                                     | Changes                                                                                              |
 | ------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------- |
 | `src/components/icons/index.ts`                                          | Exports `SendingIcon` component.                                                                     |
-| `src/components/settings/advanced/AdvancedSettings.tsx`                  | Added Remote STT and AI Replace settings sections.                                                   |
+| `src/components/settings/advanced/AdvancedSettings.tsx`                  | Advanced settings group for startup/paste behavior: Start Hidden, Autostart, Paste Method, Clipboard Handling, Auto Submit, and Model Unload Timeout.                                                   |
 | `src/components/settings/browser-connector/BrowserConnectorSettings.tsx` | Added extension status indicator section and screenshot settings (capture command, folder, timeout). |
 | `src/components/settings/general/GeneralSettings.tsx`                    | Minor adjustments for new settings layout.                                                           |
 | `src/components/settings/user-interface/UserInterfaceSettings.tsx`       | Added dedicated Soniox live preview settings group in User Interface with controls for enable/disable, preview demo window button, position (`top/bottom/near_cursor/custom_xy`), cursor distance, custom X/Y and custom width/height in px (both slider + number input), theme, transparency, separate final/interim font colors, accent color, interim opacity, and expandable help blocks. |
@@ -330,14 +350,14 @@ On app startup
 | Change AI Replace behavior          | `actions.rs` → `AiReplaceSelectionAction::stop()` or `ai_replace_with_llm()`             |
 | Change message format for Connector | `actions.rs` → `build_extension_message()`                                               |
 | Debug recording/mute logic          | `actions.rs` → `prepare_stop_recording()` or `start_recording_with_feedback()`           |
-| Add new AI Replace setting          | `settings.rs` → add field, `AiReplaceSettings.tsx` → add UI                              |
+| Add new AI Replace setting          | `settings.rs` → add field, `AiReplaceSelectionSettings.tsx` → add UI                      |
 | Change Remote STT API handling      | `managers/remote_stt.rs` → `transcribe()`                                                |
 | Change Soniox non-live behavior     | `managers/soniox_stt.rs` → request options, language handling, async/file paths          |
 | Change Soniox live behavior         | `managers/soniox_realtime.rs` → WS payload, keepalive/finalize, timeout behavior         |
 | Add new shortcut action             | `actions.rs` → impl `ShortcutAction`, register in `ACTION_MAP`                           |
 | Change selection capture logic      | `input.rs` (Windows-specific)                                                            |
 | Add new Tauri command               | `commands/*.rs` → add fn, `commands/mod.rs` → export                                     |
-| Change extension status timeout     | `managers/connector.rs` → `EXTENSION_TIMEOUT_SECS` constant                              |
+| Change extension status timeout     | `managers/connector.rs` → `POLL_TIMEOUT_MS` constant                                      |
 | Customize status display            | `ConnectorStatus.tsx`                                                                    |
 | Change connector password           | `settings.rs` → `connector_password` field, `BrowserConnectorSettings.tsx` → password UI |
 | Add/modify transcription profiles   | `settings.rs` → `TranscriptionProfile`, `shortcut.rs` → profile commands                 |
@@ -362,13 +382,13 @@ On app startup
 | `ShortcutAction` trait  | `actions.rs`            | Interface for all shortcut actions (start/stop)                                  |
 | `ACTION_MAP`            | `actions.rs`            | Registry of all available shortcut actions                                       |
 | `ConnectorManager`      | `managers/connector.rs` | HTTP server tracking extension status via polling                                |
-| `ConnectorStatus`       | `managers/connector.rs` | Status struct with `online`, `last_poll`, `server_running` fields                |
+| `ConnectorStatus`       | `managers/connector.rs` | Status struct with `status`, `last_poll_at`, `server_running`, `port`, `server_error` fields |
 
 ## Change Impact
 
 | If you change...         | Check also...                                                              |
 | ------------------------ | -------------------------------------------------------------------------- |
-| `AppSettings` fields     | `default_settings.json`, `useSettings.ts`, `settingsStore.ts`              |
+| `AppSettings` fields     | `src-tauri/resources/default_settings.json`, `src/hooks/useSettings.ts`, `src/stores/settingsStore.ts` |
 | Tauri commands           | Run `bun run tauri dev` to regenerate `bindings.ts`                        |
 | Remote STT API format    | `encode_wav_bytes()` in audio_toolkit                                      |
 | Local model engine/language behavior | `managers/model.rs`, `managers/transcription.rs`, `actions.rs`, `TranscriptionProfiles.tsx`, `TranscriptionSystemPrompt.tsx` |
