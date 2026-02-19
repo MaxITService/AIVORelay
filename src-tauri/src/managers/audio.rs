@@ -123,8 +123,8 @@ fn create_audio_recorder(
 ) -> Result<AudioRecorder, anyhow::Error> {
     let settings = get_settings(app_handle);
 
-    let mut recorder =
-        AudioRecorder::new().map_err(|e| anyhow::anyhow!("Failed to create AudioRecorder: {}", e))?;
+    let mut recorder = AudioRecorder::new()
+        .map_err(|e| anyhow::anyhow!("Failed to create AudioRecorder: {}", e))?;
 
     // Attach VAD when silence filtering is enabled.
     if settings.filter_silence {
@@ -230,6 +230,11 @@ impl AudioRecordingManager {
 
         let is_open = *self.is_open.lock().unwrap();
         if !is_open {
+            return;
+        }
+
+        // Before muting, ensure we didn't cancel/stop recording while waiting
+        if !self.is_recording() {
             return;
         }
 

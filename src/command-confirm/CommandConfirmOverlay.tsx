@@ -36,13 +36,18 @@ export interface VoiceCommandResultPayload {
   wasOpenedInWindow: boolean;
 }
 
-type Status = null | { type: "success"; message: string } | { type: "error"; message: string };
+type Status =
+  | null
+  | { type: "success"; message: string }
+  | { type: "error"; message: string };
 
 /** Helper to hide the current window - handles the async nature of hide() */
 const hideWindow = () => {
-  getCurrentWindow().hide().catch((err) => {
-    console.error("Failed to hide window:", err);
-  });
+  getCurrentWindow()
+    .hide()
+    .catch((err) => {
+      console.error("Failed to hide window:", err);
+    });
 };
 
 export default function CommandConfirmOverlay() {
@@ -61,25 +66,39 @@ export default function CommandConfirmOverlay() {
   const enterTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Whether auto-run is active for current payload
-  const isAutoRunActive = payload?.auto_run && !payload.from_llm && countdownMs > 0 && !isEditing && !status;
+  const isAutoRunActive =
+    payload?.auto_run &&
+    !payload.from_llm &&
+    countdownMs > 0 &&
+    !isEditing &&
+    !status;
 
   useEffect(() => {
-    const unlisten = listen<CommandConfirmPayload>("show-command-confirm", (event) => {
-      setPayload(event.payload);
-      setEditedCommand(event.payload.command);
-      setIsEditing(false);
-      setStatus(null);
-      setIsExecuting(false);
-      setIsPaused(false);
-      // Initialize countdown if auto_run is enabled for predefined commands
-      if (event.payload.auto_run && !event.payload.from_llm && event.payload.auto_run_seconds) {
-        setCountdownMs(event.payload.auto_run_seconds * 1000);
-      } else {
-        setCountdownMs(0);
-      }
-      // Reset window size to default when showing new command
-      getCurrentWindow().setSize(new LogicalSize(DEFAULT_WIDTH, DEFAULT_HEIGHT)).catch(console.error);
-    });
+    const unlisten = listen<CommandConfirmPayload>(
+      "show-command-confirm",
+      (event) => {
+        setPayload(event.payload);
+        setEditedCommand(event.payload.command);
+        setIsEditing(false);
+        setStatus(null);
+        setIsExecuting(false);
+        setIsPaused(false);
+        // Initialize countdown if auto_run is enabled for predefined commands
+        if (
+          event.payload.auto_run &&
+          !event.payload.from_llm &&
+          event.payload.auto_run_seconds
+        ) {
+          setCountdownMs(event.payload.auto_run_seconds * 1000);
+        } else {
+          setCountdownMs(0);
+        }
+        // Reset window size to default when showing new command
+        getCurrentWindow()
+          .setSize(new LogicalSize(DEFAULT_WIDTH, DEFAULT_HEIGHT))
+          .catch(console.error);
+      },
+    );
 
     return () => {
       unlisten.then((fn) => fn());
@@ -90,13 +109,22 @@ export default function CommandConfirmOverlay() {
   useEffect(() => {
     if (status?.type === "error") {
       // Expand window to show error details
-      getCurrentWindow().setSize(new LogicalSize(EXPANDED_WIDTH, EXPANDED_HEIGHT)).catch(console.error);
+      getCurrentWindow()
+        .setSize(new LogicalSize(EXPANDED_WIDTH, EXPANDED_HEIGHT))
+        .catch(console.error);
     }
   }, [status]);
 
   // Countdown timer effect
   useEffect(() => {
-    if (!payload?.auto_run || payload.from_llm || isPaused || isEditing || status || isExecuting) {
+    if (
+      !payload?.auto_run ||
+      payload.from_llm ||
+      isPaused ||
+      isEditing ||
+      status ||
+      isExecuting
+    ) {
       return;
     }
 
@@ -119,7 +147,14 @@ export default function CommandConfirmOverlay() {
 
   // Auto-execute when countdown reaches 0
   useEffect(() => {
-    if (countdownMs === 0 && payload?.auto_run && !payload.from_llm && !isEditing && !status && !isExecuting) {
+    if (
+      countdownMs === 0 &&
+      payload?.auto_run &&
+      !payload.from_llm &&
+      !isEditing &&
+      !status &&
+      !isExecuting
+    ) {
       // Check if we actually had a countdown (auto_run_seconds > 0)
       if (payload.auto_run_seconds && payload.auto_run_seconds > 0) {
         handleRun();
@@ -144,12 +179,17 @@ export default function CommandConfirmOverlay() {
         payload.no_profile,
         payload.use_pwsh,
         payload.execution_policy,
-        payload.working_directory
+        payload.working_directory,
       );
 
       if (result.status === "ok") {
         const output = result.data;
-        setStatus({ type: "success", message: openedInWindow ? "Opened in terminal" : "Command executed successfully" });
+        setStatus({
+          type: "success",
+          message: openedInWindow
+            ? "Opened in terminal"
+            : "Command executed successfully",
+        });
 
         // Emit result for history tracking
         await emit("voice-command-result", {
@@ -205,15 +245,28 @@ export default function CommandConfirmOverlay() {
 
   const handleContainerClick = (e: React.MouseEvent) => {
     // Only toggle pause if clicking on the container background (not buttons/inputs)
-    if ((e.target as HTMLElement).closest('button, textarea, .command-confirm-code')) {
+    if (
+      (e.target as HTMLElement).closest(
+        "button, textarea, .command-confirm-code",
+      )
+    ) {
       return;
     }
-    if (isAutoRunActive || (isPaused && payload?.auto_run && !payload.from_llm && !isEditing && !status)) {
+    if (
+      isAutoRunActive ||
+      (isPaused &&
+        payload?.auto_run &&
+        !payload.from_llm &&
+        !isEditing &&
+        !status)
+    ) {
       setIsPaused((prev) => !prev);
     }
   };
 
   const handleCancel = () => {
+    setIsPaused(true);
+    setPayload(null);
     hideWindow();
   };
 
@@ -237,28 +290,28 @@ export default function CommandConfirmOverlay() {
         hideWindow();
       }
     };
-    
+
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, []);
-  
+
   // Handle Enter (double-press) and Ctrl+Enter to run command
   useEffect(() => {
     if (!payload) return;
-    
+
     const handleKeyDown = (e: KeyboardEvent) => {
       // Skip if in editing mode (textarea needs Enter)
       if (isEditing) return;
-      
+
       if (e.key === "Enter" && !isExecuting) {
         e.preventDefault();
-        
+
         // Ctrl/Cmd+Enter - immediate run
         if (e.ctrlKey || e.metaKey) {
           handleRun();
           return;
         }
-        
+
         // Double Enter detection
         if (enterPressedOnce) {
           // Clear timeout and run
@@ -278,7 +331,7 @@ export default function CommandConfirmOverlay() {
         }
       }
     };
-    
+
     window.addEventListener("keydown", handleKeyDown);
     return () => {
       window.removeEventListener("keydown", handleKeyDown);
@@ -304,7 +357,12 @@ export default function CommandConfirmOverlay() {
   // Calculate progress percentage for auto-run bar
   const totalMs = (payload.auto_run_seconds ?? 0) * 1000;
   const progressPercent = totalMs > 0 ? (countdownMs / totalMs) * 100 : 0;
-  const showAutoRunBar = payload.auto_run && !payload.from_llm && !isEditing && !status && (countdownMs > 0 || isPaused);
+  const showAutoRunBar =
+    payload.auto_run &&
+    !payload.from_llm &&
+    !isEditing &&
+    !status &&
+    (countdownMs > 0 || isPaused);
 
   return (
     <div
@@ -323,11 +381,23 @@ export default function CommandConfirmOverlay() {
       )}
 
       <div className="command-confirm-header">
-        <svg className="command-confirm-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-          <path d="M4 17l6-6-6-6M12 19h8" strokeLinecap="round" strokeLinejoin="round"/>
+        <svg
+          className="command-confirm-icon"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+        >
+          <path
+            d="M4 17l6-6-6-6M12 19h8"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
         </svg>
         <span className="command-confirm-title">Voice Command</span>
-        <span className={`command-confirm-source ${payload.from_llm ? "llm" : ""}`}>
+        <span
+          className={`command-confirm-source ${payload.from_llm ? "llm" : ""}`}
+        >
           {payload.from_llm ? "AI Generated" : "Matched"}
         </span>
         <button
@@ -335,16 +405,19 @@ export default function CommandConfirmOverlay() {
           onClick={handleCancel}
           title="Close (Esc)"
         >
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-            <path d="M18 6L6 18M6 6l12 12" strokeLinecap="round"/>
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+          >
+            <path d="M18 6L6 18M6 6l12 12" strokeLinecap="round" />
           </svg>
         </button>
       </div>
 
       {payload.spoken_text && (
-        <div className="command-confirm-spoken">
-          "{payload.spoken_text}"
-        </div>
+        <div className="command-confirm-spoken">"{payload.spoken_text}"</div>
       )}
 
       {isEditing ? (
@@ -356,36 +429,48 @@ export default function CommandConfirmOverlay() {
           spellCheck={false}
         />
       ) : (
-        <div className="command-confirm-code">
-          {payload.command}
-        </div>
+        <div className="command-confirm-code">{payload.command}</div>
       )}
 
       <div className="command-confirm-buttons">
-        <button 
-          className="command-confirm-btn cancel" 
+        <button
+          className="command-confirm-btn cancel"
           onClick={handleCancel}
           disabled={isExecuting}
         >
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-            <path d="M18 6L6 18M6 6l12 12" strokeLinecap="round"/>
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+          >
+            <path d="M18 6L6 18M6 6l12 12" strokeLinecap="round" />
           </svg>
           Cancel
         </button>
-        
+
         {!isEditing && (
-          <button 
-            className="command-confirm-btn edit" 
+          <button
+            className="command-confirm-btn edit"
             onClick={handleEdit}
             disabled={isExecuting}
           >
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z" strokeLinecap="round" strokeLinejoin="round"/>
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+            >
+              <path
+                d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
             </svg>
             Edit
           </button>
         )}
-        
+
         <button
           className={`command-confirm-btn run ${enterPressedOnce ? "enter-primed" : ""}`}
           onClick={handleRun}
@@ -393,7 +478,7 @@ export default function CommandConfirmOverlay() {
           title="Tip: Press Enter twice quickly to run (or Ctrl+Enter)"
         >
           <svg viewBox="0 0 24 24" fill="currentColor">
-            <path d="M8 5v14l11-7z"/>
+            <path d="M8 5v14l11-7z" />
           </svg>
           {isExecuting ? "Running..." : enterPressedOnce ? "Enter ↵" : "Run"}
         </button>
@@ -410,13 +495,35 @@ export default function CommandConfirmOverlay() {
               onClick={handleCopyOutput}
               title="Copy error output"
             >
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <svg
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+              >
                 {copied ? (
-                  <path d="M20 6L9 17l-5-5" strokeLinecap="round" strokeLinejoin="round"/>
+                  <path
+                    d="M20 6L9 17l-5-5"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
                 ) : (
                   <>
-                    <rect x="9" y="9" width="13" height="13" rx="2" ry="2" strokeLinecap="round" strokeLinejoin="round"/>
-                    <path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1" strokeLinecap="round" strokeLinejoin="round"/>
+                    <rect
+                      x="9"
+                      y="9"
+                      width="13"
+                      height="13"
+                      rx="2"
+                      ry="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
+                    <path
+                      d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
                   </>
                 )}
               </svg>

@@ -280,16 +280,15 @@ impl ConnectorManager {
                     *err_guard = Some(error_msg.clone());
                 }
 
-                let _ = self.app_handle.emit("connector-server-error", error_msg.clone());
+                let _ = self
+                    .app_handle
+                    .emit("connector-server-error", error_msg.clone());
                 return Err(error_msg);
             }
         };
 
         if let Err(e) = std_listener.set_nonblocking(true) {
-            let error_msg = format!(
-                "Failed to configure listener for port {}: {}",
-                port, e
-            );
+            let error_msg = format!("Failed to configure listener for port {}: {}", port, e);
             error!("Connector server: {}", error_msg);
 
             {
@@ -297,7 +296,9 @@ impl ConnectorManager {
                 *err_guard = Some(error_msg.clone());
             }
 
-            let _ = self.app_handle.emit("connector-server-error", error_msg.clone());
+            let _ = self
+                .app_handle
+                .emit("connector-server-error", error_msg.clone());
             return Err(error_msg);
         }
 
@@ -318,7 +319,12 @@ impl ConnectorManager {
             message_notify: self.message_notify.clone(),
         };
 
-        let stop_flag = self.stop_flag.clone();
+        // Create a local stop flag specifically for this server instance's background tasks.
+        // This fixes CON-002 where restarting the server would reset the global stop_flag
+        // before the background tasks of the old server instance could notice it and exit.
+        let local_stop_flag = Arc::new(AtomicBool::new(false));
+        let global_stop_flag = self.stop_flag.clone();
+
         let server_running = self.server_running.clone();
         let app_handle = self.app_handle.clone();
         let last_poll_at = self.last_poll_at.clone();
@@ -367,13 +373,17 @@ impl ConnectorManager {
             info!("Connector server listening on {}", addr);
 
             // Spawn status check task
-            let status_stop_flag = stop_flag.clone();
+            let status_local_stop_flag = local_stop_flag.clone();
+            let status_global_stop_flag = global_stop_flag.clone();
             let status_app_handle = app_handle.clone();
             let status_last_poll = last_poll_at.clone();
             tokio::spawn(async move {
                 let mut was_online = false;
                 loop {
-                    if status_stop_flag.load(Ordering::SeqCst) {
+                    // Stop if either the local server instance is shutting down, or the global manager says stop
+                    if status_local_stop_flag.load(Ordering::SeqCst)
+                        || status_global_stop_flag.load(Ordering::SeqCst)
+                    {
                         break;
                     }
 
@@ -400,11 +410,14 @@ impl ConnectorManager {
             });
 
             // Spawn keepalive and blob cleanup task
-            let keepalive_stop_flag = stop_flag.clone();
+            let keepalive_local_stop_flag = local_stop_flag.clone();
+            let keepalive_global_stop_flag = global_stop_flag.clone();
             let keepalive_state = state.clone();
             tokio::spawn(async move {
                 loop {
-                    if keepalive_stop_flag.load(Ordering::SeqCst) {
+                    if keepalive_local_stop_flag.load(Ordering::SeqCst)
+                        || keepalive_global_stop_flag.load(Ordering::SeqCst)
+                    {
                         break;
                     }
 
@@ -442,11 +455,14 @@ impl ConnectorManager {
 
             // Serve requests using axum's built-in serve function
             // We use a graceful shutdown triggered by the stop flag
-            let graceful_stop_flag = stop_flag.clone();
+            let graceful_local_stop_flag = local_stop_flag.clone();
+            let graceful_global_stop_flag = global_stop_flag.clone();
             axum::serve(listener, router)
                 .with_graceful_shutdown(async move {
                     loop {
-                        if graceful_stop_flag.load(Ordering::SeqCst) {
+                        if graceful_local_stop_flag.load(Ordering::SeqCst)
+                            || graceful_global_stop_flag.load(Ordering::SeqCst)
+                        {
                             break;
                         }
                         tokio::time::sleep(Duration::from_millis(100)).await;
@@ -457,6 +473,7 @@ impl ConnectorManager {
                     error!("Server error: {}", e);
                 });
 
+            local_stop_flag.store(true, Ordering::SeqCst);
             server_running.store(false, Ordering::SeqCst);
             info!("Connector server stopped");
         });
