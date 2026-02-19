@@ -238,7 +238,7 @@ When releasing a new version, update these files:
 | `package.json` | 4 | `"version": "x.y.z"` | Manual |
 | `src-tauri/tauri.conf.json` | 4 | `"version": "x.y.z"` | Manual |
 | `src-tauri/Cargo.toml` | 3 | `version = "x.y.z"` | Manual |
-| `src-tauri/Cargo.lock` | — | Auto | Regenerates on `cargo build/check` |
+| `src-tauri/Cargo.lock` | — | Auto | Regenerates on `cargo build/check` - ask user to dev build |
 
 **Release steps:**
 1. Update 3 files above
