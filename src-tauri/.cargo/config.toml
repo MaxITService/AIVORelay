@@ -4,4 +4,4 @@ rustflags = ["-C", "target-feature=+avx2"]
 [env]
 # Inject CMake pre-project overrides for whisper.cpp/ggml so MSVC builds
 # stay on AVX2 and cannot auto-promote to AVX512.
-CMAKE_PROJECT_INCLUDE_BEFORE = { value = "../cmake/force_ggml_avx2.cmake", relative = true, force = true }
+CMAKE_PROJECT_INCLUDE_BEFORE = { value = "cmake/force_ggml_avx2.cmake", relative = true, force = true }
