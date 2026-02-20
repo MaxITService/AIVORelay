@@ -1,10 +1,15 @@
 # Fork Agents Guide
 
+> **CRITICAL: WE ARE ON THE `Microsoft-store` BRANCH.**
+> This branch is specifically for the Microsoft Store release.
+> **AGENT RULE:** Always refer to this version as the **Microsoft Store Edition**.
+> All updates must be compliant with Microsoft Store policies (e.g., no self-updating, sandboxed file access in mind (MSIX packaged, this will be handled atomatically later)). Warn the user in case something is not compatible with the Microsoft Store. 
+
 > **Agent rule:** all debugging/build verification is done by the user (do not run automated tests/builds unless explicitly requested).
 > This file provides guidance for AI code agents working with this fork.
 > CODE ONLY WHEN APPROVED BY USER. Otherwise, only your thoughts in chat are needed.
 > If you are not very sure that change will fix it, consult user first, user may want to revert unsuccessful fix, so user needs to commit and stuff.
-> Never Commit unless received clear instruction to do so!
+> Never Commit!
 > Start from writing instructions about building rules only in chat to user. Write them to user!!!!
 
 ## Environment:
@@ -12,9 +17,9 @@
 Windows 11; PowerShell (pwsh) host.
 Harness: use PowerShell with -NoProfile only: avoid profile interference.
 
-**CRITICAL: Environment Setup if build is needed**. This project requires Visual Studio 2022 build tools which are NOT in the path by default.
+**CRITICAL: Environment Setup**. This project requires Visual Studio 2022 build tools which are NOT in the path by default.
 
-**IF ASKED TO RUN: Run Get-Dev ONCE per conversation** (not with every command). Run it as a standalone command first, then run cargo commands separately:
+**Run Get-Dev ONCE per conversation** (not with every command). Run it as a standalone command first, then run cargo commands separately:
 
 ```powershell
 # Step 1: Run this ONCE at the start of conversation (standalone command)
@@ -190,17 +195,6 @@ When adding new features, please prefer adding them in new files instead of edit
 - Each rule can be individually enabled/disabled
 - **Use Cases**: Fix commonly misheard words, apply formatting, normalize punctuation, remove repeated words
 
-### 9. Live Preview
-
-- Files: `src/soniox-live-preview/`, `src/lib/utils/previewHotkeys.ts`, `src/components/ui/HotkeyCapture.tsx`
-- **Real-time visual stream**: Shows live transcription (final + interim) in a separate always-on-top window.
-- **Customizable Appearance**: Settings for opacity, theme, accent colors, and separate interim/final font colors.
-- **Positioning**: Supports dynamic near-cursor placement, screen corners, or custom X/Y coordinates.
-- **Interactive Controls**:
-  - **Hotkey Capture**: Configure custom hotkeys to toggle visibility or trigger actions.
-  - **Action Toggles**: Control behavior directly from the preview window or assigned shortcuts.
-  - **Demo Mode**: Includes a resizable demo window for visual tuning and appearance testing.
-
 ## Guidelines for Agents
 
 ### TypeScript Bindings (`src/bindings.ts`)
@@ -228,24 +222,6 @@ When adding new features, please prefer adding them in new files instead of edit
 ## Upstream Sync / Merging
 
 See [`fork-merge-guide.md`](fork-merge-guide.md) for upstream tracking and the merge/conflict-resolution checklist.
-
-## Version Bump Checklist
-
-When releasing a new version, update these files:
-
-| File | Line | Format | Notes |
-|------|------|--------|-------|
-| `package.json` | 4 | `"version": "x.y.z"` | Manual |
-| `src-tauri/tauri.conf.json` | 4 | `"version": "x.y.z"` | Manual |
-| `src-tauri/Cargo.toml` | 3 | `version = "x.y.z"` | Manual |
-| `src-tauri/Cargo.lock` | — | Auto | Regenerates on `cargo build/check` - ask user to dev build |
-
-**Release steps:**
-1. Update 3 files above
-2. Run `cargo check --manifest-path src-tauri/Cargo.toml` to update Cargo.lock
-3. Commit: `git commit -am "chore: bump version to x.y.z"`
-4. Tag: `git tag vx.y.z`
-5. Push: `git push origin main && git push origin vx.y.z`
 
 ## Local Builds (Unsigned)
 

@@ -2,7 +2,6 @@ import React, { useState, useEffect } from "react";
 import { getVersion } from "@tauri-apps/api/app";
 
 import ModelSelector from "../model-selector";
-import UpdateChecker from "../update-checker";
 import VramMeter from "./VramMeter";
 
 const Footer: React.FC = () => {
@@ -33,10 +32,8 @@ const Footer: React.FC = () => {
           <VramMeter refreshNonce={vramRefreshNonce} />
         </div>
 
-        {/* Update Status */}
+        {/* Version info */}
         <div className="flex items-center gap-2">
-          <UpdateChecker />
-          <span className="text-[#333333]">•</span>
           {/* eslint-disable-next-line i18next/no-literal-string */}
           <span className="font-medium">v{version}</span>
         </div>
