@@ -538,9 +538,7 @@ pub fn run() {
         commands::models::set_active_model,
         commands::models::get_current_model,
         commands::models::get_transcription_model_status,
-        commands::models::is_model_loading,
         commands::models::has_any_models_available,
-        commands::models::has_any_models_or_downloads,
         commands::models::get_recommended_first_model,
         commands::models::get_active_gpu_vram_status,
         commands::audio::update_microphone_mode,
@@ -558,7 +556,6 @@ pub fn run() {
         commands::audio::is_recording,
         commands::audio::change_vad_threshold_setting,
         commands::transcription::set_model_unload_timeout,
-        commands::transcription::get_model_load_status,
         commands::transcription::unload_model_manually,
         commands::history::get_history_entries,
         commands::history::toggle_history_entry_saved,
@@ -666,8 +663,12 @@ pub fn run() {
         .manage(Mutex::new(ShortcutToggleStates::default()))
         .manage(Mutex::new(PressTimestamps::default()))
         .manage(Mutex::new(session_manager::SessionState::default()))
-        .manage(std::sync::Mutex::new(std::collections::HashSet::<String>::new()) as shortcut::RdevShortcutsSet)
-        .manage(std::sync::Mutex::new(settings::ShortcutEngine::default()) as shortcut::ActiveShortcutEngine)
+        .manage(
+            std::sync::Mutex::new(std::collections::HashSet::<String>::new())
+                as shortcut::RdevShortcutsSet,
+        )
+        .manage(std::sync::Mutex::new(settings::ShortcutEngine::default())
+            as shortcut::ActiveShortcutEngine)
         .setup(move |app| {
             let settings = get_settings(&app.handle());
             let tauri_log_level: tauri_plugin_log::LogLevel = settings.log_level.into();
