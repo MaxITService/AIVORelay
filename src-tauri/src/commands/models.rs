@@ -108,30 +108,10 @@ pub async fn get_transcription_model_status(
 
 #[tauri::command]
 #[specta::specta]
-pub async fn is_model_loading(
-    transcription_manager: State<'_, Arc<TranscriptionManager>>,
-) -> Result<bool, String> {
-    // Check if transcription manager has a loaded model
-    let current_model = transcription_manager.get_current_model();
-    Ok(current_model.is_none())
-}
-
-#[tauri::command]
-#[specta::specta]
 pub async fn has_any_models_available(
     model_manager: State<'_, Arc<ModelManager>>,
 ) -> Result<bool, String> {
     let models = model_manager.get_available_models();
-    Ok(models.iter().any(|m| m.is_downloaded))
-}
-
-#[tauri::command]
-#[specta::specta]
-pub async fn has_any_models_or_downloads(
-    model_manager: State<'_, Arc<ModelManager>>,
-) -> Result<bool, String> {
-    let models = model_manager.get_available_models();
-    // Return true if any models are downloaded OR if any downloads are in progress
     Ok(models.iter().any(|m| m.is_downloaded))
 }
 
@@ -177,9 +157,7 @@ struct ActiveGpuVramSnapshot {
 }
 
 #[cfg(target_os = "windows")]
-fn query_system_gpu_usage_bytes(
-    adapter_luid: windows::Win32::Foundation::LUID,
-) -> Option<u64> {
+fn query_system_gpu_usage_bytes(adapter_luid: windows::Win32::Foundation::LUID) -> Option<u64> {
     use windows::Wdk::Graphics::Direct3D::{
         D3DKMTCloseAdapter, D3DKMTOpenAdapterFromLuid, D3DKMTQueryVideoMemoryInfo,
         D3DKMT_CLOSEADAPTER, D3DKMT_MEMORY_SEGMENT_GROUP_LOCAL, D3DKMT_OPENADAPTERFROMLUID,
@@ -222,9 +200,9 @@ fn query_system_gpu_usage_bytes(
 fn query_active_gpu_vram() -> Result<ActiveGpuVramSnapshot, String> {
     use windows::core::Interface;
     use windows::Win32::Graphics::Dxgi::{
-        CreateDXGIFactory1, DXGI_ADAPTER_FLAG_SOFTWARE, DXGI_GPU_PREFERENCE_HIGH_PERFORMANCE,
-        DXGI_MEMORY_SEGMENT_GROUP_LOCAL, DXGI_QUERY_VIDEO_MEMORY_INFO, IDXGIAdapter1,
-        IDXGIAdapter3, IDXGIFactory6,
+        CreateDXGIFactory1, IDXGIAdapter1, IDXGIAdapter3, IDXGIFactory6,
+        DXGI_ADAPTER_FLAG_SOFTWARE, DXGI_GPU_PREFERENCE_HIGH_PERFORMANCE,
+        DXGI_MEMORY_SEGMENT_GROUP_LOCAL, DXGI_QUERY_VIDEO_MEMORY_INFO,
     };
 
     unsafe {
@@ -321,22 +299,21 @@ pub fn get_active_gpu_vram_status() -> Result<GpuVramStatus, String> {
     {
         match query_active_gpu_vram() {
             Ok(snapshot) => {
-                let system_used_bytes =
-                    query_system_gpu_usage_bytes(snapshot.adapter_luid)
-                        .unwrap_or(snapshot.process_used_bytes);
+                let system_used_bytes = query_system_gpu_usage_bytes(snapshot.adapter_luid)
+                    .unwrap_or(snapshot.process_used_bytes);
                 let system_free_bytes = snapshot.total_vram_bytes.saturating_sub(system_used_bytes);
 
                 Ok(GpuVramStatus {
-                is_supported: true,
-                adapter_name: Some(snapshot.adapter_name),
-                used_bytes: snapshot.process_used_bytes,
-                budget_bytes: snapshot.process_budget_bytes,
-                system_used_bytes,
-                system_free_bytes,
-                total_vram_bytes: snapshot.total_vram_bytes,
-                updated_at_unix_ms,
-                error: None,
-            })
+                    is_supported: true,
+                    adapter_name: Some(snapshot.adapter_name),
+                    used_bytes: snapshot.process_used_bytes,
+                    budget_bytes: snapshot.process_budget_bytes,
+                    system_used_bytes,
+                    system_free_bytes,
+                    total_vram_bytes: snapshot.total_vram_bytes,
+                    updated_at_unix_ms,
+                    error: None,
+                })
             }
             Err(error) => Ok(GpuVramStatus {
                 is_supported: false,
