@@ -21,6 +21,7 @@ pub use crate::tray::*;
 /// This also cancels any ongoing Processing work (transcription, LLM, etc.).
 pub fn cancel_current_operation(app: &AppHandle) {
     info!("Initiating operation cancellation...");
+    crate::recording_auto_stop::cancel_auto_stop_timer(app);
 
     // Take the active session if any - its Drop will handle cleanup
     // (unregistering cancel shortcut, removing mute, etc.)
@@ -64,7 +65,10 @@ pub fn cancel_current_operation(app: &AppHandle) {
     soniox_stt_manager.cancel();
     audio_manager.clear_stream_frame_callback();
     if let Err(e) = crate::clipboard::end_streaming_paste_session(app) {
-        warn!("Failed to end streaming clipboard session during cancellation: {}", e);
+        warn!(
+            "Failed to end streaming clipboard session during cancellation: {}",
+            e
+        );
     }
 
     // Cancel any in-flight LLM requests (AI Replace, etc.)

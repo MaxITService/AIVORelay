@@ -945,6 +945,30 @@ async changeFilterSilenceSetting(enabled: boolean) : Promise<Result<null, string
     else return { status: "error", error: e  as any };
 }
 },
+async changeRecordingAutoStopEnabledSetting(enabled: boolean) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("change_recording_auto_stop_enabled_setting", { enabled }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async changeRecordingAutoStopTimeoutSecondsSetting(seconds: number) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("change_recording_auto_stop_timeout_seconds_setting", { seconds }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async changeRecordingAutoStopPasteSetting(paste: boolean) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("change_recording_auto_stop_paste_setting", { paste }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async changeAiReplaceSystemPromptSetting(prompt: string) : Promise<Result<null, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("change_ai_replace_system_prompt_setting", { prompt }) };
@@ -2414,6 +2438,18 @@ vad_threshold?: number;
  * - "rdev": Supports all keys, but uses more CPU (processes every keystroke)
  */
 shortcut_engine?: ShortcutEngine; 
+/**
+ * Whether the recording auto-stop safety timer is enabled
+ */
+recording_auto_stop_enabled?: boolean; 
+/**
+ * Seconds before auto-stopping recording (10..7200, default 1800 = 30 min)
+ */
+recording_auto_stop_timeout_seconds?: number; 
+/**
+ * When true, auto-stop pastes normally; when false, cancels/wipes the recording
+ */
+recording_auto_stop_paste?: boolean; 
 /**
  * Whether the hotkey sidebar is pinned open
  */

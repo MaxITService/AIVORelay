@@ -571,6 +571,15 @@
     },
     "advanced": {
       "title": "Advanced",
+      "autoStop": {
+        "title": "Recording Auto-Stop Safety",
+        "description": "Automatically stops recording if it's left on for too long. Crucial safety feature to prevent draining your cloud API budget if you accidentally forget to stop recording.",
+        "timeoutTitle": "Auto-Stop After",
+        "timeoutDescription": "Time in seconds before an active recording is automatically stopped.",
+        "seconds": "seconds",
+        "pasteTitle": "Paste Transcribed Text",
+        "pasteDescription": "If disabled, the transcription will be canceled and no text will be pasted when auto-stopped."
+      },
       "voiceApiTitle": "Voice API",
       "tellMeMore": {
         "title": "Tell me more: Fine-tuning the Engine",

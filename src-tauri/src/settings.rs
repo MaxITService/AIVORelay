@@ -232,8 +232,8 @@ pub fn parse_soniox_context_general_json(
         return Ok(Vec::new());
     }
 
-    let parsed: Vec<SonioxContextGeneralItem> = serde_json::from_str(trimmed)
-        .map_err(|e| format!("Invalid Soniox general JSON: {}", e))?;
+    let parsed: Vec<SonioxContextGeneralItem> =
+        serde_json::from_str(trimmed).map_err(|e| format!("Invalid Soniox general JSON: {}", e))?;
 
     for (idx, item) in parsed.iter().enumerate() {
         if item.key.trim().is_empty() {
@@ -640,11 +640,17 @@ pub fn apply_text_replacements(text: &str, replacements: &[TextReplacement]) -> 
 }
 
 pub fn text_has_leading_whitespace(text: &str) -> bool {
-    text.chars().next().map(|ch| ch.is_whitespace()).unwrap_or(false)
+    text.chars()
+        .next()
+        .map(|ch| ch.is_whitespace())
+        .unwrap_or(false)
 }
 
 pub fn text_has_trailing_whitespace(text: &str) -> bool {
-    text.chars().last().map(|ch| ch.is_whitespace()).unwrap_or(false)
+    text.chars()
+        .last()
+        .map(|ch| ch.is_whitespace())
+        .unwrap_or(false)
 }
 
 pub fn apply_output_whitespace_policy(
@@ -658,7 +664,9 @@ pub fn apply_output_whitespace_policy(
 
     let mut result = match leading_mode {
         OutputWhitespaceMode::Preserve => text.to_string(),
-        OutputWhitespaceMode::RemoveIfPresent => text.trim_start_matches(char::is_whitespace).to_string(),
+        OutputWhitespaceMode::RemoveIfPresent => {
+            text.trim_start_matches(char::is_whitespace).to_string()
+        }
         OutputWhitespaceMode::AddIfMissing => {
             if text_has_leading_whitespace(text) {
                 text.to_string()
@@ -1418,6 +1426,16 @@ pub struct AppSettings {
     /// - "rdev": Supports all keys, but uses more CPU (processes every keystroke)
     #[serde(default)]
     pub shortcut_engine: ShortcutEngine,
+    // ==================== Recording Auto-Stop ====================
+    /// Whether the recording auto-stop safety timer is enabled
+    #[serde(default)]
+    pub recording_auto_stop_enabled: bool,
+    /// Seconds before auto-stopping recording (10..7200, default 1800 = 30 min)
+    #[serde(default = "default_recording_auto_stop_timeout_seconds")]
+    pub recording_auto_stop_timeout_seconds: u32,
+    /// When true, auto-stop pastes normally; when false, cancels/wipes the recording
+    #[serde(default = "default_true")]
+    pub recording_auto_stop_paste: bool,
     // ==================== UI State ====================
     /// Whether the hotkey sidebar is pinned open
     #[serde(default)]
@@ -1425,6 +1443,10 @@ pub struct AppSettings {
     /// Width of the hotkey sidebar in pixels
     #[serde(default = "default_sidebar_width")]
     pub sidebar_width: u32,
+}
+
+fn default_recording_auto_stop_timeout_seconds() -> u32 {
+    1800
 }
 
 fn default_sidebar_width() -> u32 {
@@ -2298,8 +2320,8 @@ pub fn get_default_settings() -> AppSettings {
         text_replacement_decapitalize_after_edit_secondary_key_enabled: false,
         text_replacement_decapitalize_after_edit_secondary_key:
             default_text_replacement_decapitalize_after_edit_secondary_key(),
-        text_replacement_decapitalize_timeout_ms:
-            default_text_replacement_decapitalize_timeout_ms(),
+        text_replacement_decapitalize_timeout_ms: default_text_replacement_decapitalize_timeout_ms(
+        ),
         text_replacement_decapitalize_standard_post_recording_monitor_ms:
             default_text_replacement_decapitalize_standard_post_recording_monitor_ms(),
         output_whitespace_leading_mode: OutputWhitespaceMode::default(),
@@ -2313,6 +2335,10 @@ pub fn get_default_settings() -> AppSettings {
         // UI State
         sidebar_pinned: false,
         sidebar_width: default_sidebar_width(),
+        // Recording Auto-Stop
+        recording_auto_stop_enabled: false,
+        recording_auto_stop_timeout_seconds: 1800,
+        recording_auto_stop_paste: false,
     }
 }
 
