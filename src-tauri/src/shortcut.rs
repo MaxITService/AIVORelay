@@ -15,8 +15,8 @@ use crate::settings::ShortcutBinding;
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 use crate::settings::APPLE_INTELLIGENCE_DEFAULT_MODEL_ID;
 use crate::settings::{
-    self, get_settings, AutoSubmitKey, ClipboardHandling, LLMPrompt, OverlayPosition, PasteMethod,
-    OutputWhitespaceMode, RemoteSttDebugMode, ShortcutEngine, SonioxLivePreviewPosition,
+    self, get_settings, AutoSubmitKey, ClipboardHandling, LLMPrompt, OutputWhitespaceMode,
+    OverlayPosition, PasteMethod, RemoteSttDebugMode, ShortcutEngine, SonioxLivePreviewPosition,
     SonioxLivePreviewSize, SonioxLivePreviewTheme, SoundTheme, TranscriptionProvider,
     APPLE_INTELLIGENCE_PROVIDER_ID, SONIOX_DEFAULT_LIVE_FINALIZE_TIMEOUT_MS,
     SONIOX_DEFAULT_MAX_ENDPOINT_DELAY_MS, SONIOX_DEFAULT_MODEL,
@@ -141,9 +141,8 @@ fn build_decapitalize_monitor_bindings(settings: &settings::AppSettings) -> Vec<
         return Vec::new();
     }
 
-    let normalized_primary_binding = normalize_shortcut_binding(
-        &settings.text_replacement_decapitalize_after_edit_key,
-    );
+    let normalized_primary_binding =
+        normalize_shortcut_binding(&settings.text_replacement_decapitalize_after_edit_key);
     let mut bindings = Vec::new();
 
     if !normalized_primary_binding.is_empty() {
@@ -393,9 +392,7 @@ fn handle_rdev_shortcut_event(app: &AppHandle, event: ShortcutEvent) {
     if is_decapitalize_monitor_shortcut_id(&binding_id) {
         if pressed && settings.text_replacement_decapitalize_after_edit_key_enabled {
             crate::text_replacement_decapitalize::mark_edit_key_pressed(
-                clamp_decapitalize_timeout_ms(
-                    settings.text_replacement_decapitalize_timeout_ms,
-                ),
+                clamp_decapitalize_timeout_ms(settings.text_replacement_decapitalize_timeout_ms),
             );
         }
         return;
@@ -946,10 +943,8 @@ pub fn change_soniox_live_preview_interim_font_color_setting(
     color: String,
 ) -> Result<(), String> {
     let mut settings = settings::get_settings(&app);
-    settings.soniox_live_preview_interim_font_color = normalize_soniox_live_preview_color(
-        &color,
-        SONIOX_LIVE_PREVIEW_DEFAULT_INTERIM_FONT_COLOR,
-    );
+    settings.soniox_live_preview_interim_font_color =
+        normalize_soniox_live_preview_color(&color, SONIOX_LIVE_PREVIEW_DEFAULT_INTERIM_FONT_COLOR);
     settings::write_settings(&app, settings);
     refresh_soniox_live_preview_window(&app);
     Ok(())
@@ -1628,7 +1623,10 @@ pub fn change_soniox_live_finalize_timeout_ms_setting(
 
 #[tauri::command]
 #[specta::specta]
-pub fn change_soniox_live_instant_stop_setting(app: AppHandle, enabled: bool) -> Result<(), String> {
+pub fn change_soniox_live_instant_stop_setting(
+    app: AppHandle,
+    enabled: bool,
+) -> Result<(), String> {
     let mut settings = settings::get_settings(&app);
     settings.soniox_live_instant_stop = enabled;
     settings::write_settings(&app, settings);
@@ -4097,3 +4095,39 @@ pub fn change_sidebar_width_setting(app: AppHandle, width: u32) -> Result<(), St
     Ok(())
 }
 
+// ============================================================================
+// Recording Auto-Stop Settings
+// ============================================================================
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_recording_auto_stop_enabled_setting(
+    app: AppHandle,
+    enabled: bool,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.recording_auto_stop_enabled = enabled;
+    settings::write_settings(&app, settings);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_recording_auto_stop_timeout_seconds_setting(
+    app: AppHandle,
+    seconds: u32,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.recording_auto_stop_timeout_seconds = seconds.clamp(10, 7200);
+    settings::write_settings(&app, settings);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_recording_auto_stop_paste_setting(app: AppHandle, paste: bool) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.recording_auto_stop_paste = paste;
+    settings::write_settings(&app, settings);
+    Ok(())
+}
