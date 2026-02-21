@@ -1469,13 +1469,6 @@ async changeSidebarWidthSetting(width: number) : Promise<Result<null, string>> {
 }
 },
 /**
- * Get the current keyboard layout language from the OS.
- * Returns ISO 639-1 code (e.g., "en", "ru", "de") or None if detection fails.
- */
-async getLanguageFromOsInput() : Promise<string | null> {
-    return await TAURI_INVOKE("get_language_from_os_input");
-},
-/**
  * Get the currently active (running) shortcut engine.
  * This returns the engine that was selected at app startup, not the configured one.
  * On Windows, reads from app state. On other platforms, always returns Tauri.
@@ -1651,13 +1644,6 @@ async remoteSttTestConnection(baseUrl: string) : Promise<Result<null, string>> {
 }
 },
 /**
- * Returns the character limit for the system prompt based on the currently selected Remote STT model.
- * Returns None if the model is unknown (no enforced limit).
- */
-async remoteSttGetPromptLimit() : Promise<number | null> {
-    return await TAURI_INVOKE("remote_stt_get_prompt_limit");
-},
-/**
  * Returns whether the currently selected Remote STT model supports translation to English.
  * Uses the OpenAI-compatible /audio/translations endpoint.
  * Known support: Groq whisper-large-v3, OpenAI whisper-1. NOT supported: whisper-large-v3-turbo.
@@ -1687,14 +1673,6 @@ async llmHasStoredApiKey(feature: LlmFeature, providerId: string) : Promise<Resu
 async getAvailableModels() : Promise<Result<ModelInfo[], string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("get_available_models") };
-} catch (e) {
-    if(e instanceof Error) throw e;
-    else return { status: "error", error: e  as any };
-}
-},
-async getModelInfo(modelId: string) : Promise<Result<ModelInfo | null, string>> {
-    try {
-    return { status: "ok", data: await TAURI_INVOKE("get_model_info", { modelId }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
@@ -1748,33 +1726,9 @@ async getTranscriptionModelStatus() : Promise<Result<string | null, string>> {
     else return { status: "error", error: e  as any };
 }
 },
-async isModelLoading() : Promise<Result<boolean, string>> {
-    try {
-    return { status: "ok", data: await TAURI_INVOKE("is_model_loading") };
-} catch (e) {
-    if(e instanceof Error) throw e;
-    else return { status: "error", error: e  as any };
-}
-},
 async hasAnyModelsAvailable() : Promise<Result<boolean, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("has_any_models_available") };
-} catch (e) {
-    if(e instanceof Error) throw e;
-    else return { status: "error", error: e  as any };
-}
-},
-async hasAnyModelsOrDownloads() : Promise<Result<boolean, string>> {
-    try {
-    return { status: "ok", data: await TAURI_INVOKE("has_any_models_or_downloads") };
-} catch (e) {
-    if(e instanceof Error) throw e;
-    else return { status: "error", error: e  as any };
-}
-},
-async getRecommendedFirstModel() : Promise<Result<string, string>> {
-    try {
-    return { status: "ok", data: await TAURI_INVOKE("get_recommended_first_model") };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
@@ -1796,14 +1750,6 @@ async updateMicrophoneMode(alwaysOn: boolean) : Promise<Result<null, string>> {
     else return { status: "error", error: e  as any };
 }
 },
-async getMicrophoneMode() : Promise<Result<boolean, string>> {
-    try {
-    return { status: "ok", data: await TAURI_INVOKE("get_microphone_mode") };
-} catch (e) {
-    if(e instanceof Error) throw e;
-    else return { status: "error", error: e  as any };
-}
-},
 async getAvailableMicrophones() : Promise<Result<AudioDevice[], string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("get_available_microphones") };
@@ -1815,14 +1761,6 @@ async getAvailableMicrophones() : Promise<Result<AudioDevice[], string>> {
 async setSelectedMicrophone(deviceName: string) : Promise<Result<null, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("set_selected_microphone", { deviceName }) };
-} catch (e) {
-    if(e instanceof Error) throw e;
-    else return { status: "error", error: e  as any };
-}
-},
-async getSelectedMicrophone() : Promise<Result<string, string>> {
-    try {
-    return { status: "ok", data: await TAURI_INVOKE("get_selected_microphone") };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
@@ -1844,14 +1782,6 @@ async setSelectedOutputDevice(deviceName: string) : Promise<Result<null, string>
     else return { status: "error", error: e  as any };
 }
 },
-async getSelectedOutputDevice() : Promise<Result<string, string>> {
-    try {
-    return { status: "ok", data: await TAURI_INVOKE("get_selected_output_device") };
-} catch (e) {
-    if(e instanceof Error) throw e;
-    else return { status: "error", error: e  as any };
-}
-},
 async playTestSound(soundType: string) : Promise<void> {
     await TAURI_INVOKE("play_test_sound", { soundType });
 },
@@ -1861,14 +1791,6 @@ async checkCustomSounds() : Promise<CustomSounds> {
 async setClamshellMicrophone(deviceName: string) : Promise<Result<null, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("set_clamshell_microphone", { deviceName }) };
-} catch (e) {
-    if(e instanceof Error) throw e;
-    else return { status: "error", error: e  as any };
-}
-},
-async getClamshellMicrophone() : Promise<Result<string, string>> {
-    try {
-    return { status: "ok", data: await TAURI_INVOKE("get_clamshell_microphone") };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
@@ -1887,14 +1809,6 @@ async changeVadThresholdSetting(threshold: number) : Promise<Result<null, string
 },
 async setModelUnloadTimeout(timeout: ModelUnloadTimeout) : Promise<void> {
     await TAURI_INVOKE("set_model_unload_timeout", { timeout });
-},
-async getModelLoadStatus() : Promise<Result<ModelLoadStatus, string>> {
-    try {
-    return { status: "ok", data: await TAURI_INVOKE("get_model_load_status") };
-} catch (e) {
-    if(e instanceof Error) throw e;
-    else return { status: "error", error: e  as any };
-}
 },
 async unloadModelManually() : Promise<Result<null, string>> {
     try {
@@ -1947,14 +1861,6 @@ async updateHistoryLimit(limit: number) : Promise<Result<null, string>> {
 async updateRecordingRetentionPeriod(period: string) : Promise<Result<null, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("update_recording_retention_period", { period }) };
-} catch (e) {
-    if(e instanceof Error) throw e;
-    else return { status: "error", error: e  as any };
-}
-},
-async getLatestHistoryEntry() : Promise<Result<HistoryEntry | null, string>> {
-    try {
-    return { status: "ok", data: await TAURI_INVOKE("get_latest_history_entry") };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
@@ -2114,12 +2020,6 @@ async voiceActivationButtonRelease() : Promise<Result<null, string>> {
 }
 },
 /**
- * Get the list of supported audio file extensions
- */
-async getSupportedAudioExtensions() : Promise<string[]> {
-    return await TAURI_INVOKE("get_supported_audio_extensions");
-},
-/**
  * Transcribe an audio file to text
  * 
  * # Arguments
@@ -2164,28 +2064,6 @@ async keyListenerStop() : Promise<Result<null, string>> {
 }
 },
 /**
- * Check if the key listener is running
- */
-async keyListenerIsRunning() : Promise<Result<boolean, string>> {
-    try {
-    return { status: "ok", data: await TAURI_INVOKE("key_listener_is_running") };
-} catch (e) {
-    if(e instanceof Error) throw e;
-    else return { status: "error", error: e  as any };
-}
-},
-/**
- * Get current modifier state (Ctrl, Shift, Alt, Win)
- */
-async keyListenerGetModifiers() : Promise<Result<ModifierState, string>> {
-    try {
-    return { status: "ok", data: await TAURI_INVOKE("key_listener_get_modifiers") };
-} catch (e) {
-    if(e instanceof Error) throw e;
-    else return { status: "error", error: e  as any };
-}
-},
-/**
  * Register a shortcut with the rdev key listener
  * This allows shortcuts that tauri-plugin-global-shortcut doesn't support (like Caps Lock)
  */
@@ -2203,28 +2081,6 @@ async keyListenerRegisterShortcut(id: string, binding: string) : Promise<Result<
 async keyListenerUnregisterShortcut(id: string) : Promise<Result<null, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("key_listener_unregister_shortcut", { id }) };
-} catch (e) {
-    if(e instanceof Error) throw e;
-    else return { status: "error", error: e  as any };
-}
-},
-/**
- * Check if a shortcut is registered with rdev
- */
-async keyListenerIsShortcutRegistered(id: string) : Promise<Result<boolean, string>> {
-    try {
-    return { status: "ok", data: await TAURI_INVOKE("key_listener_is_shortcut_registered", { id }) };
-} catch (e) {
-    if(e instanceof Error) throw e;
-    else return { status: "error", error: e  as any };
-}
-},
-/**
- * Get list of all registered rdev shortcuts
- */
-async keyListenerGetRegisteredShortcuts() : Promise<Result<string[], string>> {
-    try {
-    return { status: "ok", data: await TAURI_INVOKE("key_listener_get_registered_shortcuts") };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
@@ -2688,12 +2544,7 @@ export type LlmFeature =
 "voice_command"
 export type LogLevel = "trace" | "debug" | "info" | "warn" | "error"
 export type ModelInfo = { id: string; name: string; description: string; filename: string; url: string | null; size_mb: number; is_downloaded: boolean; is_downloading: boolean; partial_size: number; is_directory: boolean; engine_type: EngineType; accuracy_score: number; speed_score: number; supports_translation: boolean; is_recommended: boolean; supported_languages: string[]; is_custom: boolean }
-export type ModelLoadStatus = { is_loaded: boolean; current_model: string | null }
 export type ModelUnloadTimeout = "never" | "immediately" | "min_2" | "min_5" | "min_10" | "min_15" | "hour_1" | "sec_5"
-/**
- * State for tracking active key modifiers (Ctrl, Shift, Alt, Win)
- */
-export type ModifierState = { ctrl: boolean; shift: boolean; alt: boolean; win: boolean }
 export type NativeRegionCaptureMode = 
 /**
  * Most performant: transparent picker over the live desktop.

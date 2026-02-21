@@ -119,12 +119,6 @@ impl KeyListenerManager {
         }
     }
 
-    /// Check if a shortcut is registered
-    pub async fn is_shortcut_registered(&self, id: &str) -> bool {
-        let shortcuts = self.shortcuts.lock().unwrap_or_else(|e| e.into_inner());
-        shortcuts.contains_key(id)
-    }
-
     /// Start listening for keyboard events
     pub async fn start(&self) -> Result<(), String> {
         {
@@ -358,29 +352,6 @@ impl KeyListenerManager {
         )
     }
 
-    /// Check if listener is running
-    pub async fn is_running(&self) -> bool {
-        self.running
-            .lock()
-            .map(|g| *g)
-            .unwrap_or(false)
-    }
-
-    /// Get current modifier state
-    pub async fn get_modifier_state(&self) -> ModifierState {
-        self.modifiers
-            .lock()
-            .map(|g| g.clone())
-            .unwrap_or_default()
-    }
-
-    /// Get list of registered shortcut IDs
-    pub async fn get_registered_shortcuts(&self) -> Vec<String> {
-        self.shortcuts
-            .lock()
-            .map(|g| g.keys().cloned().collect())
-            .unwrap_or_default()
-    }
 }
 
 /// Parse a shortcut string like "ctrl+shift+a", "caps lock", or "ctrl+alt" into key and modifiers

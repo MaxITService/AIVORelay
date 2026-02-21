@@ -1,6 +1,6 @@
 use tauri::{AppHandle, Manager};
 
-use crate::managers::key_listener::{KeyListenerState, ModifierState};
+use crate::managers::key_listener::KeyListenerState;
 
 /// Start the key listener
 #[tauri::command]
@@ -22,28 +22,6 @@ pub async fn key_listener_stop(app_handle: AppHandle) -> Result<(), String> {
     })?;
 
     key_listener_state.manager.stop().await
-}
-
-/// Check if the key listener is running
-#[tauri::command]
-#[specta::specta]
-pub async fn key_listener_is_running(app_handle: AppHandle) -> Result<bool, String> {
-    let key_listener_state = app_handle.try_state::<KeyListenerState>().ok_or_else(|| {
-        "Key listener state not found. App may not be initialized properly.".to_string()
-    })?;
-
-    Ok(key_listener_state.manager.is_running().await)
-}
-
-/// Get current modifier state (Ctrl, Shift, Alt, Win)
-#[tauri::command]
-#[specta::specta]
-pub async fn key_listener_get_modifiers(app_handle: AppHandle) -> Result<ModifierState, String> {
-    let key_listener_state = app_handle.try_state::<KeyListenerState>().ok_or_else(|| {
-        "Key listener state not found. App may not be initialized properly.".to_string()
-    })?;
-
-    Ok(key_listener_state.manager.get_modifier_state().await)
 }
 
 /// Register a shortcut with the rdev key listener
@@ -79,29 +57,3 @@ pub async fn key_listener_unregister_shortcut(
     key_listener_state.manager.unregister_shortcut(&id).await
 }
 
-/// Check if a shortcut is registered with rdev
-#[tauri::command]
-#[specta::specta]
-pub async fn key_listener_is_shortcut_registered(
-    app_handle: AppHandle,
-    id: String,
-) -> Result<bool, String> {
-    let key_listener_state = app_handle.try_state::<KeyListenerState>().ok_or_else(|| {
-        "Key listener state not found. App may not be initialized properly.".to_string()
-    })?;
-
-    Ok(key_listener_state.manager.is_shortcut_registered(&id).await)
-}
-
-/// Get list of all registered rdev shortcuts
-#[tauri::command]
-#[specta::specta]
-pub async fn key_listener_get_registered_shortcuts(
-    app_handle: AppHandle,
-) -> Result<Vec<String>, String> {
-    let key_listener_state = app_handle.try_state::<KeyListenerState>().ok_or_else(|| {
-        "Key listener state not found. App may not be initialized properly.".to_string()
-    })?;
-
-    Ok(key_listener_state.manager.get_registered_shortcuts().await)
-}
