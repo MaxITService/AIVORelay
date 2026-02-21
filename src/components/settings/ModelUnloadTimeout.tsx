@@ -1,4 +1,4 @@
-import React, { useMemo } from "react";
+import React from "react";
 import { useTranslation } from "react-i18next";
 import { useSettings } from "../../hooks/useSettings";
 import { type ModelUnloadTimeout } from "@/bindings";
@@ -15,9 +15,9 @@ export const ModelUnloadTimeoutSetting: React.FC<ModelUnloadTimeoutProps> = ({
   grouped = false,
 }) => {
   const { t } = useTranslation();
-  const { settings, getSetting, updateSetting } = useSettings();
+  const { getSetting, updateSetting } = useSettings();
 
-  const timeoutOptions = [
+  const options = [
     {
       value: "never" as ModelUnloadTimeout,
       label: t("settings.advanced.modelUnload.options.never"),
@@ -46,10 +46,6 @@ export const ModelUnloadTimeoutSetting: React.FC<ModelUnloadTimeoutProps> = ({
       value: "hour_1" as ModelUnloadTimeout,
       label: t("settings.advanced.modelUnload.options.hour1"),
     },
-  ];
-
-  const debugTimeoutOptions = [
-    ...timeoutOptions,
     {
       value: "sec_5" as ModelUnloadTimeout,
       label: t("settings.advanced.modelUnload.options.sec5"),
@@ -62,10 +58,6 @@ export const ModelUnloadTimeoutSetting: React.FC<ModelUnloadTimeoutProps> = ({
   };
 
   const currentValue = getSetting("model_unload_timeout") ?? "never";
-
-  const options = useMemo(() => {
-    return settings?.debug_mode === true ? debugTimeoutOptions : timeoutOptions;
-  }, [settings]);
 
   return (
     <SettingContainer

@@ -24,7 +24,7 @@ function App() {
   const [showHotkeyWelcomeHint, setShowHotkeyWelcomeHint] = useState(false);
   const previousOnboardingState = useRef<boolean | null>(null);
   const { currentSection, setSection: setCurrentSection } = useNavigationStore();
-  const { settings, updateSetting, refreshSettings } = useSettings();
+  const { refreshSettings } = useSettings();
 
   useEffect(() => {
     checkOnboardingStatus();
@@ -97,31 +97,6 @@ function App() {
       unlistenVoiceCommand.then((unlisten) => unlisten());
     };
   }, []);
-
-  // Handle keyboard shortcuts for debug mode toggle
-  useEffect(() => {
-    const handleKeyDown = (event: KeyboardEvent) => {
-      // Check for Ctrl+Shift+D (Windows/Linux) or Cmd+Shift+D (macOS)
-      const isDebugShortcut =
-        event.shiftKey &&
-        event.key.toLowerCase() === "d" &&
-        (event.ctrlKey || event.metaKey);
-
-      if (isDebugShortcut) {
-        event.preventDefault();
-        const currentDebugMode = settings?.debug_mode ?? false;
-        updateSetting("debug_mode", !currentDebugMode);
-      }
-    };
-
-    // Add event listener when component mounts
-    document.addEventListener("keydown", handleKeyDown);
-
-    // Cleanup event listener when component unmounts
-    return () => {
-      document.removeEventListener("keydown", handleKeyDown);
-    };
-  }, [settings?.debug_mode, updateSetting]);
 
   const checkOnboardingStatus = async () => {
     try {
