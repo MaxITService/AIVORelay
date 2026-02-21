@@ -129,7 +129,6 @@ const settingUpdaters: {
     commands.changeSelectedLanguageSetting(value as string),
   overlay_position: (value) =>
     commands.changeOverlayPositionSetting(value as string),
-  debug_mode: (value) => commands.changeDebugModeSetting(value as boolean),
   custom_words: (value) => commands.updateCustomWords(value as string[]),
   custom_words_enabled: (value) =>
     commands.changeCustomWordsEnabledSetting(value as boolean),
