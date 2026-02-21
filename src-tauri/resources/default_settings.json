@@ -20,5 +20,11 @@
   "ai_replace_user_prompt": "INSTRUCTION:\n${instruction}\n\nTEXT:\n${output}",
   "ai_replace_max_chars": 20000,
   "ai_replace_restore_on_error": true,
-  "connector_password": "fklejqwhfiu342lhk3"
+  "connector_password": "fklejqwhfiu342lhk3",
+  "beta_voice_commands_enabled": false,
+  "voice_button_show_aot_toggle": false,
+  "voice_button_single_click_close": false,
+  "recording_auto_stop_enabled": false,
+  "recording_auto_stop_timeout_seconds": 1800,
+  "recording_auto_stop_paste": false
 }

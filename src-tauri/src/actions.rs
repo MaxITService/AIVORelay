@@ -585,7 +585,7 @@ async fn maybe_convert_chinese_variant(
     }
 }
 
-fn reset_toggle_state(app: &AppHandle, binding_id: &str) {
+pub(crate) fn reset_toggle_state(app: &AppHandle, binding_id: &str) {
     if let Ok(mut states) = app.state::<ManagedToggleState>().lock() {
         if let Some(state) = states.active_toggles.get_mut(binding_id) {
             *state = false;
@@ -775,6 +775,7 @@ fn start_recording_with_feedback(app: &AppHandle, binding_id: &str) -> bool {
     if recording_started {
         // Register cancel shortcut now that recording is confirmed
         session.register_cancel_shortcut();
+        crate::recording_auto_stop::start_auto_stop_timer(app, binding_id);
     } else {
         // Drop captured app context for failed recordings.
         let _ = take_recording_app_context(binding_id);
@@ -1227,6 +1228,8 @@ fn prepare_stop_recording_with_options(
     // Release lock before doing I/O
     drop(state_guard);
 
+    crate::recording_auto_stop::cancel_auto_stop_timer(app);
+
     if let Some((session, captured_profile_id, recording_settings)) = result {
         let current_app = take_recording_app_context(binding_id);
 
@@ -1307,9 +1310,9 @@ async fn get_transcription_or_cleanup_detailed(
         let is_ai_replace = binding_id.starts_with("ai_replace");
         let quick_tap_threshold_samples =
             quick_tap_threshold_samples(recording_settings.ai_replace_quick_tap_threshold_ms);
-        let should_skip = is_ai_replace
-            && recording_settings.ai_replace_allow_quick_tap
-            && { samples.len() < quick_tap_threshold_samples };
+        let should_skip = is_ai_replace && recording_settings.ai_replace_allow_quick_tap && {
+            samples.len() < quick_tap_threshold_samples
+        };
 
         if should_skip {
             debug!(
@@ -1467,7 +1470,7 @@ async fn finalize_preview_workflow_after_stop(app: &AppHandle, text: String) -> 
     Ok(())
 }
 
-fn transcribe_action_for_binding(binding_id: &str) -> Option<Arc<dyn ShortcutAction>> {
+pub(crate) fn transcribe_action_for_binding(binding_id: &str) -> Option<Arc<dyn ShortcutAction>> {
     ACTION_MAP.get(binding_id).cloned().or_else(|| {
         if binding_id.starts_with("transcribe_") {
             ACTION_MAP.get("transcribe").cloned()

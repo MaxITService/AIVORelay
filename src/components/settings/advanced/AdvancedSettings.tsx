@@ -8,6 +8,7 @@ import { PasteMethodSetting } from "../PasteMethod";
 import { ClipboardHandlingSetting } from "../ClipboardHandling";
 import { AutoSubmit } from "../AutoSubmit";
 import { TellMeMore } from "../../ui/TellMeMore";
+import { RecordingAutoStop } from "../RecordingAutoStop";
 
 export const AdvancedSettings: React.FC = () => {
   const { t } = useTranslation();
@@ -60,6 +61,7 @@ export const AdvancedSettings: React.FC = () => {
         <PasteMethodSetting descriptionMode="tooltip" grouped={true} />
         <ClipboardHandlingSetting descriptionMode="tooltip" grouped={true} />
         <AutoSubmit descriptionMode="tooltip" grouped={true} />
+        <RecordingAutoStop descriptionMode="tooltip" grouped={true} />
         <ModelUnloadTimeoutSetting descriptionMode="tooltip" grouped={true} />
       </SettingsGroup>
 

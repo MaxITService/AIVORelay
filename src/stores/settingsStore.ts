@@ -121,8 +121,7 @@ const settingUpdaters: {
     ),
   recording_retention_period: (value) =>
     commands.updateRecordingRetentionPeriod(value as string),
-  model_unload_timeout: (value) =>
-    commands.setModelUnloadTimeout(value as any),
+  model_unload_timeout: (value) => commands.setModelUnloadTimeout(value as any),
   translate_to_english: (value) =>
     commands.changeTranslateToEnglishSetting(value as boolean),
   selected_language: (value) =>
@@ -250,8 +249,7 @@ const settingUpdaters: {
   soniox_model: (value) => commands.changeSonioxModelSetting(value as string),
   soniox_timeout_seconds: (value) =>
     commands.changeSonioxTimeoutSetting(Math.round(value as number)),
-  vad_threshold: (value) =>
-    commands.changeVadThresholdSetting(value as number),
+  vad_threshold: (value) => commands.changeVadThresholdSetting(value as number),
 };
 
 (settingUpdaters as any).soniox_live_enabled = (value: any) =>
@@ -265,7 +263,9 @@ const settingUpdaters: {
 (settingUpdaters as any).soniox_context_terms = (value: any) =>
   invoke("change_soniox_context_terms_setting", { terms: value });
 (settingUpdaters as any).soniox_use_profile_language_hint_only = (value: any) =>
-  invoke("change_soniox_use_profile_language_hint_only_setting", { enabled: value });
+  invoke("change_soniox_use_profile_language_hint_only_setting", {
+    enabled: value,
+  });
 (settingUpdaters as any).soniox_language_hints_strict = (value: any) =>
   invoke("change_soniox_language_hints_strict_setting", { enabled: value });
 (settingUpdaters as any).soniox_enable_endpoint_detection = (value: any) =>
@@ -277,17 +277,37 @@ const settingUpdaters: {
 (settingUpdaters as any).soniox_enable_speaker_diarization = (value: any) =>
   invoke("change_soniox_speaker_diarization_setting", { enabled: value });
 (settingUpdaters as any).soniox_keepalive_interval_seconds = (value: any) =>
-  invoke("change_soniox_keepalive_interval_seconds_setting", { seconds: value });
+  invoke("change_soniox_keepalive_interval_seconds_setting", {
+    seconds: value,
+  });
 (settingUpdaters as any).soniox_live_finalize_timeout_ms = (value: any) =>
-  invoke("change_soniox_live_finalize_timeout_ms_setting", { timeoutMs: value });
+  invoke("change_soniox_live_finalize_timeout_ms_setting", {
+    timeoutMs: value,
+  });
 (settingUpdaters as any).soniox_live_instant_stop = (value: any) =>
   invoke("change_soniox_live_instant_stop_setting", { enabled: value });
-(settingUpdaters as any).soniox_realtime_fuzzy_correction_enabled = (value: any) =>
-  invoke("change_soniox_realtime_fuzzy_correction_enabled_setting", { enabled: value });
-(settingUpdaters as any).soniox_realtime_keep_safety_buffer_enabled = (value: any) =>
-  invoke("change_soniox_realtime_keep_safety_buffer_enabled_setting", { enabled: value });
+(settingUpdaters as any).soniox_realtime_fuzzy_correction_enabled = (
+  value: any,
+) =>
+  invoke("change_soniox_realtime_fuzzy_correction_enabled_setting", {
+    enabled: value,
+  });
+(settingUpdaters as any).soniox_realtime_keep_safety_buffer_enabled = (
+  value: any,
+) =>
+  invoke("change_soniox_realtime_keep_safety_buffer_enabled_setting", {
+    enabled: value,
+  });
 
 // Fork-specific settings not yet present in generated bindings.
+(settingUpdaters as any).recording_auto_stop_enabled = (value: any) =>
+  invoke("change_recording_auto_stop_enabled_setting", { enabled: value });
+(settingUpdaters as any).recording_auto_stop_timeout_seconds = (value: any) =>
+  invoke("change_recording_auto_stop_timeout_seconds_setting", {
+    seconds: value,
+  });
+(settingUpdaters as any).recording_auto_stop_paste = (value: any) =>
+  invoke("change_recording_auto_stop_paste_setting", { paste: value });
 (settingUpdaters as any).native_region_capture_mode = (value: any) =>
   invoke("change_native_region_capture_mode_setting", { mode: value });
 (settingUpdaters as any).beta_voice_commands_enabled = (value: any) =>
@@ -305,24 +325,36 @@ const settingUpdaters: {
 (settingUpdaters as any).soniox_live_preview_custom_y_px = (value: any) =>
   invoke("change_soniox_live_preview_custom_y_setting", { yPx: value });
 (settingUpdaters as any).soniox_live_preview_cursor_offset_px = (value: any) =>
-  invoke("change_soniox_live_preview_cursor_offset_setting", { distancePx: value });
+  invoke("change_soniox_live_preview_cursor_offset_setting", {
+    distancePx: value,
+  });
 (settingUpdaters as any).soniox_live_preview_size = (value: any) =>
   invoke("change_soniox_live_preview_size_setting", { size: value });
 (settingUpdaters as any).soniox_live_preview_custom_width_px = (value: any) =>
   invoke("change_soniox_live_preview_custom_width_setting", { widthPx: value });
 (settingUpdaters as any).soniox_live_preview_custom_height_px = (value: any) =>
-  invoke("change_soniox_live_preview_custom_height_setting", { heightPx: value });
+  invoke("change_soniox_live_preview_custom_height_setting", {
+    heightPx: value,
+  });
 (settingUpdaters as any).soniox_live_preview_theme = (value: any) =>
   invoke("change_soniox_live_preview_theme_setting", { theme: value });
 (settingUpdaters as any).soniox_live_preview_opacity_percent = (value: any) =>
-  invoke("change_soniox_live_preview_opacity_setting", { opacityPercent: value });
+  invoke("change_soniox_live_preview_opacity_setting", {
+    opacityPercent: value,
+  });
 (settingUpdaters as any).soniox_live_preview_font_color = (value: any) =>
   invoke("change_soniox_live_preview_font_color_setting", { color: value });
-(settingUpdaters as any).soniox_live_preview_interim_font_color = (value: any) =>
-  invoke("change_soniox_live_preview_interim_font_color_setting", { color: value });
+(settingUpdaters as any).soniox_live_preview_interim_font_color = (
+  value: any,
+) =>
+  invoke("change_soniox_live_preview_interim_font_color_setting", {
+    color: value,
+  });
 (settingUpdaters as any).soniox_live_preview_accent_color = (value: any) =>
   invoke("change_soniox_live_preview_accent_color_setting", { color: value });
-(settingUpdaters as any).soniox_live_preview_interim_opacity_percent = (value: any) =>
+(settingUpdaters as any).soniox_live_preview_interim_opacity_percent = (
+  value: any,
+) =>
   invoke("change_soniox_live_preview_interim_opacity_setting", {
     opacityPercent: value,
   });
@@ -333,17 +365,31 @@ const settingUpdaters: {
 (settingUpdaters as any).soniox_live_preview_flush_hotkey = (value: any) =>
   invoke("change_soniox_live_preview_flush_hotkey_setting", { hotkey: value });
 (settingUpdaters as any).soniox_live_preview_process_hotkey = (value: any) =>
-  invoke("change_soniox_live_preview_process_hotkey_setting", { hotkey: value });
+  invoke("change_soniox_live_preview_process_hotkey_setting", {
+    hotkey: value,
+  });
 (settingUpdaters as any).soniox_live_preview_insert_hotkey = (value: any) =>
   invoke("change_soniox_live_preview_insert_hotkey_setting", { hotkey: value });
 (settingUpdaters as any).soniox_live_preview_show_clear_button = (value: any) =>
-  invoke("change_soniox_live_preview_show_clear_button_setting", { enabled: value });
+  invoke("change_soniox_live_preview_show_clear_button_setting", {
+    enabled: value,
+  });
 (settingUpdaters as any).soniox_live_preview_show_flush_button = (value: any) =>
-  invoke("change_soniox_live_preview_show_flush_button_setting", { enabled: value });
-(settingUpdaters as any).soniox_live_preview_show_process_button = (value: any) =>
-  invoke("change_soniox_live_preview_show_process_button_setting", { enabled: value });
-(settingUpdaters as any).soniox_live_preview_show_insert_button = (value: any) =>
-  invoke("change_soniox_live_preview_show_insert_button_setting", { enabled: value });
+  invoke("change_soniox_live_preview_show_flush_button_setting", {
+    enabled: value,
+  });
+(settingUpdaters as any).soniox_live_preview_show_process_button = (
+  value: any,
+) =>
+  invoke("change_soniox_live_preview_show_process_button_setting", {
+    enabled: value,
+  });
+(settingUpdaters as any).soniox_live_preview_show_insert_button = (
+  value: any,
+) =>
+  invoke("change_soniox_live_preview_show_insert_button_setting", {
+    enabled: value,
+  });
 
 // Extended Thinking / Reasoning settings
 (settingUpdaters as any).post_process_reasoning_enabled = (value: any) =>
@@ -388,7 +434,9 @@ const settingUpdaters: {
   invoke("change_voice_command_use_phonetic_setting", { enabled: value });
 (settingUpdaters as any).voice_command_phonetic_boost = (value: any) =>
   invoke("change_voice_command_phonetic_boost_setting", { boost: value });
-(settingUpdaters as any).voice_command_word_similarity_threshold = (value: any) =>
+(settingUpdaters as any).voice_command_word_similarity_threshold = (
+  value: any,
+) =>
   invoke("change_voice_command_word_similarity_threshold_setting", {
     threshold: value,
   });
@@ -420,18 +468,49 @@ const settingUpdaters: {
   commands.changeFillerWordFilterEnabledSetting(value as boolean);
 (settingUpdaters as any).zero_width_filter_enabled = (value: any) =>
   commands.changeZeroWidthFilterEnabledSetting(value as boolean);
-(settingUpdaters as any).text_replacement_decapitalize_after_edit_key_enabled = (value: any) =>
-  invoke("change_text_replacement_decapitalize_after_edit_key_enabled_setting", { enabled: value });
-(settingUpdaters as any).text_replacement_decapitalize_after_edit_key = (value: any) =>
-  invoke("change_text_replacement_decapitalize_after_edit_key_setting", { key: value });
-(settingUpdaters as any).text_replacement_decapitalize_after_edit_secondary_key_enabled = (value: any) =>
-  invoke("change_text_replacement_decapitalize_after_edit_secondary_key_enabled_setting", { enabled: value });
-(settingUpdaters as any).text_replacement_decapitalize_after_edit_secondary_key = (value: any) =>
-  invoke("change_text_replacement_decapitalize_after_edit_secondary_key_setting", { key: value });
-(settingUpdaters as any).text_replacement_decapitalize_timeout_ms = (value: any) =>
-  invoke("change_text_replacement_decapitalize_timeout_ms_setting", { timeoutMs: value });
-(settingUpdaters as any).text_replacement_decapitalize_standard_post_recording_monitor_ms = (value: any) =>
-  invoke("change_text_replacement_decapitalize_standard_post_recording_monitor_ms_setting", { timeoutMs: value });
+(settingUpdaters as any).text_replacement_decapitalize_after_edit_key_enabled =
+  (value: any) =>
+    invoke(
+      "change_text_replacement_decapitalize_after_edit_key_enabled_setting",
+      { enabled: value },
+    );
+(settingUpdaters as any).text_replacement_decapitalize_after_edit_key = (
+  value: any,
+) =>
+  invoke("change_text_replacement_decapitalize_after_edit_key_setting", {
+    key: value,
+  });
+(
+  settingUpdaters as any
+).text_replacement_decapitalize_after_edit_secondary_key_enabled = (
+  value: any,
+) =>
+  invoke(
+    "change_text_replacement_decapitalize_after_edit_secondary_key_enabled_setting",
+    { enabled: value },
+  );
+(
+  settingUpdaters as any
+).text_replacement_decapitalize_after_edit_secondary_key = (value: any) =>
+  invoke(
+    "change_text_replacement_decapitalize_after_edit_secondary_key_setting",
+    { key: value },
+  );
+(settingUpdaters as any).text_replacement_decapitalize_timeout_ms = (
+  value: any,
+) =>
+  invoke("change_text_replacement_decapitalize_timeout_ms_setting", {
+    timeoutMs: value,
+  });
+(
+  settingUpdaters as any
+).text_replacement_decapitalize_standard_post_recording_monitor_ms = (
+  value: any,
+) =>
+  invoke(
+    "change_text_replacement_decapitalize_standard_post_recording_monitor_ms_setting",
+    { timeoutMs: value },
+  );
 (settingUpdaters as any).output_whitespace_leading_mode = (value: any) =>
   commands.changeOutputWhitespaceLeadingModeSetting(value);
 (settingUpdaters as any).output_whitespace_trailing_mode = (value: any) =>
@@ -855,7 +934,7 @@ export const useSettingsStore = create<SettingsStore>()(
             ? settings?.voice_command_provider_id ||
               settings?.post_process_provider_id ||
               "openai"
-          : settings?.post_process_provider_id || "openai";
+            : settings?.post_process_provider_id || "openai";
 
       const updateKey = `llm_models_fetch:${feature}:${effectiveProviderId}`;
 
