@@ -43,13 +43,6 @@ pub struct SonioxFileTranscriptionOptions {
 const SUPPORTED_EXTENSIONS: &[&str] = &["wav", "mp3", "m4a", "ogg", "flac", "webm"];
 const SONIOX_LATEST_ASYNC_MODEL: &str = "stt-async-v4";
 
-/// Get the list of supported audio file extensions
-#[tauri::command]
-#[specta::specta]
-pub fn get_supported_audio_extensions() -> Vec<String> {
-    SUPPORTED_EXTENSIONS.iter().map(|s| s.to_string()).collect()
-}
-
 /// Transcribe an audio file to text
 ///
 /// # Arguments

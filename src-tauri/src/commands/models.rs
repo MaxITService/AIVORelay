@@ -17,15 +17,6 @@ pub async fn get_available_models(
 
 #[tauri::command]
 #[specta::specta]
-pub async fn get_model_info(
-    model_manager: State<'_, Arc<ModelManager>>,
-    model_id: String,
-) -> Result<Option<ModelInfo>, String> {
-    Ok(model_manager.get_model_info(&model_id))
-}
-
-#[tauri::command]
-#[specta::specta]
 pub async fn download_model(
     model_manager: State<'_, Arc<ModelManager>>,
     model_id: String,
@@ -356,16 +347,3 @@ pub async fn cancel_download(
         .map_err(|e| e.to_string())
 }
 
-#[tauri::command]
-#[specta::specta]
-pub async fn get_recommended_first_model(
-    model_manager: State<'_, Arc<ModelManager>>,
-) -> Result<String, String> {
-    // Deprecated compatibility command: derive recommendation from model metadata.
-    // If no model is explicitly marked recommended, keep legacy fallback.
-    let models = model_manager.get_available_models();
-    if let Some(model) = models.iter().find(|m| m.is_recommended) {
-        return Ok(model.id.clone());
-    }
-    Ok("parakeet-tdt-0.6b-v3".to_string())
-}
