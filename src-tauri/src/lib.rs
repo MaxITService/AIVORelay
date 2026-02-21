@@ -14,6 +14,7 @@ mod llm_client;
 mod managers;
 mod overlay;
 mod plus_overlay_state;
+mod recording_auto_stop;
 #[cfg(target_os = "windows")]
 mod region_capture;
 mod secure_keys;
@@ -437,6 +438,9 @@ pub fn run() {
         shortcut::resume_binding,
         shortcut::change_mute_while_recording_setting,
         shortcut::change_filter_silence_setting,
+        shortcut::change_recording_auto_stop_enabled_setting,
+        shortcut::change_recording_auto_stop_timeout_seconds_setting,
+        shortcut::change_recording_auto_stop_paste_setting,
         shortcut::change_ai_replace_system_prompt_setting,
         shortcut::change_ai_replace_user_prompt_setting,
         shortcut::change_ai_replace_max_chars_setting,
@@ -651,6 +655,7 @@ pub fn run() {
         .manage(Mutex::new(ShortcutToggleStates::default()))
         .manage(Mutex::new(PressTimestamps::default()))
         .manage(Mutex::new(session_manager::SessionState::default()))
+        .manage(recording_auto_stop::new_managed_state())
         .manage(
             std::sync::Mutex::new(std::collections::HashSet::<String>::new())
                 as shortcut::RdevShortcutsSet,
