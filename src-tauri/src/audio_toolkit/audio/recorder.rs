@@ -107,21 +107,36 @@ impl AudioRecorder {
                 );
 
                 let stream = match config.sample_format() {
-                    cpal::SampleFormat::U8 => {
-                        AudioRecorder::build_stream::<u8>(&thread_device, &config, sample_tx, channels)
-                    }
-                    cpal::SampleFormat::I8 => {
-                        AudioRecorder::build_stream::<i8>(&thread_device, &config, sample_tx, channels)
-                    }
-                    cpal::SampleFormat::I16 => {
-                        AudioRecorder::build_stream::<i16>(&thread_device, &config, sample_tx, channels)
-                    }
-                    cpal::SampleFormat::I32 => {
-                        AudioRecorder::build_stream::<i32>(&thread_device, &config, sample_tx, channels)
-                    }
-                    cpal::SampleFormat::F32 => {
-                        AudioRecorder::build_stream::<f32>(&thread_device, &config, sample_tx, channels)
-                    }
+                    cpal::SampleFormat::U8 => AudioRecorder::build_stream::<u8>(
+                        &thread_device,
+                        &config,
+                        sample_tx,
+                        channels,
+                    ),
+                    cpal::SampleFormat::I8 => AudioRecorder::build_stream::<i8>(
+                        &thread_device,
+                        &config,
+                        sample_tx,
+                        channels,
+                    ),
+                    cpal::SampleFormat::I16 => AudioRecorder::build_stream::<i16>(
+                        &thread_device,
+                        &config,
+                        sample_tx,
+                        channels,
+                    ),
+                    cpal::SampleFormat::I32 => AudioRecorder::build_stream::<i32>(
+                        &thread_device,
+                        &config,
+                        sample_tx,
+                        channels,
+                    ),
+                    cpal::SampleFormat::F32 => AudioRecorder::build_stream::<f32>(
+                        &thread_device,
+                        &config,
+                        sample_tx,
+                        channels,
+                    ),
                     other => return Err(format!("Unsupported sample format: {:?}", other)),
                 }
                 .map_err(|e| format!("Failed to build audio stream: {}", e))?;
@@ -138,7 +153,14 @@ impl AudioRecorder {
                     // Signal success
                     let _ = init_tx.send(Ok(()));
                     // Keep stream alive while processing
-                    run_consumer(sample_rate, vad, sample_rx, cmd_rx, level_cb, stream_frame_cb);
+                    run_consumer(
+                        sample_rate,
+                        vad,
+                        sample_rx,
+                        cmd_rx,
+                        level_cb,
+                        stream_frame_cb,
+                    );
                     drop(stream);
                 }
                 Err(e) => {
@@ -371,8 +393,14 @@ fn run_consumer(
                 Cmd::Stop(reply_tx) => {
                     recording = false;
 
+                    // Drain any audio chunks that were captured but not yet consumed
+                    while let Ok(remaining) = sample_rx.try_recv() {
+                        frame_resampler.push(&remaining, &mut |frame: &[f32]| {
+                            handle_frame(frame, true, &vad, &mut processed_samples)
+                        });
+                    }
+
                     frame_resampler.finish(&mut |frame: &[f32]| {
-                        // we still want to process the last few frames
                         handle_frame(frame, true, &vad, &mut processed_samples)
                     });
 
