@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { Toaster, toast } from "sonner";
 import "./App.css";
 import AccessibilityPermissions from "./components/AccessibilityPermissions";
@@ -21,9 +21,8 @@ const renderSettingsContent = (section: SidebarSection) => {
 function App() {
   const [showOnboarding, setShowOnboarding] = useState<boolean | null>(null);
   const [onboardingFromDebug, setOnboardingFromDebug] = useState(false);
-  const [showHotkeyWelcomeHint, setShowHotkeyWelcomeHint] = useState(false);
-  const previousOnboardingState = useRef<boolean | null>(null);
-  const { currentSection, setSection: setCurrentSection } = useNavigationStore();
+  const { currentSection, setSection: setCurrentSection } =
+    useNavigationStore();
   const { refreshSettings } = useSettings();
 
   useEffect(() => {
@@ -50,35 +49,6 @@ function App() {
   }, []);
 
   useEffect(() => {
-    const previous = previousOnboardingState.current;
-    if (previous === true && showOnboarding === false) {
-      setShowHotkeyWelcomeHint(true);
-    }
-    previousOnboardingState.current = showOnboarding;
-  }, [showOnboarding]);
-
-  useEffect(() => {
-    if (!showHotkeyWelcomeHint) {
-      return;
-    }
-
-    const handleWindowClick = () => {
-      setShowHotkeyWelcomeHint(false);
-    };
-
-    window.addEventListener("click", handleWindowClick);
-
-    const timeoutId = window.setTimeout(() => {
-      setShowHotkeyWelcomeHint(false);
-    }, 16000);
-
-    return () => {
-      window.removeEventListener("click", handleWindowClick);
-      window.clearTimeout(timeoutId);
-    };
-  }, [showHotkeyWelcomeHint]);
-
-  useEffect(() => {
     const ERROR_TOAST_DURATION_MS = 8000;
 
     const unlistenRemote = listen<string>("remote-stt-error", (event) => {
@@ -87,9 +57,12 @@ function App() {
     const unlistenScreenshot = listen<string>("screenshot-error", (event) => {
       toast.error(event.payload, { duration: ERROR_TOAST_DURATION_MS });
     });
-    const unlistenVoiceCommand = listen<string>("voice-command-error", (event) => {
-      toast.error(event.payload, { duration: ERROR_TOAST_DURATION_MS });
-    });
+    const unlistenVoiceCommand = listen<string>(
+      "voice-command-error",
+      (event) => {
+        toast.error(event.payload, { duration: ERROR_TOAST_DURATION_MS });
+      },
+    );
 
     return () => {
       unlistenRemote.then((unlisten) => unlisten());
@@ -155,10 +128,10 @@ function App() {
         theme="dark"
         toastOptions={{
           style: {
-            background: 'rgba(26, 26, 26, 0.98)',
-            border: '1px solid #333333',
-            color: '#f5f5f5',
-            backdropFilter: 'blur(12px)',
+            background: "rgba(26, 26, 26, 0.98)",
+            border: "1px solid #333333",
+            color: "#f5f5f5",
+            backdropFilter: "blur(12px)",
           },
         }}
       />
@@ -181,10 +154,7 @@ function App() {
       {/* Fixed footer at bottom */}
       <Footer />
       {/* Hotkey sidebar on the right edge */}
-      <HotkeySidebar
-        showNewcomerHint={showHotkeyWelcomeHint}
-        onDismissNewcomerHint={() => setShowHotkeyWelcomeHint(false)}
-      />
+      <HotkeySidebar />
     </div>
   );
 }

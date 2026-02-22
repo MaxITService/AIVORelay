@@ -5,6 +5,9 @@ import { commands, type ModelInfo } from "@/bindings";
 import ModelCard from "./ModelCard";
 import HandyTextLogo from "../icons/HandyTextLogo";
 import { RemoteSttWizard } from "./RemoteSttWizard";
+import { HandyShortcut } from "../settings/HandyShortcut";
+
+type WelcomeVariant = "local" | "remote";
 
 interface OnboardingProps {
   onModelSelected: () => void;
@@ -22,7 +25,8 @@ const Onboarding: React.FC<OnboardingProps> = ({
   const [availableModels, setAvailableModels] = useState<ModelInfo[]>([]);
   const [downloading, setDownloading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [mode, setMode] = useState<"select" | "local">("select");
+  const [mode, setMode] = useState<"select" | "local" | "welcome">("select");
+  const [welcomeVariant, setWelcomeVariant] = useState<WelcomeVariant>("local");
   const [showRemoteWizard, setShowRemoteWizard] = useState(false);
 
   useEffect(() => {
@@ -36,7 +40,9 @@ const Onboarding: React.FC<OnboardingProps> = ({
         // First-run onboarding shows only downloadable models.
         // Debug re-run mode shows the full catalog.
         setAvailableModels(
-          showFullCatalog ? result.data : result.data.filter((m) => !m.is_downloaded),
+          showFullCatalog
+            ? result.data
+            : result.data.filter((m) => !m.is_downloaded),
         );
       } else {
         setError(t("onboarding.errors.loadModels"));
@@ -52,7 +58,8 @@ const Onboarding: React.FC<OnboardingProps> = ({
       try {
         const result = await commands.setActiveModel(model.id);
         if (result.status === "ok") {
-          onModelSelected();
+          setWelcomeVariant("local");
+          setMode("welcome");
           return;
         }
         setError(t("onboarding.errors.selectModel", { error: result.error }));
@@ -65,20 +72,17 @@ const Onboarding: React.FC<OnboardingProps> = ({
     setDownloading(true);
     setError(null);
 
-    // Immediately transition to main app - download will continue in footer
-    onModelSelected();
+    // Start download in background, show welcome screen
+    setWelcomeVariant("local");
+    setMode("welcome");
 
     try {
       const result = await commands.downloadModel(model.id);
       if (result.status === "error") {
         console.error("Download failed:", result.error);
-        setError(t("onboarding.errors.downloadModel", { error: result.error }));
-        setDownloading(false);
       }
     } catch (err) {
       console.error("Download failed:", err);
-      setError(t("onboarding.errors.downloadModel", { error: String(err) }));
-      setDownloading(false);
     }
   };
 
@@ -112,22 +116,40 @@ const Onboarding: React.FC<OnboardingProps> = ({
 
   const handleRemoteWizardComplete = () => {
     setShowRemoteWizard(false);
-    onRemoteSelected();
+    setWelcomeVariant("remote");
+    setMode("welcome");
   };
 
   const handleRemoteWizardClose = () => {
     setShowRemoteWizard(false);
   };
 
+  const handleGetStarted = () => {
+    if (welcomeVariant === "remote") {
+      onRemoteSelected();
+    } else {
+      onModelSelected();
+    }
+  };
+
+  const getSubtitle = () => {
+    if (mode === "welcome") return null;
+    if (mode === "select") return t("onboarding.mode.subtitle");
+    return t("onboarding.subtitle");
+  };
+
   return (
-    <div className="min-h-screen w-screen flex flex-col p-8 gap-6 inset-0 bg-gradient-to-br from-[#1e1e1e] via-[#222222] to-[#1a1a1a]">
+    <div className="h-screen w-screen flex flex-col p-8 gap-6 inset-0 overflow-y-auto bg-gradient-to-br from-[#1e1e1e] via-[#222222] to-[#1a1a1a]">
       <div className="flex flex-col items-center gap-3 shrink-0">
-        <HandyTextLogo width={220} className="drop-shadow-[0_0_20px_rgba(255,107,157,0.4)]" />
-        <p className="text-[#a0a0a0] max-w-md font-medium mx-auto text-center">
-          {mode === "select"
-            ? t("onboarding.mode.subtitle")
-            : t("onboarding.subtitle")}
-        </p>
+        <HandyTextLogo
+          width={220}
+          className="drop-shadow-[0_0_20px_rgba(255,107,157,0.4)]"
+        />
+        {getSubtitle() && (
+          <p className="text-[#a0a0a0] max-w-md font-medium mx-auto text-center">
+            {getSubtitle()}
+          </p>
+        )}
       </div>
 
       <div className="max-w-[600px] w-full mx-auto text-center flex-1 flex flex-col min-h-0">
@@ -138,7 +160,44 @@ const Onboarding: React.FC<OnboardingProps> = ({
         )}
 
         <div className="flex flex-col gap-4 ">
-          {mode === "select" ? (
+          {mode === "welcome" ? (
+            <div className="flex flex-col items-center gap-6 mt-4">
+              <h2 className="text-2xl font-bold text-[#f5f5f5]">
+                {t("onboarding.welcome.title")}
+              </h2>
+
+              {/* Status message */}
+              <p className="text-[#a0a0a0] text-sm">
+                {welcomeVariant === "local"
+                  ? t("onboarding.welcome.modelDownloading")
+                  : t("onboarding.welcome.providerReady")}
+              </p>
+
+              {/* Shortcut selector */}
+              <div className="w-full text-left space-y-2">
+                <p className="text-sm text-[#a0a0a0]">
+                  {t("onboarding.welcome.shortcutDescription")}
+                </p>
+                <HandyShortcut
+                  shortcutId="transcribe"
+                  descriptionMode="inline"
+                />
+              </div>
+
+              {/* Settings note */}
+              <p className="text-xs text-[#6b6b6b] max-w-md">
+                {t("onboarding.welcome.settingsNote")}
+              </p>
+
+              {/* Get Started button */}
+              <button
+                className="px-8 py-3 rounded-xl bg-[#ff4d8d] hover:bg-[#ff3377] text-white font-semibold transition-colors"
+                onClick={handleGetStarted}
+              >
+                {t("onboarding.welcome.getStarted")}
+              </button>
+            </div>
+          ) : mode === "select" ? (
             <div className="flex flex-col gap-4">
               <button
                 className="glass-panel-interactive flex justify-between items-center rounded-xl p-5 text-left group"
@@ -153,8 +212,18 @@ const Onboarding: React.FC<OnboardingProps> = ({
                   </p>
                 </div>
                 <div className="w-10 h-10 rounded-full bg-[#9b5de5] flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-                  <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                  <svg
+                    className="w-5 h-5 text-white"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M9 5l7 7-7 7"
+                    />
                   </svg>
                 </div>
               </button>
@@ -180,12 +249,25 @@ const Onboarding: React.FC<OnboardingProps> = ({
                 </div>
                 {isWindows && (
                   <div className="w-10 h-10 rounded-full bg-[#9b5de5] flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-                    <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                    <svg
+                      className="w-5 h-5 text-white"
+                      fill="none"
+                      stroke="currentColor"
+                      viewBox="0 0 24 24"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M9 5l7 7-7 7"
+                      />
                     </svg>
                   </div>
                 )}
               </button>
+              <p className="text-xs text-[#6b6b6b] mt-2">
+                {t("onboarding.mode.changeProviderLater")}
+              </p>
             </div>
           ) : (
             <>
