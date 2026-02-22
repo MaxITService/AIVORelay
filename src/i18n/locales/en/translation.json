@@ -129,7 +129,8 @@
         "title": "Remote (OpenAI-compatible)",
         "description": "Uses a remote API for transcription.",
         "windowsOnly": "Windows-only for now."
-      }
+      },
+      "changeProviderLater": "You can always change your transcription provider later in the Models section."
     },
     "recommended": "Recommended",
     "download": "Download",
@@ -205,8 +206,9 @@
         "soniox": "Soniox"
       },
       "recommendation": "Any OpenAI-compatible speech-to-text API will work. I tested the app with Groq and it worked well, so the fields below are pre-filled with Groq defaults. The Groq website is linked below because it's easy to register a free account there, but you are free to use any provider you prefer.",
+      "sonioxRecommendation": "For the best transcription quality, I recommend Soniox (no free tier). You can switch providers anytime in the Models section.",
       "freeTier": "Create an API key on your provider's website and enter it below.",
-      "sonioxInfo": "Soniox provides real-time speech-to-text with streaming support. Create an API key on their website and enter it below.",
+      "sonioxInfo": "Soniox provides real-time speech-to-text with streaming support. I recommend it as the best provider from my experience, but there is no free tier. Create an API key on their website and enter it below.",
       "sonioxRealtimeWarning": "The LLM post processing does not work with realtime API. LLM post processing settings will be ignored in this mode.",
       "baseUrl": {
         "label": "Server URL",
@@ -226,6 +228,14 @@
       "connectionSuccess": "Connection successful!",
       "connectionFailed": "Connection failed: {{error}}",
       "apiConfigHeader": "API Configuration"
+    },
+    "welcome": {
+      "title": "You're all set!",
+      "modelDownloading": "Your model is downloading. You'll see the progress in the footer.",
+      "providerReady": "Your provider is configured and ready to use.",
+      "shortcutDescription": "Hold to record, release to transcribe. Text goes to your clipboard.",
+      "settingsNote": "The app works out of the box. There are many settings to explore at your own pace — profiles, languages, shortcuts, and more.",
+      "getStarted": "Get Started"
     }
   },
   "modelSelector": {

@@ -3,7 +3,11 @@ import { useTranslation } from "react-i18next";
 import { ChevronLeft, ChevronRight, Pin, PinOff, Keyboard } from "lucide-react";
 import { useSettings } from "@/hooks/useSettings";
 import { HotkeyGroup } from "./HotkeyGroup";
-import type { ShortcutBinding, TranscriptionProfile, AppSettings } from "@/bindings";
+import type {
+  ShortcutBinding,
+  TranscriptionProfile,
+  AppSettings,
+} from "@/bindings";
 
 const DEFAULT_WIDTH = 350;
 const MIN_WIDTH = 250;
@@ -24,7 +28,10 @@ const featureEnabledMap: Record<string, keyof AppSettings> = {
 };
 
 /** Checks if a hotkey's feature is enabled (or has no toggle) */
-const isFeatureEnabled = (hotkeyId: string, settings: AppSettings | null): boolean => {
+const isFeatureEnabled = (
+  hotkeyId: string,
+  settings: AppSettings | null,
+): boolean => {
   const settingKey = featureEnabledMap[hotkeyId];
   if (!settingKey || !settings) return true; // No toggle = always enabled
   return settings[settingKey] as boolean;
@@ -34,15 +41,24 @@ const isFeatureEnabled = (hotkeyId: string, settings: AppSettings | null): boole
 const categorizeHotkeys = (
   bindings: Record<string, ShortcutBinding>,
   profiles: TranscriptionProfile[],
-  settings: AppSettings | null
+  settings: AppSettings | null,
 ): HotkeyCategory[] => {
   const assigned = Object.values(bindings).filter(
-    (b) => b.current_binding && b.current_binding.trim() !== "" && isFeatureEnabled(b.id, settings)
+    (b) =>
+      b.current_binding &&
+      b.current_binding.trim() !== "" &&
+      isFeatureEnabled(b.id, settings),
   );
 
   // Define category mappings
   const categoryMap: Record<string, string[]> = {
-    recording: ["transcribe", "transcribe_default", "cancel", "repaste_last", "cycle_profile"],
+    recording: [
+      "transcribe",
+      "transcribe_default",
+      "cancel",
+      "repaste_last",
+      "cycle_profile",
+    ],
     actions: [
       "ai_replace_selection",
       "send_to_extension",
@@ -59,40 +75,44 @@ const categorizeHotkeys = (
 
   // Recording category
   const recordingHotkeys = assigned.filter((h) =>
-    categoryMap.recording.includes(h.id)
+    categoryMap.recording.includes(h.id),
   );
   if (recordingHotkeys.length > 0) {
-    categories.push({ id: "recording", titleKey: "hotkeySidebar.categories.recording", hotkeys: recordingHotkeys });
+    categories.push({
+      id: "recording",
+      titleKey: "hotkeySidebar.categories.recording",
+      hotkeys: recordingHotkeys,
+    });
   }
 
   // Actions category
   const actionsHotkeys = assigned.filter((h) =>
-    categoryMap.actions.includes(h.id)
+    categoryMap.actions.includes(h.id),
   );
   if (actionsHotkeys.length > 0) {
-    categories.push({ id: "actions", titleKey: "hotkeySidebar.categories.actions", hotkeys: actionsHotkeys });
+    categories.push({
+      id: "actions",
+      titleKey: "hotkeySidebar.categories.actions",
+      hotkeys: actionsHotkeys,
+    });
   }
 
   // Profiles category
   const profileHotkeys = assigned.filter((h) =>
-    profileBindingIds.includes(h.id)
+    profileBindingIds.includes(h.id),
   );
   if (profileHotkeys.length > 0) {
-    categories.push({ id: "profiles", titleKey: "hotkeySidebar.categories.profiles", hotkeys: profileHotkeys });
+    categories.push({
+      id: "profiles",
+      titleKey: "hotkeySidebar.categories.profiles",
+      hotkeys: profileHotkeys,
+    });
   }
 
   return categories;
 };
 
-interface HotkeySidebarProps {
-  showNewcomerHint?: boolean;
-  onDismissNewcomerHint?: () => void;
-}
-
-export const HotkeySidebar: React.FC<HotkeySidebarProps> = ({
-  showNewcomerHint = false,
-  onDismissNewcomerHint,
-}) => {
+export const HotkeySidebar: React.FC = () => {
   const { t } = useTranslation();
   const { settings, updateSetting } = useSettings();
   const [isOpen, setIsOpen] = useState(false);
@@ -106,7 +126,10 @@ export const HotkeySidebar: React.FC<HotkeySidebarProps> = ({
 
   const isPinned = settings?.sidebar_pinned ?? false;
   const savedWidth = (settings as any)?.sidebar_width ?? DEFAULT_WIDTH;
-  const bindings = (settings?.bindings ?? {}) as Record<string, ShortcutBinding>;
+  const bindings = (settings?.bindings ?? {}) as Record<
+    string,
+    ShortcutBinding
+  >;
   const profiles = (settings as any)?.transcription_profiles ?? [];
 
   // Sync isOpen with isPinned when it changes (pinned = auto-open)
@@ -127,7 +150,7 @@ export const HotkeySidebar: React.FC<HotkeySidebarProps> = ({
 
   const categories = useMemo(
     () => categorizeHotkeys(bindings, profiles, settings),
-    [bindings, profiles, settings]
+    [bindings, profiles, settings],
   );
 
   const hasAnyHotkeys = categories.length > 0;
@@ -138,24 +161,15 @@ export const HotkeySidebar: React.FC<HotkeySidebarProps> = ({
 
   // Handle click always toggles, regardless of pin state
   const handleToggleOpen = useCallback(() => {
-    if (showNewcomerHint) {
-      onDismissNewcomerHint?.();
-    }
     setIsOpen((prev) => !prev);
-  }, [showNewcomerHint, onDismissNewcomerHint]);
+  }, []);
 
   // Drag handling for the edge handle (works regardless of pin state)
-  const handleMouseDown = useCallback(
-    (e: React.MouseEvent) => {
-      if (showNewcomerHint) {
-        onDismissNewcomerHint?.();
-      }
-      setIsDragging(true);
-      dragStartX.current = e.clientX;
-      e.preventDefault();
-    },
-    [showNewcomerHint, onDismissNewcomerHint]
-  );
+  const handleMouseDown = useCallback((e: React.MouseEvent) => {
+    setIsDragging(true);
+    dragStartX.current = e.clientX;
+    e.preventDefault();
+  }, []);
 
   const handleMouseMove = useCallback(
     (e: MouseEvent) => {
@@ -172,7 +186,7 @@ export const HotkeySidebar: React.FC<HotkeySidebarProps> = ({
         setIsDragging(false);
       }
     },
-    [isDragging, isOpen]
+    [isDragging, isOpen],
   );
 
   const handleMouseUp = useCallback(() => {
@@ -180,20 +194,29 @@ export const HotkeySidebar: React.FC<HotkeySidebarProps> = ({
   }, []);
 
   // Resize handling
-  const handleResizeStart = useCallback((e: React.MouseEvent) => {
-    setIsResizing(true);
-    resizeStartX.current = e.clientX;
-    resizeStartWidth.current = width;
-    e.preventDefault();
-    e.stopPropagation();
-  }, [width]);
+  const handleResizeStart = useCallback(
+    (e: React.MouseEvent) => {
+      setIsResizing(true);
+      resizeStartX.current = e.clientX;
+      resizeStartWidth.current = width;
+      e.preventDefault();
+      e.stopPropagation();
+    },
+    [width],
+  );
 
-  const handleResizeMove = useCallback((e: MouseEvent) => {
-    if (!isResizing) return;
-    const deltaX = resizeStartX.current - e.clientX;
-    const newWidth = Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, resizeStartWidth.current + deltaX));
-    setWidth(newWidth);
-  }, [isResizing]);
+  const handleResizeMove = useCallback(
+    (e: MouseEvent) => {
+      if (!isResizing) return;
+      const deltaX = resizeStartX.current - e.clientX;
+      const newWidth = Math.min(
+        MAX_WIDTH,
+        Math.max(MIN_WIDTH, resizeStartWidth.current + deltaX),
+      );
+      setWidth(newWidth);
+    },
+    [isResizing],
+  );
 
   const handleResizeEnd = useCallback(() => {
     if (isResizing) {
@@ -242,13 +265,15 @@ export const HotkeySidebar: React.FC<HotkeySidebarProps> = ({
         style={{ right: shouldShow ? width : 0 }}
         onMouseDown={handleMouseDown}
         onClick={handleToggleOpen}
-        title={shouldShow ? t("hotkeySidebar.closeSidebar") : t("hotkeySidebar.openSidebar")}
+        title={
+          shouldShow
+            ? t("hotkeySidebar.closeSidebar")
+            : t("hotkeySidebar.openSidebar")
+        }
       >
         <div
           className={`relative flex items-center justify-center w-6 h-20 rounded-l-lg bg-gradient-to-b from-[#2a2a2a] to-[#1a1a1a] border border-r-0 border-[#3a3a3a] shadow-lg transition-all duration-200 hover:w-8 hover:bg-gradient-to-b hover:from-[#353535] hover:to-[#252525] ${
             isDragging ? "w-8 bg-gradient-to-b from-[#404040] to-[#303030]" : ""
-          } ${
-            showNewcomerHint ? "hotkey-edge-nudge" : ""
           }`}
         >
           {shouldShow ? (
@@ -257,19 +282,6 @@ export const HotkeySidebar: React.FC<HotkeySidebarProps> = ({
             <ChevronLeft className="w-4 h-4 text-[#808080]" />
           )}
         </div>
-        {showNewcomerHint && (
-          <div className="absolute right-10 top-1/2 -translate-y-1/2 w-64 pointer-events-none">
-            <div className="hotkey-newcomer-tooltip hotkey-tooltip-red-flow relative rounded-lg border border-[#ff4d8d]/40 bg-[#1a1a1a]/95 backdrop-blur-md px-3 py-2 shadow-[0_8px_24px_rgba(0,0,0,0.45)]">
-              <p className="text-xs font-semibold text-[#ffd1e6]">
-                {t("hotkeySidebar.newcomer.title")}
-              </p>
-              <p className="text-xs text-[#d0d0d0] mt-1 leading-relaxed">
-                {t("hotkeySidebar.newcomer.message")}
-              </p>
-              <div className="absolute -right-[7px] top-1/2 -translate-y-1/2 w-3 h-3 rotate-45 border-t border-r border-[#ff4d8d]/40 bg-[#1a1a1a]/95" />
-            </div>
-          </div>
-        )}
       </div>
 
       {/* Sidebar Panel */}
@@ -290,7 +302,9 @@ export const HotkeySidebar: React.FC<HotkeySidebarProps> = ({
           <div className="flex items-center justify-between px-4 py-4 border-b border-[#2a2a2a]">
             <div className="flex items-center gap-2">
               <Keyboard className="w-5 h-5 text-[#ff6b9d]" />
-              <h2 className="text-base font-semibold text-[#f0f0f0]">{t("hotkeySidebar.title")}</h2>
+              <h2 className="text-base font-semibold text-[#f0f0f0]">
+                {t("hotkeySidebar.title")}
+              </h2>
             </div>
             <button
               onClick={handleTogglePin}
@@ -299,7 +313,11 @@ export const HotkeySidebar: React.FC<HotkeySidebarProps> = ({
                   ? "bg-[#ff6b9d]/20 text-[#ff6b9d]"
                   : "text-[#707070] hover:text-[#a0a0a0] hover:bg-[#252525]"
               }`}
-              title={isPinned ? t("hotkeySidebar.unpinSidebar") : t("hotkeySidebar.pinSidebar")}
+              title={
+                isPinned
+                  ? t("hotkeySidebar.unpinSidebar")
+                  : t("hotkeySidebar.pinSidebar")
+              }
             >
               {isPinned ? (
                 <Pin className="w-4 h-4" />
@@ -328,7 +346,6 @@ export const HotkeySidebar: React.FC<HotkeySidebarProps> = ({
           </div>
         </div>
       </div>
-
     </>
   );
 };

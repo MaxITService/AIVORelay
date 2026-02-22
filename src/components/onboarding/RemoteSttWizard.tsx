@@ -25,7 +25,11 @@ export const RemoteSttWizard: React.FC<RemoteSttWizardProps> = ({
   onComplete,
 }) => {
   const { t } = useTranslation();
-  const { updateRemoteSttBaseUrl, updateRemoteSttModelId, setTranscriptionProvider } = useSettings();
+  const {
+    updateRemoteSttBaseUrl,
+    updateRemoteSttModelId,
+    setTranscriptionProvider,
+  } = useSettings();
 
   const [engine, setEngine] = useState<EngineType>("openai");
   const [baseUrl, setBaseUrl] = useState(DEFAULT_BASE_URL);
@@ -35,12 +39,20 @@ export const RemoteSttWizard: React.FC<RemoteSttWizardProps> = ({
   const [connectionStatus, setConnectionStatus] = useState<
     "idle" | "testing" | "success" | "error"
   >("idle");
-  const [connectionMessage, setConnectionMessage] = useState<string | null>(null);
+  const [connectionMessage, setConnectionMessage] = useState<string | null>(
+    null,
+  );
 
   const engineOptions = useMemo<SelectOption[]>(
     () => [
-      { value: "openai", label: t("onboarding.remoteSttWizard.engineOptions.openai") },
-      { value: "soniox", label: t("onboarding.remoteSttWizard.engineOptions.soniox") },
+      {
+        value: "openai",
+        label: t("onboarding.remoteSttWizard.engineOptions.openai"),
+      },
+      {
+        value: "soniox",
+        label: t("onboarding.remoteSttWizard.engineOptions.soniox"),
+      },
     ],
     [t],
   );
@@ -82,10 +94,14 @@ export const RemoteSttWizard: React.FC<RemoteSttWizardProps> = ({
         }
 
         // Test connection
-        const testResult = await commands.remoteSttTestConnection(baseUrl.trim());
+        const testResult = await commands.remoteSttTestConnection(
+          baseUrl.trim(),
+        );
         if (testResult.status === "ok") {
           setConnectionStatus("success");
-          setConnectionMessage(t("onboarding.remoteSttWizard.connectionSuccess"));
+          setConnectionMessage(
+            t("onboarding.remoteSttWizard.connectionSuccess"),
+          );
         } else {
           setConnectionStatus("error");
           setConnectionMessage(
@@ -138,17 +154,21 @@ export const RemoteSttWizard: React.FC<RemoteSttWizardProps> = ({
     onComplete();
   };
 
-  const canTest = apiKey.trim().length > 0 && (isSoniox || baseUrl.trim().length > 0);
+  const canTest =
+    apiKey.trim().length > 0 && (isSoniox || baseUrl.trim().length > 0);
   const canFinish = apiKey.trim().length > 0;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center" onClick={onClose}>
-      {/* Backdrop with blur */}
-      <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" />
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto py-4"
+      onClick={onClose}
+    >
+      {/* Backdrop */}
+      <div className="fixed inset-0 bg-black/50" />
 
       {/* Modal */}
       <div
-        className="relative z-10 w-full max-w-lg mx-4 bg-gradient-to-br from-[#1e1e1e] via-[#222222] to-[#1a1a1a] border border-purple-500/30 rounded-2xl shadow-2xl animate-in fade-in zoom-in-95 duration-200"
+        className="relative z-10 w-full max-w-lg mx-4 my-auto bg-gradient-to-br from-[#1e1e1e] via-[#222222] to-[#1a1a1a] border border-purple-500/30 rounded-2xl shadow-2xl animate-in fade-in zoom-in-95 duration-200"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Close button */}
@@ -219,23 +239,28 @@ export const RemoteSttWizard: React.FC<RemoteSttWizardProps> = ({
               </div>
             </>
           ) : (
-            <div className="p-4 bg-purple-500/10 border border-purple-500/30 rounded-xl text-sm space-y-2">
-              <p className="text-text/90">
-                {t("onboarding.remoteSttWizard.recommendation")}
-              </p>
-              <a
-                href="https://console.groq.com"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center gap-1.5 text-purple-400 hover:text-purple-300 font-medium transition-colors"
-              >
-                console.groq.com
-                <ExternalLink className="w-3.5 h-3.5" />
-              </a>
-              <p className="text-text/60 text-xs">
-                {t("onboarding.remoteSttWizard.freeTier")}
-              </p>
-            </div>
+            <>
+              <div className="p-4 bg-purple-500/10 border border-purple-500/30 rounded-xl text-sm space-y-2">
+                <p className="text-text/90">
+                  {t("onboarding.remoteSttWizard.recommendation")}
+                </p>
+                <a
+                  href="https://console.groq.com"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1.5 text-purple-400 hover:text-purple-300 font-medium transition-colors"
+                >
+                  console.groq.com
+                  <ExternalLink className="w-3.5 h-3.5" />
+                </a>
+                <p className="text-text/60 text-xs">
+                  {t("onboarding.remoteSttWizard.freeTier")}
+                </p>
+              </div>
+              <div className="p-3 bg-[#ff4d8d]/10 border border-[#ff4d8d]/30 rounded-lg text-sm text-[#ffd1e6]">
+                {t("onboarding.remoteSttWizard.sonioxRecommendation")}
+              </div>
+            </>
           )}
 
           {/* API Configuration section header */}
