@@ -164,6 +164,16 @@ Applied after LLM post-processing, so you get the final word on the output!
 
 **Setup:** Settings → Text Replace
 
+### 🔠 Custom Words (Fuzzy Matching)
+
+Automatically recombine and fix complex terms split by speech-to-text (e.g., "Chat G P T" → "ChatGPT") using fuzzy n-gram matching.
+
+**Setup:** Settings → Text Replace → Custom Words
+
+### 🧹 Audio Clean-Up & Smart Prompts
+
+Automatically filter out filler words and stutters from transcriptions. Enhance LLM templates with dynamic context variables like `${current_app}` and `${time_local}`!
+
 ### 🔠 Smart Decapitalize After Edit
 
 Avoid unwanted capitalization when continuing a sentence after a manual correction.
