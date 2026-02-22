@@ -228,7 +228,8 @@
         "description": "Wörter hinzufügen, die oft falsch gehört oder geschrieben werden. Das System korrigiert automatisch ähnlich klingende Wörter entsprechend deiner Liste.",
         "placeholder": "Wort hinzufügen",
         "add": "Hinzufügen",
-        "remove": "{{word}} entfernen"
+        "remove": "{{word}} entfernen",
+        "duplicate": "\"{{word}}\" existiert bereits"
       }
     },
     "postProcessing": {
@@ -450,4 +451,3 @@
     "transcribing": "Transkribiere..."
   }
 }
-

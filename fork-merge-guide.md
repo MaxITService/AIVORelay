@@ -112,4 +112,5 @@ These files are 100% ours — upstream won't have them:
 ### After Merge Checklist
 
 1.  Add latest upstream commit SHA and  message here in this file, so we know where we are diverged from upstream.
-   
+- Manually synced and implemented: `3c0fb95` - drain audio (#838)
+- Manually synced and implemented: `e624a45` - toast if exists

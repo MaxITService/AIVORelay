@@ -23,7 +23,6 @@
     "debug": "Debug",
     "about": "About"
   },
-
   "hotkeySidebar": {
     "title": "Hotkeys",
     "pinSidebar": "Pin sidebar open",
@@ -41,7 +40,6 @@
       "profiles": "Profiles"
     }
   },
-
   "audioProcessing": {
     "title": "Speech Processing",
     "description": "Configure voice activity detection and speech artifact filtering.",
@@ -304,7 +302,6 @@
             "name": "Send Transcription Directly to Extension",
             "description": "Send transcription to AivoRelay Connector browser extension.",
             "userStory": "Press hotkey → Speak your message → Your voice is transcribed and sent directly to the active AI chat tab (ChatGPT, Claude, etc.) via the browser extension. The message is auto-submitted.",
-
             "enable": {
               "label": "Enable Feature",
               "description": "⚠️ Risk: Your voice input is sent directly to the AI chat provider. You may accidentally send unintended audio to the AI.",
@@ -319,7 +316,6 @@
               "description": "When ON: hold key to record. When OFF: tap once to start, tap again to stop."
             }
           },
-
           "send_to_extension_with_selection": {
             "name": "Send Transcription + Selection to Extension",
             "description": "Send transcription plus selected text to AivoRelay Connector browser extension.",
@@ -967,7 +963,8 @@
         "enabledDescription": "Applies to live transcription. File transcription has its own toggle.",
         "placeholder": "Add a word",
         "add": "Add",
-        "remove": "Remove {{word}}"
+        "remove": "Remove {{word}}",
+        "duplicate": "\"{{word}}\" already exists"
       }
     },
     "postProcessing": {
