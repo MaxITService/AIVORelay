@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import { type } from "@tauri-apps/plugin-os";
 import { AlertTriangle } from "lucide-react";
 import { LogDirectory } from "./LogDirectory";
+import { SettingsDirectory } from "./SettingsDirectory";
 import { LogLevelSelector } from "./LogLevelSelector";
 import { ShortcutEngineSelector } from "./ShortcutEngineSelector";
 import { SettingsGroup } from "../../ui/SettingsGroup";
@@ -51,6 +52,7 @@ export const DebugSettings: React.FC = () => {
     <div className="max-w-3xl w-full mx-auto space-y-6">
       <SettingsGroup title={t("settings.debug.title")}>
         <LogDirectory grouped={true} />
+        <SettingsDirectory grouped={true} />
         <LogLevelSelector grouped={true} />
         <UpdateChecksToggle descriptionMode="tooltip" grouped={true} />
         <SoundPicker
