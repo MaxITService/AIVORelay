@@ -1119,6 +1119,11 @@
         "description": "Open the first start wizard again.",
         "button": "Open first start wizard"
       },
+      "overlayError": {
+        "title": "Overlay Error Test",
+        "description": "Show the error overlay with a specific error category.",
+        "button": "Show"
+      },
       "shortcutEngine": {
         "title": "Shortcut Engine",
         "description": "Choose the keyboard shortcut detection method. rdev supports all keys but uses more CPU: read warning in \"tell me more\" below. Tauri is faster but has limited key support.",

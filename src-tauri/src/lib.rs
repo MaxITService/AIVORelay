@@ -532,6 +532,7 @@ pub fn run() {
         commands::remote_stt::remote_stt_supports_translation,
         commands::check_apple_intelligence_available,
         commands::llm_has_stored_api_key,
+        commands::debug_show_error_overlay,
         commands::models::get_available_models,
         commands::models::download_model,
         commands::models::delete_model,

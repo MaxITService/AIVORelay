@@ -37,16 +37,16 @@ const COMPACT_ERROR_LABELS: Record<OverlayErrorCategory, string> = {
 
 const COMPACT_ERROR_CODE_MAP: Record<string, string> = {
   E_AUTH: "AUTH",
-  E_BADREQ: "E_REQ",
-  E_BILL: "E_BIL",
-  E_RATE: "E_RAT",
-  E_TIMEOUT: "E_TO",
-  E_NET: "E_NET",
-  E_SERVER: "E_SRV",
-  E_PARSE: "E_PAR",
-  E_EXT: "E_EXT",
-  E_MIC: "E_MIC",
-  E_UNKNOWN: "E_UNK",
+  E_BADREQ: "BAD_REQ",
+  E_BILL: "BILLING",
+  E_RATE: "RATE",
+  E_TIMEOUT: "TIMEOUT",
+  E_NET: "NET",
+  E_SERVER: "SERVER",
+  E_PARSE: "PARSE",
+  E_EXT: "EXT",
+  E_MIC: "MIC",
+  E_UNKNOWN: "UNKNOWN",
 };
 
 function compactOverlayErrorText(
@@ -300,9 +300,12 @@ const RecordingOverlay: React.FC = () => {
           <div className="transcribing-text">{t("overlay.transcribing")}</div>
         )}
         {state === "error" && (
-          <div className="error-row" title={errorTechnical || undefined}>
+          <div className="error-row">
             <span className="error-text">{errorMessage || "Failed"}</span>
             <span className="error-code-chip">{errorCode || "E_UNKNOWN"}</span>
+            {errorTechnical && (
+              <div className="error-tooltip">{errorTechnical}</div>
+            )}
           </div>
         )}
         {state === "profile_switch" && (

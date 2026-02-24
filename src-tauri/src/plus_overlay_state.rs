@@ -592,13 +592,6 @@ fn build_default_envelope_from_category(
     }
 }
 
-/// Categorize an error string into an OverlayErrorCategory
-pub fn categorize_error(err_string: &str) -> OverlayErrorCategory {
-    let envelope = build_error_envelope_from_string(err_string);
-    let err_lower = err_string.to_lowercase();
-    detect_specific_category(&err_lower, &envelope.canonical_code)
-}
-
 fn show_error_overlay_internal(
     app: &AppHandle,
     category: OverlayErrorCategory,
@@ -707,6 +700,12 @@ pub fn show_mic_error_overlay(app: &AppHandle) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn categorize_error(err_string: &str) -> OverlayErrorCategory {
+        let envelope = build_error_envelope_from_string(err_string);
+        let err_lower = err_string.to_lowercase();
+        detect_specific_category(&err_lower, &envelope.canonical_code)
+    }
 
     #[test]
     fn test_categorize_tls_certificate() {

@@ -1694,6 +1694,13 @@ async llmHasStoredApiKey(feature: LlmFeature, providerId: string) : Promise<Resu
     else return { status: "error", error: e  as any };
 }
 },
+/**
+ * Show an error overlay for debugging purposes.
+ * Takes an error category string and displays the corresponding overlay.
+ */
+async debugShowErrorOverlay(category: string) : Promise<void> {
+    await TAURI_INVOKE("debug_show_error_overlay", { category });
+},
 async getAvailableModels() : Promise<Result<ModelInfo[], string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("get_available_models") };
