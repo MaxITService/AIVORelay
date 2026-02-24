@@ -1,8 +1,10 @@
 export { Dropdown } from "./Dropdown";
 export { Slider } from "./Slider";
 export { ToggleSwitch } from "./ToggleSwitch";
+export { TriStateToggle } from "./TriStateToggle";
 export { SettingContainer } from "./SettingContainer";
 export { SettingsGroup } from "./SettingsGroup";
 export { TextDisplay } from "./TextDisplay";
 export { Textarea } from "./Textarea";
 export { ConfirmationModal } from "./ConfirmationModal";
+export { Tooltip } from "./Tooltip";

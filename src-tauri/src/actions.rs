@@ -1702,7 +1702,9 @@ fn build_soniox_realtime_options(
 
     SonioxRealtimeOptions {
         language_hints,
-        language_hints_strict: settings.soniox_language_hints_strict,
+        language_hints_strict: profile
+            .and_then(|p| p.soniox_language_hints_strict)
+            .unwrap_or(settings.soniox_language_hints_strict),
         enable_speaker_diarization: settings.soniox_enable_speaker_diarization,
         enable_language_identification: settings.soniox_enable_language_identification,
         enable_endpoint_detection: settings.soniox_enable_endpoint_detection,

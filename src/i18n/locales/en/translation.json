@@ -875,7 +875,7 @@
             "instantStop": "Instant Stop (AivoRelay feature): ends live session immediately on Stop and ignores late chunks; fastest UX but highest risk of cutting last words.",
             "languageHints": "Language Hints: enter comma-separated codes in the field (for example: en, es). Do not type JSON in the UI input; JSON docs show only API payload shape.",
             "profileLanguageHintOnly": "Use Current Profile Language As Hint: ignores manual Language Hints and sends exactly one hint derived from the active profile language (or global language if no profile is active).",
-            "strict": "Strict Language Restriction: strongly constrains output to language hints.",
+            "strict": "Soniox strict Language Restriction: strongly constrains output to language hints.",
             "endpoint": "Endpoint Detection: Soniox semantic end-of-utterance detection.",
             "keepalive": "Keepalive Interval: ping period during silence to keep WebSocket alive (recommended 5-10s, should never exceed 20s idle).",
             "languageIdentification": "Language Identification: includes per-token detected language metadata.",
@@ -909,7 +909,8 @@
           "description": "When enabled, AivoRelay ignores the Language Hints list and sends exactly one hint derived from the active profile language (or global language if no profile is active). This keeps Soniox language bias aligned with the profile and avoids stale manual hints. Mode scope: Live mode behavior; this setting does not reconfigure Soniox async file options or non-live shortcut fallback behavior."
         },
         "languageHintsStrict": {
-          "title": "Strict Language Restriction",
+          "title": "Soniox Strict Language Restriction",
+          "titleTooltip": "This option only appears if a Soniox model is used",
           "description": "Recommended usage: use a single language whenever possible. Language restriction is most robust when only one language is provided. Example: { \"language_hints\": [\"en\"], \"language_hints_strict\": true }. Multiple languages reduce robustness: you can provide more than one language, but accuracy may degrade when language identification becomes ambiguous (for example heavy accents or acoustically similar languages). Example: { \"language_hints\": [\"en\", \"es\"], \"language_hints_strict\": true }. In difficult cases, Soniox may still choose a wrong language/script, so single-language strict mode is strongly recommended when correctness is critical. Mode scope: currently Live mode only; this flag is not sent in non-live shortcut fallback or Soniox async file requests."
         },
         "endpointDetection": {
@@ -1702,7 +1703,12 @@
     "yes": "Yes",
     "no": "No",
     "noOptionsFound": "No options found",
-    "copied": "Copied!"
+    "copied": "Copied!",
+    "tristate": {
+      "global": "Global",
+      "on": "On",
+      "off": "Off"
+    }
   },
   "accessibility": {
     "permissionsRequired": "Accessibility Permissions Required",
