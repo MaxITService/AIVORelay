@@ -32,6 +32,7 @@ jobs:
               repo: context.repo.repo,
               tag_name: `v${{ steps.get-version.outputs.version }}`,
               name: `v${{ steps.get-version.outputs.version }}`,
+              body: "If application crashes on old CPU when you are using transcription, use Microsoft Store version.\nhttps://github.com/MaxITService/AIVORelay/releases/tag/v0.8.7-store",
               draft: true,
               prerelease: false,
               generate_release_notes: true
