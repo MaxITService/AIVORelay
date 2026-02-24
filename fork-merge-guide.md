@@ -114,3 +114,20 @@ These files are 100% ours — upstream won't have them:
 1.  Add latest upstream commit SHA and  message here in this file, so we know where we are diverged from upstream.
 - Manually synced and implemented: `3c0fb95` - drain audio (#838)
 - Manually synced and implemented: `e624a45` - toast if exists
+
+### Git Workflow: Cherry-picking
+
+When asked to "cherry-pick commit to all branches", this refers to these specific target branches:
+- `main`
+- `Microsoft-store`
+- `cuda-integration`
+
+**Execution steps for Agent:**
+1. Record the current branch and ensure the git status is clean.
+2. For each target branch:
+   - Switch to the branch.
+   - Verify if the commit hash already exists in that branch's history (skip if it does).
+   - Run `git cherry-pick -x <hash>`.
+   - If conflicts occur, **stop and report immediately** (listing the branch and conflicting files).
+3. Return to the **original starting branch** at the end.
+4. Provide a concise status report: `branch -> status (success/skipped/conflict)` and the latest commit info for each target branch.
