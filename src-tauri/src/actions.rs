@@ -736,6 +736,15 @@ fn start_recording_with_feedback(app: &AppHandle, binding_id: &str) -> bool {
     show_recording_overlay(app);
 
     let rm = app.state::<Arc<AudioRecordingManager>>();
+    let use_soniox_live = should_use_soniox_live_streaming(&settings);
+    if use_soniox_live {
+        // Arm live audio buffering before rec.start() so first spoken frames are captured.
+        let soniox_live_manager = Arc::clone(&app.state::<Arc<SonioxRealtimeManager>>());
+        soniox_live_manager.cancel();
+        rm.set_stream_frame_callback(Arc::new(move |frame| {
+            soniox_live_manager.push_audio_frame(frame);
+        }));
+    }
     let is_always_on = settings.always_on_microphone;
     debug!("Microphone mode - always_on: {}", is_always_on);
 
@@ -779,6 +788,11 @@ fn start_recording_with_feedback(app: &AppHandle, binding_id: &str) -> bool {
     } else {
         // Drop captured app context for failed recordings.
         let _ = take_recording_app_context(binding_id);
+
+        if use_soniox_live {
+            rm.clear_stream_frame_callback();
+            app.state::<Arc<SonioxRealtimeManager>>().cancel();
+        }
 
         // Recording failed - clean up
         // Take the session back and let it drop (which will clean up)
@@ -1600,24 +1614,14 @@ fn should_use_soniox_live_for_recording(app: &AppHandle, binding_id: &str) -> bo
     }
 }
 
-/// Sets up Soniox live streaming for an action: installs the audio callback,
-/// cancels any previous session, and starts a new accumulation-only session.
-/// Call AFTER start_recording_with_feedback() succeeds — push_audio_frame()
-/// buffers into pending_audio, so no frames are lost before start_session()
-/// flushes them.  Returns Err on session start failure.
+/// Starts Soniox live session for an action.
+/// Audio callback is armed in start_recording_with_feedback() before rec.start(),
+/// so early frames are already buffered in pending_audio before start_session().
 fn setup_and_start_soniox_live(
     app: &AppHandle,
     settings: &AppSettings,
     binding_id: &str,
 ) -> Result<(), String> {
-    // Install audio callback (frames buffer in pending_audio until session is ready)
-    let soniox_live_manager = Arc::clone(&app.state::<Arc<SonioxRealtimeManager>>());
-    soniox_live_manager.cancel();
-    let audio_manager = Arc::clone(&app.state::<Arc<AudioRecordingManager>>());
-    audio_manager.set_stream_frame_callback(Arc::new(move |frame| {
-        soniox_live_manager.push_audio_frame(frame);
-    }));
-
     // Start session (flushes buffered audio)
     let profile = resolve_profile_for_binding(settings, binding_id);
     let language = profile
@@ -2118,15 +2122,6 @@ impl ShortcutAction for TranscribeAction {
         }
 
         if use_soniox_live {
-            // Install audio callback — frames buffer in pending_audio until session is ready.
-            // This is safe to do after recording starts because start_session() flushes
-            // the pending buffer.
-            let soniox_live_manager = Arc::clone(&app.state::<Arc<SonioxRealtimeManager>>());
-            soniox_live_manager.cancel();
-            let audio_manager = Arc::clone(&app.state::<Arc<AudioRecordingManager>>());
-            audio_manager.set_stream_frame_callback(Arc::new(move |frame| {
-                soniox_live_manager.push_audio_frame(frame);
-            }));
             if !preview_output_only_enabled {
                 if let Err(e) = crate::clipboard::begin_streaming_paste_session(app) {
                     warn!("Failed to begin streaming clipboard session: {}", e);
