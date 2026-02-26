@@ -1,4 +1,10 @@
-import React, { useState, useMemo, useEffect, useCallback, useRef } from "react";
+import React, {
+  useState,
+  useMemo,
+  useEffect,
+  useCallback,
+  useRef,
+} from "react";
 import { useTranslation } from "react-i18next";
 import {
   Plus,
@@ -23,6 +29,8 @@ import { Input } from "../ui/Input";
 import { Dropdown } from "../ui/Dropdown";
 import { Badge } from "../ui/Badge";
 import { ToggleSwitch } from "../ui/ToggleSwitch";
+import { TriStateToggle, type TriStateValue } from "../ui/TriStateToggle";
+import { Tooltip } from "../ui/Tooltip";
 import { HandyShortcut } from "./HandyShortcut";
 import { ModelSelect } from "./PostProcessingSettingsApi/ModelSelect";
 import { ResetButton } from "../ui/ResetButton";
@@ -36,6 +44,20 @@ import { isLanguageSupportedBySoniox } from "../../lib/constants/sonioxLanguages
 import { getModelPromptInfo } from "./TranscriptionSystemPrompt";
 
 const APPLE_PROVIDER_ID = "apple_intelligence";
+
+const strictModeFromApi = (
+  value: boolean | null | undefined,
+): TriStateValue => {
+  if (value === true) return "on";
+  if (value === false) return "off";
+  return "global";
+};
+
+const strictModeToApi = (value: TriStateValue): boolean | null => {
+  if (value === "on") return true;
+  if (value === "off") return false;
+  return null;
+};
 
 const DEFAULT_CLEAN_PROMPT = `Clean this Speech to text transcript:
 1. Fix spelling, capitalization, and punctuation errors
@@ -55,6 +77,7 @@ interface ExtendedTranscriptionProfile extends TranscriptionProfile {
   include_in_cycle: boolean;
   push_to_talk: boolean;
   preview_output_only_enabled: boolean;
+  soniox_language_hints_strict?: boolean | null;
   stt_prompt_override_enabled: boolean;
   soniox_context_general_json: string;
   soniox_context_text: string;
@@ -82,6 +105,7 @@ interface ProfileCardProps {
   defaultLlmPrompt: string;
   showSonioxLanguageFallbackWarning: boolean;
   isSonioxProvider: boolean;
+  globalSonioxLanguageHintsStrict: boolean;
   // Note: resolvedOsLanguage removed - language is detected at transcription time, not in UI
 }
 
@@ -106,6 +130,7 @@ const ProfileCard: React.FC<ProfileCardProps> = ({
   defaultLlmPrompt,
   showSonioxLanguageFallbackWarning,
   isSonioxProvider,
+  globalSonioxLanguageHintsStrict,
 }) => {
   const { t } = useTranslation();
   const [isUpdating, setIsUpdating] = useState(false);
@@ -113,11 +138,11 @@ const ProfileCard: React.FC<ProfileCardProps> = ({
   const [tempName, setTempName] = useState(profile.name);
   // Track whether user has a custom override (non-null) or uses global (null)
   const [isCustomOverride, setIsCustomOverride] = useState(
-    profile.llm_prompt_override != null
+    profile.llm_prompt_override != null,
   );
   // Local state for LLM prompt
   const [localLlmPrompt, setLocalLlmPrompt] = useState(
-    profile.llm_prompt_override ?? defaultLlmPrompt
+    profile.llm_prompt_override ?? defaultLlmPrompt,
   );
   // Track whether user is actively editing to prevent useEffect from clobbering
   const isEditingRef = useRef(false);
@@ -140,7 +165,9 @@ const ProfileCard: React.FC<ProfileCardProps> = ({
 
   const languageLabel = useMemo(() => {
     const lang = LANGUAGES.find((l) => l.value === profile.language);
-    return lang?.label || profile.language || t("settings.general.language.auto");
+    return (
+      lang?.label || profile.language || t("settings.general.language.auto")
+    );
   }, [profile.language, t]);
 
   const effectiveLanguageOptions = useMemo(() => {
@@ -242,7 +269,8 @@ const ProfileCard: React.FC<ProfileCardProps> = ({
   };
 
   const handleSonioxGeneralJsonChange = async (newValue: string) => {
-    if (newValue.trim() === (profile.soniox_context_general_json || "").trim()) return;
+    if (newValue.trim() === (profile.soniox_context_general_json || "").trim())
+      return;
     setIsUpdating(true);
     try {
       await onUpdate({
@@ -411,14 +439,17 @@ const ProfileCard: React.FC<ProfileCardProps> = ({
                   </div>
                 </div>
               ) : (
-                <div 
+                <div
                   className="flex items-center gap-2 group/name cursor-pointer min-w-0"
                   onClick={(e) => {
                     e.stopPropagation();
                     setIsEditingName(true);
                     setTempName(profile.name);
                   }}
-                  title={t("settings.transcriptionProfiles.clickToRename", "Click to rename")}
+                  title={t(
+                    "settings.transcriptionProfiles.clickToRename",
+                    "Click to rename",
+                  )}
                 >
                   <span className="font-medium text-sm break-words">
                     {profile.name}
@@ -438,7 +469,9 @@ const ProfileCard: React.FC<ProfileCardProps> = ({
             <span className="text-xs text-mid-gray break-words">
               {languageLabel}
               {profile.translate_to_english && (
-                <span className="text-purple-400 ml-1">{t("settings.transcriptionProfiles.toEnglish", "→ EN")}</span>
+                <span className="text-purple-400 ml-1">
+                  {t("settings.transcriptionProfiles.toEnglish", "→ EN")}
+                </span>
               )}
               {profile.language === "os_input" && (
                 <span
@@ -461,7 +494,9 @@ const ProfileCard: React.FC<ProfileCardProps> = ({
             variant={isActive ? "secondary" : "primary"}
             size="sm"
             className={isActive ? "opacity-100 cursor-default" : ""}
-            title={isActive ? t("settings.transcriptionProfiles.active") : undefined}
+            title={
+              isActive ? t("settings.transcriptionProfiles.active") : undefined
+            }
           >
             {isActive ? (
               <Check className="w-4 h-4" />
@@ -583,6 +618,34 @@ const ProfileCard: React.FC<ProfileCardProps> = ({
                 placeholder={t("settings.general.language.auto")}
                 disabled={isUpdating}
               />
+              {isSonioxProvider && (
+                <div className="flex items-center gap-1.5 mt-1.5">
+                  <Tooltip content={t("settings.advanced.soniox.languageHintsStrict.titleTooltip", "This option only appears if a Soniox model is used")}>
+                    <span className="text-[10px] text-text/60">{t("settings.advanced.soniox.languageHintsStrict.title", "Strict")}:</span>
+                  </Tooltip>
+                  <div onClick={(e) => e.stopPropagation()}>
+                    <TriStateToggle
+                      value={strictModeFromApi(
+                        profile.soniox_language_hints_strict,
+                      )}
+                      globalValue={globalSonioxLanguageHintsStrict}
+                      onChange={async (mode) => {
+                        setIsUpdating(true);
+                        try {
+                          await onUpdate({
+                            ...profile,
+                            soniox_language_hints_strict: strictModeToApi(mode),
+                          });
+                        } finally {
+                          setIsUpdating(false);
+                        }
+                      }}
+                      disabled={isUpdating}
+                    />
+                  </div>
+                  <InfoTooltip content={t("settings.advanced.soniox.languageHintsStrict.description")} />
+                </div>
+              )}
               {showSonioxLanguageFallbackWarning && (
                 <p className="text-xs text-amber-400/90">
                   {isSonioxProvider
@@ -626,8 +689,12 @@ const ProfileCard: React.FC<ProfileCardProps> = ({
                 </button>
                 <span className="text-xs text-mid-gray leading-snug">
                   {!supportsTranslation
-                    ? t("settings.advanced.translateToEnglish.descriptionRemoteUnsupported")
-                    : t("settings.transcriptionProfiles.translateToEnglishDescription")}
+                    ? t(
+                        "settings.advanced.translateToEnglish.descriptionRemoteUnsupported",
+                      )
+                    : t(
+                        "settings.transcriptionProfiles.translateToEnglishDescription",
+                      )}
                 </span>
               </div>
             </div>
@@ -654,19 +721,31 @@ const ProfileCard: React.FC<ProfileCardProps> = ({
                   <span className="text-xs font-semibold text-text/70">
                     {t("settings.transcriptionProfiles.overrideSystemPrompt")}
                   </span>
-                  <InfoTooltip content={t("settings.transcriptionProfiles.voiceModelPromptTooltip")} />
+                  <InfoTooltip
+                    content={t(
+                      "settings.transcriptionProfiles.voiceModelPromptTooltip",
+                    )}
+                  />
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
                   {/* Status badges */}
-                  {(profile.stt_prompt_override_enabled) && (
-                    <span className={`text-[10px] px-1.5 py-0.5 rounded-full border whitespace-nowrap ${
-                      (profile.system_prompt || "").trim()
-                        ? "bg-purple-500/20 text-purple-400 border-purple-500/30"
-                        : "bg-amber-500/15 text-amber-400 border-amber-500/25"
-                    }`}>
+                  {profile.stt_prompt_override_enabled && (
+                    <span
+                      className={`text-[10px] px-1.5 py-0.5 rounded-full border whitespace-nowrap ${
+                        (profile.system_prompt || "").trim()
+                          ? "bg-purple-500/20 text-purple-400 border-purple-500/30"
+                          : "bg-amber-500/15 text-amber-400 border-amber-500/25"
+                      }`}
+                    >
                       {(profile.system_prompt || "").trim()
-                        ? t("settings.transcriptionProfiles.badges.sttPromptOverridden", "System prompt overridden")
-                        : t("settings.transcriptionProfiles.badges.sttPromptEmpty", "System prompt is empty")}
+                        ? t(
+                            "settings.transcriptionProfiles.badges.sttPromptOverridden",
+                            "System prompt overridden",
+                          )
+                        : t(
+                            "settings.transcriptionProfiles.badges.sttPromptEmpty",
+                            "System prompt is empty",
+                          )}
                     </span>
                   )}
                   <div onClick={(e) => e.stopPropagation()}>
@@ -681,8 +760,12 @@ const ProfileCard: React.FC<ProfileCardProps> = ({
               <div className="px-3 pb-3 space-y-2 border-t border-mid-gray/10">
                 <p className="text-xs text-mid-gray pt-2">
                   {profile.stt_prompt_override_enabled
-                    ? t("settings.transcriptionProfiles.overrideSystemPromptOnDescription")
-                    : t("settings.transcriptionProfiles.overrideSystemPromptOffDescription")}
+                    ? t(
+                        "settings.transcriptionProfiles.overrideSystemPromptOnDescription",
+                      )
+                    : t(
+                        "settings.transcriptionProfiles.overrideSystemPromptOffDescription",
+                      )}
                 </p>
                 {profile.stt_prompt_override_enabled && (
                   <>
@@ -691,7 +774,11 @@ const ProfileCard: React.FC<ProfileCardProps> = ({
                         <label className="text-xs font-semibold text-text/70">
                           {t("settings.transcriptionProfiles.systemPrompt")}
                         </label>
-                        <InfoTooltip content={t("settings.transcriptionProfiles.voiceModelPromptTooltip")} />
+                        <InfoTooltip
+                          content={t(
+                            "settings.transcriptionProfiles.voiceModelPromptTooltip",
+                          )}
+                        />
                       </div>
                       <span
                         className={`text-xs ${isOverLimit ? "text-red-400" : "text-mid-gray"}`}
@@ -715,13 +802,18 @@ const ProfileCard: React.FC<ProfileCardProps> = ({
                       } ${isUpdating ? "opacity-40 cursor-not-allowed" : ""} text-[#e8e8e8] placeholder-[#6b6b6b]`}
                     />
                     <p className="text-xs text-mid-gray">
-                      {t("settings.transcriptionProfiles.systemPromptDescription")}
+                      {t(
+                        "settings.transcriptionProfiles.systemPromptDescription",
+                      )}
                     </p>
                     {isOverLimit && (
                       <p className="text-xs text-red-400">
-                        {t("settings.transcriptionProfiles.systemPromptTooLong", {
-                          limit: promptLimit,
-                        })}
+                        {t(
+                          "settings.transcriptionProfiles.systemPromptTooLong",
+                          {
+                            limit: promptLimit,
+                          },
+                        )}
                       </p>
                     )}
                   </>
@@ -737,25 +829,42 @@ const ProfileCard: React.FC<ProfileCardProps> = ({
                 <div className="flex items-center gap-2 min-w-0">
                   <ChevronDown className="w-3.5 h-3.5 text-mid-gray shrink-0 transition-transform group-open:rotate-180" />
                   <span className="text-xs font-semibold text-text/70">
-                    {t("settings.transcriptionProfiles.llmPostProcessing.title")}
+                    {t(
+                      "settings.transcriptionProfiles.llmPostProcessing.title",
+                    )}
                   </span>
-                  <InfoTooltip content={t("settings.transcriptionProfiles.llmPostProcessing.description")} />
+                  <InfoTooltip
+                    content={t(
+                      "settings.transcriptionProfiles.llmPostProcessing.description",
+                    )}
+                  />
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
                   {/* Status badges */}
-                  {(profile.llm_post_process_enabled) && (
+                  {profile.llm_post_process_enabled && (
                     <div className="flex flex-wrap items-center gap-1.5">
                       <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-purple-500/20 text-purple-400 border border-purple-500/30 whitespace-nowrap">
-                        {t("settings.transcriptionProfiles.badges.llmActive", "LLM active")}
+                        {t(
+                          "settings.transcriptionProfiles.badges.llmActive",
+                          "LLM active",
+                        )}
                       </span>
-                      {profile.llm_prompt_override && profile.llm_prompt_override !== defaultLlmPrompt && (
-                        <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-amber-500/15 text-amber-400 border border-amber-500/25 whitespace-nowrap">
-                          {t("settings.transcriptionProfiles.badges.promptOverridden", "Prompt overridden")}
-                        </span>
-                      )}
+                      {profile.llm_prompt_override &&
+                        profile.llm_prompt_override !== defaultLlmPrompt && (
+                          <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-amber-500/15 text-amber-400 border border-amber-500/25 whitespace-nowrap">
+                            {t(
+                              "settings.transcriptionProfiles.badges.promptOverridden",
+                              "Prompt overridden",
+                            )}
+                          </span>
+                        )}
                       {profile.llm_model_override && (
                         <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-blue-500/15 text-blue-400 border border-blue-500/25 whitespace-nowrap">
-                          {t("settings.transcriptionProfiles.badges.modelOverride", "Model: {{model}}", { model: profile.llm_model_override })}
+                          {t(
+                            "settings.transcriptionProfiles.badges.modelOverride",
+                            "Model: {{model}}",
+                            { model: profile.llm_model_override },
+                          )}
                         </span>
                       )}
                     </div>
@@ -771,12 +880,16 @@ const ProfileCard: React.FC<ProfileCardProps> = ({
               </summary>
               <div className="px-3 pb-3 space-y-2 border-t border-mid-gray/10">
                 <p className="text-xs text-mid-gray pt-2">
-                  {t("settings.transcriptionProfiles.llmPostProcessing.description")}
+                  {t(
+                    "settings.transcriptionProfiles.llmPostProcessing.description",
+                  )}
                 </p>
 
                 {isSonioxProvider && (
                   <div className="p-2 bg-red-500/10 border border-red-500/30 rounded text-xs text-red-400">
-                    {t("settings.transcriptionProfiles.llmPostProcessing.sonioxWarning")}
+                    {t(
+                      "settings.transcriptionProfiles.llmPostProcessing.sonioxWarning",
+                    )}
                   </div>
                 )}
 
@@ -787,31 +900,86 @@ const ProfileCard: React.FC<ProfileCardProps> = ({
                       {/* ${output} Variable Documentation */}
                       <div className="p-2 bg-blue-500/10 border border-blue-500/30 rounded text-xs space-y-1">
                         <div className="font-semibold text-blue-400">
-                          {t("settings.transcriptionProfiles.llmPostProcessing.outputVariableDoc.title")}
+                          {t(
+                            "settings.transcriptionProfiles.llmPostProcessing.outputVariableDoc.title",
+                          )}
                         </div>
-                        <p className="text-text/70" dangerouslySetInnerHTML={{ __html: t("settings.transcriptionProfiles.llmPostProcessing.outputVariableDoc.description") }} />
+                        <p
+                          className="text-text/70"
+                          dangerouslySetInnerHTML={{
+                            __html: t(
+                              "settings.transcriptionProfiles.llmPostProcessing.outputVariableDoc.description",
+                            ),
+                          }}
+                        />
                         <details className="cursor-pointer">
                           <summary className="text-blue-400 hover:text-blue-300">
-                            {t("settings.transcriptionProfiles.llmPostProcessing.outputVariableDoc.howItWorks")}
+                            {t(
+                              "settings.transcriptionProfiles.llmPostProcessing.outputVariableDoc.howItWorks",
+                            )}
                           </summary>
                           <ol className="list-decimal list-inside text-text/60 mt-1 space-y-0.5 pl-2">
-                            <li>{t("settings.transcriptionProfiles.llmPostProcessing.outputVariableDoc.step1")}</li>
-                            <li dangerouslySetInnerHTML={{ __html: t("settings.transcriptionProfiles.llmPostProcessing.outputVariableDoc.step2") }} />
-                            <li>{t("settings.transcriptionProfiles.llmPostProcessing.outputVariableDoc.step3")}</li>
-                            <li>{t("settings.transcriptionProfiles.llmPostProcessing.outputVariableDoc.step4")}</li>
+                            <li>
+                              {t(
+                                "settings.transcriptionProfiles.llmPostProcessing.outputVariableDoc.step1",
+                              )}
+                            </li>
+                            <li
+                              dangerouslySetInnerHTML={{
+                                __html: t(
+                                  "settings.transcriptionProfiles.llmPostProcessing.outputVariableDoc.step2",
+                                ),
+                              }}
+                            />
+                            <li>
+                              {t(
+                                "settings.transcriptionProfiles.llmPostProcessing.outputVariableDoc.step3",
+                              )}
+                            </li>
+                            <li>
+                              {t(
+                                "settings.transcriptionProfiles.llmPostProcessing.outputVariableDoc.step4",
+                              )}
+                            </li>
                           </ol>
                           <div className="mt-2 space-y-1">
-                            <div className="text-green-400">{t("settings.transcriptionProfiles.llmPostProcessing.outputVariableDoc.validExample")}</div>
+                            <div className="text-green-400">
+                              {t(
+                                "settings.transcriptionProfiles.llmPostProcessing.outputVariableDoc.validExample",
+                              )}
+                            </div>
                             <code className="block bg-green-500/10 px-2 py-1 rounded text-green-300 whitespace-pre-wrap">
-                              {t("settings.transcriptionProfiles.llmPostProcessing.outputVariableDoc.validPrompt")}
+                              {t(
+                                "settings.transcriptionProfiles.llmPostProcessing.outputVariableDoc.validPrompt",
+                              )}
                             </code>
-                            <div className="text-red-400 mt-2">{t("settings.transcriptionProfiles.llmPostProcessing.outputVariableDoc.invalidExample")}</div>
+                            <div className="text-red-400 mt-2">
+                              {t(
+                                "settings.transcriptionProfiles.llmPostProcessing.outputVariableDoc.invalidExample",
+                              )}
+                            </div>
                             <code className="block bg-red-500/10 px-2 py-1 rounded text-red-300">
-                              {t("settings.transcriptionProfiles.llmPostProcessing.outputVariableDoc.invalidPrompt")}
+                              {t(
+                                "settings.transcriptionProfiles.llmPostProcessing.outputVariableDoc.invalidPrompt",
+                              )}
                             </code>
-                            <p className="text-red-400/80" dangerouslySetInnerHTML={{ __html: t("settings.transcriptionProfiles.llmPostProcessing.outputVariableDoc.invalidWarning") }} />
+                            <p
+                              className="text-red-400/80"
+                              dangerouslySetInnerHTML={{
+                                __html: t(
+                                  "settings.transcriptionProfiles.llmPostProcessing.outputVariableDoc.invalidWarning",
+                                ),
+                              }}
+                            />
                           </div>
-                          <p className="mt-2 text-text/60" dangerouslySetInnerHTML={{ __html: t("settings.transcriptionProfiles.llmPostProcessing.outputVariableDoc.tip") }} />
+                          <p
+                            className="mt-2 text-text/60"
+                            dangerouslySetInnerHTML={{
+                              __html: t(
+                                "settings.transcriptionProfiles.llmPostProcessing.outputVariableDoc.tip",
+                              ),
+                            }}
+                          />
                         </details>
                       </div>
 
@@ -819,11 +987,16 @@ const ProfileCard: React.FC<ProfileCardProps> = ({
                         <div className="flex flex-col">
                           {!isCustomOverride ? (
                             <span className="text-[10px] text-purple-400/70 font-medium">
-                              {t("settings.transcriptionProfiles.llmPostProcessing.usingGlobalPrompt")}
+                              {t(
+                                "settings.transcriptionProfiles.llmPostProcessing.usingGlobalPrompt",
+                              )}
                             </span>
                           ) : (
                             <span className="text-[10px] text-orange-400 font-medium">
-                              {t("settings.transcriptionProfiles.llmPostProcessing.customPromptActive", "Custom prompt active")}
+                              {t(
+                                "settings.transcriptionProfiles.llmPostProcessing.customPromptActive",
+                                "Custom prompt active",
+                              )}
                             </span>
                           )}
                         </div>
@@ -835,7 +1008,9 @@ const ProfileCard: React.FC<ProfileCardProps> = ({
                             className="flex items-center gap-1.5 px-2 py-1 text-xs bg-purple-500/10 hover:bg-purple-500/20 border border-purple-500/30 rounded-md text-purple-300 transition-colors disabled:opacity-50"
                           >
                             <RotateCcw className="w-3.5 h-3.5" />
-                            {t("settings.transcriptionProfiles.llmPostProcessing.resetToGlobal")}
+                            {t(
+                              "settings.transcriptionProfiles.llmPostProcessing.resetToGlobal",
+                            )}
                           </button>
                         )}
                       </div>
@@ -852,7 +1027,9 @@ const ProfileCard: React.FC<ProfileCardProps> = ({
                             handleLlmPromptChange(e.target.value);
                           }
                         }}
-                        placeholder={t("settings.transcriptionProfiles.llmPostProcessing.promptPlaceholder")}
+                        placeholder={t(
+                          "settings.transcriptionProfiles.llmPostProcessing.promptPlaceholder",
+                        )}
                         disabled={isUpdating}
                         rows={6}
                         className={`w-full px-3 py-2 text-sm bg-[#1e1e1e]/80 border rounded-md resize-none transition-colors border-[#3c3c3c] focus:border-[#4a4a4a] ${isUpdating ? "opacity-40 cursor-not-allowed" : ""} text-[#e8e8e8] placeholder-[#6b6b6b]`}
@@ -862,10 +1039,14 @@ const ProfileCard: React.FC<ProfileCardProps> = ({
                     {/* Model Override */}
                     <div className="space-y-1">
                       <label className="text-xs text-text/60">
-                        {t("settings.transcriptionProfiles.llmPostProcessing.overrideModel")}
+                        {t(
+                          "settings.transcriptionProfiles.llmPostProcessing.overrideModel",
+                        )}
                       </label>
                       <p className="text-xs text-mid-gray">
-                        {t("settings.transcriptionProfiles.llmPostProcessing.overrideModelHint")}
+                        {t(
+                          "settings.transcriptionProfiles.llmPostProcessing.overrideModelHint",
+                        )}
                       </p>
                       <div className="flex items-center gap-2">
                         <ModelSelect
@@ -874,10 +1055,17 @@ const ProfileCard: React.FC<ProfileCardProps> = ({
                           disabled={isUpdating}
                           placeholder={
                             globalLlmModel
-                              ? t("settings.transcriptionProfiles.llmPostProcessing.usingGlobalModel", { model: globalLlmModel })
-                              : t("settings.transcriptionProfiles.llmPostProcessing.modelPlaceholder")
+                              ? t(
+                                  "settings.transcriptionProfiles.llmPostProcessing.usingGlobalModel",
+                                  { model: globalLlmModel },
+                                )
+                              : t(
+                                  "settings.transcriptionProfiles.llmPostProcessing.modelPlaceholder",
+                                )
                           }
-                          onSelect={(value) => handleLlmModelChange(value || null)}
+                          onSelect={(value) =>
+                            handleLlmModelChange(value || null)
+                          }
                           onCreate={(value) => handleLlmModelChange(value)}
                           onBlur={() => {}}
                           className="flex-1"
@@ -887,7 +1075,9 @@ const ProfileCard: React.FC<ProfileCardProps> = ({
                           disabled={isFetchingModels || isUpdating}
                           title="Fetch Models from Server, then you can type part of model name for searching it in drop-down."
                         >
-                          <RefreshCcw className={`w-4 h-4 ${isFetchingModels ? "animate-spin" : ""}`} />
+                          <RefreshCcw
+                            className={`w-4 h-4 ${isFetchingModels ? "animate-spin" : ""}`}
+                          />
                         </ResetButton>
                       </div>
                     </div>
@@ -896,7 +1086,6 @@ const ProfileCard: React.FC<ProfileCardProps> = ({
               </div>
             </details>
           )}
-
         </div>
       )}
     </div>
@@ -905,7 +1094,13 @@ const ProfileCard: React.FC<ProfileCardProps> = ({
 
 export const TranscriptionProfiles: React.FC = () => {
   const { t } = useTranslation();
-  const { settings, refreshSettings, updateSetting, postProcessModelOptions, fetchPostProcessModels } = useSettings();
+  const {
+    settings,
+    refreshSettings,
+    updateSetting,
+    postProcessModelOptions,
+    fetchPostProcessModels,
+  } = useSettings();
   const { getModelInfo } = useModels();
   const [expandedIds, setExpandedIds] = useState<Set<string>>(
     () => new Set(["default"]),
@@ -919,13 +1114,23 @@ export const TranscriptionProfiles: React.FC = () => {
   const [newPushToTalk, setNewPushToTalk] = useState(true);
   const [newPreviewOutputOnly, setNewPreviewOutputOnly] = useState(false);
   const [newIncludeInCycle, setNewIncludeInCycle] = useState(true);
-  const [newSttPromptOverrideEnabled, setNewSttPromptOverrideEnabled] = useState(false);
+  const [newSttPromptOverrideEnabled, setNewSttPromptOverrideEnabled] =
+    useState(false);
   const [newLlmEnabled, setNewLlmEnabled] = useState(false);
   const [newLlmPromptOverride, setNewLlmPromptOverride] = useState("");
-  const [newLlmModelOverride, setNewLlmModelOverride] = useState<string | null>(null);
-  const [newSonioxContextGeneralJson, setNewSonioxContextGeneralJson] = useState("");
+  const [newLlmModelOverride, setNewLlmModelOverride] = useState<string | null>(
+    null,
+  );
+  const [newSonioxContextGeneralJson, setNewSonioxContextGeneralJson] =
+    useState("");
   const [newSonioxContextText, setNewSonioxContextText] = useState("");
-  const [newSonioxContextTerms, setNewSonioxContextTerms] = useState<string[]>([]);
+  const [newSonioxContextTerms, setNewSonioxContextTerms] = useState<string[]>(
+    [],
+  );
+  const [
+    newSonioxLanguageHintsStrictMode,
+    setNewSonioxLanguageHintsStrictMode,
+  ] = useState<TriStateValue>("global");
   const [newProfileError, setNewProfileError] = useState<string | null>(null);
 
   const profiles = (settings?.transcription_profiles ||
@@ -998,9 +1203,10 @@ export const TranscriptionProfiles: React.FC = () => {
   const promptLimit = modelInfo.supportsPrompt ? modelInfo.charLimit : 0;
   const hasActivePromptModel = activeModelId.length > 0;
   const activePromptValue = hasActivePromptModel
-    ? (settings?.transcription_prompts?.[activeModelId] || "")
+    ? settings?.transcription_prompts?.[activeModelId] || ""
     : "";
-  const supportsTranslation = settings?.transcription_provider !== "remote_soniox";
+  const supportsTranslation =
+    settings?.transcription_provider !== "remote_soniox";
   const isSonioxProvider = settings?.transcription_provider === "remote_soniox";
 
   const filteredLanguages = useMemo(() => {
@@ -1038,7 +1244,11 @@ export const TranscriptionProfiles: React.FC = () => {
   );
 
   const defaultProfileLanguageOptions = useMemo(() => {
-    if (filteredLanguages.some((language) => language.value === selectedGlobalLanguage)) {
+    if (
+      filteredLanguages.some(
+        (language) => language.value === selectedGlobalLanguage,
+      )
+    ) {
       return filteredLanguages;
     }
 
@@ -1074,23 +1284,34 @@ export const TranscriptionProfiles: React.FC = () => {
     if (currentLlmProviderId === APPLE_PROVIDER_ID) return true;
     const apiKey = settings?.post_process_api_keys?.[currentLlmProviderId];
     return !!apiKey?.trim();
-  }, [settings?.post_process_enabled, currentLlmProviderId, settings?.post_process_api_keys]);
+  }, [
+    settings?.post_process_enabled,
+    currentLlmProviderId,
+    settings?.post_process_api_keys,
+  ]);
 
   const llmModelOptions = useMemo<ModelOption[]>(() => {
     const models = postProcessModelOptions[currentLlmProviderId] || [];
     return models.map((m) => ({ value: m, label: m }));
   }, [postProcessModelOptions, currentLlmProviderId]);
 
-  const globalLlmModel = settings?.post_process_models?.[currentLlmProviderId] || "";
+  const globalLlmModel =
+    settings?.post_process_models?.[currentLlmProviderId] || "";
 
   const globalPromptText = useMemo(() => {
     const prompts = settings?.post_process_prompts || [];
     const selectedId = settings?.post_process_selected_prompt_id;
-    return prompts.find((p) => p.id === selectedId)?.prompt || DEFAULT_CLEAN_PROMPT;
-  }, [settings?.post_process_prompts, settings?.post_process_selected_prompt_id]);
+    return (
+      prompts.find((p) => p.id === selectedId)?.prompt || DEFAULT_CLEAN_PROMPT
+    );
+  }, [
+    settings?.post_process_prompts,
+    settings?.post_process_selected_prompt_id,
+  ]);
 
   const handleRefreshModels = useCallback(async () => {
-    if (!currentLlmProviderId || currentLlmProviderId === APPLE_PROVIDER_ID) return;
+    if (!currentLlmProviderId || currentLlmProviderId === APPLE_PROVIDER_ID)
+      return;
     setIsFetchingModels(true);
     try {
       await fetchPostProcessModels(currentLlmProviderId);
@@ -1107,26 +1328,33 @@ export const TranscriptionProfiles: React.FC = () => {
     setNewProfileError(null);
     setIsCreating(true);
     try {
-      const newProfile = await invoke<TranscriptionProfile>("add_transcription_profile", {
-        payload: {
-          name: newName.trim(),
-          language: newLanguage,
-          translateToEnglish: newTranslate,
-          systemPrompt: newSystemPrompt,
-          sttPromptOverrideEnabled: newSttPromptOverrideEnabled,
-          pushToTalk: newPushToTalk,
-          previewOutputOnlyEnabled: newPreviewOutputOnly,
-          includeInCycle: newIncludeInCycle,
-          llmSettings: {
-            enabled: newLlmEnabled,
-            promptOverride: newLlmPromptOverride === "" ? null : newLlmPromptOverride,
-            modelOverride: newLlmModelOverride,
+      const newProfile = await invoke<TranscriptionProfile>(
+        "add_transcription_profile",
+        {
+          payload: {
+            name: newName.trim(),
+            language: newLanguage,
+            translateToEnglish: newTranslate,
+            systemPrompt: newSystemPrompt,
+            sttPromptOverrideEnabled: newSttPromptOverrideEnabled,
+            pushToTalk: newPushToTalk,
+            previewOutputOnlyEnabled: newPreviewOutputOnly,
+            includeInCycle: newIncludeInCycle,
+            llmSettings: {
+              enabled: newLlmEnabled,
+              promptOverride:
+                newLlmPromptOverride === "" ? null : newLlmPromptOverride,
+              modelOverride: newLlmModelOverride,
+            },
+            sonioxContextGeneralJson: newSonioxContextGeneralJson,
+            sonioxContextText: newSonioxContextText,
+            sonioxContextTerms: newSonioxContextTerms,
+            sonioxLanguageHintsStrict: strictModeToApi(
+              newSonioxLanguageHintsStrictMode,
+            ),
           },
-          sonioxContextGeneralJson: newSonioxContextGeneralJson,
-          sonioxContextText: newSonioxContextText,
-          sonioxContextTerms: newSonioxContextTerms,
         },
-      });
+      );
       await refreshSettings();
       setNewName("");
       setNewLanguage("auto");
@@ -1142,6 +1370,7 @@ export const TranscriptionProfiles: React.FC = () => {
       setNewSonioxContextGeneralJson("");
       setNewSonioxContextText("");
       setNewSonioxContextTerms([]);
+      setNewSonioxLanguageHintsStrictMode("global");
       setExpandedIds((prev) => {
         const next = new Set(prev);
         next.add(newProfile.id);
@@ -1171,10 +1400,12 @@ export const TranscriptionProfiles: React.FC = () => {
           language: profile.language,
           translateToEnglish: profile.translate_to_english,
           systemPrompt: profile.system_prompt || "",
-          sttPromptOverrideEnabled: profile.stt_prompt_override_enabled ?? false,
+          sttPromptOverrideEnabled:
+            profile.stt_prompt_override_enabled ?? false,
           includeInCycle: profile.include_in_cycle,
           pushToTalk: profile.push_to_talk,
-          previewOutputOnlyEnabled: profile.preview_output_only_enabled ?? false,
+          previewOutputOnlyEnabled:
+            profile.preview_output_only_enabled ?? false,
           llmSettings: {
             enabled: profile.llm_post_process_enabled ?? false,
             promptOverride: profile.llm_prompt_override ?? null,
@@ -1183,6 +1414,7 @@ export const TranscriptionProfiles: React.FC = () => {
           sonioxContextGeneralJson: profile.soniox_context_general_json || "",
           sonioxContextText: profile.soniox_context_text || "",
           sonioxContextTerms: profile.soniox_context_terms || [],
+          sonioxLanguageHintsStrict: profile.soniox_language_hints_strict ?? null,
         },
       });
       await refreshSettings();
@@ -1265,7 +1497,9 @@ export const TranscriptionProfiles: React.FC = () => {
                 </Badge>
               </div>
               <span className="text-xs text-mid-gray">
-                {t("settings.transcriptionProfiles.transcribeActiveProfileDescription")}
+                {t(
+                  "settings.transcriptionProfiles.transcribeActiveProfileDescription",
+                )}
               </span>
             </div>
             <div className="shrink-0">
@@ -1291,7 +1525,10 @@ export const TranscriptionProfiles: React.FC = () => {
                 {t("settings.transcriptionProfiles.includeInCycleDescription")}
               </span>
               <span className="text-xs text-mid-gray leading-snug">
-                {t("settings.transcriptionProfiles.cycleActiveProfilesShort", "Global shortcut to cycle through active profiles")}
+                {t(
+                  "settings.transcriptionProfiles.cycleActiveProfilesShort",
+                  "Global shortcut to cycle through active profiles",
+                )}
               </span>
             </div>
             <div className="shrink-0">
@@ -1358,17 +1595,24 @@ export const TranscriptionProfiles: React.FC = () => {
                   </div>
                   <span className="text-xs text-mid-gray break-words">
                     {(() => {
-                      const selectedLang = settings?.selected_language || "auto";
-                      const lang = LANGUAGES.find((l) => l.value === selectedLang);
+                      const selectedLang =
+                        settings?.selected_language || "auto";
+                      const lang = LANGUAGES.find(
+                        (l) => l.value === selectedLang,
+                      );
                       return lang?.label || t("settings.general.language.auto");
                     })()}
                     {settings?.translate_to_english && (
-                      <span className="text-purple-400 ml-1">{t("settings.transcriptionProfiles.toEnglish", "→ EN")}</span>
+                      <span className="text-purple-400 ml-1">
+                        {t("settings.transcriptionProfiles.toEnglish", "→ EN")}
+                      </span>
                     )}
                     {settings?.selected_language === "os_input" && (
                       <span
                         className="text-amber-400/60 ml-2 text-[10px]"
-                        title={t("settings.general.language.followOsInputTooltip")}
+                        title={t(
+                          "settings.general.language.followOsInputTooltip",
+                        )}
                       >
                         ({t("settings.general.language.followOsInputHint")})
                       </span>
@@ -1392,7 +1636,11 @@ export const TranscriptionProfiles: React.FC = () => {
                       ? "opacity-100 cursor-default"
                       : ""
                   }
-                  title={activeProfileId === "default" ? t("settings.transcriptionProfiles.active") : undefined}
+                  title={
+                    activeProfileId === "default"
+                      ? t("settings.transcriptionProfiles.active")
+                      : undefined
+                  }
                 >
                   {activeProfileId === "default" ? (
                     <Check className="w-4 h-4" />
@@ -1443,11 +1691,15 @@ export const TranscriptionProfiles: React.FC = () => {
                     <div className="flex items-center gap-2">
                       <ToggleSwitch
                         checked={
-                          ((settings as any)?.preview_output_only_enabled as boolean) ?? false
+                          ((settings as any)
+                            ?.preview_output_only_enabled as boolean) ?? false
                         }
                         onChange={(checked) =>
                           updateSetting &&
-                          updateSetting("preview_output_only_enabled" as any, checked as any)
+                          updateSetting(
+                            "preview_output_only_enabled" as any,
+                            checked as any,
+                          )
                         }
                       />
                       <span className="text-xs text-mid-gray leading-snug">
@@ -1465,7 +1717,10 @@ export const TranscriptionProfiles: React.FC = () => {
                   <label className="text-xs font-semibold text-text/70">
                     {t("settings.transcriptionProfiles.shortcut")}
                   </label>
-                  <HandyShortcut shortcutId="transcribe_default" grouped={true} />
+                  <HandyShortcut
+                    shortcutId="transcribe_default"
+                    grouped={true}
+                  />
                 </div>
 
                 {/* Language + Translate to English — same row */}
@@ -1486,6 +1741,39 @@ export const TranscriptionProfiles: React.FC = () => {
                         className: lang.className,
                       }))}
                     />
+                    {isSonioxProvider && (
+                      <div className="flex items-center gap-1.5 mt-1.5">
+                        <Tooltip content={t("settings.advanced.soniox.languageHintsStrict.titleTooltip", "This option only appears if a Soniox model is used")}>
+                          <span className="text-[10px] text-text/60">
+                            {t(
+                              "settings.advanced.soniox.languageHintsStrict.title",
+                              "Strict",
+                            )}
+                            :
+                          </span>
+                        </Tooltip>
+                        <div onClick={(e) => e.stopPropagation()}>
+                          <ToggleSwitch
+                            checked={
+                              (settings as any)
+                                ?.soniox_language_hints_strict ?? false
+                            }
+                            onChange={async (val) => {
+                              updateSetting &&
+                                updateSetting(
+                                  "soniox_language_hints_strict" as any,
+                                  val,
+                                );
+                            }}
+                          />
+                        </div>
+                        <InfoTooltip
+                          content={t(
+                            "settings.advanced.soniox.languageHintsStrict.description",
+                          )}
+                        />
+                      </div>
+                    )}
                     {showDefaultLanguageFallbackWarning && (
                       <p className="text-xs text-amber-400/90">
                         {isSonioxProvider
@@ -1510,7 +1798,10 @@ export const TranscriptionProfiles: React.FC = () => {
                         type="button"
                         onClick={() =>
                           updateSetting &&
-                          updateSetting("translate_to_english" as any, !(settings?.translate_to_english ?? false))
+                          updateSetting(
+                            "translate_to_english" as any,
+                            !(settings?.translate_to_english ?? false),
+                          )
                         }
                         disabled={!supportsTranslation}
                         className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors shrink-0 ${
@@ -1529,8 +1820,12 @@ export const TranscriptionProfiles: React.FC = () => {
                       </button>
                       <span className="text-xs text-mid-gray leading-snug">
                         {!supportsTranslation
-                          ? t("settings.advanced.translateToEnglish.descriptionRemoteUnsupported")
-                          : t("settings.transcriptionProfiles.translateToEnglishDescription")}
+                          ? t(
+                              "settings.advanced.translateToEnglish.descriptionRemoteUnsupported",
+                            )
+                          : t(
+                              "settings.transcriptionProfiles.translateToEnglishDescription",
+                            )}
                       </span>
                     </div>
                   </div>
@@ -1542,21 +1837,26 @@ export const TranscriptionProfiles: React.FC = () => {
                     text={settings?.soniox_context_text || ""}
                     terms={settings?.soniox_context_terms || []}
                     onCommitGeneralJson={async (value) => {
-                      const result = await commands.changeSonioxContextGeneralJsonSetting(value);
+                      const result =
+                        await commands.changeSonioxContextGeneralJsonSetting(
+                          value,
+                        );
                       if (result.status === "error") {
                         throw new Error(String(result.error));
                       }
                       await refreshSettings();
                     }}
                     onCommitText={async (value) => {
-                      const result = await commands.changeSonioxContextTextSetting(value);
+                      const result =
+                        await commands.changeSonioxContextTextSetting(value);
                       if (result.status === "error") {
                         throw new Error(String(result.error));
                       }
                       await refreshSettings();
                     }}
                     onCommitTerms={async (value) => {
-                      const result = await commands.changeSonioxContextTermsSetting(value);
+                      const result =
+                        await commands.changeSonioxContextTermsSetting(value);
                       if (result.status === "error") {
                         throw new Error(String(result.error));
                       }
@@ -1572,9 +1872,15 @@ export const TranscriptionProfiles: React.FC = () => {
                       <div className="flex items-center gap-2 min-w-0">
                         <ChevronDown className="w-3.5 h-3.5 text-mid-gray shrink-0 transition-transform group-open:rotate-180" />
                         <span className="text-xs font-semibold text-text/70">
-                          {t("settings.transcriptionProfiles.systemPromptGlobal")}
+                          {t(
+                            "settings.transcriptionProfiles.systemPromptGlobal",
+                          )}
                         </span>
-                        <InfoTooltip content={t("settings.transcriptionProfiles.voiceModelPromptGlobalTooltip")} />
+                        <InfoTooltip
+                          content={t(
+                            "settings.transcriptionProfiles.voiceModelPromptGlobalTooltip",
+                          )}
+                        />
                       </div>
                       {promptLimit > 0 && (
                         <span
@@ -1640,6 +1946,7 @@ export const TranscriptionProfiles: React.FC = () => {
               isFetchingModels={isFetchingModels}
               defaultLlmPrompt={globalPromptText}
               isSonioxProvider={isSonioxProvider}
+              globalSonioxLanguageHintsStrict={Boolean((settings as any)?.soniox_language_hints_strict)}
               showSonioxLanguageFallbackWarning={
                 !filteredLanguages.some(
                   (language) => language.value === profile.language,
@@ -1674,7 +1981,9 @@ export const TranscriptionProfiles: React.FC = () => {
                   className="w-4 h-4 rounded border-mid-gray bg-background text-purple-500 focus:ring-purple-500/50"
                 />
                 <span className="text-xs text-mid-gray leading-snug">
-                  {t("settings.transcriptionProfiles.includeInCycleDescription")}
+                  {t(
+                    "settings.transcriptionProfiles.includeInCycleDescription",
+                  )}
                 </span>
               </div>
             </div>
@@ -1752,6 +2061,30 @@ export const TranscriptionProfiles: React.FC = () => {
                 placeholder={t("settings.general.language.auto")}
                 disabled={isCreating}
               />
+              {isSonioxProvider && (
+                <div className="flex items-center gap-1.5 mt-1.5">
+                  <Tooltip content={t("settings.advanced.soniox.languageHintsStrict.titleTooltip", "This option only appears if a Soniox model is used")}>
+                    <span className="text-[10px] text-text/60">
+                      {t(
+                        "settings.advanced.soniox.languageHintsStrict.title",
+                        "Strict",
+                      )}
+                      :
+                    </span>
+                  </Tooltip>
+                  <TriStateToggle
+                    value={newSonioxLanguageHintsStrictMode}
+                    globalValue={Boolean((settings as any)?.soniox_language_hints_strict)}
+                    onChange={setNewSonioxLanguageHintsStrictMode}
+                    disabled={isCreating}
+                  />
+                  <InfoTooltip
+                    content={t(
+                      "settings.advanced.soniox.languageHintsStrict.description",
+                    )}
+                  />
+                </div>
+              )}
             </div>
 
             {/* Translate to English Toggle — matches ProfileCard layout */}
@@ -1770,16 +2103,12 @@ export const TranscriptionProfiles: React.FC = () => {
                   onClick={() => setNewTranslate(!newTranslate)}
                   disabled={isCreating || !supportsTranslation}
                   className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors shrink-0 ${
-                    newTranslate
-                      ? "bg-purple-500"
-                      : "bg-mid-gray/30"
+                    newTranslate ? "bg-purple-500" : "bg-mid-gray/30"
                   } ${isCreating ? "opacity-50 cursor-not-allowed" : "cursor-pointer"}`}
                 >
                   <span
                     className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                      newTranslate
-                        ? "translate-x-6"
-                        : "translate-x-1"
+                      newTranslate ? "translate-x-6" : "translate-x-1"
                     }`}
                   />
                 </button>
@@ -1824,18 +2153,30 @@ export const TranscriptionProfiles: React.FC = () => {
                   <span className="text-xs font-semibold text-text/70">
                     {t("settings.transcriptionProfiles.overrideSystemPrompt")}
                   </span>
-                  <InfoTooltip content={t("settings.transcriptionProfiles.voiceModelPromptTooltip")} />
+                  <InfoTooltip
+                    content={t(
+                      "settings.transcriptionProfiles.voiceModelPromptTooltip",
+                    )}
+                  />
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
                   {newSttPromptOverrideEnabled && (
-                    <span className={`text-[10px] px-1.5 py-0.5 rounded-full border whitespace-nowrap ${
-                      newSystemPrompt.trim()
-                        ? "bg-purple-500/20 text-purple-400 border-purple-500/30"
-                        : "bg-amber-500/15 text-amber-400 border-amber-500/25"
-                    }`}>
+                    <span
+                      className={`text-[10px] px-1.5 py-0.5 rounded-full border whitespace-nowrap ${
+                        newSystemPrompt.trim()
+                          ? "bg-purple-500/20 text-purple-400 border-purple-500/30"
+                          : "bg-amber-500/15 text-amber-400 border-amber-500/25"
+                      }`}
+                    >
                       {newSystemPrompt.trim()
-                        ? t("settings.transcriptionProfiles.badges.sttPromptOverridden", "System prompt overridden")
-                        : t("settings.transcriptionProfiles.badges.sttPromptEmpty", "System prompt is empty")}
+                        ? t(
+                            "settings.transcriptionProfiles.badges.sttPromptOverridden",
+                            "System prompt overridden",
+                          )
+                        : t(
+                            "settings.transcriptionProfiles.badges.sttPromptEmpty",
+                            "System prompt is empty",
+                          )}
                     </span>
                   )}
                   {/* stopPropagation prevents details toggle when clicking the switch */}
@@ -1851,8 +2192,12 @@ export const TranscriptionProfiles: React.FC = () => {
               <div className="px-3 pb-3 space-y-2 border-t border-mid-gray/10">
                 <p className="text-xs text-mid-gray pt-2">
                   {newSttPromptOverrideEnabled
-                    ? t("settings.transcriptionProfiles.overrideSystemPromptOnDescription")
-                    : t("settings.transcriptionProfiles.overrideSystemPromptOffDescription")}
+                    ? t(
+                        "settings.transcriptionProfiles.overrideSystemPromptOnDescription",
+                      )
+                    : t(
+                        "settings.transcriptionProfiles.overrideSystemPromptOffDescription",
+                      )}
                 </p>
                 {newSttPromptOverrideEnabled && (
                   <>
@@ -1861,7 +2206,11 @@ export const TranscriptionProfiles: React.FC = () => {
                         <label className="text-xs font-semibold text-text/70">
                           {t("settings.transcriptionProfiles.systemPrompt")}
                         </label>
-                        <InfoTooltip content={t("settings.transcriptionProfiles.voiceModelPromptTooltip")} />
+                        <InfoTooltip
+                          content={t(
+                            "settings.transcriptionProfiles.voiceModelPromptTooltip",
+                          )}
+                        />
                       </div>
                       <span
                         className={`text-xs ${isNewPromptOverLimit ? "text-red-400" : "text-mid-gray"}`}
@@ -1885,13 +2234,18 @@ export const TranscriptionProfiles: React.FC = () => {
                       } ${isCreating ? "opacity-40 cursor-not-allowed" : ""} text-[#e8e8e8] placeholder-[#6b6b6b]`}
                     />
                     <p className="text-xs text-mid-gray">
-                      {t("settings.transcriptionProfiles.systemPromptDescription")}
+                      {t(
+                        "settings.transcriptionProfiles.systemPromptDescription",
+                      )}
                     </p>
                     {isNewPromptOverLimit && (
                       <p className="text-xs text-red-400">
-                        {t("settings.transcriptionProfiles.systemPromptTooLong", {
-                          limit: promptLimit,
-                        })}
+                        {t(
+                          "settings.transcriptionProfiles.systemPromptTooLong",
+                          {
+                            limit: promptLimit,
+                          },
+                        )}
                       </p>
                     )}
                   </>
@@ -1907,24 +2261,41 @@ export const TranscriptionProfiles: React.FC = () => {
                 <div className="flex items-center gap-2 min-w-0">
                   <ChevronDown className="w-3.5 h-3.5 text-mid-gray shrink-0 transition-transform group-open:rotate-180" />
                   <span className="text-xs font-semibold text-text/70">
-                    {t("settings.transcriptionProfiles.llmPostProcessing.title")}
+                    {t(
+                      "settings.transcriptionProfiles.llmPostProcessing.title",
+                    )}
                   </span>
-                  <InfoTooltip content={t("settings.transcriptionProfiles.llmPostProcessing.description")} />
+                  <InfoTooltip
+                    content={t(
+                      "settings.transcriptionProfiles.llmPostProcessing.description",
+                    )}
+                  />
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
                   {newLlmEnabled && (
                     <div className="flex flex-wrap items-center gap-1.5">
                       <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-purple-500/20 text-purple-400 border border-purple-500/30 whitespace-nowrap">
-                        {t("settings.transcriptionProfiles.badges.llmActive", "LLM active")}
+                        {t(
+                          "settings.transcriptionProfiles.badges.llmActive",
+                          "LLM active",
+                        )}
                       </span>
-                      {newLlmPromptOverride && newLlmPromptOverride !== globalPromptText && (
-                        <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-amber-500/15 text-amber-400 border border-amber-500/25 whitespace-nowrap">
-                          {t("settings.transcriptionProfiles.badges.promptOverridden", "Prompt overridden")}
-                        </span>
-                      )}
+                      {newLlmPromptOverride &&
+                        newLlmPromptOverride !== globalPromptText && (
+                          <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-amber-500/15 text-amber-400 border border-amber-500/25 whitespace-nowrap">
+                            {t(
+                              "settings.transcriptionProfiles.badges.promptOverridden",
+                              "Prompt overridden",
+                            )}
+                          </span>
+                        )}
                       {newLlmModelOverride && (
                         <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-blue-500/15 text-blue-400 border border-blue-500/25 whitespace-nowrap">
-                          {t("settings.transcriptionProfiles.badges.modelOverride", "Model: {{model}}", { model: newLlmModelOverride })}
+                          {t(
+                            "settings.transcriptionProfiles.badges.modelOverride",
+                            "Model: {{model}}",
+                            { model: newLlmModelOverride },
+                          )}
                         </span>
                       )}
                     </div>
@@ -1941,12 +2312,16 @@ export const TranscriptionProfiles: React.FC = () => {
               </summary>
               <div className="px-3 pb-3 space-y-2 border-t border-mid-gray/10">
                 <p className="text-xs text-mid-gray pt-2">
-                  {t("settings.transcriptionProfiles.llmPostProcessing.description")}
+                  {t(
+                    "settings.transcriptionProfiles.llmPostProcessing.description",
+                  )}
                 </p>
 
                 {isSonioxProvider && (
                   <div className="p-2 bg-red-500/10 border border-red-500/30 rounded text-xs text-red-400">
-                    {t("settings.transcriptionProfiles.llmPostProcessing.sonioxWarning")}
+                    {t(
+                      "settings.transcriptionProfiles.llmPostProcessing.sonioxWarning",
+                    )}
                   </div>
                 )}
 
@@ -1957,31 +2332,86 @@ export const TranscriptionProfiles: React.FC = () => {
                       {/* ${output} Variable Documentation */}
                       <div className="p-2 bg-blue-500/10 border border-blue-500/30 rounded text-xs space-y-1">
                         <div className="font-semibold text-blue-400">
-                          {t("settings.transcriptionProfiles.llmPostProcessing.outputVariableDoc.title")}
+                          {t(
+                            "settings.transcriptionProfiles.llmPostProcessing.outputVariableDoc.title",
+                          )}
                         </div>
-                        <p className="text-text/70" dangerouslySetInnerHTML={{ __html: t("settings.transcriptionProfiles.llmPostProcessing.outputVariableDoc.description") }} />
+                        <p
+                          className="text-text/70"
+                          dangerouslySetInnerHTML={{
+                            __html: t(
+                              "settings.transcriptionProfiles.llmPostProcessing.outputVariableDoc.description",
+                            ),
+                          }}
+                        />
                         <details className="cursor-pointer">
                           <summary className="text-blue-400 hover:text-blue-300">
-                            {t("settings.transcriptionProfiles.llmPostProcessing.outputVariableDoc.howItWorks")}
+                            {t(
+                              "settings.transcriptionProfiles.llmPostProcessing.outputVariableDoc.howItWorks",
+                            )}
                           </summary>
                           <ol className="list-decimal list-inside text-text/60 mt-1 space-y-0.5 pl-2">
-                            <li>{t("settings.transcriptionProfiles.llmPostProcessing.outputVariableDoc.step1")}</li>
-                            <li dangerouslySetInnerHTML={{ __html: t("settings.transcriptionProfiles.llmPostProcessing.outputVariableDoc.step2") }} />
-                            <li>{t("settings.transcriptionProfiles.llmPostProcessing.outputVariableDoc.step3")}</li>
-                            <li>{t("settings.transcriptionProfiles.llmPostProcessing.outputVariableDoc.step4")}</li>
+                            <li>
+                              {t(
+                                "settings.transcriptionProfiles.llmPostProcessing.outputVariableDoc.step1",
+                              )}
+                            </li>
+                            <li
+                              dangerouslySetInnerHTML={{
+                                __html: t(
+                                  "settings.transcriptionProfiles.llmPostProcessing.outputVariableDoc.step2",
+                                ),
+                              }}
+                            />
+                            <li>
+                              {t(
+                                "settings.transcriptionProfiles.llmPostProcessing.outputVariableDoc.step3",
+                              )}
+                            </li>
+                            <li>
+                              {t(
+                                "settings.transcriptionProfiles.llmPostProcessing.outputVariableDoc.step4",
+                              )}
+                            </li>
                           </ol>
                           <div className="mt-2 space-y-1">
-                            <div className="text-green-400">{t("settings.transcriptionProfiles.llmPostProcessing.outputVariableDoc.validExample")}</div>
+                            <div className="text-green-400">
+                              {t(
+                                "settings.transcriptionProfiles.llmPostProcessing.outputVariableDoc.validExample",
+                              )}
+                            </div>
                             <code className="block bg-green-500/10 px-2 py-1 rounded text-green-300 whitespace-pre-wrap">
-                              {t("settings.transcriptionProfiles.llmPostProcessing.outputVariableDoc.validPrompt")}
+                              {t(
+                                "settings.transcriptionProfiles.llmPostProcessing.outputVariableDoc.validPrompt",
+                              )}
                             </code>
-                            <div className="text-red-400 mt-2">{t("settings.transcriptionProfiles.llmPostProcessing.outputVariableDoc.invalidExample")}</div>
+                            <div className="text-red-400 mt-2">
+                              {t(
+                                "settings.transcriptionProfiles.llmPostProcessing.outputVariableDoc.invalidExample",
+                              )}
+                            </div>
                             <code className="block bg-red-500/10 px-2 py-1 rounded text-red-300">
-                              {t("settings.transcriptionProfiles.llmPostProcessing.outputVariableDoc.invalidPrompt")}
+                              {t(
+                                "settings.transcriptionProfiles.llmPostProcessing.outputVariableDoc.invalidPrompt",
+                              )}
                             </code>
-                            <p className="text-red-400/80" dangerouslySetInnerHTML={{ __html: t("settings.transcriptionProfiles.llmPostProcessing.outputVariableDoc.invalidWarning") }} />
+                            <p
+                              className="text-red-400/80"
+                              dangerouslySetInnerHTML={{
+                                __html: t(
+                                  "settings.transcriptionProfiles.llmPostProcessing.outputVariableDoc.invalidWarning",
+                                ),
+                              }}
+                            />
                           </div>
-                          <p className="mt-2 text-text/60" dangerouslySetInnerHTML={{ __html: t("settings.transcriptionProfiles.llmPostProcessing.outputVariableDoc.tip") }} />
+                          <p
+                            className="mt-2 text-text/60"
+                            dangerouslySetInnerHTML={{
+                              __html: t(
+                                "settings.transcriptionProfiles.llmPostProcessing.outputVariableDoc.tip",
+                              ),
+                            }}
+                          />
                         </details>
                       </div>
 
@@ -1989,11 +2419,16 @@ export const TranscriptionProfiles: React.FC = () => {
                         <div className="flex flex-col">
                           {!newLlmPromptOverride ? (
                             <span className="text-[10px] text-purple-400/70 font-medium">
-                              {t("settings.transcriptionProfiles.llmPostProcessing.usingGlobalPrompt")}
+                              {t(
+                                "settings.transcriptionProfiles.llmPostProcessing.usingGlobalPrompt",
+                              )}
                             </span>
                           ) : (
                             <span className="text-[10px] text-orange-400 font-medium">
-                              {t("settings.transcriptionProfiles.llmPostProcessing.customPromptActive", "Custom prompt active")}
+                              {t(
+                                "settings.transcriptionProfiles.llmPostProcessing.customPromptActive",
+                                "Custom prompt active",
+                              )}
                             </span>
                           )}
                         </div>
@@ -2005,19 +2440,25 @@ export const TranscriptionProfiles: React.FC = () => {
                             className="flex items-center gap-1.5 px-2 py-1 text-xs bg-purple-500/10 hover:bg-purple-500/20 border border-purple-500/30 rounded-md text-purple-300 transition-colors disabled:opacity-50"
                           >
                             <RotateCcw className="w-3.5 h-3.5" />
-                            {t("settings.transcriptionProfiles.llmPostProcessing.resetToGlobal")}
+                            {t(
+                              "settings.transcriptionProfiles.llmPostProcessing.resetToGlobal",
+                            )}
                           </button>
                         )}
                       </div>
                       <textarea
                         value={newLlmPromptOverride || globalPromptText}
-                        onChange={(e) => setNewLlmPromptOverride(e.target.value)}
+                        onChange={(e) =>
+                          setNewLlmPromptOverride(e.target.value)
+                        }
                         onFocus={() => {
                           if (!newLlmPromptOverride) {
                             setNewLlmPromptOverride(globalPromptText);
                           }
                         }}
-                        placeholder={t("settings.transcriptionProfiles.llmPostProcessing.promptPlaceholder")}
+                        placeholder={t(
+                          "settings.transcriptionProfiles.llmPostProcessing.promptPlaceholder",
+                        )}
                         disabled={isCreating}
                         rows={6}
                         className={`w-full px-3 py-2 text-sm bg-[#1e1e1e]/80 border rounded-md resize-none transition-colors border-[#3c3c3c] focus:border-[#4a4a4a] ${isCreating ? "opacity-40 cursor-not-allowed" : ""} text-[#e8e8e8] placeholder-[#6b6b6b]`}
@@ -2027,10 +2468,14 @@ export const TranscriptionProfiles: React.FC = () => {
                     {/* Model Override */}
                     <div className="space-y-1">
                       <label className="text-xs text-text/60">
-                        {t("settings.transcriptionProfiles.llmPostProcessing.overrideModel")}
+                        {t(
+                          "settings.transcriptionProfiles.llmPostProcessing.overrideModel",
+                        )}
                       </label>
                       <p className="text-xs text-mid-gray">
-                        {t("settings.transcriptionProfiles.llmPostProcessing.overrideModelHint")}
+                        {t(
+                          "settings.transcriptionProfiles.llmPostProcessing.overrideModelHint",
+                        )}
                       </p>
                       <div className="flex items-center gap-2">
                         <ModelSelect
@@ -2039,10 +2484,17 @@ export const TranscriptionProfiles: React.FC = () => {
                           disabled={isCreating}
                           placeholder={
                             globalLlmModel
-                              ? t("settings.transcriptionProfiles.llmPostProcessing.usingGlobalModel", { model: globalLlmModel })
-                              : t("settings.transcriptionProfiles.llmPostProcessing.modelPlaceholder")
+                              ? t(
+                                  "settings.transcriptionProfiles.llmPostProcessing.usingGlobalModel",
+                                  { model: globalLlmModel },
+                                )
+                              : t(
+                                  "settings.transcriptionProfiles.llmPostProcessing.modelPlaceholder",
+                                )
                           }
-                          onSelect={(value) => setNewLlmModelOverride(value || null)}
+                          onSelect={(value) =>
+                            setNewLlmModelOverride(value || null)
+                          }
                           onCreate={(value) => setNewLlmModelOverride(value)}
                           onBlur={() => {}}
                           className="flex-1"
@@ -2052,7 +2504,9 @@ export const TranscriptionProfiles: React.FC = () => {
                           disabled={isFetchingModels || isCreating}
                           title="Fetch Models from Server, then you can type part of model name for searching it in drop-down."
                         >
-                          <RefreshCcw className={`w-4 h-4 ${isFetchingModels ? "animate-spin" : ""}`} />
+                          <RefreshCcw
+                            className={`w-4 h-4 ${isFetchingModels ? "animate-spin" : ""}`}
+                          />
                         </ResetButton>
                       </div>
                     </div>

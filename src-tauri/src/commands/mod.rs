@@ -142,6 +142,32 @@ pub fn check_apple_intelligence_available() -> bool {
     }
 }
 
+/// Show an error overlay for debugging purposes.
+/// Takes an error category string and displays the corresponding overlay.
+#[specta::specta]
+#[tauri::command]
+pub fn debug_show_error_overlay(app: AppHandle, category: String) {
+    use crate::plus_overlay_state::{show_error_overlay, OverlayErrorCategory};
+
+    let error_category = match category.as_str() {
+        "Auth" => OverlayErrorCategory::Auth,
+        "RateLimited" => OverlayErrorCategory::RateLimited,
+        "Billing" => OverlayErrorCategory::Billing,
+        "BadRequest" => OverlayErrorCategory::BadRequest,
+        "TlsCertificate" => OverlayErrorCategory::TlsCertificate,
+        "TlsHandshake" => OverlayErrorCategory::TlsHandshake,
+        "Timeout" => OverlayErrorCategory::Timeout,
+        "NetworkError" => OverlayErrorCategory::NetworkError,
+        "ServerError" => OverlayErrorCategory::ServerError,
+        "ParseError" => OverlayErrorCategory::ParseError,
+        "ExtensionOffline" => OverlayErrorCategory::ExtensionOffline,
+        "MicrophoneUnavailable" => OverlayErrorCategory::MicrophoneUnavailable,
+        _ => OverlayErrorCategory::Unknown,
+    };
+
+    show_error_overlay(&app, error_category);
+}
+
 /// Returns whether a feature-specific LLM API key is stored in secure storage.
 /// On non-Windows platforms this always returns false.
 #[specta::specta]

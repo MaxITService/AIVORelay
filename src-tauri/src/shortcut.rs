@@ -2208,6 +2208,8 @@ pub struct AddTranscriptionProfilePayload {
     pub push_to_talk: bool,
     #[serde(default)]
     pub preview_output_only_enabled: bool,
+    #[serde(default)]
+    pub soniox_language_hints_strict: Option<bool>,
     pub include_in_cycle: Option<bool>,
     pub llm_settings: Option<settings::ProfileLlmSettings>,
     pub soniox_context_general_json: Option<String>,
@@ -2227,6 +2229,8 @@ pub struct UpdateTranscriptionProfilePayload {
     pub include_in_cycle: bool,
     pub push_to_talk: bool,
     pub preview_output_only_enabled: bool,
+    #[serde(default)]
+    pub soniox_language_hints_strict: Option<bool>,
     pub llm_settings: settings::ProfileLlmSettings,
     pub soniox_context_general_json: Option<String>,
     pub soniox_context_text: Option<String>,
@@ -2249,6 +2253,7 @@ pub fn add_transcription_profile(
         stt_prompt_override_enabled,
         push_to_talk,
         preview_output_only_enabled,
+        soniox_language_hints_strict,
         include_in_cycle,
         llm_settings,
         soniox_context_general_json,
@@ -2293,6 +2298,7 @@ pub fn add_transcription_profile(
         include_in_cycle: include_in_cycle.unwrap_or(true), // Include in cycle by default
         push_to_talk,
         preview_output_only_enabled,
+        soniox_language_hints_strict,
         llm_post_process_enabled,
         llm_prompt_override,
         llm_model_override,
@@ -2335,6 +2341,7 @@ pub fn update_transcription_profile(
         include_in_cycle,
         push_to_talk,
         preview_output_only_enabled,
+        soniox_language_hints_strict,
         llm_settings,
         soniox_context_general_json,
         soniox_context_text,
@@ -2365,6 +2372,7 @@ pub fn update_transcription_profile(
     profile.include_in_cycle = include_in_cycle;
     profile.push_to_talk = push_to_talk;
     profile.preview_output_only_enabled = preview_output_only_enabled;
+    profile.soniox_language_hints_strict = soniox_language_hints_strict;
     profile.llm_post_process_enabled = llm_settings.enabled;
     profile.llm_prompt_override = llm_settings.prompt_override;
     profile.llm_model_override = llm_settings.model_override;

@@ -159,6 +159,9 @@ pub struct TranscriptionProfile {
     /// The user explicitly controls when text is inserted via preview actions.
     #[serde(default)]
     pub preview_output_only_enabled: bool,
+    /// Enforce language hints strictly in Soniox (None = inherit global)
+    #[serde(default)]
+    pub soniox_language_hints_strict: Option<bool>,
     // ==================== LLM Post-Processing Settings ====================
     /// Whether LLM post-processing is enabled for this profile
     /// Inherits from global post_process_enabled when profile is created

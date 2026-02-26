@@ -1694,6 +1694,13 @@ async llmHasStoredApiKey(feature: LlmFeature, providerId: string) : Promise<Resu
     else return { status: "error", error: e  as any };
 }
 },
+/**
+ * Show an error overlay for debugging purposes.
+ * Takes an error category string and displays the corresponding overlay.
+ */
+async debugShowErrorOverlay(category: string) : Promise<void> {
+    await TAURI_INVOKE("debug_show_error_overlay", { category });
+},
 async getAvailableModels() : Promise<Result<ModelInfo[], string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("get_available_models") };
@@ -2191,7 +2198,7 @@ async isLaptop() : Promise<Result<boolean, string>> {
 
 /** user-defined types **/
 
-export type AddTranscriptionProfilePayload = { name: string; language: string; translateToEnglish: boolean; systemPrompt: string; sttPromptOverrideEnabled?: boolean; pushToTalk: boolean; previewOutputOnlyEnabled?: boolean; includeInCycle: boolean | null; llmSettings: ProfileLlmSettings | null; sonioxContextGeneralJson: string | null; sonioxContextText: string | null; sonioxContextTerms: string[] | null }
+export type AddTranscriptionProfilePayload = { name: string; language: string; translateToEnglish: boolean; systemPrompt: string; sttPromptOverrideEnabled?: boolean; pushToTalk: boolean; previewOutputOnlyEnabled?: boolean; sonioxLanguageHintsStrict?: boolean | null; includeInCycle: boolean | null; llmSettings: ProfileLlmSettings | null; sonioxContextGeneralJson: string | null; sonioxContextText: string | null; sonioxContextTerms: string[] | null }
 export type AppSettings = { bindings: Partial<{ [key in string]: ShortcutBinding }>; push_to_talk: boolean; preview_output_only_enabled?: boolean; audio_feedback: boolean; audio_feedback_volume?: number; sound_theme?: SoundTheme; start_hidden?: boolean; autostart_enabled?: boolean; show_tray_icon?: boolean; update_checks_enabled?: boolean; selected_model?: string; transcription_provider?: TranscriptionProvider; remote_stt?: RemoteSttSettings; soniox_model?: string; soniox_timeout_seconds?: number; soniox_live_enabled?: boolean; soniox_language_hints?: string[]; soniox_context_general_json?: string; soniox_context_text?: string; soniox_context_terms?: string[]; soniox_use_profile_language_hint_only?: boolean; soniox_language_hints_strict?: boolean; soniox_enable_endpoint_detection?: boolean; soniox_max_endpoint_delay_ms?: number; soniox_enable_language_identification?: boolean; soniox_enable_speaker_diarization?: boolean; soniox_keepalive_interval_seconds?: number; soniox_live_finalize_timeout_ms?: number; soniox_live_instant_stop?: boolean; soniox_realtime_fuzzy_correction_enabled?: boolean; soniox_realtime_keep_safety_buffer_enabled?: boolean; always_on_microphone?: boolean; selected_microphone?: string | null; clamshell_microphone?: string | null; selected_output_device?: string | null; translate_to_english?: boolean; selected_language?: string; overlay_position?: OverlayPosition; soniox_live_preview_enabled?: boolean; soniox_live_preview_position?: SonioxLivePreviewPosition; soniox_live_preview_cursor_offset_px?: number; soniox_live_preview_custom_x_px?: number; soniox_live_preview_custom_y_px?: number; soniox_live_preview_size?: SonioxLivePreviewSize; soniox_live_preview_custom_width_px?: number; soniox_live_preview_custom_height_px?: number; soniox_live_preview_theme?: SonioxLivePreviewTheme; soniox_live_preview_opacity_percent?: number; soniox_live_preview_font_color?: string; soniox_live_preview_interim_font_color?: string; soniox_live_preview_accent_color?: string; soniox_live_preview_interim_opacity_percent?: number; soniox_live_preview_close_hotkey?: string; soniox_live_preview_clear_hotkey?: string; soniox_live_preview_flush_hotkey?: string; soniox_live_preview_process_hotkey?: string; soniox_live_preview_insert_hotkey?: string; soniox_live_preview_show_clear_button?: boolean; soniox_live_preview_show_flush_button?: boolean; soniox_live_preview_show_process_button?: boolean; soniox_live_preview_show_insert_button?: boolean; debug_mode?: boolean; log_level?: LogLevel; custom_words?: string[]; custom_words_enabled?: boolean; custom_words_ngram_enabled?: boolean; model_unload_timeout?: ModelUnloadTimeout; word_correction_threshold?: number; history_limit?: number; recording_retention_period?: RecordingRetentionPeriod; paste_method?: PasteMethod; paste_delay_ms?: number; 
 /**
  * Convert LF to CRLF before clipboard paste (fixes newlines on Windows)
@@ -2765,6 +2772,10 @@ push_to_talk?: boolean;
  */
 preview_output_only_enabled?: boolean; 
 /**
+ * Enforce language hints strictly in Soniox (None = inherit global)
+ */
+soniox_language_hints_strict?: boolean | null; 
+/**
  * Whether LLM post-processing is enabled for this profile
  * Inherits from global post_process_enabled when profile is created
  */
@@ -2792,7 +2803,7 @@ soniox_context_text?: string;
  */
 soniox_context_terms?: string[] }
 export type TranscriptionProvider = "local" | "remote_openai_compatible" | "remote_soniox"
-export type UpdateTranscriptionProfilePayload = { id: string; name: string; language: string; translateToEnglish: boolean; systemPrompt: string; sttPromptOverrideEnabled: boolean; includeInCycle: boolean; pushToTalk: boolean; previewOutputOnlyEnabled: boolean; llmSettings: ProfileLlmSettings; sonioxContextGeneralJson: string | null; sonioxContextText: string | null; sonioxContextTerms: string[] | null }
+export type UpdateTranscriptionProfilePayload = { id: string; name: string; language: string; translateToEnglish: boolean; systemPrompt: string; sttPromptOverrideEnabled: boolean; includeInCycle: boolean; pushToTalk: boolean; previewOutputOnlyEnabled: boolean; sonioxLanguageHintsStrict?: boolean | null; llmSettings: ProfileLlmSettings; sonioxContextGeneralJson: string | null; sonioxContextText: string | null; sonioxContextTerms: string[] | null }
 /**
  * Information about the virtual screen (all monitors combined).
  */

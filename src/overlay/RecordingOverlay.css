@@ -115,10 +115,14 @@
 
 .error-text {
   color: #ff6b6b;
-  font-size: 12px;
+  font-size: 11px;
   font-family:
     -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   font-weight: 500;
+  line-height: 1.1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .overlay-icon-emoji {
@@ -129,6 +133,57 @@
 .recording-overlay.overlay-error {
   background: #1a0000cc;
   border: 1px solid #ff6b6b44;
+}
+
+.recording-overlay.overlay-error .overlay-middle {
+  justify-content: flex-start;
+}
+
+.error-row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  width: 100%;
+  min-width: 0;
+}
+
+.error-code-chip {
+  flex-shrink: 0;
+  color: #ffd5d5;
+  font-size: 10px;
+  font-family: "Cascadia Mono", "Consolas", monospace;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  padding: 1px 5px;
+  border-radius: 999px;
+  border: 1px solid #ff6b6b66;
+  background: #ff6b6b1a;
+}
+
+.error-tooltip {
+  display: none;
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: #1a0000ee;
+  color: #ffd5d5;
+  font-size: 9px;
+  font-family: "Cascadia Mono", "Consolas", monospace;
+  line-height: 1.2;
+  padding: 0 2px;
+  align-items: center;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  pointer-events: none;
+  z-index: 10;
+}
+
+.error-row:hover .error-tooltip {
+  display: flex;
 }
 
 .overlay-decapitalize-indicator {

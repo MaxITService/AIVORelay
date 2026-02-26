@@ -14,8 +14,76 @@ import { commands } from "@/bindings";
 import { syncLanguageFromSettings } from "@/i18n";
 import {
   ExtendedOverlayState,
+  fallbackCodeFromCategory,
   isExtendedPayload,
 } from "./plus_overlay_states";
+import type { OverlayErrorCategory } from "./plus_overlay_states";
+
+const COMPACT_ERROR_LABELS: Record<OverlayErrorCategory, string> = {
+  Auth: "Auth",
+  RateLimited: "Rate",
+  Billing: "Billing",
+  BadRequest: "Bad req",
+  TlsCertificate: "Cert",
+  TlsHandshake: "TLS",
+  Timeout: "Timeout",
+  NetworkError: "Network",
+  ServerError: "Server",
+  ParseError: "Parse",
+  ExtensionOffline: "Ext",
+  MicrophoneUnavailable: "Mic",
+  Unknown: "Failed",
+};
+
+const COMPACT_ERROR_CODE_MAP: Record<string, string> = {
+  E_AUTH: "AUTH",
+  E_BADREQ: "BAD_REQ",
+  E_BILL: "BILLING",
+  E_RATE: "RATE",
+  E_TIMEOUT: "TIMEOUT",
+  E_NET: "NET",
+  E_SERVER: "SERVER",
+  E_PARSE: "PARSE",
+  E_EXT: "EXT",
+  E_MIC: "MIC",
+  E_UNKNOWN: "UNKNOWN",
+};
+
+function compactOverlayErrorText(
+  rawText: string,
+  category?: OverlayErrorCategory,
+): string {
+  if (category && COMPACT_ERROR_LABELS[category]) {
+    return COMPACT_ERROR_LABELS[category];
+  }
+
+  const normalized = rawText.replace(/\s+/g, " ").trim();
+  if (normalized.length <= 11) return normalized;
+
+  const beforeColon = normalized.split(":")[0]?.trim() ?? normalized;
+  if (beforeColon.length > 0 && beforeColon.length <= 11) {
+    return beforeColon;
+  }
+
+  return `${normalized.slice(0, 10)}...`;
+}
+
+function compactOverlayErrorCode(rawCode: string): string {
+  const normalized = rawCode.toUpperCase().replace(/\s+/g, " ").trim();
+  const statusMatch = normalized.match(/\b([1-5]\d{2})\b/);
+  if (statusMatch) {
+    return statusMatch[1];
+  }
+
+  const lastToken = normalized.split(" ").pop() ?? normalized;
+  if (COMPACT_ERROR_CODE_MAP[lastToken]) {
+    return COMPACT_ERROR_CODE_MAP[lastToken];
+  }
+  if (lastToken.length <= 8) {
+    return lastToken;
+  }
+  return lastToken.slice(0, 8);
+}
 
 const RecordingOverlay: React.FC = () => {
   const { t } = useTranslation();
@@ -24,6 +92,8 @@ const RecordingOverlay: React.FC = () => {
   const [decapIndicatorEligible, setDecapIndicatorEligible] = useState(false);
   const [decapIndicatorArmed, setDecapIndicatorArmed] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [errorCode, setErrorCode] = useState<string | null>(null);
+  const [errorTechnical, setErrorTechnical] = useState<string | null>(null);
   const [levels, setLevels] = useState<number[]>(Array(16).fill(0));
   const [profileName, setProfileName] = useState<string>("");
   const smoothedLevelsRef = useRef<number[]>(Array(16).fill(0));
@@ -43,10 +113,22 @@ const RecordingOverlay: React.FC = () => {
           setState(payload.state);
           setDecapIndicatorEligible(payload.decapitalize_eligible ?? false);
           setDecapIndicatorArmed(payload.decapitalize_armed ?? false);
-          if (payload.state === "error" && payload.error_message) {
-            setErrorMessage(payload.error_message);
+          if (payload.state === "error") {
+            const envelope = payload.error_envelope;
+            const rawMessage =
+              envelope?.user_message || payload.error_message || "Transcription failed";
+            const rawCode =
+              envelope?.display_code ||
+              fallbackCodeFromCategory(payload.error_category);
+            setErrorMessage(
+              compactOverlayErrorText(rawMessage, payload.error_category),
+            );
+            setErrorCode(compactOverlayErrorCode(rawCode));
+            setErrorTechnical(envelope?.technical_message || null);
           } else {
             setErrorMessage(null);
+            setErrorCode(null);
+            setErrorTechnical(null);
           }
         } else {
           // Legacy string payload (e.g., "recording" or "transcribing")
@@ -54,6 +136,8 @@ const RecordingOverlay: React.FC = () => {
           setDecapIndicatorEligible(false);
           setDecapIndicatorArmed(false);
           setErrorMessage(null);
+          setErrorCode(null);
+          setErrorTechnical(null);
         }
         setIsVisible(true);
       });
@@ -72,6 +156,9 @@ const RecordingOverlay: React.FC = () => {
         setIsVisible(false);
         setDecapIndicatorEligible(false);
         setDecapIndicatorArmed(false);
+        setErrorMessage(null);
+        setErrorCode(null);
+        setErrorTechnical(null);
       });
 
       // Listen for mic-level updates
@@ -213,7 +300,13 @@ const RecordingOverlay: React.FC = () => {
           <div className="transcribing-text">{t("overlay.transcribing")}</div>
         )}
         {state === "error" && (
-          <div className="error-text">{errorMessage || "Failed"}</div>
+          <div className="error-row">
+            <span className="error-text">{errorMessage || "Failed"}</span>
+            <span className="error-code-chip">{errorCode || "E_UNKNOWN"}</span>
+            {errorTechnical && (
+              <div className="error-tooltip">{errorTechnical}</div>
+            )}
+          </div>
         )}
         {state === "profile_switch" && (
           <div className="transcribing-text">{profileName}</div>

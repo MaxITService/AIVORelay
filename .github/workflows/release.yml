@@ -32,6 +32,16 @@ jobs:
               repo: context.repo.repo,
               tag_name: `v${{ steps.get-version.outputs.version }}`,
               name: `v${{ steps.get-version.outputs.version }}`,
+              body: `## Microsoft Store Edition
+
+This release is the build published to the Microsoft Store and used for the AVX2 release.
+If you have an older CPU and see recording crashes on other builds, use this version.
+The package provided here is unsigned; the Microsoft Store version is signed by Microsoft.
+
+### Notes
+
+- Portable-package-specific changes are intentionally excluded.
+- This version does not auto-update unless it is installed from the Microsoft Store.`,
               draft: true,
               prerelease: false,
               generate_release_notes: true
