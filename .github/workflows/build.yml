@@ -494,6 +494,22 @@ jobs:
             Write-Warning "Resources directory not found at $resourcesPath"
           }
 
+          # Ensure Vulkan loader DLL is always present in portable package
+          $vulkanRootPath = "$targetDir/vulkan-1.dll"
+          $vulkanResourcePath = "$targetDir/resources/vulkan-1.dll"
+          $vulkanStagingPath = "$stagingDir/vulkan-1.dll"
+
+          if (Test-Path $vulkanRootPath) {
+            Copy-Item $vulkanRootPath $vulkanStagingPath -Force
+            Write-Host "Copied vulkan-1.dll from $vulkanRootPath"
+          } elseif (Test-Path $vulkanResourcePath) {
+            Copy-Item $vulkanResourcePath $vulkanStagingPath -Force
+            Write-Host "Copied vulkan-1.dll from $vulkanResourcePath"
+          } else {
+            Write-Error "vulkan-1.dll not found in portable build output"
+            exit 1
+          }
+
           # Create the zip
           Compress-Archive -Path $stagingDir -DestinationPath $zipName
           Write-Host "Created portable ZIP: $zipName"
