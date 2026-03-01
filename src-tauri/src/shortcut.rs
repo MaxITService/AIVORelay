@@ -751,6 +751,19 @@ pub fn change_overlay_position_setting(app: AppHandle, position: String) -> Resu
 
 #[tauri::command]
 #[specta::specta]
+pub fn change_error_overlay_auto_hide_ms_setting(
+    app: AppHandle,
+    value_ms: u64,
+) -> Result<(), String> {
+    let normalized = crate::plus_overlay_state::set_error_overlay_auto_hide_ms(value_ms);
+    let mut settings = settings::get_settings(&app);
+    settings.error_overlay_auto_hide_ms = normalized;
+    settings::write_settings(&app, settings);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
 pub fn change_soniox_live_preview_enabled_setting(
     app: AppHandle,
     enabled: bool,

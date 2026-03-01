@@ -634,6 +634,12 @@
           "none": "None",
           "bottom": "Bottom",
           "top": "Top"
+        },
+        "errorDuration": {
+          "title": "Error Overlay Duration",
+          "description": "How long error overlays stay visible before auto-hide.",
+          "apply": "Apply",
+          "unitMs": "ms"
         }
       },
       "pasteMethod": {

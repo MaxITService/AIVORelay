@@ -1065,6 +1065,9 @@ pub struct AppSettings {
     pub selected_language: String,
     #[serde(default = "default_overlay_position")]
     pub overlay_position: OverlayPosition,
+    /// Auto-hide duration for error overlay in milliseconds.
+    #[serde(default = "default_error_overlay_auto_hide_ms")]
+    pub error_overlay_auto_hide_ms: u64,
     #[serde(default = "default_soniox_live_preview_enabled")]
     pub soniox_live_preview_enabled: bool,
     #[serde(default = "default_soniox_live_preview_position")]
@@ -1542,6 +1545,10 @@ fn default_overlay_position() -> OverlayPosition {
     return OverlayPosition::None;
     #[cfg(not(target_os = "linux"))]
     return OverlayPosition::Bottom;
+}
+
+fn default_error_overlay_auto_hide_ms() -> u64 {
+    3000
 }
 
 fn default_soniox_live_preview_enabled() -> bool {
@@ -2186,6 +2193,7 @@ pub fn get_default_settings() -> AppSettings {
         translate_to_english: false,
         selected_language: "auto".to_string(),
         overlay_position: default_overlay_position(),
+        error_overlay_auto_hide_ms: default_error_overlay_auto_hide_ms(),
         soniox_live_preview_enabled: default_soniox_live_preview_enabled(),
         soniox_live_preview_position: default_soniox_live_preview_position(),
         soniox_live_preview_cursor_offset_px: default_soniox_live_preview_cursor_offset_px(),

@@ -143,6 +143,11 @@ fn initialize_core_logic(app_handle: &AppHandle) {
     let enigo_state = input::EnigoState::new().expect("Failed to initialize input state (Enigo)");
     app_handle.manage(enigo_state);
 
+    let current_settings = settings::get_settings(app_handle);
+    crate::plus_overlay_state::set_error_overlay_auto_hide_ms(
+        current_settings.error_overlay_auto_hide_ms,
+    );
+
     // Initialize the managers
     let recording_manager = Arc::new(
         AudioRecordingManager::new(app_handle).expect("Failed to initialize recording manager"),
@@ -338,6 +343,7 @@ pub fn run() {
         shortcut::change_transcription_provider_setting,
         shortcut::change_transcription_prompt_setting,
         shortcut::change_overlay_position_setting,
+        shortcut::change_error_overlay_auto_hide_ms_setting,
         shortcut::change_soniox_live_preview_enabled_setting,
         shortcut::change_soniox_live_preview_position_setting,
         shortcut::change_soniox_live_preview_custom_x_setting,

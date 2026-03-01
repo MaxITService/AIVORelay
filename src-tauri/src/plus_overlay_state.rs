@@ -10,12 +10,28 @@ use serde::Serialize;
 use std::sync::atomic::{AtomicU64, Ordering};
 use tauri::{AppHandle, Emitter, Manager};
 
+const DEFAULT_ERROR_OVERLAY_AUTO_HIDE_MS: u64 = 3000;
+const MIN_ERROR_OVERLAY_AUTO_HIDE_MS: u64 = 250;
+const MAX_ERROR_OVERLAY_AUTO_HIDE_MS: u64 = 60000;
+
 static OVERLAY_GENERATION: AtomicU64 = AtomicU64::new(0);
+static ERROR_OVERLAY_AUTO_HIDE_MS: AtomicU64 =
+    AtomicU64::new(DEFAULT_ERROR_OVERLAY_AUTO_HIDE_MS);
 
 /// Invalidate pending error auto-hide timers.
 /// Call this when showing any non-error overlay state.
 pub fn invalidate_error_overlay_auto_hide() {
     OVERLAY_GENERATION.fetch_add(1, Ordering::SeqCst);
+}
+
+pub fn get_error_overlay_auto_hide_ms() -> u64 {
+    ERROR_OVERLAY_AUTO_HIDE_MS.load(Ordering::SeqCst)
+}
+
+pub fn set_error_overlay_auto_hide_ms(ms: u64) -> u64 {
+    let clamped = ms.clamp(MIN_ERROR_OVERLAY_AUTO_HIDE_MS, MAX_ERROR_OVERLAY_AUTO_HIDE_MS);
+    ERROR_OVERLAY_AUTO_HIDE_MS.store(clamped, Ordering::SeqCst);
+    clamped
 }
 
 /// Error categories for overlay display
@@ -270,33 +286,52 @@ fn detect_phase(err_lower: &str) -> OverlayErrorPhase {
     }
 }
 
+fn extract_http_status_from_slice(text: &str) -> Option<u16> {
+    let bytes = text.as_bytes();
+    if bytes.len() < 3 {
+        return None;
+    }
+
+    for i in 0..=(bytes.len() - 3) {
+        let b0 = bytes[i];
+        let b1 = bytes[i + 1];
+        let b2 = bytes[i + 2];
+        if !(b0.is_ascii_digit() && b1.is_ascii_digit() && b2.is_ascii_digit()) {
+            continue;
+        }
+
+        let prev_is_digit = i > 0 && bytes[i - 1].is_ascii_digit();
+        let next_is_digit = i + 3 < bytes.len() && bytes[i + 3].is_ascii_digit();
+        if prev_is_digit || next_is_digit {
+            continue;
+        }
+
+        let code = ((b0 - b'0') as u16) * 100 + ((b1 - b'0') as u16) * 10 + (b2 - b'0') as u16;
+        // Treat only HTTP error status codes as authoritative.
+        if (400..=599).contains(&code) {
+            return Some(code);
+        }
+    }
+
+    None
+}
+
 fn extract_3_digit_status_code(err_string: &str) -> Option<u16> {
     let lower = err_string.to_lowercase();
-    let markers = ["status=", "error ", "http ", "code "];
+    let markers = ["status=", "status:", "status ", "http ", "http/"];
 
     for marker in markers {
-        if let Some(idx) = lower.find(marker) {
-            let after = &err_string[idx + marker.len()..];
-            let mut digits = String::new();
+        let mut search_start = 0usize;
+        while search_start < lower.len() {
+            let Some(found) = lower[search_start..].find(marker) else {
+                break;
+            };
 
-            for ch in after.chars() {
-                if ch.is_ascii_digit() {
-                    digits.push(ch);
-                    if digits.len() == 3 {
-                        break;
-                    }
-                } else if !digits.is_empty() {
-                    break;
-                }
+            let start = search_start + found + marker.len();
+            if let Some(code) = extract_http_status_from_slice(&lower[start..]) {
+                return Some(code);
             }
-
-            if digits.len() == 3 {
-                if let Ok(parsed) = digits.parse::<u16>() {
-                    if (100..=599).contains(&parsed) {
-                        return Some(parsed);
-                    }
-                }
-            }
+            search_start = start;
         }
     }
 
@@ -326,11 +361,11 @@ fn detect_canonical_code(
 ) -> OverlayCanonicalErrorCode {
     if let Some(status) = status_code {
         return match status {
-            400 | 404 | 413 | 422 => OverlayCanonicalErrorCode::EBadRequest,
             401 | 403 => OverlayCanonicalErrorCode::EAuth,
             402 => OverlayCanonicalErrorCode::EBilling,
             408 => OverlayCanonicalErrorCode::ETimeout,
             429 => OverlayCanonicalErrorCode::ERateLimit,
+            400..=499 => OverlayCanonicalErrorCode::EBadRequest,
             500..=599 => OverlayCanonicalErrorCode::EServer,
             _ => OverlayCanonicalErrorCode::EUnknown,
         };
@@ -387,6 +422,20 @@ fn detect_canonical_code(
         || err_lower.contains("handshake")
         || err_lower.contains("ssl")
         || err_lower.contains("connect")
+        || err_lower.contains("connection")
+        || err_lower.contains("connection reset")
+        || err_lower.contains("resetwithoutclosinghandshake")
+        || err_lower.contains("closed before completion")
+        || err_lower.contains("closed while")
+        || err_lower.contains("broken pipe")
+        || err_lower.contains("not connected")
+        || err_lower.contains("unexpected eof")
+        || err_lower.contains("eof")
+        || err_lower.contains("end of file")
+        || err_lower.contains("io error")
+        || err_lower.contains("socket")
+        || err_lower.contains("error sending request")
+        || err_lower.contains("aborted")
         || err_lower.contains("network")
         || err_lower.contains("dns")
         || err_lower.contains("resolve")
@@ -630,11 +679,12 @@ fn show_error_overlay_internal(
         // Generation counter to prevent hiding overlay of new session
         let current_gen = OVERLAY_GENERATION.fetch_add(1, Ordering::SeqCst) + 1;
 
-        // Auto-hide after 3 seconds
+        // Auto-hide after configurable duration
+        let auto_hide_ms = get_error_overlay_auto_hide_ms();
         let window_clone = overlay_window.clone();
         let app_clone = app.clone();
         std::thread::spawn(move || {
-            std::thread::sleep(std::time::Duration::from_secs(3));
+            std::thread::sleep(std::time::Duration::from_millis(auto_hide_ms));
             // Only hide if generation hasn't changed (no new overlay shown)
             if OVERLAY_GENERATION.load(Ordering::SeqCst) == current_gen {
                 let _ = window_clone.emit("hide-overlay", ());
@@ -649,13 +699,13 @@ fn show_error_overlay_internal(
     }
 }
 
-/// Show the error overlay state with category and auto-hide after 3 seconds.
+/// Show the error overlay state with category and auto-hide after configured duration.
 /// Uses the category display text as overlay message.
 pub fn show_error_overlay(app: &AppHandle, category: OverlayErrorCategory) {
     show_error_overlay_internal(app, category, None, None);
 }
 
-/// Show the error overlay with a specific message and auto-hide after 3 seconds.
+/// Show the error overlay with a specific message and auto-hide after configured duration.
 pub fn show_error_overlay_with_message(
     app: &AppHandle,
     category: OverlayErrorCategory,
@@ -668,7 +718,7 @@ pub fn show_error_overlay_with_message(
 ///
 /// This function:
 /// 1. Categorizes the error
-/// 2. Shows error overlay for 3 seconds
+/// 2. Shows error overlay for configured duration
 /// 3. Auto-hides overlay and resets tray icon
 ///
 /// Note: The existing toast (remote-stt-error event) should still be emitted separately

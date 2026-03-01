@@ -254,6 +254,10 @@ const settingUpdaters: {
 
 (settingUpdaters as any).soniox_live_enabled = (value: any) =>
   invoke("change_soniox_live_enabled_setting", { enabled: value });
+(settingUpdaters as any).error_overlay_auto_hide_ms = (value: any) =>
+  invoke("change_error_overlay_auto_hide_ms_setting", {
+    valueMs: Math.round(Number(value)),
+  });
 (settingUpdaters as any).soniox_language_hints = (value: any) =>
   invoke("change_soniox_language_hints_setting", { hints: value });
 (settingUpdaters as any).soniox_context_general_json = (value: any) =>

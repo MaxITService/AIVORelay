@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use tauri::async_runtime::JoinHandle;
-use tauri::AppHandle;
+use tauri::{AppHandle, Emitter};
 use tokio::sync::mpsc;
 use tokio::time::{timeout, MissedTickBehavior};
 use tokio_tungstenite::{connect_async, tungstenite::Message};
@@ -221,34 +221,63 @@ impl SonioxRealtimeManager {
         let final_text_for_task = Arc::clone(&final_text);
         let start_payload_for_task = start_payload;
         let app_handle_for_task = self.app_handle.clone();
+        let binding_id_for_task = binding_id.to_string();
         let session_audio_tx = audio_tx.clone();
 
         let join_handle = tauri::async_runtime::spawn(async move {
-            let (stream, _) = timeout(
-                Duration::from_secs(DEFAULT_CONNECT_TIMEOUT_SECS),
-                connect_async(SONIOX_WS_URL),
-            )
-            .await
-            .map_err(|_| anyhow!("Timed out while connecting to Soniox WebSocket"))?
-            .map_err(|e| anyhow!("Failed to connect to Soniox WebSocket: {}", e))?;
-
-            let (mut write, mut read) = stream.split();
-            write
-                .send(Message::Text(start_payload_for_task.into()))
+            let session_result: Result<()> = async {
+                let (stream, _) = timeout(
+                    Duration::from_secs(DEFAULT_CONNECT_TIMEOUT_SECS),
+                    connect_async(SONIOX_WS_URL),
+                )
                 .await
-                .map_err(|e| anyhow!("Failed to send Soniox start request: {}", e))?;
+                .map_err(|_| anyhow!("Timed out while connecting to Soniox WebSocket"))?
+                .map_err(|e| anyhow!("Failed to connect to Soniox WebSocket: {}", e))?;
 
-            Self::run_session_loop(
-                &mut write,
-                &mut read,
-                audio_rx,
-                control_rx,
-                final_text_for_task,
-                keepalive_interval_seconds,
-                app_handle_for_task,
-                on_final_chunk,
-            )
-            .await
+                let (mut write, mut read) = stream.split();
+                write
+                    .send(Message::Text(start_payload_for_task.into()))
+                    .await
+                    .map_err(|e| anyhow!("Failed to send Soniox start request: {}", e))?;
+
+                Self::run_session_loop(
+                    &mut write,
+                    &mut read,
+                    audio_rx,
+                    control_rx,
+                    final_text_for_task,
+                    keepalive_interval_seconds,
+                    app_handle_for_task.clone(),
+                    on_final_chunk,
+                )
+                .await
+            }
+            .await;
+
+            if let Err(err) = &session_result {
+                let err_str = err.to_string();
+                warn!(
+                    "Soniox live session runtime error (binding='{}'): {}",
+                    binding_id_for_task, err_str
+                );
+                let _ = app_handle_for_task.emit("remote-stt-error", err_str.clone());
+                crate::plus_overlay_state::handle_transcription_error(
+                    &app_handle_for_task,
+                    &err_str,
+                );
+
+                if crate::managers::preview_output_mode::is_active_for_binding(
+                    &binding_id_for_task,
+                )
+                {
+                    crate::managers::preview_output_mode::set_error(
+                        &app_handle_for_task,
+                        Some(err_str.clone()),
+                    );
+                }
+            }
+
+            session_result
         });
 
         let active = ActiveSession {
