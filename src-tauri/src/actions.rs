@@ -51,6 +51,12 @@ pub trait ShortcutAction: Send + Sync {
     fn is_instant(&self) -> bool {
         false
     }
+
+    /// Instant actions normally fire on key press. Override this for actions
+    /// that need modifiers to be released before they synthesize input.
+    fn instant_fire_on_release(&self) -> bool {
+        false
+    }
 }
 
 // Transcribe Action
@@ -63,6 +69,8 @@ struct SendToExtensionWithSelectionAction;
 struct SendScreenshotToExtensionAction;
 
 struct RepastLastAction;
+
+const REPASTE_LAST_PRE_PASTE_DELAY_MS: u64 = 100;
 
 struct CycleProfileAction;
 #[cfg(target_os = "windows")]
@@ -3704,6 +3712,13 @@ impl ShortcutAction for RepastLastAction {
                         return;
                     }
 
+                    // Give the foreground app a moment to observe released
+                    // modifiers before we synthesize the paste shortcut.
+                    tokio::time::sleep(Duration::from_millis(
+                        REPASTE_LAST_PRE_PASTE_DELAY_MS,
+                    ))
+                    .await;
+
                     let ah_clone = ah.clone();
                     ah.run_on_main_thread(move || {
                         let _ = utils::paste(text_to_paste, ah_clone);
@@ -3726,6 +3741,10 @@ impl ShortcutAction for RepastLastAction {
     }
 
     fn is_instant(&self) -> bool {
+        true
+    }
+
+    fn instant_fire_on_release(&self) -> bool {
         true
     }
 }

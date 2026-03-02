@@ -457,7 +457,13 @@ fn handle_rdev_shortcut_event(app: &AppHandle, event: ShortcutEvent) {
 
     // Handle instant actions
     if action.is_instant() {
-        if pressed {
+        let should_fire = if action.instant_fire_on_release() {
+            !pressed
+        } else {
+            pressed
+        };
+
+        if should_fire {
             action.start(app, &binding_id, &shortcut_string);
         }
         return;
@@ -3739,7 +3745,13 @@ fn register_shortcut_tauri(app: &AppHandle, binding: ShortcutBinding) -> Result<
                     // Handle instant actions first - they fire on every press
                     // without any toggle state management
                     if action.is_instant() {
-                        if event.state == ShortcutState::Pressed {
+                        let should_fire = if action.instant_fire_on_release() {
+                            event.state == ShortcutState::Released
+                        } else {
+                            event.state == ShortcutState::Pressed
+                        };
+
+                        if should_fire {
                             action.start(ah, &binding_id_for_closure, &shortcut_string);
                         }
                         // Instant actions don't need stop() on release
