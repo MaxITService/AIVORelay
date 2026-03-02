@@ -85,10 +85,7 @@ When adding new features, please prefer adding them in new files instead of edit
 3. Add translations in `src/i18n/locales/en/translation.json`
 4. Consider platform guards if Windows-specific
 
+
 ## Version Bump Checklist
 
-To release: 
-1. Update `"version": "x.y.z"` in `package.json` and `src-tauri/tauri.conf.json`.
-2. Update `version = "x.y.z"` in `src-tauri/Cargo.toml`.
-3. Run `cargo check --manifest-path src-tauri/Cargo.toml` to sync `Cargo.lock`.
-4. Commit (`chore: bump version to x.y.z`), tag (`vx.y.z`), and push `main` & tag.
+When asked to bump version or prepare a release, read [Release.md](Release.md).
