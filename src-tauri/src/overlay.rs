@@ -8,13 +8,14 @@ use crate::settings::{
 use specta::Type;
 use serde::Serialize;
 use std::sync::{LazyLock, Mutex};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU8, AtomicU64, Ordering};
 use tauri::{AppHandle, Emitter, Manager, PhysicalPosition, PhysicalSize};
 
 /// Counter used to cancel pending profile switch overlay auto-hide timers.
 /// Each time a recording overlay is shown, this is incremented, and existing
 /// profile switch timers check if their generation still matches.
 static PROFILE_OVERLAY_GENERATION: AtomicU64 = AtomicU64::new(0);
+static RECORDING_OVERLAY_LAYOUT: AtomicU8 = AtomicU8::new(0);
 
 #[cfg(not(target_os = "macos"))]
 use log::debug;
@@ -42,6 +43,8 @@ tauri_panel! {
 
 const OVERLAY_WIDTH: f64 = 172.0;
 const OVERLAY_HEIGHT: f64 = 36.0;
+const ERROR_OVERLAY_WIDTH: f64 = 340.0;
+const ERROR_OVERLAY_HEIGHT: f64 = 82.0;
 
 // Command Confirmation Overlay dimensions
 const COMMAND_CONFIRM_WIDTH: f64 = 520.0;
@@ -215,7 +218,11 @@ fn is_mouse_within_monitor(
         && mouse_y < (monitor_y + monitor_height as i32)
 }
 
-fn calculate_overlay_position(app_handle: &AppHandle) -> Option<(f64, f64)> {
+fn calculate_overlay_position_for_size(
+    app_handle: &AppHandle,
+    overlay_width: f64,
+    overlay_height: f64,
+) -> Option<(f64, f64)> {
     if let Some(monitor) = get_monitor_with_cursor(app_handle) {
         let work_area = monitor.work_area();
         let scale = monitor.scale_factor();
@@ -226,17 +233,62 @@ fn calculate_overlay_position(app_handle: &AppHandle) -> Option<(f64, f64)> {
 
         let settings = settings::get_settings(app_handle);
 
-        let x = work_area_x + (work_area_width - OVERLAY_WIDTH) / 2.0;
+        let x = work_area_x + (work_area_width - overlay_width) / 2.0;
         let y = match settings.overlay_position {
             OverlayPosition::Top => work_area_y + OVERLAY_TOP_OFFSET,
             OverlayPosition::Bottom | OverlayPosition::None => {
-                work_area_y + work_area_height - OVERLAY_HEIGHT - OVERLAY_BOTTOM_OFFSET
+                work_area_y + work_area_height - overlay_height - OVERLAY_BOTTOM_OFFSET
             }
         };
 
         return Some((x, y));
     }
     None
+}
+
+fn calculate_overlay_position(app_handle: &AppHandle) -> Option<(f64, f64)> {
+    calculate_overlay_position_for_size(app_handle, OVERLAY_WIDTH, OVERLAY_HEIGHT)
+}
+
+fn apply_recording_overlay_layout(app_handle: &AppHandle, width: f64, height: f64) {
+    if let Some(overlay_window) = app_handle.get_webview_window("recording_overlay") {
+        let _ = overlay_window.set_size(tauri::Size::Logical(tauri::LogicalSize {
+            width,
+            height,
+        }));
+        if let Some((x, y)) = calculate_overlay_position_for_size(app_handle, width, height) {
+            let _ = overlay_window
+                .set_position(tauri::Position::Logical(tauri::LogicalPosition { x, y }));
+        }
+    }
+}
+
+fn current_recording_overlay_layout() -> RecordingOverlayLayout {
+    match RECORDING_OVERLAY_LAYOUT.load(Ordering::SeqCst) {
+        1 => RecordingOverlayLayout::Error,
+        _ => RecordingOverlayLayout::Default,
+    }
+}
+
+fn recording_overlay_dimensions(layout: RecordingOverlayLayout) -> (f64, f64) {
+    match layout {
+        RecordingOverlayLayout::Default => (OVERLAY_WIDTH, OVERLAY_HEIGHT),
+        RecordingOverlayLayout::Error => (ERROR_OVERLAY_WIDTH, ERROR_OVERLAY_HEIGHT),
+    }
+}
+
+fn set_recording_overlay_layout(app_handle: &AppHandle, layout: RecordingOverlayLayout) {
+    RECORDING_OVERLAY_LAYOUT.store(layout as u8, Ordering::SeqCst);
+    let (width, height) = recording_overlay_dimensions(layout);
+    apply_recording_overlay_layout(app_handle, width, height);
+}
+
+pub fn set_recording_overlay_default_layout(app_handle: &AppHandle) {
+    set_recording_overlay_layout(app_handle, RecordingOverlayLayout::Default);
+}
+
+pub fn set_recording_overlay_error_layout(app_handle: &AppHandle) {
+    set_recording_overlay_layout(app_handle, RecordingOverlayLayout::Error);
 }
 
 fn soniox_live_preview_dimensions(app_settings: &settings::AppSettings) -> (f64, f64) {
@@ -523,13 +575,9 @@ pub fn show_recording_overlay(app_handle: &AppHandle) {
         return;
     }
 
-    if let Some(overlay_window) = app_handle.get_webview_window("recording_overlay") {
-        // Update position before showing to prevent flicker from position changes
-        if let Some((x, y)) = calculate_overlay_position(app_handle) {
-            let _ = overlay_window
-                .set_position(tauri::Position::Logical(tauri::LogicalPosition { x, y }));
-        }
+    set_recording_overlay_default_layout(app_handle);
 
+    if let Some(overlay_window) = app_handle.get_webview_window("recording_overlay") {
         let _ = overlay_window.show();
 
         // On Windows, aggressively re-assert "topmost" in the native Z-order after showing
@@ -553,7 +601,7 @@ pub fn show_transcribing_overlay(app_handle: &AppHandle) {
         return;
     }
 
-    update_overlay_position(app_handle);
+    set_recording_overlay_default_layout(app_handle);
 
     if let Some(overlay_window) = app_handle.get_webview_window("recording_overlay") {
         let _ = overlay_window.show();
@@ -579,7 +627,7 @@ pub fn show_sending_overlay(app_handle: &AppHandle) {
         return;
     }
 
-    update_overlay_position(app_handle);
+    set_recording_overlay_default_layout(app_handle);
 
     if let Some(overlay_window) = app_handle.get_webview_window("recording_overlay") {
         let _ = overlay_window.show();
@@ -605,7 +653,7 @@ pub fn show_thinking_overlay(app_handle: &AppHandle) {
         return;
     }
 
-    update_overlay_position(app_handle);
+    set_recording_overlay_default_layout(app_handle);
 
     if let Some(overlay_window) = app_handle.get_webview_window("recording_overlay") {
         let _ = overlay_window.show();
@@ -631,7 +679,7 @@ pub fn show_finalizing_overlay(app_handle: &AppHandle) {
         return;
     }
 
-    update_overlay_position(app_handle);
+    set_recording_overlay_default_layout(app_handle);
 
     if let Some(overlay_window) = app_handle.get_webview_window("recording_overlay") {
         let _ = overlay_window.show();
@@ -648,12 +696,8 @@ pub fn show_finalizing_overlay(app_handle: &AppHandle) {
 
 /// Updates the overlay window position based on current settings
 pub fn update_overlay_position(app_handle: &AppHandle) {
-    if let Some(overlay_window) = app_handle.get_webview_window("recording_overlay") {
-        if let Some((x, y)) = calculate_overlay_position(app_handle) {
-            let _ = overlay_window
-                .set_position(tauri::Position::Logical(tauri::LogicalPosition { x, y }));
-        }
-    }
+    let (width, height) = recording_overlay_dimensions(current_recording_overlay_layout());
+    apply_recording_overlay_layout(app_handle, width, height);
 }
 
 /// Hides the recording overlay window with fade-out animation
@@ -1220,13 +1264,9 @@ pub fn show_profile_switch_overlay(app_handle: &AppHandle, profile_name: &str) {
         return;
     }
 
-    if let Some(overlay_window) = app_handle.get_webview_window("recording_overlay") {
-        // Update position
-        if let Some((x, y)) = calculate_overlay_position(app_handle) {
-            let _ = overlay_window
-                .set_position(tauri::Position::Logical(tauri::LogicalPosition { x, y }));
-        }
+    set_recording_overlay_default_layout(app_handle);
 
+    if let Some(overlay_window) = app_handle.get_webview_window("recording_overlay") {
         let _ = overlay_window.show();
 
         #[cfg(target_os = "windows")]
@@ -1261,4 +1301,9 @@ pub fn show_profile_switch_overlay(app_handle: &AppHandle, profile_name: &str) {
             let _ = window_clone.hide();
         });
     }
+}
+#[derive(Clone, Copy)]
+enum RecordingOverlayLayout {
+    Default = 0,
+    Error = 1,
 }

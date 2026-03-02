@@ -1738,7 +1738,67 @@
   "overlay": {
     "transcribing": "Transcribing...",
     "finalizing": "Finalizing...",
-    "decapitalizationIndicator": "Decapitalization"
+    "decapitalizationIndicator": "Decapitalization",
+    "errors": {
+      "auth": {
+        "title": "Check API key",
+        "hint": "Open Settings and verify the API key for this provider."
+      },
+      "rateLimited": {
+        "title": "Rate limit reached",
+        "hint": "Wait a moment and try again."
+      },
+      "billing": {
+        "title": "Billing required",
+        "hint": "Check provider balance, quota, or subscription."
+      },
+      "badRequest": {
+        "title": "Request rejected",
+        "hint": "Check model, server URL, or provider settings."
+      },
+      "tlsCertificate": {
+        "title": "Certificate error",
+        "hint": "Check the HTTPS certificate or use a trusted server URL."
+      },
+      "tlsHandshake": {
+        "connectTitle": "Secure connection failed",
+        "connectHint": "Check server URL, proxy, VPN, or TLS settings.",
+        "title": "Connection lost",
+        "hint": "The live session stopped. Check internet and start again."
+      },
+      "timeout": {
+        "connectTitle": "Server took too long",
+        "connectHint": "Check internet or server URL and try again.",
+        "title": "Request timed out",
+        "hint": "Try again when the connection is stable."
+      },
+      "network": {
+        "connectTitle": "Can't reach server",
+        "title": "Connection lost",
+        "hint": "Check internet, VPN, or server URL and try again.",
+        "streamHint": "The live session stopped. Check internet and start again."
+      },
+      "server": {
+        "title": "Server error",
+        "hint": "The provider is unavailable right now. Try again soon."
+      },
+      "parse": {
+        "title": "Bad server response",
+        "hint": "Try again or check provider compatibility settings."
+      },
+      "extensionOffline": {
+        "title": "Extension offline",
+        "hint": "Reconnect the browser extension and try again."
+      },
+      "microphone": {
+        "title": "Microphone unavailable",
+        "hint": "Check mic access, selected device, or other apps using it."
+      },
+      "unknown": {
+        "title": "Transcription failed",
+        "hint": "Try again. If it keeps happening, check the logs."
+      }
+    }
   },
   "transcribeFile": {
     "title": "Transcribe Audio File",

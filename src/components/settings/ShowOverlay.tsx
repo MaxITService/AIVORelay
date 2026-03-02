@@ -30,7 +30,7 @@ export const ShowOverlay: React.FC<ShowOverlayProps> = React.memo(
     const selectedPosition = (getSetting("overlay_position") ||
       "bottom") as OverlayPosition;
     const errorOverlayAutoHideMs = Number(
-      (settings as any)?.error_overlay_auto_hide_ms ?? 3000,
+      settings?.error_overlay_auto_hide_ms ?? 3000,
     );
     const isErrorOverlayAutoHideUpdating = isUpdating("error_overlay_auto_hide_ms");
 
@@ -54,8 +54,8 @@ export const ShowOverlay: React.FC<ShowOverlayProps> = React.memo(
         return;
       }
       void updateSetting(
-        "error_overlay_auto_hide_ms" as any,
-        normalizedInputMs as any,
+        "error_overlay_auto_hide_ms",
+        normalizedInputMs,
       );
     };
 

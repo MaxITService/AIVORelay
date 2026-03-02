@@ -1,6 +1,7 @@
 import { listen } from "@tauri-apps/api/event";
 import { invoke } from "@tauri-apps/api/core";
 import React, { useEffect, useRef, useState } from "react";
+import type { TFunction } from "i18next";
 import { useTranslation } from "react-i18next";
 import {
   MicrophoneIcon,
@@ -17,23 +18,11 @@ import {
   fallbackCodeFromCategory,
   isExtendedPayload,
 } from "./plus_overlay_states";
-import type { OverlayErrorCategory } from "./plus_overlay_states";
-
-const COMPACT_ERROR_LABELS: Record<OverlayErrorCategory, string> = {
-  Auth: "Auth",
-  RateLimited: "Rate",
-  Billing: "Billing",
-  BadRequest: "Bad req",
-  TlsCertificate: "Cert",
-  TlsHandshake: "TLS",
-  Timeout: "Timeout",
-  NetworkError: "Network",
-  ServerError: "Server",
-  ParseError: "Parse",
-  ExtensionOffline: "Ext",
-  MicrophoneUnavailable: "Mic",
-  Unknown: "Failed",
-};
+import type {
+  OverlayErrorCategory,
+  OverlayErrorEnvelope,
+  OverlayErrorPhase,
+} from "./plus_overlay_states";
 
 const COMPACT_ERROR_CODE_MAP: Record<string, string> = {
   E_AUTH: "AUTH",
@@ -48,25 +37,6 @@ const COMPACT_ERROR_CODE_MAP: Record<string, string> = {
   E_MIC: "MIC",
   E_UNKNOWN: "UNKNOWN",
 };
-
-function compactOverlayErrorText(
-  rawText: string,
-  category?: OverlayErrorCategory,
-): string {
-  if (category && COMPACT_ERROR_LABELS[category]) {
-    return COMPACT_ERROR_LABELS[category];
-  }
-
-  const normalized = rawText.replace(/\s+/g, " ").trim();
-  if (normalized.length <= 11) return normalized;
-
-  const beforeColon = normalized.split(":")[0]?.trim() ?? normalized;
-  if (beforeColon.length > 0 && beforeColon.length <= 11) {
-    return beforeColon;
-  }
-
-  return `${normalized.slice(0, 10)}...`;
-}
 
 function compactOverlayErrorCode(rawCode: string): string {
   const normalized = rawCode.toUpperCase().replace(/\s+/g, " ").trim();
@@ -85,6 +55,154 @@ function compactOverlayErrorCode(rawCode: string): string {
   return lastToken.slice(0, 8);
 }
 
+type OverlayErrorCopy = {
+  title: string;
+  hint: string;
+};
+
+function getOverlayErrorCopy(
+  t: TFunction,
+  category?: OverlayErrorCategory,
+  envelope?: OverlayErrorEnvelope,
+): OverlayErrorCopy {
+  const phase: OverlayErrorPhase = envelope?.phase ?? "unknown";
+
+  switch (category) {
+    case "Auth":
+      return {
+        title: t("overlay.errors.auth.title", "Check API key"),
+        hint: t(
+          "overlay.errors.auth.hint",
+          "Open Settings and verify the API key for this provider.",
+        ),
+      };
+    case "RateLimited":
+      return {
+        title: t("overlay.errors.rateLimited.title", "Rate limit reached"),
+        hint: t(
+          "overlay.errors.rateLimited.hint",
+          "Wait a moment and try again.",
+        ),
+      };
+    case "Billing":
+      return {
+        title: t("overlay.errors.billing.title", "Billing required"),
+        hint: t(
+          "overlay.errors.billing.hint",
+          "Check provider balance, quota, or subscription.",
+        ),
+      };
+    case "BadRequest":
+      return {
+        title: t("overlay.errors.badRequest.title", "Request rejected"),
+        hint: t(
+          "overlay.errors.badRequest.hint",
+          "Check model, server URL, or provider settings.",
+        ),
+      };
+    case "TlsCertificate":
+      return {
+        title: t("overlay.errors.tlsCertificate.title", "Certificate error"),
+        hint: t(
+          "overlay.errors.tlsCertificate.hint",
+          "Check the HTTPS certificate or use a trusted server URL.",
+        ),
+      };
+    case "TlsHandshake":
+      return {
+        title:
+          phase === "connect"
+            ? t("overlay.errors.tlsHandshake.connectTitle", "Secure connection failed")
+            : t("overlay.errors.tlsHandshake.title", "Connection lost"),
+        hint:
+          phase === "connect"
+            ? t(
+                "overlay.errors.tlsHandshake.connectHint",
+                "Check server URL, proxy, VPN, or TLS settings.",
+              )
+            : t(
+                "overlay.errors.tlsHandshake.hint",
+                "The live session stopped. Check internet and start again.",
+              ),
+      };
+    case "Timeout":
+      return {
+        title:
+          phase === "connect"
+            ? t("overlay.errors.timeout.connectTitle", "Server took too long")
+            : t("overlay.errors.timeout.title", "Request timed out"),
+        hint:
+          phase === "connect"
+            ? t(
+                "overlay.errors.timeout.connectHint",
+                "Check internet or server URL and try again.",
+              )
+            : t(
+                "overlay.errors.timeout.hint",
+                "Try again when the connection is stable.",
+              ),
+      };
+    case "NetworkError":
+      return {
+        title:
+          phase === "connect"
+            ? t("overlay.errors.network.connectTitle", "Can't reach server")
+            : t("overlay.errors.network.title", "Connection lost"),
+        hint:
+          phase === "stream" || phase === "finalize"
+            ? t(
+                "overlay.errors.network.streamHint",
+                "The live session stopped. Check internet and start again.",
+              )
+            : t(
+                "overlay.errors.network.hint",
+                "Check internet, VPN, or server URL and try again.",
+              ),
+      };
+    case "ServerError":
+      return {
+        title: t("overlay.errors.server.title", "Server error"),
+        hint: t(
+          "overlay.errors.server.hint",
+          "The provider is unavailable right now. Try again soon.",
+        ),
+      };
+    case "ParseError":
+      return {
+        title: t("overlay.errors.parse.title", "Bad server response"),
+        hint: t(
+          "overlay.errors.parse.hint",
+          "Try again or check provider compatibility settings.",
+        ),
+      };
+    case "ExtensionOffline":
+      return {
+        title: t("overlay.errors.extensionOffline.title", "Extension offline"),
+        hint: t(
+          "overlay.errors.extensionOffline.hint",
+          "Reconnect the browser extension and try again.",
+        ),
+      };
+    case "MicrophoneUnavailable":
+      return {
+        title: t("overlay.errors.microphone.title", "Microphone unavailable"),
+        hint: t(
+          "overlay.errors.microphone.hint",
+          "Check mic access, selected device, or other apps using it.",
+        ),
+      };
+    case "Unknown":
+    default:
+      return {
+        title: t("overlay.errors.unknown.title", "Transcription failed"),
+        hint: t(
+          "overlay.errors.unknown.hint",
+          "Try again. If it keeps happening, check the logs.",
+        ),
+      };
+  }
+}
+
 const RecordingOverlay: React.FC = () => {
   const { t } = useTranslation();
   const [isVisible, setIsVisible] = useState(false);
@@ -92,6 +210,7 @@ const RecordingOverlay: React.FC = () => {
   const [decapIndicatorEligible, setDecapIndicatorEligible] = useState(false);
   const [decapIndicatorArmed, setDecapIndicatorArmed] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [errorHint, setErrorHint] = useState<string | null>(null);
   const [errorCode, setErrorCode] = useState<string | null>(null);
   const [errorTechnical, setErrorTechnical] = useState<string | null>(null);
   const [levels, setLevels] = useState<number[]>(Array(16).fill(0));
@@ -115,18 +234,21 @@ const RecordingOverlay: React.FC = () => {
           setDecapIndicatorArmed(payload.decapitalize_armed ?? false);
           if (payload.state === "error") {
             const envelope = payload.error_envelope;
-            const rawMessage =
-              envelope?.user_message || payload.error_message || "Transcription failed";
+            const copy = getOverlayErrorCopy(
+              t,
+              payload.error_category,
+              envelope,
+            );
             const rawCode =
               envelope?.display_code ||
               fallbackCodeFromCategory(payload.error_category);
-            setErrorMessage(
-              compactOverlayErrorText(rawMessage, payload.error_category),
-            );
+            setErrorMessage(copy.title);
+            setErrorHint(copy.hint);
             setErrorCode(compactOverlayErrorCode(rawCode));
             setErrorTechnical(envelope?.technical_message || null);
           } else {
             setErrorMessage(null);
+            setErrorHint(null);
             setErrorCode(null);
             setErrorTechnical(null);
           }
@@ -136,6 +258,7 @@ const RecordingOverlay: React.FC = () => {
           setDecapIndicatorEligible(false);
           setDecapIndicatorArmed(false);
           setErrorMessage(null);
+          setErrorHint(null);
           setErrorCode(null);
           setErrorTechnical(null);
         }
@@ -157,6 +280,7 @@ const RecordingOverlay: React.FC = () => {
         setDecapIndicatorEligible(false);
         setDecapIndicatorArmed(false);
         setErrorMessage(null);
+        setErrorHint(null);
         setErrorCode(null);
         setErrorTechnical(null);
       });
@@ -188,7 +312,7 @@ const RecordingOverlay: React.FC = () => {
     return () => {
       cleanup?.();
     };
-  }, []);
+  }, [t]);
 
   useEffect(() => {
     const shouldPoll =
@@ -300,12 +424,13 @@ const RecordingOverlay: React.FC = () => {
           <div className="transcribing-text">{t("overlay.transcribing")}</div>
         )}
         {state === "error" && (
-          <div className="error-row">
-            <span className="error-text">{errorMessage || "Failed"}</span>
-            <span className="error-code-chip">{errorCode || "E_UNKNOWN"}</span>
-            {errorTechnical && (
-              <div className="error-tooltip">{errorTechnical}</div>
-            )}
+          <div className="error-copy">
+            <span className="error-title">
+              {errorMessage || t("overlay.errors.unknown.title", "Transcription failed")}
+            </span>
+            <span className="error-hint">
+              {errorHint || t("overlay.errors.unknown.hint", "Try again and check the logs if needed.")}
+            </span>
           </div>
         )}
         {state === "profile_switch" && (
@@ -327,6 +452,14 @@ const RecordingOverlay: React.FC = () => {
           >
             <CancelIcon />
           </div>
+        )}
+        {state === "error" && (
+          <span
+            className="error-code-chip"
+            title={errorTechnical || undefined}
+          >
+            {errorCode || "E_UNKNOWN"}
+          </span>
         )}
       </div>
     </div>
