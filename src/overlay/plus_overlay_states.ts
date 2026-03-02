@@ -100,28 +100,6 @@ export function isExtendedPayload(payload: unknown): payload is OverlayPayload {
   );
 }
 
-/**
- * Get the display text for an error category (English only)
- */
-export function getErrorDisplayText(category: OverlayErrorCategory): string {
-  const messages: Record<OverlayErrorCategory, string> = {
-    Auth: "Authentication failed",
-    RateLimited: "Rate limit exceeded",
-    Billing: "Billing required",
-    BadRequest: "Invalid request",
-    TlsCertificate: "Certificate error",
-    TlsHandshake: "Connection failed",
-    Timeout: "Request timed out",
-    NetworkError: "Network unavailable",
-    ServerError: "Server error",
-    ParseError: "Invalid response",
-    ExtensionOffline: "Extension offline",
-    MicrophoneUnavailable: "Mic unavailable",
-    Unknown: "Transcription failed",
-  };
-  return messages[category];
-}
-
 export function fallbackCodeFromCategory(
   category?: OverlayErrorCategory,
 ): string {

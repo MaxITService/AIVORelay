@@ -654,7 +654,7 @@ fn show_error_overlay_internal(
         return;
     }
 
-    overlay::update_overlay_position(app);
+    overlay::set_recording_overlay_error_layout(app);
 
     if let Some(overlay_window) = app.get_webview_window("recording_overlay") {
         let _ = overlay_window.show();
