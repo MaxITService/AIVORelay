@@ -57,8 +57,6 @@ jobs:
       target: ${{ matrix.target }}
       build-args: ${{ matrix.args }}
       sign-binaries: false
-      release-tag: ${{ format('v{0}-store', needs.create-release.outputs.version) }}
-      release-name: ${{ format('v{0} (Microsoft Store Edition)', needs.create-release.outputs.version) }}
       asset-prefix: "aivorelay-store"
       upload-artifacts: false
       release-id: ${{ needs.create-release.outputs.release-id }}
