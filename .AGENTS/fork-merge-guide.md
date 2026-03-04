@@ -84,8 +84,8 @@ Required columns in main table:
 3. Cherry-pick selected commits **one by one**.
 4. Resolve conflicts immediately and complete each commit.
 5. Record resulting `main` commit hashes.
-6. Switch to `Microsoft-store`.
-7. Cherry-pick resulting `main` hashes in same logical order.
+6. If the user explicitly requests propagation, switch to `Microsoft-store`.
+7. If requested, cherry-pick resulting `main` hashes in same logical order.
 8. Return to original branch.
 9. Provide concise status report:
    - `branch -> success/skipped/conflict`
@@ -123,13 +123,13 @@ Then continue cherry-pick. Lock refresh happens during user-driven build/check f
 - Accept upstream improvements around unrelated areas.
 - Merge carefully in shared files; do not drop fork-added commands/settings/bindings.
 
-## 6) Intake/Propagation Path (Mandatory)
+## 6) Intake Path And Optional Propagation
 
 - Intake branch: `main`
-- Propagation branch: `Microsoft-store`
+- Propagation branch: `Microsoft-store` (only on explicit user request)
 - `cuda-integration` is abandoned and excluded.
 
-Never cherry-pick directly from `upstream` to `Microsoft-store`.
+Never cherry-pick directly from `upstream` to `Microsoft-store`; propagate from `main` only when explicitly requested by the user.
 
 ## 7) Post-Sync Notes
 
@@ -137,3 +137,4 @@ After each successful sync, append a row to:
 - [[.AGENTS/upstream-sync-log|upstream-sync-log.md]]
 
 Do not store sync history as a single static cursor in this guide.
+
