@@ -79,6 +79,10 @@ Required columns in main table:
 
 ## 3) Execution Workflow (Only If User Approves)
 
+Path selection rule:
+- Fast path: direct cherry-pick is allowed when the commit is clearly relevant and expected to apply cleanly.
+- Diff path (required): before applying, save a diff snapshot to `.AGENTS/.UNTRACKED/<sha>.diff.txt` when risk is non-trivial, confidence is low, or conflict is likely.
+- If a cherry-pick fails/conflicts unexpectedly, immediately save the upstream diff file and continue from that snapshot.
 1. Confirm working tree status and remember starting branch.
 2. Switch to `main`.
 3. Cherry-pick selected commits **one by one**.
@@ -137,4 +141,5 @@ After each successful sync, append a row to:
 - [[.AGENTS/upstream-sync-log|upstream-sync-log.md]]
 
 Do not store sync history as a single static cursor in this guide.
+
 
