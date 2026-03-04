@@ -34,3 +34,6 @@ WARP.MD
 
 # Bundled DLLs (copied during CI build)
 plans/
+
+desktop.ini
+Desktop.ini
