@@ -794,6 +794,9 @@ impl TranscriptionManager {
                         .transcribe_samples(audio, Some(params))
                         .map_err(|e| anyhow::anyhow!("SenseVoice transcription failed: {}", e))?
                 }
+                LoadedEngine::GigaAM(gigaam_engine) => gigaam_engine
+                    .transcribe_samples(audio, None)
+                    .map_err(|e| anyhow::anyhow!("GigaAM transcription failed: {}", e))?,
             }
         };
 
@@ -972,6 +975,9 @@ impl TranscriptionManager {
                         .transcribe_samples(audio, Some(params))
                         .map_err(|e| anyhow::anyhow!("SenseVoice transcription failed: {}", e))?
                 }
+                LoadedEngine::GigaAM(gigaam_engine) => gigaam_engine
+                    .transcribe_samples(audio, None)
+                    .map_err(|e| anyhow::anyhow!("GigaAM transcription failed: {}", e))?,
             }
         };
 
