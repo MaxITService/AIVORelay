@@ -52,20 +52,32 @@ This is a **fork** of [cjpais/Handy](https://github.com/cjpais/Handy). This repo
 Only interact with these branches (ignore upstream and others):
 - `main`
 - `Microsoft-store`
-- `cuda-integration`
+- `cuda-integration` (abandoned - do not touch)
 
-(When user says "all branches", they mean ONLY these three).
+(When user says "all branches", they currently mean only `main` and `Microsoft-store`. `cuda-integration` is abandoned and excluded.)
+### Upstream Intake Policy
+
+- Select and cherry-pick commits from `upstream` **only** on `main`.
+- After commits are finalized on `main`, propagate them from `main` to `Microsoft-store`.
+- Do not cherry-pick directly from `upstream` into `Microsoft-store`.
+- `cuda-integration` is abandoned and excluded from sync flow.
 
 
 
-## Fork Documentation
+## Fork Documentation - Read file(s) that is related to current task ONLY.
 
-- **[`code-notes.md`](code-notes.md)**: **Complete list of fork-specific files and changes** — read this to understand what differs from upstream
-- **[`AGENTS.md`](AGENTS.md)**: Original development commands and architecture (applies to both upstream and fork)
-- **[`README.md`](README.md)**: Fork features overview
-- **[`fork-merge-guide.md`](fork-merge-guide.md)**: Upstream tracking + merge/conflict-resolution notes (only needed when syncing from upstream)
+- [[.AGENTS/code-notes|code-notes.md]]: complete list of fork-specific files and changes
+- [[AGENTS]]: entry file
+- [[README]]: fork features overview
+- [[.AGENTS/fork-merge-guide|fork-merge-guide.md]]: upstream tracking and merge/conflict-resolution notes
+- [[.AGENTS/branching-status|branching-status.md]]: branch sync/cherry-pick status
+
 
 When adding new features, please prefer adding them in new files instead of editing originals unless these are already fork-specific files.
+### Agent Temp Files And Doc Updates
+
+- Temporary agent-only files may be placed in `.agents/`.
+- If the user asks to update documentation, keep new text maximally concise.
 
 
 ## Guidelines for Agents
@@ -79,18 +91,18 @@ When adding new features, please prefer adding them in new files instead of edit
 
 ### When Modifying Fork Features
 
-1. Check [`code-notes.md`](code-notes.md) to understand which files are fork-specific
+1. Check [[.AGENTS/code-notes|code-notes.md]] to understand which files are fork-specific
 2. Fork features are mostly Windows-only — use `#[cfg(target_os = "windows")]` guards
 3. Settings are in `src-tauri/src/settings.rs` (look for `remote_stt`, `ai_replace_*`, `connector_*` fields)
 
 ### Adding New Fork Features
 
 1. Add new files when possible (cleaner separation from upstream) ! So original code "is left alone" and can be merged easily, but we have something like copy, which is fully custom: less code to merge.
-2. Document in `code-notes.md`
+2. Document in [[.AGENTS/code-notes|code-notes.md]]
 3. Add translations in `src/i18n/locales/en/translation.json`
 4. Consider platform guards if Windows-specific
 
 
 ## Version Bump Checklist
 
-When asked to bump version or prepare a release, read [Release.md](Release.md).
+When asked to bump version or prepare a release, read [[.AGENTS/Release|Release.md]].

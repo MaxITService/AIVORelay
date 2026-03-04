@@ -11,7 +11,7 @@ AI Voice Relay
 
 > ## 📥 **[Download AivoRelay](https://github.com/MaxITService/AIVORelay/releases/latest)** — Get the latest release!
 
-> ⚠️ **New in 0.8.6 Beta:** Adds **Live Preview** feature (see your text as it streams). *Note: This version is a beta. The latest beta version is always available in the [Releases](https://github.com/MaxITService/AIVORelay/releases) section.*
+> ⚠️ **New in 0.9.1 Beta:** Adds **Live Preview** feature (see your text as it streams). *Note: This version is a beta. The latest beta version is always available in the [Releases](https://github.com/MaxITService/AIVORelay/releases) section.*
 
 > 🛒 **[Microsoft Store Version](https://apps.microsoft.com/detail/9ppfkfh2zn1l)** — This is an official listing on the Microsoft Store. Note that the Store version is not updated as frequently as the desktop application available here on GitHub, but it does not require administrator rights to install, is signed by Microsoft, and is verified by Microsoft before releasing.
 

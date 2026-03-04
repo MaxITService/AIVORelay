@@ -8,11 +8,13 @@ Last upstream review cursor: `58b95c5c956abd6ddb28cc7f06279ca86e2812c4` — feat
 
 This is a **review point**, not a merge base. We cherry-pick selectively.
 
+Current branch sync notes: [[branching-status]].
+
 To check only commits newer than this review cursor:
 ```bash
 git remote add upstream https://github.com/cjpais/Handy.git
 git fetch upstream
-git log b02873d..upstream/main --oneline
+git log 58b95c5c956abd6ddb28cc7f06279ca86e2812c4..upstream/main --oneline
 ```
 
 To see upstream commits not yet patch-equivalent in this fork:
@@ -115,19 +117,18 @@ These files are 100% ours — upstream won't have them:
 - Manually synced and implemented: `3c0fb95` - drain audio (#838)
 - Manually synced and implemented: `e624a45` - toast if exists
 
-### Git Workflow: Cherry-picking
+### Git Workflow: Upstream Intake And Propagation
 
-When asked to "cherry-pick commit to all branches", this refers to these specific target branches:
-- `main`
-- `Microsoft-store`
-- `cuda-integration`
+When syncing commits from `upstream`, use a single intake path:
+- Intake branch: `main`
+- Propagation branch: `Microsoft-store`
+- `cuda-integration` is abandoned (do not touch)
 
 **Execution steps for Agent:**
 1. Record the current branch and ensure the git status is clean.
-2. For each target branch:
-   - Switch to the branch.
-   - Verify if the commit hash already exists in that branch's history (skip if it does).
-   - Run `git cherry-pick -x <hash>`.
-   - If conflicts occur, **stop and report immediately** (listing the branch and conflicting files).
-3. Return to the **original starting branch** at the end.
-4. Provide a concise status report: `branch -> status (success/skipped/conflict)` and the latest commit info for each target branch.
+2. Switch to `main` and cherry-pick selected `upstream` commits one by one.
+3. Resolve conflicts on `main` and finalize each resulting commit hash.
+4. Propagate by cherry-picking those resulting `main` commit hashes to `Microsoft-store`.
+5. Never cherry-pick directly from `upstream` into `Microsoft-store`.
+6. Return to the **original starting branch** at the end.
+7. Provide a concise status report: `branch -> status (success/skipped/conflict)` and commit hashes used for propagation.
