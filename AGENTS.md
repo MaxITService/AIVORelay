@@ -53,6 +53,8 @@ Only interact with these branches (ignore upstream and others):
 ### Upstream Intake Policy
 
 - Select and cherry-pick commits from `upstream` **only** on `main`.
+- Fast path is allowed: direct cherry-pick when commit fit is clear and conflict risk is low.
+- Use diff-file path for non-trivial risk/uncertainty/conflicts: save `git show <sha>` to `.AGENTS/.UNTRACKED/<sha>.diff.txt` before manual application.
 - Propagate commits from `main` to `Microsoft-store` only when the user explicitly requests it.
 - Do not cherry-pick directly from `upstream` into `Microsoft-store`.
 - `cuda-integration` is abandoned and excluded from sync flow.
@@ -102,4 +104,5 @@ When adding new features, please prefer adding them in new files instead of edit
 ## Version Bump Checklist
 
 When asked to bump version or prepare a release, read [[.AGENTS/Release|Release.md]].
+
 
