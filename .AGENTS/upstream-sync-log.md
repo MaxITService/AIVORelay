@@ -10,6 +10,7 @@ Rules:
 
 | Merge Date | Upstream Date | Upstream SHA | Upstream Message | Local SHA | Local Message | Issues |
 | --- | --- | --- | --- | --- | --- | --- |
+| 2026-03-04 | 2026-03-02 | `a6b5c32` | move to tauri dialog 2.6 | `ba650a3` | move to tauri dialog 2.6 | conflicts in Cargo.toml/Cargo.lock; lock=ours; diff saved |
 | 2026-03-04 | 2026-02-25 | `f1516d9` | fix: auto-refresh model list when switching post-processing providers (#854) | `1a4bd4c` | fix: auto-refresh model list when switching post-processing providers (#854) | clean cherry-pick |
 | 2026-03-01 | 2026-03-01 | `ff86122` | feat: add GigaAM v3 for Russian speech recognition (#913) | `feb6f48` | feat: add GigaAM v3 for Russian speech recognition (#913) | none |
 | 2026-02-22 | 2026-02-19 | `e624a45` | toast if exists | `dde5458` | Sync upstream features: drain audio and custom words duplicate toast | bundled with `3c0fb95` |
