@@ -65,7 +65,7 @@ Upstream intake policy: [[.AGENTS/upstream-OrBranches-intake-playbook|upstream-O
 When adding new features, please prefer adding them in new files instead of editing originals unless these are already fork-specific files.
 ### Agent Temp Files And Doc Updates
 
-- Temporary agent-only files may be placed in `.agents/`.
+- Temporary agent-only files may be placed in `.AGENTS/.UNTRACKED/`.
 - If the user asks to update documentation, keep new text maximally concise.
 
 
