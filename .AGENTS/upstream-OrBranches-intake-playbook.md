@@ -33,6 +33,7 @@ git cherry -v main upstream/main
 - If cherry-pick produces many/high-risk conflicts, run `git cherry-pick --abort` and switch to diff-only reverse-engineering from `.AGENTS/.UNTRACKED/<sha>.diff.txt` (do not continue conflicted cherry-pick).
 - Propagate commits from `main` to `Microsoft-store` only when the user explicitly requests it.
 - Do not cherry-pick directly from `upstream` into `Microsoft-store`.
+- During upstream intake, do not switch to any non-`main` local branch unless the user explicitly commands it.
 - `cuda-integration` is abandoned and excluded from sync flow.
 ## 1) Commit Selection Logic (Keep This)
 
@@ -151,7 +152,6 @@ After each successful sync, append a row to:
 - [[.AGENTS/upstream-sync-log|upstream-sync-log.md]]
 
 Do not store sync history as a single static cursor in this guide.
-
 
 
 
