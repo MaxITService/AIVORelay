@@ -70,6 +70,7 @@ Only interact with these branches (ignore upstream and others):
 - [[AGENTS]]: entry file
 - [[README]]: fork features overview
 - [[.AGENTS/fork-merge-guide|fork-merge-guide.md]]: upstream tracking and merge/conflict-resolution notes
+- [[.AGENTS/upstream-sync-log|upstream-sync-log.md]]: rolling log of last synced upstream commits (max 10).
 - [[.AGENTS/branching-status|branching-status.md]]: branch sync/cherry-pick status
 
 
