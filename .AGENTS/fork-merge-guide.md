@@ -83,10 +83,11 @@ Path selection rule:
 - Fast path: direct cherry-pick is allowed when the commit is clearly relevant and expected to apply cleanly.
 - Diff path (required): before applying, save a diff snapshot to `.AGENTS/.UNTRACKED/<sha>.diff.txt` when risk is non-trivial, confidence is low, or conflict is likely.
 - If a cherry-pick fails/conflicts unexpectedly, immediately save the upstream diff file and continue from that snapshot.
+- If conflicts are many/high-risk (for example: multiple files or fork hotspot files), run `git cherry-pick --abort` and switch to pure diff-path reverse-engineering. Do not use `git cherry-pick --continue` in that case.
 1. Confirm working tree status and remember starting branch.
 2. Switch to `main`.
 3. Cherry-pick selected commits **one by one**.
-4. Resolve conflicts immediately and complete each commit.
+4. If conflicts are small and safe, resolve and continue; if conflicts are many/high-risk, abort cherry-pick and apply via diff-path.
 5. Record resulting `main` commit hashes.
 6. If the user explicitly requests propagation, switch to `Microsoft-store`.
 7. If requested, cherry-pick resulting `main` hashes in same logical order.

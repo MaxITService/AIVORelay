@@ -60,6 +60,7 @@ Only interact with these branches (ignore upstream and others):
 - Select and cherry-pick commits from `upstream` **only** on `main`.
 - Fast path is allowed: direct cherry-pick when commit fit is clear and conflict risk is low.
 - Use diff-file path for non-trivial risk/uncertainty/conflicts: save `git show <sha>` to `.AGENTS/.UNTRACKED/<sha>.diff.txt` before manual application.
+- If cherry-pick produces many/high-risk conflicts, run `git cherry-pick --abort` and switch to diff-only reverse-engineering from `.AGENTS/.UNTRACKED/<sha>.diff.txt` (do not continue conflicted cherry-pick).
 - Propagate commits from `main` to `Microsoft-store` only when the user explicitly requests it.
 - Do not cherry-pick directly from `upstream` into `Microsoft-store`.
 - `cuda-integration` is abandoned and excluded from sync flow.
