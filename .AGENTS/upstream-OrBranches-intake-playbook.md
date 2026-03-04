@@ -1,4 +1,4 @@
-# Upstream Sync & Merge Guide
+# Upstream/Branches Intake Playbook
 
 This document defines the **safe intake workflow** for upstream commits in this fork.
 Goal: keep selection logic strong, reduce breakage risk, and make decisions auditable.
@@ -25,6 +25,15 @@ git log <last_upstream_sha>..upstream/main --oneline
 git cherry -v main upstream/main
 ```
 
+## Upstream Intake Policy
+
+- Select and cherry-pick commits from `upstream` **only** on `main`.
+- Fast path is allowed: direct cherry-pick when commit fit is clear and conflict risk is low.
+- Use diff-file path for non-trivial risk/uncertainty/conflicts: save `git show <sha>` to `.AGENTS/.UNTRACKED/<sha>.diff.txt` before manual application.
+- If cherry-pick produces many/high-risk conflicts, run `git cherry-pick --abort` and switch to diff-only reverse-engineering from `.AGENTS/.UNTRACKED/<sha>.diff.txt` (do not continue conflicted cherry-pick).
+- Propagate commits from `main` to `Microsoft-store` only when the user explicitly requests it.
+- Do not cherry-pick directly from `upstream` into `Microsoft-store`.
+- `cuda-integration` is abandoned and excluded from sync flow.
 ## 1) Commit Selection Logic (Keep This)
 
 ### Take
@@ -142,5 +151,7 @@ After each successful sync, append a row to:
 - [[.AGENTS/upstream-sync-log|upstream-sync-log.md]]
 
 Do not store sync history as a single static cursor in this guide.
+
+
 
 

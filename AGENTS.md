@@ -50,24 +50,14 @@ Only interact with these branches (ignore upstream and others):
 - `cuda-integration` (abandoned - do not touch)
 
 (When user says "all branches", they currently mean only `main` and `Microsoft-store`. `cuda-integration` is abandoned and excluded.)
-### Upstream Intake Policy
-
-- Select and cherry-pick commits from `upstream` **only** on `main`.
-- Fast path is allowed: direct cherry-pick when commit fit is clear and conflict risk is low.
-- Use diff-file path for non-trivial risk/uncertainty/conflicts: save `git show <sha>` to `.AGENTS/.UNTRACKED/<sha>.diff.txt` before manual application.
-- If cherry-pick produces many/high-risk conflicts, run `git cherry-pick --abort` and switch to diff-only reverse-engineering from `.AGENTS/.UNTRACKED/<sha>.diff.txt` (do not continue conflicted cherry-pick).
-- Propagate commits from `main` to `Microsoft-store` only when the user explicitly requests it.
-- Do not cherry-pick directly from `upstream` into `Microsoft-store`.
-- `cuda-integration` is abandoned and excluded from sync flow.
-
-
+Upstream intake policy: [[.AGENTS/upstream-OrBranches-intake-playbook|upstream-OrBranches-intake-playbook.md]].
 
 ## Fork Documentation - Read file(s) that is related to current task ONLY.
 
 - [[.AGENTS/code-notes|code-notes.md]]: complete list of fork-specific files and changes
 - [[AGENTS]]: entry file
 - [[README]]: fork features overview
-- [[.AGENTS/fork-merge-guide|fork-merge-guide.md]]: upstream tracking and merge/conflict-resolution notes
+- [[.AGENTS/upstream-OrBranches-intake-playbook|upstream-OrBranches-intake-playbook.md]]: upstream intake and merge playbook
 - [[.AGENTS/upstream-sync-log|upstream-sync-log.md]]: rolling log of last synced upstream commits (max 10).
 - [[.AGENTS/branching-status|branching-status.md]]: branch sync/cherry-pick status
 
@@ -105,5 +95,8 @@ When adding new features, please prefer adding them in new files instead of edit
 ## Version Bump Checklist
 
 When asked to bump version or prepare a release, read [[.AGENTS/Release|Release.md]].
+
+
+
 
 
