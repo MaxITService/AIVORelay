@@ -113,10 +113,18 @@ pub struct SonioxLivePreviewAppearancePayload {
     pub flush_hotkey: String,
     pub process_hotkey: String,
     pub insert_hotkey: String,
+    pub delete_until_dot_or_comma_hotkey: String,
+    pub delete_until_dot_hotkey: String,
+    pub delete_last_word_hotkey: String,
     pub show_clear_button: bool,
     pub show_flush_button: bool,
     pub show_process_button: bool,
     pub show_insert_button: bool,
+    pub show_delete_until_dot_or_comma_button: bool,
+    pub show_delete_until_dot_button: bool,
+    pub show_delete_last_word_button: bool,
+    pub ctrl_backspace_delete_last_word: bool,
+    pub show_drag_grip: bool,
 }
 
 static SONIOX_LIVE_PREVIEW_STATE: LazyLock<Mutex<SonioxLivePreviewPayload>> =
@@ -124,22 +132,14 @@ static SONIOX_LIVE_PREVIEW_STATE: LazyLock<Mutex<SonioxLivePreviewPayload>> =
 static SONIOX_LIVE_PREVIEW_RUNTIME_STATE: LazyLock<Mutex<SonioxLivePreviewRuntimeState>> =
     LazyLock::new(|| Mutex::new(SonioxLivePreviewRuntimeState::default()));
 
-fn decapitalize_indicator_eligible(settings: &settings::AppSettings) -> bool {
-    settings.text_replacement_decapitalize_after_edit_key_enabled
-        && match settings.transcription_provider {
-            settings::TranscriptionProvider::RemoteSoniox => settings.soniox_live_enabled,
-            settings::TranscriptionProvider::RemoteDeepgram => settings.deepgram_live_enabled,
-            _ => false,
-        }
-}
-
 fn build_overlay_state_payload(state: &str, settings: &settings::AppSettings) -> OverlayStatePayload {
-    let eligible = decapitalize_indicator_eligible(settings);
-    let armed = eligible && crate::text_replacement_decapitalize::is_realtime_trigger_armed_now();
+    let indicator = crate::text_replacement_decapitalize::indicator_state(
+        settings.text_replacement_decapitalize_after_edit_key_enabled,
+    );
     OverlayStatePayload {
         state: state.to_string(),
-        decapitalize_eligible: eligible,
-        decapitalize_armed: armed,
+        decapitalize_eligible: indicator.eligible,
+        decapitalize_armed: indicator.armed,
     }
 }
 
@@ -375,10 +375,29 @@ fn build_soniox_live_preview_appearance_payload(
             .trim()
             .to_string(),
         insert_hotkey: app_settings.soniox_live_preview_insert_hotkey.trim().to_string(),
+        delete_until_dot_or_comma_hotkey: app_settings
+            .soniox_live_preview_delete_until_dot_or_comma_hotkey
+            .trim()
+            .to_string(),
+        delete_until_dot_hotkey: app_settings
+            .soniox_live_preview_delete_until_dot_hotkey
+            .trim()
+            .to_string(),
+        delete_last_word_hotkey: app_settings
+            .soniox_live_preview_delete_last_word_hotkey
+            .trim()
+            .to_string(),
         show_clear_button: app_settings.soniox_live_preview_show_clear_button,
         show_flush_button: app_settings.soniox_live_preview_show_flush_button,
         show_process_button: app_settings.soniox_live_preview_show_process_button,
         show_insert_button: app_settings.soniox_live_preview_show_insert_button,
+        show_delete_until_dot_or_comma_button: app_settings
+            .soniox_live_preview_show_delete_until_dot_or_comma_button,
+        show_delete_until_dot_button: app_settings.soniox_live_preview_show_delete_until_dot_button,
+        show_delete_last_word_button: app_settings.soniox_live_preview_show_delete_last_word_button,
+        ctrl_backspace_delete_last_word: app_settings
+            .soniox_live_preview_ctrl_backspace_delete_last_word,
+        show_drag_grip: app_settings.soniox_live_preview_show_drag_grip,
     }
 }
 
@@ -499,8 +518,16 @@ pub fn create_soniox_live_preview_window(app_handle: &AppHandle) {
         )
         .title("Live Preview")
         .position(x, y)
-        .resizable(false)
+        .resizable(true)
         .inner_size(width, height)
+        .min_inner_size(
+            SONIOX_LIVE_PREVIEW_MIN_CUSTOM_WIDTH_PX as f64,
+            SONIOX_LIVE_PREVIEW_MIN_CUSTOM_HEIGHT_PX as f64,
+        )
+        .max_inner_size(
+            SONIOX_LIVE_PREVIEW_MAX_CUSTOM_WIDTH_PX as f64,
+            SONIOX_LIVE_PREVIEW_MAX_CUSTOM_HEIGHT_PX as f64,
+        )
         .maximizable(false)
         .minimizable(false)
         .closable(false)

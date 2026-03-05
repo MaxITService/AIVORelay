@@ -279,10 +279,6 @@ const RecordingOverlay: React.FC = () => {
         setIsVisible(false);
         setDecapIndicatorEligible(false);
         setDecapIndicatorArmed(false);
-        setErrorMessage(null);
-        setErrorHint(null);
-        setErrorCode(null);
-        setErrorTechnical(null);
       });
 
       // Listen for mic-level updates

@@ -315,7 +315,6 @@ pub async fn transcribe_audio_file(
         let api_key = String::new();
 
         let deepgram_options = DeepgramTranscriptionOptions {
-            language: Some(language.clone()),
             interim_results: Some(settings.deepgram_interim_results),
             smart_format: Some(settings.deepgram_smart_format),
             diarize: Some(settings.deepgram_diarize),

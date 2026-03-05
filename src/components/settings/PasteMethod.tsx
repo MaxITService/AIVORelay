@@ -1,11 +1,9 @@
 import React, { useEffect, useState } from "react";
-import { useTranslation, Trans } from "react-i18next";
+import { useTranslation } from "react-i18next";
 import { type as getOsType } from "@tauri-apps/plugin-os";
 import { Dropdown } from "../ui/Dropdown";
 import { Slider } from "../ui/Slider";
 import { SettingContainer } from "../ui/SettingContainer";
-import { ToggleSwitch } from "../ui/ToggleSwitch";
-import { TellMeMore } from "../ui/TellMeMore";
 import { useSettings } from "../../hooks/useSettings";
 import type { PasteMethod } from "@/bindings";
 
@@ -67,17 +65,14 @@ export const PasteMethodSetting: React.FC<PasteMethodProps> = React.memo(
 
     const selectedMethod = (getSetting("paste_method") ||
       "ctrl_v") as PasteMethod;
-    const convertLfToCrlf = (getSetting("convert_lf_to_crlf" as any) ?? true) as boolean;
     const pasteDelayMs = (getSetting("paste_delay_ms") ?? 60) as number;
 
     const pasteMethodOptions = getPasteMethodOptions(osType);
 
-    // Show CRLF toggle for clipboard-based paste methods on Windows
     const isClipboardMethod =
       selectedMethod === "ctrl_v" ||
       selectedMethod === "ctrl_shift_v" ||
       selectedMethod === "shift_insert";
-    const showCrlfToggle = osType === "windows" && isClipboardMethod;
 
     return (
       <>
@@ -98,18 +93,6 @@ export const PasteMethodSetting: React.FC<PasteMethodProps> = React.memo(
           />
         </SettingContainer>
 
-        {showCrlfToggle && (
-          <ToggleSwitch
-            checked={convertLfToCrlf}
-            onChange={(enabled) => updateSetting("convert_lf_to_crlf" as any, enabled)}
-            isUpdating={isUpdating("convert_lf_to_crlf")}
-            label={t("settings.advanced.pasteMethod.convertLfToCrlf.label")}
-            description={t("settings.advanced.pasteMethod.convertLfToCrlf.description")}
-            descriptionMode={descriptionMode}
-            grouped={grouped}
-          />
-        )}
-
         {isClipboardMethod && (
           <Slider
             value={pasteDelayMs}
@@ -125,49 +108,6 @@ export const PasteMethodSetting: React.FC<PasteMethodProps> = React.memo(
             formatValue={(value) => `${Math.round(value)}ms`}
           />
         )}
-
-        <TellMeMore title={t("settings.advanced.pasteMethod.tellMeMore.title")}>
-          <div className="space-y-3">
-            <p className="mb-2">
-              <strong>{t("settings.advanced.pasteMethod.tellMeMore.headline")}</strong>
-            </p>
-            <p className="mb-2">
-              {t("settings.advanced.pasteMethod.tellMeMore.intro")}
-            </p>
-
-            <div className="space-y-2 ml-2">
-              <p>
-                <strong>{t("settings.advanced.pasteMethod.tellMeMore.ctrlV.title")}</strong>{" "}
-                {t("settings.advanced.pasteMethod.tellMeMore.ctrlV.description")}
-              </p>
-              <p>
-                <strong>{t("settings.advanced.pasteMethod.tellMeMore.direct.title")}</strong>{" "}
-                {t("settings.advanced.pasteMethod.tellMeMore.direct.description")}
-              </p>
-              <p>
-                <strong>{t("settings.advanced.pasteMethod.tellMeMore.none.title")}</strong>{" "}
-                {t("settings.advanced.pasteMethod.tellMeMore.none.description")}
-              </p>
-              <p>
-                <strong>{t("settings.advanced.pasteMethod.tellMeMore.pasteDelay.title")}</strong>{" "}
-                {t("settings.advanced.pasteMethod.tellMeMore.pasteDelay.description")}
-              </p>
-            </div>
-
-            {osType === "windows" && (
-              <div className="mt-3 p-2 bg-mid-gray/10 rounded border border-mid-gray/20">
-                <p>
-                  <strong>{t("settings.advanced.pasteMethod.tellMeMore.crlfNote.title")}</strong>{" "}
-                  {t("settings.advanced.pasteMethod.tellMeMore.crlfNote.description")}
-                </p>
-              </div>
-            )}
-
-            <p className="mt-3 text-text/70 text-xs">
-              {t("settings.advanced.pasteMethod.tellMeMore.tip")}
-            </p>
-          </div>
-        </TellMeMore>
       </>
     );
   },

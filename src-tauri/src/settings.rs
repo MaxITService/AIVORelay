@@ -86,6 +86,18 @@ pub struct ShortcutBinding {
     pub current_binding: String,
 }
 
+pub const PREVIEW_DELETE_LAST_WORD_BINDING_ID: &str = "preview_delete_last_word";
+
+pub fn build_preview_delete_last_word_binding(current_binding: String) -> ShortcutBinding {
+    ShortcutBinding {
+        id: PREVIEW_DELETE_LAST_WORD_BINDING_ID.to_string(),
+        name: "Preview Delete Last Word".to_string(),
+        description: "Delete the last word from the active preview workflow.".to_string(),
+        default_binding: String::new(),
+        current_binding,
+    }
+}
+
 #[derive(Serialize, Deserialize, Debug, Clone, Type)]
 pub struct LLMPrompt {
     pub id: String,
@@ -1095,6 +1107,9 @@ pub struct AppSettings {
     /// Auto-hide duration for error overlay in milliseconds.
     #[serde(default = "default_error_overlay_auto_hide_ms")]
     pub error_overlay_auto_hide_ms: u64,
+    /// Show runtime errors in the recording overlay.
+    #[serde(default = "default_true")]
+    pub error_feedback_enabled: bool,
     #[serde(default = "default_soniox_live_preview_enabled")]
     pub soniox_live_preview_enabled: bool,
     #[serde(default = "default_soniox_live_preview_position")]
@@ -1133,6 +1148,12 @@ pub struct AppSettings {
     pub soniox_live_preview_process_hotkey: String,
     #[serde(default)]
     pub soniox_live_preview_insert_hotkey: String,
+    #[serde(default)]
+    pub soniox_live_preview_delete_until_dot_or_comma_hotkey: String,
+    #[serde(default)]
+    pub soniox_live_preview_delete_until_dot_hotkey: String,
+    #[serde(default)]
+    pub soniox_live_preview_delete_last_word_hotkey: String,
     #[serde(default = "default_true")]
     pub soniox_live_preview_show_clear_button: bool,
     #[serde(default = "default_true")]
@@ -1141,6 +1162,16 @@ pub struct AppSettings {
     pub soniox_live_preview_show_process_button: bool,
     #[serde(default = "default_true")]
     pub soniox_live_preview_show_insert_button: bool,
+    #[serde(default = "default_true")]
+    pub soniox_live_preview_show_delete_until_dot_or_comma_button: bool,
+    #[serde(default = "default_true")]
+    pub soniox_live_preview_show_delete_until_dot_button: bool,
+    #[serde(default = "default_true")]
+    pub soniox_live_preview_show_delete_last_word_button: bool,
+    #[serde(default = "default_true")]
+    pub soniox_live_preview_ctrl_backspace_delete_last_word: bool,
+    #[serde(default = "default_true")]
+    pub soniox_live_preview_show_drag_grip: bool,
     #[serde(default = "default_debug_mode")]
     pub debug_mode: bool,
     #[serde(default = "default_log_level")]
@@ -1599,11 +1630,11 @@ fn default_overlay_position() -> OverlayPosition {
 }
 
 fn default_error_overlay_auto_hide_ms() -> u64 {
-    3000
+    2000
 }
 
 fn default_soniox_live_preview_enabled() -> bool {
-    true
+    false
 }
 
 fn default_soniox_live_preview_position() -> SonioxLivePreviewPosition {
@@ -2204,6 +2235,10 @@ pub fn get_default_settings() -> AppSettings {
             current_binding: "".to_string(),
         },
     );
+    bindings.insert(
+        PREVIEW_DELETE_LAST_WORD_BINDING_ID.to_string(),
+        build_preview_delete_last_word_binding(String::new()),
+    );
 
     AppSettings {
         bindings,
@@ -2256,6 +2291,7 @@ pub fn get_default_settings() -> AppSettings {
         selected_language: "auto".to_string(),
         overlay_position: default_overlay_position(),
         error_overlay_auto_hide_ms: default_error_overlay_auto_hide_ms(),
+        error_feedback_enabled: default_true(),
         soniox_live_preview_enabled: default_soniox_live_preview_enabled(),
         soniox_live_preview_position: default_soniox_live_preview_position(),
         soniox_live_preview_cursor_offset_px: default_soniox_live_preview_cursor_offset_px(),
@@ -2276,10 +2312,18 @@ pub fn get_default_settings() -> AppSettings {
         soniox_live_preview_flush_hotkey: String::new(),
         soniox_live_preview_process_hotkey: String::new(),
         soniox_live_preview_insert_hotkey: String::new(),
+        soniox_live_preview_delete_until_dot_or_comma_hotkey: String::new(),
+        soniox_live_preview_delete_until_dot_hotkey: String::new(),
+        soniox_live_preview_delete_last_word_hotkey: String::new(),
         soniox_live_preview_show_clear_button: default_true(),
         soniox_live_preview_show_flush_button: default_true(),
         soniox_live_preview_show_process_button: default_true(),
         soniox_live_preview_show_insert_button: default_true(),
+        soniox_live_preview_show_delete_until_dot_or_comma_button: default_true(),
+        soniox_live_preview_show_delete_until_dot_button: default_true(),
+        soniox_live_preview_show_delete_last_word_button: default_true(),
+        soniox_live_preview_ctrl_backspace_delete_last_word: default_true(),
+        soniox_live_preview_show_drag_grip: default_true(),
         debug_mode: false,
         log_level: default_log_level(),
         custom_words: Vec::new(),
@@ -2665,6 +2709,33 @@ pub fn load_or_create_app_settings(app: &AppHandle) -> AppSettings {
                     }
                 }
 
+                let preview_delete_last_word_binding = build_preview_delete_last_word_binding(
+                    settings
+                        .soniox_live_preview_delete_last_word_hotkey
+                        .trim()
+                        .to_string(),
+                );
+                match settings
+                    .bindings
+                    .get(PREVIEW_DELETE_LAST_WORD_BINDING_ID)
+                {
+                    Some(binding)
+                        if binding.current_binding
+                            == preview_delete_last_word_binding.current_binding
+                            && binding.name == preview_delete_last_word_binding.name
+                            && binding.description
+                                == preview_delete_last_word_binding.description
+                            && binding.default_binding
+                                == preview_delete_last_word_binding.default_binding => {}
+                    _ => {
+                        settings.bindings.insert(
+                            PREVIEW_DELETE_LAST_WORD_BINDING_ID.to_string(),
+                            preview_delete_last_word_binding,
+                        );
+                        updated = true;
+                    }
+                }
+
                 // Migrate API keys from JSON to secure storage (Windows only)
                 #[cfg(target_os = "windows")]
                 {
@@ -2710,6 +2781,9 @@ pub fn load_or_create_app_settings(app: &AppHandle) -> AppSettings {
                 if updated {
                     debug!("Settings updated with new bindings");
                     store.set("settings", serde_json::to_value(&settings).unwrap());
+                    if let Err(e) = store.save() {
+                        warn!("Failed to flush repaired settings to disk: {}", e);
+                    }
                 }
 
                 settings
@@ -2719,17 +2793,26 @@ pub fn load_or_create_app_settings(app: &AppHandle) -> AppSettings {
                 // Fall back to default settings if parsing fails
                 let default_settings = get_default_settings();
                 store.set("settings", serde_json::to_value(&default_settings).unwrap());
+                if let Err(e) = store.save() {
+                    warn!("Failed to flush default settings to disk: {}", e);
+                }
                 default_settings
             }
         }
     } else {
         let default_settings = get_default_settings();
         store.set("settings", serde_json::to_value(&default_settings).unwrap());
+        if let Err(e) = store.save() {
+            warn!("Failed to flush default settings to disk: {}", e);
+        }
         default_settings
     };
 
     if ensure_post_process_defaults(&mut settings) {
         store.set("settings", serde_json::to_value(&settings).unwrap());
+        if let Err(e) = store.save() {
+            warn!("Failed to flush repaired settings to disk: {}", e);
+        }
     }
 
     // Normalize active_profile_id: if it points to a non-existent profile, reset to "default"
@@ -2745,6 +2828,9 @@ pub fn load_or_create_app_settings(app: &AppHandle) -> AppSettings {
         );
         settings.active_profile_id = "default".to_string();
         store.set("settings", serde_json::to_value(&settings).unwrap());
+        if let Err(e) = store.save() {
+            warn!("Failed to flush repaired settings to disk: {}", e);
+        }
     }
 
     settings
@@ -2759,16 +2845,25 @@ pub fn get_settings(app: &AppHandle) -> AppSettings {
         serde_json::from_value::<AppSettings>(settings_value).unwrap_or_else(|_| {
             let default_settings = get_default_settings();
             store.set("settings", serde_json::to_value(&default_settings).unwrap());
+            if let Err(e) = store.save() {
+                warn!("Failed to flush default settings to disk: {}", e);
+            }
             default_settings
         })
     } else {
         let default_settings = get_default_settings();
         store.set("settings", serde_json::to_value(&default_settings).unwrap());
+        if let Err(e) = store.save() {
+            warn!("Failed to flush default settings to disk: {}", e);
+        }
         default_settings
     };
 
     if ensure_post_process_defaults(&mut settings) {
         store.set("settings", serde_json::to_value(&settings).unwrap());
+        if let Err(e) = store.save() {
+            warn!("Failed to flush repaired settings to disk: {}", e);
+        }
     }
 
     settings

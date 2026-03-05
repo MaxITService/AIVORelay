@@ -125,6 +125,14 @@ async changeErrorOverlayAutoHideMsSetting(valueMs: number) : Promise<Result<null
     else return { status: "error", error: e  as any };
 }
 },
+async changeErrorFeedbackEnabledSetting(enabled: boolean) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("change_error_feedback_enabled_setting", { enabled }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async changeSonioxLivePreviewEnabledSetting(enabled: boolean) : Promise<Result<null, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("change_soniox_live_preview_enabled_setting", { enabled }) };
@@ -277,6 +285,30 @@ async changeSonioxLivePreviewInsertHotkeySetting(hotkey: string) : Promise<Resul
     else return { status: "error", error: e  as any };
 }
 },
+async changeSonioxLivePreviewDeleteUntilDotOrCommaHotkeySetting(hotkey: string) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("change_soniox_live_preview_delete_until_dot_or_comma_hotkey_setting", { hotkey }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async changeSonioxLivePreviewDeleteUntilDotHotkeySetting(hotkey: string) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("change_soniox_live_preview_delete_until_dot_hotkey_setting", { hotkey }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async changeSonioxLivePreviewDeleteLastWordHotkeySetting(hotkey: string) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("change_soniox_live_preview_delete_last_word_hotkey_setting", { hotkey }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async changeSonioxLivePreviewShowClearButtonSetting(enabled: boolean) : Promise<Result<null, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("change_soniox_live_preview_show_clear_button_setting", { enabled }) };
@@ -304,6 +336,62 @@ async changeSonioxLivePreviewShowProcessButtonSetting(enabled: boolean) : Promis
 async changeSonioxLivePreviewShowInsertButtonSetting(enabled: boolean) : Promise<Result<null, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("change_soniox_live_preview_show_insert_button_setting", { enabled }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async changeSonioxLivePreviewShowDeleteUntilDotOrCommaButtonSetting(enabled: boolean) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("change_soniox_live_preview_show_delete_until_dot_or_comma_button_setting", { enabled }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async changeSonioxLivePreviewShowDeleteUntilDotButtonSetting(enabled: boolean) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("change_soniox_live_preview_show_delete_until_dot_button_setting", { enabled }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async changeSonioxLivePreviewShowDeleteLastWordButtonSetting(enabled: boolean) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("change_soniox_live_preview_show_delete_last_word_button_setting", { enabled }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async changeSonioxLivePreviewCtrlBackspaceDeleteLastWordSetting(enabled: boolean) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("change_soniox_live_preview_ctrl_backspace_delete_last_word_setting", { enabled }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async changeSonioxLivePreviewShowDragGripSetting(enabled: boolean) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("change_soniox_live_preview_show_drag_grip_setting", { enabled }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async rememberSonioxLivePreviewWindowPosition(xPx: number, yPx: number) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("remember_soniox_live_preview_window_position", { xPx, yPx }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async rememberSonioxLivePreviewWindowSize(widthPx: number, heightPx: number) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("remember_soniox_live_preview_window_size", { widthPx, heightPx }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
@@ -536,6 +624,102 @@ async changeSonioxRealtimeKeepSafetyBufferEnabledSetting(enabled: boolean) : Pro
 async resetSonioxSettingsToDefaults() : Promise<Result<null, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("reset_soniox_settings_to_defaults") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async changeDeepgramModelSetting(model: string) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("change_deepgram_model_setting", { model }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async changeDeepgramTimeoutSetting(timeoutSeconds: number) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("change_deepgram_timeout_setting", { timeoutSeconds }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async changeDeepgramLiveEnabledSetting(enabled: boolean) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("change_deepgram_live_enabled_setting", { enabled }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async changeDeepgramKeepaliveIntervalSecondsSetting(seconds: number) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("change_deepgram_keepalive_interval_seconds_setting", { seconds }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async changeDeepgramLiveFinalizeTimeoutMsSetting(timeoutMs: number) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("change_deepgram_live_finalize_timeout_ms_setting", { timeoutMs }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async changeDeepgramLiveInstantStopSetting(enabled: boolean) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("change_deepgram_live_instant_stop_setting", { enabled }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async changeDeepgramInterimResultsSetting(enabled: boolean) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("change_deepgram_interim_results_setting", { enabled }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async changeDeepgramSmartFormatSetting(enabled: boolean) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("change_deepgram_smart_format_setting", { enabled }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async changeDeepgramDiarizeSetting(enabled: boolean) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("change_deepgram_diarize_setting", { enabled }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async changeDeepgramEndpointingEnabledSetting(enabled: boolean) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("change_deepgram_endpointing_enabled_setting", { enabled }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async changeDeepgramEndpointingMsSetting(valueMs: number) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("change_deepgram_endpointing_ms_setting", { valueMs }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async resetDeepgramSettingsToDefaults() : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("reset_deepgram_settings_to_defaults") };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
@@ -1651,6 +1835,30 @@ async sonioxClearApiKey() : Promise<Result<null, string>> {
     else return { status: "error", error: e  as any };
 }
 },
+async deepgramHasApiKey() : Promise<Result<boolean, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("deepgram_has_api_key") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async deepgramSetApiKey(apiKey: string) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("deepgram_set_api_key", { apiKey }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async deepgramClearApiKey() : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("deepgram_clear_api_key") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async remoteSttGetDebugDump() : Promise<Result<string[], string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("remote_stt_get_debug_dump") };
@@ -2165,6 +2373,30 @@ async previewFlushAction() : Promise<Result<null, string>> {
     else return { status: "error", error: e  as any };
 }
 },
+async previewDeleteUntilDotOrCommaAction() : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("preview_delete_until_dot_or_comma_action") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async previewDeleteUntilDotAction() : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("preview_delete_until_dot_action") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async previewDeleteLastWordAction() : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("preview_delete_last_word_action") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async getSonioxLivePreviewState() : Promise<SonioxLivePreviewPayload> {
     return await TAURI_INVOKE("get_soniox_live_preview_state");
 },
@@ -2207,11 +2439,15 @@ async isLaptop() : Promise<Result<boolean, string>> {
 /** user-defined types **/
 
 export type AddTranscriptionProfilePayload = { name: string; language: string; translateToEnglish: boolean; systemPrompt: string; sttPromptOverrideEnabled?: boolean; pushToTalk: boolean; previewOutputOnlyEnabled?: boolean; sonioxLanguageHintsStrict?: boolean | null; includeInCycle: boolean | null; llmSettings: ProfileLlmSettings | null; sonioxContextGeneralJson: string | null; sonioxContextText: string | null; sonioxContextTerms: string[] | null }
-export type AppSettings = { bindings: Partial<{ [key in string]: ShortcutBinding }>; push_to_talk: boolean; preview_output_only_enabled?: boolean; audio_feedback: boolean; audio_feedback_volume?: number; sound_theme?: SoundTheme; start_hidden?: boolean; autostart_enabled?: boolean; show_tray_icon?: boolean; update_checks_enabled?: boolean; selected_model?: string; transcription_provider?: TranscriptionProvider; remote_stt?: RemoteSttSettings; soniox_model?: string; soniox_timeout_seconds?: number; soniox_live_enabled?: boolean; soniox_language_hints?: string[]; soniox_context_general_json?: string; soniox_context_text?: string; soniox_context_terms?: string[]; soniox_use_profile_language_hint_only?: boolean; soniox_language_hints_strict?: boolean; soniox_enable_endpoint_detection?: boolean; soniox_max_endpoint_delay_ms?: number; soniox_enable_language_identification?: boolean; soniox_enable_speaker_diarization?: boolean; soniox_keepalive_interval_seconds?: number; soniox_live_finalize_timeout_ms?: number; soniox_live_instant_stop?: boolean; soniox_realtime_fuzzy_correction_enabled?: boolean; soniox_realtime_keep_safety_buffer_enabled?: boolean; always_on_microphone?: boolean; selected_microphone?: string | null; clamshell_microphone?: string | null; selected_output_device?: string | null; translate_to_english?: boolean; selected_language?: string; overlay_position?: OverlayPosition; 
+export type AppSettings = { bindings: Partial<{ [key in string]: ShortcutBinding }>; push_to_talk: boolean; preview_output_only_enabled?: boolean; audio_feedback: boolean; audio_feedback_volume?: number; sound_theme?: SoundTheme; start_hidden?: boolean; autostart_enabled?: boolean; show_tray_icon?: boolean; update_checks_enabled?: boolean; selected_model?: string; transcription_provider?: TranscriptionProvider; remote_stt?: RemoteSttSettings; soniox_model?: string; soniox_timeout_seconds?: number; soniox_live_enabled?: boolean; soniox_language_hints?: string[]; soniox_context_general_json?: string; soniox_context_text?: string; soniox_context_terms?: string[]; soniox_use_profile_language_hint_only?: boolean; soniox_language_hints_strict?: boolean; soniox_enable_endpoint_detection?: boolean; soniox_max_endpoint_delay_ms?: number; soniox_enable_language_identification?: boolean; soniox_enable_speaker_diarization?: boolean; soniox_keepalive_interval_seconds?: number; soniox_live_finalize_timeout_ms?: number; soniox_live_instant_stop?: boolean; soniox_realtime_fuzzy_correction_enabled?: boolean; soniox_realtime_keep_safety_buffer_enabled?: boolean; deepgram_model?: string; deepgram_timeout_seconds?: number; deepgram_live_enabled?: boolean; deepgram_keepalive_interval_seconds?: number; deepgram_live_finalize_timeout_ms?: number; deepgram_live_instant_stop?: boolean; deepgram_interim_results?: boolean; deepgram_smart_format?: boolean; deepgram_diarize?: boolean; deepgram_endpointing_enabled?: boolean; deepgram_endpointing_ms?: number; always_on_microphone?: boolean; selected_microphone?: string | null; clamshell_microphone?: string | null; selected_output_device?: string | null; translate_to_english?: boolean; selected_language?: string; overlay_position?: OverlayPosition; 
 /**
  * Auto-hide duration for error overlay in milliseconds.
  */
-error_overlay_auto_hide_ms?: number; soniox_live_preview_enabled?: boolean; soniox_live_preview_position?: SonioxLivePreviewPosition; soniox_live_preview_cursor_offset_px?: number; soniox_live_preview_custom_x_px?: number; soniox_live_preview_custom_y_px?: number; soniox_live_preview_size?: SonioxLivePreviewSize; soniox_live_preview_custom_width_px?: number; soniox_live_preview_custom_height_px?: number; soniox_live_preview_theme?: SonioxLivePreviewTheme; soniox_live_preview_opacity_percent?: number; soniox_live_preview_font_color?: string; soniox_live_preview_interim_font_color?: string; soniox_live_preview_accent_color?: string; soniox_live_preview_interim_opacity_percent?: number; soniox_live_preview_close_hotkey?: string; soniox_live_preview_clear_hotkey?: string; soniox_live_preview_flush_hotkey?: string; soniox_live_preview_process_hotkey?: string; soniox_live_preview_insert_hotkey?: string; soniox_live_preview_show_clear_button?: boolean; soniox_live_preview_show_flush_button?: boolean; soniox_live_preview_show_process_button?: boolean; soniox_live_preview_show_insert_button?: boolean; debug_mode?: boolean; log_level?: LogLevel; custom_words?: string[]; custom_words_enabled?: boolean; custom_words_ngram_enabled?: boolean; model_unload_timeout?: ModelUnloadTimeout; word_correction_threshold?: number; history_limit?: number; recording_retention_period?: RecordingRetentionPeriod; paste_method?: PasteMethod; paste_delay_ms?: number; 
+error_overlay_auto_hide_ms?: number; 
+/**
+ * Show runtime errors in the recording overlay.
+ */
+error_feedback_enabled?: boolean; soniox_live_preview_enabled?: boolean; soniox_live_preview_position?: SonioxLivePreviewPosition; soniox_live_preview_cursor_offset_px?: number; soniox_live_preview_custom_x_px?: number; soniox_live_preview_custom_y_px?: number; soniox_live_preview_size?: SonioxLivePreviewSize; soniox_live_preview_custom_width_px?: number; soniox_live_preview_custom_height_px?: number; soniox_live_preview_theme?: SonioxLivePreviewTheme; soniox_live_preview_opacity_percent?: number; soniox_live_preview_font_color?: string; soniox_live_preview_interim_font_color?: string; soniox_live_preview_accent_color?: string; soniox_live_preview_interim_opacity_percent?: number; soniox_live_preview_close_hotkey?: string; soniox_live_preview_clear_hotkey?: string; soniox_live_preview_flush_hotkey?: string; soniox_live_preview_process_hotkey?: string; soniox_live_preview_insert_hotkey?: string; soniox_live_preview_delete_until_dot_or_comma_hotkey?: string; soniox_live_preview_delete_until_dot_hotkey?: string; soniox_live_preview_delete_last_word_hotkey?: string; soniox_live_preview_show_clear_button?: boolean; soniox_live_preview_show_flush_button?: boolean; soniox_live_preview_show_process_button?: boolean; soniox_live_preview_show_insert_button?: boolean; soniox_live_preview_show_delete_until_dot_or_comma_button?: boolean; soniox_live_preview_show_delete_until_dot_button?: boolean; soniox_live_preview_show_delete_last_word_button?: boolean; soniox_live_preview_ctrl_backspace_delete_last_word?: boolean; soniox_live_preview_show_drag_grip?: boolean; debug_mode?: boolean; log_level?: LogLevel; custom_words?: string[]; custom_words_enabled?: boolean; custom_words_ngram_enabled?: boolean; model_unload_timeout?: ModelUnloadTimeout; word_correction_threshold?: number; history_limit?: number; recording_retention_period?: RecordingRetentionPeriod; paste_method?: PasteMethod; paste_delay_ms?: number; 
 /**
  * Convert LF to CRLF before clipboard paste (fixes newlines on Windows)
  */
@@ -2680,7 +2916,7 @@ export type ShortcutEngine =
  */
 "rdev"
 export type SonioxFileTranscriptionOptions = { languageHints: string[] | null; enableSpeakerDiarization: boolean | null; enableLanguageIdentification: boolean | null }
-export type SonioxLivePreviewAppearancePayload = { theme: string; opacity_percent: number; font_color: string; interim_font_color: string; accent_color: string; interim_opacity_percent: number; close_hotkey: string; clear_hotkey: string; flush_hotkey: string; process_hotkey: string; insert_hotkey: string; show_clear_button: boolean; show_flush_button: boolean; show_process_button: boolean; show_insert_button: boolean }
+export type SonioxLivePreviewAppearancePayload = { theme: string; opacity_percent: number; font_color: string; interim_font_color: string; accent_color: string; interim_opacity_percent: number; close_hotkey: string; clear_hotkey: string; flush_hotkey: string; process_hotkey: string; insert_hotkey: string; delete_until_dot_or_comma_hotkey: string; delete_until_dot_hotkey: string; delete_last_word_hotkey: string; show_clear_button: boolean; show_flush_button: boolean; show_process_button: boolean; show_insert_button: boolean; show_delete_until_dot_or_comma_button: boolean; show_delete_until_dot_button: boolean; show_delete_last_word_button: boolean; ctrl_backspace_delete_last_word: boolean; show_drag_grip: boolean }
 export type SonioxLivePreviewPayload = { final_text: string; interim_text: string }
 export type SonioxLivePreviewPosition = "top" | "bottom" | "near_cursor" | "custom_xy"
 export type SonioxLivePreviewSize = "small" | "medium" | "large" | "custom"
@@ -2814,7 +3050,7 @@ soniox_context_text?: string;
  * Soniox context.terms list.
  */
 soniox_context_terms?: string[] }
-export type TranscriptionProvider = "local" | "remote_openai_compatible" | "remote_soniox"
+export type TranscriptionProvider = "local" | "remote_openai_compatible" | "remote_soniox" | "remote_deepgram"
 export type UpdateTranscriptionProfilePayload = { id: string; name: string; language: string; translateToEnglish: boolean; systemPrompt: string; sttPromptOverrideEnabled: boolean; includeInCycle: boolean; pushToTalk: boolean; previewOutputOnlyEnabled: boolean; sonioxLanguageHintsStrict?: boolean | null; llmSettings: ProfileLlmSettings; sonioxContextGeneralJson: string | null; sonioxContextText: string | null; sonioxContextTerms: string[] | null }
 /**
  * Information about the virtual screen (all monitors combined).

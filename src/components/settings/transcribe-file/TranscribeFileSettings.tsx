@@ -26,7 +26,7 @@ const supportedExtensions = ["wav", "mp3", "m4a", "ogg", "flac", "webm"];
 
 export const TranscribeFileSettings: React.FC = () => {
   const { t } = useTranslation();
-  const { settings } = useSettings();
+  const { settings, updateSetting, isUpdating } = useSettings();
 
   const {
     selectedFile,
@@ -62,11 +62,16 @@ export const TranscribeFileSettings: React.FC = () => {
     sonioxEnableLanguageIdentification,
     setSonioxEnableLanguageIdentification,
   ] = useState(true);
+  const [deepgramFileDiarize, setDeepgramFileDiarize] = useState(false);
 
   const dropZoneRef = useRef<HTMLDivElement>(null);
   const sonioxModel = (settings as any)?.soniox_model ?? "stt-rt-v4";
-  const isSonioxProvider = settings?.transcription_provider === "remote_soniox";
+  const transcriptionProvider = String(settings?.transcription_provider ?? "local");
+  const isSonioxProvider = transcriptionProvider === "remote_soniox";
+  const isDeepgramProvider = transcriptionProvider === "remote_deepgram";
   const showSonioxFileOptions = !!selectedFile && isSonioxProvider && !overrideModelId;
+  const showDeepgramFileOptions =
+    !!selectedFile && isDeepgramProvider && !overrideModelId;
   const settingsSonioxLanguageHints = (settings as any)?.soniox_language_hints as
     | string[]
     | undefined;
@@ -80,6 +85,9 @@ export const TranscribeFileSettings: React.FC = () => {
   const globalSonioxEnableSpeakerDiarization = Boolean(
     (settings as any)?.soniox_enable_speaker_diarization ?? true,
   );
+  const globalDeepgramFileDiarize = Boolean(
+    (settings as any)?.deepgram_diarize ?? false,
+  );
 
   useEffect(() => {
     setSonioxLanguageHintsInput(globalSonioxLanguageHints.join(", "));
@@ -90,6 +98,10 @@ export const TranscribeFileSettings: React.FC = () => {
     globalSonioxEnableSpeakerDiarization,
     globalSonioxLanguageHints,
   ]);
+
+  useEffect(() => {
+    setDeepgramFileDiarize(globalDeepgramFileDiarize);
+  }, [globalDeepgramFileDiarize]);
 
   // Listen for Tauri file drop events
   useEffect(() => {
@@ -260,6 +272,13 @@ export const TranscribeFileSettings: React.FC = () => {
     setInfoMessage(null);
 
     try {
+      if (
+        isDeepgramProvider &&
+        (settings as any)?.deepgram_diarize !== deepgramFileDiarize
+      ) {
+        await updateSetting("deepgram_diarize" as any, deepgramFileDiarize as any);
+      }
+
       let sonioxOptionsOverride: SonioxFileTranscriptionOptions | null = null;
       if (showSonioxFileOptions) {
         const parsedHints = parseAndNormalizeSonioxLanguageHints(
@@ -578,6 +597,33 @@ export const TranscribeFileSettings: React.FC = () => {
                   />
                   <span className="text-sm text-[#f5f5f5]">
                     {t("transcribeFile.soniox.languageIdentificationLabel")}
+                  </span>
+                </label>
+              </div>
+            )}
+
+            {showDeepgramFileOptions && (
+              <div className="mt-4 space-y-3 rounded-lg border border-[#333333] bg-[#151515] p-3">
+                <p className="text-sm text-[#f5f5f5]">
+                  {t("transcribeFile.deepgram.title")}
+                </p>
+                <p className="text-xs text-[#808080]">
+                  {t("transcribeFile.deepgram.usesGlobalDefaults")}
+                </p>
+                <label className="flex items-center gap-2 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={deepgramFileDiarize}
+                    onChange={(e) => {
+                      const enabled = e.target.checked;
+                      setDeepgramFileDiarize(enabled);
+                      void updateSetting("deepgram_diarize" as any, enabled as any);
+                    }}
+                    disabled={isUpdating("deepgram_diarize")}
+                    className="accent-[#9b5de5] w-4 h-4 rounded border-[#333333] bg-[#1a1a1a]"
+                  />
+                  <span className="text-sm text-[#f5f5f5]">
+                    {t("transcribeFile.deepgram.speakerDiarizationLabel")}
                   </span>
                 </label>
               </div>

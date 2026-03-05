@@ -30,7 +30,15 @@ const SONIOX_LIVE_PREVIEW_CUSTOM_HEIGHT_MIN = 100;
 const SONIOX_LIVE_PREVIEW_CUSTOM_HEIGHT_MAX = 1400;
 
 type PreviewActionButtonConfig = {
-  id: "close" | "clear" | "flush" | "process" | "insert";
+  id:
+    | "close"
+    | "clear"
+    | "flush"
+    | "process"
+    | "insert"
+    | "delete_until_dot_or_comma"
+    | "delete_until_dot"
+    | "delete_last_word";
   title: string;
   description: string;
   hotkeyKey: string;
@@ -72,6 +80,30 @@ const PREVIEW_ACTION_BUTTON_CONFIGS: PreviewActionButtonConfig[] = [
     hotkeyKey: "soniox_live_preview_insert_hotkey",
     showVisualKey: "soniox_live_preview_show_insert_button",
   },
+  {
+    id: "delete_until_dot_or_comma",
+    title: "Delete to . / ,",
+    description:
+      "Finalize current preview text if needed, delete the last clause back to the previous comma or sentence boundary, then continue recording.",
+    hotkeyKey: "soniox_live_preview_delete_until_dot_or_comma_hotkey",
+    showVisualKey: "soniox_live_preview_show_delete_until_dot_or_comma_button",
+  },
+  {
+    id: "delete_until_dot",
+    title: "Delete to .",
+    description:
+      "Finalize current preview text if needed, delete the last sentence back to the previous sentence boundary, then continue recording.",
+    hotkeyKey: "soniox_live_preview_delete_until_dot_hotkey",
+    showVisualKey: "soniox_live_preview_show_delete_until_dot_button",
+  },
+  {
+    id: "delete_last_word",
+    title: "Delete last word",
+    description:
+      "Delete the last word from preview text. Its assigned hotkey works globally; Ctrl+Backspace is a separate preview-window-only option. If recording is active and no interim text is visible, the current live tail is dropped instead of being finalized first.",
+    hotkeyKey: "soniox_live_preview_delete_last_word_hotkey",
+    showVisualKey: "soniox_live_preview_show_delete_last_word_button",
+  },
 ];
 
 function clampToRange(value: number, min: number, max: number): number {
@@ -96,7 +128,7 @@ export const UserInterfaceSettings: React.FC = () => {
   const voiceButtonSingleClickClose =
     (settings as any)?.voice_button_single_click_close ?? false;
   const sonioxLivePreviewEnabled =
-    (settings as any)?.soniox_live_preview_enabled ?? true;
+    (settings as any)?.soniox_live_preview_enabled ?? false;
   const sonioxLivePreviewPosition =
     ((settings as any)?.soniox_live_preview_position ?? "bottom") as string;
   const sonioxLivePreviewCursorOffsetPx = Number(
@@ -129,6 +161,12 @@ export const UserInterfaceSettings: React.FC = () => {
     ((settings as any)?.soniox_live_preview_accent_color ?? "#ff4d8d") as string;
   const sonioxLivePreviewInterimOpacityPercent = Number(
     (settings as any)?.soniox_live_preview_interim_opacity_percent ?? 58,
+  );
+  const sonioxLivePreviewShowDragGrip = Boolean(
+    (settings as any)?.soniox_live_preview_show_drag_grip ?? true,
+  );
+  const sonioxLivePreviewCtrlBackspaceDeleteLastWord = Boolean(
+    (settings as any)?.soniox_live_preview_ctrl_backspace_delete_last_word ?? true,
   );
 
   const previewActionsSummary = React.useMemo(() => {
@@ -197,9 +235,9 @@ export const UserInterfaceSettings: React.FC = () => {
             <TellMeMore title="Tell me more: Live Preview">
               <div className="space-y-3">
                 <p>
-                  <strong>Live Preview is your safe staging area before final insertion.</strong>
-                  Instead of pasting text immediately into the target app, you can keep text in the preview window,
-                  decide when to insert, and optionally run manual LLM cleanup.
+                  <strong>Live Preview is a staging window for dictated text before final insertion.</strong>
+                  Instead of pasting text into the target app immediately, you can review text in the preview window
+                  first and decide when to insert it.
                 </p>
 
                 <p>
@@ -207,71 +245,28 @@ export const UserInterfaceSettings: React.FC = () => {
                 </p>
                 <ol className="list-decimal list-inside space-y-1 ml-1 opacity-90">
                   <li>Enable <strong>Live Preview Window</strong> in this section.</li>
-                  <li>Use <strong>Open Preview</strong> to verify position, size, and appearance.</li>
+                  <li>Use <strong>Open Preview</strong> to check the preview window.</li>
                   <li>Start dictation using your normal transcription shortcut.</li>
-                  <li>Watch confirmed and draft text accumulate in the preview window.</li>
+                  <li>Review confirmed and draft text in the preview window.</li>
                   <li>Use <strong>Insert</strong> when you are ready to send text to the target app.</li>
                 </ol>
 
                 <div className="p-3 bg-[#1a1a1a] border border-[#333333] rounded-md space-y-2">
                   <p>
-                    <strong>Global vs profile toggles (important):</strong>
+                    <strong>Global vs profile behavior:</strong>
                   </p>
                   <p>
-                    <strong>Live Preview Window</strong> in this section is a global visibility toggle for regular preview usage and demo preview.
+                    <strong>Live Preview Window</strong> in this section controls normal preview visibility and demo preview.
                   </p>
                   <p>
-                    <strong>Output to Preview</strong> in Transcription Profiles is a workflow toggle. If Output to Preview is enabled for the active profile,
-                    the preview workflow window is shown even when this global Live Preview Window toggle is OFF.
+                    <strong>Output to Preview</strong> in Transcription Profiles is a workflow override. If it is enabled for the active profile,
+                    the preview workflow window can still appear even when this global toggle is OFF.
                   </p>
                   <p>
-                    Profile Output to Preview value has priority over the global Output to Preview fallback.
-                    The global Output to Preview value is used only when no specific profile value is being applied.
+                    Profile Output to Preview takes priority over the global Output to Preview fallback.
+                    The global value is only used when no specific profile value is active.
                   </p>
                 </div>
-
-                <div className="p-3 bg-[#1a1a1a] border border-[#333333] rounded-md space-y-2">
-                  <p>
-                    <strong>What each button does:</strong>
-                  </p>
-                  <p>
-                    <strong>X:</strong> closes the preview action window. In output-to-preview workflow mode it also ends the workflow session.
-                  </p>
-                  <p>
-                    <strong>Clear all:</strong> clears current preview text without inserting it.
-                  </p>
-                  <p>
-                    <strong>Flush:</strong> available in non-realtime workflow. Inserts current preview text, clears it, and lets you continue.
-                  </p>
-                  <p>
-                    <strong>Processing via LLM:</strong> manually rewrites finalized preview text using your LLM setup, then puts the result back into preview.
-                  </p>
-                  <p>
-                    <strong>Insert:</strong> finalizes current text and pastes it using your selected paste method.
-                  </p>
-                </div>
-
-                <div className="p-3 bg-[#1a1a1a] border border-[#333333] rounded-md space-y-2">
-                  <p>
-                    <strong>Realtime vs non-realtime behavior:</strong>
-                  </p>
-                  <p>
-                    <strong>Realtime:</strong> words appear progressively while you speak. Flush is usually hidden.
-                  </p>
-                  <p>
-                    <strong>Non-realtime:</strong> preview may stay empty during recording and fill after finalize/stop. Flush helps commit chunks without ending the session.
-                  </p>
-                </div>
-
-                <p>
-                  <strong>Hotkeys and visual buttons:</strong> you can assign hotkeys to every preview action. Hotkeys are empty by default.
-                  If you hide a visual button, its hotkey still works if configured.
-                </p>
-
-                <p>
-                  <strong>Practical recommendation:</strong> keep <strong>Insert</strong> visible and bind it to a comfortable shortcut.
-                  This gives you fast final commit while still preserving manual review control.
-                </p>
               </div>
             </TellMeMore>
           </div>
@@ -315,22 +310,22 @@ export const UserInterfaceSettings: React.FC = () => {
               className="w-full flex items-center justify-between gap-2 text-left"
             >
               <div className="min-w-0">
-                <h3 className="text-sm font-medium text-[#f2f2f2]">
+                <h3 className="text-base font-semibold tracking-[0.08em] text-orange-400">
                   Preview Action Buttons
                 </h3>
                 {previewActionsExpanded ? (
                   <p className="text-xs text-[#a0a0a0] mt-0.5">
                     Configure hotkeys and button visibility for Preview actions.
-                    Hotkeys are empty by default.
+                    Hotkeys are empty by default. Delete last word also supports a separate focused-window-only Ctrl+Backspace toggle below.
                   </p>
                 ) : (
-                  <p className="text-xs text-[#707070] mt-0.5 truncate">
+                  <p className="text-xs text-orange-400 mt-0.5 truncate">
                     {previewActionsSummary}
                   </p>
                 )}
               </div>
               <svg
-                className={`w-4 h-4 text-[#707070] shrink-0 transition-transform duration-200 ${previewActionsExpanded ? "rotate-180" : ""}`}
+                className={`w-4 h-4 text-orange-400 shrink-0 transition-transform duration-200 ${previewActionsExpanded ? "rotate-180" : ""}`}
                 fill="none"
                 stroke="currentColor"
                 viewBox="0 0 24 24"
@@ -408,30 +403,66 @@ export const UserInterfaceSettings: React.FC = () => {
             </div>
             )}
           </div>
-          <div className="px-6 py-3 border-t border-white/[0.05]">
-            <details className="group">
-              <summary className="flex items-center gap-2 text-sm text-[#9b5de5] hover:text-[#b47eff] transition-colors cursor-pointer list-none">
-                <span>Positioning Help</span>
-                <span className="text-xs text-[#707070] group-open:hidden">(expand)</span>
-                <span className="text-xs text-[#707070] hidden group-open:inline">(collapse)</span>
-              </summary>
-              <div className="mt-3 p-4 bg-[#1a1a1a] rounded-lg border border-[#333333] text-sm text-[#b8b8b8] space-y-2">
+          <SettingContainer
+            title="Ctrl+Backspace Deletes Last Word"
+            description="When the preview window itself is focused, Ctrl+Backspace deletes the last word from preview text. This does not work from other windows."
+            descriptionMode="inline"
+            grouped={true}
+            disabled={!sonioxLivePreviewEnabled}
+          >
+            <ToggleSwitch
+              checked={sonioxLivePreviewCtrlBackspaceDeleteLastWord}
+              onChange={(enabled) =>
+                void updateSetting(
+                  "soniox_live_preview_ctrl_backspace_delete_last_word" as any,
+                  enabled as any,
+                )
+              }
+              disabled={
+                !sonioxLivePreviewEnabled ||
+                isUpdating("soniox_live_preview_ctrl_backspace_delete_last_word")
+              }
+            />
+          </SettingContainer>
+          <SettingContainer
+            title="Show Drag Grip"
+            description="Show a dotted grip strip at the top of the preview window so you can drag it. Dragging remembers the new window position."
+            descriptionMode="inline"
+            grouped={true}
+            disabled={!sonioxLivePreviewEnabled}
+          >
+            <ToggleSwitch
+              checked={sonioxLivePreviewShowDragGrip}
+              onChange={(enabled) =>
+                void updateSetting(
+                  "soniox_live_preview_show_drag_grip" as any,
+                  enabled as any,
+                )
+              }
+              disabled={
+                !sonioxLivePreviewEnabled ||
+                isUpdating("soniox_live_preview_show_drag_grip")
+              }
+            />
+          </SettingContainer>
+          <div className="px-6 pt-4">
+            <TellMeMore title="Tell me more: Positioning">
+              <div className="space-y-2">
                 <p>
-                  <strong className="text-[#f5f5f5]">Near Cursor (Dynamic)</strong> repositions the preview every time
-                  a new live preview session starts. The window appears above your cursor.
+                  <strong>Near Cursor (Dynamic)</strong> repositions the preview when a new live preview session starts.
+                  The window appears above your current cursor.
                 </p>
                 <p>
-                  <strong className="text-[#f5f5f5]">Custom X/Y (px)</strong> pins the window to exact screen coordinates.
+                  <strong>Cursor Distance</strong> controls how far above the cursor the preview should appear in Near Cursor mode.
                 </p>
                 <p>
-                  Use <strong className="text-[#f5f5f5]">Cursor Distance</strong> to control how far above the cursor
-                  the preview should appear.
+                  <strong>Custom X/Y (px)</strong> pins the preview to exact screen coordinates instead of following the cursor.
                 </p>
                 <p>
                   If there is not enough space near screen edges, the app keeps the window inside the active monitor.
                 </p>
               </div>
-            </details>
+            </TellMeMore>
           </div>
           <SettingContainer
             title="Live Preview Position"
@@ -913,34 +944,29 @@ export const UserInterfaceSettings: React.FC = () => {
               </SettingContainer>
             </>
           )}
-          <div className="px-6 py-3 border-t border-white/[0.05]">
-            <details className="group">
-              <summary className="flex items-center gap-2 text-sm text-[#9b5de5] hover:text-[#b47eff] transition-colors cursor-pointer list-none">
-                <span>Appearance Help</span>
-                <span className="text-xs text-[#707070] group-open:hidden">(expand)</span>
-                <span className="text-xs text-[#707070] hidden group-open:inline">(collapse)</span>
-              </summary>
-              <div className="mt-3 p-4 bg-[#1a1a1a] rounded-lg border border-[#333333] text-sm text-[#b8b8b8] space-y-2">
+          <div className="px-6 pt-4">
+            <TellMeMore title="Tell me more: Appearance">
+              <div className="space-y-2">
                 <p>
-                  <strong className="text-[#f5f5f5]">Transparency</strong> controls panel background opacity.
+                  <strong>Theme</strong> selects the base preview palette.
                 </p>
                 <p>
-                  <strong className="text-[#f5f5f5]">Confirmed Text Color</strong> affects stable text that will not change.
+                  <strong>Transparency</strong> controls panel background opacity.
                 </p>
                 <p>
-                  <strong className="text-[#f5f5f5]">Live Draft Color</strong> affects text that may still change.
+                  <strong>Confirmed Text Color</strong> affects stable text that will not change.
                 </p>
                 <p>
-                  <strong className="text-[#f5f5f5]">Live Draft Opacity</strong> controls how faded the draft text looks.
+                  <strong>Live Draft Color</strong> affects text that may still change before confirmation.
                 </p>
                 <p>
-                  <strong className="text-[#f5f5f5]">Accent Color</strong> changes the header/accent tone.
+                  <strong>Accent Color</strong> changes the header and accent tone.
                 </p>
                 <p>
-                  Draft text is replaced by confirmed text as recognition stabilizes.
+                  <strong>Live Draft Opacity</strong> controls how faded the draft text looks before it becomes confirmed.
                 </p>
               </div>
-            </details>
+            </TellMeMore>
           </div>
           <SettingContainer
             title="Live Preview Theme"

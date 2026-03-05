@@ -9,8 +9,8 @@
 - Phase 1: Done.
 - Phase 2: Done.
 - Phase 3: Done.
-- Phase 4: In progress (main wiring done; final UI cleanup/tuning remains).
-- Phase 5: In progress (EN keys and code notes updated; final wording polish may remain).
+- Phase 4: Done.
+- Phase 5: Done (EN keys + code notes updated).
 - Validation: no automated build/tests run yet (per project rule).
 
 ## Rules

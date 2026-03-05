@@ -1,8 +1,9 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Plus, Trash2, ArrowRight, HelpCircle, ChevronDown, ChevronUp, CaseSensitive, Regex, Check, X } from "lucide-react";
+import { Plus, Trash2, ArrowRight, HelpCircle, ChevronDown, ChevronUp, CaseSensitive, Regex, Check, X, AlertTriangle } from "lucide-react";
 import { type as getOsType } from "@tauri-apps/plugin-os";
 import { useSettings } from "@/hooks/useSettings";
+import { useNavigationStore } from "@/stores/navigationStore";
 import { SettingsGroup } from "@/components/ui/SettingsGroup";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
@@ -47,6 +48,7 @@ const splitShortcutTokens = (binding: string): string[] =>
 export const TextReplacementSettings: React.FC = () => {
   const { t } = useTranslation();
   const { settings, updateSetting, isUpdating } = useSettings();
+  const { setSection } = useNavigationStore();
   type DecapCaptureTarget = "primary" | "secondary";
 
   const [newFrom, setNewFrom] = useState("");
@@ -86,6 +88,7 @@ export const TextReplacementSettings: React.FC = () => {
     settings?.text_replacement_decapitalize_timeout_ms ?? 5000;
   const decapitalizeStandardPostRecordingMonitorMs =
     settings?.text_replacement_decapitalize_standard_post_recording_monitor_ms ?? 5000;
+  const configuredShortcutEngine = (settings as any)?.shortcut_engine ?? "tauri";
   const leadingWhitespaceMode =
     (settings?.output_whitespace_leading_mode ?? "remove_if_present") as OutputWhitespaceMode;
   const trailingWhitespaceMode =
@@ -324,6 +327,62 @@ export const TextReplacementSettings: React.FC = () => {
 
         {decapitalizeAfterEditEnabled && (
           <>
+            {hotkeyOsType === "windows" && (
+              <div className="px-4 py-3 border-t border-white/[0.05]">
+                <div
+                  role="alert"
+                  className="rounded-md border border-red-500/40 bg-red-500/10 px-3 py-3"
+                >
+                  <div className="flex items-start gap-2">
+                    <AlertTriangle className="mt-0.5 h-4 w-4 flex-shrink-0 text-red-300" />
+                    <div className="space-y-2 text-xs">
+                      <div className="font-semibold text-red-200">
+                        {t(
+                          "textReplacement.decapitalizeAfterEditRdevWarningTitle",
+                          "Warning: this feature uses passive rdev monitoring"
+                        )}
+                      </div>
+                      <p className="text-red-100/90">
+                        {t(
+                          "textReplacement.decapitalizeAfterEditRdevWarningBody",
+                          "Only rdev can passively monitor keys like Backspace or Delete while the active application still receives those keys normally."
+                        )}
+                      </p>
+                      <p className="text-red-100/80">
+                        {configuredShortcutEngine === "tauri"
+                          ? t(
+                              "textReplacement.decapitalizeAfterEditRdevWarningTauriBody",
+                              "Your main Shortcut Engine remains Tauri, but enabling this feature starts an extra rdev listener. Turn this feature off to stop this extra rdev usage."
+                            )
+                          : t(
+                              "textReplacement.decapitalizeAfterEditRdevWarningRdevBody",
+                              "Your main Shortcut Engine is already rdev, so turning this feature off disables only this decapitalize monitor."
+                            )}
+                      </p>
+                      <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+                        <p className="text-red-100/80">
+                          {t(
+                            "textReplacement.decapitalizeAfterEditRdevWarningLinkHint",
+                            "Open Debug -> Experimental Features -> Shortcut Engine and read the rdev warning before using this."
+                          )}
+                        </p>
+                        <button
+                          type="button"
+                          onClick={() => setSection("debug")}
+                          className="font-medium text-red-200 underline decoration-red-300/70 underline-offset-2 transition-colors hover:text-red-100"
+                        >
+                          {t(
+                            "textReplacement.decapitalizeAfterEditRdevWarningLink",
+                            "Open Debug Shortcut Settings"
+                          )}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
             <div className="px-4 py-3 border-t border-white/[0.05]">
               <div className="space-y-2">
                 <div className="text-sm font-medium text-[#f5f5f5]">
@@ -1001,15 +1060,14 @@ export const TextReplacementSettings: React.FC = () => {
           />
         </div>
 
-        {/* Filler Word Filter Help */}
-        <div className="px-4 py-3 border-t border-white/[0.05]">
-          <details className="group">
-            <summary className="flex items-center gap-2 text-sm text-[#9b5de5] hover:text-[#b47eff] transition-colors cursor-pointer list-none">
-              <HelpCircle className="w-4 h-4" />
-              {t("audioProcessing.fillerHelpTitle", "Tell me more about filler word removal")}
-              <ChevronDown className="w-4 h-4 group-open:rotate-180 transition-transform" />
-            </summary>
-            <div className="mt-3 p-4 bg-[#1a1a1a] rounded-lg border border-[#333333] text-sm">
+        <div className="px-4 pt-3 border-t border-white/[0.05]">
+          <TellMeMore
+            title={t(
+              "audioProcessing.fillerHelpTitle",
+              "Tell me more about filler word removal",
+            )}
+          >
+            <div className="text-sm">
               <h4 className="font-medium text-[#f5f5f5] mb-2">
                 {t("audioProcessing.whatItDoes", "What it does")}
               </h4>
@@ -1065,7 +1123,7 @@ export const TextReplacementSettings: React.FC = () => {
                 </p>
               </div>
             </div>
-          </details>
+          </TellMeMore>
         </div>
 
         {/* Zero-Width Character Filter */}
@@ -1085,15 +1143,14 @@ export const TextReplacementSettings: React.FC = () => {
           />
         </div>
 
-        {/* Zero-Width Filter Help */}
-        <div className="px-4 py-3 border-t border-white/[0.05]">
-          <details className="group">
-            <summary className="flex items-center gap-2 text-sm text-[#9b5de5] hover:text-[#b47eff] transition-colors cursor-pointer list-none">
-              <HelpCircle className="w-4 h-4" />
-              {t("audioProcessing.zeroWidthHelpTitle", "Tell me more about invisible character removal")}
-              <ChevronDown className="w-4 h-4 group-open:rotate-180 transition-transform" />
-            </summary>
-            <div className="mt-3 p-4 bg-[#1a1a1a] rounded-lg border border-[#333333] text-sm">
+        <div className="px-4 pt-3 border-t border-white/[0.05]">
+          <TellMeMore
+            title={t(
+              "audioProcessing.zeroWidthHelpTitle",
+              "Tell me more about invisible character removal",
+            )}
+          >
+            <div className="text-sm">
               <p className="text-[#b8b8b8] mb-3">
                 {t(
                   "audioProcessing.zeroWidthExplanation",
@@ -1139,7 +1196,7 @@ export const TextReplacementSettings: React.FC = () => {
                 </p>
               </div>
             </div>
-          </details>
+          </TellMeMore>
         </div>
       </SettingsGroup>
 

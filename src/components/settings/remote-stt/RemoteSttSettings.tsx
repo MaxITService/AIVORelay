@@ -98,7 +98,6 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
   const deepgramSmartFormat = Boolean(
     (settings as any)?.deepgram_smart_format ?? true,
   );
-  const deepgramDiarize = Boolean((settings as any)?.deepgram_diarize ?? false);
   const deepgramEndpointingEnabled = Boolean(
     (settings as any)?.deepgram_endpointing_enabled ?? true,
   );
@@ -722,102 +721,26 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
               <TellMeMore
                 title={t("settings.advanced.soniox.tellMeMore.title")}
               >
-                <p className="mb-2">
-                  <strong>{t("settings.advanced.soniox.tellMeMore.headline")}</strong>
-                </p>
-                <p className="mb-2">
-                  {t("settings.advanced.soniox.tellMeMore.liveFlow")}
-                </p>
-                <p className="mb-2">
-                  {t("settings.advanced.soniox.tellMeMore.stopFlow")}
-                </p>
-                <p className="mb-1 font-medium">
-                  {t("settings.advanced.soniox.tellMeMore.realtimeBehavior.title")}
-                </p>
-                <ul className="list-disc space-y-1 pl-5 mb-3 text-sm text-text/90">
-                  {[
-                    "tokenDraft",
-                    "tokenFinal",
-                    "manualFinalize",
-                    "finMarker",
-                    "keepalive",
-                    "silenceRule",
-                  ].map((id) => (
-                    <li key={id}>
-                      {t(`settings.advanced.soniox.tellMeMore.realtimeBehavior.${id}`)}
-                    </li>
-                  ))}
-                </ul>
-                <p className="mb-1 font-medium">
-                  {t("settings.advanced.soniox.tellMeMore.userStory.title")}
-                </p>
-                <ul className="list-disc space-y-1 pl-5 mb-3 text-sm text-text/90">
-                  <li>{t("settings.advanced.soniox.tellMeMore.userStory.item1")}</li>
-                  <li>{t("settings.advanced.soniox.tellMeMore.userStory.item2")}</li>
-                  <li>{t("settings.advanced.soniox.tellMeMore.userStory.item3")}</li>
-                </ul>
-                <p className="mb-1 font-medium">
-                  {t("settings.advanced.soniox.tellMeMore.matrix.title")}
-                </p>
-                <div className="space-y-2 mb-3 text-sm text-text/90">
-                  {[
-                    "live",
-                    "finalizeTimeout",
-                    "instantStop",
-                    "languageHints",
-                    "endpointDetection",
-                  ].map((id) => (
-                    <div key={id} className="rounded border border-mid-gray/25 bg-mid-gray/10 p-2">
-                      <p className="font-medium">
-                        {t(`settings.advanced.soniox.tellMeMore.matrix.items.${id}.title`)}
-                      </p>
-                      <p>
-                        <strong>
-                          {t("settings.advanced.soniox.tellMeMore.matrix.whenToUseLabel")}
-                        </strong>{" "}
-                        {t(`settings.advanced.soniox.tellMeMore.matrix.items.${id}.whenToUse`)}
-                      </p>
-                      <p>
-                        <strong>
-                          {t("settings.advanced.soniox.tellMeMore.matrix.tradeoffLabel")}
-                        </strong>{" "}
-                        {t(`settings.advanced.soniox.tellMeMore.matrix.items.${id}.tradeoff`)}
-                      </p>
-                      <p>
-                        <strong>
-                          {t("settings.advanced.soniox.tellMeMore.matrix.recommendedLabel")}
-                        </strong>{" "}
-                        {t(`settings.advanced.soniox.tellMeMore.matrix.items.${id}.recommended`)}
-                      </p>
-                    </div>
-                  ))}
+                <div className="space-y-3">
+                  <p>
+                    <strong>{t("settings.advanced.soniox.tellMeMore.headline")}</strong>
+                  </p>
+                  <p>{t("settings.advanced.soniox.tellMeMore.liveFlow")}</p>
+                  <p>{t("settings.advanced.soniox.tellMeMore.stopFlow")}</p>
+                  <div>
+                    <p className="mb-1 font-medium">
+                      {t("settings.advanced.soniox.tellMeMore.userStory.title")}
+                    </p>
+                    <ul className="list-disc space-y-1 pl-5 text-sm text-text/90">
+                      <li>{t("settings.advanced.soniox.tellMeMore.userStory.item1")}</li>
+                      <li>{t("settings.advanced.soniox.tellMeMore.userStory.item2")}</li>
+                      <li>{t("settings.advanced.soniox.tellMeMore.userStory.item3")}</li>
+                    </ul>
+                  </div>
+                  <p className="text-text/80">
+                    {t("settings.advanced.soniox.tellMeMore.tip")}
+                  </p>
                 </div>
-                <p className="mb-1 font-medium">
-                  {t("settings.advanced.soniox.tellMeMore.parametersTitle")}
-                </p>
-                <ul className="list-disc space-y-1 pl-5 mb-3 text-sm text-text/90">
-                  {[
-                    "model",
-                    "live",
-                    "timeout",
-                    "finalizeTimeout",
-                    "instantStop",
-                    "languageHints",
-                    "profileLanguageHintOnly",
-                    "strict",
-                    "endpoint",
-                    "keepalive",
-                    "languageIdentification",
-                    "speakerDiarization",
-                  ].map((id) => (
-                    <li key={id}>
-                      {t(`settings.advanced.soniox.tellMeMore.parameters.${id}`)}
-                    </li>
-                  ))}
-                </ul>
-                <p className="text-text/80">
-                  {t("settings.advanced.soniox.tellMeMore.tip")}
-                </p>
               </TellMeMore>
 
               <SettingContainer
@@ -830,6 +753,20 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
                   {t("settings.advanced.soniox.reset.button")}
                 </Button>
               </SettingContainer>
+
+              <div className="px-4 pt-3">
+                <TellMeMore
+                  title={t("settings.advanced.soniox.tellMeMore.parametersTitle")}
+                >
+                  <ul className="list-disc space-y-1 pl-5 text-sm text-text/90">
+                    {["model", "live", "timeout"].map((id) => (
+                      <li key={id}>
+                        {t(`settings.advanced.soniox.tellMeMore.parameters.${id}`)}
+                      </li>
+                    ))}
+                  </ul>
+                </TellMeMore>
+              </div>
 
               <SettingContainer
                 title={t("settings.advanced.soniox.model.title")}
@@ -866,6 +803,27 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
                 />
               </SettingContainer>
 
+              <div className="px-4 pt-3">
+                <TellMeMore
+                  title={t("settings.advanced.soniox.tellMeMore.realtimeBehavior.title")}
+                >
+                  <ul className="list-disc space-y-1 pl-5 text-sm text-text/90">
+                    {[
+                      "tokenDraft",
+                      "tokenFinal",
+                      "manualFinalize",
+                      "finMarker",
+                      "keepalive",
+                      "silenceRule",
+                    ].map((id) => (
+                      <li key={id}>
+                        {t(`settings.advanced.soniox.tellMeMore.realtimeBehavior.${id}`)}
+                      </li>
+                    ))}
+                  </ul>
+                </TellMeMore>
+              </div>
+
               <ToggleSwitch
                 label={t("settings.advanced.soniox.live.title")}
                 description={t("settings.advanced.soniox.live.description")}
@@ -878,6 +836,43 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
                 descriptionMode={descriptionMode}
                 grouped={grouped}
               />
+
+              <div className="px-4 pt-3">
+                <TellMeMore
+                  title={t("settings.advanced.soniox.tellMeMore.matrix.title")}
+                >
+                  <div className="space-y-2 text-sm text-text/90">
+                    {["live", "languageHints"].map((id) => (
+                      <div
+                        key={id}
+                        className="rounded border border-mid-gray/25 bg-mid-gray/10 p-2"
+                      >
+                        <p className="font-medium">
+                          {t(`settings.advanced.soniox.tellMeMore.matrix.items.${id}.title`)}
+                        </p>
+                        <p>
+                          <strong>
+                            {t("settings.advanced.soniox.tellMeMore.matrix.whenToUseLabel")}
+                          </strong>{" "}
+                          {t(`settings.advanced.soniox.tellMeMore.matrix.items.${id}.whenToUse`)}
+                        </p>
+                        <p>
+                          <strong>
+                            {t("settings.advanced.soniox.tellMeMore.matrix.tradeoffLabel")}
+                          </strong>{" "}
+                          {t(`settings.advanced.soniox.tellMeMore.matrix.items.${id}.tradeoff`)}
+                        </p>
+                        <p>
+                          <strong>
+                            {t("settings.advanced.soniox.tellMeMore.matrix.recommendedLabel")}
+                          </strong>{" "}
+                          {t(`settings.advanced.soniox.tellMeMore.matrix.items.${id}.recommended`)}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                </TellMeMore>
+              </div>
 
               {!isSonioxRealtimeModel && (
                 <p className="text-xs text-text/60">
@@ -901,6 +896,26 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
                 descriptionMode={descriptionMode}
                 grouped={grouped}
               />
+
+              <div className="px-4 pt-3">
+                <TellMeMore
+                  title={t("settings.advanced.soniox.tellMeMore.parametersTitle")}
+                >
+                  <ul className="list-disc space-y-1 pl-5 text-sm text-text/90">
+                    {[
+                      "languageHints",
+                      "profileLanguageHintOnly",
+                      "strict",
+                      "languageIdentification",
+                      "speakerDiarization",
+                    ].map((id) => (
+                      <li key={id}>
+                        {t(`settings.advanced.soniox.tellMeMore.parameters.${id}`)}
+                      </li>
+                    ))}
+                  </ul>
+                </TellMeMore>
+              </div>
 
               <SettingContainer
                 title={t("settings.advanced.soniox.languageHints.title")}
@@ -975,6 +990,50 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
                 descriptionMode={descriptionMode}
                 grouped={grouped}
               />
+
+              <div className="px-4 pt-3">
+                <TellMeMore
+                  title={t("settings.advanced.soniox.tellMeMore.matrix.title")}
+                >
+                  <div className="space-y-2 text-sm text-text/90">
+                    {["endpointDetection", "finalizeTimeout", "instantStop"].map((id) => (
+                      <div
+                        key={id}
+                        className="rounded border border-mid-gray/25 bg-mid-gray/10 p-2"
+                      >
+                        <p className="font-medium">
+                          {t(`settings.advanced.soniox.tellMeMore.matrix.items.${id}.title`)}
+                        </p>
+                        <p>
+                          <strong>
+                            {t("settings.advanced.soniox.tellMeMore.matrix.whenToUseLabel")}
+                          </strong>{" "}
+                          {t(`settings.advanced.soniox.tellMeMore.matrix.items.${id}.whenToUse`)}
+                        </p>
+                        <p>
+                          <strong>
+                            {t("settings.advanced.soniox.tellMeMore.matrix.tradeoffLabel")}
+                          </strong>{" "}
+                          {t(`settings.advanced.soniox.tellMeMore.matrix.items.${id}.tradeoff`)}
+                        </p>
+                        <p>
+                          <strong>
+                            {t("settings.advanced.soniox.tellMeMore.matrix.recommendedLabel")}
+                          </strong>{" "}
+                          {t(`settings.advanced.soniox.tellMeMore.matrix.items.${id}.recommended`)}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                  <ul className="list-disc space-y-1 pl-5 mt-3 text-sm text-text/90">
+                    {["endpoint", "keepalive", "finalizeTimeout", "instantStop"].map((id) => (
+                      <li key={id}>
+                        {t(`settings.advanced.soniox.tellMeMore.parameters.${id}`)}
+                      </li>
+                    ))}
+                  </ul>
+                </TellMeMore>
+              </div>
 
               <SettingContainer
                 title={t("settings.advanced.soniox.maxEndpointDelay.title")}
@@ -1087,32 +1146,170 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
           {showDeepgramFields && (
             <>
               <div className="p-3 bg-cyan-500/10 border border-cyan-500/30 rounded-lg text-sm text-cyan-300 mx-4 mt-2">
-                {t(
-                  "settings.advanced.deepgram.banner",
-                  "Deepgram live mode uses WebSocket streaming with KeepAlive / Finalize / CloseStream control messages.",
-                )}
+                {t("settings.advanced.deepgram.banner")}
               </div>
 
+              <TellMeMore title={t("settings.advanced.deepgram.tellMeMore.title")}>
+                <div className="space-y-3">
+                  <p>
+                    <strong>{t("settings.advanced.deepgram.tellMeMore.headline")}</strong>
+                  </p>
+                  <p>{t("settings.advanced.deepgram.tellMeMore.liveFlow")}</p>
+                  <p>{t("settings.advanced.deepgram.tellMeMore.stopFlow")}</p>
+                  <p className="text-text/80">
+                    {t("settings.advanced.deepgram.tellMeMore.tip")}
+                  </p>
+                </div>
+              </TellMeMore>
+
               <SettingContainer
-                title={t("settings.advanced.deepgram.reset.title", "Deepgram Quick Actions")}
-                description={t(
-                  "settings.advanced.deepgram.reset.description",
-                  "Reset all Deepgram settings in this section to recommended defaults.",
-                )}
+                title={t("settings.advanced.deepgram.reset.title")}
+                description={t("settings.advanced.deepgram.reset.description")}
                 descriptionMode={descriptionMode}
                 grouped={grouped}
               >
                 <Button variant="secondary" size="sm" onClick={handleResetDeepgramDefaults}>
-                  {t("settings.advanced.deepgram.reset.button", "Reset Deepgram Settings")}
+                  {t("settings.advanced.deepgram.reset.button")}
                 </Button>
               </SettingContainer>
 
+              <div className="px-4 pt-3">
+                <TellMeMore
+                  title={t("settings.advanced.deepgram.tellMeMore.parametersTitle")}
+                >
+                  <div className="space-y-2 mb-3 text-sm text-text/90">
+                    <div className="rounded border border-mid-gray/25 bg-mid-gray/10 p-2">
+                      <p className="font-medium">
+                        {t("settings.advanced.deepgram.tellMeMore.matrix.items.model.title")}
+                      </p>
+                      <p>
+                        <strong>
+                          {t("settings.advanced.deepgram.tellMeMore.matrix.whenToUseLabel")}
+                        </strong>{" "}
+                        {t("settings.advanced.deepgram.tellMeMore.matrix.items.model.whenToUse")}
+                      </p>
+                      <p>
+                        <strong>
+                          {t("settings.advanced.deepgram.tellMeMore.matrix.tradeoffLabel")}
+                        </strong>{" "}
+                        {t("settings.advanced.deepgram.tellMeMore.matrix.items.model.tradeoff")}
+                      </p>
+                      <p>
+                        <strong>
+                          {t("settings.advanced.deepgram.tellMeMore.matrix.recommendedLabel")}
+                        </strong>{" "}
+                        {t("settings.advanced.deepgram.tellMeMore.matrix.items.model.recommended")}
+                      </p>
+                    </div>
+                  </div>
+                  <ul className="list-disc space-y-1 pl-5 text-sm text-text/90">
+                    {["model", "timeout", "apiKey"].map((id) => (
+                      <li key={id}>
+                        {t(`settings.advanced.deepgram.tellMeMore.parameters.${id}`)}
+                      </li>
+                    ))}
+                  </ul>
+                  <p className="mt-3 mb-1 font-medium">
+                    {t("settings.advanced.deepgram.tellMeMore.docs.title")}
+                  </p>
+                  <ul className="list-disc space-y-1 pl-5 text-sm">
+                    <li>
+                      <a
+                        href="https://developers.deepgram.com/reference/speech-to-text/listen-streaming"
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-accent hover:underline"
+                      >
+                        {t("settings.advanced.deepgram.tellMeMore.docs.liveApi")}
+                      </a>
+                    </li>
+                    <li>
+                      <a
+                        href="https://developers.deepgram.com/docs/audio-keep-alive"
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-accent hover:underline"
+                      >
+                        {t("settings.advanced.deepgram.tellMeMore.docs.keepalive")}
+                      </a>
+                    </li>
+                    <li>
+                      <a
+                        href="https://developers.deepgram.com/docs/finalize"
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-accent hover:underline"
+                      >
+                        {t("settings.advanced.deepgram.tellMeMore.docs.finalize")}
+                      </a>
+                    </li>
+                    <li>
+                      <a
+                        href="https://developers.deepgram.com/docs/close-stream"
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-accent hover:underline"
+                      >
+                        {t("settings.advanced.deepgram.tellMeMore.docs.closeStream")}
+                      </a>
+                    </li>
+                    <li>
+                      <a
+                        href="https://developers.deepgram.com/docs/endpointing"
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-accent hover:underline"
+                      >
+                        {t("settings.advanced.deepgram.tellMeMore.docs.endpointing")}
+                      </a>
+                    </li>
+                    <li>
+                      <a
+                        href="https://developers.deepgram.com/docs/interim-results"
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-accent hover:underline"
+                      >
+                        {t("settings.advanced.deepgram.tellMeMore.docs.interimResults")}
+                      </a>
+                    </li>
+                    <li>
+                      <a
+                        href="https://developers.deepgram.com/docs/smart-format"
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-accent hover:underline"
+                      >
+                        {t("settings.advanced.deepgram.tellMeMore.docs.smartFormat")}
+                      </a>
+                    </li>
+                    <li>
+                      <a
+                        href="https://developers.deepgram.com/docs/model"
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-accent hover:underline"
+                      >
+                        {t("settings.advanced.deepgram.tellMeMore.docs.modelOptions")}
+                      </a>
+                    </li>
+                    <li>
+                      <a
+                        href="https://developers.deepgram.com/docs/stt-troubleshooting-websocket-data-and-net-errors"
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-accent hover:underline"
+                      >
+                        {t("settings.advanced.deepgram.tellMeMore.docs.troubleshooting")}
+                      </a>
+                    </li>
+                  </ul>
+                </TellMeMore>
+              </div>
+
               <SettingContainer
-                title={t("settings.advanced.deepgram.model.title", "Deepgram Model")}
-                description={t(
-                  "settings.advanced.deepgram.model.description",
-                  "Nova-3 variants available for users: nova-3, nova-3-general, nova-3-medical.",
-                )}
+                title={t("settings.advanced.deepgram.model.title")}
+                description={t("settings.advanced.deepgram.model.description")}
                 descriptionMode={descriptionMode}
                 grouped={grouped}
               >
@@ -1125,11 +1322,8 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
               </SettingContainer>
 
               <SettingContainer
-                title={t("settings.advanced.deepgram.timeout.title", "Deepgram Timeout (seconds)")}
-                description={t(
-                  "settings.advanced.deepgram.timeout.description",
-                  "Request timeout for non-live Deepgram transcription.",
-                )}
+                title={t("settings.advanced.deepgram.timeout.title")}
+                description={t("settings.advanced.deepgram.timeout.description")}
                 descriptionMode={descriptionMode}
                 grouped={grouped}
                 layout="stacked"
@@ -1145,12 +1339,30 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
                 />
               </SettingContainer>
 
+              <div className="px-4 pt-3">
+                <TellMeMore
+                  title={t("settings.advanced.deepgram.tellMeMore.controlMessages.title")}
+                >
+                  <ul className="list-disc space-y-1 pl-5 text-sm text-text/90">
+                    {[
+                      "keepalive",
+                      "finalize",
+                      "closeStream",
+                      "fromFinalize",
+                      "metadata",
+                      "netTimeout",
+                    ].map((id) => (
+                      <li key={id}>
+                        {t(`settings.advanced.deepgram.tellMeMore.controlMessages.${id}`)}
+                      </li>
+                    ))}
+                  </ul>
+                </TellMeMore>
+              </div>
+
               <ToggleSwitch
-                label={t("settings.advanced.deepgram.live.title", "Live Streaming")}
-                description={t(
-                  "settings.advanced.deepgram.live.description",
-                  "Enable Deepgram live transcription over WebSocket while recording.",
-                )}
+                label={t("settings.advanced.deepgram.live.title")}
+                description={t("settings.advanced.deepgram.live.description")}
                 checked={deepgramLiveEnabled}
                 onChange={(enabled) =>
                   void updateSetting("deepgram_live_enabled" as any, enabled as any)
@@ -1160,12 +1372,23 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
                 grouped={grouped}
               />
 
+              <div className="px-4 pt-3">
+                <TellMeMore
+                  title={t("settings.advanced.deepgram.tellMeMore.transcriptTiming.title")}
+                >
+                  <ul className="list-disc space-y-1 pl-5 text-sm text-text/90">
+                    {["interimVsFinal", "speechFinal", "concatRule"].map((id) => (
+                      <li key={id}>
+                        {t(`settings.advanced.deepgram.tellMeMore.transcriptTiming.${id}`)}
+                      </li>
+                    ))}
+                  </ul>
+                </TellMeMore>
+              </div>
+
               <ToggleSwitch
-                label={t("settings.advanced.deepgram.interim.title", "Interim Results")}
-                description={t(
-                  "settings.advanced.deepgram.interim.description",
-                  "Allow Deepgram to return evolving interim hypotheses before final results.",
-                )}
+                label={t("settings.advanced.deepgram.interim.title")}
+                description={t("settings.advanced.deepgram.interim.description")}
                 checked={deepgramInterimResults}
                 onChange={(enabled) =>
                   void updateSetting("deepgram_interim_results" as any, enabled as any)
@@ -1176,11 +1399,8 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
               />
 
               <ToggleSwitch
-                label={t("settings.advanced.deepgram.smartFormat.title", "Smart Format")}
-                description={t(
-                  "settings.advanced.deepgram.smartFormat.description",
-                  "Format numbers, punctuation, and entities for readability.",
-                )}
+                label={t("settings.advanced.deepgram.smartFormat.title")}
+                description={t("settings.advanced.deepgram.smartFormat.description")}
                 checked={deepgramSmartFormat}
                 onChange={(enabled) =>
                   void updateSetting("deepgram_smart_format" as any, enabled as any)
@@ -1191,26 +1411,8 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
               />
 
               <ToggleSwitch
-                label={t("settings.advanced.deepgram.diarize.title", "Speaker Diarization")}
-                description={t(
-                  "settings.advanced.deepgram.diarize.description",
-                  "Detect speaker changes in Deepgram output.",
-                )}
-                checked={deepgramDiarize}
-                onChange={(enabled) =>
-                  void updateSetting("deepgram_diarize" as any, enabled as any)
-                }
-                isUpdating={isUpdating("deepgram_diarize")}
-                descriptionMode={descriptionMode}
-                grouped={grouped}
-              />
-
-              <ToggleSwitch
-                label={t("settings.advanced.deepgram.endpointing.title", "Endpointing")}
-                description={t(
-                  "settings.advanced.deepgram.endpointing.description",
-                  "Finalize speech segments when natural pauses are detected.",
-                )}
+                label={t("settings.advanced.deepgram.endpointing.title")}
+                description={t("settings.advanced.deepgram.endpointing.description")}
                 checked={deepgramEndpointingEnabled}
                 onChange={(enabled) =>
                   void updateSetting("deepgram_endpointing_enabled" as any, enabled as any)
@@ -1220,12 +1422,72 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
                 grouped={grouped}
               />
 
+              <div className="px-4 pt-3">
+                <TellMeMore
+                  title={t("settings.advanced.deepgram.tellMeMore.matrix.title")}
+                >
+                  <div className="space-y-2 text-sm text-text/90">
+                    {[
+                      "live",
+                      "interim",
+                      "endpointing",
+                      "endpointingMs",
+                      "keepalive",
+                      "finalizeTimeout",
+                      "instantStop",
+                    ].map((id) => (
+                      <div
+                        key={id}
+                        className="rounded border border-mid-gray/25 bg-mid-gray/10 p-2"
+                      >
+                        <p className="font-medium">
+                          {t(`settings.advanced.deepgram.tellMeMore.matrix.items.${id}.title`)}
+                        </p>
+                        <p>
+                          <strong>
+                            {t("settings.advanced.deepgram.tellMeMore.matrix.whenToUseLabel")}
+                          </strong>{" "}
+                          {t(`settings.advanced.deepgram.tellMeMore.matrix.items.${id}.whenToUse`)}
+                        </p>
+                        <p>
+                          <strong>
+                            {t("settings.advanced.deepgram.tellMeMore.matrix.tradeoffLabel")}
+                          </strong>{" "}
+                          {t(`settings.advanced.deepgram.tellMeMore.matrix.items.${id}.tradeoff`)}
+                        </p>
+                        <p>
+                          <strong>
+                            {t("settings.advanced.deepgram.tellMeMore.matrix.recommendedLabel")}
+                          </strong>{" "}
+                          {t(
+                            `settings.advanced.deepgram.tellMeMore.matrix.items.${id}.recommended`,
+                          )}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                  <ul className="list-disc space-y-1 pl-5 mt-3 text-sm text-text/90">
+                    {[
+                      "live",
+                      "interim",
+                      "smartFormat",
+                      "endpointing",
+                      "endpointingMs",
+                      "keepalive",
+                      "finalizeTimeout",
+                      "instantStop",
+                    ].map((id) => (
+                      <li key={id}>
+                        {t(`settings.advanced.deepgram.tellMeMore.parameters.${id}`)}
+                      </li>
+                    ))}
+                  </ul>
+                </TellMeMore>
+              </div>
+
               <SettingContainer
-                title={t("settings.advanced.deepgram.endpointingMs.title", "Endpointing (ms)")}
-                description={t(
-                  "settings.advanced.deepgram.endpointingMs.description",
-                  "How long Deepgram waits before treating silence as utterance end.",
-                )}
+                title={t("settings.advanced.deepgram.endpointingMs.title")}
+                description={t("settings.advanced.deepgram.endpointingMs.description")}
                 descriptionMode={descriptionMode}
                 grouped={grouped}
                 layout="stacked"
@@ -1244,11 +1506,8 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
               </SettingContainer>
 
               <SettingContainer
-                title={t("settings.advanced.deepgram.keepalive.title", "KeepAlive Interval (seconds)")}
-                description={t(
-                  "settings.advanced.deepgram.keepalive.description",
-                  "Send KeepAlive text control messages during silence to keep the stream open.",
-                )}
+                title={t("settings.advanced.deepgram.keepalive.title")}
+                description={t("settings.advanced.deepgram.keepalive.description")}
                 descriptionMode={descriptionMode}
                 grouped={grouped}
                 layout="stacked"
@@ -1259,17 +1518,14 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
                   onChange={(event) => setDeepgramKeepaliveSecondsInput(event.target.value)}
                   onBlur={handleDeepgramKeepaliveBlur}
                   min={3}
-                  max={20}
+                  max={5}
                   className="w-full"
                 />
               </SettingContainer>
 
               <SettingContainer
-                title={t("settings.advanced.deepgram.finalizeTimeout.title", "Live Finalization Timeout (ms)")}
-                description={t(
-                  "settings.advanced.deepgram.finalizeTimeout.description",
-                  "How long to wait for late final chunks after Stop before forcing closure.",
-                )}
+                title={t("settings.advanced.deepgram.finalizeTimeout.title")}
+                description={t("settings.advanced.deepgram.finalizeTimeout.description")}
                 descriptionMode={descriptionMode}
                 grouped={grouped}
                 layout="stacked"
@@ -1288,11 +1544,8 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
               </SettingContainer>
 
               <ToggleSwitch
-                label={t("settings.advanced.deepgram.instantStop.title", "Instant Stop (Local Feature)")}
-                description={t(
-                  "settings.advanced.deepgram.instantStop.description",
-                  "Cancel Deepgram live session immediately on stop for fastest UX, at risk of tail truncation.",
-                )}
+                label={t("settings.advanced.deepgram.instantStop.title")}
+                description={t("settings.advanced.deepgram.instantStop.description")}
                 checked={deepgramLiveInstantStop}
                 onChange={(enabled) =>
                   void updateSetting("deepgram_live_instant_stop" as any, enabled as any)
@@ -1309,17 +1562,14 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
               isSonioxProvider
                 ? t("settings.advanced.soniox.apiKey.title")
                 : isDeepgramProvider
-                  ? t("settings.advanced.deepgram.apiKey.title", "Deepgram API Key")
+                  ? t("settings.advanced.deepgram.apiKey.title")
                 : t("settings.advanced.remoteStt.apiKey.title")
             }
             description={
               isSonioxProvider
                 ? t("settings.advanced.soniox.apiKey.description")
                 : isDeepgramProvider
-                  ? t(
-                      "settings.advanced.deepgram.apiKey.description",
-                      "Stored securely in Windows Credential Manager.",
-                    )
+                  ? t("settings.advanced.deepgram.apiKey.description")
                 : t("settings.advanced.remoteStt.apiKey.description")
             }
             descriptionMode={descriptionMode}
@@ -1374,10 +1624,7 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
                         isSonioxProvider
                           ? t("settings.advanced.soniox.apiKey.placeholder")
                           : isDeepgramProvider
-                            ? t(
-                                "settings.advanced.deepgram.apiKey.placeholder",
-                                "dg_...",
-                              )
+                            ? t("settings.advanced.deepgram.apiKey.placeholder")
                           : t("settings.advanced.remoteStt.apiKey.placeholder")
                       }
                       disabled={apiKeyLoading}

@@ -16,7 +16,7 @@ const DEFAULT_CONNECT_TIMEOUT_SECS: u64 = 10;
 const AUDIO_QUEUE_CAPACITY: usize = 256;
 const DEFAULT_KEEPALIVE_INTERVAL_SECONDS: u32 = 5;
 const MIN_KEEPALIVE_INTERVAL_SECONDS: u32 = 3;
-const MAX_KEEPALIVE_INTERVAL_SECONDS: u32 = 20;
+const MAX_KEEPALIVE_INTERVAL_SECONDS: u32 = 5;
 const DEFAULT_ENDPOINTING_MS: u32 = 400;
 const MIN_ENDPOINTING_MS: u32 = 50;
 const MAX_ENDPOINTING_MS: u32 = 5000;
@@ -28,7 +28,6 @@ pub struct DeepgramRealtimeOptions {
     pub language: Option<String>,
     pub smart_format: bool,
     pub interim_results: bool,
-    pub diarize: bool,
     pub endpointing_enabled: bool,
     pub endpointing_ms: u32,
     pub keepalive_interval_seconds: u32,
@@ -40,7 +39,6 @@ impl Default for DeepgramRealtimeOptions {
             language: Some("en".to_string()),
             smart_format: true,
             interim_results: true,
-            diarize: false,
             endpointing_enabled: true,
             endpointing_ms: DEFAULT_ENDPOINTING_MS,
             keepalive_interval_seconds: DEFAULT_KEEPALIVE_INTERVAL_SECONDS,
@@ -78,6 +76,22 @@ impl DeepgramRealtimeManager {
         })
     }
 
+    pub fn clear_committed_transcript(&self) {
+        let final_text = {
+            let Ok(active_session) = self.active_session.lock() else {
+                return;
+            };
+            let Some(session) = active_session.as_ref() else {
+                return;
+            };
+            Arc::clone(&session.final_text)
+        };
+        let Ok(mut final_text_guard) = final_text.lock() else {
+            return;
+        };
+        final_text_guard.clear();
+    }
+
     pub fn is_realtime_model(model: &str) -> bool {
         let trimmed = model.trim();
         !trimmed.is_empty()
@@ -91,17 +105,25 @@ impl DeepgramRealtimeManager {
         trimmed.to_string()
     }
 
-    fn normalize_language(language: Option<String>) -> Option<String> {
+    fn default_language_for_model(model: &str) -> &'static str {
+        if model.trim().eq_ignore_ascii_case("nova-3-medical") {
+            "en"
+        } else {
+            "multi"
+        }
+    }
+
+    fn normalize_language(language: Option<String>, model: &str) -> Option<String> {
         let mut lang = language.unwrap_or_default().trim().to_string();
         if lang.is_empty() || lang.eq_ignore_ascii_case("auto") {
-            return None;
+            return Some(Self::default_language_for_model(model).to_string());
         }
 
         if lang.eq_ignore_ascii_case("os_input") {
             if let Some(resolved) = crate::input_source::get_language_from_input_source() {
                 lang = resolved;
             } else {
-                return None;
+                return Some(Self::default_language_for_model(model).to_string());
             }
         }
 
@@ -133,7 +155,6 @@ impl DeepgramRealtimeManager {
                     "false"
                 },
             );
-            qp.append_pair("diarize", if options.diarize { "true" } else { "false" });
 
             if options.endpointing_enabled {
                 qp.append_pair(
@@ -143,9 +164,11 @@ impl DeepgramRealtimeManager {
                         .clamp(MIN_ENDPOINTING_MS, MAX_ENDPOINTING_MS)
                         .to_string(),
                 );
+            } else {
+                qp.append_pair("endpointing", "false");
             }
 
-            if let Some(language) = Self::normalize_language(options.language.clone()) {
+            if let Some(language) = Self::normalize_language(options.language.clone(), model) {
                 qp.append_pair("language", &language);
             }
         }
@@ -315,22 +338,44 @@ impl DeepgramRealtimeManager {
             tokio::time::interval(Duration::from_secs(keepalive_interval_seconds as u64));
         keepalive_tick.set_missed_tick_behavior(MissedTickBehavior::Delay);
 
-        let mut finished = false;
+        let mut finalize_requested = false;
+        let mut finish_requested = false;
+        let mut finalize_sent = false;
+        let mut close_stream_sent = false;
+        let mut audio_input_closed = false;
 
         loop {
+            if audio_input_closed && !close_stream_sent {
+                if finalize_requested && !finalize_sent {
+                    write.send(finalize_payload.clone()).await.map_err(|e| {
+                        anyhow!("Failed to send Deepgram finalize control message: {}", e)
+                    })?;
+                    finalize_sent = true;
+                    last_audio_or_control = Instant::now();
+                }
+
+                if finish_requested {
+                    write.send(close_stream_payload.clone()).await.map_err(|e| {
+                        anyhow!("Failed to send Deepgram close stream message: {}", e)
+                    })?;
+                    write.flush().await.map_err(|e| {
+                        anyhow!("Failed to flush Deepgram WebSocket stream: {}", e)
+                    })?;
+                    close_stream_sent = true;
+                    last_audio_or_control = Instant::now();
+                }
+            }
+
             tokio::select! {
                 Some(control) = control_rx.recv() => {
                     match control {
                         ControlMessage::Finalize => {
-                            write.send(finalize_payload.clone()).await
-                                .map_err(|e| anyhow!("Failed to send Deepgram finalize control message: {}", e))?;
+                            finalize_requested = true;
                             last_audio_or_control = Instant::now();
                         }
                         ControlMessage::Finish => {
-                            write.send(close_stream_payload.clone()).await
-                                .map_err(|e| anyhow!("Failed to send Deepgram close stream message: {}", e))?;
-                            write.flush().await
-                                .map_err(|e| anyhow!("Failed to flush Deepgram WebSocket stream: {}", e))?;
+                            finish_requested = true;
+                            last_audio_or_control = Instant::now();
                         }
                         ControlMessage::Cancel => {
                             let _ = write.close().await;
@@ -338,23 +383,21 @@ impl DeepgramRealtimeManager {
                         }
                     }
                 }
-                Some(audio_chunk) = audio_rx.recv() => {
-                    if audio_chunk.is_empty() {
+                audio_chunk = audio_rx.recv() => {
+                    let Some(audio_chunk) = audio_chunk else {
+                        audio_input_closed = true;
                         continue;
+                    };
+                    if !audio_chunk.is_empty() {
+                        write.send(Message::Binary(audio_chunk.into())).await
+                            .map_err(|e| anyhow!("Failed to send audio chunk to Deepgram: {}", e))?;
+                        last_audio_or_control = Instant::now();
                     }
-                    write.send(Message::Binary(audio_chunk.into())).await
-                        .map_err(|e| anyhow!("Failed to send audio chunk to Deepgram: {}", e))?;
-                    last_audio_or_control = Instant::now();
                 }
                 frame = read.next() => {
                     let frame = match frame {
                         Some(frame) => frame.map_err(|e| anyhow!("Deepgram WebSocket read failed: {}", e))?,
-                        None => {
-                            if finished {
-                                break;
-                            }
-                            return Err(anyhow!("Deepgram WebSocket closed before completion"));
-                        }
+                        None => return Err(anyhow!("Deepgram WebSocket closed before completion")),
                     };
 
                     match frame {
@@ -370,8 +413,7 @@ impl DeepgramRealtimeManager {
                                 .unwrap_or_default();
 
                             if msg_type == "Metadata" {
-                                finished = true;
-                                continue;
+                                break;
                             }
 
                             if msg_type != "Results" {
@@ -391,6 +433,14 @@ impl DeepgramRealtimeManager {
                                 .get("is_final")
                                 .and_then(|v| v.as_bool())
                                 .unwrap_or(false);
+                            // Deepgram utterance-boundary hint.
+                            // We parse/accept it now, but current live behavior intentionally
+                            // remains driven by is_final chunks; future updates may use this
+                            // flag to trigger phrase-end actions.
+                            let _speech_final = payload
+                                .get("speech_final")
+                                .and_then(|v| v.as_bool())
+                                .unwrap_or(false);
                             let from_finalize = payload
                                 .get("from_finalize")
                                 .and_then(|v| v.as_bool())
@@ -402,6 +452,10 @@ impl DeepgramRealtimeManager {
                                 if !trimmed.is_empty() {
                                     chunk_text = trimmed.to_string();
                                 }
+                            }
+
+                            if !chunk_text.is_empty() && on_final_chunk.is_none() {
+                                chunk_text = crate::text_replacement_decapitalize::maybe_decapitalize_next_chunk_realtime(&chunk_text);
                             }
 
                             if !chunk_text.is_empty() {
@@ -416,7 +470,10 @@ impl DeepgramRealtimeManager {
                                 }
                             }
 
-                            let interim_text = if is_final { String::new() } else { transcript };
+                            let mut interim_text = if is_final { String::new() } else { transcript };
+                            if !interim_text.is_empty() && on_final_chunk.is_none() {
+                                interim_text = crate::text_replacement_decapitalize::preview_decapitalize_next_chunk_realtime(&interim_text);
+                            }
                             if !chunk_text.is_empty() || !interim_text.is_empty() || from_finalize {
                                 let mut preview_final_text = crate::overlay::get_soniox_live_preview_state().final_text;
                                 if !chunk_text.is_empty() {
@@ -439,16 +496,14 @@ impl DeepgramRealtimeManager {
                             }
                         }
                         Message::Ping(_) | Message::Pong(_) | Message::Binary(_) => {}
-                        Message::Close(_) => {
-                            if !finished {
-                                finished = true;
-                            }
-                            break;
-                        }
+                        Message::Close(_) => break,
                         _ => {}
                     }
                 }
                 _ = keepalive_tick.tick() => {
+                    if close_stream_sent {
+                        continue;
+                    }
                     if Instant::now().duration_since(last_audio_or_control)
                         >= Duration::from_secs(keepalive_interval_seconds as u64)
                     {
@@ -517,6 +572,7 @@ impl DeepgramRealtimeManager {
         };
         let ActiveSession {
             binding_id,
+            audio_tx,
             control_tx,
             final_text,
             mut join_handle,
@@ -532,6 +588,9 @@ impl DeepgramRealtimeManager {
 
         let _ = control_tx.send(ControlMessage::Finalize);
         let _ = control_tx.send(ControlMessage::Finish);
+        // Drop the session sender first so the receiver loop can observe channel closure
+        // and proceed with Finalize/CloseStream dispatch.
+        drop(audio_tx);
 
         let wait_ms = timeout_ms.clamp(100, 20000) as u64;
         let join_result = timeout(Duration::from_millis(wait_ms), &mut join_handle).await;

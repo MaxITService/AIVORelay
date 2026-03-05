@@ -22,7 +22,7 @@ body {
   box-sizing: border-box;
   width: 100%;
   height: 100%;
-  padding: 10px 12px;
+  padding: 6px 12px 10px;
   border-radius: 14px;
   border: 1px solid var(--slp-border-color);
   background: linear-gradient(180deg, var(--slp-bg-top), var(--slp-bg-bottom));
@@ -36,14 +36,14 @@ body {
   position: relative;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 6px;
 }
 
 .soniox-live-preview-close {
   position: absolute;
-  top: 10px;
-  right: 12px;
-  z-index: 2;
+  top: 6px;
+  right: 10px;
+  z-index: 6;
   border: 1px solid rgba(255, 255, 255, 0.2);
   background: rgba(0, 0, 0, 0.22);
   color: var(--slp-final-color);
@@ -60,6 +60,117 @@ body {
 
 .soniox-live-preview-close:hover {
   background: rgba(255, 77, 141, 0.2);
+}
+
+.soniox-live-preview-grip-row {
+  position: absolute;
+  top: 2px;
+  left: 0;
+  right: 0;
+  z-index: 5;
+  display: flex;
+  justify-content: center;
+  pointer-events: none;
+}
+
+.soniox-live-preview-grip {
+  display: grid;
+  grid-template-columns: repeat(3, 4px);
+  gap: 2px 4px;
+  align-content: center;
+  justify-content: center;
+  width: 28px;
+  height: 8px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: grab;
+  touch-action: none;
+  line-height: 0;
+  pointer-events: auto;
+}
+
+.soniox-live-preview-grip:active {
+  cursor: grabbing;
+}
+
+.soniox-live-preview-grip-dot {
+  width: 2px;
+  height: 2px;
+  border-radius: 999px;
+  background: rgba(245, 245, 245, 0.52);
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.04);
+}
+
+.soniox-live-preview-resize-handle {
+  position: absolute;
+  z-index: 4;
+  touch-action: none;
+  background: transparent;
+}
+
+.soniox-live-preview-resize-handle-n {
+  top: 0;
+  left: 12px;
+  right: 12px;
+  height: 6px;
+  cursor: ns-resize;
+}
+
+.soniox-live-preview-resize-handle-s {
+  bottom: 0;
+  left: 12px;
+  right: 12px;
+  height: 6px;
+  cursor: ns-resize;
+}
+
+.soniox-live-preview-resize-handle-w {
+  top: 12px;
+  bottom: 12px;
+  left: 0;
+  width: 6px;
+  cursor: ew-resize;
+}
+
+.soniox-live-preview-resize-handle-e {
+  top: 12px;
+  bottom: 12px;
+  right: 0;
+  width: 6px;
+  cursor: ew-resize;
+}
+
+.soniox-live-preview-resize-handle-nw {
+  top: 0;
+  left: 0;
+  width: 12px;
+  height: 12px;
+  cursor: nwse-resize;
+}
+
+.soniox-live-preview-resize-handle-ne {
+  top: 0;
+  right: 0;
+  width: 12px;
+  height: 12px;
+  cursor: nesw-resize;
+}
+
+.soniox-live-preview-resize-handle-sw {
+  bottom: 0;
+  left: 0;
+  width: 12px;
+  height: 12px;
+  cursor: nesw-resize;
+}
+
+.soniox-live-preview-resize-handle-se {
+  right: 0;
+  bottom: 0;
+  width: 12px;
+  height: 12px;
+  cursor: nwse-resize;
 }
 
 .soniox-live-preview-body {
@@ -127,10 +238,10 @@ body {
 }
 
 .soniox-live-preview-action-button-primary {
-  background: rgba(255, 77, 141, 0.24);
-  border-color: rgba(255, 77, 141, 0.58);
+  background: rgba(255, 77, 141, 0.2);
+  border-color: rgba(255, 77, 141, 0.6);
 }
 
 .soniox-live-preview-action-button-primary:hover:not(:disabled) {
-  background: rgba(255, 77, 141, 0.34);
+  background: rgba(255, 77, 141, 0.28);
 }

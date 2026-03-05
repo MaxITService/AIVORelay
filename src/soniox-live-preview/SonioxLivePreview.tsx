@@ -2,6 +2,7 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  type PointerEvent,
   useRef,
   useState,
   type CSSProperties,
@@ -9,6 +10,7 @@ import {
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { type as getOsType } from "@tauri-apps/plugin-os";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import type { OSType } from "../lib/utils/keyboard";
 import {
   buildPreviewHotkeyFromKeyboardEvent,
@@ -45,6 +47,12 @@ type SonioxLivePreviewAppearancePayload = {
   processHotkey?: string;
   insert_hotkey?: string;
   insertHotkey?: string;
+  delete_until_dot_or_comma_hotkey?: string;
+  deleteUntilDotOrCommaHotkey?: string;
+  delete_until_dot_hotkey?: string;
+  deleteUntilDotHotkey?: string;
+  delete_last_word_hotkey?: string;
+  deleteLastWordHotkey?: string;
   show_clear_button?: boolean;
   showClearButton?: boolean;
   show_flush_button?: boolean;
@@ -53,6 +61,16 @@ type SonioxLivePreviewAppearancePayload = {
   showProcessButton?: boolean;
   show_insert_button?: boolean;
   showInsertButton?: boolean;
+  show_delete_until_dot_or_comma_button?: boolean;
+  showDeleteUntilDotOrCommaButton?: boolean;
+  show_delete_until_dot_button?: boolean;
+  showDeleteUntilDotButton?: boolean;
+  show_delete_last_word_button?: boolean;
+  showDeleteLastWordButton?: boolean;
+  ctrl_backspace_delete_last_word?: boolean;
+  ctrlBackspaceDeleteLastWord?: boolean;
+  show_drag_grip?: boolean;
+  showDragGrip?: boolean;
 };
 
 type SonioxLivePreviewAppearance = {
@@ -67,10 +85,18 @@ type SonioxLivePreviewAppearance = {
   flushHotkey: string;
   processHotkey: string;
   insertHotkey: string;
+  deleteUntilDotOrCommaHotkey: string;
+  deleteUntilDotHotkey: string;
+  deleteLastWordHotkey: string;
   showClearButton: boolean;
   showFlushButton: boolean;
   showProcessButton: boolean;
   showInsertButton: boolean;
+  showDeleteUntilDotOrCommaButton: boolean;
+  showDeleteUntilDotButton: boolean;
+  showDeleteLastWordButton: boolean;
+  ctrlBackspaceDeleteLastWord: boolean;
+  showDragGrip: boolean;
 };
 
 type PreviewOutputModeStatePayload = {
@@ -114,10 +140,18 @@ const DEFAULT_APPEARANCE: SonioxLivePreviewAppearance = {
   flushHotkey: "",
   processHotkey: "",
   insertHotkey: "",
+  deleteUntilDotOrCommaHotkey: "",
+  deleteUntilDotHotkey: "",
+  deleteLastWordHotkey: "",
   showClearButton: true,
   showFlushButton: true,
   showProcessButton: true,
   showInsertButton: true,
+  showDeleteUntilDotOrCommaButton: true,
+  showDeleteUntilDotButton: true,
+  showDeleteLastWordButton: true,
+  ctrlBackspaceDeleteLastWord: true,
+  showDragGrip: true,
 };
 
 const DEFAULT_WORKFLOW_STATE: PreviewOutputModeState = {
@@ -147,6 +181,23 @@ const THEME_PRESETS: Record<string, ThemePreset> = {
     empty: [106, 114, 128],
   },
 };
+
+const windowRef = getCurrentWindow();
+type PreviewResizeDirection = Parameters<typeof windowRef.startResizeDragging>[0];
+
+const RESIZE_HANDLES: ReadonlyArray<{
+  direction: PreviewResizeDirection;
+  className: string;
+}> = [
+  { direction: "North", className: "soniox-live-preview-resize-handle soniox-live-preview-resize-handle-n" },
+  { direction: "South", className: "soniox-live-preview-resize-handle soniox-live-preview-resize-handle-s" },
+  { direction: "West", className: "soniox-live-preview-resize-handle soniox-live-preview-resize-handle-w" },
+  { direction: "East", className: "soniox-live-preview-resize-handle soniox-live-preview-resize-handle-e" },
+  { direction: "NorthWest", className: "soniox-live-preview-resize-handle soniox-live-preview-resize-handle-nw" },
+  { direction: "NorthEast", className: "soniox-live-preview-resize-handle soniox-live-preview-resize-handle-ne" },
+  { direction: "SouthWest", className: "soniox-live-preview-resize-handle soniox-live-preview-resize-handle-sw" },
+  { direction: "SouthEast", className: "soniox-live-preview-resize-handle soniox-live-preview-resize-handle-se" },
+];
 
 function parseHexColor(value: unknown, fallback: string): string {
   if (typeof value !== "string") {
@@ -232,6 +283,26 @@ export default function SonioxLivePreview() {
     useState<PreviewOutputModeState>(DEFAULT_WORKFLOW_STATE);
   const [isActionBusy, setIsActionBusy] = useState(false);
   const scrollRef = useRef<HTMLDivElement | null>(null);
+  const dragGripStateRef = useRef<{
+    armed: boolean;
+    sawMove: boolean;
+    saveTimer: number | null;
+  }>({
+    armed: false,
+    sawMove: false,
+    saveTimer: null,
+  });
+  const resizeStateRef = useRef<{
+    armed: boolean;
+    sawResize: boolean;
+    armTimer: number | null;
+    saveTimer: number | null;
+  }>({
+    armed: false,
+    sawResize: false,
+    armTimer: null,
+    saveTimer: null,
+  });
 
   useEffect(() => {
     const unlistenFns: Array<() => void> = [];
@@ -363,6 +434,27 @@ export default function SonioxLivePreview() {
             ? data.insertHotkey
             : "",
       );
+      const deleteUntilDotOrCommaHotkey = normalizePreviewHotkeyString(
+        typeof data.delete_until_dot_or_comma_hotkey === "string"
+          ? data.delete_until_dot_or_comma_hotkey
+          : typeof data.deleteUntilDotOrCommaHotkey === "string"
+            ? data.deleteUntilDotOrCommaHotkey
+            : "",
+      );
+      const deleteUntilDotHotkey = normalizePreviewHotkeyString(
+        typeof data.delete_until_dot_hotkey === "string"
+          ? data.delete_until_dot_hotkey
+          : typeof data.deleteUntilDotHotkey === "string"
+            ? data.deleteUntilDotHotkey
+            : "",
+      );
+      const deleteLastWordHotkey = normalizePreviewHotkeyString(
+        typeof data.delete_last_word_hotkey === "string"
+          ? data.delete_last_word_hotkey
+          : typeof data.deleteLastWordHotkey === "string"
+            ? data.deleteLastWordHotkey
+            : "",
+      );
       const showClearButton =
         typeof data.show_clear_button === "boolean"
           ? data.show_clear_button
@@ -387,6 +479,36 @@ export default function SonioxLivePreview() {
           : typeof data.showInsertButton === "boolean"
             ? data.showInsertButton
             : DEFAULT_APPEARANCE.showInsertButton;
+      const showDeleteUntilDotOrCommaButton =
+        typeof data.show_delete_until_dot_or_comma_button === "boolean"
+          ? data.show_delete_until_dot_or_comma_button
+          : typeof data.showDeleteUntilDotOrCommaButton === "boolean"
+            ? data.showDeleteUntilDotOrCommaButton
+            : DEFAULT_APPEARANCE.showDeleteUntilDotOrCommaButton;
+      const showDeleteUntilDotButton =
+        typeof data.show_delete_until_dot_button === "boolean"
+          ? data.show_delete_until_dot_button
+          : typeof data.showDeleteUntilDotButton === "boolean"
+            ? data.showDeleteUntilDotButton
+            : DEFAULT_APPEARANCE.showDeleteUntilDotButton;
+      const showDeleteLastWordButton =
+        typeof data.show_delete_last_word_button === "boolean"
+          ? data.show_delete_last_word_button
+          : typeof data.showDeleteLastWordButton === "boolean"
+            ? data.showDeleteLastWordButton
+            : DEFAULT_APPEARANCE.showDeleteLastWordButton;
+      const ctrlBackspaceDeleteLastWord =
+        typeof data.ctrl_backspace_delete_last_word === "boolean"
+          ? data.ctrl_backspace_delete_last_word
+          : typeof data.ctrlBackspaceDeleteLastWord === "boolean"
+            ? data.ctrlBackspaceDeleteLastWord
+            : DEFAULT_APPEARANCE.ctrlBackspaceDeleteLastWord;
+      const showDragGrip =
+        typeof data.show_drag_grip === "boolean"
+          ? data.show_drag_grip
+          : typeof data.showDragGrip === "boolean"
+            ? data.showDragGrip
+            : DEFAULT_APPEARANCE.showDragGrip;
 
       setAppearance({
         theme,
@@ -400,10 +522,18 @@ export default function SonioxLivePreview() {
         flushHotkey,
         processHotkey,
         insertHotkey,
+        deleteUntilDotOrCommaHotkey,
+        deleteUntilDotHotkey,
+        deleteLastWordHotkey,
         showClearButton,
         showFlushButton,
         showProcessButton,
         showInsertButton,
+        showDeleteUntilDotOrCommaButton,
+        showDeleteUntilDotButton,
+        showDeleteLastWordButton,
+        ctrlBackspaceDeleteLastWord,
+        showDragGrip,
       });
     };
 
@@ -564,6 +694,7 @@ export default function SonioxLivePreview() {
   const actionLocked = workflowState.processingLlm || isActionBusy;
   const canRunTextActions = hasText || workflowState.recording;
   const canClear = !actionLocked && hasText;
+  const canDelete = !actionLocked && canRunTextActions;
   const canFlush = !actionLocked && workflowState.flushVisible && canRunTextActions;
   const canProcess = !actionLocked && canRunTextActions;
   const canInsert = !actionLocked && (hasText || workflowState.recording);
@@ -586,6 +717,22 @@ export default function SonioxLivePreview() {
   const insertHotkeyLabel = useMemo(
     () => formatPreviewHotkeyForDisplay(appearance.insertHotkey, osType),
     [appearance.insertHotkey, osType],
+  );
+  const deleteUntilDotOrCommaHotkeyLabel = useMemo(
+    () =>
+      formatPreviewHotkeyForDisplay(
+        appearance.deleteUntilDotOrCommaHotkey,
+        osType,
+      ),
+    [appearance.deleteUntilDotOrCommaHotkey, osType],
+  );
+  const deleteUntilDotHotkeyLabel = useMemo(
+    () => formatPreviewHotkeyForDisplay(appearance.deleteUntilDotHotkey, osType),
+    [appearance.deleteUntilDotHotkey, osType],
+  );
+  const deleteLastWordHotkeyLabel = useMemo(
+    () => formatPreviewHotkeyForDisplay(appearance.deleteLastWordHotkey, osType),
+    [appearance.deleteLastWordHotkey, osType],
   );
   const emptyStateMessage = useMemo(() => {
     if (
@@ -640,6 +787,122 @@ export default function SonioxLivePreview() {
     element.scrollTop = element.scrollHeight;
   }, [fullText]);
 
+  useEffect(() => {
+    let unlistenMoved: (() => void) | null = null;
+    let unlistenResized: (() => void) | null = null;
+
+    const setup = async () => {
+      try {
+        unlistenMoved = await windowRef.onMoved(({ payload }) => {
+          const dragState = dragGripStateRef.current;
+          if (!dragState.armed) {
+            return;
+          }
+
+          dragState.sawMove = true;
+          if (dragState.saveTimer !== null) {
+            window.clearTimeout(dragState.saveTimer);
+          }
+
+          dragState.saveTimer = window.setTimeout(async () => {
+            try {
+              const scaleFactor = await windowRef.scaleFactor();
+              const logicalX = Math.round(payload.x / scaleFactor);
+              const logicalY = Math.round(payload.y / scaleFactor);
+              await invoke("remember_soniox_live_preview_window_position", {
+                xPx: logicalX,
+                yPx: logicalY,
+              });
+            } catch (error) {
+              console.error("Failed to persist live preview window position:", error);
+            } finally {
+              dragState.armed = false;
+              dragState.sawMove = false;
+              dragState.saveTimer = null;
+            }
+          }, 180);
+        });
+      } catch (error) {
+        console.error("Failed to subscribe to live preview move events:", error);
+      }
+
+      try {
+        unlistenResized = await windowRef.onResized(({ payload }) => {
+          const resizeState = resizeStateRef.current;
+          if (!resizeState.armed) {
+            return;
+          }
+
+          resizeState.sawResize = true;
+          if (resizeState.armTimer !== null) {
+            window.clearTimeout(resizeState.armTimer);
+            resizeState.armTimer = null;
+          }
+          if (resizeState.saveTimer !== null) {
+            window.clearTimeout(resizeState.saveTimer);
+          }
+
+          resizeState.saveTimer = window.setTimeout(async () => {
+            try {
+              const scaleFactor = await windowRef.scaleFactor();
+              const logicalSize = payload.toLogical(scaleFactor);
+              const physicalPosition = await windowRef.innerPosition();
+              const logicalPosition = physicalPosition.toLogical(scaleFactor);
+
+              await Promise.all([
+                invoke("remember_soniox_live_preview_window_position", {
+                  xPx: Math.round(logicalPosition.x),
+                  yPx: Math.round(logicalPosition.y),
+                }),
+                invoke("remember_soniox_live_preview_window_size", {
+                  widthPx: Math.round(logicalSize.width),
+                  heightPx: Math.round(logicalSize.height),
+                }),
+              ]);
+            } catch (error) {
+              console.error("Failed to persist live preview window geometry:", error);
+            } finally {
+              resizeState.armed = false;
+              resizeState.sawResize = false;
+              resizeState.saveTimer = null;
+            }
+          }, 180);
+        });
+      } catch (error) {
+        console.error("Failed to subscribe to live preview resize events:", error);
+      }
+    };
+
+    void setup();
+
+    return () => {
+      const dragState = dragGripStateRef.current;
+      if (dragState.saveTimer !== null) {
+        window.clearTimeout(dragState.saveTimer);
+        dragState.saveTimer = null;
+      }
+      dragState.armed = false;
+      dragState.sawMove = false;
+      const resizeState = resizeStateRef.current;
+      if (resizeState.armTimer !== null) {
+        window.clearTimeout(resizeState.armTimer);
+        resizeState.armTimer = null;
+      }
+      if (resizeState.saveTimer !== null) {
+        window.clearTimeout(resizeState.saveTimer);
+        resizeState.saveTimer = null;
+      }
+      resizeState.armed = false;
+      resizeState.sawResize = false;
+      if (unlistenMoved) {
+        unlistenMoved();
+      }
+      if (unlistenResized) {
+        unlistenResized();
+      }
+    };
+  }, []);
+
   const labelWithHotkey = (label: string, hotkeyLabel: string): string =>
     hotkeyLabel ? `${label} (${hotkeyLabel})` : label;
 
@@ -674,8 +937,113 @@ export default function SonioxLivePreview() {
     void invokePreviewAction("preview_flush_action");
   };
 
+  const handleDeleteUntilDotOrComma = () => {
+    void invokePreviewAction("preview_delete_until_dot_or_comma_action");
+  };
+
+  const handleDeleteUntilDot = () => {
+    void invokePreviewAction("preview_delete_until_dot_action");
+  };
+
+  const handleDeleteLastWord = () => {
+    void invokePreviewAction("preview_delete_last_word_action");
+  };
+
+  const handleDragGripPointerDown = (event: PointerEvent<HTMLButtonElement>) => {
+    if (event.button !== 0) {
+      return;
+    }
+
+    event.preventDefault();
+    event.stopPropagation();
+
+    const dragState = dragGripStateRef.current;
+    dragState.armed = true;
+    dragState.sawMove = false;
+    if (dragState.saveTimer !== null) {
+      window.clearTimeout(dragState.saveTimer);
+      dragState.saveTimer = null;
+    }
+
+    void windowRef.startDragging().catch((error) => {
+      dragState.armed = false;
+      dragState.sawMove = false;
+      console.error("Failed to start live preview dragging:", error);
+    });
+  };
+
+  const handleDragGripPointerEnd = () => {
+    const dragState = dragGripStateRef.current;
+    if (!dragState.sawMove) {
+      dragState.armed = false;
+    }
+  };
+
+  const handleResizeHandlePointerDown =
+    (direction: PreviewResizeDirection) => (event: PointerEvent<HTMLDivElement>) => {
+      if (event.button !== 0) {
+        return;
+      }
+
+      event.preventDefault();
+      event.stopPropagation();
+
+      const resizeState = resizeStateRef.current;
+      resizeState.armed = true;
+      resizeState.sawResize = false;
+      if (resizeState.armTimer !== null) {
+        window.clearTimeout(resizeState.armTimer);
+      }
+      if (resizeState.saveTimer !== null) {
+        window.clearTimeout(resizeState.saveTimer);
+        resizeState.saveTimer = null;
+      }
+
+      resizeState.armTimer = window.setTimeout(() => {
+        if (!resizeState.sawResize) {
+          resizeState.armed = false;
+        }
+        resizeState.armTimer = null;
+      }, 1200);
+
+      void windowRef.startResizeDragging(direction).catch((error) => {
+        if (resizeState.armTimer !== null) {
+          window.clearTimeout(resizeState.armTimer);
+          resizeState.armTimer = null;
+        }
+        resizeState.armed = false;
+        resizeState.sawResize = false;
+        console.error("Failed to start live preview resizing:", error);
+      });
+    };
+
+  const handleResizeHandlePointerEnd = () => {
+    const resizeState = resizeStateRef.current;
+    if (resizeState.armTimer !== null) {
+      window.clearTimeout(resizeState.armTimer);
+      resizeState.armTimer = null;
+    }
+    if (!resizeState.sawResize) {
+      resizeState.armed = false;
+    }
+  };
+
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
+      if (
+        appearance.ctrlBackspaceDeleteLastWord &&
+        canDelete &&
+        event.key === "Backspace" &&
+        event.ctrlKey &&
+        !event.altKey &&
+        !event.metaKey
+      ) {
+        event.preventDefault();
+        event.stopPropagation();
+        void invokePreviewAction("preview_delete_last_word_action");
+        return;
+      }
+
       const currentHotkey = buildPreviewHotkeyFromKeyboardEvent(event, osType);
       if (!currentHotkey) {
         return;
@@ -735,6 +1103,24 @@ export default function SonioxLivePreview() {
       ) {
         return;
       }
+      if (
+        triggerIfMatches(
+          appearance.deleteUntilDotOrCommaHotkey,
+          canDelete,
+          "preview_delete_until_dot_or_comma_action",
+        )
+      ) {
+        return;
+      }
+      if (
+        triggerIfMatches(
+          appearance.deleteUntilDotHotkey,
+          canDelete,
+          "preview_delete_until_dot_action",
+        )
+      ) {
+        return;
+      }
       triggerIfMatches(appearance.clearHotkey, canClear, "preview_clear_action");
     };
 
@@ -745,10 +1131,14 @@ export default function SonioxLivePreview() {
   }, [
     appearance.clearHotkey,
     appearance.closeHotkey,
+    appearance.ctrlBackspaceDeleteLastWord,
+    appearance.deleteUntilDotHotkey,
+    appearance.deleteUntilDotOrCommaHotkey,
     appearance.flushHotkey,
     appearance.insertHotkey,
     appearance.processHotkey,
     canClear,
+    canDelete,
     canFlush,
     canInsert,
     canProcess,
@@ -758,6 +1148,16 @@ export default function SonioxLivePreview() {
 
   return (
     <div className="soniox-live-preview-root" style={rootStyle}>
+      {RESIZE_HANDLES.map(({ direction, className }) => (
+        <div
+          key={direction}
+          aria-hidden="true"
+          className={className}
+          onPointerDown={handleResizeHandlePointerDown(direction)}
+          onPointerUp={handleResizeHandlePointerEnd}
+          onPointerCancel={handleResizeHandlePointerEnd}
+        />
+      ))}
       <button
         type="button"
         className="soniox-live-preview-close"
@@ -766,6 +1166,23 @@ export default function SonioxLivePreview() {
       >
         {labelWithHotkey("X", closeHotkeyLabel)}
       </button>
+      {appearance.showDragGrip && (
+        <div className="soniox-live-preview-grip-row">
+          <button
+            type="button"
+            className="soniox-live-preview-grip"
+            aria-label="Drag to move window"
+            title="Drag to move window"
+            onPointerDown={handleDragGripPointerDown}
+            onPointerUp={handleDragGripPointerEnd}
+            onPointerCancel={handleDragGripPointerEnd}
+          >
+            {Array.from({ length: 6 }).map((_, index) => (
+              <span key={index} className="soniox-live-preview-grip-dot" />
+            ))}
+          </button>
+        </div>
+      )}
       <div className="soniox-live-preview-body" ref={scrollRef}>
         {fullText.length === 0 ? (
           <span className="soniox-live-preview-empty">{emptyStateMessage}</span>
@@ -789,6 +1206,36 @@ export default function SonioxLivePreview() {
               disabled={!canClear}
             >
               {labelWithHotkey("Clear all", clearHotkeyLabel)}
+            </button>
+          )}
+          {appearance.showDeleteUntilDotOrCommaButton && (
+            <button
+              type="button"
+              className="soniox-live-preview-action-button"
+              onClick={handleDeleteUntilDotOrComma}
+              disabled={!canDelete}
+            >
+              {labelWithHotkey("Delete to . / ,", deleteUntilDotOrCommaHotkeyLabel)}
+            </button>
+          )}
+          {appearance.showDeleteUntilDotButton && (
+            <button
+              type="button"
+              className="soniox-live-preview-action-button"
+              onClick={handleDeleteUntilDot}
+              disabled={!canDelete}
+            >
+              {labelWithHotkey("Delete to .", deleteUntilDotHotkeyLabel)}
+            </button>
+          )}
+          {appearance.showDeleteLastWordButton && (
+            <button
+              type="button"
+              className="soniox-live-preview-action-button"
+              onClick={handleDeleteLastWord}
+              disabled={!canDelete}
+            >
+              {labelWithHotkey("Delete last word", deleteLastWordHotkeyLabel)}
             </button>
           )}
           {appearance.showFlushButton && workflowState.flushVisible && (

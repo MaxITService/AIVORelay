@@ -16,7 +16,6 @@ const AUDIO_CHUNK_SIZE_BYTES: usize = 32 * 1024;
 
 #[derive(Debug, Clone, Default)]
 pub struct DeepgramTranscriptionOptions {
-    pub language: Option<String>,
     pub interim_results: Option<bool>,
     pub smart_format: Option<bool>,
     pub diarize: Option<bool>,
@@ -75,17 +74,25 @@ impl DeepgramSttManager {
         trimmed.to_string()
     }
 
-    fn normalize_language(language: Option<&str>) -> Option<String> {
+    fn default_language_for_model(model: &str) -> &'static str {
+        if model.trim().eq_ignore_ascii_case("nova-3-medical") {
+            "en"
+        } else {
+            "multi"
+        }
+    }
+
+    fn normalize_language(language: Option<&str>, model: &str) -> Option<String> {
         let mut lang = language.unwrap_or_default().trim().to_string();
         if lang.is_empty() || lang.eq_ignore_ascii_case("auto") {
-            return None;
+            return Some(Self::default_language_for_model(model).to_string());
         }
 
         if lang.eq_ignore_ascii_case("os_input") {
             if let Some(resolved) = crate::input_source::get_language_from_input_source() {
                 lang = resolved;
             } else {
-                return None;
+                return Some(Self::default_language_for_model(model).to_string());
             }
         }
 
@@ -146,11 +153,93 @@ impl DeepgramSttManager {
                 },
             );
 
-            if let Some(normalized_language) = Self::normalize_language(language) {
+            if let Some(normalized_language) = Self::normalize_language(language, model) {
                 qp.append_pair("language", &normalized_language);
             }
         }
         Ok(url.to_string())
+    }
+
+    fn extract_alternative<'a>(payload: &'a Value) -> Option<&'a Value> {
+        payload
+            .get("channel")
+            .and_then(|ch| ch.get("alternatives"))
+            .and_then(|alts| alts.as_array())
+            .and_then(|alts| alts.first())
+    }
+
+    fn extract_transcript(alternative: Option<&Value>) -> String {
+        alternative
+            .and_then(|alt| alt.get("transcript"))
+            .and_then(|v| v.as_str())
+            .unwrap_or_default()
+            .trim()
+            .to_string()
+    }
+
+    fn extract_speaker_id(word: &Value) -> Option<u32> {
+        let speaker = word.get("speaker")?;
+        if let Some(v) = speaker.as_u64() {
+            return if v <= u32::MAX as u64 {
+                Some(v as u32)
+            } else {
+                None
+            };
+        }
+        if let Some(v) = speaker.as_i64() {
+            return if v >= 0 && (v as u64) <= u32::MAX as u64 {
+                Some(v as u32)
+            } else {
+                None
+            };
+        }
+        if let Some(v) = speaker.as_f64() {
+            if v.is_finite() && v >= 0.0 && v <= u32::MAX as f64 {
+                return Some(v as u32);
+            }
+        }
+        None
+    }
+
+    fn format_diarized_chunk(alternative: Option<&Value>) -> Option<String> {
+        let words = alternative?.get("words")?.as_array()?;
+        let mut groups: Vec<(u32, Vec<String>)> = Vec::new();
+
+        for word in words {
+            let Some(speaker) = Self::extract_speaker_id(word) else {
+                continue;
+            };
+            let token = word
+                .get("punctuated_word")
+                .and_then(|v| v.as_str())
+                .or_else(|| word.get("word").and_then(|v| v.as_str()))
+                .unwrap_or_default()
+                .trim();
+            if token.is_empty() {
+                continue;
+            }
+
+            if let Some((last_speaker, tokens)) = groups.last_mut() {
+                if *last_speaker == speaker {
+                    tokens.push(token.to_string());
+                    continue;
+                }
+            }
+            groups.push((speaker, vec![token.to_string()]));
+        }
+
+        if groups.is_empty() {
+            return None;
+        }
+
+        let mut formatted = String::new();
+        for (speaker, tokens) in groups {
+            if !formatted.is_empty() {
+                formatted.push('\n');
+            }
+            formatted.push_str(&format!("[Speaker {}] {}", speaker, tokens.join(" ")));
+        }
+        Some(formatted)
     }
 
     pub async fn transcribe(
@@ -172,6 +261,7 @@ impl DeepgramSttManager {
         }
 
         let started = Instant::now();
+        let diarize_enabled = options.diarize.unwrap_or(false);
         let ws_url = Self::build_ws_url(&Self::normalize_model(model), language, &options)?;
 
         let mut request = ws_url
@@ -253,22 +343,21 @@ impl DeepgramSttManager {
                         continue;
                     }
 
-                    let transcript = payload
-                        .get("channel")
-                        .and_then(|ch| ch.get("alternatives"))
-                        .and_then(|alts| alts.as_array())
-                        .and_then(|alts| alts.first())
-                        .and_then(|alt| alt.get("transcript"))
-                        .and_then(|v| v.as_str())
-                        .unwrap_or_default()
-                        .trim()
-                        .to_string();
+                    let alternative = Self::extract_alternative(&payload);
+                    let transcript = Self::extract_transcript(alternative);
                     let is_final = payload
                         .get("is_final")
                         .and_then(|v| v.as_bool())
                         .unwrap_or(false);
-                    if is_final && !transcript.is_empty() {
-                        final_segments.push(transcript);
+                    if is_final {
+                        let final_chunk = if diarize_enabled {
+                            Self::format_diarized_chunk(alternative).unwrap_or(transcript)
+                        } else {
+                            transcript
+                        };
+                        if !final_chunk.is_empty() {
+                            final_segments.push(final_chunk);
+                        }
                     }
                 }
                 Message::Ping(_) | Message::Pong(_) | Message::Binary(_) => {}
@@ -286,7 +375,8 @@ impl DeepgramSttManager {
             ));
         }
 
-        Ok(final_segments.join(" "))
+        let separator = if diarize_enabled { "\n" } else { " " };
+        Ok(final_segments.join(separator))
     }
 }
 

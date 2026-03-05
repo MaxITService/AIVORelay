@@ -114,6 +114,22 @@ impl SonioxRealtimeManager {
         })
     }
 
+    pub fn clear_committed_transcript(&self) {
+        let final_text = {
+            let Ok(active_session) = self.active_session.lock() else {
+                return;
+            };
+            let Some(session) = active_session.as_ref() else {
+                return;
+            };
+            Arc::clone(&session.final_text)
+        };
+        let Ok(mut final_text_guard) = final_text.lock() else {
+            return;
+        };
+        final_text_guard.clear();
+    }
+
     pub fn is_realtime_model(model: &str) -> bool {
         let trimmed = model.trim();
         if trimmed.is_empty() {
@@ -412,6 +428,10 @@ impl SonioxRealtimeManager {
                                 }
                             }
 
+                            if !chunk_text.is_empty() && on_final_chunk.is_none() {
+                                chunk_text = crate::text_replacement_decapitalize::maybe_decapitalize_next_chunk_realtime(&chunk_text);
+                            }
+
                             if !chunk_text.is_empty() {
                                 if let Ok(mut guard) = final_text.lock() {
                                     guard.push_str(&chunk_text);
@@ -423,6 +443,10 @@ impl SonioxRealtimeManager {
 
                             if is_finished_payload {
                                 interim_text.clear();
+                            }
+
+                            if !interim_text.is_empty() && on_final_chunk.is_none() {
+                                interim_text = crate::text_replacement_decapitalize::preview_decapitalize_next_chunk_realtime(&interim_text);
                             }
 
                             if !chunk_text.is_empty() || !interim_text.is_empty() || is_finished_payload {

@@ -1,5 +1,6 @@
 import React, { useState, useMemo } from "react";
 import { useTranslation } from "react-i18next";
+import { invoke } from "@tauri-apps/api/core";
 import { X, Cloud, ExternalLink } from "lucide-react";
 import { toast } from "sonner";
 import { commands } from "@/bindings";
@@ -14,7 +15,7 @@ interface RemoteSttWizardProps {
   onComplete: () => void;
 }
 
-type EngineType = "openai" | "soniox";
+type EngineType = "openai" | "soniox" | "deepgram";
 
 const DEFAULT_BASE_URL = "https://api.groq.com/openai/v1";
 const DEFAULT_MODEL_ID = "whisper-large-v3-turbo";
@@ -53,17 +54,22 @@ export const RemoteSttWizard: React.FC<RemoteSttWizardProps> = ({
         value: "soniox",
         label: t("onboarding.remoteSttWizard.engineOptions.soniox"),
       },
+      {
+        value: "deepgram",
+        label: t("onboarding.remoteSttWizard.engineOptions.deepgram"),
+      },
     ],
     [t],
   );
 
   const isSoniox = engine === "soniox";
+  const isDeepgram = engine === "deepgram";
 
   if (!isOpen) return null;
 
   const handleSaveAndTest = async () => {
     if (!apiKey.trim()) return;
-    if (!isSoniox && !baseUrl.trim()) return;
+    if (!isSoniox && !isDeepgram && !baseUrl.trim()) return;
 
     setIsLoading(true);
     setConnectionStatus("testing");
@@ -76,10 +82,18 @@ export const RemoteSttWizard: React.FC<RemoteSttWizardProps> = ({
         if (keyResult.status === "error") {
           throw new Error(keyResult.error);
         }
-        // Soniox doesn't have a test connection command in the wizard,
-        // just mark as success if the key was saved
+        // Soniox doesn't have a test connection command in the wizard.
         setConnectionStatus("success");
-        setConnectionMessage(t("onboarding.remoteSttWizard.connectionSuccess"));
+        setConnectionMessage(
+          t("onboarding.remoteSttWizard.apiKeySaved", "API key saved."),
+        );
+      } else if (isDeepgram) {
+        await invoke("deepgram_set_api_key", { apiKey: apiKey.trim() });
+        // Deepgram wizard currently does a save-only check, not a network test.
+        setConnectionStatus("success");
+        setConnectionMessage(
+          t("onboarding.remoteSttWizard.apiKeySaved", "API key saved."),
+        );
       } else {
         // Save base URL
         await updateRemoteSttBaseUrl(baseUrl.trim());
@@ -127,6 +141,8 @@ export const RemoteSttWizard: React.FC<RemoteSttWizardProps> = ({
       try {
         if (isSoniox) {
           await commands.sonioxSetApiKey(apiKey.trim());
+        } else if (isDeepgram) {
+          await invoke("deepgram_set_api_key", { apiKey: apiKey.trim() });
         } else if (baseUrl.trim()) {
           // Save base URL
           await updateRemoteSttBaseUrl(baseUrl.trim());
@@ -145,7 +161,11 @@ export const RemoteSttWizard: React.FC<RemoteSttWizardProps> = ({
     // Set the transcription provider based on engine selection
     try {
       await setTranscriptionProvider(
-        isSoniox ? "remote_soniox" : "remote_openai_compatible",
+        isSoniox
+          ? "remote_soniox"
+          : isDeepgram
+            ? "remote_deepgram"
+            : "remote_openai_compatible",
       );
     } catch (error) {
       toast.error(String(error));
@@ -155,7 +175,8 @@ export const RemoteSttWizard: React.FC<RemoteSttWizardProps> = ({
   };
 
   const canTest =
-    apiKey.trim().length > 0 && (isSoniox || baseUrl.trim().length > 0);
+    apiKey.trim().length > 0 &&
+    (isSoniox || isDeepgram || baseUrl.trim().length > 0);
   const canFinish = apiKey.trim().length > 0;
 
   return (
@@ -238,6 +259,29 @@ export const RemoteSttWizard: React.FC<RemoteSttWizardProps> = ({
                 {t("onboarding.remoteSttWizard.sonioxRealtimeWarning")}
               </div>
             </>
+          ) : isDeepgram ? (
+            <>
+              <div className="p-4 bg-purple-500/10 border border-purple-500/30 rounded-xl text-sm space-y-2">
+                <p className="text-text/90">
+                  {t("onboarding.remoteSttWizard.deepgramInfo")}
+                </p>
+                <a
+                  href="https://console.deepgram.com"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1.5 text-purple-400 hover:text-purple-300 font-medium transition-colors"
+                >
+                  console.deepgram.com
+                  <ExternalLink className="w-3.5 h-3.5" />
+                </a>
+                <p className="text-text/60 text-xs">
+                  {t("onboarding.remoteSttWizard.deepgramRecommendation")}
+                </p>
+              </div>
+              <div className="p-3 bg-yellow-500/10 border border-yellow-500/30 rounded-lg text-sm text-yellow-400">
+                {t("onboarding.remoteSttWizard.deepgramRealtimeWarning")}
+              </div>
+            </>
           ) : (
             <>
               <div className="p-4 bg-purple-500/10 border border-purple-500/30 rounded-xl text-sm space-y-2">
@@ -271,7 +315,7 @@ export const RemoteSttWizard: React.FC<RemoteSttWizardProps> = ({
           </div>
 
           {/* OpenAI-specific fields */}
-          {!isSoniox && (
+          {!isSoniox && !isDeepgram && (
             <>
               {/* Base URL input */}
               <div className="space-y-2">
@@ -318,7 +362,7 @@ export const RemoteSttWizard: React.FC<RemoteSttWizardProps> = ({
               type="password"
               value={apiKey}
               onChange={(e) => setApiKey(e.target.value)}
-              placeholder="sk-..."
+              placeholder={isDeepgram ? "dg-..." : "sk-..."}
               disabled={isLoading}
             />
             <p className="text-xs text-mid-gray">
@@ -348,8 +392,15 @@ export const RemoteSttWizard: React.FC<RemoteSttWizardProps> = ({
             disabled={!canTest || isLoading}
           >
             {connectionStatus === "testing"
-              ? t("onboarding.remoteSttWizard.testing")
-              : t("onboarding.remoteSttWizard.testConnection")}
+              ? isSoniox || isDeepgram
+                ? t(
+                    "onboarding.remoteSttWizard.savingApiKey",
+                    "Saving API key...",
+                  )
+                : t("onboarding.remoteSttWizard.testing")
+              : isSoniox || isDeepgram
+                ? t("onboarding.remoteSttWizard.saveApiKey")
+                : t("onboarding.remoteSttWizard.testConnection")}
           </Button>
 
           <Button

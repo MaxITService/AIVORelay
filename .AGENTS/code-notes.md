@@ -47,10 +47,10 @@ Files that differentiate this fork from the original [cjpais/Handy](https://gith
 | `src/region-capture/RegionCaptureOverlay.css` | Styles for RegionCapture. |
 | `src/command-confirm/CommandConfirmOverlay.tsx` | Voice Command confirmation popup. |
 | `src/command-confirm/CommandConfirmOverlay.css` | Styles for command popup. |
-| `src/soniox-live-preview/SonioxLivePreview.tsx` | Live preview window UI. |
+| `src/soniox-live-preview/SonioxLivePreview.tsx` | Live preview window UI, drag grip, edge resize handles, persisted geometry, preview delete actions. |
 | `src/lib/utils/previewHotkeys.ts` | Preview hotkeys logic. |
 | `src/components/ui/HotkeyCapture.tsx` | Hotkey capture UI. |
-| `src/soniox-live-preview/SonioxLivePreview.css` | Styles for live preview. |
+| `src/soniox-live-preview/SonioxLivePreview.css` | Styles for live preview, drag grip, and resize handles. |
 | `src/components/settings/voice-commands/VoiceCommandSettings.tsx` | Voice Command settings UI. |
 | `src/components/settings/transcribe-file/TranscribeFileSettings.tsx` | Transcribe File UI. |
 | `src/components/settings/text-replacement/TextReplacementSettings.tsx` | Text Replacement rules UI. |
@@ -72,11 +72,11 @@ Files that differentiate this fork from the original [cjpais/Handy](https://gith
 
 | File | Current State |
 | --- | --- |
-| `src-tauri/src/actions.rs` | Shortcut actions, variable resolution. |
-| `src-tauri/src/overlay.rs` | Overlay states, preview window helpers. |
-| `src-tauri/src/settings.rs` | Fork-specific settings & features. |
+| `src-tauri/src/actions.rs` | Shortcut actions, variable resolution, preview delete actions. |
+| `src-tauri/src/overlay.rs` | Overlay states, preview window helpers, live preview geometry constraints, preview action appearance payload. |
+| `src-tauri/src/settings.rs` | Fork-specific settings & features, including live preview action toggles/hotkeys and preview action bindings. |
 | `src-tauri/src/lib.rs` | Registers managers, commands, tray. |
-| `src-tauri/src/shortcut.rs` | Dual-engine shortcut bindings. |
+| `src-tauri/src/shortcut.rs` | Dual-engine shortcut bindings, live preview geometry persistence commands, preview action settings commands, preview delete-last-word global hotkey sync. |
 | `src-tauri/src/clipboard.rs` | Clipboard behavior. |
 | `src-tauri/src/input.rs` | Selection capture utilities. |
 | `src-tauri/src/tray.rs` | Custom tray menu. |
@@ -117,7 +117,7 @@ Files that differentiate this fork from the original [cjpais/Handy](https://gith
 | `src/stores/settingsStore.ts` | Store for fork settings. |
 | `src/i18n/locales/en/translation.json` | EN strings. |
 | `src/i18n/locales/ru/translation.json` | RU strings. |
-| `src/bindings.ts` | Generated Tauri bindings. |
+| `src/bindings.ts` | Generated Tauri bindings, including live preview geometry helpers. |
 
 ### Other Fork-Differing Files
 

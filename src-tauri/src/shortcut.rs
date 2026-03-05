@@ -65,6 +65,47 @@ fn clamp_decapitalize_standard_post_monitor_ms(value: u32) -> u32 {
     )
 }
 
+fn is_transcribe_binding_id_for_decapitalize(binding_id: &str) -> bool {
+    binding_id == "transcribe" || binding_id.starts_with("transcribe_")
+}
+
+fn uses_live_streaming_for_settings(settings: &settings::AppSettings) -> bool {
+    match settings.transcription_provider {
+        TranscriptionProvider::RemoteSoniox => {
+            settings.soniox_live_enabled
+                && crate::managers::soniox_realtime::SonioxRealtimeManager::is_realtime_model(
+                    &settings.soniox_model,
+                )
+        }
+        TranscriptionProvider::RemoteDeepgram => {
+            settings.deepgram_live_enabled
+                && crate::managers::deepgram_realtime::DeepgramRealtimeManager::is_realtime_model(
+                    &settings.deepgram_model,
+                )
+        }
+        _ => false,
+    }
+}
+
+fn should_arm_standard_output_for_decapitalize(app: &AppHandle) -> bool {
+    let state = app.state::<crate::session_manager::ManagedSessionState>();
+    let Ok(state_guard) = state.lock() else {
+        return false;
+    };
+
+    match &*state_guard {
+        crate::session_manager::SessionState::Recording {
+            binding_id,
+            captured_settings,
+            ..
+        } => {
+            is_transcribe_binding_id_for_decapitalize(binding_id)
+                && !uses_live_streaming_for_settings(captured_settings)
+        }
+        _ => false,
+    }
+}
+
 fn clamp_soniox_live_preview_opacity_percent(value: u8) -> u8 {
     value.clamp(
         SONIOX_LIVE_PREVIEW_MIN_OPACITY_PERCENT,
@@ -394,6 +435,7 @@ fn handle_rdev_shortcut_event(app: &AppHandle, event: ShortcutEvent) {
         if pressed && settings.text_replacement_decapitalize_after_edit_key_enabled {
             crate::text_replacement_decapitalize::mark_edit_key_pressed(
                 clamp_decapitalize_timeout_ms(settings.text_replacement_decapitalize_timeout_ms),
+                should_arm_standard_output_for_decapitalize(app),
             );
         }
         return;
@@ -774,6 +816,15 @@ pub fn change_error_overlay_auto_hide_ms_setting(
 
 #[tauri::command]
 #[specta::specta]
+pub fn change_error_feedback_enabled_setting(app: AppHandle, enabled: bool) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.error_feedback_enabled = enabled;
+    settings::write_settings(&app, settings);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
 pub fn change_soniox_live_preview_enabled_setting(
     app: AppHandle,
     enabled: bool,
@@ -1068,6 +1119,89 @@ pub fn change_soniox_live_preview_insert_hotkey_setting(
 
 #[tauri::command]
 #[specta::specta]
+pub fn change_soniox_live_preview_delete_until_dot_or_comma_hotkey_setting(
+    app: AppHandle,
+    hotkey: String,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.soniox_live_preview_delete_until_dot_or_comma_hotkey =
+        normalize_soniox_live_preview_hotkey(&hotkey);
+    settings::write_settings(&app, settings);
+    refresh_soniox_live_preview_window(&app);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_soniox_live_preview_delete_until_dot_hotkey_setting(
+    app: AppHandle,
+    hotkey: String,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.soniox_live_preview_delete_until_dot_hotkey =
+        normalize_soniox_live_preview_hotkey(&hotkey);
+    settings::write_settings(&app, settings);
+    refresh_soniox_live_preview_window(&app);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_soniox_live_preview_delete_last_word_hotkey_setting(
+    app: AppHandle,
+    hotkey: String,
+) -> Result<(), String> {
+    let normalized_hotkey = normalize_soniox_live_preview_hotkey(&hotkey);
+    validate_shortcut_string(&normalized_hotkey)?;
+
+    let mut settings = settings::get_settings(&app);
+    let binding_id = settings::PREVIEW_DELETE_LAST_WORD_BINDING_ID.to_string();
+    let previous_binding = settings
+        .bindings
+        .get(&binding_id)
+        .cloned()
+        .unwrap_or_else(|| settings::build_preview_delete_last_word_binding(String::new()));
+
+    let mut updated_binding = previous_binding.clone();
+    updated_binding.current_binding = normalized_hotkey.clone();
+
+    if let Err(err) = unregister_shortcut(&app, previous_binding.clone()) {
+        warn!(
+            "change_soniox_live_preview_delete_last_word_hotkey_setting: failed to unregister old shortcut (proceeding anyway): {}",
+            err
+        );
+    }
+
+    if let Err(err) = register_shortcut(&app, updated_binding.clone()) {
+        error!(
+            "change_soniox_live_preview_delete_last_word_hotkey_setting: failed to register new shortcut: {}",
+            err
+        );
+
+        if !previous_binding.current_binding.is_empty() {
+            if let Err(rollback_err) = register_shortcut(&app, previous_binding.clone()) {
+                return Err(format!(
+                    "Failed to register preview delete-last-word shortcut: {}. Additionally, failed to restore previous shortcut: {}",
+                    err, rollback_err
+                ));
+            }
+        }
+
+        return Err(format!(
+            "Failed to register preview delete-last-word shortcut: {}",
+            err
+        ));
+    }
+
+    settings.soniox_live_preview_delete_last_word_hotkey = normalized_hotkey;
+    settings.bindings.insert(binding_id, updated_binding);
+    settings::write_settings(&app, settings);
+    refresh_soniox_live_preview_window(&app);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
 pub fn change_soniox_live_preview_show_clear_button_setting(
     app: AppHandle,
     enabled: bool,
@@ -1115,6 +1249,103 @@ pub fn change_soniox_live_preview_show_insert_button_setting(
     settings.soniox_live_preview_show_insert_button = enabled;
     settings::write_settings(&app, settings);
     refresh_soniox_live_preview_window(&app);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_soniox_live_preview_show_delete_until_dot_or_comma_button_setting(
+    app: AppHandle,
+    enabled: bool,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.soniox_live_preview_show_delete_until_dot_or_comma_button = enabled;
+    settings::write_settings(&app, settings);
+    refresh_soniox_live_preview_window(&app);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_soniox_live_preview_show_delete_until_dot_button_setting(
+    app: AppHandle,
+    enabled: bool,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.soniox_live_preview_show_delete_until_dot_button = enabled;
+    settings::write_settings(&app, settings);
+    refresh_soniox_live_preview_window(&app);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_soniox_live_preview_show_delete_last_word_button_setting(
+    app: AppHandle,
+    enabled: bool,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.soniox_live_preview_show_delete_last_word_button = enabled;
+    settings::write_settings(&app, settings);
+    refresh_soniox_live_preview_window(&app);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_soniox_live_preview_ctrl_backspace_delete_last_word_setting(
+    app: AppHandle,
+    enabled: bool,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.soniox_live_preview_ctrl_backspace_delete_last_word = enabled;
+    settings::write_settings(&app, settings);
+    refresh_soniox_live_preview_window(&app);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_soniox_live_preview_show_drag_grip_setting(
+    app: AppHandle,
+    enabled: bool,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.soniox_live_preview_show_drag_grip = enabled;
+    settings::write_settings(&app, settings);
+    refresh_soniox_live_preview_window(&app);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn remember_soniox_live_preview_window_position(
+    app: AppHandle,
+    x_px: i32,
+    y_px: i32,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.soniox_live_preview_position = SonioxLivePreviewPosition::CustomXY;
+    settings.soniox_live_preview_custom_x_px = clamp_soniox_live_preview_custom_coord_px(x_px);
+    settings.soniox_live_preview_custom_y_px = clamp_soniox_live_preview_custom_coord_px(y_px);
+    settings::write_settings(&app, settings);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn remember_soniox_live_preview_window_size(
+    app: AppHandle,
+    width_px: u16,
+    height_px: u16,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.soniox_live_preview_size = SonioxLivePreviewSize::Custom;
+    settings.soniox_live_preview_custom_width_px =
+        clamp_soniox_live_preview_custom_width_px(width_px);
+    settings.soniox_live_preview_custom_height_px =
+        clamp_soniox_live_preview_custom_height_px(height_px);
+    settings::write_settings(&app, settings);
     Ok(())
 }
 
@@ -1687,6 +1918,8 @@ pub fn reset_soniox_settings_to_defaults(app: AppHandle) -> Result<(), String> {
     settings.soniox_model = SONIOX_DEFAULT_MODEL.to_string();
     settings.soniox_timeout_seconds = 30;
     settings.soniox_live_enabled = true;
+    settings.preview_output_only_enabled = false;
+    settings.soniox_live_preview_enabled = false;
     settings.soniox_language_hints = vec!["en".to_string()];
     settings.soniox_context_general_json = String::new();
     settings.soniox_context_text = String::new();
@@ -1703,6 +1936,12 @@ pub fn reset_soniox_settings_to_defaults(app: AppHandle) -> Result<(), String> {
     settings.soniox_realtime_fuzzy_correction_enabled = false;
     settings.soniox_realtime_keep_safety_buffer_enabled = false;
     settings::write_settings(&app, settings);
+    if crate::managers::preview_output_mode::is_active() {
+        crate::managers::preview_output_mode::deactivate_session(&app);
+        crate::overlay::end_soniox_live_preview_session();
+        crate::overlay::reset_soniox_live_preview(&app);
+    }
+    refresh_soniox_live_preview_window(&app);
     Ok(())
 }
 
@@ -1747,8 +1986,8 @@ pub fn change_deepgram_keepalive_interval_seconds_setting(
     app: AppHandle,
     seconds: u32,
 ) -> Result<(), String> {
-    if !(3..=20).contains(&seconds) {
-        return Err("Deepgram keepalive interval must be between 3 and 20 seconds".to_string());
+    if !(3..=5).contains(&seconds) {
+        return Err("Deepgram keepalive interval must be between 3 and 5 seconds".to_string());
     }
 
     let mut settings = settings::get_settings(&app);
@@ -1844,6 +2083,8 @@ pub fn reset_deepgram_settings_to_defaults(app: AppHandle) -> Result<(), String>
     settings.deepgram_model = DEEPGRAM_DEFAULT_MODEL.to_string();
     settings.deepgram_timeout_seconds = 30;
     settings.deepgram_live_enabled = true;
+    settings.preview_output_only_enabled = false;
+    settings.soniox_live_preview_enabled = false;
     settings.deepgram_keepalive_interval_seconds = 5;
     settings.deepgram_live_finalize_timeout_ms = DEEPGRAM_DEFAULT_LIVE_FINALIZE_TIMEOUT_MS;
     settings.deepgram_live_instant_stop = false;
@@ -1853,6 +2094,12 @@ pub fn reset_deepgram_settings_to_defaults(app: AppHandle) -> Result<(), String>
     settings.deepgram_endpointing_enabled = true;
     settings.deepgram_endpointing_ms = DEEPGRAM_DEFAULT_ENDPOINTING_MS;
     settings::write_settings(&app, settings);
+    if crate::managers::preview_output_mode::is_active() {
+        crate::managers::preview_output_mode::deactivate_session(&app);
+        crate::overlay::end_soniox_live_preview_session();
+        crate::overlay::reset_soniox_live_preview(&app);
+    }
+    refresh_soniox_live_preview_window(&app);
     Ok(())
 }
 
@@ -4200,17 +4447,13 @@ pub fn get_text_replacement_decapitalize_overlay_state(
     app: AppHandle,
 ) -> DecapitalizeOverlayStateResponse {
     let settings = settings::get_settings(&app);
-    let live_enabled = match settings.transcription_provider {
-        TranscriptionProvider::RemoteSoniox => settings.soniox_live_enabled,
-        TranscriptionProvider::RemoteDeepgram => settings.deepgram_live_enabled,
-        _ => false,
-    };
-    let eligible = settings.text_replacement_decapitalize_after_edit_key_enabled && live_enabled;
-    let armed = eligible && crate::text_replacement_decapitalize::is_realtime_trigger_armed_now();
+    let indicator = crate::text_replacement_decapitalize::indicator_state(
+        settings.text_replacement_decapitalize_after_edit_key_enabled,
+    );
 
     DecapitalizeOverlayStateResponse {
-        decapitalize_eligible: eligible,
-        decapitalize_armed: armed,
+        decapitalize_eligible: indicator.eligible,
+        decapitalize_armed: indicator.armed,
     }
 }
 

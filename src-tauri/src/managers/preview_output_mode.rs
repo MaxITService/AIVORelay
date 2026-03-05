@@ -37,7 +37,7 @@ impl PreviewOutputModeRuntime {
             active: self.active,
             recording: self.recording,
             processing_llm: self.processing_llm,
-            flush_visible: self.active && !self.is_realtime,
+            flush_visible: self.active,
             is_realtime: self.is_realtime,
             binding_id: self.binding_id.clone(),
             profile_id: self.profile_id.clone(),

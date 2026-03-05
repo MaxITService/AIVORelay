@@ -1,8 +1,9 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Dropdown } from "../ui/Dropdown";
 import { SettingContainer } from "../ui/SettingContainer";
 import { Input } from "../ui/Input";
+import { ToggleSwitch } from "../ui/ToggleSwitch";
 import { useSettings } from "../../hooks/useSettings";
 import type { OverlayPosition } from "@/bindings";
 
@@ -11,15 +12,12 @@ interface ShowOverlayProps {
   grouped?: boolean;
 }
 
-const MIN_ERROR_OVERLAY_AUTO_HIDE_MS = 250;
-const MAX_ERROR_OVERLAY_AUTO_HIDE_MS = 60000;
-
 export const ShowOverlay: React.FC<ShowOverlayProps> = React.memo(
   ({ descriptionMode = "tooltip", grouped = false }) => {
     const { t } = useTranslation();
     const { getSetting, updateSetting, isUpdating, settings } = useSettings();
     const [errorOverlayAutoHideInput, setErrorOverlayAutoHideInput] =
-      useState("3000");
+      useState("2000");
 
     const overlayOptions = [
       { value: "none", label: t("settings.advanced.overlay.options.none") },
@@ -29,8 +27,10 @@ export const ShowOverlay: React.FC<ShowOverlayProps> = React.memo(
 
     const selectedPosition = (getSetting("overlay_position") ||
       "bottom") as OverlayPosition;
+    const errorFeedbackEnabled =
+      (getSetting("error_feedback_enabled" as any) ?? true) === true;
     const errorOverlayAutoHideMs = Number(
-      settings?.error_overlay_auto_hide_ms ?? 3000,
+      settings?.error_overlay_auto_hide_ms ?? 2000,
     );
     const isErrorOverlayAutoHideUpdating = isUpdating("error_overlay_auto_hide_ms");
 
@@ -39,12 +39,9 @@ export const ShowOverlay: React.FC<ShowOverlayProps> = React.memo(
     }, [errorOverlayAutoHideMs]);
 
     const parsedInputMs = Number.parseInt(errorOverlayAutoHideInput, 10);
-    const hasValidInput = Number.isFinite(parsedInputMs);
+    const hasValidInput = Number.isFinite(parsedInputMs) && parsedInputMs >= 0;
     const normalizedInputMs = hasValidInput
-      ? Math.min(
-          MAX_ERROR_OVERLAY_AUTO_HIDE_MS,
-          Math.max(MIN_ERROR_OVERLAY_AUTO_HIDE_MS, Math.round(parsedInputMs)),
-        )
+      ? Math.round(parsedInputMs)
       : errorOverlayAutoHideMs;
     const hasPendingErrorOverlayAutoHideChange =
       normalizedInputMs !== errorOverlayAutoHideMs;
@@ -58,15 +55,6 @@ export const ShowOverlay: React.FC<ShowOverlayProps> = React.memo(
         normalizedInputMs,
       );
     };
-
-    const formattedRangeHint = useMemo(
-      () =>
-        `${MIN_ERROR_OVERLAY_AUTO_HIDE_MS}-${MAX_ERROR_OVERLAY_AUTO_HIDE_MS} ${t(
-          "settings.advanced.overlay.errorDuration.unitMs",
-          "ms",
-        )}`,
-      [t],
-    );
 
     return (
       <>
@@ -86,6 +74,30 @@ export const ShowOverlay: React.FC<ShowOverlayProps> = React.memo(
           />
         </SettingContainer>
 
+        <ToggleSwitch
+          checked={errorFeedbackEnabled}
+          onChange={(enabled) =>
+            void updateSetting("error_feedback_enabled" as any, enabled as any)
+          }
+          isUpdating={isUpdating("error_feedback_enabled")}
+          label={t(
+            "settings.advanced.overlay.errorVisibility.label",
+            "Show Error Overlay",
+          )}
+          description={t(
+            "settings.advanced.overlay.errorVisibility.description",
+            "Show runtime errors in the recording overlay.",
+          )}
+          descriptionMode={descriptionMode}
+          grouped={grouped}
+        />
+        <p className="text-xs text-red-400 -mt-2 mb-2">
+          {t(
+            "settings.advanced.overlay.errorVisibility.danger",
+            "Dangerous: disabling overlay errors can hide broken setup and failed transcriptions.",
+          )}
+        </p>
+
         <SettingContainer
           title={t("settings.advanced.overlay.errorDuration.title")}
           description={t("settings.advanced.overlay.errorDuration.description")}
@@ -96,8 +108,6 @@ export const ShowOverlay: React.FC<ShowOverlayProps> = React.memo(
             <Input
               type="number"
               variant="compact"
-              min={MIN_ERROR_OVERLAY_AUTO_HIDE_MS}
-              max={MAX_ERROR_OVERLAY_AUTO_HIDE_MS}
               step={50}
               value={errorOverlayAutoHideInput}
               onChange={(event) => setErrorOverlayAutoHideInput(event.target.value)}
@@ -105,7 +115,9 @@ export const ShowOverlay: React.FC<ShowOverlayProps> = React.memo(
               disabled={isErrorOverlayAutoHideUpdating}
               aria-label={t("settings.advanced.overlay.errorDuration.title")}
             />
-            <span className="text-xs text-text/60 min-w-14">{formattedRangeHint}</span>
+            <span className="text-xs text-text/60 min-w-14">
+              {t("settings.advanced.overlay.errorDuration.unitMs", "ms")}
+            </span>
             <button
               type="button"
               onClick={applyErrorOverlayDuration}

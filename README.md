@@ -39,6 +39,16 @@ Real-time speech-to-text streaming — see your words appear as you speak!
 
 **Setup:** Settings → Advanced → Transcription Provider → Soniox
 
+### 🌐 Deepgram Support
+
+Use Deepgram for fast cloud transcription, including live speech-to-text.
+
+- **Regular or live use** — Works for standard recording and live transcription
+- **Flexible tuning** — Adjust settings for speed and accuracy
+- **Speaker diarization** — Can label different speakers in audio file transcription
+
+**Setup:** Settings → Advanced → Transcription Provider → Deepgram
+
 ### 🎚️ Transcription Profiles
 
 Quick-switch between language, prompt, and LLM post-processing presets with dedicated shortcuts: swithc currently active profile or assign each profile its own hotkey!
@@ -141,6 +151,7 @@ Drag and drop audio files to get a transcript.
 - Supports WAV, MP3, OGG, M4A, FLAC
 - Outputs Text, SRT (Subtitles), or VTT
 - Uses your local or cloud models
+- Deepgram can label different speakers in multi-speaker recordings
 
 **Usage:** Settings → Transcribe Audio File
 
@@ -191,7 +202,7 @@ AivoRelay passively monitors your "edit" key (default: **Backspace**). If you pr
 
 ### ☁️ Cloud STT Option
 
-Use Groq, Deepgram, or other OpenAI-compatible APIs — _or_ keep using local Whisper. Your choice!
+Use Groq, Deepgram, or other OpenAI-compatible APIs — or keep using local Whisper. Your choice!
 
 - No GPU? Use fast cloud APIs
 - Have a powerful GPU? Run locally for privacy

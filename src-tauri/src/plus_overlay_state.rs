@@ -10,9 +10,7 @@ use serde::Serialize;
 use std::sync::atomic::{AtomicU64, Ordering};
 use tauri::{AppHandle, Emitter, Manager};
 
-const DEFAULT_ERROR_OVERLAY_AUTO_HIDE_MS: u64 = 3000;
-const MIN_ERROR_OVERLAY_AUTO_HIDE_MS: u64 = 250;
-const MAX_ERROR_OVERLAY_AUTO_HIDE_MS: u64 = 60000;
+const DEFAULT_ERROR_OVERLAY_AUTO_HIDE_MS: u64 = 2000;
 
 static OVERLAY_GENERATION: AtomicU64 = AtomicU64::new(0);
 static ERROR_OVERLAY_AUTO_HIDE_MS: AtomicU64 =
@@ -29,9 +27,8 @@ pub fn get_error_overlay_auto_hide_ms() -> u64 {
 }
 
 pub fn set_error_overlay_auto_hide_ms(ms: u64) -> u64 {
-    let clamped = ms.clamp(MIN_ERROR_OVERLAY_AUTO_HIDE_MS, MAX_ERROR_OVERLAY_AUTO_HIDE_MS);
-    ERROR_OVERLAY_AUTO_HIDE_MS.store(clamped, Ordering::SeqCst);
-    clamped
+    ERROR_OVERLAY_AUTO_HIDE_MS.store(ms, Ordering::SeqCst);
+    ms
 }
 
 /// Error categories for overlay display
@@ -382,6 +379,7 @@ fn detect_canonical_code(
     }
     if err_lower.contains("invalid api key")
         || err_lower.contains("missing api key")
+        || err_lower.contains("api key is missing")
         || err_lower.contains("unauthorized")
         || err_lower.contains("authentication")
     {
@@ -648,7 +646,9 @@ fn show_error_overlay_internal(
     error_envelope: Option<OverlayErrorEnvelope>,
 ) {
     let settings = crate::settings::get_settings(app);
-    if settings.overlay_position == crate::settings::OverlayPosition::None {
+    if !settings.error_feedback_enabled
+        || settings.overlay_position == crate::settings::OverlayPosition::None
+    {
         // Still need to reset tray icon even if overlay is disabled
         change_tray_icon(app, TrayIconState::Idle);
         return;
@@ -817,6 +817,10 @@ mod tests {
     fn test_categorize_auth() {
         assert!(matches!(
             categorize_error("Remote STT failed: status=401 elapsed_ms=123 body_snippet=Unauthorized"),
+            OverlayErrorCategory::Auth
+        ));
+        assert!(matches!(
+            categorize_error("Deepgram API key is missing"),
             OverlayErrorCategory::Auth
         ));
     }
