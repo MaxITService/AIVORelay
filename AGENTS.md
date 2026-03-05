@@ -49,21 +49,21 @@ This is a **fork** of [cjpais/Handy](https://github.com/cjpais/Handy). This repo
 
 ## Active Branches
 
-Only interact with these branches (ignore upstream and others):
+Only interact with these branches:
 - `main`
 - `Microsoft-store`
-- `cuda-integration` (abandoned - do not touch)
 
-(When user says "all branches", they currently mean only `main` and `Microsoft-store`. `cuda-integration` is abandoned and excluded.)
-Upstream intake policy: [[.AGENTS/upstream-OrBranches-intake-playbook|upstream-OrBranches-intake-playbook.md]].
+(When user says "all branches", they currently mean `main` and `Microsoft-store`.)
+For work on non-`main` branches, use `main` as the only sync source.
+Main intake policy: [[.AGENTS/upstream-OrBranches-intake-playbook|upstream-OrBranches-intake-playbook.md]].
 
 ## Fork Documentation - Read file(s) that is related to current task ONLY.
 
 - [[.AGENTS/code-notes|code-notes.md]]: complete list of fork-specific files and changes
 - [[AGENTS]]: entry file
 - [[README]]: fork features overview
-- [[.AGENTS/upstream-OrBranches-intake-playbook|upstream-OrBranches-intake-playbook.md]]: upstream intake and merge playbook
-- [[.AGENTS/upstream-sync-log|upstream-sync-log.md]]: rolling log of last synced upstream commits (max 10).
+- [[.AGENTS/upstream-OrBranches-intake-playbook|upstream-OrBranches-intake-playbook.md]]: main intake and propagation playbook
+- [[.AGENTS/upstream-sync-log|upstream-sync-log.md]]: rolling log of last synced commits from `main` (max 10)
 - [[.AGENTS/branching-status|branching-status.md]]: branch sync/cherry-pick status
 
 
@@ -91,7 +91,7 @@ When adding new features, please prefer adding them in new files instead of edit
 
 ### Adding New Fork Features
 
-1. Add new files when possible (cleaner separation from upstream) ! So original code "is left alone" and can be merged easily, but we have something like copy, which is fully custom: less code to merge.
+1. Add new files when possible (cleaner separation from original files) ! So original code "is left alone" and can be merged easily, but we have something like copy, which is fully custom: less code to merge.
 2. Document in [[.AGENTS/code-notes|code-notes.md]]
 3. Add translations in `src/i18n/locales/en/translation.json`
 4. Consider platform guards if Windows-specific
@@ -100,7 +100,6 @@ When adding new features, please prefer adding them in new files instead of edit
 ## Version Bump Checklist
 
 When asked to bump version or prepare a release, read [[.AGENTS/Release|Release.md]].
-
 
 
 

@@ -1,6 +1,6 @@
-# Upstream Sync Log
+# Main Sync Log
 
-Small rolling log of integrated upstream commits.
+Small rolling log of integrated commits from `main`.
 
 Rules:
 - Keep newest entries first.
@@ -8,10 +8,10 @@ Rules:
 - On new entry #11, remove the oldest row.
 - Keep issue notes very short.
 
-| Merge Date | Upstream Date | Upstream SHA | Upstream Message | Local SHA | Local Message | Issues |
+| Merge Date | Main Date | Main SHA | Main Message | Local SHA | Local Message | Issues |
 | --- | --- | --- | --- | --- | --- | --- |
 | 2026-03-05 | 2026-03-01 | `17d34a9` | fix: upgrade tauri-plugin-updater to v2.10.0 to fix duplicate registry entries (#873) (#876) | `6164c50` | fix: upgrade tauri and updater to 2.10.x (from 17d34a9) | cherry-pick aborted (4-way conflicts); selective manifest intake; lockfiles untouched; diff saved |
-| 2026-03-05 | 2026-03-01 | `eade87a` | upgrade to handy keys 0.2.2 (#926) | `3452e0b` | chore(deps): bump handy-keys to 0.2.2 | selective intake: Cargo.toml only; no upstream Cargo.lock/i18n |
+| 2026-03-05 | 2026-03-01 | `eade87a` | upgrade to handy keys 0.2.2 (#926) | `3452e0b` | chore(deps): bump handy-keys to 0.2.2 | selective intake: Cargo.toml only; no source Cargo.lock/i18n |
 | 2026-03-05 | 2026-03-01 | `f403cb1` | update transcribe-rs | `0ca85fa` | update transcribe-rs | Cargo.lock conflict resolved with ours; diff saved |
 | 2026-03-04 | 2026-03-02 | `a6b5c32` | move to tauri dialog 2.6 | `ba650a3` | move to tauri dialog 2.6 | conflicts in Cargo.toml/Cargo.lock; lock=ours; diff saved |
 | 2026-03-04 | 2026-02-25 | `f1516d9` | fix: auto-refresh model list when switching post-processing providers (#854) | `1a4bd4c` | fix: auto-refresh model list when switching post-processing providers (#854) | clean cherry-pick |
@@ -23,4 +23,4 @@ Rules:
 
 Entry template:
 
-`| YYYY-MM-DD | YYYY-MM-DD | \'up_sha\' | upstream message | \'local_sha\' | local message | short issue note |`
+`| YYYY-MM-DD | YYYY-MM-DD | 'main_sha' | main message | 'local_sha' | local message | short issue note |`
