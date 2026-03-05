@@ -255,6 +255,10 @@
         "title": "Remote via Soniox",
         "description": "Uses the Soniox realtime streaming service. Supports live partial transcriptions and advanced language options."
       },
+      "remoteDeepgram": {
+        "title": "Remote via Deepgram",
+        "description": "Uses Deepgram Nova streaming and control messages for stable live transcription."
+      },
       "localModels": {
         "title": "Local Models",
         "description": "Run Whisper or Parakeet models entirely on your device — no internet required. Larger models are more accurate but use more resources."
@@ -287,8 +291,11 @@
     "remoteApiModeDescription": "OpenAI-compatible cloud API (Groq, OpenAI, etc.)",
     "remoteSonioxMode": "Remote via Soniox",
     "remoteSonioxModeDescription": "Soniox realtime streaming service",
+    "remoteDeepgramMode": "Remote via Deepgram",
+    "remoteDeepgramModeDescription": "Deepgram Nova streaming service",
     "remoteApiActive": "Remote API",
     "remoteSonioxActive": "Remote Soniox",
+    "remoteDeepgramActive": "Remote Deepgram",
     "deleteModel": "Delete {{modelName}}",
     "custom": "Custom",
     "customModelsHelpTitle": "Custom Whisper Models",
@@ -538,6 +545,7 @@
         "modelPlaceholder": "e.g., gpt-4-turbo",
         "usingGlobalModel": "Using global model: {{model}}",
         "sonioxWarning": "LLM post-processing is not supported when using Soniox realtime models.",
+        "deepgramWarning": "LLM post-processing is not supported in the standard Deepgram live cycle.",
         "defaultNote": "Custom profiles can override this setting individually.",
         "outputVariableDoc": {
           "title": "Template Variable: ${output}",
@@ -755,7 +763,8 @@
         "options": {
           "local": "Local (Offline, Privacy-focused, Needs powerful GPU, drivers and Vulkan softaware)",
           "remote": "Remote (Cloud API, High Accuracy)",
-          "soniox": "Remote (Soniox Cloud API)"
+          "soniox": "Remote (Soniox Cloud API)",
+          "deepgram": "Remote (Deepgram Cloud API)"
         },
         "windowsOnly": "Remote transcription is currently Windows-only."
       },
@@ -1022,6 +1031,7 @@
         }
       },
       "sonioxWarning": "You are using the Soniox real-time provider. LLM post-processing is skipped during real-time streaming. These settings will apply when you switch to a local model or OpenAI-compatible provider.",
+      "deepgramWarning": "You are using Deepgram live transcription. LLM post-processing is skipped during the standard live cycle.",
       "disabledNotice": "Post processing is currently disabled. Enable it in Debug settings to configure.",
       "api": {
         "title": "API Configuration",

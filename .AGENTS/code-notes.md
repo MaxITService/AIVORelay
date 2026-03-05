@@ -14,6 +14,8 @@ Files that differentiate this fork from the original [cjpais/Handy](https://gith
 | `src-tauri/src/commands/remote_stt.rs` | Commands for remote STT & keys. |
 | `src-tauri/src/managers/soniox_stt.rs` | Soniox async/non-live manager. |
 | `src-tauri/src/managers/soniox_realtime.rs` | Soniox live WebSocket manager. |
+| `src-tauri/src/managers/deepgram_stt.rs` | Deepgram non-live/live-finalize transcription manager. |
+| `src-tauri/src/managers/deepgram_realtime.rs` | Deepgram live WebSocket manager (KeepAlive/Finalize/CloseStream). |
 | `src-tauri/src/secure_keys.rs` | Secure API key storage (Windows). |
 | `src-tauri/src/plus_overlay_state.rs` | Extended overlay states. |
 | `src-tauri/src/region_capture.rs` | Native region capture overlay. |
@@ -107,10 +109,10 @@ Files that differentiate this fork from the original [cjpais/Handy](https://gith
 | `src/components/settings/user-interface/UserInterfaceSettings.tsx` | Soniox live preview UI. |
 | `src/components/Sidebar.tsx` | Navigation for fork settings. |
 | `src/hooks/useSettings.ts` | Fork settings hooks. |
-| `src/components/settings/remote-stt/RemoteSttSettings.tsx` | Soniox hints input. |
+| `src/components/settings/remote-stt/RemoteSttSettings.tsx` | Soniox + Deepgram provider settings. |
 | `src/components/settings/TranscriptionProfiles.tsx` | Provider-aware languages. |
 | `src/components/settings/TranscriptionSystemPrompt.tsx` | Prompt limits handling. |
-| `src/components/settings/TranslateToEnglish.tsx` | Soniox-aware UI state. |
+| `src/components/settings/TranslateToEnglish.tsx` | Soniox/Deepgram-aware UI state. |
 | `src/lib/constants/languages.ts` | Custom profile languages. |
 | `src/stores/settingsStore.ts` | Store for fork settings. |
 | `src/i18n/locales/en/translation.json` | EN strings. |
@@ -122,7 +124,7 @@ Files that differentiate this fork from the original [cjpais/Handy](https://gith
 | File | Current State |
 | --- | --- |
 | `src/App.tsx` | Fork specific event listeners. |
-| `src/components/model-selector/ModelSelector.tsx` | Soniox behavior support. |
+| `src/components/model-selector/ModelSelector.tsx` | Soniox/Deepgram behavior support. |
 | `src/components/onboarding/Onboarding.tsx` | Remote STT wizards. |
 | `src/overlay/RecordingOverlay.tsx` | Extended error/sending states. |
 | `src/overlay/RecordingOverlay.css` | Styles for error state. |

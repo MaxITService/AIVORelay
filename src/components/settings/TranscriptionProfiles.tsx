@@ -1167,11 +1167,11 @@ export const TranscriptionProfiles: React.FC = () => {
 
   // Compute the active model ID based on provider - used for prompt limits and prompt storage
   const activeModelId = useMemo(() => {
-    const provider = settings?.transcription_provider;
+    const provider = String(settings?.transcription_provider || "local");
     if (provider === "remote_openai_compatible") {
       return settings?.remote_stt?.model_id || "";
     }
-    if (provider === "remote_soniox") {
+    if (provider === "remote_soniox" || provider === "remote_deepgram") {
       return "";
     }
     return settings?.selected_model || "";
@@ -1183,8 +1183,8 @@ export const TranscriptionProfiles: React.FC = () => {
 
   // Get model info for prompt configuration (same logic as TranscriptionSystemPrompt)
   const modelInfo = useMemo(() => {
-    const provider = settings?.transcription_provider;
-    if (provider === "remote_soniox") {
+    const provider = String(settings?.transcription_provider || "local");
+    if (provider === "remote_soniox" || provider === "remote_deepgram") {
       return { supportsPrompt: false, charLimit: 0, modelId: "" };
     }
 
@@ -1205,9 +1205,12 @@ export const TranscriptionProfiles: React.FC = () => {
   const activePromptValue = hasActivePromptModel
     ? settings?.transcription_prompts?.[activeModelId] || ""
     : "";
+  const activeProvider = String(settings?.transcription_provider || "local");
   const supportsTranslation =
-    settings?.transcription_provider !== "remote_soniox";
-  const isSonioxProvider = settings?.transcription_provider === "remote_soniox";
+    activeProvider !== "remote_soniox" && activeProvider !== "remote_deepgram";
+  const isSonioxProvider = activeProvider === "remote_soniox";
+  const isLiveCloudNoPostProcessProvider =
+    activeProvider === "remote_soniox" || activeProvider === "remote_deepgram";
 
   const filteredLanguages = useMemo(() => {
     if (isSonioxProvider) {
@@ -2317,11 +2320,16 @@ export const TranscriptionProfiles: React.FC = () => {
                   )}
                 </p>
 
-                {isSonioxProvider && (
+                {isLiveCloudNoPostProcessProvider && (
                   <div className="p-2 bg-red-500/10 border border-red-500/30 rounded text-xs text-red-400">
-                    {t(
-                      "settings.transcriptionProfiles.llmPostProcessing.sonioxWarning",
-                    )}
+                    {activeProvider === "remote_deepgram"
+                      ? t(
+                          "settings.transcriptionProfiles.llmPostProcessing.deepgramWarning",
+                          "Deepgram live transcription skips LLM post-processing in the standard live cycle.",
+                        )
+                      : t(
+                          "settings.transcriptionProfiles.llmPostProcessing.sonioxWarning",
+                        )}
                   </div>
                 )}
 

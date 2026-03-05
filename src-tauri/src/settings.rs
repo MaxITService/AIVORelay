@@ -751,11 +751,16 @@ pub enum TranscriptionProvider {
     RemoteOpenAiCompatible,
     #[serde(rename = "remote_soniox")]
     RemoteSoniox,
+    #[serde(rename = "remote_deepgram")]
+    RemoteDeepgram,
 }
 
 pub const SONIOX_DEFAULT_MODEL: &str = "stt-rt-v4";
 pub const SONIOX_DEFAULT_MAX_ENDPOINT_DELAY_MS: u32 = 2000;
 pub const SONIOX_DEFAULT_LIVE_FINALIZE_TIMEOUT_MS: u32 = 500;
+pub const DEEPGRAM_DEFAULT_MODEL: &str = "nova-3";
+pub const DEEPGRAM_DEFAULT_ENDPOINTING_MS: u32 = 400;
+pub const DEEPGRAM_DEFAULT_LIVE_FINALIZE_TIMEOUT_MS: u32 = 1200;
 
 /// Shortcut engine selection for Windows.
 /// Controls which mechanism is used to listen for global hotkeys.
@@ -1051,6 +1056,28 @@ pub struct AppSettings {
     pub soniox_realtime_fuzzy_correction_enabled: bool,
     #[serde(default = "default_false")]
     pub soniox_realtime_keep_safety_buffer_enabled: bool,
+    #[serde(default = "default_deepgram_model")]
+    pub deepgram_model: String,
+    #[serde(default = "default_deepgram_timeout_seconds")]
+    pub deepgram_timeout_seconds: u32,
+    #[serde(default = "default_deepgram_live_enabled")]
+    pub deepgram_live_enabled: bool,
+    #[serde(default = "default_deepgram_keepalive_interval_seconds")]
+    pub deepgram_keepalive_interval_seconds: u32,
+    #[serde(default = "default_deepgram_live_finalize_timeout_ms")]
+    pub deepgram_live_finalize_timeout_ms: u32,
+    #[serde(default = "default_false")]
+    pub deepgram_live_instant_stop: bool,
+    #[serde(default = "default_true")]
+    pub deepgram_interim_results: bool,
+    #[serde(default = "default_true")]
+    pub deepgram_smart_format: bool,
+    #[serde(default = "default_false")]
+    pub deepgram_diarize: bool,
+    #[serde(default = "default_true")]
+    pub deepgram_endpointing_enabled: bool,
+    #[serde(default = "default_deepgram_endpointing_ms")]
+    pub deepgram_endpointing_ms: u32,
     #[serde(default = "default_always_on_microphone")]
     pub always_on_microphone: bool,
     #[serde(default)]
@@ -1510,6 +1537,30 @@ fn default_soniox_keepalive_interval_seconds() -> u32 {
 
 fn default_soniox_live_finalize_timeout_ms() -> u32 {
     SONIOX_DEFAULT_LIVE_FINALIZE_TIMEOUT_MS
+}
+
+fn default_deepgram_model() -> String {
+    DEEPGRAM_DEFAULT_MODEL.to_string()
+}
+
+fn default_deepgram_timeout_seconds() -> u32 {
+    30
+}
+
+fn default_deepgram_live_enabled() -> bool {
+    true
+}
+
+fn default_deepgram_keepalive_interval_seconds() -> u32 {
+    5
+}
+
+fn default_deepgram_live_finalize_timeout_ms() -> u32 {
+    DEEPGRAM_DEFAULT_LIVE_FINALIZE_TIMEOUT_MS
+}
+
+fn default_deepgram_endpointing_ms() -> u32 {
+    DEEPGRAM_DEFAULT_ENDPOINTING_MS
 }
 
 fn default_vad_threshold() -> f32 {
@@ -2186,6 +2237,17 @@ pub fn get_default_settings() -> AppSettings {
         soniox_live_instant_stop: default_false(),
         soniox_realtime_fuzzy_correction_enabled: default_false(),
         soniox_realtime_keep_safety_buffer_enabled: default_false(),
+        deepgram_model: default_deepgram_model(),
+        deepgram_timeout_seconds: default_deepgram_timeout_seconds(),
+        deepgram_live_enabled: default_deepgram_live_enabled(),
+        deepgram_keepalive_interval_seconds: default_deepgram_keepalive_interval_seconds(),
+        deepgram_live_finalize_timeout_ms: default_deepgram_live_finalize_timeout_ms(),
+        deepgram_live_instant_stop: default_false(),
+        deepgram_interim_results: default_true(),
+        deepgram_smart_format: default_true(),
+        deepgram_diarize: default_false(),
+        deepgram_endpointing_enabled: default_true(),
+        deepgram_endpointing_ms: default_deepgram_endpointing_ms(),
         always_on_microphone: false,
         selected_microphone: None,
         clamshell_microphone: None,

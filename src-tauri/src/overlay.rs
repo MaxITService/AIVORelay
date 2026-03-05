@@ -126,8 +126,11 @@ static SONIOX_LIVE_PREVIEW_RUNTIME_STATE: LazyLock<Mutex<SonioxLivePreviewRuntim
 
 fn decapitalize_indicator_eligible(settings: &settings::AppSettings) -> bool {
     settings.text_replacement_decapitalize_after_edit_key_enabled
-        && settings.transcription_provider == settings::TranscriptionProvider::RemoteSoniox
-        && settings.soniox_live_enabled
+        && match settings.transcription_provider {
+            settings::TranscriptionProvider::RemoteSoniox => settings.soniox_live_enabled,
+            settings::TranscriptionProvider::RemoteDeepgram => settings.deepgram_live_enabled,
+            _ => false,
+        }
 }
 
 fn build_overlay_state_payload(state: &str, settings: &settings::AppSettings) -> OverlayStatePayload {

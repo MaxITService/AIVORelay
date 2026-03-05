@@ -32,9 +32,13 @@ const ModelStatusButton: React.FC<ModelStatusButtonProps> = ({
 }) => {
   const getStatusColor = (status: ModelStatus, isRemote: boolean): string => {
     if (isRemote) {
-      return remoteProvider === "remote_soniox"
-        ? "bg-teal-400"
-        : "bg-blue-400";
+      if (remoteProvider === "remote_soniox") {
+        return "bg-teal-400";
+      }
+      if (remoteProvider === "remote_deepgram") {
+        return "bg-cyan-400";
+      }
+      return "bg-blue-400";
     }
     switch (status) {
       case "ready":

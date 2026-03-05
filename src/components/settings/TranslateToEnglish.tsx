@@ -18,12 +18,14 @@ export const TranslateToEnglish: React.FC<TranslateToEnglishProps> = React.memo(
     const { currentModel, loadCurrentModel, models } = useModels();
 
     const translateToEnglish = getSetting("translate_to_english") || false;
-    const transcriptionProvider =
-      getSetting("transcription_provider") || "local";
+    const transcriptionProvider = String(
+      getSetting("transcription_provider") || "local",
+    );
     const remoteModelId = getSetting("remote_stt")?.model_id || "";
     const isRemoteOpenAiProvider =
       transcriptionProvider === "remote_openai_compatible";
     const isSonioxProvider = transcriptionProvider === "remote_soniox";
+    const isDeepgramProvider = transcriptionProvider === "remote_deepgram";
 
     // Track whether the remote model supports translation
     const [remoteSupportsTranslation, setRemoteSupportsTranslation] =
@@ -47,7 +49,7 @@ export const TranslateToEnglish: React.FC<TranslateToEnglishProps> = React.memo(
 
     // Determine if translation is disabled
     const isDisabledTranslation = useMemo(() => {
-      if (isSonioxProvider) {
+      if (isSonioxProvider || isDeepgramProvider) {
         return true;
       }
       if (isRemoteOpenAiProvider) {
@@ -62,13 +64,14 @@ export const TranslateToEnglish: React.FC<TranslateToEnglishProps> = React.memo(
       return false;
     }, [
       isSonioxProvider,
+      isDeepgramProvider,
       isRemoteOpenAiProvider,
       remoteSupportsTranslation,
       currentModelInfo,
     ]);
 
     const description = useMemo(() => {
-      if (isSonioxProvider) {
+      if (isSonioxProvider || isDeepgramProvider) {
         return t(
           "settings.advanced.translateToEnglish.descriptionRemoteUnsupported",
         );
@@ -97,6 +100,7 @@ export const TranslateToEnglish: React.FC<TranslateToEnglishProps> = React.memo(
       t,
       currentModelInfo,
       isSonioxProvider,
+      isDeepgramProvider,
       isRemoteOpenAiProvider,
       remoteSupportsTranslation,
     ]);

@@ -36,6 +36,8 @@ use tauri_specta::{collect_commands, Builder};
 use env_filter::Builder as EnvFilterBuilder;
 use managers::audio::AudioRecordingManager;
 use managers::connector::ConnectorManager;
+use managers::deepgram_realtime::DeepgramRealtimeManager;
+use managers::deepgram_stt::DeepgramSttManager;
 use managers::history::HistoryManager;
 use managers::key_listener::KeyListenerState;
 use managers::llm_operation::LlmOperationTracker;
@@ -165,6 +167,13 @@ fn initialize_core_logic(app_handle: &AppHandle) {
     );
     let soniox_stt_manager =
         Arc::new(SonioxSttManager::new(app_handle).expect("Failed to initialize Soniox STT"));
+    let deepgram_realtime_manager = Arc::new(
+        DeepgramRealtimeManager::new(app_handle)
+            .expect("Failed to initialize Deepgram realtime STT"),
+    );
+    let deepgram_stt_manager = Arc::new(
+        DeepgramSttManager::new(app_handle).expect("Failed to initialize Deepgram STT"),
+    );
     let history_manager =
         Arc::new(HistoryManager::new(app_handle).expect("Failed to initialize history manager"));
     let connector_manager = Arc::new(
@@ -182,6 +191,8 @@ fn initialize_core_logic(app_handle: &AppHandle) {
     app_handle.manage(remote_stt_manager.clone());
     app_handle.manage(soniox_realtime_manager.clone());
     app_handle.manage(soniox_stt_manager.clone());
+    app_handle.manage(deepgram_realtime_manager.clone());
+    app_handle.manage(deepgram_stt_manager.clone());
     app_handle.manage(llm_operation_tracker.clone());
     app_handle.manage(history_manager.clone());
     app_handle.manage(connector_manager.clone());
@@ -396,6 +407,18 @@ pub fn run() {
         shortcut::change_soniox_realtime_fuzzy_correction_enabled_setting,
         shortcut::change_soniox_realtime_keep_safety_buffer_enabled_setting,
         shortcut::reset_soniox_settings_to_defaults,
+        shortcut::change_deepgram_model_setting,
+        shortcut::change_deepgram_timeout_setting,
+        shortcut::change_deepgram_live_enabled_setting,
+        shortcut::change_deepgram_keepalive_interval_seconds_setting,
+        shortcut::change_deepgram_live_finalize_timeout_ms_setting,
+        shortcut::change_deepgram_live_instant_stop_setting,
+        shortcut::change_deepgram_interim_results_setting,
+        shortcut::change_deepgram_smart_format_setting,
+        shortcut::change_deepgram_diarize_setting,
+        shortcut::change_deepgram_endpointing_enabled_setting,
+        shortcut::change_deepgram_endpointing_ms_setting,
+        shortcut::reset_deepgram_settings_to_defaults,
         shortcut::change_remote_stt_debug_capture_setting,
         shortcut::change_remote_stt_debug_mode_setting,
         shortcut::change_post_process_enabled_setting,
@@ -532,6 +555,9 @@ pub fn run() {
         commands::remote_stt::soniox_has_api_key,
         commands::remote_stt::soniox_set_api_key,
         commands::remote_stt::soniox_clear_api_key,
+        commands::remote_stt::deepgram_has_api_key,
+        commands::remote_stt::deepgram_set_api_key,
+        commands::remote_stt::deepgram_clear_api_key,
         commands::remote_stt::remote_stt_get_debug_dump,
         commands::remote_stt::remote_stt_clear_debug,
         commands::remote_stt::remote_stt_test_connection,

@@ -19,7 +19,8 @@ use crate::settings::{
     OverlayPosition, PasteMethod, RemoteSttDebugMode, ShortcutEngine, SonioxLivePreviewPosition,
     SonioxLivePreviewSize, SonioxLivePreviewTheme, SoundTheme, TranscriptionProvider,
     APPLE_INTELLIGENCE_PROVIDER_ID, SONIOX_DEFAULT_LIVE_FINALIZE_TIMEOUT_MS,
-    SONIOX_DEFAULT_MAX_ENDPOINT_DELAY_MS, SONIOX_DEFAULT_MODEL,
+    SONIOX_DEFAULT_MAX_ENDPOINT_DELAY_MS, SONIOX_DEFAULT_MODEL, DEEPGRAM_DEFAULT_ENDPOINTING_MS,
+    DEEPGRAM_DEFAULT_LIVE_FINALIZE_TIMEOUT_MS, DEEPGRAM_DEFAULT_MODEL,
 };
 use crate::tray;
 use crate::ManagedToggleState;
@@ -708,6 +709,7 @@ pub fn change_transcription_provider_setting(
         "local" => TranscriptionProvider::Local,
         "remote_openai_compatible" => TranscriptionProvider::RemoteOpenAiCompatible,
         "remote_soniox" => TranscriptionProvider::RemoteSoniox,
+        "remote_deepgram" => TranscriptionProvider::RemoteDeepgram,
         other => {
             warn!(
                 "Invalid transcription provider '{}', defaulting to local",
@@ -721,7 +723,9 @@ pub fn change_transcription_provider_setting(
     {
         if matches!(
             parsed,
-            TranscriptionProvider::RemoteOpenAiCompatible | TranscriptionProvider::RemoteSoniox
+            TranscriptionProvider::RemoteOpenAiCompatible
+                | TranscriptionProvider::RemoteSoniox
+                | TranscriptionProvider::RemoteDeepgram
         ) {
             return Err("Remote transcription providers are only available on Windows".to_string());
         }
@@ -1698,6 +1702,156 @@ pub fn reset_soniox_settings_to_defaults(app: AppHandle) -> Result<(), String> {
     settings.soniox_live_instant_stop = false;
     settings.soniox_realtime_fuzzy_correction_enabled = false;
     settings.soniox_realtime_keep_safety_buffer_enabled = false;
+    settings::write_settings(&app, settings);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_deepgram_model_setting(app: AppHandle, model: String) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.deepgram_model = if model.trim().is_empty() {
+        DEEPGRAM_DEFAULT_MODEL.to_string()
+    } else {
+        model.trim().to_string()
+    };
+    settings::write_settings(&app, settings);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_deepgram_timeout_setting(app: AppHandle, timeout_seconds: u32) -> Result<(), String> {
+    if !(10..=300).contains(&timeout_seconds) {
+        return Err("Deepgram timeout must be between 10 and 300 seconds".to_string());
+    }
+
+    let mut settings = settings::get_settings(&app);
+    settings.deepgram_timeout_seconds = timeout_seconds;
+    settings::write_settings(&app, settings);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_deepgram_live_enabled_setting(app: AppHandle, enabled: bool) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.deepgram_live_enabled = enabled;
+    settings::write_settings(&app, settings);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_deepgram_keepalive_interval_seconds_setting(
+    app: AppHandle,
+    seconds: u32,
+) -> Result<(), String> {
+    if !(3..=20).contains(&seconds) {
+        return Err("Deepgram keepalive interval must be between 3 and 20 seconds".to_string());
+    }
+
+    let mut settings = settings::get_settings(&app);
+    settings.deepgram_keepalive_interval_seconds = seconds;
+    settings::write_settings(&app, settings);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_deepgram_live_finalize_timeout_ms_setting(
+    app: AppHandle,
+    timeout_ms: u32,
+) -> Result<(), String> {
+    if !(100..=20000).contains(&timeout_ms) {
+        return Err("Deepgram live finalize timeout must be between 100 and 20000 ms".to_string());
+    }
+
+    let mut settings = settings::get_settings(&app);
+    settings.deepgram_live_finalize_timeout_ms = timeout_ms;
+    settings::write_settings(&app, settings);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_deepgram_live_instant_stop_setting(
+    app: AppHandle,
+    enabled: bool,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.deepgram_live_instant_stop = enabled;
+    settings::write_settings(&app, settings);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_deepgram_interim_results_setting(app: AppHandle, enabled: bool) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.deepgram_interim_results = enabled;
+    settings::write_settings(&app, settings);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_deepgram_smart_format_setting(app: AppHandle, enabled: bool) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.deepgram_smart_format = enabled;
+    settings::write_settings(&app, settings);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_deepgram_diarize_setting(app: AppHandle, enabled: bool) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.deepgram_diarize = enabled;
+    settings::write_settings(&app, settings);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_deepgram_endpointing_enabled_setting(
+    app: AppHandle,
+    enabled: bool,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.deepgram_endpointing_enabled = enabled;
+    settings::write_settings(&app, settings);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_deepgram_endpointing_ms_setting(app: AppHandle, value_ms: u32) -> Result<(), String> {
+    if !(50..=5000).contains(&value_ms) {
+        return Err("Deepgram endpointing must be between 50 and 5000 ms".to_string());
+    }
+
+    let mut settings = settings::get_settings(&app);
+    settings.deepgram_endpointing_ms = value_ms;
+    settings::write_settings(&app, settings);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn reset_deepgram_settings_to_defaults(app: AppHandle) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.deepgram_model = DEEPGRAM_DEFAULT_MODEL.to_string();
+    settings.deepgram_timeout_seconds = 30;
+    settings.deepgram_live_enabled = true;
+    settings.deepgram_keepalive_interval_seconds = 5;
+    settings.deepgram_live_finalize_timeout_ms = DEEPGRAM_DEFAULT_LIVE_FINALIZE_TIMEOUT_MS;
+    settings.deepgram_live_instant_stop = false;
+    settings.deepgram_interim_results = true;
+    settings.deepgram_smart_format = true;
+    settings.deepgram_diarize = false;
+    settings.deepgram_endpointing_enabled = true;
+    settings.deepgram_endpointing_ms = DEEPGRAM_DEFAULT_ENDPOINTING_MS;
     settings::write_settings(&app, settings);
     Ok(())
 }
@@ -4046,9 +4200,12 @@ pub fn get_text_replacement_decapitalize_overlay_state(
     app: AppHandle,
 ) -> DecapitalizeOverlayStateResponse {
     let settings = settings::get_settings(&app);
-    let eligible = settings.text_replacement_decapitalize_after_edit_key_enabled
-        && settings.transcription_provider == TranscriptionProvider::RemoteSoniox
-        && settings.soniox_live_enabled;
+    let live_enabled = match settings.transcription_provider {
+        TranscriptionProvider::RemoteSoniox => settings.soniox_live_enabled,
+        TranscriptionProvider::RemoteDeepgram => settings.deepgram_live_enabled,
+        _ => false,
+    };
+    let eligible = settings.text_replacement_decapitalize_after_edit_key_enabled && live_enabled;
     let armed = eligible && crate::text_replacement_decapitalize::is_realtime_trigger_armed_now();
 
     DecapitalizeOverlayStateResponse {

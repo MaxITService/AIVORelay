@@ -50,6 +50,27 @@ pub fn soniox_clear_api_key() -> Result<(), String> {
 
 #[tauri::command]
 #[specta::specta]
+pub fn deepgram_has_api_key() -> Result<bool, String> {
+    Ok(crate::secure_keys::has_deepgram_api_key())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn deepgram_set_api_key(api_key: String) -> Result<(), String> {
+    if api_key.trim().is_empty() {
+        return Err("API key cannot be empty".to_string());
+    }
+    crate::secure_keys::set_deepgram_api_key(api_key.trim()).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn deepgram_clear_api_key() -> Result<(), String> {
+    crate::secure_keys::clear_deepgram_api_key().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+#[specta::specta]
 pub fn remote_stt_get_debug_dump(
     remote_manager: State<'_, Arc<RemoteSttManager>>,
 ) -> Result<Vec<String>, String> {

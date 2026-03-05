@@ -20,6 +20,8 @@ pub enum KeyType {
     VoiceCommand,
     /// Soniox cloud STT API key
     SonioxStt,
+    /// Deepgram cloud STT API key
+    DeepgramStt,
 }
 
 impl KeyType {
@@ -29,6 +31,7 @@ impl KeyType {
             KeyType::AiReplace => "ai_replace_api_key",
             KeyType::VoiceCommand => "voice_command_api_key",
             KeyType::SonioxStt => "soniox_api_key",
+            KeyType::DeepgramStt => "deepgram_api_key",
         }
     }
 
@@ -155,6 +158,26 @@ pub fn clear_soniox_api_key() -> Result<()> {
 /// Returns whether Soniox STT API key is present
 pub fn has_soniox_api_key() -> bool {
     !get_soniox_api_key().trim().is_empty()
+}
+
+/// Get Deepgram STT API key
+pub fn get_deepgram_api_key() -> String {
+    get_api_key(KeyType::DeepgramStt, None).unwrap_or_default()
+}
+
+/// Set Deepgram STT API key
+pub fn set_deepgram_api_key(key: &str) -> Result<()> {
+    set_api_key(KeyType::DeepgramStt, None, key)
+}
+
+/// Clear Deepgram STT API key
+pub fn clear_deepgram_api_key() -> Result<()> {
+    set_api_key(KeyType::DeepgramStt, None, "")
+}
+
+/// Returns whether Deepgram STT API key is present
+pub fn has_deepgram_api_key() -> bool {
+    !get_deepgram_api_key().trim().is_empty()
 }
 
 // ============================================================================

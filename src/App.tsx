@@ -78,14 +78,16 @@ function App() {
         commands.hasAnyModelsAvailable(),
       ]);
 
-      if (
-        settingsResult.status === "ok" &&
-        (settingsResult.data.transcription_provider ===
-          "remote_openai_compatible" ||
-          settingsResult.data.transcription_provider === "remote_soniox")
-      ) {
-        setShowOnboarding(false);
-        return;
+      if (settingsResult.status === "ok") {
+        const provider = String(settingsResult.data.transcription_provider);
+        if (
+          provider === "remote_openai_compatible" ||
+          provider === "remote_soniox" ||
+          provider === "remote_deepgram"
+        ) {
+          setShowOnboarding(false);
+          return;
+        }
       }
 
       if (modelResult.status === "ok") {

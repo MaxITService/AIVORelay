@@ -29,10 +29,13 @@ export const ModelsSettings: React.FC = () => {
   const { getSetting, setTranscriptionProvider } = useSettings();
   const [switchingModelId, setSwitchingModelId] = useState<string | null>(null);
 
-  const transcriptionProvider = getSetting("transcription_provider") || "local";
+  const transcriptionProvider = String(
+    getSetting("transcription_provider") || "local",
+  );
   const isRemoteProvider =
     transcriptionProvider === "remote_openai_compatible" ||
-    transcriptionProvider === "remote_soniox";
+    transcriptionProvider === "remote_soniox" ||
+    transcriptionProvider === "remote_deepgram";
 
   const downloadedModels = useMemo(
     () =>
@@ -106,6 +109,15 @@ export const ModelsSettings: React.FC = () => {
             <li>
               <strong>{t("modelSelector.tellMeMore.remoteSoniox.title")}</strong>{" "}
               {t("modelSelector.tellMeMore.remoteSoniox.description")}
+            </li>
+            <li>
+              <strong>
+                {t("modelSelector.tellMeMore.remoteDeepgram.title", "Remote via Deepgram")}
+              </strong>{" "}
+              {t(
+                "modelSelector.tellMeMore.remoteDeepgram.description",
+                "Uses Deepgram live streaming API with Nova models and control messages (Finalize, KeepAlive, CloseStream).",
+              )}
             </li>
             <li>
               <strong>{t("modelSelector.tellMeMore.localModels.title")}</strong>{" "}
@@ -200,6 +212,53 @@ export const ModelsSettings: React.FC = () => {
             )}
           </div>
           {transcriptionProvider === "remote_soniox" && (
+            <div className="border-t border-[#3d3d3d] pt-3">
+              <RemoteSttSettings descriptionMode="tooltip" grouped={true} hideProviderSelector />
+            </div>
+          )}
+        </div>
+
+        <div className="border-t border-[#3d3d3d]" />
+
+        {/* Remote via Deepgram */}
+        <div
+          className={`px-6 py-4 flex flex-col gap-3 transition-colors ${
+            transcriptionProvider === "remote_deepgram" ? "bg-green-500/5" : ""
+          }`}
+        >
+          <div className="flex items-center justify-between">
+            <div className="min-w-0">
+              <div className="flex items-center gap-2">
+                <Cloud className="w-4 h-4 text-cyan-400" />
+                <p className="text-sm font-medium text-[#f5f5f5]">
+                  {t("modelSelector.remoteDeepgramMode", "Remote via Deepgram")}
+                </p>
+                {transcriptionProvider === "remote_deepgram" && (
+                  <span className="text-xs text-cyan-400">
+                    {t("modelSelector.active")}
+                  </span>
+                )}
+              </div>
+              {transcriptionProvider === "remote_deepgram" && (
+                <p className="text-xs text-[#a0a0a0] mt-1">
+                  {t(
+                    "modelSelector.remoteDeepgramModeDescription",
+                    "Deepgram Nova streaming service",
+                  )}
+                </p>
+              )}
+            </div>
+            {transcriptionProvider !== "remote_deepgram" && (
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => setTranscriptionProvider("remote_deepgram")}
+              >
+                {t("modelSelector.chooseModel")}
+              </Button>
+            )}
+          </div>
+          {transcriptionProvider === "remote_deepgram" && (
             <div className="border-t border-[#3d3d3d] pt-3">
               <RemoteSttSettings descriptionMode="tooltip" grouped={true} hideProviderSelector />
             </div>

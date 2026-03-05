@@ -1,5 +1,7 @@
 pub mod audio;
 pub mod connector;
+pub mod deepgram_realtime;
+pub mod deepgram_stt;
 pub mod history;
 pub mod key_listener;
 pub mod llm_operation;

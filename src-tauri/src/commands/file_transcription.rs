@@ -4,6 +4,7 @@
 //! Uses the same transcription infrastructure as live recording.
 
 use crate::audio_toolkit::apply_custom_words;
+use crate::managers::deepgram_stt::{DeepgramSttManager, DeepgramTranscriptionOptions};
 use crate::managers::remote_stt::RemoteSttManager;
 use crate::managers::soniox_stt::{SonioxAsyncTranscriptionOptions, SonioxSttManager};
 use crate::managers::transcription::TranscriptionManager;
@@ -128,6 +129,8 @@ pub async fn transcribe_audio_file(
         && settings.transcription_provider == TranscriptionProvider::RemoteOpenAiCompatible;
     let use_soniox = model_override.is_none()
         && settings.transcription_provider == TranscriptionProvider::RemoteSoniox;
+    let use_deepgram = model_override.is_none()
+        && settings.transcription_provider == TranscriptionProvider::RemoteDeepgram;
 
     let (transcription_text, segments) = if use_remote {
         // Remote STT - currently doesn't support segments
@@ -283,6 +286,75 @@ pub async fn transcribe_audio_file(
 
         // For remote STT without segment support, create a single segment
         // spanning the estimated duration if subtitle format is requested
+        let segs = if needs_segments {
+            let word_count = corrected.split_whitespace().count();
+            let estimated_duration = (word_count as f32 / 150.0) * 60.0;
+            Some(vec![SubtitleSegment {
+                start: 0.0,
+                end: estimated_duration.max(1.0),
+                text: corrected.clone(),
+            }])
+        } else {
+            None
+        };
+
+        (corrected, segs)
+    } else if use_deepgram {
+        let deepgram_manager = app.state::<Arc<DeepgramSttManager>>();
+        let operation_id = deepgram_manager.start_operation();
+
+        let language = profile
+            .as_ref()
+            .map(|p| p.language.clone())
+            .unwrap_or_else(|| settings.selected_language.clone());
+
+        #[cfg(target_os = "windows")]
+        let api_key = crate::secure_keys::get_deepgram_api_key();
+
+        #[cfg(not(target_os = "windows"))]
+        let api_key = String::new();
+
+        let deepgram_options = DeepgramTranscriptionOptions {
+            language: Some(language.clone()),
+            interim_results: Some(settings.deepgram_interim_results),
+            smart_format: Some(settings.deepgram_smart_format),
+            diarize: Some(settings.deepgram_diarize),
+        };
+
+        let text = deepgram_manager
+            .transcribe(
+                Some(operation_id),
+                &api_key,
+                &settings.deepgram_model,
+                settings.deepgram_timeout_seconds,
+                &samples,
+                Some(language.as_str()),
+                deepgram_options,
+            )
+            .await
+            .map_err(|e| format!("Deepgram transcription failed: {}", e))?;
+
+        if deepgram_manager.is_cancelled(operation_id) {
+            return Err("Deepgram transcription was cancelled".to_string());
+        }
+
+        let corrected = if should_apply_custom_words {
+            apply_custom_words(
+                &text,
+                &settings.custom_words,
+                settings.word_correction_threshold,
+                settings.custom_words_ngram_enabled,
+            )
+        } else {
+            text
+        };
+
+        let corrected = if settings.filler_word_filter_enabled {
+            crate::audio_toolkit::filter_transcription_output(&corrected)
+        } else {
+            corrected
+        };
+
         let segs = if needs_segments {
             let word_count = corrected.split_whitespace().count();
             let estimated_duration = (word_count as f32 / 150.0) * 60.0;

@@ -290,6 +290,34 @@ settingUpdaters.error_overlay_auto_hide_ms = (value) =>
   });
 (settingUpdaters as any).soniox_live_instant_stop = (value: any) =>
   invoke("change_soniox_live_instant_stop_setting", { enabled: value });
+(settingUpdaters as any).deepgram_model = (value: any) =>
+  invoke("change_deepgram_model_setting", { model: value });
+(settingUpdaters as any).deepgram_timeout_seconds = (value: any) =>
+  invoke("change_deepgram_timeout_setting", {
+    timeoutSeconds: Math.round(Number(value)),
+  });
+(settingUpdaters as any).deepgram_live_enabled = (value: any) =>
+  invoke("change_deepgram_live_enabled_setting", { enabled: value });
+(settingUpdaters as any).deepgram_keepalive_interval_seconds = (value: any) =>
+  invoke("change_deepgram_keepalive_interval_seconds_setting", {
+    seconds: value,
+  });
+(settingUpdaters as any).deepgram_live_finalize_timeout_ms = (value: any) =>
+  invoke("change_deepgram_live_finalize_timeout_ms_setting", {
+    timeoutMs: value,
+  });
+(settingUpdaters as any).deepgram_live_instant_stop = (value: any) =>
+  invoke("change_deepgram_live_instant_stop_setting", { enabled: value });
+(settingUpdaters as any).deepgram_interim_results = (value: any) =>
+  invoke("change_deepgram_interim_results_setting", { enabled: value });
+(settingUpdaters as any).deepgram_smart_format = (value: any) =>
+  invoke("change_deepgram_smart_format_setting", { enabled: value });
+(settingUpdaters as any).deepgram_diarize = (value: any) =>
+  invoke("change_deepgram_diarize_setting", { enabled: value });
+(settingUpdaters as any).deepgram_endpointing_enabled = (value: any) =>
+  invoke("change_deepgram_endpointing_enabled_setting", { enabled: value });
+(settingUpdaters as any).deepgram_endpointing_ms = (value: any) =>
+  invoke("change_deepgram_endpointing_ms_setting", { valueMs: value });
 (settingUpdaters as any).soniox_realtime_fuzzy_correction_enabled = (
   value: any,
 ) =>

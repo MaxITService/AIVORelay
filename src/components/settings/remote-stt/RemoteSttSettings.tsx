@@ -40,7 +40,7 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
     updateRemoteSttDebugMode,
   } = useSettings();
 
-  const provider = settings?.transcription_provider ?? "local";
+  const provider = String(settings?.transcription_provider ?? "local");
   const remoteSettings = settings?.remote_stt;
   const sonioxModel = (settings as any)?.soniox_model ?? "stt-rt-v4";
   const sonioxTimeout = Number((settings as any)?.soniox_timeout_seconds ?? 30);
@@ -76,9 +76,40 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
   const sonioxLiveInstantStop = Boolean(
     (settings as any)?.soniox_live_instant_stop ?? false,
   );
+  const deepgramModel = (settings as any)?.deepgram_model ?? "nova-3";
+  const deepgramTimeout = Number(
+    (settings as any)?.deepgram_timeout_seconds ?? 30,
+  );
+  const deepgramLiveEnabled = Boolean(
+    (settings as any)?.deepgram_live_enabled ?? true,
+  );
+  const deepgramKeepaliveSeconds = Number(
+    (settings as any)?.deepgram_keepalive_interval_seconds ?? 5,
+  );
+  const deepgramLiveFinalizeTimeoutMs = Number(
+    (settings as any)?.deepgram_live_finalize_timeout_ms ?? 1200,
+  );
+  const deepgramLiveInstantStop = Boolean(
+    (settings as any)?.deepgram_live_instant_stop ?? false,
+  );
+  const deepgramInterimResults = Boolean(
+    (settings as any)?.deepgram_interim_results ?? true,
+  );
+  const deepgramSmartFormat = Boolean(
+    (settings as any)?.deepgram_smart_format ?? true,
+  );
+  const deepgramDiarize = Boolean((settings as any)?.deepgram_diarize ?? false);
+  const deepgramEndpointingEnabled = Boolean(
+    (settings as any)?.deepgram_endpointing_enabled ?? true,
+  );
+  const deepgramEndpointingMs = Number(
+    (settings as any)?.deepgram_endpointing_ms ?? 400,
+  );
   const isRemoteOpenAiProvider = provider === "remote_openai_compatible";
   const isSonioxProvider = provider === "remote_soniox";
-  const isCloudProvider = isRemoteOpenAiProvider || isSonioxProvider;
+  const isDeepgramProvider = provider === "remote_deepgram";
+  const isCloudProvider =
+    isRemoteOpenAiProvider || isSonioxProvider || isDeepgramProvider;
   const isSonioxRealtimeModel = sonioxModel.trim().startsWith("stt-rt");
 
   const [baseUrlInput, setBaseUrlInput] = useState(
@@ -100,6 +131,17 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
     useState(String(sonioxKeepaliveSeconds));
   const [sonioxLiveFinalizeTimeoutInput, setSonioxLiveFinalizeTimeoutInput] =
     useState(String(sonioxLiveFinalizeTimeoutMs));
+  const [deepgramModelInput, setDeepgramModelInput] = useState(deepgramModel);
+  const [deepgramTimeoutInput, setDeepgramTimeoutInput] = useState(
+    String(deepgramTimeout),
+  );
+  const [deepgramKeepaliveSecondsInput, setDeepgramKeepaliveSecondsInput] =
+    useState(String(deepgramKeepaliveSeconds));
+  const [deepgramLiveFinalizeTimeoutInput, setDeepgramLiveFinalizeTimeoutInput] =
+    useState(String(deepgramLiveFinalizeTimeoutMs));
+  const [deepgramEndpointingMsInput, setDeepgramEndpointingMsInput] = useState(
+    String(deepgramEndpointingMs),
+  );
 
   const [apiKeyInput, setApiKeyInput] = useState("");
   const [hasApiKey, setHasApiKey] = useState(false);
@@ -152,6 +194,26 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
   }, [sonioxLiveFinalizeTimeoutMs]);
 
   useEffect(() => {
+    setDeepgramModelInput(deepgramModel);
+  }, [deepgramModel]);
+
+  useEffect(() => {
+    setDeepgramTimeoutInput(String(deepgramTimeout));
+  }, [deepgramTimeout]);
+
+  useEffect(() => {
+    setDeepgramKeepaliveSecondsInput(String(deepgramKeepaliveSeconds));
+  }, [deepgramKeepaliveSeconds]);
+
+  useEffect(() => {
+    setDeepgramLiveFinalizeTimeoutInput(String(deepgramLiveFinalizeTimeoutMs));
+  }, [deepgramLiveFinalizeTimeoutMs]);
+
+  useEffect(() => {
+    setDeepgramEndpointingMsInput(String(deepgramEndpointingMs));
+  }, [deepgramEndpointingMs]);
+
+  useEffect(() => {
     if (!isWindows) {
       setHasApiKey(false);
       setHasKeyStatusLoaded(true);
@@ -160,11 +222,16 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
 
     const loadApiKeyStatus = async () => {
       try {
-        const result = isSonioxProvider
-          ? await commands.sonioxHasApiKey()
-          : await commands.remoteSttHasApiKey();
-        if (result.status === "ok") {
-          setHasApiKey(result.data);
+        if (isDeepgramProvider) {
+          const hasDeepgramKey = await invoke<boolean>("deepgram_has_api_key");
+          setHasApiKey(Boolean(hasDeepgramKey));
+        } else {
+          const result = isSonioxProvider
+            ? await commands.sonioxHasApiKey()
+            : await commands.remoteSttHasApiKey();
+          if (result.status === "ok") {
+            setHasApiKey(result.data);
+          }
         }
       } catch (error) {
         console.error("Failed to check API key status:", error);
@@ -174,7 +241,7 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
     };
 
     loadApiKeyStatus();
-  }, [isWindows, provider, isSonioxProvider]);
+  }, [isWindows, provider, isSonioxProvider, isDeepgramProvider]);
 
   useEffect(() => {
     if (!hasKeyStatusLoaded) {
@@ -252,8 +319,41 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
         label: t("settings.advanced.transcriptionProvider.options.soniox"),
         isDisabled: !isWindows,
       },
+      {
+        value: "remote_deepgram",
+        label: t(
+          "settings.advanced.transcriptionProvider.options.deepgram",
+          "Remote (Deepgram Cloud API)",
+        ),
+        isDisabled: !isWindows,
+      },
     ];
   }, [t, isWindows]);
+
+  const deepgramModelOptions = useMemo<SelectOption[]>(() => {
+    const options: SelectOption[] = [
+      {
+        value: "nova-3",
+        label: "nova-3",
+      },
+      {
+        value: "nova-3-general",
+        label: "nova-3-general",
+      },
+      {
+        value: "nova-3-medical",
+        label: "nova-3-medical",
+      },
+    ];
+    const current = deepgramModelInput.trim();
+    if (current && !options.some((option) => option.value === current)) {
+      options.push({
+        value: current,
+        label: current,
+      });
+    }
+    return options;
+  }, [deepgramModelInput]);
 
   const handleProviderChange = (value: string | null) => {
     if (!value) return;
@@ -361,19 +461,98 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
     }
   };
 
+  const handleDeepgramModelChange = (value: string | null) => {
+    if (!value) return;
+    setDeepgramModelInput(value);
+    if (value !== deepgramModel) {
+      void updateSetting("deepgram_model" as any, value as any);
+    }
+  };
+
+  const handleDeepgramTimeoutBlur = () => {
+    const parsed = Number.parseInt(deepgramTimeoutInput, 10);
+    if (Number.isNaN(parsed)) {
+      setDeepgramTimeoutInput(String(deepgramTimeout));
+      return;
+    }
+    if (parsed !== deepgramTimeout) {
+      void updateSetting("deepgram_timeout_seconds" as any, parsed as any);
+    }
+  };
+
+  const handleDeepgramKeepaliveBlur = () => {
+    const parsed = Number.parseInt(deepgramKeepaliveSecondsInput, 10);
+    if (Number.isNaN(parsed)) {
+      setDeepgramKeepaliveSecondsInput(String(deepgramKeepaliveSeconds));
+      return;
+    }
+    if (parsed !== deepgramKeepaliveSeconds) {
+      void updateSetting(
+        "deepgram_keepalive_interval_seconds" as any,
+        parsed as any,
+      );
+    }
+  };
+
+  const handleDeepgramLiveFinalizeTimeoutBlur = () => {
+    const parsed = Number.parseInt(deepgramLiveFinalizeTimeoutInput, 10);
+    if (Number.isNaN(parsed)) {
+      setDeepgramLiveFinalizeTimeoutInput(String(deepgramLiveFinalizeTimeoutMs));
+      return;
+    }
+    if (parsed !== deepgramLiveFinalizeTimeoutMs) {
+      void updateSetting("deepgram_live_finalize_timeout_ms" as any, parsed as any);
+    }
+  };
+
+  const handleDeepgramEndpointingMsBlur = () => {
+    const parsed = Number.parseInt(deepgramEndpointingMsInput, 10);
+    if (Number.isNaN(parsed)) {
+      setDeepgramEndpointingMsInput(String(deepgramEndpointingMs));
+      return;
+    }
+    if (parsed !== deepgramEndpointingMs) {
+      void updateSetting("deepgram_endpointing_ms" as any, parsed as any);
+    }
+  };
+
+  const handleResetDeepgramDefaults = async () => {
+    try {
+      await invoke("reset_deepgram_settings_to_defaults");
+      await refreshSettings();
+      toast.success(
+        t("settings.advanced.deepgram.reset.success", "Deepgram settings were reset to defaults."),
+      );
+    } catch (error) {
+      toast.error(
+        t("settings.advanced.deepgram.reset.failed", {
+          error: String(error),
+          defaultValue: `Failed to reset Deepgram settings: ${String(error)}`,
+        }),
+      );
+    }
+  };
+
   const handleSaveApiKey = async () => {
     if (!apiKeyInput.trim()) return;
     setApiKeyLoading(true);
     try {
-      const result = isSonioxProvider
-        ? await commands.sonioxSetApiKey(apiKeyInput.trim())
-        : await commands.remoteSttSetApiKey(apiKeyInput.trim());
-      if (result.status === "ok") {
+      if (isDeepgramProvider) {
+        await invoke("deepgram_set_api_key", { apiKey: apiKeyInput.trim() });
         setApiKeyInput("");
         setHasApiKey(true);
         setIsEditingKey(false);
       } else {
-        toast.error(result.error);
+        const result = isSonioxProvider
+          ? await commands.sonioxSetApiKey(apiKeyInput.trim())
+          : await commands.remoteSttSetApiKey(apiKeyInput.trim());
+        if (result.status === "ok") {
+          setApiKeyInput("");
+          setHasApiKey(true);
+          setIsEditingKey(false);
+        } else {
+          toast.error(result.error);
+        }
       }
     } catch (error) {
       toast.error(String(error));
@@ -385,14 +564,20 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
   const handleClearApiKey = async () => {
     setApiKeyLoading(true);
     try {
-      const result = isSonioxProvider
-        ? await commands.sonioxClearApiKey()
-        : await commands.remoteSttClearApiKey();
-      if (result.status === "ok") {
+      if (isDeepgramProvider) {
+        await invoke("deepgram_clear_api_key");
         setHasApiKey(false);
         setApiKeyInput("");
       } else {
-        toast.error(result.error);
+        const result = isSonioxProvider
+          ? await commands.sonioxClearApiKey()
+          : await commands.remoteSttClearApiKey();
+        if (result.status === "ok") {
+          setHasApiKey(false);
+          setApiKeyInput("");
+        } else {
+          toast.error(result.error);
+        }
       }
     } catch (error) {
       toast.error(String(error));
@@ -456,6 +641,7 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
     isWindows && isCloudProvider;
   const showOpenAiFields = isWindows && isRemoteOpenAiProvider;
   const showSonioxFields = isWindows && isSonioxProvider;
+  const showDeepgramFields = isWindows && isDeepgramProvider;
   const canTestConnection =
     isRemoteOpenAiProvider &&
     hasApiKey &&
@@ -898,15 +1084,242 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
             </>
           )}
 
+          {showDeepgramFields && (
+            <>
+              <div className="p-3 bg-cyan-500/10 border border-cyan-500/30 rounded-lg text-sm text-cyan-300 mx-4 mt-2">
+                {t(
+                  "settings.advanced.deepgram.banner",
+                  "Deepgram live mode uses WebSocket streaming with KeepAlive / Finalize / CloseStream control messages.",
+                )}
+              </div>
+
+              <SettingContainer
+                title={t("settings.advanced.deepgram.reset.title", "Deepgram Quick Actions")}
+                description={t(
+                  "settings.advanced.deepgram.reset.description",
+                  "Reset all Deepgram settings in this section to recommended defaults.",
+                )}
+                descriptionMode={descriptionMode}
+                grouped={grouped}
+              >
+                <Button variant="secondary" size="sm" onClick={handleResetDeepgramDefaults}>
+                  {t("settings.advanced.deepgram.reset.button", "Reset Deepgram Settings")}
+                </Button>
+              </SettingContainer>
+
+              <SettingContainer
+                title={t("settings.advanced.deepgram.model.title", "Deepgram Model")}
+                description={t(
+                  "settings.advanced.deepgram.model.description",
+                  "Nova-3 variants available for users: nova-3, nova-3-general, nova-3-medical.",
+                )}
+                descriptionMode={descriptionMode}
+                grouped={grouped}
+              >
+                <Select
+                  value={deepgramModelInput}
+                  options={deepgramModelOptions}
+                  onChange={handleDeepgramModelChange}
+                  isClearable={false}
+                />
+              </SettingContainer>
+
+              <SettingContainer
+                title={t("settings.advanced.deepgram.timeout.title", "Deepgram Timeout (seconds)")}
+                description={t(
+                  "settings.advanced.deepgram.timeout.description",
+                  "Request timeout for non-live Deepgram transcription.",
+                )}
+                descriptionMode={descriptionMode}
+                grouped={grouped}
+                layout="stacked"
+              >
+                <Input
+                  type="number"
+                  value={deepgramTimeoutInput}
+                  onChange={(event) => setDeepgramTimeoutInput(event.target.value)}
+                  onBlur={handleDeepgramTimeoutBlur}
+                  min={10}
+                  max={300}
+                  className="w-full"
+                />
+              </SettingContainer>
+
+              <ToggleSwitch
+                label={t("settings.advanced.deepgram.live.title", "Live Streaming")}
+                description={t(
+                  "settings.advanced.deepgram.live.description",
+                  "Enable Deepgram live transcription over WebSocket while recording.",
+                )}
+                checked={deepgramLiveEnabled}
+                onChange={(enabled) =>
+                  void updateSetting("deepgram_live_enabled" as any, enabled as any)
+                }
+                isUpdating={isUpdating("deepgram_live_enabled")}
+                descriptionMode={descriptionMode}
+                grouped={grouped}
+              />
+
+              <ToggleSwitch
+                label={t("settings.advanced.deepgram.interim.title", "Interim Results")}
+                description={t(
+                  "settings.advanced.deepgram.interim.description",
+                  "Allow Deepgram to return evolving interim hypotheses before final results.",
+                )}
+                checked={deepgramInterimResults}
+                onChange={(enabled) =>
+                  void updateSetting("deepgram_interim_results" as any, enabled as any)
+                }
+                isUpdating={isUpdating("deepgram_interim_results")}
+                descriptionMode={descriptionMode}
+                grouped={grouped}
+              />
+
+              <ToggleSwitch
+                label={t("settings.advanced.deepgram.smartFormat.title", "Smart Format")}
+                description={t(
+                  "settings.advanced.deepgram.smartFormat.description",
+                  "Format numbers, punctuation, and entities for readability.",
+                )}
+                checked={deepgramSmartFormat}
+                onChange={(enabled) =>
+                  void updateSetting("deepgram_smart_format" as any, enabled as any)
+                }
+                isUpdating={isUpdating("deepgram_smart_format")}
+                descriptionMode={descriptionMode}
+                grouped={grouped}
+              />
+
+              <ToggleSwitch
+                label={t("settings.advanced.deepgram.diarize.title", "Speaker Diarization")}
+                description={t(
+                  "settings.advanced.deepgram.diarize.description",
+                  "Detect speaker changes in Deepgram output.",
+                )}
+                checked={deepgramDiarize}
+                onChange={(enabled) =>
+                  void updateSetting("deepgram_diarize" as any, enabled as any)
+                }
+                isUpdating={isUpdating("deepgram_diarize")}
+                descriptionMode={descriptionMode}
+                grouped={grouped}
+              />
+
+              <ToggleSwitch
+                label={t("settings.advanced.deepgram.endpointing.title", "Endpointing")}
+                description={t(
+                  "settings.advanced.deepgram.endpointing.description",
+                  "Finalize speech segments when natural pauses are detected.",
+                )}
+                checked={deepgramEndpointingEnabled}
+                onChange={(enabled) =>
+                  void updateSetting("deepgram_endpointing_enabled" as any, enabled as any)
+                }
+                isUpdating={isUpdating("deepgram_endpointing_enabled")}
+                descriptionMode={descriptionMode}
+                grouped={grouped}
+              />
+
+              <SettingContainer
+                title={t("settings.advanced.deepgram.endpointingMs.title", "Endpointing (ms)")}
+                description={t(
+                  "settings.advanced.deepgram.endpointingMs.description",
+                  "How long Deepgram waits before treating silence as utterance end.",
+                )}
+                descriptionMode={descriptionMode}
+                grouped={grouped}
+                layout="stacked"
+                disabled={!deepgramEndpointingEnabled}
+              >
+                <Input
+                  type="number"
+                  value={deepgramEndpointingMsInput}
+                  onChange={(event) => setDeepgramEndpointingMsInput(event.target.value)}
+                  onBlur={handleDeepgramEndpointingMsBlur}
+                  min={50}
+                  max={5000}
+                  className="w-full"
+                  disabled={!deepgramEndpointingEnabled}
+                />
+              </SettingContainer>
+
+              <SettingContainer
+                title={t("settings.advanced.deepgram.keepalive.title", "KeepAlive Interval (seconds)")}
+                description={t(
+                  "settings.advanced.deepgram.keepalive.description",
+                  "Send KeepAlive text control messages during silence to keep the stream open.",
+                )}
+                descriptionMode={descriptionMode}
+                grouped={grouped}
+                layout="stacked"
+              >
+                <Input
+                  type="number"
+                  value={deepgramKeepaliveSecondsInput}
+                  onChange={(event) => setDeepgramKeepaliveSecondsInput(event.target.value)}
+                  onBlur={handleDeepgramKeepaliveBlur}
+                  min={3}
+                  max={20}
+                  className="w-full"
+                />
+              </SettingContainer>
+
+              <SettingContainer
+                title={t("settings.advanced.deepgram.finalizeTimeout.title", "Live Finalization Timeout (ms)")}
+                description={t(
+                  "settings.advanced.deepgram.finalizeTimeout.description",
+                  "How long to wait for late final chunks after Stop before forcing closure.",
+                )}
+                descriptionMode={descriptionMode}
+                grouped={grouped}
+                layout="stacked"
+              >
+                <Input
+                  type="number"
+                  value={deepgramLiveFinalizeTimeoutInput}
+                  onChange={(event) =>
+                    setDeepgramLiveFinalizeTimeoutInput(event.target.value)
+                  }
+                  onBlur={handleDeepgramLiveFinalizeTimeoutBlur}
+                  min={100}
+                  max={20000}
+                  className="w-full"
+                />
+              </SettingContainer>
+
+              <ToggleSwitch
+                label={t("settings.advanced.deepgram.instantStop.title", "Instant Stop (Local Feature)")}
+                description={t(
+                  "settings.advanced.deepgram.instantStop.description",
+                  "Cancel Deepgram live session immediately on stop for fastest UX, at risk of tail truncation.",
+                )}
+                checked={deepgramLiveInstantStop}
+                onChange={(enabled) =>
+                  void updateSetting("deepgram_live_instant_stop" as any, enabled as any)
+                }
+                isUpdating={isUpdating("deepgram_live_instant_stop")}
+                descriptionMode={descriptionMode}
+                grouped={grouped}
+              />
+            </>
+          )}
+
           <SettingContainer
             title={
               isSonioxProvider
                 ? t("settings.advanced.soniox.apiKey.title")
+                : isDeepgramProvider
+                  ? t("settings.advanced.deepgram.apiKey.title", "Deepgram API Key")
                 : t("settings.advanced.remoteStt.apiKey.title")
             }
             description={
               isSonioxProvider
                 ? t("settings.advanced.soniox.apiKey.description")
+                : isDeepgramProvider
+                  ? t(
+                      "settings.advanced.deepgram.apiKey.description",
+                      "Stored securely in Windows Credential Manager.",
+                    )
                 : t("settings.advanced.remoteStt.apiKey.description")
             }
             descriptionMode={descriptionMode}
@@ -960,6 +1373,11 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
                       placeholder={
                         isSonioxProvider
                           ? t("settings.advanced.soniox.apiKey.placeholder")
+                          : isDeepgramProvider
+                            ? t(
+                                "settings.advanced.deepgram.apiKey.placeholder",
+                                "dg_...",
+                              )
                           : t("settings.advanced.remoteStt.apiKey.placeholder")
                       }
                       disabled={apiKeyLoading}
