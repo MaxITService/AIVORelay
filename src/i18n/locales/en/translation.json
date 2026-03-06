@@ -1079,7 +1079,7 @@
           "parametersTitle": "What each setting controls:",
           "parameters": {
             "model": "Model: sent as `model=<value>` in streaming query params. App default is `nova-3`.",
-            "timeout": "Deepgram Timeout: non-live timeout (10-300s) for one-shot and file transcription operations.",
+            "timeout": "Deepgram Timeout: non-live timeout (10-3600s) for one-shot and file transcription operations.",
             "live": "Live Streaming: enables persistent WebSocket capture path while recording.",
             "interim": "Interim Results: maps to `interim_results` query param. Deepgram API default is false; app default is true.",
             "smartFormat": "Smart Format: maps to `smart_format` query param. Improves punctuation/number readability. API default is false; app default is true.",
@@ -1110,7 +1110,7 @@
         },
         "timeout": {
           "title": "Deepgram Timeout (seconds)",
-          "description": "Overall timeout for Deepgram non-live and file-transcription operations (10-300s). Higher values are more tolerant of transient latency but delay failure reporting; lower values fail faster but are less tolerant to slow networks. This is not the same as live-session finalization timeout."
+          "description": "Overall timeout for Deepgram non-live and file-transcription operations (10-3600s). Higher values are more tolerant of transient latency but delay failure reporting; lower values fail faster but are less tolerant to slow networks. This is not the same as live-session finalization timeout."
         },
         "live": {
           "title": "Live Streaming",

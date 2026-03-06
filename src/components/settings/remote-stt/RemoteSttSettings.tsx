@@ -78,7 +78,7 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
   );
   const deepgramModel = (settings as any)?.deepgram_model ?? "nova-3";
   const deepgramTimeout = Number(
-    (settings as any)?.deepgram_timeout_seconds ?? 30,
+    (settings as any)?.deepgram_timeout_seconds ?? 3600,
   );
   const deepgramLiveEnabled = Boolean(
     (settings as any)?.deepgram_live_enabled ?? true,
@@ -1334,7 +1334,7 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
                   onChange={(event) => setDeepgramTimeoutInput(event.target.value)}
                   onBlur={handleDeepgramTimeoutBlur}
                   min={10}
-                  max={300}
+                  max={3600}
                   className="w-full"
                 />
               </SettingContainer>

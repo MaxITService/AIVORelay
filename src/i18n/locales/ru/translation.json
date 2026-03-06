@@ -732,7 +732,7 @@
           "parametersTitle": "Что означает каждый параметр:",
           "parameters": {
             "model": "Model: отправляется как `model=<value>` в query-параметрах стрима. По умолчанию в приложении: `nova-3`.",
-            "timeout": "Deepgram Timeout: non-live таймаут (10-300с) для one-shot и file transcription операций.",
+            "timeout": "Deepgram Timeout: non-live таймаут (10-3600с) для one-shot и file transcription операций.",
             "live": "Live Streaming: включает постоянный WebSocket-путь во время записи.",
             "interim": "Interim Results: соответствует query-параметру `interim_results`. В API Deepgram default = false, в приложении default = true.",
             "smartFormat": "Smart Format: соответствует query-параметру `smart_format`. Улучшает пунктуацию/числа/читаемость. В API default = false, в приложении default = true.",
@@ -763,7 +763,7 @@
         },
         "timeout": {
           "title": "Таймаут Deepgram (секунды)",
-          "description": "Общий таймаут для non-live и file-transcription операций Deepgram (10-300с). Большее значение лучше переносит временные сетевые задержки, но медленнее сообщает об ошибке; меньшее - быстрее фейлится, но менее терпимо к медленной сети. Это не то же самое, что live finalization timeout."
+          "description": "Общий таймаут для non-live и file-transcription операций Deepgram (10-3600с). Большее значение лучше переносит временные сетевые задержки, но медленнее сообщает об ошибке; меньшее - быстрее фейлится, но менее терпимо к медленной сети. Это не то же самое, что live finalization timeout."
         },
         "live": {
           "title": "Live Streaming",

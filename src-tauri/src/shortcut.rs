@@ -1961,8 +1961,8 @@ pub fn change_deepgram_model_setting(app: AppHandle, model: String) -> Result<()
 #[tauri::command]
 #[specta::specta]
 pub fn change_deepgram_timeout_setting(app: AppHandle, timeout_seconds: u32) -> Result<(), String> {
-    if !(10..=300).contains(&timeout_seconds) {
-        return Err("Deepgram timeout must be between 10 and 300 seconds".to_string());
+    if !(10..=3600).contains(&timeout_seconds) {
+        return Err("Deepgram timeout must be between 10 and 3600 seconds".to_string());
     }
 
     let mut settings = settings::get_settings(&app);
@@ -2081,7 +2081,7 @@ pub fn change_deepgram_endpointing_ms_setting(app: AppHandle, value_ms: u32) -> 
 pub fn reset_deepgram_settings_to_defaults(app: AppHandle) -> Result<(), String> {
     let mut settings = settings::get_settings(&app);
     settings.deepgram_model = DEEPGRAM_DEFAULT_MODEL.to_string();
-    settings.deepgram_timeout_seconds = 30;
+    settings.deepgram_timeout_seconds = 3600;
     settings.deepgram_live_enabled = true;
     settings.preview_output_only_enabled = false;
     settings.soniox_live_preview_enabled = false;

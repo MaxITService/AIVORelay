@@ -1586,7 +1586,7 @@ fn default_deepgram_model() -> String {
 }
 
 fn default_deepgram_timeout_seconds() -> u32 {
-    30
+    3600
 }
 
 fn default_deepgram_live_enabled() -> bool {
