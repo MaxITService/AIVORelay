@@ -9,7 +9,7 @@
   },
   "sidebar": {
     "general": "Speech / Mic",
-    "liveSoundTranscription": "Live Sound Transcription",
+    "liveSoundTranscription": "Live Monitor",
     "models": "Models",
     "advanced": "Advanced",
     "postProcessing": "LLM Post Processing",
@@ -571,8 +571,12 @@
       }
     },
     "liveSoundTranscription": {
-      "title": "Live Sound Transcription",
-      "description": "Run a dedicated live transcription session and keep the transcript on this page as it finalizes.",
+      "title": "Live Monitor",
+      "description": "Capture audio from your speakers, microphone, or both and read the live transcript right here.",
+      "whatIsThis": {
+        "toggle": "What is Live Monitor?",
+        "content": "Live Monitor streams audio from your speakers, microphone, or both into a real-time transcript on this page — with optional speaker identification so you can see who said what.\n\nUnlike dictation, Live Monitor never inserts text into other apps. Use it to follow meetings, calls, or any audio, then review, process with AI, or save the result to a file."
+      },
       "session": {
         "title": "Session",
         "description": "Start and stop a dedicated live transcription workflow without auto-pasting into another app.",
@@ -598,7 +602,7 @@
         "process": "Send to LLM for post processing",
         "diarizationDisabledHint": "Live speaker separation is off for this page. Turn it on here if you want diarized live transcript blocks.",
         "diarizationToggleTitle": "Speaker Diarization",
-        "diarizationToggleDescription": "This toggle only affects Live Sound Transcription on this page. It does not change normal speech / mic transcription.",
+        "diarizationToggleDescription": "This toggle only affects Live Monitor on this page. It does not change normal speech / mic transcription.",
         "diarizationTurnOn": "Turn On",
         "diarizationTurnOff": "Turn Off",
         "processing": "Processing...",

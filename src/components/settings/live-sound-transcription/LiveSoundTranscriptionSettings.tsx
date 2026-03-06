@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { useTranslation } from "react-i18next";
-import { Copy, Check, FileText } from "lucide-react";
+import { Copy, Check, FileText, ChevronDown } from "lucide-react";
 import { save } from "@tauri-apps/plugin-dialog";
 import { commands } from "@/bindings";
 import { Button } from "../../ui/Button";
@@ -90,6 +90,7 @@ export const LiveSoundTranscriptionSettings: React.FC = () => {
   const [autoStopInput, setAutoStopInput] = useState<string>("");
   const [minutesLeft, setMinutesLeft] = useState<number | null>(null);
   const autoStopTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const [showWhatIsThis, setShowWhatIsThis] = useState(false);
 
   const liveSoundProviderSetting = String(
     (settings as any)?.live_sound_transcription_provider ?? "remote_soniox",
@@ -567,6 +568,27 @@ export const LiveSoundTranscriptionSettings: React.FC = () => {
 
   return (
     <div className="max-w-3xl w-full mx-auto space-y-8 pb-12">
+      <div className="rounded-lg border border-[#2a2a2a] bg-[#111111]">
+        <button
+          onClick={() => setShowWhatIsThis((v) => !v)}
+          className="w-full flex items-center justify-between px-4 py-3 text-left"
+        >
+          <span className="text-[13px] text-[#8a8a8a] hover:text-[#c0c0c0] transition-colors">
+            {t("settings.liveSoundTranscription.whatIsThis.toggle")}
+          </span>
+          <ChevronDown
+            size={14}
+            className={`text-[#666] transition-transform duration-200 ${showWhatIsThis ? "rotate-180" : ""}`}
+          />
+        </button>
+        {showWhatIsThis && (
+          <div className="px-4 pb-4">
+            <p className="text-[13px] text-[#9a9a9a] leading-relaxed whitespace-pre-line">
+              {t("settings.liveSoundTranscription.whatIsThis.content")}
+            </p>
+          </div>
+        )}
+      </div>
       <SettingsGroup
         title={t("settings.liveSoundTranscription.title")}
         description={t("settings.liveSoundTranscription.description")}
