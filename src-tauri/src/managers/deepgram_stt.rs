@@ -541,10 +541,6 @@ impl DeepgramSttManager {
         Self::render_speaker_blocks(&Self::extract_diarized_chunk_blocks(alternative, None))
     }
 
-    fn format_diarized_utterances(payload: &Value) -> Option<String> {
-        Self::render_speaker_blocks(&Self::extract_diarized_utterance_blocks(payload, false))
-    }
-
     pub async fn transcribe_prerecorded_bytes(
         &self,
         operation_id: Option<u64>,
