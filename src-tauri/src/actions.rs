@@ -2320,8 +2320,20 @@ fn build_soniox_realtime_options(
             settings.soniox_enable_speaker_diarization
         },
         enable_language_identification: settings.soniox_enable_language_identification,
-        enable_endpoint_detection: settings.soniox_enable_endpoint_detection,
-        max_endpoint_delay_ms: settings.soniox_max_endpoint_delay_ms,
+        enable_endpoint_detection: if binding_id == LIVE_SOUND_TRANSCRIPTION_BINDING_ID {
+            settings
+                .live_sound_soniox_endpoint_detection
+                .unwrap_or(settings.soniox_enable_endpoint_detection)
+        } else {
+            settings.soniox_enable_endpoint_detection
+        },
+        max_endpoint_delay_ms: if binding_id == LIVE_SOUND_TRANSCRIPTION_BINDING_ID {
+            settings
+                .live_sound_soniox_max_endpoint_delay_ms
+                .unwrap_or(settings.soniox_max_endpoint_delay_ms)
+        } else {
+            settings.soniox_max_endpoint_delay_ms
+        },
         keepalive_interval_seconds: settings.soniox_keepalive_interval_seconds,
         context: crate::settings::resolve_soniox_context(profile, settings),
     }
@@ -2341,8 +2353,20 @@ fn build_deepgram_realtime_options(
         } else {
             settings.deepgram_diarize
         },
-        endpointing_enabled: settings.deepgram_endpointing_enabled,
-        endpointing_ms: settings.deepgram_endpointing_ms,
+        endpointing_enabled: if binding_id == LIVE_SOUND_TRANSCRIPTION_BINDING_ID {
+            settings
+                .live_sound_deepgram_endpointing_enabled
+                .unwrap_or(settings.deepgram_endpointing_enabled)
+        } else {
+            settings.deepgram_endpointing_enabled
+        },
+        endpointing_ms: if binding_id == LIVE_SOUND_TRANSCRIPTION_BINDING_ID {
+            settings
+                .live_sound_deepgram_endpointing_ms
+                .unwrap_or(settings.deepgram_endpointing_ms)
+        } else {
+            settings.deepgram_endpointing_ms
+        },
         keepalive_interval_seconds: settings.deepgram_keepalive_interval_seconds,
     }
 }

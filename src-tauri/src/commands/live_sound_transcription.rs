@@ -73,3 +73,51 @@ pub fn change_live_sound_transcription_provider(
     write_settings(&app, settings);
     Ok(())
 }
+
+#[tauri::command]
+#[specta::specta]
+pub fn set_live_sound_soniox_endpoint_detection(
+    app: AppHandle,
+    value: Option<bool>,
+) -> Result<(), String> {
+    let mut settings = get_settings(&app);
+    settings.live_sound_soniox_endpoint_detection = value;
+    write_settings(&app, settings);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn set_live_sound_soniox_max_endpoint_delay_ms(
+    app: AppHandle,
+    value: Option<u32>,
+) -> Result<(), String> {
+    let mut settings = get_settings(&app);
+    settings.live_sound_soniox_max_endpoint_delay_ms = value;
+    write_settings(&app, settings);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn set_live_sound_deepgram_endpointing_enabled(
+    app: AppHandle,
+    value: Option<bool>,
+) -> Result<(), String> {
+    let mut settings = get_settings(&app);
+    settings.live_sound_deepgram_endpointing_enabled = value;
+    write_settings(&app, settings);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn set_live_sound_deepgram_endpointing_ms(
+    app: AppHandle,
+    value: Option<u32>,
+) -> Result<(), String> {
+    let mut settings = get_settings(&app);
+    settings.live_sound_deepgram_endpointing_ms = value;
+    write_settings(&app, settings);
+    Ok(())
+}

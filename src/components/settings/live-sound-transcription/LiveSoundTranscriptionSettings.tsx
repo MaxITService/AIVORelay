@@ -917,6 +917,184 @@ export const LiveSoundTranscriptionSettings: React.FC = () => {
       </SettingsGroup>
 
       <SettingsGroup
+        title={t("settings.liveSoundTranscription.sessionOverrides.title")}
+        description={t("settings.liveSoundTranscription.sessionOverrides.description")}
+      >
+        <SettingContainer
+          title={t("settings.liveSoundTranscription.sessionOverrides.endpointDetectionLabel")}
+          description={t("settings.liveSoundTranscription.sessionOverrides.endpointDetectionHint")}
+          grouped={true}
+          layout="stacked"
+        >
+          {(() => {
+            const globalVal = provider === "remote_soniox"
+              ? Boolean((settings as any)?.soniox_enable_endpoint_detection ?? true)
+              : Boolean((settings as any)?.deepgram_endpointing_enabled ?? true);
+            const overrideKey = provider === "remote_soniox"
+              ? "live_sound_soniox_endpoint_detection"
+              : "live_sound_deepgram_endpointing_enabled";
+            const command = provider === "remote_soniox"
+              ? "set_live_sound_soniox_endpoint_detection"
+              : "set_live_sound_deepgram_endpointing_enabled";
+            const currentOverride = (settings as any)?.[overrideKey] as boolean | null | undefined;
+            const isOverridden = currentOverride != null;
+            const effectiveVal = isOverridden ? currentOverride : globalVal;
+            return (
+              <div className="flex flex-col gap-2">
+                <div className="flex items-center gap-3">
+                  <Button
+                    variant={isOverridden ? "default" : "ghost"}
+                    size="sm"
+                    onClick={async () => {
+                      await invoke(command, { value: isOverridden ? null : effectiveVal });
+                      await refreshSettings();
+                    }}
+                  >
+                    {isOverridden
+                      ? t("settings.liveSoundTranscription.sessionOverrides.override")
+                      : t("settings.liveSoundTranscription.sessionOverrides.useGlobal")}
+                  </Button>
+                  {isOverridden && (
+                    <Button
+                      variant={effectiveVal ? "default" : "ghost"}
+                      size="sm"
+                      onClick={async () => {
+                        await invoke(command, { value: !effectiveVal });
+                        await refreshSettings();
+                      }}
+                    >
+                      {effectiveVal
+                        ? t("settings.liveSoundTranscription.sessionOverrides.on")
+                        : t("settings.liveSoundTranscription.sessionOverrides.off")}
+                    </Button>
+                  )}
+                  {!isOverridden && (
+                    <span className="text-[12px] text-[#666]">
+                      {t("settings.liveSoundTranscription.sessionOverrides.useGlobal")}
+                      {" — "}
+                      {globalVal
+                        ? t("settings.liveSoundTranscription.sessionOverrides.on")
+                        : t("settings.liveSoundTranscription.sessionOverrides.off")}
+                    </span>
+                  )}
+                </div>
+              </div>
+            );
+          })()}
+        </SettingContainer>
+
+        {provider === "remote_soniox" && (
+          <SettingContainer
+            title={t("settings.liveSoundTranscription.sessionOverrides.maxEndpointDelayLabel")}
+            description={t("settings.liveSoundTranscription.sessionOverrides.maxEndpointDelayHint")}
+            grouped={true}
+            layout="stacked"
+          >
+            {(() => {
+              const globalVal = Number((settings as any)?.soniox_max_endpoint_delay_ms ?? 2000);
+              const currentOverride = (settings as any)?.live_sound_soniox_max_endpoint_delay_ms as number | null | undefined;
+              const isOverridden = currentOverride != null;
+              return (
+                <div className="flex items-center gap-3">
+                  <Button
+                    variant={isOverridden ? "default" : "ghost"}
+                    size="sm"
+                    onClick={async () => {
+                      await invoke("set_live_sound_soniox_max_endpoint_delay_ms", {
+                        value: isOverridden ? null : globalVal,
+                      });
+                      await refreshSettings();
+                    }}
+                  >
+                    {isOverridden
+                      ? t("settings.liveSoundTranscription.sessionOverrides.override")
+                      : t("settings.liveSoundTranscription.sessionOverrides.useGlobal")}
+                  </Button>
+                  {isOverridden ? (
+                    <input
+                      type="number"
+                      min={500}
+                      max={10000}
+                      step={100}
+                      value={currentOverride}
+                      onChange={async (e) => {
+                        const val = Number(e.target.value);
+                        if (!Number.isNaN(val)) {
+                          await invoke("set_live_sound_soniox_max_endpoint_delay_ms", { value: val });
+                          await refreshSettings();
+                        }
+                      }}
+                      className="w-24 rounded border border-[#333] bg-[#1a1a1a] px-2 py-1 text-[13px] text-[#e0e0e0]"
+                    />
+                  ) : (
+                    <span className="text-[12px] text-[#666]">
+                      {t("settings.liveSoundTranscription.sessionOverrides.useGlobal")}
+                      {" — "}{globalVal} ms
+                    </span>
+                  )}
+                </div>
+              );
+            })()}
+          </SettingContainer>
+        )}
+
+        {provider === "remote_deepgram" && (
+          <SettingContainer
+            title={t("settings.liveSoundTranscription.sessionOverrides.endpointingMsLabel")}
+            description={t("settings.liveSoundTranscription.sessionOverrides.endpointingMsHint")}
+            grouped={true}
+            layout="stacked"
+          >
+            {(() => {
+              const globalVal = Number((settings as any)?.deepgram_endpointing_ms ?? 10);
+              const currentOverride = (settings as any)?.live_sound_deepgram_endpointing_ms as number | null | undefined;
+              const isOverridden = currentOverride != null;
+              return (
+                <div className="flex items-center gap-3">
+                  <Button
+                    variant={isOverridden ? "default" : "ghost"}
+                    size="sm"
+                    onClick={async () => {
+                      await invoke("set_live_sound_deepgram_endpointing_ms", {
+                        value: isOverridden ? null : globalVal,
+                      });
+                      await refreshSettings();
+                    }}
+                  >
+                    {isOverridden
+                      ? t("settings.liveSoundTranscription.sessionOverrides.override")
+                      : t("settings.liveSoundTranscription.sessionOverrides.useGlobal")}
+                  </Button>
+                  {isOverridden ? (
+                    <input
+                      type="number"
+                      min={0}
+                      max={5000}
+                      step={10}
+                      value={currentOverride}
+                      onChange={async (e) => {
+                        const val = Number(e.target.value);
+                        if (!Number.isNaN(val)) {
+                          await invoke("set_live_sound_deepgram_endpointing_ms", { value: val });
+                          await refreshSettings();
+                        }
+                      }}
+                      className="w-24 rounded border border-[#333] bg-[#1a1a1a] px-2 py-1 text-[13px] text-[#e0e0e0]"
+                    />
+                  ) : (
+                    <span className="text-[12px] text-[#666]">
+                      {t("settings.liveSoundTranscription.sessionOverrides.useGlobal")}
+                      {" — "}{globalVal} ms
+                    </span>
+                  )}
+                </div>
+              );
+            })()}
+          </SettingContainer>
+        )}
+      </SettingsGroup>
+
+      <SettingsGroup
         title={t("settings.liveSoundTranscription.speakerNames.title")}
         description={t("settings.liveSoundTranscription.speakerNames.hint")}
       >

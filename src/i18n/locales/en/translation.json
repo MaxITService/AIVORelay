@@ -575,7 +575,7 @@
       "description": "Capture audio from your speakers, microphone, or both and read the live transcript right here.",
       "whatIsThis": {
         "toggle": "What is Live Monitor?",
-        "content": "Live Monitor streams audio from your speakers, microphone, or both into a real-time transcript on this page — with optional speaker identification so you can see who said what.\n\nUnlike dictation, Live Monitor never inserts text into other apps. Use it to follow meetings, calls, or any audio, then review, process with AI, or save the result to a file."
+        "content": "Live Monitor streams audio from your speakers, microphone, or both into a real-time transcript on this page — with optional speaker identification so you can see who said what.\n\nUnlike dictation, Live Monitor never inserts text into other apps. Use it to follow meetings, calls, or any audio, then review, process with AI, or save the result to a file.\n\nTip: real-time streaming from microphone can behave differently than from speakers — if results feel slow or cut off, try adjusting the session settings below."
       },
       "session": {
         "title": "Session",
@@ -641,6 +641,20 @@
         "sourceDisable": "Do not listen to",
         "microphoneDescription": "Select the microphone device used when Capture Source is set to Microphone.",
         "outputDescription": "Select the Windows speaker or headphone device used for loopback capture when Capture Source is set to Windows sound output."
+      },
+      "sessionOverrides": {
+        "title": "Session Settings",
+        "description": "Override provider defaults specifically for Live Monitor. These do not affect regular transcription.",
+        "useGlobal": "Use global setting",
+        "override": "Override",
+        "endpointDetectionLabel": "Endpoint Detection",
+        "endpointDetectionHint": "When off, the provider never auto-finalizes mid-session — useful if you experience long gaps after a phrase ends.",
+        "maxEndpointDelayLabel": "Max Endpoint Delay (ms)",
+        "maxEndpointDelayHint": "How long the provider waits after silence before finalizing a segment. Lower = faster finalization, but may cut off speech.",
+        "endpointingMsLabel": "Endpointing (ms)",
+        "endpointingMsHint": "Milliseconds of silence before Deepgram finalizes a segment. Lower = faster, but may cut speech short.",
+        "on": "On",
+        "off": "Off"
       },
       "speakerNames": {
         "title": "Speaker Names",

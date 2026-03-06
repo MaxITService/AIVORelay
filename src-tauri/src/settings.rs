@@ -1154,6 +1154,15 @@ pub struct AppSettings {
     pub live_sound_transcription_provider: LiveSoundTranscriptionProvider,
     #[serde(default = "default_live_sound_auto_stop_minutes")]
     pub live_sound_auto_stop_minutes: u32,
+    /// Overrides for Live Monitor sessions — None means inherit global provider setting.
+    #[serde(default)]
+    pub live_sound_soniox_endpoint_detection: Option<bool>,
+    #[serde(default)]
+    pub live_sound_soniox_max_endpoint_delay_ms: Option<u32>,
+    #[serde(default)]
+    pub live_sound_deepgram_endpointing_enabled: Option<bool>,
+    #[serde(default)]
+    pub live_sound_deepgram_endpointing_ms: Option<u32>,
     #[serde(default = "default_translate_to_english")]
     pub translate_to_english: bool,
     #[serde(default = "default_selected_language")]
@@ -2358,6 +2367,10 @@ pub fn get_default_settings() -> AppSettings {
         live_sound_capture_source: default_live_sound_capture_source(),
         live_sound_transcription_provider: LiveSoundTranscriptionProvider::RemoteSoniox,
         live_sound_auto_stop_minutes: default_live_sound_auto_stop_minutes(),
+        live_sound_soniox_endpoint_detection: None,
+        live_sound_soniox_max_endpoint_delay_ms: None,
+        live_sound_deepgram_endpointing_enabled: None,
+        live_sound_deepgram_endpointing_ms: None,
         translate_to_english: false,
         selected_language: "auto".to_string(),
         overlay_position: default_overlay_position(),
