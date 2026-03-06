@@ -101,7 +101,8 @@ fn start_live_session(
     settings: &AppSettings,
     recorder: &mut AudioRecorder,
 ) -> Result<ActiveRealtimeManager, String> {
-    match settings.transcription_provider {
+    let provider = crate::settings::resolve_live_sound_provider(settings);
+    match provider {
         TranscriptionProvider::RemoteSoniox => {
             let manager = Arc::new(
                 SonioxRealtimeManager::new(app)

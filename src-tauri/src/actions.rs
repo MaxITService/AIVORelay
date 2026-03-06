@@ -2123,7 +2123,18 @@ fn is_transcribe_binding_id(binding_id: &str) -> bool {
 }
 
 pub(crate) fn live_sound_use_live_streaming(settings: &AppSettings) -> bool {
-    should_use_live_streaming(settings)
+    let provider = crate::settings::resolve_live_sound_provider(settings);
+    match provider {
+        TranscriptionProvider::RemoteSoniox => {
+            settings.soniox_live_enabled
+                && SonioxRealtimeManager::is_realtime_model(&settings.soniox_model)
+        }
+        TranscriptionProvider::RemoteDeepgram => {
+            settings.deepgram_live_enabled
+                && DeepgramRealtimeManager::is_realtime_model(&settings.deepgram_model)
+        }
+        _ => false,
+    }
 }
 
 pub(crate) fn build_soniox_options_for_live_sound(

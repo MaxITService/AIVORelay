@@ -381,13 +381,15 @@ impl DeepgramRealtimeManager {
             }
         }
 
-        let preserve_existing_preview =
-            crate::managers::preview_output_mode::is_active_for_binding(binding_id);
-        crate::overlay::begin_soniox_live_preview_session();
-        if !preserve_existing_preview {
-            crate::overlay::reset_soniox_live_preview(&self.app_handle);
-        }
+        // Live Sound has its own UI — skip shared overlay preview state entirely
+        // to avoid interfering with regular transcription's preview.
         if binding_id != crate::actions::LIVE_SOUND_TRANSCRIPTION_BINDING_ID {
+            let preserve_existing_preview =
+                crate::managers::preview_output_mode::is_active_for_binding(binding_id);
+            crate::overlay::begin_soniox_live_preview_session();
+            if !preserve_existing_preview {
+                crate::overlay::reset_soniox_live_preview(&self.app_handle);
+            }
             crate::overlay::show_soniox_live_preview_window(&self.app_handle);
         }
 
@@ -592,24 +594,26 @@ impl DeepgramRealtimeManager {
                                     );
                                 }
 
-                                let mut preview_final_text = crate::overlay::get_soniox_live_preview_state().final_text;
-                                if !chunk_text.is_empty() {
-                                    if !preview_final_text.is_empty() {
-                                        preview_final_text.push(' ');
+                                if binding_id != crate::actions::LIVE_SOUND_TRANSCRIPTION_BINDING_ID {
+                                    let mut preview_final_text = crate::overlay::get_soniox_live_preview_state().final_text;
+                                    if !chunk_text.is_empty() {
+                                        if !preview_final_text.is_empty() {
+                                            preview_final_text.push(' ');
+                                        }
+                                        preview_final_text.push_str(&chunk_text);
                                     }
-                                    preview_final_text.push_str(&chunk_text);
+                                    debug!(
+                                        "Deepgram live preview update: final_chars={}, interim_chars={}, from_finalize={}",
+                                        chunk_text.len(),
+                                        interim_text.len(),
+                                        from_finalize
+                                    );
+                                    crate::overlay::emit_soniox_live_preview_update(
+                                        &app_handle,
+                                        &preview_final_text,
+                                        &interim_text,
+                                    );
                                 }
-                                debug!(
-                                    "Deepgram live preview update: final_chars={}, interim_chars={}, from_finalize={}",
-                                    chunk_text.len(),
-                                    interim_text.len(),
-                                    from_finalize
-                                );
-                                crate::overlay::emit_soniox_live_preview_update(
-                                    &app_handle,
-                                    &preview_final_text,
-                                    &interim_text,
-                                );
                             }
                         }
                         Message::Ping(_) | Message::Pong(_) | Message::Binary(_) => {}
@@ -664,7 +668,10 @@ impl DeepgramRealtimeManager {
     }
 
     pub async fn finish_session(&self, timeout_ms: u32) -> Result<String> {
-        let hide_preview = || {
+        let hide_preview = |binding_id: Option<&str>| {
+            if binding_id == Some(crate::actions::LIVE_SOUND_TRANSCRIPTION_BINDING_ID) {
+                return;
+            }
             if crate::managers::preview_output_mode::is_active() {
                 return;
             }
@@ -676,7 +683,7 @@ impl DeepgramRealtimeManager {
             let mut guard = match self.active_session.lock() {
                 Ok(guard) => guard,
                 Err(_) => {
-                    hide_preview();
+                    hide_preview(None);
                     return Err(anyhow!("Failed to lock Deepgram live session state"));
                 }
             };
@@ -684,7 +691,7 @@ impl DeepgramRealtimeManager {
         };
 
         let Some(session) = session.take() else {
-            hide_preview();
+            hide_preview(None);
             return Ok(String::new());
         };
         let ActiveSession {
@@ -721,10 +728,10 @@ impl DeepgramRealtimeManager {
                         "Deepgram live session ended with error after partial output (binding='{}'): {}",
                         binding_id, e
                     );
-                    hide_preview();
+                    hide_preview(Some(&binding_id));
                     return Ok(partial);
                 }
-                hide_preview();
+                hide_preview(Some(&binding_id));
                 return Err(e);
             }
             Ok(Err(e)) => {
@@ -734,10 +741,10 @@ impl DeepgramRealtimeManager {
                         "Deepgram live session join failed after partial output (binding='{}'): {}",
                         binding_id, e
                     );
-                    hide_preview();
+                    hide_preview(Some(&binding_id));
                     return Ok(partial);
                 }
-                hide_preview();
+                hide_preview(Some(&binding_id));
                 return Err(anyhow!("Deepgram live session join failed: {}", e));
             }
             Err(_) => {
@@ -748,10 +755,10 @@ impl DeepgramRealtimeManager {
                         "Deepgram live session timed out after partial output (binding='{}', wait={}ms)",
                         binding_id, wait_ms
                     );
-                    hide_preview();
+                    hide_preview(Some(&binding_id));
                     return Ok(partial);
                 }
-                hide_preview();
+                hide_preview(Some(&binding_id));
                 return Err(anyhow!(
                     "Timed out while waiting for Deepgram live session completion"
                 ));
@@ -764,12 +771,15 @@ impl DeepgramRealtimeManager {
             binding_id,
             text.len()
         );
-        hide_preview();
+        hide_preview(Some(&binding_id));
         Ok(text)
     }
 
     pub fn cancel(&self) {
-        let hide_preview_if_needed = || {
+        let hide_preview_if_needed = |binding_id: Option<&str>| {
+            if binding_id == Some(crate::actions::LIVE_SOUND_TRANSCRIPTION_BINDING_ID) {
+                return;
+            }
             if !crate::managers::preview_output_mode::is_active() {
                 crate::overlay::end_soniox_live_preview_session();
                 crate::overlay::hide_soniox_live_preview_window(&self.app_handle);
@@ -780,11 +790,17 @@ impl DeepgramRealtimeManager {
             let mut guard = match self.active_session.lock() {
                 Ok(guard) => guard,
                 Err(_) => {
-                    hide_preview_if_needed();
+                    hide_preview_if_needed(None);
                     return;
                 }
             };
             guard.take()
+        };
+
+        let cancelled_binding_id = if let Some(session) = &active {
+            Some(session.binding_id.clone())
+        } else {
+            None
         };
 
         if let Some(session) = active {
@@ -798,7 +814,7 @@ impl DeepgramRealtimeManager {
         if let Ok(mut pending) = self.pending_audio.lock() {
             pending.clear();
         }
-        hide_preview_if_needed();
+        hide_preview_if_needed(cancelled_binding_id.as_deref());
     }
 }
 

@@ -978,6 +978,32 @@ impl Default for LiveSoundCaptureSource {
     }
 }
 
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Type)]
+#[serde(rename_all = "snake_case")]
+pub enum LiveSoundTranscriptionProvider {
+    System,
+    #[serde(rename = "remote_soniox")]
+    RemoteSoniox,
+    #[serde(rename = "remote_deepgram")]
+    RemoteDeepgram,
+}
+
+impl Default for LiveSoundTranscriptionProvider {
+    fn default() -> Self {
+        Self::RemoteSoniox
+    }
+}
+
+/// Resolve the effective transcription provider for Live Sound Transcription.
+/// If the page-level override is set, use it; otherwise fall back to the global provider.
+pub fn resolve_live_sound_provider(settings: &AppSettings) -> TranscriptionProvider {
+    match settings.live_sound_transcription_provider {
+        LiveSoundTranscriptionProvider::System => settings.transcription_provider,
+        LiveSoundTranscriptionProvider::RemoteSoniox => TranscriptionProvider::RemoteSoniox,
+        LiveSoundTranscriptionProvider::RemoteDeepgram => TranscriptionProvider::RemoteDeepgram,
+    }
+}
+
 impl ModelUnloadTimeout {
     pub fn to_minutes(self) -> Option<u64> {
         match self {
@@ -1124,6 +1150,8 @@ pub struct AppSettings {
     pub selected_output_device: Option<String>,
     #[serde(default = "default_live_sound_capture_source")]
     pub live_sound_capture_source: LiveSoundCaptureSource,
+    #[serde(default)]
+    pub live_sound_transcription_provider: LiveSoundTranscriptionProvider,
     #[serde(default = "default_live_sound_auto_stop_minutes")]
     pub live_sound_auto_stop_minutes: u32,
     #[serde(default = "default_translate_to_english")]
@@ -2328,6 +2356,7 @@ pub fn get_default_settings() -> AppSettings {
         clamshell_microphone: None,
         selected_output_device: None,
         live_sound_capture_source: default_live_sound_capture_source(),
+        live_sound_transcription_provider: LiveSoundTranscriptionProvider::RemoteSoniox,
         live_sound_auto_stop_minutes: default_live_sound_auto_stop_minutes(),
         translate_to_english: false,
         selected_language: "auto".to_string(),

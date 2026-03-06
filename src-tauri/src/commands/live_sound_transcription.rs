@@ -1,6 +1,6 @@
 use crate::actions;
 use crate::managers::live_sound_transcription::LiveSoundTranscriptionStatePayload;
-use crate::settings::{get_settings, write_settings};
+use crate::settings::{get_settings, write_settings, LiveSoundTranscriptionProvider};
 use tauri::AppHandle;
 
 #[tauri::command]
@@ -60,4 +60,16 @@ pub fn save_live_sound_transcript(path: String, content: String) -> Result<(), S
         return Err("Transcript is empty.".to_string());
     }
     std::fs::write(&path, content).map_err(|e| format!("Failed to save transcript: {}", e))
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_live_sound_transcription_provider(
+    app: AppHandle,
+    provider: LiveSoundTranscriptionProvider,
+) -> Result<(), String> {
+    let mut settings = get_settings(&app);
+    settings.live_sound_transcription_provider = provider;
+    write_settings(&app, settings);
+    Ok(())
 }

@@ -91,7 +91,15 @@ export const LiveSoundTranscriptionSettings: React.FC = () => {
   const [minutesLeft, setMinutesLeft] = useState<number | null>(null);
   const autoStopTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  const provider = String(settings?.transcription_provider ?? "local");
+  const liveSoundProviderSetting = String(
+    (settings as any)?.live_sound_transcription_provider ?? "remote_soniox",
+  );
+  // "system" is a legacy value — treat it as Soniox (the new default)
+  const provider =
+    liveSoundProviderSetting === "system" || liveSoundProviderSetting === "remote_soniox"
+      ? "remote_soniox"
+      : "remote_deepgram";
+
   const providerLabel =
     provider === "remote_soniox"
       ? "Soniox"
@@ -100,6 +108,31 @@ export const LiveSoundTranscriptionSettings: React.FC = () => {
         : provider === "remote_openai_compatible"
           ? "OpenAI-compatible API"
           : t("settings.liveSoundTranscription.session.providerUnsupported");
+
+  const providerOptions = [
+    { value: "remote_soniox", label: "Soniox" },
+    { value: "remote_deepgram", label: "Deepgram" },
+  ];
+
+  const handleProviderChange = async (value: string | null) => {
+    if (!value) return;
+    setSourceBusy(true);
+    setErrorMessage(null);
+    try {
+      await invoke("change_live_sound_transcription_provider", { provider: value });
+      await refreshSettings();
+    } catch (error) {
+      setErrorMessage(
+        error instanceof Error
+          ? error.message
+          : typeof error === "string"
+            ? error
+            : t("settings.liveSoundTranscription.session.actionFailed"),
+      );
+    } finally {
+      setSourceBusy(false);
+    }
+  };
 
   const modelLabel =
     provider === "remote_soniox"
@@ -547,12 +580,16 @@ export const LiveSoundTranscriptionSettings: React.FC = () => {
           <div className="space-y-4">
             <div className="grid gap-3 md:grid-cols-2">
               <div className="rounded-lg border border-[#333333] bg-[#121212]/70 px-4 py-3">
-                <p className="text-[11px] uppercase tracking-[0.18em] text-[#8a8a8a]">
+                <p className="text-[11px] uppercase tracking-[0.18em] text-[#8a8a8a] mb-1.5">
                   {t("settings.liveSoundTranscription.session.providerLabel")}
                 </p>
-                <p className="mt-1 text-sm font-medium text-[#f5f5f5]">
-                  {providerLabel}
-                </p>
+                <Dropdown
+                  className="w-full"
+                  selectedValue={liveSoundProviderSetting}
+                  options={providerOptions}
+                  onSelect={(v) => void handleProviderChange(v)}
+                  disabled={sourceBusy || isRecording || actionBusy !== null}
+                />
               </div>
               <div className="rounded-lg border border-[#333333] bg-[#121212]/70 px-4 py-3">
                 <p className="text-[11px] uppercase tracking-[0.18em] text-[#8a8a8a]">
@@ -572,16 +609,18 @@ export const LiveSoundTranscriptionSettings: React.FC = () => {
                     : t("settings.liveSoundTranscription.session.disabled")}
                 </p>
               </div>
-              <div className="rounded-lg border border-[#333333] bg-[#121212]/70 px-4 py-3">
-                <p className="text-[11px] uppercase tracking-[0.18em] text-[#8a8a8a]">
-                  {t("settings.liveSoundTranscription.session.diarizationLabel")}
-                </p>
-                <p className="mt-1 text-sm font-medium text-[#f5f5f5]">
-                  {diarizationEnabled
-                    ? t("settings.liveSoundTranscription.session.enabled")
-                    : t("settings.liveSoundTranscription.session.disabled")}
-                </p>
-              </div>
+              {liveProviderReady && (
+                <div className="rounded-lg border border-[#333333] bg-[#121212]/70 px-4 py-3">
+                  <p className="text-[11px] uppercase tracking-[0.18em] text-[#8a8a8a]">
+                    {t("settings.liveSoundTranscription.session.diarizationLabel")}
+                  </p>
+                  <p className="mt-1 text-sm font-medium text-[#f5f5f5]">
+                    {diarizationEnabled
+                      ? t("settings.liveSoundTranscription.session.enabled")
+                      : t("settings.liveSoundTranscription.session.disabled")}
+                  </p>
+                </div>
+              )}
             </div>
 
             {!liveProviderReady && (
@@ -590,31 +629,33 @@ export const LiveSoundTranscriptionSettings: React.FC = () => {
               </div>
             )}
 
-            {!diarizationEnabled && (
+            {liveProviderReady && !diarizationEnabled && (
               <div className="rounded-lg border border-amber-500/25 bg-amber-500/10 px-4 py-3 text-sm text-amber-100">
                 {t("settings.liveSoundTranscription.session.diarizationDisabledHint")}
               </div>
             )}
 
-            <div className="flex flex-wrap items-center gap-3 rounded-lg border border-[#333333] bg-[#121212]/50 px-4 py-3">
-              <div className="min-w-0 flex-1">
-                <p className="text-sm font-medium text-[#f5f5f5]">
-                  {t("settings.liveSoundTranscription.session.diarizationToggleTitle")}
-                </p>
-                <p className="text-xs text-[#9a9a9a]">
-                  {t("settings.liveSoundTranscription.session.diarizationToggleDescription")}
-                </p>
+            {liveProviderReady && (
+              <div className="flex flex-wrap items-center gap-3 rounded-lg border border-[#333333] bg-[#121212]/50 px-4 py-3">
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-medium text-[#f5f5f5]">
+                    {t("settings.liveSoundTranscription.session.diarizationToggleTitle")}
+                  </p>
+                  <p className="text-xs text-[#9a9a9a]">
+                    {t("settings.liveSoundTranscription.session.diarizationToggleDescription")}
+                  </p>
+                </div>
+                <Button
+                  variant={diarizationEnabled ? "secondary" : "primary"}
+                  disabled={sourceBusy || actionBusy !== null || isRecording}
+                  onClick={() => void handleDiarizationToggle()}
+                >
+                  {diarizationEnabled
+                    ? t("settings.liveSoundTranscription.session.diarizationTurnOff")
+                    : t("settings.liveSoundTranscription.session.diarizationTurnOn")}
+                </Button>
               </div>
-              <Button
-                variant={diarizationEnabled ? "secondary" : "primary"}
-                disabled={sourceBusy || actionBusy !== null || isRecording}
-                onClick={() => void handleDiarizationToggle()}
-              >
-                {diarizationEnabled
-                  ? t("settings.liveSoundTranscription.session.diarizationTurnOff")
-                  : t("settings.liveSoundTranscription.session.diarizationTurnOn")}
-              </Button>
-            </div>
+            )}
 
             {errorMessage && (
               <div className="rounded-lg border border-[#6b2c2c] bg-[#351616]/80 px-4 py-3 text-sm text-[#ffd4d4]">

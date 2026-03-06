@@ -607,6 +607,7 @@ pub fn run() {
         commands::live_sound_transcription::get_live_sound_transcription_state,
         commands::live_sound_transcription::save_live_sound_transcript,
         commands::live_sound_transcription::set_live_sound_auto_stop_minutes,
+        commands::live_sound_transcription::change_live_sound_transcription_provider,
         commands::transcription::set_model_unload_timeout,
         commands::transcription::unload_model_manually,
         commands::history::get_history_entries,
