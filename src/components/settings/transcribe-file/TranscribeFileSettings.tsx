@@ -393,22 +393,31 @@ export const TranscribeFileSettings: React.FC = () => {
     showSonioxFileOptions &&
     selectedFileDurationSeconds != null &&
     selectedFileDurationSeconds > SONIOX_MAX_FILE_DURATION_SECONDS;
-  const selectedFileDurationLimitWarning =
-    selectedFileExceedsDeepgramLimit
-      ? t("transcribeFile.deepgram.durationLimitExceeded", {
-          duration: formatAudioDurationWithUnits(selectedFileDurationSeconds),
-          limit: formatAudioDurationWithUnits(DEEPGRAM_MAX_FILE_DURATION_SECONDS),
-        })
-      : selectedFileExceedsSonioxLimit
-        ? t("transcribeFile.soniox.durationLimitExceeded", {
+  const selectedFileHasUnknownRemoteDuration =
+    (showDeepgramFileOptions || showSonioxFileOptions) &&
+    selectedFileDurationSeconds == null;
+  const selectedFileDurationWarning =
+    selectedFileHasUnknownRemoteDuration
+      ? t("transcribeFile.durationUnknownWarning")
+      : selectedFileExceedsDeepgramLimit
+        ? t("transcribeFile.deepgram.durationLimitExceeded", {
             duration: formatAudioDurationWithUnits(selectedFileDurationSeconds),
-            limit: formatAudioDurationWithUnits(SONIOX_MAX_FILE_DURATION_SECONDS),
+            limit: formatAudioDurationWithUnits(DEEPGRAM_MAX_FILE_DURATION_SECONDS),
           })
-        : null;
+        : selectedFileExceedsSonioxLimit
+          ? t("transcribeFile.soniox.durationLimitExceeded", {
+              duration: formatAudioDurationWithUnits(selectedFileDurationSeconds),
+              limit: formatAudioDurationWithUnits(SONIOX_MAX_FILE_DURATION_SECONDS),
+            })
+          : null;
   const durationLimitWarningProvider = selectedFileExceedsDeepgramLimit
     ? "Deepgram"
     : selectedFileExceedsSonioxLimit
       ? "Soniox"
+      : showDeepgramFileOptions
+        ? "Deepgram"
+        : showSonioxFileOptions
+          ? "Soniox"
       : null;
   const canTranscribe = !isTranscribing && !isRecording;
 
@@ -588,7 +597,7 @@ export const TranscribeFileSettings: React.FC = () => {
   // Transcribe the selected file
   const handleTranscribe = async () => {
     if (!selectedFile) return;
-    if (selectedFileDurationLimitWarning) {
+    if (selectedFileDurationWarning) {
       setError(null);
       setShowDurationLimitWarningDialog(true);
       return;
@@ -1103,8 +1112,8 @@ export const TranscribeFileSettings: React.FC = () => {
                 title={
                   isRecording
                     ? t("transcribeFile.recordingInProgress")
-                    : selectedFileDurationLimitWarning
-                      ? selectedFileDurationLimitWarning
+                    : selectedFileDurationWarning
+                      ? selectedFileDurationWarning
                       : undefined
                 }
               >
@@ -1363,7 +1372,7 @@ export const TranscribeFileSettings: React.FC = () => {
         })}
         message={t("transcribeFile.durationLimitDialog.message", {
           provider: durationLimitWarningProvider ?? t("transcribeFile.title"),
-          limitWarning: selectedFileDurationLimitWarning ?? "",
+          limitWarning: selectedFileDurationWarning ?? "",
         })}
         confirmText={t("transcribeFile.durationLimitDialog.confirm")}
         cancelText={t("transcribeFile.durationLimitDialog.cancel")}

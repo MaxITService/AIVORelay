@@ -2053,6 +2053,7 @@
       "confirm": "Continue anyway",
       "cancel": "Cancel"
     },
+    "durationUnknownWarning": "Could not determine the file duration in advance. This upload may not work with the selected remote provider.",
     "speakerNames": {
       "title": "Speaker Names",
       "hint": "Re-apply rebuilds the transcript from the temporary diarization session instead of editing the visible text.",
