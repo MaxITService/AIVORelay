@@ -50,48 +50,49 @@ fn resolve_device(
         .map(|d| d.device)
 }
 
-/// Wire the frame callback so that each frame from `recorder` is mixed with
-/// whatever mic samples are currently buffered, then pushed to `manager`.
+/// Wire the mic recorder's frame callback so that each mic frame is mixed with
+/// whatever loopback samples are currently buffered, then pushed to `manager`.
 ///
-/// Used for `Both` mode: loopback drives the clock; mic fills in.
-fn wire_mixed_callback(
-    recorder: &mut AudioRecorder,
-    mic_buf: Arc<Mutex<Vec<f32>>>,
+/// Used for `Both` mode: mic drives the clock; loopback fills in.
+/// This ensures audio always flows to the WebSocket even when speakers are silent.
+fn wire_mic_clock_callback(
+    mic_recorder: &mut AudioRecorder,
+    loopback_buf: Arc<Mutex<Vec<f32>>>,
     manager: &ActiveRealtimeManager,
 ) {
     match manager {
         ActiveRealtimeManager::Soniox(m) => {
             let m = Arc::clone(m);
-            recorder.set_stream_frame_callback(Some(Arc::new(move |frame| {
-                let mixed = mix_with_mic_buf(&frame, &mic_buf);
+            mic_recorder.set_stream_frame_callback(Some(Arc::new(move |frame| {
+                let mixed = mix_with_secondary_buf(&frame, &loopback_buf);
                 m.push_audio_frame(mixed);
             })));
         }
         ActiveRealtimeManager::Deepgram(m) => {
             let m = Arc::clone(m);
-            recorder.set_stream_frame_callback(Some(Arc::new(move |frame| {
-                let mixed = mix_with_mic_buf(&frame, &mic_buf);
+            mic_recorder.set_stream_frame_callback(Some(Arc::new(move |frame| {
+                let mixed = mix_with_secondary_buf(&frame, &loopback_buf);
                 m.push_audio_frame(mixed);
             })));
         }
     }
 }
 
-fn mix_with_mic_buf(loopback: &[f32], mic_buf: &Mutex<Vec<f32>>) -> Vec<f32> {
-    let mic_samples: Vec<f32> = mic_buf
+fn mix_with_secondary_buf(primary: &[f32], secondary_buf: &Mutex<Vec<f32>>) -> Vec<f32> {
+    let secondary_samples: Vec<f32> = secondary_buf
         .lock()
         .map(|mut buf| {
-            let take = loopback.len().min(buf.len());
+            let take = primary.len().min(buf.len());
             buf.drain(..take).collect()
         })
         .unwrap_or_default();
 
-    loopback
+    primary
         .iter()
         .enumerate()
-        .map(|(i, &lb)| {
-            let mic = mic_samples.get(i).copied().unwrap_or(0.0);
-            (lb + mic) * 0.5
+        .map(|(i, &p)| {
+            let s = secondary_samples.get(i).copied().unwrap_or(0.0);
+            (p + s) * 0.5
         })
         .collect()
 }
@@ -169,8 +170,14 @@ fn start_live_session(
     }
 }
 
-/// Opens a mic recorder for `Both` mode and re-wires the loopback recorder's
-/// callback to blend mic samples in before forwarding to the realtime manager.
+/// Opens a mic recorder for `Both` mode.
+///
+/// Mic drives the clock: its frame callback mixes in loopback samples and
+/// pushes the result to the realtime manager. The loopback recorder's callback
+/// is replaced to simply fill a ring buffer consumed by the mic callback.
+///
+/// This ensures audio always reaches the WebSocket even when speakers are
+/// silent (loopback produces no callbacks during silence on Windows WASAPI).
 fn open_mic_recorder_for_both(
     settings: &AppSettings,
     loopback_recorder: &mut AudioRecorder,
@@ -180,13 +187,27 @@ fn open_mic_recorder_for_both(
         return Err("No realtime manager — Both mode requires live streaming".to_string());
     };
 
-    // Shared ring buffer: mic callback writes, loopback callback reads.
-    let mic_buf: Arc<Mutex<Vec<f32>>> = Arc::new(Mutex::new(Vec::new()));
+    // Shared ring buffer: loopback callback writes, mic callback reads.
+    let loopback_buf: Arc<Mutex<Vec<f32>>> = Arc::new(Mutex::new(Vec::new()));
 
-    // Re-wire the loopback recorder to mix in mic samples.
-    wire_mixed_callback(loopback_recorder, Arc::clone(&mic_buf), rt);
+    // Re-wire the loopback recorder to fill the buffer only — it no longer
+    // pushes to the WebSocket directly.
+    loopback_recorder.set_stream_frame_callback(Some(Arc::new({
+        let loopback_buf = Arc::clone(&loopback_buf);
+        move |frame| {
+            if let Ok(mut buf) = loopback_buf.lock() {
+                // Cap to ~1 second to avoid unbounded growth if speakers run fast.
+                const MAX_SAMPLES: usize = 16_000;
+                if buf.len() + frame.len() > MAX_SAMPLES {
+                    let drop = (buf.len() + frame.len()).saturating_sub(MAX_SAMPLES);
+                    buf.drain(..drop);
+                }
+                buf.extend_from_slice(&frame);
+            }
+        }
+    })));
 
-    // Open the mic recorder; its sole job is to fill mic_buf.
+    // Open the mic recorder; it drives the clock and mixes in loopback.
     let mut mic_rec = AudioRecorder::new()
         .map_err(|e| format!("Failed to create mic recorder: {}", e))?;
 
@@ -195,17 +216,7 @@ fn open_mic_recorder_for_both(
         .open_with_source(mic_device, AudioCaptureSource::Microphone)
         .map_err(|e| format!("Failed to open mic stream: {}", e))?;
 
-    mic_rec.set_stream_frame_callback(Some(Arc::new(move |frame| {
-        if let Ok(mut buf) = mic_buf.lock() {
-            // Cap buffer to ~1 second to avoid unbounded growth if mic runs fast.
-            const MAX_SAMPLES: usize = 16_000;
-            if buf.len() + frame.len() > MAX_SAMPLES {
-                let drop = (buf.len() + frame.len()).saturating_sub(MAX_SAMPLES);
-                buf.drain(..drop);
-            }
-            buf.extend_from_slice(&frame);
-        }
-    })));
+    wire_mic_clock_callback(&mut mic_rec, loopback_buf, rt);
 
     Ok(mic_rec)
 }
