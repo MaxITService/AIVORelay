@@ -12,12 +12,14 @@ const ARTIFACT_TTL: Duration = Duration::from_secs(60 * 60 * 24);
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RawSpeakerBlock {
     pub speaker_key: String,
+    pub default_name: Option<String>,
     pub text: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DiarizedTranscriptBlock {
     pub speaker_id: u32,
+    pub default_name: String,
     pub text: String,
 }
 
@@ -54,7 +56,9 @@ struct DiarizedTranscriptArtifact {
 }
 
 pub fn normalize_raw_speaker_blocks(raw_blocks: Vec<RawSpeakerBlock>) -> Vec<DiarizedTranscriptBlock> {
-    let speaker_ids = build_normalized_speaker_ids(&raw_blocks);
+    let mut speaker_ids = HashMap::new();
+    let mut default_names = HashMap::new();
+    let mut next_speaker_id = 0u32;
     let mut blocks = Vec::new();
 
     for raw_block in raw_blocks {
@@ -68,11 +72,27 @@ pub fn normalize_raw_speaker_blocks(raw_blocks: Vec<RawSpeakerBlock>) -> Vec<Dia
             continue;
         }
 
-        let Some(speaker_id) = speaker_ids.get(speaker_key).copied() else {
-            continue;
-        };
+        let speaker_id = *speaker_ids.entry(speaker_key.to_string()).or_insert_with(|| {
+            let assigned_id = next_speaker_id;
+            next_speaker_id += 1;
+            assigned_id
+        });
+        default_names
+            .entry(speaker_key.to_string())
+            .or_insert_with(|| {
+                raw_block
+                    .default_name
+                    .as_deref()
+                    .map(normalize_block_text)
+                    .filter(|default_name| !default_name.is_empty())
+                    .unwrap_or_else(|| fallback_default_name(speaker_id))
+            });
+        let default_name = default_names
+            .get(speaker_key)
+            .cloned()
+            .unwrap_or_else(|| fallback_default_name(speaker_id));
 
-        push_or_merge_block(&mut blocks, speaker_id, text);
+        push_or_merge_block(&mut blocks, speaker_id, default_name, text);
     }
 
     blocks
@@ -123,7 +143,7 @@ pub fn reapply_diarized_transcript(
 }
 
 fn build_speakers(blocks: &[DiarizedTranscriptBlock]) -> Vec<FileTranscriptionSpeaker> {
-    let mut speakers = Vec::new();
+    let mut speakers: Vec<FileTranscriptionSpeaker> = Vec::new();
 
     for block in blocks {
         if speakers
@@ -135,7 +155,7 @@ fn build_speakers(blocks: &[DiarizedTranscriptBlock]) -> Vec<FileTranscriptionSp
 
         speakers.push(FileTranscriptionSpeaker {
             speaker_id: block.speaker_id,
-            default_name: default_speaker_name(block.speaker_id),
+            default_name: block.default_name.clone(),
         });
     }
 
@@ -148,9 +168,14 @@ pub fn render_diarized_transcript(
 ) -> String {
     let mut names_by_speaker = HashMap::new();
     for speaker_name in speaker_names {
+        let fallback_name = blocks
+            .iter()
+            .find(|block| block.speaker_id == speaker_name.speaker_id)
+            .map(|block| block.default_name.clone())
+            .unwrap_or_else(|| fallback_default_name(speaker_name.speaker_id));
         names_by_speaker.insert(
             speaker_name.speaker_id,
-            sanitize_speaker_name(speaker_name.speaker_id, &speaker_name.name),
+            sanitize_speaker_name(&fallback_name, &speaker_name.name),
         );
     }
 
@@ -160,7 +185,7 @@ pub fn render_diarized_transcript(
             let speaker_name = names_by_speaker
                 .get(&block.speaker_id)
                 .cloned()
-                .unwrap_or_else(|| default_speaker_name(block.speaker_id));
+                .unwrap_or_else(|| block.default_name.clone());
             format!("[{}] {}", speaker_name, block.text)
         })
         .collect::<Vec<_>>()
@@ -253,7 +278,12 @@ fn normalize_block_text(text: &str) -> String {
     text.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
-fn push_or_merge_block(blocks: &mut Vec<DiarizedTranscriptBlock>, speaker_id: u32, text: String) {
+fn push_or_merge_block(
+    blocks: &mut Vec<DiarizedTranscriptBlock>,
+    speaker_id: u32,
+    default_name: String,
+    text: String,
+) {
     if let Some(last_block) = blocks.last_mut() {
         if last_block.speaker_id == speaker_id {
             if !last_block.text.is_empty() && !text.is_empty() {
@@ -264,21 +294,21 @@ fn push_or_merge_block(blocks: &mut Vec<DiarizedTranscriptBlock>, speaker_id: u3
         }
     }
 
-    blocks.push(DiarizedTranscriptBlock { speaker_id, text });
+    blocks.push(DiarizedTranscriptBlock {
+        speaker_id,
+        default_name,
+        text,
+    });
 }
 
-fn default_speaker_name(speaker_id: u32) -> String {
-    if speaker_id == 0 {
-        "You".to_string()
-    } else {
-        format!("Speaker {}", speaker_id)
-    }
+fn fallback_default_name(speaker_id: u32) -> String {
+    format!("Speaker {}", speaker_id)
 }
 
-fn sanitize_speaker_name(speaker_id: u32, name: &str) -> String {
+fn sanitize_speaker_name(default_name: &str, name: &str) -> String {
     let trimmed = name.trim();
     if trimmed.is_empty() {
-        return default_speaker_name(speaker_id);
+        return default_name.to_string();
     }
 
     let cleaned = trimmed
@@ -289,49 +319,8 @@ fn sanitize_speaker_name(speaker_id: u32, name: &str) -> String {
         .join(" ");
 
     if cleaned.is_empty() {
-        default_speaker_name(speaker_id)
+        default_name.to_string()
     } else {
         cleaned
     }
-}
-
-fn build_normalized_speaker_ids(raw_blocks: &[RawSpeakerBlock]) -> HashMap<String, u32> {
-    let mut ordered_keys = Vec::new();
-
-    for raw_block in raw_blocks {
-        let key = raw_block.speaker_key.trim();
-        if key.is_empty() || ordered_keys.iter().any(|existing: &String| existing == key) {
-            continue;
-        }
-        ordered_keys.push(key.to_string());
-    }
-
-    if ordered_keys.is_empty() {
-        return HashMap::new();
-    }
-
-    let numeric_keys = ordered_keys
-        .iter()
-        .map(|key| key.parse::<u32>().ok().map(|value| (key.clone(), value)))
-        .collect::<Option<Vec<_>>>();
-
-    if let Some(mut numeric_keys) = numeric_keys {
-        let has_zero = numeric_keys.iter().any(|(_, value)| *value == 0);
-        if has_zero {
-            return numeric_keys.into_iter().collect();
-        }
-
-        numeric_keys.sort_by_key(|(_, value)| *value);
-        return numeric_keys
-            .into_iter()
-            .enumerate()
-            .map(|(index, (key, _))| (key, index as u32))
-            .collect();
-    }
-
-    ordered_keys
-        .into_iter()
-        .enumerate()
-        .map(|(index, key)| (key, index as u32))
-        .collect()
 }

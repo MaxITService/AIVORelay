@@ -336,6 +336,7 @@ impl SonioxSttManager {
             {
                 blocks.push(RawSpeakerBlock {
                     speaker_key: current_speaker.clone().unwrap_or_default(),
+                    default_name: None,
                     text: current_text.trim().to_string(),
                 });
                 current_text.clear();
@@ -357,6 +358,7 @@ impl SonioxSttManager {
             if !text.is_empty() {
                 blocks.push(RawSpeakerBlock {
                     speaker_key,
+                    default_name: None,
                     text: text.to_string(),
                 });
             }

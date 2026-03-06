@@ -13,7 +13,12 @@ import { open } from "@tauri-apps/plugin-dialog";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { stat } from "@tauri-apps/plugin-fs";
-import { commands, ModelInfo, SonioxFileTranscriptionOptions } from "@/bindings";
+import {
+  commands,
+  DeepgramFileTranscriptionOptions,
+  ModelInfo,
+  SonioxFileTranscriptionOptions,
+} from "@/bindings";
 import { useSettings } from "@/hooks/useSettings";
 import { SettingsGroup } from "@/components/ui/SettingsGroup";
 import { Button } from "@/components/ui/Button";
@@ -26,7 +31,7 @@ const supportedExtensions = ["wav", "mp3", "m4a", "ogg", "flac", "webm"];
 
 export const TranscribeFileSettings: React.FC = () => {
   const { t } = useTranslation();
-  const { settings, updateSetting, isUpdating } = useSettings();
+  const { settings } = useSettings();
 
   const {
     selectedFile,
@@ -71,6 +76,8 @@ export const TranscribeFileSettings: React.FC = () => {
     setSonioxEnableLanguageIdentification,
   ] = useState(true);
   const [deepgramFileDiarize, setDeepgramFileDiarize] = useState(false);
+  const [deepgramFileMultichannel, setDeepgramFileMultichannel] =
+    useState(false);
 
   const dropZoneRef = useRef<HTMLDivElement>(null);
   const sonioxModel = (settings as any)?.soniox_model ?? "stt-rt-v4";
@@ -107,6 +114,9 @@ export const TranscribeFileSettings: React.FC = () => {
   const globalDeepgramFileDiarize = Boolean(
     (settings as any)?.deepgram_diarize ?? false,
   );
+  const globalDeepgramFileMultichannel = Boolean(
+    (settings as any)?.deepgram_multichannel ?? false,
+  );
 
   useEffect(() => {
     setSonioxLanguageHintsInput(globalSonioxLanguageHints.join(", "));
@@ -120,7 +130,8 @@ export const TranscribeFileSettings: React.FC = () => {
 
   useEffect(() => {
     setDeepgramFileDiarize(globalDeepgramFileDiarize);
-  }, [globalDeepgramFileDiarize]);
+    setDeepgramFileMultichannel(globalDeepgramFileMultichannel);
+  }, [globalDeepgramFileDiarize, globalDeepgramFileMultichannel]);
 
   // Listen for Tauri file drop events
   useEffect(() => {
@@ -294,13 +305,6 @@ export const TranscribeFileSettings: React.FC = () => {
     clearSpeakerSession();
 
     try {
-      if (
-        isDeepgramProvider &&
-        (settings as any)?.deepgram_diarize !== deepgramFileDiarize
-      ) {
-        await updateSetting("deepgram_diarize" as any, deepgramFileDiarize as any);
-      }
-
       let sonioxOptionsOverride: SonioxFileTranscriptionOptions | null = null;
       if (showSonioxFileOptions) {
         const parsedHints = parseAndNormalizeSonioxLanguageHints(
@@ -323,6 +327,13 @@ export const TranscribeFileSettings: React.FC = () => {
           enableLanguageIdentification: sonioxEnableLanguageIdentification,
         };
       }
+      let deepgramOptionsOverride: DeepgramFileTranscriptionOptions | null = null;
+      if (showDeepgramFileOptions) {
+        deepgramOptionsOverride = {
+          diarize: deepgramFileDiarize,
+          multichannel: deepgramFileMultichannel,
+        };
+      }
 
       const result = await commands.transcribeAudioFile(
         selectedFile.path,
@@ -332,6 +343,7 @@ export const TranscribeFileSettings: React.FC = () => {
         overrideModelId,
         customWordsEnabledOverride,
         sonioxOptionsOverride,
+        deepgramOptionsOverride,
       );
 
       if (result.status === "ok") {
@@ -381,7 +393,7 @@ export const TranscribeFileSettings: React.FC = () => {
       const result = await commands.reapplyTranscriptionSpeakerNames(
         speakerArtifactPath,
         speakerCards.map((card) => ({
-          speakerId: card.speakerId,
+          speaker_id: card.speakerId,
           name: card.name,
         })),
       );
@@ -681,20 +693,29 @@ export const TranscribeFileSettings: React.FC = () => {
                 <p className="text-xs text-[#808080]">
                   {t("transcribeFile.deepgram.usesGlobalDefaults")}
                 </p>
+                <p className="text-xs text-[#606060]">
+                  {t("transcribeFile.deepgram.modeHint")}
+                </p>
                 <label className="flex items-center gap-2 cursor-pointer select-none">
                   <input
                     type="checkbox"
                     checked={deepgramFileDiarize}
-                    onChange={(e) => {
-                      const enabled = e.target.checked;
-                      setDeepgramFileDiarize(enabled);
-                      void updateSetting("deepgram_diarize" as any, enabled as any);
-                    }}
-                    disabled={isUpdating("deepgram_diarize")}
+                    onChange={(e) => setDeepgramFileDiarize(e.target.checked)}
                     className="accent-[#9b5de5] w-4 h-4 rounded border-[#333333] bg-[#1a1a1a]"
                   />
                   <span className="text-sm text-[#f5f5f5]">
                     {t("transcribeFile.deepgram.speakerDiarizationLabel")}
+                  </span>
+                </label>
+                <label className="flex items-center gap-2 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={deepgramFileMultichannel}
+                    onChange={(e) => setDeepgramFileMultichannel(e.target.checked)}
+                    className="accent-[#9b5de5] w-4 h-4 rounded border-[#333333] bg-[#1a1a1a]"
+                  />
+                  <span className="text-sm text-[#f5f5f5]">
+                    {t("transcribeFile.deepgram.multichannelLabel")}
                   </span>
                 </label>
               </div>

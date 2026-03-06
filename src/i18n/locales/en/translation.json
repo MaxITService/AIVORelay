@@ -2038,8 +2038,10 @@
     },
     "deepgram": {
       "title": "Deepgram File Transcription Options",
-      "usesGlobalDefaults": "This option applies only to Deepgram file transcription.",
-      "speakerDiarizationLabel": "Enable speaker diarization"
+      "usesGlobalDefaults": "Diarization starts from your global Deepgram setting. Multichannel is a file-only override.",
+      "modeHint": "Use multichannel when each speaker is isolated to a separate audio channel. Use diarization when multiple speakers share a channel. You can enable both.",
+      "speakerDiarizationLabel": "Enable speaker diarization",
+      "multichannelLabel": "Treat file as multichannel audio"
     },
     "speakerNames": {
       "title": "Speaker Names",

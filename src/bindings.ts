@@ -2280,9 +2280,9 @@ async voiceActivationButtonRelease() : Promise<Result<null, string>> {
  * # Returns
  * FileTranscriptionResult with the transcribed text and optional saved file path
  */
-async transcribeAudioFile(filePath: string, profileId: string | null, saveToFile: boolean, outputFormat: OutputFormat | null, modelOverride: string | null, customWordsEnabledOverride: boolean | null, sonioxOptionsOverride: SonioxFileTranscriptionOptions | null) : Promise<Result<FileTranscriptionResult, string>> {
+async transcribeAudioFile(filePath: string, profileId: string | null, saveToFile: boolean, outputFormat: OutputFormat | null, modelOverride: string | null, customWordsEnabledOverride: boolean | null, sonioxOptionsOverride: SonioxFileTranscriptionOptions | null, deepgramOptionsOverride: DeepgramFileTranscriptionOptions | null) : Promise<Result<FileTranscriptionResult, string>> {
     try {
-    return { status: "ok", data: await TAURI_INVOKE("transcribe_audio_file", { filePath, profileId, saveToFile, outputFormat, modelOverride, customWordsEnabledOverride, sonioxOptionsOverride }) };
+    return { status: "ok", data: await TAURI_INVOKE("transcribe_audio_file", { filePath, profileId, saveToFile, outputFormat, modelOverride, customWordsEnabledOverride, sonioxOptionsOverride, deepgramOptionsOverride }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
@@ -2751,6 +2751,7 @@ port: number;
 server_error: string | null }
 export type CustomSounds = { start: boolean; stop: boolean }
 export type DecapitalizeOverlayStateResponse = { decapitalizeEligible: boolean; decapitalizeArmed: boolean }
+export type DeepgramFileTranscriptionOptions = { diarize: boolean | null; multichannel: boolean | null }
 export type DiarizedTranscriptProvider = "deepgram" | "soniox"
 export type EngineType = "Whisper" | "Parakeet" | "Moonshine" | "MoonshineStreaming" | "SenseVoice" | "GigaAM"
 /**

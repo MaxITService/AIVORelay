@@ -22,6 +22,7 @@ pub struct DeepgramTranscriptionOptions {
     pub interim_results: Option<bool>,
     pub smart_format: Option<bool>,
     pub diarize: Option<bool>,
+    pub multichannel: Option<bool>,
 }
 
 pub struct DeepgramSttManager {
@@ -185,6 +186,7 @@ impl DeepgramSttManager {
         let mut url = reqwest::Url::parse(DEEPGRAM_HTTP_BASE_URL)
             .map_err(|e| anyhow!("Invalid Deepgram HTTP URL: {}", e))?;
         let diarize_enabled = options.diarize.unwrap_or(false);
+        let multichannel_enabled = options.multichannel.unwrap_or(false);
         {
             let mut qp = url.query_pairs_mut();
             qp.append_pair("model", model);
@@ -199,6 +201,10 @@ impl DeepgramSttManager {
             qp.append_pair(
                 "diarize",
                 if diarize_enabled { "true" } else { "false" },
+            );
+            qp.append_pair(
+                "multichannel",
+                if multichannel_enabled { "true" } else { "false" },
             );
             if diarize_enabled {
                 qp.append_pair("utterances", "true");
@@ -229,6 +235,27 @@ impl DeepgramSttManager {
             .and_then(|channel| channel.get("alternatives"))
             .and_then(|alts| alts.as_array())
             .and_then(|alts| alts.first())
+    }
+
+    fn extract_prerecorded_channel_alternatives<'a>(payload: &'a Value) -> Vec<(u32, &'a Value)> {
+        payload
+            .get("results")
+            .and_then(|results| results.get("channels"))
+            .and_then(|channels| channels.as_array())
+            .map(|channels| {
+                channels
+                    .iter()
+                    .enumerate()
+                    .filter_map(|(channel_index, channel)| {
+                        channel
+                            .get("alternatives")
+                            .and_then(|alts| alts.as_array())
+                            .and_then(|alts| alts.first())
+                            .map(|alternative| (channel_index as u32, alternative))
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default()
     }
 
     fn extract_transcript(alternative: Option<&Value>) -> String {
@@ -270,6 +297,25 @@ impl DeepgramSttManager {
         word.get("speaker").and_then(Self::parse_speaker_value)
     }
 
+    fn parse_channel_value(channel: &Value) -> Option<u32> {
+        Self::parse_speaker_value(channel).or_else(|| {
+            channel
+                .as_array()
+                .and_then(|values| values.first())
+                .and_then(Self::parse_channel_value)
+        })
+    }
+
+    fn extract_channel_index(value: &Value) -> Option<u32> {
+        value.get("channel")
+            .and_then(Self::parse_channel_value)
+            .or_else(|| {
+                value
+                    .get("channel_index")
+                    .and_then(Self::parse_channel_value)
+            })
+    }
+
     fn extract_token_text(value: &Value) -> Option<String> {
         value
             .get("punctuated_word")
@@ -287,7 +333,49 @@ impl DeepgramSttManager {
             .join(" ")
     }
 
-    fn extract_diarized_chunk_blocks(alternative: Option<&Value>) -> Vec<RawSpeakerBlock> {
+    fn default_speaker_name(speaker: u32) -> String {
+        format!("Speaker {}", speaker)
+    }
+
+    fn default_channel_name(channel_index: u32) -> String {
+        format!("Channel {}", channel_index)
+    }
+
+    fn default_channel_speaker_name(channel_index: u32, speaker: u32) -> String {
+        format!("Channel {} Speaker {}", channel_index, speaker)
+    }
+
+    fn make_speaker_block(
+        speaker: u32,
+        channel_index: Option<u32>,
+        text: String,
+    ) -> RawSpeakerBlock {
+        match channel_index {
+            Some(channel_index) => RawSpeakerBlock {
+                speaker_key: format!("channel:{}:speaker:{}", channel_index, speaker),
+                default_name: Some(Self::default_channel_speaker_name(channel_index, speaker)),
+                text,
+            },
+            None => RawSpeakerBlock {
+                speaker_key: speaker.to_string(),
+                default_name: Some(Self::default_speaker_name(speaker)),
+                text,
+            },
+        }
+    }
+
+    fn make_channel_block(channel_index: u32, text: String) -> RawSpeakerBlock {
+        RawSpeakerBlock {
+            speaker_key: format!("channel:{}", channel_index),
+            default_name: Some(Self::default_channel_name(channel_index)),
+            text,
+        }
+    }
+
+    fn extract_diarized_chunk_blocks(
+        alternative: Option<&Value>,
+        channel_index: Option<u32>,
+    ) -> Vec<RawSpeakerBlock> {
         let Some(words) = alternative
             .and_then(|value| value.get("words"))
             .and_then(|value| value.as_array())
@@ -303,9 +391,14 @@ impl DeepgramSttManager {
             let Some(token) = Self::extract_token_text(word) else {
                 continue;
             };
-
             if let Some(last_block) = groups.last_mut() {
-                if last_block.speaker_key == speaker.to_string() {
+                let speaker_key = match channel_index {
+                    Some(channel_index) => {
+                        format!("channel:{}:speaker:{}", channel_index, speaker)
+                    }
+                    None => speaker.to_string(),
+                };
+                if last_block.speaker_key == speaker_key {
                     if !last_block.text.is_empty() {
                         last_block.text.push(' ');
                     }
@@ -314,16 +407,16 @@ impl DeepgramSttManager {
                 }
             }
 
-            groups.push(RawSpeakerBlock {
-                speaker_key: speaker.to_string(),
-                text: token,
-            });
+            groups.push(Self::make_speaker_block(speaker, channel_index, token));
         }
 
         groups
     }
 
-    fn extract_diarized_utterance_blocks(payload: &Value) -> Vec<RawSpeakerBlock> {
+    fn extract_diarized_utterance_blocks(
+        payload: &Value,
+        multichannel_enabled: bool,
+    ) -> Vec<RawSpeakerBlock> {
         let Some(utterances) = payload
             .get("results")
             .and_then(|results| results.get("utterances"))
@@ -363,9 +456,28 @@ impl DeepgramSttManager {
             let Some(speaker) = speaker else {
                 continue;
             };
+            let channel_index = if multichannel_enabled {
+                Self::extract_channel_index(utterance).or_else(|| {
+                    utterance
+                        .get("words")
+                        .and_then(|words| words.as_array())
+                        .and_then(|words| words.iter().find_map(Self::extract_channel_index))
+                })
+            } else {
+                None
+            };
+            if multichannel_enabled && channel_index.is_none() {
+                continue;
+            }
 
             if let Some(last_block) = groups.last_mut() {
-                if last_block.speaker_key == speaker.to_string() {
+                let speaker_key = match channel_index {
+                    Some(channel_index) => {
+                        format!("channel:{}:speaker:{}", channel_index, speaker)
+                    }
+                    None => speaker.to_string(),
+                };
+                if last_block.speaker_key == speaker_key {
                     if !last_block.text.is_empty() {
                         last_block.text.push(' ');
                     }
@@ -374,13 +486,34 @@ impl DeepgramSttManager {
                 }
             }
 
-            groups.push(RawSpeakerBlock {
-                speaker_key: speaker.to_string(),
-                text: transcript,
-            });
+            groups.push(Self::make_speaker_block(speaker, channel_index, transcript));
         }
 
         groups
+    }
+
+    fn extract_multichannel_channel_blocks(payload: &Value) -> Vec<RawSpeakerBlock> {
+        let mut blocks = Vec::new();
+
+        for (channel_index, alternative) in Self::extract_prerecorded_channel_alternatives(payload) {
+            let transcript = Self::extract_transcript(Some(alternative));
+            let transcript = if transcript.is_empty() {
+                alternative
+                    .get("words")
+                    .and_then(|words| words.as_array())
+                    .map(|words| Self::build_transcript_from_words(words))
+                    .filter(|value| !value.is_empty())
+                    .unwrap_or_default()
+            } else {
+                transcript
+            };
+            if transcript.is_empty() {
+                continue;
+            }
+            blocks.push(Self::make_channel_block(channel_index, transcript));
+        }
+
+        blocks
     }
 
     fn render_speaker_blocks(blocks: &[RawSpeakerBlock]) -> Option<String> {
@@ -391,18 +524,25 @@ impl DeepgramSttManager {
         Some(
             blocks
                 .iter()
-                .map(|block| format!("[Speaker {}] {}", block.speaker_key, block.text))
+                .map(|block| {
+                    let speaker_name = block
+                        .default_name
+                        .as_deref()
+                        .filter(|value| !value.trim().is_empty())
+                        .unwrap_or(block.speaker_key.as_str());
+                    format!("[{}] {}", speaker_name, block.text)
+                })
                 .collect::<Vec<_>>()
                 .join("\n"),
         )
     }
 
     fn format_diarized_chunk(alternative: Option<&Value>) -> Option<String> {
-        Self::render_speaker_blocks(&Self::extract_diarized_chunk_blocks(alternative))
+        Self::render_speaker_blocks(&Self::extract_diarized_chunk_blocks(alternative, None))
     }
 
     fn format_diarized_utterances(payload: &Value) -> Option<String> {
-        Self::render_speaker_blocks(&Self::extract_diarized_utterance_blocks(payload))
+        Self::render_speaker_blocks(&Self::extract_diarized_utterance_blocks(payload, false))
     }
 
     pub async fn transcribe_prerecorded_bytes(
@@ -425,6 +565,7 @@ impl DeepgramSttManager {
 
         let model = Self::normalize_model(model);
         let diarize_enabled = options.diarize.unwrap_or(false);
+        let multichannel_enabled = options.multichannel.unwrap_or(false);
         let url = Self::build_prerecorded_url(&model, language, &options)?;
         let response = self
             .client
@@ -466,16 +607,43 @@ impl DeepgramSttManager {
         })?;
 
         let alternative = Self::extract_prerecorded_alternative(&payload);
-        let transcript = Self::extract_transcript(alternative);
+        let transcript = if multichannel_enabled {
+            Self::render_speaker_blocks(&Self::extract_multichannel_channel_blocks(&payload))
+                .unwrap_or_else(|| Self::extract_transcript(alternative))
+        } else {
+            Self::extract_transcript(alternative)
+        };
         if diarize_enabled {
             let speaker_blocks = {
-                let utterance_blocks = Self::extract_diarized_utterance_blocks(&payload);
+                let utterance_blocks =
+                    Self::extract_diarized_utterance_blocks(&payload, multichannel_enabled);
                 if utterance_blocks.is_empty() {
-                    Self::extract_diarized_chunk_blocks(alternative)
+                    if multichannel_enabled {
+                        Self::extract_prerecorded_channel_alternatives(&payload)
+                            .into_iter()
+                            .flat_map(|(channel_index, alternative)| {
+                                Self::extract_diarized_chunk_blocks(
+                                    Some(alternative),
+                                    Some(channel_index),
+                                )
+                            })
+                            .collect()
+                    } else {
+                        Self::extract_diarized_chunk_blocks(alternative, None)
+                    }
                 } else {
                     utterance_blocks
                 }
             };
+            let text = Self::render_speaker_blocks(&speaker_blocks).unwrap_or(transcript);
+            return Ok(DeepgramPrerecordedTranscription {
+                text,
+                speaker_blocks,
+            });
+        }
+
+        if multichannel_enabled {
+            let speaker_blocks = Self::extract_multichannel_channel_blocks(&payload);
             let text = Self::render_speaker_blocks(&speaker_blocks).unwrap_or(transcript);
             return Ok(DeepgramPrerecordedTranscription {
                 text,

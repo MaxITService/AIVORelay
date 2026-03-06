@@ -50,6 +50,13 @@ pub struct SonioxFileTranscriptionOptions {
     pub enable_language_identification: Option<bool>,
 }
 
+#[derive(Serialize, Deserialize, Type, Debug, Clone, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct DeepgramFileTranscriptionOptions {
+    pub diarize: Option<bool>,
+    pub multichannel: Option<bool>,
+}
+
 #[tauri::command]
 #[specta::specta]
 pub fn reapply_transcription_speaker_names(
@@ -86,6 +93,7 @@ pub async fn transcribe_audio_file(
     model_override: Option<String>,
     custom_words_enabled_override: Option<bool>,
     soniox_options_override: Option<SonioxFileTranscriptionOptions>,
+    deepgram_options_override: Option<DeepgramFileTranscriptionOptions>,
 ) -> Result<FileTranscriptionResult, String> {
     let path = PathBuf::from(&file_path);
     let format = output_format.unwrap_or_default();
@@ -346,7 +354,18 @@ pub async fn transcribe_audio_file(
         let deepgram_options = DeepgramTranscriptionOptions {
             interim_results: Some(settings.deepgram_interim_results),
             smart_format: Some(settings.deepgram_smart_format),
-            diarize: Some(settings.deepgram_diarize),
+            diarize: Some(
+                deepgram_options_override
+                    .as_ref()
+                    .and_then(|options| options.diarize)
+                    .unwrap_or(settings.deepgram_diarize),
+            ),
+            multichannel: Some(
+                deepgram_options_override
+                    .as_ref()
+                    .and_then(|options| options.multichannel)
+                    .unwrap_or(false),
+            ),
         };
         let audio_bytes = deepgram_audio_bytes
             .as_deref()
@@ -581,7 +600,7 @@ fn apply_transcription_post_processing_to_blocks(
     settings: &AppSettings,
     should_apply_custom_words: bool,
 ) -> Vec<DiarizedTranscriptBlock> {
-    let mut processed_blocks = Vec::new();
+    let mut processed_blocks: Vec<DiarizedTranscriptBlock> = Vec::new();
 
     for block in blocks {
         let text = apply_transcription_post_processing(block.text, settings, should_apply_custom_words);
@@ -602,6 +621,7 @@ fn apply_transcription_post_processing_to_blocks(
 
         processed_blocks.push(DiarizedTranscriptBlock {
             speaker_id: block.speaker_id,
+            default_name: block.default_name,
             text: trimmed.to_string(),
         });
     }

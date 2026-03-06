@@ -1218,6 +1218,7 @@ async fn perform_transcription_for_profile(
             interim_results: Some(settings.deepgram_interim_results),
             smart_format: Some(settings.deepgram_smart_format),
             diarize: None,
+            multichannel: None,
         };
 
         let result = deepgram_manager
