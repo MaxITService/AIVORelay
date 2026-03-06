@@ -49,6 +49,11 @@ Use Deepgram for fast cloud transcription, including live speech-to-text.
 
 **Setup:** Settings → Advanced → Transcription Provider → Deepgram
 
+### Live transcription of sound from your speakers and microphone with diarization!
+
+![Live transcription of sound from your speakers and microphone with diarization!](Promo/live-sound-transcription.png)
+Needs supporting API provider with diarization support connected
+
 ### 🎚️ Transcription Profiles
 
 Quick-switch between language, prompt, and LLM post-processing presets with dedicated shortcuts: swithc currently active profile or assign each profile its own hotkey!
@@ -144,7 +149,7 @@ Voice-to-AI bridge via [AivoRelay Connector](https://github.com/MaxITService/Aiv
 
 
 
-### 📁 Transcribe Audio Files
+### 📁 Transcribe Audio Files (with diarization for supporting API providers)
 
 Drag and drop audio files to get a transcript.
 
