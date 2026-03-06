@@ -1,7 +1,7 @@
 use crate::audio_feedback;
 use crate::audio_toolkit::audio::{list_input_devices, list_output_devices};
 use crate::managers::audio::{AudioRecordingManager, MicrophoneMode};
-use crate::settings::{get_settings, write_settings};
+use crate::settings::{get_settings, write_settings, LiveSoundCaptureSource};
 use log::warn;
 use serde::{Deserialize, Serialize};
 use specta::Type;
@@ -129,6 +129,18 @@ pub fn set_selected_output_device(app: AppHandle, device_name: String) -> Result
     } else {
         Some(device_name)
     };
+    write_settings(&app, settings);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_live_sound_capture_source_setting(
+    app: AppHandle,
+    source: LiveSoundCaptureSource,
+) -> Result<(), String> {
+    let mut settings = get_settings(&app);
+    settings.live_sound_capture_source = source;
     write_settings(&app, settings);
     Ok(())
 }

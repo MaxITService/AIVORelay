@@ -108,6 +108,20 @@ High-performance C/C++ implementation of OpenAI's Whisper automatic speech recog
 
 ---
 
+## CPAL
+
+**Copyright:** The RustAudio Project Developers
+
+**License:** Apache License 2.0
+
+**Source:** https://github.com/rustaudio/cpal
+
+Low-level Rust audio I/O library used by AivoRelay for microphone capture, audio device enumeration, playback routing, and Windows system-audio loopback capture for Live Sound Transcription.
+
+The full Apache 2.0 license text is included above in this file.
+
+---
+
 ## Other Dependencies
 
 For a complete list of Rust and JavaScript dependencies, please refer to the `Cargo.toml` and `package.json` files in the source repository.

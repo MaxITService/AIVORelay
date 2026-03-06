@@ -22,6 +22,7 @@ Files that differentiate this fork from the original [cjpais/Handy](https://gith
 | `src-tauri/src/commands/region_capture.rs` | Commands for region capture. |
 | `src-tauri/src/commands/voice_command.rs` | Voice Command Center. |
 | `src-tauri/src/commands/file_transcription.rs` | File transcription logic. |
+| `src-tauri/src/commands/live_sound_transcription.rs` | Live Sound Transcription page command surface. |
 | `src-tauri/src/file_transcription_diarization.rs` | Shared diarized file-transcription temp session + speaker re-apply helpers. |
 | `src-tauri/src/subtitle.rs` | Subtitle formatting (SRT/VTT). |
 | `src-tauri/src/audio_toolkit/text.rs` | Text Post-Processing (stutter/filler removal). |
@@ -54,6 +55,7 @@ Files that differentiate this fork from the original [cjpais/Handy](https://gith
 | `src/soniox-live-preview/SonioxLivePreview.css` | Styles for live preview, drag grip, and resize handles. |
 | `src/components/settings/voice-commands/VoiceCommandSettings.tsx` | Voice Command settings UI. |
 | `src/components/settings/transcribe-file/TranscribeFileSettings.tsx` | Transcribe File UI. |
+| `src/components/settings/live-sound-transcription/LiveSoundTranscriptionSettings.tsx` | Live Sound Transcription page with in-page transcript and source/device controls. |
 | `src/components/settings/text-replacement/TextReplacementSettings.tsx` | Text Replacement rules UI. |
 | `src/components/settings/audio-processing/AudioProcessingSettings.tsx` | Audio processing UI. |
 | `src/components/settings/debug/ShortcutEngineSelector.tsx` | Shortcut engine toggle UI. |
@@ -90,7 +92,8 @@ Files that differentiate this fork from the original [cjpais/Handy](https://gith
 | `src-tauri/src/managers/mod.rs` | Exports custom managers. |
 | `src-tauri/src/audio_toolkit/mod.rs` | Includes `encode_wav_bytes()`. |
 | `src-tauri/src/audio_toolkit/audio/utils.rs` | WAV encoding utils. |
-| `src-tauri/src/audio_toolkit/audio/recorder.rs` | Mic error handling logic. |
+| `src-tauri/src/audio_toolkit/audio/recorder.rs` | Audio capture stream logic, including Windows output loopback support. |
+| `src-tauri/src/managers/audio.rs` | Routes recordings between mic capture and Windows output loopback for live sound. |
 | `src-tauri/src/managers/transcription.rs` | Local STT runtime (SenseVoice). |
 | `src-tauri/src/commands/file_transcription.rs` | Soniox async integration overrides and diarized speaker-session handling. |
 | `src-tauri/src/settings.rs` | Also stores saved diarization speaker-name set profiles for file transcription. |

@@ -8,10 +8,17 @@ import { useSettings } from "../../hooks/useSettings";
 interface MicrophoneSelectorProps {
   descriptionMode?: "inline" | "tooltip";
   grouped?: boolean;
+  descriptionOverride?: string;
+  disabled?: boolean;
 }
 
 export const MicrophoneSelector: React.FC<MicrophoneSelectorProps> = React.memo(
-  ({ descriptionMode = "tooltip", grouped = false }) => {
+  ({
+    descriptionMode = "tooltip",
+    grouped = false,
+    descriptionOverride,
+    disabled = false,
+  }) => {
     const { t } = useTranslation();
     const {
       getSetting,
@@ -44,9 +51,12 @@ export const MicrophoneSelector: React.FC<MicrophoneSelectorProps> = React.memo(
     return (
       <SettingContainer
         title={t("settings.sound.microphone.title")}
-        description={t("settings.sound.microphone.description")}
+        description={
+          descriptionOverride ?? t("settings.sound.microphone.description")
+        }
         descriptionMode={descriptionMode}
         grouped={grouped}
+        disabled={disabled}
       >
         <div className="flex items-center space-x-1">
           <Dropdown
@@ -59,6 +69,7 @@ export const MicrophoneSelector: React.FC<MicrophoneSelectorProps> = React.memo(
                 : t("settings.sound.microphone.placeholder")
             }
             disabled={
+              disabled ||
               isUpdating("selected_microphone") ||
               isLoading ||
               audioDevices.length === 0
@@ -67,7 +78,7 @@ export const MicrophoneSelector: React.FC<MicrophoneSelectorProps> = React.memo(
           />
           <ResetButton
             onClick={handleReset}
-            disabled={isUpdating("selected_microphone") || isLoading}
+            disabled={disabled || isUpdating("selected_microphone") || isLoading}
           />
         </div>
       </SettingContainer>

@@ -65,6 +65,7 @@ pub trait ShortcutAction: Send + Sync {
 
 // Transcribe Action
 struct TranscribeAction;
+pub const LIVE_SOUND_TRANSCRIPTION_BINDING_ID: &str = "live_sound_transcription";
 
 struct AiReplaceSelectionAction;
 
@@ -1579,7 +1580,9 @@ fn resolve_profile_for_binding<'a>(
     settings: &'a AppSettings,
     binding_id: &str,
 ) -> Option<&'a TranscriptionProfile> {
-    if binding_id == "transcribe" && settings.active_profile_id != "default" {
+    if (binding_id == "transcribe" || binding_id == LIVE_SOUND_TRANSCRIPTION_BINDING_ID)
+        && settings.active_profile_id != "default"
+    {
         return settings.transcription_profile(&settings.active_profile_id);
     }
 
@@ -1941,6 +1944,35 @@ pub(crate) fn transcribe_action_for_binding(binding_id: &str) -> Option<Arc<dyn 
     })
 }
 
+pub(crate) fn start_live_sound_transcription_session(app: &AppHandle) -> Result<(), String> {
+    let action = transcribe_action_for_binding(LIVE_SOUND_TRANSCRIPTION_BINDING_ID)
+        .ok_or_else(|| "Live Sound Transcription action is not registered.".to_string())?;
+    action.start(
+        app,
+        LIVE_SOUND_TRANSCRIPTION_BINDING_ID,
+        LIVE_SOUND_TRANSCRIPTION_BINDING_ID,
+    );
+    if is_recording_for_binding(app, LIVE_SOUND_TRANSCRIPTION_BINDING_ID) {
+        Ok(())
+    } else {
+        Err(
+            "Live Sound Transcription did not start. Another session may already be active, or the selected audio source is unavailable."
+                .to_string(),
+        )
+    }
+}
+
+pub(crate) fn stop_live_sound_transcription_session(app: &AppHandle) -> Result<(), String> {
+    let action = transcribe_action_for_binding(LIVE_SOUND_TRANSCRIPTION_BINDING_ID)
+        .ok_or_else(|| "Live Sound Transcription action is not registered.".to_string())?;
+    action.stop(
+        app,
+        LIVE_SOUND_TRANSCRIPTION_BINDING_ID,
+        LIVE_SOUND_TRANSCRIPTION_BINDING_ID,
+    );
+    Ok(())
+}
+
 fn stop_transcribe_binding_from_preview(app: &AppHandle, binding_id: &str) -> Result<(), String> {
     let action = transcribe_action_for_binding(binding_id).ok_or_else(|| {
         format!(
@@ -1979,7 +2011,9 @@ fn is_recording_for_binding(app: &AppHandle, binding_id: &str) -> bool {
 }
 
 fn use_push_to_talk_for_transcribe_binding(settings: &AppSettings, binding_id: &str) -> bool {
-    if binding_id == "transcribe" {
+    if binding_id == LIVE_SOUND_TRANSCRIPTION_BINDING_ID {
+        true
+    } else if binding_id == "transcribe" {
         if settings.active_profile_id == "default" {
             settings.push_to_talk
         } else {
@@ -2587,7 +2621,8 @@ impl ShortcutAction for TranscribeAction {
         let settings = get_settings(app);
         let use_soniox_live = should_use_live_streaming(&settings);
         let profile = resolve_profile_for_binding(&settings, binding_id);
-        let preview_output_only_enabled = should_route_output_to_preview(&settings, profile);
+        let preview_output_only_enabled = binding_id == LIVE_SOUND_TRANSCRIPTION_BINDING_ID
+            || should_route_output_to_preview(&settings, profile);
 
         if !start_recording_with_feedback(app, binding_id) {
             // Recording failed to start (e.g., system busy) - reset toggle state
@@ -2612,7 +2647,9 @@ impl ShortcutAction for TranscribeAction {
                 use_soniox_live,
                 recording_prefix,
             );
-            crate::overlay::show_soniox_live_preview_window(app);
+            if binding_id != LIVE_SOUND_TRANSCRIPTION_BINDING_ID {
+                crate::overlay::show_soniox_live_preview_window(app);
+            }
         }
 
         if use_soniox_live {
@@ -2783,7 +2820,8 @@ impl ShortcutAction for TranscribeAction {
         let soniox_live_manager = Arc::clone(&app.state::<Arc<SonioxRealtimeManager>>());
         let deepgram_live_manager = Arc::clone(&app.state::<Arc<DeepgramRealtimeManager>>());
         let use_soniox_live = should_use_live_for_recording(app, binding_id);
-        let invoked_from_preview_action = shortcut_str == "preview_output_mode";
+        let invoked_from_preview_action = shortcut_str == "preview_output_mode"
+            || binding_id == LIVE_SOUND_TRANSCRIPTION_BINDING_ID;
 
         if use_soniox_live {
             let stop_context = match prepare_stop_recording_with_options(app, binding_id, false) {
@@ -5222,6 +5260,10 @@ pub static ACTION_MAP: Lazy<HashMap<String, Arc<dyn ShortcutAction>>> = Lazy::ne
     let mut map = HashMap::new();
     map.insert(
         "transcribe".to_string(),
+        Arc::new(TranscribeAction) as Arc<dyn ShortcutAction>,
+    );
+    map.insert(
+        LIVE_SOUND_TRANSCRIPTION_BINDING_ID.to_string(),
         Arc::new(TranscribeAction) as Arc<dyn ShortcutAction>,
     );
     map.insert(

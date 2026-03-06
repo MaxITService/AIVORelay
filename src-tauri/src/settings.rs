@@ -964,6 +964,19 @@ impl Default for OutputWhitespaceMode {
     }
 }
 
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Type)]
+#[serde(rename_all = "snake_case")]
+pub enum LiveSoundCaptureSource {
+    Microphone,
+    SystemOutput,
+}
+
+impl Default for LiveSoundCaptureSource {
+    fn default() -> Self {
+        Self::SystemOutput
+    }
+}
+
 impl ModelUnloadTimeout {
     pub fn to_minutes(self) -> Option<u64> {
         match self {
@@ -1106,6 +1119,8 @@ pub struct AppSettings {
     pub clamshell_microphone: Option<String>,
     #[serde(default)]
     pub selected_output_device: Option<String>,
+    #[serde(default = "default_live_sound_capture_source")]
+    pub live_sound_capture_source: LiveSoundCaptureSource,
     #[serde(default = "default_translate_to_english")]
     pub translate_to_english: bool,
     #[serde(default = "default_selected_language")]
@@ -1611,6 +1626,10 @@ fn default_vad_threshold() -> f32 {
 
 fn default_always_on_microphone() -> bool {
     false
+}
+
+fn default_live_sound_capture_source() -> LiveSoundCaptureSource {
+    LiveSoundCaptureSource::default()
 }
 
 fn default_translate_to_english() -> bool {
@@ -2298,6 +2317,7 @@ pub fn get_default_settings() -> AppSettings {
         selected_microphone: None,
         clamshell_microphone: None,
         selected_output_device: None,
+        live_sound_capture_source: default_live_sound_capture_source(),
         translate_to_english: false,
         selected_language: "auto".to_string(),
         overlay_position: default_overlay_position(),

@@ -302,7 +302,9 @@ impl DeepgramRealtimeManager {
         if !preserve_existing_preview {
             crate::overlay::reset_soniox_live_preview(&self.app_handle);
         }
-        crate::overlay::show_soniox_live_preview_window(&self.app_handle);
+        if binding_id != crate::actions::LIVE_SOUND_TRANSCRIPTION_BINDING_ID {
+            crate::overlay::show_soniox_live_preview_window(&self.app_handle);
+        }
 
         info!("Started Deepgram live session for binding '{}'", binding_id);
         Ok(())

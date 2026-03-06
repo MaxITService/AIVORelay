@@ -572,30 +572,52 @@
     },
     "liveSoundTranscription": {
       "title": "Live Sound Transcription",
-      "description": "Session-oriented home for live speech transcription, preview routing, and profile selection.",
+      "description": "Run a dedicated live transcription session and keep the transcript on this page as it finalizes.",
       "session": {
         "title": "Session",
-        "description": "This page is prepared for a dedicated long-running live transcription workflow.",
+        "description": "Start and stop a dedicated live transcription workflow without auto-pasting into another app.",
         "providerLabel": "Provider",
         "modelLabel": "Model",
         "liveModeLabel": "Live Mode",
-        "previewLabel": "Preview Window",
+        "sourceLabel": "Capture Source",
         "enabled": "Enabled",
         "disabled": "Disabled",
         "providerUnsupported": "Local / unsupported for live page",
         "remoteOnly": "Switch the transcription provider to Soniox or Deepgram to use this page as a realtime session surface.",
+        "anotherSessionActive": "Another preview-owned transcription session is active. Stop it before using this page.",
         "notAvailable": "Not available",
         "start": "Start",
-        "flush": "Flush",
+        "starting": "Starting...",
         "stop": "Stop",
-        "placeholder": "Controls are intentionally scaffolded here first. The dedicated session manager is not wired yet, but profiles now live on this page."
+        "stopping": "Stopping...",
+        "clear": "Clear",
+        "clearing": "Clearing...",
+        "process": "Process",
+        "processing": "Processing...",
+        "recordingHint": "Live transcription is active. Finalized text stays here immediately as it arrives.",
+        "idleHint": "Start a live session to stream transcript updates directly into this page.",
+        "actionFailed": "Live sound transcription action failed."
       },
       "transcript": {
         "title": "Transcript",
-        "description": "Interim and finalized transcript output will appear here once the session backend is connected.",
-        "previewTitle": "Live Transcript Preview",
-        "previewDescription": "Reserved for provider-normalized interim and finalized transcript segments.",
-        "empty": "Live transcript output will appear here."
+        "description": "Interim and finalized transcript output stays here as the session runs.",
+        "previewTitle": "Live Transcript",
+        "previewDescription": "Current transcript buffer for this page-owned session.",
+        "empty": "Live transcript output will appear here.",
+        "interimActive": "Interim speech is still being refined."
+      },
+      "audio": {
+        "source": {
+          "title": "Capture Source",
+          "description": "Choose whether this page transcribes a microphone or the Windows speaker/headphone device via loopback capture.",
+          "hint": "The source above decides which selector below is used when you press Start.",
+          "options": {
+            "systemOutput": "Windows sound output",
+            "microphone": "Microphone"
+          }
+        },
+        "microphoneDescription": "Select the microphone device used when Capture Source is set to Microphone.",
+        "outputDescription": "Select the Windows speaker or headphone device used for loopback capture when Capture Source is set to Windows sound output."
       }
     },
     "sound": {
@@ -1528,6 +1550,11 @@
           "title": "Whisper.cpp",
           "description": "High-performance inference of OpenAI's Whisper automatic speech recognition model",
           "details": "AivoRelay uses Whisper.cpp for fast, local speech-to-text processing. Thanks to the amazing work by Georgi Gerganov and contributors."
+        },
+        "cpal": {
+          "title": "CPAL",
+          "description": "Low-level Rust audio I/O used for live capture and device routing",
+          "details": "AivoRelay uses the CPAL audio library for microphone capture, device selection, audio feedback routing, and Windows loopback capture for Live Sound Transcription. Licensed under Apache 2.0 by the RustAudio Project Developers. License file is provided in THIRD_PARTY_LICENSES.md"
         },
         "vulkan": {
           "title": "Vulkan Loader",

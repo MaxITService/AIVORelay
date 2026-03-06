@@ -3,6 +3,7 @@ pub mod connector;
 pub mod file_transcription;
 pub mod history;
 pub mod key_listener;
+pub mod live_sound_transcription;
 pub mod models;
 pub mod region_capture;
 pub mod remote_stt;
