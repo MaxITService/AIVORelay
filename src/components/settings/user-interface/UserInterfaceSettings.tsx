@@ -111,7 +111,7 @@ function clampToRange(value: number, min: number, max: number): number {
 }
 
 export const UserInterfaceSettings: React.FC = () => {
-  const { settings, updateSetting, isUpdating } = useSettings();
+  const { settings, updateSetting, isUpdating, refreshSettings } = useSettings();
   const osKind = type();
   const isWindows = osKind === "windows";
   const hotkeyOsType: OSType =
@@ -253,18 +253,15 @@ export const UserInterfaceSettings: React.FC = () => {
 
                 <div className="p-3 bg-[#1a1a1a] border border-[#333333] rounded-md space-y-2">
                   <p>
-                    <strong>Global vs profile behavior:</strong>
+                    <strong>Synchronized with active profile:</strong>
                   </p>
                   <p>
-                    <strong>Live Preview Window</strong> in this section controls normal preview visibility and demo preview.
+                    This toggle and the active profile's <strong>Output to Preview</strong> are kept in sync.
+                    Changing either one updates the other immediately.
                   </p>
                   <p>
-                    <strong>Output to Preview</strong> in Transcription Profiles is a workflow override. If it is enabled for the active profile,
-                    the preview workflow window can still appear even when this global toggle is OFF.
-                  </p>
-                  <p>
-                    Profile Output to Preview takes priority over the global Output to Preview fallback.
-                    The global value is only used when no specific profile value is active.
+                    When you switch profiles, this toggle updates to match the new profile's setting.
+                    Non-active profiles can have their own Output to Preview value that takes effect when activated.
                   </p>
                 </div>
               </div>
@@ -272,18 +269,50 @@ export const UserInterfaceSettings: React.FC = () => {
           </div>
           <SettingContainer
             title="Live Preview Window"
-            description="Warning: this changes how app inserts text! Preview window appears, then, text is first displayed here, only at the end of recording it is inserted into target application. Global toggle for preview window visibility across the app. Output to Preview workflow can still force its own preview window."
+            description="Warning: this changes how app inserts text! Preview window appears, then, text is first displayed here, only at the end of recording it is inserted into target application. This setting is synchronized with the active profile's Output to Preview toggle."
             descriptionMode="inline"
             grouped={true}
           >
             <ToggleSwitch
               checked={sonioxLivePreviewEnabled}
-              onChange={(enabled) =>
-                void updateSetting(
+              onChange={async (enabled) => {
+                await updateSetting(
                   "soniox_live_preview_enabled" as any,
                   enabled as any,
-                )
-              }
+                );
+                const activeProfileId = (settings as any)?.active_profile_id ?? "default";
+                if (activeProfileId === "default") {
+                  await invoke("change_preview_output_only_enabled_setting", { enabled });
+                } else {
+                  const profiles = (settings?.transcription_profiles ?? []) as any[];
+                  const activeProfile = profiles.find((p: any) => p.id === activeProfileId);
+                  if (activeProfile) {
+                    await invoke("update_transcription_profile", {
+                      payload: {
+                        id: activeProfile.id,
+                        name: activeProfile.name,
+                        language: activeProfile.language,
+                        translateToEnglish: activeProfile.translate_to_english,
+                        systemPrompt: activeProfile.system_prompt || "",
+                        sttPromptOverrideEnabled: activeProfile.stt_prompt_override_enabled ?? false,
+                        includeInCycle: activeProfile.include_in_cycle,
+                        pushToTalk: activeProfile.push_to_talk,
+                        previewOutputOnlyEnabled: enabled,
+                        llmSettings: {
+                          enabled: activeProfile.llm_post_process_enabled ?? false,
+                          promptOverride: activeProfile.llm_prompt_override ?? null,
+                          modelOverride: activeProfile.llm_model_override ?? null,
+                        },
+                        sonioxContextGeneralJson: activeProfile.soniox_context_general_json || "",
+                        sonioxContextText: activeProfile.soniox_context_text || "",
+                        sonioxContextTerms: activeProfile.soniox_context_terms || [],
+                        sonioxLanguageHintsStrict: activeProfile.soniox_language_hints_strict ?? null,
+                      },
+                    });
+                  }
+                }
+                await refreshSettings();
+              }}
               disabled={isUpdating("soniox_live_preview_enabled")}
             />
           </SettingContainer>

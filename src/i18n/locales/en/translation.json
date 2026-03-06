@@ -632,6 +632,13 @@
         "sourceDisable": "Do not listen to",
         "microphoneDescription": "Select the microphone device used when Capture Source is set to Microphone.",
         "outputDescription": "Select the Windows speaker or headphone device used for loopback capture when Capture Source is set to Windows sound output."
+      },
+      "speakerNames": {
+        "title": "Speaker Names",
+        "hint": "Rename speakers as they appear — names update the transcript live.",
+        "cardsTitle": "Detected Speakers",
+        "noSpeakers": "No speakers detected yet. Start transcription to see speakers here.",
+        "inputPlaceholder": "Custom name…"
       }
     },
     "sound": {

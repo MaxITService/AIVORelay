@@ -71,6 +71,32 @@ function App() {
     };
   }, []);
 
+  // Sync soniox_live_preview_enabled when the active profile changes (e.g. via shortcut)
+  useEffect(() => {
+    const unlisten = listen("active-profile-changed", async () => {
+      try {
+        const result = await commands.getAppSettings();
+        if (result.status === "ok") {
+          const s = result.data as any;
+          const id = s?.active_profile_id ?? "default";
+          const previewEnabled = id === "default"
+            ? Boolean(s?.preview_output_only_enabled ?? false)
+            : Boolean(
+                (s?.transcription_profiles ?? []).find((p: any) => p.id === id)
+                  ?.preview_output_only_enabled ?? false,
+              );
+          await commands.changeSonioxLivePreviewEnabledSetting(previewEnabled);
+        }
+      } catch (e) {
+        console.error("Failed to sync preview setting after profile change", e);
+      }
+      refreshSettings();
+    });
+    return () => {
+      unlisten.then((u) => u());
+    };
+  }, [refreshSettings]);
+
   const checkOnboardingStatus = async () => {
     try {
       const [settingsResult, modelResult] = await Promise.all([

@@ -1,10 +1,12 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { useTranslation } from "react-i18next";
 import { Copy, Check, FileText } from "lucide-react";
 import { save } from "@tauri-apps/plugin-dialog";
+import { commands } from "@/bindings";
 import { Button } from "../../ui/Button";
+import { Dropdown } from "../../ui/Dropdown";
 import { SettingContainer } from "../../ui/SettingContainer";
 import { SettingsGroup } from "../../ui/SettingsGroup";
 import { useSettings } from "../../../hooks/useSettings";
@@ -33,6 +35,12 @@ type LiveSoundState = {
   interim_text?: string;
   interimText?: string;
   segments?: LiveSoundSegment[];
+};
+
+type SpeakerNameSetProfile = {
+  id: string;
+  name: string;
+  speaker_names: string[];
 };
 
 const getRecording = (state: LiveSoundState) => Boolean(state.recording);
@@ -76,6 +84,9 @@ export const LiveSoundTranscriptionSettings: React.FC = () => {
   const [speakerNames, setSpeakerNames] = useState<Map<number, string>>(new Map());
   const [editingSpeakerId, setEditingSpeakerId] = useState<number | null>(null);
   const [editValue, setEditValue] = useState("");
+  const [selectedSpeakerNameProfileId, setSelectedSpeakerNameProfileId] = useState<string | null>(null);
+  const [speakerNameProfileDraftName, setSpeakerNameProfileDraftName] = useState("");
+  const [isSavingSpeakerNameProfile, setIsSavingSpeakerNameProfile] = useState(false);
 
   const provider = String(settings?.transcription_provider ?? "local");
   const providerLabel =
@@ -114,6 +125,47 @@ export const LiveSoundTranscriptionSettings: React.FC = () => {
   const diarizationEnabled = Boolean(
     (settings as any)?.live_sound_enable_speaker_diarization ?? true,
   );
+  const discoveredSpeakers = useMemo(() => {
+    const seen = new Map<number, string>();
+    for (const seg of segments) {
+      const id = seg.speaker_id ?? seg.speakerId ?? null;
+      if (id != null && !seen.has(id)) {
+        seen.set(id, getSegmentSpeakerLabel(seg) ?? `Speaker ${id}`);
+      }
+    }
+    return [...seen.entries()].map(([id, defaultName]) => ({ speakerId: id, defaultName }));
+  }, [segments]);
+
+  const savedSpeakerNameProfiles = useMemo<SpeakerNameSetProfile[]>(
+    () =>
+      ((settings as any)?.diarization_speaker_name_profiles ?? []).map((p: any) => ({
+        id: String(p.id ?? ""),
+        name: String(p.name ?? ""),
+        speaker_names: Array.isArray(p.speaker_names)
+          ? p.speaker_names.map((n: any) => String(n ?? ""))
+          : [],
+      })),
+    [settings],
+  );
+
+  const selectedSpeakerNameProfile = useMemo(
+    () => savedSpeakerNameProfiles.find((p) => p.id === selectedSpeakerNameProfileId) ?? null,
+    [savedSpeakerNameProfiles, selectedSpeakerNameProfileId],
+  );
+
+  const speakerNameProfileOptions = useMemo(
+    () => savedSpeakerNameProfiles.map((p) => ({ value: p.id, label: p.name })),
+    [savedSpeakerNameProfiles],
+  );
+
+  const canPersistSpeakerNameProfile =
+    discoveredSpeakers.length > 0 &&
+    speakerNameProfileDraftName.trim().length > 0 &&
+    discoveredSpeakers.some(({ speakerId }) => (speakerNames.get(speakerId) ?? "").trim().length > 0);
+
+  const canApplySpeakerNameProfile = !!selectedSpeakerNameProfile && discoveredSpeakers.length > 0;
+  const canUpdateSpeakerNameProfile = !!selectedSpeakerNameProfile && canPersistSpeakerNameProfile;
+
   const finalizedSegments = segments.filter(
     (segment) => !isInterimSegment(segment) && getSegmentText(segment).trim().length > 0,
   );
@@ -186,6 +238,22 @@ export const LiveSoundTranscriptionSettings: React.FC = () => {
     };
   }, []);
 
+  useEffect(() => {
+    if (selectedSpeakerNameProfile) {
+      setSpeakerNameProfileDraftName(selectedSpeakerNameProfile.name);
+    }
+  }, [selectedSpeakerNameProfile]);
+
+  useEffect(() => {
+    if (
+      selectedSpeakerNameProfileId &&
+      !savedSpeakerNameProfiles.some((p) => p.id === selectedSpeakerNameProfileId)
+    ) {
+      setSelectedSpeakerNameProfileId(null);
+      setSpeakerNameProfileDraftName("");
+    }
+  }, [savedSpeakerNameProfiles, selectedSpeakerNameProfileId]);
+
   const runAction = async (
     action: "start" | "stop" | "clear" | "process",
     command:
@@ -196,7 +264,11 @@ export const LiveSoundTranscriptionSettings: React.FC = () => {
   ) => {
     setActionBusy(action);
     setErrorMessage(null);
-    if (action === "clear") setSpeakerNames(new Map());
+    if (action === "clear") {
+      setSpeakerNames(new Map());
+      setSelectedSpeakerNameProfileId(null);
+      setSpeakerNameProfileDraftName("");
+    }
     try {
       await invoke(command);
     } catch (error) {
@@ -256,6 +328,90 @@ export const LiveSoundTranscriptionSettings: React.FC = () => {
       );
     } finally {
       setSourceBusy(false);
+    }
+  };
+
+  const buildSpeakerNameProfileNames = () =>
+    discoveredSpeakers.map(({ speakerId }) => speakerNames.get(speakerId)?.trim() ?? "");
+
+  const persistSpeakerNameProfiles = async (nextProfiles: SpeakerNameSetProfile[]) => {
+    const result = await commands.changeDiarizationSpeakerNameProfilesSetting(
+      nextProfiles.map((p) => ({ id: p.id, name: p.name.trim(), speaker_names: p.speaker_names })),
+    );
+    if (result.status === "error") throw new Error(result.error);
+    await refreshSettings();
+  };
+
+  const handleApplySpeakerNameProfile = () => {
+    if (!selectedSpeakerNameProfile) return;
+    setSpeakerNames((prev) => {
+      const next = new Map(prev);
+      discoveredSpeakers.forEach(({ speakerId }, index) => {
+        const name = selectedSpeakerNameProfile.speaker_names[index]?.trim();
+        if (name) next.set(speakerId, name);
+        else next.delete(speakerId);
+      });
+      return next;
+    });
+  };
+
+  const handleSaveSpeakerNameProfile = async () => {
+    if (!canPersistSpeakerNameProfile) return;
+    setIsSavingSpeakerNameProfile(true);
+    setErrorMessage(null);
+    try {
+      const nextProfile: SpeakerNameSetProfile = {
+        id: `speaker_names_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+        name: speakerNameProfileDraftName.trim(),
+        speaker_names: buildSpeakerNameProfileNames(),
+      };
+      await persistSpeakerNameProfiles([...savedSpeakerNameProfiles, nextProfile]);
+      setSelectedSpeakerNameProfileId(nextProfile.id);
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : String(error));
+    } finally {
+      setIsSavingSpeakerNameProfile(false);
+    }
+  };
+
+  const handleUpdateSpeakerNameProfile = async () => {
+    if (!selectedSpeakerNameProfile || !canPersistSpeakerNameProfile) return;
+    setIsSavingSpeakerNameProfile(true);
+    setErrorMessage(null);
+    try {
+      const updated: SpeakerNameSetProfile = {
+        ...selectedSpeakerNameProfile,
+        name: speakerNameProfileDraftName.trim(),
+        speaker_names: buildSpeakerNameProfileNames(),
+      };
+      await persistSpeakerNameProfiles(
+        savedSpeakerNameProfiles.map((p) => (p.id === updated.id ? updated : p)),
+      );
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : String(error));
+    } finally {
+      setIsSavingSpeakerNameProfile(false);
+    }
+  };
+
+  const handleDeleteSpeakerNameProfile = async () => {
+    if (!selectedSpeakerNameProfile) return;
+    const confirmed = window.confirm(
+      t("transcribeFile.speakerNames.profileDeleteConfirm", { name: selectedSpeakerNameProfile.name }),
+    );
+    if (!confirmed) return;
+    setIsSavingSpeakerNameProfile(true);
+    setErrorMessage(null);
+    try {
+      await persistSpeakerNameProfiles(
+        savedSpeakerNameProfiles.filter((p) => p.id !== selectedSpeakerNameProfile.id),
+      );
+      setSelectedSpeakerNameProfileId(null);
+      setSpeakerNameProfileDraftName("");
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : String(error));
+    } finally {
+      setIsSavingSpeakerNameProfile(false);
     }
   };
 
@@ -607,6 +763,118 @@ export const LiveSoundTranscriptionSettings: React.FC = () => {
                 </Button>
               </div>
             )}
+          </div>
+        </SettingContainer>
+      </SettingsGroup>
+
+      <SettingsGroup
+        title={t("settings.liveSoundTranscription.speakerNames.title")}
+        description={t("settings.liveSoundTranscription.speakerNames.hint")}
+      >
+        <SettingContainer
+          title={t("settings.liveSoundTranscription.speakerNames.cardsTitle")}
+          grouped={true}
+          layout="stacked"
+        >
+          {discoveredSpeakers.length === 0 ? (
+            <p className="text-sm text-[#8a8a8a]">
+              {t("settings.liveSoundTranscription.speakerNames.noSpeakers")}
+            </p>
+          ) : (
+            <div className="space-y-2">
+              {discoveredSpeakers.map(({ speakerId, defaultName }) => (
+                <div key={speakerId} className="flex items-center gap-3">
+                  <span className="w-28 shrink-0 text-xs text-[#8a8a8a] truncate">
+                    {defaultName}
+                  </span>
+                  <input
+                    type="text"
+                    className="min-w-0 flex-1 rounded border border-[#333333] bg-[#0f0f0f] px-3 py-1.5 text-sm text-[#f5f5f5] focus:border-[#9b5de5] focus:outline-none"
+                    placeholder={t("settings.liveSoundTranscription.speakerNames.inputPlaceholder")}
+                    value={speakerNames.get(speakerId) ?? ""}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setSpeakerNames((prev) => {
+                        const next = new Map(prev);
+                        if (val) next.set(speakerId, val);
+                        else next.delete(speakerId);
+                        return next;
+                      });
+                    }}
+                  />
+                </div>
+              ))}
+            </div>
+          )}
+        </SettingContainer>
+
+        <SettingContainer
+          title={t("transcribeFile.speakerNames.profilesTitle")}
+          description={t("transcribeFile.speakerNames.profilesHint")}
+          grouped={true}
+          layout="stacked"
+        >
+          <div className="grid gap-3 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)]">
+            <div className="space-y-2">
+              <label className="text-xs text-[#808080]">
+                {t("transcribeFile.speakerNames.savedProfiles")}
+              </label>
+              <Dropdown
+                className="w-full"
+                selectedValue={selectedSpeakerNameProfileId}
+                options={speakerNameProfileOptions}
+                onSelect={setSelectedSpeakerNameProfileId}
+                placeholder={t("transcribeFile.speakerNames.profilePlaceholder")}
+                disabled={speakerNameProfileOptions.length === 0 || isSavingSpeakerNameProfile}
+              />
+            </div>
+            <div className="space-y-2">
+              <label className="text-xs text-[#808080]">
+                {t("transcribeFile.speakerNames.profileNameLabel")}
+              </label>
+              <input
+                type="text"
+                value={speakerNameProfileDraftName}
+                onChange={(e) => setSpeakerNameProfileDraftName(e.target.value)}
+                className="w-full rounded border border-[#333333] bg-[#0f0f0f] px-3 py-2 text-sm text-[#f5f5f5] focus:border-[#9b5de5] focus:outline-none"
+                placeholder={t("transcribeFile.speakerNames.profileNamePlaceholder")}
+                disabled={isSavingSpeakerNameProfile}
+              />
+            </div>
+          </div>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <Button
+              variant="secondary"
+              size="sm"
+              disabled={!canApplySpeakerNameProfile || isSavingSpeakerNameProfile}
+              onClick={handleApplySpeakerNameProfile}
+            >
+              {t("transcribeFile.speakerNames.applyProfile")}
+            </Button>
+            <Button
+              variant="secondary"
+              size="sm"
+              disabled={!canPersistSpeakerNameProfile || isSavingSpeakerNameProfile}
+              onClick={() => void handleSaveSpeakerNameProfile()}
+            >
+              {t("transcribeFile.speakerNames.saveProfile")}
+            </Button>
+            <Button
+              variant="secondary"
+              size="sm"
+              disabled={!canUpdateSpeakerNameProfile || isSavingSpeakerNameProfile}
+              onClick={() => void handleUpdateSpeakerNameProfile()}
+            >
+              {t("transcribeFile.speakerNames.updateProfile")}
+            </Button>
+            <Button
+              variant="danger"
+              size="sm"
+              disabled={!selectedSpeakerNameProfile || isSavingSpeakerNameProfile}
+              onClick={() => void handleDeleteSpeakerNameProfile()}
+            >
+              {t("transcribeFile.speakerNames.deleteProfile")}
+            </Button>
           </div>
         </SettingContainer>
       </SettingsGroup>

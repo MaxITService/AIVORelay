@@ -1420,6 +1420,11 @@ export const TranscriptionProfiles: React.FC = () => {
           sonioxLanguageHintsStrict: profile.soniox_language_hints_strict ?? null,
         },
       });
+      if (profile.id === activeProfileId) {
+        await invoke("change_soniox_live_preview_enabled_setting", {
+          enabled: profile.preview_output_only_enabled ?? false,
+        });
+      }
       await refreshSettings();
     } catch (error) {
       console.error("Failed to update profile:", error);
@@ -1444,7 +1449,15 @@ export const TranscriptionProfiles: React.FC = () => {
 
   const handleSetActive = async (id: string) => {
     try {
+      let previewEnabled: boolean;
+      if (id === "default") {
+        previewEnabled = (settings as any)?.preview_output_only_enabled ?? false;
+      } else {
+        const targetProfile = profiles.find((p) => p.id === id);
+        previewEnabled = targetProfile?.preview_output_only_enabled ?? false;
+      }
       await invoke("set_active_profile", { id });
+      await invoke("change_soniox_live_preview_enabled_setting", { enabled: previewEnabled });
       await refreshSettings();
     } catch (e) {
       console.error("Failed to set active profile", e);
@@ -1697,13 +1710,18 @@ export const TranscriptionProfiles: React.FC = () => {
                           ((settings as any)
                             ?.preview_output_only_enabled as boolean) ?? false
                         }
-                        onChange={(checked) =>
-                          updateSetting &&
-                          updateSetting(
-                            "preview_output_only_enabled" as any,
-                            checked as any,
-                          )
-                        }
+                        onChange={async (checked) => {
+                          if (updateSetting) {
+                            await updateSetting(
+                              "preview_output_only_enabled" as any,
+                              checked as any,
+                            );
+                          }
+                          if (activeProfileId === "default") {
+                            await invoke("change_soniox_live_preview_enabled_setting", { enabled: checked });
+                            await refreshSettings();
+                          }
+                        }}
                       />
                       <span className="text-xs text-mid-gray leading-snug">
                         {t(
