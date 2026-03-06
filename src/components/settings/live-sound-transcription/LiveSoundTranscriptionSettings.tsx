@@ -5,7 +5,6 @@ import { SettingContainer } from "../../ui/SettingContainer";
 import { SettingsGroup } from "../../ui/SettingsGroup";
 import { Textarea } from "../../ui/Textarea";
 import { useSettings } from "../../../hooks/useSettings";
-import { TranscriptionProfiles } from "../TranscriptionProfiles";
 
 export const LiveSoundTranscriptionSettings: React.FC = () => {
   const { t } = useTranslation();
@@ -137,8 +136,6 @@ export const LiveSoundTranscriptionSettings: React.FC = () => {
           />
         </SettingContainer>
       </SettingsGroup>
-
-      <TranscriptionProfiles />
     </div>
   );
 };
