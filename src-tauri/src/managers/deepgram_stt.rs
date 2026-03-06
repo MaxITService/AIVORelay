@@ -13,7 +13,6 @@ use tokio_tungstenite::{connect_async, tungstenite::Message};
 const DEEPGRAM_WS_BASE_URL: &str = "wss://api.deepgram.com/v1/listen";
 const DEEPGRAM_HTTP_BASE_URL: &str = "https://api.deepgram.com/v1/listen";
 const DEFAULT_CONNECT_TIMEOUT_SECS: u64 = 10;
-const DEFAULT_REQUEST_TIMEOUT_SECS: u64 = 60;
 const DEFAULT_READ_TIMEOUT_SECS: u64 = 60;
 const MIN_TIMEOUT_SECONDS: u32 = 5;
 const AUDIO_CHUNK_SIZE_BYTES: usize = 32 * 1024;

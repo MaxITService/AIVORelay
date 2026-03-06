@@ -13,9 +13,9 @@ Files that differentiate this fork from the original [cjpais/Handy](https://gith
 | `src-tauri/src/managers/remote_stt.rs` | Remote STT manager (OpenAI/Soniox). |
 | `src-tauri/src/commands/remote_stt.rs` | Commands for remote STT & keys. |
 | `src-tauri/src/managers/soniox_stt.rs` | Soniox async/non-live manager. |
-| `src-tauri/src/managers/soniox_realtime.rs` | Soniox live WebSocket manager. |
+| `src-tauri/src/managers/soniox_realtime.rs` | Soniox live WebSocket manager plus live-sound diarization feed. |
 | `src-tauri/src/managers/deepgram_stt.rs` | Deepgram non-live/live-finalize transcription manager. |
-| `src-tauri/src/managers/deepgram_realtime.rs` | Deepgram live WebSocket manager (KeepAlive/Finalize/CloseStream). |
+| `src-tauri/src/managers/deepgram_realtime.rs` | Deepgram live WebSocket manager (KeepAlive/Finalize/CloseStream) plus live-sound diarization feed. |
 | `src-tauri/src/secure_keys.rs` | Secure API key storage (Windows). |
 | `src-tauri/src/plus_overlay_state.rs` | Extended overlay states. |
 | `src-tauri/src/region_capture.rs` | Native region capture overlay. |
@@ -23,6 +23,7 @@ Files that differentiate this fork from the original [cjpais/Handy](https://gith
 | `src-tauri/src/commands/voice_command.rs` | Voice Command Center. |
 | `src-tauri/src/commands/file_transcription.rs` | File transcription logic. |
 | `src-tauri/src/commands/live_sound_transcription.rs` | Live Sound Transcription page command surface. |
+| `src-tauri/src/managers/live_sound_transcription.rs` | Dedicated in-page live sound transcript/diarization state and events. |
 | `src-tauri/src/file_transcription_diarization.rs` | Shared diarized file-transcription temp session + speaker re-apply helpers. |
 | `src-tauri/src/subtitle.rs` | Subtitle formatting (SRT/VTT). |
 | `src-tauri/src/audio_toolkit/text.rs` | Text Post-Processing (stutter/filler removal). |
@@ -55,7 +56,7 @@ Files that differentiate this fork from the original [cjpais/Handy](https://gith
 | `src/soniox-live-preview/SonioxLivePreview.css` | Styles for live preview, drag grip, and resize handles. |
 | `src/components/settings/voice-commands/VoiceCommandSettings.tsx` | Voice Command settings UI. |
 | `src/components/settings/transcribe-file/TranscribeFileSettings.tsx` | Transcribe File UI. |
-| `src/components/settings/live-sound-transcription/LiveSoundTranscriptionSettings.tsx` | Live Sound Transcription page with in-page transcript and source/device controls. |
+| `src/components/settings/live-sound-transcription/LiveSoundTranscriptionSettings.tsx` | Live Sound Transcription page with in-page diarized transcript and source/device controls. |
 | `src/components/settings/text-replacement/TextReplacementSettings.tsx` | Text Replacement rules UI. |
 | `src/components/settings/audio-processing/AudioProcessingSettings.tsx` | Audio processing UI. |
 | `src/components/settings/debug/ShortcutEngineSelector.tsx` | Shortcut engine toggle UI. |
@@ -89,7 +90,8 @@ Files that differentiate this fork from the original [cjpais/Handy](https://gith
 | File | Current State |
 | --- | --- |
 | `src-tauri/src/commands/mod.rs` | Exports custom commands. |
-| `src-tauri/src/managers/mod.rs` | Exports custom managers. |
+| `src-tauri/src/managers/mod.rs` | Exports custom managers, including live sound transcript state. |
+| `src-tauri/src/managers/live_sound_transcription.rs` | Live Sound page runtime state, transcript events, and speaker-segment payloads. |
 | `src-tauri/src/audio_toolkit/mod.rs` | Includes `encode_wav_bytes()`. |
 | `src-tauri/src/audio_toolkit/audio/utils.rs` | WAV encoding utils. |
 | `src-tauri/src/audio_toolkit/audio/recorder.rs` | Audio capture stream logic, including Windows output loopback support. |
@@ -99,7 +101,8 @@ Files that differentiate this fork from the original [cjpais/Handy](https://gith
 | `src-tauri/src/settings.rs` | Also stores saved diarization speaker-name set profiles for file transcription. |
 | `src-tauri/src/shortcut.rs` | Includes persisted setting update commands for diarization speaker-name sets. |
 | `src-tauri/src/managers/soniox_stt.rs` | Soniox language handling. |
-| `src-tauri/src/managers/soniox_realtime.rs` | Soniox live language/previews. |
+| `src-tauri/src/managers/soniox_realtime.rs` | Soniox live language/previews plus speaker-aware live page updates. |
+| `src-tauri/src/managers/deepgram_realtime.rs` | Deepgram live preview/finalize flow plus speaker-aware live page updates. |
 | `src-tauri/src/utils.rs` | Central cancellation path. |
 | `src-tauri/Cargo.toml` | Extra crates (`keyring`, `reqwest`, `axum`, etc). |
 | `src-tauri/resources/default_settings.json` | Default settings for fork. |

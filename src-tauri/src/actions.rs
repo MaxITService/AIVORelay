@@ -1945,32 +1945,85 @@ pub(crate) fn transcribe_action_for_binding(binding_id: &str) -> Option<Arc<dyn 
 }
 
 pub(crate) fn start_live_sound_transcription_session(app: &AppHandle) -> Result<(), String> {
-    let action = transcribe_action_for_binding(LIVE_SOUND_TRANSCRIPTION_BINDING_ID)
-        .ok_or_else(|| "Live Sound Transcription action is not registered.".to_string())?;
-    action.start(
+    crate::managers::live_sound_audio::start(app)?;
+    crate::managers::live_sound_transcription::activate_session(
         app,
-        LIVE_SOUND_TRANSCRIPTION_BINDING_ID,
-        LIVE_SOUND_TRANSCRIPTION_BINDING_ID,
+        LIVE_SOUND_TRANSCRIPTION_BINDING_ID.to_string(),
     );
-    if is_recording_for_binding(app, LIVE_SOUND_TRANSCRIPTION_BINDING_ID) {
-        Ok(())
-    } else {
-        Err(
-            "Live Sound Transcription did not start. Another session may already be active, or the selected audio source is unavailable."
-                .to_string(),
-        )
-    }
+    Ok(())
+}
+
+pub(crate) fn is_live_sound_recording(_app: &AppHandle) -> bool {
+    crate::managers::live_sound_audio::is_active()
 }
 
 pub(crate) fn stop_live_sound_transcription_session(app: &AppHandle) -> Result<(), String> {
-    let action = transcribe_action_for_binding(LIVE_SOUND_TRANSCRIPTION_BINDING_ID)
-        .ok_or_else(|| "Live Sound Transcription action is not registered.".to_string())?;
-    action.stop(
-        app,
-        LIVE_SOUND_TRANSCRIPTION_BINDING_ID,
-        LIVE_SOUND_TRANSCRIPTION_BINDING_ID,
-    );
+    // Immediately reflect stop in the UI.
+    crate::managers::live_sound_transcription::set_recording(app, false);
+    // The pipeline finalizes the WebSocket session asynchronously and calls
+    // set_recording(false) again once done (harmless duplicate).
+    crate::managers::live_sound_audio::stop(app);
     Ok(())
+}
+
+pub(crate) async fn process_live_sound_transcription_text(app: AppHandle) -> Result<(), String> {
+    if crate::managers::live_sound_audio::is_active() {
+        return Err("Stop live transcription before LLM processing.".to_string());
+    }
+
+    let original_text = crate::managers::live_sound_transcription::current_final_text();
+    if original_text.trim().is_empty() {
+        return Err("Live sound transcript is empty.".to_string());
+    }
+
+    crate::managers::live_sound_transcription::set_processing_llm(&app, true);
+    crate::managers::live_sound_transcription::set_error(&app, None);
+
+    let settings = get_settings(&app);
+    let profile = resolve_profile_for_binding(&settings, LIVE_SOUND_TRANSCRIPTION_BINDING_ID);
+    let current_app = crate::active_app::get_frontmost_app_name().unwrap_or_default();
+    let template_context = build_llm_template_context(
+        &app,
+        &settings,
+        profile,
+        &current_app,
+        &original_text,
+        "",
+        "",
+    );
+
+    let result = match maybe_post_process_transcription(
+        &app,
+        &settings,
+        profile,
+        &template_context,
+        true,
+    )
+    .await
+    {
+        PostProcessTranscriptionOutcome::Processed { text, .. } => {
+            crate::managers::live_sound_transcription::replace_final_text(&app, text);
+            Ok(())
+        }
+        PostProcessTranscriptionOutcome::Skipped => Err(
+            "LLM processing could not run. Check provider, model, and prompt settings."
+                .to_string(),
+        ),
+        PostProcessTranscriptionOutcome::Cancelled => Ok(()),
+    };
+
+    crate::managers::live_sound_transcription::set_processing_llm(&app, false);
+
+    match result {
+        Ok(()) => {
+            crate::managers::live_sound_transcription::set_error(&app, None);
+            Ok(())
+        }
+        Err(err) => {
+            crate::managers::live_sound_transcription::set_error(&app, Some(err.clone()));
+            Err(err)
+        }
+    }
 }
 
 fn stop_transcribe_binding_from_preview(app: &AppHandle, binding_id: &str) -> Result<(), String> {
@@ -2069,6 +2122,32 @@ fn is_transcribe_binding_id(binding_id: &str) -> bool {
     binding_id == "transcribe" || binding_id.starts_with("transcribe_")
 }
 
+pub(crate) fn live_sound_use_live_streaming(settings: &AppSettings) -> bool {
+    should_use_live_streaming(settings)
+}
+
+pub(crate) fn build_soniox_options_for_live_sound(
+    settings: &AppSettings,
+) -> crate::managers::soniox_realtime::SonioxRealtimeOptions {
+    let profile = resolve_profile_for_binding(settings, LIVE_SOUND_TRANSCRIPTION_BINDING_ID);
+    let language = profile
+        .as_ref()
+        .map(|p| p.language.clone())
+        .unwrap_or_else(|| settings.selected_language.clone());
+    build_soniox_realtime_options(settings, &language, profile, LIVE_SOUND_TRANSCRIPTION_BINDING_ID)
+}
+
+pub(crate) fn build_deepgram_options_for_live_sound(
+    settings: &AppSettings,
+) -> crate::managers::deepgram_realtime::DeepgramRealtimeOptions {
+    let profile = resolve_profile_for_binding(settings, LIVE_SOUND_TRANSCRIPTION_BINDING_ID);
+    let language = profile
+        .as_ref()
+        .map(|p| p.language.clone())
+        .unwrap_or_else(|| settings.selected_language.clone());
+    build_deepgram_realtime_options(settings, &language, LIVE_SOUND_TRANSCRIPTION_BINDING_ID)
+}
+
 fn should_use_live_streaming(settings: &AppSettings) -> bool {
     match settings.transcription_provider {
         TranscriptionProvider::RemoteSoniox => {
@@ -2125,7 +2204,7 @@ fn setup_and_start_live(
 
     match settings.transcription_provider {
         TranscriptionProvider::RemoteSoniox => {
-            let options = build_soniox_realtime_options(settings, &language, profile);
+            let options = build_soniox_realtime_options(settings, &language, profile, binding_id);
             let soniox_live_manager = Arc::clone(&app.state::<Arc<SonioxRealtimeManager>>());
             #[cfg(target_os = "windows")]
             let api_key = crate::secure_keys::get_soniox_api_key();
@@ -2140,7 +2219,7 @@ fn setup_and_start_live(
                 })
         }
         TranscriptionProvider::RemoteDeepgram => {
-            let options = build_deepgram_realtime_options(settings, &language);
+            let options = build_deepgram_realtime_options(settings, &language, binding_id);
             let deepgram_live_manager = Arc::clone(&app.state::<Arc<DeepgramRealtimeManager>>());
             #[cfg(target_os = "windows")]
             let api_key = crate::secure_keys::get_deepgram_api_key();
@@ -2196,6 +2275,7 @@ fn build_soniox_realtime_options(
     settings: &AppSettings,
     language: &str,
     profile: Option<&TranscriptionProfile>,
+    binding_id: &str,
 ) -> SonioxRealtimeOptions {
     let mut language_hints = if settings.soniox_use_profile_language_hint_only {
         Vec::new()
@@ -2223,7 +2303,11 @@ fn build_soniox_realtime_options(
         language_hints_strict: profile
             .and_then(|p| p.soniox_language_hints_strict)
             .unwrap_or(settings.soniox_language_hints_strict),
-        enable_speaker_diarization: settings.soniox_enable_speaker_diarization,
+        enable_speaker_diarization: if binding_id == LIVE_SOUND_TRANSCRIPTION_BINDING_ID {
+            settings.live_sound_enable_speaker_diarization
+        } else {
+            settings.soniox_enable_speaker_diarization
+        },
         enable_language_identification: settings.soniox_enable_language_identification,
         enable_endpoint_detection: settings.soniox_enable_endpoint_detection,
         max_endpoint_delay_ms: settings.soniox_max_endpoint_delay_ms,
@@ -2235,17 +2319,22 @@ fn build_soniox_realtime_options(
 fn build_deepgram_realtime_options(
     settings: &AppSettings,
     language: &str,
+    binding_id: &str,
 ) -> DeepgramRealtimeOptions {
     DeepgramRealtimeOptions {
         language: Some(language.to_string()),
         smart_format: settings.deepgram_smart_format,
         interim_results: settings.deepgram_interim_results,
+        diarize: if binding_id == LIVE_SOUND_TRANSCRIPTION_BINDING_ID {
+            settings.live_sound_enable_speaker_diarization
+        } else {
+            settings.deepgram_diarize
+        },
         endpointing_enabled: settings.deepgram_endpointing_enabled,
         endpointing_ms: settings.deepgram_endpointing_ms,
         keepalive_interval_seconds: settings.deepgram_keepalive_interval_seconds,
     }
 }
-
 fn apply_soniox_output_filters(settings: &AppSettings, text: String) -> String {
     let corrected = if settings.custom_words_enabled && !settings.custom_words.is_empty() {
         apply_custom_words(
@@ -2631,7 +2720,7 @@ impl ShortcutAction for TranscribeAction {
             return;
         }
 
-        if preview_output_only_enabled {
+        if preview_output_only_enabled && binding_id != LIVE_SOUND_TRANSCRIPTION_BINDING_ID {
             let was_active_for_binding =
                 crate::managers::preview_output_mode::is_active_for_binding(binding_id);
             let mut recording_prefix = crate::overlay::get_soniox_live_preview_state().final_text;
@@ -2647,9 +2736,7 @@ impl ShortcutAction for TranscribeAction {
                 use_soniox_live,
                 recording_prefix,
             );
-            if binding_id != LIVE_SOUND_TRANSCRIPTION_BINDING_ID {
-                crate::overlay::show_soniox_live_preview_window(app);
-            }
+            crate::overlay::show_soniox_live_preview_window(app);
         }
 
         if use_soniox_live {
@@ -2711,7 +2798,7 @@ impl ShortcutAction for TranscribeAction {
                         &binding_id,
                         &api_key,
                         &settings.soniox_model,
-                        build_soniox_realtime_options(&settings, &language, profile),
+                        build_soniox_realtime_options(&settings, &language, profile, &binding_id),
                         chunk_callback,
                     );
 
@@ -2779,7 +2866,7 @@ impl ShortcutAction for TranscribeAction {
                         &binding_id,
                         &api_key,
                         &settings.deepgram_model,
-                        build_deepgram_realtime_options(&settings, &language),
+                        build_deepgram_realtime_options(&settings, &language, &binding_id),
                         chunk_callback,
                     );
 
@@ -2904,6 +2991,9 @@ impl ShortcutAction for TranscribeAction {
                         }
                         utils::hide_recording_overlay(&ah);
                         change_tray_icon(&ah, TrayIconState::Idle);
+                        if binding_id == LIVE_SOUND_TRANSCRIPTION_BINDING_ID {
+                            crate::managers::live_sound_transcription::finish_session(&ah);
+                        }
                         session_manager::exit_processing(&ah);
                         return;
                     }
@@ -2927,6 +3017,9 @@ impl ShortcutAction for TranscribeAction {
                     })
                     .ok();
 
+                    if binding_id == LIVE_SOUND_TRANSCRIPTION_BINDING_ID {
+                        crate::managers::live_sound_transcription::finish_session(&ah);
+                    }
                     session_manager::exit_processing(&ah);
                     return;
                 }
@@ -2954,6 +3047,13 @@ impl ShortcutAction for TranscribeAction {
                                 &ah,
                                 Some(err_str.clone()),
                             );
+                        }
+                        if binding_id == LIVE_SOUND_TRANSCRIPTION_BINDING_ID {
+                            crate::managers::live_sound_transcription::set_error(
+                                &ah,
+                                Some(err_str),
+                            );
+                            crate::managers::live_sound_transcription::finish_session(&ah);
                         }
                         session_manager::exit_processing(&ah);
                         return;
@@ -3005,6 +3105,9 @@ impl ShortcutAction for TranscribeAction {
                     }
                     utils::hide_recording_overlay(&ah);
                     change_tray_icon(&ah, TrayIconState::Idle);
+                    if binding_id == LIVE_SOUND_TRANSCRIPTION_BINDING_ID {
+                        crate::managers::live_sound_transcription::finish_session(&ah);
+                    }
                     session_manager::exit_processing(&ah);
                     return;
                 }
@@ -3013,6 +3116,7 @@ impl ShortcutAction for TranscribeAction {
                     resolve_stream_trailing_adjustment(&recording_settings, &transcription);
                 let copy_to_clipboard = recording_settings.clipboard_handling
                     == crate::settings::ClipboardHandling::CopyToClipboard;
+                let transcription_before_post_process = transcription.clone();
 
                 let final_text = match apply_post_processing_and_history(
                     &ah,
@@ -3030,6 +3134,9 @@ impl ShortcutAction for TranscribeAction {
                             let _ = crate::clipboard::end_streaming_paste_session(&ah);
                         } else if !invoked_from_preview_action {
                             close_preview_output_mode_workflow(&ah, true);
+                        }
+                        if binding_id == LIVE_SOUND_TRANSCRIPTION_BINDING_ID {
+                            crate::managers::live_sound_transcription::finish_session(&ah);
                         }
                         session_manager::exit_processing(&ah);
                         return;
@@ -3092,6 +3199,16 @@ impl ShortcutAction for TranscribeAction {
                     } else if invoked_from_preview_action {
                         update_preview_text_for_output_mode(&ah, &final_text);
                     }
+                }
+
+                if binding_id == LIVE_SOUND_TRANSCRIPTION_BINDING_ID {
+                    if final_text.trim() != transcription_before_post_process.trim() {
+                        crate::managers::live_sound_transcription::replace_final_text(
+                            &ah,
+                            final_text.clone(),
+                        );
+                    }
+                    crate::managers::live_sound_transcription::finish_session(&ah);
                 }
 
                 if !preview_output_only_enabled {
@@ -5263,10 +5380,6 @@ pub static ACTION_MAP: Lazy<HashMap<String, Arc<dyn ShortcutAction>>> = Lazy::ne
         Arc::new(TranscribeAction) as Arc<dyn ShortcutAction>,
     );
     map.insert(
-        LIVE_SOUND_TRANSCRIPTION_BINDING_ID.to_string(),
-        Arc::new(TranscribeAction) as Arc<dyn ShortcutAction>,
-    );
-    map.insert(
         "send_to_extension".to_string(),
         Arc::new(SendToExtensionAction) as Arc<dyn ShortcutAction>,
     );
@@ -5314,3 +5427,7 @@ pub static ACTION_MAP: Lazy<HashMap<String, Arc<dyn ShortcutAction>>> = Lazy::ne
     );
     map
 });
+
+
+
+

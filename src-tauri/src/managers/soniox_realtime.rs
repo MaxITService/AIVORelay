@@ -1,7 +1,9 @@
+use crate::file_transcription_diarization::RawSpeakerBlock;
 use anyhow::{anyhow, Result};
 use futures_util::{Sink, SinkExt, Stream, StreamExt};
 use log::{debug, info, warn};
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use tauri::async_runtime::JoinHandle;
@@ -65,11 +67,13 @@ struct SonioxStartRequest {
     max_endpoint_delay_ms: u32,
 }
 
-#[derive(Deserialize, Debug, Default)]
+#[derive(Clone, Deserialize, Debug, Default)]
 struct SonioxToken {
     text: String,
     #[serde(default)]
     is_final: bool,
+    #[serde(default)]
+    speaker: Option<Value>,
 }
 
 #[derive(Deserialize, Debug, Default)]
@@ -82,6 +86,91 @@ struct SonioxResponse {
     error_code: Option<u16>,
     #[serde(default)]
     error_message: Option<String>,
+}
+
+fn parse_soniox_speaker_key(value: &Value) -> Option<String> {
+    if let Some(speaker) = value.as_str() {
+        let trimmed = speaker.trim();
+        if !trimmed.is_empty() {
+            return Some(trimmed.to_string());
+        }
+    }
+    if let Some(number) = value.as_u64() {
+        return Some(number.to_string());
+    }
+    if let Some(number) = value.as_i64() {
+        return Some(number.to_string());
+    }
+    if let Some(number) = value.as_f64() {
+        if number.is_finite() {
+            return Some(number.to_string());
+        }
+    }
+    None
+}
+
+fn is_soniox_control_token(text: &str) -> bool {
+    matches!(text.trim(), "<fin>" | "<end>")
+}
+
+fn build_soniox_raw_speaker_blocks(tokens: &[SonioxToken], is_final: bool) -> Vec<RawSpeakerBlock> {
+    let mut blocks: Vec<RawSpeakerBlock> = Vec::new();
+    let mut current_speaker: Option<String> = None;
+    let mut current_text = String::new();
+    let mut pending_prefix = String::new();
+
+    for token in tokens {
+        if token.is_final != is_final
+            || token.text.is_empty()
+            || is_soniox_control_token(&token.text)
+        {
+            continue;
+        }
+
+        let speaker = token
+            .speaker
+            .as_ref()
+            .and_then(parse_soniox_speaker_key)
+            .or_else(|| current_speaker.clone());
+
+        let Some(speaker_key) = speaker else {
+            pending_prefix.push_str(&token.text);
+            continue;
+        };
+
+        if current_speaker.as_deref() != Some(speaker_key.as_str()) && !current_text.trim().is_empty()
+        {
+            blocks.push(RawSpeakerBlock {
+                speaker_key: current_speaker.clone().unwrap_or_default(),
+                default_name: None,
+                text: current_text.trim().to_string(),
+            });
+            current_text.clear();
+        }
+
+        if current_speaker.as_deref() != Some(speaker_key.as_str()) {
+            current_speaker = Some(speaker_key.clone());
+            if !pending_prefix.is_empty() {
+                current_text.push_str(&pending_prefix);
+                pending_prefix.clear();
+            }
+        }
+
+        current_text.push_str(&token.text);
+    }
+
+    if let Some(speaker_key) = current_speaker {
+        let text = current_text.trim();
+        if !text.is_empty() {
+            blocks.push(RawSpeakerBlock {
+                speaker_key,
+                default_name: None,
+                text: text.to_string(),
+            });
+        }
+    }
+
+    blocks
 }
 
 #[derive(Debug)]
@@ -264,6 +353,7 @@ impl SonioxRealtimeManager {
                     final_text_for_task,
                     keepalive_interval_seconds,
                     app_handle_for_task.clone(),
+                    binding_id_for_task.clone(),
                     on_final_chunk,
                 )
                 .await
@@ -287,6 +377,16 @@ impl SonioxRealtimeManager {
                 )
                 {
                     crate::managers::preview_output_mode::set_error(
+                        &app_handle_for_task,
+                        Some(err_str.clone()),
+                    );
+                }
+                if binding_id_for_task == crate::actions::LIVE_SOUND_TRANSCRIPTION_BINDING_ID {
+                    crate::managers::live_sound_transcription::set_recording(
+                        &app_handle_for_task,
+                        false,
+                    );
+                    crate::managers::live_sound_transcription::set_error(
                         &app_handle_for_task,
                         Some(err_str.clone()),
                     );
@@ -348,6 +448,7 @@ impl SonioxRealtimeManager {
         final_text: Arc<Mutex<String>>,
         keepalive_interval_seconds: u32,
         app_handle: AppHandle,
+        binding_id: String,
         on_final_chunk: Option<FinalChunkCallback>,
     ) -> Result<()>
     where
@@ -417,8 +518,11 @@ impl SonioxRealtimeManager {
                             let mut interim_text = String::new();
                             let mut final_token_count = 0usize;
                             let mut non_final_token_count = 0usize;
-                            for token in payload.tokens {
-                                if token.text.is_empty() || token.text == "<fin>" || token.text == "<end>" {
+                            for token in &payload.tokens {
+                                if token.text.is_empty()
+                                    || token.text == "<fin>"
+                                    || token.text == "<end>"
+                                {
                                     continue;
                                 }
                                 if token.is_final {
@@ -452,6 +556,33 @@ impl SonioxRealtimeManager {
                             }
 
                             if !chunk_text.is_empty() || !interim_text.is_empty() || is_finished_payload {
+                                if binding_id == crate::actions::LIVE_SOUND_TRANSCRIPTION_BINDING_ID {
+                                    let final_blocks = if chunk_text.is_empty() {
+                                        Vec::new()
+                                    } else {
+                                        build_soniox_raw_speaker_blocks(&payload.tokens, true)
+                                    };
+                                    let interim_blocks = if interim_text.is_empty() {
+                                        Vec::new()
+                                    } else {
+                                        build_soniox_raw_speaker_blocks(&payload.tokens, false)
+                                    };
+
+                                    if !chunk_text.is_empty() {
+                                        crate::managers::live_sound_transcription::append_final_result(
+                                            &app_handle,
+                                            &chunk_text,
+                                            final_blocks,
+                                            false,
+                                        );
+                                    }
+                                    crate::managers::live_sound_transcription::set_interim_result(
+                                        &app_handle,
+                                        interim_text.clone(),
+                                        interim_blocks,
+                                    );
+                                }
+
                                 let mut preview_final_text = crate::overlay::get_soniox_live_preview_state().final_text;
                                 if !chunk_text.is_empty() {
                                     preview_final_text.push_str(&chunk_text);

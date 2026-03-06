@@ -147,6 +147,18 @@ pub fn change_live_sound_capture_source_setting(
 
 #[tauri::command]
 #[specta::specta]
+pub fn change_live_sound_speaker_diarization_setting(
+    app: AppHandle,
+    enabled: bool,
+) -> Result<(), String> {
+    let mut settings = get_settings(&app);
+    settings.live_sound_enable_speaker_diarization = enabled;
+    write_settings(&app, settings);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
 pub async fn play_test_sound(app: AppHandle, sound_type: String) {
     let sound = match sound_type.as_str() {
         "start" => audio_feedback::SoundType::Start,
@@ -192,3 +204,4 @@ pub fn change_vad_threshold_setting(app: AppHandle, threshold: f32) -> Result<()
 
     Ok(())
 }
+

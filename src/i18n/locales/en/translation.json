@@ -580,6 +580,7 @@
         "modelLabel": "Model",
         "liveModeLabel": "Live Mode",
         "sourceLabel": "Capture Source",
+        "diarizationLabel": "Live Diarization",
         "enabled": "Enabled",
         "disabled": "Disabled",
         "providerUnsupported": "Local / unsupported for live page",
@@ -593,6 +594,11 @@
         "clear": "Clear",
         "clearing": "Clearing...",
         "process": "Process",
+        "diarizationDisabledHint": "Live speaker separation is off for this page. Turn it on here if you want diarized live transcript blocks.",
+        "diarizationToggleTitle": "Speaker Diarization",
+        "diarizationToggleDescription": "This toggle only affects Live Sound Transcription on this page. It does not change normal speech / mic transcription.",
+        "diarizationTurnOn": "Turn On",
+        "diarizationTurnOff": "Turn Off",
         "processing": "Processing...",
         "recordingHint": "Live transcription is active. Finalized text stays here immediately as it arrives.",
         "idleHint": "Start a live session to stream transcript updates directly into this page.",
@@ -600,22 +606,30 @@
       },
       "transcript": {
         "title": "Transcript",
-        "description": "Interim and finalized transcript output stays here as the session runs.",
+        "description": "Interim and finalized transcript output stays here as the session runs, including speaker-separated live segments when diarization is available.",
         "previewTitle": "Live Transcript",
-        "previewDescription": "Current transcript buffer for this page-owned session.",
+        "previewDescription": "Speaker-aware transcript stream for this page-owned live session.",
         "empty": "Live transcript output will appear here.",
-        "interimActive": "Interim speech is still being refined."
+        "interimActive": "Interim speech is still being refined.",
+        "interimLabel": "Interim",
+        "copy": "Copy",
+        "copied": "Copied",
+        "saveFile": "Save File",
+        "saving": "Saving...",
+        "speakerNamePlaceholder": "Enter name…",
+        "speakerNameHint": "Click speaker label to rename"
       },
       "audio": {
-        "source": {
-          "title": "Capture Source",
-          "description": "Choose whether this page transcribes a microphone or the Windows speaker/headphone device via loopback capture.",
-          "hint": "The source above decides which selector below is used when you press Start.",
-          "options": {
-            "systemOutput": "Windows sound output",
-            "microphone": "Microphone"
-          }
-        },
+        "microphoneTitle": "Microphone to listen to",
+        "microphoneToggle": "Listen to microphone",
+        "microphoneToggleDescription": "Include microphone input in the live transcription stream.",
+        "outputTitle": "Output to listen to",
+        "outputToggle": "Listen to system output",
+        "outputToggleDescription": "Include Windows speaker/headphone loopback in the live transcription stream.",
+        "onlySource": "Only source — keep on",
+        "listening": "Listening from here",
+        "sourceEnable": "Listen",
+        "sourceDisable": "Do not listen to",
         "microphoneDescription": "Select the microphone device used when Capture Source is set to Microphone.",
         "outputDescription": "Select the Windows speaker or headphone device used for loopback capture when Capture Source is set to Windows sound output."
       }

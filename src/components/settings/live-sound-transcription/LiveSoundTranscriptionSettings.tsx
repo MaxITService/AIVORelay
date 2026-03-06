@@ -1,21 +1,24 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { useTranslation } from "react-i18next";
+import { Copy, Check, FileText } from "lucide-react";
+import { save } from "@tauri-apps/plugin-dialog";
 import { Button } from "../../ui/Button";
-import { Dropdown } from "../../ui/Dropdown";
 import { SettingContainer } from "../../ui/SettingContainer";
 import { SettingsGroup } from "../../ui/SettingsGroup";
-import { Textarea } from "../../ui/Textarea";
 import { useSettings } from "../../../hooks/useSettings";
 import { MicrophoneSelector } from "../MicrophoneSelector";
 import { OutputDeviceSelector } from "../OutputDeviceSelector";
 
-type PreviewPayload = {
-  final_text?: string;
-  interim_text?: string;
-  finalText?: string;
-  interimText?: string;
+type LiveSoundSegment = {
+  speaker_id?: number | null;
+  speakerId?: number | null;
+  speaker_label?: string | null;
+  speakerLabel?: string | null;
+  text?: string;
+  is_interim?: boolean;
+  isInterim?: boolean;
 };
 
 type LiveSoundState = {
@@ -23,30 +26,39 @@ type LiveSoundState = {
   recording?: boolean;
   processing_llm?: boolean;
   processingLlm?: boolean;
-  binding_id?: string | null;
-  bindingId?: string | null;
   error_message?: string | null;
   errorMessage?: string | null;
+  final_text?: string;
+  finalText?: string;
+  interim_text?: string;
+  interimText?: string;
+  segments?: LiveSoundSegment[];
 };
-
-const LIVE_SOUND_BINDING_ID = "live_sound_transcription";
-
-const getFinalText = (payload: PreviewPayload) =>
-  String(payload.final_text ?? payload.finalText ?? "");
-
-const getInterimText = (payload: PreviewPayload) =>
-  String(payload.interim_text ?? payload.interimText ?? "");
 
 const getRecording = (state: LiveSoundState) => Boolean(state.recording);
 
 const getProcessing = (state: LiveSoundState) =>
   Boolean(state.processing_llm ?? state.processingLlm);
 
-const getBindingId = (state: LiveSoundState) =>
-  state.binding_id ?? state.bindingId ?? null;
-
 const getErrorMessage = (state: LiveSoundState) =>
   state.error_message ?? state.errorMessage ?? null;
+
+const getFinalText = (state: LiveSoundState) =>
+  String(state.final_text ?? state.finalText ?? "");
+
+const getInterimText = (state: LiveSoundState) =>
+  String(state.interim_text ?? state.interimText ?? "");
+
+const getSegments = (state: LiveSoundState) =>
+  Array.isArray(state.segments) ? state.segments : [];
+
+const getSegmentSpeakerLabel = (segment: LiveSoundSegment) =>
+  segment.speaker_label ?? segment.speakerLabel ?? null;
+
+const getSegmentText = (segment: LiveSoundSegment) => String(segment.text ?? "");
+
+const isInterimSegment = (segment: LiveSoundSegment) =>
+  Boolean(segment.is_interim ?? segment.isInterim);
 
 export const LiveSoundTranscriptionSettings: React.FC = () => {
   const { t } = useTranslation();
@@ -55,11 +67,15 @@ export const LiveSoundTranscriptionSettings: React.FC = () => {
   const [interimText, setInterimText] = useState("");
   const [isRecording, setIsRecording] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
-  const [activeBindingId, setActiveBindingId] = useState<string | null>(null);
+  const [segments, setSegments] = useState<LiveSoundSegment[]>([]);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [actionBusy, setActionBusy] = useState<null | "start" | "stop" | "clear" | "process">(null);
   const [sourceBusy, setSourceBusy] = useState(false);
-  const activeBindingIdRef = useRef<string | null>(null);
+  const [copied, setCopied] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const [speakerNames, setSpeakerNames] = useState<Map<number, string>>(new Map());
+  const [editingSpeakerId, setEditingSpeakerId] = useState<number | null>(null);
+  const [editValue, setEditValue] = useState("");
 
   const provider = String(settings?.transcription_provider ?? "local");
   const providerLabel =
@@ -90,22 +106,19 @@ export const LiveSoundTranscriptionSettings: React.FC = () => {
   const liveSoundCaptureSource = String(
     (settings as any)?.live_sound_capture_source ?? "system_output",
   );
-  const liveSoundCaptureLabel =
-    liveSoundCaptureSource === "microphone"
-      ? t("settings.liveSoundTranscription.audio.source.options.microphone")
-      : t("settings.liveSoundTranscription.audio.source.options.systemOutput");
+  const micEnabled = liveSoundCaptureSource === "microphone" || liveSoundCaptureSource === "both";
+  const outputEnabled = liveSoundCaptureSource === "system_output" || liveSoundCaptureSource === "both";
 
   const liveProviderReady =
     provider === "remote_soniox" || provider === "remote_deepgram";
-  const hasForeignPreviewSession =
-    activeBindingId !== null && activeBindingId !== LIVE_SOUND_BINDING_ID;
-
-  const transcriptValue = useMemo(
-    () =>
-      interimText.trim().length > 0
-        ? `${finalText}${finalText && !finalText.endsWith(" ") ? " " : ""}${interimText}`
-        : finalText,
-    [finalText, interimText],
+  const diarizationEnabled = Boolean(
+    (settings as any)?.live_sound_enable_speaker_diarization ?? true,
+  );
+  const finalizedSegments = segments.filter(
+    (segment) => !isInterimSegment(segment) && getSegmentText(segment).trim().length > 0,
+  );
+  const interimSegments = segments.filter(
+    (segment) => isInterimSegment(segment) && getSegmentText(segment).trim().length > 0,
   );
 
   useEffect(() => {
@@ -118,11 +131,11 @@ export const LiveSoundTranscriptionSettings: React.FC = () => {
         if (!active) {
           return null;
         }
-        const bindingId = getBindingId(state);
-        activeBindingIdRef.current = bindingId;
-        setActiveBindingId(bindingId);
         setIsRecording(getRecording(state));
         setIsProcessing(getProcessing(state));
+        setFinalText(getFinalText(state));
+        setInterimText(getInterimText(state));
+        setSegments(getSegments(state));
         setErrorMessage(getErrorMessage(state));
         return state;
       } catch {
@@ -131,94 +144,30 @@ export const LiveSoundTranscriptionSettings: React.FC = () => {
       }
     };
 
-    const refreshPreview = async () => {
-      try {
-        const payload = await invoke<PreviewPayload>("get_soniox_live_preview_state");
-        if (!active) {
-          return;
-        }
-        if (activeBindingIdRef.current !== LIVE_SOUND_BINDING_ID) {
-          return;
-        }
-        setFinalText(getFinalText(payload));
-        setInterimText(getInterimText(payload));
-      } catch {
-        // Ignore polling failures.
-      }
-    };
-
     const setup = async () => {
       unlistenPromises.push(
-        listen<PreviewPayload>("soniox-live-preview-update", (event) => {
+        listen<LiveSoundState>("live-sound-transcription-state", (event) => {
           if (!active) {
             return;
           }
-          if (activeBindingIdRef.current !== LIVE_SOUND_BINDING_ID) {
-            return;
-          }
-          setFinalText(getFinalText(event.payload));
-          setInterimText(getInterimText(event.payload));
-        }),
-      );
-      unlistenPromises.push(
-        listen<PreviewPayload>("soniox_live_preview_update", (event) => {
-          if (!active) {
-            return;
-          }
-          if (activeBindingIdRef.current !== LIVE_SOUND_BINDING_ID) {
-            return;
-          }
-          setFinalText(getFinalText(event.payload));
-          setInterimText(getInterimText(event.payload));
-        }),
-      );
-      unlistenPromises.push(
-        listen("soniox-live-preview-reset", () => {
-          if (!active) {
-            return;
-          }
-          if (activeBindingIdRef.current !== LIVE_SOUND_BINDING_ID) {
-            return;
-          }
-          setFinalText("");
-          setInterimText("");
-        }),
-      );
-      unlistenPromises.push(
-        listen("soniox_live_preview_reset", () => {
-          if (!active) {
-            return;
-          }
-          if (activeBindingIdRef.current !== LIVE_SOUND_BINDING_ID) {
-            return;
-          }
-          setFinalText("");
-          setInterimText("");
-        }),
-      );
-      unlistenPromises.push(
-        listen<LiveSoundState>("preview-output-mode-state", (event) => {
-          if (!active) {
-            return;
-          }
-          const bindingId = getBindingId(event.payload);
-          activeBindingIdRef.current = bindingId;
-          setActiveBindingId(bindingId);
           setIsRecording(getRecording(event.payload));
           setIsProcessing(getProcessing(event.payload));
+          setFinalText(getFinalText(event.payload));
+          setInterimText(getInterimText(event.payload));
+          setSegments(getSegments(event.payload));
           setErrorMessage(getErrorMessage(event.payload));
         }),
       );
       unlistenPromises.push(
-        listen<LiveSoundState>("preview_output_mode_state", (event) => {
+        listen<LiveSoundState>("live_sound_transcription_state", (event) => {
           if (!active) {
             return;
           }
-          const bindingId = getBindingId(event.payload);
-          activeBindingIdRef.current = bindingId;
-          setActiveBindingId(bindingId);
           setIsRecording(getRecording(event.payload));
           setIsProcessing(getProcessing(event.payload));
+          setFinalText(getFinalText(event.payload));
+          setInterimText(getInterimText(event.payload));
+          setSegments(getSegments(event.payload));
           setErrorMessage(getErrorMessage(event.payload));
         }),
       );
@@ -226,10 +175,7 @@ export const LiveSoundTranscriptionSettings: React.FC = () => {
 
     void (async () => {
       await setup();
-      const state = await refreshState();
-      if (getBindingId(state ?? {}) === LIVE_SOUND_BINDING_ID) {
-        await refreshPreview();
-      }
+      await refreshState();
     })();
 
     return () => {
@@ -250,6 +196,7 @@ export const LiveSoundTranscriptionSettings: React.FC = () => {
   ) => {
     setActionBusy(action);
     setErrorMessage(null);
+    if (action === "clear") setSpeakerNames(new Map());
     try {
       await invoke(command);
     } catch (error) {
@@ -281,6 +228,109 @@ export const LiveSoundTranscriptionSettings: React.FC = () => {
       );
     } finally {
       setSourceBusy(false);
+    }
+  };
+
+  const handleSourceToggle = async (toggledMic: boolean, toggledOutput: boolean) => {
+    // Prevent both being disabled — at least one must stay on.
+    if (!toggledMic && !toggledOutput) return;
+    const source = toggledMic && toggledOutput ? "both" : toggledMic ? "microphone" : "system_output";
+    await handleCaptureSourceSelect(source);
+  };
+
+  const handleDiarizationToggle = async () => {
+    setSourceBusy(true);
+    setErrorMessage(null);
+    try {
+      await invoke("change_live_sound_speaker_diarization_setting", {
+        enabled: !diarizationEnabled,
+      });
+      await refreshSettings();
+    } catch (error) {
+      setErrorMessage(
+        error instanceof Error
+          ? error.message
+          : typeof error === "string"
+            ? error
+            : t("settings.liveSoundTranscription.session.actionFailed"),
+      );
+    } finally {
+      setSourceBusy(false);
+    }
+  };
+
+  const hasTranscript = finalText.trim().length > 0 || segments.some((s) => !isInterimSegment(s) && (s.text ?? "").trim().length > 0);
+
+  const getDisplayName = (segment: LiveSoundSegment): string | null => {
+    const id = segment.speaker_id ?? segment.speakerId;
+    if (id != null && speakerNames.has(id)) return speakerNames.get(id)!;
+    return getSegmentSpeakerLabel(segment);
+  };
+
+  const handleSpeakerClick = (speakerId: number, currentDisplay: string) => {
+    setEditingSpeakerId(speakerId);
+    setEditValue(speakerNames.get(speakerId) ?? currentDisplay);
+  };
+
+  const commitSpeakerName = (speakerId: number) => {
+    const trimmed = editValue.trim();
+    setSpeakerNames((prev) => {
+      const next = new Map(prev);
+      if (trimmed) next.set(speakerId, trimmed);
+      else next.delete(speakerId);
+      return next;
+    });
+    setEditingSpeakerId(null);
+    setEditValue("");
+  };
+
+  const buildPlainText = () => {
+    const finalSegs = segments.filter((s) => !isInterimSegment(s) && (s.text ?? "").trim().length > 0);
+    if (finalSegs.length === 0) return finalText.trim();
+    const lines: string[] = [];
+    let lastLabel: string | null = null;
+    for (const seg of finalSegs) {
+      const label = getDisplayName(seg);
+      const text = getSegmentText(seg).trim();
+      if (label && label !== lastLabel) {
+        if (lines.length > 0) lines.push("");
+        lines.push(`${label}:`);
+        lastLabel = label;
+      }
+      lines.push(text);
+    }
+    return lines.join("\n");
+  };
+
+  const handleCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(buildPlainText());
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      // ignore
+    }
+  };
+
+  const handleSaveFile = async () => {
+    const path = await save({
+      filters: [{ name: "Text", extensions: ["txt"] }],
+      defaultPath: `live-transcript-${new Date().toISOString().slice(0, 19).replace(/[T:]/g, "-")}.txt`,
+    });
+    if (!path) return;
+    setIsSaving(true);
+    try {
+      await invoke("save_live_sound_transcript", { path, content: buildPlainText() });
+    } catch (error) {
+      setErrorMessage(
+        error instanceof Error
+          ? error.message
+          : typeof error === "string"
+            ? error
+            : t("settings.liveSoundTranscription.session.actionFailed"),
+      );
+    } finally {
+      setIsSaving(false);
     }
   };
 
@@ -326,10 +376,12 @@ export const LiveSoundTranscriptionSettings: React.FC = () => {
               </div>
               <div className="rounded-lg border border-[#333333] bg-[#121212]/70 px-4 py-3">
                 <p className="text-[11px] uppercase tracking-[0.18em] text-[#8a8a8a]">
-                  {t("settings.liveSoundTranscription.session.sourceLabel")}
+                  {t("settings.liveSoundTranscription.session.diarizationLabel")}
                 </p>
                 <p className="mt-1 text-sm font-medium text-[#f5f5f5]">
-                  {liveSoundCaptureLabel}
+                  {diarizationEnabled
+                    ? t("settings.liveSoundTranscription.session.enabled")
+                    : t("settings.liveSoundTranscription.session.disabled")}
                 </p>
               </div>
             </div>
@@ -340,11 +392,31 @@ export const LiveSoundTranscriptionSettings: React.FC = () => {
               </div>
             )}
 
-            {hasForeignPreviewSession && (
+            {!diarizationEnabled && (
               <div className="rounded-lg border border-amber-500/25 bg-amber-500/10 px-4 py-3 text-sm text-amber-100">
-                {t("settings.liveSoundTranscription.session.anotherSessionActive")}
+                {t("settings.liveSoundTranscription.session.diarizationDisabledHint")}
               </div>
             )}
+
+            <div className="flex flex-wrap items-center gap-3 rounded-lg border border-[#333333] bg-[#121212]/50 px-4 py-3">
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-medium text-[#f5f5f5]">
+                  {t("settings.liveSoundTranscription.session.diarizationToggleTitle")}
+                </p>
+                <p className="text-xs text-[#9a9a9a]">
+                  {t("settings.liveSoundTranscription.session.diarizationToggleDescription")}
+                </p>
+              </div>
+              <Button
+                variant={diarizationEnabled ? "secondary" : "primary"}
+                disabled={sourceBusy || actionBusy !== null || isRecording}
+                onClick={() => void handleDiarizationToggle()}
+              >
+                {diarizationEnabled
+                  ? t("settings.liveSoundTranscription.session.diarizationTurnOff")
+                  : t("settings.liveSoundTranscription.session.diarizationTurnOn")}
+              </Button>
+            </div>
 
             {errorMessage && (
               <div className="rounded-lg border border-[#6b2c2c] bg-[#351616]/80 px-4 py-3 text-sm text-[#ffd4d4]">
@@ -358,7 +430,6 @@ export const LiveSoundTranscriptionSettings: React.FC = () => {
                 disabled={
                   !liveProviderReady ||
                   !liveModeEnabled ||
-                  hasForeignPreviewSession ||
                   isRecording ||
                   sourceBusy ||
                   actionBusy !== null
@@ -385,7 +456,6 @@ export const LiveSoundTranscriptionSettings: React.FC = () => {
               <Button
                 variant="secondary"
                 disabled={
-                  hasForeignPreviewSession ||
                   sourceBusy ||
                   actionBusy !== null ||
                   (finalText.trim().length === 0 && interimText.trim().length === 0)
@@ -401,10 +471,10 @@ export const LiveSoundTranscriptionSettings: React.FC = () => {
               <Button
                 variant="secondary"
                 disabled={
-                  hasForeignPreviewSession ||
                   sourceBusy ||
                   actionBusy !== null ||
                   isProcessing ||
+                  isRecording ||
                   finalText.trim().length === 0
                 }
                 onClick={() =>
@@ -437,69 +507,182 @@ export const LiveSoundTranscriptionSettings: React.FC = () => {
           layout="stacked"
         >
           <div className="space-y-3">
-            <Textarea
-              readOnly
-              value={transcriptValue}
-              placeholder={t("settings.liveSoundTranscription.transcript.empty")}
-              className="w-full"
-            />
+            {segments.length === 0 ? (
+              <div className="rounded-lg border border-dashed border-[#333333] bg-[#111111]/60 px-4 py-6 text-sm text-[#8a8a8a]">
+                {t("settings.liveSoundTranscription.transcript.empty")}
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {finalizedSegments.map((segment, index) => {
+                  const speakerId = segment.speaker_id ?? segment.speakerId ?? null;
+                  const displayName = getDisplayName(segment);
+                  const isEditing = speakerId != null && editingSpeakerId === speakerId;
+                  return (
+                    <div
+                      key={`final-${index}`}
+                      className="rounded-lg border border-[#333333] bg-[#121212]/70 px-4 py-3"
+                    >
+                      {displayName && (
+                        isEditing ? (
+                          <input
+                            autoFocus
+                            className="text-[11px] uppercase tracking-[0.18em] text-[#c0c0c0] bg-transparent border-b border-[#555] outline-none w-full mb-0"
+                            value={editValue}
+                            placeholder={t("settings.liveSoundTranscription.transcript.speakerNamePlaceholder")}
+                            onChange={(e) => setEditValue(e.target.value)}
+                            onBlur={() => speakerId != null && commitSpeakerName(speakerId)}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter" && speakerId != null) commitSpeakerName(speakerId);
+                              if (e.key === "Escape") { setEditingSpeakerId(null); setEditValue(""); }
+                            }}
+                          />
+                        ) : (
+                          <button
+                            className="text-[11px] uppercase tracking-[0.18em] text-[#8a8a8a] hover:text-[#bbbbbb] text-left transition-colors"
+                            title={t("settings.liveSoundTranscription.transcript.speakerNameHint")}
+                            onClick={() => speakerId != null && handleSpeakerClick(speakerId, displayName)}
+                          >
+                            {displayName}
+                          </button>
+                        )
+                      )}
+                      <p className="mt-1 whitespace-pre-wrap text-sm text-[#f5f5f5]">
+                        {getSegmentText(segment)}
+                      </p>
+                    </div>
+                  );
+                })}
+                {interimSegments.map((segment, index) => (
+                  <div
+                    key={`interim-${index}`}
+                    className="rounded-lg border border-dashed border-[#3a3a3a] bg-[#111111]/60 px-4 py-3"
+                  >
+                    <p className="text-[11px] uppercase tracking-[0.18em] text-[#8a8a8a]">
+                      {getSegmentSpeakerLabel(segment) ??
+                        t("settings.liveSoundTranscription.transcript.interimLabel")}
+                    </p>
+                    <p className="mt-1 whitespace-pre-wrap text-sm text-[#d0d0d0]">
+                      {getSegmentText(segment)}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            )}
             {interimText.trim().length > 0 && (
               <p className="text-xs text-[#9a9a9a]">
                 {t("settings.liveSoundTranscription.transcript.interimActive")}
               </p>
+            )}
+            {hasTranscript && (
+              <div className="flex flex-wrap gap-2 pt-1">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => void handleCopy()}
+                  className="flex items-center gap-1"
+                >
+                  {copied ? (
+                    <>
+                      <Check className="w-3 h-3" />
+                      {t("settings.liveSoundTranscription.transcript.copied")}
+                    </>
+                  ) : (
+                    <>
+                      <Copy className="w-3 h-3" />
+                      {t("settings.liveSoundTranscription.transcript.copy")}
+                    </>
+                  )}
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  disabled={isSaving}
+                  onClick={() => void handleSaveFile()}
+                  className="flex items-center gap-1"
+                >
+                  <FileText className="w-3 h-3" />
+                  {isSaving
+                    ? t("settings.liveSoundTranscription.transcript.saving")
+                    : t("settings.liveSoundTranscription.transcript.saveFile")}
+                </Button>
+              </div>
             )}
           </div>
         </SettingContainer>
       </SettingsGroup>
 
       <SettingsGroup title={t("settings.sound.title")}>
-        <SettingContainer
-          title={t("settings.liveSoundTranscription.audio.source.title")}
-          description={t("settings.liveSoundTranscription.audio.source.description")}
-          grouped={true}
-        >
-          <div className="space-y-3">
-            <Dropdown
-              options={[
-                {
-                  value: "system_output",
-                  label: t(
-                    "settings.liveSoundTranscription.audio.source.options.systemOutput",
-                  ),
-                },
-                {
-                  value: "microphone",
-                  label: t(
-                    "settings.liveSoundTranscription.audio.source.options.microphone",
-                  ),
-                },
-              ]}
-              selectedValue={liveSoundCaptureSource}
-              onSelect={handleCaptureSourceSelect}
-              disabled={sourceBusy || isRecording || actionBusy !== null}
-            />
-            <p className="text-xs text-[#9a9a9a]">
-              {t("settings.liveSoundTranscription.audio.source.hint")}
-            </p>
-          </div>
-        </SettingContainer>
-        <MicrophoneSelector
-          descriptionMode="tooltip"
-          grouped={true}
-          disabled={sourceBusy || isRecording || actionBusy !== null}
-          descriptionOverride={t(
-            "settings.liveSoundTranscription.audio.microphoneDescription",
+        <div className={micEnabled ? "rounded-xl ring-2 ring-emerald-500/40" : undefined}>
+          {micEnabled && (
+            <div className="px-4 pt-3 pb-0">
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-500/15 px-2.5 py-1 text-xs font-semibold text-emerald-400">
+                <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
+                {t("settings.liveSoundTranscription.audio.listening")}
+              </span>
+            </div>
           )}
-        />
-        <OutputDeviceSelector
-          descriptionMode="tooltip"
-          grouped={true}
-          disabled={sourceBusy || isRecording || actionBusy !== null}
-          descriptionOverride={t(
-            "settings.liveSoundTranscription.audio.outputDescription",
+          <MicrophoneSelector
+            descriptionMode="tooltip"
+            grouped={true}
+            disabled={sourceBusy || isRecording || actionBusy !== null}
+            titleOverride={t("settings.liveSoundTranscription.audio.microphoneTitle")}
+          />
+          <SettingContainer
+            title={t("settings.liveSoundTranscription.audio.microphoneToggle")}
+            description={t("settings.liveSoundTranscription.audio.microphoneToggleDescription")}
+            grouped={true}
+          >
+            <Button
+              variant={micEnabled ? "secondary" : "primary"}
+              disabled={sourceBusy || isRecording || actionBusy !== null || (micEnabled && !outputEnabled)}
+              onClick={() => void handleSourceToggle(!micEnabled, outputEnabled)}
+            >
+              {micEnabled && !outputEnabled
+                ? t("settings.liveSoundTranscription.audio.onlySource")
+                : micEnabled
+                  ? t("settings.liveSoundTranscription.audio.sourceDisable")
+                  : t("settings.liveSoundTranscription.audio.sourceEnable")}
+            </Button>
+          </SettingContainer>
+        </div>
+        <div className={outputEnabled ? "rounded-xl ring-2 ring-emerald-500/40" : undefined}>
+          {outputEnabled && (
+            <div className="px-4 pt-3 pb-0">
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-500/15 px-2.5 py-1 text-xs font-semibold text-emerald-400">
+                <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
+                {t("settings.liveSoundTranscription.audio.listening")}
+              </span>
+            </div>
           )}
-        />
+          <OutputDeviceSelector
+            descriptionMode="tooltip"
+            grouped={true}
+            disabled={sourceBusy || isRecording || actionBusy !== null}
+            titleOverride={t("settings.liveSoundTranscription.audio.outputTitle")}
+          />
+          <SettingContainer
+            title={t("settings.liveSoundTranscription.audio.outputToggle")}
+            description={t("settings.liveSoundTranscription.audio.outputToggleDescription")}
+            grouped={true}
+          >
+            <Button
+              variant={outputEnabled ? "secondary" : "primary"}
+              disabled={sourceBusy || isRecording || actionBusy !== null || (outputEnabled && !micEnabled)}
+              onClick={() => void handleSourceToggle(micEnabled, !outputEnabled)}
+            >
+              {outputEnabled && !micEnabled
+                ? t("settings.liveSoundTranscription.audio.onlySource")
+                : outputEnabled
+                  ? t("settings.liveSoundTranscription.audio.sourceDisable")
+                  : t("settings.liveSoundTranscription.audio.sourceEnable")}
+            </Button>
+          </SettingContainer>
+        </div>
       </SettingsGroup>
     </div>
   );
 };
+
+
+
+

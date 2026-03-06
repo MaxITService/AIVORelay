@@ -9,6 +9,7 @@ interface MicrophoneSelectorProps {
   descriptionMode?: "inline" | "tooltip";
   grouped?: boolean;
   descriptionOverride?: string;
+  titleOverride?: string;
   disabled?: boolean;
 }
 
@@ -17,6 +18,7 @@ export const MicrophoneSelector: React.FC<MicrophoneSelectorProps> = React.memo(
     descriptionMode = "tooltip",
     grouped = false,
     descriptionOverride,
+    titleOverride,
     disabled = false,
   }) => {
     const { t } = useTranslation();
@@ -50,7 +52,7 @@ export const MicrophoneSelector: React.FC<MicrophoneSelectorProps> = React.memo(
 
     return (
       <SettingContainer
-        title={t("settings.sound.microphone.title")}
+        title={titleOverride ?? t("settings.sound.microphone.title")}
         description={
           descriptionOverride ?? t("settings.sound.microphone.description")
         }

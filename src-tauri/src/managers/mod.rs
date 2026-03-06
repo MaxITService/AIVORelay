@@ -4,6 +4,8 @@ pub mod deepgram_realtime;
 pub mod deepgram_stt;
 pub mod history;
 pub mod key_listener;
+pub mod live_sound_audio;
+pub mod live_sound_transcription;
 pub mod llm_operation;
 pub mod model;
 pub mod preview_output_mode;

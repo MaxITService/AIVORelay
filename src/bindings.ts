@@ -1001,6 +1001,14 @@ async setPostProcessSelectedPrompt(id: string) : Promise<Result<null, string>> {
     else return { status: "error", error: e  as any };
 }
 },
+async changeDiarizationSpeakerNameProfilesSetting(profiles: DiarizationSpeakerNameProfile[]) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("change_diarization_speaker_name_profiles_setting", { profiles }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 /**
  * Creates a new transcription profile with its own language/translation settings.
  * This also creates a corresponding shortcut binding and registers it.
@@ -1069,14 +1077,6 @@ async cycleToNextProfile() : Promise<Result<string, string>> {
 async changeProfileSwitchOverlayEnabledSetting(enabled: boolean) : Promise<Result<null, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("change_profile_switch_overlay_enabled_setting", { enabled }) };
-} catch (e) {
-    if(e instanceof Error) throw e;
-    else return { status: "error", error: e  as any };
-}
-},
-async changeDiarizationSpeakerNameProfilesSetting(profiles: DiarizationSpeakerNameProfile[]) : Promise<Result<null, string>> {
-    try {
-    return { status: "ok", data: await TAURI_INVOKE("change_diarization_speaker_name_profiles_setting", { profiles }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
@@ -2037,8 +2037,24 @@ async setSelectedOutputDevice(deviceName: string) : Promise<Result<null, string>
     else return { status: "error", error: e  as any };
 }
 },
+async changeLiveSoundCaptureSourceSetting(source: LiveSoundCaptureSource) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("change_live_sound_capture_source_setting", { source }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async playTestSound(soundType: string) : Promise<void> {
     await TAURI_INVOKE("play_test_sound", { soundType });
+},
+async changeLiveSoundSpeakerDiarizationSetting(enabled: boolean) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("change_live_sound_speaker_diarization_setting", { enabled }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
 },
 async checkCustomSounds() : Promise<CustomSounds> {
     return await TAURI_INVOKE("check_custom_sounds");
@@ -2057,6 +2073,57 @@ async isRecording() : Promise<boolean> {
 async changeVadThresholdSetting(threshold: number) : Promise<Result<null, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("change_vad_threshold_setting", { threshold }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async liveSoundTranscriptionStart() : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("live_sound_transcription_start") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async liveSoundTranscriptionStop() : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("live_sound_transcription_stop") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async liveSoundTranscriptionClear() : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("live_sound_transcription_clear") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async liveSoundTranscriptionProcess() : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("live_sound_transcription_process") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async liveSoundTranscriptionClose() : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("live_sound_transcription_close") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async getLiveSoundTranscriptionState() : Promise<LiveSoundTranscriptionStatePayload> {
+    return await TAURI_INVOKE("get_live_sound_transcription_state");
+},
+async saveLiveSoundTranscript(path: string, content: string) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("save_live_sound_transcript", { path, content }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
@@ -2455,7 +2522,7 @@ async isLaptop() : Promise<Result<boolean, string>> {
 /** user-defined types **/
 
 export type AddTranscriptionProfilePayload = { name: string; language: string; translateToEnglish: boolean; systemPrompt: string; sttPromptOverrideEnabled?: boolean; pushToTalk: boolean; previewOutputOnlyEnabled?: boolean; sonioxLanguageHintsStrict?: boolean | null; includeInCycle: boolean | null; llmSettings: ProfileLlmSettings | null; sonioxContextGeneralJson: string | null; sonioxContextText: string | null; sonioxContextTerms: string[] | null }
-export type AppSettings = { bindings: Partial<{ [key in string]: ShortcutBinding }>; push_to_talk: boolean; preview_output_only_enabled?: boolean; audio_feedback: boolean; audio_feedback_volume?: number; sound_theme?: SoundTheme; start_hidden?: boolean; autostart_enabled?: boolean; show_tray_icon?: boolean; update_checks_enabled?: boolean; selected_model?: string; transcription_provider?: TranscriptionProvider; remote_stt?: RemoteSttSettings; soniox_model?: string; soniox_timeout_seconds?: number; soniox_live_enabled?: boolean; soniox_language_hints?: string[]; soniox_context_general_json?: string; soniox_context_text?: string; soniox_context_terms?: string[]; soniox_use_profile_language_hint_only?: boolean; soniox_language_hints_strict?: boolean; soniox_enable_endpoint_detection?: boolean; soniox_max_endpoint_delay_ms?: number; soniox_enable_language_identification?: boolean; soniox_enable_speaker_diarization?: boolean; soniox_keepalive_interval_seconds?: number; soniox_live_finalize_timeout_ms?: number; soniox_live_instant_stop?: boolean; soniox_realtime_fuzzy_correction_enabled?: boolean; soniox_realtime_keep_safety_buffer_enabled?: boolean; deepgram_model?: string; deepgram_timeout_seconds?: number; deepgram_live_enabled?: boolean; deepgram_keepalive_interval_seconds?: number; deepgram_live_finalize_timeout_ms?: number; deepgram_live_instant_stop?: boolean; deepgram_interim_results?: boolean; deepgram_smart_format?: boolean; deepgram_diarize?: boolean; deepgram_endpointing_enabled?: boolean; deepgram_endpointing_ms?: number; always_on_microphone?: boolean; selected_microphone?: string | null; clamshell_microphone?: string | null; selected_output_device?: string | null; translate_to_english?: boolean; selected_language?: string; overlay_position?: OverlayPosition; 
+export type AppSettings = { bindings: Partial<{ [key in string]: ShortcutBinding }>; push_to_talk: boolean; preview_output_only_enabled?: boolean; audio_feedback: boolean; audio_feedback_volume?: number; sound_theme?: SoundTheme; start_hidden?: boolean; autostart_enabled?: boolean; show_tray_icon?: boolean; update_checks_enabled?: boolean; selected_model?: string; transcription_provider?: TranscriptionProvider; remote_stt?: RemoteSttSettings; soniox_model?: string; soniox_timeout_seconds?: number; soniox_live_enabled?: boolean; soniox_language_hints?: string[]; soniox_context_general_json?: string; soniox_context_text?: string; soniox_context_terms?: string[]; soniox_use_profile_language_hint_only?: boolean; soniox_language_hints_strict?: boolean; soniox_enable_endpoint_detection?: boolean; soniox_max_endpoint_delay_ms?: number; soniox_enable_language_identification?: boolean; soniox_enable_speaker_diarization?: boolean; soniox_keepalive_interval_seconds?: number; soniox_live_finalize_timeout_ms?: number; soniox_live_instant_stop?: boolean; soniox_realtime_fuzzy_correction_enabled?: boolean; soniox_realtime_keep_safety_buffer_enabled?: boolean; deepgram_model?: string; deepgram_timeout_seconds?: number; deepgram_live_enabled?: boolean; deepgram_keepalive_interval_seconds?: number; deepgram_live_finalize_timeout_ms?: number; deepgram_live_instant_stop?: boolean; deepgram_interim_results?: boolean; deepgram_smart_format?: boolean; deepgram_diarize?: boolean; live_sound_enable_speaker_diarization?: boolean; deepgram_endpointing_enabled?: boolean; deepgram_endpointing_ms?: number; always_on_microphone?: boolean; selected_microphone?: string | null; clamshell_microphone?: string | null; selected_output_device?: string | null; live_sound_capture_source?: LiveSoundCaptureSource; translate_to_english?: boolean; selected_language?: string; overlay_position?: OverlayPosition; 
 /**
  * Auto-hide duration for error overlay in milliseconds.
  */
@@ -2764,7 +2831,7 @@ server_error: string | null }
 export type CustomSounds = { start: boolean; stop: boolean }
 export type DecapitalizeOverlayStateResponse = { decapitalizeEligible: boolean; decapitalizeArmed: boolean }
 export type DeepgramFileTranscriptionOptions = { diarize: boolean | null; multichannel: boolean | null }
-export type DiarizationSpeakerNameProfile = { id: string; name: string; speaker_names: string[] }
+export type DiarizationSpeakerNameProfile = { id: string; name: string; speaker_names?: string[] }
 export type DiarizedTranscriptProvider = "deepgram" | "soniox"
 export type EngineType = "Whisper" | "Parakeet" | "Moonshine" | "MoonshineStreaming" | "SenseVoice" | "GigaAM"
 /**
@@ -2846,6 +2913,9 @@ original_selection: string | null;
  */
 ai_response: string | null }
 export type LLMPrompt = { id: string; name: string; prompt: string }
+export type LiveSoundCaptureSource = "microphone" | "system_output" | "both"
+export type LiveSoundTranscriptSegmentPayload = { speaker_id: number | null; speaker_label: string | null; text: string; is_interim: boolean }
+export type LiveSoundTranscriptionStatePayload = { active: boolean; recording: boolean; processing_llm: boolean; binding_id: string | null; error_message: string | null; final_text: string; interim_text: string; segments: LiveSoundTranscriptSegmentPayload[] }
 /**
  * Which feature is requesting LLM access.
  * Used to resolve the correct provider/key/model configuration.

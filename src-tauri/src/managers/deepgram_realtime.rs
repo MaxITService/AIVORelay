@@ -1,3 +1,4 @@
+use crate::file_transcription_diarization::RawSpeakerBlock;
 use anyhow::{anyhow, Result};
 use futures_util::{Sink, SinkExt, Stream, StreamExt};
 use log::{debug, info, warn};
@@ -28,6 +29,7 @@ pub struct DeepgramRealtimeOptions {
     pub language: Option<String>,
     pub smart_format: bool,
     pub interim_results: bool,
+    pub diarize: bool,
     pub endpointing_enabled: bool,
     pub endpointing_ms: u32,
     pub keepalive_interval_seconds: u32,
@@ -39,11 +41,81 @@ impl Default for DeepgramRealtimeOptions {
             language: Some("en".to_string()),
             smart_format: true,
             interim_results: true,
+            diarize: false,
             endpointing_enabled: true,
             endpointing_ms: DEFAULT_ENDPOINTING_MS,
             keepalive_interval_seconds: DEFAULT_KEEPALIVE_INTERVAL_SECONDS,
         }
     }
+}
+
+fn parse_deepgram_speaker_value(speaker: &Value) -> Option<u32> {
+    if let Some(v) = speaker.as_str() {
+        return v.trim().parse::<u32>().ok();
+    }
+    if let Some(v) = speaker.as_u64() {
+        return (v <= u32::MAX as u64).then_some(v as u32);
+    }
+    if let Some(v) = speaker.as_i64() {
+        return (v >= 0 && (v as u64) <= u32::MAX as u64).then_some(v as u32);
+    }
+    if let Some(v) = speaker.as_f64() {
+        if v.is_finite() && v >= 0.0 && v <= u32::MAX as f64 {
+            return Some(v as u32);
+        }
+    }
+    None
+}
+
+fn extract_deepgram_token_text(value: &Value) -> Option<String> {
+    value
+        .get("punctuated_word")
+        .and_then(|v| v.as_str())
+        .or_else(|| value.get("word").and_then(|v| v.as_str()))
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned)
+}
+
+fn build_deepgram_raw_speaker_blocks(alternative: Option<&Value>) -> Vec<RawSpeakerBlock> {
+    let Some(words) = alternative
+        .and_then(|value| value.get("words"))
+        .and_then(|value| value.as_array())
+    else {
+        return Vec::new();
+    };
+
+    let mut blocks: Vec<RawSpeakerBlock> = Vec::new();
+    for word in words {
+        let Some(speaker) = word
+            .get("speaker")
+            .and_then(parse_deepgram_speaker_value)
+        else {
+            continue;
+        };
+        let Some(token) = extract_deepgram_token_text(word) else {
+            continue;
+        };
+
+        if let Some(last_block) = blocks.last_mut() {
+            let speaker_key = speaker.to_string();
+            if last_block.speaker_key == speaker_key {
+                if !last_block.text.is_empty() {
+                    last_block.text.push(' ');
+                }
+                last_block.text.push_str(&token);
+                continue;
+            }
+        }
+
+        blocks.push(RawSpeakerBlock {
+            speaker_key: speaker.to_string(),
+            default_name: Some(format!("Speaker {}", speaker)),
+            text: token,
+        });
+    }
+
+    blocks
 }
 
 #[derive(Debug)]
@@ -155,6 +227,7 @@ impl DeepgramRealtimeManager {
                     "false"
                 },
             );
+            qp.append_pair("diarize", if options.diarize { "true" } else { "false" });
 
             if options.endpointing_enabled {
                 qp.append_pair(
@@ -244,6 +317,8 @@ impl DeepgramRealtimeManager {
                     final_text_for_task,
                     keepalive_interval_seconds,
                     app_handle_for_task.clone(),
+                    binding_id_for_task.clone(),
+                    options.diarize,
                     on_final_chunk,
                 )
                 .await
@@ -266,6 +341,16 @@ impl DeepgramRealtimeManager {
                     &binding_id_for_task,
                 ) {
                     crate::managers::preview_output_mode::set_error(
+                        &app_handle_for_task,
+                        Some(err_str.clone()),
+                    );
+                }
+                if binding_id_for_task == crate::actions::LIVE_SOUND_TRANSCRIPTION_BINDING_ID {
+                    crate::managers::live_sound_transcription::set_recording(
+                        &app_handle_for_task,
+                        false,
+                    );
+                    crate::managers::live_sound_transcription::set_error(
                         &app_handle_for_task,
                         Some(err_str.clone()),
                     );
@@ -326,6 +411,8 @@ impl DeepgramRealtimeManager {
         final_text: Arc<Mutex<String>>,
         keepalive_interval_seconds: u32,
         app_handle: AppHandle,
+        binding_id: String,
+        diarize: bool,
         on_final_chunk: Option<FinalChunkCallback>,
     ) -> Result<()>
     where
@@ -422,11 +509,12 @@ impl DeepgramRealtimeManager {
                                 continue;
                             }
 
-                            let transcript = payload
+                            let alternative = payload
                                 .get("channel")
                                 .and_then(|ch| ch.get("alternatives"))
                                 .and_then(|alts| alts.as_array())
-                                .and_then(|alts| alts.first())
+                                .and_then(|alts| alts.first());
+                            let transcript = alternative
                                 .and_then(|alt| alt.get("transcript"))
                                 .and_then(|v| v.as_str())
                                 .unwrap_or_default()
@@ -477,6 +565,33 @@ impl DeepgramRealtimeManager {
                                 interim_text = crate::text_replacement_decapitalize::preview_decapitalize_next_chunk_realtime(&interim_text);
                             }
                             if !chunk_text.is_empty() || !interim_text.is_empty() || from_finalize {
+                                if binding_id == crate::actions::LIVE_SOUND_TRANSCRIPTION_BINDING_ID {
+                                    let final_blocks = if diarize && is_final {
+                                        build_deepgram_raw_speaker_blocks(alternative)
+                                    } else {
+                                        Vec::new()
+                                    };
+                                    let interim_blocks = if diarize && !interim_text.is_empty() {
+                                        build_deepgram_raw_speaker_blocks(alternative)
+                                    } else {
+                                        Vec::new()
+                                    };
+
+                                    if !chunk_text.is_empty() {
+                                        crate::managers::live_sound_transcription::append_final_result(
+                                            &app_handle,
+                                            &chunk_text,
+                                            final_blocks,
+                                            true,
+                                        );
+                                    }
+                                    crate::managers::live_sound_transcription::set_interim_result(
+                                        &app_handle,
+                                        interim_text.clone(),
+                                        interim_blocks,
+                                    );
+                                }
+
                                 let mut preview_final_text = crate::overlay::get_soniox_live_preview_state().final_text;
                                 if !chunk_text.is_empty() {
                                     if !preview_final_text.is_empty() {

@@ -11,6 +11,7 @@ interface OutputDeviceSelectorProps {
   grouped?: boolean;
   disabled?: boolean;
   descriptionOverride?: string;
+  titleOverride?: string;
 }
 
 export const OutputDeviceSelector: React.FC<OutputDeviceSelectorProps> =
@@ -20,6 +21,7 @@ export const OutputDeviceSelector: React.FC<OutputDeviceSelectorProps> =
       grouped = false,
       disabled = false,
       descriptionOverride,
+      titleOverride,
     }) => {
       const { t } = useTranslation();
       const {
@@ -52,7 +54,7 @@ export const OutputDeviceSelector: React.FC<OutputDeviceSelectorProps> =
 
       return (
         <SettingContainer
-          title={t("settings.sound.outputDevice.title")}
+          title={titleOverride ?? t("settings.sound.outputDevice.title")}
           description={
             descriptionOverride ?? t("settings.sound.outputDevice.description")
           }

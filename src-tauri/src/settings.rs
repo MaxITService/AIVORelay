@@ -969,6 +969,7 @@ impl Default for OutputWhitespaceMode {
 pub enum LiveSoundCaptureSource {
     Microphone,
     SystemOutput,
+    Both,
 }
 
 impl Default for LiveSoundCaptureSource {
@@ -1107,6 +1108,8 @@ pub struct AppSettings {
     pub deepgram_smart_format: bool,
     #[serde(default = "default_false")]
     pub deepgram_diarize: bool,
+    #[serde(default = "default_true")]
+    pub live_sound_enable_speaker_diarization: bool,
     #[serde(default = "default_true")]
     pub deepgram_endpointing_enabled: bool,
     #[serde(default = "default_deepgram_endpointing_ms")]
@@ -2309,6 +2312,7 @@ pub fn get_default_settings() -> AppSettings {
         deepgram_live_finalize_timeout_ms: default_deepgram_live_finalize_timeout_ms(),
         deepgram_live_instant_stop: default_false(),
         deepgram_interim_results: default_true(),
+        live_sound_enable_speaker_diarization: default_true(),
         deepgram_smart_format: default_true(),
         deepgram_diarize: default_false(),
         deepgram_endpointing_enabled: default_true(),
