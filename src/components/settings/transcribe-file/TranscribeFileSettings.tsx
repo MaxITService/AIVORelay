@@ -24,6 +24,7 @@ import { SettingsGroup } from "@/components/ui/SettingsGroup";
 import { Alert } from "@/components/ui/Alert";
 import { Button } from "@/components/ui/Button";
 import { AudioPlayer } from "@/components/ui/AudioPlayer";
+import { ConfirmationModal } from "@/components/ui/ConfirmationModal";
 import { Dropdown } from "@/components/ui/Dropdown";
 import { useTranscribeFileStore } from "@/stores/transcribeFileStore";
 import { parseAndNormalizeSonioxLanguageHints } from "@/lib/constants/sonioxLanguages";
@@ -166,6 +167,8 @@ export const TranscribeFileSettings: React.FC = () => {
     useState("");
   const [isSavingSpeakerNameProfile, setIsSavingSpeakerNameProfile] =
     useState(false);
+  const [showDurationLimitWarningDialog, setShowDurationLimitWarningDialog] =
+    useState(false);
 
   const dropZoneRef = useRef<HTMLDivElement>(null);
   const sonioxModel = (settings as any)?.soniox_model ?? "stt-rt-v4";
@@ -252,6 +255,7 @@ export const TranscribeFileSettings: React.FC = () => {
           setTranscriptionResult("");
           setSavedFilePath(null);
           setInfoMessage(null);
+          setShowDurationLimitWarningDialog(false);
           setError(null);
           clearSpeakerSession();
         }
@@ -368,7 +372,7 @@ export const TranscribeFileSettings: React.FC = () => {
     showSonioxFileOptions &&
     selectedFileDurationSeconds != null &&
     selectedFileDurationSeconds > SONIOX_MAX_FILE_DURATION_SECONDS;
-  const selectedFileDurationLimitError =
+  const selectedFileDurationLimitWarning =
     selectedFileExceedsDeepgramLimit
       ? t("transcribeFile.deepgram.durationLimitExceeded", {
           duration: formatAudioDuration(selectedFileDurationSeconds),
@@ -380,8 +384,12 @@ export const TranscribeFileSettings: React.FC = () => {
             limit: formatAudioDuration(SONIOX_MAX_FILE_DURATION_SECONDS),
           })
         : null;
-  const canTranscribe =
-    !isTranscribing && !isRecording && !selectedFileDurationLimitError;
+  const durationLimitWarningProvider = selectedFileExceedsDeepgramLimit
+    ? "Deepgram"
+    : selectedFileExceedsSonioxLimit
+      ? "Soniox"
+      : null;
+  const canTranscribe = !isTranscribing && !isRecording;
 
   useEffect(() => {
     if (!selectedSpeakerNameProfileId) {
@@ -546,6 +554,7 @@ export const TranscribeFileSettings: React.FC = () => {
         setTranscriptionResult("");
         setSavedFilePath(null);
         setInfoMessage(null);
+        setShowDurationLimitWarningDialog(false);
         setError(null);
         clearSpeakerSession();
       }
@@ -558,10 +567,16 @@ export const TranscribeFileSettings: React.FC = () => {
   // Transcribe the selected file
   const handleTranscribe = async () => {
     if (!selectedFile) return;
-    if (selectedFileDurationLimitError) {
-      setError(selectedFileDurationLimitError);
+    if (selectedFileDurationLimitWarning) {
+      setError(null);
+      setShowDurationLimitWarningDialog(true);
       return;
     }
+    await runTranscription();
+  };
+
+  const runTranscription = async () => {
+    if (!selectedFile) return;
 
     setIsTranscribing(true);
     setError(null);
@@ -695,6 +710,7 @@ export const TranscribeFileSettings: React.FC = () => {
     setTranscriptionResult("");
     setSavedFilePath(null);
     setInfoMessage(null);
+    setShowDurationLimitWarningDialog(false);
     setError(null);
     clearSpeakerSession();
   };
@@ -1062,8 +1078,8 @@ export const TranscribeFileSettings: React.FC = () => {
                 title={
                   isRecording
                     ? t("transcribeFile.recordingInProgress")
-                    : selectedFileDurationLimitError
-                      ? selectedFileDurationLimitError
+                    : selectedFileDurationLimitWarning
+                      ? selectedFileDurationLimitWarning
                       : undefined
                 }
               >
@@ -1311,6 +1327,23 @@ export const TranscribeFileSettings: React.FC = () => {
           </div>
         )}
       </SettingsGroup>
+      <ConfirmationModal
+        isOpen={showDurationLimitWarningDialog}
+        onClose={() => setShowDurationLimitWarningDialog(false)}
+        onConfirm={() => {
+          void runTranscription();
+        }}
+        title={t("transcribeFile.durationLimitDialog.title", {
+          provider: durationLimitWarningProvider ?? t("transcribeFile.title"),
+        })}
+        message={t("transcribeFile.durationLimitDialog.message", {
+          provider: durationLimitWarningProvider ?? t("transcribeFile.title"),
+          limitWarning: selectedFileDurationLimitWarning ?? "",
+        })}
+        confirmText={t("transcribeFile.durationLimitDialog.confirm")}
+        cancelText={t("transcribeFile.durationLimitDialog.cancel")}
+        variant="warning"
+      />
     </div>
   );
 };
