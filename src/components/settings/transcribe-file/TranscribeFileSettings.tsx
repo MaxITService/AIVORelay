@@ -39,7 +39,7 @@ type SpeakerNameSetProfile = {
   speaker_names: string[];
 };
 
-const formatAudioDuration = (seconds: number | null | undefined): string => {
+const formatAudioDurationClock = (seconds: number | null | undefined): string => {
   if (seconds == null || !Number.isFinite(seconds) || seconds < 0) {
     return "";
   }
@@ -56,6 +56,27 @@ const formatAudioDuration = (seconds: number | null | undefined): string => {
   }
 
   return `${minutes}:${String(remainingSeconds).padStart(2, "0")}`;
+};
+
+const formatAudioDurationWithUnits = (
+  seconds: number | null | undefined,
+): string => {
+  if (seconds == null || !Number.isFinite(seconds) || seconds < 0) {
+    return "";
+  }
+
+  const rounded = Math.round(seconds);
+  const hours = Math.floor(rounded / 3600);
+  const minutes = Math.floor((rounded % 3600) / 60);
+  const remainingSeconds = rounded % 60;
+
+  if (hours > 0) {
+    return `${hours}h ${String(minutes).padStart(2, "0")}m ${String(
+      remainingSeconds,
+    ).padStart(2, "0")}s`;
+  }
+
+  return `${minutes}m ${String(remainingSeconds).padStart(2, "0")}s`;
 };
 
 const loadAudioDuration = async (audioUrl: string): Promise<number | null> =>
@@ -375,13 +396,13 @@ export const TranscribeFileSettings: React.FC = () => {
   const selectedFileDurationLimitWarning =
     selectedFileExceedsDeepgramLimit
       ? t("transcribeFile.deepgram.durationLimitExceeded", {
-          duration: formatAudioDuration(selectedFileDurationSeconds),
-          limit: formatAudioDuration(DEEPGRAM_MAX_FILE_DURATION_SECONDS),
+          duration: formatAudioDurationWithUnits(selectedFileDurationSeconds),
+          limit: formatAudioDurationWithUnits(DEEPGRAM_MAX_FILE_DURATION_SECONDS),
         })
       : selectedFileExceedsSonioxLimit
         ? t("transcribeFile.soniox.durationLimitExceeded", {
-            duration: formatAudioDuration(selectedFileDurationSeconds),
-            limit: formatAudioDuration(SONIOX_MAX_FILE_DURATION_SECONDS),
+            duration: formatAudioDurationWithUnits(selectedFileDurationSeconds),
+            limit: formatAudioDurationWithUnits(SONIOX_MAX_FILE_DURATION_SECONDS),
           })
         : null;
   const durationLimitWarningProvider = selectedFileExceedsDeepgramLimit
@@ -781,7 +802,7 @@ export const TranscribeFileSettings: React.FC = () => {
                     <p className="text-xs text-[#808080]">
                       {formatFileSize(selectedFile.size)}
                       {selectedFileDurationSeconds != null
-                        ? ` • ${formatAudioDuration(selectedFileDurationSeconds)}`
+                        ? ` • ${formatAudioDurationClock(selectedFileDurationSeconds)}`
                         : ""}
                     </p>
                   )}
@@ -931,8 +952,10 @@ export const TranscribeFileSettings: React.FC = () => {
                   {t("transcribeFile.soniox.durationLimitWarning")}
                   {selectedFileExceedsSonioxLimit
                     ? ` ${t("transcribeFile.soniox.durationLimitExceeded", {
-                        duration: formatAudioDuration(selectedFileDurationSeconds),
-                        limit: formatAudioDuration(SONIOX_MAX_FILE_DURATION_SECONDS),
+                        duration: formatAudioDurationWithUnits(selectedFileDurationSeconds),
+                        limit: formatAudioDurationWithUnits(
+                          SONIOX_MAX_FILE_DURATION_SECONDS,
+                        ),
                       })}`
                     : ""}
                 </Alert>
@@ -994,8 +1017,10 @@ export const TranscribeFileSettings: React.FC = () => {
                   {t("transcribeFile.deepgram.durationLimitWarning")}
                   {selectedFileExceedsDeepgramLimit
                     ? ` ${t("transcribeFile.deepgram.durationLimitExceeded", {
-                        duration: formatAudioDuration(selectedFileDurationSeconds),
-                        limit: formatAudioDuration(
+                        duration: formatAudioDurationWithUnits(
+                          selectedFileDurationSeconds,
+                        ),
+                        limit: formatAudioDurationWithUnits(
                           DEEPGRAM_MAX_FILE_DURATION_SECONDS,
                         ),
                       })}`
