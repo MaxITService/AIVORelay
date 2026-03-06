@@ -23,10 +23,22 @@
     "audioProcessing": "Обработка речи"
   },
   "transcribeFile": {
+    "soniox": {
+      "title": "Параметры транскрипции файла Soniox",
+      "usesGlobalDefaults": "По умолчанию используются глобальные настройки Soniox API. Для этой транскрипции их можно переопределить.",
+      "durationLimitWarning": "Soniox file transcription поддерживает не более 5 часов аудио. Более длинные файлы блокируются до отправки.",
+      "durationLimitExceeded": "Длительность этого файла {{duration}}. Лимит Soniox здесь — {{limit}}.",
+      "languageHintsLabel": "Подсказки языков (через запятую, не JSON)",
+      "languageHintsPlaceholder": "например, en, es, ru",
+      "speakerDiarizationLabel": "Включить diarization спикеров",
+      "languageIdentificationLabel": "Включить определение языка"
+    },
     "deepgram": {
       "title": "Параметры транскрипции файла Deepgram",
       "usesGlobalDefaults": "Diarization берётся из глобальной настройки Deepgram. Multichannel — отдельное переопределение только для транскрипции файла.",
       "modeHint": "Используйте multichannel, когда каждый спикер записан в отдельный аудиоканал. Используйте diarization, когда несколько спикеров находятся в одном канале. Можно включить оба режима.",
+      "durationLimitWarning": "Deepgram file transcription поддерживает не более 10 минут аудио. Более длинные файлы блокируются до отправки.",
+      "durationLimitExceeded": "Длительность этого файла {{duration}}. Лимит Deepgram здесь — {{limit}}.",
       "speakerDiarizationLabel": "Включить diarization спикеров",
       "multichannelLabel": "Считать файл многоканальным аудио"
     },

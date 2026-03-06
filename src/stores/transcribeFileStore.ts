@@ -12,6 +12,7 @@ export interface SelectedFile {
   name: string;
   size: number;
   audioUrl: string;
+  durationSeconds?: number | null;
 }
 
 export interface EditableSpeakerCard {

@@ -69,6 +69,8 @@ pub fn reapply_transcription_speaker_names(
 /// Supported audio file extensions
 const SUPPORTED_EXTENSIONS: &[&str] = &["wav", "mp3", "m4a", "ogg", "flac", "webm"];
 const SONIOX_LATEST_ASYNC_MODEL: &str = "stt-async-v4";
+const DEEPGRAM_MAX_FILE_DURATION_SECONDS: f64 = 10.0 * 60.0;
+const SONIOX_MAX_FILE_DURATION_SECONDS: f64 = 300.0 * 60.0;
 
 /// Transcribe an audio file to text
 ///
@@ -147,6 +149,26 @@ pub async fn transcribe_audio_file(
         && settings.transcription_provider == TranscriptionProvider::RemoteSoniox;
     let use_deepgram = model_override.is_none()
         && settings.transcription_provider == TranscriptionProvider::RemoteDeepgram;
+    if use_deepgram || use_soniox {
+        let duration_seconds = detect_audio_duration_seconds(&path).map_err(|e| {
+            error!("Failed to determine audio file duration: {}", e);
+            format!("Failed to determine audio file duration: {}", e)
+        })?;
+        if use_deepgram && duration_seconds > DEEPGRAM_MAX_FILE_DURATION_SECONDS {
+            return Err(format!(
+                "Deepgram file transcription supports up to {} of audio. Selected file is {}.",
+                format_duration_for_display(DEEPGRAM_MAX_FILE_DURATION_SECONDS),
+                format_duration_for_display(duration_seconds)
+            ));
+        }
+        if use_soniox && duration_seconds > SONIOX_MAX_FILE_DURATION_SECONDS {
+            return Err(format!(
+                "Soniox file transcription supports up to {} of audio. Selected file is {}.",
+                format_duration_for_display(SONIOX_MAX_FILE_DURATION_SECONDS),
+                format_duration_for_display(duration_seconds)
+            ));
+        }
+    }
     let samples = if use_deepgram {
         Vec::new()
     } else {
@@ -708,6 +730,62 @@ fn normalize_soniox_language_hints(hints: Option<Vec<String>>) -> Option<Vec<Str
     } else {
         Some(deduped)
     }
+}
+
+fn format_duration_for_display(seconds: f64) -> String {
+    let rounded = seconds.round().max(0.0) as u64;
+    let hours = rounded / 3600;
+    let minutes = (rounded % 3600) / 60;
+    let remaining_seconds = rounded % 60;
+
+    if hours > 0 {
+        format!("{hours}:{minutes:02}:{remaining_seconds:02}")
+    } else {
+        format!("{minutes}:{remaining_seconds:02}")
+    }
+}
+
+fn detect_audio_duration_seconds(path: &PathBuf) -> Result<f64, String> {
+    use rodio::Source;
+    use std::fs::File;
+    use std::io::BufReader;
+
+    let extension = path
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(|e| e.to_lowercase())
+        .unwrap_or_default();
+
+    if extension == "wav" {
+        let reader =
+            hound::WavReader::open(path).map_err(|e| format!("Failed to open WAV file: {}", e))?;
+        let spec = reader.spec();
+        let sample_rate = spec.sample_rate as f64;
+        let channels = spec.channels as f64;
+        if sample_rate <= 0.0 || channels <= 0.0 {
+            return Err("WAV file has invalid sample rate or channel count".to_string());
+        }
+        let total_samples = reader.duration() as f64;
+        return Ok((total_samples / channels) / sample_rate);
+    }
+
+    let file = File::open(path).map_err(|e| format!("Failed to open file: {}", e))?;
+    let reader = BufReader::new(file);
+    let source =
+        rodio::Decoder::new(reader).map_err(|e| format!("Failed to decode audio: {}", e))?;
+
+    if let Some(duration) = source.total_duration() {
+        return Ok(duration.as_secs_f64());
+    }
+
+    let sample_rate = source.sample_rate() as f64;
+    let channels = source.channels() as f64;
+    if sample_rate <= 0.0 || channels <= 0.0 {
+        return Err("Audio file has invalid sample rate or channel count".to_string());
+    }
+
+    let total_samples = source.count() as f64;
+    Ok((total_samples / channels) / sample_rate)
 }
 
 /// Decode an audio file to f32 PCM samples at 16kHz

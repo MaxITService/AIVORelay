@@ -2,6 +2,7 @@ use crate::file_transcription_diarization::RawSpeakerBlock;
 use anyhow::{anyhow, Result};
 use futures_util::{SinkExt, StreamExt};
 use serde_json::Value;
+use std::error::Error as _;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 use tauri::AppHandle;
@@ -44,7 +45,6 @@ impl DeepgramSttManager {
     pub fn new(_app_handle: &AppHandle) -> Result<Self> {
         let client = reqwest::Client::builder()
             .connect_timeout(Duration::from_secs(DEFAULT_CONNECT_TIMEOUT_SECS))
-            .timeout(Duration::from_secs(DEFAULT_REQUEST_TIMEOUT_SECS))
             .build()
             .map_err(|e| anyhow!("Failed to build Deepgram HTTP client: {}", e))?;
 
@@ -541,6 +541,59 @@ impl DeepgramSttManager {
         Self::render_speaker_blocks(&Self::extract_diarized_chunk_blocks(alternative, None))
     }
 
+    fn format_reqwest_error(error: &reqwest::Error) -> String {
+        let mut flags = Vec::new();
+        if error.is_connect() {
+            flags.push("connect");
+        }
+        if error.is_timeout() {
+            flags.push("timeout");
+        }
+        if error.is_request() {
+            flags.push("request");
+        }
+        if error.is_body() {
+            flags.push("body");
+        }
+        if error.is_decode() {
+            flags.push("decode");
+        }
+        if error.is_redirect() {
+            flags.push("redirect");
+        }
+        if error.is_status() {
+            flags.push("status");
+        }
+
+        let kind = if flags.is_empty() {
+            "unknown".to_string()
+        } else {
+            flags.join("|")
+        };
+        let status = error
+            .status()
+            .map(|value| format!("; status={}", value))
+            .unwrap_or_default();
+        let url = error
+            .url()
+            .map(|value| format!("; url={}", value))
+            .unwrap_or_default();
+
+        let mut causes = Vec::new();
+        let mut current = error.source();
+        while let Some(source) = current {
+            causes.push(source.to_string());
+            current = source.source();
+        }
+        let causes = if causes.is_empty() {
+            String::new()
+        } else {
+            format!("; causes={}", causes.join(" | "))
+        };
+
+        format!("kind={kind}; error={error}{status}{url}{causes}")
+    }
+
     pub async fn transcribe_prerecorded_bytes(
         &self,
         operation_id: Option<u64>,
@@ -572,7 +625,14 @@ impl DeepgramSttManager {
             .body(audio_bytes.to_vec())
             .send()
             .await
-            .map_err(|e| anyhow!("Deepgram pre-recorded request failed: {}", e))?;
+            .map_err(|e| {
+                anyhow!(
+                    "Deepgram pre-recorded request failed (timeout={}s, audio_bytes={}): {}",
+                    timeout_seconds.max(MIN_TIMEOUT_SECONDS),
+                    audio_bytes.len(),
+                    Self::format_reqwest_error(&e)
+                )
+            })?;
 
         self.ensure_not_cancelled(operation_id)?;
 
@@ -580,7 +640,12 @@ impl DeepgramSttManager {
         let body = response
             .text()
             .await
-            .map_err(|e| anyhow!("Failed to read Deepgram pre-recorded response: {}", e))?;
+            .map_err(|e| {
+                anyhow!(
+                    "Failed to read Deepgram pre-recorded response: {}",
+                    Self::format_reqwest_error(&e)
+                )
+            })?;
 
         self.ensure_not_cancelled(operation_id)?;
 

@@ -21,6 +21,7 @@ import {
 } from "@/bindings";
 import { useSettings } from "@/hooks/useSettings";
 import { SettingsGroup } from "@/components/ui/SettingsGroup";
+import { Alert } from "@/components/ui/Alert";
 import { Button } from "@/components/ui/Button";
 import { AudioPlayer } from "@/components/ui/AudioPlayer";
 import { Dropdown } from "@/components/ui/Dropdown";
@@ -28,11 +29,85 @@ import { useTranscribeFileStore } from "@/stores/transcribeFileStore";
 import { parseAndNormalizeSonioxLanguageHints } from "@/lib/constants/sonioxLanguages";
 
 const supportedExtensions = ["wav", "mp3", "m4a", "ogg", "flac", "webm"];
+const DEEPGRAM_MAX_FILE_DURATION_SECONDS = 10 * 60;
+const SONIOX_MAX_FILE_DURATION_SECONDS = 300 * 60;
 
 type SpeakerNameSetProfile = {
   id: string;
   name: string;
   speaker_names: string[];
+};
+
+const formatAudioDuration = (seconds: number | null | undefined): string => {
+  if (seconds == null || !Number.isFinite(seconds) || seconds < 0) {
+    return "";
+  }
+
+  const rounded = Math.round(seconds);
+  const hours = Math.floor(rounded / 3600);
+  const minutes = Math.floor((rounded % 3600) / 60);
+  const remainingSeconds = rounded % 60;
+
+  if (hours > 0) {
+    return `${hours}:${String(minutes).padStart(2, "0")}:${String(
+      remainingSeconds,
+    ).padStart(2, "0")}`;
+  }
+
+  return `${minutes}:${String(remainingSeconds).padStart(2, "0")}`;
+};
+
+const loadAudioDuration = async (audioUrl: string): Promise<number | null> =>
+  new Promise((resolve) => {
+    const audio = document.createElement("audio");
+    let settled = false;
+
+    const finish = (duration: number | null) => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      audio.removeAttribute("src");
+      audio.load();
+      resolve(duration);
+    };
+
+    const timeoutId = window.setTimeout(() => finish(null), 5000);
+    const cleanupAndFinish = (duration: number | null) => {
+      window.clearTimeout(timeoutId);
+      finish(duration);
+    };
+
+    audio.preload = "metadata";
+    audio.onloadedmetadata = () => {
+      const duration = Number.isFinite(audio.duration) ? audio.duration : null;
+      cleanupAndFinish(duration && duration > 0 ? duration : null);
+    };
+    audio.onerror = () => cleanupAndFinish(null);
+    audio.src = audioUrl;
+  });
+
+const buildSelectedFile = async (path: string) => {
+  const name = path.split(/[/\\]/).pop() ?? "unknown";
+  const audioUrl = convertFileSrc(path);
+
+  let fileSize = 0;
+  try {
+    const fileInfo = await stat(path);
+    fileSize = fileInfo.size;
+  } catch (e) {
+    console.error("Failed to get file size:", e);
+  }
+
+  const durationSeconds = await loadAudioDuration(audioUrl);
+
+  return {
+    path,
+    name,
+    size: fileSize,
+    audioUrl,
+    durationSeconds,
+  };
 };
 
 export const TranscribeFileSettings: React.FC = () => {
@@ -172,23 +247,8 @@ export const TranscribeFileSettings: React.FC = () => {
             return;
           }
           
-          const name = filePath.split(/[/\\]/).pop() ?? "unknown";
-          
-          // Get file size
-          let fileSize = 0;
-          try {
-            const fileInfo = await stat(filePath);
-            fileSize = fileInfo.size;
-          } catch (e) {
-            console.error("Failed to get file size:", e);
-          }
-          
-          setSelectedFile({
-            path: filePath,
-            name,
-            size: fileSize,
-            audioUrl: convertFileSrc(filePath),
-          });
+          const nextFile = await buildSelectedFile(filePath);
+          setSelectedFile(nextFile);
           setTranscriptionResult("");
           setSavedFilePath(null);
           setInfoMessage(null);
@@ -201,7 +261,7 @@ export const TranscribeFileSettings: React.FC = () => {
     return () => {
       unlistenDrop.then((fn) => fn());
     };
-  }, [t]);
+  }, [clearSpeakerSession, setError, setSavedFilePath, setSelectedFile, setTranscriptionResult, t]);
 
   // Check recording state periodically
   useEffect(() => {
@@ -299,6 +359,29 @@ export const TranscribeFileSettings: React.FC = () => {
     !!selectedSpeakerNameProfile && speakerCards.length > 0;
   const canUpdateSpeakerNameProfile =
     !!selectedSpeakerNameProfile && canPersistSpeakerNameProfile;
+  const selectedFileDurationSeconds = selectedFile?.durationSeconds ?? null;
+  const selectedFileExceedsDeepgramLimit =
+    showDeepgramFileOptions &&
+    selectedFileDurationSeconds != null &&
+    selectedFileDurationSeconds > DEEPGRAM_MAX_FILE_DURATION_SECONDS;
+  const selectedFileExceedsSonioxLimit =
+    showSonioxFileOptions &&
+    selectedFileDurationSeconds != null &&
+    selectedFileDurationSeconds > SONIOX_MAX_FILE_DURATION_SECONDS;
+  const selectedFileDurationLimitError =
+    selectedFileExceedsDeepgramLimit
+      ? t("transcribeFile.deepgram.durationLimitExceeded", {
+          duration: formatAudioDuration(selectedFileDurationSeconds),
+          limit: formatAudioDuration(DEEPGRAM_MAX_FILE_DURATION_SECONDS),
+        })
+      : selectedFileExceedsSonioxLimit
+        ? t("transcribeFile.soniox.durationLimitExceeded", {
+            duration: formatAudioDuration(selectedFileDurationSeconds),
+            limit: formatAudioDuration(SONIOX_MAX_FILE_DURATION_SECONDS),
+          })
+        : null;
+  const canTranscribe =
+    !isTranscribing && !isRecording && !selectedFileDurationLimitError;
 
   useEffect(() => {
     if (!selectedSpeakerNameProfileId) {
@@ -458,23 +541,8 @@ export const TranscribeFileSettings: React.FC = () => {
 
       if (result) {
         const path = result as string;
-        const name = path.split(/[/\\]/).pop() ?? "unknown";
-        
-        // Get file size
-        let fileSize = 0;
-        try {
-          const fileInfo = await stat(path);
-          fileSize = fileInfo.size;
-        } catch (e) {
-          console.error("Failed to get file size:", e);
-        }
-        
-        setSelectedFile({
-          path,
-          name,
-          size: fileSize,
-          audioUrl: convertFileSrc(path),
-        });
+        const nextFile = await buildSelectedFile(path);
+        setSelectedFile(nextFile);
         setTranscriptionResult("");
         setSavedFilePath(null);
         setInfoMessage(null);
@@ -490,6 +558,10 @@ export const TranscribeFileSettings: React.FC = () => {
   // Transcribe the selected file
   const handleTranscribe = async () => {
     if (!selectedFile) return;
+    if (selectedFileDurationLimitError) {
+      setError(selectedFileDurationLimitError);
+      return;
+    }
 
     setIsTranscribing(true);
     setError(null);
@@ -692,6 +764,9 @@ export const TranscribeFileSettings: React.FC = () => {
                   {selectedFile.size > 0 && (
                     <p className="text-xs text-[#808080]">
                       {formatFileSize(selectedFile.size)}
+                      {selectedFileDurationSeconds != null
+                        ? ` • ${formatAudioDuration(selectedFileDurationSeconds)}`
+                        : ""}
                     </p>
                   )}
                 </div>
@@ -836,6 +911,15 @@ export const TranscribeFileSettings: React.FC = () => {
                 <p className="text-xs text-[#808080]">
                   {t("transcribeFile.soniox.usesGlobalDefaults")}
                 </p>
+                <Alert variant="warning" contained>
+                  {t("transcribeFile.soniox.durationLimitWarning")}
+                  {selectedFileExceedsSonioxLimit
+                    ? ` ${t("transcribeFile.soniox.durationLimitExceeded", {
+                        duration: formatAudioDuration(selectedFileDurationSeconds),
+                        limit: formatAudioDuration(SONIOX_MAX_FILE_DURATION_SECONDS),
+                      })}`
+                    : ""}
+                </Alert>
                 <div className="space-y-2">
                   <label className="text-xs text-[#808080]">
                     {t("transcribeFile.soniox.languageHintsLabel")}
@@ -890,6 +974,17 @@ export const TranscribeFileSettings: React.FC = () => {
                 <p className="text-xs text-[#606060]">
                   {t("transcribeFile.deepgram.modeHint")}
                 </p>
+                <Alert variant="warning" contained>
+                  {t("transcribeFile.deepgram.durationLimitWarning")}
+                  {selectedFileExceedsDeepgramLimit
+                    ? ` ${t("transcribeFile.deepgram.durationLimitExceeded", {
+                        duration: formatAudioDuration(selectedFileDurationSeconds),
+                        limit: formatAudioDuration(
+                          DEEPGRAM_MAX_FILE_DURATION_SECONDS,
+                        ),
+                      })}`
+                    : ""}
+                </Alert>
                 <label className="flex items-center gap-2 cursor-pointer select-none">
                   <input
                     type="checkbox"
@@ -962,9 +1057,15 @@ export const TranscribeFileSettings: React.FC = () => {
               <Button
                 variant="primary"
                 onClick={handleTranscribe}
-                disabled={isTranscribing || isRecording}
+                disabled={!canTranscribe}
                 className="flex items-center gap-2"
-                title={isRecording ? t("transcribeFile.recordingInProgress") : undefined}
+                title={
+                  isRecording
+                    ? t("transcribeFile.recordingInProgress")
+                    : selectedFileDurationLimitError
+                      ? selectedFileDurationLimitError
+                      : undefined
+                }
               >
                 {isTranscribing ? (
                   <>
