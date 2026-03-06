@@ -49,12 +49,6 @@ export const SECTIONS_CONFIG = {
     component: GeneralSettings,
     enabled: () => true,
   },
-  liveSoundTranscription: {
-    labelKey: "sidebar.liveSoundTranscription",
-    icon: Radio,
-    component: LiveSoundTranscriptionSettings,
-    enabled: () => true,
-  },
   models: {
     labelKey: "sidebar.models",
     icon: Cpu,
@@ -120,6 +114,12 @@ export const SECTIONS_CONFIG = {
     icon: FlaskConical,
     component: DebugSettings,
     enabled: (_) => true,
+  },
+  liveSoundTranscription: {
+    labelKey: "sidebar.liveSoundTranscription",
+    icon: Radio,
+    component: LiveSoundTranscriptionSettings,
+    enabled: () => true,
   },
   transcribeFile: {
     labelKey: "sidebar.transcribeFile",

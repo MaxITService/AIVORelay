@@ -46,8 +46,6 @@ pub fn get_live_sound_transcription_state() -> LiveSoundTranscriptionStatePayloa
 
 #[tauri::command]
 #[specta::specta]
-#[tauri::command]
-#[specta::specta]
 pub fn set_live_sound_auto_stop_minutes(app: AppHandle, minutes: u32) -> Result<(), String> {
     let mut settings = get_settings(&app);
     settings.live_sound_auto_stop_minutes = minutes;

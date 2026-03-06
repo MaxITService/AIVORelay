@@ -593,7 +593,7 @@
         "stopping": "Stopping...",
         "clear": "Clear",
         "clearing": "Clearing...",
-        "process": "Process",
+        "process": "Send to LLM for post processing",
         "diarizationDisabledHint": "Live speaker separation is off for this page. Turn it on here if you want diarized live transcript blocks.",
         "diarizationToggleTitle": "Speaker Diarization",
         "diarizationToggleDescription": "This toggle only affects Live Sound Transcription on this page. It does not change normal speech / mic transcription.",

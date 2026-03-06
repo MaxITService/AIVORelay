@@ -859,6 +859,7 @@ export const LiveSoundTranscriptionSettings: React.FC = () => {
       >
         <SettingContainer
           title={t("settings.liveSoundTranscription.speakerNames.cardsTitle")}
+          description=""
           grouped={true}
           layout="stacked"
         >
