@@ -2056,6 +2056,14 @@ async changeLiveSoundSpeakerDiarizationSetting(enabled: boolean) : Promise<Resul
     else return { status: "error", error: e  as any };
 }
 },
+async setLiveSoundAutoStopMinutes(minutes: number) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("set_live_sound_auto_stop_minutes", { minutes }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async checkCustomSounds() : Promise<CustomSounds> {
     return await TAURI_INVOKE("check_custom_sounds");
 },

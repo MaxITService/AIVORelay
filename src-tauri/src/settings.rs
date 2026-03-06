@@ -1124,6 +1124,8 @@ pub struct AppSettings {
     pub selected_output_device: Option<String>,
     #[serde(default = "default_live_sound_capture_source")]
     pub live_sound_capture_source: LiveSoundCaptureSource,
+    #[serde(default = "default_live_sound_auto_stop_minutes")]
+    pub live_sound_auto_stop_minutes: u32,
     #[serde(default = "default_translate_to_english")]
     pub translate_to_english: bool,
     #[serde(default = "default_selected_language")]
@@ -1633,6 +1635,10 @@ fn default_always_on_microphone() -> bool {
 
 fn default_live_sound_capture_source() -> LiveSoundCaptureSource {
     LiveSoundCaptureSource::default()
+}
+
+fn default_live_sound_auto_stop_minutes() -> u32 {
+    60
 }
 
 fn default_translate_to_english() -> bool {
@@ -2322,6 +2328,7 @@ pub fn get_default_settings() -> AppSettings {
         clamshell_microphone: None,
         selected_output_device: None,
         live_sound_capture_source: default_live_sound_capture_source(),
+        live_sound_auto_stop_minutes: default_live_sound_auto_stop_minutes(),
         translate_to_english: false,
         selected_language: "auto".to_string(),
         overlay_position: default_overlay_position(),

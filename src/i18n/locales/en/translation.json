@@ -602,7 +602,10 @@
         "processing": "Processing...",
         "recordingHint": "Live transcription is active. Finalized text stays here immediately as it arrives.",
         "idleHint": "Start a live session to stream transcript updates directly into this page.",
-        "actionFailed": "Live sound transcription action failed."
+        "actionFailed": "Live sound transcription action failed.",
+        "autoStop": "Auto stop in",
+        "autoStopMinutes": "min (0 = off)",
+        "autoStopLeft": "min left"
       },
       "transcript": {
         "title": "Transcript",

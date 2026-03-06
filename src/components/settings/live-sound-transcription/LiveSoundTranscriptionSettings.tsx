@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { useTranslation } from "react-i18next";
@@ -87,6 +87,9 @@ export const LiveSoundTranscriptionSettings: React.FC = () => {
   const [selectedSpeakerNameProfileId, setSelectedSpeakerNameProfileId] = useState<string | null>(null);
   const [speakerNameProfileDraftName, setSpeakerNameProfileDraftName] = useState("");
   const [isSavingSpeakerNameProfile, setIsSavingSpeakerNameProfile] = useState(false);
+  const [autoStopInput, setAutoStopInput] = useState<string>("");
+  const [minutesLeft, setMinutesLeft] = useState<number | null>(null);
+  const autoStopTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const provider = String(settings?.transcription_provider ?? "local");
   const providerLabel =
@@ -114,6 +117,8 @@ export const LiveSoundTranscriptionSettings: React.FC = () => {
       : provider === "remote_deepgram"
         ? Boolean((settings as any)?.deepgram_live_enabled ?? true)
         : false;
+  const autoStopMinutes = Number((settings as any)?.live_sound_auto_stop_minutes ?? 60);
+
   const liveSoundCaptureSource = String(
     (settings as any)?.live_sound_capture_source ?? "system_output",
   );
@@ -237,6 +242,43 @@ export const LiveSoundTranscriptionSettings: React.FC = () => {
       }
     };
   }, []);
+
+  // Sync input field when settings load (only when not recording)
+  useEffect(() => {
+    if (!isRecording) {
+      setAutoStopInput(autoStopMinutes === 0 ? "" : String(autoStopMinutes));
+    }
+  }, [autoStopMinutes, isRecording]);
+
+  // Countdown timer — starts when recording begins, clears when it ends
+  useEffect(() => {
+    if (isRecording && autoStopMinutes > 0) {
+      setMinutesLeft(autoStopMinutes);
+      autoStopTimerRef.current = setInterval(() => {
+        setMinutesLeft((prev) => {
+          if (prev === null) return null;
+          const next = prev - 1;
+          if (next <= 0) {
+            void invoke("live_sound_transcription_stop");
+            return 0;
+          }
+          return next;
+        });
+      }, 60_000);
+    } else {
+      if (autoStopTimerRef.current) {
+        clearInterval(autoStopTimerRef.current);
+        autoStopTimerRef.current = null;
+      }
+      setMinutesLeft(null);
+    }
+    return () => {
+      if (autoStopTimerRef.current) {
+        clearInterval(autoStopTimerRef.current);
+        autoStopTimerRef.current = null;
+      }
+    };
+  }, [isRecording, autoStopMinutes]);
 
   useEffect(() => {
     if (selectedSpeakerNameProfile) {
@@ -643,6 +685,39 @@ export const LiveSoundTranscriptionSettings: React.FC = () => {
               </Button>
             </div>
 
+            <div className="flex items-center gap-2">
+              <span className="text-sm text-[#9a9a9a]">
+                {t("settings.liveSoundTranscription.session.autoStop")}
+              </span>
+              <input
+                type="number"
+                min={0}
+                max={480}
+                className={[
+                  "w-16 rounded border bg-[#0f0f0f] px-2 py-1 text-center text-sm focus:outline-none",
+                  isRecording
+                    ? "border-[#2a2a2a] text-[#555] cursor-not-allowed"
+                    : "border-[#333333] text-[#f5f5f5] focus:border-[#9b5de5]",
+                ].join(" ")}
+                value={isRecording ? (minutesLeft ?? autoStopMinutes) : autoStopInput}
+                disabled={isRecording}
+                onChange={(e) => setAutoStopInput(e.target.value)}
+                onBlur={async () => {
+                  const parsed = parseInt(autoStopInput, 10);
+                  const value = Number.isNaN(parsed) || parsed < 0 ? 0 : Math.min(parsed, 480);
+                  setAutoStopInput(value === 0 ? "" : String(value));
+                  const result = await commands.setLiveSoundAutoStopMinutes(value);
+                  if (result.status === "error") setErrorMessage(result.error);
+                  else await refreshSettings();
+                }}
+              />
+              <span className="text-sm text-[#9a9a9a]">
+                {isRecording && minutesLeft !== null
+                  ? t("settings.liveSoundTranscription.session.autoStopLeft")
+                  : t("settings.liveSoundTranscription.session.autoStopMinutes")}
+              </span>
+            </div>
+
             <p className="text-sm text-[#9a9a9a]">
               {isRecording
                 ? t("settings.liveSoundTranscription.session.recordingHint")
@@ -760,6 +835,17 @@ export const LiveSoundTranscriptionSettings: React.FC = () => {
                   {isSaving
                     ? t("settings.liveSoundTranscription.transcript.saving")
                     : t("settings.liveSoundTranscription.transcript.saveFile")}
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  disabled={actionBusy !== null}
+                  onClick={() => void runAction("clear", "live_sound_transcription_clear")}
+                  className="flex items-center gap-1"
+                >
+                  {actionBusy === "clear"
+                    ? t("settings.liveSoundTranscription.session.clearing")
+                    : t("settings.liveSoundTranscription.session.clear")}
                 </Button>
               </div>
             )}

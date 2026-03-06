@@ -1,5 +1,6 @@
 use crate::actions;
 use crate::managers::live_sound_transcription::LiveSoundTranscriptionStatePayload;
+use crate::settings::{get_settings, write_settings};
 use tauri::AppHandle;
 
 #[tauri::command]
@@ -41,6 +42,17 @@ pub fn live_sound_transcription_close(app: AppHandle) -> Result<(), String> {
 #[specta::specta]
 pub fn get_live_sound_transcription_state() -> LiveSoundTranscriptionStatePayload {
     crate::managers::live_sound_transcription::get_state_payload()
+}
+
+#[tauri::command]
+#[specta::specta]
+#[tauri::command]
+#[specta::specta]
+pub fn set_live_sound_auto_stop_minutes(app: AppHandle, minutes: u32) -> Result<(), String> {
+    let mut settings = get_settings(&app);
+    settings.live_sound_auto_stop_minutes = minutes;
+    write_settings(&app, settings);
+    Ok(())
 }
 
 #[tauri::command]
