@@ -1,4 +1,8 @@
 import { create } from "zustand";
+import type {
+  DiarizedTranscriptProvider,
+  FileTranscriptionSpeakerSession,
+} from "@/bindings";
 
 export type OutputMode = "textarea" | "file";
 export type OutputFormat = "text" | "srt" | "vtt";
@@ -8,6 +12,12 @@ export interface SelectedFile {
   name: string;
   size: number;
   audioUrl: string;
+}
+
+export interface EditableSpeakerCard {
+  speakerId: number;
+  defaultName: string;
+  name: string;
 }
 
 interface TranscribeFileState {
@@ -21,6 +31,10 @@ interface TranscribeFileState {
   error: string | null;
   isTranscribing: boolean;
   selectedProfileId: string | null;
+  speakerArtifactPath: string | null;
+  speakerProvider: DiarizedTranscriptProvider | null;
+  speakerCards: EditableSpeakerCard[];
+  isReapplyingSpeakerNames: boolean;
   setSelectedFile: (selectedFile: SelectedFile | null) => void;
   setOutputMode: (outputMode: OutputMode) => void;
   setOutputFormat: (outputFormat: OutputFormat) => void;
@@ -31,7 +45,20 @@ interface TranscribeFileState {
   setError: (error: string | null) => void;
   setIsTranscribing: (isTranscribing: boolean) => void;
   setSelectedProfileId: (selectedProfileId: string | null) => void;
+  setSpeakerSession: (
+    speakerSession: FileTranscriptionSpeakerSession | null,
+  ) => void;
+  clearSpeakerSession: () => void;
+  updateSpeakerCardName: (speakerId: number, name: string) => void;
+  setIsReapplyingSpeakerNames: (isReapplyingSpeakerNames: boolean) => void;
 }
+
+const emptySpeakerState = () => ({
+  speakerArtifactPath: null as string | null,
+  speakerProvider: null as DiarizedTranscriptProvider | null,
+  speakerCards: [] as EditableSpeakerCard[],
+  isReapplyingSpeakerNames: false,
+});
 
 export const useTranscribeFileStore = create<TranscribeFileState>((set) => ({
   selectedFile: null,
@@ -44,7 +71,8 @@ export const useTranscribeFileStore = create<TranscribeFileState>((set) => ({
   error: null,
   isTranscribing: false,
   selectedProfileId: null,
-  setSelectedFile: (selectedFile) => set({ selectedFile }),
+  ...emptySpeakerState(),
+  setSelectedFile: (selectedFile) => set({ selectedFile, ...emptySpeakerState() }),
   setOutputMode: (outputMode) => set({ outputMode }),
   setOutputFormat: (outputFormat) => set({ outputFormat }),
   setOverrideModelId: (overrideModelId) => set({ overrideModelId }),
@@ -55,4 +83,25 @@ export const useTranscribeFileStore = create<TranscribeFileState>((set) => ({
   setError: (error) => set({ error }),
   setIsTranscribing: (isTranscribing) => set({ isTranscribing }),
   setSelectedProfileId: (selectedProfileId) => set({ selectedProfileId }),
+  setSpeakerSession: (speakerSession) =>
+    set({
+      speakerArtifactPath: speakerSession?.artifact_path ?? null,
+      speakerProvider: speakerSession?.provider ?? null,
+      speakerCards:
+        speakerSession?.speakers.map((speaker) => ({
+          speakerId: speaker.speaker_id,
+          defaultName: speaker.default_name,
+          name: speaker.default_name,
+        })) ?? [],
+      isReapplyingSpeakerNames: false,
+    }),
+  clearSpeakerSession: () => set({ ...emptySpeakerState() }),
+  updateSpeakerCardName: (speakerId, name) =>
+    set((state) => ({
+      speakerCards: state.speakerCards.map((card) =>
+        card.speakerId === speakerId ? { ...card, name } : card,
+      ),
+    })),
+  setIsReapplyingSpeakerNames: (isReapplyingSpeakerNames) =>
+    set({ isReapplyingSpeakerNames }),
 }));

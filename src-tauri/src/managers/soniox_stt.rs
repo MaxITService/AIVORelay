@@ -1,10 +1,12 @@
 use crate::audio_toolkit::encode_wav_bytes;
+use crate::file_transcription_diarization::RawSpeakerBlock;
 use crate::settings::SonioxContext;
 use anyhow::{anyhow, Result};
 use futures_util::{SinkExt, StreamExt};
 use log::{debug, info, warn};
 use reqwest::multipart;
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 use tauri::AppHandle;
@@ -98,6 +100,22 @@ struct TranscriptionStatusResponse {
 #[derive(Deserialize, Debug)]
 struct TranscriptResponse {
     text: String,
+    #[serde(default)]
+    tokens: Vec<SonioxAsyncTranscriptToken>,
+}
+
+#[derive(Deserialize, Debug, Default)]
+struct SonioxAsyncTranscriptToken {
+    #[serde(default)]
+    text: String,
+    #[serde(default)]
+    speaker: Option<Value>,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct SonioxAsyncTranscript {
+    pub text: String,
+    pub speaker_blocks: Vec<RawSpeakerBlock>,
 }
 
 pub struct SonioxSttManager {
@@ -263,6 +281,88 @@ impl SonioxSttManager {
         }
 
         trimmed.to_string()
+    }
+
+    fn parse_async_speaker_key(value: &Value) -> Option<String> {
+        if let Some(speaker) = value.as_str() {
+            let trimmed = speaker.trim();
+            if !trimmed.is_empty() {
+                return Some(trimmed.to_string());
+            }
+        }
+
+        if let Some(number) = value.as_u64() {
+            return Some(number.to_string());
+        }
+        if let Some(number) = value.as_i64() {
+            return Some(number.to_string());
+        }
+        if let Some(number) = value.as_f64() {
+            if number.is_finite() {
+                return Some(number.to_string());
+            }
+        }
+
+        None
+    }
+
+    fn is_async_control_token(text: &str) -> bool {
+        matches!(text.trim(), "<end>" | "<fin>")
+    }
+
+    fn build_async_speaker_blocks(tokens: &[SonioxAsyncTranscriptToken]) -> Vec<RawSpeakerBlock> {
+        let mut blocks: Vec<RawSpeakerBlock> = Vec::new();
+        let mut current_speaker: Option<String> = None;
+        let mut current_text = String::new();
+        let mut pending_prefix = String::new();
+
+        for token in tokens {
+            if token.text.is_empty() || Self::is_async_control_token(&token.text) {
+                continue;
+            }
+
+            let speaker = token
+                .speaker
+                .as_ref()
+                .and_then(Self::parse_async_speaker_key)
+                .or_else(|| current_speaker.clone());
+
+            let Some(speaker) = speaker else {
+                pending_prefix.push_str(&token.text);
+                continue;
+            };
+
+            if current_speaker.as_deref() != Some(speaker.as_str()) && !current_text.trim().is_empty()
+            {
+                blocks.push(RawSpeakerBlock {
+                    speaker_key: current_speaker.clone().unwrap_or_default(),
+                    text: current_text.trim().to_string(),
+                });
+                current_text.clear();
+            }
+
+            if current_speaker.as_deref() != Some(speaker.as_str()) {
+                current_speaker = Some(speaker.clone());
+                if !pending_prefix.is_empty() {
+                    current_text.push_str(&pending_prefix);
+                    pending_prefix.clear();
+                }
+            }
+
+            current_text.push_str(&token.text);
+        }
+
+        if let Some(speaker_key) = current_speaker {
+            let text = current_text.trim();
+            if !text.is_empty() {
+                blocks.push(RawSpeakerBlock {
+                    speaker_key,
+                    text: text.to_string(),
+                });
+            }
+        }
+
+        blocks
     }
 
     fn ensure_within_timeout(start: Instant, timeout_seconds: u32) -> Result<()> {
@@ -709,7 +809,11 @@ impl SonioxSttManager {
         ))
     }
 
-    async fn get_transcript_impl(&self, api_key: &str, transcription_id: &str) -> Result<String> {
+    async fn get_transcript_impl(
+        &self,
+        api_key: &str,
+        transcription_id: &str,
+    ) -> Result<SonioxAsyncTranscript> {
         let response = self
             .http_client
             .get(format!(
@@ -734,7 +838,10 @@ impl SonioxSttManager {
             )
         })?;
 
-        Ok(payload.text)
+        Ok(SonioxAsyncTranscript {
+            text: payload.text,
+            speaker_blocks: Self::build_async_speaker_blocks(&payload.tokens),
+        })
     }
 
     async fn delete_file(&self, api_key: &str, file_id: &str) -> Result<()> {
@@ -895,9 +1002,9 @@ impl SonioxSttManager {
         audio_samples: &[f32],
         language: Option<&str>,
         options: SonioxAsyncTranscriptionOptions,
-    ) -> Result<String> {
+    ) -> Result<SonioxAsyncTranscript> {
         if audio_samples.is_empty() {
-            return Ok(String::new());
+            return Ok(SonioxAsyncTranscript::default());
         }
         if api_key.trim().is_empty() {
             return Err(anyhow!("Soniox API key is missing"));
@@ -923,7 +1030,7 @@ impl SonioxSttManager {
             })
             .await?;
 
-        let result: Result<String> = async {
+        let result: Result<SonioxAsyncTranscript> = async {
             let transcription_id = self
                 .with_retry("Soniox create transcription", operation_id, || async {
                     self.create_transcription_impl(
@@ -955,7 +1062,7 @@ impl SonioxSttManager {
             info!(
                 "Soniox async REST transcription completed in {}ms, output_len={}",
                 started_at.elapsed().as_millis(),
-                text.len()
+                text.text.len()
             );
         }
 

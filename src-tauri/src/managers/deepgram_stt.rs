@@ -1,3 +1,4 @@
+use crate::file_transcription_diarization::RawSpeakerBlock;
 use anyhow::{anyhow, Result};
 use futures_util::{SinkExt, StreamExt};
 use serde_json::Value;
@@ -9,7 +10,9 @@ use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 use tokio_tungstenite::{connect_async, tungstenite::Message};
 
 const DEEPGRAM_WS_BASE_URL: &str = "wss://api.deepgram.com/v1/listen";
+const DEEPGRAM_HTTP_BASE_URL: &str = "https://api.deepgram.com/v1/listen";
 const DEFAULT_CONNECT_TIMEOUT_SECS: u64 = 10;
+const DEFAULT_REQUEST_TIMEOUT_SECS: u64 = 60;
 const DEFAULT_READ_TIMEOUT_SECS: u64 = 60;
 const MIN_TIMEOUT_SECONDS: u32 = 5;
 const AUDIO_CHUNK_SIZE_BYTES: usize = 32 * 1024;
@@ -22,6 +25,7 @@ pub struct DeepgramTranscriptionOptions {
 }
 
 pub struct DeepgramSttManager {
+    client: reqwest::Client,
     /// Monotonically increasing operation ID; when cancel() is called, all
     /// operations started before that point should abort.
     current_operation_id: AtomicU64,
@@ -29,9 +33,22 @@ pub struct DeepgramSttManager {
     cancelled_before_id: AtomicU64,
 }
 
+#[derive(Debug, Clone, Default)]
+pub struct DeepgramPrerecordedTranscription {
+    pub text: String,
+    pub speaker_blocks: Vec<RawSpeakerBlock>,
+}
+
 impl DeepgramSttManager {
     pub fn new(_app_handle: &AppHandle) -> Result<Self> {
+        let client = reqwest::Client::builder()
+            .connect_timeout(Duration::from_secs(DEFAULT_CONNECT_TIMEOUT_SECS))
+            .timeout(Duration::from_secs(DEFAULT_REQUEST_TIMEOUT_SECS))
+            .build()
+            .map_err(|e| anyhow!("Failed to build Deepgram HTTP client: {}", e))?;
+
         Ok(Self {
+            client,
             current_operation_id: AtomicU64::new(0),
             cancelled_before_id: AtomicU64::new(0),
         })
@@ -160,10 +177,56 @@ impl DeepgramSttManager {
         Ok(url.to_string())
     }
 
+    fn build_prerecorded_url(
+        model: &str,
+        language: Option<&str>,
+        options: &DeepgramTranscriptionOptions,
+    ) -> Result<String> {
+        let mut url = reqwest::Url::parse(DEEPGRAM_HTTP_BASE_URL)
+            .map_err(|e| anyhow!("Invalid Deepgram HTTP URL: {}", e))?;
+        let diarize_enabled = options.diarize.unwrap_or(false);
+        {
+            let mut qp = url.query_pairs_mut();
+            qp.append_pair("model", model);
+            qp.append_pair(
+                "smart_format",
+                if options.smart_format.unwrap_or(true) {
+                    "true"
+                } else {
+                    "false"
+                },
+            );
+            qp.append_pair(
+                "diarize",
+                if diarize_enabled { "true" } else { "false" },
+            );
+            if diarize_enabled {
+                qp.append_pair("utterances", "true");
+                qp.append_pair("punctuate", "true");
+            }
+
+            if let Some(normalized_language) = Self::normalize_language(language, model) {
+                qp.append_pair("language", &normalized_language);
+            }
+        }
+        Ok(url.to_string())
+    }
+
     fn extract_alternative<'a>(payload: &'a Value) -> Option<&'a Value> {
         payload
             .get("channel")
             .and_then(|ch| ch.get("alternatives"))
+            .and_then(|alts| alts.as_array())
+            .and_then(|alts| alts.first())
+    }
+
+    fn extract_prerecorded_alternative<'a>(payload: &'a Value) -> Option<&'a Value> {
+        payload
+            .get("results")
+            .and_then(|results| results.get("channels"))
+            .and_then(|channels| channels.as_array())
+            .and_then(|channels| channels.first())
+            .and_then(|channel| channel.get("alternatives"))
             .and_then(|alts| alts.as_array())
             .and_then(|alts| alts.first())
     }
@@ -177,8 +240,10 @@ impl DeepgramSttManager {
             .to_string()
     }
 
-    fn extract_speaker_id(word: &Value) -> Option<u32> {
-        let speaker = word.get("speaker")?;
+    fn parse_speaker_value(speaker: &Value) -> Option<u32> {
+        if let Some(v) = speaker.as_str() {
+            return v.trim().parse::<u32>().ok();
+        }
         if let Some(v) = speaker.as_u64() {
             return if v <= u32::MAX as u64 {
                 Some(v as u32)
@@ -201,45 +266,227 @@ impl DeepgramSttManager {
         None
     }
 
-    fn format_diarized_chunk(alternative: Option<&Value>) -> Option<String> {
-        let words = alternative?.get("words")?.as_array()?;
-        let mut groups: Vec<(u32, Vec<String>)> = Vec::new();
+    fn extract_speaker_id(word: &Value) -> Option<u32> {
+        word.get("speaker").and_then(Self::parse_speaker_value)
+    }
+
+    fn extract_token_text(value: &Value) -> Option<String> {
+        value
+            .get("punctuated_word")
+            .and_then(|v| v.as_str())
+            .or_else(|| value.get("word").and_then(|v| v.as_str()))
+            .map(str::trim)
+            .filter(|token| !token.is_empty())
+            .map(ToOwned::to_owned)
+    }
+
+    fn build_transcript_from_words(words: &[Value]) -> String {
+        words.iter()
+            .filter_map(Self::extract_token_text)
+            .collect::<Vec<_>>()
+            .join(" ")
+    }
+
+    fn extract_diarized_chunk_blocks(alternative: Option<&Value>) -> Vec<RawSpeakerBlock> {
+        let Some(words) = alternative
+            .and_then(|value| value.get("words"))
+            .and_then(|value| value.as_array())
+        else {
+            return Vec::new();
+        };
+        let mut groups: Vec<RawSpeakerBlock> = Vec::new();
 
         for word in words {
             let Some(speaker) = Self::extract_speaker_id(word) else {
                 continue;
             };
-            let token = word
-                .get("punctuated_word")
-                .and_then(|v| v.as_str())
-                .or_else(|| word.get("word").and_then(|v| v.as_str()))
-                .unwrap_or_default()
-                .trim();
-            if token.is_empty() {
+            let Some(token) = Self::extract_token_text(word) else {
                 continue;
-            }
+            };
 
-            if let Some((last_speaker, tokens)) = groups.last_mut() {
-                if *last_speaker == speaker {
-                    tokens.push(token.to_string());
+            if let Some(last_block) = groups.last_mut() {
+                if last_block.speaker_key == speaker.to_string() {
+                    if !last_block.text.is_empty() {
+                        last_block.text.push(' ');
+                    }
+                    last_block.text.push_str(&token);
                     continue;
                 }
             }
-            groups.push((speaker, vec![token.to_string()]));
+
+            groups.push(RawSpeakerBlock {
+                speaker_key: speaker.to_string(),
+                text: token,
+            });
         }
 
-        if groups.is_empty() {
+        groups
+    }
+
+    fn extract_diarized_utterance_blocks(payload: &Value) -> Vec<RawSpeakerBlock> {
+        let Some(utterances) = payload
+            .get("results")
+            .and_then(|results| results.get("utterances"))
+            .and_then(|utterances| utterances.as_array())
+        else {
+            return Vec::new();
+        };
+        let mut groups: Vec<RawSpeakerBlock> = Vec::new();
+
+        for utterance in utterances {
+            let transcript = utterance
+                .get("transcript")
+                .and_then(|value| value.as_str())
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(ToOwned::to_owned)
+                .or_else(|| {
+                    utterance
+                        .get("words")
+                        .and_then(|words| words.as_array())
+                        .map(|words| Self::build_transcript_from_words(words))
+                        .filter(|value| !value.is_empty())
+                });
+            let Some(transcript) = transcript else {
+                continue;
+            };
+
+            let speaker = utterance
+                .get("speaker")
+                .and_then(Self::parse_speaker_value)
+                .or_else(|| {
+                    utterance
+                        .get("words")
+                        .and_then(|words| words.as_array())
+                        .and_then(|words| words.iter().find_map(Self::extract_speaker_id))
+                });
+            let Some(speaker) = speaker else {
+                continue;
+            };
+
+            if let Some(last_block) = groups.last_mut() {
+                if last_block.speaker_key == speaker.to_string() {
+                    if !last_block.text.is_empty() {
+                        last_block.text.push(' ');
+                    }
+                    last_block.text.push_str(&transcript);
+                    continue;
+                }
+            }
+
+            groups.push(RawSpeakerBlock {
+                speaker_key: speaker.to_string(),
+                text: transcript,
+            });
+        }
+
+        groups
+    }
+
+    fn render_speaker_blocks(blocks: &[RawSpeakerBlock]) -> Option<String> {
+        if blocks.is_empty() {
             return None;
         }
 
-        let mut formatted = String::new();
-        for (speaker, tokens) in groups {
-            if !formatted.is_empty() {
-                formatted.push('\n');
-            }
-            formatted.push_str(&format!("[Speaker {}] {}", speaker, tokens.join(" ")));
+        Some(
+            blocks
+                .iter()
+                .map(|block| format!("[Speaker {}] {}", block.speaker_key, block.text))
+                .collect::<Vec<_>>()
+                .join("\n"),
+        )
+    }
+
+    fn format_diarized_chunk(alternative: Option<&Value>) -> Option<String> {
+        Self::render_speaker_blocks(&Self::extract_diarized_chunk_blocks(alternative))
+    }
+
+    fn format_diarized_utterances(payload: &Value) -> Option<String> {
+        Self::render_speaker_blocks(&Self::extract_diarized_utterance_blocks(payload))
+    }
+
+    pub async fn transcribe_prerecorded_bytes(
+        &self,
+        operation_id: Option<u64>,
+        api_key: &str,
+        model: &str,
+        timeout_seconds: u32,
+        audio_bytes: &[u8],
+        language: Option<&str>,
+        options: DeepgramTranscriptionOptions,
+    ) -> Result<DeepgramPrerecordedTranscription> {
+        self.ensure_not_cancelled(operation_id)?;
+        if api_key.trim().is_empty() {
+            return Err(anyhow!("Deepgram API key is missing"));
         }
-        Some(formatted)
+        if audio_bytes.is_empty() {
+            return Ok(DeepgramPrerecordedTranscription::default());
+        }
+
+        let model = Self::normalize_model(model);
+        let diarize_enabled = options.diarize.unwrap_or(false);
+        let url = Self::build_prerecorded_url(&model, language, &options)?;
+        let response = self
+            .client
+            .post(url)
+            .header("Authorization", format!("Token {}", api_key.trim()))
+            .header(reqwest::header::CONTENT_TYPE, "application/octet-stream")
+            .timeout(Duration::from_secs(timeout_seconds.max(MIN_TIMEOUT_SECONDS) as u64))
+            .body(audio_bytes.to_vec())
+            .send()
+            .await
+            .map_err(|e| anyhow!("Deepgram pre-recorded request failed: {}", e))?;
+
+        self.ensure_not_cancelled(operation_id)?;
+
+        let status = response.status();
+        let body = response
+            .text()
+            .await
+            .map_err(|e| anyhow!("Failed to read Deepgram pre-recorded response: {}", e))?;
+
+        self.ensure_not_cancelled(operation_id)?;
+
+        if !status.is_success() {
+            let preview: String = body.chars().take(400).collect();
+            return Err(anyhow!(
+                "Deepgram pre-recorded request returned {}: {}",
+                status,
+                preview
+            ));
+        }
+
+        let payload: Value = serde_json::from_str(&body).map_err(|e| {
+            let preview: String = body.chars().take(400).collect();
+            anyhow!(
+                "Invalid Deepgram pre-recorded payload: {} (body: {})",
+                e,
+                preview
+            )
+        })?;
+
+        let alternative = Self::extract_prerecorded_alternative(&payload);
+        let transcript = Self::extract_transcript(alternative);
+        if diarize_enabled {
+            let speaker_blocks = {
+                let utterance_blocks = Self::extract_diarized_utterance_blocks(&payload);
+                if utterance_blocks.is_empty() {
+                    Self::extract_diarized_chunk_blocks(alternative)
+                } else {
+                    utterance_blocks
+                }
+            };
+            let text = Self::render_speaker_blocks(&speaker_blocks).unwrap_or(transcript);
+            return Ok(DeepgramPrerecordedTranscription {
+                text,
+                speaker_blocks,
+            });
+        }
+
+        Ok(DeepgramPrerecordedTranscription {
+            text: transcript,
+            speaker_blocks: Vec::new(),
+        })
     }
 
     pub async fn transcribe(

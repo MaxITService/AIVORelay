@@ -2288,6 +2288,14 @@ async transcribeAudioFile(filePath: string, profileId: string | null, saveToFile
     else return { status: "error", error: e  as any };
 }
 },
+async reapplyTranscriptionSpeakerNames(artifactPath: string, speakerNames: FileTranscriptionSpeakerNameInput[]) : Promise<Result<string, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("reapply_transcription_speaker_names", { artifactPath, speakerNames }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 /**
  * Start the key listener
  */
@@ -2743,6 +2751,7 @@ port: number;
 server_error: string | null }
 export type CustomSounds = { start: boolean; stop: boolean }
 export type DecapitalizeOverlayStateResponse = { decapitalizeEligible: boolean; decapitalizeArmed: boolean }
+export type DiarizedTranscriptProvider = "deepgram" | "soniox"
 export type EngineType = "Whisper" | "Parakeet" | "Moonshine" | "MoonshineStreaming" | "SenseVoice" | "GigaAM"
 /**
  * PowerShell execution policy for voice commands.
@@ -2800,7 +2809,14 @@ segments: SubtitleSegment[] | null;
 /**
  * Optional informational message for UI display
  */
-info_message: string | null }
+info_message: string | null; 
+/**
+ * Temporary diarized speaker session for renaming/re-apply
+ */
+speaker_session: FileTranscriptionSpeakerSession | null }
+export type FileTranscriptionSpeaker = { speaker_id: number; default_name: string }
+export type FileTranscriptionSpeakerNameInput = { speaker_id: number; name: string }
+export type FileTranscriptionSpeakerSession = { artifact_path: string; provider: DiarizedTranscriptProvider; speakers: FileTranscriptionSpeaker[] }
 export type GpuVramStatus = { is_supported: boolean; adapter_name: string | null; used_bytes: number; budget_bytes: number; system_used_bytes: number; system_free_bytes: number; total_vram_bytes: number; updated_at_unix_ms: number; error: string | null }
 export type HistoryEntry = { id: number; file_name: string; timestamp: number; saved: boolean; title: string; transcription_text: string; post_processed_text: string | null; post_process_prompt: string | null; 
 /**

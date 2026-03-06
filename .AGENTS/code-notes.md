@@ -22,6 +22,7 @@ Files that differentiate this fork from the original [cjpais/Handy](https://gith
 | `src-tauri/src/commands/region_capture.rs` | Commands for region capture. |
 | `src-tauri/src/commands/voice_command.rs` | Voice Command Center. |
 | `src-tauri/src/commands/file_transcription.rs` | File transcription logic. |
+| `src-tauri/src/file_transcription_diarization.rs` | Shared diarized file-transcription temp session + speaker re-apply helpers. |
 | `src-tauri/src/subtitle.rs` | Subtitle formatting (SRT/VTT). |
 | `src-tauri/src/audio_toolkit/text.rs` | Text Post-Processing (stutter/filler removal). |
 | `src-tauri/src/input_source.rs` | OS Language Detection. |
@@ -91,7 +92,7 @@ Files that differentiate this fork from the original [cjpais/Handy](https://gith
 | `src-tauri/src/audio_toolkit/audio/utils.rs` | WAV encoding utils. |
 | `src-tauri/src/audio_toolkit/audio/recorder.rs` | Mic error handling logic. |
 | `src-tauri/src/managers/transcription.rs` | Local STT runtime (SenseVoice). |
-| `src-tauri/src/commands/file_transcription.rs` | Soniox async integration overrides. |
+| `src-tauri/src/commands/file_transcription.rs` | Soniox async integration overrides and diarized speaker-session handling. |
 | `src-tauri/src/managers/soniox_stt.rs` | Soniox language handling. |
 | `src-tauri/src/managers/soniox_realtime.rs` | Soniox live language/previews. |
 | `src-tauri/src/utils.rs` | Central cancellation path. |

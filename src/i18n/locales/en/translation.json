@@ -2041,6 +2041,15 @@
       "usesGlobalDefaults": "This option applies only to Deepgram file transcription.",
       "speakerDiarizationLabel": "Enable speaker diarization"
     },
+    "speakerNames": {
+      "title": "Speaker Names",
+      "hint": "Re-apply rebuilds the transcript from the temporary diarization session instead of editing the visible text.",
+      "cardLabel": "Detected speaker {{id}}",
+      "reapply": "Re-apply",
+      "reapplying": "Re-applying...",
+      "savedDisabled": "Speaker names can only be re-applied before saving to a .txt file.",
+      "missingSession": "The temporary speaker session is no longer available. Run transcription again."
+    },
     "transcribe": "Transcribe",
     "transcribing": "Transcribing...",
     "clear": "Clear",

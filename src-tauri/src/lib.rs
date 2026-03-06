@@ -22,6 +22,7 @@ mod session_manager;
 mod settings;
 mod shortcut;
 mod signal_handle;
+mod file_transcription_diarization;
 mod soniox_stream_processor;
 pub mod subtitle;
 mod text_replacement_decapitalize;
@@ -621,6 +622,7 @@ pub fn run() {
         commands::voice_activation_button::voice_activation_button_press,
         commands::voice_activation_button::voice_activation_button_release,
         commands::file_transcription::transcribe_audio_file,
+        commands::file_transcription::reapply_transcription_speaker_names,
         commands::key_listener::key_listener_start,
         commands::key_listener::key_listener_stop,
         commands::key_listener::key_listener_register_shortcut,

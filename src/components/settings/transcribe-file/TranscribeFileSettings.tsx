@@ -39,6 +39,10 @@ export const TranscribeFileSettings: React.FC = () => {
     isTranscribing,
     error,
     selectedProfileId,
+    speakerArtifactPath,
+    speakerProvider,
+    speakerCards,
+    isReapplyingSpeakerNames,
     setSelectedFile,
     setOutputMode,
     setOutputFormat,
@@ -49,6 +53,10 @@ export const TranscribeFileSettings: React.FC = () => {
     setIsTranscribing,
     setError,
     setSelectedProfileId,
+    setSpeakerSession,
+    clearSpeakerSession,
+    updateSpeakerCardName,
+    setIsReapplyingSpeakerNames,
   } = useTranscribeFileStore();
   const [isRecording, setIsRecording] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -72,6 +80,17 @@ export const TranscribeFileSettings: React.FC = () => {
   const showSonioxFileOptions = !!selectedFile && isSonioxProvider && !overrideModelId;
   const showDeepgramFileOptions =
     !!selectedFile && isDeepgramProvider && !overrideModelId;
+  const canReapplySpeakerNames =
+    !!transcriptionResult &&
+    !!speakerArtifactPath &&
+    speakerCards.length > 0 &&
+    !savedFilePath;
+  const speakerProviderLabel =
+    speakerProvider === "deepgram"
+      ? "Deepgram"
+      : speakerProvider === "soniox"
+        ? "Soniox"
+        : null;
   const settingsSonioxLanguageHints = (settings as any)?.soniox_language_hints as
     | string[]
     | undefined;
@@ -150,6 +169,7 @@ export const TranscribeFileSettings: React.FC = () => {
           setSavedFilePath(null);
           setInfoMessage(null);
           setError(null);
+          clearSpeakerSession();
         }
       }
     });
@@ -254,6 +274,7 @@ export const TranscribeFileSettings: React.FC = () => {
         setSavedFilePath(null);
         setInfoMessage(null);
         setError(null);
+        clearSpeakerSession();
       }
     } catch (err) {
       console.error("Failed to open file dialog:", err);
@@ -270,6 +291,7 @@ export const TranscribeFileSettings: React.FC = () => {
     setTranscriptionResult("");
     setSavedFilePath(null);
     setInfoMessage(null);
+    clearSpeakerSession();
 
     try {
       if (
@@ -315,16 +337,64 @@ export const TranscribeFileSettings: React.FC = () => {
       if (result.status === "ok") {
         setTranscriptionResult(result.data.text);
         setInfoMessage(result.data.info_message ?? null);
+        setSpeakerSession(result.data.speaker_session ?? null);
         if (result.data.saved_file_path) {
           setSavedFilePath(result.data.saved_file_path);
         }
+      } else {
+        clearSpeakerSession();
+        setError(result.error);
+      }
+    } catch (err) {
+      clearSpeakerSession();
+      setError(String(err));
+    } finally {
+      setIsTranscribing(false);
+    }
+  };
+
+  const handleReapplySpeakerNames = async () => {
+    if (!speakerArtifactPath || speakerCards.length === 0) {
+      setError(
+        t(
+          "transcribeFile.speakerNames.missingSession",
+          "The temporary speaker session is no longer available. Run transcription again.",
+        ),
+      );
+      return;
+    }
+
+    if (savedFilePath) {
+      setError(
+        t(
+          "transcribeFile.speakerNames.savedDisabled",
+          "Speaker names can only be re-applied before saving to a .txt file.",
+        ),
+      );
+      return;
+    }
+
+    setIsReapplyingSpeakerNames(true);
+    setError(null);
+
+    try {
+      const result = await commands.reapplyTranscriptionSpeakerNames(
+        speakerArtifactPath,
+        speakerCards.map((card) => ({
+          speakerId: card.speakerId,
+          name: card.name,
+        })),
+      );
+
+      if (result.status === "ok") {
+        setTranscriptionResult(result.data);
       } else {
         setError(result.error);
       }
     } catch (err) {
       setError(String(err));
     } finally {
-      setIsTranscribing(false);
+      setIsReapplyingSpeakerNames(false);
     }
   };
 
@@ -348,6 +418,7 @@ export const TranscribeFileSettings: React.FC = () => {
     setSavedFilePath(null);
     setInfoMessage(null);
     setError(null);
+    clearSpeakerSession();
   };
 
   // Format file size
@@ -721,6 +792,75 @@ export const TranscribeFileSettings: React.FC = () => {
         {transcriptionResult && (
           <div className="px-4 py-3 border-t border-white/[0.05]">
             <div className="space-y-2">
+              {speakerCards.length > 0 && (
+                <div className="mb-3 rounded-lg border border-[#333333] bg-[#151515] p-3">
+                  <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                    <div>
+                      <p className="text-sm font-medium text-[#f5f5f5]">
+                        {t("transcribeFile.speakerNames.title", "Speaker Names")}
+                        {speakerProviderLabel ? (
+                          <span className="ml-2 text-xs font-normal text-[#808080]">
+                            {speakerProviderLabel}
+                          </span>
+                        ) : null}
+                      </p>
+                      <p className="text-xs text-[#808080]">
+                        {t(
+                          "transcribeFile.speakerNames.hint",
+                          "Re-apply rebuilds the transcript from the temporary diarization session instead of editing the visible text.",
+                        )}
+                      </p>
+                    </div>
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      onClick={handleReapplySpeakerNames}
+                      disabled={!canReapplySpeakerNames || isReapplyingSpeakerNames}
+                    >
+                      {isReapplyingSpeakerNames ? (
+                        <>
+                          <Loader2 className="mr-2 h-3 w-3 animate-spin" />
+                          {t("transcribeFile.speakerNames.reapplying", "Re-applying...")}
+                        </>
+                      ) : (
+                        t("transcribeFile.speakerNames.reapply", "Re-apply")
+                      )}
+                    </Button>
+                  </div>
+                  <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                    {speakerCards.map((card) => (
+                      <div
+                        key={card.speakerId}
+                        className="rounded-lg border border-[#333333] bg-[#101010] p-3"
+                      >
+                        <p className="text-xs uppercase tracking-wide text-[#808080]">
+                          {t("transcribeFile.speakerNames.cardLabel", {
+                            id: card.speakerId,
+                            defaultValue: "Detected speaker {{id}}",
+                          })}
+                        </p>
+                        <input
+                          type="text"
+                          value={card.name}
+                          onChange={(event) =>
+                            updateSpeakerCardName(card.speakerId, event.target.value)
+                          }
+                          className="mt-2 w-full rounded border border-[#333333] bg-[#0f0f0f] px-3 py-2 text-sm text-[#f5f5f5] focus:border-[#9b5de5] focus:outline-none"
+                          placeholder={card.defaultName}
+                        />
+                      </div>
+                    ))}
+                  </div>
+                  {!canReapplySpeakerNames && savedFilePath && (
+                    <p className="mt-3 text-xs text-[#b8b8b8]">
+                      {t(
+                        "transcribeFile.speakerNames.savedDisabled",
+                        "Speaker names can only be re-applied before saving to a .txt file.",
+                      )}
+                    </p>
+                  )}
+                </div>
+              )}
               <div className="flex items-center justify-between">
                 <p className="text-xs font-medium text-[#808080] uppercase tracking-wide">
                   {t("transcribeFile.result")}
