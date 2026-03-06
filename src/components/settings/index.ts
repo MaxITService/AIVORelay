@@ -13,6 +13,7 @@ export { default as TextReplacementSettings } from "./text-replacement/TextRepla
 export { default as AudioProcessingSettings } from "./audio-processing/AudioProcessingSettings";
 export { UserInterfaceSettings } from "./user-interface/UserInterfaceSettings";
 export { ModelsSettings } from "./models/ModelsSettings";
+export { LiveSoundTranscriptionSettings } from "./live-sound-transcription/LiveSoundTranscriptionSettings";
 
 // Individual setting components
 export { MicrophoneSelector } from "./MicrophoneSelector";

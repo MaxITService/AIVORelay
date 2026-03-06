@@ -9,6 +9,7 @@
   },
   "sidebar": {
     "general": "Speech / Mic",
+    "liveSoundTranscription": "Live Sound Transcription",
     "models": "Models",
     "advanced": "Advanced",
     "postProcessing": "LLM Post Processing",
@@ -567,6 +568,34 @@
           "invalidWarning": "Without <code>${output}</code>, the LLM won't receive your transcript and cannot process it!",
           "tip": "Tip: Position <code>${output}</code> where you want your transcript to appear. You can add instructions before and/or after it."
         }
+      }
+    },
+    "liveSoundTranscription": {
+      "title": "Live Sound Transcription",
+      "description": "Session-oriented home for live speech transcription, preview routing, and profile selection.",
+      "session": {
+        "title": "Session",
+        "description": "This page is prepared for a dedicated long-running live transcription workflow.",
+        "providerLabel": "Provider",
+        "modelLabel": "Model",
+        "liveModeLabel": "Live Mode",
+        "previewLabel": "Preview Window",
+        "enabled": "Enabled",
+        "disabled": "Disabled",
+        "providerUnsupported": "Local / unsupported for live page",
+        "remoteOnly": "Switch the transcription provider to Soniox or Deepgram to use this page as a realtime session surface.",
+        "notAvailable": "Not available",
+        "start": "Start",
+        "flush": "Flush",
+        "stop": "Stop",
+        "placeholder": "Controls are intentionally scaffolded here first. The dedicated session manager is not wired yet, but profiles now live on this page."
+      },
+      "transcript": {
+        "title": "Transcript",
+        "description": "Interim and finalized transcript output will appear here once the session backend is connected.",
+        "previewTitle": "Live Transcript Preview",
+        "previewDescription": "Reserved for provider-normalized interim and finalized transcript segments.",
+        "empty": "Live transcript output will appear here."
       }
     },
     "sound": {
