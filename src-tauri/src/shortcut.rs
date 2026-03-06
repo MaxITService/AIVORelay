@@ -2616,6 +2616,62 @@ pub fn delete_post_process_prompt(app: AppHandle, id: String) -> Result<(), Stri
 // Transcription Profile Management
 // ============================================================================
 
+fn normalize_diarization_speaker_name_profiles(
+    profiles: Vec<settings::DiarizationSpeakerNameProfile>,
+) -> Result<Vec<settings::DiarizationSpeakerNameProfile>, String> {
+    let mut normalized = Vec::new();
+
+    for profile in profiles {
+        let id = profile.id.trim().to_string();
+        if id.is_empty() {
+            return Err("Speaker name profile id cannot be empty".to_string());
+        }
+
+        let name = profile.name.trim().to_string();
+        if name.is_empty() {
+            return Err("Speaker name profile name cannot be empty".to_string());
+        }
+
+        let mut speaker_names: Vec<String> = profile
+            .speaker_names
+            .into_iter()
+            .map(|speaker_name| speaker_name.trim().to_string())
+            .collect();
+
+        while speaker_names.last().is_some_and(|speaker_name| speaker_name.is_empty()) {
+            speaker_names.pop();
+        }
+
+        if !speaker_names.iter().any(|speaker_name| !speaker_name.is_empty()) {
+            return Err(format!(
+                "Speaker name profile '{}' must contain at least one speaker name",
+                name
+            ));
+        }
+
+        normalized.push(settings::DiarizationSpeakerNameProfile {
+            id,
+            name,
+            speaker_names,
+        });
+    }
+
+    Ok(normalized)
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_diarization_speaker_name_profiles_setting(
+    app: AppHandle,
+    profiles: Vec<settings::DiarizationSpeakerNameProfile>,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.diarization_speaker_name_profiles =
+        normalize_diarization_speaker_name_profiles(profiles)?;
+    settings::write_settings(&app, settings);
+    Ok(())
+}
+
 #[derive(Deserialize, Debug, Clone, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct AddTranscriptionProfilePayload {

@@ -198,6 +198,14 @@ pub struct TranscriptionProfile {
     pub soniox_context_terms: Vec<String>,
 }
 
+#[derive(Serialize, Deserialize, Debug, Clone, Type)]
+pub struct DiarizationSpeakerNameProfile {
+    pub id: String,
+    pub name: String,
+    #[serde(default)]
+    pub speaker_names: Vec<String>,
+}
+
 impl TranscriptionProfile {
     /// Resolves the STT prompt based on profile override settings.
     /// Returns the profile's system_prompt if override is enabled, otherwise None
@@ -1332,6 +1340,9 @@ pub struct AppSettings {
     /// Each profile creates a dynamic shortcut binding.
     #[serde(default)]
     pub transcription_profiles: Vec<TranscriptionProfile>,
+    /// Saved speaker-name presets for diarized file transcription.
+    #[serde(default)]
+    pub diarization_speaker_name_profiles: Vec<DiarizationSpeakerNameProfile>,
     /// ID of the currently active profile. "default" means use global settings.
     /// When the main "Transcribe" shortcut is pressed, this profile's settings are used.
     #[serde(default = "default_active_profile_id")]
@@ -2399,6 +2410,7 @@ pub fn get_default_settings() -> AppSettings {
         connector_pending_password: None,
         transcription_prompts: HashMap::new(),
         transcription_profiles: Vec::new(),
+        diarization_speaker_name_profiles: Vec::new(),
         active_profile_id: default_active_profile_id(),
         profile_switch_overlay_enabled: true,
         // Voice Command Center

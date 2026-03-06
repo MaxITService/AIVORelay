@@ -93,6 +93,8 @@ Files that differentiate this fork from the original [cjpais/Handy](https://gith
 | `src-tauri/src/audio_toolkit/audio/recorder.rs` | Mic error handling logic. |
 | `src-tauri/src/managers/transcription.rs` | Local STT runtime (SenseVoice). |
 | `src-tauri/src/commands/file_transcription.rs` | Soniox async integration overrides and diarized speaker-session handling. |
+| `src-tauri/src/settings.rs` | Also stores saved diarization speaker-name set profiles for file transcription. |
+| `src-tauri/src/shortcut.rs` | Includes persisted setting update commands for diarization speaker-name sets. |
 | `src-tauri/src/managers/soniox_stt.rs` | Soniox language handling. |
 | `src-tauri/src/managers/soniox_realtime.rs` | Soniox live language/previews. |
 | `src-tauri/src/utils.rs` | Central cancellation path. |
@@ -112,10 +114,12 @@ Files that differentiate this fork from the original [cjpais/Handy](https://gith
 | `src/hooks/useSettings.ts` | Fork settings hooks. |
 | `src/components/settings/remote-stt/RemoteSttSettings.tsx` | Soniox + Deepgram provider settings. |
 | `src/components/settings/TranscriptionProfiles.tsx` | Provider-aware languages. |
+| `src/components/settings/transcribe-file/TranscribeFileSettings.tsx` | File transcription UI, including diarization speaker-name set profiles. |
 | `src/components/settings/TranscriptionSystemPrompt.tsx` | Prompt limits handling. |
 | `src/components/settings/TranslateToEnglish.tsx` | Soniox/Deepgram-aware UI state. |
 | `src/lib/constants/languages.ts` | Custom profile languages. |
 | `src/stores/settingsStore.ts` | Store for fork settings. |
+| `src/stores/transcribeFileStore.ts` | Holds editable diarization speaker cards and bulk profile-apply helpers. |
 | `src/i18n/locales/en/translation.json` | EN strings. |
 | `src/i18n/locales/ru/translation.json` | RU strings. |
 | `src/bindings.ts` | Generated Tauri bindings, including live preview geometry helpers. |

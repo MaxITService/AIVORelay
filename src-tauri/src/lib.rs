@@ -465,6 +465,7 @@ pub fn run() {
         shortcut::update_post_process_prompt,
         shortcut::delete_post_process_prompt,
         shortcut::set_post_process_selected_prompt,
+        shortcut::change_diarization_speaker_name_profiles_setting,
         shortcut::add_transcription_profile,
         shortcut::update_transcription_profile,
         shortcut::delete_transcription_profile,

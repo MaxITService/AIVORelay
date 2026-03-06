@@ -1074,6 +1074,14 @@ async changeProfileSwitchOverlayEnabledSetting(enabled: boolean) : Promise<Resul
     else return { status: "error", error: e  as any };
 }
 },
+async changeDiarizationSpeakerNameProfilesSetting(profiles: DiarizationSpeakerNameProfile[]) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("change_diarization_speaker_name_profiles_setting", { profiles }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async updateCustomWords(words: string[]) : Promise<Result<null, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("update_custom_words", { words }) };
@@ -2515,6 +2523,10 @@ transcription_prompts?: Partial<{ [key in string]: string }>;
  */
 transcription_profiles?: TranscriptionProfile[]; 
 /**
+ * Saved speaker-name presets for diarized file transcription.
+ */
+diarization_speaker_name_profiles?: DiarizationSpeakerNameProfile[]; 
+/**
  * ID of the currently active profile. "default" means use global settings.
  * When the main "Transcribe" shortcut is pressed, this profile's settings are used.
  */
@@ -2752,6 +2764,7 @@ server_error: string | null }
 export type CustomSounds = { start: boolean; stop: boolean }
 export type DecapitalizeOverlayStateResponse = { decapitalizeEligible: boolean; decapitalizeArmed: boolean }
 export type DeepgramFileTranscriptionOptions = { diarize: boolean | null; multichannel: boolean | null }
+export type DiarizationSpeakerNameProfile = { id: string; name: string; speaker_names: string[] }
 export type DiarizedTranscriptProvider = "deepgram" | "soniox"
 export type EngineType = "Whisper" | "Parakeet" | "Moonshine" | "MoonshineStreaming" | "SenseVoice" | "GigaAM"
 /**

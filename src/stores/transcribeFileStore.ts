@@ -50,6 +50,7 @@ interface TranscribeFileState {
   ) => void;
   clearSpeakerSession: () => void;
   updateSpeakerCardName: (speakerId: number, name: string) => void;
+  applySpeakerCardNames: (names: string[]) => void;
   setIsReapplyingSpeakerNames: (isReapplyingSpeakerNames: boolean) => void;
 }
 
@@ -101,6 +102,13 @@ export const useTranscribeFileStore = create<TranscribeFileState>((set) => ({
       speakerCards: state.speakerCards.map((card) =>
         card.speakerId === speakerId ? { ...card, name } : card,
       ),
+    })),
+  applySpeakerCardNames: (names) =>
+    set((state) => ({
+      speakerCards: state.speakerCards.map((card, index) => ({
+        ...card,
+        name: names[index]?.trim() ? names[index].trim() : card.defaultName,
+      })),
     })),
   setIsReapplyingSpeakerNames: (isReapplyingSpeakerNames) =>
     set({ isReapplyingSpeakerNames }),

@@ -29,9 +29,15 @@ import { parseAndNormalizeSonioxLanguageHints } from "@/lib/constants/sonioxLang
 
 const supportedExtensions = ["wav", "mp3", "m4a", "ogg", "flac", "webm"];
 
+type SpeakerNameSetProfile = {
+  id: string;
+  name: string;
+  speaker_names: string[];
+};
+
 export const TranscribeFileSettings: React.FC = () => {
   const { t } = useTranslation();
-  const { settings } = useSettings();
+  const { settings, refreshSettings } = useSettings();
 
   const {
     selectedFile,
@@ -61,6 +67,7 @@ export const TranscribeFileSettings: React.FC = () => {
     setSpeakerSession,
     clearSpeakerSession,
     updateSpeakerCardName,
+    applySpeakerCardNames,
     setIsReapplyingSpeakerNames,
   } = useTranscribeFileStore();
   const [isRecording, setIsRecording] = useState(false);
@@ -77,6 +84,12 @@ export const TranscribeFileSettings: React.FC = () => {
   ] = useState(true);
   const [deepgramFileDiarize, setDeepgramFileDiarize] = useState(false);
   const [deepgramFileMultichannel, setDeepgramFileMultichannel] =
+    useState(false);
+  const [selectedSpeakerNameProfileId, setSelectedSpeakerNameProfileId] =
+    useState<string | null>(null);
+  const [speakerNameProfileDraftName, setSpeakerNameProfileDraftName] =
+    useState("");
+  const [isSavingSpeakerNameProfile, setIsSavingSpeakerNameProfile] =
     useState(false);
 
   const dropZoneRef = useRef<HTMLDivElement>(null);
@@ -248,6 +261,187 @@ export const TranscribeFileSettings: React.FC = () => {
     ],
     [profiles, t],
   );
+  const savedSpeakerNameProfiles = useMemo<SpeakerNameSetProfile[]>(
+    () =>
+      (settings?.diarization_speaker_name_profiles ?? []).map((profile) => ({
+        id: String(profile.id ?? ""),
+        name: String(profile.name ?? ""),
+        speaker_names: Array.isArray(profile.speaker_names)
+          ? profile.speaker_names.map((speakerName) => String(speakerName ?? ""))
+          : [],
+      })),
+    [settings],
+  );
+  const selectedSpeakerNameProfile = useMemo(
+    () =>
+      savedSpeakerNameProfiles.find(
+        (profile) => profile.id === selectedSpeakerNameProfileId,
+      ) ?? null,
+    [savedSpeakerNameProfiles, selectedSpeakerNameProfileId],
+  );
+  const speakerNameProfileOptions = useMemo(
+    () =>
+      savedSpeakerNameProfiles.map((profile) => ({
+        value: profile.id,
+        label: profile.name,
+      })),
+    [savedSpeakerNameProfiles],
+  );
+  const currentSpeakerNamesForProfile = useMemo(
+    () => speakerCards.map((card) => card.name.trim()),
+    [speakerCards],
+  );
+  const canPersistSpeakerNameProfile =
+    speakerCards.length > 0 &&
+    speakerNameProfileDraftName.trim().length > 0 &&
+    currentSpeakerNamesForProfile.some((speakerName) => speakerName.length > 0);
+  const canApplySpeakerNameProfile =
+    !!selectedSpeakerNameProfile && speakerCards.length > 0;
+  const canUpdateSpeakerNameProfile =
+    !!selectedSpeakerNameProfile && canPersistSpeakerNameProfile;
+
+  useEffect(() => {
+    if (!selectedSpeakerNameProfileId) {
+      return;
+    }
+
+    if (
+      !savedSpeakerNameProfiles.some(
+        (profile) => profile.id === selectedSpeakerNameProfileId,
+      )
+    ) {
+      setSelectedSpeakerNameProfileId(null);
+      setSpeakerNameProfileDraftName("");
+    }
+  }, [savedSpeakerNameProfiles, selectedSpeakerNameProfileId]);
+
+  useEffect(() => {
+    if (selectedSpeakerNameProfile) {
+      setSpeakerNameProfileDraftName(selectedSpeakerNameProfile.name);
+    }
+  }, [selectedSpeakerNameProfile]);
+
+  const buildSpeakerNameProfileNames = () => {
+    const normalized = speakerCards.map((card) => card.name.trim());
+    let lastNonEmptyIndex = normalized.length - 1;
+
+    while (lastNonEmptyIndex >= 0 && !normalized[lastNonEmptyIndex]) {
+      lastNonEmptyIndex -= 1;
+    }
+
+    return normalized.slice(0, lastNonEmptyIndex + 1);
+  };
+
+  const persistSpeakerNameProfiles = async (
+    nextProfiles: SpeakerNameSetProfile[],
+  ) => {
+    const result = await commands.changeDiarizationSpeakerNameProfilesSetting(
+      nextProfiles.map((profile) => ({
+        id: profile.id,
+        name: profile.name.trim(),
+        speaker_names: profile.speaker_names,
+      })),
+    );
+    if (result.status === "error") {
+      throw new Error(result.error);
+    }
+    await refreshSettings();
+  };
+
+  const handleApplySpeakerNameProfile = () => {
+    if (!selectedSpeakerNameProfile) {
+      return;
+    }
+
+    applySpeakerCardNames(selectedSpeakerNameProfile.speaker_names);
+  };
+
+  const handleSaveSpeakerNameProfile = async () => {
+    if (!canPersistSpeakerNameProfile) {
+      return;
+    }
+
+    setIsSavingSpeakerNameProfile(true);
+    setError(null);
+
+    try {
+      const nextProfile: SpeakerNameSetProfile = {
+        id: `speaker_names_${Date.now()}_${Math.random()
+          .toString(36)
+          .slice(2, 8)}`,
+        name: speakerNameProfileDraftName.trim(),
+        speaker_names: buildSpeakerNameProfileNames(),
+      };
+
+      await persistSpeakerNameProfiles([...savedSpeakerNameProfiles, nextProfile]);
+      setSelectedSpeakerNameProfileId(nextProfile.id);
+      setSpeakerNameProfileDraftName(nextProfile.name);
+    } catch (error) {
+      setError(String(error));
+    } finally {
+      setIsSavingSpeakerNameProfile(false);
+    }
+  };
+
+  const handleUpdateSpeakerNameProfile = async () => {
+    if (!selectedSpeakerNameProfile || !canPersistSpeakerNameProfile) {
+      return;
+    }
+
+    setIsSavingSpeakerNameProfile(true);
+    setError(null);
+
+    try {
+      const updatedProfile: SpeakerNameSetProfile = {
+        ...selectedSpeakerNameProfile,
+        name: speakerNameProfileDraftName.trim(),
+        speaker_names: buildSpeakerNameProfileNames(),
+      };
+
+      await persistSpeakerNameProfiles(
+        savedSpeakerNameProfiles.map((profile) =>
+          profile.id === updatedProfile.id ? updatedProfile : profile,
+        ),
+      );
+      setSpeakerNameProfileDraftName(updatedProfile.name);
+    } catch (error) {
+      setError(String(error));
+    } finally {
+      setIsSavingSpeakerNameProfile(false);
+    }
+  };
+
+  const handleDeleteSpeakerNameProfile = async () => {
+    if (!selectedSpeakerNameProfile) {
+      return;
+    }
+
+    const confirmed = window.confirm(
+      t("transcribeFile.speakerNames.profileDeleteConfirm", {
+        name: selectedSpeakerNameProfile.name,
+      }),
+    );
+    if (!confirmed) {
+      return;
+    }
+
+    setIsSavingSpeakerNameProfile(true);
+    setError(null);
+
+    try {
+      await persistSpeakerNameProfiles(
+        savedSpeakerNameProfiles.filter(
+          (profile) => profile.id !== selectedSpeakerNameProfile.id,
+        ),
+      );
+      setSelectedSpeakerNameProfileId(null);
+      setSpeakerNameProfileDraftName("");
+    } catch (error) {
+      setError(String(error));
+    } finally {
+      setIsSavingSpeakerNameProfile(false);
+    }
+  };
 
   // Handle file selection via Tauri dialog
   const handleSelectFile = async () => {
@@ -847,6 +1041,100 @@ export const TranscribeFileSettings: React.FC = () => {
                         t("transcribeFile.speakerNames.reapply", "Re-apply")
                       )}
                     </Button>
+                  </div>
+                  <div className="mt-3 rounded-lg border border-[#333333] bg-[#101010] p-3">
+                    <div className="space-y-3">
+                      <div>
+                        <p className="text-xs uppercase tracking-wide text-[#808080]">
+                          {t("transcribeFile.speakerNames.profilesTitle")}
+                        </p>
+                        <p className="mt-1 text-xs text-[#606060]">
+                          {t("transcribeFile.speakerNames.profilesHint")}
+                        </p>
+                      </div>
+                      <div className="grid gap-3 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)]">
+                        <div className="space-y-2">
+                          <label className="text-xs text-[#808080]">
+                            {t("transcribeFile.speakerNames.savedProfiles")}
+                          </label>
+                          <Dropdown
+                            className="w-full"
+                            selectedValue={selectedSpeakerNameProfileId}
+                            options={speakerNameProfileOptions}
+                            onSelect={setSelectedSpeakerNameProfileId}
+                            placeholder={t(
+                              "transcribeFile.speakerNames.profilePlaceholder",
+                            )}
+                            disabled={
+                              speakerNameProfileOptions.length === 0 ||
+                              isSavingSpeakerNameProfile
+                            }
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <label className="text-xs text-[#808080]">
+                            {t("transcribeFile.speakerNames.profileNameLabel")}
+                          </label>
+                          <input
+                            type="text"
+                            value={speakerNameProfileDraftName}
+                            onChange={(event) =>
+                              setSpeakerNameProfileDraftName(event.target.value)
+                            }
+                            className="w-full rounded border border-[#333333] bg-[#0f0f0f] px-3 py-2 text-sm text-[#f5f5f5] focus:border-[#9b5de5] focus:outline-none"
+                            placeholder={t(
+                              "transcribeFile.speakerNames.profileNamePlaceholder",
+                            )}
+                            disabled={isSavingSpeakerNameProfile}
+                          />
+                        </div>
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        <Button
+                          variant="secondary"
+                          size="sm"
+                          onClick={handleApplySpeakerNameProfile}
+                          disabled={
+                            !canApplySpeakerNameProfile || isSavingSpeakerNameProfile
+                          }
+                        >
+                          {t("transcribeFile.speakerNames.applyProfile")}
+                        </Button>
+                        <Button
+                          variant="secondary"
+                          size="sm"
+                          onClick={handleSaveSpeakerNameProfile}
+                          disabled={
+                            !canPersistSpeakerNameProfile ||
+                            isSavingSpeakerNameProfile
+                          }
+                        >
+                          {t("transcribeFile.speakerNames.saveProfile")}
+                        </Button>
+                        <Button
+                          variant="secondary"
+                          size="sm"
+                          onClick={handleUpdateSpeakerNameProfile}
+                          disabled={
+                            !canUpdateSpeakerNameProfile ||
+                            isSavingSpeakerNameProfile
+                          }
+                        >
+                          {t("transcribeFile.speakerNames.updateProfile")}
+                        </Button>
+                        <Button
+                          variant="danger"
+                          size="sm"
+                          onClick={handleDeleteSpeakerNameProfile}
+                          disabled={
+                            !selectedSpeakerNameProfile ||
+                            isSavingSpeakerNameProfile
+                          }
+                        >
+                          {t("transcribeFile.speakerNames.deleteProfile")}
+                        </Button>
+                      </div>
+                    </div>
                   </div>
                   <div className="mt-3 grid gap-3 sm:grid-cols-2">
                     {speakerCards.map((card) => (

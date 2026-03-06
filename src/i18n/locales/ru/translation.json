@@ -29,6 +29,19 @@
       "modeHint": "Используйте multichannel, когда каждый спикер записан в отдельный аудиоканал. Используйте diarization, когда несколько спикеров находятся в одном канале. Можно включить оба режима.",
       "speakerDiarizationLabel": "Включить diarization спикеров",
       "multichannelLabel": "Считать файл многоканальным аудио"
+    },
+    "speakerNames": {
+      "profilesTitle": "Наборы имён спикеров",
+      "profilesHint": "Сохраняйте переиспользуемые наборы имён и применяйте их к текущим карточкам diarization по порядку.",
+      "savedProfiles": "Сохранённые наборы",
+      "profilePlaceholder": "Выберите сохранённый набор...",
+      "profileNameLabel": "Название набора",
+      "profileNamePlaceholder": "Например, Ведущие подкаста",
+      "applyProfile": "Применить набор",
+      "saveProfile": "Сохранить новый набор",
+      "updateProfile": "Обновить набор",
+      "deleteProfile": "Удалить набор",
+      "profileDeleteConfirm": "Удалить набор имён спикеров '{{name}}'?"
     }
   },
   "textReplacement": {

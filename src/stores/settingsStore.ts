@@ -530,6 +530,8 @@ settingUpdaters.error_overlay_auto_hide_ms = (value) =>
   invoke("set_active_profile", { id: value });
 (settingUpdaters as any).profile_switch_overlay_enabled = (value: any) =>
   invoke("change_profile_switch_overlay_enabled_setting", { enabled: value });
+(settingUpdaters as any).diarization_speaker_name_profiles = (value: any) =>
+  commands.changeDiarizationSpeakerNameProfilesSetting(value);
 (settingUpdaters as any).preview_output_only_enabled = (value: any) =>
   invoke("change_preview_output_only_enabled_setting", { enabled: value });
 
