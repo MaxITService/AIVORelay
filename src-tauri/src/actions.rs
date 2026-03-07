@@ -5229,10 +5229,15 @@ pub fn preview_close_action(app: AppHandle) -> Result<(), String> {
 #[specta::specta]
 pub fn preview_clear_action(app: AppHandle) -> Result<(), String> {
     crate::overlay::reset_soniox_live_preview(&app);
-    app.state::<Arc<SonioxRealtimeManager>>()
-        .clear_committed_transcript();
-    app.state::<Arc<DeepgramRealtimeManager>>()
-        .clear_committed_transcript();
+    if let Err(e) = app.state::<Arc<SonioxRealtimeManager>>().restart_session() {
+        warn!("Failed to restart Soniox Realtime Session: {}", e);
+    }
+    if let Err(e) = app
+        .state::<Arc<DeepgramRealtimeManager>>()
+        .restart_session()
+    {
+        warn!("Failed to restart Deepgram Realtime Session: {}", e);
+    }
     if crate::managers::preview_output_mode::is_active() {
         crate::managers::preview_output_mode::set_recording_prefix_text(&app, String::new());
         crate::managers::preview_output_mode::set_error(&app, None);

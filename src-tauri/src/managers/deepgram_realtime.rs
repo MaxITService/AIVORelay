@@ -87,10 +87,7 @@ fn build_deepgram_raw_speaker_blocks(alternative: Option<&Value>) -> Vec<RawSpea
 
     let mut blocks: Vec<RawSpeakerBlock> = Vec::new();
     for word in words {
-        let Some(speaker) = word
-            .get("speaker")
-            .and_then(parse_deepgram_speaker_value)
-        else {
+        let Some(speaker) = word.get("speaker").and_then(parse_deepgram_speaker_value) else {
             continue;
         };
         let Some(token) = extract_deepgram_token_text(word) else {
@@ -133,9 +130,19 @@ struct ActiveSession {
     join_handle: JoinHandle<Result<()>>,
 }
 
+#[derive(Clone)]
+struct SessionParams {
+    binding_id: String,
+    api_key: String,
+    model: String,
+    options: DeepgramRealtimeOptions,
+    on_final_chunk: Option<FinalChunkCallback>,
+}
+
 pub struct DeepgramRealtimeManager {
     app_handle: AppHandle,
     active_session: Mutex<Option<ActiveSession>>,
+    session_params: Mutex<Option<SessionParams>>,
     pending_audio: Mutex<Vec<Vec<u8>>>,
 }
 
@@ -144,24 +151,31 @@ impl DeepgramRealtimeManager {
         Ok(Self {
             app_handle: app_handle.clone(),
             active_session: Mutex::new(None),
+            session_params: Mutex::new(None),
             pending_audio: Mutex::new(Vec::new()),
         })
     }
 
-    pub fn clear_committed_transcript(&self) {
-        let final_text = {
-            let Ok(active_session) = self.active_session.lock() else {
-                return;
-            };
-            let Some(session) = active_session.as_ref() else {
-                return;
-            };
-            Arc::clone(&session.final_text)
+    pub fn restart_session(&self) -> Result<()> {
+        let params = {
+            let guard = self
+                .session_params
+                .lock()
+                .map_err(|_| anyhow!("Failed to lock session params"))?;
+            guard.clone()
         };
-        let Ok(mut final_text_guard) = final_text.lock() else {
-            return;
-        };
-        final_text_guard.clear();
+
+        if let Some(p) = params {
+            self.cancel();
+            self.start_session(
+                &p.binding_id,
+                &p.api_key,
+                &p.model,
+                p.options,
+                p.on_final_chunk,
+            )?;
+        }
+        Ok(())
     }
 
     pub fn is_realtime_model(model: &str) -> bool {
@@ -217,7 +231,11 @@ impl DeepgramRealtimeManager {
             qp.append_pair("channels", "1");
             qp.append_pair(
                 "smart_format",
-                if options.smart_format { "true" } else { "false" },
+                if options.smart_format {
+                    "true"
+                } else {
+                    "false"
+                },
             );
             qp.append_pair(
                 "interim_results",
@@ -275,9 +293,24 @@ impl DeepgramRealtimeManager {
             ));
         }
 
-        let keepalive_interval_seconds = options
-            .keepalive_interval_seconds
-            .clamp(MIN_KEEPALIVE_INTERVAL_SECONDS, MAX_KEEPALIVE_INTERVAL_SECONDS);
+        {
+            let mut params_guard = self
+                .session_params
+                .lock()
+                .map_err(|_| anyhow!("Failed to lock session params"))?;
+            *params_guard = Some(SessionParams {
+                binding_id: binding_id.to_string(),
+                api_key: api_key.to_string(),
+                model: model.to_string(),
+                options: options.clone(),
+                on_final_chunk: on_final_chunk.clone(),
+            });
+        }
+
+        let keepalive_interval_seconds = options.keepalive_interval_seconds.clamp(
+            MIN_KEEPALIVE_INTERVAL_SECONDS,
+            MAX_KEEPALIVE_INTERVAL_SECONDS,
+        );
         let ws_url = Self::build_ws_url(&model, &options)?;
         let (audio_tx, audio_rx) = mpsc::channel::<Vec<u8>>(AUDIO_QUEUE_CAPACITY);
         let (control_tx, control_rx) = mpsc::unbounded_channel::<ControlMessage>();
@@ -337,9 +370,8 @@ impl DeepgramRealtimeManager {
                     &err_str,
                 );
 
-                if crate::managers::preview_output_mode::is_active_for_binding(
-                    &binding_id_for_task,
-                ) {
+                if crate::managers::preview_output_mode::is_active_for_binding(&binding_id_for_task)
+                {
                     crate::managers::preview_output_mode::set_error(
                         &app_handle_for_task,
                         Some(err_str.clone()),
@@ -446,12 +478,16 @@ impl DeepgramRealtimeManager {
                 }
 
                 if finish_requested {
-                    write.send(close_stream_payload.clone()).await.map_err(|e| {
-                        anyhow!("Failed to send Deepgram close stream message: {}", e)
-                    })?;
-                    write.flush().await.map_err(|e| {
-                        anyhow!("Failed to flush Deepgram WebSocket stream: {}", e)
-                    })?;
+                    write
+                        .send(close_stream_payload.clone())
+                        .await
+                        .map_err(|e| {
+                            anyhow!("Failed to send Deepgram close stream message: {}", e)
+                        })?;
+                    write
+                        .flush()
+                        .await
+                        .map_err(|e| anyhow!("Failed to flush Deepgram WebSocket stream: {}", e))?;
                     close_stream_sent = true;
                     last_audio_or_control = Instant::now();
                 }

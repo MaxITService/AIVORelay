@@ -1,4 +1,5 @@
 use crate::file_transcription_diarization::RawSpeakerBlock;
+use crate::settings::SonioxContext;
 use anyhow::{anyhow, Result};
 use futures_util::{Sink, SinkExt, Stream, StreamExt};
 use log::{debug, info, warn};
@@ -11,7 +12,6 @@ use tauri::{AppHandle, Emitter};
 use tokio::sync::mpsc;
 use tokio::time::{timeout, MissedTickBehavior};
 use tokio_tungstenite::{connect_async, tungstenite::Message};
-use crate::settings::SonioxContext;
 
 const SONIOX_WS_URL: &str = "wss://stt-rt.soniox.com/transcribe-websocket";
 const DEFAULT_CONNECT_TIMEOUT_SECS: u64 = 10;
@@ -138,7 +138,8 @@ fn build_soniox_raw_speaker_blocks(tokens: &[SonioxToken], is_final: bool) -> Ve
             continue;
         };
 
-        if current_speaker.as_deref() != Some(speaker_key.as_str()) && !current_text.trim().is_empty()
+        if current_speaker.as_deref() != Some(speaker_key.as_str())
+            && !current_text.trim().is_empty()
         {
             blocks.push(RawSpeakerBlock {
                 speaker_key: current_speaker.clone().unwrap_or_default(),
@@ -188,9 +189,19 @@ struct ActiveSession {
     join_handle: JoinHandle<Result<()>>,
 }
 
+#[derive(Clone)]
+struct SessionParams {
+    binding_id: String,
+    api_key: String,
+    model: String,
+    options: SonioxRealtimeOptions,
+    on_final_chunk: Option<FinalChunkCallback>,
+}
+
 pub struct SonioxRealtimeManager {
     app_handle: AppHandle,
     active_session: Mutex<Option<ActiveSession>>,
+    session_params: Mutex<Option<SessionParams>>,
     pending_audio: Mutex<Vec<Vec<u8>>>,
 }
 
@@ -199,24 +210,31 @@ impl SonioxRealtimeManager {
         Ok(Self {
             app_handle: app_handle.clone(),
             active_session: Mutex::new(None),
+            session_params: Mutex::new(None),
             pending_audio: Mutex::new(Vec::new()),
         })
     }
 
-    pub fn clear_committed_transcript(&self) {
-        let final_text = {
-            let Ok(active_session) = self.active_session.lock() else {
-                return;
-            };
-            let Some(session) = active_session.as_ref() else {
-                return;
-            };
-            Arc::clone(&session.final_text)
+    pub fn restart_session(&self) -> Result<()> {
+        let params = {
+            let guard = self
+                .session_params
+                .lock()
+                .map_err(|_| anyhow!("Failed to lock session params"))?;
+            guard.clone()
         };
-        let Ok(mut final_text_guard) = final_text.lock() else {
-            return;
-        };
-        final_text_guard.clear();
+
+        if let Some(p) = params {
+            self.cancel();
+            self.start_session(
+                &p.binding_id,
+                &p.api_key,
+                &p.model,
+                p.options,
+                p.on_final_chunk,
+            )?;
+        }
+        Ok(())
     }
 
     pub fn is_realtime_model(model: &str) -> bool {
@@ -283,6 +301,20 @@ impl SonioxRealtimeManager {
             return Err(anyhow!(
                 "Soniox live session is already active for this profile"
             ));
+        }
+
+        {
+            let mut params_guard = self
+                .session_params
+                .lock()
+                .map_err(|_| anyhow!("Failed to lock session params"))?;
+            *params_guard = Some(SessionParams {
+                binding_id: binding_id.to_string(),
+                api_key: api_key.to_string(),
+                model: model.to_string(),
+                options: options.clone(),
+                on_final_chunk: on_final_chunk.clone(),
+            });
         }
 
         let SonioxRealtimeOptions {
@@ -372,9 +404,7 @@ impl SonioxRealtimeManager {
                     &err_str,
                 );
 
-                if crate::managers::preview_output_mode::is_active_for_binding(
-                    &binding_id_for_task,
-                )
+                if crate::managers::preview_output_mode::is_active_for_binding(&binding_id_for_task)
                 {
                     crate::managers::preview_output_mode::set_error(
                         &app_handle_for_task,
