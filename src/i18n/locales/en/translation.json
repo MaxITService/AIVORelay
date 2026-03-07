@@ -742,6 +742,17 @@
         },
         "tip": "Most users can leave these at their defaults. Adjust only if you experience specific issues."
       },
+      "window": {
+        "title": "Window",
+        "rememberSize": {
+          "label": "Remember window size",
+          "description": "Restore the window to its previous size when the app starts."
+        },
+        "rememberPosition": {
+          "label": "Remember window position",
+          "description": "Restore the window to its previous position on screen when the app starts."
+        }
+      },
       "startHidden": {
         "label": "Start Hidden",
         "description": "Launch to system tray without opening the window."

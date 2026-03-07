@@ -10,6 +10,7 @@ import { Dropdown } from "../../ui/Dropdown";
 import { Slider } from "../../ui/Slider";
 import { Input } from "../../ui/Input";
 import { TellMeMore } from "../../ui/TellMeMore";
+import { useTranslation } from "react-i18next";
 import { useSettings } from "../../../hooks/useSettings";
 import { ShowOverlay } from "../ShowOverlay";
 import { ShowTrayIcon } from "../ShowTrayIcon";
@@ -111,7 +112,8 @@ function clampToRange(value: number, min: number, max: number): number {
 }
 
 export const UserInterfaceSettings: React.FC = () => {
-  const { settings, updateSetting, isUpdating, refreshSettings } = useSettings();
+  const { t } = useTranslation();
+  const { settings, updateSetting, isUpdating, getSetting, refreshSettings } = useSettings();
   const osKind = type();
   const isWindows = osKind === "windows";
   const hotkeyOsType: OSType =
@@ -1202,6 +1204,27 @@ export const UserInterfaceSettings: React.FC = () => {
           <HandyShortcut shortcutId="spawn_button" grouped={true} />
         </SettingsGroup>
       )}
+
+      <SettingsGroup title={t("settings.advanced.window.title")}>
+        <ToggleSwitch
+          checked={getSetting("remember_window_size") ?? false}
+          onChange={(enabled) => updateSetting("remember_window_size", enabled)}
+          isUpdating={isUpdating("remember_window_size")}
+          label={t("settings.advanced.window.rememberSize.label")}
+          description={t("settings.advanced.window.rememberSize.description")}
+          descriptionMode="tooltip"
+          grouped={true}
+        />
+        <ToggleSwitch
+          checked={getSetting("remember_window_position") ?? false}
+          onChange={(enabled) => updateSetting("remember_window_position", enabled)}
+          isUpdating={isUpdating("remember_window_position")}
+          label={t("settings.advanced.window.rememberPosition.label")}
+          description={t("settings.advanced.window.rememberPosition.description")}
+          descriptionMode="tooltip"
+          grouped={true}
+        />
+      </SettingsGroup>
     </div>
   );
 };

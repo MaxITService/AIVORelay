@@ -4563,6 +4563,31 @@ pub fn change_output_whitespace_trailing_mode_setting(
 }
 
 // ============================================================================
+// Window Geometry Settings
+// ============================================================================
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_remember_window_size_setting(app: AppHandle, enabled: bool) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.remember_window_size = enabled;
+    settings::write_settings(&app, settings);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_remember_window_position_setting(
+    app: AppHandle,
+    enabled: bool,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.remember_window_position = enabled;
+    settings::write_settings(&app, settings);
+    Ok(())
+}
+
+// ============================================================================
 // UI State Settings
 // ============================================================================
 

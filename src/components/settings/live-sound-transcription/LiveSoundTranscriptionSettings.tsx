@@ -943,7 +943,7 @@ export const LiveSoundTranscriptionSettings: React.FC = () => {
               <div className="flex flex-col gap-2">
                 <div className="flex items-center gap-3">
                   <Button
-                    variant={isOverridden ? "default" : "ghost"}
+                    variant={isOverridden ? "secondary" : "ghost"}
                     size="sm"
                     onClick={async () => {
                       await invoke(command, { value: isOverridden ? null : effectiveVal });
@@ -956,7 +956,7 @@ export const LiveSoundTranscriptionSettings: React.FC = () => {
                   </Button>
                   {isOverridden && (
                     <Button
-                      variant={effectiveVal ? "default" : "ghost"}
+                      variant={effectiveVal ? "secondary" : "ghost"}
                       size="sm"
                       onClick={async () => {
                         await invoke(command, { value: !effectiveVal });
@@ -997,7 +997,7 @@ export const LiveSoundTranscriptionSettings: React.FC = () => {
               return (
                 <div className="flex items-center gap-3">
                   <Button
-                    variant={isOverridden ? "default" : "ghost"}
+                    variant={isOverridden ? "secondary" : "ghost"}
                     size="sm"
                     onClick={async () => {
                       await invoke("set_live_sound_soniox_max_endpoint_delay_ms", {
@@ -1052,7 +1052,7 @@ export const LiveSoundTranscriptionSettings: React.FC = () => {
               return (
                 <div className="flex items-center gap-3">
                   <Button
-                    variant={isOverridden ? "default" : "ghost"}
+                    variant={isOverridden ? "secondary" : "ghost"}
                     size="sm"
                     onClick={async () => {
                       await invoke("set_live_sound_deepgram_endpointing_ms", {

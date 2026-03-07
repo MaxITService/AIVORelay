@@ -1575,6 +1575,25 @@ pub struct AppSettings {
     /// Width of the hotkey sidebar in pixels
     #[serde(default = "default_sidebar_width")]
     pub sidebar_width: u32,
+    // ==================== Window Geometry ====================
+    /// Remember the main window size between sessions
+    #[serde(default)]
+    pub remember_window_size: bool,
+    /// Remember the main window position between sessions
+    #[serde(default)]
+    pub remember_window_position: bool,
+    /// Saved main window inner width in physical pixels (0 = not set)
+    #[serde(default)]
+    pub saved_window_width: u32,
+    /// Saved main window inner height in physical pixels (0 = not set)
+    #[serde(default)]
+    pub saved_window_height: u32,
+    /// Saved main window X position in physical pixels (i32::MIN = not set)
+    #[serde(default = "default_saved_window_coord")]
+    pub saved_window_x: i32,
+    /// Saved main window Y position in physical pixels (i32::MIN = not set)
+    #[serde(default = "default_saved_window_coord")]
+    pub saved_window_y: i32,
 }
 
 fn default_recording_auto_stop_timeout_seconds() -> u32 {
@@ -1583,6 +1602,10 @@ fn default_recording_auto_stop_timeout_seconds() -> u32 {
 
 fn default_sidebar_width() -> u32 {
     350
+}
+
+fn default_saved_window_coord() -> i32 {
+    i32::MIN
 }
 
 fn default_model() -> String {
@@ -2548,6 +2571,13 @@ pub fn get_default_settings() -> AppSettings {
         recording_auto_stop_enabled: false,
         recording_auto_stop_timeout_seconds: 1800,
         recording_auto_stop_paste: false,
+        // Window Geometry
+        remember_window_size: false,
+        remember_window_position: false,
+        saved_window_width: 0,
+        saved_window_height: 0,
+        saved_window_x: i32::MIN,
+        saved_window_y: i32::MIN,
     }
 }
 

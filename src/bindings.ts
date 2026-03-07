@@ -1676,6 +1676,22 @@ async changeOutputWhitespaceTrailingModeSetting(mode: OutputWhitespaceMode) : Pr
     else return { status: "error", error: e  as any };
 }
 },
+async changeRememberWindowSizeSetting(enabled: boolean) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("change_remember_window_size_setting", { enabled }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async changeRememberWindowPositionSetting(enabled: boolean) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("change_remember_window_position_setting", { enabled }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async changeSidebarPinnedSetting(pinned: boolean) : Promise<Result<null, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("change_sidebar_pinned_setting", { pinned }) };
@@ -2851,7 +2867,31 @@ sidebar_pinned?: boolean;
 /**
  * Width of the hotkey sidebar in pixels
  */
-sidebar_width?: number }
+sidebar_width?: number; 
+/**
+ * Remember the main window size between sessions
+ */
+remember_window_size?: boolean; 
+/**
+ * Remember the main window position between sessions
+ */
+remember_window_position?: boolean; 
+/**
+ * Saved main window inner width in physical pixels (0 = not set)
+ */
+saved_window_width?: number; 
+/**
+ * Saved main window inner height in physical pixels (0 = not set)
+ */
+saved_window_height?: number; 
+/**
+ * Saved main window X position in physical pixels (i32::MIN = not set)
+ */
+saved_window_x?: number; 
+/**
+ * Saved main window Y position in physical pixels (i32::MIN = not set)
+ */
+saved_window_y?: number }
 export type AudioDevice = { index: string; name: string; is_default: boolean }
 export type AutoSubmitKey = "enter" | "ctrl_enter" | "cmd_enter"
 export type BindingResponse = { success: boolean; binding: ShortcutBinding | null; error: string | null }

@@ -250,6 +250,10 @@ const settingUpdaters: {
   soniox_timeout_seconds: (value) =>
     commands.changeSonioxTimeoutSetting(Math.round(value as number)),
   vad_threshold: (value) => commands.changeVadThresholdSetting(value as number),
+  remember_window_size: (value) =>
+    commands.changeRememberWindowSizeSetting(value as boolean),
+  remember_window_position: (value) =>
+    commands.changeRememberWindowPositionSetting(value as boolean),
 };
 
 (settingUpdaters as any).soniox_live_enabled = (value: any) =>

@@ -547,6 +547,8 @@ pub fn run() {
         shortcut::change_text_replacement_decapitalize_standard_post_recording_monitor_ms_setting,
         shortcut::change_output_whitespace_leading_mode_setting,
         shortcut::change_output_whitespace_trailing_mode_setting,
+        shortcut::change_remember_window_size_setting,
+        shortcut::change_remember_window_position_setting,
         shortcut::change_sidebar_pinned_setting,
         shortcut::change_sidebar_width_setting,
         shortcut::get_current_shortcut_engine,
@@ -737,6 +739,31 @@ pub fn run() {
 
             initialize_core_logic(&app_handle);
 
+            // Restore main window geometry before showing
+            if let Some(main_window) = app_handle.get_webview_window("main") {
+                if settings.remember_window_size
+                    && settings.saved_window_width > 0
+                    && settings.saved_window_height > 0
+                {
+                    let _ = main_window.set_size(tauri::Size::Physical(
+                        tauri::PhysicalSize {
+                            width: settings.saved_window_width,
+                            height: settings.saved_window_height,
+                        },
+                    ));
+                }
+                if settings.remember_window_position
+                    && settings.saved_window_x != i32::MIN
+                {
+                    let _ = main_window.set_position(tauri::Position::Physical(
+                        tauri::PhysicalPosition {
+                            x: settings.saved_window_x,
+                            y: settings.saved_window_y,
+                        },
+                    ));
+                }
+            }
+
             // Show main window only if not starting hidden
             if !settings.start_hidden {
                 if let Some(main_window) = app_handle.get_webview_window("main") {
@@ -752,6 +779,32 @@ pub fn run() {
                 // Only the main window should be hidden-to-tray on close.
                 // Auxiliary windows (e.g. voice activation button) must be allowed to close.
                 if window.label() == "main" {
+                    // Save window geometry before hiding/closing
+                    {
+                        let settings = get_settings(&window.app_handle());
+                        if settings.remember_window_size || settings.remember_window_position {
+                            let mut new_settings = settings.clone();
+                            let mut changed = false;
+                            if settings.remember_window_size {
+                                if let Ok(size) = window.inner_size() {
+                                    new_settings.saved_window_width = size.width;
+                                    new_settings.saved_window_height = size.height;
+                                    changed = true;
+                                }
+                            }
+                            if settings.remember_window_position {
+                                if let Ok(pos) = window.outer_position() {
+                                    new_settings.saved_window_x = pos.x;
+                                    new_settings.saved_window_y = pos.y;
+                                    changed = true;
+                                }
+                            }
+                            if changed {
+                                settings::write_settings(&window.app_handle(), new_settings);
+                            }
+                        }
+                    }
+
                     if APP_QUIT_REQUESTED.load(Ordering::SeqCst) {
                         return;
                     }
