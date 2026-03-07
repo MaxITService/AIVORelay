@@ -67,20 +67,35 @@ pub fn change_tray_icon(app: &AppHandle, icon: TrayIconState) {
 
     let icon_path = get_icon_path(theme, icon.clone());
 
-    let _ = tray.set_icon(Some(
-        Image::from_path(
-            app.path()
-                .resolve(icon_path, tauri::path::BaseDirectory::Resource)
-                .expect("failed to resolve"),
-        )
-        .expect("failed to set icon"),
-    ));
+    match app
+        .path()
+        .resolve(icon_path, tauri::path::BaseDirectory::Resource)
+        .map_err(|e| e.to_string())
+        .and_then(|p| Image::from_path(p).map_err(|e| e.to_string()))
+    {
+        Ok(image) => {
+            let _ = tray.set_icon(Some(image));
+        }
+        Err(e) => {
+            warn!("Failed to update tray icon '{}': {}", icon_path, e);
+        }
+    }
 
     // Update menu based on state
     update_tray_menu(app, &icon, None);
 }
 
 pub fn update_tray_menu(app: &AppHandle, state: &TrayIconState, locale: Option<&str>) {
+    if let Err(e) = try_update_tray_menu(app, state, locale) {
+        warn!("Failed to update tray menu: {}", e);
+    }
+}
+
+fn try_update_tray_menu(
+    app: &AppHandle,
+    state: &TrayIconState,
+    locale: Option<&str>,
+) -> Result<(), Box<dyn std::error::Error>> {
     let settings = settings::get_settings(app);
 
     let locale = locale.unwrap_or(&settings.app_language);
@@ -98,32 +113,29 @@ pub fn update_tray_menu(app: &AppHandle, state: &TrayIconState, locale: Option<&
     } else {
         format!("AivoRelay v{}", env!("CARGO_PKG_VERSION"))
     };
-    let version_i = MenuItem::with_id(app, "version", &version_label, false, None::<&str>)
-        .expect("failed to create version item");
+    let version_i =
+        MenuItem::with_id(app, "version", &version_label, false, None::<&str>)?;
     let settings_i = MenuItem::with_id(
         app,
         "settings",
         &strings.settings,
         true,
         settings_accelerator,
-    )
-    .expect("failed to create settings item");
+    )?;
     let check_updates_i = MenuItem::with_id(
         app,
         "check_updates",
         &strings.check_updates,
         settings.update_checks_enabled,
         None::<&str>,
-    )
-    .expect("failed to create check updates item");
+    )?;
     let copy_last_transcript_i = MenuItem::with_id(
         app,
         "copy_last_transcript",
         &strings.copy_last_transcript,
         true,
         None::<&str>,
-    )
-    .expect("failed to create copy last transcript item");
+    )?;
     let model_loaded = app.state::<Arc<TranscriptionManager>>().is_model_loaded();
     let unload_model_i = MenuItem::with_id(
         app,
@@ -131,53 +143,50 @@ pub fn update_tray_menu(app: &AppHandle, state: &TrayIconState, locale: Option<&
         &strings.unload_model,
         model_loaded,
         None::<&str>,
-    )
-    .expect("failed to create unload model item");
-    let quit_i = MenuItem::with_id(app, "quit", &strings.quit, true, quit_accelerator)
-        .expect("failed to create quit item");
-    let separator = || PredefinedMenuItem::separator(app).expect("failed to create separator");
+    )?;
+    let quit_i = MenuItem::with_id(app, "quit", &strings.quit, true, quit_accelerator)?;
+    let separator = || PredefinedMenuItem::separator(app);
 
     let menu = match state {
         TrayIconState::Recording | TrayIconState::Transcribing => {
-            let cancel_i = MenuItem::with_id(app, "cancel", &strings.cancel, true, None::<&str>)
-                .expect("failed to create cancel item");
+            let cancel_i =
+                MenuItem::with_id(app, "cancel", &strings.cancel, true, None::<&str>)?;
             Menu::with_items(
                 app,
                 &[
                     &version_i,
-                    &separator(),
+                    &separator()?,
                     &cancel_i,
-                    &separator(),
+                    &separator()?,
                     &copy_last_transcript_i,
-                    &separator(),
+                    &separator()?,
                     &settings_i,
                     &check_updates_i,
-                    &separator(),
+                    &separator()?,
                     &quit_i,
                 ],
-            )
-            .expect("failed to create menu")
+            )?
         }
         TrayIconState::Idle => Menu::with_items(
             app,
             &[
                 &version_i,
-                &separator(),
+                &separator()?,
                 &copy_last_transcript_i,
                 &unload_model_i,
-                &separator(),
+                &separator()?,
                 &settings_i,
                 &check_updates_i,
-                &separator(),
+                &separator()?,
                 &quit_i,
             ],
-        )
-        .expect("failed to create menu"),
+        )?,
     };
 
     let tray = app.state::<TrayIcon>();
     let _ = tray.set_menu(Some(menu));
     let _ = tray.set_icon_as_template(true);
+    Ok(())
 }
 
 pub fn set_tray_visibility(app: &AppHandle, visible: bool) {

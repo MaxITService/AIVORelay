@@ -268,9 +268,14 @@ async fn send_chat_completion_with_messages_internal(
     if let Some(choice) = completion.choices.first() {
         if let Some(ref reasoning_text) = choice.message.reasoning {
             let reasoning_preview = if reasoning_text.len() > 200 {
+                let end = reasoning_text
+                    .char_indices()
+                    .map(|(i, _)| i)
+                    .find(|&i| i >= 200)
+                    .unwrap_or(reasoning_text.len());
                 format!(
                     "{}... ({} chars total)",
-                    &reasoning_text[..200],
+                    &reasoning_text[..end],
                     reasoning_text.len()
                 )
             } else {
