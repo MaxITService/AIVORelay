@@ -5225,9 +5225,21 @@ pub fn preview_close_action(app: AppHandle) -> Result<(), String> {
     Ok(())
 }
 
+static LAST_PREVIEW_CLEAR: Lazy<Mutex<Instant>> =
+    Lazy::new(|| Mutex::new(Instant::now() - Duration::from_secs(10)));
+
 #[tauri::command]
 #[specta::specta]
 pub fn preview_clear_action(app: AppHandle) -> Result<(), String> {
+    {
+        if let Ok(mut last_clear) = LAST_PREVIEW_CLEAR.lock() {
+            if last_clear.elapsed() < Duration::from_millis(500) {
+                return Ok(());
+            }
+            *last_clear = Instant::now();
+        }
+    }
+
     crate::overlay::reset_soniox_live_preview(&app);
     if let Err(e) = app.state::<Arc<SonioxRealtimeManager>>().restart_session() {
         warn!("Failed to restart Soniox Realtime Session: {}", e);

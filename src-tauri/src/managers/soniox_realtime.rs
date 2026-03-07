@@ -5,7 +5,8 @@ use futures_util::{Sink, SinkExt, Stream, StreamExt};
 use log::{debug, info, warn};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
+use parking_lot::Mutex;
 use std::time::{Duration, Instant};
 use tauri::async_runtime::JoinHandle;
 use tauri::{AppHandle, Emitter};
@@ -216,13 +217,11 @@ impl SonioxRealtimeManager {
     }
 
     pub fn restart_session(&self) -> Result<()> {
-        let params = {
-            let guard = self
-                .session_params
-                .lock()
-                .map_err(|_| anyhow!("Failed to lock session params"))?;
-            guard.clone()
-        };
+        if !self.has_active_session() {
+            return Ok(());
+        }
+
+        let params = self.session_params.lock().clone();
 
         if let Some(p) = params {
             self.cancel();
@@ -291,12 +290,7 @@ impl SonioxRealtimeManager {
             ));
         }
 
-        // Reserve the active-session slot atomically so concurrent start calls
-        // cannot both pass the "already active" check.
-        let mut active_session_guard = self
-            .active_session
-            .lock()
-            .map_err(|_| anyhow!("Failed to lock Soniox live session state"))?;
+        let mut active_session_guard = self.active_session.lock();
         if active_session_guard.is_some() {
             return Err(anyhow!(
                 "Soniox live session is already active for this profile"
@@ -304,10 +298,7 @@ impl SonioxRealtimeManager {
         }
 
         {
-            let mut params_guard = self
-                .session_params
-                .lock()
-                .map_err(|_| anyhow!("Failed to lock session params"))?;
+            let mut params_guard = self.session_params.lock();
             *params_guard = Some(SessionParams {
                 binding_id: binding_id.to_string(),
                 api_key: api_key.to_string(),
@@ -437,10 +428,9 @@ impl SonioxRealtimeManager {
         drop(active_session_guard);
 
         // Flush short buffered audio captured while websocket was connecting.
-        let buffered = if let Ok(mut guard) = self.pending_audio.lock() {
+        let buffered = {
+            let mut guard = self.pending_audio.lock();
             std::mem::take(&mut *guard)
-        } else {
-            Vec::new()
         };
         for chunk in buffered {
             if session_audio_tx.try_send(chunk).is_err() {
@@ -465,10 +455,7 @@ impl SonioxRealtimeManager {
     }
 
     pub fn has_active_session(&self) -> bool {
-        self.active_session
-            .lock()
-            .map(|guard| guard.is_some())
-            .unwrap_or(false)
+        self.active_session.lock().is_some()
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -571,7 +558,8 @@ impl SonioxRealtimeManager {
                             }
 
                             if !chunk_text.is_empty() {
-                                if let Ok(mut guard) = final_text.lock() {
+                                {
+                                    let mut guard = final_text.lock();
                                     guard.push_str(&chunk_text);
                                 }
                                 if let Some(cb) = &on_final_chunk {
@@ -673,19 +661,14 @@ impl SonioxRealtimeManager {
     }
 
     pub fn push_audio_frame(&self, frame_16khz_mono: Vec<f32>) {
-        let sender = if let Ok(guard) = self.active_session.lock() {
-            guard.as_ref().map(|session| session.audio_tx.clone())
-        } else {
-            None
-        };
+        let sender = self.active_session.lock().as_ref().map(|session| session.audio_tx.clone());
 
         let Some(sender) = sender else {
-            if let Ok(mut pending) = self.pending_audio.lock() {
-                if pending.len() > AUDIO_QUEUE_CAPACITY {
-                    let _ = pending.remove(0);
-                }
-                pending.push(frame_16khz_mono_to_pcm_s16le_bytes(&frame_16khz_mono));
+            let mut pending = self.pending_audio.lock();
+            if pending.len() > AUDIO_QUEUE_CAPACITY {
+                let _ = pending.remove(0);
             }
+            pending.push(frame_16khz_mono_to_pcm_s16le_bytes(&frame_16khz_mono));
             return;
         };
 
@@ -713,18 +696,9 @@ impl SonioxRealtimeManager {
             crate::overlay::hide_soniox_live_preview_window(&self.app_handle);
         };
 
-        let mut session = {
-            let mut guard = match self.active_session.lock() {
-                Ok(guard) => guard,
-                Err(_) => {
-                    hide_preview(None);
-                    return Err(anyhow!("Failed to lock Soniox live session state"));
-                }
-            };
-            guard.take()
-        };
+        let mut session = self.active_session.lock().take();
 
-        let Some(session) = session.take() else {
+        let Some(session) = session else {
             hide_preview(None);
             return Ok(String::new());
         };
@@ -736,10 +710,7 @@ impl SonioxRealtimeManager {
             ..
         } = session;
         let read_final_text = || -> String {
-            final_text
-                .lock()
-                .map(|guard| guard.trim().to_string())
-                .unwrap_or_default()
+            final_text.lock().trim().to_string()
         };
 
         // Manual finalization first, then graceful stream end.
@@ -819,22 +790,9 @@ impl SonioxRealtimeManager {
             }
         };
 
-        let active = {
-            let mut guard = match self.active_session.lock() {
-                Ok(guard) => guard,
-                Err(_) => {
-                    hide_preview_if_needed(None);
-                    return;
-                }
-            };
-            guard.take()
-        };
+        let active = self.active_session.lock().take();
 
-        let cancelled_binding_id = if let Some(session) = &active {
-            Some(session.binding_id.clone())
-        } else {
-            None
-        };
+        let cancelled_binding_id = active.as_ref().map(|session| session.binding_id.clone());
 
         if let Some(session) = active {
             let _ = session.control_tx.send(ControlMessage::Cancel);
@@ -844,9 +802,7 @@ impl SonioxRealtimeManager {
                 session.binding_id
             );
         }
-        if let Ok(mut pending) = self.pending_audio.lock() {
-            pending.clear();
-        }
+        self.pending_audio.lock().clear();
         hide_preview_if_needed(cancelled_binding_id.as_deref());
     }
 }
