@@ -307,6 +307,10 @@ export default function SonioxLivePreview() {
     armTimer: null,
     saveTimer: null,
   });
+  // When the user clears while a transcription is still in-flight, we set this
+  // flag so that any subsequent update events are discarded until the backend
+  // signals a new session (via the reset event).
+  const ignoredUntilNextResetRef = useRef(false);
 
   useEffect(() => {
     const unlistenFns: Array<() => void> = [];
@@ -315,6 +319,9 @@ export default function SonioxLivePreview() {
 
     const applyPayload = (raw: unknown) => {
       if (!active) {
+        return;
+      }
+      if (ignoredUntilNextResetRef.current) {
         return;
       }
 
@@ -661,6 +668,7 @@ export default function SonioxLivePreview() {
           if (!active) {
             return;
           }
+          ignoredUntilNextResetRef.current = false;
           setFinalText("");
           setInterimText("");
         };
@@ -933,6 +941,7 @@ export default function SonioxLivePreview() {
   };
 
   const handleClear = () => {
+    ignoredUntilNextResetRef.current = true;
     void invokePreviewAction("preview_clear_action");
   };
 
