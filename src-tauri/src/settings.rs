@@ -1146,6 +1146,10 @@ pub struct AppSettings {
     pub selected_microphone: Option<String>,
     #[serde(default)]
     pub clamshell_microphone: Option<String>,
+    /// Microphone used exclusively by the Live Sound pipeline.
+    /// `None` means fall back to `selected_microphone` (global default).
+    #[serde(default)]
+    pub live_sound_microphone: Option<String>,
     #[serde(default)]
     pub selected_output_device: Option<String>,
     #[serde(default = "default_live_sound_capture_source")]
@@ -2388,6 +2392,7 @@ pub fn get_default_settings() -> AppSettings {
         always_on_microphone: false,
         selected_microphone: None,
         clamshell_microphone: None,
+        live_sound_microphone: None,
         selected_output_device: None,
         live_sound_capture_source: default_live_sound_capture_source(),
         live_sound_transcription_provider: LiveSoundTranscriptionProvider::RemoteSoniox,

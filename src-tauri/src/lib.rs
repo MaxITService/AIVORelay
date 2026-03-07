@@ -599,6 +599,7 @@ pub fn run() {
         commands::audio::change_live_sound_speaker_diarization_setting,
         commands::audio::check_custom_sounds,
         commands::audio::set_clamshell_microphone,
+        commands::audio::set_live_sound_microphone,
         commands::audio::is_recording,
         commands::audio::change_vad_threshold_setting,
         commands::live_sound_transcription::live_sound_transcription_start,

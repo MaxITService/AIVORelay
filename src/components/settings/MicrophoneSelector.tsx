@@ -5,7 +5,10 @@ import { SettingContainer } from "../ui/SettingContainer";
 import { ResetButton } from "../ui/ResetButton";
 import { useSettings } from "../../hooks/useSettings";
 
+type MicSettingKey = "selected_microphone" | "live_sound_microphone";
+
 interface MicrophoneSelectorProps {
+  settingKey?: MicSettingKey;
   descriptionMode?: "inline" | "tooltip";
   grouped?: boolean;
   descriptionOverride?: string;
@@ -15,6 +18,7 @@ interface MicrophoneSelectorProps {
 
 export const MicrophoneSelector: React.FC<MicrophoneSelectorProps> = React.memo(
   ({
+    settingKey = "selected_microphone",
     descriptionMode = "tooltip",
     grouped = false,
     descriptionOverride,
@@ -33,16 +37,16 @@ export const MicrophoneSelector: React.FC<MicrophoneSelectorProps> = React.memo(
     } = useSettings();
 
     const selectedMicrophone =
-      getSetting("selected_microphone") === "default"
+      getSetting(settingKey) === "default"
         ? "Default"
-        : getSetting("selected_microphone") || "Default";
+        : getSetting(settingKey) || "Default";
 
     const handleMicrophoneSelect = async (deviceName: string) => {
-      await updateSetting("selected_microphone", deviceName);
+      await updateSetting(settingKey, deviceName);
     };
 
     const handleReset = async () => {
-      await resetSetting("selected_microphone");
+      await resetSetting(settingKey);
     };
 
     const microphoneOptions = audioDevices.map((device) => ({
@@ -72,7 +76,7 @@ export const MicrophoneSelector: React.FC<MicrophoneSelectorProps> = React.memo(
             }
             disabled={
               disabled ||
-              isUpdating("selected_microphone") ||
+              isUpdating(settingKey) ||
               isLoading ||
               audioDevices.length === 0
             }
@@ -80,7 +84,7 @@ export const MicrophoneSelector: React.FC<MicrophoneSelectorProps> = React.memo(
           />
           <ResetButton
             onClick={handleReset}
-            disabled={disabled || isUpdating("selected_microphone") || isLoading}
+            disabled={disabled || isUpdating(settingKey) || isLoading}
           />
         </div>
       </SettingContainer>

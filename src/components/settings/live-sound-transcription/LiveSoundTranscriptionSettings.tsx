@@ -1218,6 +1218,7 @@ export const LiveSoundTranscriptionSettings: React.FC = () => {
             </div>
           )}
           <MicrophoneSelector
+            settingKey="live_sound_microphone"
             descriptionMode="tooltip"
             grouped={true}
             disabled={sourceBusy || isRecording || actionBusy !== null}

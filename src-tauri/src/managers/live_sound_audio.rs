@@ -78,6 +78,12 @@ fn wire_mic_clock_callback(
     }
 }
 
+/// Mix the primary (mic) frame with whatever secondary (loopback) samples are
+/// buffered.  Uses a fixed `* 0.5` attenuation to prevent clipping when both
+/// sources are loud.  When one source is silent the other loses 6 dB — this is
+/// the standard equal-power trade-off and is intentional.  STT engines
+/// (Soniox / Deepgram) normalise input internally, so the level reduction does
+/// not degrade recognition quality in practice.
 fn mix_with_secondary_buf(primary: &[f32], secondary_buf: &Mutex<Vec<f32>>) -> Vec<f32> {
     let secondary_samples: Vec<f32> = secondary_buf
         .lock()
@@ -211,7 +217,10 @@ fn open_mic_recorder_for_both(
     let mut mic_rec = AudioRecorder::new()
         .map_err(|e| format!("Failed to create mic recorder: {}", e))?;
 
-    let mic_device = resolve_device(&AudioCaptureSource::Microphone, settings.selected_microphone.as_deref());
+    let mic_device = resolve_device(
+        &AudioCaptureSource::Microphone,
+        settings.live_sound_microphone.as_deref().or(settings.selected_microphone.as_deref()),
+    );
     mic_rec
         .open_with_source(mic_device, AudioCaptureSource::Microphone)
         .map_err(|e| format!("Failed to open mic stream: {}", e))?;
@@ -249,7 +258,7 @@ pub fn start(app: &AppHandle) -> Result<(), String> {
         ),
         LiveSoundCaptureSource::Microphone => (
             AudioCaptureSource::Microphone,
-            settings.selected_microphone.clone(),
+            settings.live_sound_microphone.clone().or_else(|| settings.selected_microphone.clone()),
         ),
     };
 

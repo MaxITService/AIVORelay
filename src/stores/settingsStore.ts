@@ -113,6 +113,10 @@ const settingUpdaters: {
     commands.setClamshellMicrophone(
       (value as string) === "Default" ? "default" : (value as string),
     ),
+  live_sound_microphone: (value) =>
+    commands.setLiveSoundMicrophone(
+      (value as string) === "Default" || value === null ? "default" : (value as string),
+    ),
   selected_output_device: (value) =>
     commands.setSelectedOutputDevice(
       (value as string) === "Default" || value === null
@@ -654,6 +658,7 @@ export const useSettingsStore = create<SettingsStore>()(
             always_on_microphone: settings.always_on_microphone ?? false,
             selected_microphone: settings.selected_microphone ?? "Default",
             clamshell_microphone: settings.clamshell_microphone ?? "Default",
+            live_sound_microphone: settings.live_sound_microphone ?? "Default",
             selected_output_device:
               settings.selected_output_device ?? "Default",
           };

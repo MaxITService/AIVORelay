@@ -186,6 +186,19 @@ pub fn set_clamshell_microphone(app: AppHandle, device_name: String) -> Result<(
 
 #[tauri::command]
 #[specta::specta]
+pub fn set_live_sound_microphone(app: AppHandle, device_name: String) -> Result<(), String> {
+    let mut settings = get_settings(&app);
+    settings.live_sound_microphone = if device_name == "default" {
+        None
+    } else {
+        Some(device_name)
+    };
+    write_settings(&app, settings);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
 pub fn is_recording(app: AppHandle) -> bool {
     let audio_manager = app.state::<Arc<AudioRecordingManager>>();
     audio_manager.is_recording()
