@@ -128,7 +128,7 @@
       },
       "remote": {
         "title": "Remote (Cloud STT)",
-        "description": "Uses a remote API for transcription.",
+        "description": "Uses a remote API for transcription. Your provider may charge you for usage. You are responsible for key management and usage. Tip: set limits in the cloud.",
         "windowsOnly": "Windows-only for now."
       },
       "changeProviderLater": "You can always change your transcription provider later in the Models section."
