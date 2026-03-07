@@ -310,6 +310,13 @@
     "customModelsDetected": "Detected custom models: {{count}}"
   },
   "settings": {
+    "userInterface": {
+      "title": "User Interface",
+      "sidebarReorder": {
+        "title": "Sidebar Customization",
+        "description": "You can customize your navigation! Reorder the sections in the sidebar on the left by clicking and dragging them to your preferred position. Your custom layout is automatically saved and persists between app restarts."
+      }
+    },
     "general": {
       "title": "General",
       "shortcut": {

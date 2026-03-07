@@ -19,6 +19,7 @@ import {
   formatPreviewHotkeyForDisplay,
   normalizePreviewHotkeyString,
 } from "../../../lib/utils/previewHotkeys";
+import { Info } from "lucide-react";
 import { HotkeyCapture } from "../../ui/HotkeyCapture";
 
 const SONIOX_LIVE_PREVIEW_CURSOR_OFFSET_MIN = 24;
@@ -229,7 +230,22 @@ export const UserInterfaceSettings: React.FC = () => {
 
   return (
     <div className="max-w-3xl w-full mx-auto space-y-6">
-      <SettingsGroup title="User Interface">
+      {/* Sidebar Customization Banner */}
+      <div className="rounded-lg border border-[#ff4d8d]/30 bg-[#ff4d8d]/10 p-4">
+        <div className="flex items-start gap-3">
+          <Info className="w-5 h-5 text-[#ff4d8d] mt-0.5 flex-shrink-0" />
+          <div className="space-y-1 text-sm text-text/80">
+            <p className="font-medium text-text">
+              {t("settings.userInterface.sidebarReorder.title")}
+            </p>
+            <p>
+              {t("settings.userInterface.sidebarReorder.description")}
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <SettingsGroup title={t("settings.userInterface.title")}>
         <ShowTrayIcon descriptionMode="tooltip" grouped={true} />
         <ShowOverlay descriptionMode="tooltip" grouped={true} />
       </SettingsGroup>
