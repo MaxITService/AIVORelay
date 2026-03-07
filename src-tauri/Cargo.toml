@@ -1,6 +1,6 @@
 [package]
 name = "aivorelay"
-version = "0.9.4"
+version = "0.9.5"
 description = "A sophisticated AI voice relay application"
 authors = ["Maxim Fomin", "MaxITService"]
 edition = "2021"
@@ -86,6 +86,7 @@ specta-typescript = "0.0.9"
 tauri-specta = { version = "=2.0.0-rc.21", features = ["derive", "typescript"] }
 tauri-plugin-dialog = "2.6"
 getrandom = "0.2"
+parking_lot = "0.12"
 
 [target.'cfg(unix)'.dependencies]
 signal-hook = "0.3"
