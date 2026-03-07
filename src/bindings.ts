@@ -2552,6 +2552,14 @@ async previewDeleteLastWordAction() : Promise<Result<null, string>> {
     else return { status: "error", error: e  as any };
 }
 },
+async previewDeleteLastCharAction() : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("preview_delete_last_char_action") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async getSonioxLivePreviewState() : Promise<SonioxLivePreviewPayload> {
     return await TAURI_INVOKE("get_soniox_live_preview_state");
 },
