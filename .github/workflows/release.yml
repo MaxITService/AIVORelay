@@ -32,7 +32,22 @@ jobs:
               repo: context.repo.repo,
               tag_name: `v${{ steps.get-version.outputs.version }}`,
               name: `v${{ steps.get-version.outputs.version }}`,
-              body: "If application crashes on old CPU when you are using transcription, use Microsoft Store version.\nhttps://github.com/MaxITService/AIVORelay/releases/tag/v0.8.7-store",
+              body: "What's New in v0.9.5\n" +
+                    "No new features since 0.9.4, just minor hotfixes.\n\n" +
+                    "🎙️ Live Sound Transcription & Monitoring\n" +
+                    "Live Monitor: Real-time transcription of both system audio (loopback) and microphone simultaneously.\n" +
+                    "Speaker Diarization: Full support for identifying speakers in real-time (supported providers only).\n\n" +
+                    "👥 Speaker Diarization\n" +
+                    "Live & File Support: High-precision speaker identification for both the Live Monitor and audio file transcriptions.\n" +
+                    "Speaker Labeling: Robust support for identifying and labeling multiple speakers.\n" +
+                    "Profiles: Create and save speaker name profiles to automatically map recognized speakers to real names.\n\n" +
+                    "📺 Advanced Preview Window\n" +
+                    "Interactive Controls: Support for manual corrections (Backspace) directly within the live preview.\n" +
+                    "Layout Persistence: The preview window now remembers its exact position, size, and sidebar configuration across sessions.\n\n" +
+                    "Notice:\n" +
+                    "If the application crashes on an old CPU during transcription, please use the Microsoft Store version:\n" +
+                    "https://github.com/MaxITService/AIVORelay/releases/tag/v0.8.7-store\n\n" +
+                    "Full Changelog: v0.9.4...v0.9.5",
               draft: true,
               prerelease: false,
               generate_release_notes: true
