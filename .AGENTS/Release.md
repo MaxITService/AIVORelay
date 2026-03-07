@@ -52,7 +52,8 @@ When preparing release text for user review:
 1. Start only after user confirms that a new release body draft is needed.
 2. Build a short, user-facing summary from commits between the previous tag and current release commit.
 3. Exclude internal-only items (docs-only, sync logs, tooling-only chores) unless the user asks to include them.
-4. Keep the baseline static notice text from workflow `body`:
-   - `main`: take baseline text from `.github/workflows/release.yml`
-   - `Microsoft-store`: take baseline text from `.github/workflows/microsoft-store-release.yml`
+4. Keep/update the baseline static notice text from workflow `body` (this is where the hardcoded release description lives):
+   - `main`: `.github/workflows/release.yml`
+   - `Microsoft-store`: `.github/workflows/microsoft-store-release.yml`
 5. Present the final draft in chat and ask explicitly: use as-is or apply user-edited text from chat.
+6. When editing the YAML `body` field, use JavaScript string concatenation and escape special characters correctly.
