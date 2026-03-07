@@ -26,7 +26,8 @@ See your transcription in real-time in a separate, customizable, always-on-top w
 - **Smart Positioning** — Can follow your mouse cursor or stay in a fixed corner.
 - **Hotkey Controls** — Assign shortcuts to toggle visibility or trigger actions.
 
-**Setup:** Settings → User Interface → Soniox Live Preview
+**Setup:** Settings → User Interface → Live Preview
+![Live Preview](Promo/preview_window.png)
 
 ### 🔴 Soniox Live Transcription
 
@@ -39,7 +40,7 @@ Real-time speech-to-text streaming — see your words appear as you speak!
 
 **Setup:** Settings → Advanced → Transcription Provider → Soniox
 
-### 🌐 Deepgram Support
+### 🌐 Deepgram Support for live transcription
 
 Use Deepgram for fast cloud transcription, including live speech-to-text.
 
