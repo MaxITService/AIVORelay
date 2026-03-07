@@ -69,6 +69,8 @@ type SonioxLivePreviewAppearancePayload = {
   showDeleteLastWordButton?: boolean;
   ctrl_backspace_delete_last_word?: boolean;
   ctrlBackspaceDeleteLastWord?: boolean;
+  backspace_delete_last_char?: boolean;
+  backspaceDeleteLastChar?: boolean;
   show_drag_grip?: boolean;
   showDragGrip?: boolean;
 };
@@ -96,6 +98,7 @@ type SonioxLivePreviewAppearance = {
   showDeleteUntilDotButton: boolean;
   showDeleteLastWordButton: boolean;
   ctrlBackspaceDeleteLastWord: boolean;
+  backspaceDeleteLastChar: boolean;
   showDragGrip: boolean;
 };
 
@@ -151,6 +154,7 @@ const DEFAULT_APPEARANCE: SonioxLivePreviewAppearance = {
   showDeleteUntilDotButton: true,
   showDeleteLastWordButton: true,
   ctrlBackspaceDeleteLastWord: true,
+  backspaceDeleteLastChar: true,
   showDragGrip: true,
 };
 
@@ -503,6 +507,12 @@ export default function SonioxLivePreview() {
           : typeof data.ctrlBackspaceDeleteLastWord === "boolean"
             ? data.ctrlBackspaceDeleteLastWord
             : DEFAULT_APPEARANCE.ctrlBackspaceDeleteLastWord;
+      const backspaceDeleteLastChar =
+        typeof data.backspace_delete_last_char === "boolean"
+          ? data.backspace_delete_last_char
+          : typeof data.backspaceDeleteLastChar === "boolean"
+            ? data.backspaceDeleteLastChar
+            : DEFAULT_APPEARANCE.backspaceDeleteLastChar;
       const showDragGrip =
         typeof data.show_drag_grip === "boolean"
           ? data.show_drag_grip
@@ -533,6 +543,7 @@ export default function SonioxLivePreview() {
         showDeleteUntilDotButton,
         showDeleteLastWordButton,
         ctrlBackspaceDeleteLastWord,
+        backspaceDeleteLastChar,
         showDragGrip,
       });
     };
@@ -1044,6 +1055,22 @@ export default function SonioxLivePreview() {
         return;
       }
 
+      // Plain Backspace → delete last character (no modifier keys)
+      if (
+        appearance.backspaceDeleteLastChar &&
+        canDelete &&
+        event.key === "Backspace" &&
+        !event.ctrlKey &&
+        !event.shiftKey &&
+        !event.altKey &&
+        !event.metaKey
+      ) {
+        event.preventDefault();
+        event.stopPropagation();
+        void invokePreviewAction("preview_delete_last_char_action");
+        return;
+      }
+
       const currentHotkey = buildPreviewHotkeyFromKeyboardEvent(event, osType);
       if (!currentHotkey) {
         return;
@@ -1132,6 +1159,7 @@ export default function SonioxLivePreview() {
     appearance.clearHotkey,
     appearance.closeHotkey,
     appearance.ctrlBackspaceDeleteLastWord,
+    appearance.backspaceDeleteLastChar,
     appearance.deleteUntilDotHotkey,
     appearance.deleteUntilDotOrCommaHotkey,
     appearance.flushHotkey,

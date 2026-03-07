@@ -1236,6 +1236,8 @@ pub struct AppSettings {
     #[serde(default = "default_true")]
     pub soniox_live_preview_ctrl_backspace_delete_last_word: bool,
     #[serde(default = "default_true")]
+    pub soniox_live_preview_backspace_delete_last_char: bool,
+    #[serde(default = "default_true")]
     pub soniox_live_preview_show_drag_grip: bool,
     #[serde(default = "default_debug_mode")]
     pub debug_mode: bool,
@@ -2430,6 +2432,7 @@ pub fn get_default_settings() -> AppSettings {
         soniox_live_preview_show_delete_until_dot_button: default_true(),
         soniox_live_preview_show_delete_last_word_button: default_true(),
         soniox_live_preview_ctrl_backspace_delete_last_word: default_true(),
+        soniox_live_preview_backspace_delete_last_char: default_true(),
         soniox_live_preview_show_drag_grip: default_true(),
         debug_mode: false,
         log_level: default_log_level(),
@@ -2830,10 +2833,7 @@ pub fn load_or_create_app_settings(app: &AppHandle) -> AppSettings {
                         .trim()
                         .to_string(),
                 );
-                match settings
-                    .bindings
-                    .get(PREVIEW_DELETE_LAST_WORD_BINDING_ID)
-                {
+                match settings.bindings.get(PREVIEW_DELETE_LAST_WORD_BINDING_ID) {
                     Some(binding)
                         if binding.current_binding
                             == preview_delete_last_word_binding.current_binding

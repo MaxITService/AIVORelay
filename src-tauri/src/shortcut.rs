@@ -18,9 +18,10 @@ use crate::settings::{
     self, get_settings, AutoSubmitKey, ClipboardHandling, LLMPrompt, OutputWhitespaceMode,
     OverlayPosition, PasteMethod, RemoteSttDebugMode, ShortcutEngine, SonioxLivePreviewPosition,
     SonioxLivePreviewSize, SonioxLivePreviewTheme, SoundTheme, TranscriptionProvider,
-    APPLE_INTELLIGENCE_PROVIDER_ID, SONIOX_DEFAULT_LIVE_FINALIZE_TIMEOUT_MS,
-    SONIOX_DEFAULT_MAX_ENDPOINT_DELAY_MS, SONIOX_DEFAULT_MODEL, DEEPGRAM_DEFAULT_ENDPOINTING_MS,
+    APPLE_INTELLIGENCE_PROVIDER_ID, DEEPGRAM_DEFAULT_ENDPOINTING_MS,
     DEEPGRAM_DEFAULT_LIVE_FINALIZE_TIMEOUT_MS, DEEPGRAM_DEFAULT_MODEL,
+    SONIOX_DEFAULT_LIVE_FINALIZE_TIMEOUT_MS, SONIOX_DEFAULT_MAX_ENDPOINT_DELAY_MS,
+    SONIOX_DEFAULT_MODEL,
 };
 use crate::tray;
 use crate::ManagedToggleState;
@@ -1306,6 +1307,19 @@ pub fn change_soniox_live_preview_ctrl_backspace_delete_last_word_setting(
 
 #[tauri::command]
 #[specta::specta]
+pub fn change_soniox_live_preview_backspace_delete_last_char_setting(
+    app: AppHandle,
+    enabled: bool,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.soniox_live_preview_backspace_delete_last_char = enabled;
+    settings::write_settings(&app, settings);
+    refresh_soniox_live_preview_window(&app);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
 pub fn change_soniox_live_preview_show_drag_grip_setting(
     app: AppHandle,
     enabled: bool,
@@ -2026,7 +2040,10 @@ pub fn change_deepgram_live_instant_stop_setting(
 
 #[tauri::command]
 #[specta::specta]
-pub fn change_deepgram_interim_results_setting(app: AppHandle, enabled: bool) -> Result<(), String> {
+pub fn change_deepgram_interim_results_setting(
+    app: AppHandle,
+    enabled: bool,
+) -> Result<(), String> {
     let mut settings = settings::get_settings(&app);
     settings.deepgram_interim_results = enabled;
     settings::write_settings(&app, settings);
@@ -2638,11 +2655,17 @@ fn normalize_diarization_speaker_name_profiles(
             .map(|speaker_name| speaker_name.trim().to_string())
             .collect();
 
-        while speaker_names.last().is_some_and(|speaker_name| speaker_name.is_empty()) {
+        while speaker_names
+            .last()
+            .is_some_and(|speaker_name| speaker_name.is_empty())
+        {
             speaker_names.pop();
         }
 
-        if !speaker_names.iter().any(|speaker_name| !speaker_name.is_empty()) {
+        if !speaker_names
+            .iter()
+            .any(|speaker_name| !speaker_name.is_empty())
+        {
             return Err(format!(
                 "Speaker name profile '{}' must contain at least one speaker name",
                 name

@@ -470,6 +470,12 @@ settingUpdaters.error_overlay_auto_hide_ms = (value) =>
   invoke("change_soniox_live_preview_ctrl_backspace_delete_last_word_setting", {
     enabled: value,
   });
+(settingUpdaters as any).soniox_live_preview_backspace_delete_last_char = (
+  value: any,
+) =>
+  invoke("change_soniox_live_preview_backspace_delete_last_char_setting", {
+    enabled: value,
+  });
 (settingUpdaters as any).soniox_live_preview_show_drag_grip = (value: any) =>
   invoke("change_soniox_live_preview_show_drag_grip_setting", {
     enabled: value,

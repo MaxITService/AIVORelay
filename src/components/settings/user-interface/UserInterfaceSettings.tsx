@@ -170,6 +170,9 @@ export const UserInterfaceSettings: React.FC = () => {
   const sonioxLivePreviewCtrlBackspaceDeleteLastWord = Boolean(
     (settings as any)?.soniox_live_preview_ctrl_backspace_delete_last_word ?? true,
   );
+  const sonioxLivePreviewBackspaceDeleteLastChar = Boolean(
+    (settings as any)?.soniox_live_preview_backspace_delete_last_char ?? true,
+  );
 
   const previewActionsSummary = React.useMemo(() => {
     const parts: string[] = [];
@@ -452,6 +455,27 @@ export const UserInterfaceSettings: React.FC = () => {
               disabled={
                 !sonioxLivePreviewEnabled ||
                 isUpdating("soniox_live_preview_ctrl_backspace_delete_last_word")
+              }
+            />
+          </SettingContainer>
+          <SettingContainer
+            title="Backspace Deletes Last Character"
+            description="When the preview window is focused, plain Backspace removes the last character from the finalized preview text, without stopping the active recording."
+            descriptionMode="inline"
+            grouped={true}
+            disabled={!sonioxLivePreviewEnabled}
+          >
+            <ToggleSwitch
+              checked={sonioxLivePreviewBackspaceDeleteLastChar}
+              onChange={(enabled) =>
+                void updateSetting(
+                  "soniox_live_preview_backspace_delete_last_char" as any,
+                  enabled as any,
+                )
+              }
+              disabled={
+                !sonioxLivePreviewEnabled ||
+                isUpdating("soniox_live_preview_backspace_delete_last_char")
               }
             />
           </SettingContainer>

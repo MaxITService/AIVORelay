@@ -6,6 +6,7 @@ mod audio_feedback;
 pub mod audio_toolkit;
 mod clipboard;
 mod commands;
+mod file_transcription_diarization;
 mod helpers;
 mod input;
 mod input_source;
@@ -22,7 +23,6 @@ mod session_manager;
 mod settings;
 mod shortcut;
 mod signal_handle;
-mod file_transcription_diarization;
 mod soniox_stream_processor;
 pub mod subtitle;
 mod text_replacement_decapitalize;
@@ -172,9 +172,8 @@ fn initialize_core_logic(app_handle: &AppHandle) {
         DeepgramRealtimeManager::new(app_handle)
             .expect("Failed to initialize Deepgram realtime STT"),
     );
-    let deepgram_stt_manager = Arc::new(
-        DeepgramSttManager::new(app_handle).expect("Failed to initialize Deepgram STT"),
-    );
+    let deepgram_stt_manager =
+        Arc::new(DeepgramSttManager::new(app_handle).expect("Failed to initialize Deepgram STT"));
     let history_manager =
         Arc::new(HistoryManager::new(app_handle).expect("Failed to initialize history manager"));
     let connector_manager = Arc::new(
@@ -387,6 +386,7 @@ pub fn run() {
         shortcut::change_soniox_live_preview_show_delete_until_dot_button_setting,
         shortcut::change_soniox_live_preview_show_delete_last_word_button_setting,
         shortcut::change_soniox_live_preview_ctrl_backspace_delete_last_word_setting,
+        shortcut::change_soniox_live_preview_backspace_delete_last_char_setting,
         shortcut::change_soniox_live_preview_show_drag_grip_setting,
         shortcut::remember_soniox_live_preview_window_position,
         shortcut::remember_soniox_live_preview_window_size,
@@ -653,6 +653,7 @@ pub fn run() {
         actions::preview_delete_until_dot_or_comma_action,
         actions::preview_delete_until_dot_action,
         actions::preview_delete_last_word_action,
+        actions::preview_delete_last_char_action,
         overlay::get_soniox_live_preview_state,
         overlay::get_soniox_live_preview_appearance,
         overlay::get_preview_output_mode_state,
@@ -745,16 +746,12 @@ pub fn run() {
                     && settings.saved_window_width > 0
                     && settings.saved_window_height > 0
                 {
-                    let _ = main_window.set_size(tauri::Size::Physical(
-                        tauri::PhysicalSize {
-                            width: settings.saved_window_width,
-                            height: settings.saved_window_height,
-                        },
-                    ));
+                    let _ = main_window.set_size(tauri::Size::Physical(tauri::PhysicalSize {
+                        width: settings.saved_window_width,
+                        height: settings.saved_window_height,
+                    }));
                 }
-                if settings.remember_window_position
-                    && settings.saved_window_x != i32::MIN
-                {
+                if settings.remember_window_position && settings.saved_window_x != i32::MIN {
                     let _ = main_window.set_position(tauri::Position::Physical(
                         tauri::PhysicalPosition {
                             x: settings.saved_window_x,
