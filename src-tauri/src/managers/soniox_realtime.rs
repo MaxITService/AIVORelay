@@ -4,7 +4,6 @@ use futures_util::{Sink, SinkExt, Stream, StreamExt};
 use log::{debug, info, warn};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use tauri::async_runtime::JoinHandle;
@@ -186,7 +185,6 @@ struct ActiveSession {
     audio_tx: mpsc::Sender<Vec<u8>>,
     control_tx: mpsc::UnboundedSender<ControlMessage>,
     final_text: Arc<Mutex<String>>,
-    suppress_accumulation: Arc<AtomicBool>,
     join_handle: JoinHandle<Result<()>>,
 }
 
@@ -206,20 +204,19 @@ impl SonioxRealtimeManager {
     }
 
     pub fn clear_committed_transcript(&self) {
-        let (final_text, suppress) = {
+        let final_text = {
             let Ok(active_session) = self.active_session.lock() else {
                 return;
             };
             let Some(session) = active_session.as_ref() else {
                 return;
             };
-            (Arc::clone(&session.final_text), Arc::clone(&session.suppress_accumulation))
+            Arc::clone(&session.final_text)
         };
         let Ok(mut final_text_guard) = final_text.lock() else {
             return;
         };
         final_text_guard.clear();
-        suppress.store(true, Ordering::Relaxed);
     }
 
     pub fn is_realtime_model(model: &str) -> bool {
@@ -327,8 +324,6 @@ impl SonioxRealtimeManager {
         let (control_tx, control_rx) = mpsc::unbounded_channel::<ControlMessage>();
         let final_text = Arc::new(Mutex::new(String::new()));
         let final_text_for_task = Arc::clone(&final_text);
-        let suppress_accumulation = Arc::new(AtomicBool::new(false));
-        let suppress_for_task = Arc::clone(&suppress_accumulation);
         let start_payload_for_task = start_payload;
         let app_handle_for_task = self.app_handle.clone();
         let binding_id_for_task = binding_id.to_string();
@@ -356,7 +351,6 @@ impl SonioxRealtimeManager {
                     audio_rx,
                     control_rx,
                     final_text_for_task,
-                    suppress_for_task,
                     keepalive_interval_seconds,
                     app_handle_for_task.clone(),
                     binding_id_for_task.clone(),
@@ -407,7 +401,6 @@ impl SonioxRealtimeManager {
             audio_tx,
             control_tx,
             final_text,
-            suppress_accumulation,
             join_handle,
         };
         *active_session_guard = Some(active);
@@ -455,7 +448,6 @@ impl SonioxRealtimeManager {
         mut audio_rx: mpsc::Receiver<Vec<u8>>,
         mut control_rx: mpsc::UnboundedReceiver<ControlMessage>,
         final_text: Arc<Mutex<String>>,
-        suppress_accumulation: Arc<AtomicBool>,
         keepalive_interval_seconds: u32,
         app_handle: AppHandle,
         binding_id: String,
@@ -548,7 +540,7 @@ impl SonioxRealtimeManager {
                                 chunk_text = crate::text_replacement_decapitalize::maybe_decapitalize_next_chunk_realtime(&chunk_text);
                             }
 
-                            if !chunk_text.is_empty() && !suppress_accumulation.load(Ordering::Relaxed) {
+                            if !chunk_text.is_empty() {
                                 if let Ok(mut guard) = final_text.lock() {
                                     guard.push_str(&chunk_text);
                                 }
@@ -593,7 +585,7 @@ impl SonioxRealtimeManager {
                                     );
                                 }
 
-                                if binding_id != crate::actions::LIVE_SOUND_TRANSCRIPTION_BINDING_ID && !suppress_accumulation.load(Ordering::Relaxed) {
+                                if binding_id != crate::actions::LIVE_SOUND_TRANSCRIPTION_BINDING_ID {
                                     let mut preview_final_text = crate::overlay::get_soniox_live_preview_state().final_text;
                                     if !chunk_text.is_empty() {
                                         preview_final_text.push_str(&chunk_text);
