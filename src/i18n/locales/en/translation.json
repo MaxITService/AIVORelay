@@ -1689,7 +1689,7 @@
             "download": "Download from GitHub",
             "pathLabel": "Export Path",
             "pathPlaceholder": "C:\\Users\\You\\Downloads",
-            "pathHint": "Enter or choose the parent folder. AivoRelay will create the extension folder inside it.",
+            "pathHint": "Choose the parent folder, not the final extension folder. AivoRelay will create the \"AivoRelay Connector\" folder inside it.",
             "selectFolderTitle": "Choose where to export the browser extension",
             "exportSuccess": "Browser extension exported to {{path}}. Configured origin: {{origin}}. A new connector password was generated and applied."
           }
