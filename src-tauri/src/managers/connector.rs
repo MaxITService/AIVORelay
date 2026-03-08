@@ -21,11 +21,17 @@ use axum::{
     body::Body,
     extract::{Path, Query, State},
     http::{header, HeaderValue, Method, StatusCode, Uri},
-    response::{IntoResponse, Response},
+    response::Response,
     routing::{get, post},
     Json, Router,
 };
 use log::{debug, error, info, warn};
+use hkdf::Hkdf;
+use hmac::{Hmac, Mac};
+use p256::ecdh::EphemeralSecret;
+use p256::elliptic_curve::rand_core::OsRng;
+use p256::elliptic_curve::sec1::ToEncodedPoint;
+use p256::PublicKey;
 use serde::{Deserialize, Serialize};
 use specta::Type;
 use std::collections::{HashMap, HashSet, VecDeque};
@@ -70,33 +76,43 @@ const MAX_AUTH_BACKOFF_MS: i64 = 2000;
 const SESSION_TTL_MS: i64 = 120_000;
 const SESSION_CLOCK_SKEW_MS: i64 = 15_000;
 const PENDING_PASSWORD_TTL_MS: i64 = 120_000;
-/// Protocol version for the password-derived encryption path.
+/// Protocol version for the authenticated ephemeral session path.
 ///
-/// Version 2 removes the old global PBKDF2 salt and treats the connector password
-/// as high-entropy shared secret material. Encryption keys are now derived as:
-/// SHA-256("AivoRelay Connector Protocol v2 AES-256-GCM key" || connector_password_utf8_bytes)
+/// Version 3 keeps the connector password as a bootstrap secret only. The client
+/// and server authenticate the handshake with HMAC-SHA256, then derive per-session
+/// AES-256-GCM and HMAC keys from an ephemeral P-256 ECDH exchange via HKDF-SHA256.
 ///
-/// Protocol v2 request flow:
+/// Protocol v3 request flow:
 /// 1. POST /session with:
-///    - Authorization: Bearer <connector password>
 ///    - Origin: <exact configured origin>
-///    - X-AivoRelay-Protocol-Version: 2
-/// 2. The server returns a session id plus starting sequence numbers.
+///    - X-AivoRelay-Protocol-Version: 3
+///    - JSON body containing the client ephemeral public key, nonce, timestamp, and HMAC proof
+/// 2. The server returns its own ephemeral public key plus a signed response proof.
 /// 3. Every subsequent /messages and /blob request must include:
-///    - X-AivoRelay-Protocol-Version: 2
+///    - X-AivoRelay-Protocol-Version: 3
 ///    - X-AivoRelay-Session-Id: <session id>
 ///    - X-AivoRelay-Sequence: <strictly increasing client sequence>
 ///    - X-AivoRelay-Timestamp: <unix ms within the allowed skew window>
-/// 4. The server returns its own per-session response sequence headers to support
-///    client-side replay detection on responses.
-const CONNECTOR_PROTOCOL_VERSION: u8 = 2;
-const CONNECTOR_ENC_KEY_CONTEXT: &[u8] = b"AivoRelay Connector Protocol v2 AES-256-GCM key";
+///    - X-AivoRelay-Request-Mac: <base64 HMAC of request metadata/body hash>
+/// 4. The server returns per-session response sequence headers plus
+///    X-AivoRelay-Response-Mac to support client-side replay detection and integrity checks.
+const CONNECTOR_PROTOCOL_VERSION: u8 = 3;
+const CONNECTOR_PASSWORD_AUTH_CONTEXT: &[u8] =
+    b"AivoRelay Connector Protocol v3 password auth key";
+const CONNECTOR_SESSION_ENC_CONTEXT: &[u8] =
+    b"AivoRelay Connector Protocol v3 session AES-256-GCM key";
+const CONNECTOR_SESSION_MAC_CONTEXT: &[u8] =
+    b"AivoRelay Connector Protocol v3 session HMAC-SHA256 key";
 const HEADER_PROTOCOL_VERSION: &str = "x-aivorelay-protocol-version";
 const HEADER_SESSION_ID: &str = "x-aivorelay-session-id";
 const HEADER_CLIENT_SEQUENCE: &str = "x-aivorelay-sequence";
 const HEADER_CLIENT_TIMESTAMP: &str = "x-aivorelay-timestamp";
 const HEADER_SERVER_SEQUENCE: &str = "x-aivorelay-server-sequence";
 const HEADER_SESSION_EXPIRES_AT: &str = "x-aivorelay-session-expires-at";
+const HEADER_REQUEST_MAC: &str = "x-aivorelay-request-mac";
+const HEADER_RESPONSE_MAC: &str = "x-aivorelay-response-mac";
+const HEADER_PAYLOAD_ENCRYPTED: &str = "x-aivorelay-payload-encrypted";
+type HmacSha256 = Hmac<Sha256>;
 
 /// Extension connection status
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
@@ -171,10 +187,10 @@ pub struct PendingBlob {
     pub expires_at: i64,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 struct ConnectorSession {
     origin: String,
-    auth_match: AuthMatch,
+    crypto: SessionCrypto,
     next_client_sequence: u64,
     next_server_sequence: u64,
     expires_at: i64,
@@ -208,6 +224,18 @@ struct PostBody {
     msg_type: Option<String>,
 }
 
+/// POST body for authenticated session creation.
+#[derive(Debug, Clone, Deserialize)]
+struct SessionCreateRequest {
+    #[serde(rename = "clientPublicKey")]
+    client_public_key: String,
+    #[serde(rename = "clientNonce")]
+    client_nonce: String,
+    timestamp: i64,
+    #[serde(rename = "clientProof")]
+    client_proof: String,
+}
+
 /// Response format for POST /session
 #[derive(Debug, Clone, Serialize)]
 struct SessionResponse {
@@ -223,6 +251,12 @@ struct SessionResponse {
     next_server_sequence: u64,
     #[serde(rename = "encryptionEnabled")]
     encryption_enabled: bool,
+    #[serde(rename = "serverPublicKey")]
+    server_public_key: String,
+    #[serde(rename = "serverNonce")]
+    server_nonce: String,
+    #[serde(rename = "serverProof")]
+    server_proof: String,
 }
 
 /// Query params for GET /messages
@@ -264,31 +298,20 @@ struct ConnectorState {
     delivered_ids: HashSet<String>,
 }
 
-/// Represents our cached symmetric encryption key
+/// Per-session symmetric encryption and authentication material.
 #[derive(Clone)]
-struct CachedCrypto {
+struct SessionCrypto {
     cipher: Aes256Gcm,
+    mac_key: [u8; 32],
 }
 
-impl CachedCrypto {
-    /// Derives a 256-bit AES key from the shared connector secret.
-    ///
-    /// Protocol v2 intentionally does not use PBKDF2 or a transmitted salt. The
-    /// connector password is expected to be high-entropy random key material, and we
-    /// domain-separate the AES key with a fixed context string.
-    pub fn new(password: &str) -> Self {
-        debug_assert_eq!(CONNECTOR_PROTOCOL_VERSION, 2);
-
-        let mut hasher = Sha256::new();
-        hasher.update(CONNECTOR_ENC_KEY_CONTEXT);
-        hasher.update(password.as_bytes());
-        let key = hasher.finalize();
-        let aes_key = aes_gcm::Key::<Aes256Gcm>::from_slice(key.as_slice());
+impl SessionCrypto {
+    pub fn new(enc_key: [u8; 32], mac_key: [u8; 32]) -> Self {
+        let aes_key = aes_gcm::Key::<Aes256Gcm>::from_slice(&enc_key);
         let cipher = Aes256Gcm::new(aes_key);
-        Self { cipher }
+        Self { cipher, mac_key }
     }
 
-    /// Encrypts a JSON plaintext payload.
     pub fn encrypt_payload(&self, plaintext: &[u8]) -> Result<Vec<u8>, String> {
         let mut nonce_bytes = [0u8; 12];
         getrandom::getrandom(&mut nonce_bytes)
@@ -305,12 +328,6 @@ impl CachedCrypto {
     }
 }
 
-#[derive(Clone, Default)]
-struct CryptoState {
-    current: Option<CachedCrypto>,
-    pending: Option<CachedCrypto>,
-}
-
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum AuthMatch {
     CurrentPassword,
@@ -323,10 +340,10 @@ enum CorsPolicy {
     Exact(String),
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 struct ValidatedSession {
     id: String,
-    auth_match: AuthMatch,
+    crypto: SessionCrypto,
     server_sequence: u64,
     expires_at: i64,
 }
@@ -342,11 +359,9 @@ struct AppState {
     port: Arc<RwLock<u16>>,
     /// Notify waiters when a new message is queued
     message_notify: Arc<Notify>,
-    /// Cached symmetric keys derived from the current and pending passwords
-    crypto: Arc<RwLock<CryptoState>>,
     /// Tracks the timestamp (ms) of the last emitted auth-failed event
     last_auth_failure_emitted_at: Arc<AtomicI64>,
-    /// Active connector sessions for protocol v2 replay protection
+    /// Active connector sessions for protocol v3 replay protection
     sessions: Arc<Mutex<HashMap<String, ConnectorSession>>>,
     /// Count of consecutive auth failures, used for backoff
     auth_failure_count: Arc<AtomicU32>,
@@ -370,11 +385,9 @@ pub struct ConnectorManager {
     message_notify: Arc<Notify>,
     /// Last server error (e.g., port binding failure)
     server_error: Arc<RwLock<Option<String>>>,
-    /// Cached symmetric keys derived from the current and pending passwords
-    crypto: Arc<RwLock<CryptoState>>,
     /// Tracks the timestamp (ms) of the last emitted auth-failed event
     last_auth_failure_emitted_at: Arc<AtomicI64>,
-    /// Active connector sessions for protocol v2 replay protection
+    /// Active connector sessions for protocol v3 replay protection
     sessions: Arc<Mutex<HashMap<String, ConnectorSession>>>,
     /// Count of consecutive auth failures, used for backoff
     auth_failure_count: Arc<AtomicU32>,
@@ -410,10 +423,6 @@ impl ConnectorManager {
             stop_flag: Arc::new(AtomicBool::new(false)),
             message_notify: Arc::new(Notify::new()),
             server_error: Arc::new(RwLock::new(None)),
-            crypto: Arc::new(RwLock::new(build_crypto_state(
-                &settings.connector_password,
-                settings.connector_pending_password.as_deref(),
-            ))),
             last_auth_failure_emitted_at: Arc::new(AtomicI64::new(0)),
             sessions: Arc::new(Mutex::new(HashMap::new())),
             auth_failure_count: Arc::new(AtomicU32::new(0)),
@@ -529,7 +538,6 @@ impl ConnectorManager {
             last_poll_at: Arc::clone(&self.last_poll_at),
             port: self.port.clone(),
             message_notify: self.message_notify.clone(),
-            crypto: self.crypto.clone(),
             last_auth_failure_emitted_at: self.last_auth_failure_emitted_at.clone(),
             sessions: self.sessions.clone(),
             auth_failure_count: self.auth_failure_count.clone(),
@@ -1075,10 +1083,9 @@ impl ConnectorManager {
         (now_ms() - last_poll) < POLL_TIMEOUT_MS
     }
 
-    /// Refresh the cached crypto state after password settings change.
-    pub fn refresh_crypto_state(&self, current_password: &str, pending_password: Option<&str>) {
-        let mut crypto_guard = self.crypto.blocking_write();
-        *crypto_guard = build_crypto_state(current_password, pending_password);
+    /// Password changes invalidate existing sessions, since bootstrap auth changes.
+    pub fn refresh_crypto_state(&self, _current_password: &str, _pending_password: Option<&str>) {
+        self.clear_sessions();
     }
 
     pub fn clear_sessions(&self) {
@@ -1093,14 +1100,17 @@ impl ConnectorManager {
 
 async fn handle_get_messages(
     State(app_state): State<AppState>,
+    uri: Uri,
     headers: axum::http::HeaderMap,
     query: Query<MessagesQuery>,
 ) -> Response {
     let settings = get_settings(&app_state.app_handle);
-    let validated_session = match validate_session_request(&app_state, &headers, &settings).await {
+    let route_label = request_route_label(&uri);
+    let validated_session =
+        match validate_session_request(&app_state, &headers, &settings, &route_label, &[]).await {
         Ok(session) => session,
         Err(response) => return response,
-    };
+        };
 
     let now = now_ms();
     let old_poll = app_state.last_poll_at.swap(now, Ordering::SeqCst);
@@ -1184,46 +1194,32 @@ async fn handle_get_messages(
             Ok(payload) => payload,
             Err(e) => {
                 error!("Failed to serialize connector response for encryption: {}", e);
-                return json_response(response_body);
+                return json_session_response(response_body, &validated_session, &route_label);
             }
         };
-        let crypto_guard = app_state.crypto.read().await;
-        let selected_crypto = match validated_session.auth_match {
-            AuthMatch::CurrentPassword => crypto_guard.current.as_ref(),
-            AuthMatch::PendingPassword => crypto_guard
-                .pending
-                .as_ref()
-                .or(crypto_guard.current.as_ref()),
-        };
-
-        if let Some(crypto) = selected_crypto {
-            match crypto.encrypt_payload(&plain_json) {
-                Ok(encrypted_bytes) => {
-                    let b64_payload = STANDARD.encode(&encrypted_bytes);
-                    return with_session_headers(
-                        apply_security_headers(
-                        Response::builder()
-                        .status(StatusCode::OK)
-                        .header(header::CONTENT_TYPE, "text/plain")
-                        .body(Body::from(b64_payload))
-                        .unwrap(),
-                        ),
-                        &validated_session,
-                    );
-                }
-                Err(e) => error!("Failed to encrypt response: {}", e),
+        match validated_session.crypto.encrypt_payload(&plain_json) {
+            Ok(encrypted_bytes) => {
+                let b64_payload = STANDARD.encode(&encrypted_bytes);
+                return session_bytes_response(
+                    StatusCode::OK,
+                    "text/plain",
+                    b64_payload.into_bytes(),
+                    &validated_session,
+                    &route_label,
+                    true,
+                );
             }
-        } else {
-            warn!("Connector encryption is enabled but no crypto key is available");
+            Err(e) => error!("Failed to encrypt response: {}", e),
         }
     }
 
-    json_session_response(response_body, &validated_session)
+    json_session_response(response_body, &validated_session, &route_label)
 }
 
 async fn handle_create_session(
     State(app_state): State<AppState>,
     headers: axum::http::HeaderMap,
+    Json(request): Json<SessionCreateRequest>,
 ) -> Response {
     let settings = get_settings(&app_state.app_handle);
     if let Err(response) = validate_protocol_header(&headers) {
@@ -1245,8 +1241,27 @@ async fn handle_create_session(
         CorsPolicy::Any => String::new(),
         CorsPolicy::Exact(_) => request_origin,
     };
-    let auth_match = match authenticate_request(&app_state, &headers, &settings).await {
+    let auth_match = match authenticate_session_handshake(&app_state, &settings, &request).await {
         Ok(auth_match) => auth_match,
+        Err(response) => return response,
+    };
+
+    let client_public_key_bytes =
+        match decode_base64_field(&request.client_public_key, "client public key") {
+            Ok(bytes) => bytes,
+            Err(response) => return response,
+        };
+    let client_public_key = match PublicKey::from_sec1_bytes(&client_public_key_bytes) {
+        Ok(key) => key,
+        Err(_) => {
+            return error_response(
+                StatusCode::BAD_REQUEST,
+                "Malformed client public key",
+            )
+        }
+    };
+    let client_nonce_bytes = match decode_base64_field(&request.client_nonce, "client nonce") {
+        Ok(bytes) => bytes,
         Err(response) => return response,
     };
 
@@ -1262,6 +1277,56 @@ async fn handle_create_session(
 
     let now = now_ms();
     let expires_at = now + SESSION_TTL_MS;
+    let server_nonce_bytes = match generate_random_bytes(16) {
+        Some(bytes) => bytes,
+        None => {
+            return error_response(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Failed to generate connector session nonce",
+            )
+        }
+    };
+    let server_secret = EphemeralSecret::random(&mut OsRng);
+    let server_public_key = PublicKey::from(&server_secret);
+    let server_public_key_bytes = server_public_key.to_encoded_point(false).as_bytes().to_vec();
+    let server_public_key_b64 = STANDARD.encode(&server_public_key_bytes);
+    let shared_secret = server_secret.diffie_hellman(&client_public_key);
+    let auth_key = derive_password_auth_key(match auth_match {
+        AuthMatch::CurrentPassword => &settings.connector_password,
+        AuthMatch::PendingPassword => {
+            settings.connector_pending_password.as_deref().unwrap_or(&settings.connector_password)
+        }
+    });
+    let transcript_hash = build_handshake_transcript_hash(
+        &session_id,
+        &client_public_key_bytes,
+        &server_public_key_bytes,
+        &client_nonce_bytes,
+        &server_nonce_bytes,
+    );
+    let session_crypto = match derive_session_crypto(
+        shared_secret.raw_secret_bytes().as_slice(),
+        &auth_key,
+        &transcript_hash,
+    ) {
+        Ok(crypto) => crypto,
+        Err(err) => return error_response(StatusCode::INTERNAL_SERVER_ERROR, &err),
+    };
+    let server_nonce_b64 = STANDARD.encode(&server_nonce_bytes);
+    let server_proof = match sign_handshake_server_proof(
+        &auth_key,
+        &session_id,
+        expires_at,
+        settings.connector_encryption_enabled,
+        &request.client_public_key,
+        &server_public_key_b64,
+        &request.client_nonce,
+        &server_nonce_b64,
+    ) {
+        Ok(proof) => proof,
+        Err(err) => return error_response(StatusCode::INTERNAL_SERVER_ERROR, &err),
+    };
+
     {
         let mut sessions = app_state.sessions.lock().unwrap();
         clear_expired_sessions(&mut sessions, now);
@@ -1269,7 +1334,7 @@ async fn handle_create_session(
             session_id.clone(),
             ConnectorSession {
                 origin: session_origin,
-                auth_match,
+                crypto: session_crypto.clone(),
                 next_client_sequence: 1,
                 next_server_sequence: 2,
                 expires_at,
@@ -1279,7 +1344,7 @@ async fn handle_create_session(
 
     let validated_session = ValidatedSession {
         id: session_id.clone(),
-        auth_match,
+        crypto: session_crypto,
         server_sequence: 1,
         expires_at,
     };
@@ -1290,18 +1355,31 @@ async fn handle_create_session(
         next_client_sequence: 1,
         next_server_sequence: 1,
         encryption_enabled: settings.connector_encryption_enabled,
+        server_public_key: server_public_key_b64,
+        server_nonce: server_nonce_b64,
+        server_proof,
     };
 
-    json_session_response(response_body, &validated_session)
+    json_session_response(response_body, &validated_session, "/session")
 }
 
 async fn handle_post_messages(
     State(app_state): State<AppState>,
+    uri: Uri,
     headers: axum::http::HeaderMap,
     body: String,
 ) -> Response {
     let settings = get_settings(&app_state.app_handle);
-    let validated_session = match validate_session_request(&app_state, &headers, &settings).await {
+    let route_label = request_route_label(&uri);
+    let validated_session = match validate_session_request(
+        &app_state,
+        &headers,
+        &settings,
+        &route_label,
+        body.as_bytes(),
+    )
+    .await
+    {
         Ok(session) => session,
         Err(response) => return response,
     };
@@ -1320,19 +1398,23 @@ async fn handle_post_messages(
             "protocolVersion": CONNECTOR_PROTOCOL_VERSION
         }),
         &validated_session,
+        &route_label,
     )
 }
 
 async fn handle_get_blob(
     State(app_state): State<AppState>,
     Path(att_id): Path<String>,
+    uri: Uri,
     headers: axum::http::HeaderMap,
 ) -> Response {
     let settings = get_settings(&app_state.app_handle);
-    let validated_session = match validate_session_request(&app_state, &headers, &settings).await {
-        Ok(session) => session,
-        Err(response) => return response,
-    };
+    let route_label = request_route_label(&uri);
+    let validated_session =
+        match validate_session_request(&app_state, &headers, &settings, &route_label, &[]).await {
+            Ok(session) => session,
+            Err(response) => return response,
+        };
 
     let blob_data = {
         let mut state_guard = app_state.state.lock().unwrap();
@@ -1342,19 +1424,44 @@ async fn handle_get_blob(
     };
 
     match blob_data {
-        Some(blob) => with_session_headers(
-            apply_security_headers(
-            Response::builder()
-                .status(StatusCode::OK)
-                .header(header::CONTENT_TYPE, blob.mime_type)
-                .body(Body::from(blob.data))
-                .unwrap(),
-            ),
+        Some(blob) if settings.connector_encryption_enabled => {
+            match validated_session.crypto.encrypt_payload(&blob.data) {
+                Ok(encrypted_bytes) => session_bytes_response(
+                    StatusCode::OK,
+                    "application/octet-stream",
+                    encrypted_bytes,
+                    &validated_session,
+                    &route_label,
+                    true,
+                ),
+                Err(err) => {
+                    error!("Failed to encrypt connector blob response: {}", err);
+                    session_bytes_response(
+                        StatusCode::OK,
+                        &blob.mime_type,
+                        blob.data,
+                        &validated_session,
+                        &route_label,
+                        false,
+                    )
+                }
+            }
+        }
+        Some(blob) => session_bytes_response(
+            StatusCode::OK,
+            &blob.mime_type,
+            blob.data,
             &validated_session,
+            &route_label,
+            false,
         ),
-        None => with_session_headers(
-            apply_security_headers((StatusCode::NOT_FOUND, "Blob not found").into_response()),
+        None => session_bytes_response(
+            StatusCode::NOT_FOUND,
+            "text/plain; charset=utf-8",
+            b"Blob not found".to_vec(),
             &validated_session,
+            &route_label,
+            false,
         ),
     }
 }
@@ -1515,17 +1622,34 @@ fn validate_origin_header(
     }
 }
 
-async fn authenticate_request(
+async fn authenticate_session_handshake(
     app_state: &AppState,
-    headers: &axum::http::HeaderMap,
     settings: &crate::settings::AppSettings,
+    request: &SessionCreateRequest,
 ) -> Result<AuthMatch, Response> {
+    let now = now_ms();
+    if request.timestamp < now - SESSION_CLOCK_SKEW_MS
+        || request.timestamp > now + SESSION_CLOCK_SKEW_MS
+    {
+        return Err(error_response(
+            StatusCode::PRECONDITION_FAILED,
+            "Handshake timestamp is outside the allowed window",
+        ));
+    }
+
     let pending_password = active_pending_password(&app_state.app_handle, settings);
-    if let Some(auth_match) = validate_auth_header(
-        headers,
-        &settings.connector_password,
-        pending_password.as_deref(),
-    ) {
+    let auth_match = if verify_handshake_client_proof(&settings.connector_password, request) {
+        Some(AuthMatch::CurrentPassword)
+    } else if pending_password
+        .as_deref()
+        .is_some_and(|password| verify_handshake_client_proof(password, request))
+    {
+        Some(AuthMatch::PendingPassword)
+    } else {
+        None
+    };
+
+    if let Some(auth_match) = auth_match {
         reset_auth_backoff(app_state);
         return Ok(auth_match);
     }
@@ -1540,6 +1664,8 @@ async fn validate_session_request(
     app_state: &AppState,
     headers: &axum::http::HeaderMap,
     settings: &crate::settings::AppSettings,
+    route_label: &str,
+    body: &[u8],
 ) -> Result<ValidatedSession, Response> {
     validate_protocol_header(headers)?;
     let cors_policy = match parse_cors_policy(
@@ -1550,11 +1676,10 @@ async fn validate_session_request(
         Err(err) => return Err(error_response(StatusCode::FORBIDDEN, &err)),
     };
     let origin = validate_origin_header(headers, &cors_policy)?;
-    let auth_match = authenticate_request(app_state, headers, settings).await?;
-
     let session_id = required_string_header(headers, HEADER_SESSION_ID, "session id")?;
     let client_sequence = required_u64_header(headers, HEADER_CLIENT_SEQUENCE, "sequence")?;
     let client_timestamp = required_i64_header(headers, HEADER_CLIENT_TIMESTAMP, "timestamp")?;
+    let request_mac = required_string_header(headers, HEADER_REQUEST_MAC, "request mac")?;
     let now = now_ms();
     if client_timestamp < now - SESSION_CLOCK_SKEW_MS
         || client_timestamp > now + SESSION_CLOCK_SKEW_MS
@@ -1579,10 +1704,17 @@ async fn validate_session_request(
             "Session origin does not match request origin",
         ));
     }
-    if session.auth_match != auth_match {
+    if !verify_request_mac(
+        &session.crypto.mac_key,
+        route_label,
+        client_sequence,
+        client_timestamp,
+        body,
+        &request_mac,
+    ) {
         return Err(error_response(
             StatusCode::UNAUTHORIZED,
-            "Session credentials do not match the authenticated secret",
+            "Session request authentication failed",
         ));
     }
     if client_sequence != session.next_client_sequence {
@@ -1599,35 +1731,10 @@ async fn validate_session_request(
 
     Ok(ValidatedSession {
         id: session_id,
-        auth_match,
+        crypto: session.crypto.clone(),
         server_sequence,
         expires_at: session.expires_at,
     })
-}
-
-fn validate_auth_header(
-    headers: &axum::http::HeaderMap,
-    expected: &str,
-    pending: Option<&str>,
-) -> Option<AuthMatch> {
-    if expected.is_empty() {
-        return None;
-    }
-    if let Some(auth) = headers.get(header::AUTHORIZATION) {
-        if let Ok(val) = auth.to_str() {
-            if let Some(token) = val.strip_prefix("Bearer ") {
-                if constant_time_eq(token.as_bytes(), expected.as_bytes()) {
-                    return Some(AuthMatch::CurrentPassword);
-                }
-                if let Some(p) = pending {
-                    if constant_time_eq(token.as_bytes(), p.as_bytes()) {
-                        return Some(AuthMatch::PendingPassword);
-                    }
-                }
-            }
-        }
-    }
-    None
 }
 
 fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
@@ -1654,12 +1761,17 @@ fn uuid_simple() -> String {
     format!("{:032x}", ts)
 }
 
-fn generate_random_hex(byte_len: usize) -> Option<String> {
+fn generate_random_bytes(byte_len: usize) -> Option<Vec<u8>> {
     let mut bytes = vec![0u8; byte_len];
     if let Err(err) = getrandom::getrandom(&mut bytes) {
         error!("Failed to generate secure random bytes from OS CSPRNG: {}", err);
         return None;
     }
+    Some(bytes)
+}
+
+fn generate_random_hex(byte_len: usize) -> Option<String> {
+    let bytes = generate_random_bytes(byte_len)?;
 
     let mut result = String::with_capacity(byte_len * 2);
     for byte in bytes {
@@ -1803,20 +1915,220 @@ fn is_probably_autogenerated_password(password: &str) -> bool {
             .all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
 }
 
-fn build_crypto_state(current_password: &str, pending_password: Option<&str>) -> CryptoState {
-    CryptoState {
-        current: if current_password.is_empty() {
-            None
-        } else {
-            Some(CachedCrypto::new(current_password))
-        },
-        pending: pending_password.and_then(|pending| {
-            if pending.is_empty() {
-                None
-            } else {
-                Some(CachedCrypto::new(pending))
-            }
-        }),
+fn derive_password_auth_key(password: &str) -> [u8; 32] {
+    let mut hasher = Sha256::new();
+    hasher.update(CONNECTOR_PASSWORD_AUTH_CONTEXT);
+    hasher.update(password.as_bytes());
+    let digest = hasher.finalize();
+    let mut key = [0u8; 32];
+    key.copy_from_slice(&digest);
+    key
+}
+
+fn build_handshake_client_proof_payload(request: &SessionCreateRequest) -> Vec<u8> {
+    format!(
+        "aivorelay-v3-client-hello\n{}\n{}\n{}\n{}\n{}",
+        CONNECTOR_PROTOCOL_VERSION,
+        request.timestamp,
+        request.client_nonce.trim(),
+        request.client_public_key.trim(),
+        "session"
+    )
+    .into_bytes()
+}
+
+fn build_handshake_server_proof_payload(
+    session_id: &str,
+    expires_at: i64,
+    encryption_enabled: bool,
+    client_public_key: &str,
+    server_public_key: &str,
+    client_nonce: &str,
+    server_nonce: &str,
+) -> Vec<u8> {
+    format!(
+        "aivorelay-v3-server-hello\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}",
+        CONNECTOR_PROTOCOL_VERSION,
+        session_id,
+        expires_at,
+        if encryption_enabled { 1 } else { 0 },
+        client_nonce.trim(),
+        server_nonce.trim(),
+        client_public_key.trim(),
+        server_public_key.trim()
+    )
+    .into_bytes()
+}
+
+fn compute_hmac_bytes(key: &[u8], payload: &[u8]) -> Result<Vec<u8>, String> {
+    let mut mac = <HmacSha256 as Mac>::new_from_slice(key)
+        .map_err(|e| format!("Failed to initialize HMAC state: {}", e))?;
+    mac.update(payload);
+    Ok(mac.finalize().into_bytes().to_vec())
+}
+
+fn verify_handshake_client_proof(password: &str, request: &SessionCreateRequest) -> bool {
+    let proof_bytes = match STANDARD.decode(request.client_proof.trim()) {
+        Ok(bytes) => bytes,
+        Err(_) => return false,
+    };
+    let auth_key = derive_password_auth_key(password);
+    let payload = build_handshake_client_proof_payload(request);
+    match compute_hmac_bytes(&auth_key, &payload) {
+        Ok(expected) => constant_time_eq(&proof_bytes, &expected),
+        Err(_) => false,
+    }
+}
+
+fn sign_handshake_server_proof(
+    auth_key: &[u8; 32],
+    session_id: &str,
+    expires_at: i64,
+    encryption_enabled: bool,
+    client_public_key: &str,
+    server_public_key: &str,
+    client_nonce: &str,
+    server_nonce: &str,
+) -> Result<String, String> {
+    let payload = build_handshake_server_proof_payload(
+        session_id,
+        expires_at,
+        encryption_enabled,
+        client_public_key,
+        server_public_key,
+        client_nonce,
+        server_nonce,
+    );
+    Ok(STANDARD.encode(compute_hmac_bytes(auth_key, &payload)?))
+}
+
+fn build_handshake_transcript_hash(
+    session_id: &str,
+    client_public_key: &[u8],
+    server_public_key: &[u8],
+    client_nonce: &[u8],
+    server_nonce: &[u8],
+) -> [u8; 32] {
+    let mut hasher = Sha256::new();
+    hasher.update(b"aivorelay-v3-transcript");
+    hasher.update(session_id.as_bytes());
+    hasher.update(client_public_key);
+    hasher.update(server_public_key);
+    hasher.update(client_nonce);
+    hasher.update(server_nonce);
+    let digest = hasher.finalize();
+    let mut result = [0u8; 32];
+    result.copy_from_slice(&digest);
+    result
+}
+
+fn derive_session_key(
+    shared_secret: &[u8],
+    auth_key: &[u8; 32],
+    context: &[u8],
+    transcript_hash: &[u8; 32],
+) -> Result<[u8; 32], String> {
+    let hk = Hkdf::<Sha256>::new(Some(auth_key), shared_secret);
+    let mut info = Vec::with_capacity(context.len() + transcript_hash.len());
+    info.extend_from_slice(context);
+    info.extend_from_slice(transcript_hash);
+    let mut output = [0u8; 32];
+    hk.expand(&info, &mut output)
+        .map_err(|_| "Failed to derive connector session key".to_string())?;
+    Ok(output)
+}
+
+fn derive_session_crypto(
+    shared_secret: &[u8],
+    auth_key: &[u8; 32],
+    transcript_hash: &[u8; 32],
+) -> Result<SessionCrypto, String> {
+    let enc_key = derive_session_key(
+        shared_secret,
+        auth_key,
+        CONNECTOR_SESSION_ENC_CONTEXT,
+        transcript_hash,
+    )?;
+    let mac_key = derive_session_key(
+        shared_secret,
+        auth_key,
+        CONNECTOR_SESSION_MAC_CONTEXT,
+        transcript_hash,
+    )?;
+    Ok(SessionCrypto::new(enc_key, mac_key))
+}
+
+fn decode_base64_field(raw_value: &str, label: &str) -> Result<Vec<u8>, Response> {
+    let trimmed = raw_value.trim();
+    if trimmed.is_empty() {
+        return Err(error_response(
+            StatusCode::BAD_REQUEST,
+            &format!("Missing {}", label),
+        ));
+    }
+    STANDARD
+        .decode(trimmed)
+        .map_err(|_| error_response(StatusCode::BAD_REQUEST, &format!("Malformed {}", label)))
+}
+
+fn request_route_label(uri: &Uri) -> String {
+    uri.path_and_query()
+        .map(|value| value.as_str().to_string())
+        .unwrap_or_else(|| uri.path().to_string())
+}
+
+fn hash_body_base64(body: &[u8]) -> String {
+    let digest = Sha256::digest(body);
+    STANDARD.encode(digest)
+}
+
+fn build_request_mac_payload(route_label: &str, sequence: u64, timestamp: i64, body: &[u8]) -> Vec<u8> {
+    format!(
+        "aivorelay-v3-request\n{}\n{}\n{}\n{}",
+        route_label,
+        sequence,
+        timestamp,
+        hash_body_base64(body)
+    )
+    .into_bytes()
+}
+
+fn build_response_mac_payload(
+    route_label: &str,
+    status: StatusCode,
+    server_sequence: u64,
+    expires_at: i64,
+    encrypted: bool,
+    body: &[u8],
+) -> Vec<u8> {
+    format!(
+        "aivorelay-v3-response\n{}\n{}\n{}\n{}\n{}\n{}",
+        route_label,
+        status.as_u16(),
+        server_sequence,
+        expires_at,
+        if encrypted { 1 } else { 0 },
+        hash_body_base64(body)
+    )
+    .into_bytes()
+}
+
+fn verify_request_mac(
+    mac_key: &[u8; 32],
+    route_label: &str,
+    sequence: u64,
+    timestamp: i64,
+    body: &[u8],
+    provided_mac: &str,
+) -> bool {
+    let provided = match STANDARD.decode(provided_mac.trim()) {
+        Ok(bytes) => bytes,
+        Err(_) => return false,
+    };
+    let payload = build_request_mac_payload(route_label, sequence, timestamp, body);
+    match compute_hmac_bytes(mac_key, &payload) {
+        Ok(expected) => constant_time_eq(&provided, &expected),
+        Err(_) => false,
     }
 }
 
@@ -1950,7 +2262,7 @@ fn apply_security_headers(mut response: Response) -> Response {
     );
     headers.insert(
         header::HeaderName::from_static(HEADER_PROTOCOL_VERSION),
-        HeaderValue::from_static("2"),
+        HeaderValue::from_static("3"),
     );
     headers.insert(
         header::HeaderName::from_static("x-content-type-options"),
@@ -1959,17 +2271,25 @@ fn apply_security_headers(mut response: Response) -> Response {
     response
 }
 
-fn json_response<T: Serialize>(payload: T) -> Response {
-    apply_security_headers(Json(payload).into_response())
-}
+fn session_bytes_response(
+    status: StatusCode,
+    content_type: &str,
+    body: Vec<u8>,
+    session: &ValidatedSession,
+    route_label: &str,
+    encrypted: bool,
+) -> Response {
+    let mut response = apply_security_headers(
+        Response::builder()
+            .status(status)
+            .header(header::CONTENT_TYPE, content_type)
+            .body(Body::from(body.clone()))
+            .unwrap(),
+    );
 
-fn with_session_headers(mut response: Response, session: &ValidatedSession) -> Response {
     let headers = response.headers_mut();
     if let Ok(session_id) = HeaderValue::from_str(&session.id) {
-        headers.insert(
-            header::HeaderName::from_static(HEADER_SESSION_ID),
-            session_id,
-        );
+        headers.insert(header::HeaderName::from_static(HEADER_SESSION_ID), session_id);
     }
     if let Ok(server_sequence) = HeaderValue::from_str(&session.server_sequence.to_string()) {
         headers.insert(
@@ -1983,9 +2303,56 @@ fn with_session_headers(mut response: Response, session: &ValidatedSession) -> R
             expires_at,
         );
     }
+    headers.insert(
+        header::HeaderName::from_static(HEADER_PAYLOAD_ENCRYPTED),
+        if encrypted {
+            HeaderValue::from_static("1")
+        } else {
+            HeaderValue::from_static("0")
+        },
+    );
+    let response_mac = compute_hmac_bytes(
+        &session.crypto.mac_key,
+        &build_response_mac_payload(
+            route_label,
+            status,
+            session.server_sequence,
+            session.expires_at,
+            encrypted,
+            &body,
+        ),
+    );
+    if let Ok(response_mac) = response_mac {
+        if let Ok(response_mac_value) = HeaderValue::from_str(&STANDARD.encode(response_mac)) {
+            headers.insert(
+                header::HeaderName::from_static(HEADER_RESPONSE_MAC),
+                response_mac_value,
+            );
+        }
+    }
     response
 }
 
-fn json_session_response<T: Serialize>(payload: T, session: &ValidatedSession) -> Response {
-    with_session_headers(json_response(payload), session)
+fn json_session_response<T: Serialize>(
+    payload: T,
+    session: &ValidatedSession,
+    route_label: &str,
+) -> Response {
+    match serde_json::to_vec(&payload) {
+        Ok(bytes) => session_bytes_response(
+            StatusCode::OK,
+            "application/json",
+            bytes,
+            session,
+            route_label,
+            false,
+        ),
+        Err(err) => {
+            error!("Failed to serialize connector session JSON response: {}", err);
+            error_response(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Failed to serialize connector response",
+            )
+        }
+    }
 }
