@@ -1998,6 +1998,10 @@ Example inputs and outputs:
 
 /// Default connector password - used for initial mutual authentication
 pub fn default_connector_password() -> String {
+    // This hardcoded bootstrap password is only an onboarding fallback, not the
+    // steady-state connector secret. The app rotates away from it or replaces it
+    // during pairing/export, so its presence in source is not relied on as a
+    // long-term security boundary.
     "fklejqwhfiu342lhk3".to_string()
 }
 
