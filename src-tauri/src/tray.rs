@@ -28,6 +28,8 @@ impl Default for ManagedTrayState {
 pub const TRAY_MICROPHONE_MENU_PREFIX: &str = "tray_microphone::";
 pub const TRAY_MICROPHONE_DEFAULT_ID: &str = "tray_microphone::default";
 const TRAY_MICROPHONE_MISSING_ID: &str = "tray_microphone::missing";
+const TRAY_MICROPHONE_HEADER_ID: &str = "tray_microphone_header";
+const TRAY_MICROPHONE_HEADER_LABEL: &str = "Microphone";
 const TRAY_MICROPHONE_DEFAULT_LABEL: &str = "Default";
 const TRAY_MICROPHONE_UNAVAILABLE_PREFIX: &str = "Unavailable: ";
 
@@ -253,6 +255,15 @@ fn append_microphone_items(
     app: &AppHandle,
     selected_microphone: Option<&str>,
 ) -> Result<(), Box<dyn std::error::Error>> {
+    let header_item = MenuItem::with_id(
+        app,
+        TRAY_MICROPHONE_HEADER_ID,
+        TRAY_MICROPHONE_HEADER_LABEL,
+        false,
+        None::<&str>,
+    )?;
+    menu.append(&header_item)?;
+
     let available_microphones = match audio::get_available_microphones() {
         Ok(devices) => devices,
         Err(err) => {

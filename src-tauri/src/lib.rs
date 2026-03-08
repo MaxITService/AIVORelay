@@ -251,12 +251,18 @@ fn initialize_core_logic(app_handle: &AppHandle) {
         .show_menu_on_left_click(false)
         .icon_as_template(true)
         .on_tray_icon_event(|tray, event| {
-            if let tauri::tray::TrayIconEvent::DoubleClick {
-                button: tauri::tray::MouseButton::Left,
-                ..
-            } = event
-            {
-                show_main_window(tray.app_handle());
+            match event {
+                tauri::tray::TrayIconEvent::Click { .. } => {
+                    tray::refresh_tray_menu(tray.app_handle(), None);
+                }
+                tauri::tray::TrayIconEvent::DoubleClick {
+                    button: tauri::tray::MouseButton::Left,
+                    ..
+                } => {
+                    tray::refresh_tray_menu(tray.app_handle(), None);
+                    show_main_window(tray.app_handle());
+                }
+                _ => {}
             }
         })
         .on_menu_event(|app, event| {
