@@ -11,7 +11,7 @@ Files that are added by this fork rather than upstream files that were modified.
 | File | Purpose |
 | --- | --- |
 | `src-tauri/src/managers/connector.rs` | Main connector HTTP server. |
-| `src-tauri/src/commands/connector.rs` | Commands: status, queue, cancel. |
+| `src-tauri/src/commands/connector.rs` | Commands: status, queue, cancel, bundled extension export. |
 | `src-tauri/src/managers/remote_stt.rs` | Remote STT manager (OpenAI/Soniox). |
 | `src-tauri/src/commands/remote_stt.rs` | Commands for remote STT & keys. |
 | `src-tauri/src/managers/deepgram_stt.rs` | Deepgram non-live/live-finalize transcription manager. |
@@ -63,6 +63,7 @@ Files that are added by this fork rather than upstream files that were modified.
 | --- | --- |
 | `build-local.ps1` | Local rebuild script (Windows). |
 | `build-unsigned.js` | Unsigned build Node.js script. |
+| `.AGENTS/rebuild-browser-connector-bundle.ps1` | Rebuilds the tracked bundled browser-extension zip from the sibling `AIVORelay-relay` repo. |
 
 ## Fork-Differing Existing Files
 
@@ -144,3 +145,11 @@ Files that are added by this fork rather than upstream files that were modified.
 | `src-tauri/src/commands/models.rs` | Defines `get_active_gpu_vram_status`. |
 | `src/components/footer/VramMeter.tsx` | Frontend VRAM meter UI. |
 | `src/components/footer/Footer.tsx` | Footer integration for VRAM meter. |
+
+## Browser Connector Bundle
+
+- The desktop app now ships a tracked browser-extension archive at `src-tauri/resources/browser-connector/aivorelay-extension.zip`.
+- This zip is a normal bundled resource so GitHub Actions can include it without needing the sibling `AIVORelay-relay` repo at build time.
+- The connector settings page can export this zip into an unpacked folder for `chrome://extensions -> Load unpacked`.
+- To refresh the bundled zip after changing the extension repo, run `.AGENTS/rebuild-browser-connector-bundle.ps1` locally.
+- The script copies only the runtime extension files from the sibling `AIVORelay-relay` repo and excludes `.git`, docs, demos, and other non-runtime files.

@@ -635,6 +635,7 @@ pub fn run() {
         commands::connector::connector_stop_server,
         commands::connector::connector_queue_message,
         commands::connector::connector_cancel_message,
+        commands::connector::connector_export_bundled_extension,
         commands::region_capture::region_capture_get_data,
         commands::region_capture::region_capture_confirm,
         commands::region_capture::region_capture_cancel,

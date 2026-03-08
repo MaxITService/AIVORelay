@@ -2354,6 +2354,17 @@ async connectorCancelMessage(messageId: string) : Promise<Result<boolean, string
 }
 },
 /**
+ * Export the bundled browser connector extension zip into a folder selected by the user.
+ */
+async connectorExportBundledExtension(destinationDir: string) : Promise<Result<string, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("connector_export_bundled_extension", { destinationDir }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
  * Called from the overlay to get screenshot data when ready.
  */
 async regionCaptureGetData() : Promise<Result<RegionCaptureData, string>> {

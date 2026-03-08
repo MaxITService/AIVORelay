@@ -1679,15 +1679,22 @@
         "intro": "The AivoRelay Connector Chrome extension connects this desktop app to AI chat tabs in your browser.",
         "getExtension": {
           "title": "Get the Extension:",
-          "step1": "Download from GitHub: <link>AivoRelay Connector</link>",
-          "step2": "Or clone the repository to your computer"
+          "step1": "Browse the source on GitHub: <link>AivoRelay Connector</link>",
+          "step2": "Use the export button below for a ready-to-load folder, or download the GitHub zip and extract it yourself.",
+          "actions": {
+            "export": "Export Browser Extension",
+            "exporting": "Exporting...",
+            "download": "Download from GitHub",
+            "selectFolderTitle": "Choose where to export the browser extension",
+            "exportSuccess": "Browser extension exported to {{path}}"
+          }
         },
         "install": {
           "title": "Install in Chrome/Edge:",
           "step1": "Open <code>chrome://extensions</code> in your browser",
           "step2": "Enable \"Developer mode\" (toggle in the top right)",
           "step3": "Click \"Load unpacked\" button",
-          "step4": "Select the folder where you downloaded/extracted the extension"
+          "step4": "Select the exported or extracted extension folder"
         },
         "setup": {
           "title": "Connect to AivoRelay:",

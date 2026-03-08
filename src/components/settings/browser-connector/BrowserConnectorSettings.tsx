@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { useTranslation, Trans } from "react-i18next";
 import { Globe, Info, ExternalLink, Eye, EyeOff, Copy, AlertTriangle, Download } from "lucide-react";
+import { open } from "@tauri-apps/plugin-dialog";
 import { TellMeMore } from "../../ui/TellMeMore";
 import { commands } from "@/bindings";
 import { useSettings } from "../../../hooks/useSettings";
@@ -26,6 +27,8 @@ const AUTO_OPEN_SITES = [
 
 const MIN_CONNECTOR_PASSWORD_LEN = 64;
 const LEGACY_CONNECTOR_PASSWORD = "fklejqwhfiu342lhk3";
+const EXTENSION_REPO_URL = "https://github.com/MaxITService/AIVORelay-relay";
+const EXTENSION_DOWNLOAD_URL = "https://github.com/MaxITService/AIVORelay-relay/archive/refs/heads/main.zip";
 
 const isAllowedConnectorPassword = (value: string) => {
   const trimmed = value.trim();
@@ -50,6 +53,11 @@ export const BrowserConnectorSettings: React.FC = () => {
   const [corsInput, setCorsInput] = useState(normalizeCorsValue(settings?.connector_cors));
   const [showPassword, setShowPassword] = useState(false);
   const [showCopiedTooltip, setShowCopiedTooltip] = useState(false);
+  const [isExportingExtension, setIsExportingExtension] = useState(false);
+  const [extensionExportStatus, setExtensionExportStatus] = useState<{
+    type: "success" | "error";
+    message: string;
+  } | null>(null);
 
   // Warning modal states for risky features
   const [showEnableWarning, setShowEnableWarning] = useState<
@@ -209,6 +217,44 @@ export const BrowserConnectorSettings: React.FC = () => {
     void updateSetting("connector_allow_any_cors", enabled);
   };
 
+  const handleExportExtension = async () => {
+    setExtensionExportStatus(null);
+
+    const selectedDirectory = await open({
+      directory: true,
+      multiple: false,
+      title: t("settings.browserConnector.tellMeMore.getExtension.actions.selectFolderTitle"),
+    });
+
+    if (typeof selectedDirectory !== "string" || selectedDirectory.trim().length === 0) {
+      return;
+    }
+
+    setIsExportingExtension(true);
+
+    try {
+      const result = await commands.connectorExportBundledExtension(selectedDirectory);
+      if (result.status === "error") {
+        setExtensionExportStatus({ type: "error", message: result.error });
+        return;
+      }
+
+      setExtensionExportStatus({
+        type: "success",
+        message: t("settings.browserConnector.tellMeMore.getExtension.actions.exportSuccess", {
+          path: result.data,
+        }),
+      });
+    } catch (error) {
+      setExtensionExportStatus({
+        type: "error",
+        message: String(error),
+      });
+    } finally {
+      setIsExportingExtension(false);
+    }
+  };
+
   const handleEnabledChange = (enabled: boolean) => {
     void updateSetting("connector_enabled", enabled);
   };
@@ -327,8 +373,8 @@ export const BrowserConnectorSettings: React.FC = () => {
                 i18nKey="settings.browserConnector.help.description"
                 components={{
                   link: (
-                    <a
-                      href="https://github.com/MaxITService/AIVORelay-relay"
+                      <a
+                      href={EXTENSION_REPO_URL}
                       target="_blank"
                       rel="noopener noreferrer"
                       className="text-purple-400 hover:underline inline-flex items-center gap-1"
@@ -377,7 +423,7 @@ export const BrowserConnectorSettings: React.FC = () => {
                   components={{
                     link: (
                       <a
-                        href="https://github.com/MaxITService/AIVORelay-relay"
+                        href={EXTENSION_REPO_URL}
                         target="_blank"
                         rel="noopener noreferrer"
                         className="text-purple-400 hover:underline inline-flex items-center gap-1"
@@ -390,6 +436,39 @@ export const BrowserConnectorSettings: React.FC = () => {
               </li>
               <li>{t("settings.browserConnector.tellMeMore.getExtension.step2")}</li>
             </ul>
+            <div className="flex flex-wrap gap-3 pt-2">
+              <button
+                type="button"
+                onClick={() => void handleExportExtension()}
+                disabled={isExportingExtension}
+                className="inline-flex items-center gap-2 rounded-md border border-purple-500/40 bg-purple-500/15 px-3 py-2 text-sm font-medium text-purple-100 transition-colors hover:bg-purple-500/25 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                <Download className="w-4 h-4" />
+                {isExportingExtension
+                  ? t("settings.browserConnector.tellMeMore.getExtension.actions.exporting")
+                  : t("settings.browserConnector.tellMeMore.getExtension.actions.export")}
+              </button>
+              <a
+                href={EXTENSION_DOWNLOAD_URL}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-2 rounded-md border border-white/10 bg-mid-gray/15 px-3 py-2 text-sm font-medium text-text/90 transition-colors hover:bg-mid-gray/25"
+              >
+                <ExternalLink className="w-4 h-4" />
+                {t("settings.browserConnector.tellMeMore.getExtension.actions.download")}
+              </a>
+            </div>
+            {extensionExportStatus && (
+              <div
+                className={`rounded-md border px-3 py-2 text-sm ${
+                  extensionExportStatus.type === "success"
+                    ? "border-green-500/30 bg-green-500/10 text-green-100"
+                    : "border-red-500/30 bg-red-500/10 text-red-200"
+                }`}
+              >
+                {extensionExportStatus.message}
+              </div>
+            )}
           </div>
 
           {/* Step 2: Install in Chrome */}
