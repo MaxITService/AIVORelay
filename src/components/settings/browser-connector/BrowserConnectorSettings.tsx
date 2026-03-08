@@ -3,6 +3,7 @@ import { useTranslation, Trans } from "react-i18next";
 import { Globe, Info, ExternalLink, Eye, EyeOff, Copy, AlertTriangle, Download, RefreshCw } from "lucide-react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { listen } from "@tauri-apps/api/event";
+import { downloadDir } from "@tauri-apps/api/path";
 import { TellMeMore } from "../../ui/TellMeMore";
 import { commands, type ConnectorStatus } from "@/bindings";
 import { useSettings } from "../../../hooks/useSettings";
@@ -30,6 +31,7 @@ const MIN_CONNECTOR_PASSWORD_LEN = 64;
 const LEGACY_CONNECTOR_PASSWORD = "fklejqwhfiu342lhk3";
 const EXTENSION_REPO_URL = "https://github.com/MaxITService/AIVORelay-relay";
 const EXTENSION_DOWNLOAD_URL = "https://github.com/MaxITService/AIVORelay-relay/archive/refs/heads/main.zip";
+const EXPORT_PATH_STORAGE_KEY = "aivorelay.connectorExportPath";
 
 const isAllowedConnectorPassword = (value: string) => {
   const trimmed = value.trim();
@@ -55,6 +57,7 @@ export const BrowserConnectorSettings: React.FC = () => {
   const [showPassword, setShowPassword] = useState(false);
   const [showCopiedTooltip, setShowCopiedTooltip] = useState(false);
   const [isExportingExtension, setIsExportingExtension] = useState(false);
+  const [exportPathInput, setExportPathInput] = useState("");
   const [extensionExportStatus, setExtensionExportStatus] = useState<{
     type: "success" | "error";
     message: string;
@@ -116,6 +119,39 @@ export const BrowserConnectorSettings: React.FC = () => {
   useEffect(() => {
     setCorsInput(normalizeCorsValue(settings?.connector_cors));
   }, [settings?.connector_cors]);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    const initializeExportPath = async () => {
+      try {
+        const storedPath = window.localStorage.getItem(EXPORT_PATH_STORAGE_KEY);
+        if (storedPath) {
+          if (isMounted) {
+            setExportPathInput(storedPath);
+          }
+          return;
+        }
+      } catch {
+        // Ignore localStorage access issues.
+      }
+
+      try {
+        const downloadsPath = await downloadDir();
+        if (isMounted && downloadsPath) {
+          setExportPathInput(downloadsPath);
+        }
+      } catch {
+        // Ignore path resolution issues and keep the field empty.
+      }
+    };
+
+    void initializeExportPath();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
   useEffect(() => {
     let isMounted = true;
@@ -258,9 +294,7 @@ export const BrowserConnectorSettings: React.FC = () => {
     void updateSetting("connector_allow_any_cors", enabled);
   };
 
-  const handleExportExtension = async () => {
-    setExtensionExportStatus(null);
-
+  const handleBrowseExportPath = async () => {
     const selectedDirectory = await open({
       directory: true,
       multiple: false,
@@ -268,13 +302,35 @@ export const BrowserConnectorSettings: React.FC = () => {
     });
 
     if (typeof selectedDirectory !== "string" || selectedDirectory.trim().length === 0) {
-      return;
+      return null;
+    }
+
+    setExportPathInput(selectedDirectory);
+    try {
+      window.localStorage.setItem(EXPORT_PATH_STORAGE_KEY, selectedDirectory);
+    } catch {
+      // Ignore localStorage access issues.
+    }
+
+    return selectedDirectory;
+  };
+
+  const handleExportExtension = async () => {
+    setExtensionExportStatus(null);
+
+    let targetDirectory = exportPathInput.trim();
+    if (!targetDirectory) {
+      const selectedDirectory = await handleBrowseExportPath();
+      if (typeof selectedDirectory !== "string" || selectedDirectory.trim().length === 0) {
+        return;
+      }
+      targetDirectory = selectedDirectory.trim();
     }
 
     setIsExportingExtension(true);
 
     try {
-      const result = await commands.connectorExportBundledExtension(selectedDirectory);
+      const result = await commands.connectorExportBundledExtension(targetDirectory);
       if (result.status === "error") {
         setExtensionExportStatus({ type: "error", message: result.error });
         return;
@@ -524,7 +580,32 @@ export const BrowserConnectorSettings: React.FC = () => {
               </li>
               <li>{t("settings.browserConnector.tellMeMore.getExtension.step2")}</li>
             </ul>
-            <div className="flex flex-wrap gap-3 pt-2">
+            <div className="space-y-3 pt-2">
+              <div className="space-y-1">
+                <p className="text-xs font-medium uppercase tracking-wide text-text/50">
+                  {t("settings.browserConnector.tellMeMore.getExtension.actions.pathLabel")}
+                </p>
+                <div className="flex flex-col gap-2 sm:flex-row">
+                  <Input
+                    type="text"
+                    value={exportPathInput}
+                    onChange={(event) => setExportPathInput(event.target.value)}
+                    placeholder={t("settings.browserConnector.tellMeMore.getExtension.actions.pathPlaceholder")}
+                    className="flex-1 font-mono text-sm"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => void handleBrowseExportPath()}
+                    className="inline-flex items-center justify-center gap-2 rounded-md border border-white/10 bg-mid-gray/15 px-3 py-2 text-sm font-medium text-text/90 transition-colors hover:bg-mid-gray/25"
+                  >
+                    {t("settings.browserConnector.tellMeMore.getExtension.actions.browse")}
+                  </button>
+                </div>
+                <p className="text-xs text-text/55">
+                  {t("settings.browserConnector.tellMeMore.getExtension.actions.pathHint")}
+                </p>
+              </div>
+              <div className="flex flex-wrap gap-3">
               <button
                 type="button"
                 onClick={() => void handleExportExtension()}
@@ -534,7 +615,7 @@ export const BrowserConnectorSettings: React.FC = () => {
                 <Download className="w-4 h-4" />
                 {isExportingExtension
                   ? t("settings.browserConnector.tellMeMore.getExtension.actions.exporting")
-                  : t("settings.browserConnector.tellMeMore.getExtension.actions.export")}
+                  : t("settings.browserConnector.tellMeMore.getExtension.actions.extractHere")}
               </button>
               <a
                 href={EXTENSION_DOWNLOAD_URL}
@@ -545,6 +626,7 @@ export const BrowserConnectorSettings: React.FC = () => {
                 <ExternalLink className="w-4 h-4" />
                 {t("settings.browserConnector.tellMeMore.getExtension.actions.download")}
               </a>
+              </div>
             </div>
             {extensionExportStatus && (
               <div

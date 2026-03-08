@@ -1683,8 +1683,13 @@
           "step2": "Use the export button below for a ready-to-load folder, or download the GitHub zip and extract it yourself.",
           "actions": {
             "export": "Export Browser Extension",
+            "extractHere": "Extract Here",
             "exporting": "Exporting...",
+            "browse": "Browse",
             "download": "Download from GitHub",
+            "pathLabel": "Export Path",
+            "pathPlaceholder": "C:\\Users\\You\\Downloads",
+            "pathHint": "Enter or choose the parent folder. AivoRelay will create the extension folder inside it.",
             "selectFolderTitle": "Choose where to export the browser extension",
             "exportSuccess": "Browser extension exported to {{path}}. Configured origin: {{origin}}. A new connector password was generated and applied."
           }
