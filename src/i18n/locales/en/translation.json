@@ -1810,7 +1810,7 @@
         },
         "encryption": {
           "title": "Message Encryption",
-          "description": "Encrypt traffic between AivoRelay and the browser extension using your connection password (AES-GCM). Requires extension support.",
+          "description": "Encrypt traffic between AivoRelay and the browser extension using your connection password (AES-GCM). Use extension in a secure environment. It is not recommended to disable encryption.",
           "label": "Enable Encryption"
         },
         "host": {
