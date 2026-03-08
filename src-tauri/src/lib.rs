@@ -149,7 +149,10 @@ fn initialize_core_logic(app_handle: &AppHandle) {
 
     let current_settings = settings::get_settings(app_handle);
     app_handle.manage(managers::microphone_auto_switch::ManagedManualMicrophoneSelection::new(
-        current_settings.selected_microphone.clone(),
+        current_settings
+            .last_manual_microphone
+            .clone()
+            .or(current_settings.selected_microphone.clone()),
     ));
     crate::plus_overlay_state::set_error_overlay_auto_hide_ms(
         current_settings.error_overlay_auto_hide_ms,

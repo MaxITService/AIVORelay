@@ -91,15 +91,14 @@ pub fn set_selected_microphone(app: AppHandle, device_name: String) -> Result<()
         Some(device_name.clone())
     };
     let changed = settings.selected_microphone != selected_microphone;
-    settings.selected_microphone = selected_microphone;
+    settings.selected_microphone = selected_microphone.clone();
+    if device_name != "default" {
+        settings.last_manual_microphone = selected_microphone.clone();
+    }
     write_settings(&app, settings);
     microphone_auto_switch::remember_manual_microphone_selection(
         &app,
-        if device_name == "default" {
-            None
-        } else {
-            Some(device_name.clone())
-        },
+        selected_microphone.clone(),
     );
 
     // Update the audio manager to use the new device

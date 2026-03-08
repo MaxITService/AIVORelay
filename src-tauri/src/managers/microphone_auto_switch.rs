@@ -95,6 +95,10 @@ fn refresh_active_microphone_stream(app: &AppHandle) {
 }
 
 pub fn remember_manual_microphone_selection(app: &AppHandle, selection: Option<String>) {
+    let Some(selection) = selection else {
+        return;
+    };
+
     let Some(last_manual_selection) = app.try_state::<ManagedManualMicrophoneSelection>() else {
         return;
     };
@@ -102,7 +106,7 @@ pub fn remember_manual_microphone_selection(app: &AppHandle, selection: Option<S
     let lock_result = last_manual_selection.0.lock();
     match lock_result {
         Ok(mut last_manual_selection) => {
-            *last_manual_selection = selection;
+            *last_manual_selection = Some(selection);
         }
         Err(err) => {
             warn!(
@@ -115,7 +119,10 @@ pub fn remember_manual_microphone_selection(app: &AppHandle, selection: Option<S
 
 fn last_manual_microphone_selection(app: &AppHandle) -> Option<String> {
     let Some(last_manual_selection) = app.try_state::<ManagedManualMicrophoneSelection>() else {
-        return get_settings(app).selected_microphone;
+        let settings = get_settings(app);
+        return settings
+            .last_manual_microphone
+            .or(settings.selected_microphone);
     };
 
     let selection = match last_manual_selection.0.lock() {
@@ -125,7 +132,8 @@ fn last_manual_microphone_selection(app: &AppHandle) -> Option<String> {
                 "Failed to lock manual microphone selection state while reading fallback: {}",
                 err
             );
-            get_settings(app).selected_microphone
+            let settings = get_settings(app);
+            settings.last_manual_microphone.or(settings.selected_microphone)
         }
     };
 
