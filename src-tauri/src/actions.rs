@@ -3124,10 +3124,7 @@ impl ShortcutAction for TranscribeAction {
                             let _ = crate::clipboard::end_streaming_paste_session(&ah);
                         }
                         if preview_output_only_enabled {
-                            crate::managers::preview_output_mode::set_error(
-                                &ah,
-                                Some(err_str.clone()),
-                            );
+                            close_preview_output_mode_workflow(&ah, true);
                         }
                         if binding_id == LIVE_SOUND_TRANSCRIPTION_BINDING_ID {
                             crate::managers::live_sound_transcription::set_error(
