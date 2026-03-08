@@ -1686,7 +1686,7 @@
             "exporting": "Exporting...",
             "download": "Download from GitHub",
             "selectFolderTitle": "Choose where to export the browser extension",
-            "exportSuccess": "Browser extension exported to {{path}}"
+            "exportSuccess": "Browser extension exported to {{path}}. Configured origin: {{origin}}. A new connector password was generated and applied."
           }
         },
         "install": {
@@ -1810,6 +1810,7 @@
           "label": "Enable Connector Server",
           "description": "Start the local HTTP server to communicate with the browser extension. The connector now requires one exact allowed origin before it can start. When OFF, the status shows \"Server OFF\" and all communication is disabled."
         },
+        "featureRequiresServer": "The Connector Server is currently OFF. Enable it below in Connection Settings near the bottom of this page, otherwise this feature will not work.",
         "cors": {
           "title": "Allowed CORS Origin",
           "description": "Used when \"Allow Any CORS Origin\" is disabled. Enter one exact origin like \"https://chatgpt.com\" or \"chrome-extension://<extension-id>\".",
@@ -1842,6 +1843,13 @@
           "description": "Password to authenticate the extension. Must match in both AivoRelay and the extension.",
           "errorEmpty": "Connection password cannot be empty.",
           "errorMinLength": "Connection password must be at least {{min}} characters long unless you are using the legacy bootstrap password.",
+          "rotate": {
+            "title": "Rotate Password Now",
+            "description": "Generate a new random password and push it to the currently connected extension. Offline extensions will not update automatically.",
+            "rotating": "Rotating Password...",
+            "success": "Password rotation completed. The connected extension acknowledged the new password.",
+            "offlineHint": "Password rotation is only available while the browser extension is online."
+          },
           "defaultWarning": {
             "title": "Security Warning: Default Password",
             "description": "You are currently using the default password. We highly recommend changing it to a unique one. Changing it here will automatically update the extension if it is currently connected. For maximum security, we recommend performing this change while offline to prevent other programs from intercepting the initial handshake."

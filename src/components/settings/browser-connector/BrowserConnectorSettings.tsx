@@ -1,9 +1,10 @@
 import React, { useEffect, useState } from "react";
 import { useTranslation, Trans } from "react-i18next";
-import { Globe, Info, ExternalLink, Eye, EyeOff, Copy, AlertTriangle, Download } from "lucide-react";
+import { Globe, Info, ExternalLink, Eye, EyeOff, Copy, AlertTriangle, Download, RefreshCw } from "lucide-react";
 import { open } from "@tauri-apps/plugin-dialog";
+import { listen } from "@tauri-apps/api/event";
 import { TellMeMore } from "../../ui/TellMeMore";
-import { commands } from "@/bindings";
+import { commands, type ConnectorStatus } from "@/bindings";
 import { useSettings } from "../../../hooks/useSettings";
 import { HandyShortcut } from "../HandyShortcut";
 import { Input } from "../../ui/Input";
@@ -58,6 +59,12 @@ export const BrowserConnectorSettings: React.FC = () => {
     type: "success" | "error";
     message: string;
   } | null>(null);
+  const [connectorStatus, setConnectorStatus] = useState<ConnectorStatus | null>(null);
+  const [isRotatingPassword, setIsRotatingPassword] = useState(false);
+  const [passwordRotationStatus, setPasswordRotationStatus] = useState<{
+    type: "success" | "error";
+    message: string;
+  } | null>(null);
 
   // Warning modal states for risky features
   const [showEnableWarning, setShowEnableWarning] = useState<
@@ -109,6 +116,40 @@ export const BrowserConnectorSettings: React.FC = () => {
   useEffect(() => {
     setCorsInput(normalizeCorsValue(settings?.connector_cors));
   }, [settings?.connector_cors]);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    const fetchConnectorStatus = async () => {
+      try {
+        const status = await commands.connectorGetStatus();
+        if (isMounted) {
+          setConnectorStatus(status);
+        }
+      } catch {
+        if (isMounted) {
+          setConnectorStatus(null);
+        }
+      }
+    };
+
+    void fetchConnectorStatus();
+    const interval = window.setInterval(fetchConnectorStatus, 5000);
+
+    const statusUnlisten = listen("extension-status-changed", () => {
+      void fetchConnectorStatus();
+    });
+    const errorUnlisten = listen("connector-server-error", () => {
+      void fetchConnectorStatus();
+    });
+
+    return () => {
+      isMounted = false;
+      window.clearInterval(interval);
+      void statusUnlisten.then((fn) => fn());
+      void errorUnlisten.then((fn) => fn());
+    };
+  }, []);
 
   // Screenshot settings sync with settings
   useEffect(() => {
@@ -239,10 +280,13 @@ export const BrowserConnectorSettings: React.FC = () => {
         return;
       }
 
+      await refreshSettings();
+
       setExtensionExportStatus({
         type: "success",
         message: t("settings.browserConnector.tellMeMore.getExtension.actions.exportSuccess", {
-          path: result.data,
+          path: result.data.exportPath,
+          origin: result.data.configuredOrigin,
         }),
       });
     } catch (error) {
@@ -269,8 +313,37 @@ export const BrowserConnectorSettings: React.FC = () => {
     setTimeout(() => setShowCopiedTooltip(false), 1500);
   };
 
+  const handleRotatePasswordNow = async () => {
+    setPasswordRotationStatus(null);
+    setIsRotatingPassword(true);
+
+    try {
+      const result = await commands.rotateConnectorPasswordNow();
+      if (result.status === "error") {
+        setPasswordRotationStatus({ type: "error", message: result.error });
+        return;
+      }
+
+      await refreshSettings();
+      const status = await commands.connectorGetStatus();
+      setConnectorStatus(status);
+      setPasswordRotationStatus({
+        type: "success",
+        message: t("settings.browserConnector.connection.password.rotate.success"),
+      });
+    } catch (error) {
+      setPasswordRotationStatus({
+        type: "error",
+        message: String(error),
+      });
+    } finally {
+      setIsRotatingPassword(false);
+    }
+  };
+
   // Check if using default password
   const isDefaultPassword = passwordInput.trim() === LEGACY_CONNECTOR_PASSWORD;
+  const isConnectorOnline = connectorStatus?.server_running === true && connectorStatus.status === "online";
 
   const handleAutoOpenEnabledChange = (enabled: boolean) => {
     void updateSetting("connector_auto_open_enabled", enabled);
@@ -354,6 +427,21 @@ export const BrowserConnectorSettings: React.FC = () => {
     },
   ];
 
+  const getEnableWarningMessage = () => {
+    if (!showEnableWarning) {
+      return "";
+    }
+
+    const baseMessage = t(
+      `settings.general.shortcut.bindings.${showEnableWarning}.enable.warning.message`
+    );
+
+    if (settings?.connector_enabled ?? false) {
+      return baseMessage;
+    }
+
+    return `${baseMessage} ${t("settings.browserConnector.connection.featureRequiresServer")}`;
+  };
 
   // Server always binds to 127.0.0.1 and serves /messages
   const endpointUrl = `http://127.0.0.1:${portInput}/messages`;
@@ -1141,6 +1229,38 @@ export const BrowserConnectorSettings: React.FC = () => {
               {passwordError}
             </div>
           )}
+          <div className="mt-2 flex items-center gap-2">
+            <button
+              type="button"
+              onClick={handleRotatePasswordNow}
+              disabled={!isConnectorOnline || isRotatingPassword}
+              className="inline-flex items-center gap-2 rounded-md border border-mid-gray/30 px-3 py-2 text-sm text-text/80 transition hover:bg-mid-gray/20 hover:text-text disabled:cursor-not-allowed disabled:opacity-50"
+              title={
+                isConnectorOnline
+                  ? t("settings.browserConnector.connection.password.rotate.title")
+                  : t("settings.browserConnector.connection.password.rotate.offlineHint")
+              }
+            >
+              <RefreshCw className={`w-4 h-4 ${isRotatingPassword ? "animate-spin" : ""}`} />
+              {isRotatingPassword
+                ? t("settings.browserConnector.connection.password.rotate.rotating")
+                : t("settings.browserConnector.connection.password.rotate.title")}
+            </button>
+            <span className="text-xs text-text/50">
+              {t("settings.browserConnector.connection.password.rotate.description")}
+            </span>
+          </div>
+          {passwordRotationStatus && (
+            <div
+              className={`mt-2 rounded-lg border p-3 text-sm ${
+                passwordRotationStatus.type === "success"
+                  ? "border-green-500/30 bg-green-500/10 text-green-200"
+                  : "border-red-500/30 bg-red-500/10 text-red-200"
+              }`}
+            >
+              {passwordRotationStatus.message}
+            </div>
+          )}
           {isDefaultPassword && (
             <div className="mt-2 rounded-lg border border-yellow-500/30 bg-yellow-500/10 p-3">
               <div className="flex items-start gap-2">
@@ -1215,7 +1335,7 @@ export const BrowserConnectorSettings: React.FC = () => {
           }
         }}
         title={showEnableWarning ? t(`settings.general.shortcut.bindings.${showEnableWarning}.enable.warning.title`) : ""}
-        message={showEnableWarning ? t(`settings.general.shortcut.bindings.${showEnableWarning}.enable.warning.message`) : ""}
+        message={getEnableWarningMessage()}
         confirmText={showEnableWarning ? t(`settings.general.shortcut.bindings.${showEnableWarning}.enable.warning.confirm`) : ""}
         variant="warning"
       />

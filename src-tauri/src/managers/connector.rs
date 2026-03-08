@@ -112,6 +112,7 @@ const HEADER_SESSION_EXPIRES_AT: &str = "x-aivorelay-session-expires-at";
 const HEADER_REQUEST_MAC: &str = "x-aivorelay-request-mac";
 const HEADER_RESPONSE_MAC: &str = "x-aivorelay-response-mac";
 const HEADER_PAYLOAD_ENCRYPTED: &str = "x-aivorelay-payload-encrypted";
+const HEADER_EXTENSION_ID: &str = "x-aivorelay-extension-id";
 type HmacSha256 = Hmac<Sha256>;
 
 /// Extension connection status
@@ -686,6 +687,8 @@ impl ConnectorManager {
                             header::HeaderName::from_static(HEADER_SESSION_ID),
                             header::HeaderName::from_static(HEADER_CLIENT_SEQUENCE),
                             header::HeaderName::from_static(HEADER_CLIENT_TIMESTAMP),
+                            header::HeaderName::from_static(HEADER_REQUEST_MAC),
+                            header::HeaderName::from_static(HEADER_EXTENSION_ID),
                         ])
                         .expose_headers([
                             header::HeaderName::from_static(HEADER_PROTOCOL_VERSION),
@@ -713,6 +716,8 @@ impl ConnectorManager {
                             header::HeaderName::from_static(HEADER_SESSION_ID),
                             header::HeaderName::from_static(HEADER_CLIENT_SEQUENCE),
                             header::HeaderName::from_static(HEADER_CLIENT_TIMESTAMP),
+                            header::HeaderName::from_static(HEADER_REQUEST_MAC),
+                            header::HeaderName::from_static(HEADER_EXTENSION_ID),
                         ])
                         .expose_headers([
                             header::HeaderName::from_static(HEADER_PROTOCOL_VERSION),
@@ -1605,6 +1610,22 @@ fn validate_origin_header(
     match cors_policy {
         CorsPolicy::Any => Ok(origin.to_string()),
         CorsPolicy::Exact(expected_origin) => {
+            if origin.is_empty() && expected_origin.starts_with("chrome-extension://") {
+                let extension_id = required_string_header(
+                    headers,
+                    HEADER_EXTENSION_ID,
+                    "extension id",
+                )?;
+                let expected_extension_id = expected_origin
+                    .trim_start_matches("chrome-extension://");
+                if extension_id != expected_extension_id {
+                    return Err(error_response(
+                        StatusCode::FORBIDDEN,
+                        "Extension id is not allowed for the connector",
+                    ));
+                }
+                return Ok(expected_origin.to_string());
+            }
             if origin.is_empty() {
                 return Err(error_response(
                     StatusCode::FORBIDDEN,

@@ -52,6 +52,20 @@ const SONIOX_LIVE_PREVIEW_MAX_CUSTOM_HEIGHT_PX: u16 = 1400;
 const SONIOX_LIVE_PREVIEW_MIN_CUSTOM_COORD_PX: i32 = -10_000;
 const SONIOX_LIVE_PREVIEW_MAX_CUSTOM_COORD_PX: i32 = 10_000;
 const MIN_CONNECTOR_PASSWORD_LEN: usize = 64;
+const CONNECTOR_PASSWORD_ROTATION_WAIT_MS: u64 = 15_000;
+const CONNECTOR_PASSWORD_ROTATION_POLL_MS: u64 = 250;
+
+fn generate_random_connector_password() -> Result<String, String> {
+    let mut bytes = [0u8; 32];
+    getrandom::getrandom(&mut bytes)
+        .map_err(|e| format!("Failed to generate connector password: {}", e))?;
+
+    let mut password = String::with_capacity(bytes.len() * 2);
+    for byte in bytes {
+        password.push_str(&format!("{:02x}", byte));
+    }
+    Ok(password)
+}
 const SONIOX_LIVE_PREVIEW_DEFAULT_FONT_COLOR: &str = "#f5f5f5";
 const SONIOX_LIVE_PREVIEW_DEFAULT_INTERIM_FONT_COLOR: &str = "#f5f5f5";
 const SONIOX_LIVE_PREVIEW_DEFAULT_ACCENT_COLOR: &str = "#ff4d8d";
@@ -3748,6 +3762,78 @@ pub fn change_connector_password_setting(
     settings::write_settings(&app, settings);
 
     Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn rotate_connector_password_now(
+    app: AppHandle,
+    connector_manager: State<'_, Arc<crate::managers::connector::ConnectorManager>>,
+) -> Result<(), String> {
+    if !connector_manager.is_online() {
+        return Err(
+            "Password rotation is only available while the browser extension is online."
+                .to_string(),
+        );
+    }
+
+    let mut settings = settings::get_settings(&app);
+    if settings.connector_pending_password.is_some() {
+        return Err(
+            "A connector password rotation is already pending. Wait for the extension to acknowledge it first."
+                .to_string(),
+        );
+    }
+
+    let mut new_password = generate_random_connector_password()?;
+    if new_password == settings.connector_password {
+        new_password = generate_random_connector_password()?;
+    }
+
+    log::info!("Rotating connector password now for the connected browser extension");
+    settings.connector_pending_password = Some(new_password.clone());
+    settings.connector_pending_password_issued_at_ms = crate::managers::connector::now_ms();
+    settings.connector_password_user_set = true;
+    connector_manager.refresh_crypto_state(
+        &settings.connector_password,
+        settings.connector_pending_password.as_deref(),
+    );
+    connector_manager.clear_sessions();
+    settings::write_settings(&app, settings);
+
+    let deadline = std::time::Instant::now()
+        + std::time::Duration::from_millis(CONNECTOR_PASSWORD_ROTATION_WAIT_MS);
+
+    while std::time::Instant::now() < deadline {
+        let current = settings::get_settings(&app);
+        if current.connector_password == new_password && current.connector_pending_password.is_none() {
+            return Ok(());
+        }
+
+        tokio::time::sleep(std::time::Duration::from_millis(
+            CONNECTOR_PASSWORD_ROTATION_POLL_MS,
+        ))
+        .await;
+    }
+
+    let current = settings::get_settings(&app);
+    if current.connector_password == new_password && current.connector_pending_password.is_none() {
+        return Ok(());
+    }
+
+    if current.connector_pending_password.as_deref() == Some(new_password.as_str()) {
+        let mut rollback_settings = current.clone();
+        rollback_settings.connector_pending_password = None;
+        rollback_settings.connector_pending_password_issued_at_ms = 0;
+        settings::write_settings(&app, rollback_settings.clone());
+        connector_manager.refresh_crypto_state(&rollback_settings.connector_password, None);
+        connector_manager.clear_sessions();
+    }
+
+    Err(
+        "Password rotation was not confirmed by the connected extension in time. The connector password was left unchanged."
+            .to_string(),
+    )
 }
 
 #[tauri::command]

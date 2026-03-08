@@ -150,6 +150,6 @@ Files that are added by this fork rather than upstream files that were modified.
 
 - The desktop app now ships a tracked browser-extension archive at `src-tauri/resources/browser-connector/aivorelay-extension.zip`.
 - This zip is a normal bundled resource so GitHub Actions can include it without needing the sibling `AIVORelay-relay` repo at build time.
-- The connector settings page can export this zip into an unpacked folder for `chrome://extensions -> Load unpacked`.
+- The connector settings page exports this zip into an unpacked folder for `chrome://extensions -> Load unpacked`, then patches that exported copy with a per-export `manifest.key`, derived Chrome extension ID, exact `chrome-extension://<id>` connector origin, and a new generated connector password.
 - To refresh the bundled zip after changing the extension repo, run `.AGENTS/rebuild-browser-connector-bundle.ps1` locally.
 - The script copies only the runtime extension files from the sibling `AIVORelay-relay` repo and excludes `.git`, docs, demos, and other non-runtime files.

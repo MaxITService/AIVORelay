@@ -1433,6 +1433,14 @@ async changeConnectorPasswordSetting(password: string) : Promise<Result<null, st
     else return { status: "error", error: e  as any };
 }
 },
+async rotateConnectorPasswordNow() : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("rotate_connector_password_now") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async changeConnectorEnabledSetting(enabled: boolean) : Promise<Result<null, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("change_connector_enabled_setting", { enabled }) };
@@ -2356,7 +2364,7 @@ async connectorCancelMessage(messageId: string) : Promise<Result<boolean, string
 /**
  * Export the bundled browser connector extension zip into a folder selected by the user.
  */
-async connectorExportBundledExtension(destinationDir: string) : Promise<Result<string, string>> {
+async connectorExportBundledExtension(destinationDir: string) : Promise<Result<BundledExtensionExportResult, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("connector_export_bundled_extension", { destinationDir }) };
 } catch (e) {
@@ -2971,6 +2979,7 @@ saved_window_y?: number }
 export type AudioDevice = { index: string; name: string; is_default: boolean }
 export type AutoSubmitKey = "enter" | "ctrl_enter" | "cmd_enter"
 export type BindingResponse = { success: boolean; binding: ShortcutBinding | null; error: string | null }
+export type BundledExtensionExportResult = { exportPath: string; extensionId: string; configuredOrigin: string; generatedPassword: string }
 export type ClipboardHandling = "dont_modify" | "copy_to_clipboard" | 
 /**
  * Experimental: Try to restore all clipboard formats including images, HTML, files (Windows-only)

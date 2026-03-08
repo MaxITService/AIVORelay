@@ -94,6 +94,7 @@ zip = { version = "0.6.6", default-features = false, features = ["deflate"] }
 hkdf = "0.12.4"
 hmac = "0.12.1"
 p256 = { version = "0.13.2", features = ["ecdh"] }
+rsa = { version = "0.9.8", features = ["sha2"] }
 
 [target.'cfg(unix)'.dependencies]
 signal-hook = "0.3"

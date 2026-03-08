@@ -517,6 +517,7 @@ pub fn run() {
         shortcut::change_connector_auto_open_url_setting,
         shortcut::change_connector_port_setting,
         shortcut::change_connector_password_setting,
+        shortcut::rotate_connector_password_now,
         shortcut::change_connector_enabled_setting,
         shortcut::change_connector_allow_any_cors_setting,
         shortcut::change_connector_cors_setting,
