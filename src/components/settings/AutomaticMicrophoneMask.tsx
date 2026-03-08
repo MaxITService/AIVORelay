@@ -21,6 +21,9 @@ export const AutomaticMicrophoneMask: React.FC<
     getSetting("selected_microphone_auto_switch_enabled") ?? false;
   const savedMask = getSetting("selected_microphone_name_pattern") ?? "";
   const [maskInput, setMaskInput] = useState(savedMask);
+  const autoSelectDescription = t(
+    "settings.sound.microphone.autoSelect.description",
+  );
 
   useEffect(() => {
     setMaskInput(savedMask);
@@ -41,6 +44,9 @@ export const AutomaticMicrophoneMask: React.FC<
 
   return (
     <>
+      <p className="px-6 pb-1 text-sm text-[#b8b8b8]">
+        {autoSelectDescription}
+      </p>
       <ToggleSwitch
         checked={enabled}
         onChange={(checked) =>
@@ -48,7 +54,7 @@ export const AutomaticMicrophoneMask: React.FC<
         }
         isUpdating={isUpdating("selected_microphone_auto_switch_enabled")}
         label={t("settings.sound.microphone.autoSelect.label")}
-        description={t("settings.sound.microphone.autoSelect.description")}
+        description={autoSelectDescription}
         descriptionMode={descriptionMode}
         grouped={grouped}
       />

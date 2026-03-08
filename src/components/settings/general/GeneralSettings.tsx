@@ -11,19 +11,13 @@ import { TranscriptionProfiles } from "../TranscriptionProfiles";
 
 export const GeneralSettings: React.FC = () => {
   const { t } = useTranslation();
-  const { audioFeedbackEnabled, getSetting } = useSettings();
-  const microphoneAutoSelectEnabled =
-    getSetting("selected_microphone_auto_switch_enabled") ?? false;
+  const { audioFeedbackEnabled } = useSettings();
   return (
     <div className="max-w-3xl w-full mx-auto space-y-8 pb-12">
       <TranscriptionProfiles />
 
       <SettingsGroup title={t("settings.sound.title")}>
-        <MicrophoneSelector
-          descriptionMode="tooltip"
-          grouped={true}
-          disabled={microphoneAutoSelectEnabled}
-        />
+        <MicrophoneSelector descriptionMode="tooltip" grouped={true} />
         <AutomaticMicrophoneMask descriptionMode="tooltip" grouped={true} />
         <AudioFeedback descriptionMode="tooltip" grouped={true} />
         <OutputDeviceSelector

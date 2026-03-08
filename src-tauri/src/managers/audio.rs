@@ -424,6 +424,21 @@ impl AudioRecordingManager {
     /* ---------- recording --------------------------------------------------- */
 
     pub fn try_start_recording(&self, binding_id: &str) -> bool {
+        let settings = get_settings(&self.app_handle);
+        let selection = self.resolve_selection_for_binding(&settings, Some(binding_id));
+        if selection.source == AudioCaptureSource::Microphone {
+            if let Err(err) =
+                crate::managers::microphone_auto_switch::reconcile_selected_microphone_before_recording(
+                    &self.app_handle,
+                )
+            {
+                warn!(
+                    "Failed to reconcile selected microphone before recording starts: {}",
+                    err
+                );
+            }
+        }
+
         let mut state = self.state.lock().unwrap();
 
         if let RecordingState::Idle = *state {

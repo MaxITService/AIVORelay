@@ -93,6 +93,14 @@ pub fn set_selected_microphone(app: AppHandle, device_name: String) -> Result<()
     let changed = settings.selected_microphone != selected_microphone;
     settings.selected_microphone = selected_microphone;
     write_settings(&app, settings);
+    microphone_auto_switch::remember_manual_microphone_selection(
+        &app,
+        if device_name == "default" {
+            None
+        } else {
+            Some(device_name.clone())
+        },
+    );
 
     // Update the audio manager to use the new device
     let rm = app.state::<Arc<AudioRecordingManager>>();
@@ -122,7 +130,6 @@ pub fn change_selected_microphone_auto_switch_enabled_setting(
     settings.selected_microphone_auto_switch_enabled = enabled;
     write_settings(&app, settings);
 
-    let _ = microphone_auto_switch::reconcile_selected_microphone(&app, true)?;
     microphone_auto_switch::emit_audio_input_state_changed(&app);
     Ok(())
 }
@@ -137,7 +144,6 @@ pub fn change_selected_microphone_name_pattern_setting(
     settings.selected_microphone_name_pattern = pattern.trim().to_string();
     write_settings(&app, settings);
 
-    let _ = microphone_auto_switch::reconcile_selected_microphone(&app, true)?;
     microphone_auto_switch::emit_audio_input_state_changed(&app);
     Ok(())
 }

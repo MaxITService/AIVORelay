@@ -680,11 +680,11 @@
         "loading": "Loading...",
         "autoSelect": {
           "label": "Auto-select by microphone name mask",
-          "description": "Automatically switch to the first microphone whose name matches the mask when devices appear or disappear."
+          "description": "Checked only right before recording starts. If the currently selected microphone is unavailable, AivoRelay tries the first microphone whose name matches the mask. If nothing matches, it falls back to your previous manual microphone if available, otherwise Default. No background polling or watcher is used."
         },
         "autoSelectMask": {
           "title": "Microphone Name Mask",
-          "description": "Use * and ? wildcards. Without wildcards, the mask matches any microphone name containing this text, case-insensitive.",
+          "description": "Mask rules: * matches any number of characters, ? matches exactly one character, and without wildcards the text matches any part of the microphone name case-insensitively. Examples: Yeti* matches Yeti Stereo Microphone; Wireless ? matches Wireless A but not Wireless Headset; usb matches any microphone name containing usb.",
           "placeholder": "e.g. Yeti* or Wireless ?",
           "reset": "Reset microphone mask"
         }

@@ -145,8 +145,12 @@ fn initialize_core_logic(app_handle: &AppHandle) {
     // Initialize the input state (Enigo singleton for keyboard/mouse simulation)
     let enigo_state = input::EnigoState::new().expect("Failed to initialize input state (Enigo)");
     app_handle.manage(enigo_state);
+    app_handle.manage(tray::ManagedTrayState::default());
 
     let current_settings = settings::get_settings(app_handle);
+    app_handle.manage(managers::microphone_auto_switch::ManagedManualMicrophoneSelection::new(
+        current_settings.selected_microphone.clone(),
+    ));
     crate::plus_overlay_state::set_error_overlay_auto_hide_ms(
         current_settings.error_overlay_auto_hide_ms,
     );
@@ -197,10 +201,6 @@ fn initialize_core_logic(app_handle: &AppHandle) {
     app_handle.manage(history_manager.clone());
     app_handle.manage(connector_manager.clone());
     app_handle.manage(key_listener_state);
-
-    managers::microphone_auto_switch::start_microphone_auto_switch_watcher(
-        app_handle.clone(),
-    );
 
     // Initialize region capture state (Windows only)
     #[cfg(target_os = "windows")]
@@ -259,42 +259,88 @@ fn initialize_core_logic(app_handle: &AppHandle) {
                 show_main_window(tray.app_handle());
             }
         })
-        .on_menu_event(|app, event| match event.id.as_ref() {
-            "settings" => {
-                show_main_window(app);
-            }
-            "check_updates" => {
-                let settings = settings::get_settings(app);
-                if settings.update_checks_enabled {
-                    show_main_window(app);
-                    let _ = app.emit("check-for-updates", ());
-                }
-            }
-            "copy_last_transcript" => {
-                tray::copy_last_transcript(app);
-            }
-            "unload_model" => {
-                let transcription_manager = app.state::<Arc<TranscriptionManager>>();
-                if !transcription_manager.is_model_loaded() {
-                    log::warn!("No model is currently loaded.");
-                    return;
-                }
-                match transcription_manager.unload_model() {
-                    Ok(()) => log::info!("Model unloaded via tray."),
-                    Err(e) => log::error!("Failed to unload model via tray: {}", e),
-                }
-            }
-            "cancel" => {
-                use crate::utils::cancel_current_operation;
+        .on_menu_event(|app, event| {
+            if let Some(selection) = tray::parse_microphone_menu_selection(event.id.as_ref()) {
+                let result = match selection {
+                    None => commands::audio::set_selected_microphone(
+                        app.clone(),
+                        "default".to_string(),
+                    ),
+                    Some(device_index) => match commands::audio::get_available_microphones() {
+                        Ok(devices) => {
+                            if let Some(device) = devices
+                                .into_iter()
+                                .find(|device| !device.is_default && device.index == device_index)
+                            {
+                                commands::audio::set_selected_microphone(
+                                    app.clone(),
+                                    device.name,
+                                )
+                            } else {
+                                log::warn!(
+                                    "Tray microphone selection '{}' is no longer available.",
+                                    device_index
+                                );
+                                tray::refresh_tray_menu(app, None);
+                                Ok(())
+                            }
+                        }
+                        Err(err) => {
+                            log::error!(
+                                "Failed to resolve tray microphone selection '{}': {}",
+                                device_index,
+                                err
+                            );
+                            tray::refresh_tray_menu(app, None);
+                            Ok(())
+                        }
+                    },
+                };
 
-                // Use centralized cancellation that handles all operations
-                cancel_current_operation(app);
+                if let Err(err) = result {
+                    log::error!("Failed to apply tray microphone selection: {}", err);
+                    tray::refresh_tray_menu(app, None);
+                }
+                return;
             }
-            "quit" => {
-                APP_QUIT_REQUESTED.store(true, Ordering::SeqCst);
-                app.exit(0);
+
+            match event.id.as_ref() {
+                "settings" => {
+                    show_main_window(app);
+                }
+                "check_updates" => {
+                    let settings = settings::get_settings(app);
+                    if settings.update_checks_enabled {
+                        show_main_window(app);
+                        let _ = app.emit("check-for-updates", ());
+                    }
+                }
+                "copy_last_transcript" => {
+                    tray::copy_last_transcript(app);
+                }
+                "unload_model" => {
+                    let transcription_manager = app.state::<Arc<TranscriptionManager>>();
+                    if !transcription_manager.is_model_loaded() {
+                        log::warn!("No model is currently loaded.");
+                        return;
+                    }
+                    match transcription_manager.unload_model() {
+                        Ok(()) => log::info!("Model unloaded via tray."),
+                        Err(e) => log::error!("Failed to unload model via tray: {}", e),
+                    }
+                }
+                "cancel" => {
+                    use crate::utils::cancel_current_operation;
+
+                    // Use centralized cancellation that handles all operations
+                    cancel_current_operation(app);
+                }
+                "quit" => {
+                    APP_QUIT_REQUESTED.store(true, Ordering::SeqCst);
+                    app.exit(0);
+                }
+                _ => {}
             }
-            _ => {}
         })
         .build(app_handle)
         .unwrap();

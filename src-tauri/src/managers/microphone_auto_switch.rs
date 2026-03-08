@@ -1,13 +1,19 @@
 use crate::audio_toolkit::audio::list_input_devices;
 use crate::managers::audio::AudioRecordingManager;
 use crate::settings::{get_settings, write_settings};
-use log::{debug, warn};
-use std::sync::Arc;
-use std::time::Duration;
+use log::warn;
+use std::sync::{Arc, Mutex};
 use tauri::{AppHandle, Emitter, Manager};
 
 const AUDIO_INPUT_STATE_CHANGED_EVENT: &str = "audio-input-state-changed";
-const WATCH_INTERVAL: Duration = Duration::from_secs(2);
+
+pub struct ManagedManualMicrophoneSelection(pub Mutex<Option<String>>);
+
+impl ManagedManualMicrophoneSelection {
+    pub fn new(initial_selection: Option<String>) -> Self {
+        Self(Mutex::new(initial_selection))
+    }
+}
 
 fn load_input_device_names() -> Result<Vec<String>, String> {
     let mut names = list_input_devices()
@@ -72,18 +78,9 @@ fn matches_name_mask(device_name: &str, pattern: &str) -> bool {
 }
 
 fn select_matching_microphone(
-    current_selected: Option<&str>,
     device_names: &[String],
     pattern: &str,
 ) -> Option<String> {
-    if let Some(current_name) = current_selected {
-        if device_names.iter().any(|name| name == current_name)
-            && matches_name_mask(current_name, pattern)
-        {
-            return Some(current_name.to_string());
-        }
-    }
-
     device_names
         .iter()
         .find(|name| matches_name_mask(name, pattern))
@@ -97,7 +94,46 @@ fn refresh_active_microphone_stream(app: &AppHandle) {
     }
 }
 
+pub fn remember_manual_microphone_selection(app: &AppHandle, selection: Option<String>) {
+    let Some(last_manual_selection) = app.try_state::<ManagedManualMicrophoneSelection>() else {
+        return;
+    };
+
+    let lock_result = last_manual_selection.0.lock();
+    match lock_result {
+        Ok(mut last_manual_selection) => {
+            *last_manual_selection = selection;
+        }
+        Err(err) => {
+            warn!(
+                "Failed to lock manual microphone selection state while updating fallback: {}",
+                err
+            );
+        }
+    }
+}
+
+fn last_manual_microphone_selection(app: &AppHandle) -> Option<String> {
+    let Some(last_manual_selection) = app.try_state::<ManagedManualMicrophoneSelection>() else {
+        return get_settings(app).selected_microphone;
+    };
+
+    let selection = match last_manual_selection.0.lock() {
+        Ok(last_manual_selection) => last_manual_selection.clone(),
+        Err(err) => {
+            warn!(
+                "Failed to lock manual microphone selection state while reading fallback: {}",
+                err
+            );
+            get_settings(app).selected_microphone
+        }
+    };
+
+    selection
+}
+
 pub fn emit_audio_input_state_changed(app: &AppHandle) {
+    crate::tray::refresh_tray_menu(app, None);
     let _ = app.emit(AUDIO_INPUT_STATE_CHANGED_EVENT, ());
 }
 
@@ -111,14 +147,18 @@ pub fn reconcile_selected_microphone(app: &AppHandle, show_overlay: bool) -> Res
         .as_ref()
         .map(|name| device_names.iter().any(|device| device == name))
         .unwrap_or(true);
+    let manual_fallback = last_manual_microphone_selection(app).filter(|name| {
+        device_names.iter().any(|device| device == name)
+            && current_selected.as_deref() != Some(name.as_str())
+    });
 
     let target_selected = if auto_enabled && !mask.is_empty() {
-        if let Some(matched_name) =
-            select_matching_microphone(current_selected.as_deref(), &device_names, &mask)
-        {
-            Some(matched_name)
-        } else if current_exists {
+        if current_exists {
             current_selected.clone()
+        } else if let Some(matched_name) = select_matching_microphone(&device_names, &mask) {
+            Some(matched_name)
+        } else if let Some(manual_fallback) = manual_fallback {
+            Some(manual_fallback)
         } else {
             None
         }
@@ -144,52 +184,12 @@ pub fn reconcile_selected_microphone(app: &AppHandle, show_overlay: bool) -> Res
     Ok(true)
 }
 
-pub fn start_microphone_auto_switch_watcher(app: AppHandle) {
-    std::thread::spawn(move || {
-        let mut last_signature = match load_input_device_names() {
-            Ok(device_names) => {
-                if let Err(err) = reconcile_selected_microphone(&app, false) {
-                    warn!("Initial microphone auto-switch reconcile failed: {}", err);
-                }
-                device_names.join("\n")
-            }
-            Err(err) => {
-                warn!("Initial microphone device scan failed: {}", err);
-                String::new()
-            }
-        };
+pub fn reconcile_selected_microphone_before_recording(app: &AppHandle) -> Result<(), String> {
+    let selection_changed = reconcile_selected_microphone(app, true)?;
 
-        loop {
-            std::thread::sleep(WATCH_INTERVAL);
+    if selection_changed {
+        emit_audio_input_state_changed(app);
+    }
 
-            let device_names = match load_input_device_names() {
-                Ok(device_names) => device_names,
-                Err(err) => {
-                    warn!("Microphone device scan failed: {}", err);
-                    continue;
-                }
-            };
-
-            let signature = device_names.join("\n");
-            if signature == last_signature {
-                continue;
-            }
-
-            last_signature = signature;
-            let selection_changed = match reconcile_selected_microphone(&app, true) {
-                Ok(changed) => changed,
-                Err(err) => {
-                    warn!("Microphone auto-switch reconcile failed: {}", err);
-                    false
-                }
-            };
-
-            if !selection_changed {
-                refresh_active_microphone_stream(&app);
-            }
-
-            emit_audio_input_state_changed(&app);
-            debug!("Audio input device state changed");
-        }
-    });
+    Ok(())
 }
