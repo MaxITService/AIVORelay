@@ -220,6 +220,8 @@ const settingUpdaters: {
     commands.changeConnectorEnabledSetting(value as boolean),
   connector_encryption_enabled: (value) =>
     commands.changeConnectorEncryptionEnabledSetting(value as boolean),
+  connector_allow_any_cors: (value) =>
+    commands.changeConnectorAllowAnyCorsSetting(value as boolean),
   connector_port: (value) =>
     commands.changeConnectorPortSetting(value as number),
   connector_cors: (value) =>

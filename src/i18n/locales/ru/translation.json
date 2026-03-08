@@ -1150,8 +1150,12 @@
         },
         "cors": {
           "title": "Разрешенный CORS Origin",
-          "description": "Для усиленного режима коннектора требуется один точный origin. Введите конкретный origin, например «https://chatgpt.com» или «chrome-extension://<extension-id>». Пустые значения и wildcard запрещены.",
-          "placeholder": "chrome-extension://<extension-id>"
+          "description": "Используется, когда опция «Разрешить любой CORS origin» отключена. Укажите один точный origin, например «https://chatgpt.com» или «chrome-extension://<extension-id>».",
+          "placeholder": "chrome-extension://<extension-id>",
+          "allowAny": {
+            "title": "Разрешить любой CORS origin",
+            "description": "Разрешить доступ к коннектору с любого origin. Отключите эту опцию, если хотите ограничить доступ одним точным origin."
+          }
         },
         "encryption": {
           "title": "Шифрование сообщений",
@@ -1178,6 +1182,8 @@
         "password": {
           "title": "Пароль подключения",
           "description": "Пароль для аутентификации расширения. Должен совпадать в AivoRelay и в расширении.",
+          "errorEmpty": "Пароль подключения не может быть пустым.",
+          "errorMinLength": "Пароль подключения должен содержать не менее {{min}} символов, если вы не используете устаревший стартовый пароль.",
           "defaultWarning": {
             "title": "Предупреждение: Пароль по умолчанию",
             "description": "Вы используете пароль по умолчанию. Мы настоятельно рекомендуем изменить его на уникальный."

@@ -24,6 +24,14 @@ const AUTO_OPEN_SITES = [
   { value: "https://aistudio.google.com", label: "Google AI Studio" },
 ];
 
+const MIN_CONNECTOR_PASSWORD_LEN = 64;
+const LEGACY_CONNECTOR_PASSWORD = "fklejqwhfiu342lhk3";
+
+const isAllowedConnectorPassword = (value: string) => {
+  const trimmed = value.trim();
+  return trimmed === LEGACY_CONNECTOR_PASSWORD || trimmed.length >= MIN_CONNECTOR_PASSWORD_LEN;
+};
+
 // Default screenshot folder for Windows
 const getDefaultScreenshotFolder = () => {
   // This matches the Rust default: ShareX default folder
@@ -38,6 +46,7 @@ export const BrowserConnectorSettings: React.FC = () => {
   const [portInput, setPortInput] = useState(String(settings?.connector_port ?? 38243));
   const [portError, setPortError] = useState<string | null>(null);
   const [passwordInput, setPasswordInput] = useState(settings?.connector_password ?? "");
+  const [passwordError, setPasswordError] = useState<string | null>(null);
   const [corsInput, setCorsInput] = useState(normalizeCorsValue(settings?.connector_cors));
   const [showPassword, setShowPassword] = useState(false);
   const [showCopiedTooltip, setShowCopiedTooltip] = useState(false);
@@ -86,6 +95,7 @@ export const BrowserConnectorSettings: React.FC = () => {
 
   useEffect(() => {
     setPasswordInput(settings?.connector_password ?? "");
+    setPasswordError(null);
   }, [settings?.connector_password]);
 
   useEffect(() => {
@@ -169,6 +179,20 @@ export const BrowserConnectorSettings: React.FC = () => {
 
   const handlePasswordBlur = () => {
     const trimmed = passwordInput.trim();
+    if (trimmed.length === 0) {
+      setPasswordError(t("settings.browserConnector.connection.password.errorEmpty"));
+      return;
+    }
+    if (!isAllowedConnectorPassword(trimmed)) {
+      setPasswordError(
+        t("settings.browserConnector.connection.password.errorMinLength", {
+          min: MIN_CONNECTOR_PASSWORD_LEN,
+        })
+      );
+      return;
+    }
+
+    setPasswordError(null);
     if (trimmed !== (settings?.connector_password ?? "")) {
       void updateSetting("connector_password", trimmed);
     }
@@ -179,6 +203,10 @@ export const BrowserConnectorSettings: React.FC = () => {
     if (trimmed !== normalizeCorsValue(settings?.connector_cors)) {
       void updateSetting("connector_cors", trimmed);
     }
+  };
+
+  const handleAllowAnyCorsChange = (enabled: boolean) => {
+    void updateSetting("connector_allow_any_cors", enabled);
   };
 
   const handleEnabledChange = (enabled: boolean) => {
@@ -196,7 +224,7 @@ export const BrowserConnectorSettings: React.FC = () => {
   };
 
   // Check if using default password
-  const isDefaultPassword = passwordInput === "fklejqwhfiu342lhk3";
+  const isDefaultPassword = passwordInput.trim() === LEGACY_CONNECTOR_PASSWORD;
 
   const handleAutoOpenEnabledChange = (enabled: boolean) => {
     void updateSetting("connector_auto_open_enabled", enabled);
@@ -996,10 +1024,13 @@ export const BrowserConnectorSettings: React.FC = () => {
             <Input
               type={showPassword ? "text" : "password"}
               value={passwordInput}
-              onChange={(event) => setPasswordInput(event.target.value)}
+              onChange={(event) => {
+                setPasswordInput(event.target.value);
+                setPasswordError(null);
+              }}
               onBlur={handlePasswordBlur}
               placeholder="Enter connection password..."
-              className="flex-1 font-mono"
+              className={`flex-1 font-mono ${passwordError ? "border-red-500" : ""}`}
             />
             <button
               type="button"
@@ -1025,6 +1056,12 @@ export const BrowserConnectorSettings: React.FC = () => {
               )}
             </div>
           </div>
+          {passwordError && (
+            <div className="mt-2 text-sm text-red-400 flex items-center gap-1">
+              <AlertTriangle className="w-3 h-3" />
+              {passwordError}
+            </div>
+          )}
           {isDefaultPassword && (
             <div className="mt-2 rounded-lg border border-yellow-500/30 bg-yellow-500/10 p-3">
               <div className="flex items-start gap-2">
@@ -1040,21 +1077,37 @@ export const BrowserConnectorSettings: React.FC = () => {
           )}
         </SettingContainer>
 
-        <SettingContainer
-          title={t("settings.browserConnector.connection.cors.title")}
-          description={t("settings.browserConnector.connection.cors.description")}
-          descriptionMode="tooltip"
-          grouped={true}
-        >
-          <Input
-            type="text"
-            value={corsInput}
-            onChange={(event) => setCorsInput(event.target.value)}
-            onBlur={handleCorsBlur}
-            placeholder={t("settings.browserConnector.connection.cors.placeholder")}
-            className="w-full font-mono"
-          />
-        </SettingContainer>
+        <div>
+          <SettingContainer
+            title={t("settings.browserConnector.connection.cors.allowAny.title")}
+            description={t("settings.browserConnector.connection.cors.allowAny.description")}
+            descriptionMode="tooltip"
+            grouped={true}
+          >
+            <ToggleSwitch
+              checked={settings?.connector_allow_any_cors ?? true}
+              onChange={handleAllowAnyCorsChange}
+              disabled={isUpdating("connector_allow_any_cors")}
+            />
+          </SettingContainer>
+
+          <SettingContainer
+            title={t("settings.browserConnector.connection.cors.title")}
+            description={t("settings.browserConnector.connection.cors.description")}
+            descriptionMode="tooltip"
+            grouped={true}
+          >
+            <Input
+              type="text"
+              value={corsInput}
+              onChange={(event) => setCorsInput(event.target.value)}
+              onBlur={handleCorsBlur}
+              placeholder={t("settings.browserConnector.connection.cors.placeholder")}
+              disabled={settings?.connector_allow_any_cors ?? true}
+              className="w-full font-mono"
+            />
+          </SettingContainer>
+        </div>
 
         <SettingContainer
           title={t("settings.browserConnector.connection.endpoint.title")}

@@ -1360,6 +1360,8 @@ pub struct AppSettings {
     pub connector_enabled: bool,
     #[serde(default = "default_connector_encryption_enabled")]
     pub connector_encryption_enabled: bool,
+    #[serde(default = "default_connector_allow_any_cors")]
+    pub connector_allow_any_cors: bool,
     #[serde(default = "default_connector_cors")]
     pub connector_cors: String,
     #[serde(default = "default_connector_auto_open_enabled")]
@@ -1882,6 +1884,10 @@ fn default_connector_enabled() -> bool {
 }
 
 fn default_connector_encryption_enabled() -> bool {
+    true
+}
+
+fn default_connector_allow_any_cors() -> bool {
     true
 }
 
@@ -2517,6 +2523,7 @@ pub fn get_default_settings() -> AppSettings {
         connector_port: default_connector_port(),
         connector_enabled: default_connector_enabled(),
         connector_encryption_enabled: default_connector_encryption_enabled(),
+        connector_allow_any_cors: default_connector_allow_any_cors(),
         connector_cors: default_connector_cors(),
         connector_auto_open_enabled: default_connector_auto_open_enabled(),
         connector_auto_open_url: default_connector_auto_open_url(),

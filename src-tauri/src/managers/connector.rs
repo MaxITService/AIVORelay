@@ -38,7 +38,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tauri::{AppHandle, Emitter, Manager};
 use tokio::net::TcpListener;
 use tokio::sync::{Notify, RwLock};
-use tower_http::cors::CorsLayer;
+use tower_http::cors::{Any, CorsLayer};
 
 // Crypto and utils
 use aes_gcm::{
@@ -319,6 +319,7 @@ enum AuthMatch {
 
 #[derive(Clone, Debug)]
 enum CorsPolicy {
+    Any,
     Exact(String),
 }
 
@@ -434,11 +435,19 @@ impl ConnectorManager {
             return Ok(());
         }
 
-        let cors_policy = parse_cors_policy(&settings.connector_cors).map_err(|err| {
-            *self.server_error.blocking_write() = Some(err.clone());
-            let _ = self.app_handle.emit("connector-server-error", err.clone());
-            err
-        })?;
+        let (cors_policy, startup_warning) = match parse_cors_policy(
+            &settings.connector_cors,
+            settings.connector_allow_any_cors,
+        ) {
+            Ok(policy) => (Some(policy), None),
+            Err(err) => {
+                warn!(
+                    "Connector server starting without an active CORS allowlist until settings are fixed: {}",
+                    err
+                );
+                (None, Some(err))
+            }
+        };
 
         let port = {
             let port_guard = self.port.blocking_read();
@@ -501,7 +510,12 @@ impl ConnectorManager {
             return Err(error_msg);
         }
 
-        *self.server_error.blocking_write() = None;
+        *self.server_error.blocking_write() = startup_warning.clone();
+        if let Some(warning) = startup_warning.as_ref() {
+            let _ = self
+                .app_handle
+                .emit("connector-server-error", warning.clone());
+        }
         self.clear_sessions();
         self.auth_failure_count.store(0, Ordering::SeqCst);
         self.auth_backoff_until_ms.store(0, Ordering::SeqCst);
@@ -550,39 +564,6 @@ impl ConnectorManager {
 
             info!("Connector server starting on port {}", port);
             let _ = app_handle.emit("extension-status-changed", ExtensionStatus::Unknown);
-
-            let origin = match cors_policy {
-                CorsPolicy::Exact(origin) => origin,
-            };
-            let origin = HeaderValue::from_str(&origin)
-                .expect("validated origin must be convertible to a header value");
-
-            let cors = CorsLayer::new()
-                .allow_methods([Method::GET, Method::POST, Method::OPTIONS])
-                .allow_headers([
-                    header::AUTHORIZATION,
-                    header::CONTENT_TYPE,
-                    header::ORIGIN,
-                    header::HeaderName::from_static(HEADER_PROTOCOL_VERSION),
-                    header::HeaderName::from_static(HEADER_SESSION_ID),
-                    header::HeaderName::from_static(HEADER_CLIENT_SEQUENCE),
-                    header::HeaderName::from_static(HEADER_CLIENT_TIMESTAMP),
-                ])
-                .expose_headers([
-                    header::HeaderName::from_static(HEADER_PROTOCOL_VERSION),
-                    header::HeaderName::from_static(HEADER_SESSION_ID),
-                    header::HeaderName::from_static(HEADER_SERVER_SEQUENCE),
-                    header::HeaderName::from_static(HEADER_SESSION_EXPIRES_AT),
-                ])
-                .allow_origin(origin);
-
-            let router = Router::new()
-                .route("/session", post(handle_create_session))
-                .route("/messages", get(handle_get_messages))
-                .route("/messages", post(handle_post_messages))
-                .route("/blob/{att_id}", get(handle_get_blob))
-                .layer(cors)
-                .with_state(app_state.clone());
 
             info!("Connector server listening on {}", addr);
 
@@ -660,8 +641,10 @@ impl ConnectorManager {
 
             let graceful_local_stop_flag = local_stop_flag.clone();
             let graceful_global_stop_flag = global_stop_flag.clone();
-            axum::serve(listener, router)
-                .with_graceful_shutdown(async move {
+            let graceful_shutdown = move || {
+                let graceful_local_stop_flag = graceful_local_stop_flag.clone();
+                let graceful_global_stop_flag = graceful_global_stop_flag.clone();
+                async move {
                     loop {
                         if graceful_local_stop_flag.load(Ordering::SeqCst)
                             || graceful_global_stop_flag.load(Ordering::SeqCst)
@@ -671,11 +654,80 @@ impl ConnectorManager {
 
                         tokio::time::sleep(Duration::from_millis(100)).await;
                     }
-                })
-                .await
-                .unwrap_or_else(|e| {
-                    error!("Server error: {}", e);
-                });
+                }
+            };
+
+            let base_router = || {
+                Router::new()
+                    .route("/session", post(handle_create_session))
+                    .route("/messages", get(handle_get_messages))
+                    .route("/messages", post(handle_post_messages))
+                    .route("/blob/{att_id}", get(handle_get_blob))
+                    .with_state(app_state.clone())
+            };
+
+            let serve_result = match cors_policy {
+                Some(CorsPolicy::Any) => {
+                    let cors = CorsLayer::new()
+                        .allow_methods([Method::GET, Method::POST, Method::OPTIONS])
+                        .allow_headers([
+                            header::AUTHORIZATION,
+                            header::CONTENT_TYPE,
+                            header::ORIGIN,
+                            header::HeaderName::from_static(HEADER_PROTOCOL_VERSION),
+                            header::HeaderName::from_static(HEADER_SESSION_ID),
+                            header::HeaderName::from_static(HEADER_CLIENT_SEQUENCE),
+                            header::HeaderName::from_static(HEADER_CLIENT_TIMESTAMP),
+                        ])
+                        .expose_headers([
+                            header::HeaderName::from_static(HEADER_PROTOCOL_VERSION),
+                            header::HeaderName::from_static(HEADER_SESSION_ID),
+                            header::HeaderName::from_static(HEADER_SERVER_SEQUENCE),
+                            header::HeaderName::from_static(HEADER_SESSION_EXPIRES_AT),
+                        ])
+                        .allow_origin(Any);
+
+                    axum::serve(listener, base_router().layer(cors))
+                        .with_graceful_shutdown(graceful_shutdown())
+                        .await
+                }
+                Some(CorsPolicy::Exact(origin)) => {
+                    let origin = HeaderValue::from_str(&origin)
+                        .expect("validated origin must be convertible to a header value");
+
+                    let cors = CorsLayer::new()
+                        .allow_methods([Method::GET, Method::POST, Method::OPTIONS])
+                        .allow_headers([
+                            header::AUTHORIZATION,
+                            header::CONTENT_TYPE,
+                            header::ORIGIN,
+                            header::HeaderName::from_static(HEADER_PROTOCOL_VERSION),
+                            header::HeaderName::from_static(HEADER_SESSION_ID),
+                            header::HeaderName::from_static(HEADER_CLIENT_SEQUENCE),
+                            header::HeaderName::from_static(HEADER_CLIENT_TIMESTAMP),
+                        ])
+                        .expose_headers([
+                            header::HeaderName::from_static(HEADER_PROTOCOL_VERSION),
+                            header::HeaderName::from_static(HEADER_SESSION_ID),
+                            header::HeaderName::from_static(HEADER_SERVER_SEQUENCE),
+                            header::HeaderName::from_static(HEADER_SESSION_EXPIRES_AT),
+                        ])
+                        .allow_origin(origin);
+
+                    axum::serve(listener, base_router().layer(cors))
+                        .with_graceful_shutdown(graceful_shutdown())
+                        .await
+                }
+                None => {
+                    axum::serve(listener, base_router())
+                        .with_graceful_shutdown(graceful_shutdown())
+                        .await
+                }
+            };
+
+            serve_result.unwrap_or_else(|e| {
+                error!("Server error: {}", e);
+            });
 
             local_stop_flag.store(true, Ordering::SeqCst);
             server_running.store(false, Ordering::SeqCst);
@@ -1178,13 +1230,20 @@ async fn handle_create_session(
         return response;
     }
 
-    let expected_origin = match parse_cors_policy(&settings.connector_cors) {
-        Ok(CorsPolicy::Exact(origin)) => origin,
+    let cors_policy = match parse_cors_policy(
+        &settings.connector_cors,
+        settings.connector_allow_any_cors,
+    ) {
+        Ok(policy) => policy,
         Err(err) => return error_response(StatusCode::FORBIDDEN, &err),
     };
-    let origin = match validate_origin_header(&headers, &expected_origin) {
+    let request_origin = match validate_origin_header(&headers, &cors_policy) {
         Ok(origin) => origin,
         Err(response) => return response,
+    };
+    let session_origin = match cors_policy {
+        CorsPolicy::Any => String::new(),
+        CorsPolicy::Exact(_) => request_origin,
     };
     let auth_match = match authenticate_request(&app_state, &headers, &settings).await {
         Ok(auth_match) => auth_match,
@@ -1209,7 +1268,7 @@ async fn handle_create_session(
         sessions.insert(
             session_id.clone(),
             ConnectorSession {
-                origin,
+                origin: session_origin,
                 auth_match,
                 next_client_sequence: 1,
                 next_server_sequence: 2,
@@ -1427,27 +1486,33 @@ fn validate_protocol_header(headers: &axum::http::HeaderMap) -> Result<(), Respo
 
 fn validate_origin_header(
     headers: &axum::http::HeaderMap,
-    expected_origin: &str,
+    cors_policy: &CorsPolicy,
 ) -> Result<String, Response> {
-    let Some(origin_value) = headers.get(header::ORIGIN) else {
-        return Err(error_response(
-            StatusCode::FORBIDDEN,
-            "Missing Origin header",
-        ));
+    let origin = match headers.get(header::ORIGIN) {
+        Some(origin_value) => origin_value.to_str().map_err(|_| {
+            error_response(StatusCode::BAD_REQUEST, "Malformed Origin header")
+        })?,
+        None => "",
     };
-    let Ok(origin) = origin_value.to_str() else {
-        return Err(error_response(
-            StatusCode::BAD_REQUEST,
-            "Malformed Origin header",
-        ));
-    };
-    if origin.is_empty() || origin != expected_origin {
-        return Err(error_response(
-            StatusCode::FORBIDDEN,
-            "Origin is not allowed for the connector",
-        ));
+
+    match cors_policy {
+        CorsPolicy::Any => Ok(origin.to_string()),
+        CorsPolicy::Exact(expected_origin) => {
+            if origin.is_empty() {
+                return Err(error_response(
+                    StatusCode::FORBIDDEN,
+                    "Missing Origin header",
+                ));
+            }
+            if origin != expected_origin {
+                return Err(error_response(
+                    StatusCode::FORBIDDEN,
+                    "Origin is not allowed for the connector",
+                ));
+            }
+            Ok(origin.to_string())
+        }
     }
-    Ok(origin.to_string())
 }
 
 async fn authenticate_request(
@@ -1477,11 +1542,14 @@ async fn validate_session_request(
     settings: &crate::settings::AppSettings,
 ) -> Result<ValidatedSession, Response> {
     validate_protocol_header(headers)?;
-    let expected_origin = match parse_cors_policy(&settings.connector_cors) {
-        Ok(CorsPolicy::Exact(origin)) => origin,
+    let cors_policy = match parse_cors_policy(
+        &settings.connector_cors,
+        settings.connector_allow_any_cors,
+    ) {
+        Ok(policy) => policy,
         Err(err) => return Err(error_response(StatusCode::FORBIDDEN, &err)),
     };
-    let origin = validate_origin_header(headers, &expected_origin)?;
+    let origin = validate_origin_header(headers, &cors_policy)?;
     let auth_match = authenticate_request(app_state, headers, settings).await?;
 
     let session_id = required_string_header(headers, HEADER_SESSION_ID, "session id")?;
@@ -1505,7 +1573,7 @@ async fn validate_session_request(
             "Missing or expired connector session",
         ));
     };
-    if session.origin != origin {
+    if matches!(cors_policy, CorsPolicy::Exact(_)) && session.origin != origin {
         return Err(error_response(
             StatusCode::FORBIDDEN,
             "Session origin does not match request origin",
@@ -1864,7 +1932,10 @@ pub(crate) fn normalize_connector_cors_setting(raw_value: &str) -> Result<String
     Ok(format!("{}://{}", scheme, authority))
 }
 
-fn parse_cors_policy(raw_value: &str) -> Result<CorsPolicy, String> {
+fn parse_cors_policy(raw_value: &str, allow_any: bool) -> Result<CorsPolicy, String> {
+    if allow_any {
+        return Ok(CorsPolicy::Any);
+    }
     let normalized = normalize_connector_cors_setting(raw_value)?;
     Ok(CorsPolicy::Exact(normalized))
 }

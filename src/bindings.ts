@@ -1441,6 +1441,14 @@ async changeConnectorEnabledSetting(enabled: boolean) : Promise<Result<null, str
     else return { status: "error", error: e  as any };
 }
 },
+async changeConnectorAllowAnyCorsSetting(enabled: boolean) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("change_connector_allow_any_cors_setting", { enabled }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async changeConnectorCorsSetting(cors: string) : Promise<Result<null, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("change_connector_cors_setting", { cors }) };
@@ -2687,7 +2695,7 @@ send_to_extension_enabled?: boolean; send_to_extension_push_to_talk?: boolean;
 /**
  * Whether the "Send Transcription + Selection to Extension" action is enabled (risky feature)
  */
-send_to_extension_with_selection_enabled?: boolean; send_to_extension_with_selection_push_to_talk?: boolean; send_to_extension_with_selection_allow_no_voice?: boolean; send_to_extension_with_selection_quick_tap_threshold_ms?: number; send_to_extension_with_selection_no_voice_system_prompt?: string; ai_replace_selection_push_to_talk?: boolean; mute_while_recording?: boolean; filter_silence?: boolean; connector_port?: number; connector_enabled?: boolean; connector_encryption_enabled?: boolean; connector_cors?: string; connector_auto_open_enabled?: boolean; connector_auto_open_url?: string; screenshot_capture_method?: ScreenshotCaptureMethod; native_region_capture_mode?: NativeRegionCaptureMode; screenshot_capture_command?: string; screenshot_folder?: string; screenshot_require_recent?: boolean; screenshot_timeout_seconds?: number; screenshot_include_subfolders?: boolean; screenshot_allow_no_voice?: boolean; screenshot_quick_tap_threshold_ms?: number; screenshot_no_voice_default_prompt?: string; 
+send_to_extension_with_selection_enabled?: boolean; send_to_extension_with_selection_push_to_talk?: boolean; send_to_extension_with_selection_allow_no_voice?: boolean; send_to_extension_with_selection_quick_tap_threshold_ms?: number; send_to_extension_with_selection_no_voice_system_prompt?: string; ai_replace_selection_push_to_talk?: boolean; mute_while_recording?: boolean; filter_silence?: boolean; connector_port?: number; connector_enabled?: boolean; connector_encryption_enabled?: boolean; connector_allow_any_cors?: boolean; connector_cors?: string; connector_auto_open_enabled?: boolean; connector_auto_open_url?: string; screenshot_capture_method?: ScreenshotCaptureMethod; native_region_capture_mode?: NativeRegionCaptureMode; screenshot_capture_command?: string; screenshot_folder?: string; screenshot_require_recent?: boolean; screenshot_timeout_seconds?: number; screenshot_include_subfolders?: boolean; screenshot_allow_no_voice?: boolean; screenshot_quick_tap_threshold_ms?: number; screenshot_no_voice_default_prompt?: string; 
 /**
  * Whether the "Send Transcription + Screenshot to Extension" action is enabled (risky feature)
  */

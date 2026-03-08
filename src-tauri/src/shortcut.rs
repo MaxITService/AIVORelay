@@ -51,6 +51,7 @@ const SONIOX_LIVE_PREVIEW_MIN_CUSTOM_HEIGHT_PX: u16 = 100;
 const SONIOX_LIVE_PREVIEW_MAX_CUSTOM_HEIGHT_PX: u16 = 1400;
 const SONIOX_LIVE_PREVIEW_MIN_CUSTOM_COORD_PX: i32 = -10_000;
 const SONIOX_LIVE_PREVIEW_MAX_CUSTOM_COORD_PX: i32 = 10_000;
+const MIN_CONNECTOR_PASSWORD_LEN: usize = 64;
 const SONIOX_LIVE_PREVIEW_DEFAULT_FONT_COLOR: &str = "#f5f5f5";
 const SONIOX_LIVE_PREVIEW_DEFAULT_INTERIM_FONT_COLOR: &str = "#f5f5f5";
 const SONIOX_LIVE_PREVIEW_DEFAULT_ACCENT_COLOR: &str = "#ff4d8d";
@@ -3625,6 +3626,31 @@ pub fn change_connector_enabled_setting(
 
 #[tauri::command]
 #[specta::specta]
+pub fn change_connector_allow_any_cors_setting(
+    app: AppHandle,
+    enabled: bool,
+    connector_manager: State<'_, Arc<crate::managers::connector::ConnectorManager>>,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    let previous_enabled = settings.connector_allow_any_cors;
+    if previous_enabled == enabled {
+        return Ok(());
+    }
+    settings.connector_allow_any_cors = enabled;
+    settings::write_settings(&app, settings);
+
+    if let Err(err) = connector_manager.restart_server() {
+        let mut rollback_settings = settings::get_settings(&app);
+        rollback_settings.connector_allow_any_cors = previous_enabled;
+        settings::write_settings(&app, rollback_settings);
+        let _ = connector_manager.restart_server();
+        return Err(err);
+    }
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
 pub fn change_connector_cors_setting(
     app: AppHandle,
     cors: String,
@@ -3696,6 +3722,12 @@ pub fn change_connector_password_setting(
     let trimmed = password.trim().to_string();
     if trimmed.is_empty() {
         return Err("Connector password cannot be empty".to_string());
+    }
+    if trimmed != settings::default_connector_password() && trimmed.len() < MIN_CONNECTOR_PASSWORD_LEN {
+        return Err(format!(
+            "Connector password must be at least {} characters long unless using the legacy default bootstrap password.",
+            MIN_CONNECTOR_PASSWORD_LEN
+        ));
     }
 
     let mut settings = settings::get_settings(&app);

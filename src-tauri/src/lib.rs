@@ -518,6 +518,7 @@ pub fn run() {
         shortcut::change_connector_port_setting,
         shortcut::change_connector_password_setting,
         shortcut::change_connector_enabled_setting,
+        shortcut::change_connector_allow_any_cors_setting,
         shortcut::change_connector_cors_setting,
         shortcut::change_connector_encryption_enabled_setting,
         shortcut::change_screenshot_capture_method_setting,

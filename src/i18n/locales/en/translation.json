@@ -1805,8 +1805,12 @@
         },
         "cors": {
           "title": "Allowed CORS Origin",
-          "description": "Connector hardening requires one exact origin. Enter a specific origin like \"https://chatgpt.com\" or \"chrome-extension://<extension-id>\". Empty values and wildcards are rejected.",
-          "placeholder": "chrome-extension://<extension-id>"
+          "description": "Used when \"Allow Any CORS Origin\" is disabled. Enter one exact origin like \"https://chatgpt.com\" or \"chrome-extension://<extension-id>\".",
+          "placeholder": "chrome-extension://<extension-id>",
+          "allowAny": {
+            "title": "Allow Any CORS Origin",
+            "description": "Allow any origin to reach the connector. Disable this if you want to restrict access to one exact origin."
+          }
         },
         "encryption": {
           "title": "Message Encryption",
@@ -1829,6 +1833,8 @@
         "password": {
           "title": "Connection Password",
           "description": "Password to authenticate the extension. Must match in both AivoRelay and the extension.",
+          "errorEmpty": "Connection password cannot be empty.",
+          "errorMinLength": "Connection password must be at least {{min}} characters long unless you are using the legacy bootstrap password.",
           "defaultWarning": {
             "title": "Security Warning: Default Password",
             "description": "You are currently using the default password. We highly recommend changing it to a unique one. Changing it here will automatically update the extension if it is currently connected. For maximum security, we recommend performing this change while offline to prevent other programs from intercepting the initial handshake."
