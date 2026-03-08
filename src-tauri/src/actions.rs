@@ -1826,6 +1826,20 @@ fn current_preview_interim_text() -> String {
     crate::overlay::get_soniox_live_preview_state().interim_text
 }
 
+fn is_timeout_error_message(err: &str) -> bool {
+    let normalized = err.to_ascii_lowercase();
+    normalized.contains("timed out") || normalized.contains("timeout")
+}
+
+fn should_suppress_preview_timeout_error(err: &str) -> bool {
+    if !is_timeout_error_message(err) {
+        return false;
+    }
+
+    current_preview_buffer_text().trim()
+        == crate::managers::preview_output_mode::recording_prefix_text().trim()
+}
+
 fn drop_preview_recording_without_finalize(
     app: &AppHandle,
     binding_id: &str,
@@ -3118,6 +3132,28 @@ impl ShortcutAction for TranscribeAction {
                     Ok(text) => apply_soniox_output_filters(&recording_settings, text),
                     Err(err) => {
                         let err_str = format!("{}", err);
+                        let suppress_timeout = preview_output_only_enabled
+                            && should_suppress_preview_timeout_error(&err_str);
+                        if suppress_timeout {
+                            utils::hide_recording_overlay(&ah);
+                            change_tray_icon(&ah, TrayIconState::Idle);
+                            if !invoked_from_preview_action {
+                                let text_to_insert = current_preview_buffer_text();
+                                if let Err(err) =
+                                    finalize_preview_workflow_after_stop(&ah, text_to_insert).await
+                                {
+                                    crate::managers::preview_output_mode::set_error(
+                                        &ah,
+                                        Some(err),
+                                    );
+                                }
+                            }
+                            if binding_id == LIVE_SOUND_TRANSCRIPTION_BINDING_ID {
+                                crate::managers::live_sound_transcription::finish_session(&ah);
+                            }
+                            session_manager::exit_processing(&ah);
+                            return;
+                        }
                         let _ = ah.emit("remote-stt-error", err_str.clone());
                         crate::plus_overlay_state::handle_transcription_error(&ah, &err_str);
                         if !preview_output_only_enabled {
@@ -5347,7 +5383,7 @@ pub async fn preview_llm_process_action(app: AppHandle) -> Result<(), String> {
         .await
         {
             PostProcessTranscriptionOutcome::Processed { text, .. } => {
-                crate::overlay::emit_soniox_live_preview_update(&app, &text, "");
+                replace_preview_text_for_output_mode(&app, &text);
                 Ok(())
             }
             PostProcessTranscriptionOutcome::Skipped => Err(
