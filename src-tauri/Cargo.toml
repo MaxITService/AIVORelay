@@ -89,7 +89,6 @@ getrandom = "0.2"
 parking_lot = "0.12"
 base64 = "0.22.1"
 aes-gcm = "0.10.3"
-pbkdf2 = "0.12.2"
 sha2 = "0.10.9"
 
 [target.'cfg(unix)'.dependencies]

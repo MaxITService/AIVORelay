@@ -1801,12 +1801,12 @@
         "title": "Connection Settings",
         "enabled": {
           "label": "Enable Connector Server",
-          "description": "Start the local HTTP server to communicate with the browser extension. When OFF, the status shows \"Server OFF\" and all communication is disabled."
+          "description": "Start the local HTTP server to communicate with the browser extension. The connector now requires one exact allowed origin before it can start. When OFF, the status shows \"Server OFF\" and all communication is disabled."
         },
         "cors": {
           "title": "Allowed CORS Origin",
-          "description": "Restrict which websites can connect to the local server. Use \"<any>\" or \"*\" to allow all (default), or enter a specific origin like \"https://chatgpt.com\".",
-          "placeholder": "<any>"
+          "description": "Connector hardening requires one exact origin. Enter a specific origin like \"https://chatgpt.com\" or \"chrome-extension://<extension-id>\". Empty values and wildcards are rejected.",
+          "placeholder": "chrome-extension://<extension-id>"
         },
         "encryption": {
           "title": "Message Encryption",

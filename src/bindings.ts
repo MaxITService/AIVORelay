@@ -1417,6 +1417,22 @@ async changeConnectorAutoOpenUrlSetting(url: string) : Promise<Result<null, stri
     else return { status: "error", error: e  as any };
 }
 },
+async changeConnectorPortSetting(port: number) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("change_connector_port_setting", { port }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async changeConnectorPasswordSetting(password: string) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("change_connector_password_setting", { password }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async changeConnectorEnabledSetting(enabled: boolean) : Promise<Result<null, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("change_connector_enabled_setting", { enabled }) };
@@ -1436,22 +1452,6 @@ async changeConnectorCorsSetting(cors: string) : Promise<Result<null, string>> {
 async changeConnectorEncryptionEnabledSetting(enabled: boolean) : Promise<Result<null, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("change_connector_encryption_enabled_setting", { enabled }) };
-} catch (e) {
-    if(e instanceof Error) throw e;
-    else return { status: "error", error: e  as any };
-}
-},
-async changeConnectorPortSetting(port: number) : Promise<Result<null, string>> {
-    try {
-    return { status: "ok", data: await TAURI_INVOKE("change_connector_port_setting", { port }) };
-} catch (e) {
-    if(e instanceof Error) throw e;
-    else return { status: "error", error: e  as any };
-}
-},
-async changeConnectorPasswordSetting(password: string) : Promise<Result<null, string>> {
-    try {
-    return { status: "ok", data: await TAURI_INVOKE("change_connector_password_setting", { password }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
@@ -2700,6 +2700,10 @@ connector_password_user_set?: boolean;
  * Pending password awaiting acknowledgement from extension (two-phase commit)
  */
 connector_pending_password?: string | null; 
+/**
+ * Timestamp (Unix ms) when the pending connector password was issued.
+ */
+connector_pending_password_issued_at_ms?: number; 
 /**
  * Per-model transcription prompts (model_id -> prompt text)
  * For Whisper: context/terms prompt. For Parakeet: comma-separated boost words.

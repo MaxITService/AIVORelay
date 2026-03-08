@@ -3706,11 +3706,13 @@ pub fn change_connector_password_setting(
 
     log::info!("User changing connector password - using two-phase commit");
     settings.connector_pending_password = Some(trimmed.clone());
+    settings.connector_pending_password_issued_at_ms = crate::managers::connector::now_ms();
     settings.connector_password_user_set = true;
     connector_manager.refresh_crypto_state(
         &settings.connector_password,
         settings.connector_pending_password.as_deref(),
     );
+    connector_manager.clear_sessions();
     settings::write_settings(&app, settings);
 
     Ok(())

@@ -29,15 +29,16 @@ use log::{debug, error, info, warn};
 use serde::{Deserialize, Serialize};
 use specta::Type;
 use std::collections::{HashMap, HashSet, VecDeque};
+use std::net::{IpAddr, Ipv4Addr};
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, AtomicI64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU32, Ordering};
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tauri::{AppHandle, Emitter, Manager};
 use tokio::net::TcpListener;
 use tokio::sync::{Notify, RwLock};
-use tower_http::cors::{Any, CorsLayer};
+use tower_http::cors::CorsLayer;
 
 // Crypto and utils
 use aes_gcm::{
@@ -45,8 +46,7 @@ use aes_gcm::{
     Aes256Gcm, Nonce,
 };
 use base64::{engine::general_purpose::STANDARD, Engine as _};
-use pbkdf2::pbkdf2_hmac;
-use sha2::Sha256;
+use sha2::{Digest, Sha256};
 
 /// Default server port (same as test-server.ps1)
 const DEFAULT_PORT: u16 = 38243;
@@ -65,6 +65,38 @@ const MAX_WAIT_SECONDS: u32 = 30;
 const DEFAULT_WAIT_SECONDS: u32 = 0;
 /// Cooldown for auth-failure toasts in ms
 const AUTH_FAILURE_TOAST_COOLDOWN_MS: i64 = 5000;
+const INITIAL_AUTH_BACKOFF_MS: i64 = 150;
+const MAX_AUTH_BACKOFF_MS: i64 = 2000;
+const SESSION_TTL_MS: i64 = 120_000;
+const SESSION_CLOCK_SKEW_MS: i64 = 15_000;
+const PENDING_PASSWORD_TTL_MS: i64 = 120_000;
+/// Protocol version for the password-derived encryption path.
+///
+/// Version 2 removes the old global PBKDF2 salt and treats the connector password
+/// as high-entropy shared secret material. Encryption keys are now derived as:
+/// SHA-256("AivoRelay Connector Protocol v2 AES-256-GCM key" || connector_password_utf8_bytes)
+///
+/// Protocol v2 request flow:
+/// 1. POST /session with:
+///    - Authorization: Bearer <connector password>
+///    - Origin: <exact configured origin>
+///    - X-AivoRelay-Protocol-Version: 2
+/// 2. The server returns a session id plus starting sequence numbers.
+/// 3. Every subsequent /messages and /blob request must include:
+///    - X-AivoRelay-Protocol-Version: 2
+///    - X-AivoRelay-Session-Id: <session id>
+///    - X-AivoRelay-Sequence: <strictly increasing client sequence>
+///    - X-AivoRelay-Timestamp: <unix ms within the allowed skew window>
+/// 4. The server returns its own per-session response sequence headers to support
+///    client-side replay detection on responses.
+const CONNECTOR_PROTOCOL_VERSION: u8 = 2;
+const CONNECTOR_ENC_KEY_CONTEXT: &[u8] = b"AivoRelay Connector Protocol v2 AES-256-GCM key";
+const HEADER_PROTOCOL_VERSION: &str = "x-aivorelay-protocol-version";
+const HEADER_SESSION_ID: &str = "x-aivorelay-session-id";
+const HEADER_CLIENT_SEQUENCE: &str = "x-aivorelay-sequence";
+const HEADER_CLIENT_TIMESTAMP: &str = "x-aivorelay-timestamp";
+const HEADER_SERVER_SEQUENCE: &str = "x-aivorelay-server-sequence";
+const HEADER_SESSION_EXPIRES_AT: &str = "x-aivorelay-session-expires-at";
 
 /// Extension connection status
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
@@ -139,6 +171,15 @@ pub struct PendingBlob {
     pub expires_at: i64,
 }
 
+#[derive(Debug, Clone)]
+struct ConnectorSession {
+    origin: String,
+    auth_match: AuthMatch,
+    next_client_sequence: u64,
+    next_server_sequence: u64,
+    expires_at: i64,
+}
+
 /// Configuration sent to extension
 #[derive(Debug, Clone, Serialize)]
 struct ExtensionConfig {
@@ -150,6 +191,8 @@ struct ExtensionConfig {
 /// Response format for GET /messages
 #[derive(Debug, Clone, Serialize)]
 struct MessagesResponse {
+    #[serde(rename = "protocolVersion")]
+    protocol_version: u8,
     cursor: i64,
     messages: Vec<QueuedMessage>,
     config: ExtensionConfig,
@@ -163,6 +206,23 @@ struct MessagesResponse {
 struct PostBody {
     #[serde(rename = "type", default)]
     msg_type: Option<String>,
+}
+
+/// Response format for POST /session
+#[derive(Debug, Clone, Serialize)]
+struct SessionResponse {
+    #[serde(rename = "protocolVersion")]
+    protocol_version: u8,
+    #[serde(rename = "sessionId")]
+    session_id: String,
+    #[serde(rename = "expiresAt")]
+    expires_at: i64,
+    #[serde(rename = "nextClientSequence")]
+    next_client_sequence: u64,
+    #[serde(rename = "nextServerSequence")]
+    next_server_sequence: u64,
+    #[serde(rename = "encryptionEnabled")]
+    encryption_enabled: bool,
 }
 
 /// Query params for GET /messages
@@ -211,12 +271,19 @@ struct CachedCrypto {
 }
 
 impl CachedCrypto {
-    /// Expensive operation: derives a 256-bit AES key from the user's password using PBKDF2 with SHA256.
+    /// Derives a 256-bit AES key from the shared connector secret.
+    ///
+    /// Protocol v2 intentionally does not use PBKDF2 or a transmitted salt. The
+    /// connector password is expected to be high-entropy random key material, and we
+    /// domain-separate the AES key with a fixed context string.
     pub fn new(password: &str) -> Self {
-        let mut key = [0u8; 32];
-        let salt = b"AivoRelayLocalSecretSalt";
-        pbkdf2_hmac::<Sha256>(password.as_bytes(), salt, 100_000, &mut key);
-        let aes_key = aes_gcm::Key::<Aes256Gcm>::from_slice(&key);
+        debug_assert_eq!(CONNECTOR_PROTOCOL_VERSION, 2);
+
+        let mut hasher = Sha256::new();
+        hasher.update(CONNECTOR_ENC_KEY_CONTEXT);
+        hasher.update(password.as_bytes());
+        let key = hasher.finalize();
+        let aes_key = aes_gcm::Key::<Aes256Gcm>::from_slice(key.as_slice());
         let cipher = Aes256Gcm::new(aes_key);
         Self { cipher }
     }
@@ -252,8 +319,15 @@ enum AuthMatch {
 
 #[derive(Clone, Debug)]
 enum CorsPolicy {
-    Any,
     Exact(String),
+}
+
+#[derive(Clone, Debug)]
+struct ValidatedSession {
+    id: String,
+    auth_match: AuthMatch,
+    server_sequence: u64,
+    expires_at: i64,
 }
 
 /// Shared state for axum handlers
@@ -271,6 +345,12 @@ struct AppState {
     crypto: Arc<RwLock<CryptoState>>,
     /// Tracks the timestamp (ms) of the last emitted auth-failed event
     last_auth_failure_emitted_at: Arc<AtomicI64>,
+    /// Active connector sessions for protocol v2 replay protection
+    sessions: Arc<Mutex<HashMap<String, ConnectorSession>>>,
+    /// Count of consecutive auth failures, used for backoff
+    auth_failure_count: Arc<AtomicU32>,
+    /// Earliest time when a new auth failure response may be returned
+    auth_backoff_until_ms: Arc<AtomicI64>,
 }
 
 pub struct ConnectorManager {
@@ -293,12 +373,20 @@ pub struct ConnectorManager {
     crypto: Arc<RwLock<CryptoState>>,
     /// Tracks the timestamp (ms) of the last emitted auth-failed event
     last_auth_failure_emitted_at: Arc<AtomicI64>,
+    /// Active connector sessions for protocol v2 replay protection
+    sessions: Arc<Mutex<HashMap<String, ConnectorSession>>>,
+    /// Count of consecutive auth failures, used for backoff
+    auth_failure_count: Arc<AtomicU32>,
+    /// Earliest time when a new auth failure response may be returned
+    auth_backoff_until_ms: Arc<AtomicI64>,
 }
 
 impl ConnectorManager {
     pub fn new(app_handle: &AppHandle) -> Result<Self, String> {
         let mut settings = get_settings(app_handle);
         maybe_migrate_legacy_connector_password(app_handle, &settings);
+        settings = get_settings(app_handle);
+        ensure_pending_password_metadata(app_handle, &settings);
         settings = get_settings(app_handle);
 
         let port = if settings.connector_port > 0 {
@@ -326,6 +414,9 @@ impl ConnectorManager {
                 settings.connector_pending_password.as_deref(),
             ))),
             last_auth_failure_emitted_at: Arc::new(AtomicI64::new(0)),
+            sessions: Arc::new(Mutex::new(HashMap::new())),
+            auth_failure_count: Arc::new(AtomicU32::new(0)),
+            auth_backoff_until_ms: Arc::new(AtomicI64::new(0)),
         };
 
         Ok(manager)
@@ -385,7 +476,35 @@ impl ConnectorManager {
             return Err(error_msg);
         }
 
+        let bound_addr = match std_listener.local_addr() {
+            Ok(addr) => addr,
+            Err(e) => {
+                let error_msg = format!("Failed to inspect listener on port {}: {}", port, e);
+                error!("Connector server: {}", error_msg);
+                *self.server_error.blocking_write() = Some(error_msg.clone());
+                let _ = self
+                    .app_handle
+                    .emit("connector-server-error", error_msg.clone());
+                return Err(error_msg);
+            }
+        };
+        if bound_addr.ip() != IpAddr::V4(Ipv4Addr::LOCALHOST) {
+            let error_msg = format!(
+                "Refusing to start connector on non-loopback address {}",
+                bound_addr
+            );
+            error!("Connector server: {}", error_msg);
+            *self.server_error.blocking_write() = Some(error_msg.clone());
+            let _ = self
+                .app_handle
+                .emit("connector-server-error", error_msg.clone());
+            return Err(error_msg);
+        }
+
         *self.server_error.blocking_write() = None;
+        self.clear_sessions();
+        self.auth_failure_count.store(0, Ordering::SeqCst);
+        self.auth_backoff_until_ms.store(0, Ordering::SeqCst);
         self.server_running.store(true, Ordering::SeqCst);
         self.stop_flag.store(false, Ordering::SeqCst);
         self.last_poll_at.store(0, Ordering::SeqCst);
@@ -398,6 +517,9 @@ impl ConnectorManager {
             message_notify: self.message_notify.clone(),
             crypto: self.crypto.clone(),
             last_auth_failure_emitted_at: self.last_auth_failure_emitted_at.clone(),
+            sessions: self.sessions.clone(),
+            auth_failure_count: self.auth_failure_count.clone(),
+            auth_backoff_until_ms: self.auth_backoff_until_ms.clone(),
         };
 
         // Use a per-instance stop flag so older restart tasks cannot outlive a fresh server.
@@ -429,22 +551,33 @@ impl ConnectorManager {
             info!("Connector server starting on port {}", port);
             let _ = app_handle.emit("extension-status-changed", ExtensionStatus::Unknown);
 
-            let mut cors = CorsLayer::new()
-                .allow_methods([Method::GET, Method::POST, Method::OPTIONS])
-                .allow_headers([header::AUTHORIZATION, header::CONTENT_TYPE]);
+            let origin = match cors_policy {
+                CorsPolicy::Exact(origin) => origin,
+            };
+            let origin = HeaderValue::from_str(&origin)
+                .expect("validated origin must be convertible to a header value");
 
-            match cors_policy {
-                CorsPolicy::Any => {
-                    cors = cors.allow_origin(Any);
-                }
-                CorsPolicy::Exact(origin) => {
-                    let origin = HeaderValue::from_str(&origin)
-                        .expect("validated origin must be convertible to a header value");
-                    cors = cors.allow_origin(origin);
-                }
-            }
+            let cors = CorsLayer::new()
+                .allow_methods([Method::GET, Method::POST, Method::OPTIONS])
+                .allow_headers([
+                    header::AUTHORIZATION,
+                    header::CONTENT_TYPE,
+                    header::ORIGIN,
+                    header::HeaderName::from_static(HEADER_PROTOCOL_VERSION),
+                    header::HeaderName::from_static(HEADER_SESSION_ID),
+                    header::HeaderName::from_static(HEADER_CLIENT_SEQUENCE),
+                    header::HeaderName::from_static(HEADER_CLIENT_TIMESTAMP),
+                ])
+                .expose_headers([
+                    header::HeaderName::from_static(HEADER_PROTOCOL_VERSION),
+                    header::HeaderName::from_static(HEADER_SESSION_ID),
+                    header::HeaderName::from_static(HEADER_SERVER_SEQUENCE),
+                    header::HeaderName::from_static(HEADER_SESSION_EXPIRES_AT),
+                ])
+                .allow_origin(origin);
 
             let router = Router::new()
+                .route("/session", post(handle_create_session))
                 .route("/messages", get(handle_get_messages))
                 .route("/messages", post(handle_post_messages))
                 .route("/blob/{att_id}", get(handle_get_blob))
@@ -895,6 +1028,11 @@ impl ConnectorManager {
         let mut crypto_guard = self.crypto.blocking_write();
         *crypto_guard = build_crypto_state(current_password, pending_password);
     }
+
+    pub fn clear_sessions(&self) {
+        let mut sessions = self.sessions.lock().unwrap();
+        sessions.clear();
+    }
 }
 
 // ============================================================================
@@ -907,18 +1045,9 @@ async fn handle_get_messages(
     query: Query<MessagesQuery>,
 ) -> Response {
     let settings = get_settings(&app_state.app_handle);
-
-    // Auth check
-    let auth_match = if let Some(auth_match) = validate_auth_header(
-        &headers,
-        &settings.connector_password,
-        settings.connector_pending_password.as_deref(),
-    ) {
-        auth_match
-    } else {
-        apply_random_auth_delay().await;
-        maybe_emit_auth_failure_toast(&app_state);
-        return unauthorized_response();
+    let validated_session = match validate_session_request(&app_state, &headers, &settings).await {
+        Ok(session) => session,
+        Err(response) => return response,
     };
 
     let now = now_ms();
@@ -989,6 +1118,7 @@ async fn handle_get_messages(
 
     let next_cursor = messages.last().map(|m| m.ts).unwrap_or(cursor);
     let response_body = MessagesResponse {
+        protocol_version: CONNECTOR_PROTOCOL_VERSION,
         cursor: next_cursor,
         messages,
         config: ExtensionConfig {
@@ -1006,7 +1136,7 @@ async fn handle_get_messages(
             }
         };
         let crypto_guard = app_state.crypto.read().await;
-        let selected_crypto = match auth_match {
+        let selected_crypto = match validated_session.auth_match {
             AuthMatch::CurrentPassword => crypto_guard.current.as_ref(),
             AuthMatch::PendingPassword => crypto_guard
                 .pending
@@ -1018,12 +1148,15 @@ async fn handle_get_messages(
             match crypto.encrypt_payload(&plain_json) {
                 Ok(encrypted_bytes) => {
                     let b64_payload = STANDARD.encode(&encrypted_bytes);
-                    return apply_security_headers(
+                    return with_session_headers(
+                        apply_security_headers(
                         Response::builder()
                         .status(StatusCode::OK)
                         .header(header::CONTENT_TYPE, "text/plain")
                         .body(Body::from(b64_payload))
                         .unwrap(),
+                        ),
+                        &validated_session,
                     );
                 }
                 Err(e) => error!("Failed to encrypt response: {}", e),
@@ -1033,7 +1166,74 @@ async fn handle_get_messages(
         }
     }
 
-    json_response(response_body)
+    json_session_response(response_body, &validated_session)
+}
+
+async fn handle_create_session(
+    State(app_state): State<AppState>,
+    headers: axum::http::HeaderMap,
+) -> Response {
+    let settings = get_settings(&app_state.app_handle);
+    if let Err(response) = validate_protocol_header(&headers) {
+        return response;
+    }
+
+    let expected_origin = match parse_cors_policy(&settings.connector_cors) {
+        Ok(CorsPolicy::Exact(origin)) => origin,
+        Err(err) => return error_response(StatusCode::FORBIDDEN, &err),
+    };
+    let origin = match validate_origin_header(&headers, &expected_origin) {
+        Ok(origin) => origin,
+        Err(response) => return response,
+    };
+    let auth_match = match authenticate_request(&app_state, &headers, &settings).await {
+        Ok(auth_match) => auth_match,
+        Err(response) => return response,
+    };
+
+    let session_id = match generate_random_hex(16) {
+        Some(id) => id,
+        None => {
+            return error_response(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Failed to generate connector session id",
+            )
+        }
+    };
+
+    let now = now_ms();
+    let expires_at = now + SESSION_TTL_MS;
+    {
+        let mut sessions = app_state.sessions.lock().unwrap();
+        clear_expired_sessions(&mut sessions, now);
+        sessions.insert(
+            session_id.clone(),
+            ConnectorSession {
+                origin,
+                auth_match,
+                next_client_sequence: 1,
+                next_server_sequence: 2,
+                expires_at,
+            },
+        );
+    }
+
+    let validated_session = ValidatedSession {
+        id: session_id.clone(),
+        auth_match,
+        server_sequence: 1,
+        expires_at,
+    };
+    let response_body = SessionResponse {
+        protocol_version: CONNECTOR_PROTOCOL_VERSION,
+        session_id,
+        expires_at,
+        next_client_sequence: 1,
+        next_server_sequence: 1,
+        encryption_enabled: settings.connector_encryption_enabled,
+    };
+
+    json_session_response(response_body, &validated_session)
 }
 
 async fn handle_post_messages(
@@ -1042,17 +1242,10 @@ async fn handle_post_messages(
     body: String,
 ) -> Response {
     let settings = get_settings(&app_state.app_handle);
-    if validate_auth_header(
-        &headers,
-        &settings.connector_password,
-        settings.connector_pending_password.as_deref(),
-    )
-    .is_none()
-    {
-        apply_random_auth_delay().await;
-        maybe_emit_auth_failure_toast(&app_state);
-        return unauthorized_response();
-    }
+    let validated_session = match validate_session_request(&app_state, &headers, &settings).await {
+        Ok(session) => session,
+        Err(response) => return response,
+    };
 
     if let Ok(post_body) = serde_json::from_str::<PostBody>(&body) {
         if post_body.msg_type.as_deref() == Some("password_ack") {
@@ -1062,7 +1255,13 @@ async fn handle_post_messages(
     }
 
     app_state.last_poll_at.store(now_ms(), Ordering::SeqCst);
-    json_response(serde_json::json!({"ok": true}))
+    json_session_response(
+        serde_json::json!({
+            "ok": true,
+            "protocolVersion": CONNECTOR_PROTOCOL_VERSION
+        }),
+        &validated_session,
+    )
 }
 
 async fn handle_get_blob(
@@ -1071,17 +1270,10 @@ async fn handle_get_blob(
     headers: axum::http::HeaderMap,
 ) -> Response {
     let settings = get_settings(&app_state.app_handle);
-    if validate_auth_header(
-        &headers,
-        &settings.connector_password,
-        settings.connector_pending_password.as_deref(),
-    )
-    .is_none()
-    {
-        apply_random_auth_delay().await;
-        maybe_emit_auth_failure_toast(&app_state);
-        return unauthorized_response();
-    }
+    let validated_session = match validate_session_request(&app_state, &headers, &settings).await {
+        Ok(session) => session,
+        Err(response) => return response,
+    };
 
     let blob_data = {
         let mut state_guard = app_state.state.lock().unwrap();
@@ -1091,14 +1283,20 @@ async fn handle_get_blob(
     };
 
     match blob_data {
-        Some(blob) => apply_security_headers(
+        Some(blob) => with_session_headers(
+            apply_security_headers(
             Response::builder()
                 .status(StatusCode::OK)
                 .header(header::CONTENT_TYPE, blob.mime_type)
                 .body(Body::from(blob.data))
                 .unwrap(),
+            ),
+            &validated_session,
         ),
-        None => apply_security_headers((StatusCode::NOT_FOUND, "Blob not found").into_response()),
+        None => with_session_headers(
+            apply_security_headers((StatusCode::NOT_FOUND, "Blob not found").into_response()),
+            &validated_session,
+        ),
     }
 }
 
@@ -1130,14 +1328,31 @@ fn get_pending_messages(
     (filtered, ids)
 }
 
-async fn apply_random_auth_delay() {
+fn register_auth_failure(app_state: &AppState) -> i64 {
+    let failure_count = app_state.auth_failure_count.fetch_add(1, Ordering::SeqCst) + 1;
+    let exponent = failure_count.saturating_sub(1).min(4);
+    let delay_ms =
+        (INITIAL_AUTH_BACKOFF_MS * (1_i64 << exponent)).min(MAX_AUTH_BACKOFF_MS);
+    let until = now_ms() + delay_ms;
+    app_state.auth_backoff_until_ms.store(until, Ordering::SeqCst);
+    delay_ms
+}
+
+fn reset_auth_backoff(app_state: &AppState) {
+    app_state.auth_failure_count.store(0, Ordering::SeqCst);
+    app_state.auth_backoff_until_ms.store(0, Ordering::SeqCst);
+}
+
+async fn apply_auth_failure_delay(app_state: &AppState, fallback_ms: i64) {
     let mut buffer = [0u8; 1];
-    let delay = if getrandom::getrandom(&mut buffer).is_ok() {
-        30 + (buffer[0] % 31) as u64
+    let jitter_ms = if getrandom::getrandom(&mut buffer).is_ok() {
+        (buffer[0] % 31) as i64
     } else {
-        45
+        15
     };
-    tokio::time::sleep(Duration::from_millis(delay)).await;
+    let until = app_state.auth_backoff_until_ms.load(Ordering::SeqCst);
+    let delay_ms = (until - now_ms()).max(fallback_ms).max(0) + jitter_ms;
+    tokio::time::sleep(Duration::from_millis(delay_ms as u64)).await;
 }
 
 fn maybe_emit_auth_failure_toast(app_state: &AppState) {
@@ -1165,13 +1380,161 @@ fn maybe_emit_auth_failure_toast(app_state: &AppState) {
 }
 
 fn unauthorized_response() -> Response {
+    let response = Response::builder()
+        .status(StatusCode::UNAUTHORIZED)
+        .header("WWW-Authenticate", "Bearer")
+        .body(Body::from("Unauthorized"))
+        .unwrap();
+    apply_security_headers(response)
+}
+
+fn error_response(status: StatusCode, message: &str) -> Response {
     apply_security_headers(
         Response::builder()
-            .status(StatusCode::UNAUTHORIZED)
-            .header("WWW-Authenticate", "Bearer")
-            .body(Body::from("Unauthorized"))
+            .status(status)
+            .body(Body::from(message.to_string()))
             .unwrap(),
     )
+}
+
+fn validate_protocol_header(headers: &axum::http::HeaderMap) -> Result<(), Response> {
+    let Some(value) = headers.get(header::HeaderName::from_static(HEADER_PROTOCOL_VERSION)) else {
+        return Err(error_response(
+            StatusCode::PRECONDITION_REQUIRED,
+            "Missing protocol version header",
+        ));
+    };
+    let Ok(raw_value) = value.to_str() else {
+        return Err(error_response(
+            StatusCode::BAD_REQUEST,
+            "Malformed protocol version header",
+        ));
+    };
+    let Ok(protocol_version) = raw_value.parse::<u8>() else {
+        return Err(error_response(
+            StatusCode::BAD_REQUEST,
+            "Malformed protocol version header",
+        ));
+    };
+    if protocol_version != CONNECTOR_PROTOCOL_VERSION {
+        return Err(error_response(
+            StatusCode::PRECONDITION_FAILED,
+            "Unsupported connector protocol version",
+        ));
+    }
+    Ok(())
+}
+
+fn validate_origin_header(
+    headers: &axum::http::HeaderMap,
+    expected_origin: &str,
+) -> Result<String, Response> {
+    let Some(origin_value) = headers.get(header::ORIGIN) else {
+        return Err(error_response(
+            StatusCode::FORBIDDEN,
+            "Missing Origin header",
+        ));
+    };
+    let Ok(origin) = origin_value.to_str() else {
+        return Err(error_response(
+            StatusCode::BAD_REQUEST,
+            "Malformed Origin header",
+        ));
+    };
+    if origin.is_empty() || origin != expected_origin {
+        return Err(error_response(
+            StatusCode::FORBIDDEN,
+            "Origin is not allowed for the connector",
+        ));
+    }
+    Ok(origin.to_string())
+}
+
+async fn authenticate_request(
+    app_state: &AppState,
+    headers: &axum::http::HeaderMap,
+    settings: &crate::settings::AppSettings,
+) -> Result<AuthMatch, Response> {
+    let pending_password = active_pending_password(&app_state.app_handle, settings);
+    if let Some(auth_match) = validate_auth_header(
+        headers,
+        &settings.connector_password,
+        pending_password.as_deref(),
+    ) {
+        reset_auth_backoff(app_state);
+        return Ok(auth_match);
+    }
+
+    let delay_ms = register_auth_failure(app_state);
+    maybe_emit_auth_failure_toast(app_state);
+    apply_auth_failure_delay(app_state, delay_ms).await;
+    Err(unauthorized_response())
+}
+
+async fn validate_session_request(
+    app_state: &AppState,
+    headers: &axum::http::HeaderMap,
+    settings: &crate::settings::AppSettings,
+) -> Result<ValidatedSession, Response> {
+    validate_protocol_header(headers)?;
+    let expected_origin = match parse_cors_policy(&settings.connector_cors) {
+        Ok(CorsPolicy::Exact(origin)) => origin,
+        Err(err) => return Err(error_response(StatusCode::FORBIDDEN, &err)),
+    };
+    let origin = validate_origin_header(headers, &expected_origin)?;
+    let auth_match = authenticate_request(app_state, headers, settings).await?;
+
+    let session_id = required_string_header(headers, HEADER_SESSION_ID, "session id")?;
+    let client_sequence = required_u64_header(headers, HEADER_CLIENT_SEQUENCE, "sequence")?;
+    let client_timestamp = required_i64_header(headers, HEADER_CLIENT_TIMESTAMP, "timestamp")?;
+    let now = now_ms();
+    if client_timestamp < now - SESSION_CLOCK_SKEW_MS
+        || client_timestamp > now + SESSION_CLOCK_SKEW_MS
+    {
+        return Err(error_response(
+            StatusCode::PRECONDITION_FAILED,
+            "Request timestamp is outside the allowed window",
+        ));
+    }
+
+    let mut sessions = app_state.sessions.lock().unwrap();
+    clear_expired_sessions(&mut sessions, now);
+    let Some(session) = sessions.get_mut(&session_id) else {
+        return Err(error_response(
+            StatusCode::PRECONDITION_REQUIRED,
+            "Missing or expired connector session",
+        ));
+    };
+    if session.origin != origin {
+        return Err(error_response(
+            StatusCode::FORBIDDEN,
+            "Session origin does not match request origin",
+        ));
+    }
+    if session.auth_match != auth_match {
+        return Err(error_response(
+            StatusCode::UNAUTHORIZED,
+            "Session credentials do not match the authenticated secret",
+        ));
+    }
+    if client_sequence != session.next_client_sequence {
+        return Err(error_response(
+            StatusCode::CONFLICT,
+            "Unexpected request sequence number",
+        ));
+    }
+
+    session.next_client_sequence += 1;
+    let server_sequence = session.next_server_sequence;
+    session.next_server_sequence += 1;
+    session.expires_at = now + SESSION_TTL_MS;
+
+    Ok(ValidatedSession {
+        id: session_id,
+        auth_match,
+        server_sequence,
+        expires_at: session.expires_at,
+    })
 }
 
 fn validate_auth_header(
@@ -1208,12 +1571,13 @@ fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
     res == 0
 }
 
-fn now_ms() -> i64 {
+pub(crate) fn now_ms() -> i64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_millis() as i64)
         .unwrap_or(0)
 }
+
 fn uuid_simple() -> String {
     let ts = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -1222,28 +1586,29 @@ fn uuid_simple() -> String {
     format!("{:032x}", ts)
 }
 
-fn generate_secure_password() -> Option<String> {
-    let mut bytes = [0u8; 16];
+fn generate_random_hex(byte_len: usize) -> Option<String> {
+    let mut bytes = vec![0u8; byte_len];
     if let Err(err) = getrandom::getrandom(&mut bytes) {
-        error!(
-            "Failed to generate connector password from OS CSPRNG: {}",
-            err
-        );
+        error!("Failed to generate secure random bytes from OS CSPRNG: {}", err);
         return None;
     }
 
-    let mut result = String::with_capacity(32);
+    let mut result = String::with_capacity(byte_len * 2);
     for byte in bytes {
         result.push_str(&format!("{:02x}", byte));
     }
     Some(result)
 }
 
+fn generate_secure_password() -> Option<String> {
+    generate_random_hex(32)
+}
+
 fn maybe_generate_new_password(app: &AppHandle) -> Option<String> {
     let settings = get_settings(app);
-    if let Some(ref pending) = settings.connector_pending_password {
+    if let Some(pending) = active_pending_password(app, &settings) {
         debug!("Returning existing pending password for extension to acknowledge");
-        return Some(pending.clone());
+        return Some(pending);
     }
 
     if settings.connector_password == default_connector_password() {
@@ -1258,11 +1623,13 @@ fn maybe_generate_new_password(app: &AppHandle) -> Option<String> {
 
         let mut new_settings = settings.clone();
         new_settings.connector_pending_password = Some(new_password.clone());
+        new_settings.connector_pending_password_issued_at_ms = now_ms();
         new_settings.connector_password_user_set = false;
         write_settings(app, new_settings);
 
         let connector_manager = app.state::<Arc<ConnectorManager>>();
         connector_manager.refresh_crypto_state(&settings.connector_password, Some(&new_password));
+        connector_manager.clear_sessions();
 
         return Some(new_password);
     }
@@ -1272,16 +1639,18 @@ fn maybe_generate_new_password(app: &AppHandle) -> Option<String> {
 
 fn commit_pending_password(app: &AppHandle) {
     let settings = get_settings(app);
-    if let Some(ref pending) = settings.connector_pending_password {
+    if let Some(pending) = active_pending_password(app, &settings) {
         info!("Extension acknowledged password - committing new password");
 
         let mut new_settings = settings.clone();
         new_settings.connector_password = pending.clone();
         new_settings.connector_pending_password = None;
+        new_settings.connector_pending_password_issued_at_ms = 0;
         write_settings(app, new_settings);
 
         let connector_manager = app.state::<Arc<ConnectorManager>>();
         connector_manager.refresh_crypto_state(&pending, None);
+        connector_manager.clear_sessions();
     } else {
         debug!("Received password_ack but no pending password to commit");
     }
@@ -1310,12 +1679,57 @@ fn maybe_migrate_legacy_connector_password(
 
     let mut new_settings = settings.clone();
     new_settings.connector_pending_password = Some(settings.connector_password.clone());
+    new_settings.connector_pending_password_issued_at_ms = now_ms();
     new_settings.connector_password = default_password;
     write_settings(app, new_settings);
 }
 
+fn ensure_pending_password_metadata(app: &AppHandle, settings: &crate::settings::AppSettings) {
+    if settings.connector_pending_password.is_none() || settings.connector_pending_password_issued_at_ms > 0 {
+        return;
+    }
+
+    let mut new_settings = settings.clone();
+    new_settings.connector_pending_password_issued_at_ms = now_ms();
+    write_settings(app, new_settings);
+}
+
+fn active_pending_password(
+    app: &AppHandle,
+    settings: &crate::settings::AppSettings,
+) -> Option<String> {
+    let pending = settings.connector_pending_password.as_ref()?;
+    if settings.connector_pending_password_issued_at_ms <= 0 {
+        return Some(pending.clone());
+    }
+
+    if now_ms() - settings.connector_pending_password_issued_at_ms > PENDING_PASSWORD_TTL_MS {
+        info!("Connector pending password expired before acknowledgement; clearing it");
+        clear_pending_password(app, settings);
+        return None;
+    }
+
+    Some(pending.clone())
+}
+
+fn clear_pending_password(app: &AppHandle, settings: &crate::settings::AppSettings) {
+    if settings.connector_pending_password.is_none() {
+        return;
+    }
+
+    let mut new_settings = settings.clone();
+    new_settings.connector_pending_password = None;
+    new_settings.connector_pending_password_issued_at_ms = 0;
+    write_settings(app, new_settings);
+
+    if let Some(connector_manager) = app.try_state::<Arc<ConnectorManager>>() {
+        connector_manager.refresh_crypto_state(&settings.connector_password, None);
+        connector_manager.clear_sessions();
+    }
+}
+
 fn is_probably_autogenerated_password(password: &str) -> bool {
-    password.len() == 32
+    matches!(password.len(), 32 | 64)
         && password
             .bytes()
             .all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
@@ -1338,15 +1752,90 @@ fn build_crypto_state(current_password: &str, pending_password: Option<&str>) ->
     }
 }
 
+fn required_string_header(
+    headers: &axum::http::HeaderMap,
+    header_name: &'static str,
+    label: &str,
+) -> Result<String, Response> {
+    let Some(value) = headers.get(header::HeaderName::from_static(header_name)) else {
+        return Err(error_response(
+            StatusCode::PRECONDITION_REQUIRED,
+            &format!("Missing {}", label),
+        ));
+    };
+    let Ok(raw) = value.to_str() else {
+        return Err(error_response(
+            StatusCode::BAD_REQUEST,
+            &format!("Malformed {}", label),
+        ));
+    };
+    let trimmed = raw.trim();
+    if trimmed.is_empty() || trimmed.chars().all(|c| c == '0') {
+        return Err(error_response(
+            StatusCode::BAD_REQUEST,
+            &format!("Malformed {}", label),
+        ));
+    }
+    Ok(trimmed.to_string())
+}
+
+fn required_u64_header(
+    headers: &axum::http::HeaderMap,
+    header_name: &'static str,
+    label: &str,
+) -> Result<u64, Response> {
+    let raw = required_string_header(headers, header_name, label)?;
+    raw.parse::<u64>()
+        .ok()
+        .filter(|value| *value > 0)
+        .ok_or_else(|| error_response(StatusCode::BAD_REQUEST, &format!("Malformed {}", label)))
+}
+
+fn required_i64_header(
+    headers: &axum::http::HeaderMap,
+    header_name: &'static str,
+    label: &str,
+) -> Result<i64, Response> {
+    let raw = required_string_header(headers, header_name, label)?;
+    raw.parse::<i64>()
+        .ok()
+        .filter(|value| *value > 0)
+        .ok_or_else(|| error_response(StatusCode::BAD_REQUEST, &format!("Malformed {}", label)))
+}
+
+fn clear_expired_sessions(sessions: &mut HashMap<String, ConnectorSession>, now: i64) {
+    sessions.retain(|_, session| session.expires_at > now);
+}
+
 pub(crate) fn normalize_connector_cors_setting(raw_value: &str) -> Result<String, String> {
     let trimmed = raw_value.trim();
     if trimmed.is_empty() || trimmed == "*" || trimmed.eq_ignore_ascii_case("<any>") {
-        return Ok(String::new());
+        return Err(
+            "Connector CORS must be an exact origin. Wildcards and empty values are not allowed."
+                .to_string(),
+        );
+    }
+
+    if let Some(extension_id) = trimmed.strip_prefix("chrome-extension://") {
+        if extension_id.is_empty()
+            || extension_id.contains('/')
+            || extension_id.contains('?')
+            || extension_id.contains('#')
+            || !extension_id
+                .bytes()
+                .all(|b| matches!(b, b'a'..=b'z' | b'A'..=b'Z' | b'0'..=b'9' | b'-'))
+        {
+            return Err(format!(
+                "Invalid CORS origin '{}': expected chrome-extension://<extension-id>",
+                trimmed
+            ));
+        }
+        return Ok(format!("chrome-extension://{}", extension_id.to_ascii_lowercase()));
     }
 
     let uri: Uri = trimmed.parse().map_err(|_| {
         format!(
-            "Invalid CORS origin '{}': expected an exact origin like https://chatgpt.com",
+            "Invalid CORS origin '{}': expected an exact origin like https://chatgpt.com or chrome-extension://<id>",
             trimmed
         )
     })?;
@@ -1377,17 +1866,21 @@ pub(crate) fn normalize_connector_cors_setting(raw_value: &str) -> Result<String
 
 fn parse_cors_policy(raw_value: &str) -> Result<CorsPolicy, String> {
     let normalized = normalize_connector_cors_setting(raw_value)?;
-    if normalized.is_empty() {
-        Ok(CorsPolicy::Any)
-    } else {
-        Ok(CorsPolicy::Exact(normalized))
-    }
+    Ok(CorsPolicy::Exact(normalized))
 }
 
 fn apply_security_headers(mut response: Response) -> Response {
     let headers = response.headers_mut();
     headers.insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
     headers.insert(header::PRAGMA, HeaderValue::from_static("no-cache"));
+    headers.insert(
+        header::VARY,
+        HeaderValue::from_static("Origin"),
+    );
+    headers.insert(
+        header::HeaderName::from_static(HEADER_PROTOCOL_VERSION),
+        HeaderValue::from_static("2"),
+    );
     headers.insert(
         header::HeaderName::from_static("x-content-type-options"),
         HeaderValue::from_static("nosniff"),
@@ -1397,4 +1890,31 @@ fn apply_security_headers(mut response: Response) -> Response {
 
 fn json_response<T: Serialize>(payload: T) -> Response {
     apply_security_headers(Json(payload).into_response())
+}
+
+fn with_session_headers(mut response: Response, session: &ValidatedSession) -> Response {
+    let headers = response.headers_mut();
+    if let Ok(session_id) = HeaderValue::from_str(&session.id) {
+        headers.insert(
+            header::HeaderName::from_static(HEADER_SESSION_ID),
+            session_id,
+        );
+    }
+    if let Ok(server_sequence) = HeaderValue::from_str(&session.server_sequence.to_string()) {
+        headers.insert(
+            header::HeaderName::from_static(HEADER_SERVER_SEQUENCE),
+            server_sequence,
+        );
+    }
+    if let Ok(expires_at) = HeaderValue::from_str(&session.expires_at.to_string()) {
+        headers.insert(
+            header::HeaderName::from_static(HEADER_SESSION_EXPIRES_AT),
+            expires_at,
+        );
+    }
+    response
+}
+
+fn json_session_response<T: Serialize>(payload: T, session: &ValidatedSession) -> Response {
+    with_session_headers(json_response(payload), session)
 }

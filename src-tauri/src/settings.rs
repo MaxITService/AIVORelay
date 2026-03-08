@@ -1401,6 +1401,9 @@ pub struct AppSettings {
     /// Pending password awaiting acknowledgement from extension (two-phase commit)
     #[serde(default)]
     pub connector_pending_password: Option<String>,
+    /// Timestamp (Unix ms) when the pending connector password was issued.
+    #[serde(default)]
+    pub connector_pending_password_issued_at_ms: i64,
     /// Per-model transcription prompts (model_id -> prompt text)
     /// For Whisper: context/terms prompt. For Parakeet: comma-separated boost words.
     #[serde(default)]
@@ -1875,11 +1878,11 @@ fn default_connector_port() -> u16 {
 }
 
 fn default_connector_enabled() -> bool {
-    true
+    false
 }
 
 fn default_connector_encryption_enabled() -> bool {
-    false // Off by default until extension is ready
+    true
 }
 
 fn default_connector_cors() -> String {
@@ -2533,6 +2536,7 @@ pub fn get_default_settings() -> AppSettings {
         connector_password: default_connector_password(),
         connector_password_user_set: false,
         connector_pending_password: None,
+        connector_pending_password_issued_at_ms: 0,
         transcription_prompts: HashMap::new(),
         transcription_profiles: Vec::new(),
         diarization_speaker_name_profiles: Vec::new(),

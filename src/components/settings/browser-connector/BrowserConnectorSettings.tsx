@@ -33,8 +33,7 @@ const getDefaultScreenshotFolder = () => {
 export const BrowserConnectorSettings: React.FC = () => {
   const { t } = useTranslation();
   const { settings, updateSetting, isUpdating, refreshSettings } = useSettings();
-  const normalizeCorsValue = (value?: string | null) =>
-    value?.trim() === "<any>" || value?.trim() === "*" ? "" : (value ?? "");
+  const normalizeCorsValue = (value?: string | null) => value ?? "";
 
   const [portInput, setPortInput] = useState(String(settings?.connector_port ?? 38243));
   const [portError, setPortError] = useState<string | null>(null);
@@ -938,7 +937,7 @@ export const BrowserConnectorSettings: React.FC = () => {
           grouped={true}
         >
           <ToggleSwitch
-            checked={settings?.connector_enabled ?? true}
+            checked={settings?.connector_enabled ?? false}
             onChange={handleEnabledChange}
             disabled={isUpdating("connector_enabled")}
           />
@@ -951,7 +950,7 @@ export const BrowserConnectorSettings: React.FC = () => {
           grouped={true}
         >
           <ToggleSwitch
-            checked={settings?.connector_encryption_enabled ?? false}
+            checked={settings?.connector_encryption_enabled ?? true}
             onChange={handleEncryptionChange}
             disabled={isUpdating("connector_encryption_enabled")}
           />
