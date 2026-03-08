@@ -2,7 +2,9 @@
 
 Files that differentiate this fork from the original [cjpais/Handy](https://github.com/cjpais/Handy).
 
-## Fork-Specific Files
+## Fork-Added Files
+
+Files that are added by this fork rather than upstream files that were modified.
 
 ### Backend (Rust)
 
@@ -12,18 +14,13 @@ Files that differentiate this fork from the original [cjpais/Handy](https://gith
 | `src-tauri/src/commands/connector.rs` | Commands: status, queue, cancel. |
 | `src-tauri/src/managers/remote_stt.rs` | Remote STT manager (OpenAI/Soniox). |
 | `src-tauri/src/commands/remote_stt.rs` | Commands for remote STT & keys. |
-| `src-tauri/src/managers/soniox_stt.rs` | Soniox async/non-live manager. |
-| `src-tauri/src/managers/soniox_realtime.rs` | Soniox live WebSocket manager plus live-sound diarization feed. |
 | `src-tauri/src/managers/deepgram_stt.rs` | Deepgram non-live/live-finalize transcription manager. |
-| `src-tauri/src/managers/deepgram_realtime.rs` | Deepgram live WebSocket manager (KeepAlive/Finalize/CloseStream) plus live-sound diarization feed. |
 | `src-tauri/src/secure_keys.rs` | Secure API key storage (Windows). |
 | `src-tauri/src/plus_overlay_state.rs` | Extended overlay states. |
 | `src-tauri/src/region_capture.rs` | Native region capture overlay. |
 | `src-tauri/src/commands/region_capture.rs` | Commands for region capture. |
 | `src-tauri/src/commands/voice_command.rs` | Voice Command Center. |
-| `src-tauri/src/commands/file_transcription.rs` | File transcription logic. |
 | `src-tauri/src/commands/live_sound_transcription.rs` | Live Sound Transcription page command surface. |
-| `src-tauri/src/managers/live_sound_transcription.rs` | Dedicated in-page live sound transcript/diarization state and events. |
 | `src-tauri/src/file_transcription_diarization.rs` | Shared diarized file-transcription temp session + speaker re-apply helpers. |
 | `src-tauri/src/subtitle.rs` | Subtitle formatting (SRT/VTT). |
 | `src-tauri/src/audio_toolkit/text.rs` | Text Post-Processing (stutter/filler removal). |
@@ -39,7 +36,6 @@ Files that differentiate this fork from the original [cjpais/Handy](https://gith
 
 | File | Purpose |
 | --- | --- |
-| `src/components/settings/remote-stt/RemoteSttSettings.tsx` | Remote STT UI. |
 | `src/components/settings/SonioxContextEditor.tsx` | Soniox context editor. |
 | `src/components/settings/ai-replace/AiReplaceSelectionSettings.tsx` | AI Replace config UI. |
 | `src/components/settings/advanced/AiReplaceSettings.tsx` | Legacy AI Replace UI. |
@@ -55,12 +51,10 @@ Files that differentiate this fork from the original [cjpais/Handy](https://gith
 | `src/components/ui/HotkeyCapture.tsx` | Hotkey capture UI. |
 | `src/soniox-live-preview/SonioxLivePreview.css` | Styles for live preview, drag grip, and resize handles. |
 | `src/components/settings/voice-commands/VoiceCommandSettings.tsx` | Voice Command settings UI. |
-| `src/components/settings/transcribe-file/TranscribeFileSettings.tsx` | Transcribe File UI. |
 | `src/components/settings/live-sound-transcription/LiveSoundTranscriptionSettings.tsx` | Live Sound Transcription page with in-page diarized transcript and source/device controls. |
 | `src/components/settings/text-replacement/TextReplacementSettings.tsx` | Text Replacement rules UI. |
 | `src/components/settings/audio-processing/AudioProcessingSettings.tsx` | Audio processing UI. |
 | `src/components/settings/debug/ShortcutEngineSelector.tsx` | Shortcut engine toggle UI. |
-| `src/stores/transcribeFileStore.ts` | Session store for file transcription. |
 | `src/lib/constants/sonioxLanguages.ts` | Soniox languages mapping. |
 
 ### Development & Build Tools

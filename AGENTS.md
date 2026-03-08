@@ -29,12 +29,12 @@ After running this once, cargo/rustc commands work for the rest of the conversat
 
 1. **Check locks FIRST**: Run `Get-Process | Where-Object { $_.Name -match "cargo|tauri|rustc|bun" } | Select-Object Name, Id`
 2. **The "No-Go" Rule**: If ANY process is found, **DO NOT run `cargo check`, `cargo clippy`, or `cargo fmt`** (avoids file locks/rebuilds).
-3. **Safe anytime**: frontend tools like `tsc`, `eslint`, and `prettier`.
-4. **Wait**: Use `command_status` for background commands; wait for `Status: DONE`.
+3. **Safe anytime**: frontend-only tools like `bun x tsc --noEmit`, `bun run lint`, `bun run format:frontend`, and `bun run check:translations`.
+4. **Wait**: If a background dev/build command is already running, do not start Cargo tools until it has clearly finished.
 5. **Get-Dev Once**: Run environment setup ($vsPath) ONCE per conversation, not inline.
 6. **Output Markers**: Wrap long commands: `Write-Host "--- START TASK ---"; <cmd>; Write-Host "--- END TASK ---"`
 
-**Key Tools:** Use frontend tools (`bun x tsc --noEmit`, `bun run lint`, `bun run format`) anytime. Use Rust tools (`cargo fmt`, `cargo clippy`, `cargo check`) ONLY if NO dev processes are running.
+**Key Tools:** Use frontend-only tools (`bun x tsc --noEmit`, `bun run lint`, `bun run format:frontend`, `bun run check:translations`) anytime. Use Rust tools (`cargo fmt`, `cargo clippy`, `cargo check`) ONLY if NO dev processes are running.
 
 **ast-grep (sg) and rg and also sd INSTALLED on Windows and on PATH, installed via Winget - their Windows versions!**
 No need to use WSL for them: their Windows versions are installed: callable directly from PowerShell. Use the best tool, where sane, where the best tool wins, probably you also have good tools inside your harness.
@@ -76,7 +76,8 @@ When adding new features, please prefer adding them in new files instead of edit
 - Bindings are generated when the **debug app actually runs** (not at compile time)
 - CI only compiles, it never runs the app — so CI cannot generate bindings
 - The file must be in git so CI has it available during build
-- After modifying any `#[tauri::command]` in Rust, run `bun tauri dev` to regenerate, then commit the updated file
+- After modifying any `#[tauri::command]` in Rust, ask the user to run `bun tauri dev` to regenerate `src/bindings.ts`, or run it yourself only if the user explicitly requests it
+- Only commit the updated `src/bindings.ts` when the user explicitly instructs you to commit
 
 ### When Modifying Fork Features
 
@@ -95,8 +96,3 @@ When adding new features, please prefer adding them in new files instead of edit
 ## Version Bump Checklist
 
 When asked to bump version or prepare a release, read [[.AGENTS/Release|Release.md]].
-
-
-
-
-
