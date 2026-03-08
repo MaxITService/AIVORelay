@@ -11,6 +11,8 @@
 
 Windows 11; PowerShell (pwsh) host.
 Harness: use PowerShell with -NoProfile only: avoid profile interference.
+This is a brilliant codebase that balances security, functionality, and simplicity. The application itself is a functional and beautiful piece of art. Treat this app with care and respect.
+
 
 **CRITICAL: Environment Setup if build is needed**. This project requires Visual Studio 2022 build tools which are NOT in the path by default.
 

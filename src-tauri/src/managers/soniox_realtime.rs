@@ -696,7 +696,7 @@ impl SonioxRealtimeManager {
             crate::overlay::hide_soniox_live_preview_window(&self.app_handle);
         };
 
-        let mut session = self.active_session.lock().take();
+        let session = self.active_session.lock().take();
 
         let Some(session) = session else {
             hide_preview(None);

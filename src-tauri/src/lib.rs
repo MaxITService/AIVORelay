@@ -204,9 +204,11 @@ fn initialize_core_logic(app_handle: &AppHandle) {
         region_capture::RegionCaptureState::default(),
     ));
 
-    // Start the connector server for extension communication
-    if let Err(e) = connector_manager.start_server() {
-        log::error!("Failed to start connector server: {}", e);
+    // Start the connector server for extension communication (if enabled)
+    if current_settings.connector_enabled {
+        if let Err(e) = connector_manager.start_server() {
+            log::error!("Failed to start connector server: {}", e);
+        }
     }
 
     // Initialize the shortcuts
@@ -515,6 +517,9 @@ pub fn run() {
         shortcut::change_connector_auto_open_url_setting,
         shortcut::change_connector_port_setting,
         shortcut::change_connector_password_setting,
+        shortcut::change_connector_enabled_setting,
+        shortcut::change_connector_cors_setting,
+        shortcut::change_connector_encryption_enabled_setting,
         shortcut::change_screenshot_capture_method_setting,
         shortcut::change_screenshot_capture_command_setting,
         shortcut::change_native_region_capture_mode_setting,

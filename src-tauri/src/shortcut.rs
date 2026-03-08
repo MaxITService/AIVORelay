@@ -3597,6 +3597,72 @@ pub fn change_connector_auto_open_url_setting(app: AppHandle, url: String) -> Re
 
 #[tauri::command]
 #[specta::specta]
+pub fn change_connector_enabled_setting(
+    app: AppHandle,
+    enabled: bool,
+    connector_manager: State<'_, Arc<crate::managers::connector::ConnectorManager>>,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    let previous_enabled = settings.connector_enabled;
+    if previous_enabled == enabled {
+        return Ok(());
+    }
+    settings.connector_enabled = enabled;
+    settings::write_settings(&app, settings);
+
+    if enabled {
+        if let Err(err) = connector_manager.restart_server() {
+            let mut rollback_settings = settings::get_settings(&app);
+            rollback_settings.connector_enabled = previous_enabled;
+            settings::write_settings(&app, rollback_settings);
+            return Err(err);
+        }
+    } else {
+        connector_manager.stop_server();
+    }
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_connector_cors_setting(
+    app: AppHandle,
+    cors: String,
+    connector_manager: State<'_, Arc<crate::managers::connector::ConnectorManager>>,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    let previous_cors = settings.connector_cors.clone();
+    let normalized_cors = crate::managers::connector::normalize_connector_cors_setting(&cors)?;
+    if previous_cors == normalized_cors {
+        return Ok(());
+    }
+    settings.connector_cors = normalized_cors;
+    settings::write_settings(&app, settings);
+
+    if let Err(err) = connector_manager.restart_server() {
+        let mut rollback_settings = settings::get_settings(&app);
+        rollback_settings.connector_cors = previous_cors;
+        settings::write_settings(&app, rollback_settings);
+        let _ = connector_manager.restart_server();
+        return Err(err);
+    }
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_connector_encryption_enabled_setting(
+    app: AppHandle,
+    enabled: bool,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.connector_encryption_enabled = enabled;
+    settings::write_settings(&app, settings);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
 pub fn change_connector_port_setting(
     app: AppHandle,
     port: u16,
@@ -3605,33 +3671,28 @@ pub fn change_connector_port_setting(
     let mut settings = settings::get_settings(&app);
     let previous_port = settings.connector_port;
 
-    // Restart server on new port if it's running
-    if let Err(change_err) = connector_manager.restart_on_port(port) {
-        // Best-effort rollback so a failed port change does not leave connector down.
-        if previous_port != port {
-            if let Err(rollback_err) = connector_manager.restart_on_port(previous_port) {
-                error!(
-                    "Failed to rollback connector port from {} to {}: {}",
-                    port, previous_port, rollback_err
-                );
-                return Err(format!(
-                    "{} (rollback to port {} failed: {})",
-                    change_err, previous_port, rollback_err
-                ));
-            }
-        }
-        return Err(change_err);
-    }
-
     settings.connector_port = port;
     settings::write_settings(&app, settings);
+
+    // Restart server on new port if it was enabled (start_server checks enabled state)
+    if let Err(change_err) = connector_manager.restart_on_port(port) {
+        // Rollback setting if restart failed
+        let mut rollback_settings = settings::get_settings(&app);
+        rollback_settings.connector_port = previous_port;
+        settings::write_settings(&app, rollback_settings);
+        return Err(change_err);
+    }
 
     Ok(())
 }
 
 #[tauri::command]
 #[specta::specta]
-pub fn change_connector_password_setting(app: AppHandle, password: String) -> Result<(), String> {
+pub fn change_connector_password_setting(
+    app: AppHandle,
+    password: String,
+    connector_manager: State<'_, Arc<crate::managers::connector::ConnectorManager>>,
+) -> Result<(), String> {
     let trimmed = password.trim().to_string();
     if trimmed.is_empty() {
         return Err("Connector password cannot be empty".to_string());
@@ -3639,19 +3700,19 @@ pub fn change_connector_password_setting(app: AppHandle, password: String) -> Re
 
     let mut settings = settings::get_settings(&app);
 
-    // If setting to the same password, nothing to do
     if settings.connector_password == trimmed {
         return Ok(());
     }
 
-    // Use two-phase commit: set new password as pending, keep old one valid
-    // Extension will receive passwordUpdate, save it, send ack, then it's committed
-    // This prevents extension from getting locked out during password change
     log::info!("User changing connector password - using two-phase commit");
-    settings.connector_pending_password = Some(trimmed);
+    settings.connector_pending_password = Some(trimmed.clone());
     settings.connector_password_user_set = true;
-    // Note: connector_password stays as OLD password until extension acks
+    connector_manager.refresh_crypto_state(
+        &settings.connector_password,
+        settings.connector_pending_password.as_deref(),
+    );
     settings::write_settings(&app, settings);
+
     Ok(())
 }
 

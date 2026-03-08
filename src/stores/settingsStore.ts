@@ -216,8 +216,14 @@ const settingUpdaters: {
     commands.changeConnectorAutoOpenEnabledSetting(value as boolean),
   connector_auto_open_url: (value) =>
     commands.changeConnectorAutoOpenUrlSetting(value as string),
+  connector_enabled: (value) =>
+    commands.changeConnectorEnabledSetting(value as boolean),
+  connector_encryption_enabled: (value) =>
+    commands.changeConnectorEncryptionEnabledSetting(value as boolean),
   connector_port: (value) =>
     commands.changeConnectorPortSetting(value as number),
+  connector_cors: (value) =>
+    commands.changeConnectorCorsSetting(value as string),
   connector_password: (value) =>
     commands.changeConnectorPasswordSetting(value as string),
   screenshot_capture_method: (value) =>

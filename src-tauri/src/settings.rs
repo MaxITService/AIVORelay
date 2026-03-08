@@ -1356,6 +1356,12 @@ pub struct AppSettings {
     pub filter_silence: bool,
     #[serde(default = "default_connector_port")]
     pub connector_port: u16,
+    #[serde(default = "default_connector_enabled")]
+    pub connector_enabled: bool,
+    #[serde(default = "default_connector_encryption_enabled")]
+    pub connector_encryption_enabled: bool,
+    #[serde(default = "default_connector_cors")]
+    pub connector_cors: String,
     #[serde(default = "default_connector_auto_open_enabled")]
     pub connector_auto_open_enabled: bool,
     #[serde(default = "default_connector_auto_open_url")]
@@ -1866,6 +1872,18 @@ fn default_filter_silence() -> bool {
 
 fn default_connector_port() -> u16 {
     38243
+}
+
+fn default_connector_enabled() -> bool {
+    true
+}
+
+fn default_connector_encryption_enabled() -> bool {
+    false // Off by default until extension is ready
+}
+
+fn default_connector_cors() -> String {
+    String::new()
 }
 
 fn default_connector_auto_open_enabled() -> bool {
@@ -2494,6 +2512,9 @@ pub fn get_default_settings() -> AppSettings {
         mute_while_recording: false,
         filter_silence: default_filter_silence(),
         connector_port: default_connector_port(),
+        connector_enabled: default_connector_enabled(),
+        connector_encryption_enabled: default_connector_encryption_enabled(),
+        connector_cors: default_connector_cors(),
         connector_auto_open_enabled: default_connector_auto_open_enabled(),
         connector_auto_open_url: default_connector_auto_open_url(),
         screenshot_capture_method: default_screenshot_capture_method(),

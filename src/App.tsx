@@ -64,10 +64,15 @@ function App() {
       },
     );
 
+    const unlistenAuthFailed = listen<{ message: string }>("connector-auth-failed", (event) => {
+      toast.warning(event.payload.message || "Connector authentication failed", { duration: 5000 });
+    });
+
     return () => {
       unlistenRemote.then((unlisten) => unlisten());
       unlistenScreenshot.then((unlisten) => unlisten());
       unlistenVoiceCommand.then((unlisten) => unlisten());
+      unlistenAuthFailed.then((unlisten) => unlisten());
     };
   }, []);
 

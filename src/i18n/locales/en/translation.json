@@ -1712,7 +1712,7 @@
         "offline": "Offline",
         "waiting": "Waiting...",
         "loading": "Loading...",
-        "serverStopped": "Server Stopped",
+        "serverStopped": "Server OFF",
         "never": "Never",
         "justNow": "Just now",
         "secondsAgo": "{{count}}s ago",
@@ -1799,6 +1799,20 @@
       },
       "connection": {
         "title": "Connection Settings",
+        "enabled": {
+          "label": "Enable Connector Server",
+          "description": "Start the local HTTP server to communicate with the browser extension. When OFF, the status shows \"Server OFF\" and all communication is disabled."
+        },
+        "cors": {
+          "title": "Allowed CORS Origin",
+          "description": "Restrict which websites can connect to the local server. Use \"<any>\" or \"*\" to allow all (default), or enter a specific origin like \"https://chatgpt.com\".",
+          "placeholder": "<any>"
+        },
+        "encryption": {
+          "title": "Message Encryption",
+          "description": "Encrypt traffic between AivoRelay and the browser extension using your connection password (AES-GCM). Requires extension support.",
+          "label": "Enable Encryption"
+        },
         "host": {
           "title": "Host",
           "description": "The host address of the AivoRelay Connector server."

@@ -5,12 +5,22 @@
 //!
 //! Supports long-polling: extension can send `wait=N` query parameter to hold
 //! the connection open for up to N seconds waiting for new messages.
+//!
+//! OWASP hardening notes for this local service:
+//! - Minimize attack surface: bind only to 127.0.0.1 and keep the route set small.
+//! - Secure by default: reject malformed security settings instead of widening access.
+//! - Fail securely: keep rollback paths so a bad change does not silently leave the
+//!   service in a weaker or inconsistent state.
+//! - Defense in depth: use authenticated encryption, randomized nonces, auth backoff,
+//!   and no-store headers on sensitive responses.
+//! - Keep the protocol narrow: only expose the headers, methods, and payload shapes
+//!   that the extension actually needs.
 
 use crate::settings::{default_connector_password, get_settings, write_settings};
 use axum::{
     body::Body,
     extract::{Path, Query, State},
-    http::{header, Method, StatusCode},
+    http::{header, HeaderValue, Method, StatusCode, Uri},
     response::{IntoResponse, Response},
     routing::{get, post},
     Json, Router,
@@ -24,10 +34,19 @@ use std::sync::atomic::{AtomicBool, AtomicI64, Ordering};
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Manager};
 use tokio::net::TcpListener;
 use tokio::sync::{Notify, RwLock};
 use tower_http::cors::{Any, CorsLayer};
+
+// Crypto and utils
+use aes_gcm::{
+    aead::{Aead, KeyInit},
+    Aes256Gcm, Nonce,
+};
+use base64::{engine::general_purpose::STANDARD, Engine as _};
+use pbkdf2::pbkdf2_hmac;
+use sha2::Sha256;
 
 /// Default server port (same as test-server.ps1)
 const DEFAULT_PORT: u16 = 38243;
@@ -44,6 +63,8 @@ const BLOB_EXPIRY_MS: i64 = 300_000;
 const MAX_WAIT_SECONDS: u32 = 30;
 /// Default long-poll wait (0 = immediate response for backward compat)
 const DEFAULT_WAIT_SECONDS: u32 = 0;
+/// Cooldown for auth-failure toasts in ms
+const AUTH_FAILURE_TOAST_COOLDOWN_MS: i64 = 5000;
 
 /// Extension connection status
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
@@ -140,8 +161,6 @@ struct MessagesResponse {
 /// POST body from extension (ack or message)
 #[derive(Debug, Clone, Deserialize)]
 struct PostBody {
-    #[serde(default)]
-    text: Option<String>,
     #[serde(rename = "type", default)]
     msg_type: Option<String>,
 }
@@ -185,6 +204,58 @@ struct ConnectorState {
     delivered_ids: HashSet<String>,
 }
 
+/// Represents our cached symmetric encryption key
+#[derive(Clone)]
+struct CachedCrypto {
+    cipher: Aes256Gcm,
+}
+
+impl CachedCrypto {
+    /// Expensive operation: derives a 256-bit AES key from the user's password using PBKDF2 with SHA256.
+    pub fn new(password: &str) -> Self {
+        let mut key = [0u8; 32];
+        let salt = b"AivoRelayLocalSecretSalt";
+        pbkdf2_hmac::<Sha256>(password.as_bytes(), salt, 100_000, &mut key);
+        let aes_key = aes_gcm::Key::<Aes256Gcm>::from_slice(&key);
+        let cipher = Aes256Gcm::new(aes_key);
+        Self { cipher }
+    }
+
+    /// Encrypts a JSON plaintext payload.
+    pub fn encrypt_payload(&self, plaintext: &[u8]) -> Result<Vec<u8>, String> {
+        let mut nonce_bytes = [0u8; 12];
+        getrandom::getrandom(&mut nonce_bytes)
+            .map_err(|e| format!("Failed to generate encryption nonce: {}", e))?;
+        let nonce = Nonce::from_slice(&nonce_bytes);
+        let ciphertext = self
+            .cipher
+            .encrypt(nonce, plaintext)
+            .map_err(|e| format!("Encryption failure: {:?}", e))?;
+        let mut final_payload = Vec::with_capacity(nonce_bytes.len() + ciphertext.len());
+        final_payload.extend_from_slice(&nonce_bytes);
+        final_payload.extend_from_slice(&ciphertext);
+        Ok(final_payload)
+    }
+}
+
+#[derive(Clone, Default)]
+struct CryptoState {
+    current: Option<CachedCrypto>,
+    pending: Option<CachedCrypto>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum AuthMatch {
+    CurrentPassword,
+    PendingPassword,
+}
+
+#[derive(Clone, Debug)]
+enum CorsPolicy {
+    Any,
+    Exact(String),
+}
+
 /// Shared state for axum handlers
 #[derive(Clone)]
 struct AppState {
@@ -196,6 +267,10 @@ struct AppState {
     port: Arc<RwLock<u16>>,
     /// Notify waiters when a new message is queued
     message_notify: Arc<Notify>,
+    /// Cached symmetric keys derived from the current and pending passwords
+    crypto: Arc<RwLock<CryptoState>>,
+    /// Tracks the timestamp (ms) of the last emitted auth-failed event
+    last_auth_failure_emitted_at: Arc<AtomicI64>,
 }
 
 pub struct ConnectorManager {
@@ -214,12 +289,17 @@ pub struct ConnectorManager {
     message_notify: Arc<Notify>,
     /// Last server error (e.g., port binding failure)
     server_error: Arc<RwLock<Option<String>>>,
+    /// Cached symmetric keys derived from the current and pending passwords
+    crypto: Arc<RwLock<CryptoState>>,
+    /// Tracks the timestamp (ms) of the last emitted auth-failed event
+    last_auth_failure_emitted_at: Arc<AtomicI64>,
 }
 
 impl ConnectorManager {
     pub fn new(app_handle: &AppHandle) -> Result<Self, String> {
-        let settings = get_settings(app_handle);
+        let mut settings = get_settings(app_handle);
         maybe_migrate_legacy_connector_password(app_handle, &settings);
+        settings = get_settings(app_handle);
 
         let port = if settings.connector_port > 0 {
             settings.connector_port
@@ -241,23 +321,39 @@ impl ConnectorManager {
             stop_flag: Arc::new(AtomicBool::new(false)),
             message_notify: Arc::new(Notify::new()),
             server_error: Arc::new(RwLock::new(None)),
+            crypto: Arc::new(RwLock::new(build_crypto_state(
+                &settings.connector_password,
+                settings.connector_pending_password.as_deref(),
+            ))),
+            last_auth_failure_emitted_at: Arc::new(AtomicI64::new(0)),
         };
 
         Ok(manager)
     }
 
-    /// Start the HTTP server in a background task
+    /// Start the HTTP server in a background task.
     pub fn start_server(&self) -> Result<(), String> {
-        if self.server_running.load(Ordering::SeqCst) {
-            return Ok(()); // Already running
+        let settings = get_settings(&self.app_handle);
+        if !settings.connector_enabled {
+            debug!("Connector server is disabled in settings, skipping start.");
+            return Ok(());
         }
+
+        if self.server_running.load(Ordering::SeqCst) {
+            return Ok(());
+        }
+
+        let cors_policy = parse_cors_policy(&settings.connector_cors).map_err(|err| {
+            *self.server_error.blocking_write() = Some(err.clone());
+            let _ = self.app_handle.emit("connector-server-error", err.clone());
+            err
+        })?;
 
         let port = {
             let port_guard = self.port.blocking_read();
             *port_guard
         };
 
-        // Validate port range
         if port < 1024 {
             return Err(format!(
                 "Port {} is not allowed. Please use a port number of 1024 or higher.",
@@ -266,20 +362,12 @@ impl ConnectorManager {
         }
 
         let addr = format!("127.0.0.1:{}", port);
-
-        // Bind synchronously so callers get immediate success/failure instead of
-        // a false-positive "started" status before async bind happens.
         let std_listener = match std::net::TcpListener::bind(&addr) {
             Ok(listener) => listener,
             Err(e) => {
                 let error_msg = format!("Failed to bind to port {}: {}", port, e);
                 error!("Connector server: {}", error_msg);
-
-                {
-                    let mut err_guard = self.server_error.blocking_write();
-                    *err_guard = Some(error_msg.clone());
-                }
-
+                *self.server_error.blocking_write() = Some(error_msg.clone());
                 let _ = self
                     .app_handle
                     .emit("connector-server-error", error_msg.clone());
@@ -290,26 +378,17 @@ impl ConnectorManager {
         if let Err(e) = std_listener.set_nonblocking(true) {
             let error_msg = format!("Failed to configure listener for port {}: {}", port, e);
             error!("Connector server: {}", error_msg);
-
-            {
-                let mut err_guard = self.server_error.blocking_write();
-                *err_guard = Some(error_msg.clone());
-            }
-
+            *self.server_error.blocking_write() = Some(error_msg.clone());
             let _ = self
                 .app_handle
                 .emit("connector-server-error", error_msg.clone());
             return Err(error_msg);
         }
 
-        // Clear any previous startup error once bind is confirmed.
-        {
-            let mut err_guard = self.server_error.blocking_write();
-            *err_guard = None;
-        }
-
+        *self.server_error.blocking_write() = None;
         self.server_running.store(true, Ordering::SeqCst);
         self.stop_flag.store(false, Ordering::SeqCst);
+        self.last_poll_at.store(0, Ordering::SeqCst);
 
         let app_state = AppState {
             app_handle: self.app_handle.clone(),
@@ -317,11 +396,11 @@ impl ConnectorManager {
             last_poll_at: Arc::clone(&self.last_poll_at),
             port: self.port.clone(),
             message_notify: self.message_notify.clone(),
+            crypto: self.crypto.clone(),
+            last_auth_failure_emitted_at: self.last_auth_failure_emitted_at.clone(),
         };
 
-        // Create a local stop flag specifically for this server instance's background tasks.
-        // This fixes CON-002 where restarting the server would reset the global stop_flag
-        // before the background tasks of the old server instance could notice it and exit.
+        // Use a per-instance stop flag so older restart tasks cannot outlive a fresh server.
         let local_stop_flag = Arc::new(AtomicBool::new(false));
         let global_stop_flag = self.stop_flag.clone();
 
@@ -340,12 +419,7 @@ impl ConnectorManager {
                         port, e
                     );
                     error!("Connector server: {}", error_msg);
-
-                    {
-                        let mut err_guard = server_error.write().await;
-                        *err_guard = Some(error_msg.clone());
-                    }
-
+                    *server_error.write().await = Some(error_msg.clone());
                     server_running.store(false, Ordering::SeqCst);
                     let _ = app_handle.emit("connector-server-error", error_msg);
                     return;
@@ -353,15 +427,22 @@ impl ConnectorManager {
             };
 
             info!("Connector server starting on port {}", port);
-
-            // Emit initial status
             let _ = app_handle.emit("extension-status-changed", ExtensionStatus::Unknown);
 
-            // Build router with CORS
-            let cors = CorsLayer::new()
-                .allow_origin(Any)
+            let mut cors = CorsLayer::new()
                 .allow_methods([Method::GET, Method::POST, Method::OPTIONS])
                 .allow_headers([header::AUTHORIZATION, header::CONTENT_TYPE]);
+
+            match cors_policy {
+                CorsPolicy::Any => {
+                    cors = cors.allow_origin(Any);
+                }
+                CorsPolicy::Exact(origin) => {
+                    let origin = HeaderValue::from_str(&origin)
+                        .expect("validated origin must be convertible to a header value");
+                    cors = cors.allow_origin(origin);
+                }
+            }
 
             let router = Router::new()
                 .route("/messages", get(handle_get_messages))
@@ -372,15 +453,14 @@ impl ConnectorManager {
 
             info!("Connector server listening on {}", addr);
 
-            // Spawn status check task
             let status_local_stop_flag = local_stop_flag.clone();
             let status_global_stop_flag = global_stop_flag.clone();
             let status_app_handle = app_handle.clone();
             let status_last_poll = last_poll_at.clone();
             tokio::spawn(async move {
                 let mut was_online = false;
+
                 loop {
-                    // Stop if either the local server instance is shutting down, or the global manager says stop
                     if status_local_stop_flag.load(Ordering::SeqCst)
                         || status_global_stop_flag.load(Ordering::SeqCst)
                     {
@@ -392,7 +472,6 @@ impl ConnectorManager {
 
                     if last_poll > 0 {
                         let is_online = (now - last_poll) < POLL_TIMEOUT_MS;
-
                         if is_online != was_online {
                             let status = if is_online {
                                 ExtensionStatus::Online
@@ -409,7 +488,6 @@ impl ConnectorManager {
                 }
             });
 
-            // Spawn keepalive and blob cleanup task
             let keepalive_local_stop_flag = local_stop_flag.clone();
             let keepalive_global_stop_flag = global_stop_flag.clone();
             let keepalive_state = state.clone();
@@ -425,27 +503,21 @@ impl ConnectorManager {
                     {
                         let mut state_guard = keepalive_state.lock().unwrap();
 
-                        // Check if we need to send a keepalive
                         if now - state_guard.last_keepalive > KEEPALIVE_INTERVAL_MS {
                             state_guard.last_keepalive = now;
-
-                            let keepalive = QueuedMessage {
+                            state_guard.messages.push_back(QueuedMessage {
                                 id: uuid_simple(),
                                 msg_type: "keepalive".to_string(),
                                 text: "keepalive".to_string(),
                                 ts: now,
                                 attachments: None,
-                            };
+                            });
 
-                            state_guard.messages.push_back(keepalive);
-
-                            // Trim old messages
                             while state_guard.messages.len() > MAX_MESSAGES {
                                 state_guard.messages.pop_front();
                             }
                         }
 
-                        // Clean up expired blobs
                         state_guard.blobs.retain(|_, blob| blob.expires_at > now);
                     }
 
@@ -453,8 +525,6 @@ impl ConnectorManager {
                 }
             });
 
-            // Serve requests using axum's built-in serve function
-            // We use a graceful shutdown triggered by the stop flag
             let graceful_local_stop_flag = local_stop_flag.clone();
             let graceful_global_stop_flag = global_stop_flag.clone();
             axum::serve(listener, router)
@@ -465,6 +535,7 @@ impl ConnectorManager {
                         {
                             break;
                         }
+
                         tokio::time::sleep(Duration::from_millis(100)).await;
                     }
                 })
@@ -476,36 +547,22 @@ impl ConnectorManager {
             local_stop_flag.store(true, Ordering::SeqCst);
             server_running.store(false, Ordering::SeqCst);
             info!("Connector server stopped");
+            let _ = app_handle.emit("extension-status-changed", ExtensionStatus::Unknown);
         });
 
         Ok(())
     }
 
-    /// Stop the HTTP server
+    /// Stop the HTTP server.
     pub fn stop_server(&self) {
         self.stop_flag.store(true, Ordering::SeqCst);
     }
 
-    /// Update the port and restart the server if it's running, or start it if there was a previous error
-    pub fn restart_on_port(&self, new_port: u16) -> Result<(), String> {
-        // Update the stored port
-        {
-            let mut port = self.port.blocking_write();
-            *port = new_port;
-        }
-
-        // Check if there was a previous error (e.g., port binding failure)
-        let had_previous_error = {
-            let err_guard = self.server_error.blocking_read();
-            err_guard.is_some()
-        };
-
-        // If server is running, restart it on the new port
+    /// Restart the server using the current settings.
+    pub fn restart_server(&self) -> Result<(), String> {
         if self.server_running.load(Ordering::SeqCst) {
-            info!("Restarting connector server on new port {}", new_port);
             self.stop_server();
 
-            // Wait for server to stop (with timeout)
             let start = std::time::Instant::now();
             while self.server_running.load(Ordering::SeqCst) {
                 if start.elapsed() > Duration::from_secs(2) {
@@ -513,37 +570,48 @@ impl ConnectorManager {
                 }
                 std::thread::sleep(Duration::from_millis(50));
             }
+        }
 
-            // Reset last poll so status goes to Unknown
-            self.last_poll_at.store(0, Ordering::SeqCst);
+        self.last_poll_at.store(0, Ordering::SeqCst);
+        self.start_server()
+    }
 
-            // Start on new port
-            self.start_server()?;
-        } else if had_previous_error {
-            // Server failed to start previously (e.g., port was blocked).
-            // User is changing port, so try again on the new port.
-            info!(
-                "Attempting to start connector server on new port {} after previous failure",
-                new_port
-            );
+    /// Update the port and restart the server if it is running or previously failed.
+    pub fn restart_on_port(&self, new_port: u16) -> Result<(), String> {
+        let previous_port = *self.port.blocking_read();
+        let was_running = self.server_running.load(Ordering::SeqCst);
+        let had_previous_error = self.server_error.blocking_read().is_some();
 
-            // Clear the previous error before attempting
-            {
-                let mut err_guard = self.server_error.blocking_write();
-                *err_guard = None;
+        {
+            let mut port_guard = self.port.blocking_write();
+            *port_guard = new_port;
+        }
+
+        if self.server_running.load(Ordering::SeqCst) || had_previous_error {
+            if let Err(restart_err) = self.restart_server() {
+                *self.port.blocking_write() = previous_port;
+
+                if was_running && !self.server_running.load(Ordering::SeqCst) {
+                    if let Err(rollback_err) = self.start_server() {
+                        error!(
+                            "Failed to rollback connector port from {} to {}: {}",
+                            new_port, previous_port, rollback_err
+                        );
+                        return Err(format!(
+                            "{} (rollback to port {} failed: {})",
+                            restart_err, previous_port, rollback_err
+                        ));
+                    }
+                }
+
+                return Err(restart_err);
             }
-
-            // Reset last poll so status goes to Unknown
-            self.last_poll_at.store(0, Ordering::SeqCst);
-
-            // Try to start on the new port
-            self.start_server()?;
         }
 
         Ok(())
     }
 
-    /// Queue a message to be sent to the extension
+    /// Queue a message to be sent to the extension.
     pub fn queue_message(&self, text: &str) -> Result<String, String> {
         let trimmed = text.trim();
         if trimmed.is_empty() {
@@ -553,28 +621,23 @@ impl ConnectorManager {
         let msg_id = uuid_simple();
         let ts = now_ms();
 
-        let msg = QueuedMessage {
-            id: msg_id.clone(),
-            msg_type: "text".to_string(),
-            text: trimmed.to_string(),
-            ts,
-            attachments: None,
-        };
-
         {
             let mut state = self.state.lock().unwrap();
-            state.messages.push_back(msg);
+            state.messages.push_back(QueuedMessage {
+                id: msg_id.clone(),
+                msg_type: "text".to_string(),
+                text: trimmed.to_string(),
+                ts,
+                attachments: None,
+            });
 
-            // Trim old messages
             while state.messages.len() > MAX_MESSAGES {
                 state.messages.pop_front();
             }
         }
 
-        // Wake any long-polling requests
         self.message_notify.notify_waiters();
 
-        // Emit queued event
         let _ = self.app_handle.emit(
             "connector-message-queued",
             MessageQueuedEvent {
@@ -587,13 +650,11 @@ impl ConnectorManager {
         Ok(msg_id)
     }
 
-    /// Queue a bundle message with an image attachment
+    /// Queue a bundle message with an image attachment.
     pub fn queue_bundle_message(&self, text: &str, image_path: &PathBuf) -> Result<String, String> {
-        // Read the image file
         let data =
             std::fs::read(image_path).map_err(|e| format!("Failed to read image file: {}", e))?;
 
-        // Determine MIME type from extension
         let extension = image_path
             .extension()
             .and_then(|e| e.to_str())
@@ -619,14 +680,12 @@ impl ConnectorManager {
         let now = now_ms();
         let expires_at = now + BLOB_EXPIRY_MS;
 
-        // Get port for fetch URL - use try_read to avoid blocking in async context
         let port = match self.port.try_read() {
             Ok(guard) => *guard,
-            Err(_) => DEFAULT_PORT, // Fallback if lock is held
+            Err(_) => DEFAULT_PORT,
         };
         let fetch_url = format!("http://127.0.0.1:{}/blob/{}", port, att_id);
 
-        // Create the attachment
         let attachment = BundleAttachment {
             att_id: att_id.clone(),
             kind: "image".to_string(),
@@ -636,50 +695,38 @@ impl ConnectorManager {
             fetch: BundleFetch {
                 url: fetch_url,
                 method: Some("GET".to_string()),
-                headers: None, // Extension provides auth header automatically
+                headers: None,
                 expires_at: Some(expires_at),
             },
         };
 
-        // Store the blob
-        let pending_blob = PendingBlob {
-            data,
-            mime_type: mime_type.to_string(),
-            expires_at,
-        };
-
-        // Create the bundle message
-        let msg = QueuedMessage {
-            id: msg_id.clone(),
-            msg_type: "bundle".to_string(),
-            text: text.trim().to_string(),
-            ts: now,
-            attachments: Some(vec![attachment]),
-        };
-
         {
             let mut state = self.state.lock().unwrap();
+            state.blobs.insert(
+                att_id,
+                PendingBlob {
+                    data,
+                    mime_type: mime_type.to_string(),
+                    expires_at,
+                },
+            );
+            state.messages.push_back(QueuedMessage {
+                id: msg_id.clone(),
+                msg_type: "bundle".to_string(),
+                text: text.trim().to_string(),
+                ts: now,
+                attachments: Some(vec![attachment]),
+            });
 
-            // Store the blob for later retrieval
-            state.blobs.insert(att_id, pending_blob);
-
-            // Queue the message
-            state.messages.push_back(msg);
-
-            // Trim old messages
             while state.messages.len() > MAX_MESSAGES {
                 state.messages.pop_front();
             }
 
-            // Clean up expired blobs
-            let now = now_ms();
             state.blobs.retain(|_, blob| blob.expires_at > now);
         }
 
-        // Wake any long-polling requests
         self.message_notify.notify_waiters();
 
-        // Emit queued event
         let _ = self.app_handle.emit(
             "connector-message-queued",
             MessageQueuedEvent {
@@ -696,7 +743,7 @@ impl ConnectorManager {
         Ok(msg_id)
     }
 
-    /// Queue a bundle message with image bytes directly (no file read)
+    /// Queue a bundle message with image bytes directly.
     pub fn queue_bundle_message_bytes(
         &self,
         text: &str,
@@ -709,14 +756,12 @@ impl ConnectorManager {
         let now = now_ms();
         let expires_at = now + BLOB_EXPIRY_MS;
 
-        // Get port for fetch URL
         let port = match self.port.try_read() {
             Ok(guard) => *guard,
             Err(_) => DEFAULT_PORT,
         };
         let fetch_url = format!("http://127.0.0.1:{}/blob/{}", port, att_id);
 
-        // Create the attachment
         let attachment = BundleAttachment {
             att_id: att_id.clone(),
             kind: "image".to_string(),
@@ -734,45 +779,33 @@ impl ConnectorManager {
             },
         };
 
-        // Store the blob
-        let pending_blob = PendingBlob {
-            data,
-            mime_type: mime_type.to_string(),
-            expires_at,
-        };
-
-        // Create the bundle message
-        let msg = QueuedMessage {
-            id: msg_id.clone(),
-            msg_type: "bundle".to_string(),
-            text: text.trim().to_string(),
-            ts: now,
-            attachments: Some(vec![attachment]),
-        };
-
         {
             let mut state = self.state.lock().unwrap();
+            state.blobs.insert(
+                att_id,
+                PendingBlob {
+                    data,
+                    mime_type: mime_type.to_string(),
+                    expires_at,
+                },
+            );
+            state.messages.push_back(QueuedMessage {
+                id: msg_id.clone(),
+                msg_type: "bundle".to_string(),
+                text: text.trim().to_string(),
+                ts: now,
+                attachments: Some(vec![attachment]),
+            });
 
-            // Store the blob for later retrieval
-            state.blobs.insert(att_id, pending_blob);
-
-            // Queue the message
-            state.messages.push_back(msg);
-
-            // Trim old messages
             while state.messages.len() > MAX_MESSAGES {
                 state.messages.pop_front();
             }
 
-            // Clean up expired blobs
-            let now = now_ms();
             state.blobs.retain(|_, blob| blob.expires_at > now);
         }
 
-        // Wake any long-polling requests
         self.message_notify.notify_waiters();
 
-        // Emit queued event
         let _ = self.app_handle.emit(
             "connector-message-queued",
             MessageQueuedEvent {
@@ -789,22 +822,19 @@ impl ConnectorManager {
         Ok(msg_id)
     }
 
-    /// Cancel a queued message if it hasn't been delivered yet
+    /// Cancel a queued message if it has not been delivered yet.
     pub fn cancel_queued_message(&self, message_id: &str) -> Result<bool, String> {
         let mut state = self.state.lock().unwrap();
 
-        // Check if message exists and hasn't been delivered
         if state.delivered_ids.contains(message_id) {
-            return Ok(false); // Already delivered
+            return Ok(false);
         }
 
-        // Find and remove the message
         let original_len = state.messages.len();
         state.messages.retain(|m| m.id != message_id);
 
         if state.messages.len() < original_len {
-            // Message was removed - emit cancelled event
-            drop(state); // Release lock before emitting
+            drop(state);
 
             let _ = self.app_handle.emit(
                 "connector-message-cancelled",
@@ -816,11 +846,11 @@ impl ConnectorManager {
             info!("Cancelled queued message: {}", message_id);
             Ok(true)
         } else {
-            Ok(false) // Message not found
+            Ok(false)
         }
     }
 
-    /// Get current connection status
+    /// Get current connection status.
     pub fn get_status(&self) -> ConnectorStatus {
         let last_poll = self.last_poll_at.load(Ordering::SeqCst);
         let now = now_ms();
@@ -829,20 +859,17 @@ impl ConnectorManager {
             Ok(guard) => *guard,
             Err(_) => DEFAULT_PORT,
         };
+        let server_error = match self.server_error.try_read() {
+            Ok(guard) => guard.clone(),
+            Err(_) => None,
+        };
 
-        let status = if !server_running {
-            ExtensionStatus::Unknown
-        } else if last_poll == 0 {
+        let status = if !server_running || last_poll == 0 {
             ExtensionStatus::Unknown
         } else if (now - last_poll) < POLL_TIMEOUT_MS {
             ExtensionStatus::Online
         } else {
             ExtensionStatus::Offline
-        };
-
-        let server_error = match self.server_error.try_read() {
-            Ok(guard) => guard.clone(),
-            Err(_) => None,
         };
 
         ConnectorStatus {
@@ -854,7 +881,7 @@ impl ConnectorManager {
         }
     }
 
-    /// Check if extension is currently online
+    /// Check if the extension is currently online.
     pub fn is_online(&self) -> bool {
         let last_poll = self.last_poll_at.load(Ordering::SeqCst);
         if last_poll == 0 {
@@ -862,34 +889,41 @@ impl ConnectorManager {
         }
         (now_ms() - last_poll) < POLL_TIMEOUT_MS
     }
+
+    /// Refresh the cached crypto state after password settings change.
+    pub fn refresh_crypto_state(&self, current_password: &str, pending_password: Option<&str>) {
+        let mut crypto_guard = self.crypto.blocking_write();
+        *crypto_guard = build_crypto_state(current_password, pending_password);
+    }
 }
 
 // ============================================================================
 // Axum Handlers
 // ============================================================================
 
-/// GET /messages - Long-polling endpoint for extension
 async fn handle_get_messages(
     State(app_state): State<AppState>,
-    Query(params): Query<MessagesQuery>,
     headers: axum::http::HeaderMap,
+    query: Query<MessagesQuery>,
 ) -> Response {
-    // Auth check
     let settings = get_settings(&app_state.app_handle);
-    if !validate_auth_header(
+
+    // Auth check
+    let auth_match = if let Some(auth_match) = validate_auth_header(
         &headers,
         &settings.connector_password,
         settings.connector_pending_password.as_deref(),
     ) {
+        auth_match
+    } else {
         apply_random_auth_delay().await;
+        maybe_emit_auth_failure_toast(&app_state);
         return unauthorized_response();
-    }
+    };
 
-    // Update last poll time
     let now = now_ms();
     let old_poll = app_state.last_poll_at.swap(now, Ordering::SeqCst);
 
-    // If this is first poll or we were offline, emit online status
     if old_poll == 0 || (now - old_poll) >= POLL_TIMEOUT_MS {
         info!("Extension connected (polling started)");
         let _ = app_state
@@ -897,72 +931,55 @@ async fn handle_get_messages(
             .emit("extension-status-changed", ExtensionStatus::Online);
     }
 
-    let cursor = params.since.unwrap_or(0);
-    let wait_seconds = params
+    let cursor = query.since.unwrap_or(0);
+    let wait_seconds = query
         .wait
         .unwrap_or(DEFAULT_WAIT_SECONDS)
         .min(MAX_WAIT_SECONDS);
 
-    // Try to get messages, with optional long-poll wait
     let (messages, delivered_ids) = if wait_seconds > 0 {
-        // Long-poll mode: wait for messages or timeout
         let deadline = tokio::time::Instant::now() + Duration::from_secs(wait_seconds as u64);
 
         loop {
-            // Check for messages
             let (msgs, ids) = get_pending_messages(&app_state.state, cursor);
             if !msgs.is_empty() {
                 break (msgs, ids);
             }
 
-            // Calculate remaining time
             let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
             if remaining.is_zero() {
                 break (Vec::new(), Vec::new());
             }
 
-            // Wait for notification or timeout
             tokio::select! {
                 _ = app_state.message_notify.notified() => {
-                    // New message arrived, check again
                     continue;
                 }
                 _ = tokio::time::sleep(remaining) => {
-                    // Timeout reached
                     break (Vec::new(), Vec::new());
                 }
             }
         }
     } else {
-        // Immediate mode (backward compatible)
         get_pending_messages(&app_state.state, cursor)
     };
 
-    // Mark messages as delivered
     if !delivered_ids.is_empty() {
         let mut state_guard = app_state.state.lock().unwrap();
         for id in &delivered_ids {
             state_guard.delivered_ids.insert(id.clone());
-
-            // Emit delivered event
-            let _ = app_state.app_handle.emit(
-                "connector-message-delivered",
-                MessageDeliveredEvent { id: id.clone() },
-            );
+            let _ = app_state
+                .app_handle
+                .emit("connector-message-delivered", MessageDeliveredEvent { id: id.clone() });
         }
 
-        // Clean up old delivered IDs
         let current_ids: HashSet<_> = state_guard.messages.iter().map(|m| m.id.clone()).collect();
         state_guard
             .delivered_ids
             .retain(|id| current_ids.contains(id));
     }
 
-    // Check if we need to generate a new password
     let password_update = maybe_generate_new_password(&app_state.app_handle);
-
-    // Get config from settings
-    let settings = get_settings(&app_state.app_handle);
     let auto_open_url =
         if settings.connector_auto_open_enabled && !settings.connector_auto_open_url.is_empty() {
             Some(settings.connector_auto_open_url.clone())
@@ -970,12 +987,7 @@ async fn handle_get_messages(
             None
         };
 
-    // Cursor tracks the timestamp boundary of the last returned message.
-    // Messages at the exact cursor timestamp are filtered against delivered_ids.
-    // This prevents duplicate replay while still allowing new same-millisecond
-    // messages to be delivered on subsequent polls.
     let next_cursor = messages.last().map(|m| m.ts).unwrap_or(cursor);
-
     let response_body = MessagesResponse {
         cursor: next_cursor,
         messages,
@@ -985,113 +997,120 @@ async fn handle_get_messages(
         password_update,
     };
 
-    Json(response_body).into_response()
+    if settings.connector_encryption_enabled {
+        let plain_json = match serde_json::to_vec(&response_body) {
+            Ok(payload) => payload,
+            Err(e) => {
+                error!("Failed to serialize connector response for encryption: {}", e);
+                return json_response(response_body);
+            }
+        };
+        let crypto_guard = app_state.crypto.read().await;
+        let selected_crypto = match auth_match {
+            AuthMatch::CurrentPassword => crypto_guard.current.as_ref(),
+            AuthMatch::PendingPassword => crypto_guard
+                .pending
+                .as_ref()
+                .or(crypto_guard.current.as_ref()),
+        };
+
+        if let Some(crypto) = selected_crypto {
+            match crypto.encrypt_payload(&plain_json) {
+                Ok(encrypted_bytes) => {
+                    let b64_payload = STANDARD.encode(&encrypted_bytes);
+                    return apply_security_headers(
+                        Response::builder()
+                        .status(StatusCode::OK)
+                        .header(header::CONTENT_TYPE, "text/plain")
+                        .body(Body::from(b64_payload))
+                        .unwrap(),
+                    );
+                }
+                Err(e) => error!("Failed to encrypt response: {}", e),
+            }
+        } else {
+            warn!("Connector encryption is enabled but no crypto key is available");
+        }
+    }
+
+    json_response(response_body)
 }
 
-/// POST /messages - Receive acks and messages from extension
 async fn handle_post_messages(
     State(app_state): State<AppState>,
     headers: axum::http::HeaderMap,
     body: String,
 ) -> Response {
-    // Auth check
     let settings = get_settings(&app_state.app_handle);
-    if !validate_auth_header(
+    if validate_auth_header(
         &headers,
         &settings.connector_password,
         settings.connector_pending_password.as_deref(),
-    ) {
+    )
+    .is_none()
+    {
         apply_random_auth_delay().await;
+        maybe_emit_auth_failure_toast(&app_state);
         return unauthorized_response();
     }
 
-    debug!("POST /messages body: {}", body);
     if let Ok(post_body) = serde_json::from_str::<PostBody>(&body) {
-        debug!("Parsed POST body, msg_type={:?}", post_body.msg_type);
-        if post_body.msg_type.as_deref() == Some("keepalive_ack") {
-            debug!("Received keepalive ack from extension");
-        } else if post_body.msg_type.as_deref() == Some("password_ack") {
-            info!("Received password_ack from extension, committing password...");
+        if post_body.msg_type.as_deref() == Some("password_ack") {
+            info!("Extension acknowledged password - committing...");
             commit_pending_password(&app_state.app_handle);
-        } else if let Some(text) = post_body.text {
-            debug!("Received message from extension: {}", text);
         }
-    } else {
-        debug!("Failed to parse POST body as JSON");
     }
 
-    // Update last poll time on POST too
     app_state.last_poll_at.store(now_ms(), Ordering::SeqCst);
-
-    Json(serde_json::json!({"ok": true})).into_response()
+    json_response(serde_json::json!({"ok": true}))
 }
 
-/// GET /blob/{att_id} - Serve blob data for attachments
 async fn handle_get_blob(
     State(app_state): State<AppState>,
     Path(att_id): Path<String>,
     headers: axum::http::HeaderMap,
 ) -> Response {
-    // Auth check
     let settings = get_settings(&app_state.app_handle);
-    if !validate_auth_header(
+    if validate_auth_header(
         &headers,
         &settings.connector_password,
         settings.connector_pending_password.as_deref(),
-    ) {
+    )
+    .is_none()
+    {
         apply_random_auth_delay().await;
+        maybe_emit_auth_failure_toast(&app_state);
         return unauthorized_response();
     }
 
     let blob_data = {
         let mut state_guard = app_state.state.lock().unwrap();
         let now = now_ms();
-
-        // Clean up expired blobs
-        state_guard.blobs.retain(|_, blob| blob.expires_at > now);
-
-        // Get the requested blob
+        state_guard.blobs.retain(|_, b| b.expires_at > now);
         state_guard.blobs.get(&att_id).cloned()
     };
 
     match blob_data {
-        Some(blob) => {
-            debug!(
-                "Serving blob {} ({} bytes, {})",
-                att_id,
-                blob.data.len(),
-                blob.mime_type
-            );
-
+        Some(blob) => apply_security_headers(
             Response::builder()
                 .status(StatusCode::OK)
                 .header(header::CONTENT_TYPE, blob.mime_type)
                 .body(Body::from(blob.data))
-                .unwrap()
-        }
-        None => {
-            debug!("Blob not found or expired: {}", att_id);
-            (StatusCode::NOT_FOUND, "Blob not found").into_response()
-        }
+                .unwrap(),
+        ),
+        None => apply_security_headers((StatusCode::NOT_FOUND, "Blob not found").into_response()),
     }
 }
 
 // ============================================================================
-// Helper Functions
+// Helpers
 // ============================================================================
 
-/// Get messages from queue that are at or newer than cursor
 fn get_pending_messages(
     state: &Arc<Mutex<ConnectorState>>,
     cursor: i64,
 ) -> (Vec<QueuedMessage>, Vec<String>) {
     let state_guard = state.lock().unwrap();
-    // Include:
-    // - all messages newer than cursor
-    // - same-timestamp messages only if not previously delivered
-    //
-    // This avoids dropping new messages that share the same millisecond timestamp
-    // as the last returned message.
     let filtered: Vec<_> = state_guard
         .messages
         .iter()
@@ -1111,59 +1130,165 @@ fn get_pending_messages(
     (filtered, ids)
 }
 
-/// Apply a random delay between 30 and 60 ms to unauthorized responses
-/// to mask timing differences and prevent brute-force/probing attacks.
 async fn apply_random_auth_delay() {
     let mut buffer = [0u8; 1];
     let delay = if getrandom::getrandom(&mut buffer).is_ok() {
         30 + (buffer[0] % 31) as u64
     } else {
-        45 // Fallback
+        45
     };
-    tokio::time::sleep(std::time::Duration::from_millis(delay)).await;
+    tokio::time::sleep(Duration::from_millis(delay)).await;
 }
 
-/// Create unauthorized response
+fn maybe_emit_auth_failure_toast(app_state: &AppState) {
+    let now = now_ms();
+    loop {
+        let last_emitted = app_state
+            .last_auth_failure_emitted_at
+            .load(Ordering::SeqCst);
+        if now - last_emitted <= AUTH_FAILURE_TOAST_COOLDOWN_MS {
+            return;
+        }
+
+        if app_state
+            .last_auth_failure_emitted_at
+            .compare_exchange(last_emitted, now, Ordering::SeqCst, Ordering::SeqCst)
+            .is_ok()
+        {
+            let _ = app_state.app_handle.emit(
+                "connector-auth-failed",
+                serde_json::json!({ "message": "Failed connection attempt: Incorrect password" }),
+            );
+            return;
+        }
+    }
+}
+
 fn unauthorized_response() -> Response {
-    Response::builder()
-        .status(StatusCode::UNAUTHORIZED)
-        .header("WWW-Authenticate", "Bearer")
-        .body(Body::from("Unauthorized"))
-        .unwrap()
+    apply_security_headers(
+        Response::builder()
+            .status(StatusCode::UNAUTHORIZED)
+            .header("WWW-Authenticate", "Bearer")
+            .body(Body::from("Unauthorized"))
+            .unwrap(),
+    )
 }
 
-/// Validate Authorization header against expected password
 fn validate_auth_header(
     headers: &axum::http::HeaderMap,
-    expected_password: &str,
-    pending_password: Option<&str>,
-) -> bool {
-    if expected_password.is_empty() {
-        return false;
+    expected: &str,
+    pending: Option<&str>,
+) -> Option<AuthMatch> {
+    if expected.is_empty() {
+        return None;
     }
-
-    if let Some(auth_header) = headers.get(header::AUTHORIZATION) {
-        if let Ok(value) = auth_header.to_str() {
-            if let Some(token) = value.strip_prefix("Bearer ") {
-                // Accept current password
-                if constant_time_eq(token.as_bytes(), expected_password.as_bytes()) {
-                    return true;
+    if let Some(auth) = headers.get(header::AUTHORIZATION) {
+        if let Ok(val) = auth.to_str() {
+            if let Some(token) = val.strip_prefix("Bearer ") {
+                if constant_time_eq(token.as_bytes(), expected.as_bytes()) {
+                    return Some(AuthMatch::CurrentPassword);
                 }
-                // Also accept pending password during transition
-                if let Some(pending) = pending_password {
-                    if constant_time_eq(token.as_bytes(), pending.as_bytes()) {
-                        return true;
+                if let Some(p) = pending {
+                    if constant_time_eq(token.as_bytes(), p.as_bytes()) {
+                        return Some(AuthMatch::PendingPassword);
                     }
                 }
             }
         }
     }
-    false
+    None
 }
 
-/// Migrate legacy connector password state (pre two-phase-commit) into a recoverable state.
+fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
+    let mut res = if a.len() == b.len() { 0u8 } else { 1u8 };
+    let n = std::cmp::min(a.len(), b.len());
+    for i in 0..n {
+        res |= a[i] ^ b[i];
+    }
+    res == 0
+}
+
+fn now_ms() -> i64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis() as i64)
+        .unwrap_or(0)
+}
+fn uuid_simple() -> String {
+    let ts = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    format!("{:032x}", ts)
+}
+
+fn generate_secure_password() -> Option<String> {
+    let mut bytes = [0u8; 16];
+    if let Err(err) = getrandom::getrandom(&mut bytes) {
+        error!(
+            "Failed to generate connector password from OS CSPRNG: {}",
+            err
+        );
+        return None;
+    }
+
+    let mut result = String::with_capacity(32);
+    for byte in bytes {
+        result.push_str(&format!("{:02x}", byte));
+    }
+    Some(result)
+}
+
+fn maybe_generate_new_password(app: &AppHandle) -> Option<String> {
+    let settings = get_settings(app);
+    if let Some(ref pending) = settings.connector_pending_password {
+        debug!("Returning existing pending password for extension to acknowledge");
+        return Some(pending.clone());
+    }
+
+    if settings.connector_password == default_connector_password() {
+        let Some(new_password) = generate_secure_password() else {
+            warn!("Skipping connector password rotation: secure RNG unavailable");
+            return None;
+        };
+
+        info!(
+            "Generating new secure connector password (default password detected) - awaiting acknowledgement"
+        );
+
+        let mut new_settings = settings.clone();
+        new_settings.connector_pending_password = Some(new_password.clone());
+        new_settings.connector_password_user_set = false;
+        write_settings(app, new_settings);
+
+        let connector_manager = app.state::<Arc<ConnectorManager>>();
+        connector_manager.refresh_crypto_state(&settings.connector_password, Some(&new_password));
+
+        return Some(new_password);
+    }
+
+    None
+}
+
+fn commit_pending_password(app: &AppHandle) {
+    let settings = get_settings(app);
+    if let Some(ref pending) = settings.connector_pending_password {
+        info!("Extension acknowledged password - committing new password");
+
+        let mut new_settings = settings.clone();
+        new_settings.connector_password = pending.clone();
+        new_settings.connector_pending_password = None;
+        write_settings(app, new_settings);
+
+        let connector_manager = app.state::<Arc<ConnectorManager>>();
+        connector_manager.refresh_crypto_state(&pending, None);
+    } else {
+        debug!("Received password_ack but no pending password to commit");
+    }
+}
+
 fn maybe_migrate_legacy_connector_password(
-    app_handle: &AppHandle,
+    app: &AppHandle,
     settings: &crate::settings::AppSettings,
 ) {
     if settings.connector_password_user_set || settings.connector_pending_password.is_some() {
@@ -1186,7 +1311,7 @@ fn maybe_migrate_legacy_connector_password(
     let mut new_settings = settings.clone();
     new_settings.connector_pending_password = Some(settings.connector_password.clone());
     new_settings.connector_password = default_password;
-    write_settings(app_handle, new_settings);
+    write_settings(app, new_settings);
 }
 
 fn is_probably_autogenerated_password(password: &str) -> bool {
@@ -1196,105 +1321,80 @@ fn is_probably_autogenerated_password(password: &str) -> bool {
             .all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
 }
 
-/// Get current Unix timestamp in milliseconds
-fn now_ms() -> i64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_millis() as i64)
-        .unwrap_or(0)
+fn build_crypto_state(current_password: &str, pending_password: Option<&str>) -> CryptoState {
+    CryptoState {
+        current: if current_password.is_empty() {
+            None
+        } else {
+            Some(CachedCrypto::new(current_password))
+        },
+        pending: pending_password.and_then(|pending| {
+            if pending.is_empty() {
+                None
+            } else {
+                Some(CachedCrypto::new(pending))
+            }
+        }),
+    }
 }
 
-/// Generate a simple UUID (hex string without dashes)
-fn uuid_simple() -> String {
-    let ts = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_nanos();
-    format!("{:032x}", ts)
+pub(crate) fn normalize_connector_cors_setting(raw_value: &str) -> Result<String, String> {
+    let trimmed = raw_value.trim();
+    if trimmed.is_empty() || trimmed == "*" || trimmed.eq_ignore_ascii_case("<any>") {
+        return Ok(String::new());
+    }
+
+    let uri: Uri = trimmed.parse().map_err(|_| {
+        format!(
+            "Invalid CORS origin '{}': expected an exact origin like https://chatgpt.com",
+            trimmed
+        )
+    })?;
+    let scheme = uri
+        .scheme_str()
+        .ok_or_else(|| format!("Invalid CORS origin '{}': missing URL scheme", trimmed))?;
+    if scheme != "http" && scheme != "https" {
+        return Err(format!(
+            "Invalid CORS origin '{}': only http:// or https:// origins are allowed",
+            trimmed
+        ));
+    }
+
+    let authority = uri
+        .authority()
+        .map(|value| value.as_str())
+        .ok_or_else(|| format!("Invalid CORS origin '{}': missing host", trimmed))?;
+    let path = uri.path();
+    if (path != "/" && !path.is_empty()) || uri.query().is_some() {
+        return Err(format!(
+            "Invalid CORS origin '{}': use only scheme, host, and optional port",
+            trimmed
+        ));
+    }
+
+    Ok(format!("{}://{}", scheme, authority))
 }
 
-/// Constant-time comparison to prevent timing attacks.
-/// Accumulates length mismatch and byte differences without early returns.
-fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
-    // res will be 0 only if lengths are equal
-    let mut res = if a.len() == b.len() { 0u8 } else { 1u8 };
-
-    // Iterate over the minimum length. The random delay in the handler
-    // will mask any timing leak from the floor of this loop's duration.
-    let n = std::cmp::min(a.len(), b.len());
-    for i in 0..n {
-        res |= a[i] ^ b[i];
+fn parse_cors_policy(raw_value: &str) -> Result<CorsPolicy, String> {
+    let normalized = normalize_connector_cors_setting(raw_value)?;
+    if normalized.is_empty() {
+        Ok(CorsPolicy::Any)
+    } else {
+        Ok(CorsPolicy::Exact(normalized))
     }
-
-    res == 0
 }
 
-/// Generate a secure random password (32 hex characters)
-fn generate_secure_password() -> Option<String> {
-    let mut bytes = [0u8; 16];
-    if let Err(err) = getrandom::getrandom(&mut bytes) {
-        error!(
-            "Failed to generate connector password from OS CSPRNG: {}",
-            err
-        );
-        return None;
-    }
-
-    let mut result = String::with_capacity(32);
-    for byte in bytes {
-        result.push_str(&format!("{:02x}", byte));
-    }
-    Some(result)
-}
-
-/// Check if we should generate a new password and do so if needed.
-fn maybe_generate_new_password(app_handle: &AppHandle) -> Option<String> {
-    let settings = get_settings(app_handle);
-
-    if let Some(ref pending) = settings.connector_pending_password {
-        debug!("Returning existing pending password for extension to acknowledge");
-        return Some(pending.clone());
-    }
-
-    let is_default = settings.connector_password == default_connector_password();
-    debug!(
-        "Password check: is_default={}, user_set={}, current_len={}",
-        is_default,
-        settings.connector_password_user_set,
-        settings.connector_password.len()
+fn apply_security_headers(mut response: Response) -> Response {
+    let headers = response.headers_mut();
+    headers.insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
+    headers.insert(header::PRAGMA, HeaderValue::from_static("no-cache"));
+    headers.insert(
+        header::HeaderName::from_static("x-content-type-options"),
+        HeaderValue::from_static("nosniff"),
     );
-
-    if is_default {
-        let Some(new_password) = generate_secure_password() else {
-            warn!("Skipping connector password rotation: secure RNG unavailable");
-            return None;
-        };
-        info!("Generating new secure connector password (default password detected) - awaiting acknowledgement");
-
-        let mut new_settings = settings.clone();
-        new_settings.connector_pending_password = Some(new_password.clone());
-        new_settings.connector_password_user_set = false;
-        write_settings(app_handle, new_settings);
-
-        Some(new_password)
-    } else {
-        debug!("Password is not default, skipping auto-generation");
-        None
-    }
+    response
 }
 
-/// Commit the pending password after extension acknowledges receipt.
-fn commit_pending_password(app_handle: &AppHandle) {
-    let settings = get_settings(app_handle);
-
-    if let Some(ref pending) = settings.connector_pending_password {
-        info!("Extension acknowledged password - committing new password");
-
-        let mut new_settings = settings.clone();
-        new_settings.connector_password = pending.clone();
-        new_settings.connector_pending_password = None;
-        write_settings(app_handle, new_settings);
-    } else {
-        debug!("Received password_ack but no pending password to commit");
-    }
+fn json_response<T: Serialize>(payload: T) -> Response {
+    apply_security_headers(Json(payload).into_response())
 }

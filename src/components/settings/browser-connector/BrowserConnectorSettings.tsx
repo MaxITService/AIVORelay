@@ -33,10 +33,13 @@ const getDefaultScreenshotFolder = () => {
 export const BrowserConnectorSettings: React.FC = () => {
   const { t } = useTranslation();
   const { settings, updateSetting, isUpdating, refreshSettings } = useSettings();
+  const normalizeCorsValue = (value?: string | null) =>
+    value?.trim() === "<any>" || value?.trim() === "*" ? "" : (value ?? "");
 
   const [portInput, setPortInput] = useState(String(settings?.connector_port ?? 38243));
   const [portError, setPortError] = useState<string | null>(null);
   const [passwordInput, setPasswordInput] = useState(settings?.connector_password ?? "");
+  const [corsInput, setCorsInput] = useState(normalizeCorsValue(settings?.connector_cors));
   const [showPassword, setShowPassword] = useState(false);
   const [showCopiedTooltip, setShowCopiedTooltip] = useState(false);
 
@@ -85,6 +88,10 @@ export const BrowserConnectorSettings: React.FC = () => {
   useEffect(() => {
     setPasswordInput(settings?.connector_password ?? "");
   }, [settings?.connector_password]);
+
+  useEffect(() => {
+    setCorsInput(normalizeCorsValue(settings?.connector_cors));
+  }, [settings?.connector_cors]);
 
   // Screenshot settings sync with settings
   useEffect(() => {
@@ -166,6 +173,21 @@ export const BrowserConnectorSettings: React.FC = () => {
     if (trimmed !== (settings?.connector_password ?? "")) {
       void updateSetting("connector_password", trimmed);
     }
+  };
+
+  const handleCorsBlur = () => {
+    const trimmed = corsInput.trim();
+    if (trimmed !== normalizeCorsValue(settings?.connector_cors)) {
+      void updateSetting("connector_cors", trimmed);
+    }
+  };
+
+  const handleEnabledChange = (enabled: boolean) => {
+    void updateSetting("connector_enabled", enabled);
+  };
+
+  const handleEncryptionChange = (enabled: boolean) => {
+    void updateSetting("connector_encryption_enabled", enabled);
   };
 
   const handleCopyPassword = () => {
@@ -910,6 +932,32 @@ export const BrowserConnectorSettings: React.FC = () => {
 
       <SettingsGroup title={t("settings.browserConnector.connection.title")}>
         <SettingContainer
+          title={t("settings.browserConnector.connection.enabled.label")}
+          description={t("settings.browserConnector.connection.enabled.description")}
+          descriptionMode="tooltip"
+          grouped={true}
+        >
+          <ToggleSwitch
+            checked={settings?.connector_enabled ?? true}
+            onChange={handleEnabledChange}
+            disabled={isUpdating("connector_enabled")}
+          />
+        </SettingContainer>
+
+        <SettingContainer
+          title={t("settings.browserConnector.connection.encryption.title")}
+          description={t("settings.browserConnector.connection.encryption.description")}
+          descriptionMode="tooltip"
+          grouped={true}
+        >
+          <ToggleSwitch
+            checked={settings?.connector_encryption_enabled ?? false}
+            onChange={handleEncryptionChange}
+            disabled={isUpdating("connector_encryption_enabled")}
+          />
+        </SettingContainer>
+
+        <SettingContainer
           title={t("settings.browserConnector.connection.port.title")}
           description={t("settings.browserConnector.connection.port.description")}
           descriptionMode="tooltip"
@@ -991,6 +1039,22 @@ export const BrowserConnectorSettings: React.FC = () => {
               </div>
             </div>
           )}
+        </SettingContainer>
+
+        <SettingContainer
+          title={t("settings.browserConnector.connection.cors.title")}
+          description={t("settings.browserConnector.connection.cors.description")}
+          descriptionMode="tooltip"
+          grouped={true}
+        >
+          <Input
+            type="text"
+            value={corsInput}
+            onChange={(event) => setCorsInput(event.target.value)}
+            onBlur={handleCorsBlur}
+            placeholder={t("settings.browserConnector.connection.cors.placeholder")}
+            className="w-full font-mono"
+          />
         </SettingContainer>
 
         <SettingContainer
