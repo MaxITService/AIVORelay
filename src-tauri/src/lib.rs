@@ -255,7 +255,7 @@ fn initialize_core_logic(app_handle: &AppHandle) {
         .icon_as_template(true)
         .on_tray_icon_event(|tray, event| {
             match event {
-                tauri::tray::TrayIconEvent::Click { .. } => {
+                tauri::tray::TrayIconEvent::Enter { .. } => {
                     tray::refresh_tray_menu(tray.app_handle(), None);
                 }
                 tauri::tray::TrayIconEvent::DoubleClick {

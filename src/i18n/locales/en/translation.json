@@ -680,7 +680,7 @@
         "loading": "Loading...",
         "autoSelect": {
           "label": "Auto-select by microphone name mask",
-          "description": "Checked only right before recording starts. If the currently selected microphone is unavailable, AivoRelay tries the first microphone whose name matches the mask. If nothing matches, it falls back to your previous manual microphone if available, otherwise Default. No background polling or watcher is used."
+          "description": "Checked only right before recording starts. If auto-select is enabled and the mask is not empty, AivoRelay first tries the first microphone whose name matches the mask. If nothing matches, it falls back to your previous manual microphone if available, otherwise Default. No background polling or watcher is used."
         },
         "autoSelectMask": {
           "title": "Microphone Name Mask",

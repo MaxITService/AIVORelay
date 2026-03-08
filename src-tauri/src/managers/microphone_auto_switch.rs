@@ -151,19 +151,11 @@ pub fn reconcile_selected_microphone(app: &AppHandle, show_overlay: bool) -> Res
     let current_selected = settings.selected_microphone.clone();
     let auto_enabled = settings.selected_microphone_auto_switch_enabled;
     let mask = settings.selected_microphone_name_pattern.trim().to_string();
-    let current_exists = current_selected
-        .as_ref()
-        .map(|name| device_names.iter().any(|device| device == name))
-        .unwrap_or(true);
-    let manual_fallback = last_manual_microphone_selection(app).filter(|name| {
-        device_names.iter().any(|device| device == name)
-            && current_selected.as_deref() != Some(name.as_str())
-    });
+    let manual_fallback = last_manual_microphone_selection(app)
+        .filter(|name| device_names.iter().any(|device| device == name));
 
     let target_selected = if auto_enabled && !mask.is_empty() {
-        if current_exists {
-            current_selected.clone()
-        } else if let Some(matched_name) = select_matching_microphone(&device_names, &mask) {
+        if let Some(matched_name) = select_matching_microphone(&device_names, &mask) {
             Some(matched_name)
         } else if let Some(manual_fallback) = manual_fallback {
             Some(manual_fallback)
