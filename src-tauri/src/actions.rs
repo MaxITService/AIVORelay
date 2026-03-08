@@ -148,6 +148,43 @@ fn quick_tap_threshold_samples(threshold_ms: u32) -> usize {
     ((threshold_ms.max(1) as f32 / 1000.0) * RECORDING_SAMPLE_RATE_HZ) as usize
 }
 
+fn should_skip_transcription_for_quick_tap(
+    binding_id: &str,
+    recording_settings: &AppSettings,
+    sample_count: usize,
+) -> bool {
+    if binding_id.starts_with("ai_replace") {
+        if !recording_settings.ai_replace_allow_quick_tap {
+            return false;
+        }
+
+        return sample_count
+            < quick_tap_threshold_samples(recording_settings.ai_replace_quick_tap_threshold_ms);
+    }
+
+    if binding_id == "send_to_extension_with_selection" {
+        if !recording_settings.send_to_extension_with_selection_allow_no_voice {
+            return false;
+        }
+
+        return sample_count
+            < quick_tap_threshold_samples(
+                recording_settings.send_to_extension_with_selection_quick_tap_threshold_ms,
+            );
+    }
+
+    if binding_id == "send_screenshot_to_extension" {
+        if !recording_settings.screenshot_allow_no_voice {
+            return false;
+        }
+
+        return sample_count
+            < quick_tap_threshold_samples(recording_settings.screenshot_quick_tap_threshold_ms);
+    }
+
+    false
+}
+
 fn register_soniox_stream_processor(
     binding_id: &str,
     settings: &AppSettings,
@@ -1468,20 +1505,11 @@ async fn get_transcription_or_cleanup_detailed(
             rm.clear_stream_frame_callback();
         }
 
-        // Quick Tap Optimization: only skip STT when AI Replace quick-tap is enabled.
-        // If quick-tap is disabled, threshold must not affect behavior.
-        let is_ai_replace = binding_id.starts_with("ai_replace");
-        let quick_tap_threshold_samples =
-            quick_tap_threshold_samples(recording_settings.ai_replace_quick_tap_threshold_ms);
-        let should_skip = is_ai_replace && recording_settings.ai_replace_allow_quick_tap && {
-            samples.len() < quick_tap_threshold_samples
-        };
-
-        if should_skip {
+        if should_skip_transcription_for_quick_tap(binding_id, &recording_settings, samples.len()) {
             debug!(
-                "Quick tap detected for AI Replace ({} samples < {}), skipping transcription",
-                samples.len(),
-                quick_tap_threshold_samples
+                "Quick tap detected for {} ({} samples), skipping transcription/finalization",
+                binding_id,
+                samples.len()
             );
             if has_soniox_live_session {
                 soniox_live_manager.cancel();
