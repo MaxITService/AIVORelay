@@ -132,6 +132,10 @@ In the demonstration above, first I ask to solve the mathematical task, and then
 
 Voice-to-AI bridge via [AivoRelay Connector](https://github.com/MaxITService/AivoRelay-relay) browser extension.
 
+- **Easy app-driven setup** — AivoRelay can unpack/export the extension right from the app.
+- **Generated password** — The app can create the connector password for you automatically.
+- **CORS-ready local bridge** — The local connector flow is configured for secure browser use without extra manual setup.
+
 ![How it works](Promo/How_it_works.png)
 
 | Mode                   | Input                  | What ChatGPT receives     |
