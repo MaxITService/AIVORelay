@@ -390,7 +390,9 @@ const RecordingOverlay: React.FC = () => {
   };
 
   return (
-    <div className={`recording-overlay ${isVisible ? "fade-in" : ""} ${state === "error" ? "overlay-error" : ""}`}>
+    <div
+      className={`recording-overlay ${isVisible ? "fade-in" : ""} ${state === "error" ? "overlay-error" : ""} ${state === "microphone_switch" ? "overlay-microphone-switch" : ""}`}
+    >
       {decapIndicatorEligible &&
         decapIndicatorArmed &&
         state !== "profile_switch" &&
@@ -445,10 +447,11 @@ const RecordingOverlay: React.FC = () => {
           <div className="transcribing-text">{transientMessage}</div>
         )}
         {state === "microphone_switch" && (
-          <div className="transcribing-text">
-            {t("overlay.microphoneChanged", "Microphone: {{name}}", {
-              name: transientMessage,
-            })}
+          <div className="microphone-switch-copy">
+            <span className="microphone-switch-label">
+              {t("settings.sound.microphone.title", "Microphone")}
+            </span>
+            <span className="microphone-switch-name">{transientMessage}</span>
           </div>
         )}
       </div>
