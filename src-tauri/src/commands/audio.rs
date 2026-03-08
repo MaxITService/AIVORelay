@@ -84,17 +84,28 @@ pub fn get_available_microphones() -> Result<Vec<AudioDevice>, String> {
 #[specta::specta]
 pub fn set_selected_microphone(app: AppHandle, device_name: String) -> Result<(), String> {
     let mut settings = get_settings(&app);
-    settings.selected_microphone = if device_name == "default" {
+    let selected_microphone = if device_name == "default" {
         None
     } else {
-        Some(device_name)
+        Some(device_name.clone())
     };
+    let changed = settings.selected_microphone != selected_microphone;
+    settings.selected_microphone = selected_microphone;
     write_settings(&app, settings);
 
     // Update the audio manager to use the new device
     let rm = app.state::<Arc<AudioRecordingManager>>();
     rm.update_selected_device()
         .map_err(|e| format!("Failed to update selected device: {}", e))?;
+
+    if changed {
+        let display_name = if device_name == "default" {
+            "Default"
+        } else {
+            device_name.as_str()
+        };
+        crate::overlay::show_microphone_switch_overlay(&app, display_name);
+    }
 
     Ok(())
 }
@@ -217,4 +228,3 @@ pub fn change_vad_threshold_setting(app: AppHandle, threshold: f32) -> Result<()
 
     Ok(())
 }
-

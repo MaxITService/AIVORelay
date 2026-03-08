@@ -2094,6 +2094,7 @@
   "overlay": {
     "transcribing": "Transcribing...",
     "finalizing": "Finalizing...",
+    "microphoneChanged": "Microphone: {{name}}",
     "decapitalizationIndicator": "Decapitalization",
     "errors": {
       "auth": {

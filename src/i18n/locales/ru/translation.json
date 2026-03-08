@@ -1438,6 +1438,7 @@
   "overlay": {
     "transcribing": "Расшифровка...",
     "finalizing": "Финализация...",
+    "microphoneChanged": "Микрофон: {{name}}",
     "decapitalizationIndicator": "Декапитализация",
     "errors": {
       "auth": {

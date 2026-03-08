@@ -11,10 +11,10 @@ use std::sync::atomic::{AtomicU64, AtomicU8, Ordering};
 use std::sync::{LazyLock, Mutex};
 use tauri::{AppHandle, Emitter, Manager, PhysicalPosition, PhysicalSize};
 
-/// Counter used to cancel pending profile switch overlay auto-hide timers.
-/// Each time a recording overlay is shown, this is incremented, and existing
-/// profile switch timers check if their generation still matches.
-static PROFILE_OVERLAY_GENERATION: AtomicU64 = AtomicU64::new(0);
+/// Counter used to cancel pending transient message overlay auto-hide timers.
+/// Each time a recording overlay or another transient message overlay is shown,
+/// this is incremented so stale timers do not hide newer overlays.
+static TRANSIENT_OVERLAY_GENERATION: AtomicU64 = AtomicU64::new(0);
 static RECORDING_OVERLAY_LAYOUT: AtomicU8 = AtomicU8::new(0);
 
 #[cfg(not(target_os = "macos"))]
@@ -71,6 +71,12 @@ struct OverlayStatePayload {
     state: String,
     decapitalize_eligible: bool,
     decapitalize_armed: bool,
+}
+
+#[derive(Serialize, Clone)]
+struct TransientMessageOverlayPayload {
+    state: String,
+    message: String,
 }
 
 #[derive(Serialize, Clone, Default, Type)]
@@ -615,9 +621,9 @@ pub fn show_recording_overlay(app_handle: &AppHandle) {
     // Cancel pending error auto-hide timers so a new active overlay is not hidden.
     plus_overlay_state::invalidate_error_overlay_auto_hide();
 
-    // Cancel any pending profile switch overlay auto-hide timer
+    // Cancel any pending transient message overlay auto-hide timer
     // by incrementing the generation counter
-    PROFILE_OVERLAY_GENERATION.fetch_add(1, Ordering::SeqCst);
+    TRANSIENT_OVERLAY_GENERATION.fetch_add(1, Ordering::SeqCst);
 
     // Check if overlay should be shown based on position setting
     let settings = settings::get_settings(app_handle);
@@ -1301,18 +1307,29 @@ pub fn show_command_confirm_overlay(
     }
 }
 
-// ============================================================================
-// Profile Switch Overlay (Transcription Profiles)
-// ============================================================================
-
-/// Shows a brief overlay notification when switching transcription profiles.
-/// Uses the existing recording overlay to display the profile name, then auto-hides.
-pub fn show_profile_switch_overlay(app_handle: &AppHandle, profile_name: &str) {
+fn show_transient_message_overlay(
+    app_handle: &AppHandle,
+    overlay_state: &str,
+    message: &str,
+    auto_hide_ms: u64,
+) {
     // Cancel pending error auto-hide timers so a new active overlay is not hidden.
     plus_overlay_state::invalidate_error_overlay_auto_hide();
 
     let settings = settings::get_settings(app_handle);
     if settings.overlay_position == OverlayPosition::None {
+        return;
+    }
+
+    let show_overlay = {
+        let session_state = app_handle.state::<crate::session_manager::ManagedSessionState>();
+        let state_guard = session_state
+            .lock()
+            .expect("Failed to lock session state");
+        matches!(*state_guard, crate::session_manager::SessionState::Idle)
+    };
+
+    if !show_overlay {
         return;
     }
 
@@ -1324,35 +1341,48 @@ pub fn show_profile_switch_overlay(app_handle: &AppHandle, profile_name: &str) {
         #[cfg(target_os = "windows")]
         force_overlay_topmost(&overlay_window);
 
-        // Emit profile name for display
-        let _ = overlay_window.emit("show-profile-switch", profile_name);
+        let generation_at_start = TRANSIENT_OVERLAY_GENERATION.fetch_add(1, Ordering::SeqCst) + 1;
 
-        // Capture the current generation before spawning the timer thread.
-        // If a recording starts before the timer fires, the generation will change
-        // and we'll skip hiding the overlay.
-        let generation_at_start = PROFILE_OVERLAY_GENERATION.load(Ordering::SeqCst);
+        let payload = TransientMessageOverlayPayload {
+            state: overlay_state.to_string(),
+            message: message.to_string(),
+        };
+        let _ = overlay_window.emit("show-message-overlay", payload);
 
-        // Auto-hide after a short delay (unless a recording has started)
         let window_clone = overlay_window.clone();
         std::thread::spawn(move || {
-            std::thread::sleep(std::time::Duration::from_millis(1500));
+            std::thread::sleep(std::time::Duration::from_millis(auto_hide_ms));
 
-            // Check if generation changed (recording started) - if so, don't hide
-            if PROFILE_OVERLAY_GENERATION.load(Ordering::SeqCst) != generation_at_start {
+            if TRANSIENT_OVERLAY_GENERATION.load(Ordering::SeqCst) != generation_at_start {
                 return;
             }
 
             let _ = window_clone.emit("hide-overlay", ());
             std::thread::sleep(std::time::Duration::from_millis(300));
 
-            // Check again before actually hiding the window
-            if PROFILE_OVERLAY_GENERATION.load(Ordering::SeqCst) != generation_at_start {
+            if TRANSIENT_OVERLAY_GENERATION.load(Ordering::SeqCst) != generation_at_start {
                 return;
             }
 
             let _ = window_clone.hide();
         });
     }
+}
+
+// ============================================================================
+// Profile Switch Overlay (Transcription Profiles)
+// ============================================================================
+
+/// Shows a brief overlay notification when switching transcription profiles.
+/// Uses the existing recording overlay to display the profile name, then auto-hides.
+pub fn show_profile_switch_overlay(app_handle: &AppHandle, profile_name: &str) {
+    show_transient_message_overlay(app_handle, "profile_switch", profile_name, 1500);
+}
+
+/// Shows a brief overlay notification when the selected microphone changes.
+/// Uses the existing recording overlay to display the new microphone name.
+pub fn show_microphone_switch_overlay(app_handle: &AppHandle, microphone_name: &str) {
+    show_transient_message_overlay(app_handle, "microphone_switch", microphone_name, 1500);
 }
 #[derive(Clone, Copy)]
 enum RecordingOverlayLayout {

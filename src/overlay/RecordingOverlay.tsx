@@ -207,6 +207,7 @@ const RecordingOverlay: React.FC = () => {
   const { t } = useTranslation();
   const [isVisible, setIsVisible] = useState(false);
   const [state, setState] = useState<ExtendedOverlayState>("recording");
+  const [transientMessage, setTransientMessage] = useState<string>("");
   const [decapIndicatorEligible, setDecapIndicatorEligible] = useState(false);
   const [decapIndicatorArmed, setDecapIndicatorArmed] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -214,7 +215,6 @@ const RecordingOverlay: React.FC = () => {
   const [errorCode, setErrorCode] = useState<string | null>(null);
   const [errorTechnical, setErrorTechnical] = useState<string | null>(null);
   const [levels, setLevels] = useState<number[]>(Array(16).fill(0));
-  const [profileName, setProfileName] = useState<string>("");
   const smoothedLevelsRef = useRef<number[]>(Array(16).fill(0));
 
   useEffect(() => {
@@ -265,12 +265,20 @@ const RecordingOverlay: React.FC = () => {
         setIsVisible(true);
       });
 
-      // Listen for profile switch event
-      const unlistenProfileSwitch = await listen<string>("show-profile-switch", (event) => {
-        setProfileName(event.payload);
-        setState("profile_switch");
+      const unlistenMessageOverlay = await listen<{
+        state: "profile_switch" | "microphone_switch";
+        message: string;
+      }>("show-message-overlay", async (event) => {
+        await syncLanguageFromSettings();
+
+        setTransientMessage(event.payload.message);
+        setState(event.payload.state);
         setDecapIndicatorEligible(false);
         setDecapIndicatorArmed(false);
+        setErrorMessage(null);
+        setErrorHint(null);
+        setErrorCode(null);
+        setErrorTechnical(null);
         setIsVisible(true);
       });
 
@@ -297,7 +305,7 @@ const RecordingOverlay: React.FC = () => {
 
       cleanup = () => {
         unlistenShow();
-        unlistenProfileSwitch();
+        unlistenMessageOverlay();
         unlistenHide();
         unlistenLevel();
       };
@@ -315,6 +323,7 @@ const RecordingOverlay: React.FC = () => {
       isVisible &&
       decapIndicatorEligible &&
       state !== "profile_switch" &&
+      state !== "microphone_switch" &&
       state !== "error";
     if (!shouldPoll) {
       if (!decapIndicatorEligible || !isVisible) {
@@ -372,6 +381,8 @@ const RecordingOverlay: React.FC = () => {
         return <span className="overlay-icon-emoji">❌</span>;
       case "profile_switch":
         return <TranscriptionIcon />;
+      case "microphone_switch":
+        return <MicrophoneIcon />;
       case "transcribing":
       default:
         return <TranscriptionIcon />;
@@ -383,6 +394,7 @@ const RecordingOverlay: React.FC = () => {
       {decapIndicatorEligible &&
         decapIndicatorArmed &&
         state !== "profile_switch" &&
+        state !== "microphone_switch" &&
         state !== "error" && (
         <div className="overlay-decapitalize-indicator">
           {t("overlay.decapitalizationIndicator", "Decapitalization")}
@@ -430,7 +442,14 @@ const RecordingOverlay: React.FC = () => {
           </div>
         )}
         {state === "profile_switch" && (
-          <div className="transcribing-text">{profileName}</div>
+          <div className="transcribing-text">{transientMessage}</div>
+        )}
+        {state === "microphone_switch" && (
+          <div className="transcribing-text">
+            {t("overlay.microphoneChanged", "Microphone: {{name}}", {
+              name: transientMessage,
+            })}
+          </div>
         )}
       </div>
 
