@@ -3,6 +3,7 @@
 //! Commands to control and query the connector server status.
 
 use crate::managers::connector::{ConnectorManager, ConnectorStatus};
+use std::env;
 use std::fs::{self, File};
 use std::io::{self, Read, Seek};
 use std::path::{Path, PathBuf};
@@ -12,7 +13,10 @@ use tauri::{AppHandle, Manager, State};
 use tauri_plugin_opener::OpenerExt;
 use zip::ZipArchive;
 
-const BUNDLED_EXTENSION_RESOURCE: &str = "browser-connector/aivorelay-extension.zip";
+const BUNDLED_EXTENSION_RESOURCE_CANDIDATES: &[&str] = &[
+    "resources/browser-connector/aivorelay-extension.zip",
+    "browser-connector/aivorelay-extension.zip",
+];
 const EXPORTED_EXTENSION_FOLDER_NAME: &str = "AivoRelay Connector";
 
 fn unzip_to_directory<R>(archive: &mut ZipArchive<R>, destination_dir: &Path) -> Result<(), String>
@@ -50,9 +54,22 @@ where
 }
 
 fn resolve_bundled_extension_zip(app: &AppHandle) -> Result<PathBuf, String> {
-    app.path()
-        .resolve(BUNDLED_EXTENSION_RESOURCE, BaseDirectory::Resource)
-        .map_err(|e| format!("Failed to resolve bundled extension resource: {}", e))
+    for relative_path in BUNDLED_EXTENSION_RESOURCE_CANDIDATES {
+        if let Ok(resolved) = app.path().resolve(relative_path, BaseDirectory::Resource) {
+            if resolved.exists() {
+                return Ok(resolved);
+            }
+        }
+    }
+
+    if let Ok(cwd) = env::current_dir() {
+        let dev_path = cwd.join("src-tauri").join("resources").join("browser-connector").join("aivorelay-extension.zip");
+        if dev_path.exists() {
+            return Ok(dev_path);
+        }
+    }
+
+    Err("Failed to locate bundled extension zip in app resources or the dev workspace".to_string())
 }
 
 /// Get current connector/extension status
