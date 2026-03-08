@@ -198,6 +198,10 @@ fn initialize_core_logic(app_handle: &AppHandle) {
     app_handle.manage(connector_manager.clone());
     app_handle.manage(key_listener_state);
 
+    managers::microphone_auto_switch::start_microphone_auto_switch_watcher(
+        app_handle.clone(),
+    );
+
     // Initialize region capture state (Windows only)
     #[cfg(target_os = "windows")]
     app_handle.manage(std::sync::Mutex::new(
@@ -599,6 +603,8 @@ pub fn run() {
         commands::audio::update_microphone_mode,
         commands::audio::get_available_microphones,
         commands::audio::set_selected_microphone,
+        commands::audio::change_selected_microphone_auto_switch_enabled_setting,
+        commands::audio::change_selected_microphone_name_pattern_setting,
         commands::audio::get_available_output_devices,
         commands::audio::set_selected_output_device,
         commands::audio::change_live_sound_capture_source_setting,

@@ -677,7 +677,17 @@
         "title": "Microphone",
         "description": "Select your preferred microphone device",
         "placeholder": "Select microphone...",
-        "loading": "Loading..."
+        "loading": "Loading...",
+        "autoSelect": {
+          "label": "Auto-select by microphone name mask",
+          "description": "Automatically switch to the first microphone whose name matches the mask when devices appear or disappear."
+        },
+        "autoSelectMask": {
+          "title": "Microphone Name Mask",
+          "description": "Use * and ? wildcards. Without wildcards, the mask matches any microphone name containing this text, case-insensitive.",
+          "placeholder": "e.g. Yeti* or Wireless ?",
+          "reset": "Reset microphone mask"
+        }
       },
       "audioFeedback": {
         "label": "Audio Feedback",

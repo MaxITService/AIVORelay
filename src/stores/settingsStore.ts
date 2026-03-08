@@ -627,6 +627,16 @@ settingUpdaters.error_overlay_auto_hide_ms = (value) =>
   invoke("change_sidebar_pinned_setting", { pinned: value });
 (settingUpdaters as any).sidebar_width = (value: any) =>
   invoke("change_sidebar_width_setting", { width: value });
+(settingUpdaters as any).selected_microphone_auto_switch_enabled = (
+  value: any,
+) =>
+  invoke("change_selected_microphone_auto_switch_enabled_setting", {
+    enabled: value,
+  });
+(settingUpdaters as any).selected_microphone_name_pattern = (value: any) =>
+  invoke("change_selected_microphone_name_pattern_setting", {
+    pattern: value,
+  });
 
 export const useSettingsStore = create<SettingsStore>()(
   subscribeWithSelector((set, get) => ({
@@ -665,6 +675,10 @@ export const useSettingsStore = create<SettingsStore>()(
             ...settings,
             always_on_microphone: settings.always_on_microphone ?? false,
             selected_microphone: settings.selected_microphone ?? "Default",
+            selected_microphone_auto_switch_enabled:
+              (settings as any).selected_microphone_auto_switch_enabled ?? false,
+            selected_microphone_name_pattern:
+              (settings as any).selected_microphone_name_pattern ?? "",
             clamshell_microphone: settings.clamshell_microphone ?? "Default",
             live_sound_microphone: settings.live_sound_microphone ?? "Default",
             selected_output_device:

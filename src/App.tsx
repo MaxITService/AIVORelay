@@ -23,7 +23,7 @@ function App() {
   const [onboardingFromDebug, setOnboardingFromDebug] = useState(false);
   const { currentSection, setSection: setCurrentSection } =
     useNavigationStore();
-  const { refreshSettings } = useSettings();
+  const { refreshSettings, refreshAudioDevices } = useSettings();
 
   useEffect(() => {
     checkOnboardingStatus();
@@ -101,6 +101,16 @@ function App() {
       unlisten.then((u) => u());
     };
   }, [refreshSettings]);
+
+  useEffect(() => {
+    const unlisten = listen("audio-input-state-changed", async () => {
+      await Promise.all([refreshSettings(), refreshAudioDevices()]);
+    });
+
+    return () => {
+      unlisten.then((u) => u());
+    };
+  }, [refreshAudioDevices, refreshSettings]);
 
   const checkOnboardingStatus = async () => {
     try {

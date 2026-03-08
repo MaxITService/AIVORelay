@@ -1,6 +1,7 @@
 use crate::audio_feedback;
 use crate::audio_toolkit::audio::{list_input_devices, list_output_devices};
 use crate::managers::audio::{AudioRecordingManager, MicrophoneMode};
+use crate::managers::microphone_auto_switch;
 use crate::settings::{get_settings, write_settings, LiveSoundCaptureSource};
 use log::warn;
 use serde::{Deserialize, Serialize};
@@ -105,8 +106,39 @@ pub fn set_selected_microphone(app: AppHandle, device_name: String) -> Result<()
             device_name.as_str()
         };
         crate::overlay::show_microphone_switch_overlay(&app, display_name);
+        microphone_auto_switch::emit_audio_input_state_changed(&app);
     }
 
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_selected_microphone_auto_switch_enabled_setting(
+    app: AppHandle,
+    enabled: bool,
+) -> Result<(), String> {
+    let mut settings = get_settings(&app);
+    settings.selected_microphone_auto_switch_enabled = enabled;
+    write_settings(&app, settings);
+
+    let _ = microphone_auto_switch::reconcile_selected_microphone(&app, true)?;
+    microphone_auto_switch::emit_audio_input_state_changed(&app);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_selected_microphone_name_pattern_setting(
+    app: AppHandle,
+    pattern: String,
+) -> Result<(), String> {
+    let mut settings = get_settings(&app);
+    settings.selected_microphone_name_pattern = pattern.trim().to_string();
+    write_settings(&app, settings);
+
+    let _ = microphone_auto_switch::reconcile_selected_microphone(&app, true)?;
+    microphone_auto_switch::emit_audio_input_state_changed(&app);
     Ok(())
 }
 

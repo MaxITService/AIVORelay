@@ -1144,6 +1144,10 @@ pub struct AppSettings {
     pub always_on_microphone: bool,
     #[serde(default)]
     pub selected_microphone: Option<String>,
+    #[serde(default = "default_false")]
+    pub selected_microphone_auto_switch_enabled: bool,
+    #[serde(default)]
+    pub selected_microphone_name_pattern: String,
     #[serde(default)]
     pub clamshell_microphone: Option<String>,
     /// Microphone used exclusively by the Live Sound pipeline.
@@ -2418,6 +2422,8 @@ pub fn get_default_settings() -> AppSettings {
         deepgram_endpointing_ms: default_deepgram_endpointing_ms(),
         always_on_microphone: false,
         selected_microphone: None,
+        selected_microphone_auto_switch_enabled: default_false(),
+        selected_microphone_name_pattern: String::new(),
         clamshell_microphone: None,
         live_sound_microphone: None,
         selected_output_device: None,
