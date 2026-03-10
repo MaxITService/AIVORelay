@@ -28,14 +28,19 @@ const AUTO_OPEN_SITES = [
 ];
 
 const MIN_CONNECTOR_PASSWORD_LEN = 64;
-const LEGACY_CONNECTOR_PASSWORD = "fklejqwhfiu342lhk3";
+const DEFAULT_CONNECTOR_PASSWORD = "befc3aa14cc05e56011865df1c49d16ef9100a53d9bfa02be8d4ffd386324f65";
 const EXTENSION_REPO_URL = "https://github.com/MaxITService/AIVORelay-relay";
 const EXTENSION_DOWNLOAD_URL = "https://github.com/MaxITService/AIVORelay-relay/archive/refs/heads/main.zip";
 const EXPORT_PATH_STORAGE_KEY = "aivorelay.connectorExportPath";
 
 const isAllowedConnectorPassword = (value: string) => {
   const trimmed = value.trim();
-  return trimmed === LEGACY_CONNECTOR_PASSWORD || trimmed.length >= MIN_CONNECTOR_PASSWORD_LEN;
+  return trimmed.length >= MIN_CONNECTOR_PASSWORD_LEN;
+};
+
+const isDefaultConnectorPassword = (value: string) => {
+  const trimmed = value.trim();
+  return trimmed === DEFAULT_CONNECTOR_PASSWORD;
 };
 
 // Default screenshot folder for Windows
@@ -398,8 +403,10 @@ export const BrowserConnectorSettings: React.FC = () => {
   };
 
   // Check if using default password
-  const isDefaultPassword = passwordInput.trim() === LEGACY_CONNECTOR_PASSWORD;
+  const isDefaultPassword = isDefaultConnectorPassword(passwordInput);
   const isConnectorOnline = connectorStatus?.server_running === true && connectorStatus.status === "online";
+  const showPasswordRotationWakeHint =
+    isRotatingPassword || passwordRotationStatus?.type === "error";
 
   const handleAutoOpenEnabledChange = (enabled: boolean) => {
     void updateSetting("connector_auto_open_enabled", enabled);
@@ -1311,6 +1318,11 @@ export const BrowserConnectorSettings: React.FC = () => {
               {passwordError}
             </div>
           )}
+          <div className="mt-2 text-xs text-text/50">
+            {t("settings.browserConnector.connection.password.minLengthNote", {
+              min: MIN_CONNECTOR_PASSWORD_LEN,
+            })}
+          </div>
           <div className="mt-2 flex items-center gap-2">
             <button
               type="button"
@@ -1332,6 +1344,11 @@ export const BrowserConnectorSettings: React.FC = () => {
               {t("settings.browserConnector.connection.password.rotate.description")}
             </span>
           </div>
+          {showPasswordRotationWakeHint && (
+            <div className="mt-2 text-xs text-text/50">
+              {t("settings.browserConnector.connection.password.rotate.wakeHint")}
+            </div>
+          )}
           {passwordRotationStatus && (
             <div
               className={`mt-2 rounded-lg border p-3 text-sm ${

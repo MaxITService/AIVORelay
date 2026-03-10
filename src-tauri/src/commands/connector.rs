@@ -195,21 +195,24 @@ fn patch_exported_manifest(export_dir: &Path, manifest_key: &str) -> Result<(), 
     fs::write(&manifest_path, format!("{}\n", updated_manifest))
         .map_err(|e| format!("Failed to write exported manifest.json: {}", e))
 }
-
+    // This hardcoded bootstrap password is only an onboarding fallback, and only if user uses very exotic, manual onboarding,
+    // while other methods are primary in this app.
+    // User DOES NOT need to use this at all and can be perfectly secure by using own password.
+    // It is not the steady-state connector secret. The app rotates away from it or replaces it
+    // during pairing/export, so its presence in source is not relied on as a
+    // long-term security boundary.
 fn patch_exported_default_password(export_dir: &Path, generated_password: &str) -> Result<(), String> {
     let escaped_password = serde_json::to_string(generated_password)
         .map_err(|e| format!("Failed to escape generated connector password: {}", e))?;
     let replacement_line = format!("const DEFAULT_PASSWORD = {};", escaped_password);
+    let search_pattern =
+        "const DEFAULT_PASSWORD = \"befc3aa14cc05e56011865df1c49d16ef9100a53d9bfa02be8d4ffd386324f65\";";
 
     for relative_path in EXTENSION_PASSWORD_FILES {
         let file_path = export_dir.join(relative_path);
         let original = fs::read_to_string(&file_path)
             .map_err(|e| format!("Failed to read exported extension file '{}': {}", relative_path, e))?;
-        let updated = original.replacen(
-            "const DEFAULT_PASSWORD = \"fklejqwhfiu342lhk3\";",
-            &replacement_line,
-            1,
-        );
+        let updated = original.replacen(search_pattern, &replacement_line, 1);
         if updated == original {
             return Err(format!(
                 "Failed to update default password in exported extension file '{}'",

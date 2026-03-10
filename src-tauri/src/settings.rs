@@ -2023,7 +2023,7 @@ pub fn default_connector_password() -> String {
     // It is not the steady-state connector secret. The app rotates away from it or replaces it
     // during pairing/export, so its presence in source is not relied on as a
     // long-term security boundary.
-    "fklejqwhfiu342lhk3".to_string()
+    "befc3aa14cc05e56011865df1c49d16ef9100a53d9bfa02be8d4ffd386324f65".to_string()
 }
 
 /// Default reasoning token budget for Extended Thinking (OpenRouter)

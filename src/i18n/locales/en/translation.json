@@ -1888,13 +1888,15 @@
           "title": "Connection Password",
           "description": "Password to authenticate the extension. Must match in both AivoRelay and the extension.",
           "errorEmpty": "Connection password cannot be empty.",
-          "errorMinLength": "Connection password must be at least {{min}} characters long unless you are using the legacy bootstrap password.",
+          "errorMinLength": "Connection password must be at least {{min}} characters long.",
+          "minLengthNote": "Minimum length: {{min}} symbols.",
           "rotate": {
             "title": "Rotate Password Now",
             "description": "Generate a new random password and push it to the currently connected extension. Offline extensions will not update automatically.",
             "rotating": "Rotating Password...",
             "success": "Password rotation completed. The connected extension acknowledged the new password.",
-            "offlineHint": "Password rotation is only available while the browser extension is online."
+            "offlineHint": "Password rotation is only available while the browser extension is online.",
+            "wakeHint": "If the extension does not wake up, click the Extension icon to wake it."
           },
           "defaultWarning": {
             "title": "Security Warning: Default Password",
