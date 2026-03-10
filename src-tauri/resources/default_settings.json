@@ -20,7 +20,7 @@
   "ai_replace_user_prompt": "INSTRUCTION:\n${instruction}\n\nTEXT:\n${output}",
   "ai_replace_max_chars": 20000,
   "ai_replace_restore_on_error": true,
-  "connector_password": "fklejqwhfiu342lhk3",
+  "connector_password": "befc3aa14cc05e56011865df1c49d16ef9100a53d9bfa02be8d4ffd386324f65",
   "beta_voice_commands_enabled": false,
   "voice_button_show_aot_toggle": false,
   "voice_button_single_click_close": false,

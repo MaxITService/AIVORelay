@@ -3829,9 +3829,9 @@ pub fn change_connector_password_setting(
     if trimmed.is_empty() {
         return Err("Connector password cannot be empty".to_string());
     }
-    if trimmed != settings::default_connector_password() && trimmed.len() < MIN_CONNECTOR_PASSWORD_LEN {
+    if trimmed.len() < MIN_CONNECTOR_PASSWORD_LEN {
         return Err(format!(
-            "Connector password must be at least {} characters long unless using the legacy default bootstrap password.",
+            "Connector password must be at least {} characters long.",
             MIN_CONNECTOR_PASSWORD_LEN
         ));
     }
