@@ -229,7 +229,7 @@ export const ModelsSettings: React.FC = () => {
           <div className="flex items-center justify-between">
             <div className="min-w-0">
               <div className="flex items-center gap-2">
-                <Cloud className="w-4 h-4 text-cyan-400" />
+                <Radio className="w-4 h-4 text-cyan-400" />
                 <p className="text-sm font-medium text-[#f5f5f5]">
                   {t("modelSelector.remoteDeepgramMode", "Remote via Deepgram")}
                 </p>
