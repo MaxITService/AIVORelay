@@ -26,7 +26,7 @@
     ],
     "security": {
       "csp": {
-        "default-src": ["'none'"],
+        "default-src": ["'self'"],
         "base-uri": ["'none'"],
         "connect-src": ["'self'", "ipc:", "http://ipc.localhost"],
         "font-src": ["'self'"],
@@ -37,13 +37,13 @@
         "media-src": ["'self'", "asset:", "http://asset.localhost"],
         "object-src": ["'none'"],
         "script-src": ["'self'"],
-        "style-src": ["'self'"],
+        "style-src": ["'self'", "'unsafe-inline'"],
         "style-src-attr": ["'unsafe-inline'"],
-        "style-src-elem": ["'self'"],
-        "worker-src": ["'none'"]
+        "style-src-elem": ["'self'", "'unsafe-inline'"],
+        "worker-src": ["'self'"]
       },
       "devCsp": {
-        "default-src": ["'none'"],
+        "default-src": ["'self'"],
         "base-uri": ["'none'"],
         "connect-src": [
           "'self'",
@@ -62,10 +62,10 @@
         "media-src": ["'self'", "asset:", "http://asset.localhost"],
         "object-src": ["'none'"],
         "script-src": ["'self'"],
-        "style-src": ["'self'"],
+        "style-src": ["'self'", "'unsafe-inline'"],
         "style-src-attr": ["'unsafe-inline'"],
-        "style-src-elem": ["'self'"],
-        "worker-src": ["'none'"]
+        "style-src-elem": ["'self'", "'unsafe-inline'"],
+        "worker-src": ["'self'"]
       },
       "assetProtocol": {
         "enable": true,
