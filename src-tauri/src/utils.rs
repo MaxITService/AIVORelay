@@ -1,4 +1,6 @@
 use crate::managers::audio::AudioRecordingManager;
+use crate::managers::deepgram_realtime::DeepgramRealtimeManager;
+use crate::managers::deepgram_stt::DeepgramSttManager;
 use crate::managers::llm_operation::LlmOperationTracker;
 use crate::managers::remote_stt::RemoteSttManager;
 use crate::managers::soniox_realtime::SonioxRealtimeManager;
@@ -63,6 +65,10 @@ pub fn cancel_current_operation(app: &AppHandle) {
     soniox_live_manager.cancel();
     let soniox_stt_manager = app.state::<Arc<SonioxSttManager>>();
     soniox_stt_manager.cancel();
+    let deepgram_live_manager = app.state::<Arc<DeepgramRealtimeManager>>();
+    deepgram_live_manager.cancel();
+    let deepgram_stt_manager = app.state::<Arc<DeepgramSttManager>>();
+    deepgram_stt_manager.cancel();
     audio_manager.clear_stream_frame_callback();
     if let Err(e) = crate::clipboard::end_streaming_paste_session(app) {
         warn!(

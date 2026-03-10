@@ -1,7 +1,7 @@
 {
   "name": "aivorelay-app",
   "private": true,
-  "version": "0.9.1",
+  "version": "0.9.7",
   "license": "MIT",
   "type": "module",
   "scripts": {
@@ -21,7 +21,7 @@
   },
   "dependencies": {
     "@tailwindcss/vite": "^4.1.16",
-    "@tauri-apps/api": "^2.9.0",
+    "@tauri-apps/api": "^2.10.0",
     "@tauri-apps/plugin-autostart": "~2.5.1",
     "@tauri-apps/plugin-clipboard-manager": "~2.3.2",
     "@tauri-apps/plugin-dialog": "^2.6.0",

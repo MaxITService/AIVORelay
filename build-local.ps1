@@ -19,6 +19,36 @@ function Test-Command($command) {
     $null -ne (Get-Command $command -ErrorAction SilentlyContinue)
 }
 
+function Set-BindgenWindowsEnv {
+    if (-not $env:INCLUDE) {
+        Write-Host "  WARNING: INCLUDE is empty, skipping bindgen include configuration" -ForegroundColor Yellow
+        return
+    }
+
+    $includeArgs = @()
+    foreach ($path in ($env:INCLUDE -split ';')) {
+        if (-not [string]::IsNullOrWhiteSpace($path) -and (Test-Path $path)) {
+            $includeArgs += "--include-directory=$path"
+        }
+    }
+
+    if ($includeArgs.Count -eq 0) {
+        Write-Host "  WARNING: No valid INCLUDE paths found for bindgen" -ForegroundColor Yellow
+        return
+    }
+
+    $env:BINDGEN_EXTRA_CLANG_ARGS = "--target=x86_64-pc-windows-msvc $($includeArgs -join ' ')"
+    Write-Host "  OK - Configured BINDGEN_EXTRA_CLANG_ARGS for MSVC headers" -ForegroundColor Green
+
+    if (-not $env:LIBCLANG_PATH) {
+        $defaultLibclangPath = "C:\Program Files\LLVM\bin"
+        if (Test-Path (Join-Path $defaultLibclangPath "libclang.dll")) {
+            $env:LIBCLANG_PATH = $defaultLibclangPath
+            Write-Host "  OK - Set LIBCLANG_PATH to $defaultLibclangPath" -ForegroundColor Green
+        }
+    }
+}
+
 # Step 1: Check for running processes
 if (-not $SkipChecks) {
     Write-Host "[1/6] Checking for running cargo/tauri processes..." -ForegroundColor Yellow
@@ -60,6 +90,7 @@ if (-not $SkipChecks) {
         & $launchScript -Arch amd64 -HostArch amd64 -SkipAutomaticLocation
 
         Write-Host "  OK - Visual Studio environment configured" -ForegroundColor Green
+        Set-BindgenWindowsEnv
     }
     catch {
         Write-Host "ERROR: Failed to setup VS environment: $_" -ForegroundColor Red

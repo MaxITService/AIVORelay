@@ -1,11 +1,11 @@
 use crate::managers::history::{HistoryEntry, HistoryManager};
 use crate::managers::transcription::TranscriptionManager;
-use crate::settings;
+use crate::{commands::audio, settings};
 use crate::tray_i18n::get_tray_translations;
 use log::{error, info, warn};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use tauri::image::Image;
-use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
+use tauri::menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem};
 use tauri::tray::TrayIcon;
 use tauri::{AppHandle, Manager, Theme};
 use tauri_plugin_clipboard_manager::ClipboardExt;
@@ -16,6 +16,22 @@ pub enum TrayIconState {
     Recording,
     Transcribing,
 }
+
+pub struct ManagedTrayState(pub Mutex<TrayIconState>);
+
+impl Default for ManagedTrayState {
+    fn default() -> Self {
+        Self(Mutex::new(TrayIconState::Idle))
+    }
+}
+
+pub const TRAY_MICROPHONE_MENU_PREFIX: &str = "tray_microphone::";
+pub const TRAY_MICROPHONE_DEFAULT_ID: &str = "tray_microphone::default";
+const TRAY_MICROPHONE_MISSING_ID: &str = "tray_microphone::missing";
+const TRAY_MICROPHONE_HEADER_ID: &str = "tray_microphone_header";
+const TRAY_MICROPHONE_HEADER_LABEL: &str = "Microphone";
+const TRAY_MICROPHONE_DEFAULT_LABEL: &str = "Default";
+const TRAY_MICROPHONE_UNAVAILABLE_PREFIX: &str = "Unavailable: ";
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum AppTheme {
@@ -67,20 +83,52 @@ pub fn change_tray_icon(app: &AppHandle, icon: TrayIconState) {
 
     let icon_path = get_icon_path(theme, icon.clone());
 
-    let _ = tray.set_icon(Some(
-        Image::from_path(
-            app.path()
-                .resolve(icon_path, tauri::path::BaseDirectory::Resource)
-                .expect("failed to resolve"),
-        )
-        .expect("failed to set icon"),
-    ));
+    match app
+        .path()
+        .resolve(icon_path, tauri::path::BaseDirectory::Resource)
+        .map_err(|e| e.to_string())
+        .and_then(|p| Image::from_path(p).map_err(|e| e.to_string()))
+    {
+        Ok(image) => {
+            let _ = tray.set_icon(Some(image));
+        }
+        Err(e) => {
+            warn!("Failed to update tray icon '{}': {}", icon_path, e);
+        }
+    }
 
     // Update menu based on state
     update_tray_menu(app, &icon, None);
 }
 
 pub fn update_tray_menu(app: &AppHandle, state: &TrayIconState, locale: Option<&str>) {
+    remember_tray_state(app, state);
+    if let Err(e) = try_update_tray_menu(app, state, locale) {
+        warn!("Failed to update tray menu: {}", e);
+    }
+}
+
+pub fn refresh_tray_menu(app: &AppHandle, locale: Option<&str>) {
+    let state = current_tray_state(app);
+    update_tray_menu(app, &state, locale);
+}
+
+pub fn parse_microphone_menu_selection(id: &str) -> Option<Option<String>> {
+    if id == TRAY_MICROPHONE_DEFAULT_ID {
+        Some(None)
+    } else if id == TRAY_MICROPHONE_MISSING_ID {
+        None
+    } else {
+        id.strip_prefix(TRAY_MICROPHONE_MENU_PREFIX)
+            .map(|index| Some(index.to_string()))
+    }
+}
+
+fn try_update_tray_menu(
+    app: &AppHandle,
+    state: &TrayIconState,
+    locale: Option<&str>,
+) -> Result<(), Box<dyn std::error::Error>> {
     let settings = settings::get_settings(app);
 
     let locale = locale.unwrap_or(&settings.app_language);
@@ -98,32 +146,29 @@ pub fn update_tray_menu(app: &AppHandle, state: &TrayIconState, locale: Option<&
     } else {
         format!("AivoRelay v{}", env!("CARGO_PKG_VERSION"))
     };
-    let version_i = MenuItem::with_id(app, "version", &version_label, false, None::<&str>)
-        .expect("failed to create version item");
+    let version_i =
+        MenuItem::with_id(app, "version", &version_label, false, None::<&str>)?;
     let settings_i = MenuItem::with_id(
         app,
         "settings",
         &strings.settings,
         true,
         settings_accelerator,
-    )
-    .expect("failed to create settings item");
+    )?;
     let check_updates_i = MenuItem::with_id(
         app,
         "check_updates",
         &strings.check_updates,
         settings.update_checks_enabled,
         None::<&str>,
-    )
-    .expect("failed to create check updates item");
+    )?;
     let copy_last_transcript_i = MenuItem::with_id(
         app,
         "copy_last_transcript",
         &strings.copy_last_transcript,
         true,
         None::<&str>,
-    )
-    .expect("failed to create copy last transcript item");
+    )?;
     let model_loaded = app.state::<Arc<TranscriptionManager>>().is_model_loaded();
     let unload_model_i = MenuItem::with_id(
         app,
@@ -131,53 +176,149 @@ pub fn update_tray_menu(app: &AppHandle, state: &TrayIconState, locale: Option<&
         &strings.unload_model,
         model_loaded,
         None::<&str>,
-    )
-    .expect("failed to create unload model item");
-    let quit_i = MenuItem::with_id(app, "quit", &strings.quit, true, quit_accelerator)
-        .expect("failed to create quit item");
-    let separator = || PredefinedMenuItem::separator(app).expect("failed to create separator");
+    )?;
+    let quit_i = MenuItem::with_id(app, "quit", &strings.quit, true, quit_accelerator)?;
+    let separator = || PredefinedMenuItem::separator(app);
 
-    let menu = match state {
+    let menu = Menu::new(app)?;
+
+    match state {
         TrayIconState::Recording | TrayIconState::Transcribing => {
-            let cancel_i = MenuItem::with_id(app, "cancel", &strings.cancel, true, None::<&str>)
-                .expect("failed to create cancel item");
-            Menu::with_items(
-                app,
-                &[
-                    &version_i,
-                    &separator(),
-                    &cancel_i,
-                    &separator(),
-                    &copy_last_transcript_i,
-                    &separator(),
-                    &settings_i,
-                    &check_updates_i,
-                    &separator(),
-                    &quit_i,
-                ],
-            )
-            .expect("failed to create menu")
+            let cancel_i =
+                MenuItem::with_id(app, "cancel", &strings.cancel, true, None::<&str>)?;
+            menu.append(&version_i)?;
+            menu.append(&separator()?)?;
+            menu.append(&cancel_i)?;
         }
-        TrayIconState::Idle => Menu::with_items(
-            app,
-            &[
-                &version_i,
-                &separator(),
-                &copy_last_transcript_i,
-                &unload_model_i,
-                &separator(),
-                &settings_i,
-                &check_updates_i,
-                &separator(),
-                &quit_i,
-            ],
-        )
-        .expect("failed to create menu"),
-    };
+        TrayIconState::Idle => {
+            menu.append(&version_i)?;
+        }
+    }
 
-    let tray = app.state::<TrayIcon>();
+    menu.append(&separator()?)?;
+    append_microphone_items(&menu, app, settings.selected_microphone.as_deref())?;
+    menu.append(&separator()?)?;
+    menu.append(&copy_last_transcript_i)?;
+
+    if state == &TrayIconState::Idle {
+        menu.append(&unload_model_i)?;
+    }
+
+    menu.append(&separator()?)?;
+    menu.append(&settings_i)?;
+    menu.append(&check_updates_i)?;
+    menu.append(&separator()?)?;
+    menu.append(&quit_i)?;
+
+    let Some(tray) = app.try_state::<TrayIcon>() else {
+        return Ok(());
+    };
     let _ = tray.set_menu(Some(menu));
     let _ = tray.set_icon_as_template(true);
+    Ok(())
+}
+
+fn remember_tray_state(app: &AppHandle, state: &TrayIconState) {
+    let Some(current_state) = app.try_state::<ManagedTrayState>() else {
+        return;
+    };
+
+    let lock_result = current_state.0.lock();
+    match lock_result {
+        Ok(mut current_state) => {
+            *current_state = state.clone();
+        }
+        Err(err) => {
+            warn!("Failed to lock tray state while updating menu: {}", err);
+        }
+    }
+}
+
+fn current_tray_state(app: &AppHandle) -> TrayIconState {
+    let Some(current_state) = app.try_state::<ManagedTrayState>() else {
+        return TrayIconState::Idle;
+    };
+
+    let state = match current_state.0.lock() {
+        Ok(current_state) => current_state.clone(),
+        Err(err) => {
+            warn!("Failed to lock tray state while refreshing menu: {}", err);
+            TrayIconState::Idle
+        }
+    };
+
+    state
+}
+
+fn append_microphone_items(
+    menu: &Menu<tauri::Wry>,
+    app: &AppHandle,
+    selected_microphone: Option<&str>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let header_item = MenuItem::with_id(
+        app,
+        TRAY_MICROPHONE_HEADER_ID,
+        TRAY_MICROPHONE_HEADER_LABEL,
+        false,
+        None::<&str>,
+    )?;
+    menu.append(&header_item)?;
+
+    let available_microphones = match audio::get_available_microphones() {
+        Ok(devices) => devices,
+        Err(err) => {
+            warn!("Failed to list microphones for tray menu: {}", err);
+            vec![audio::AudioDevice {
+                index: "default".to_string(),
+                name: TRAY_MICROPHONE_DEFAULT_LABEL.to_string(),
+                is_default: true,
+            }]
+        }
+    };
+
+    let missing_selected_microphone = selected_microphone.filter(|selected_name| {
+        !available_microphones
+            .iter()
+            .any(|device| !device.is_default && device.name == *selected_name)
+    });
+    let default_item = CheckMenuItem::with_id(
+        app,
+        TRAY_MICROPHONE_DEFAULT_ID,
+        TRAY_MICROPHONE_DEFAULT_LABEL,
+        true,
+        selected_microphone.is_none(),
+        None::<&str>,
+    )?;
+    menu.append(&default_item)?;
+
+    if let Some(selected_name) = missing_selected_microphone {
+        let unavailable_item = CheckMenuItem::with_id(
+            app,
+            TRAY_MICROPHONE_MISSING_ID,
+            format!("{TRAY_MICROPHONE_UNAVAILABLE_PREFIX}{selected_name}"),
+            false,
+            true,
+            None::<&str>,
+        )?;
+        menu.append(&unavailable_item)?;
+    }
+
+    for device in available_microphones
+        .into_iter()
+        .filter(|device| !device.is_default)
+    {
+        let item = CheckMenuItem::with_id(
+            app,
+            format!("{}{}", TRAY_MICROPHONE_MENU_PREFIX, device.index),
+            &device.name,
+            true,
+            selected_microphone == Some(device.name.as_str()),
+            None::<&str>,
+        )?;
+        menu.append(&item)?;
+    }
+
+    Ok(())
 }
 
 pub fn set_tray_visibility(app: &AppHandle, visible: bool) {

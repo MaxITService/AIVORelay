@@ -23,7 +23,7 @@ function App() {
   const [onboardingFromDebug, setOnboardingFromDebug] = useState(false);
   const { currentSection, setSection: setCurrentSection } =
     useNavigationStore();
-  const { refreshSettings } = useSettings();
+  const { refreshSettings, refreshAudioDevices } = useSettings();
 
   useEffect(() => {
     checkOnboardingStatus();
@@ -64,12 +64,53 @@ function App() {
       },
     );
 
+    const unlistenAuthFailed = listen<{ message: string }>("connector-auth-failed", (event) => {
+      toast.warning(event.payload.message || "Connector authentication failed", { duration: 5000 });
+    });
+
     return () => {
       unlistenRemote.then((unlisten) => unlisten());
       unlistenScreenshot.then((unlisten) => unlisten());
       unlistenVoiceCommand.then((unlisten) => unlisten());
+      unlistenAuthFailed.then((unlisten) => unlisten());
     };
   }, []);
+
+  // Sync soniox_live_preview_enabled when the active profile changes (e.g. via shortcut)
+  useEffect(() => {
+    const unlisten = listen("active-profile-changed", async () => {
+      try {
+        const result = await commands.getAppSettings();
+        if (result.status === "ok") {
+          const s = result.data as any;
+          const id = s?.active_profile_id ?? "default";
+          const previewEnabled = id === "default"
+            ? Boolean(s?.preview_output_only_enabled ?? false)
+            : Boolean(
+                (s?.transcription_profiles ?? []).find((p: any) => p.id === id)
+                  ?.preview_output_only_enabled ?? false,
+              );
+          await commands.changeSonioxLivePreviewEnabledSetting(previewEnabled);
+        }
+      } catch (e) {
+        console.error("Failed to sync preview setting after profile change", e);
+      }
+      refreshSettings();
+    });
+    return () => {
+      unlisten.then((u) => u());
+    };
+  }, [refreshSettings]);
+
+  useEffect(() => {
+    const unlisten = listen("audio-input-state-changed", async () => {
+      await Promise.all([refreshSettings(), refreshAudioDevices()]);
+    });
+
+    return () => {
+      unlisten.then((u) => u());
+    };
+  }, [refreshAudioDevices, refreshSettings]);
 
   const checkOnboardingStatus = async () => {
     try {
@@ -78,14 +119,16 @@ function App() {
         commands.hasAnyModelsAvailable(),
       ]);
 
-      if (
-        settingsResult.status === "ok" &&
-        (settingsResult.data.transcription_provider ===
-          "remote_openai_compatible" ||
-          settingsResult.data.transcription_provider === "remote_soniox")
-      ) {
-        setShowOnboarding(false);
-        return;
+      if (settingsResult.status === "ok") {
+        const provider = String(settingsResult.data.transcription_provider);
+        if (
+          provider === "remote_openai_compatible" ||
+          provider === "remote_soniox" ||
+          provider === "remote_deepgram"
+        ) {
+          setShowOnboarding(false);
+          return;
+        }
       }
 
       if (modelResult.status === "ok") {

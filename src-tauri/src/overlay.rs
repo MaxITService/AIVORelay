@@ -5,16 +5,16 @@ use crate::settings;
 use crate::settings::{
     OverlayPosition, SonioxLivePreviewPosition, SonioxLivePreviewSize, SonioxLivePreviewTheme,
 };
-use specta::Type;
 use serde::Serialize;
+use specta::Type;
+use std::sync::atomic::{AtomicU64, AtomicU8, Ordering};
 use std::sync::{LazyLock, Mutex};
-use std::sync::atomic::{AtomicU8, AtomicU64, Ordering};
 use tauri::{AppHandle, Emitter, Manager, PhysicalPosition, PhysicalSize};
 
-/// Counter used to cancel pending profile switch overlay auto-hide timers.
-/// Each time a recording overlay is shown, this is incremented, and existing
-/// profile switch timers check if their generation still matches.
-static PROFILE_OVERLAY_GENERATION: AtomicU64 = AtomicU64::new(0);
+/// Counter used to cancel pending transient message overlay auto-hide timers.
+/// Each time a recording overlay or another transient message overlay is shown,
+/// this is incremented so stale timers do not hide newer overlays.
+static TRANSIENT_OVERLAY_GENERATION: AtomicU64 = AtomicU64::new(0);
 static RECORDING_OVERLAY_LAYOUT: AtomicU8 = AtomicU8::new(0);
 
 #[cfg(not(target_os = "macos"))]
@@ -73,6 +73,12 @@ struct OverlayStatePayload {
     decapitalize_armed: bool,
 }
 
+#[derive(Serialize, Clone)]
+struct TransientMessageOverlayPayload {
+    state: String,
+    message: String,
+}
+
 #[derive(Serialize, Clone, Default, Type)]
 pub struct SonioxLivePreviewPayload {
     pub final_text: String,
@@ -113,10 +119,19 @@ pub struct SonioxLivePreviewAppearancePayload {
     pub flush_hotkey: String,
     pub process_hotkey: String,
     pub insert_hotkey: String,
+    pub delete_until_dot_or_comma_hotkey: String,
+    pub delete_until_dot_hotkey: String,
+    pub delete_last_word_hotkey: String,
     pub show_clear_button: bool,
     pub show_flush_button: bool,
     pub show_process_button: bool,
     pub show_insert_button: bool,
+    pub show_delete_until_dot_or_comma_button: bool,
+    pub show_delete_until_dot_button: bool,
+    pub show_delete_last_word_button: bool,
+    pub ctrl_backspace_delete_last_word: bool,
+    pub backspace_delete_last_char: bool,
+    pub show_drag_grip: bool,
 }
 
 static SONIOX_LIVE_PREVIEW_STATE: LazyLock<Mutex<SonioxLivePreviewPayload>> =
@@ -124,19 +139,17 @@ static SONIOX_LIVE_PREVIEW_STATE: LazyLock<Mutex<SonioxLivePreviewPayload>> =
 static SONIOX_LIVE_PREVIEW_RUNTIME_STATE: LazyLock<Mutex<SonioxLivePreviewRuntimeState>> =
     LazyLock::new(|| Mutex::new(SonioxLivePreviewRuntimeState::default()));
 
-fn decapitalize_indicator_eligible(settings: &settings::AppSettings) -> bool {
-    settings.text_replacement_decapitalize_after_edit_key_enabled
-        && settings.transcription_provider == settings::TranscriptionProvider::RemoteSoniox
-        && settings.soniox_live_enabled
-}
-
-fn build_overlay_state_payload(state: &str, settings: &settings::AppSettings) -> OverlayStatePayload {
-    let eligible = decapitalize_indicator_eligible(settings);
-    let armed = eligible && crate::text_replacement_decapitalize::is_realtime_trigger_armed_now();
+fn build_overlay_state_payload(
+    state: &str,
+    settings: &settings::AppSettings,
+) -> OverlayStatePayload {
+    let indicator = crate::text_replacement_decapitalize::indicator_state(
+        settings.text_replacement_decapitalize_after_edit_key_enabled,
+    );
     OverlayStatePayload {
         state: state.to_string(),
-        decapitalize_eligible: eligible,
-        decapitalize_armed: armed,
+        decapitalize_eligible: indicator.eligible,
+        decapitalize_armed: indicator.armed,
     }
 }
 
@@ -252,10 +265,7 @@ fn calculate_overlay_position(app_handle: &AppHandle) -> Option<(f64, f64)> {
 
 fn apply_recording_overlay_layout(app_handle: &AppHandle, width: f64, height: f64) {
     if let Some(overlay_window) = app_handle.get_webview_window("recording_overlay") {
-        let _ = overlay_window.set_size(tauri::Size::Logical(tauri::LogicalSize {
-            width,
-            height,
-        }));
+        let _ = overlay_window.set_size(tauri::Size::Logical(tauri::LogicalSize { width, height }));
         if let Some((x, y)) = calculate_overlay_position_for_size(app_handle, width, height) {
             let _ = overlay_window
                 .set_position(tauri::Position::Logical(tauri::LogicalPosition { x, y }));
@@ -293,28 +303,27 @@ pub fn set_recording_overlay_error_layout(app_handle: &AppHandle) {
 
 fn soniox_live_preview_dimensions(app_settings: &settings::AppSettings) -> (f64, f64) {
     match app_settings.soniox_live_preview_size {
-        SonioxLivePreviewSize::Small => {
-            (SONIOX_LIVE_PREVIEW_SMALL_WIDTH, SONIOX_LIVE_PREVIEW_SMALL_HEIGHT)
-        }
-        SonioxLivePreviewSize::Medium => {
-            (SONIOX_LIVE_PREVIEW_MEDIUM_WIDTH, SONIOX_LIVE_PREVIEW_MEDIUM_HEIGHT)
-        }
-        SonioxLivePreviewSize::Large => {
-            (SONIOX_LIVE_PREVIEW_LARGE_WIDTH, SONIOX_LIVE_PREVIEW_LARGE_HEIGHT)
-        }
+        SonioxLivePreviewSize::Small => (
+            SONIOX_LIVE_PREVIEW_SMALL_WIDTH,
+            SONIOX_LIVE_PREVIEW_SMALL_HEIGHT,
+        ),
+        SonioxLivePreviewSize::Medium => (
+            SONIOX_LIVE_PREVIEW_MEDIUM_WIDTH,
+            SONIOX_LIVE_PREVIEW_MEDIUM_HEIGHT,
+        ),
+        SonioxLivePreviewSize::Large => (
+            SONIOX_LIVE_PREVIEW_LARGE_WIDTH,
+            SONIOX_LIVE_PREVIEW_LARGE_HEIGHT,
+        ),
         SonioxLivePreviewSize::Custom => (
-            app_settings
-                .soniox_live_preview_custom_width_px
-                .clamp(
-                    SONIOX_LIVE_PREVIEW_MIN_CUSTOM_WIDTH_PX,
-                    SONIOX_LIVE_PREVIEW_MAX_CUSTOM_WIDTH_PX,
-                ) as f64,
-            app_settings
-                .soniox_live_preview_custom_height_px
-                .clamp(
-                    SONIOX_LIVE_PREVIEW_MIN_CUSTOM_HEIGHT_PX,
-                    SONIOX_LIVE_PREVIEW_MAX_CUSTOM_HEIGHT_PX,
-                ) as f64,
+            app_settings.soniox_live_preview_custom_width_px.clamp(
+                SONIOX_LIVE_PREVIEW_MIN_CUSTOM_WIDTH_PX,
+                SONIOX_LIVE_PREVIEW_MAX_CUSTOM_WIDTH_PX,
+            ) as f64,
+            app_settings.soniox_live_preview_custom_height_px.clamp(
+                SONIOX_LIVE_PREVIEW_MIN_CUSTOM_HEIGHT_PX,
+                SONIOX_LIVE_PREVIEW_MAX_CUSTOM_HEIGHT_PX,
+            ) as f64,
         ),
     }
 }
@@ -351,8 +360,13 @@ fn build_soniox_live_preview_appearance_payload(
     let app_settings = settings::get_settings(app_handle);
     SonioxLivePreviewAppearancePayload {
         theme: soniox_live_preview_theme_key(app_settings.soniox_live_preview_theme).to_string(),
-        opacity_percent: app_settings.soniox_live_preview_opacity_percent.clamp(35, 100),
-        font_color: normalize_preview_color(&app_settings.soniox_live_preview_font_color, "#f5f5f5"),
+        opacity_percent: app_settings
+            .soniox_live_preview_opacity_percent
+            .clamp(35, 100),
+        font_color: normalize_preview_color(
+            &app_settings.soniox_live_preview_font_color,
+            "#f5f5f5",
+        ),
         interim_font_color: normalize_preview_color(
             &app_settings.soniox_live_preview_interim_font_color,
             "#f5f5f5",
@@ -364,18 +378,50 @@ fn build_soniox_live_preview_appearance_payload(
         interim_opacity_percent: app_settings
             .soniox_live_preview_interim_opacity_percent
             .clamp(20, 95),
-        close_hotkey: app_settings.soniox_live_preview_close_hotkey.trim().to_string(),
-        clear_hotkey: app_settings.soniox_live_preview_clear_hotkey.trim().to_string(),
-        flush_hotkey: app_settings.soniox_live_preview_flush_hotkey.trim().to_string(),
+        close_hotkey: app_settings
+            .soniox_live_preview_close_hotkey
+            .trim()
+            .to_string(),
+        clear_hotkey: app_settings
+            .soniox_live_preview_clear_hotkey
+            .trim()
+            .to_string(),
+        flush_hotkey: app_settings
+            .soniox_live_preview_flush_hotkey
+            .trim()
+            .to_string(),
         process_hotkey: app_settings
             .soniox_live_preview_process_hotkey
             .trim()
             .to_string(),
-        insert_hotkey: app_settings.soniox_live_preview_insert_hotkey.trim().to_string(),
+        insert_hotkey: app_settings
+            .soniox_live_preview_insert_hotkey
+            .trim()
+            .to_string(),
+        delete_until_dot_or_comma_hotkey: app_settings
+            .soniox_live_preview_delete_until_dot_or_comma_hotkey
+            .trim()
+            .to_string(),
+        delete_until_dot_hotkey: app_settings
+            .soniox_live_preview_delete_until_dot_hotkey
+            .trim()
+            .to_string(),
+        delete_last_word_hotkey: app_settings
+            .soniox_live_preview_delete_last_word_hotkey
+            .trim()
+            .to_string(),
         show_clear_button: app_settings.soniox_live_preview_show_clear_button,
         show_flush_button: app_settings.soniox_live_preview_show_flush_button,
         show_process_button: app_settings.soniox_live_preview_show_process_button,
         show_insert_button: app_settings.soniox_live_preview_show_insert_button,
+        show_delete_until_dot_or_comma_button: app_settings
+            .soniox_live_preview_show_delete_until_dot_or_comma_button,
+        show_delete_until_dot_button: app_settings.soniox_live_preview_show_delete_until_dot_button,
+        show_delete_last_word_button: app_settings.soniox_live_preview_show_delete_last_word_button,
+        ctrl_backspace_delete_last_word: app_settings
+            .soniox_live_preview_ctrl_backspace_delete_last_word,
+        backspace_delete_last_char: app_settings.soniox_live_preview_backspace_delete_last_char,
+        show_drag_grip: app_settings.soniox_live_preview_show_drag_grip,
     }
 }
 
@@ -414,20 +460,22 @@ fn resolve_soniox_live_preview_geometry(app_handle: &AppHandle) -> Option<(f64, 
                 y = work_area_y + work_area_height - height - SONIOX_LIVE_PREVIEW_BOTTOM_OFFSET;
             }
             SonioxLivePreviewPosition::NearCursor => {
-                let (cursor_x, cursor_y) = input::get_cursor_position(app_handle)
-                    .unwrap_or((
-                        (work_area.position.x + (work_area.size.width as i32 / 2)),
-                        (work_area.position.y + (work_area.size.height as i32 / 2)),
-                    ));
+                let (cursor_x, cursor_y) = input::get_cursor_position(app_handle).unwrap_or((
+                    (work_area.position.x + (work_area.size.width as i32 / 2)),
+                    (work_area.position.y + (work_area.size.height as i32 / 2)),
+                ));
 
                 let cursor_x_logical = cursor_x as f64 / scale;
                 let cursor_y_logical = cursor_y as f64 / scale;
                 let distance = app_settings.soniox_live_preview_cursor_offset_px as f64;
 
                 let min_x = work_area_x + SONIOX_LIVE_PREVIEW_CURSOR_EDGE_MARGIN;
-                let max_x = work_area_x + work_area_width - width - SONIOX_LIVE_PREVIEW_CURSOR_EDGE_MARGIN;
+                let max_x =
+                    work_area_x + work_area_width - width - SONIOX_LIVE_PREVIEW_CURSOR_EDGE_MARGIN;
                 let min_y = work_area_y + SONIOX_LIVE_PREVIEW_CURSOR_EDGE_MARGIN;
-                let max_y = work_area_y + work_area_height - height - SONIOX_LIVE_PREVIEW_CURSOR_EDGE_MARGIN;
+                let max_y = work_area_y + work_area_height
+                    - height
+                    - SONIOX_LIVE_PREVIEW_CURSOR_EDGE_MARGIN;
 
                 x = clamp_f64(cursor_x_logical - (width / 2.0), min_x, max_x);
                 y = clamp_f64(cursor_y_logical - height - distance, min_y, max_y);
@@ -496,8 +544,16 @@ pub fn create_soniox_live_preview_window(app_handle: &AppHandle) {
         )
         .title("Live Preview")
         .position(x, y)
-        .resizable(false)
+        .resizable(true)
         .inner_size(width, height)
+        .min_inner_size(
+            SONIOX_LIVE_PREVIEW_MIN_CUSTOM_WIDTH_PX as f64,
+            SONIOX_LIVE_PREVIEW_MIN_CUSTOM_HEIGHT_PX as f64,
+        )
+        .max_inner_size(
+            SONIOX_LIVE_PREVIEW_MAX_CUSTOM_WIDTH_PX as f64,
+            SONIOX_LIVE_PREVIEW_MAX_CUSTOM_HEIGHT_PX as f64,
+        )
         .maximizable(false)
         .minimizable(false)
         .closable(false)
@@ -565,9 +621,9 @@ pub fn show_recording_overlay(app_handle: &AppHandle) {
     // Cancel pending error auto-hide timers so a new active overlay is not hidden.
     plus_overlay_state::invalidate_error_overlay_auto_hide();
 
-    // Cancel any pending profile switch overlay auto-hide timer
+    // Cancel any pending transient message overlay auto-hide timer
     // by incrementing the generation counter
-    PROFILE_OVERLAY_GENERATION.fetch_add(1, Ordering::SeqCst);
+    TRANSIENT_OVERLAY_GENERATION.fetch_add(1, Ordering::SeqCst);
 
     // Check if overlay should be shown based on position setting
     let settings = settings::get_settings(app_handle);
@@ -877,12 +933,13 @@ pub fn emit_soniox_live_preview_appearance_update(_app_handle: &AppHandle) {}
 #[cfg(target_os = "windows")]
 pub fn update_soniox_live_preview_window(app_handle: &AppHandle) {
     let app_settings = settings::get_settings(app_handle);
-    let should_show =
-        app_settings.soniox_live_preview_enabled || crate::managers::preview_output_mode::is_active();
+    let should_show = app_settings.soniox_live_preview_enabled
+        || crate::managers::preview_output_mode::is_active();
     if let Some(window) = app_handle.get_webview_window(SONIOX_LIVE_PREVIEW_WINDOW_LABEL) {
         if !should_show {
             let _ = window.hide();
-        } else if let Some((x, y, width, height)) = resolve_soniox_live_preview_geometry(app_handle) {
+        } else if let Some((x, y, width, height)) = resolve_soniox_live_preview_geometry(app_handle)
+        {
             let _ = window.set_size(tauri::Size::Logical(tauri::LogicalSize { width, height }));
             let _ = window.set_position(tauri::Position::Logical(tauri::LogicalPosition { x, y }));
         }
@@ -949,7 +1006,8 @@ pub fn preview_soniox_live_preview_window(app_handle: AppHandle) -> Result<(), S
         if let Some(window) = app_handle.get_webview_window(SONIOX_LIVE_PREVIEW_WINDOW_LABEL) {
             if let Some((x, y, width, height)) = resolve_soniox_live_preview_geometry(&app_handle) {
                 let _ = window.set_size(tauri::Size::Logical(tauri::LogicalSize { width, height }));
-                let _ = window.set_position(tauri::Position::Logical(tauri::LogicalPosition { x, y }));
+                let _ =
+                    window.set_position(tauri::Position::Logical(tauri::LogicalPosition { x, y }));
             }
             emit_soniox_live_preview_appearance_update(&app_handle);
             let _ = window.unminimize();
@@ -1249,18 +1307,29 @@ pub fn show_command_confirm_overlay(
     }
 }
 
-// ============================================================================
-// Profile Switch Overlay (Transcription Profiles)
-// ============================================================================
-
-/// Shows a brief overlay notification when switching transcription profiles.
-/// Uses the existing recording overlay to display the profile name, then auto-hides.
-pub fn show_profile_switch_overlay(app_handle: &AppHandle, profile_name: &str) {
+fn show_transient_message_overlay(
+    app_handle: &AppHandle,
+    overlay_state: &str,
+    message: &str,
+    auto_hide_ms: u64,
+) {
     // Cancel pending error auto-hide timers so a new active overlay is not hidden.
     plus_overlay_state::invalidate_error_overlay_auto_hide();
 
     let settings = settings::get_settings(app_handle);
     if settings.overlay_position == OverlayPosition::None {
+        return;
+    }
+
+    let show_overlay = {
+        let session_state = app_handle.state::<crate::session_manager::ManagedSessionState>();
+        let state_guard = session_state
+            .lock()
+            .expect("Failed to lock session state");
+        matches!(*state_guard, crate::session_manager::SessionState::Idle)
+    };
+
+    if !show_overlay {
         return;
     }
 
@@ -1272,35 +1341,48 @@ pub fn show_profile_switch_overlay(app_handle: &AppHandle, profile_name: &str) {
         #[cfg(target_os = "windows")]
         force_overlay_topmost(&overlay_window);
 
-        // Emit profile name for display
-        let _ = overlay_window.emit("show-profile-switch", profile_name);
+        let generation_at_start = TRANSIENT_OVERLAY_GENERATION.fetch_add(1, Ordering::SeqCst) + 1;
 
-        // Capture the current generation before spawning the timer thread.
-        // If a recording starts before the timer fires, the generation will change
-        // and we'll skip hiding the overlay.
-        let generation_at_start = PROFILE_OVERLAY_GENERATION.load(Ordering::SeqCst);
+        let payload = TransientMessageOverlayPayload {
+            state: overlay_state.to_string(),
+            message: message.to_string(),
+        };
+        let _ = overlay_window.emit("show-message-overlay", payload);
 
-        // Auto-hide after a short delay (unless a recording has started)
         let window_clone = overlay_window.clone();
         std::thread::spawn(move || {
-            std::thread::sleep(std::time::Duration::from_millis(1500));
+            std::thread::sleep(std::time::Duration::from_millis(auto_hide_ms));
 
-            // Check if generation changed (recording started) - if so, don't hide
-            if PROFILE_OVERLAY_GENERATION.load(Ordering::SeqCst) != generation_at_start {
+            if TRANSIENT_OVERLAY_GENERATION.load(Ordering::SeqCst) != generation_at_start {
                 return;
             }
 
             let _ = window_clone.emit("hide-overlay", ());
             std::thread::sleep(std::time::Duration::from_millis(300));
 
-            // Check again before actually hiding the window
-            if PROFILE_OVERLAY_GENERATION.load(Ordering::SeqCst) != generation_at_start {
+            if TRANSIENT_OVERLAY_GENERATION.load(Ordering::SeqCst) != generation_at_start {
                 return;
             }
 
             let _ = window_clone.hide();
         });
     }
+}
+
+// ============================================================================
+// Profile Switch Overlay (Transcription Profiles)
+// ============================================================================
+
+/// Shows a brief overlay notification when switching transcription profiles.
+/// Uses the existing recording overlay to display the profile name, then auto-hides.
+pub fn show_profile_switch_overlay(app_handle: &AppHandle, profile_name: &str) {
+    show_transient_message_overlay(app_handle, "profile_switch", profile_name, 1500);
+}
+
+/// Shows a brief overlay notification when the selected microphone changes.
+/// Uses the existing recording overlay to display the new microphone name.
+pub fn show_microphone_switch_overlay(app_handle: &AppHandle, microphone_name: &str) {
+    show_transient_message_overlay(app_handle, "microphone_switch", microphone_name, 1500);
 }
 #[derive(Clone, Copy)]
 enum RecordingOverlayLayout {

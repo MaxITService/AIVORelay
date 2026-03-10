@@ -1,7 +1,8 @@
 use crate::audio_feedback;
 use crate::audio_toolkit::audio::{list_input_devices, list_output_devices};
 use crate::managers::audio::{AudioRecordingManager, MicrophoneMode};
-use crate::settings::{get_settings, write_settings};
+use crate::managers::microphone_auto_switch;
+use crate::settings::{get_settings, write_settings, LiveSoundCaptureSource};
 use log::warn;
 use serde::{Deserialize, Serialize};
 use specta::Type;
@@ -84,18 +85,65 @@ pub fn get_available_microphones() -> Result<Vec<AudioDevice>, String> {
 #[specta::specta]
 pub fn set_selected_microphone(app: AppHandle, device_name: String) -> Result<(), String> {
     let mut settings = get_settings(&app);
-    settings.selected_microphone = if device_name == "default" {
+    let selected_microphone = if device_name == "default" {
         None
     } else {
-        Some(device_name)
+        Some(device_name.clone())
     };
+    let changed = settings.selected_microphone != selected_microphone;
+    settings.selected_microphone = selected_microphone.clone();
+    if device_name != "default" {
+        settings.last_manual_microphone = selected_microphone.clone();
+    }
     write_settings(&app, settings);
+    microphone_auto_switch::remember_manual_microphone_selection(
+        &app,
+        selected_microphone.clone(),
+    );
 
     // Update the audio manager to use the new device
     let rm = app.state::<Arc<AudioRecordingManager>>();
     rm.update_selected_device()
         .map_err(|e| format!("Failed to update selected device: {}", e))?;
 
+    if changed {
+        let display_name = if device_name == "default" {
+            "Default"
+        } else {
+            device_name.as_str()
+        };
+        crate::overlay::show_microphone_switch_overlay(&app, display_name);
+        microphone_auto_switch::emit_audio_input_state_changed(&app);
+    }
+
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_selected_microphone_auto_switch_enabled_setting(
+    app: AppHandle,
+    enabled: bool,
+) -> Result<(), String> {
+    let mut settings = get_settings(&app);
+    settings.selected_microphone_auto_switch_enabled = enabled;
+    write_settings(&app, settings);
+
+    microphone_auto_switch::emit_audio_input_state_changed(&app);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_selected_microphone_name_pattern_setting(
+    app: AppHandle,
+    pattern: String,
+) -> Result<(), String> {
+    let mut settings = get_settings(&app);
+    settings.selected_microphone_name_pattern = pattern.trim().to_string();
+    write_settings(&app, settings);
+
+    microphone_auto_switch::emit_audio_input_state_changed(&app);
     Ok(())
 }
 
@@ -135,6 +183,30 @@ pub fn set_selected_output_device(app: AppHandle, device_name: String) -> Result
 
 #[tauri::command]
 #[specta::specta]
+pub fn change_live_sound_capture_source_setting(
+    app: AppHandle,
+    source: LiveSoundCaptureSource,
+) -> Result<(), String> {
+    let mut settings = get_settings(&app);
+    settings.live_sound_capture_source = source;
+    write_settings(&app, settings);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_live_sound_speaker_diarization_setting(
+    app: AppHandle,
+    enabled: bool,
+) -> Result<(), String> {
+    let mut settings = get_settings(&app);
+    settings.live_sound_enable_speaker_diarization = enabled;
+    write_settings(&app, settings);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
 pub async fn play_test_sound(app: AppHandle, sound_type: String) {
     let sound = match sound_type.as_str() {
         "start" => audio_feedback::SoundType::Start,
@@ -152,6 +224,19 @@ pub async fn play_test_sound(app: AppHandle, sound_type: String) {
 pub fn set_clamshell_microphone(app: AppHandle, device_name: String) -> Result<(), String> {
     let mut settings = get_settings(&app);
     settings.clamshell_microphone = if device_name == "default" {
+        None
+    } else {
+        Some(device_name)
+    };
+    write_settings(&app, settings);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn set_live_sound_microphone(app: AppHandle, device_name: String) -> Result<(), String> {
+    let mut settings = get_settings(&app);
+    settings.live_sound_microphone = if device_name == "default" {
         None
     } else {
         Some(device_name)

@@ -113,6 +113,10 @@ const settingUpdaters: {
     commands.setClamshellMicrophone(
       (value as string) === "Default" ? "default" : (value as string),
     ),
+  live_sound_microphone: (value) =>
+    commands.setLiveSoundMicrophone(
+      (value as string) === "Default" || value === null ? "default" : (value as string),
+    ),
   selected_output_device: (value) =>
     commands.setSelectedOutputDevice(
       (value as string) === "Default" || value === null
@@ -212,8 +216,16 @@ const settingUpdaters: {
     commands.changeConnectorAutoOpenEnabledSetting(value as boolean),
   connector_auto_open_url: (value) =>
     commands.changeConnectorAutoOpenUrlSetting(value as string),
+  connector_enabled: (value) =>
+    commands.changeConnectorEnabledSetting(value as boolean),
+  connector_encryption_enabled: (value) =>
+    commands.changeConnectorEncryptionEnabledSetting(value as boolean),
+  connector_allow_any_cors: (value) =>
+    commands.changeConnectorAllowAnyCorsSetting(value as boolean),
   connector_port: (value) =>
     commands.changeConnectorPortSetting(value as number),
+  connector_cors: (value) =>
+    commands.changeConnectorCorsSetting(value as string),
   connector_password: (value) =>
     commands.changeConnectorPasswordSetting(value as string),
   screenshot_capture_method: (value) =>
@@ -250,6 +262,10 @@ const settingUpdaters: {
   soniox_timeout_seconds: (value) =>
     commands.changeSonioxTimeoutSetting(Math.round(value as number)),
   vad_threshold: (value) => commands.changeVadThresholdSetting(value as number),
+  remember_window_size: (value) =>
+    commands.changeRememberWindowSizeSetting(value as boolean),
+  remember_window_position: (value) =>
+    commands.changeRememberWindowPositionSetting(value as boolean),
 };
 
 (settingUpdaters as any).soniox_live_enabled = (value: any) =>
@@ -258,6 +274,8 @@ settingUpdaters.error_overlay_auto_hide_ms = (value) =>
   invoke("change_error_overlay_auto_hide_ms_setting", {
     valueMs: Math.round(Number(value)),
   });
+(settingUpdaters as any).error_feedback_enabled = (value: any) =>
+  invoke("change_error_feedback_enabled_setting", { enabled: value });
 (settingUpdaters as any).soniox_language_hints = (value: any) =>
   invoke("change_soniox_language_hints_setting", { hints: value });
 (settingUpdaters as any).soniox_context_general_json = (value: any) =>
@@ -290,6 +308,34 @@ settingUpdaters.error_overlay_auto_hide_ms = (value) =>
   });
 (settingUpdaters as any).soniox_live_instant_stop = (value: any) =>
   invoke("change_soniox_live_instant_stop_setting", { enabled: value });
+(settingUpdaters as any).deepgram_model = (value: any) =>
+  invoke("change_deepgram_model_setting", { model: value });
+(settingUpdaters as any).deepgram_timeout_seconds = (value: any) =>
+  invoke("change_deepgram_timeout_setting", {
+    timeoutSeconds: Math.round(Number(value)),
+  });
+(settingUpdaters as any).deepgram_live_enabled = (value: any) =>
+  invoke("change_deepgram_live_enabled_setting", { enabled: value });
+(settingUpdaters as any).deepgram_keepalive_interval_seconds = (value: any) =>
+  invoke("change_deepgram_keepalive_interval_seconds_setting", {
+    seconds: value,
+  });
+(settingUpdaters as any).deepgram_live_finalize_timeout_ms = (value: any) =>
+  invoke("change_deepgram_live_finalize_timeout_ms_setting", {
+    timeoutMs: value,
+  });
+(settingUpdaters as any).deepgram_live_instant_stop = (value: any) =>
+  invoke("change_deepgram_live_instant_stop_setting", { enabled: value });
+(settingUpdaters as any).deepgram_interim_results = (value: any) =>
+  invoke("change_deepgram_interim_results_setting", { enabled: value });
+(settingUpdaters as any).deepgram_smart_format = (value: any) =>
+  invoke("change_deepgram_smart_format_setting", { enabled: value });
+(settingUpdaters as any).deepgram_diarize = (value: any) =>
+  invoke("change_deepgram_diarize_setting", { enabled: value });
+(settingUpdaters as any).deepgram_endpointing_enabled = (value: any) =>
+  invoke("change_deepgram_endpointing_enabled_setting", { enabled: value });
+(settingUpdaters as any).deepgram_endpointing_ms = (value: any) =>
+  invoke("change_deepgram_endpointing_ms_setting", { valueMs: value });
 (settingUpdaters as any).soniox_realtime_fuzzy_correction_enabled = (
   value: any,
 ) =>
@@ -374,6 +420,24 @@ settingUpdaters.error_overlay_auto_hide_ms = (value) =>
   });
 (settingUpdaters as any).soniox_live_preview_insert_hotkey = (value: any) =>
   invoke("change_soniox_live_preview_insert_hotkey_setting", { hotkey: value });
+(settingUpdaters as any).soniox_live_preview_delete_until_dot_or_comma_hotkey = (
+  value: any,
+) =>
+  invoke("change_soniox_live_preview_delete_until_dot_or_comma_hotkey_setting", {
+    hotkey: value,
+  });
+(settingUpdaters as any).soniox_live_preview_delete_until_dot_hotkey = (
+  value: any,
+) =>
+  invoke("change_soniox_live_preview_delete_until_dot_hotkey_setting", {
+    hotkey: value,
+  });
+(settingUpdaters as any).soniox_live_preview_delete_last_word_hotkey = (
+  value: any,
+) =>
+  invoke("change_soniox_live_preview_delete_last_word_hotkey_setting", {
+    hotkey: value,
+  });
 (settingUpdaters as any).soniox_live_preview_show_clear_button = (value: any) =>
   invoke("change_soniox_live_preview_show_clear_button_setting", {
     enabled: value,
@@ -392,6 +456,40 @@ settingUpdaters.error_overlay_auto_hide_ms = (value) =>
   value: any,
 ) =>
   invoke("change_soniox_live_preview_show_insert_button_setting", {
+    enabled: value,
+  });
+(settingUpdaters as any).soniox_live_preview_show_delete_until_dot_or_comma_button = (
+  value: any,
+) =>
+  invoke("change_soniox_live_preview_show_delete_until_dot_or_comma_button_setting", {
+    enabled: value,
+  });
+(settingUpdaters as any).soniox_live_preview_show_delete_until_dot_button = (
+  value: any,
+) =>
+  invoke("change_soniox_live_preview_show_delete_until_dot_button_setting", {
+    enabled: value,
+  });
+(settingUpdaters as any).soniox_live_preview_show_delete_last_word_button = (
+  value: any,
+) =>
+  invoke("change_soniox_live_preview_show_delete_last_word_button_setting", {
+    enabled: value,
+  });
+(settingUpdaters as any).soniox_live_preview_ctrl_backspace_delete_last_word = (
+  value: any,
+) =>
+  invoke("change_soniox_live_preview_ctrl_backspace_delete_last_word_setting", {
+    enabled: value,
+  });
+(settingUpdaters as any).soniox_live_preview_backspace_delete_last_char = (
+  value: any,
+) =>
+  invoke("change_soniox_live_preview_backspace_delete_last_char_setting", {
+    enabled: value,
+  });
+(settingUpdaters as any).soniox_live_preview_show_drag_grip = (value: any) =>
+  invoke("change_soniox_live_preview_show_drag_grip_setting", {
     enabled: value,
   });
 
@@ -454,6 +552,8 @@ settingUpdaters.error_overlay_auto_hide_ms = (value) =>
   invoke("set_active_profile", { id: value });
 (settingUpdaters as any).profile_switch_overlay_enabled = (value: any) =>
   invoke("change_profile_switch_overlay_enabled_setting", { enabled: value });
+(settingUpdaters as any).diarization_speaker_name_profiles = (value: any) =>
+  commands.changeDiarizationSpeakerNameProfilesSetting(value);
 (settingUpdaters as any).preview_output_only_enabled = (value: any) =>
   invoke("change_preview_output_only_enabled_setting", { enabled: value });
 
@@ -527,6 +627,16 @@ settingUpdaters.error_overlay_auto_hide_ms = (value) =>
   invoke("change_sidebar_pinned_setting", { pinned: value });
 (settingUpdaters as any).sidebar_width = (value: any) =>
   invoke("change_sidebar_width_setting", { width: value });
+(settingUpdaters as any).selected_microphone_auto_switch_enabled = (
+  value: any,
+) =>
+  invoke("change_selected_microphone_auto_switch_enabled_setting", {
+    enabled: value,
+  });
+(settingUpdaters as any).selected_microphone_name_pattern = (value: any) =>
+  invoke("change_selected_microphone_name_pattern_setting", {
+    pattern: value,
+  });
 
 export const useSettingsStore = create<SettingsStore>()(
   subscribeWithSelector((set, get) => ({
@@ -565,7 +675,12 @@ export const useSettingsStore = create<SettingsStore>()(
             ...settings,
             always_on_microphone: settings.always_on_microphone ?? false,
             selected_microphone: settings.selected_microphone ?? "Default",
+            selected_microphone_auto_switch_enabled:
+              (settings as any).selected_microphone_auto_switch_enabled ?? false,
+            selected_microphone_name_pattern:
+              (settings as any).selected_microphone_name_pattern ?? "",
             clamshell_microphone: settings.clamshell_microphone ?? "Default",
+            live_sound_microphone: settings.live_sound_microphone ?? "Default",
             selected_output_device:
               settings.selected_output_device ?? "Default",
           };
@@ -894,7 +1009,7 @@ export const useSettingsStore = create<SettingsStore>()(
         );
         if (urlResult.status === "error") {
           console.error("Failed to persist base URL:", urlResult.error);
-          return;
+          throw new Error(urlResult.error);
         }
 
         // Reset the stored model since the previous value is almost certainly
@@ -906,7 +1021,7 @@ export const useSettingsStore = create<SettingsStore>()(
         );
         if (modelResult.status === "error") {
           console.error("Failed to reset model setting:", modelResult.error);
-          return;
+          throw new Error(modelResult.error);
         }
 
         // Clear cached model options only after both backend writes succeed.
@@ -921,6 +1036,7 @@ export const useSettingsStore = create<SettingsStore>()(
         await refreshSettings();
       } catch (error) {
         console.error("Failed to update post-process base URL:", error);
+        throw error;
       } finally {
         setUpdating(updateKey, false);
       }
@@ -1147,10 +1263,14 @@ export const useSettingsStore = create<SettingsStore>()(
 
       setUpdating(updateKey, true);
       try {
-        await commands.changeRemoteSttBaseUrlSetting(baseUrl);
+        const result = await commands.changeRemoteSttBaseUrlSetting(baseUrl);
+        if (result.status === "error") {
+          throw new Error(result.error);
+        }
         await refreshSettings();
       } catch (error) {
         console.error("Failed to update remote STT base URL:", error);
+        throw error;
       } finally {
         setUpdating(updateKey, false);
       }

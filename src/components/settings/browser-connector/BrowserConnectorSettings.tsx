@@ -1,8 +1,11 @@
 import React, { useEffect, useState } from "react";
 import { useTranslation, Trans } from "react-i18next";
-import { Globe, Info, ExternalLink, Eye, EyeOff, Copy, AlertTriangle, Download } from "lucide-react";
+import { Globe, Info, ExternalLink, Eye, EyeOff, Copy, AlertTriangle, Download, RefreshCw } from "lucide-react";
+import { open } from "@tauri-apps/plugin-dialog";
+import { listen } from "@tauri-apps/api/event";
+import { downloadDir } from "@tauri-apps/api/path";
 import { TellMeMore } from "../../ui/TellMeMore";
-import { commands } from "@/bindings";
+import { commands, type ConnectorStatus } from "@/bindings";
 import { useSettings } from "../../../hooks/useSettings";
 import { HandyShortcut } from "../HandyShortcut";
 import { Input } from "../../ui/Input";
@@ -24,6 +27,17 @@ const AUTO_OPEN_SITES = [
   { value: "https://aistudio.google.com", label: "Google AI Studio" },
 ];
 
+const MIN_CONNECTOR_PASSWORD_LEN = 64;
+const LEGACY_CONNECTOR_PASSWORD = "fklejqwhfiu342lhk3";
+const EXTENSION_REPO_URL = "https://github.com/MaxITService/AIVORelay-relay";
+const EXTENSION_DOWNLOAD_URL = "https://github.com/MaxITService/AIVORelay-relay/archive/refs/heads/main.zip";
+const EXPORT_PATH_STORAGE_KEY = "aivorelay.connectorExportPath";
+
+const isAllowedConnectorPassword = (value: string) => {
+  const trimmed = value.trim();
+  return trimmed === LEGACY_CONNECTOR_PASSWORD || trimmed.length >= MIN_CONNECTOR_PASSWORD_LEN;
+};
+
 // Default screenshot folder for Windows
 const getDefaultScreenshotFolder = () => {
   // This matches the Rust default: ShareX default folder
@@ -33,12 +47,27 @@ const getDefaultScreenshotFolder = () => {
 export const BrowserConnectorSettings: React.FC = () => {
   const { t } = useTranslation();
   const { settings, updateSetting, isUpdating, refreshSettings } = useSettings();
+  const normalizeCorsValue = (value?: string | null) => value ?? "";
 
   const [portInput, setPortInput] = useState(String(settings?.connector_port ?? 38243));
   const [portError, setPortError] = useState<string | null>(null);
   const [passwordInput, setPasswordInput] = useState(settings?.connector_password ?? "");
+  const [passwordError, setPasswordError] = useState<string | null>(null);
+  const [corsInput, setCorsInput] = useState(normalizeCorsValue(settings?.connector_cors));
   const [showPassword, setShowPassword] = useState(false);
   const [showCopiedTooltip, setShowCopiedTooltip] = useState(false);
+  const [isExportingExtension, setIsExportingExtension] = useState(false);
+  const [exportPathInput, setExportPathInput] = useState("");
+  const [extensionExportStatus, setExtensionExportStatus] = useState<{
+    type: "success" | "error";
+    message: string;
+  } | null>(null);
+  const [connectorStatus, setConnectorStatus] = useState<ConnectorStatus | null>(null);
+  const [isRotatingPassword, setIsRotatingPassword] = useState(false);
+  const [passwordRotationStatus, setPasswordRotationStatus] = useState<{
+    type: "success" | "error";
+    message: string;
+  } | null>(null);
 
   // Warning modal states for risky features
   const [showEnableWarning, setShowEnableWarning] = useState<
@@ -84,7 +113,79 @@ export const BrowserConnectorSettings: React.FC = () => {
 
   useEffect(() => {
     setPasswordInput(settings?.connector_password ?? "");
+    setPasswordError(null);
   }, [settings?.connector_password]);
+
+  useEffect(() => {
+    setCorsInput(normalizeCorsValue(settings?.connector_cors));
+  }, [settings?.connector_cors]);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    const initializeExportPath = async () => {
+      try {
+        const storedPath = window.localStorage.getItem(EXPORT_PATH_STORAGE_KEY);
+        if (storedPath) {
+          if (isMounted) {
+            setExportPathInput(storedPath);
+          }
+          return;
+        }
+      } catch {
+        // Ignore localStorage access issues.
+      }
+
+      try {
+        const downloadsPath = await downloadDir();
+        if (isMounted && downloadsPath) {
+          setExportPathInput(downloadsPath);
+        }
+      } catch {
+        // Ignore path resolution issues and keep the field empty.
+      }
+    };
+
+    void initializeExportPath();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    const fetchConnectorStatus = async () => {
+      try {
+        const status = await commands.connectorGetStatus();
+        if (isMounted) {
+          setConnectorStatus(status);
+        }
+      } catch {
+        if (isMounted) {
+          setConnectorStatus(null);
+        }
+      }
+    };
+
+    void fetchConnectorStatus();
+    const interval = window.setInterval(fetchConnectorStatus, 5000);
+
+    const statusUnlisten = listen("extension-status-changed", () => {
+      void fetchConnectorStatus();
+    });
+    const errorUnlisten = listen("connector-server-error", () => {
+      void fetchConnectorStatus();
+    });
+
+    return () => {
+      isMounted = false;
+      window.clearInterval(interval);
+      void statusUnlisten.then((fn) => fn());
+      void errorUnlisten.then((fn) => fn());
+    };
+  }, []);
 
   // Screenshot settings sync with settings
   useEffect(() => {
@@ -163,9 +264,103 @@ export const BrowserConnectorSettings: React.FC = () => {
 
   const handlePasswordBlur = () => {
     const trimmed = passwordInput.trim();
+    if (trimmed.length === 0) {
+      setPasswordError(t("settings.browserConnector.connection.password.errorEmpty"));
+      return;
+    }
+    if (!isAllowedConnectorPassword(trimmed)) {
+      setPasswordError(
+        t("settings.browserConnector.connection.password.errorMinLength", {
+          min: MIN_CONNECTOR_PASSWORD_LEN,
+        })
+      );
+      return;
+    }
+
+    setPasswordError(null);
     if (trimmed !== (settings?.connector_password ?? "")) {
       void updateSetting("connector_password", trimmed);
     }
+  };
+
+  const handleCorsBlur = () => {
+    const trimmed = corsInput.trim();
+    if (trimmed !== normalizeCorsValue(settings?.connector_cors)) {
+      void updateSetting("connector_cors", trimmed);
+    }
+  };
+
+  const handleAllowAnyCorsChange = (enabled: boolean) => {
+    void updateSetting("connector_allow_any_cors", enabled);
+  };
+
+  const handleBrowseExportPath = async () => {
+    const selectedDirectory = await open({
+      directory: true,
+      multiple: false,
+      title: t("settings.browserConnector.tellMeMore.getExtension.actions.selectFolderTitle"),
+    });
+
+    if (typeof selectedDirectory !== "string" || selectedDirectory.trim().length === 0) {
+      return null;
+    }
+
+    setExportPathInput(selectedDirectory);
+    try {
+      window.localStorage.setItem(EXPORT_PATH_STORAGE_KEY, selectedDirectory);
+    } catch {
+      // Ignore localStorage access issues.
+    }
+
+    return selectedDirectory;
+  };
+
+  const handleExportExtension = async () => {
+    setExtensionExportStatus(null);
+
+    let targetDirectory = exportPathInput.trim();
+    if (!targetDirectory) {
+      const selectedDirectory = await handleBrowseExportPath();
+      if (typeof selectedDirectory !== "string" || selectedDirectory.trim().length === 0) {
+        return;
+      }
+      targetDirectory = selectedDirectory.trim();
+    }
+
+    setIsExportingExtension(true);
+
+    try {
+      const result = await commands.connectorExportBundledExtension(targetDirectory);
+      if (result.status === "error") {
+        setExtensionExportStatus({ type: "error", message: result.error });
+        return;
+      }
+
+      await refreshSettings();
+
+      setExtensionExportStatus({
+        type: "success",
+        message: t("settings.browserConnector.tellMeMore.getExtension.actions.exportSuccess", {
+          path: result.data.exportPath,
+          origin: result.data.configuredOrigin,
+        }),
+      });
+    } catch (error) {
+      setExtensionExportStatus({
+        type: "error",
+        message: String(error),
+      });
+    } finally {
+      setIsExportingExtension(false);
+    }
+  };
+
+  const handleEnabledChange = (enabled: boolean) => {
+    void updateSetting("connector_enabled", enabled);
+  };
+
+  const handleEncryptionChange = (enabled: boolean) => {
+    void updateSetting("connector_encryption_enabled", enabled);
   };
 
   const handleCopyPassword = () => {
@@ -174,8 +369,37 @@ export const BrowserConnectorSettings: React.FC = () => {
     setTimeout(() => setShowCopiedTooltip(false), 1500);
   };
 
+  const handleRotatePasswordNow = async () => {
+    setPasswordRotationStatus(null);
+    setIsRotatingPassword(true);
+
+    try {
+      const result = await commands.rotateConnectorPasswordNow();
+      if (result.status === "error") {
+        setPasswordRotationStatus({ type: "error", message: result.error });
+        return;
+      }
+
+      await refreshSettings();
+      const status = await commands.connectorGetStatus();
+      setConnectorStatus(status);
+      setPasswordRotationStatus({
+        type: "success",
+        message: t("settings.browserConnector.connection.password.rotate.success"),
+      });
+    } catch (error) {
+      setPasswordRotationStatus({
+        type: "error",
+        message: String(error),
+      });
+    } finally {
+      setIsRotatingPassword(false);
+    }
+  };
+
   // Check if using default password
-  const isDefaultPassword = passwordInput === "fklejqwhfiu342lhk3";
+  const isDefaultPassword = passwordInput.trim() === LEGACY_CONNECTOR_PASSWORD;
+  const isConnectorOnline = connectorStatus?.server_running === true && connectorStatus.status === "online";
 
   const handleAutoOpenEnabledChange = (enabled: boolean) => {
     void updateSetting("connector_auto_open_enabled", enabled);
@@ -259,6 +483,21 @@ export const BrowserConnectorSettings: React.FC = () => {
     },
   ];
 
+  const getEnableWarningMessage = () => {
+    if (!showEnableWarning) {
+      return "";
+    }
+
+    const baseMessage = t(
+      `settings.general.shortcut.bindings.${showEnableWarning}.enable.warning.message`
+    );
+
+    if (settings?.connector_enabled ?? false) {
+      return baseMessage;
+    }
+
+    return `${baseMessage} ${t("settings.browserConnector.connection.featureRequiresServer")}`;
+  };
 
   // Server always binds to 127.0.0.1 and serves /messages
   const endpointUrl = `http://127.0.0.1:${portInput}/messages`;
@@ -278,8 +517,8 @@ export const BrowserConnectorSettings: React.FC = () => {
                 i18nKey="settings.browserConnector.help.description"
                 components={{
                   link: (
-                    <a
-                      href="https://github.com/MaxITService/AIVORelay-relay"
+                      <a
+                      href={EXTENSION_REPO_URL}
                       target="_blank"
                       rel="noopener noreferrer"
                       className="text-purple-400 hover:underline inline-flex items-center gap-1"
@@ -328,7 +567,7 @@ export const BrowserConnectorSettings: React.FC = () => {
                   components={{
                     link: (
                       <a
-                        href="https://github.com/MaxITService/AIVORelay-relay"
+                        href={EXTENSION_REPO_URL}
                         target="_blank"
                         rel="noopener noreferrer"
                         className="text-purple-400 hover:underline inline-flex items-center gap-1"
@@ -341,6 +580,65 @@ export const BrowserConnectorSettings: React.FC = () => {
               </li>
               <li>{t("settings.browserConnector.tellMeMore.getExtension.step2")}</li>
             </ul>
+            <div className="space-y-3 pt-2">
+              <div className="space-y-1">
+                <p className="text-xs font-medium uppercase tracking-wide text-text/50">
+                  {t("settings.browserConnector.tellMeMore.getExtension.actions.pathLabel")}
+                </p>
+                <div className="flex flex-col gap-2 sm:flex-row">
+                  <Input
+                    type="text"
+                    value={exportPathInput}
+                    onChange={(event) => setExportPathInput(event.target.value)}
+                    placeholder={t("settings.browserConnector.tellMeMore.getExtension.actions.pathPlaceholder")}
+                    className="flex-1 font-mono text-sm"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => void handleBrowseExportPath()}
+                    className="inline-flex items-center justify-center gap-2 rounded-md border border-white/10 bg-mid-gray/15 px-3 py-2 text-sm font-medium text-text/90 transition-colors hover:bg-mid-gray/25"
+                  >
+                    {t("settings.browserConnector.tellMeMore.getExtension.actions.browse")}
+                  </button>
+                </div>
+                <p className="text-xs text-text/55">
+                  {t("settings.browserConnector.tellMeMore.getExtension.actions.pathHint")}
+                </p>
+              </div>
+              <div className="flex flex-wrap gap-3">
+              <button
+                type="button"
+                onClick={() => void handleExportExtension()}
+                disabled={isExportingExtension}
+                className="inline-flex items-center gap-2 rounded-md border border-purple-500/40 bg-purple-500/15 px-3 py-2 text-sm font-medium text-purple-100 transition-colors hover:bg-purple-500/25 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                <Download className="w-4 h-4" />
+                {isExportingExtension
+                  ? t("settings.browserConnector.tellMeMore.getExtension.actions.exporting")
+                  : t("settings.browserConnector.tellMeMore.getExtension.actions.extractHere")}
+              </button>
+              <a
+                href={EXTENSION_DOWNLOAD_URL}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-2 rounded-md border border-white/10 bg-mid-gray/15 px-3 py-2 text-sm font-medium text-text/90 transition-colors hover:bg-mid-gray/25"
+              >
+                <ExternalLink className="w-4 h-4" />
+                {t("settings.browserConnector.tellMeMore.getExtension.actions.download")}
+              </a>
+              </div>
+            </div>
+            {extensionExportStatus && (
+              <div
+                className={`rounded-md border px-3 py-2 text-sm ${
+                  extensionExportStatus.type === "success"
+                    ? "border-green-500/30 bg-green-500/10 text-green-100"
+                    : "border-red-500/30 bg-red-500/10 text-red-200"
+                }`}
+              >
+                {extensionExportStatus.message}
+              </div>
+            )}
           </div>
 
           {/* Step 2: Install in Chrome */}
@@ -910,6 +1208,32 @@ export const BrowserConnectorSettings: React.FC = () => {
 
       <SettingsGroup title={t("settings.browserConnector.connection.title")}>
         <SettingContainer
+          title={t("settings.browserConnector.connection.enabled.label")}
+          description={t("settings.browserConnector.connection.enabled.description")}
+          descriptionMode="tooltip"
+          grouped={true}
+        >
+          <ToggleSwitch
+            checked={settings?.connector_enabled ?? false}
+            onChange={handleEnabledChange}
+            disabled={isUpdating("connector_enabled")}
+          />
+        </SettingContainer>
+
+        <SettingContainer
+          title={t("settings.browserConnector.connection.encryption.title")}
+          description={t("settings.browserConnector.connection.encryption.description")}
+          descriptionMode="tooltip"
+          grouped={true}
+        >
+          <ToggleSwitch
+            checked={settings?.connector_encryption_enabled ?? true}
+            onChange={handleEncryptionChange}
+            disabled={isUpdating("connector_encryption_enabled")}
+          />
+        </SettingContainer>
+
+        <SettingContainer
           title={t("settings.browserConnector.connection.port.title")}
           description={t("settings.browserConnector.connection.port.description")}
           descriptionMode="tooltip"
@@ -949,10 +1273,13 @@ export const BrowserConnectorSettings: React.FC = () => {
             <Input
               type={showPassword ? "text" : "password"}
               value={passwordInput}
-              onChange={(event) => setPasswordInput(event.target.value)}
+              onChange={(event) => {
+                setPasswordInput(event.target.value);
+                setPasswordError(null);
+              }}
               onBlur={handlePasswordBlur}
               placeholder="Enter connection password..."
-              className="flex-1 font-mono"
+              className={`flex-1 font-mono ${passwordError ? "border-red-500" : ""}`}
             />
             <button
               type="button"
@@ -978,6 +1305,44 @@ export const BrowserConnectorSettings: React.FC = () => {
               )}
             </div>
           </div>
+          {passwordError && (
+            <div className="mt-2 text-sm text-red-400 flex items-center gap-1">
+              <AlertTriangle className="w-3 h-3" />
+              {passwordError}
+            </div>
+          )}
+          <div className="mt-2 flex items-center gap-2">
+            <button
+              type="button"
+              onClick={handleRotatePasswordNow}
+              disabled={!isConnectorOnline || isRotatingPassword}
+              className="inline-flex items-center gap-2 rounded-md border border-mid-gray/30 px-3 py-2 text-sm text-text/80 transition hover:bg-mid-gray/20 hover:text-text disabled:cursor-not-allowed disabled:opacity-50"
+              title={
+                isConnectorOnline
+                  ? t("settings.browserConnector.connection.password.rotate.title")
+                  : t("settings.browserConnector.connection.password.rotate.offlineHint")
+              }
+            >
+              <RefreshCw className={`w-4 h-4 ${isRotatingPassword ? "animate-spin" : ""}`} />
+              {isRotatingPassword
+                ? t("settings.browserConnector.connection.password.rotate.rotating")
+                : t("settings.browserConnector.connection.password.rotate.title")}
+            </button>
+            <span className="text-xs text-text/50">
+              {t("settings.browserConnector.connection.password.rotate.description")}
+            </span>
+          </div>
+          {passwordRotationStatus && (
+            <div
+              className={`mt-2 rounded-lg border p-3 text-sm ${
+                passwordRotationStatus.type === "success"
+                  ? "border-green-500/30 bg-green-500/10 text-green-200"
+                  : "border-red-500/30 bg-red-500/10 text-red-200"
+              }`}
+            >
+              {passwordRotationStatus.message}
+            </div>
+          )}
           {isDefaultPassword && (
             <div className="mt-2 rounded-lg border border-yellow-500/30 bg-yellow-500/10 p-3">
               <div className="flex items-start gap-2">
@@ -992,6 +1357,38 @@ export const BrowserConnectorSettings: React.FC = () => {
             </div>
           )}
         </SettingContainer>
+
+        <div>
+          <SettingContainer
+            title={t("settings.browserConnector.connection.cors.allowAny.title")}
+            description={t("settings.browserConnector.connection.cors.allowAny.description")}
+            descriptionMode="tooltip"
+            grouped={true}
+          >
+            <ToggleSwitch
+              checked={settings?.connector_allow_any_cors ?? true}
+              onChange={handleAllowAnyCorsChange}
+              disabled={isUpdating("connector_allow_any_cors")}
+            />
+          </SettingContainer>
+
+          <SettingContainer
+            title={t("settings.browserConnector.connection.cors.title")}
+            description={t("settings.browserConnector.connection.cors.description")}
+            descriptionMode="tooltip"
+            grouped={true}
+          >
+            <Input
+              type="text"
+              value={corsInput}
+              onChange={(event) => setCorsInput(event.target.value)}
+              onBlur={handleCorsBlur}
+              placeholder={t("settings.browserConnector.connection.cors.placeholder")}
+              disabled={settings?.connector_allow_any_cors ?? true}
+              className="w-full font-mono"
+            />
+          </SettingContainer>
+        </div>
 
         <SettingContainer
           title={t("settings.browserConnector.connection.endpoint.title")}
@@ -1020,7 +1417,7 @@ export const BrowserConnectorSettings: React.FC = () => {
           }
         }}
         title={showEnableWarning ? t(`settings.general.shortcut.bindings.${showEnableWarning}.enable.warning.title`) : ""}
-        message={showEnableWarning ? t(`settings.general.shortcut.bindings.${showEnableWarning}.enable.warning.message`) : ""}
+        message={getEnableWarningMessage()}
         confirmText={showEnableWarning ? t(`settings.general.shortcut.bindings.${showEnableWarning}.enable.warning.confirm`) : ""}
         variant="warning"
       />

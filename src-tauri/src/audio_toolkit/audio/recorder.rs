@@ -1,5 +1,5 @@
 use std::{
-    io::Error,
+    io::{Error, ErrorKind},
     sync::{mpsc, Arc, Mutex},
     time::Duration,
 };
@@ -20,6 +20,12 @@ enum Cmd {
     Start,
     Stop(mpsc::Sender<Vec<f32>>),
     Shutdown,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum AudioCaptureSource {
+    Microphone,
+    SystemOutputLoopback,
 }
 
 pub type StreamFrameCallback = Arc<dyn Fn(Vec<f32>) + Send + Sync + 'static>;
@@ -65,6 +71,14 @@ impl AudioRecorder {
     }
 
     pub fn open(&mut self, device: Option<Device>) -> Result<(), Box<dyn std::error::Error>> {
+        self.open_with_source(device, AudioCaptureSource::Microphone)
+    }
+
+    pub fn open_with_source(
+        &mut self,
+        device: Option<Device>,
+        source: AudioCaptureSource,
+    ) -> Result<(), Box<dyn std::error::Error>> {
         if self.worker_handle.is_some() {
             return Ok(()); // already open
         }
@@ -78,9 +92,16 @@ impl AudioRecorder {
         let host = crate::audio_toolkit::get_cpal_host();
         let device = match device {
             Some(dev) => dev,
-            None => host
-                .default_input_device()
-                .ok_or_else(|| Error::new(std::io::ErrorKind::NotFound, "No input device found"))?,
+            None => match source {
+                AudioCaptureSource::Microphone => host.default_input_device().ok_or_else(|| {
+                    Error::new(std::io::ErrorKind::NotFound, "No input device found")
+                })?,
+                AudioCaptureSource::SystemOutputLoopback => {
+                    host.default_output_device().ok_or_else(|| {
+                        Error::new(std::io::ErrorKind::NotFound, "No output device found")
+                    })?
+                }
+            },
         };
 
         let thread_device = device.clone();
@@ -92,15 +113,16 @@ impl AudioRecorder {
         let worker = std::thread::spawn(move || {
             // Wrap all fallible operations in a closure that returns Result
             let init_result = (|| -> Result<(cpal::Stream, u32), String> {
-                let config = AudioRecorder::get_preferred_config(&thread_device)
+                let config = AudioRecorder::get_preferred_config(&thread_device, source)
                     .map_err(|e| format!("Failed to get audio config: {}", e))?;
 
                 let sample_rate = config.sample_rate().0;
                 let channels = config.channels() as usize;
 
                 log::info!(
-                    "Using device: {:?}\nSample rate: {}\nChannels: {}\nFormat: {:?}",
+                    "Using audio capture device: {:?}\nSource: {:?}\nSample rate: {}\nChannels: {}\nFormat: {:?}",
                     thread_device.name(),
+                    source,
                     sample_rate,
                     channels,
                     config.sample_format()
@@ -164,8 +186,10 @@ impl AudioRecorder {
                     drop(stream);
                 }
                 Err(e) => {
+                    let normalized_error = normalize_capture_open_error(source, e);
+                    log::error!("{}", normalized_error);
                     // Signal failure - thread will exit
-                    let _ = init_tx.send(Err(e));
+                    let _ = init_tx.send(Err(normalized_error));
                 }
             }
         });
@@ -181,11 +205,21 @@ impl AudioRecorder {
             Ok(Err(e)) => {
                 // Worker reported an error
                 let _ = worker.join();
-                Err(e.into())
+                let kind = if source == AudioCaptureSource::Microphone
+                    && is_microphone_access_denied(&e)
+                {
+                    ErrorKind::PermissionDenied
+                } else {
+                    ErrorKind::Other
+                };
+                Err(Box::new(Error::new(kind, e)))
             }
             Err(_) => {
                 // Timeout waiting for initialization
-                Err("Timeout waiting for audio device initialization".into())
+                Err(Box::new(Error::new(
+                    ErrorKind::TimedOut,
+                    "Timeout waiting for audio device initialization",
+                )))
             }
         }
     }
@@ -269,8 +303,14 @@ impl AudioRecorder {
 
     fn get_preferred_config(
         device: &cpal::Device,
+        source: AudioCaptureSource,
     ) -> Result<cpal::SupportedStreamConfig, Box<dyn std::error::Error>> {
-        let supported_configs = device.supported_input_configs()?;
+        let supported_configs: Vec<cpal::SupportedStreamConfigRange> = match source {
+            AudioCaptureSource::Microphone => device.supported_input_configs()?.collect(),
+            AudioCaptureSource::SystemOutputLoopback => {
+                device.supported_output_configs()?.collect()
+            }
+        };
         let mut best_config: Option<cpal::SupportedStreamConfigRange> = None;
 
         // Try to find a config that supports 16kHz, prioritizing better formats
@@ -302,8 +342,26 @@ impl AudioRecorder {
         }
 
         // If no config supports 16kHz, fall back to default
-        Ok(device.default_input_config()?)
+        Ok(match source {
+            AudioCaptureSource::Microphone => device.default_input_config()?,
+            AudioCaptureSource::SystemOutputLoopback => device.default_output_config()?,
+        })
     }
+}
+
+fn is_microphone_access_denied(error_message: &str) -> bool {
+    let normalized = error_message.to_lowercase();
+    normalized.contains("access is denied")
+        || normalized.contains("permission denied")
+        || normalized.contains("0x80070005")
+}
+
+fn normalize_capture_open_error(source: AudioCaptureSource, error_message: String) -> String {
+    if source == AudioCaptureSource::Microphone && is_microphone_access_denied(&error_message) {
+        return "Microphone access was denied by Windows. Enable Settings > Privacy & security > Microphone, make sure desktop app access is allowed, then restart the app.".to_string();
+    }
+
+    error_message
 }
 
 fn run_consumer(

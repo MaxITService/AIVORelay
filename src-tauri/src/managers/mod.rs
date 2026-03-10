@@ -1,8 +1,13 @@
 pub mod audio;
 pub mod connector;
+pub mod deepgram_realtime;
+pub mod deepgram_stt;
 pub mod history;
 pub mod key_listener;
+pub mod live_sound_audio;
+pub mod live_sound_transcription;
 pub mod llm_operation;
+pub mod microphone_auto_switch;
 pub mod model;
 pub mod preview_output_mode;
 pub mod remote_stt;

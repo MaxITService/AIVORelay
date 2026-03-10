@@ -113,9 +113,10 @@ export const TranscriptionSystemPrompt: React.FC<{ grouped?: boolean }> = ({
   const { getModelInfo, currentModel: modelIdFromHook } = useModels();
 
   // Determine active model ID
-  const transcriptionProvider = settings?.transcription_provider;
+  const transcriptionProvider = String(settings?.transcription_provider || "local");
   const isRemoteOpenAi = transcriptionProvider === "remote_openai_compatible";
   const isSoniox = transcriptionProvider === "remote_soniox";
+  const isDeepgram = transcriptionProvider === "remote_deepgram";
 
   const activeModelId = useMemo(() => {
     if (isRemoteOpenAi) {
@@ -162,7 +163,7 @@ export const TranscriptionSystemPrompt: React.FC<{ grouped?: boolean }> = ({
     [activeModelId, refreshSettings]
   );
 
-  if (isSoniox) {
+  if (isSoniox || isDeepgram) {
     return null;
   }
 

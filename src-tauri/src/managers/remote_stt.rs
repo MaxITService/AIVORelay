@@ -1,5 +1,6 @@
 use crate::audio_toolkit::encode_wav_bytes;
 use crate::settings::{RemoteSttDebugMode, RemoteSttSettings};
+use crate::url_security::validate_remote_stt_base_url;
 use anyhow::{anyhow, Result};
 use serde::Deserialize;
 use std::collections::VecDeque;
@@ -318,12 +319,10 @@ impl RemoteSttManager {
             return Ok(String::new());
         }
 
-        let base_url = settings.base_url.trim().trim_end_matches('/');
-        if base_url.is_empty() {
-            let message = "Remote STT base URL is empty".to_string();
+        let base_url = validate_remote_stt_base_url(settings, None).map_err(|message| {
             self.record_error(settings, message.clone());
-            return Err(anyhow!(message));
-        }
+            anyhow!(message)
+        })?;
 
         if settings.model_id.trim().is_empty() {
             let message = "Remote STT model ID is empty".to_string();
@@ -500,19 +499,13 @@ impl RemoteSttManager {
         settings: &RemoteSttSettings,
         base_url: &str,
     ) -> Result<()> {
-        let base_url = base_url.trim();
-        let base_url = if base_url.is_empty() {
-            settings.base_url.trim()
-        } else {
-            base_url
-        };
-
-        let base_url = base_url.trim_end_matches('/');
-        if base_url.is_empty() {
-            let message = "Remote STT base URL is empty".to_string();
-            self.record_error(settings, message.clone());
-            return Err(anyhow!(message));
-        }
+        let override_base_url = (!base_url.trim().is_empty()).then_some(base_url.trim());
+        let base_url = validate_remote_stt_base_url(settings, override_base_url).map_err(
+            |message| {
+                self.record_error(settings, message.clone());
+                anyhow!(message)
+            },
+        )?;
 
         let api_key = get_remote_stt_api_key().map_err(|e| {
             let message = format!("Remote STT API key unavailable: {}", e);

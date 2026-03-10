@@ -9,6 +9,7 @@
   },
   "sidebar": {
     "general": "Speech / Mic",
+    "liveSoundTranscription": "Live Monitor",
     "models": "Models",
     "advanced": "Advanced",
     "postProcessing": "LLM Post Processing",
@@ -126,8 +127,8 @@
         "description": "Runs on-device using downloaded models."
       },
       "remote": {
-        "title": "Remote (OpenAI-compatible)",
-        "description": "Uses a remote API for transcription.",
+        "title": "Remote (Cloud STT)",
+        "description": "Uses a remote API for transcription. Your provider may charge you for usage. You are responsible for key management and usage. Tip: set limits in the cloud.",
         "windowsOnly": "Windows-only for now."
       },
       "changeProviderLater": "You can always change your transcription provider later in the Models section."
@@ -207,16 +208,32 @@
       "engineLabel": "Voice Provider",
       "engineOptions": {
         "openai": "OpenAI API Compatible",
-        "soniox": "Soniox"
+        "soniox": "Soniox",
+        "deepgram": "Deepgram"
       },
       "recommendation": "Any OpenAI-compatible speech-to-text API will work. I tested the app with Groq and it worked well, so the fields below are pre-filled with Groq defaults. The Groq website is linked below because it's easy to register a free account there, but you are free to use any provider you prefer.",
       "sonioxRecommendation": "For the best transcription quality, I recommend Soniox (no free tier). You can switch providers anytime in the Models section.",
       "freeTier": "Create an API key on your provider's website and enter it below.",
       "sonioxInfo": "Soniox provides real-time speech-to-text with streaming support. I recommend it as the best provider from my experience, but there is no free tier. Create an API key on their website and enter it below.",
       "sonioxRealtimeWarning": "The LLM post processing does not work with realtime API. LLM post processing settings will be ignored in this mode.",
+      "deepgramInfo": "Deepgram provides live WebSocket speech-to-text with Nova models, including KeepAlive / Finalize / CloseStream control messages.",
+      "deepgramRecommendation": "Create a Deepgram API key in the console and paste it below. You can fine-tune Deepgram options later in Advanced settings.",
+      "deepgramRealtimeWarning": "Deepgram live mode follows the standard live cycle and skips LLM post-processing.",
       "baseUrl": {
         "label": "Server URL",
-        "hint": "OpenAI-compatible transcription API endpoint"
+        "hint": "Known providers stay on locked HTTPS URLs. Custom lets you enter your own endpoint."
+      },
+      "providerPreset": {
+        "label": "API Provider",
+        "options": {
+          "groq": "Groq",
+          "openai": "OpenAI",
+          "custom": "Custom"
+        }
+      },
+      "customHttpOverride": {
+        "label": "Allow insecure HTTP for custom/local testing",
+        "warning": "Warning: plain HTTP can expose your API key and transcript contents to interception or tampering. Use it only on a trusted local or self-hosted network."
       },
       "modelId": {
         "label": "Model ID",
@@ -226,6 +243,7 @@
         "label": "API Key",
         "hint": "Your API key will be stored securely in Windows Credential Manager"
       },
+      "saveApiKey": "Save API Key",
       "testConnection": "Test Connection",
       "testing": "Testing...",
       "finishConfig": "Finish Setup",
@@ -254,6 +272,10 @@
       "remoteSoniox": {
         "title": "Remote via Soniox",
         "description": "Uses the Soniox realtime streaming service. Supports live partial transcriptions and advanced language options."
+      },
+      "remoteDeepgram": {
+        "title": "Remote via Deepgram",
+        "description": "Uses Deepgram Nova streaming and control messages for stable live transcription."
       },
       "localModels": {
         "title": "Local Models",
@@ -287,8 +309,11 @@
     "remoteApiModeDescription": "OpenAI-compatible cloud API (Groq, OpenAI, etc.)",
     "remoteSonioxMode": "Remote via Soniox",
     "remoteSonioxModeDescription": "Soniox realtime streaming service",
+    "remoteDeepgramMode": "Remote via Deepgram",
+    "remoteDeepgramModeDescription": "Deepgram Nova streaming service",
     "remoteApiActive": "Remote API",
     "remoteSonioxActive": "Remote Soniox",
+    "remoteDeepgramActive": "Remote Deepgram",
     "deleteModel": "Delete {{modelName}}",
     "custom": "Custom",
     "customModelsHelpTitle": "Custom Whisper Models",
@@ -297,6 +322,13 @@
     "customModelsDetected": "Detected custom models: {{count}}"
   },
   "settings": {
+    "userInterface": {
+      "title": "User Interface",
+      "sidebarReorder": {
+        "title": "Sidebar Customization",
+        "description": "You can customize your navigation! Reorder the sections in the sidebar on the left by clicking and dragging them to your preferred position. Your custom layout is automatically saved and persists between app restarts."
+      }
+    },
     "general": {
       "title": "General",
       "shortcut": {
@@ -538,6 +570,7 @@
         "modelPlaceholder": "e.g., gpt-4-turbo",
         "usingGlobalModel": "Using global model: {{model}}",
         "sonioxWarning": "LLM post-processing is not supported when using Soniox realtime models.",
+        "deepgramWarning": "LLM post-processing is not supported in the standard Deepgram live cycle.",
         "defaultNote": "Custom profiles can override this setting individually.",
         "outputVariableDoc": {
           "title": "Template Variable: ${output}",
@@ -556,13 +589,117 @@
         }
       }
     },
+    "liveSoundTranscription": {
+      "title": "Live Monitor",
+      "description": "Capture audio from your speakers, microphone, or both and read the live transcript right here.",
+      "whatIsThis": {
+        "toggle": "What is Live Monitor?",
+        "content": "Live Monitor streams audio from your speakers, microphone, or both into a real-time transcript on this page — with optional speaker identification so you can see who said what.\n\nUnlike dictation, Live Monitor never inserts text into other apps. Use it to follow meetings, calls, or any audio, then review, process with AI, or save the result to a file.\n\nTip: real-time streaming from microphone can behave differently than from speakers — if results feel slow or cut off, try adjusting the session settings below."
+      },
+      "session": {
+        "title": "Session",
+        "description": "Start and stop a dedicated live transcription workflow without auto-pasting into another app.",
+        "providerLabel": "Provider",
+        "providerSystem": "System Default",
+        "providerLocal": "Local",
+        "modelLabel": "Model",
+        "liveModeLabel": "Live Mode",
+        "sourceLabel": "Capture Source",
+        "diarizationLabel": "Live Diarization",
+        "enabled": "Enabled",
+        "disabled": "Disabled",
+        "providerUnsupported": "Local / unsupported for live page",
+        "remoteOnly": "Select Soniox or Deepgram as provider above to use this page as a realtime session surface.",
+        "anotherSessionActive": "Another preview-owned transcription session is active. Stop it before using this page.",
+        "notAvailable": "Not available",
+        "start": "Start",
+        "starting": "Starting...",
+        "stop": "Stop",
+        "stopping": "Stopping...",
+        "clear": "Clear",
+        "clearing": "Clearing...",
+        "process": "Send to LLM for post processing",
+        "diarizationDisabledHint": "Live speaker separation is off for this page. Turn it on here if you want diarized live transcript blocks.",
+        "diarizationToggleTitle": "Speaker Diarization",
+        "diarizationToggleDescription": "This toggle only affects Live Monitor on this page. It does not change normal speech / mic transcription.",
+        "diarizationTurnOn": "Turn On",
+        "diarizationTurnOff": "Turn Off",
+        "processing": "Processing...",
+        "recordingHint": "Live transcription is active. Finalized text stays here immediately as it arrives.",
+        "idleHint": "Start a live session to stream transcript updates directly into this page.",
+        "actionFailed": "Live sound transcription action failed.",
+        "autoStop": "Auto stop in",
+        "autoStopMinutes": "min (0 = off)",
+        "autoStopLeft": "min left"
+      },
+      "transcript": {
+        "title": "Transcript",
+        "description": "Interim and finalized transcript output stays here as the session runs, including speaker-separated live segments when diarization is available.",
+        "previewTitle": "Live Transcript",
+        "previewDescription": "Speaker-aware transcript stream for this page-owned live session.",
+        "empty": "Live transcript output will appear here.",
+        "interimActive": "Interim speech is still being refined.",
+        "interimLabel": "Interim",
+        "copy": "Copy",
+        "copied": "Copied",
+        "saveFile": "Save File",
+        "saving": "Saving...",
+        "speakerNamePlaceholder": "Enter name…",
+        "speakerNameHint": "Click speaker label to rename"
+      },
+      "audio": {
+        "microphoneTitle": "Microphone to listen to",
+        "microphoneToggle": "Listen to microphone",
+        "microphoneToggleDescription": "Include microphone input in the live transcription stream.",
+        "outputTitle": "Output to listen to",
+        "outputToggle": "Listen to system output",
+        "outputToggleDescription": "Include Windows speaker/headphone loopback in the live transcription stream.",
+        "onlySource": "Only source — keep on",
+        "listening": "Listening from here",
+        "sourceEnable": "Listen",
+        "sourceDisable": "Do not listen to",
+        "microphoneDescription": "Select the microphone device used when Capture Source is set to Microphone.",
+        "outputDescription": "Select the Windows speaker or headphone device used for loopback capture when Capture Source is set to Windows sound output."
+      },
+      "sessionOverrides": {
+        "title": "Session Settings",
+        "description": "Override provider defaults specifically for Live Monitor. These do not affect regular transcription.",
+        "useGlobal": "Use global setting",
+        "override": "Override",
+        "endpointDetectionLabel": "Endpoint Detection",
+        "endpointDetectionHint": "When off, the provider never auto-finalizes mid-session — useful if you experience long gaps after a phrase ends.",
+        "maxEndpointDelayLabel": "Max Endpoint Delay (ms)",
+        "maxEndpointDelayHint": "How long the provider waits after silence before finalizing a segment. Lower = faster finalization, but may cut off speech.",
+        "endpointingMsLabel": "Endpointing (ms)",
+        "endpointingMsHint": "Milliseconds of silence before Deepgram finalizes a segment. Lower = faster, but may cut speech short.",
+        "on": "On",
+        "off": "Off"
+      },
+      "speakerNames": {
+        "title": "Speaker Names",
+        "hint": "Rename speakers as they appear — names update the transcript live.",
+        "cardsTitle": "Detected Speakers",
+        "noSpeakers": "No speakers detected yet. Start transcription to see speakers here.",
+        "inputPlaceholder": "Custom name…"
+      }
+    },
     "sound": {
       "title": "Sound",
       "microphone": {
         "title": "Microphone",
         "description": "Select your preferred microphone device",
         "placeholder": "Select microphone...",
-        "loading": "Loading..."
+        "loading": "Loading...",
+        "autoSelect": {
+          "label": "Auto-select by microphone name mask",
+          "description": "Checked only right before recording starts. If auto-select is enabled and the mask is not empty, AivoRelay first tries the first microphone whose name matches the mask. If nothing matches, it falls back to your previous manual microphone if available, otherwise Default. No background polling or watcher is used."
+        },
+        "autoSelectMask": {
+          "title": "Microphone Name Mask",
+          "description": "Mask rules: * matches any number of characters, ? matches exactly one character, and without wildcards the text matches any part of the microphone name case-insensitively. Examples: Yeti* matches Yeti Stereo Microphone; Wireless ? matches Wireless A but not Wireless Headset; usb matches any microphone name containing usb.",
+          "placeholder": "e.g. Yeti* or Wireless ?",
+          "reset": "Reset microphone mask"
+        }
       },
       "audioFeedback": {
         "label": "Audio Feedback",
@@ -607,7 +744,22 @@
         },
         "clipboardHandling": {
           "title": "Clipboard Handling:",
-          "description": "Choose whether to preserve your existing clipboard contents or leave the transcription in the clipboard after pasting."
+          "intro": "This setting decides what happens to whatever is already in your clipboard after AivoRelay pastes the transcript.",
+          "safestChoiceTitle": "Best default:",
+          "safestChoiceDescription": "If you are not sure which one to choose, use Restore previous text. It is the safest everyday option for most people.",
+          "dontModify": {
+            "title": "Restore previous text:",
+            "description": "AivoRelay remembers the text currently in your clipboard, pastes the transcript, then tries to put your old text back. Best if you often copy notes, links, or code and do not want the transcript to replace them. This usually restores plain text only."
+          },
+          "copyToClipboard": {
+            "title": "Keep transcription in clipboard:",
+            "description": "AivoRelay leaves the transcript in your clipboard after pasting. Best if you want to paste the same transcript again in another app. Your previous clipboard content will be replaced by the transcript."
+          },
+          "restoreAdvanced": {
+            "title": "Restore all formats (Windows only, experimental):",
+            "description": "This mode tries to back up and restore more than plain text, including copied images, files, and formatted content. Use it only if the normal restore option is not enough. It can be less predictable because different apps expose clipboard data in different ways."
+          },
+          "note": "If clipboard behavior ever feels unreliable, switch back to Restore previous text first."
         },
         "modelUnload": {
           "title": "Model Unload:",
@@ -618,6 +770,17 @@
           "description": "Configure this in Text Processing > Fuzzy Word Correction. Add words that are often misheard (names, technical terms, brand names) so similar-sounding words are corrected automatically."
         },
         "tip": "Most users can leave these at their defaults. Adjust only if you experience specific issues."
+      },
+      "window": {
+        "title": "Window",
+        "rememberSize": {
+          "label": "Remember window size",
+          "description": "Restore the window to its previous size when the app starts."
+        },
+        "rememberPosition": {
+          "label": "Remember window position",
+          "description": "Restore the window to its previous position on screen when the app starts."
+        }
       },
       "startHidden": {
         "label": "Start Hidden",
@@ -644,6 +807,11 @@
           "description": "How long error overlays stay visible before auto-hide.",
           "apply": "Apply",
           "unitMs": "ms"
+        },
+        "errorVisibility": {
+          "label": "Show Error Overlay",
+          "description": "Show runtime errors in the recording overlay.",
+          "danger": "Dangerous: disabling overlay errors can hide broken setup and failed transcriptions."
         }
       },
       "pasteMethod": {
@@ -693,8 +861,8 @@
       },
       "clipboardHandling": {
         "title": "Clipboard Handling",
-        "description": "Choose what happens to your clipboard after pasting. 'Restore' attempts to recover the previous text (note: images and files cannot be restored). 'Keep' leaves the transcription in your clipboard for easy re-pasting.",
-        "descriptionAdvanced": "⚠️ Experimental: Uses Windows clipboard APIs (OpenClipboard, EnumClipboardFormats, GetClipboardData) to backup ALL clipboard formats before pasting, then restores them afterwards. This preserves images, HTML, files, and other rich content. May not work with 'delayed rendering' content. If you experience issues, switch back to 'Restore previous text'.",
+        "description": "Choose what happens to your clipboard after pasting. If you are not sure, use Restore previous text.",
+        "descriptionAdvanced": "Experimental Windows mode. Tries to restore text, images, files, and other clipboard formats after pasting. Use it only if you specifically need better recovery of rich clipboard content.",
         "options": {
           "dontModify": "Restore previous text",
           "copyToClipboard": "Keep transcription in clipboard",
@@ -755,15 +923,30 @@
         "options": {
           "local": "Local (Offline, Privacy-focused, Needs powerful GPU, drivers and Vulkan softaware)",
           "remote": "Remote (Cloud API, High Accuracy)",
-          "soniox": "Remote (Soniox Cloud API)"
+          "soniox": "Remote (Soniox Cloud API)",
+          "deepgram": "Remote (Deepgram Cloud API)"
         },
         "windowsOnly": "Remote transcription is currently Windows-only."
       },
       "remoteStt": {
+        "providerPreset": {
+          "title": "Remote Provider Preset",
+          "description": "Use locked HTTPS presets for Groq or OpenAI. Switch to Custom only when you need a self-hosted or non-standard endpoint.",
+          "options": {
+            "groq": "Groq",
+            "openai": "OpenAI",
+            "custom": "Custom"
+          }
+        },
         "baseUrl": {
           "title": "Remote Base URL",
-          "description": "Base URL for the OpenAI-compatible speech-to-text API.",
+          "description": "Known providers use locked HTTPS URLs. Only the Custom preset can edit this field.",
           "placeholder": "https://api.groq.com/openai/v1"
+        },
+        "customHttpOverride": {
+          "title": "Allow Insecure HTTP",
+          "description": "Advanced override for custom/local endpoints only. Leave this OFF unless you intentionally trust a local or self-hosted plain HTTP server.",
+          "warning": "Warning: plain HTTP can expose your API key and transcript contents to interception or tampering. Use it only for trusted local/self-hosted testing."
         },
         "modelId": {
           "title": "Remote Model ID",
@@ -957,6 +1140,165 @@
           "placeholder": "Enter the key."
         }
       },
+      "deepgram": {
+        "banner": "Deepgram live mode uses WebSocket streaming with KeepAlive / Finalize / CloseStream control messages. KeepAlive is recommended every 3-5 seconds during silence.",
+        "reset": {
+          "title": "Deepgram Quick Actions",
+          "description": "Reset all Deepgram settings in this section to recommended defaults (model: nova-3, keepalive: 5s, endpointing: 400ms, finalize timeout: 1200ms).",
+          "button": "Reset Deepgram Settings",
+          "success": "Deepgram settings were reset to defaults.",
+          "failed": "Failed to reset Deepgram settings: {{error}}"
+        },
+        "tellMeMore": {
+          "title": "Tell me more: Deepgram Live Streaming",
+          "headline": "How Deepgram streaming behaves in AivoRelay.",
+          "liveFlow": "When Live mode is enabled, AivoRelay opens a persistent Deepgram WebSocket (`wss://api.deepgram.com/v1/listen`) and streams 16kHz mono linear16 audio. Final chunks are appended to output while interim text is shown in preview.",
+          "stopFlow": "On Stop, AivoRelay ends microphone capture in UI immediately, then sends Deepgram Finalize and CloseStream, waits up to your configured Live Finalization Timeout, and closes the session. This keeps stop interaction responsive while still collecting late final words.",
+          "controlMessages": {
+            "title": "Control messages from Deepgram docs (as used by this app)",
+            "keepalive": "Send {\"type\":\"KeepAlive\"} during silence. Deepgram recommends every 3-5 seconds to reduce idle disconnect risk.",
+            "finalize": "Send {\"type\":\"Finalize\"} to force processing of buffered audio and emit final results immediately.",
+            "closeStream": "Send {\"type\":\"CloseStream\"} to request graceful shutdown: process cached data, send final metadata, then close WebSocket.",
+            "fromFinalize": "Results emitted because of Finalize may include `from_finalize: true`, indicating they were flushed during explicit finalization.",
+            "metadata": "Session is considered complete when Metadata arrives (or socket closes after graceful shutdown).",
+            "netTimeout": "Troubleshooting docs: if no audio or text frame reaches Deepgram for ~10 seconds, the connection can close with NET-0001."
+          },
+          "transcriptTiming": {
+            "title": "Transcript timing and chunk stability",
+            "interimVsFinal": "With `interim_results=true`, Deepgram sends evolving hypotheses (`is_final=false`) that may change before finalization.",
+            "speechFinal": "With endpointing enabled, Deepgram can mark utterance boundaries using `speech_final=true`. Current app insertion logic remains based on `is_final` chunks.",
+            "concatRule": "AivoRelay appends only final chunks into committed output and keeps interim text preview-only."
+          },
+          "matrix": {
+            "title": "When to use / Tradeoff / Recommended value",
+            "whenToUseLabel": "When to use:",
+            "tradeoffLabel": "Tradeoff:",
+            "recommendedLabel": "Recommended value:",
+            "items": {
+              "model": {
+                "title": "Model",
+                "whenToUse": "Choose model by domain: general dictation vs healthcare-specific vocabulary.",
+                "tradeoff": "Domain-specific models can be better for niche terminology but may be less optimal outside that domain.",
+                "recommended": "Start with `nova-3`; switch to `nova-3-medical` only for medical dictation."
+              },
+              "live": {
+                "title": "Live Streaming",
+                "whenToUse": "You need words to appear during speech with lowest interaction latency.",
+                "tradeoff": "Live sessions are more sensitive to network quality than non-live one-shot flow.",
+                "recommended": "ON for interactive dictation; OFF only if you explicitly want non-live behavior."
+              },
+              "interim": {
+                "title": "Interim Results",
+                "whenToUse": "You want continuous visual feedback while speaking.",
+                "tradeoff": "Interim hypotheses can flicker/change until final chunks arrive.",
+                "recommended": "ON for live preview UX; OFF for stricter final-only display."
+              },
+              "endpointing": {
+                "title": "Endpointing",
+                "whenToUse": "You want automatic phrase boundary detection around natural pauses.",
+                "tradeoff": "Aggressive endpointing can split speech too early in some speaking styles.",
+                "recommended": "ON for most users."
+              },
+              "endpointingMs": {
+                "title": "Endpointing (ms)",
+                "whenToUse": "Tune pause sensitivity for your speaking style and use case.",
+                "tradeoff": "Lower values react faster but can cut phrases earlier; higher values are safer but slower to finalize.",
+                "recommended": "Default 400ms in app. Deepgram guidance: around 300-500ms for conversational agents; very fast bots may use lower values."
+              },
+              "keepalive": {
+                "title": "KeepAlive Interval",
+                "whenToUse": "Your sessions include natural pauses/silence and you want stable long-lived streaming.",
+                "tradeoff": "Too infrequent keepalive increases idle timeout risk; too frequent increases control traffic (small overhead).",
+                "recommended": "5s default (app allows 3-5s, matching Deepgram guidance)."
+              },
+              "finalizeTimeout": {
+                "title": "Live Finalization Timeout",
+                "whenToUse": "Increase if trailing words are occasionally missing after Stop.",
+                "tradeoff": "Higher value improves tail completeness but keeps session finalization active longer in background.",
+                "recommended": "1200ms default. Raise only if needed for late final chunks."
+              },
+              "instantStop": {
+                "title": "Instant Stop (AivoRelay local feature)",
+                "whenToUse": "You prioritize immediate stop/cancel UX and can tolerate occasional tail loss.",
+                "tradeoff": "Skips waiting for late final chunks, so the end of speech can be truncated.",
+                "recommended": "OFF by default; enable only for ultra-fast interaction workflows."
+              }
+            }
+          },
+          "parametersTitle": "What each setting controls:",
+          "parameters": {
+            "model": "Model: sent as `model=<value>` in streaming query params. App default is `nova-3`.",
+            "timeout": "Deepgram Timeout: non-live timeout (10-3600s) for one-shot and file transcription operations.",
+            "live": "Live Streaming: enables persistent WebSocket capture path while recording.",
+            "interim": "Interim Results: maps to `interim_results` query param. Deepgram API default is false; app default is true.",
+            "smartFormat": "Smart Format: maps to `smart_format` query param. Improves punctuation/number readability. API default is false; app default is true.",
+            "endpointing": "Endpointing: enables/disables Deepgram endpointing behavior (query param `endpointing`).",
+            "endpointingMs": "Endpointing (ms): when endpointing is enabled, app sends numeric `endpointing=<ms>` (allowed 50-5000 in app; default 400).",
+            "keepalive": "KeepAlive Interval: app sends `{\"type\":\"KeepAlive\"}` during silence; value is clamped to 3-5s.",
+            "finalizeTimeout": "Live Finalization Timeout: after Stop, app sends Finalize + CloseStream and waits this many milliseconds for late final chunks before force-completing.",
+            "instantStop": "Instant Stop: local app shortcut that cancels live session immediately and skips normal finalization wait.",
+            "apiKey": "API Key: stored in Windows Credential Manager and sent as `Authorization: Token <key>` for Deepgram requests."
+          },
+          "docs": {
+            "title": "Official Deepgram documentation links:",
+            "liveApi": "Streaming API Reference (`/v1/listen` query params and message schema)",
+            "keepalive": "Audio Keep Alive (recommended cadence and payload)",
+            "finalize": "Finalize control message (`from_finalize` behavior)",
+            "closeStream": "CloseStream control message (graceful shutdown + metadata)",
+            "endpointing": "Endpointing overview",
+            "interimResults": "Interim Results overview",
+            "smartFormat": "Smart Format overview",
+            "modelOptions": "Model parameter documentation",
+            "troubleshooting": "STT WebSocket troubleshooting (NET/DATA errors)"
+          },
+          "tip": "Recommended baseline in this app: `nova-3`, Live ON, Interim ON, Smart Format ON, Endpointing ON (400ms), KeepAlive 5s, Finalization Timeout 1200ms, Instant Stop OFF."
+        },
+        "model": {
+          "title": "Deepgram Model",
+          "description": "Model identifier passed to Deepgram on each request (`model=<value>`). For most dictation use `nova-3`; use `nova-3-medical` only when your speech is medical-domain heavy. The app keeps this value customizable so you can adopt newer Deepgram models without waiting for UI updates."
+        },
+        "timeout": {
+          "title": "Deepgram Timeout (seconds)",
+          "description": "Overall timeout for Deepgram non-live and file-transcription operations (10-3600s). Higher values are more tolerant of transient latency but delay failure reporting; lower values fail faster but are less tolerant to slow networks. This is not the same as live-session finalization timeout."
+        },
+        "live": {
+          "title": "Live Streaming",
+          "description": "When enabled, recording uses Deepgram WebSocket live flow and can emit transcript updates while you speak. On Stop, app finalizes the stream in background (Finalize + CloseStream) and then closes session."
+        },
+        "interim": {
+          "title": "Interim Results",
+          "description": "Enables evolving hypotheses before chunks become final. Deepgram marks these as `is_final=false`; they may change until finalization. In this app interim text is preview-only, while committed output is appended from final chunks."
+        },
+        "smartFormat": {
+          "title": "Smart Format",
+          "description": "Requests Deepgram smart formatting for punctuation, capitalization, numbers, dates, and related readability improvements. Useful for immediate paste-ready text with less manual cleanup."
+        },
+        "endpointing": {
+          "title": "Endpointing",
+          "description": "Enables Deepgram endpointing to detect utterance boundaries from pauses. Deepgram can emit `speech_final=true` when a natural endpoint is detected. In current app logic, committed insertion still follows final chunks (`is_final=true`)."
+        },
+        "endpointingMs": {
+          "title": "Endpointing (ms)",
+          "description": "Pause sensitivity value for endpointing. Lower values react faster but can split speech earlier; higher values are safer but slower to finalize. App range is 50-5000ms, default 400ms. Deepgram guidance generally suggests around 300-500ms for natural conversational behavior."
+        },
+        "keepalive": {
+          "title": "KeepAlive Interval (seconds)",
+          "description": "Interval for sending `{\"type\":\"KeepAlive\"}` text messages during silence. Deepgram recommends 3-5 seconds for live streaming sessions to reduce idle timeout risk (NET-0001 around ~10s of inactivity). App enforces this same 3-5s range."
+        },
+        "finalizeTimeout": {
+          "title": "Live Finalization Timeout (ms)",
+          "description": "After Stop, app sends Finalize + CloseStream and waits this long for late final chunks before force-completion. Increase if tail words are frequently missing; keep lower for snappier completion. Range in app: 100-20000ms. Default: 1200ms."
+        },
+        "instantStop": {
+          "title": "Instant Stop (Local Feature)",
+          "description": "AivoRelay-only behavior: cancels Deepgram live session immediately on Stop, without waiting for normal finalization. Fastest stop UX, but highest risk of cutting trailing words."
+        },
+        "apiKey": {
+          "title": "Deepgram API Key",
+          "description": "Stored securely in Windows Credential Manager.",
+          "placeholder": "dg_..."
+        }
+      },
       "translateToEnglish": {
         "label": "Translate to English",
         "description": "Automatically translate speech from other languages to English during transcription.",
@@ -1022,6 +1364,7 @@
         }
       },
       "sonioxWarning": "You are using the Soniox real-time provider. LLM post-processing is skipped during real-time streaming. These settings will apply when you switch to a local model or OpenAI-compatible provider.",
+      "deepgramWarning": "You are using Deepgram live transcription. LLM post-processing is skipped during the standard live cycle.",
       "disabledNotice": "Post processing is currently disabled. Enable it in Debug settings to configure.",
       "api": {
         "title": "API Configuration",
@@ -1037,8 +1380,13 @@
         },
         "baseUrl": {
           "title": "Base URL",
-          "description": "API base URL for the selected provider. Only the custom provider can be edited.",
+          "description": "API base URL for the selected provider. Known providers are locked to their canonical HTTPS URLs. Only the custom provider can be edited.",
           "placeholder": "https://api.openai.com/v1"
+        },
+        "customHttpOverride": {
+          "title": "Allow Insecure HTTP",
+          "description": "Advanced override for the Custom provider only. Leave this OFF unless you intentionally trust a local or self-hosted plain HTTP endpoint.",
+          "warning": "Warning: plain HTTP can expose your API key and text contents to interception or tampering. Use it only on a trusted local or self-hosted network."
         },
         "apiKey": {
           "title": "API Key",
@@ -1306,6 +1654,11 @@
           "description": "High-performance inference of OpenAI's Whisper automatic speech recognition model",
           "details": "AivoRelay uses Whisper.cpp for fast, local speech-to-text processing. Thanks to the amazing work by Georgi Gerganov and contributors."
         },
+        "cpal": {
+          "title": "CPAL",
+          "description": "Low-level Rust audio I/O used for live capture and device routing",
+          "details": "AivoRelay uses the CPAL audio library for microphone capture, device selection, audio feedback routing, and Windows loopback capture for Live Sound Transcription. Licensed under Apache 2.0 by the RustAudio Project Developers. License file is provided in THIRD_PARTY_LICENSES.md"
+        },
         "vulkan": {
           "title": "Vulkan Loader",
           "description": "GPU acceleration for local speech recognition models",
@@ -1367,15 +1720,27 @@
         "intro": "The AivoRelay Connector Chrome extension connects this desktop app to AI chat tabs in your browser.",
         "getExtension": {
           "title": "Get the Extension:",
-          "step1": "Download from GitHub: <link>AivoRelay Connector</link>",
-          "step2": "Or clone the repository to your computer"
+          "step1": "Browse the source on GitHub: <link>AivoRelay Connector</link>",
+          "step2": "Use the export button below for a ready-to-load folder, or download the GitHub zip and extract it yourself.",
+          "actions": {
+            "export": "Export Browser Extension",
+            "extractHere": "Extract Here",
+            "exporting": "Exporting...",
+            "browse": "Browse",
+            "download": "Download from GitHub",
+            "pathLabel": "Export Path",
+            "pathPlaceholder": "C:\\Users\\You\\Downloads",
+            "pathHint": "Choose the parent folder, not the final extension folder. AivoRelay will create the \"AivoRelay Connector\" folder inside it.",
+            "selectFolderTitle": "Choose where to export the browser extension",
+            "exportSuccess": "Browser extension exported to {{path}}. Configured origin: {{origin}}. A new connector password was generated and applied."
+          }
         },
         "install": {
           "title": "Install in Chrome/Edge:",
           "step1": "Open <code>chrome://extensions</code> in your browser",
           "step2": "Enable \"Developer mode\" (toggle in the top right)",
           "step3": "Click \"Load unpacked\" button",
-          "step4": "Select the folder where you downloaded/extracted the extension"
+          "step4": "Select the exported or extracted extension folder"
         },
         "setup": {
           "title": "Connect to AivoRelay:",
@@ -1400,7 +1765,7 @@
         "offline": "Offline",
         "waiting": "Waiting...",
         "loading": "Loading...",
-        "serverStopped": "Server Stopped",
+        "serverStopped": "Server OFF",
         "never": "Never",
         "justNow": "Just now",
         "secondsAgo": "{{count}}s ago",
@@ -1487,6 +1852,25 @@
       },
       "connection": {
         "title": "Connection Settings",
+        "enabled": {
+          "label": "Enable Connector Server",
+          "description": "Start the local HTTP server to communicate with the browser extension. The connector now requires one exact allowed origin before it can start. When OFF, the status shows \"Server OFF\" and all communication is disabled."
+        },
+        "featureRequiresServer": "The Connector Server is currently OFF. Enable it below in Connection Settings near the bottom of this page, otherwise this feature will not work.",
+        "cors": {
+          "title": "Allowed CORS Origin",
+          "description": "Used when \"Allow Any CORS Origin\" is disabled. Enter one exact origin like \"https://chatgpt.com\" or \"chrome-extension://<extension-id>\".",
+          "placeholder": "chrome-extension://<extension-id>",
+          "allowAny": {
+            "title": "Allow Any CORS Origin",
+            "description": "Allow any origin to reach the connector. Disable this if you want to restrict access to one exact origin."
+          }
+        },
+        "encryption": {
+          "title": "Message Encryption",
+          "description": "Encrypt traffic between AivoRelay and the browser extension using your connection password (AES-GCM). Use extension in a secure environment. It is not recommended to disable encryption.",
+          "label": "Enable Encryption"
+        },
         "host": {
           "title": "Host",
           "description": "The host address of the AivoRelay Connector server."
@@ -1503,6 +1887,15 @@
         "password": {
           "title": "Connection Password",
           "description": "Password to authenticate the extension. Must match in both AivoRelay and the extension.",
+          "errorEmpty": "Connection password cannot be empty.",
+          "errorMinLength": "Connection password must be at least {{min}} characters long unless you are using the legacy bootstrap password.",
+          "rotate": {
+            "title": "Rotate Password Now",
+            "description": "Generate a new random password and push it to the currently connected extension. Offline extensions will not update automatically.",
+            "rotating": "Rotating Password...",
+            "success": "Password rotation completed. The connected extension acknowledged the new password.",
+            "offlineHint": "Password rotation is only available while the browser extension is online."
+          },
           "defaultWarning": {
             "title": "Security Warning: Default Password",
             "description": "You are currently using the default password. We highly recommend changing it to a unique one. Changing it here will automatically update the extension if it is currently connected. For maximum security, we recommend performing this change while offline to prevent other programs from intercepting the initial handshake."
@@ -1742,6 +2135,7 @@
   "overlay": {
     "transcribing": "Transcribing...",
     "finalizing": "Finalizing...",
+    "microphoneChanged": "Microphone: {{name}}",
     "decapitalizationIndicator": "Decapitalization",
     "errors": {
       "auth": {
@@ -1836,11 +2230,49 @@
       "title": "Soniox File Transcription Options",
       "usesGlobalDefaults": "Defaults are loaded from your global Soniox API settings. You can override them for this transcription.",
       "autoSwitchNotice": "Soniox API detected. We are auto switching for the following model: {{targetModel}}. Selected model was '{{selectedModel}}'. Reason: Transcribe File uses Soniox async endpoint (/v1/transcriptions), and latest-only mode enforces the latest async model.",
+      "durationLimitWarning": "Soniox documentation says file transcription is supported up to 5 hours of audio. Longer files may be rejected or fail after upload.",
+      "durationLimitExceeded": "This file is {{duration}} long. The Soniox limit here is {{limit}}.",
       "languageHintsLabel": "Language hints (comma-separated, not JSON)",
       "languageHintsPlaceholder": "e.g. en, es, ru",
       "speakerDiarizationLabel": "Enable speaker diarization",
       "languageIdentificationLabel": "Enable language identification",
       "invalidHints": "Unsupported Soniox language hints: {{hints}}"
+    },
+    "deepgram": {
+      "title": "Deepgram File Transcription Options",
+      "usesGlobalDefaults": "Diarization starts from your global Deepgram setting. Multichannel is a file-only override.",
+      "modeHint": "Use multichannel when each speaker is isolated to a separate audio channel. Use diarization when multiple speakers share a channel. You can enable both.",
+      "durationLimitWarning": "Deepgram documentation says file transcription is supported up to 10 minutes of audio. Longer files may be rejected or fail after upload.",
+      "durationLimitExceeded": "This file is {{duration}} long. The Deepgram limit here is {{limit}}.",
+      "speakerDiarizationLabel": "Enable speaker diarization",
+      "multichannelLabel": "Treat file as multichannel audio"
+    },
+    "durationLimitDialog": {
+      "title": "{{provider}} file limit warning",
+      "message": "{{provider}} may reject or fail this request because the file exceeds the documented duration limit. {{limitWarning}} The upload may still reach the API and may still incur charges from your API provider. Do you want to continue anyway?",
+      "confirm": "Continue anyway",
+      "cancel": "Cancel"
+    },
+    "durationUnknownWarning": "Could not determine the file duration in advance. This upload may not work with the selected remote provider.",
+    "speakerNames": {
+      "title": "Speaker Names",
+      "hint": "Re-apply rebuilds the transcript from the temporary diarization session instead of editing the visible text.",
+      "cardLabel": "Detected speaker {{id}}",
+      "profilesTitle": "Speaker Name Sets",
+      "profilesHint": "Save reusable speaker-name presets and apply them to the current diarization cards by order.",
+      "savedProfiles": "Saved sets",
+      "profilePlaceholder": "Select a saved set...",
+      "profileNameLabel": "Set name",
+      "profileNamePlaceholder": "e.g. Podcast hosts",
+      "applyProfile": "Apply set",
+      "saveProfile": "Save new set",
+      "updateProfile": "Update set",
+      "deleteProfile": "Delete set",
+      "profileDeleteConfirm": "Delete speaker name set '{{name}}'?",
+      "reapply": "Re-apply",
+      "reapplying": "Re-applying...",
+      "savedDisabled": "Speaker names can only be re-applied before saving to a .txt file.",
+      "missingSession": "The temporary speaker session is no longer available. Run transcription again."
     },
     "transcribe": "Transcribe",
     "transcribing": "Transcribing...",
@@ -1883,6 +2315,12 @@
     "decapitalizeAfterEditSecondaryKeyEnableLabel": "Enable Secondary Monitored Key (OR)",
     "decapitalizeAfterEditSecondaryKeyEnableDescription": "Default is OFF. When enabled, pressing either primary or secondary key triggers decapitalize monitoring.",
     "decapitalizeAfterEditSecondaryKeyDescription": "Optional second key. Works with OR logic together with the primary key.",
+    "decapitalizeAfterEditRdevWarningTitle": "Warning: this feature uses passive rdev monitoring",
+    "decapitalizeAfterEditRdevWarningBody": "Only rdev can passively monitor keys like Backspace or Delete while the active application still receives those keys normally.",
+    "decapitalizeAfterEditRdevWarningTauriBody": "Your main Shortcut Engine remains Tauri, but enabling this feature starts an extra rdev listener. Turn this feature off to stop this extra rdev usage.",
+    "decapitalizeAfterEditRdevWarningRdevBody": "Your main Shortcut Engine is already rdev, so turning this feature off disables only this decapitalize monitor.",
+    "decapitalizeAfterEditRdevWarningLinkHint": "Open Debug -> Experimental Features -> Shortcut Engine and read the rdev warning before using this.",
+    "decapitalizeAfterEditRdevWarningLink": "Open Debug Shortcut Settings",
     "decapitalizeAfterEditConflictWarningTitle": "Potential overlap with other shortcuts:",
     "decapitalizeAfterEditConflictWarningDescription": "Decap monitor may also trigger when these shortcuts are pressed.",
     "decapitalizeAfterEditTimeoutLabel": "Trigger Timeout",

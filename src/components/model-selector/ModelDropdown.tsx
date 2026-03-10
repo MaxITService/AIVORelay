@@ -42,7 +42,8 @@ const ModelDropdown: React.FC<ModelDropdownProps> = ({
 }) => {
   const isRemoteProvider =
     currentProvider === "remote_openai_compatible" ||
-    currentProvider === "remote_soniox";
+    currentProvider === "remote_soniox" ||
+    currentProvider === "remote_deepgram";
   const { t } = useTranslation();
   const availableModels = models.filter((m) => m.is_downloaded);
   const downloadableModels = models.filter((m) => !m.is_downloaded);
@@ -175,6 +176,58 @@ const ModelDropdown: React.FC<ModelDropdownProps> = ({
               </div>
               {currentProvider === "remote_soniox" && (
                 <div className="text-xs text-teal-400">
+                  {t("modelSelector.active")}
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Remote via Deepgram */}
+          <div
+            onClick={() => onRemoteProviderSelect("remote_deepgram")}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                onRemoteProviderSelect("remote_deepgram");
+              }
+            }}
+            tabIndex={0}
+            role="button"
+            className={`w-full px-3 py-2 text-left hover:bg-mid-gray/10 transition-colors cursor-pointer focus:outline-none ${
+              currentProvider === "remote_deepgram"
+                ? "bg-cyan-500/10 text-cyan-400"
+                : ""
+            }`}
+          >
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <svg
+                  className="w-4 h-4"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M9.348 14.651a3.75 3.75 0 010-5.303m5.304 0a3.75 3.75 0 010 5.303m-7.425 2.122a6.75 6.75 0 010-9.546m9.546 0a6.75 6.75 0 010 9.546M5.106 18.894c-3.808-3.808-3.808-9.98 0-13.789m13.788 0c3.808 3.808 3.808 9.981 0 13.79"
+                  />
+                </svg>
+                <div>
+                  <div className="text-sm">
+                    {t("modelSelector.remoteDeepgramMode", "Remote via Deepgram")}
+                  </div>
+                  <div className="text-xs text-text/40 italic">
+                    {t(
+                      "modelSelector.remoteDeepgramModeDescription",
+                      "Deepgram Nova streaming service",
+                    )}
+                  </div>
+                </div>
+              </div>
+              {currentProvider === "remote_deepgram" && (
+                <div className="text-xs text-cyan-400">
                   {t("modelSelector.active")}
                 </div>
               )}

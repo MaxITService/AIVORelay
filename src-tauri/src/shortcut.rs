@@ -18,8 +18,15 @@ use crate::settings::{
     self, get_settings, AutoSubmitKey, ClipboardHandling, LLMPrompt, OutputWhitespaceMode,
     OverlayPosition, PasteMethod, RemoteSttDebugMode, ShortcutEngine, SonioxLivePreviewPosition,
     SonioxLivePreviewSize, SonioxLivePreviewTheme, SoundTheme, TranscriptionProvider,
-    APPLE_INTELLIGENCE_PROVIDER_ID, SONIOX_DEFAULT_LIVE_FINALIZE_TIMEOUT_MS,
-    SONIOX_DEFAULT_MAX_ENDPOINT_DELAY_MS, SONIOX_DEFAULT_MODEL,
+    APPLE_INTELLIGENCE_PROVIDER_ID, DEEPGRAM_DEFAULT_ENDPOINTING_MS,
+    DEEPGRAM_DEFAULT_LIVE_FINALIZE_TIMEOUT_MS, DEEPGRAM_DEFAULT_MODEL,
+    SONIOX_DEFAULT_LIVE_FINALIZE_TIMEOUT_MS, SONIOX_DEFAULT_MAX_ENDPOINT_DELAY_MS,
+    SONIOX_DEFAULT_MODEL,
+};
+use crate::url_security::{
+    canonical_llm_provider_base_url, remote_stt_base_url_for_preset,
+    remote_stt_default_model_for_preset, validate_remote_stt_base_url,
+    REMOTE_STT_PRESET_CUSTOM,
 };
 use crate::tray;
 use crate::ManagedToggleState;
@@ -49,6 +56,21 @@ const SONIOX_LIVE_PREVIEW_MIN_CUSTOM_HEIGHT_PX: u16 = 100;
 const SONIOX_LIVE_PREVIEW_MAX_CUSTOM_HEIGHT_PX: u16 = 1400;
 const SONIOX_LIVE_PREVIEW_MIN_CUSTOM_COORD_PX: i32 = -10_000;
 const SONIOX_LIVE_PREVIEW_MAX_CUSTOM_COORD_PX: i32 = 10_000;
+const MIN_CONNECTOR_PASSWORD_LEN: usize = 64;
+const CONNECTOR_PASSWORD_ROTATION_WAIT_MS: u64 = 15_000;
+const CONNECTOR_PASSWORD_ROTATION_POLL_MS: u64 = 250;
+
+fn generate_random_connector_password() -> Result<String, String> {
+    let mut bytes = [0u8; 32];
+    getrandom::getrandom(&mut bytes)
+        .map_err(|e| format!("Failed to generate connector password: {}", e))?;
+
+    let mut password = String::with_capacity(bytes.len() * 2);
+    for byte in bytes {
+        password.push_str(&format!("{:02x}", byte));
+    }
+    Ok(password)
+}
 const SONIOX_LIVE_PREVIEW_DEFAULT_FONT_COLOR: &str = "#f5f5f5";
 const SONIOX_LIVE_PREVIEW_DEFAULT_INTERIM_FONT_COLOR: &str = "#f5f5f5";
 const SONIOX_LIVE_PREVIEW_DEFAULT_ACCENT_COLOR: &str = "#ff4d8d";
@@ -62,6 +84,47 @@ fn clamp_decapitalize_standard_post_monitor_ms(value: u32) -> u32 {
         MIN_DECAPITALIZE_STANDARD_POST_MONITOR_MS,
         MAX_DECAPITALIZE_STANDARD_POST_MONITOR_MS,
     )
+}
+
+fn is_transcribe_binding_id_for_decapitalize(binding_id: &str) -> bool {
+    binding_id == "transcribe" || binding_id.starts_with("transcribe_")
+}
+
+fn uses_live_streaming_for_settings(settings: &settings::AppSettings) -> bool {
+    match settings.transcription_provider {
+        TranscriptionProvider::RemoteSoniox => {
+            settings.soniox_live_enabled
+                && crate::managers::soniox_realtime::SonioxRealtimeManager::is_realtime_model(
+                    &settings.soniox_model,
+                )
+        }
+        TranscriptionProvider::RemoteDeepgram => {
+            settings.deepgram_live_enabled
+                && crate::managers::deepgram_realtime::DeepgramRealtimeManager::is_realtime_model(
+                    &settings.deepgram_model,
+                )
+        }
+        _ => false,
+    }
+}
+
+fn should_arm_standard_output_for_decapitalize(app: &AppHandle) -> bool {
+    let state = app.state::<crate::session_manager::ManagedSessionState>();
+    let Ok(state_guard) = state.lock() else {
+        return false;
+    };
+
+    match &*state_guard {
+        crate::session_manager::SessionState::Recording {
+            binding_id,
+            captured_settings,
+            ..
+        } => {
+            is_transcribe_binding_id_for_decapitalize(binding_id)
+                && !uses_live_streaming_for_settings(captured_settings)
+        }
+        _ => false,
+    }
 }
 
 fn clamp_soniox_live_preview_opacity_percent(value: u8) -> u8 {
@@ -393,6 +456,7 @@ fn handle_rdev_shortcut_event(app: &AppHandle, event: ShortcutEvent) {
         if pressed && settings.text_replacement_decapitalize_after_edit_key_enabled {
             crate::text_replacement_decapitalize::mark_edit_key_pressed(
                 clamp_decapitalize_timeout_ms(settings.text_replacement_decapitalize_timeout_ms),
+                should_arm_standard_output_for_decapitalize(app),
             );
         }
         return;
@@ -708,6 +772,7 @@ pub fn change_transcription_provider_setting(
         "local" => TranscriptionProvider::Local,
         "remote_openai_compatible" => TranscriptionProvider::RemoteOpenAiCompatible,
         "remote_soniox" => TranscriptionProvider::RemoteSoniox,
+        "remote_deepgram" => TranscriptionProvider::RemoteDeepgram,
         other => {
             warn!(
                 "Invalid transcription provider '{}', defaulting to local",
@@ -721,7 +786,9 @@ pub fn change_transcription_provider_setting(
     {
         if matches!(
             parsed,
-            TranscriptionProvider::RemoteOpenAiCompatible | TranscriptionProvider::RemoteSoniox
+            TranscriptionProvider::RemoteOpenAiCompatible
+                | TranscriptionProvider::RemoteSoniox
+                | TranscriptionProvider::RemoteDeepgram
         ) {
             return Err("Remote transcription providers are only available on Windows".to_string());
         }
@@ -764,6 +831,15 @@ pub fn change_error_overlay_auto_hide_ms_setting(
     let normalized = crate::plus_overlay_state::set_error_overlay_auto_hide_ms(value_ms);
     let mut settings = settings::get_settings(&app);
     settings.error_overlay_auto_hide_ms = normalized;
+    settings::write_settings(&app, settings);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_error_feedback_enabled_setting(app: AppHandle, enabled: bool) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.error_feedback_enabled = enabled;
     settings::write_settings(&app, settings);
     Ok(())
 }
@@ -1064,6 +1140,89 @@ pub fn change_soniox_live_preview_insert_hotkey_setting(
 
 #[tauri::command]
 #[specta::specta]
+pub fn change_soniox_live_preview_delete_until_dot_or_comma_hotkey_setting(
+    app: AppHandle,
+    hotkey: String,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.soniox_live_preview_delete_until_dot_or_comma_hotkey =
+        normalize_soniox_live_preview_hotkey(&hotkey);
+    settings::write_settings(&app, settings);
+    refresh_soniox_live_preview_window(&app);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_soniox_live_preview_delete_until_dot_hotkey_setting(
+    app: AppHandle,
+    hotkey: String,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.soniox_live_preview_delete_until_dot_hotkey =
+        normalize_soniox_live_preview_hotkey(&hotkey);
+    settings::write_settings(&app, settings);
+    refresh_soniox_live_preview_window(&app);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_soniox_live_preview_delete_last_word_hotkey_setting(
+    app: AppHandle,
+    hotkey: String,
+) -> Result<(), String> {
+    let normalized_hotkey = normalize_soniox_live_preview_hotkey(&hotkey);
+    validate_shortcut_string(&normalized_hotkey)?;
+
+    let mut settings = settings::get_settings(&app);
+    let binding_id = settings::PREVIEW_DELETE_LAST_WORD_BINDING_ID.to_string();
+    let previous_binding = settings
+        .bindings
+        .get(&binding_id)
+        .cloned()
+        .unwrap_or_else(|| settings::build_preview_delete_last_word_binding(String::new()));
+
+    let mut updated_binding = previous_binding.clone();
+    updated_binding.current_binding = normalized_hotkey.clone();
+
+    if let Err(err) = unregister_shortcut(&app, previous_binding.clone()) {
+        warn!(
+            "change_soniox_live_preview_delete_last_word_hotkey_setting: failed to unregister old shortcut (proceeding anyway): {}",
+            err
+        );
+    }
+
+    if let Err(err) = register_shortcut(&app, updated_binding.clone()) {
+        error!(
+            "change_soniox_live_preview_delete_last_word_hotkey_setting: failed to register new shortcut: {}",
+            err
+        );
+
+        if !previous_binding.current_binding.is_empty() {
+            if let Err(rollback_err) = register_shortcut(&app, previous_binding.clone()) {
+                return Err(format!(
+                    "Failed to register preview delete-last-word shortcut: {}. Additionally, failed to restore previous shortcut: {}",
+                    err, rollback_err
+                ));
+            }
+        }
+
+        return Err(format!(
+            "Failed to register preview delete-last-word shortcut: {}",
+            err
+        ));
+    }
+
+    settings.soniox_live_preview_delete_last_word_hotkey = normalized_hotkey;
+    settings.bindings.insert(binding_id, updated_binding);
+    settings::write_settings(&app, settings);
+    refresh_soniox_live_preview_window(&app);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
 pub fn change_soniox_live_preview_show_clear_button_setting(
     app: AppHandle,
     enabled: bool,
@@ -1111,6 +1270,116 @@ pub fn change_soniox_live_preview_show_insert_button_setting(
     settings.soniox_live_preview_show_insert_button = enabled;
     settings::write_settings(&app, settings);
     refresh_soniox_live_preview_window(&app);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_soniox_live_preview_show_delete_until_dot_or_comma_button_setting(
+    app: AppHandle,
+    enabled: bool,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.soniox_live_preview_show_delete_until_dot_or_comma_button = enabled;
+    settings::write_settings(&app, settings);
+    refresh_soniox_live_preview_window(&app);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_soniox_live_preview_show_delete_until_dot_button_setting(
+    app: AppHandle,
+    enabled: bool,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.soniox_live_preview_show_delete_until_dot_button = enabled;
+    settings::write_settings(&app, settings);
+    refresh_soniox_live_preview_window(&app);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_soniox_live_preview_show_delete_last_word_button_setting(
+    app: AppHandle,
+    enabled: bool,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.soniox_live_preview_show_delete_last_word_button = enabled;
+    settings::write_settings(&app, settings);
+    refresh_soniox_live_preview_window(&app);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_soniox_live_preview_ctrl_backspace_delete_last_word_setting(
+    app: AppHandle,
+    enabled: bool,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.soniox_live_preview_ctrl_backspace_delete_last_word = enabled;
+    settings::write_settings(&app, settings);
+    refresh_soniox_live_preview_window(&app);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_soniox_live_preview_backspace_delete_last_char_setting(
+    app: AppHandle,
+    enabled: bool,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.soniox_live_preview_backspace_delete_last_char = enabled;
+    settings::write_settings(&app, settings);
+    refresh_soniox_live_preview_window(&app);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_soniox_live_preview_show_drag_grip_setting(
+    app: AppHandle,
+    enabled: bool,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.soniox_live_preview_show_drag_grip = enabled;
+    settings::write_settings(&app, settings);
+    refresh_soniox_live_preview_window(&app);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn remember_soniox_live_preview_window_position(
+    app: AppHandle,
+    x_px: i32,
+    y_px: i32,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.soniox_live_preview_position = SonioxLivePreviewPosition::CustomXY;
+    settings.soniox_live_preview_custom_x_px = clamp_soniox_live_preview_custom_coord_px(x_px);
+    settings.soniox_live_preview_custom_y_px = clamp_soniox_live_preview_custom_coord_px(y_px);
+    settings::write_settings(&app, settings);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn remember_soniox_live_preview_window_size(
+    app: AppHandle,
+    width_px: u16,
+    height_px: u16,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.soniox_live_preview_size = SonioxLivePreviewSize::Custom;
+    settings.soniox_live_preview_custom_width_px =
+        clamp_soniox_live_preview_custom_width_px(width_px);
+    settings.soniox_live_preview_custom_height_px =
+        clamp_soniox_live_preview_custom_height_px(height_px);
+    settings::write_settings(&app, settings);
     Ok(())
 }
 
@@ -1414,7 +1683,68 @@ pub fn change_convert_lf_to_crlf_setting(app: AppHandle, enabled: bool) -> Resul
 #[specta::specta]
 pub fn change_remote_stt_base_url_setting(app: AppHandle, base_url: String) -> Result<(), String> {
     let mut settings = settings::get_settings(&app);
-    settings.remote_stt.base_url = base_url;
+    if settings.remote_stt.provider_preset != REMOTE_STT_PRESET_CUSTOM {
+        return Err(
+            "Only the Custom Remote STT provider allows editing the base URL.".to_string(),
+        );
+    }
+
+    let mut candidate = settings.remote_stt.clone();
+    candidate.base_url = base_url;
+    let normalized = validate_remote_stt_base_url(&candidate, None)?;
+
+    settings.remote_stt.base_url = normalized;
+    settings::write_settings(&app, settings);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_remote_stt_provider_preset_setting(
+    app: AppHandle,
+    preset: String,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+
+    if preset != "custom" && remote_stt_base_url_for_preset(&preset).is_none() {
+        return Err(format!("Unknown Remote STT provider preset '{}'.", preset));
+    }
+
+    settings.remote_stt.provider_preset = preset.clone();
+
+    if let Some(base_url) = remote_stt_base_url_for_preset(&preset) {
+        settings.remote_stt.allow_insecure_http = false;
+        if let Some(default_model) = remote_stt_default_model_for_preset(&preset) {
+            settings.remote_stt.model_id = default_model.to_string();
+        }
+        settings.remote_stt.base_url = base_url.to_string();
+    }
+
+    settings::write_settings(&app, settings);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_remote_stt_allow_insecure_http_setting(
+    app: AppHandle,
+    enabled: bool,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+
+    if enabled && settings.remote_stt.provider_preset != REMOTE_STT_PRESET_CUSTOM {
+        return Err(
+            "Plain HTTP can only be enabled for the Custom Remote STT provider.".to_string(),
+        );
+    }
+
+    if !settings.remote_stt.base_url.trim().is_empty() {
+        let mut candidate = settings.remote_stt.clone();
+        candidate.allow_insecure_http = enabled;
+        validate_remote_stt_base_url(&candidate, None)?;
+    }
+
+    settings.remote_stt.allow_insecure_http = enabled;
     settings::write_settings(&app, settings);
     Ok(())
 }
@@ -1683,6 +2013,8 @@ pub fn reset_soniox_settings_to_defaults(app: AppHandle) -> Result<(), String> {
     settings.soniox_model = SONIOX_DEFAULT_MODEL.to_string();
     settings.soniox_timeout_seconds = 30;
     settings.soniox_live_enabled = true;
+    settings.preview_output_only_enabled = false;
+    settings.soniox_live_preview_enabled = false;
     settings.soniox_language_hints = vec!["en".to_string()];
     settings.soniox_context_general_json = String::new();
     settings.soniox_context_text = String::new();
@@ -1699,6 +2031,173 @@ pub fn reset_soniox_settings_to_defaults(app: AppHandle) -> Result<(), String> {
     settings.soniox_realtime_fuzzy_correction_enabled = false;
     settings.soniox_realtime_keep_safety_buffer_enabled = false;
     settings::write_settings(&app, settings);
+    if crate::managers::preview_output_mode::is_active() {
+        crate::managers::preview_output_mode::deactivate_session(&app);
+        crate::overlay::end_soniox_live_preview_session();
+        crate::overlay::reset_soniox_live_preview(&app);
+    }
+    refresh_soniox_live_preview_window(&app);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_deepgram_model_setting(app: AppHandle, model: String) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.deepgram_model = if model.trim().is_empty() {
+        DEEPGRAM_DEFAULT_MODEL.to_string()
+    } else {
+        model.trim().to_string()
+    };
+    settings::write_settings(&app, settings);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_deepgram_timeout_setting(app: AppHandle, timeout_seconds: u32) -> Result<(), String> {
+    if !(10..=3600).contains(&timeout_seconds) {
+        return Err("Deepgram timeout must be between 10 and 3600 seconds".to_string());
+    }
+
+    let mut settings = settings::get_settings(&app);
+    settings.deepgram_timeout_seconds = timeout_seconds;
+    settings::write_settings(&app, settings);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_deepgram_live_enabled_setting(app: AppHandle, enabled: bool) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.deepgram_live_enabled = enabled;
+    settings::write_settings(&app, settings);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_deepgram_keepalive_interval_seconds_setting(
+    app: AppHandle,
+    seconds: u32,
+) -> Result<(), String> {
+    if !(3..=5).contains(&seconds) {
+        return Err("Deepgram keepalive interval must be between 3 and 5 seconds".to_string());
+    }
+
+    let mut settings = settings::get_settings(&app);
+    settings.deepgram_keepalive_interval_seconds = seconds;
+    settings::write_settings(&app, settings);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_deepgram_live_finalize_timeout_ms_setting(
+    app: AppHandle,
+    timeout_ms: u32,
+) -> Result<(), String> {
+    if !(100..=20000).contains(&timeout_ms) {
+        return Err("Deepgram live finalize timeout must be between 100 and 20000 ms".to_string());
+    }
+
+    let mut settings = settings::get_settings(&app);
+    settings.deepgram_live_finalize_timeout_ms = timeout_ms;
+    settings::write_settings(&app, settings);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_deepgram_live_instant_stop_setting(
+    app: AppHandle,
+    enabled: bool,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.deepgram_live_instant_stop = enabled;
+    settings::write_settings(&app, settings);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_deepgram_interim_results_setting(
+    app: AppHandle,
+    enabled: bool,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.deepgram_interim_results = enabled;
+    settings::write_settings(&app, settings);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_deepgram_smart_format_setting(app: AppHandle, enabled: bool) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.deepgram_smart_format = enabled;
+    settings::write_settings(&app, settings);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_deepgram_diarize_setting(app: AppHandle, enabled: bool) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.deepgram_diarize = enabled;
+    settings::write_settings(&app, settings);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_deepgram_endpointing_enabled_setting(
+    app: AppHandle,
+    enabled: bool,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.deepgram_endpointing_enabled = enabled;
+    settings::write_settings(&app, settings);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_deepgram_endpointing_ms_setting(app: AppHandle, value_ms: u32) -> Result<(), String> {
+    if !(50..=5000).contains(&value_ms) {
+        return Err("Deepgram endpointing must be between 50 and 5000 ms".to_string());
+    }
+
+    let mut settings = settings::get_settings(&app);
+    settings.deepgram_endpointing_ms = value_ms;
+    settings::write_settings(&app, settings);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn reset_deepgram_settings_to_defaults(app: AppHandle) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.deepgram_model = DEEPGRAM_DEFAULT_MODEL.to_string();
+    settings.deepgram_timeout_seconds = 3600;
+    settings.deepgram_live_enabled = true;
+    settings.preview_output_only_enabled = false;
+    settings.soniox_live_preview_enabled = false;
+    settings.deepgram_keepalive_interval_seconds = 5;
+    settings.deepgram_live_finalize_timeout_ms = DEEPGRAM_DEFAULT_LIVE_FINALIZE_TIMEOUT_MS;
+    settings.deepgram_live_instant_stop = false;
+    settings.deepgram_interim_results = true;
+    settings.deepgram_smart_format = true;
+    settings.deepgram_diarize = false;
+    settings.deepgram_endpointing_enabled = true;
+    settings.deepgram_endpointing_ms = DEEPGRAM_DEFAULT_ENDPOINTING_MS;
+    settings::write_settings(&app, settings);
+    if crate::managers::preview_output_mode::is_active() {
+        crate::managers::preview_output_mode::deactivate_session(&app);
+        crate::overlay::end_soniox_live_preview_session();
+        crate::overlay::reset_soniox_live_preview(&app);
+    }
+    refresh_soniox_live_preview_window(&app);
     Ok(())
 }
 
@@ -2063,7 +2562,33 @@ pub fn change_post_process_base_url_setting(
         ));
     }
 
-    provider.base_url = base_url;
+    let mut candidate = provider.clone();
+    candidate.base_url = base_url;
+    let normalized = canonical_llm_provider_base_url(&candidate)?;
+
+    provider.base_url = normalized;
+    settings::write_settings(&app, settings);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_post_process_custom_http_override_setting(
+    app: AppHandle,
+    enabled: bool,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    let provider = settings
+        .post_process_provider_mut("custom")
+        .ok_or_else(|| "Provider 'custom' not found".to_string())?;
+
+    if !provider.base_url.trim().is_empty() {
+        let mut candidate = provider.clone();
+        candidate.allow_insecure_http = enabled;
+        canonical_llm_provider_base_url(&candidate)?;
+    }
+
+    provider.allow_insecure_http = enabled;
     settings::write_settings(&app, settings);
     Ok(())
 }
@@ -2214,6 +2739,68 @@ pub fn delete_post_process_prompt(app: AppHandle, id: String) -> Result<(), Stri
 // ============================================================================
 // Transcription Profile Management
 // ============================================================================
+
+fn normalize_diarization_speaker_name_profiles(
+    profiles: Vec<settings::DiarizationSpeakerNameProfile>,
+) -> Result<Vec<settings::DiarizationSpeakerNameProfile>, String> {
+    let mut normalized = Vec::new();
+
+    for profile in profiles {
+        let id = profile.id.trim().to_string();
+        if id.is_empty() {
+            return Err("Speaker name profile id cannot be empty".to_string());
+        }
+
+        let name = profile.name.trim().to_string();
+        if name.is_empty() {
+            return Err("Speaker name profile name cannot be empty".to_string());
+        }
+
+        let mut speaker_names: Vec<String> = profile
+            .speaker_names
+            .into_iter()
+            .map(|speaker_name| speaker_name.trim().to_string())
+            .collect();
+
+        while speaker_names
+            .last()
+            .is_some_and(|speaker_name| speaker_name.is_empty())
+        {
+            speaker_names.pop();
+        }
+
+        if !speaker_names
+            .iter()
+            .any(|speaker_name| !speaker_name.is_empty())
+        {
+            return Err(format!(
+                "Speaker name profile '{}' must contain at least one speaker name",
+                name
+            ));
+        }
+
+        normalized.push(settings::DiarizationSpeakerNameProfile {
+            id,
+            name,
+            speaker_names,
+        });
+    }
+
+    Ok(normalized)
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_diarization_speaker_name_profiles_setting(
+    app: AppHandle,
+    profiles: Vec<settings::DiarizationSpeakerNameProfile>,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.diarization_speaker_name_profiles =
+        normalize_diarization_speaker_name_profiles(profiles)?;
+    settings::write_settings(&app, settings);
+    Ok(())
+}
 
 #[derive(Deserialize, Debug, Clone, Type)]
 #[serde(rename_all = "camelCase")]
@@ -3117,6 +3704,97 @@ pub fn change_connector_auto_open_url_setting(app: AppHandle, url: String) -> Re
 
 #[tauri::command]
 #[specta::specta]
+pub fn change_connector_enabled_setting(
+    app: AppHandle,
+    enabled: bool,
+    connector_manager: State<'_, Arc<crate::managers::connector::ConnectorManager>>,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    let previous_enabled = settings.connector_enabled;
+    if previous_enabled == enabled {
+        return Ok(());
+    }
+    settings.connector_enabled = enabled;
+    settings::write_settings(&app, settings);
+
+    if enabled {
+        if let Err(err) = connector_manager.restart_server() {
+            let mut rollback_settings = settings::get_settings(&app);
+            rollback_settings.connector_enabled = previous_enabled;
+            settings::write_settings(&app, rollback_settings);
+            return Err(err);
+        }
+    } else {
+        connector_manager.stop_server();
+    }
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_connector_allow_any_cors_setting(
+    app: AppHandle,
+    enabled: bool,
+    connector_manager: State<'_, Arc<crate::managers::connector::ConnectorManager>>,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    let previous_enabled = settings.connector_allow_any_cors;
+    if previous_enabled == enabled {
+        return Ok(());
+    }
+    settings.connector_allow_any_cors = enabled;
+    settings::write_settings(&app, settings);
+
+    if let Err(err) = connector_manager.restart_server() {
+        let mut rollback_settings = settings::get_settings(&app);
+        rollback_settings.connector_allow_any_cors = previous_enabled;
+        settings::write_settings(&app, rollback_settings);
+        let _ = connector_manager.restart_server();
+        return Err(err);
+    }
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_connector_cors_setting(
+    app: AppHandle,
+    cors: String,
+    connector_manager: State<'_, Arc<crate::managers::connector::ConnectorManager>>,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    let previous_cors = settings.connector_cors.clone();
+    let normalized_cors = crate::managers::connector::normalize_connector_cors_setting(&cors)?;
+    if previous_cors == normalized_cors {
+        return Ok(());
+    }
+    settings.connector_cors = normalized_cors;
+    settings::write_settings(&app, settings);
+
+    if let Err(err) = connector_manager.restart_server() {
+        let mut rollback_settings = settings::get_settings(&app);
+        rollback_settings.connector_cors = previous_cors;
+        settings::write_settings(&app, rollback_settings);
+        let _ = connector_manager.restart_server();
+        return Err(err);
+    }
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_connector_encryption_enabled_setting(
+    app: AppHandle,
+    enabled: bool,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.connector_encryption_enabled = enabled;
+    settings::write_settings(&app, settings);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
 pub fn change_connector_port_setting(
     app: AppHandle,
     port: u16,
@@ -3125,25 +3803,54 @@ pub fn change_connector_port_setting(
     let mut settings = settings::get_settings(&app);
     let previous_port = settings.connector_port;
 
-    // Restart server on new port if it's running
+    settings.connector_port = port;
+    settings::write_settings(&app, settings);
+
+    // Restart server on new port if it was enabled (start_server checks enabled state)
     if let Err(change_err) = connector_manager.restart_on_port(port) {
-        // Best-effort rollback so a failed port change does not leave connector down.
-        if previous_port != port {
-            if let Err(rollback_err) = connector_manager.restart_on_port(previous_port) {
-                error!(
-                    "Failed to rollback connector port from {} to {}: {}",
-                    port, previous_port, rollback_err
-                );
-                return Err(format!(
-                    "{} (rollback to port {} failed: {})",
-                    change_err, previous_port, rollback_err
-                ));
-            }
-        }
+        // Rollback setting if restart failed
+        let mut rollback_settings = settings::get_settings(&app);
+        rollback_settings.connector_port = previous_port;
+        settings::write_settings(&app, rollback_settings);
         return Err(change_err);
     }
 
-    settings.connector_port = port;
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_connector_password_setting(
+    app: AppHandle,
+    password: String,
+    connector_manager: State<'_, Arc<crate::managers::connector::ConnectorManager>>,
+) -> Result<(), String> {
+    let trimmed = password.trim().to_string();
+    if trimmed.is_empty() {
+        return Err("Connector password cannot be empty".to_string());
+    }
+    if trimmed != settings::default_connector_password() && trimmed.len() < MIN_CONNECTOR_PASSWORD_LEN {
+        return Err(format!(
+            "Connector password must be at least {} characters long unless using the legacy default bootstrap password.",
+            MIN_CONNECTOR_PASSWORD_LEN
+        ));
+    }
+
+    let mut settings = settings::get_settings(&app);
+
+    if settings.connector_password == trimmed {
+        return Ok(());
+    }
+
+    log::info!("User changing connector password - using two-phase commit");
+    settings.connector_pending_password = Some(trimmed.clone());
+    settings.connector_pending_password_issued_at_ms = crate::managers::connector::now_ms();
+    settings.connector_password_user_set = true;
+    connector_manager.refresh_crypto_state(
+        &settings.connector_password,
+        settings.connector_pending_password.as_deref(),
+    );
+    connector_manager.clear_sessions();
     settings::write_settings(&app, settings);
 
     Ok(())
@@ -3151,28 +3858,74 @@ pub fn change_connector_port_setting(
 
 #[tauri::command]
 #[specta::specta]
-pub fn change_connector_password_setting(app: AppHandle, password: String) -> Result<(), String> {
-    let trimmed = password.trim().to_string();
-    if trimmed.is_empty() {
-        return Err("Connector password cannot be empty".to_string());
+pub async fn rotate_connector_password_now(
+    app: AppHandle,
+    connector_manager: State<'_, Arc<crate::managers::connector::ConnectorManager>>,
+) -> Result<(), String> {
+    if !connector_manager.is_online() {
+        return Err(
+            "Password rotation is only available while the browser extension is online."
+                .to_string(),
+        );
     }
 
     let mut settings = settings::get_settings(&app);
+    if settings.connector_pending_password.is_some() {
+        return Err(
+            "A connector password rotation is already pending. Wait for the extension to acknowledge it first."
+                .to_string(),
+        );
+    }
 
-    // If setting to the same password, nothing to do
-    if settings.connector_password == trimmed {
+    let mut new_password = generate_random_connector_password()?;
+    if new_password == settings.connector_password {
+        new_password = generate_random_connector_password()?;
+    }
+
+    log::info!("Rotating connector password now for the connected browser extension");
+    settings.connector_pending_password = Some(new_password.clone());
+    settings.connector_pending_password_issued_at_ms = crate::managers::connector::now_ms();
+    settings.connector_password_user_set = true;
+    connector_manager.refresh_crypto_state(
+        &settings.connector_password,
+        settings.connector_pending_password.as_deref(),
+    );
+    connector_manager.clear_sessions();
+    settings::write_settings(&app, settings);
+
+    let deadline = std::time::Instant::now()
+        + std::time::Duration::from_millis(CONNECTOR_PASSWORD_ROTATION_WAIT_MS);
+
+    while std::time::Instant::now() < deadline {
+        let current = settings::get_settings(&app);
+        if current.connector_password == new_password && current.connector_pending_password.is_none() {
+            return Ok(());
+        }
+
+        tokio::time::sleep(std::time::Duration::from_millis(
+            CONNECTOR_PASSWORD_ROTATION_POLL_MS,
+        ))
+        .await;
+    }
+
+    let current = settings::get_settings(&app);
+    if current.connector_password == new_password && current.connector_pending_password.is_none() {
         return Ok(());
     }
 
-    // Use two-phase commit: set new password as pending, keep old one valid
-    // Extension will receive passwordUpdate, save it, send ack, then it's committed
-    // This prevents extension from getting locked out during password change
-    log::info!("User changing connector password - using two-phase commit");
-    settings.connector_pending_password = Some(trimmed);
-    settings.connector_password_user_set = true;
-    // Note: connector_password stays as OLD password until extension acks
-    settings::write_settings(&app, settings);
-    Ok(())
+    if current.connector_pending_password.as_deref() == Some(new_password.as_str()) {
+        let mut rollback_settings = current.clone();
+        rollback_settings.connector_pending_password = None;
+        rollback_settings.connector_pending_password_issued_at_ms = 0;
+        settings::write_settings(&app, rollback_settings.clone());
+        connector_manager.refresh_crypto_state(&rollback_settings.connector_password, None);
+        connector_manager.clear_sessions();
+    }
+
+    Err(
+        "Password rotation was not confirmed by the connected extension in time. The connector password was left unchanged."
+            .to_string(),
+    )
 }
 
 #[tauri::command]
@@ -3325,7 +4078,7 @@ pub fn change_app_language_setting(app: AppHandle, language: String) -> Result<(
     settings::write_settings(&app, settings);
 
     // Refresh the tray menu with the new language
-    tray::update_tray_menu(&app, &tray::TrayIconState::Idle, Some(&language));
+    tray::refresh_tray_menu(&app, Some(&language));
 
     Ok(())
 }
@@ -4046,14 +4799,13 @@ pub fn get_text_replacement_decapitalize_overlay_state(
     app: AppHandle,
 ) -> DecapitalizeOverlayStateResponse {
     let settings = settings::get_settings(&app);
-    let eligible = settings.text_replacement_decapitalize_after_edit_key_enabled
-        && settings.transcription_provider == TranscriptionProvider::RemoteSoniox
-        && settings.soniox_live_enabled;
-    let armed = eligible && crate::text_replacement_decapitalize::is_realtime_trigger_armed_now();
+    let indicator = crate::text_replacement_decapitalize::indicator_state(
+        settings.text_replacement_decapitalize_after_edit_key_enabled,
+    );
 
     DecapitalizeOverlayStateResponse {
-        decapitalize_eligible: eligible,
-        decapitalize_armed: armed,
+        decapitalize_eligible: indicator.eligible,
+        decapitalize_armed: indicator.armed,
     }
 }
 
@@ -4102,6 +4854,31 @@ pub fn change_output_whitespace_trailing_mode_setting(
 ) -> Result<(), String> {
     let mut settings = settings::get_settings(&app);
     settings.output_whitespace_trailing_mode = mode;
+    settings::write_settings(&app, settings);
+    Ok(())
+}
+
+// ============================================================================
+// Window Geometry Settings
+// ============================================================================
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_remember_window_size_setting(app: AppHandle, enabled: bool) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.remember_window_size = enabled;
+    settings::write_settings(&app, settings);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_remember_window_position_setting(
+    app: AppHandle,
+    enabled: bool,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.remember_window_position = enabled;
     settings::write_settings(&app, settings);
     Ok(())
 }

@@ -13,7 +13,8 @@ export type ExtendedOverlayState =
   | "thinking"
   | "finalizing"
   | "error"
-  | "profile_switch";
+  | "profile_switch"
+  | "microphone_switch";
 
 /**
  * Error categories matching Rust OverlayErrorCategory enum

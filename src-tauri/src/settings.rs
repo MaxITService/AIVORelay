@@ -6,6 +6,13 @@ use std::collections::HashMap;
 use tauri::AppHandle;
 use tauri_plugin_store::StoreExt;
 
+use crate::url_security::{
+    infer_remote_stt_preset, is_plain_http_url, remote_stt_base_url_for_preset,
+    LLM_ANTHROPIC_BASE_URL, LLM_CEREBRAS_BASE_URL, LLM_GROQ_BASE_URL,
+    LLM_OPENAI_BASE_URL, LLM_OPENROUTER_BASE_URL, LLM_ZAI_BASE_URL,
+    REMOTE_STT_GROQ_BASE_URL, REMOTE_STT_GROQ_DEFAULT_MODEL, REMOTE_STT_PRESET_GROQ,
+};
+
 pub const APPLE_INTELLIGENCE_PROVIDER_ID: &str = "apple_intelligence";
 pub const APPLE_INTELLIGENCE_DEFAULT_MODEL_ID: &str = "Apple Intelligence";
 pub const MAX_HISTORY_LIMIT: usize = 1000;
@@ -84,6 +91,18 @@ pub struct ShortcutBinding {
     pub description: String,
     pub default_binding: String,
     pub current_binding: String,
+}
+
+pub const PREVIEW_DELETE_LAST_WORD_BINDING_ID: &str = "preview_delete_last_word";
+
+pub fn build_preview_delete_last_word_binding(current_binding: String) -> ShortcutBinding {
+    ShortcutBinding {
+        id: PREVIEW_DELETE_LAST_WORD_BINDING_ID.to_string(),
+        name: "Preview Delete Last Word".to_string(),
+        description: "Delete the last word from the active preview workflow.".to_string(),
+        default_binding: String::new(),
+        current_binding,
+    }
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Type)]
@@ -184,6 +203,14 @@ pub struct TranscriptionProfile {
     /// Soniox context.terms list.
     #[serde(default)]
     pub soniox_context_terms: Vec<String>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, Type)]
+pub struct DiarizationSpeakerNameProfile {
+    pub id: String,
+    pub name: String,
+    #[serde(default)]
+    pub speaker_names: Vec<String>,
 }
 
 impl TranscriptionProfile {
@@ -717,6 +744,8 @@ pub struct PostProcessProvider {
     #[serde(default)]
     pub allow_base_url_edit: bool,
     #[serde(default)]
+    pub allow_insecure_http: bool,
+    #[serde(default)]
     pub models_endpoint: Option<String>,
 }
 
@@ -751,11 +780,16 @@ pub enum TranscriptionProvider {
     RemoteOpenAiCompatible,
     #[serde(rename = "remote_soniox")]
     RemoteSoniox,
+    #[serde(rename = "remote_deepgram")]
+    RemoteDeepgram,
 }
 
 pub const SONIOX_DEFAULT_MODEL: &str = "stt-rt-v4";
 pub const SONIOX_DEFAULT_MAX_ENDPOINT_DELAY_MS: u32 = 2000;
 pub const SONIOX_DEFAULT_LIVE_FINALIZE_TIMEOUT_MS: u32 = 500;
+pub const DEEPGRAM_DEFAULT_MODEL: &str = "nova-3";
+pub const DEEPGRAM_DEFAULT_ENDPOINTING_MS: u32 = 400;
+pub const DEEPGRAM_DEFAULT_LIVE_FINALIZE_TIMEOUT_MS: u32 = 1200;
 
 /// Shortcut engine selection for Windows.
 /// Controls which mechanism is used to listen for global hotkeys.
@@ -789,6 +823,10 @@ pub enum RemoteSttDebugMode {
 #[derive(Serialize, Deserialize, Debug, Clone, Type)]
 pub struct RemoteSttSettings {
     pub base_url: String,
+    #[serde(default = "default_remote_stt_provider_preset")]
+    pub provider_preset: String,
+    #[serde(default)]
+    pub allow_insecure_http: bool,
     pub model_id: String,
     #[serde(default = "default_remote_stt_debug_capture")]
     pub debug_capture: bool,
@@ -939,6 +977,46 @@ impl Default for OutputWhitespaceMode {
     }
 }
 
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Type)]
+#[serde(rename_all = "snake_case")]
+pub enum LiveSoundCaptureSource {
+    Microphone,
+    SystemOutput,
+    Both,
+}
+
+impl Default for LiveSoundCaptureSource {
+    fn default() -> Self {
+        Self::SystemOutput
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Type)]
+#[serde(rename_all = "snake_case")]
+pub enum LiveSoundTranscriptionProvider {
+    System,
+    #[serde(rename = "remote_soniox")]
+    RemoteSoniox,
+    #[serde(rename = "remote_deepgram")]
+    RemoteDeepgram,
+}
+
+impl Default for LiveSoundTranscriptionProvider {
+    fn default() -> Self {
+        Self::RemoteSoniox
+    }
+}
+
+/// Resolve the effective transcription provider for Live Sound Transcription.
+/// If the page-level override is set, use it; otherwise fall back to the global provider.
+pub fn resolve_live_sound_provider(settings: &AppSettings) -> TranscriptionProvider {
+    match settings.live_sound_transcription_provider {
+        LiveSoundTranscriptionProvider::System => settings.transcription_provider,
+        LiveSoundTranscriptionProvider::RemoteSoniox => TranscriptionProvider::RemoteSoniox,
+        LiveSoundTranscriptionProvider::RemoteDeepgram => TranscriptionProvider::RemoteDeepgram,
+    }
+}
+
 impl ModelUnloadTimeout {
     pub fn to_minutes(self) -> Option<u64> {
         match self {
@@ -1051,14 +1129,63 @@ pub struct AppSettings {
     pub soniox_realtime_fuzzy_correction_enabled: bool,
     #[serde(default = "default_false")]
     pub soniox_realtime_keep_safety_buffer_enabled: bool,
+    #[serde(default = "default_deepgram_model")]
+    pub deepgram_model: String,
+    #[serde(default = "default_deepgram_timeout_seconds")]
+    pub deepgram_timeout_seconds: u32,
+    #[serde(default = "default_deepgram_live_enabled")]
+    pub deepgram_live_enabled: bool,
+    #[serde(default = "default_deepgram_keepalive_interval_seconds")]
+    pub deepgram_keepalive_interval_seconds: u32,
+    #[serde(default = "default_deepgram_live_finalize_timeout_ms")]
+    pub deepgram_live_finalize_timeout_ms: u32,
+    #[serde(default = "default_false")]
+    pub deepgram_live_instant_stop: bool,
+    #[serde(default = "default_true")]
+    pub deepgram_interim_results: bool,
+    #[serde(default = "default_true")]
+    pub deepgram_smart_format: bool,
+    #[serde(default = "default_false")]
+    pub deepgram_diarize: bool,
+    #[serde(default = "default_true")]
+    pub live_sound_enable_speaker_diarization: bool,
+    #[serde(default = "default_true")]
+    pub deepgram_endpointing_enabled: bool,
+    #[serde(default = "default_deepgram_endpointing_ms")]
+    pub deepgram_endpointing_ms: u32,
     #[serde(default = "default_always_on_microphone")]
     pub always_on_microphone: bool,
     #[serde(default)]
     pub selected_microphone: Option<String>,
     #[serde(default)]
+    pub last_manual_microphone: Option<String>,
+    #[serde(default = "default_false")]
+    pub selected_microphone_auto_switch_enabled: bool,
+    #[serde(default)]
+    pub selected_microphone_name_pattern: String,
+    #[serde(default)]
     pub clamshell_microphone: Option<String>,
+    /// Microphone used exclusively by the Live Sound pipeline.
+    /// `None` means fall back to `selected_microphone` (global default).
+    #[serde(default)]
+    pub live_sound_microphone: Option<String>,
     #[serde(default)]
     pub selected_output_device: Option<String>,
+    #[serde(default = "default_live_sound_capture_source")]
+    pub live_sound_capture_source: LiveSoundCaptureSource,
+    #[serde(default)]
+    pub live_sound_transcription_provider: LiveSoundTranscriptionProvider,
+    #[serde(default = "default_live_sound_auto_stop_minutes")]
+    pub live_sound_auto_stop_minutes: u32,
+    /// Overrides for Live Monitor sessions — None means inherit global provider setting.
+    #[serde(default)]
+    pub live_sound_soniox_endpoint_detection: Option<bool>,
+    #[serde(default)]
+    pub live_sound_soniox_max_endpoint_delay_ms: Option<u32>,
+    #[serde(default)]
+    pub live_sound_deepgram_endpointing_enabled: Option<bool>,
+    #[serde(default)]
+    pub live_sound_deepgram_endpointing_ms: Option<u32>,
     #[serde(default = "default_translate_to_english")]
     pub translate_to_english: bool,
     #[serde(default = "default_selected_language")]
@@ -1068,6 +1195,9 @@ pub struct AppSettings {
     /// Auto-hide duration for error overlay in milliseconds.
     #[serde(default = "default_error_overlay_auto_hide_ms")]
     pub error_overlay_auto_hide_ms: u64,
+    /// Show runtime errors in the recording overlay.
+    #[serde(default = "default_true")]
+    pub error_feedback_enabled: bool,
     #[serde(default = "default_soniox_live_preview_enabled")]
     pub soniox_live_preview_enabled: bool,
     #[serde(default = "default_soniox_live_preview_position")]
@@ -1106,6 +1236,12 @@ pub struct AppSettings {
     pub soniox_live_preview_process_hotkey: String,
     #[serde(default)]
     pub soniox_live_preview_insert_hotkey: String,
+    #[serde(default)]
+    pub soniox_live_preview_delete_until_dot_or_comma_hotkey: String,
+    #[serde(default)]
+    pub soniox_live_preview_delete_until_dot_hotkey: String,
+    #[serde(default)]
+    pub soniox_live_preview_delete_last_word_hotkey: String,
     #[serde(default = "default_true")]
     pub soniox_live_preview_show_clear_button: bool,
     #[serde(default = "default_true")]
@@ -1114,6 +1250,18 @@ pub struct AppSettings {
     pub soniox_live_preview_show_process_button: bool,
     #[serde(default = "default_true")]
     pub soniox_live_preview_show_insert_button: bool,
+    #[serde(default = "default_true")]
+    pub soniox_live_preview_show_delete_until_dot_or_comma_button: bool,
+    #[serde(default = "default_true")]
+    pub soniox_live_preview_show_delete_until_dot_button: bool,
+    #[serde(default = "default_true")]
+    pub soniox_live_preview_show_delete_last_word_button: bool,
+    #[serde(default = "default_true")]
+    pub soniox_live_preview_ctrl_backspace_delete_last_word: bool,
+    #[serde(default = "default_true")]
+    pub soniox_live_preview_backspace_delete_last_char: bool,
+    #[serde(default = "default_true")]
+    pub soniox_live_preview_show_drag_grip: bool,
     #[serde(default = "default_debug_mode")]
     pub debug_mode: bool,
     #[serde(default = "default_log_level")]
@@ -1227,6 +1375,14 @@ pub struct AppSettings {
     pub filter_silence: bool,
     #[serde(default = "default_connector_port")]
     pub connector_port: u16,
+    #[serde(default = "default_connector_enabled")]
+    pub connector_enabled: bool,
+    #[serde(default = "default_connector_encryption_enabled")]
+    pub connector_encryption_enabled: bool,
+    #[serde(default = "default_connector_allow_any_cors")]
+    pub connector_allow_any_cors: bool,
+    #[serde(default = "default_connector_cors")]
+    pub connector_cors: String,
     #[serde(default = "default_connector_auto_open_enabled")]
     pub connector_auto_open_enabled: bool,
     #[serde(default = "default_connector_auto_open_url")]
@@ -1266,6 +1422,9 @@ pub struct AppSettings {
     /// Pending password awaiting acknowledgement from extension (two-phase commit)
     #[serde(default)]
     pub connector_pending_password: Option<String>,
+    /// Timestamp (Unix ms) when the pending connector password was issued.
+    #[serde(default)]
+    pub connector_pending_password_issued_at_ms: i64,
     /// Per-model transcription prompts (model_id -> prompt text)
     /// For Whisper: context/terms prompt. For Parakeet: comma-separated boost words.
     #[serde(default)]
@@ -1274,6 +1433,9 @@ pub struct AppSettings {
     /// Each profile creates a dynamic shortcut binding.
     #[serde(default)]
     pub transcription_profiles: Vec<TranscriptionProfile>,
+    /// Saved speaker-name presets for diarized file transcription.
+    #[serde(default)]
+    pub diarization_speaker_name_profiles: Vec<DiarizationSpeakerNameProfile>,
     /// ID of the currently active profile. "default" means use global settings.
     /// When the main "Transcribe" shortcut is pressed, this profile's settings are used.
     #[serde(default = "default_active_profile_id")]
@@ -1449,6 +1611,25 @@ pub struct AppSettings {
     /// Width of the hotkey sidebar in pixels
     #[serde(default = "default_sidebar_width")]
     pub sidebar_width: u32,
+    // ==================== Window Geometry ====================
+    /// Remember the main window size between sessions
+    #[serde(default)]
+    pub remember_window_size: bool,
+    /// Remember the main window position between sessions
+    #[serde(default)]
+    pub remember_window_position: bool,
+    /// Saved main window inner width in physical pixels (0 = not set)
+    #[serde(default)]
+    pub saved_window_width: u32,
+    /// Saved main window inner height in physical pixels (0 = not set)
+    #[serde(default)]
+    pub saved_window_height: u32,
+    /// Saved main window X position in physical pixels (i32::MIN = not set)
+    #[serde(default = "default_saved_window_coord")]
+    pub saved_window_x: i32,
+    /// Saved main window Y position in physical pixels (i32::MIN = not set)
+    #[serde(default = "default_saved_window_coord")]
+    pub saved_window_y: i32,
 }
 
 fn default_recording_auto_stop_timeout_seconds() -> u32 {
@@ -1457,6 +1638,10 @@ fn default_recording_auto_stop_timeout_seconds() -> u32 {
 
 fn default_sidebar_width() -> u32 {
     350
+}
+
+fn default_saved_window_coord() -> i32 {
+    i32::MIN
 }
 
 fn default_model() -> String {
@@ -1475,10 +1660,16 @@ fn default_remote_stt_debug_mode() -> RemoteSttDebugMode {
     RemoteSttDebugMode::Normal
 }
 
+fn default_remote_stt_provider_preset() -> String {
+    REMOTE_STT_PRESET_GROQ.to_string()
+}
+
 fn default_remote_stt_settings() -> RemoteSttSettings {
     RemoteSttSettings {
-        base_url: "https://api.groq.com/openai/v1".to_string(),
-        model_id: "whisper-large-v3-turbo".to_string(),
+        base_url: REMOTE_STT_GROQ_BASE_URL.to_string(),
+        provider_preset: default_remote_stt_provider_preset(),
+        allow_insecure_http: false,
+        model_id: REMOTE_STT_GROQ_DEFAULT_MODEL.to_string(),
         debug_capture: default_remote_stt_debug_capture(),
         debug_mode: default_remote_stt_debug_mode(),
     }
@@ -1512,12 +1703,44 @@ fn default_soniox_live_finalize_timeout_ms() -> u32 {
     SONIOX_DEFAULT_LIVE_FINALIZE_TIMEOUT_MS
 }
 
+fn default_deepgram_model() -> String {
+    DEEPGRAM_DEFAULT_MODEL.to_string()
+}
+
+fn default_deepgram_timeout_seconds() -> u32 {
+    3600
+}
+
+fn default_deepgram_live_enabled() -> bool {
+    true
+}
+
+fn default_deepgram_keepalive_interval_seconds() -> u32 {
+    5
+}
+
+fn default_deepgram_live_finalize_timeout_ms() -> u32 {
+    DEEPGRAM_DEFAULT_LIVE_FINALIZE_TIMEOUT_MS
+}
+
+fn default_deepgram_endpointing_ms() -> u32 {
+    DEEPGRAM_DEFAULT_ENDPOINTING_MS
+}
+
 fn default_vad_threshold() -> f32 {
     0.3 // Original Handy default - more sensitive
 }
 
 fn default_always_on_microphone() -> bool {
     false
+}
+
+fn default_live_sound_capture_source() -> LiveSoundCaptureSource {
+    LiveSoundCaptureSource::default()
+}
+
+fn default_live_sound_auto_stop_minutes() -> u32 {
+    60
 }
 
 fn default_translate_to_english() -> bool {
@@ -1548,11 +1771,11 @@ fn default_overlay_position() -> OverlayPosition {
 }
 
 fn default_error_overlay_auto_hide_ms() -> u64 {
-    3000
+    2000
 }
 
 fn default_soniox_live_preview_enabled() -> bool {
-    true
+    false
 }
 
 fn default_soniox_live_preview_position() -> SonioxLivePreviewPosition {
@@ -1681,6 +1904,22 @@ fn default_connector_port() -> u16 {
     38243
 }
 
+fn default_connector_enabled() -> bool {
+    false
+}
+
+fn default_connector_encryption_enabled() -> bool {
+    true
+}
+
+fn default_connector_allow_any_cors() -> bool {
+    true
+}
+
+fn default_connector_cors() -> String {
+    String::new()
+}
+
 fn default_connector_auto_open_enabled() -> bool {
     false
 }
@@ -1778,6 +2017,12 @@ Example inputs and outputs:
 
 /// Default connector password - used for initial mutual authentication
 pub fn default_connector_password() -> String {
+    // This hardcoded bootstrap password is only an onboarding fallback, and only if user uses very exotic, manual onboading,
+    // while other methods are primary in this app.
+    // User DOES NOT need to use this at all and can be perfectly secure by using own password. 
+    // It is not the steady-state connector secret. The app rotates away from it or replaces it
+    // during pairing/export, so its presence in source is not relied on as a
+    // long-term security boundary.
     "fklejqwhfiu342lhk3".to_string()
 }
 
@@ -1858,43 +2103,49 @@ fn default_post_process_providers() -> Vec<PostProcessProvider> {
         PostProcessProvider {
             id: "openai".to_string(),
             label: "OpenAI".to_string(),
-            base_url: "https://api.openai.com/v1".to_string(),
+            base_url: LLM_OPENAI_BASE_URL.to_string(),
             allow_base_url_edit: false,
+            allow_insecure_http: false,
             models_endpoint: Some("/models".to_string()),
         },
         PostProcessProvider {
             id: "zai".to_string(),
             label: "Z.AI".to_string(),
-            base_url: "https://api.z.ai/api/paas/v4".to_string(),
+            base_url: LLM_ZAI_BASE_URL.to_string(),
             allow_base_url_edit: false,
+            allow_insecure_http: false,
             models_endpoint: Some("/models".to_string()),
         },
         PostProcessProvider {
             id: "openrouter".to_string(),
             label: "OpenRouter".to_string(),
-            base_url: "https://openrouter.ai/api/v1".to_string(),
+            base_url: LLM_OPENROUTER_BASE_URL.to_string(),
             allow_base_url_edit: false,
+            allow_insecure_http: false,
             models_endpoint: Some("/models".to_string()),
         },
         PostProcessProvider {
             id: "anthropic".to_string(),
             label: "Anthropic".to_string(),
-            base_url: "https://api.anthropic.com/v1".to_string(),
+            base_url: LLM_ANTHROPIC_BASE_URL.to_string(),
             allow_base_url_edit: false,
+            allow_insecure_http: false,
             models_endpoint: Some("/models".to_string()),
         },
         PostProcessProvider {
             id: "groq".to_string(),
             label: "Groq".to_string(),
-            base_url: "https://api.groq.com/openai/v1".to_string(),
+            base_url: LLM_GROQ_BASE_URL.to_string(),
             allow_base_url_edit: false,
+            allow_insecure_http: false,
             models_endpoint: Some("/models".to_string()),
         },
         PostProcessProvider {
             id: "cerebras".to_string(),
             label: "Cerebras".to_string(),
-            base_url: "https://api.cerebras.ai/v1".to_string(),
+            base_url: LLM_CEREBRAS_BASE_URL.to_string(),
             allow_base_url_edit: false,
+            allow_insecure_http: false,
             models_endpoint: Some("/models".to_string()),
         },
     ];
@@ -1910,6 +2161,7 @@ fn default_post_process_providers() -> Vec<PostProcessProvider> {
             label: "Apple Intelligence".to_string(),
             base_url: "apple-intelligence://local".to_string(),
             allow_base_url_edit: false,
+            allow_insecure_http: false,
             models_endpoint: None,
         });
     }
@@ -1918,8 +2170,9 @@ fn default_post_process_providers() -> Vec<PostProcessProvider> {
     providers.push(PostProcessProvider {
         id: "custom".to_string(),
         label: "Custom".to_string(),
-        base_url: "http://localhost:11434/v1".to_string(),
+        base_url: String::new(),
         allow_base_url_edit: true,
+        allow_insecure_http: false,
         models_endpoint: Some("/models".to_string()),
     });
 
@@ -1970,6 +2223,39 @@ fn ensure_post_process_defaults(settings: &mut AppSettings) -> bool {
         {
             settings.post_process_providers.push(provider.clone());
             changed = true;
+        } else if let Some(existing) = settings
+            .post_process_providers
+            .iter_mut()
+            .find(|existing| existing.id == provider.id)
+        {
+            if existing.label != provider.label {
+                existing.label = provider.label.clone();
+                changed = true;
+            }
+            if existing.allow_base_url_edit != provider.allow_base_url_edit {
+                existing.allow_base_url_edit = provider.allow_base_url_edit;
+                changed = true;
+            }
+            if existing.models_endpoint != provider.models_endpoint {
+                existing.models_endpoint = provider.models_endpoint.clone();
+                changed = true;
+            }
+
+            if provider.id == "custom" {
+                if is_plain_http_url(&existing.base_url) && !existing.allow_insecure_http {
+                    existing.allow_insecure_http = true;
+                    changed = true;
+                }
+            } else {
+                if existing.base_url != provider.base_url {
+                    existing.base_url = provider.base_url.clone();
+                    changed = true;
+                }
+                if existing.allow_insecure_http {
+                    existing.allow_insecure_http = false;
+                    changed = true;
+                }
+            }
         }
 
         if !settings.post_process_api_keys.contains_key(&provider.id) {
@@ -1994,6 +2280,40 @@ fn ensure_post_process_defaults(settings: &mut AppSettings) -> bool {
                 changed = true;
             }
         }
+    }
+
+    changed
+}
+
+fn ensure_remote_stt_defaults(settings: &mut AppSettings) -> bool {
+    let mut changed = false;
+
+    let inferred_preset = infer_remote_stt_preset(&settings.remote_stt.base_url);
+    if settings.remote_stt.provider_preset.trim().is_empty() {
+        settings.remote_stt.provider_preset = inferred_preset.to_string();
+        changed = true;
+    }
+
+    if settings.remote_stt.provider_preset != "custom" {
+        if let Some(base_url) = remote_stt_base_url_for_preset(&settings.remote_stt.provider_preset)
+        {
+            if settings.remote_stt.base_url != base_url {
+                settings.remote_stt.base_url = base_url.to_string();
+                changed = true;
+            }
+        } else {
+            settings.remote_stt.provider_preset = inferred_preset.to_string();
+            changed = true;
+        }
+
+        if settings.remote_stt.allow_insecure_http {
+            settings.remote_stt.allow_insecure_http = false;
+            changed = true;
+        }
+    } else if is_plain_http_url(&settings.remote_stt.base_url) && !settings.remote_stt.allow_insecure_http
+    {
+        settings.remote_stt.allow_insecure_http = true;
+        changed = true;
     }
 
     changed
@@ -2153,6 +2473,10 @@ pub fn get_default_settings() -> AppSettings {
             current_binding: "".to_string(),
         },
     );
+    bindings.insert(
+        PREVIEW_DELETE_LAST_WORD_BINDING_ID.to_string(),
+        build_preview_delete_last_word_binding(String::new()),
+    );
 
     AppSettings {
         bindings,
@@ -2186,14 +2510,38 @@ pub fn get_default_settings() -> AppSettings {
         soniox_live_instant_stop: default_false(),
         soniox_realtime_fuzzy_correction_enabled: default_false(),
         soniox_realtime_keep_safety_buffer_enabled: default_false(),
+        deepgram_model: default_deepgram_model(),
+        deepgram_timeout_seconds: default_deepgram_timeout_seconds(),
+        deepgram_live_enabled: default_deepgram_live_enabled(),
+        deepgram_keepalive_interval_seconds: default_deepgram_keepalive_interval_seconds(),
+        deepgram_live_finalize_timeout_ms: default_deepgram_live_finalize_timeout_ms(),
+        deepgram_live_instant_stop: default_false(),
+        deepgram_interim_results: default_true(),
+        live_sound_enable_speaker_diarization: default_true(),
+        deepgram_smart_format: default_true(),
+        deepgram_diarize: default_false(),
+        deepgram_endpointing_enabled: default_true(),
+        deepgram_endpointing_ms: default_deepgram_endpointing_ms(),
         always_on_microphone: false,
         selected_microphone: None,
+        last_manual_microphone: None,
+        selected_microphone_auto_switch_enabled: default_false(),
+        selected_microphone_name_pattern: String::new(),
         clamshell_microphone: None,
+        live_sound_microphone: None,
         selected_output_device: None,
+        live_sound_capture_source: default_live_sound_capture_source(),
+        live_sound_transcription_provider: LiveSoundTranscriptionProvider::RemoteSoniox,
+        live_sound_auto_stop_minutes: default_live_sound_auto_stop_minutes(),
+        live_sound_soniox_endpoint_detection: None,
+        live_sound_soniox_max_endpoint_delay_ms: None,
+        live_sound_deepgram_endpointing_enabled: None,
+        live_sound_deepgram_endpointing_ms: None,
         translate_to_english: false,
         selected_language: "auto".to_string(),
         overlay_position: default_overlay_position(),
         error_overlay_auto_hide_ms: default_error_overlay_auto_hide_ms(),
+        error_feedback_enabled: default_true(),
         soniox_live_preview_enabled: default_soniox_live_preview_enabled(),
         soniox_live_preview_position: default_soniox_live_preview_position(),
         soniox_live_preview_cursor_offset_px: default_soniox_live_preview_cursor_offset_px(),
@@ -2214,10 +2562,19 @@ pub fn get_default_settings() -> AppSettings {
         soniox_live_preview_flush_hotkey: String::new(),
         soniox_live_preview_process_hotkey: String::new(),
         soniox_live_preview_insert_hotkey: String::new(),
+        soniox_live_preview_delete_until_dot_or_comma_hotkey: String::new(),
+        soniox_live_preview_delete_until_dot_hotkey: String::new(),
+        soniox_live_preview_delete_last_word_hotkey: String::new(),
         soniox_live_preview_show_clear_button: default_true(),
         soniox_live_preview_show_flush_button: default_true(),
         soniox_live_preview_show_process_button: default_true(),
         soniox_live_preview_show_insert_button: default_true(),
+        soniox_live_preview_show_delete_until_dot_or_comma_button: default_true(),
+        soniox_live_preview_show_delete_until_dot_button: default_true(),
+        soniox_live_preview_show_delete_last_word_button: default_true(),
+        soniox_live_preview_ctrl_backspace_delete_last_word: default_true(),
+        soniox_live_preview_backspace_delete_last_char: default_true(),
+        soniox_live_preview_show_drag_grip: default_true(),
         debug_mode: false,
         log_level: default_log_level(),
         custom_words: Vec::new(),
@@ -2273,6 +2630,10 @@ pub fn get_default_settings() -> AppSettings {
         mute_while_recording: false,
         filter_silence: default_filter_silence(),
         connector_port: default_connector_port(),
+        connector_enabled: default_connector_enabled(),
+        connector_encryption_enabled: default_connector_encryption_enabled(),
+        connector_allow_any_cors: default_connector_allow_any_cors(),
+        connector_cors: default_connector_cors(),
         connector_auto_open_enabled: default_connector_auto_open_enabled(),
         connector_auto_open_url: default_connector_auto_open_url(),
         screenshot_capture_method: default_screenshot_capture_method(),
@@ -2291,8 +2652,10 @@ pub fn get_default_settings() -> AppSettings {
         connector_password: default_connector_password(),
         connector_password_user_set: false,
         connector_pending_password: None,
+        connector_pending_password_issued_at_ms: 0,
         transcription_prompts: HashMap::new(),
         transcription_profiles: Vec::new(),
+        diarization_speaker_name_profiles: Vec::new(),
         active_profile_id: default_active_profile_id(),
         profile_switch_overlay_enabled: true,
         // Voice Command Center
@@ -2357,6 +2720,13 @@ pub fn get_default_settings() -> AppSettings {
         recording_auto_stop_enabled: false,
         recording_auto_stop_timeout_seconds: 1800,
         recording_auto_stop_paste: false,
+        // Window Geometry
+        remember_window_size: false,
+        remember_window_position: false,
+        saved_window_width: 0,
+        saved_window_height: 0,
+        saved_window_x: i32::MIN,
+        saved_window_y: i32::MIN,
     }
 }
 
@@ -2603,6 +2973,30 @@ pub fn load_or_create_app_settings(app: &AppHandle) -> AppSettings {
                     }
                 }
 
+                let preview_delete_last_word_binding = build_preview_delete_last_word_binding(
+                    settings
+                        .soniox_live_preview_delete_last_word_hotkey
+                        .trim()
+                        .to_string(),
+                );
+                match settings.bindings.get(PREVIEW_DELETE_LAST_WORD_BINDING_ID) {
+                    Some(binding)
+                        if binding.current_binding
+                            == preview_delete_last_word_binding.current_binding
+                            && binding.name == preview_delete_last_word_binding.name
+                            && binding.description
+                                == preview_delete_last_word_binding.description
+                            && binding.default_binding
+                                == preview_delete_last_word_binding.default_binding => {}
+                    _ => {
+                        settings.bindings.insert(
+                            PREVIEW_DELETE_LAST_WORD_BINDING_ID.to_string(),
+                            preview_delete_last_word_binding,
+                        );
+                        updated = true;
+                    }
+                }
+
                 // Migrate API keys from JSON to secure storage (Windows only)
                 #[cfg(target_os = "windows")]
                 {
@@ -2648,6 +3042,9 @@ pub fn load_or_create_app_settings(app: &AppHandle) -> AppSettings {
                 if updated {
                     debug!("Settings updated with new bindings");
                     store.set("settings", serde_json::to_value(&settings).unwrap());
+                    if let Err(e) = store.save() {
+                        warn!("Failed to flush repaired settings to disk: {}", e);
+                    }
                 }
 
                 settings
@@ -2657,17 +3054,28 @@ pub fn load_or_create_app_settings(app: &AppHandle) -> AppSettings {
                 // Fall back to default settings if parsing fails
                 let default_settings = get_default_settings();
                 store.set("settings", serde_json::to_value(&default_settings).unwrap());
+                if let Err(e) = store.save() {
+                    warn!("Failed to flush default settings to disk: {}", e);
+                }
                 default_settings
             }
         }
     } else {
         let default_settings = get_default_settings();
         store.set("settings", serde_json::to_value(&default_settings).unwrap());
+        if let Err(e) = store.save() {
+            warn!("Failed to flush default settings to disk: {}", e);
+        }
         default_settings
     };
 
-    if ensure_post_process_defaults(&mut settings) {
+    let repaired_post_process = ensure_post_process_defaults(&mut settings);
+    let repaired_remote_stt = ensure_remote_stt_defaults(&mut settings);
+    if repaired_post_process || repaired_remote_stt {
         store.set("settings", serde_json::to_value(&settings).unwrap());
+        if let Err(e) = store.save() {
+            warn!("Failed to flush repaired settings to disk: {}", e);
+        }
     }
 
     // Normalize active_profile_id: if it points to a non-existent profile, reset to "default"
@@ -2683,6 +3091,9 @@ pub fn load_or_create_app_settings(app: &AppHandle) -> AppSettings {
         );
         settings.active_profile_id = "default".to_string();
         store.set("settings", serde_json::to_value(&settings).unwrap());
+        if let Err(e) = store.save() {
+            warn!("Failed to flush repaired settings to disk: {}", e);
+        }
     }
 
     settings
@@ -2697,16 +3108,27 @@ pub fn get_settings(app: &AppHandle) -> AppSettings {
         serde_json::from_value::<AppSettings>(settings_value).unwrap_or_else(|_| {
             let default_settings = get_default_settings();
             store.set("settings", serde_json::to_value(&default_settings).unwrap());
+            if let Err(e) = store.save() {
+                warn!("Failed to flush default settings to disk: {}", e);
+            }
             default_settings
         })
     } else {
         let default_settings = get_default_settings();
         store.set("settings", serde_json::to_value(&default_settings).unwrap());
+        if let Err(e) = store.save() {
+            warn!("Failed to flush default settings to disk: {}", e);
+        }
         default_settings
     };
 
-    if ensure_post_process_defaults(&mut settings) {
+    let repaired_post_process = ensure_post_process_defaults(&mut settings);
+    let repaired_remote_stt = ensure_remote_stt_defaults(&mut settings);
+    if repaired_post_process || repaired_remote_stt {
         store.set("settings", serde_json::to_value(&settings).unwrap());
+        if let Err(e) = store.save() {
+            warn!("Failed to flush repaired settings to disk: {}", e);
+        }
     }
 
     settings

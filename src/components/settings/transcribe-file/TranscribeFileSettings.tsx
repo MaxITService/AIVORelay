@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useMemo } from "react";
+import React, { useState, useRef, useEffect, useMemo, useCallback } from "react";
 import { useTranslation } from "react-i18next";
 import {
   FileAudio,
@@ -10,23 +10,160 @@ import {
   Loader2,
 } from "lucide-react";
 import { open } from "@tauri-apps/plugin-dialog";
-import { convertFileSrc } from "@tauri-apps/api/core";
+import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { stat } from "@tauri-apps/plugin-fs";
-import { commands, ModelInfo, SonioxFileTranscriptionOptions } from "@/bindings";
+import {
+  commands,
+  DeepgramFileTranscriptionOptions,
+  ModelInfo,
+  SonioxFileTranscriptionOptions,
+} from "@/bindings";
 import { useSettings } from "@/hooks/useSettings";
 import { SettingsGroup } from "@/components/ui/SettingsGroup";
+import { Alert } from "@/components/ui/Alert";
 import { Button } from "@/components/ui/Button";
 import { AudioPlayer } from "@/components/ui/AudioPlayer";
+import { ConfirmationModal } from "@/components/ui/ConfirmationModal";
 import { Dropdown } from "@/components/ui/Dropdown";
-import { useTranscribeFileStore } from "@/stores/transcribeFileStore";
+import {
+  useTranscribeFileStore,
+  type SelectedFile,
+} from "@/stores/transcribeFileStore";
 import { parseAndNormalizeSonioxLanguageHints } from "@/lib/constants/sonioxLanguages";
 
 const supportedExtensions = ["wav", "mp3", "m4a", "ogg", "flac", "webm"];
+const DEEPGRAM_MAX_FILE_DURATION_SECONDS = 10 * 60;
+const SONIOX_MAX_FILE_DURATION_SECONDS = 300 * 60;
+
+type SpeakerNameSetProfile = {
+  id: string;
+  name: string;
+  speaker_names: string[];
+};
+
+const formatAudioDurationClock = (seconds: number | null | undefined): string => {
+  if (seconds == null || !Number.isFinite(seconds) || seconds < 0) {
+    return "";
+  }
+
+  const rounded = Math.round(seconds);
+  const hours = Math.floor(rounded / 3600);
+  const minutes = Math.floor((rounded % 3600) / 60);
+  const remainingSeconds = rounded % 60;
+
+  if (hours > 0) {
+    return `${hours}:${String(minutes).padStart(2, "0")}:${String(
+      remainingSeconds,
+    ).padStart(2, "0")}`;
+  }
+
+  return `${minutes}:${String(remainingSeconds).padStart(2, "0")}`;
+};
+
+const formatAudioDurationWithUnits = (
+  seconds: number | null | undefined,
+): string => {
+  if (seconds == null || !Number.isFinite(seconds) || seconds < 0) {
+    return "";
+  }
+
+  const rounded = Math.round(seconds);
+  const hours = Math.floor(rounded / 3600);
+  const minutes = Math.floor((rounded % 3600) / 60);
+  const remainingSeconds = rounded % 60;
+
+  if (hours > 0) {
+    return `${hours}h ${String(minutes).padStart(2, "0")}m ${String(
+      remainingSeconds,
+    ).padStart(2, "0")}s`;
+  }
+
+  return `${minutes}m ${String(remainingSeconds).padStart(2, "0")}s`;
+};
+
+const loadAudioDuration = async (audioUrl: string): Promise<number | null> =>
+  new Promise((resolve) => {
+    const audio = document.createElement("audio");
+    let settled = false;
+
+    const finish = (duration: number | null) => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      audio.removeAttribute("src");
+      audio.load();
+      resolve(duration);
+    };
+
+    const timeoutId = window.setTimeout(() => finish(null), 5000);
+    const cleanupAndFinish = (duration: number | null) => {
+      window.clearTimeout(timeoutId);
+      finish(duration);
+    };
+
+    audio.preload = "metadata";
+    audio.onloadedmetadata = () => {
+      const duration = Number.isFinite(audio.duration) ? audio.duration : null;
+      cleanupAndFinish(duration && duration > 0 ? duration : null);
+    };
+    audio.onerror = () => cleanupAndFinish(null);
+    audio.src = audioUrl;
+  });
+
+const cleanupPreparedPreviewAsset = async (selectedFile: SelectedFile | null) => {
+  if (!selectedFile?.previewAssetPath) {
+    return;
+  }
+
+  try {
+    await invoke("delete_transcribe_file_asset", {
+      stagedPath: selectedFile.previewAssetPath,
+    });
+  } catch (error) {
+    console.error("Failed to delete staged preview asset:", error);
+  }
+};
+
+const buildSelectedFile = async (path: string): Promise<SelectedFile> => {
+  const name = path.split(/[/\\]/).pop() ?? "unknown";
+
+  let fileSize = 0;
+  try {
+    const fileInfo = await stat(path);
+    fileSize = fileInfo.size;
+  } catch (e) {
+    console.error("Failed to get file size:", e);
+  }
+
+  let previewAssetPath: string | null = null;
+  let audioUrl: string | null = null;
+  let durationSeconds: number | null = null;
+
+  try {
+    previewAssetPath = await invoke<string>("prepare_transcribe_file_asset", {
+      sourcePath: path,
+    });
+    audioUrl = convertFileSrc(previewAssetPath, "asset");
+    durationSeconds = await loadAudioDuration(audioUrl);
+  } catch (error) {
+    console.error("Failed to prepare audio preview asset:", error);
+  }
+
+  return {
+    path,
+    name,
+    size: fileSize,
+    audioUrl,
+    previewAssetPath,
+    durationSeconds,
+  };
+};
 
 export const TranscribeFileSettings: React.FC = () => {
   const { t } = useTranslation();
-  const { settings } = useSettings();
+  const { settings, refreshSettings } = useSettings();
 
   const {
     selectedFile,
@@ -39,6 +176,10 @@ export const TranscribeFileSettings: React.FC = () => {
     isTranscribing,
     error,
     selectedProfileId,
+    speakerArtifactPath,
+    speakerProvider,
+    speakerCards,
+    isReapplyingSpeakerNames,
     setSelectedFile,
     setOutputMode,
     setOutputFormat,
@@ -49,6 +190,11 @@ export const TranscribeFileSettings: React.FC = () => {
     setIsTranscribing,
     setError,
     setSelectedProfileId,
+    setSpeakerSession,
+    clearSpeakerSession,
+    updateSpeakerCardName,
+    applySpeakerCardNames,
+    setIsReapplyingSpeakerNames,
   } = useTranscribeFileStore();
   const [isRecording, setIsRecording] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -62,11 +208,38 @@ export const TranscribeFileSettings: React.FC = () => {
     sonioxEnableLanguageIdentification,
     setSonioxEnableLanguageIdentification,
   ] = useState(true);
+  const [deepgramFileDiarize, setDeepgramFileDiarize] = useState(false);
+  const [deepgramFileMultichannel, setDeepgramFileMultichannel] =
+    useState(false);
+  const [selectedSpeakerNameProfileId, setSelectedSpeakerNameProfileId] =
+    useState<string | null>(null);
+  const [speakerNameProfileDraftName, setSpeakerNameProfileDraftName] =
+    useState("");
+  const [isSavingSpeakerNameProfile, setIsSavingSpeakerNameProfile] =
+    useState(false);
+  const [showDurationLimitWarningDialog, setShowDurationLimitWarningDialog] =
+    useState(false);
 
   const dropZoneRef = useRef<HTMLDivElement>(null);
+  const selectedFileRef = useRef<SelectedFile | null>(selectedFile);
   const sonioxModel = (settings as any)?.soniox_model ?? "stt-rt-v4";
-  const isSonioxProvider = settings?.transcription_provider === "remote_soniox";
+  const transcriptionProvider = String(settings?.transcription_provider ?? "local");
+  const isSonioxProvider = transcriptionProvider === "remote_soniox";
+  const isDeepgramProvider = transcriptionProvider === "remote_deepgram";
   const showSonioxFileOptions = !!selectedFile && isSonioxProvider && !overrideModelId;
+  const showDeepgramFileOptions =
+    !!selectedFile && isDeepgramProvider && !overrideModelId;
+  const canReapplySpeakerNames =
+    !!transcriptionResult &&
+    !!speakerArtifactPath &&
+    speakerCards.length > 0 &&
+    !savedFilePath;
+  const speakerProviderLabel =
+    speakerProvider === "deepgram"
+      ? "Deepgram"
+      : speakerProvider === "soniox"
+        ? "Soniox"
+        : null;
   const settingsSonioxLanguageHints = (settings as any)?.soniox_language_hints as
     | string[]
     | undefined;
@@ -80,6 +253,47 @@ export const TranscribeFileSettings: React.FC = () => {
   const globalSonioxEnableSpeakerDiarization = Boolean(
     (settings as any)?.soniox_enable_speaker_diarization ?? true,
   );
+  const globalDeepgramFileDiarize = Boolean(
+    (settings as any)?.deepgram_diarize ?? false,
+  );
+  const globalDeepgramFileMultichannel = Boolean(
+    (settings as any)?.deepgram_multichannel ?? false,
+  );
+
+  useEffect(() => {
+    selectedFileRef.current = selectedFile;
+  }, [selectedFile]);
+
+  const replaceSelectedFile = useCallback(
+    async (nextFile: SelectedFile | null) => {
+      await cleanupPreparedPreviewAsset(selectedFileRef.current);
+      selectedFileRef.current = nextFile;
+      setSelectedFile(nextFile);
+    },
+    [setSelectedFile],
+  );
+
+  const clearSelectedFileState = useCallback(async () => {
+    await replaceSelectedFile(null);
+    setTranscriptionResult("");
+    setSavedFilePath(null);
+    setInfoMessage(null);
+    setShowDurationLimitWarningDialog(false);
+    setError(null);
+    clearSpeakerSession();
+  }, [
+    clearSpeakerSession,
+    replaceSelectedFile,
+    setError,
+    setSavedFilePath,
+    setTranscriptionResult,
+  ]);
+
+  useEffect(() => {
+    return () => {
+      void cleanupPreparedPreviewAsset(selectedFileRef.current);
+    };
+  }, []);
 
   useEffect(() => {
     setSonioxLanguageHintsInput(globalSonioxLanguageHints.join(", "));
@@ -90,6 +304,11 @@ export const TranscribeFileSettings: React.FC = () => {
     globalSonioxEnableSpeakerDiarization,
     globalSonioxLanguageHints,
   ]);
+
+  useEffect(() => {
+    setDeepgramFileDiarize(globalDeepgramFileDiarize);
+    setDeepgramFileMultichannel(globalDeepgramFileMultichannel);
+  }, [globalDeepgramFileDiarize, globalDeepgramFileMultichannel]);
 
   // Listen for Tauri file drop events
   useEffect(() => {
@@ -106,38 +325,25 @@ export const TranscribeFileSettings: React.FC = () => {
         if (paths && paths.length > 0) {
           const filePath = paths[0];
           const extension = filePath.split(".").pop()?.toLowerCase() ?? "";
-          
+
           if (!supportedExtensions.includes(extension)) {
             setError(
               t("transcribeFile.unsupportedFormat", {
                 format: extension,
                 supported: supportedExtensions.join(", "),
-              })
+              }),
             );
             return;
           }
-          
-          const name = filePath.split(/[/\\]/).pop() ?? "unknown";
-          
-          // Get file size
-          let fileSize = 0;
-          try {
-            const fileInfo = await stat(filePath);
-            fileSize = fileInfo.size;
-          } catch (e) {
-            console.error("Failed to get file size:", e);
-          }
-          
-          setSelectedFile({
-            path: filePath,
-            name,
-            size: fileSize,
-            audioUrl: convertFileSrc(filePath),
-          });
+
+          const nextFile = await buildSelectedFile(filePath);
+          await replaceSelectedFile(nextFile);
           setTranscriptionResult("");
           setSavedFilePath(null);
           setInfoMessage(null);
+          setShowDurationLimitWarningDialog(false);
           setError(null);
+          clearSpeakerSession();
         }
       }
     });
@@ -145,7 +351,14 @@ export const TranscribeFileSettings: React.FC = () => {
     return () => {
       unlistenDrop.then((fn) => fn());
     };
-  }, [t]);
+  }, [
+    clearSpeakerSession,
+    replaceSelectedFile,
+    setError,
+    setSavedFilePath,
+    setTranscriptionResult,
+    t,
+  ]);
 
   // Check recording state periodically
   useEffect(() => {
@@ -205,6 +418,223 @@ export const TranscribeFileSettings: React.FC = () => {
     ],
     [profiles, t],
   );
+  const savedSpeakerNameProfiles = useMemo<SpeakerNameSetProfile[]>(
+    () =>
+      (settings?.diarization_speaker_name_profiles ?? []).map((profile) => ({
+        id: String(profile.id ?? ""),
+        name: String(profile.name ?? ""),
+        speaker_names: Array.isArray(profile.speaker_names)
+          ? profile.speaker_names.map((speakerName) => String(speakerName ?? ""))
+          : [],
+      })),
+    [settings],
+  );
+  const selectedSpeakerNameProfile = useMemo(
+    () =>
+      savedSpeakerNameProfiles.find(
+        (profile) => profile.id === selectedSpeakerNameProfileId,
+      ) ?? null,
+    [savedSpeakerNameProfiles, selectedSpeakerNameProfileId],
+  );
+  const speakerNameProfileOptions = useMemo(
+    () =>
+      savedSpeakerNameProfiles.map((profile) => ({
+        value: profile.id,
+        label: profile.name,
+      })),
+    [savedSpeakerNameProfiles],
+  );
+  const currentSpeakerNamesForProfile = useMemo(
+    () => speakerCards.map((card) => card.name.trim()),
+    [speakerCards],
+  );
+  const canPersistSpeakerNameProfile =
+    speakerCards.length > 0 &&
+    speakerNameProfileDraftName.trim().length > 0 &&
+    currentSpeakerNamesForProfile.some((speakerName) => speakerName.length > 0);
+  const canApplySpeakerNameProfile =
+    !!selectedSpeakerNameProfile && speakerCards.length > 0;
+  const canUpdateSpeakerNameProfile =
+    !!selectedSpeakerNameProfile && canPersistSpeakerNameProfile;
+  const selectedFileDurationSeconds = selectedFile?.durationSeconds ?? null;
+  const selectedFileExceedsDeepgramLimit =
+    showDeepgramFileOptions &&
+    selectedFileDurationSeconds != null &&
+    selectedFileDurationSeconds > DEEPGRAM_MAX_FILE_DURATION_SECONDS;
+  const selectedFileExceedsSonioxLimit =
+    showSonioxFileOptions &&
+    selectedFileDurationSeconds != null &&
+    selectedFileDurationSeconds > SONIOX_MAX_FILE_DURATION_SECONDS;
+  const selectedFileHasUnknownRemoteDuration =
+    (showDeepgramFileOptions || showSonioxFileOptions) &&
+    selectedFileDurationSeconds == null;
+  const selectedFileDurationWarning =
+    selectedFileHasUnknownRemoteDuration
+      ? t("transcribeFile.durationUnknownWarning")
+      : selectedFileExceedsDeepgramLimit
+        ? t("transcribeFile.deepgram.durationLimitExceeded", {
+            duration: formatAudioDurationWithUnits(selectedFileDurationSeconds),
+            limit: formatAudioDurationWithUnits(DEEPGRAM_MAX_FILE_DURATION_SECONDS),
+          })
+        : selectedFileExceedsSonioxLimit
+          ? t("transcribeFile.soniox.durationLimitExceeded", {
+              duration: formatAudioDurationWithUnits(selectedFileDurationSeconds),
+              limit: formatAudioDurationWithUnits(SONIOX_MAX_FILE_DURATION_SECONDS),
+            })
+          : null;
+  const durationLimitWarningProvider = selectedFileExceedsDeepgramLimit
+    ? "Deepgram"
+    : selectedFileExceedsSonioxLimit
+      ? "Soniox"
+      : showDeepgramFileOptions
+        ? "Deepgram"
+        : showSonioxFileOptions
+          ? "Soniox"
+      : null;
+  const canTranscribe = !isTranscribing && !isRecording;
+
+  useEffect(() => {
+    if (!selectedSpeakerNameProfileId) {
+      return;
+    }
+
+    if (
+      !savedSpeakerNameProfiles.some(
+        (profile) => profile.id === selectedSpeakerNameProfileId,
+      )
+    ) {
+      setSelectedSpeakerNameProfileId(null);
+      setSpeakerNameProfileDraftName("");
+    }
+  }, [savedSpeakerNameProfiles, selectedSpeakerNameProfileId]);
+
+  useEffect(() => {
+    if (selectedSpeakerNameProfile) {
+      setSpeakerNameProfileDraftName(selectedSpeakerNameProfile.name);
+    }
+  }, [selectedSpeakerNameProfile]);
+
+  const buildSpeakerNameProfileNames = () => {
+    const normalized = speakerCards.map((card) => card.name.trim());
+    let lastNonEmptyIndex = normalized.length - 1;
+
+    while (lastNonEmptyIndex >= 0 && !normalized[lastNonEmptyIndex]) {
+      lastNonEmptyIndex -= 1;
+    }
+
+    return normalized.slice(0, lastNonEmptyIndex + 1);
+  };
+
+  const persistSpeakerNameProfiles = async (
+    nextProfiles: SpeakerNameSetProfile[],
+  ) => {
+    const result = await commands.changeDiarizationSpeakerNameProfilesSetting(
+      nextProfiles.map((profile) => ({
+        id: profile.id,
+        name: profile.name.trim(),
+        speaker_names: profile.speaker_names,
+      })),
+    );
+    if (result.status === "error") {
+      throw new Error(result.error);
+    }
+    await refreshSettings();
+  };
+
+  const handleApplySpeakerNameProfile = () => {
+    if (!selectedSpeakerNameProfile) {
+      return;
+    }
+
+    applySpeakerCardNames(selectedSpeakerNameProfile.speaker_names);
+  };
+
+  const handleSaveSpeakerNameProfile = async () => {
+    if (!canPersistSpeakerNameProfile) {
+      return;
+    }
+
+    setIsSavingSpeakerNameProfile(true);
+    setError(null);
+
+    try {
+      const nextProfile: SpeakerNameSetProfile = {
+        id: `speaker_names_${Date.now()}_${Math.random()
+          .toString(36)
+          .slice(2, 8)}`,
+        name: speakerNameProfileDraftName.trim(),
+        speaker_names: buildSpeakerNameProfileNames(),
+      };
+
+      await persistSpeakerNameProfiles([...savedSpeakerNameProfiles, nextProfile]);
+      setSelectedSpeakerNameProfileId(nextProfile.id);
+      setSpeakerNameProfileDraftName(nextProfile.name);
+    } catch (error) {
+      setError(String(error));
+    } finally {
+      setIsSavingSpeakerNameProfile(false);
+    }
+  };
+
+  const handleUpdateSpeakerNameProfile = async () => {
+    if (!selectedSpeakerNameProfile || !canPersistSpeakerNameProfile) {
+      return;
+    }
+
+    setIsSavingSpeakerNameProfile(true);
+    setError(null);
+
+    try {
+      const updatedProfile: SpeakerNameSetProfile = {
+        ...selectedSpeakerNameProfile,
+        name: speakerNameProfileDraftName.trim(),
+        speaker_names: buildSpeakerNameProfileNames(),
+      };
+
+      await persistSpeakerNameProfiles(
+        savedSpeakerNameProfiles.map((profile) =>
+          profile.id === updatedProfile.id ? updatedProfile : profile,
+        ),
+      );
+      setSpeakerNameProfileDraftName(updatedProfile.name);
+    } catch (error) {
+      setError(String(error));
+    } finally {
+      setIsSavingSpeakerNameProfile(false);
+    }
+  };
+
+  const handleDeleteSpeakerNameProfile = async () => {
+    if (!selectedSpeakerNameProfile) {
+      return;
+    }
+
+    const confirmed = window.confirm(
+      t("transcribeFile.speakerNames.profileDeleteConfirm", {
+        name: selectedSpeakerNameProfile.name,
+      }),
+    );
+    if (!confirmed) {
+      return;
+    }
+
+    setIsSavingSpeakerNameProfile(true);
+    setError(null);
+
+    try {
+      await persistSpeakerNameProfiles(
+        savedSpeakerNameProfiles.filter(
+          (profile) => profile.id !== selectedSpeakerNameProfile.id,
+        ),
+      );
+      setSelectedSpeakerNameProfileId(null);
+      setSpeakerNameProfileDraftName("");
+    } catch (error) {
+      setError(String(error));
+    } finally {
+      setIsSavingSpeakerNameProfile(false);
+    }
+  };
 
   // Handle file selection via Tauri dialog
   const handleSelectFile = async () => {
@@ -221,27 +651,14 @@ export const TranscribeFileSettings: React.FC = () => {
 
       if (result) {
         const path = result as string;
-        const name = path.split(/[/\\]/).pop() ?? "unknown";
-        
-        // Get file size
-        let fileSize = 0;
-        try {
-          const fileInfo = await stat(path);
-          fileSize = fileInfo.size;
-        } catch (e) {
-          console.error("Failed to get file size:", e);
-        }
-        
-        setSelectedFile({
-          path,
-          name,
-          size: fileSize,
-          audioUrl: convertFileSrc(path),
-        });
+        const nextFile = await buildSelectedFile(path);
+        await replaceSelectedFile(nextFile);
         setTranscriptionResult("");
         setSavedFilePath(null);
         setInfoMessage(null);
+        setShowDurationLimitWarningDialog(false);
         setError(null);
+        clearSpeakerSession();
       }
     } catch (err) {
       console.error("Failed to open file dialog:", err);
@@ -252,12 +669,23 @@ export const TranscribeFileSettings: React.FC = () => {
   // Transcribe the selected file
   const handleTranscribe = async () => {
     if (!selectedFile) return;
+    if (selectedFileDurationWarning) {
+      setError(null);
+      setShowDurationLimitWarningDialog(true);
+      return;
+    }
+    await runTranscription();
+  };
+
+  const runTranscription = async () => {
+    if (!selectedFile) return;
 
     setIsTranscribing(true);
     setError(null);
     setTranscriptionResult("");
     setSavedFilePath(null);
     setInfoMessage(null);
+    clearSpeakerSession();
 
     try {
       let sonioxOptionsOverride: SonioxFileTranscriptionOptions | null = null;
@@ -282,6 +710,13 @@ export const TranscribeFileSettings: React.FC = () => {
           enableLanguageIdentification: sonioxEnableLanguageIdentification,
         };
       }
+      let deepgramOptionsOverride: DeepgramFileTranscriptionOptions | null = null;
+      if (showDeepgramFileOptions) {
+        deepgramOptionsOverride = {
+          diarize: deepgramFileDiarize,
+          multichannel: deepgramFileMultichannel,
+        };
+      }
 
       const result = await commands.transcribeAudioFile(
         selectedFile.path,
@@ -291,21 +726,70 @@ export const TranscribeFileSettings: React.FC = () => {
         overrideModelId,
         customWordsEnabledOverride,
         sonioxOptionsOverride,
+        deepgramOptionsOverride,
       );
 
       if (result.status === "ok") {
         setTranscriptionResult(result.data.text);
         setInfoMessage(result.data.info_message ?? null);
+        setSpeakerSession(result.data.speaker_session ?? null);
         if (result.data.saved_file_path) {
           setSavedFilePath(result.data.saved_file_path);
         }
+      } else {
+        clearSpeakerSession();
+        setError(result.error);
+      }
+    } catch (err) {
+      clearSpeakerSession();
+      setError(String(err));
+    } finally {
+      setIsTranscribing(false);
+    }
+  };
+
+  const handleReapplySpeakerNames = async () => {
+    if (!speakerArtifactPath || speakerCards.length === 0) {
+      setError(
+        t(
+          "transcribeFile.speakerNames.missingSession",
+          "The temporary speaker session is no longer available. Run transcription again.",
+        ),
+      );
+      return;
+    }
+
+    if (savedFilePath) {
+      setError(
+        t(
+          "transcribeFile.speakerNames.savedDisabled",
+          "Speaker names can only be re-applied before saving to a .txt file.",
+        ),
+      );
+      return;
+    }
+
+    setIsReapplyingSpeakerNames(true);
+    setError(null);
+
+    try {
+      const result = await commands.reapplyTranscriptionSpeakerNames(
+        speakerArtifactPath,
+        speakerCards.map((card) => ({
+          speaker_id: card.speakerId,
+          name: card.name,
+        })),
+      );
+
+      if (result.status === "ok") {
+        setTranscriptionResult(result.data);
       } else {
         setError(result.error);
       }
     } catch (err) {
       setError(String(err));
     } finally {
-      setIsTranscribing(false);
+      setIsReapplyingSpeakerNames(false);
     }
   };
 
@@ -324,11 +808,7 @@ export const TranscribeFileSettings: React.FC = () => {
 
   // Clear selection and results
   const handleClear = () => {
-    setSelectedFile(null);
-    setTranscriptionResult("");
-    setSavedFilePath(null);
-    setInfoMessage(null);
-    setError(null);
+    void clearSelectedFileState();
   };
 
   // Format file size
@@ -396,6 +876,9 @@ export const TranscribeFileSettings: React.FC = () => {
                   {selectedFile.size > 0 && (
                     <p className="text-xs text-[#808080]">
                       {formatFileSize(selectedFile.size)}
+                      {selectedFileDurationSeconds != null
+                        ? ` • ${formatAudioDurationClock(selectedFileDurationSeconds)}`
+                        : ""}
                     </p>
                   )}
                 </div>
@@ -410,7 +893,9 @@ export const TranscribeFileSettings: React.FC = () => {
               </div>
 
               {/* Audio Preview */}
-              <AudioPlayer src={selectedFile.audioUrl} className="w-full" />
+              {selectedFile.audioUrl && (
+                <AudioPlayer src={selectedFile.audioUrl} className="w-full" />
+              )}
 
               {/* Profile Selector */}
               <div className="space-y-2">
@@ -540,6 +1025,17 @@ export const TranscribeFileSettings: React.FC = () => {
                 <p className="text-xs text-[#808080]">
                   {t("transcribeFile.soniox.usesGlobalDefaults")}
                 </p>
+                <Alert variant="warning" contained>
+                  {t("transcribeFile.soniox.durationLimitWarning")}
+                  {selectedFileExceedsSonioxLimit
+                    ? ` ${t("transcribeFile.soniox.durationLimitExceeded", {
+                        duration: formatAudioDurationWithUnits(selectedFileDurationSeconds),
+                        limit: formatAudioDurationWithUnits(
+                          SONIOX_MAX_FILE_DURATION_SECONDS,
+                        ),
+                      })}`
+                    : ""}
+                </Alert>
                 <div className="space-y-2">
                   <label className="text-xs text-[#808080]">
                     {t("transcribeFile.soniox.languageHintsLabel")}
@@ -578,6 +1074,55 @@ export const TranscribeFileSettings: React.FC = () => {
                   />
                   <span className="text-sm text-[#f5f5f5]">
                     {t("transcribeFile.soniox.languageIdentificationLabel")}
+                  </span>
+                </label>
+              </div>
+            )}
+
+            {showDeepgramFileOptions && (
+              <div className="mt-4 space-y-3 rounded-lg border border-[#333333] bg-[#151515] p-3">
+                <p className="text-sm text-[#f5f5f5]">
+                  {t("transcribeFile.deepgram.title")}
+                </p>
+                <p className="text-xs text-[#808080]">
+                  {t("transcribeFile.deepgram.usesGlobalDefaults")}
+                </p>
+                <p className="text-xs text-[#606060]">
+                  {t("transcribeFile.deepgram.modeHint")}
+                </p>
+                <Alert variant="warning" contained>
+                  {t("transcribeFile.deepgram.durationLimitWarning")}
+                  {selectedFileExceedsDeepgramLimit
+                    ? ` ${t("transcribeFile.deepgram.durationLimitExceeded", {
+                        duration: formatAudioDurationWithUnits(
+                          selectedFileDurationSeconds,
+                        ),
+                        limit: formatAudioDurationWithUnits(
+                          DEEPGRAM_MAX_FILE_DURATION_SECONDS,
+                        ),
+                      })}`
+                    : ""}
+                </Alert>
+                <label className="flex items-center gap-2 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={deepgramFileDiarize}
+                    onChange={(e) => setDeepgramFileDiarize(e.target.checked)}
+                    className="accent-[#9b5de5] w-4 h-4 rounded border-[#333333] bg-[#1a1a1a]"
+                  />
+                  <span className="text-sm text-[#f5f5f5]">
+                    {t("transcribeFile.deepgram.speakerDiarizationLabel")}
+                  </span>
+                </label>
+                <label className="flex items-center gap-2 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={deepgramFileMultichannel}
+                    onChange={(e) => setDeepgramFileMultichannel(e.target.checked)}
+                    className="accent-[#9b5de5] w-4 h-4 rounded border-[#333333] bg-[#1a1a1a]"
+                  />
+                  <span className="text-sm text-[#f5f5f5]">
+                    {t("transcribeFile.deepgram.multichannelLabel")}
                   </span>
                 </label>
               </div>
@@ -630,9 +1175,15 @@ export const TranscribeFileSettings: React.FC = () => {
               <Button
                 variant="primary"
                 onClick={handleTranscribe}
-                disabled={isTranscribing || isRecording}
+                disabled={!canTranscribe}
                 className="flex items-center gap-2"
-                title={isRecording ? t("transcribeFile.recordingInProgress") : undefined}
+                title={
+                  isRecording
+                    ? t("transcribeFile.recordingInProgress")
+                    : selectedFileDurationWarning
+                      ? selectedFileDurationWarning
+                      : undefined
+                }
               >
                 {isTranscribing ? (
                   <>
@@ -675,6 +1226,169 @@ export const TranscribeFileSettings: React.FC = () => {
         {transcriptionResult && (
           <div className="px-4 py-3 border-t border-white/[0.05]">
             <div className="space-y-2">
+              {speakerCards.length > 0 && (
+                <div className="mb-3 rounded-lg border border-[#333333] bg-[#151515] p-3">
+                  <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                    <div>
+                      <p className="text-sm font-medium text-[#f5f5f5]">
+                        {t("transcribeFile.speakerNames.title", "Speaker Names")}
+                        {speakerProviderLabel ? (
+                          <span className="ml-2 text-xs font-normal text-[#808080]">
+                            {speakerProviderLabel}
+                          </span>
+                        ) : null}
+                      </p>
+                      <p className="text-xs text-[#808080]">
+                        {t(
+                          "transcribeFile.speakerNames.hint",
+                          "Re-apply rebuilds the transcript from the temporary diarization session instead of editing the visible text.",
+                        )}
+                      </p>
+                    </div>
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      onClick={handleReapplySpeakerNames}
+                      disabled={!canReapplySpeakerNames || isReapplyingSpeakerNames}
+                    >
+                      {isReapplyingSpeakerNames ? (
+                        <>
+                          <Loader2 className="mr-2 h-3 w-3 animate-spin" />
+                          {t("transcribeFile.speakerNames.reapplying", "Re-applying...")}
+                        </>
+                      ) : (
+                        t("transcribeFile.speakerNames.reapply", "Re-apply")
+                      )}
+                    </Button>
+                  </div>
+                  <div className="mt-3 rounded-lg border border-[#333333] bg-[#101010] p-3">
+                    <div className="space-y-3">
+                      <div>
+                        <p className="text-xs uppercase tracking-wide text-[#808080]">
+                          {t("transcribeFile.speakerNames.profilesTitle")}
+                        </p>
+                        <p className="mt-1 text-xs text-[#606060]">
+                          {t("transcribeFile.speakerNames.profilesHint")}
+                        </p>
+                      </div>
+                      <div className="grid gap-3 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)]">
+                        <div className="space-y-2">
+                          <label className="text-xs text-[#808080]">
+                            {t("transcribeFile.speakerNames.savedProfiles")}
+                          </label>
+                          <Dropdown
+                            className="w-full"
+                            selectedValue={selectedSpeakerNameProfileId}
+                            options={speakerNameProfileOptions}
+                            onSelect={setSelectedSpeakerNameProfileId}
+                            placeholder={t(
+                              "transcribeFile.speakerNames.profilePlaceholder",
+                            )}
+                            disabled={
+                              speakerNameProfileOptions.length === 0 ||
+                              isSavingSpeakerNameProfile
+                            }
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <label className="text-xs text-[#808080]">
+                            {t("transcribeFile.speakerNames.profileNameLabel")}
+                          </label>
+                          <input
+                            type="text"
+                            value={speakerNameProfileDraftName}
+                            onChange={(event) =>
+                              setSpeakerNameProfileDraftName(event.target.value)
+                            }
+                            className="w-full rounded border border-[#333333] bg-[#0f0f0f] px-3 py-2 text-sm text-[#f5f5f5] focus:border-[#9b5de5] focus:outline-none"
+                            placeholder={t(
+                              "transcribeFile.speakerNames.profileNamePlaceholder",
+                            )}
+                            disabled={isSavingSpeakerNameProfile}
+                          />
+                        </div>
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        <Button
+                          variant="secondary"
+                          size="sm"
+                          onClick={handleApplySpeakerNameProfile}
+                          disabled={
+                            !canApplySpeakerNameProfile || isSavingSpeakerNameProfile
+                          }
+                        >
+                          {t("transcribeFile.speakerNames.applyProfile")}
+                        </Button>
+                        <Button
+                          variant="secondary"
+                          size="sm"
+                          onClick={handleSaveSpeakerNameProfile}
+                          disabled={
+                            !canPersistSpeakerNameProfile ||
+                            isSavingSpeakerNameProfile
+                          }
+                        >
+                          {t("transcribeFile.speakerNames.saveProfile")}
+                        </Button>
+                        <Button
+                          variant="secondary"
+                          size="sm"
+                          onClick={handleUpdateSpeakerNameProfile}
+                          disabled={
+                            !canUpdateSpeakerNameProfile ||
+                            isSavingSpeakerNameProfile
+                          }
+                        >
+                          {t("transcribeFile.speakerNames.updateProfile")}
+                        </Button>
+                        <Button
+                          variant="danger"
+                          size="sm"
+                          onClick={handleDeleteSpeakerNameProfile}
+                          disabled={
+                            !selectedSpeakerNameProfile ||
+                            isSavingSpeakerNameProfile
+                          }
+                        >
+                          {t("transcribeFile.speakerNames.deleteProfile")}
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                    {speakerCards.map((card) => (
+                      <div
+                        key={card.speakerId}
+                        className="rounded-lg border border-[#333333] bg-[#101010] p-3"
+                      >
+                        <p className="text-xs uppercase tracking-wide text-[#808080]">
+                          {t("transcribeFile.speakerNames.cardLabel", {
+                            id: card.speakerId,
+                            defaultValue: "Detected speaker {{id}}",
+                          })}
+                        </p>
+                        <input
+                          type="text"
+                          value={card.name}
+                          onChange={(event) =>
+                            updateSpeakerCardName(card.speakerId, event.target.value)
+                          }
+                          className="mt-2 w-full rounded border border-[#333333] bg-[#0f0f0f] px-3 py-2 text-sm text-[#f5f5f5] focus:border-[#9b5de5] focus:outline-none"
+                          placeholder={card.defaultName}
+                        />
+                      </div>
+                    ))}
+                  </div>
+                  {!canReapplySpeakerNames && savedFilePath && (
+                    <p className="mt-3 text-xs text-[#b8b8b8]">
+                      {t(
+                        "transcribeFile.speakerNames.savedDisabled",
+                        "Speaker names can only be re-applied before saving to a .txt file.",
+                      )}
+                    </p>
+                  )}
+                </div>
+              )}
               <div className="flex items-center justify-between">
                 <p className="text-xs font-medium text-[#808080] uppercase tracking-wide">
                   {t("transcribeFile.result")}
@@ -715,6 +1429,23 @@ export const TranscribeFileSettings: React.FC = () => {
           </div>
         )}
       </SettingsGroup>
+      <ConfirmationModal
+        isOpen={showDurationLimitWarningDialog}
+        onClose={() => setShowDurationLimitWarningDialog(false)}
+        onConfirm={() => {
+          void runTranscription();
+        }}
+        title={t("transcribeFile.durationLimitDialog.title", {
+          provider: durationLimitWarningProvider ?? t("transcribeFile.title"),
+        })}
+        message={t("transcribeFile.durationLimitDialog.message", {
+          provider: durationLimitWarningProvider ?? t("transcribeFile.title"),
+          limitWarning: selectedFileDurationWarning ?? "",
+        })}
+        confirmText={t("transcribeFile.durationLimitDialog.confirm")}
+        cancelText={t("transcribeFile.durationLimitDialog.cancel")}
+        variant="warning"
+      />
     </div>
   );
 };

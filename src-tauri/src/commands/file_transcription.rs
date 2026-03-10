@@ -4,10 +4,19 @@
 //! Uses the same transcription infrastructure as live recording.
 
 use crate::audio_toolkit::apply_custom_words;
+use crate::file_transcription_diarization::{
+    create_diarized_transcript_session, normalize_raw_speaker_blocks, reapply_diarized_transcript,
+    render_diarized_transcript, DiarizedTranscriptBlock, DiarizedTranscriptProvider,
+    FileTranscriptionSpeakerNameInput, FileTranscriptionSpeakerSession, RawSpeakerBlock,
+};
+use crate::managers::deepgram_stt::{DeepgramSttManager, DeepgramTranscriptionOptions};
 use crate::managers::remote_stt::RemoteSttManager;
 use crate::managers::soniox_stt::{SonioxAsyncTranscriptionOptions, SonioxSttManager};
 use crate::managers::transcription::TranscriptionManager;
-use crate::settings::{apply_output_whitespace_policy_for_settings, get_settings, TranscriptionProvider};
+use crate::settings::{
+    apply_output_whitespace_policy_for_settings, get_settings, AppSettings,
+    TranscriptionProvider,
+};
 use crate::subtitle::{
     get_format_extension, segments_to_srt, segments_to_vtt, OutputFormat, SubtitleSegment,
 };
@@ -29,6 +38,8 @@ pub struct FileTranscriptionResult {
     pub segments: Option<Vec<SubtitleSegment>>,
     /// Optional informational message for UI display
     pub info_message: Option<String>,
+    /// Temporary diarized speaker session for renaming/re-apply
+    pub speaker_session: Option<FileTranscriptionSpeakerSession>,
 }
 
 #[derive(Serialize, Deserialize, Type, Debug, Clone, Default)]
@@ -37,6 +48,22 @@ pub struct SonioxFileTranscriptionOptions {
     pub language_hints: Option<Vec<String>>,
     pub enable_speaker_diarization: Option<bool>,
     pub enable_language_identification: Option<bool>,
+}
+
+#[derive(Serialize, Deserialize, Type, Debug, Clone, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct DeepgramFileTranscriptionOptions {
+    pub diarize: Option<bool>,
+    pub multichannel: Option<bool>,
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn reapply_transcription_speaker_names(
+    artifact_path: String,
+    speaker_names: Vec<FileTranscriptionSpeakerNameInput>,
+) -> Result<String, String> {
+    reapply_diarized_transcript(&artifact_path, &speaker_names)
 }
 
 /// Supported audio file extensions
@@ -66,6 +93,7 @@ pub async fn transcribe_audio_file(
     model_override: Option<String>,
     custom_words_enabled_override: Option<bool>,
     soniox_options_override: Option<SonioxFileTranscriptionOptions>,
+    deepgram_options_override: Option<DeepgramFileTranscriptionOptions>,
 ) -> Result<FileTranscriptionResult, String> {
     let path = PathBuf::from(&file_path);
     let format = output_format.unwrap_or_default();
@@ -95,18 +123,6 @@ pub async fn transcribe_audio_file(
         file_path, format
     );
 
-    // Read and decode the audio file to PCM samples
-    let samples = decode_audio_file(&path).map_err(|e| {
-        error!("Failed to decode audio file: {}", e);
-        format!("Failed to decode audio file: {}", e)
-    })?;
-
-    if samples.is_empty() {
-        return Err("Audio file contains no audio data".to_string());
-    }
-
-    debug!("Decoded {} samples from audio file", samples.len());
-
     // Get settings and determine profile to use
     let settings = get_settings(&app);
     let profile_id = profile_id.unwrap_or_else(|| settings.active_profile_id.clone());
@@ -118,6 +134,7 @@ pub async fn transcribe_audio_file(
         custom_words_enabled_override.unwrap_or(settings.custom_words_enabled);
     let should_apply_custom_words = apply_custom_words_enabled && !settings.custom_words.is_empty();
     let mut info_message: Option<String> = None;
+    let mut speaker_session: Option<FileTranscriptionSpeakerSession> = None;
 
     // Perform transcription - get segments for subtitle formats
     let needs_segments = matches!(format, OutputFormat::Srt | OutputFormat::Vtt);
@@ -128,6 +145,31 @@ pub async fn transcribe_audio_file(
         && settings.transcription_provider == TranscriptionProvider::RemoteOpenAiCompatible;
     let use_soniox = model_override.is_none()
         && settings.transcription_provider == TranscriptionProvider::RemoteSoniox;
+    let use_deepgram = model_override.is_none()
+        && settings.transcription_provider == TranscriptionProvider::RemoteDeepgram;
+    let samples = if use_deepgram {
+        Vec::new()
+    } else {
+        let samples = decode_audio_file(&path).map_err(|e| {
+            error!("Failed to decode audio file: {}", e);
+            format!("Failed to decode audio file: {}", e)
+        })?;
+
+        if samples.is_empty() {
+            return Err("Audio file contains no audio data".to_string());
+        }
+
+        debug!("Decoded {} samples from audio file", samples.len());
+        samples
+    };
+    let deepgram_audio_bytes = if use_deepgram {
+        Some(std::fs::read(&path).map_err(|e| {
+            error!("Failed to read audio file for Deepgram: {}", e);
+            format!("Failed to read audio file: {}", e)
+        })?)
+    } else {
+        None
+    };
 
     let (transcription_text, segments) = if use_remote {
         // Remote STT - currently doesn't support segments
@@ -245,7 +287,7 @@ pub async fn transcribe_audio_file(
         #[cfg(not(target_os = "windows"))]
         let api_key = String::new();
 
-        let text = soniox_manager
+        let transcript = soniox_manager
             .transcribe_file_async(
                 Some(operation_id),
                 &api_key,
@@ -262,35 +304,115 @@ pub async fn transcribe_audio_file(
             return Err("Soniox transcription was cancelled".to_string());
         }
 
-        // Apply custom word corrections
-        let corrected = if should_apply_custom_words {
-            apply_custom_words(
-                &text,
-                &settings.custom_words,
-                settings.word_correction_threshold,
-                settings.custom_words_ngram_enabled,
+        let (corrected, new_speaker_session) = if let Some((rendered_text, session)) =
+            build_diarized_text_output(
+                DiarizedTranscriptProvider::Soniox,
+                transcript.speaker_blocks,
+                &format,
+                save_to_file,
+                &settings,
+                should_apply_custom_words,
+            )?
+        {
+            (rendered_text, session)
+        } else {
+            (
+                apply_transcription_post_processing(
+                    transcript.text,
+                    &settings,
+                    should_apply_custom_words,
+                ),
+                None,
             )
-        } else {
-            text
         };
-
-        // Apply filler word filter (if enabled)
-        let corrected = if settings.filler_word_filter_enabled {
-            crate::audio_toolkit::filter_transcription_output(&corrected)
-        } else {
-            corrected
-        };
+        speaker_session = new_speaker_session;
 
         // For remote STT without segment support, create a single segment
         // spanning the estimated duration if subtitle format is requested
         let segs = if needs_segments {
-            let word_count = corrected.split_whitespace().count();
-            let estimated_duration = (word_count as f32 / 150.0) * 60.0;
-            Some(vec![SubtitleSegment {
-                start: 0.0,
-                end: estimated_duration.max(1.0),
-                text: corrected.clone(),
-            }])
+            Some(build_estimated_remote_segments(&corrected))
+        } else {
+            None
+        };
+
+        (corrected, segs)
+    } else if use_deepgram {
+        let deepgram_manager = app.state::<Arc<DeepgramSttManager>>();
+        let operation_id = deepgram_manager.start_operation();
+
+        let language = profile
+            .as_ref()
+            .map(|p| p.language.clone())
+            .unwrap_or_else(|| settings.selected_language.clone());
+
+        #[cfg(target_os = "windows")]
+        let api_key = crate::secure_keys::get_deepgram_api_key();
+
+        #[cfg(not(target_os = "windows"))]
+        let api_key = String::new();
+
+        let deepgram_options = DeepgramTranscriptionOptions {
+            interim_results: Some(settings.deepgram_interim_results),
+            smart_format: Some(settings.deepgram_smart_format),
+            diarize: Some(
+                deepgram_options_override
+                    .as_ref()
+                    .and_then(|options| options.diarize)
+                    .unwrap_or(settings.deepgram_diarize),
+            ),
+            multichannel: Some(
+                deepgram_options_override
+                    .as_ref()
+                    .and_then(|options| options.multichannel)
+                    .unwrap_or(false),
+            ),
+        };
+        let audio_bytes = deepgram_audio_bytes
+            .as_deref()
+            .ok_or_else(|| "Deepgram audio payload is missing".to_string())?;
+
+        let transcript = deepgram_manager
+            .transcribe_prerecorded_bytes(
+                Some(operation_id),
+                &api_key,
+                &settings.deepgram_model,
+                settings.deepgram_timeout_seconds,
+                audio_bytes,
+                Some(language.as_str()),
+                deepgram_options,
+            )
+            .await
+            .map_err(|e| format!("Deepgram transcription failed: {}", e))?;
+
+        if deepgram_manager.is_cancelled(operation_id) {
+            return Err("Deepgram transcription was cancelled".to_string());
+        }
+
+        let (corrected, new_speaker_session) = if let Some((rendered_text, session)) =
+            build_diarized_text_output(
+                DiarizedTranscriptProvider::Deepgram,
+                transcript.speaker_blocks,
+                &format,
+                save_to_file,
+                &settings,
+                should_apply_custom_words,
+            )?
+        {
+            (rendered_text, session)
+        } else {
+            (
+                apply_transcription_post_processing(
+                    transcript.text,
+                    &settings,
+                    should_apply_custom_words,
+                ),
+                None,
+            )
+        };
+        speaker_session = new_speaker_session;
+
+        let segs = if needs_segments {
+            Some(build_estimated_remote_segments(&corrected))
         } else {
             None
         };
@@ -446,7 +568,112 @@ pub async fn transcribe_audio_file(
         saved_file_path,
         segments,
         info_message,
+        speaker_session,
     })
+}
+
+fn apply_transcription_post_processing(
+    text: String,
+    settings: &AppSettings,
+    should_apply_custom_words: bool,
+) -> String {
+    let corrected = if should_apply_custom_words {
+        apply_custom_words(
+            &text,
+            &settings.custom_words,
+            settings.word_correction_threshold,
+            settings.custom_words_ngram_enabled,
+        )
+    } else {
+        text
+    };
+
+    if settings.filler_word_filter_enabled {
+        crate::audio_toolkit::filter_transcription_output(&corrected)
+    } else {
+        corrected
+    }
+}
+
+fn apply_transcription_post_processing_to_blocks(
+    blocks: Vec<DiarizedTranscriptBlock>,
+    settings: &AppSettings,
+    should_apply_custom_words: bool,
+) -> Vec<DiarizedTranscriptBlock> {
+    let mut processed_blocks: Vec<DiarizedTranscriptBlock> = Vec::new();
+
+    for block in blocks {
+        let text = apply_transcription_post_processing(block.text, settings, should_apply_custom_words);
+        let trimmed = text.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+
+        if let Some(last_block) = processed_blocks.last_mut() {
+            if last_block.speaker_id == block.speaker_id {
+                if !last_block.text.is_empty() {
+                    last_block.text.push(' ');
+                }
+                last_block.text.push_str(trimmed);
+                continue;
+            }
+        }
+
+        processed_blocks.push(DiarizedTranscriptBlock {
+            speaker_id: block.speaker_id,
+            default_name: block.default_name,
+            text: trimmed.to_string(),
+        });
+    }
+
+    processed_blocks
+}
+
+fn build_diarized_text_output(
+    provider: DiarizedTranscriptProvider,
+    raw_blocks: Vec<RawSpeakerBlock>,
+    format: &OutputFormat,
+    save_to_file: bool,
+    settings: &AppSettings,
+    should_apply_custom_words: bool,
+) -> Result<Option<(String, Option<FileTranscriptionSpeakerSession>)>, String> {
+    if !matches!(format, OutputFormat::Text) {
+        return Ok(None);
+    }
+
+    let normalized_blocks = normalize_raw_speaker_blocks(raw_blocks);
+    if normalized_blocks.is_empty() {
+        return Ok(None);
+    }
+
+    let processed_blocks = apply_transcription_post_processing_to_blocks(
+        normalized_blocks,
+        settings,
+        should_apply_custom_words,
+    );
+    if processed_blocks.is_empty() {
+        return Ok(None);
+    }
+
+    let rendered_text = render_diarized_transcript(&processed_blocks, &[]);
+    let session = if save_to_file {
+        None
+    } else {
+        create_diarized_transcript_session(provider, processed_blocks)?
+            .map(|(session, _)| session)
+    };
+
+    Ok(Some((rendered_text, session)))
+}
+
+fn build_estimated_remote_segments(text: &str) -> Vec<SubtitleSegment> {
+    let word_count = text.split_whitespace().count();
+    let estimated_duration = (word_count as f32 / 150.0) * 60.0;
+    vec![SubtitleSegment {
+        start: 0.0,
+        end: estimated_duration.max(1.0),
+        text: text.to_string(),
+    }]
 }
 
 fn normalize_soniox_language_hints(hints: Option<Vec<String>>) -> Option<Vec<String>> {

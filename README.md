@@ -11,13 +11,13 @@ AI Voice Relay
 
 > ## 📥 **[Download AivoRelay](https://github.com/MaxITService/AIVORelay/releases/latest)** — Get the latest release!
 
-> ⚠️ **New in 0.9.1 Beta:** Adds **Live Preview** feature (see your text as it streams). *Note: This version is a beta. The latest beta version is always available in the [Releases](https://github.com/MaxITService/AIVORelay/releases) section.*
+> ✨ **New in 0.9.4:** Adds **Live Monitor** with Speaker Diarization and **Layout Persistence**.
 
 > 🛒 **[Microsoft Store Version](https://apps.microsoft.com/detail/9ppfkfh2zn1l)** — This is an official listing on the Microsoft Store. Note that the Store version is not updated as frequently as the desktop application available here on GitHub, but it does not require administrator rights to install, is signed by Microsoft, and is verified by Microsoft before releasing.
 
 ## ✨ Key Features
 
-### 📺 Live Preview (Beta)
+### 📺 Live Preview
 
 See your transcription in real-time in a separate, customizable, always-on-top window.
 
@@ -26,7 +26,8 @@ See your transcription in real-time in a separate, customizable, always-on-top w
 - **Smart Positioning** — Can follow your mouse cursor or stay in a fixed corner.
 - **Hotkey Controls** — Assign shortcuts to toggle visibility or trigger actions.
 
-**Setup:** Settings → User Interface → Soniox Live Preview
+**Setup:** Settings → User Interface → Live Preview
+![Live Preview](Promo/preview_window.png)
 
 ### 🔴 Soniox Live Transcription
 
@@ -38,6 +39,21 @@ Real-time speech-to-text streaming — see your words appear as you speak!
 - **Language hints** — Guide recognition with expected languages  
 
 **Setup:** Settings → Advanced → Transcription Provider → Soniox
+
+### 🌐 Deepgram Support for live transcription
+
+Use Deepgram for fast cloud transcription, including live speech-to-text.
+
+- **Regular or live use** — Works for standard recording and live transcription
+- **Flexible tuning** — Adjust settings for speed and accuracy
+- **Speaker diarization** — Can label different speakers in audio file transcription
+
+**Setup:** Settings → Advanced → Transcription Provider → Deepgram
+
+### Live transcription of sound from your speakers and microphone with diarization!
+
+![Live transcription of sound from your speakers and microphone with diarization!](Promo/live-sound-transcription.png)
+Needs supporting API provider with diarization support connected
 
 ### 🎚️ Transcription Profiles
 
@@ -116,6 +132,10 @@ In the demonstration above, first I ask to solve the mathematical task, and then
 
 Voice-to-AI bridge via [AivoRelay Connector](https://github.com/MaxITService/AivoRelay-relay) browser extension.
 
+- **Easy app-driven setup** — AivoRelay can unpack/export the extension right from the app.
+- **Generated password** — The app can create the connector password for you automatically.
+- **CORS-ready local bridge** — The local connector flow is configured for secure browser use without extra manual setup.
+
 ![How it works](Promo/How_it_works.png)
 
 | Mode                   | Input                  | What ChatGPT receives     |
@@ -134,13 +154,14 @@ Voice-to-AI bridge via [AivoRelay Connector](https://github.com/MaxITService/Aiv
 
 
 
-### 📁 Transcribe Audio Files
+### 📁 Transcribe Audio Files (with diarization for supporting API providers)
 
 Drag and drop audio files to get a transcript.
 
 - Supports WAV, MP3, OGG, M4A, FLAC
 - Outputs Text, SRT (Subtitles), or VTT
 - Uses your local or cloud models
+- Deepgram can label different speakers in multi-speaker recordings
 
 **Usage:** Settings → Transcribe Audio File
 
@@ -191,7 +212,7 @@ AivoRelay passively monitors your "edit" key (default: **Backspace**). If you pr
 
 ### ☁️ Cloud STT Option
 
-Use Groq, Deepgram, or other OpenAI-compatible APIs — _or_ keep using local Whisper. Your choice!
+Use Groq, Deepgram, or other OpenAI-compatible APIs — or keep using local Whisper. Your choice!
 
 - No GPU? Use fast cloud APIs
 - Have a powerful GPU? Run locally for privacy

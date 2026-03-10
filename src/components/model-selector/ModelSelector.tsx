@@ -64,11 +64,13 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({
     new Set(),
   );
 
-  const transcriptionProvider =
-    getSetting("transcription_provider") || "local";
+  const transcriptionProvider = String(
+    getSetting("transcription_provider") || "local",
+  );
   const isRemoteProvider =
     transcriptionProvider === "remote_openai_compatible" ||
-    transcriptionProvider === "remote_soniox";
+    transcriptionProvider === "remote_soniox" ||
+    transcriptionProvider === "remote_deepgram";
 
   const dropdownRef = useRef<HTMLDivElement>(null);
 
@@ -382,6 +384,9 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({
     }
     if (transcriptionProvider === "remote_soniox") {
       return t("modelSelector.remoteSonioxActive");
+    }
+    if (transcriptionProvider === "remote_deepgram") {
+      return t("modelSelector.remoteDeepgramActive", "Remote Deepgram");
     }
 
     if (extractingModels.size > 0) {

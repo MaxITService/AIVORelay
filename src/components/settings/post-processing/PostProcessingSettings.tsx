@@ -214,6 +214,7 @@ const PostProcessingSettingsPromptsComponent: React.FC = () => {
                   "settings.postProcessing.prompts.promptInstructionsPlaceholder",
                 )}
               />
+              {/* Trusted HTML from repo-controlled translations only. Do not pass user, model, or network content here. */}
               <p
                 className="text-xs text-mid-gray/70"
                 dangerouslySetInnerHTML={{
@@ -281,6 +282,7 @@ const PostProcessingSettingsPromptsComponent: React.FC = () => {
                   "settings.postProcessing.prompts.promptInstructionsPlaceholder",
                 )}
               />
+              {/* Trusted HTML from repo-controlled translations only. Do not pass user, model, or network content here. */}
               <p
                 className="text-xs text-mid-gray/70"
                 dangerouslySetInnerHTML={{
@@ -326,13 +328,22 @@ PostProcessingSettingsPrompts.displayName = "PostProcessingSettingsPrompts";
 export const PostProcessingSettings: React.FC = () => {
   const { t } = useTranslation();
   const { getSetting } = useSettings();
-  const isSonioxProvider = getSetting("transcription_provider") === "remote_soniox";
+  const transcriptionProvider = String(
+    getSetting("transcription_provider") || "local",
+  );
+  const isSonioxProvider = transcriptionProvider === "remote_soniox";
+  const isDeepgramProvider = transcriptionProvider === "remote_deepgram";
 
   return (
     <div className="max-w-3xl w-full mx-auto space-y-6">
-      {isSonioxProvider && (
+      {(isSonioxProvider || isDeepgramProvider) && (
         <div className="p-3 bg-yellow-500/10 border border-yellow-500/30 rounded-lg text-sm text-yellow-400">
-          {t("settings.postProcessing.sonioxWarning")}
+          {isDeepgramProvider
+            ? t(
+                "settings.postProcessing.deepgramWarning",
+                "You are using Deepgram live transcription. LLM post-processing is skipped during the standard live cycle.",
+              )
+            : t("settings.postProcessing.sonioxWarning")}
         </div>
       )}
 

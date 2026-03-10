@@ -1,9 +1,10 @@
 import React from "react";
 import { useTranslation } from "react-i18next";
-import { HelpCircle, ChevronDown, RotateCcw, AlertTriangle } from "lucide-react";
+import { RotateCcw, AlertTriangle } from "lucide-react";
 import { useSettings } from "@/hooks/useSettings";
 import { SettingsGroup } from "@/components/ui/SettingsGroup";
 import { FilterSilence } from "@/components/settings/FilterSilence";
+import { TellMeMore } from "@/components/ui/TellMeMore";
 
 export const AudioProcessingSettings: React.FC = () => {
   const { t } = useTranslation();
@@ -74,15 +75,14 @@ export const AudioProcessingSettings: React.FC = () => {
           </div>
         </div>
 
-        {/* VAD Threshold Help */}
-        <div className="px-4 py-3 border-t border-white/[0.05]">
-          <details className="group">
-            <summary className="flex items-center gap-2 text-sm text-[#9b5de5] hover:text-[#b47eff] transition-colors cursor-pointer list-none">
-              <HelpCircle className="w-4 h-4" />
-              {t("audioProcessing.vadHelpTitle", "Tell me more about voice detection sensitivity")}
-              <ChevronDown className="w-4 h-4 group-open:rotate-180 transition-transform" />
-            </summary>
-            <div className="mt-3 p-4 bg-[#1a1a1a] rounded-lg border border-[#333333] text-sm">
+        <div className="px-4 pt-3 border-t border-white/[0.05]">
+          <TellMeMore
+            title={t(
+              "audioProcessing.vadHelpTitle",
+              "Tell me more about voice detection sensitivity",
+            )}
+          >
+            <div className="text-sm">
               <h4 className="font-medium text-[#f5f5f5] mb-2">
                 {t("audioProcessing.vadExplanation", "Voice Activity Detection (VAD)")}
               </h4>
@@ -127,7 +127,7 @@ export const AudioProcessingSettings: React.FC = () => {
                 </p>
               </div>
             </div>
-          </details>
+          </TellMeMore>
         </div>
       </SettingsGroup>
     </div>

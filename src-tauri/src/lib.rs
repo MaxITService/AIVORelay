@@ -6,6 +6,7 @@ mod audio_feedback;
 pub mod audio_toolkit;
 mod clipboard;
 mod commands;
+mod file_transcription_diarization;
 mod helpers;
 mod input;
 mod input_source;
@@ -28,6 +29,7 @@ mod text_replacement_decapitalize;
 mod transcript_context;
 mod tray;
 mod tray_i18n;
+mod url_security;
 mod utils;
 #[cfg(debug_assertions)]
 use specta_typescript::{BigIntExportBehavior, Typescript};
@@ -36,6 +38,8 @@ use tauri_specta::{collect_commands, Builder};
 use env_filter::Builder as EnvFilterBuilder;
 use managers::audio::AudioRecordingManager;
 use managers::connector::ConnectorManager;
+use managers::deepgram_realtime::DeepgramRealtimeManager;
+use managers::deepgram_stt::DeepgramSttManager;
 use managers::history::HistoryManager;
 use managers::key_listener::KeyListenerState;
 use managers::llm_operation::LlmOperationTracker;
@@ -57,7 +61,9 @@ use tauri::tray::TrayIconBuilder;
 use tauri::Emitter;
 use tauri::{AppHandle, Manager};
 use tauri_plugin_autostart::{MacosLauncher, ManagerExt};
-use tauri_plugin_log::{Builder as LogBuilder, RotationStrategy, Target, TargetKind};
+use tauri_plugin_log::{
+    Builder as LogBuilder, RotationStrategy, Target, TargetKind, TimezoneStrategy,
+};
 
 use crate::settings::get_settings;
 
@@ -142,8 +148,15 @@ fn initialize_core_logic(app_handle: &AppHandle) {
     // Initialize the input state (Enigo singleton for keyboard/mouse simulation)
     let enigo_state = input::EnigoState::new().expect("Failed to initialize input state (Enigo)");
     app_handle.manage(enigo_state);
+    app_handle.manage(tray::ManagedTrayState::default());
 
     let current_settings = settings::get_settings(app_handle);
+    app_handle.manage(managers::microphone_auto_switch::ManagedManualMicrophoneSelection::new(
+        current_settings
+            .last_manual_microphone
+            .clone()
+            .or(current_settings.selected_microphone.clone()),
+    ));
     crate::plus_overlay_state::set_error_overlay_auto_hide_ms(
         current_settings.error_overlay_auto_hide_ms,
     );
@@ -165,6 +178,12 @@ fn initialize_core_logic(app_handle: &AppHandle) {
     );
     let soniox_stt_manager =
         Arc::new(SonioxSttManager::new(app_handle).expect("Failed to initialize Soniox STT"));
+    let deepgram_realtime_manager = Arc::new(
+        DeepgramRealtimeManager::new(app_handle)
+            .expect("Failed to initialize Deepgram realtime STT"),
+    );
+    let deepgram_stt_manager =
+        Arc::new(DeepgramSttManager::new(app_handle).expect("Failed to initialize Deepgram STT"));
     let history_manager =
         Arc::new(HistoryManager::new(app_handle).expect("Failed to initialize history manager"));
     let connector_manager = Arc::new(
@@ -182,6 +201,8 @@ fn initialize_core_logic(app_handle: &AppHandle) {
     app_handle.manage(remote_stt_manager.clone());
     app_handle.manage(soniox_realtime_manager.clone());
     app_handle.manage(soniox_stt_manager.clone());
+    app_handle.manage(deepgram_realtime_manager.clone());
+    app_handle.manage(deepgram_stt_manager.clone());
     app_handle.manage(llm_operation_tracker.clone());
     app_handle.manage(history_manager.clone());
     app_handle.manage(connector_manager.clone());
@@ -193,9 +214,11 @@ fn initialize_core_logic(app_handle: &AppHandle) {
         region_capture::RegionCaptureState::default(),
     ));
 
-    // Start the connector server for extension communication
-    if let Err(e) = connector_manager.start_server() {
-        log::error!("Failed to start connector server: {}", e);
+    // Start the connector server for extension communication (if enabled)
+    if current_settings.connector_enabled {
+        if let Err(e) = connector_manager.start_server() {
+            log::error!("Failed to start connector server: {}", e);
+        }
     }
 
     // Initialize the shortcuts
@@ -234,50 +257,102 @@ fn initialize_core_logic(app_handle: &AppHandle) {
         .show_menu_on_left_click(false)
         .icon_as_template(true)
         .on_tray_icon_event(|tray, event| {
-            if let tauri::tray::TrayIconEvent::DoubleClick {
-                button: tauri::tray::MouseButton::Left,
-                ..
-            } = event
-            {
-                show_main_window(tray.app_handle());
+            match event {
+                tauri::tray::TrayIconEvent::Enter { .. } => {
+                    tray::refresh_tray_menu(tray.app_handle(), None);
+                }
+                tauri::tray::TrayIconEvent::DoubleClick {
+                    button: tauri::tray::MouseButton::Left,
+                    ..
+                } => {
+                    tray::refresh_tray_menu(tray.app_handle(), None);
+                    show_main_window(tray.app_handle());
+                }
+                _ => {}
             }
         })
-        .on_menu_event(|app, event| match event.id.as_ref() {
-            "settings" => {
-                show_main_window(app);
-            }
-            "check_updates" => {
-                let settings = settings::get_settings(app);
-                if settings.update_checks_enabled {
-                    show_main_window(app);
-                    let _ = app.emit("check-for-updates", ());
-                }
-            }
-            "copy_last_transcript" => {
-                tray::copy_last_transcript(app);
-            }
-            "unload_model" => {
-                let transcription_manager = app.state::<Arc<TranscriptionManager>>();
-                if !transcription_manager.is_model_loaded() {
-                    log::warn!("No model is currently loaded.");
-                    return;
-                }
-                match transcription_manager.unload_model() {
-                    Ok(()) => log::info!("Model unloaded via tray."),
-                    Err(e) => log::error!("Failed to unload model via tray: {}", e),
-                }
-            }
-            "cancel" => {
-                use crate::utils::cancel_current_operation;
+        .on_menu_event(|app, event| {
+            if let Some(selection) = tray::parse_microphone_menu_selection(event.id.as_ref()) {
+                let result = match selection {
+                    None => commands::audio::set_selected_microphone(
+                        app.clone(),
+                        "default".to_string(),
+                    ),
+                    Some(device_index) => match commands::audio::get_available_microphones() {
+                        Ok(devices) => {
+                            if let Some(device) = devices
+                                .into_iter()
+                                .find(|device| !device.is_default && device.index == device_index)
+                            {
+                                commands::audio::set_selected_microphone(
+                                    app.clone(),
+                                    device.name,
+                                )
+                            } else {
+                                log::warn!(
+                                    "Tray microphone selection '{}' is no longer available.",
+                                    device_index
+                                );
+                                tray::refresh_tray_menu(app, None);
+                                Ok(())
+                            }
+                        }
+                        Err(err) => {
+                            log::error!(
+                                "Failed to resolve tray microphone selection '{}': {}",
+                                device_index,
+                                err
+                            );
+                            tray::refresh_tray_menu(app, None);
+                            Ok(())
+                        }
+                    },
+                };
 
-                // Use centralized cancellation that handles all operations
-                cancel_current_operation(app);
+                if let Err(err) = result {
+                    log::error!("Failed to apply tray microphone selection: {}", err);
+                    tray::refresh_tray_menu(app, None);
+                }
+                return;
             }
-            "quit" => {
-                APP_QUIT_REQUESTED.store(true, Ordering::SeqCst);
-                app.exit(0);
+
+            match event.id.as_ref() {
+                "settings" => {
+                    show_main_window(app);
+                }
+                "check_updates" => {
+                    let settings = settings::get_settings(app);
+                    if settings.update_checks_enabled {
+                        show_main_window(app);
+                        let _ = app.emit("check-for-updates", ());
+                    }
+                }
+                "copy_last_transcript" => {
+                    tray::copy_last_transcript(app);
+                }
+                "unload_model" => {
+                    let transcription_manager = app.state::<Arc<TranscriptionManager>>();
+                    if !transcription_manager.is_model_loaded() {
+                        log::warn!("No model is currently loaded.");
+                        return;
+                    }
+                    match transcription_manager.unload_model() {
+                        Ok(()) => log::info!("Model unloaded via tray."),
+                        Err(e) => log::error!("Failed to unload model via tray: {}", e),
+                    }
+                }
+                "cancel" => {
+                    use crate::utils::cancel_current_operation;
+
+                    // Use centralized cancellation that handles all operations
+                    cancel_current_operation(app);
+                }
+                "quit" => {
+                    APP_QUIT_REQUESTED.store(true, Ordering::SeqCst);
+                    app.exit(0);
+                }
+                _ => {}
             }
-            _ => {}
         })
         .build(app_handle)
         .unwrap();
@@ -344,6 +419,7 @@ pub fn run() {
         shortcut::change_transcription_prompt_setting,
         shortcut::change_overlay_position_setting,
         shortcut::change_error_overlay_auto_hide_ms_setting,
+        shortcut::change_error_feedback_enabled_setting,
         shortcut::change_soniox_live_preview_enabled_setting,
         shortcut::change_soniox_live_preview_position_setting,
         shortcut::change_soniox_live_preview_custom_x_setting,
@@ -363,10 +439,21 @@ pub fn run() {
         shortcut::change_soniox_live_preview_flush_hotkey_setting,
         shortcut::change_soniox_live_preview_process_hotkey_setting,
         shortcut::change_soniox_live_preview_insert_hotkey_setting,
+        shortcut::change_soniox_live_preview_delete_until_dot_or_comma_hotkey_setting,
+        shortcut::change_soniox_live_preview_delete_until_dot_hotkey_setting,
+        shortcut::change_soniox_live_preview_delete_last_word_hotkey_setting,
         shortcut::change_soniox_live_preview_show_clear_button_setting,
         shortcut::change_soniox_live_preview_show_flush_button_setting,
         shortcut::change_soniox_live_preview_show_process_button_setting,
         shortcut::change_soniox_live_preview_show_insert_button_setting,
+        shortcut::change_soniox_live_preview_show_delete_until_dot_or_comma_button_setting,
+        shortcut::change_soniox_live_preview_show_delete_until_dot_button_setting,
+        shortcut::change_soniox_live_preview_show_delete_last_word_button_setting,
+        shortcut::change_soniox_live_preview_ctrl_backspace_delete_last_word_setting,
+        shortcut::change_soniox_live_preview_backspace_delete_last_char_setting,
+        shortcut::change_soniox_live_preview_show_drag_grip_setting,
+        shortcut::remember_soniox_live_preview_window_position,
+        shortcut::remember_soniox_live_preview_window_size,
         shortcut::change_debug_mode_setting,
         shortcut::change_word_correction_threshold_setting,
         shortcut::change_paste_method_setting,
@@ -376,6 +463,8 @@ pub fn run() {
         shortcut::change_auto_submit_key_setting,
         shortcut::change_convert_lf_to_crlf_setting,
         shortcut::change_remote_stt_base_url_setting,
+        shortcut::change_remote_stt_provider_preset_setting,
+        shortcut::change_remote_stt_allow_insecure_http_setting,
         shortcut::change_remote_stt_model_id_setting,
         shortcut::change_soniox_model_setting,
         shortcut::change_soniox_timeout_setting,
@@ -396,6 +485,18 @@ pub fn run() {
         shortcut::change_soniox_realtime_fuzzy_correction_enabled_setting,
         shortcut::change_soniox_realtime_keep_safety_buffer_enabled_setting,
         shortcut::reset_soniox_settings_to_defaults,
+        shortcut::change_deepgram_model_setting,
+        shortcut::change_deepgram_timeout_setting,
+        shortcut::change_deepgram_live_enabled_setting,
+        shortcut::change_deepgram_keepalive_interval_seconds_setting,
+        shortcut::change_deepgram_live_finalize_timeout_ms_setting,
+        shortcut::change_deepgram_live_instant_stop_setting,
+        shortcut::change_deepgram_interim_results_setting,
+        shortcut::change_deepgram_smart_format_setting,
+        shortcut::change_deepgram_diarize_setting,
+        shortcut::change_deepgram_endpointing_enabled_setting,
+        shortcut::change_deepgram_endpointing_ms_setting,
+        shortcut::reset_deepgram_settings_to_defaults,
         shortcut::change_remote_stt_debug_capture_setting,
         shortcut::change_remote_stt_debug_mode_setting,
         shortcut::change_post_process_enabled_setting,
@@ -421,6 +522,7 @@ pub fn run() {
         shortcut::change_voice_command_phonetic_boost_setting,
         shortcut::change_voice_command_word_similarity_threshold_setting,
         shortcut::change_post_process_base_url_setting,
+        shortcut::change_post_process_custom_http_override_setting,
         shortcut::change_post_process_api_key_setting,
         shortcut::change_post_process_model_setting,
         shortcut::set_post_process_provider,
@@ -430,6 +532,7 @@ pub fn run() {
         shortcut::update_post_process_prompt,
         shortcut::delete_post_process_prompt,
         shortcut::set_post_process_selected_prompt,
+        shortcut::change_diarization_speaker_name_profiles_setting,
         shortcut::add_transcription_profile,
         shortcut::update_transcription_profile,
         shortcut::delete_transcription_profile,
@@ -479,6 +582,11 @@ pub fn run() {
         shortcut::change_connector_auto_open_url_setting,
         shortcut::change_connector_port_setting,
         shortcut::change_connector_password_setting,
+        shortcut::rotate_connector_password_now,
+        shortcut::change_connector_enabled_setting,
+        shortcut::change_connector_allow_any_cors_setting,
+        shortcut::change_connector_cors_setting,
+        shortcut::change_connector_encryption_enabled_setting,
         shortcut::change_screenshot_capture_method_setting,
         shortcut::change_screenshot_capture_command_setting,
         shortcut::change_native_region_capture_mode_setting,
@@ -511,6 +619,8 @@ pub fn run() {
         shortcut::change_text_replacement_decapitalize_standard_post_recording_monitor_ms_setting,
         shortcut::change_output_whitespace_leading_mode_setting,
         shortcut::change_output_whitespace_trailing_mode_setting,
+        shortcut::change_remember_window_size_setting,
+        shortcut::change_remember_window_position_setting,
         shortcut::change_sidebar_pinned_setting,
         shortcut::change_sidebar_width_setting,
         shortcut::get_current_shortcut_engine,
@@ -522,6 +632,8 @@ pub fn run() {
         commands::get_app_settings,
         commands::get_default_settings,
         commands::get_log_dir_path,
+        commands::asset_preview::prepare_transcribe_file_asset,
+        commands::asset_preview::delete_transcribe_file_asset,
         commands::set_log_level,
         commands::open_recordings_folder,
         commands::open_log_dir,
@@ -532,6 +644,9 @@ pub fn run() {
         commands::remote_stt::soniox_has_api_key,
         commands::remote_stt::soniox_set_api_key,
         commands::remote_stt::soniox_clear_api_key,
+        commands::remote_stt::deepgram_has_api_key,
+        commands::remote_stt::deepgram_set_api_key,
+        commands::remote_stt::deepgram_clear_api_key,
         commands::remote_stt::remote_stt_get_debug_dump,
         commands::remote_stt::remote_stt_clear_debug,
         commands::remote_stt::remote_stt_test_connection,
@@ -551,13 +666,31 @@ pub fn run() {
         commands::audio::update_microphone_mode,
         commands::audio::get_available_microphones,
         commands::audio::set_selected_microphone,
+        commands::audio::change_selected_microphone_auto_switch_enabled_setting,
+        commands::audio::change_selected_microphone_name_pattern_setting,
         commands::audio::get_available_output_devices,
         commands::audio::set_selected_output_device,
+        commands::audio::change_live_sound_capture_source_setting,
         commands::audio::play_test_sound,
+        commands::audio::change_live_sound_speaker_diarization_setting,
         commands::audio::check_custom_sounds,
         commands::audio::set_clamshell_microphone,
+        commands::audio::set_live_sound_microphone,
         commands::audio::is_recording,
         commands::audio::change_vad_threshold_setting,
+        commands::live_sound_transcription::live_sound_transcription_start,
+        commands::live_sound_transcription::live_sound_transcription_stop,
+        commands::live_sound_transcription::live_sound_transcription_clear,
+        commands::live_sound_transcription::live_sound_transcription_process,
+        commands::live_sound_transcription::live_sound_transcription_close,
+        commands::live_sound_transcription::get_live_sound_transcription_state,
+        commands::live_sound_transcription::save_live_sound_transcript,
+        commands::live_sound_transcription::set_live_sound_auto_stop_minutes,
+        commands::live_sound_transcription::change_live_sound_transcription_provider,
+        commands::live_sound_transcription::set_live_sound_soniox_endpoint_detection,
+        commands::live_sound_transcription::set_live_sound_soniox_max_endpoint_delay_ms,
+        commands::live_sound_transcription::set_live_sound_deepgram_endpointing_enabled,
+        commands::live_sound_transcription::set_live_sound_deepgram_endpointing_ms,
         commands::transcription::set_model_unload_timeout,
         commands::transcription::unload_model_manually,
         commands::history::get_history_entries,
@@ -572,6 +705,7 @@ pub fn run() {
         commands::connector::connector_stop_server,
         commands::connector::connector_queue_message,
         commands::connector::connector_cancel_message,
+        commands::connector::connector_export_bundled_extension,
         commands::region_capture::region_capture_get_data,
         commands::region_capture::region_capture_confirm,
         commands::region_capture::region_capture_cancel,
@@ -584,6 +718,7 @@ pub fn run() {
         commands::voice_activation_button::voice_activation_button_press,
         commands::voice_activation_button::voice_activation_button_release,
         commands::file_transcription::transcribe_audio_file,
+        commands::file_transcription::reapply_transcription_speaker_names,
         commands::key_listener::key_listener_start,
         commands::key_listener::key_listener_stop,
         commands::key_listener::key_listener_register_shortcut,
@@ -593,6 +728,10 @@ pub fn run() {
         actions::preview_insert_action,
         actions::preview_llm_process_action,
         actions::preview_flush_action,
+        actions::preview_delete_until_dot_or_comma_action,
+        actions::preview_delete_until_dot_action,
+        actions::preview_delete_last_word_action,
+        actions::preview_delete_last_char_action,
         overlay::get_soniox_live_preview_state,
         overlay::get_soniox_live_preview_appearance,
         overlay::get_preview_output_mode_state,
@@ -615,6 +754,7 @@ pub fn run() {
         .plugin(
             LogBuilder::new()
                 .level(log::LevelFilter::Trace) // Set to most verbose level globally
+                .timezone_strategy(TimezoneStrategy::UseLocal)
                 .max_file_size(500_000)
                 .rotation_strategy(RotationStrategy::KeepOne)
                 .clear_targets()
@@ -679,6 +819,27 @@ pub fn run() {
 
             initialize_core_logic(&app_handle);
 
+            // Restore main window geometry before showing
+            if let Some(main_window) = app_handle.get_webview_window("main") {
+                if settings.remember_window_size
+                    && settings.saved_window_width > 0
+                    && settings.saved_window_height > 0
+                {
+                    let _ = main_window.set_size(tauri::Size::Physical(tauri::PhysicalSize {
+                        width: settings.saved_window_width,
+                        height: settings.saved_window_height,
+                    }));
+                }
+                if settings.remember_window_position && settings.saved_window_x != i32::MIN {
+                    let _ = main_window.set_position(tauri::Position::Physical(
+                        tauri::PhysicalPosition {
+                            x: settings.saved_window_x,
+                            y: settings.saved_window_y,
+                        },
+                    ));
+                }
+            }
+
             // Show main window only if not starting hidden
             if !settings.start_hidden {
                 if let Some(main_window) = app_handle.get_webview_window("main") {
@@ -694,6 +855,32 @@ pub fn run() {
                 // Only the main window should be hidden-to-tray on close.
                 // Auxiliary windows (e.g. voice activation button) must be allowed to close.
                 if window.label() == "main" {
+                    // Save window geometry before hiding/closing
+                    {
+                        let settings = get_settings(&window.app_handle());
+                        if settings.remember_window_size || settings.remember_window_position {
+                            let mut new_settings = settings.clone();
+                            let mut changed = false;
+                            if settings.remember_window_size {
+                                if let Ok(size) = window.inner_size() {
+                                    new_settings.saved_window_width = size.width;
+                                    new_settings.saved_window_height = size.height;
+                                    changed = true;
+                                }
+                            }
+                            if settings.remember_window_position {
+                                if let Ok(pos) = window.outer_position() {
+                                    new_settings.saved_window_x = pos.x;
+                                    new_settings.saved_window_y = pos.y;
+                                    changed = true;
+                                }
+                            }
+                            if changed {
+                                settings::write_settings(&window.app_handle(), new_settings);
+                            }
+                        }
+                    }
+
                     if APP_QUIT_REQUESTED.load(Ordering::SeqCst) {
                         return;
                     }

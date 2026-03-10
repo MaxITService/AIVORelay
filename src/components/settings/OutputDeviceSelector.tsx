@@ -10,11 +10,19 @@ interface OutputDeviceSelectorProps {
   descriptionMode?: "inline" | "tooltip";
   grouped?: boolean;
   disabled?: boolean;
+  descriptionOverride?: string;
+  titleOverride?: string;
 }
 
 export const OutputDeviceSelector: React.FC<OutputDeviceSelectorProps> =
   React.memo(
-    ({ descriptionMode = "tooltip", grouped = false, disabled = false }) => {
+    ({
+      descriptionMode = "tooltip",
+      grouped = false,
+      disabled = false,
+      descriptionOverride,
+      titleOverride,
+    }) => {
       const { t } = useTranslation();
       const {
         getSetting,
@@ -46,8 +54,10 @@ export const OutputDeviceSelector: React.FC<OutputDeviceSelectorProps> =
 
       return (
         <SettingContainer
-          title={t("settings.sound.outputDevice.title")}
-          description={t("settings.sound.outputDevice.description")}
+          title={titleOverride ?? t("settings.sound.outputDevice.title")}
+          description={
+            descriptionOverride ?? t("settings.sound.outputDevice.description")
+          }
           descriptionMode={descriptionMode}
           grouped={grouped}
           disabled={disabled}

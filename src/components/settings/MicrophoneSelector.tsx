@@ -5,13 +5,26 @@ import { SettingContainer } from "../ui/SettingContainer";
 import { ResetButton } from "../ui/ResetButton";
 import { useSettings } from "../../hooks/useSettings";
 
+type MicSettingKey = "selected_microphone" | "live_sound_microphone";
+
 interface MicrophoneSelectorProps {
+  settingKey?: MicSettingKey;
   descriptionMode?: "inline" | "tooltip";
   grouped?: boolean;
+  descriptionOverride?: string;
+  titleOverride?: string;
+  disabled?: boolean;
 }
 
 export const MicrophoneSelector: React.FC<MicrophoneSelectorProps> = React.memo(
-  ({ descriptionMode = "tooltip", grouped = false }) => {
+  ({
+    settingKey = "selected_microphone",
+    descriptionMode = "tooltip",
+    grouped = false,
+    descriptionOverride,
+    titleOverride,
+    disabled = false,
+  }) => {
     const { t } = useTranslation();
     const {
       getSetting,
@@ -24,16 +37,16 @@ export const MicrophoneSelector: React.FC<MicrophoneSelectorProps> = React.memo(
     } = useSettings();
 
     const selectedMicrophone =
-      getSetting("selected_microphone") === "default"
+      getSetting(settingKey) === "default"
         ? "Default"
-        : getSetting("selected_microphone") || "Default";
+        : getSetting(settingKey) || "Default";
 
     const handleMicrophoneSelect = async (deviceName: string) => {
-      await updateSetting("selected_microphone", deviceName);
+      await updateSetting(settingKey, deviceName);
     };
 
     const handleReset = async () => {
-      await resetSetting("selected_microphone");
+      await resetSetting(settingKey);
     };
 
     const microphoneOptions = audioDevices.map((device) => ({
@@ -43,10 +56,13 @@ export const MicrophoneSelector: React.FC<MicrophoneSelectorProps> = React.memo(
 
     return (
       <SettingContainer
-        title={t("settings.sound.microphone.title")}
-        description={t("settings.sound.microphone.description")}
+        title={titleOverride ?? t("settings.sound.microphone.title")}
+        description={
+          descriptionOverride ?? t("settings.sound.microphone.description")
+        }
         descriptionMode={descriptionMode}
         grouped={grouped}
+        disabled={disabled}
       >
         <div className="flex items-center space-x-1">
           <Dropdown
@@ -59,7 +75,8 @@ export const MicrophoneSelector: React.FC<MicrophoneSelectorProps> = React.memo(
                 : t("settings.sound.microphone.placeholder")
             }
             disabled={
-              isUpdating("selected_microphone") ||
+              disabled ||
+              isUpdating(settingKey) ||
               isLoading ||
               audioDevices.length === 0
             }
@@ -67,7 +84,7 @@ export const MicrophoneSelector: React.FC<MicrophoneSelectorProps> = React.memo(
           />
           <ResetButton
             onClick={handleReset}
-            disabled={isUpdating("selected_microphone") || isLoading}
+            disabled={disabled || isUpdating(settingKey) || isLoading}
           />
         </div>
       </SettingContainer>

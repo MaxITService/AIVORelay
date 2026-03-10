@@ -82,13 +82,19 @@ fn generate_tray_translations() {
 
     out.push_str("    m\n});\n");
 
-    fs::write(Path::new(&out_dir).join("tray_translations.rs"), out).unwrap();
+    let out_path = Path::new(&out_dir).join("tray_translations.rs");
+    let existing = fs::read_to_string(&out_path).ok();
+    let changed = existing.as_deref() != Some(out.as_str());
 
-    println!(
-        "cargo:warning=Generated tray translations: {} languages, {} fields",
-        translations.len(),
-        fields.len()
-    );
+    if changed {
+        fs::write(&out_path, out).unwrap();
+
+        println!(
+            "cargo:warning=Generated tray translations: {} languages, {} fields",
+            translations.len(),
+            fields.len()
+        );
+    }
 }
 
 fn camel_to_snake(s: &str) -> String {

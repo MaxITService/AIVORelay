@@ -4,6 +4,18 @@ This document lists the third-party components bundled with AivoRelay and their 
 
 ---
 
+## Inter Font
+
+**Copyright:** The Inter Project Authors
+
+**License:** SIL Open Font License 1.1
+
+**Source:** https://github.com/rsms/inter
+
+The `Inter` font is bundled for renderer-only local use. The upstream license text is shipped in `src-tauri/resources/licenses/Inter-OFL-1.1.txt`.
+
+---
+
 ## Vulkan Loader (vulkan-1.dll)
 
 **Copyright:** The Khronos Group Inc., LunarG Inc.
@@ -105,6 +117,20 @@ END OF TERMS AND CONDITIONS
 **Source:** https://github.com/ggerganov/whisper.cpp
 
 High-performance C/C++ implementation of OpenAI's Whisper automatic speech recognition model. Used for local speech-to-text processing.
+
+---
+
+## CPAL
+
+**Copyright:** The RustAudio Project Developers
+
+**License:** Apache License 2.0
+
+**Source:** https://github.com/rustaudio/cpal
+
+Low-level Rust audio I/O library used by AivoRelay for microphone capture, audio device enumeration, playback routing, and Windows system-audio loopback capture for Live Sound Transcription.
+
+The full Apache 2.0 license text is included above in this file.
 
 ---
 

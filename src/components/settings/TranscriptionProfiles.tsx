@@ -904,6 +904,7 @@ const ProfileCard: React.FC<ProfileCardProps> = ({
                             "settings.transcriptionProfiles.llmPostProcessing.outputVariableDoc.title",
                           )}
                         </div>
+                        {/* Trusted HTML from repo-controlled translations only. Do not pass user, model, or network content here. */}
                         <p
                           className="text-text/70"
                           dangerouslySetInnerHTML={{
@@ -924,6 +925,7 @@ const ProfileCard: React.FC<ProfileCardProps> = ({
                                 "settings.transcriptionProfiles.llmPostProcessing.outputVariableDoc.step1",
                               )}
                             </li>
+                            {/* Trusted HTML from repo-controlled translations only. Do not pass user, model, or network content here. */}
                             <li
                               dangerouslySetInnerHTML={{
                                 __html: t(
@@ -963,6 +965,7 @@ const ProfileCard: React.FC<ProfileCardProps> = ({
                                 "settings.transcriptionProfiles.llmPostProcessing.outputVariableDoc.invalidPrompt",
                               )}
                             </code>
+                            {/* Trusted HTML from repo-controlled translations only. Do not pass user, model, or network content here. */}
                             <p
                               className="text-red-400/80"
                               dangerouslySetInnerHTML={{
@@ -972,6 +975,7 @@ const ProfileCard: React.FC<ProfileCardProps> = ({
                               }}
                             />
                           </div>
+                          {/* Trusted HTML from repo-controlled translations only. Do not pass user, model, or network content here. */}
                           <p
                             className="mt-2 text-text/60"
                             dangerouslySetInnerHTML={{
@@ -1167,11 +1171,11 @@ export const TranscriptionProfiles: React.FC = () => {
 
   // Compute the active model ID based on provider - used for prompt limits and prompt storage
   const activeModelId = useMemo(() => {
-    const provider = settings?.transcription_provider;
+    const provider = String(settings?.transcription_provider || "local");
     if (provider === "remote_openai_compatible") {
       return settings?.remote_stt?.model_id || "";
     }
-    if (provider === "remote_soniox") {
+    if (provider === "remote_soniox" || provider === "remote_deepgram") {
       return "";
     }
     return settings?.selected_model || "";
@@ -1183,8 +1187,8 @@ export const TranscriptionProfiles: React.FC = () => {
 
   // Get model info for prompt configuration (same logic as TranscriptionSystemPrompt)
   const modelInfo = useMemo(() => {
-    const provider = settings?.transcription_provider;
-    if (provider === "remote_soniox") {
+    const provider = String(settings?.transcription_provider || "local");
+    if (provider === "remote_soniox" || provider === "remote_deepgram") {
       return { supportsPrompt: false, charLimit: 0, modelId: "" };
     }
 
@@ -1205,9 +1209,12 @@ export const TranscriptionProfiles: React.FC = () => {
   const activePromptValue = hasActivePromptModel
     ? settings?.transcription_prompts?.[activeModelId] || ""
     : "";
+  const activeProvider = String(settings?.transcription_provider || "local");
   const supportsTranslation =
-    settings?.transcription_provider !== "remote_soniox";
-  const isSonioxProvider = settings?.transcription_provider === "remote_soniox";
+    activeProvider !== "remote_soniox" && activeProvider !== "remote_deepgram";
+  const isSonioxProvider = activeProvider === "remote_soniox";
+  const isLiveCloudNoPostProcessProvider =
+    activeProvider === "remote_soniox" || activeProvider === "remote_deepgram";
 
   const filteredLanguages = useMemo(() => {
     if (isSonioxProvider) {
@@ -1417,6 +1424,11 @@ export const TranscriptionProfiles: React.FC = () => {
           sonioxLanguageHintsStrict: profile.soniox_language_hints_strict ?? null,
         },
       });
+      if (profile.id === activeProfileId) {
+        await invoke("change_soniox_live_preview_enabled_setting", {
+          enabled: profile.preview_output_only_enabled ?? false,
+        });
+      }
       await refreshSettings();
     } catch (error) {
       console.error("Failed to update profile:", error);
@@ -1441,7 +1453,15 @@ export const TranscriptionProfiles: React.FC = () => {
 
   const handleSetActive = async (id: string) => {
     try {
+      let previewEnabled: boolean;
+      if (id === "default") {
+        previewEnabled = (settings as any)?.preview_output_only_enabled ?? false;
+      } else {
+        const targetProfile = profiles.find((p) => p.id === id);
+        previewEnabled = targetProfile?.preview_output_only_enabled ?? false;
+      }
       await invoke("set_active_profile", { id });
+      await invoke("change_soniox_live_preview_enabled_setting", { enabled: previewEnabled });
       await refreshSettings();
     } catch (e) {
       console.error("Failed to set active profile", e);
@@ -1694,13 +1714,18 @@ export const TranscriptionProfiles: React.FC = () => {
                           ((settings as any)
                             ?.preview_output_only_enabled as boolean) ?? false
                         }
-                        onChange={(checked) =>
-                          updateSetting &&
-                          updateSetting(
-                            "preview_output_only_enabled" as any,
-                            checked as any,
-                          )
-                        }
+                        onChange={async (checked) => {
+                          if (updateSetting) {
+                            await updateSetting(
+                              "preview_output_only_enabled" as any,
+                              checked as any,
+                            );
+                          }
+                          if (activeProfileId === "default") {
+                            await invoke("change_soniox_live_preview_enabled_setting", { enabled: checked });
+                            await refreshSettings();
+                          }
+                        }}
                       />
                       <span className="text-xs text-mid-gray leading-snug">
                         {t(
@@ -2317,11 +2342,16 @@ export const TranscriptionProfiles: React.FC = () => {
                   )}
                 </p>
 
-                {isSonioxProvider && (
+                {isLiveCloudNoPostProcessProvider && (
                   <div className="p-2 bg-red-500/10 border border-red-500/30 rounded text-xs text-red-400">
-                    {t(
-                      "settings.transcriptionProfiles.llmPostProcessing.sonioxWarning",
-                    )}
+                    {activeProvider === "remote_deepgram"
+                      ? t(
+                          "settings.transcriptionProfiles.llmPostProcessing.deepgramWarning",
+                          "Deepgram live transcription skips LLM post-processing in the standard live cycle.",
+                        )
+                      : t(
+                          "settings.transcriptionProfiles.llmPostProcessing.sonioxWarning",
+                        )}
                   </div>
                 )}
 
@@ -2336,6 +2366,7 @@ export const TranscriptionProfiles: React.FC = () => {
                             "settings.transcriptionProfiles.llmPostProcessing.outputVariableDoc.title",
                           )}
                         </div>
+                        {/* Trusted HTML from repo-controlled translations only. Do not pass user, model, or network content here. */}
                         <p
                           className="text-text/70"
                           dangerouslySetInnerHTML={{
@@ -2356,6 +2387,7 @@ export const TranscriptionProfiles: React.FC = () => {
                                 "settings.transcriptionProfiles.llmPostProcessing.outputVariableDoc.step1",
                               )}
                             </li>
+                            {/* Trusted HTML from repo-controlled translations only. Do not pass user, model, or network content here. */}
                             <li
                               dangerouslySetInnerHTML={{
                                 __html: t(
@@ -2395,6 +2427,7 @@ export const TranscriptionProfiles: React.FC = () => {
                                 "settings.transcriptionProfiles.llmPostProcessing.outputVariableDoc.invalidPrompt",
                               )}
                             </code>
+                            {/* Trusted HTML from repo-controlled translations only. Do not pass user, model, or network content here. */}
                             <p
                               className="text-red-400/80"
                               dangerouslySetInnerHTML={{
@@ -2404,6 +2437,7 @@ export const TranscriptionProfiles: React.FC = () => {
                               }}
                             />
                           </div>
+                          {/* Trusted HTML from repo-controlled translations only. Do not pass user, model, or network content here. */}
                           <p
                             className="mt-2 text-text/60"
                             dangerouslySetInnerHTML={{
