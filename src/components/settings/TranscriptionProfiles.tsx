@@ -904,6 +904,7 @@ const ProfileCard: React.FC<ProfileCardProps> = ({
                             "settings.transcriptionProfiles.llmPostProcessing.outputVariableDoc.title",
                           )}
                         </div>
+                        {/* Trusted HTML from repo-controlled translations only. Do not pass user, model, or network content here. */}
                         <p
                           className="text-text/70"
                           dangerouslySetInnerHTML={{
@@ -924,6 +925,7 @@ const ProfileCard: React.FC<ProfileCardProps> = ({
                                 "settings.transcriptionProfiles.llmPostProcessing.outputVariableDoc.step1",
                               )}
                             </li>
+                            {/* Trusted HTML from repo-controlled translations only. Do not pass user, model, or network content here. */}
                             <li
                               dangerouslySetInnerHTML={{
                                 __html: t(
@@ -963,6 +965,7 @@ const ProfileCard: React.FC<ProfileCardProps> = ({
                                 "settings.transcriptionProfiles.llmPostProcessing.outputVariableDoc.invalidPrompt",
                               )}
                             </code>
+                            {/* Trusted HTML from repo-controlled translations only. Do not pass user, model, or network content here. */}
                             <p
                               className="text-red-400/80"
                               dangerouslySetInnerHTML={{
@@ -972,6 +975,7 @@ const ProfileCard: React.FC<ProfileCardProps> = ({
                               }}
                             />
                           </div>
+                          {/* Trusted HTML from repo-controlled translations only. Do not pass user, model, or network content here. */}
                           <p
                             className="mt-2 text-text/60"
                             dangerouslySetInnerHTML={{
@@ -2362,6 +2366,7 @@ export const TranscriptionProfiles: React.FC = () => {
                             "settings.transcriptionProfiles.llmPostProcessing.outputVariableDoc.title",
                           )}
                         </div>
+                        {/* Trusted HTML from repo-controlled translations only. Do not pass user, model, or network content here. */}
                         <p
                           className="text-text/70"
                           dangerouslySetInnerHTML={{
@@ -2382,6 +2387,7 @@ export const TranscriptionProfiles: React.FC = () => {
                                 "settings.transcriptionProfiles.llmPostProcessing.outputVariableDoc.step1",
                               )}
                             </li>
+                            {/* Trusted HTML from repo-controlled translations only. Do not pass user, model, or network content here. */}
                             <li
                               dangerouslySetInnerHTML={{
                                 __html: t(
@@ -2421,6 +2427,7 @@ export const TranscriptionProfiles: React.FC = () => {
                                 "settings.transcriptionProfiles.llmPostProcessing.outputVariableDoc.invalidPrompt",
                               )}
                             </code>
+                            {/* Trusted HTML from repo-controlled translations only. Do not pass user, model, or network content here. */}
                             <p
                               className="text-red-400/80"
                               dangerouslySetInnerHTML={{
@@ -2430,6 +2437,7 @@ export const TranscriptionProfiles: React.FC = () => {
                               }}
                             />
                           </div>
+                          {/* Trusted HTML from repo-controlled translations only. Do not pass user, model, or network content here. */}
                           <p
                             className="mt-2 text-text/60"
                             dangerouslySetInnerHTML={{

@@ -1,6 +1,6 @@
 # Upstream Sync Log
 
-Small rolling log of integrated upstream commits.
+Small rolling log of upstream commits integrated into `main`.
 
 Rules:
 - Keep newest entries first.
@@ -23,4 +23,4 @@ Rules:
 
 Entry template:
 
-`| YYYY-MM-DD | YYYY-MM-DD | \'up_sha\' | upstream message | \'local_sha\' | local message | short issue note |`
+`| YYYY-MM-DD | YYYY-MM-DD | 'upstream_sha' | upstream message | 'local_sha' | local message | short issue note |`

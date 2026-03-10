@@ -1,5 +1,5 @@
 use std::{
-    io::Error,
+    io::{Error, ErrorKind},
     sync::{mpsc, Arc, Mutex},
     time::Duration,
 };
@@ -186,8 +186,10 @@ impl AudioRecorder {
                     drop(stream);
                 }
                 Err(e) => {
+                    let normalized_error = normalize_capture_open_error(source, e);
+                    log::error!("{}", normalized_error);
                     // Signal failure - thread will exit
-                    let _ = init_tx.send(Err(e));
+                    let _ = init_tx.send(Err(normalized_error));
                 }
             }
         });
@@ -203,11 +205,21 @@ impl AudioRecorder {
             Ok(Err(e)) => {
                 // Worker reported an error
                 let _ = worker.join();
-                Err(e.into())
+                let kind = if source == AudioCaptureSource::Microphone
+                    && is_microphone_access_denied(&e)
+                {
+                    ErrorKind::PermissionDenied
+                } else {
+                    ErrorKind::Other
+                };
+                Err(Box::new(Error::new(kind, e)))
             }
             Err(_) => {
                 // Timeout waiting for initialization
-                Err("Timeout waiting for audio device initialization".into())
+                Err(Box::new(Error::new(
+                    ErrorKind::TimedOut,
+                    "Timeout waiting for audio device initialization",
+                )))
             }
         }
     }
@@ -335,6 +347,21 @@ impl AudioRecorder {
             AudioCaptureSource::SystemOutputLoopback => device.default_output_config()?,
         })
     }
+}
+
+fn is_microphone_access_denied(error_message: &str) -> bool {
+    let normalized = error_message.to_lowercase();
+    normalized.contains("access is denied")
+        || normalized.contains("permission denied")
+        || normalized.contains("0x80070005")
+}
+
+fn normalize_capture_open_error(source: AudioCaptureSource, error_message: String) -> String {
+    if source == AudioCaptureSource::Microphone && is_microphone_access_denied(&error_message) {
+        return "Microphone access was denied by Windows. Enable Settings > Privacy & security > Microphone, make sure desktop app access is allowed, then restart the app.".to_string();
+    }
+
+    error_message
 }
 
 fn run_consumer(

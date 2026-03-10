@@ -29,6 +29,7 @@ mod text_replacement_decapitalize;
 mod transcript_context;
 mod tray;
 mod tray_i18n;
+mod url_security;
 mod utils;
 #[cfg(debug_assertions)]
 use specta_typescript::{BigIntExportBehavior, Typescript};
@@ -60,7 +61,9 @@ use tauri::tray::TrayIconBuilder;
 use tauri::Emitter;
 use tauri::{AppHandle, Manager};
 use tauri_plugin_autostart::{MacosLauncher, ManagerExt};
-use tauri_plugin_log::{Builder as LogBuilder, RotationStrategy, Target, TargetKind};
+use tauri_plugin_log::{
+    Builder as LogBuilder, RotationStrategy, Target, TargetKind, TimezoneStrategy,
+};
 
 use crate::settings::get_settings;
 
@@ -460,6 +463,8 @@ pub fn run() {
         shortcut::change_auto_submit_key_setting,
         shortcut::change_convert_lf_to_crlf_setting,
         shortcut::change_remote_stt_base_url_setting,
+        shortcut::change_remote_stt_provider_preset_setting,
+        shortcut::change_remote_stt_allow_insecure_http_setting,
         shortcut::change_remote_stt_model_id_setting,
         shortcut::change_soniox_model_setting,
         shortcut::change_soniox_timeout_setting,
@@ -517,6 +522,7 @@ pub fn run() {
         shortcut::change_voice_command_phonetic_boost_setting,
         shortcut::change_voice_command_word_similarity_threshold_setting,
         shortcut::change_post_process_base_url_setting,
+        shortcut::change_post_process_custom_http_override_setting,
         shortcut::change_post_process_api_key_setting,
         shortcut::change_post_process_model_setting,
         shortcut::set_post_process_provider,
@@ -626,6 +632,8 @@ pub fn run() {
         commands::get_app_settings,
         commands::get_default_settings,
         commands::get_log_dir_path,
+        commands::asset_preview::prepare_transcribe_file_asset,
+        commands::asset_preview::delete_transcribe_file_asset,
         commands::set_log_level,
         commands::open_recordings_folder,
         commands::open_log_dir,
@@ -746,6 +754,7 @@ pub fn run() {
         .plugin(
             LogBuilder::new()
                 .level(log::LevelFilter::Trace) // Set to most verbose level globally
+                .timezone_strategy(TimezoneStrategy::UseLocal)
                 .max_file_size(500_000)
                 .rotation_strategy(RotationStrategy::KeepOne)
                 .clear_targets()

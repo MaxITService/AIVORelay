@@ -477,6 +477,22 @@ async changeRemoteSttBaseUrlSetting(baseUrl: string) : Promise<Result<null, stri
     else return { status: "error", error: e  as any };
 }
 },
+async changeRemoteSttProviderPresetSetting(preset: string) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("change_remote_stt_provider_preset_setting", { preset }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async changeRemoteSttAllowInsecureHttpSetting(enabled: boolean) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("change_remote_stt_allow_insecure_http_setting", { enabled }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async changeRemoteSttModelIdSetting(modelId: string) : Promise<Result<null, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("change_remote_stt_model_id_setting", { modelId }) };
@@ -928,6 +944,14 @@ async changeVoiceCommandWordSimilarityThresholdSetting(threshold: number) : Prom
 async changePostProcessBaseUrlSetting(providerId: string, baseUrl: string) : Promise<Result<null, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("change_post_process_base_url_setting", { providerId, baseUrl }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async changePostProcessCustomHttpOverrideSetting(enabled: boolean) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("change_post_process_custom_http_override_setting", { enabled }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
@@ -1822,6 +1846,22 @@ async getDefaultSettings() : Promise<Result<AppSettings, string>> {
 async getLogDirPath() : Promise<Result<string, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("get_log_dir_path") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async prepareTranscribeFileAsset(sourcePath: string) : Promise<Result<string, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("prepare_transcribe_file_asset", { sourcePath }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async deleteTranscribeFileAsset(stagedPath: string) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("delete_transcribe_file_asset", { stagedPath }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
@@ -3109,7 +3149,7 @@ export type LLMPrompt = { id: string; name: string; prompt: string }
 export type LiveSoundCaptureSource = "microphone" | "system_output" | "both"
 export type LiveSoundTranscriptSegmentPayload = { speaker_id: number | null; speaker_label: string | null; text: string; is_interim: boolean }
 export type LiveSoundTranscriptionProvider = "system" | "remote_soniox" | "remote_deepgram"
-export type LiveSoundTranscriptionStatePayload = { active: boolean; recording: boolean; processing_llm: boolean; binding_id: string | null; error_message: string | null; final_text: string; interim_text: string; segments: LiveSoundTranscriptSegmentPayload[] }
+export type LiveSoundTranscriptionStatePayload = { active: boolean; recording: boolean; processing_llm: boolean; binding_id: string | null; error_message: string | null; final_text: string; interim_text: string; segments: LiveSoundTranscriptSegmentPayload[]; auto_stop_remaining_seconds: number | null }
 /**
  * Which feature is requesting LLM access.
  * Used to resolve the correct provider/key/model configuration.
@@ -3158,7 +3198,7 @@ export type OutputFormat =
 export type OutputWhitespaceMode = "preserve" | "remove_if_present" | "add_if_missing"
 export type OverlayPosition = "none" | "top" | "bottom"
 export type PasteMethod = "ctrl_v" | "direct" | "none" | "shift_insert" | "ctrl_shift_v"
-export type PostProcessProvider = { id: string; label: string; base_url: string; allow_base_url_edit?: boolean; models_endpoint?: string | null }
+export type PostProcessProvider = { id: string; label: string; base_url: string; allow_base_url_edit?: boolean; allow_insecure_http?: boolean; models_endpoint?: string | null }
 export type PreviewOutputModeStatePayload = { active: boolean; recording: boolean; processing_llm: boolean; flush_visible: boolean; is_realtime: boolean; binding_id: string | null; profile_id: string | null; error_message: string | null }
 /**
  * Per-profile LLM post-processing settings.
@@ -3171,7 +3211,7 @@ export type RecordingRetentionPeriod = "never" | "preserve_limit" | "days_3" | "
  */
 export type RegionCaptureData = { screenshot: string | null; virtual_screen: VirtualScreenInfo }
 export type RemoteSttDebugMode = "normal" | "verbose"
-export type RemoteSttSettings = { base_url: string; model_id: string; debug_capture?: boolean; debug_mode?: RemoteSttDebugMode }
+export type RemoteSttSettings = { base_url: string; provider_preset?: string; allow_insecure_http?: boolean; model_id: string; debug_capture?: boolean; debug_mode?: RemoteSttDebugMode }
 export type ScreenshotCaptureMethod = "external_program" | "native"
 /**
  * Region selected by the user (in screen coordinates).

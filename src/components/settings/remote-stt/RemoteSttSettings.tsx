@@ -6,6 +6,10 @@ import { type } from "@tauri-apps/plugin-os";
 import { toast } from "sonner";
 import { commands } from "@/bindings";
 import { useSettings } from "../../../hooks/useSettings";
+import {
+  REMOTE_STT_PRESETS,
+  type RemoteSttPreset,
+} from "../../../lib/constants/remoteSttProviders";
 import { parseAndNormalizeSonioxLanguageHints } from "../../../lib/constants/sonioxLanguages";
 import { Button } from "../../ui/Button";
 import { Input } from "../../ui/Input";
@@ -42,6 +46,16 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
 
   const provider = String(settings?.transcription_provider ?? "local");
   const remoteSettings = settings?.remote_stt;
+  const rawRemotePreset = String(
+    (remoteSettings as any)?.provider_preset ?? "groq",
+  );
+  const remotePreset: RemoteSttPreset =
+    rawRemotePreset in REMOTE_STT_PRESETS
+      ? (rawRemotePreset as RemoteSttPreset)
+      : "custom";
+  const remoteAllowInsecureHttp = Boolean(
+    (remoteSettings as any)?.allow_insecure_http ?? false,
+  );
   const sonioxModel = (settings as any)?.soniox_model ?? "stt-rt-v4";
   const sonioxTimeout = Number((settings as any)?.soniox_timeout_seconds ?? 30);
   const sonioxLiveEnabled = Boolean(
@@ -110,12 +124,21 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
   const isCloudProvider =
     isRemoteOpenAiProvider || isSonioxProvider || isDeepgramProvider;
   const isSonioxRealtimeModel = sonioxModel.trim().startsWith("stt-rt");
+  const effectiveRemoteBaseUrl =
+    remotePreset === "custom"
+      ? remoteSettings?.base_url ?? ""
+      : (REMOTE_STT_PRESETS[remotePreset]?.baseUrl ??
+          remoteSettings?.base_url ??
+          "");
 
   const [baseUrlInput, setBaseUrlInput] = useState(
-    remoteSettings?.base_url ?? "",
+    effectiveRemoteBaseUrl,
   );
   const [modelIdInput, setModelIdInput] = useState(
     remoteSettings?.model_id ?? "",
+  );
+  const [customModelId, setCustomModelId] = useState(
+    remotePreset === "custom" ? (remoteSettings?.model_id ?? "") : "",
   );
   const [sonioxModelInput, setSonioxModelInput] = useState(sonioxModel);
   const [sonioxTimeoutInput, setSonioxTimeoutInput] = useState(
@@ -161,12 +184,18 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
   const debugCap = debugMode === "verbose" ? 300 : 50;
 
   useEffect(() => {
-    setBaseUrlInput(remoteSettings?.base_url ?? "");
-  }, [remoteSettings?.base_url]);
+    setBaseUrlInput(effectiveRemoteBaseUrl);
+  }, [effectiveRemoteBaseUrl]);
 
   useEffect(() => {
     setModelIdInput(remoteSettings?.model_id ?? "");
   }, [remoteSettings?.model_id]);
+
+  useEffect(() => {
+    if (remotePreset === "custom") {
+      setCustomModelId(remoteSettings?.model_id ?? "");
+    }
+  }, [remotePreset, remoteSettings?.model_id]);
 
   useEffect(() => {
     setSonioxModelInput(sonioxModel);
@@ -354,20 +383,79 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
     return options;
   }, [deepgramModelInput]);
 
+  const remotePresetOptions = useMemo<SelectOption[]>(
+    () => [
+      {
+        value: "groq",
+        label: t("settings.advanced.remoteStt.providerPreset.options.groq"),
+      },
+      {
+        value: "openai",
+        label: t("settings.advanced.remoteStt.providerPreset.options.openai"),
+      },
+      {
+        value: "custom",
+        label: t("settings.advanced.remoteStt.providerPreset.options.custom"),
+      },
+    ],
+    [t],
+  );
+
   const handleProviderChange = (value: string | null) => {
     if (!value) return;
     void setTranscriptionProvider(value);
   };
 
-  const handleBaseUrlBlur = () => {
+  const handleRemotePresetChange = async (value: string | null) => {
+    if (!value) return;
+    const nextPreset = value as RemoteSttPreset;
+    const savedCustomModelId =
+      remotePreset === "custom" ? modelIdInput.trim() : customModelId.trim();
+    try {
+      if (remotePreset === "custom") {
+        setCustomModelId(modelIdInput.trim());
+      }
+
+      await invoke("change_remote_stt_provider_preset_setting", {
+        preset: nextPreset,
+      });
+
+      if (nextPreset === "custom" && savedCustomModelId.length > 0) {
+        await updateRemoteSttModelId(savedCustomModelId);
+      }
+
+      await refreshSettings();
+    } catch (error) {
+      toast.error(String(error));
+    }
+  };
+
+  const handleRemoteHttpOverrideChange = async (enabled: boolean) => {
+    try {
+      await invoke("change_remote_stt_allow_insecure_http_setting", { enabled });
+      await refreshSettings();
+    } catch (error) {
+      toast.error(String(error));
+    }
+  };
+
+  const handleBaseUrlBlur = async () => {
     const trimmed = baseUrlInput.trim();
     if (trimmed !== (remoteSettings?.base_url ?? "")) {
-      void updateRemoteSttBaseUrl(trimmed);
+      try {
+        await updateRemoteSttBaseUrl(trimmed);
+      } catch (error) {
+        toast.error(String(error));
+        setBaseUrlInput(remoteSettings?.base_url ?? "");
+      }
     }
   };
 
   const handleModelIdBlur = () => {
     const trimmed = modelIdInput.trim();
+    if (remotePreset === "custom") {
+      setCustomModelId(trimmed);
+    }
     if (trimmed !== (remoteSettings?.model_id ?? "")) {
       void updateRemoteSttModelId(trimmed);
     }
@@ -678,6 +766,22 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
           {showOpenAiFields && (
             <>
               <SettingContainer
+                title={t("settings.advanced.remoteStt.providerPreset.title")}
+                description={t(
+                  "settings.advanced.remoteStt.providerPreset.description",
+                )}
+                descriptionMode={descriptionMode}
+                grouped={grouped}
+              >
+                <Select
+                  value={remotePreset}
+                  options={remotePresetOptions}
+                  onChange={handleRemotePresetChange}
+                  isClearable={false}
+                />
+              </SettingContainer>
+
+              <SettingContainer
                 title={t("settings.advanced.remoteStt.baseUrl.title")}
                 description={t("settings.advanced.remoteStt.baseUrl.description")}
                 descriptionMode={descriptionMode}
@@ -688,11 +792,36 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
                   type="text"
                   value={baseUrlInput}
                   onChange={(event) => setBaseUrlInput(event.target.value)}
-                  onBlur={handleBaseUrlBlur}
+                  onBlur={() => void handleBaseUrlBlur()}
                   placeholder={t("settings.advanced.remoteStt.baseUrl.placeholder")}
                   className="w-full"
+                  disabled={remotePreset !== "custom"}
                 />
               </SettingContainer>
+
+              {remotePreset === "custom" ? (
+                <>
+                  <ToggleSwitch
+                    checked={remoteAllowInsecureHttp}
+                    onChange={(enabled) =>
+                      void handleRemoteHttpOverrideChange(enabled)
+                    }
+                    isUpdating={false}
+                    label={t("settings.advanced.remoteStt.customHttpOverride.title")}
+                    description={t(
+                      "settings.advanced.remoteStt.customHttpOverride.description",
+                    )}
+                    descriptionMode={descriptionMode}
+                    grouped={grouped}
+                  />
+
+                  {remoteAllowInsecureHttp ? (
+                    <div className="mx-4 rounded-lg border border-red-500/40 bg-red-500/10 p-3 text-sm text-red-200">
+                      {t("settings.advanced.remoteStt.customHttpOverride.warning")}
+                    </div>
+                  ) : null}
+                </>
+              ) : null}
 
               <SettingContainer
                 title={t("settings.advanced.remoteStt.modelId.title")}
@@ -704,7 +833,13 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
                 <Input
                   type="text"
                   value={modelIdInput}
-                  onChange={(event) => setModelIdInput(event.target.value)}
+                  onChange={(event) => {
+                    const nextValue = event.target.value;
+                    setModelIdInput(nextValue);
+                    if (remotePreset === "custom") {
+                      setCustomModelId(nextValue);
+                    }
+                  }}
                   onBlur={handleModelIdBlur}
                   placeholder={t("settings.advanced.remoteStt.modelId.placeholder")}
                   className="w-full"

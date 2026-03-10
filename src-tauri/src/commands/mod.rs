@@ -1,3 +1,4 @@
+pub mod asset_preview;
 pub mod audio;
 pub mod connector;
 pub mod file_transcription;

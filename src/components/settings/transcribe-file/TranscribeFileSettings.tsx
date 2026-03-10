@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useMemo } from "react";
+import React, { useState, useRef, useEffect, useMemo, useCallback } from "react";
 import { useTranslation } from "react-i18next";
 import {
   FileAudio,
@@ -10,7 +10,7 @@ import {
   Loader2,
 } from "lucide-react";
 import { open } from "@tauri-apps/plugin-dialog";
-import { convertFileSrc } from "@tauri-apps/api/core";
+import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { stat } from "@tauri-apps/plugin-fs";
 import {
@@ -26,7 +26,10 @@ import { Button } from "@/components/ui/Button";
 import { AudioPlayer } from "@/components/ui/AudioPlayer";
 import { ConfirmationModal } from "@/components/ui/ConfirmationModal";
 import { Dropdown } from "@/components/ui/Dropdown";
-import { useTranscribeFileStore } from "@/stores/transcribeFileStore";
+import {
+  useTranscribeFileStore,
+  type SelectedFile,
+} from "@/stores/transcribeFileStore";
 import { parseAndNormalizeSonioxLanguageHints } from "@/lib/constants/sonioxLanguages";
 
 const supportedExtensions = ["wav", "mp3", "m4a", "ogg", "flac", "webm"];
@@ -109,9 +112,22 @@ const loadAudioDuration = async (audioUrl: string): Promise<number | null> =>
     audio.src = audioUrl;
   });
 
-const buildSelectedFile = async (path: string) => {
+const cleanupPreparedPreviewAsset = async (selectedFile: SelectedFile | null) => {
+  if (!selectedFile?.previewAssetPath) {
+    return;
+  }
+
+  try {
+    await invoke("delete_transcribe_file_asset", {
+      stagedPath: selectedFile.previewAssetPath,
+    });
+  } catch (error) {
+    console.error("Failed to delete staged preview asset:", error);
+  }
+};
+
+const buildSelectedFile = async (path: string): Promise<SelectedFile> => {
   const name = path.split(/[/\\]/).pop() ?? "unknown";
-  const audioUrl = convertFileSrc(path);
 
   let fileSize = 0;
   try {
@@ -121,13 +137,26 @@ const buildSelectedFile = async (path: string) => {
     console.error("Failed to get file size:", e);
   }
 
-  const durationSeconds = await loadAudioDuration(audioUrl);
+  let previewAssetPath: string | null = null;
+  let audioUrl: string | null = null;
+  let durationSeconds: number | null = null;
+
+  try {
+    previewAssetPath = await invoke<string>("prepare_transcribe_file_asset", {
+      sourcePath: path,
+    });
+    audioUrl = convertFileSrc(previewAssetPath, "asset");
+    durationSeconds = await loadAudioDuration(audioUrl);
+  } catch (error) {
+    console.error("Failed to prepare audio preview asset:", error);
+  }
 
   return {
     path,
     name,
     size: fileSize,
     audioUrl,
+    previewAssetPath,
     durationSeconds,
   };
 };
@@ -192,6 +221,7 @@ export const TranscribeFileSettings: React.FC = () => {
     useState(false);
 
   const dropZoneRef = useRef<HTMLDivElement>(null);
+  const selectedFileRef = useRef<SelectedFile | null>(selectedFile);
   const sonioxModel = (settings as any)?.soniox_model ?? "stt-rt-v4";
   const transcriptionProvider = String(settings?.transcription_provider ?? "local");
   const isSonioxProvider = transcriptionProvider === "remote_soniox";
@@ -231,6 +261,41 @@ export const TranscribeFileSettings: React.FC = () => {
   );
 
   useEffect(() => {
+    selectedFileRef.current = selectedFile;
+  }, [selectedFile]);
+
+  const replaceSelectedFile = useCallback(
+    async (nextFile: SelectedFile | null) => {
+      await cleanupPreparedPreviewAsset(selectedFileRef.current);
+      selectedFileRef.current = nextFile;
+      setSelectedFile(nextFile);
+    },
+    [setSelectedFile],
+  );
+
+  const clearSelectedFileState = useCallback(async () => {
+    await replaceSelectedFile(null);
+    setTranscriptionResult("");
+    setSavedFilePath(null);
+    setInfoMessage(null);
+    setShowDurationLimitWarningDialog(false);
+    setError(null);
+    clearSpeakerSession();
+  }, [
+    clearSpeakerSession,
+    replaceSelectedFile,
+    setError,
+    setSavedFilePath,
+    setTranscriptionResult,
+  ]);
+
+  useEffect(() => {
+    return () => {
+      void cleanupPreparedPreviewAsset(selectedFileRef.current);
+    };
+  }, []);
+
+  useEffect(() => {
     setSonioxLanguageHintsInput(globalSonioxLanguageHints.join(", "));
     setSonioxEnableSpeakerDiarization(globalSonioxEnableSpeakerDiarization);
     setSonioxEnableLanguageIdentification(globalSonioxEnableLanguageIdentification);
@@ -260,19 +325,19 @@ export const TranscribeFileSettings: React.FC = () => {
         if (paths && paths.length > 0) {
           const filePath = paths[0];
           const extension = filePath.split(".").pop()?.toLowerCase() ?? "";
-          
+
           if (!supportedExtensions.includes(extension)) {
             setError(
               t("transcribeFile.unsupportedFormat", {
                 format: extension,
                 supported: supportedExtensions.join(", "),
-              })
+              }),
             );
             return;
           }
-          
+
           const nextFile = await buildSelectedFile(filePath);
-          setSelectedFile(nextFile);
+          await replaceSelectedFile(nextFile);
           setTranscriptionResult("");
           setSavedFilePath(null);
           setInfoMessage(null);
@@ -286,7 +351,14 @@ export const TranscribeFileSettings: React.FC = () => {
     return () => {
       unlistenDrop.then((fn) => fn());
     };
-  }, [clearSpeakerSession, setError, setSavedFilePath, setSelectedFile, setTranscriptionResult, t]);
+  }, [
+    clearSpeakerSession,
+    replaceSelectedFile,
+    setError,
+    setSavedFilePath,
+    setTranscriptionResult,
+    t,
+  ]);
 
   // Check recording state periodically
   useEffect(() => {
@@ -580,7 +652,7 @@ export const TranscribeFileSettings: React.FC = () => {
       if (result) {
         const path = result as string;
         const nextFile = await buildSelectedFile(path);
-        setSelectedFile(nextFile);
+        await replaceSelectedFile(nextFile);
         setTranscriptionResult("");
         setSavedFilePath(null);
         setInfoMessage(null);
@@ -736,13 +808,7 @@ export const TranscribeFileSettings: React.FC = () => {
 
   // Clear selection and results
   const handleClear = () => {
-    setSelectedFile(null);
-    setTranscriptionResult("");
-    setSavedFilePath(null);
-    setInfoMessage(null);
-    setShowDurationLimitWarningDialog(false);
-    setError(null);
-    clearSpeakerSession();
+    void clearSelectedFileState();
   };
 
   // Format file size
@@ -827,7 +893,9 @@ export const TranscribeFileSettings: React.FC = () => {
               </div>
 
               {/* Audio Preview */}
-              <AudioPlayer src={selectedFile.audioUrl} className="w-full" />
+              {selectedFile.audioUrl && (
+                <AudioPlayer src={selectedFile.audioUrl} className="w-full" />
+              )}
 
               {/* Profile Selector */}
               <div className="space-y-2">

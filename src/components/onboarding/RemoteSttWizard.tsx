@@ -8,6 +8,10 @@ import { Button } from "../ui/Button";
 import { Input } from "../ui/Input";
 import { Select, type SelectOption } from "../ui/Select";
 import { useSettings } from "../../hooks/useSettings";
+import {
+  REMOTE_STT_PRESETS,
+  type RemoteSttPreset,
+} from "../../lib/constants/remoteSttProviders";
 
 interface RemoteSttWizardProps {
   isOpen: boolean;
@@ -17,8 +21,15 @@ interface RemoteSttWizardProps {
 
 type EngineType = "openai" | "soniox" | "deepgram";
 
-const DEFAULT_BASE_URL = "https://api.groq.com/openai/v1";
-const DEFAULT_MODEL_ID = "whisper-large-v3-turbo";
+const resetConnectionState = (
+  setConnectionStatus: React.Dispatch<
+    React.SetStateAction<"idle" | "testing" | "success" | "error">
+  >,
+  setConnectionMessage: React.Dispatch<React.SetStateAction<string | null>>,
+) => {
+  setConnectionStatus("idle");
+  setConnectionMessage(null);
+};
 
 export const RemoteSttWizard: React.FC<RemoteSttWizardProps> = ({
   isOpen,
@@ -33,8 +44,16 @@ export const RemoteSttWizard: React.FC<RemoteSttWizardProps> = ({
   } = useSettings();
 
   const [engine, setEngine] = useState<EngineType>("openai");
-  const [baseUrl, setBaseUrl] = useState(DEFAULT_BASE_URL);
-  const [modelId, setModelId] = useState(DEFAULT_MODEL_ID);
+  const [remotePreset, setRemotePreset] = useState<RemoteSttPreset>("groq");
+  const [baseUrl, setBaseUrl] = useState<string>(
+    REMOTE_STT_PRESETS.groq.baseUrl,
+  );
+  const [modelId, setModelId] = useState<string>(
+    REMOTE_STT_PRESETS.groq.defaultModel,
+  );
+  const [customBaseUrl, setCustomBaseUrl] = useState("");
+  const [customModelId, setCustomModelId] = useState("");
+  const [allowInsecureHttp, setAllowInsecureHttp] = useState(false);
   const [apiKey, setApiKey] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [connectionStatus, setConnectionStatus] = useState<
@@ -64,6 +83,9 @@ export const RemoteSttWizard: React.FC<RemoteSttWizardProps> = ({
 
   const isSoniox = engine === "soniox";
   const isDeepgram = engine === "deepgram";
+  const isCustomRemotePreset = remotePreset === "custom";
+  const hasRequiredRemoteUrl =
+    isSoniox || isDeepgram || !isCustomRemotePreset || baseUrl.trim().length > 0;
 
   if (!isOpen) return null;
 
@@ -95,8 +117,16 @@ export const RemoteSttWizard: React.FC<RemoteSttWizardProps> = ({
           t("onboarding.remoteSttWizard.apiKeySaved", "API key saved."),
         );
       } else {
-        // Save base URL
-        await updateRemoteSttBaseUrl(baseUrl.trim());
+        await invoke("change_remote_stt_provider_preset_setting", {
+          preset: remotePreset,
+        });
+        await invoke("change_remote_stt_allow_insecure_http_setting", {
+          enabled: allowInsecureHttp,
+        });
+
+        if (isCustomRemotePreset) {
+          await updateRemoteSttBaseUrl(baseUrl.trim());
+        }
 
         // Save model ID
         await updateRemoteSttModelId(modelId.trim());
@@ -135,6 +165,17 @@ export const RemoteSttWizard: React.FC<RemoteSttWizardProps> = ({
   };
 
   const handleFinish = async () => {
+    if (!hasRequiredRemoteUrl) {
+      const message = t(
+        "onboarding.remoteSttWizard.baseUrlRequired",
+        "Enter a base URL before finishing setup.",
+      );
+      setConnectionStatus("error");
+      setConnectionMessage(message);
+      toast.error(message);
+      return;
+    }
+
     // If not tested yet, save settings first
     if (connectionStatus !== "success" && apiKey.trim()) {
       setIsLoading(true);
@@ -143,9 +184,16 @@ export const RemoteSttWizard: React.FC<RemoteSttWizardProps> = ({
           await commands.sonioxSetApiKey(apiKey.trim());
         } else if (isDeepgram) {
           await invoke("deepgram_set_api_key", { apiKey: apiKey.trim() });
-        } else if (baseUrl.trim()) {
-          // Save base URL
-          await updateRemoteSttBaseUrl(baseUrl.trim());
+        } else if (baseUrl.trim() || !isCustomRemotePreset) {
+          await invoke("change_remote_stt_provider_preset_setting", {
+            preset: remotePreset,
+          });
+          await invoke("change_remote_stt_allow_insecure_http_setting", {
+            enabled: allowInsecureHttp,
+          });
+          if (isCustomRemotePreset) {
+            await updateRemoteSttBaseUrl(baseUrl.trim());
+          }
           // Save model ID
           await updateRemoteSttModelId(modelId.trim());
           // Save API key
@@ -153,6 +201,9 @@ export const RemoteSttWizard: React.FC<RemoteSttWizardProps> = ({
         }
       } catch (error) {
         toast.error(String(error));
+        setConnectionStatus("error");
+        setConnectionMessage(String(error));
+        return;
       } finally {
         setIsLoading(false);
       }
@@ -169,15 +220,15 @@ export const RemoteSttWizard: React.FC<RemoteSttWizardProps> = ({
       );
     } catch (error) {
       toast.error(String(error));
+      return;
     }
 
     onComplete();
   };
 
   const canTest =
-    apiKey.trim().length > 0 &&
-    (isSoniox || isDeepgram || baseUrl.trim().length > 0);
-  const canFinish = apiKey.trim().length > 0;
+    apiKey.trim().length > 0 && hasRequiredRemoteUrl;
+  const canFinish = apiKey.trim().length > 0 && hasRequiredRemoteUrl;
 
   return (
     <div
@@ -230,8 +281,10 @@ export const RemoteSttWizard: React.FC<RemoteSttWizardProps> = ({
               onChange={(value) => {
                 if (value) {
                   setEngine(value as EngineType);
-                  setConnectionStatus("idle");
-                  setConnectionMessage(null);
+                  resetConnectionState(
+                    setConnectionStatus,
+                    setConnectionMessage,
+                  );
                 }
               }}
               isClearable={false}
@@ -317,6 +370,67 @@ export const RemoteSttWizard: React.FC<RemoteSttWizardProps> = ({
           {/* OpenAI-specific fields */}
           {!isSoniox && !isDeepgram && (
             <>
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-text/80">
+                  {t("onboarding.remoteSttWizard.providerPreset.label")}
+                </label>
+                <Select
+                  value={remotePreset}
+                  options={[
+                    {
+                      value: "groq",
+                      label: t(
+                        "onboarding.remoteSttWizard.providerPreset.options.groq",
+                      ),
+                    },
+                    {
+                      value: "openai",
+                      label: t(
+                        "onboarding.remoteSttWizard.providerPreset.options.openai",
+                      ),
+                    },
+                    {
+                      value: "custom",
+                      label: t(
+                        "onboarding.remoteSttWizard.providerPreset.options.custom",
+                      ),
+                    },
+                  ]}
+                  onChange={(value) => {
+                    if (!value) return;
+                    const preset = value as RemoteSttPreset;
+                    const previousPreset = remotePreset;
+                    const nextCustomBaseUrl =
+                      previousPreset === "custom" ? baseUrl : customBaseUrl;
+                    const nextCustomModelId =
+                      previousPreset === "custom"
+                        ? modelId
+                        : customModelId || modelId;
+
+                    if (previousPreset === "custom") {
+                      setCustomBaseUrl(baseUrl);
+                      setCustomModelId(modelId);
+                    }
+
+                    setRemotePreset(preset);
+                    resetConnectionState(
+                      setConnectionStatus,
+                      setConnectionMessage,
+                    );
+
+                    if (preset !== "custom") {
+                      setAllowInsecureHttp(false);
+                      setBaseUrl(REMOTE_STT_PRESETS[preset].baseUrl);
+                      setModelId(REMOTE_STT_PRESETS[preset].defaultModel);
+                    } else {
+                      setBaseUrl(nextCustomBaseUrl);
+                      setModelId(nextCustomModelId);
+                    }
+                  }}
+                  isClearable={false}
+                />
+              </div>
+
               {/* Base URL input */}
               <div className="space-y-2">
                 <label className="text-sm font-medium text-text/80">
@@ -325,14 +439,53 @@ export const RemoteSttWizard: React.FC<RemoteSttWizardProps> = ({
                 <Input
                   type="text"
                   value={baseUrl}
-                  onChange={(e) => setBaseUrl(e.target.value)}
-                  placeholder={DEFAULT_BASE_URL}
+                  onChange={(e) => {
+                    const nextValue = e.target.value;
+                    setBaseUrl(nextValue);
+                    if (isCustomRemotePreset) {
+                      setCustomBaseUrl(nextValue);
+                    }
+                    resetConnectionState(
+                      setConnectionStatus,
+                      setConnectionMessage,
+                    );
+                  }}
+                  placeholder={REMOTE_STT_PRESETS.groq.baseUrl}
                   disabled={isLoading}
+                  readOnly={!isCustomRemotePreset}
                 />
                 <p className="text-xs text-mid-gray">
                   {t("onboarding.remoteSttWizard.baseUrl.hint")}
                 </p>
               </div>
+
+              {isCustomRemotePreset ? (
+                <div className="space-y-2">
+                  <label className="flex items-start gap-3 rounded-lg border border-mid-gray/20 bg-mid-gray/10 p-3 text-sm text-text/90">
+                    <input
+                      type="checkbox"
+                      className="mt-1"
+                      checked={allowInsecureHttp}
+                      onChange={(event) => {
+                        setAllowInsecureHttp(event.target.checked);
+                        resetConnectionState(
+                          setConnectionStatus,
+                          setConnectionMessage,
+                        );
+                      }}
+                      disabled={isLoading}
+                    />
+                    <span>
+                      {t("onboarding.remoteSttWizard.customHttpOverride.label")}
+                    </span>
+                  </label>
+                  {allowInsecureHttp ? (
+                    <div className="rounded-lg border border-red-500/40 bg-red-500/10 p-3 text-sm text-red-200">
+                      {t("onboarding.remoteSttWizard.customHttpOverride.warning")}
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
 
               {/* Model ID input */}
               <div className="space-y-2">
@@ -342,8 +495,18 @@ export const RemoteSttWizard: React.FC<RemoteSttWizardProps> = ({
                 <Input
                   type="text"
                   value={modelId}
-                  onChange={(e) => setModelId(e.target.value)}
-                  placeholder={DEFAULT_MODEL_ID}
+                  onChange={(e) => {
+                    const nextValue = e.target.value;
+                    setModelId(nextValue);
+                    if (isCustomRemotePreset) {
+                      setCustomModelId(nextValue);
+                    }
+                    resetConnectionState(
+                      setConnectionStatus,
+                      setConnectionMessage,
+                    );
+                  }}
+                  placeholder={REMOTE_STT_PRESETS.groq.defaultModel}
                   disabled={isLoading}
                 />
                 <p className="text-xs text-mid-gray">
@@ -361,7 +524,13 @@ export const RemoteSttWizard: React.FC<RemoteSttWizardProps> = ({
             <Input
               type="password"
               value={apiKey}
-              onChange={(e) => setApiKey(e.target.value)}
+              onChange={(e) => {
+                setApiKey(e.target.value);
+                resetConnectionState(
+                  setConnectionStatus,
+                  setConnectionMessage,
+                );
+              }}
               placeholder={isDeepgram ? "dg-..." : "sk-..."}
               disabled={isLoading}
             />

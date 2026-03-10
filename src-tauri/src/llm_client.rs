@@ -1,4 +1,5 @@
 use crate::settings::PostProcessProvider;
+use crate::url_security::canonical_llm_provider_base_url;
 use log::{debug, info, warn};
 use reqwest::header::{HeaderMap, HeaderValue, AUTHORIZATION, CONTENT_TYPE, REFERER, USER_AGENT};
 use serde::{Deserialize, Serialize};
@@ -161,7 +162,7 @@ async fn send_chat_completion_with_messages_internal(
     messages: Vec<ChatMessage>,
     reasoning: ReasoningConfig,
 ) -> Result<Option<String>, String> {
-    let base_url = provider.base_url.trim_end_matches('/');
+    let base_url = canonical_llm_provider_base_url(provider)?;
     let url = format!("{}/chat/completions", base_url);
 
     debug!("Sending chat completion request to: {}", url);
@@ -297,7 +298,7 @@ pub async fn fetch_models(
     provider: &PostProcessProvider,
     api_key: String,
 ) -> Result<Vec<String>, String> {
-    let base_url = provider.base_url.trim_end_matches('/');
+    let base_url = canonical_llm_provider_base_url(provider)?;
     let url = format!("{}/models", base_url);
 
     debug!("Fetching models from: {}", url);

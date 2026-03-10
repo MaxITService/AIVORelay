@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { useTranslation } from "react-i18next";
@@ -35,6 +35,8 @@ type LiveSoundState = {
   interim_text?: string;
   interimText?: string;
   segments?: LiveSoundSegment[];
+  auto_stop_remaining_seconds?: number | null;
+  autoStopRemainingSeconds?: number | null;
 };
 
 type SpeakerNameSetProfile = {
@@ -59,6 +61,12 @@ const getInterimText = (state: LiveSoundState) =>
 
 const getSegments = (state: LiveSoundState) =>
   Array.isArray(state.segments) ? state.segments : [];
+
+const getAutoStopRemainingSeconds = (state: LiveSoundState) => {
+  const value =
+    state.auto_stop_remaining_seconds ?? state.autoStopRemainingSeconds ?? null;
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+};
 
 const getSegmentSpeakerLabel = (segment: LiveSoundSegment) =>
   segment.speaker_label ?? segment.speakerLabel ?? null;
@@ -88,8 +96,7 @@ export const LiveSoundTranscriptionSettings: React.FC = () => {
   const [speakerNameProfileDraftName, setSpeakerNameProfileDraftName] = useState("");
   const [isSavingSpeakerNameProfile, setIsSavingSpeakerNameProfile] = useState(false);
   const [autoStopInput, setAutoStopInput] = useState<string>("");
-  const [minutesLeft, setMinutesLeft] = useState<number | null>(null);
-  const autoStopTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const [autoStopRemainingSeconds, setAutoStopRemainingSeconds] = useState<number | null>(null);
   const [showWhatIsThis, setShowWhatIsThis] = useState(false);
 
   const liveSoundProviderSetting = String(
@@ -228,6 +235,7 @@ export const LiveSoundTranscriptionSettings: React.FC = () => {
         setInterimText(getInterimText(state));
         setSegments(getSegments(state));
         setErrorMessage(getErrorMessage(state));
+        setAutoStopRemainingSeconds(getAutoStopRemainingSeconds(state));
         return state;
       } catch {
         // Ignore polling failures.
@@ -247,6 +255,7 @@ export const LiveSoundTranscriptionSettings: React.FC = () => {
           setInterimText(getInterimText(event.payload));
           setSegments(getSegments(event.payload));
           setErrorMessage(getErrorMessage(event.payload));
+          setAutoStopRemainingSeconds(getAutoStopRemainingSeconds(event.payload));
         }),
       );
       unlistenPromises.push(
@@ -260,6 +269,7 @@ export const LiveSoundTranscriptionSettings: React.FC = () => {
           setInterimText(getInterimText(event.payload));
           setSegments(getSegments(event.payload));
           setErrorMessage(getErrorMessage(event.payload));
+          setAutoStopRemainingSeconds(getAutoStopRemainingSeconds(event.payload));
         }),
       );
     };
@@ -283,36 +293,6 @@ export const LiveSoundTranscriptionSettings: React.FC = () => {
       setAutoStopInput(autoStopMinutes === 0 ? "" : String(autoStopMinutes));
     }
   }, [autoStopMinutes, isRecording]);
-
-  // Countdown timer — starts when recording begins, clears when it ends
-  useEffect(() => {
-    if (isRecording && autoStopMinutes > 0) {
-      setMinutesLeft(autoStopMinutes);
-      autoStopTimerRef.current = setInterval(() => {
-        setMinutesLeft((prev) => {
-          if (prev === null) return null;
-          const next = prev - 1;
-          if (next <= 0) {
-            void invoke("live_sound_transcription_stop");
-            return 0;
-          }
-          return next;
-        });
-      }, 60_000);
-    } else {
-      if (autoStopTimerRef.current) {
-        clearInterval(autoStopTimerRef.current);
-        autoStopTimerRef.current = null;
-      }
-      setMinutesLeft(null);
-    }
-    return () => {
-      if (autoStopTimerRef.current) {
-        clearInterval(autoStopTimerRef.current);
-        autoStopTimerRef.current = null;
-      }
-    };
-  }, [isRecording, autoStopMinutes]);
 
   useEffect(() => {
     if (selectedSpeakerNameProfile) {
@@ -492,6 +472,12 @@ export const LiveSoundTranscriptionSettings: React.FC = () => {
   };
 
   const hasTranscript = finalText.trim().length > 0 || segments.some((s) => !isInterimSegment(s) && (s.text ?? "").trim().length > 0);
+  const autoStopMinutesLeft =
+    autoStopRemainingSeconds === null
+      ? null
+      : autoStopRemainingSeconds <= 0
+        ? 0
+        : Math.ceil(autoStopRemainingSeconds / 60);
 
   const getDisplayName = (segment: LiveSoundSegment): string | null => {
     const id = segment.speaker_id ?? segment.speakerId;
@@ -762,7 +748,7 @@ export const LiveSoundTranscriptionSettings: React.FC = () => {
                     ? "border-[#2a2a2a] text-[#555] cursor-not-allowed"
                     : "border-[#333333] text-[#f5f5f5] focus:border-[#9b5de5]",
                 ].join(" ")}
-                value={isRecording ? (minutesLeft ?? autoStopMinutes) : autoStopInput}
+                value={isRecording ? (autoStopMinutesLeft ?? autoStopMinutes) : autoStopInput}
                 disabled={isRecording}
                 onChange={(e) => setAutoStopInput(e.target.value)}
                 onBlur={async () => {
@@ -775,7 +761,7 @@ export const LiveSoundTranscriptionSettings: React.FC = () => {
                 }}
               />
               <span className="text-sm text-[#9a9a9a]">
-                {isRecording && minutesLeft !== null
+                {isRecording && autoStopMinutesLeft !== null
                   ? t("settings.liveSoundTranscription.session.autoStopLeft")
                   : t("settings.liveSoundTranscription.session.autoStopMinutes")}
               </span>
@@ -1279,7 +1265,6 @@ export const LiveSoundTranscriptionSettings: React.FC = () => {
     </div>
   );
 };
-
 
 
 

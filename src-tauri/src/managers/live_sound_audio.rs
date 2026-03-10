@@ -323,7 +323,7 @@ pub fn start(app: &AppHandle) -> Result<(), String> {
 ///
 /// For batch mode: stops the recorder; transcription of the captured samples
 /// is a future concern (currently no-op beyond clearing recording state).
-pub fn stop(app: &AppHandle) {
+pub fn stop(app: &AppHandle, session_id: u64) {
     let session = {
         let mut guard = match SESSION.lock() {
             Ok(g) => g,
@@ -356,7 +356,11 @@ pub fn stop(app: &AppHandle) {
                     warn!("Live sound Soniox finalization error: {}", e);
                 }
                 // Session loop already cleared interim text on "finished" payload.
-                crate::managers::live_sound_transcription::set_recording(&app, false);
+                crate::managers::live_sound_transcription::set_recording_if_session_matches(
+                    &app,
+                    session_id,
+                    false,
+                );
             });
         }
 
@@ -367,14 +371,22 @@ pub fn stop(app: &AppHandle) {
                 if let Err(e) = manager.finish_session(timeout_ms).await {
                     warn!("Live sound Deepgram finalization error: {}", e);
                 }
-                crate::managers::live_sound_transcription::set_recording(&app, false);
+                crate::managers::live_sound_transcription::set_recording_if_session_matches(
+                    &app,
+                    session_id,
+                    false,
+                );
             });
         }
 
         None => {
             // Batch mode — mark as not recording immediately.
             // Full batch transcription support is a future enhancement.
-            crate::managers::live_sound_transcription::set_recording(app, false);
+            crate::managers::live_sound_transcription::set_recording_if_session_matches(
+                app,
+                session_id,
+                false,
+            );
         }
     }
 

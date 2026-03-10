@@ -11,7 +11,8 @@ export interface SelectedFile {
   path: string;
   name: string;
   size: number;
-  audioUrl: string;
+  audioUrl: string | null;
+  previewAssetPath: string | null;
   durationSeconds?: number | null;
 }
 

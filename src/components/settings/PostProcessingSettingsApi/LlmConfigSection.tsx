@@ -1,7 +1,10 @@
 import React from "react";
 import { useTranslation } from "react-i18next";
+import { invoke } from "@tauri-apps/api/core";
 import { RefreshCcw } from "lucide-react";
+import { toast } from "sonner";
 
+import { useSettings } from "../../../hooks/useSettings";
 import { SettingContainer } from "../../ui/SettingContainer";
 import { ResetButton } from "../../ui/ResetButton";
 import { ProviderSelect } from "./ProviderSelect";
@@ -9,6 +12,7 @@ import { BaseUrlField } from "./BaseUrlField";
 import { ApiKeyField } from "./ApiKeyField";
 import { ModelSelect } from "./ModelSelect";
 import { ExtendedThinkingSection } from "../ExtendedThinkingSection";
+import { ToggleSwitch } from "../../ui/ToggleSwitch";
 
 const DisabledNotice: React.FC<{ children: React.ReactNode }> = ({
   children,
@@ -43,6 +47,21 @@ export const LlmConfigSection: React.FC<LlmConfigSectionProps> = ({
   sameAsSummary,
 }) => {
   const { t } = useTranslation();
+  const { refreshSettings, isUpdating } = useSettings();
+  const allowInsecureHttp = Boolean(
+    (state.selectedProvider as any)?.allow_insecure_http ?? false,
+  );
+
+  const handleCustomHttpOverrideChange = async (enabled: boolean) => {
+    try {
+      await invoke("change_post_process_custom_http_override_setting", {
+        enabled,
+      });
+      await refreshSettings();
+    } catch (error) {
+      toast.error(String(error));
+    }
+  };
 
   return (
     <div className="space-y-4 pt-4">
@@ -111,27 +130,55 @@ export const LlmConfigSection: React.FC<LlmConfigSectionProps> = ({
           ) : (
             <>
               {showBaseUrl && state.selectedProvider?.id === "custom" && (
-                <SettingContainer
-                  title={t("settings.postProcessing.api.baseUrl.title")}
-                  description={t(
-                    "settings.postProcessing.api.baseUrl.description",
-                  )}
-                  descriptionMode="tooltip"
-                  layout="horizontal"
-                  grouped={true}
-                >
-                  <div className="flex items-center gap-2">
-                    <BaseUrlField
-                      value={state.baseUrl}
-                      onBlur={state.handleBaseUrlChange || (() => {})}
-                      placeholder={t(
-                        "settings.postProcessing.api.baseUrl.placeholder",
-                      )}
-                      disabled={state.isBaseUrlUpdating}
-                      className="min-w-[380px]"
-                    />
-                  </div>
-                </SettingContainer>
+                <>
+                  <SettingContainer
+                    title={t("settings.postProcessing.api.baseUrl.title")}
+                    description={t(
+                      "settings.postProcessing.api.baseUrl.description",
+                    )}
+                    descriptionMode="tooltip"
+                    layout="horizontal"
+                    grouped={true}
+                  >
+                    <div className="flex items-center gap-2">
+                      <BaseUrlField
+                        value={state.baseUrl}
+                        onBlur={state.handleBaseUrlChange || (() => {})}
+                        placeholder={t(
+                          "settings.postProcessing.api.baseUrl.placeholder",
+                        )}
+                        disabled={state.isBaseUrlUpdating}
+                        className="min-w-[380px]"
+                      />
+                    </div>
+                  </SettingContainer>
+
+                  <ToggleSwitch
+                    checked={allowInsecureHttp}
+                    onChange={(enabled) =>
+                      void handleCustomHttpOverrideChange(enabled)
+                    }
+                    isUpdating={isUpdating("post_process_custom_http_override")}
+                    label={t(
+                      "settings.postProcessing.api.customHttpOverride.title",
+                    )}
+                    description={t(
+                      "settings.postProcessing.api.customHttpOverride.description",
+                    )}
+                    descriptionMode="tooltip"
+                    grouped={true}
+                  />
+
+                  {allowInsecureHttp ? (
+                    <div className="mx-6 rounded-lg border border-red-500/40 bg-red-500/10 p-3">
+                      <p className="text-sm text-red-200">
+                        {t(
+                          "settings.postProcessing.api.customHttpOverride.warning",
+                        )}
+                      </p>
+                    </div>
+                  ) : null}
+                </>
               )}
 
               <SettingContainer

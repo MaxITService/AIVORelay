@@ -809,6 +809,19 @@ impl ConnectorManager {
         Ok(())
     }
 
+    /// Reload settings that are applied at server startup without turning on
+    /// a connector instance that was intentionally stopped.
+    pub fn reload_runtime_config(&self) -> Result<(), String> {
+        let should_restart =
+            self.server_running.load(Ordering::SeqCst) || self.server_error.blocking_read().is_some();
+
+        if should_restart {
+            self.restart_server()?;
+        }
+
+        Ok(())
+    }
+
     /// Queue a message to be sent to the extension.
     pub fn queue_message(&self, text: &str) -> Result<String, String> {
         let trimmed = text.trim();

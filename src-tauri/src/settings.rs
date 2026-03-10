@@ -6,6 +6,13 @@ use std::collections::HashMap;
 use tauri::AppHandle;
 use tauri_plugin_store::StoreExt;
 
+use crate::url_security::{
+    infer_remote_stt_preset, is_plain_http_url, remote_stt_base_url_for_preset,
+    LLM_ANTHROPIC_BASE_URL, LLM_CEREBRAS_BASE_URL, LLM_GROQ_BASE_URL,
+    LLM_OPENAI_BASE_URL, LLM_OPENROUTER_BASE_URL, LLM_ZAI_BASE_URL,
+    REMOTE_STT_GROQ_BASE_URL, REMOTE_STT_GROQ_DEFAULT_MODEL, REMOTE_STT_PRESET_GROQ,
+};
+
 pub const APPLE_INTELLIGENCE_PROVIDER_ID: &str = "apple_intelligence";
 pub const APPLE_INTELLIGENCE_DEFAULT_MODEL_ID: &str = "Apple Intelligence";
 pub const MAX_HISTORY_LIMIT: usize = 1000;
@@ -737,6 +744,8 @@ pub struct PostProcessProvider {
     #[serde(default)]
     pub allow_base_url_edit: bool,
     #[serde(default)]
+    pub allow_insecure_http: bool,
+    #[serde(default)]
     pub models_endpoint: Option<String>,
 }
 
@@ -814,6 +823,10 @@ pub enum RemoteSttDebugMode {
 #[derive(Serialize, Deserialize, Debug, Clone, Type)]
 pub struct RemoteSttSettings {
     pub base_url: String,
+    #[serde(default = "default_remote_stt_provider_preset")]
+    pub provider_preset: String,
+    #[serde(default)]
+    pub allow_insecure_http: bool,
     pub model_id: String,
     #[serde(default = "default_remote_stt_debug_capture")]
     pub debug_capture: bool,
@@ -1647,10 +1660,16 @@ fn default_remote_stt_debug_mode() -> RemoteSttDebugMode {
     RemoteSttDebugMode::Normal
 }
 
+fn default_remote_stt_provider_preset() -> String {
+    REMOTE_STT_PRESET_GROQ.to_string()
+}
+
 fn default_remote_stt_settings() -> RemoteSttSettings {
     RemoteSttSettings {
-        base_url: "https://api.groq.com/openai/v1".to_string(),
-        model_id: "whisper-large-v3-turbo".to_string(),
+        base_url: REMOTE_STT_GROQ_BASE_URL.to_string(),
+        provider_preset: default_remote_stt_provider_preset(),
+        allow_insecure_http: false,
+        model_id: REMOTE_STT_GROQ_DEFAULT_MODEL.to_string(),
         debug_capture: default_remote_stt_debug_capture(),
         debug_mode: default_remote_stt_debug_mode(),
     }
@@ -2084,43 +2103,49 @@ fn default_post_process_providers() -> Vec<PostProcessProvider> {
         PostProcessProvider {
             id: "openai".to_string(),
             label: "OpenAI".to_string(),
-            base_url: "https://api.openai.com/v1".to_string(),
+            base_url: LLM_OPENAI_BASE_URL.to_string(),
             allow_base_url_edit: false,
+            allow_insecure_http: false,
             models_endpoint: Some("/models".to_string()),
         },
         PostProcessProvider {
             id: "zai".to_string(),
             label: "Z.AI".to_string(),
-            base_url: "https://api.z.ai/api/paas/v4".to_string(),
+            base_url: LLM_ZAI_BASE_URL.to_string(),
             allow_base_url_edit: false,
+            allow_insecure_http: false,
             models_endpoint: Some("/models".to_string()),
         },
         PostProcessProvider {
             id: "openrouter".to_string(),
             label: "OpenRouter".to_string(),
-            base_url: "https://openrouter.ai/api/v1".to_string(),
+            base_url: LLM_OPENROUTER_BASE_URL.to_string(),
             allow_base_url_edit: false,
+            allow_insecure_http: false,
             models_endpoint: Some("/models".to_string()),
         },
         PostProcessProvider {
             id: "anthropic".to_string(),
             label: "Anthropic".to_string(),
-            base_url: "https://api.anthropic.com/v1".to_string(),
+            base_url: LLM_ANTHROPIC_BASE_URL.to_string(),
             allow_base_url_edit: false,
+            allow_insecure_http: false,
             models_endpoint: Some("/models".to_string()),
         },
         PostProcessProvider {
             id: "groq".to_string(),
             label: "Groq".to_string(),
-            base_url: "https://api.groq.com/openai/v1".to_string(),
+            base_url: LLM_GROQ_BASE_URL.to_string(),
             allow_base_url_edit: false,
+            allow_insecure_http: false,
             models_endpoint: Some("/models".to_string()),
         },
         PostProcessProvider {
             id: "cerebras".to_string(),
             label: "Cerebras".to_string(),
-            base_url: "https://api.cerebras.ai/v1".to_string(),
+            base_url: LLM_CEREBRAS_BASE_URL.to_string(),
             allow_base_url_edit: false,
+            allow_insecure_http: false,
             models_endpoint: Some("/models".to_string()),
         },
     ];
@@ -2136,6 +2161,7 @@ fn default_post_process_providers() -> Vec<PostProcessProvider> {
             label: "Apple Intelligence".to_string(),
             base_url: "apple-intelligence://local".to_string(),
             allow_base_url_edit: false,
+            allow_insecure_http: false,
             models_endpoint: None,
         });
     }
@@ -2144,8 +2170,9 @@ fn default_post_process_providers() -> Vec<PostProcessProvider> {
     providers.push(PostProcessProvider {
         id: "custom".to_string(),
         label: "Custom".to_string(),
-        base_url: "http://localhost:11434/v1".to_string(),
+        base_url: String::new(),
         allow_base_url_edit: true,
+        allow_insecure_http: false,
         models_endpoint: Some("/models".to_string()),
     });
 
@@ -2196,6 +2223,39 @@ fn ensure_post_process_defaults(settings: &mut AppSettings) -> bool {
         {
             settings.post_process_providers.push(provider.clone());
             changed = true;
+        } else if let Some(existing) = settings
+            .post_process_providers
+            .iter_mut()
+            .find(|existing| existing.id == provider.id)
+        {
+            if existing.label != provider.label {
+                existing.label = provider.label.clone();
+                changed = true;
+            }
+            if existing.allow_base_url_edit != provider.allow_base_url_edit {
+                existing.allow_base_url_edit = provider.allow_base_url_edit;
+                changed = true;
+            }
+            if existing.models_endpoint != provider.models_endpoint {
+                existing.models_endpoint = provider.models_endpoint.clone();
+                changed = true;
+            }
+
+            if provider.id == "custom" {
+                if is_plain_http_url(&existing.base_url) && !existing.allow_insecure_http {
+                    existing.allow_insecure_http = true;
+                    changed = true;
+                }
+            } else {
+                if existing.base_url != provider.base_url {
+                    existing.base_url = provider.base_url.clone();
+                    changed = true;
+                }
+                if existing.allow_insecure_http {
+                    existing.allow_insecure_http = false;
+                    changed = true;
+                }
+            }
         }
 
         if !settings.post_process_api_keys.contains_key(&provider.id) {
@@ -2220,6 +2280,40 @@ fn ensure_post_process_defaults(settings: &mut AppSettings) -> bool {
                 changed = true;
             }
         }
+    }
+
+    changed
+}
+
+fn ensure_remote_stt_defaults(settings: &mut AppSettings) -> bool {
+    let mut changed = false;
+
+    let inferred_preset = infer_remote_stt_preset(&settings.remote_stt.base_url);
+    if settings.remote_stt.provider_preset.trim().is_empty() {
+        settings.remote_stt.provider_preset = inferred_preset.to_string();
+        changed = true;
+    }
+
+    if settings.remote_stt.provider_preset != "custom" {
+        if let Some(base_url) = remote_stt_base_url_for_preset(&settings.remote_stt.provider_preset)
+        {
+            if settings.remote_stt.base_url != base_url {
+                settings.remote_stt.base_url = base_url.to_string();
+                changed = true;
+            }
+        } else {
+            settings.remote_stt.provider_preset = inferred_preset.to_string();
+            changed = true;
+        }
+
+        if settings.remote_stt.allow_insecure_http {
+            settings.remote_stt.allow_insecure_http = false;
+            changed = true;
+        }
+    } else if is_plain_http_url(&settings.remote_stt.base_url) && !settings.remote_stt.allow_insecure_http
+    {
+        settings.remote_stt.allow_insecure_http = true;
+        changed = true;
     }
 
     changed
@@ -2975,7 +3069,9 @@ pub fn load_or_create_app_settings(app: &AppHandle) -> AppSettings {
         default_settings
     };
 
-    if ensure_post_process_defaults(&mut settings) {
+    let repaired_post_process = ensure_post_process_defaults(&mut settings);
+    let repaired_remote_stt = ensure_remote_stt_defaults(&mut settings);
+    if repaired_post_process || repaired_remote_stt {
         store.set("settings", serde_json::to_value(&settings).unwrap());
         if let Err(e) = store.save() {
             warn!("Failed to flush repaired settings to disk: {}", e);
@@ -3026,7 +3122,9 @@ pub fn get_settings(app: &AppHandle) -> AppSettings {
         default_settings
     };
 
-    if ensure_post_process_defaults(&mut settings) {
+    let repaired_post_process = ensure_post_process_defaults(&mut settings);
+    let repaired_remote_stt = ensure_remote_stt_defaults(&mut settings);
+    if repaired_post_process || repaired_remote_stt {
         store.set("settings", serde_json::to_value(&settings).unwrap());
         if let Err(e) = store.save() {
             warn!("Failed to flush repaired settings to disk: {}", e);

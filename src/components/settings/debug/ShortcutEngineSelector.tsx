@@ -293,6 +293,7 @@ export const ShortcutEngineSelector: React.FC = () => {
                   </h4>
                 </div>
                 
+                {/* Trusted HTML from repo-controlled translations only. Do not pass user, model, or network content here. */}
                 <p className="text-sm text-gray-300" dangerouslySetInnerHTML={{ __html: t("settings.debug.shortcutEngine.tellMeMore.tauri.description") }} />
 
                 <div className="space-y-3">
@@ -323,6 +324,7 @@ export const ShortcutEngineSelector: React.FC = () => {
                   </h4>
                 </div>
 
+                {/* Trusted HTML from repo-controlled translations only. Do not pass user, model, or network content here. */}
                 <p className="text-sm text-gray-300" dangerouslySetInnerHTML={{ __html: t("settings.debug.shortcutEngine.tellMeMore.rdev.description") }} />
 
                 <div className="space-y-3">
@@ -341,6 +343,7 @@ export const ShortcutEngineSelector: React.FC = () => {
                         <li>
                           {t("settings.debug.shortcutEngine.tellMeMore.rdev.cons.antiCheat")}
                           <div className="mt-1.5 mb-2 px-2 border-l border-red-500/30 ml-4">
+                            {/* Trusted HTML from repo-controlled translations only. Do not pass user, model, or network content here. */}
                             <p className="text-[11px] leading-relaxed text-red-100/80 italic font-normal" dangerouslySetInnerHTML={{ __html: t("settings.debug.shortcutEngine.tellMeMore.rdev.cons.harshReality") }} />
                           </div>
                         </li>

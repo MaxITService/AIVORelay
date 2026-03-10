@@ -41,6 +41,15 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({
     isDraggingRef.current = isDragging;
   }, [isDragging]);
 
+  useEffect(() => {
+    setLoadedSrc((previousSrc) => {
+      if (previousSrc?.startsWith("blob:") && previousSrc !== initialSrc) {
+        URL.revokeObjectURL(previousSrc);
+      }
+      return initialSrc ?? null;
+    });
+  }, [initialSrc]);
+
   // Stable animation loop with no dependencies
   const tick = useCallback(() => {
     if (audioRef.current && !isDraggingRef.current) {

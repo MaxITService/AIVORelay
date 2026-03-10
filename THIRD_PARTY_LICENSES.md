@@ -4,6 +4,18 @@ This document lists the third-party components bundled with AivoRelay and their 
 
 ---
 
+## Inter Font
+
+**Copyright:** The Inter Project Authors
+
+**License:** SIL Open Font License 1.1
+
+**Source:** https://github.com/rsms/inter
+
+The `Inter` font is bundled for renderer-only local use. The upstream license text is shipped in `src-tauri/resources/licenses/Inter-OFL-1.1.txt`.
+
+---
+
 ## Vulkan Loader (vulkan-1.dll)
 
 **Copyright:** The Khronos Group Inc., LunarG Inc.

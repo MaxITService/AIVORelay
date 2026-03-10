@@ -1,6 +1,7 @@
 import { useCallback, useMemo, useState } from "react";
 import { useSettings } from "../../../hooks/useSettings";
 import { commands, type PostProcessProvider } from "@/bindings";
+import { toast } from "sonner";
 import type { ModelOption } from "./types";
 import type { DropdownOption } from "../../ui/Dropdown";
 
@@ -13,7 +14,7 @@ type PostProcessProviderState = {
   isAppleProvider: boolean;
   appleIntelligenceUnavailable: boolean;
   baseUrl: string;
-  handleBaseUrlChange: (value: string) => void;
+  handleBaseUrlChange: (value: string) => Promise<void>;
   isBaseUrlUpdating: boolean;
   apiKey: string;
   handleApiKeyChange: (value: string) => void;
@@ -120,13 +121,17 @@ export const usePostProcessProviderState = (): PostProcessProviderState => {
   );
 
   const handleBaseUrlChange = useCallback(
-    (value: string) => {
+    async (value: string) => {
       if (!selectedProvider || selectedProvider.id !== "custom") {
         return;
       }
       const trimmed = value.trim();
       if (trimmed && trimmed !== baseUrl) {
-        void updatePostProcessBaseUrl(selectedProvider.id, trimmed);
+        try {
+          await updatePostProcessBaseUrl(selectedProvider.id, trimmed);
+        } catch (error) {
+          toast.error(String(error));
+        }
       }
     },
     [selectedProvider, baseUrl, updatePostProcessBaseUrl],

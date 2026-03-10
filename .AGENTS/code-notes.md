@@ -27,6 +27,7 @@ Files that are added by this fork rather than upstream files that were modified.
 | `src-tauri/src/input_source.rs` | OS Language Detection. |
 | `src-tauri/src/active_app.rs` | Active App Context. |
 | `src-tauri/src/transcript_context.rs` | Prompt Context Cache. |
+| `src-tauri/src/url_security.rs` | Canonical provider URLs and HTTPS/HTTP override validation for Remote STT and LLM endpoints. |
 | `src-tauri/src/managers/key_listener.rs` | rdev Key Listener (Windows). |
 | `src-tauri/src/commands/key_listener.rs` | Commands for key listener. |
 | `src-tauri/src/language_resolver.rs` | Soniox language resolver. |
@@ -56,6 +57,7 @@ Files that are added by this fork rather than upstream files that were modified.
 | `src/components/settings/audio-processing/AudioProcessingSettings.tsx` | Audio processing UI. |
 | `src/components/settings/debug/ShortcutEngineSelector.tsx` | Shortcut engine toggle UI. |
 | `src/lib/constants/sonioxLanguages.ts` | Soniox languages mapping. |
+| `src/lib/constants/remoteSttProviders.ts` | Remote STT preset metadata for Groq/OpenAI/custom URL handling. |
 
 ### Development & Build Tools
 

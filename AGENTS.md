@@ -46,21 +46,24 @@ This is a **fork** of [cjpais/Handy](https://github.com/cjpais/Handy). This repo
 
 ## Active Branches
 
-Only interact with these branches (ignore upstream and others):
+Only interact with these branches:
 - `main`
 - `Microsoft-store`
-- `cuda-integration` (abandoned - do not touch)
 
-(When user says "all branches", they currently mean only `main` and `Microsoft-store`. `cuda-integration` is abandoned and excluded.)
-Upstream intake policy: [[.AGENTS/upstream-OrBranches-intake-playbook|upstream-OrBranches-intake-playbook.md]].
+(When user says "all branches", they currently mean `main` and `Microsoft-store`.)
+For work on non-`main` branches, use `main` as the only sync source.
 
 ## Fork Documentation - Read file(s) that is related to current task ONLY.
+
+Docs use Obsidian-style links like `[[path|label]]`.
 
 - [[.AGENTS/code-notes|code-notes.md]]: complete list of fork-specific files and changes
 - [[AGENTS]]: entry file
 - [[README]]: fork features overview
-- [[.AGENTS/upstream-OrBranches-intake-playbook|upstream-OrBranches-intake-playbook.md]]: upstream intake and merge playbook
-- [[.AGENTS/upstream-sync-log|upstream-sync-log.md]]: rolling log of last synced upstream commits (max 10).
+- [[.AGENTS/upstream-intake-playbook|upstream-intake-playbook.md]]: `upstream -> main` intake playbook
+- [[.AGENTS/main-to-microsoft-store-propagation-playbook|main-to-microsoft-store-propagation-playbook.md]]: `main -> Microsoft-store` propagation playbook
+- [[.AGENTS/upstream-OrBranches-intake-playbook|upstream-OrBranches-intake-playbook.md]]: compatibility index pointing to the two playbooks above
+- [[.AGENTS/upstream-sync-log|upstream-sync-log.md]]: rolling log of last synced upstream commits (max 10)
 - [[.AGENTS/branching-status|branching-status.md]]: branch sync/cherry-pick status
 
 

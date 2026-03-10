@@ -263,8 +263,9 @@ fn apply_exported_extension_pairing(
     app: &AppHandle,
     extension_id: &str,
     generated_password: &str,
-) {
-    let mut settings = get_settings(app);
+) -> Result<(), String> {
+    let previous_settings = get_settings(app);
+    let mut settings = previous_settings.clone();
     settings.connector_allow_any_cors = false;
     settings.connector_cors = format!("{}{}", CHROME_EXTENSION_ORIGIN_PREFIX, extension_id);
     settings.connector_password = generated_password.to_string();
@@ -274,9 +275,39 @@ fn apply_exported_extension_pairing(
     write_settings(app, settings.clone());
 
     if let Some(connector_manager) = app.try_state::<Arc<ConnectorManager>>() {
+        if let Err(err) = connector_manager.reload_runtime_config() {
+            write_settings(app, previous_settings.clone());
+            let _ = connector_manager.reload_runtime_config();
+            connector_manager.refresh_crypto_state(
+                &previous_settings.connector_password,
+                previous_settings.connector_pending_password.as_deref(),
+            );
+            connector_manager.clear_sessions();
+            return Err(err);
+        }
+
         connector_manager.refresh_crypto_state(&settings.connector_password, None);
         connector_manager.clear_sessions();
     }
+
+    Ok(())
+}
+
+fn restore_exported_extension_backup(
+    export_dir: &Path,
+    backup_dir: Option<&Path>,
+) -> Result<(), String> {
+    if export_dir.exists() {
+        fs::remove_dir_all(export_dir)
+            .map_err(|e| format!("Failed to remove partial exported extension folder: {}", e))?;
+    }
+
+    if let Some(backup_dir) = backup_dir {
+        fs::rename(backup_dir, export_dir)
+            .map_err(|e| format!("Failed to restore previous exported extension folder: {}", e))?;
+    }
+
+    Ok(())
 }
 
 /// Get current connector/extension status
@@ -377,7 +408,6 @@ pub fn connector_export_bundled_extension(
     patch_exported_manifest(&staging_root, &manifest_key)?;
     patch_exported_default_password(&staging_root, &generated_password)?;
     patch_exported_default_port(&staging_root, current_settings.connector_port)?;
-    apply_exported_extension_pairing(&app, &extension_id, &generated_password);
 
     // If the selected destination already ends with the extension folder name,
     // use it directly to avoid confusing nested paths like
@@ -392,11 +422,56 @@ pub fn connector_export_bundled_extension(
         destination_root.join(EXPORTED_EXTENSION_FOLDER_NAME)
     };
 
-    if export_dir.exists() {
-        fs::remove_dir_all(&export_dir)
-            .map_err(|e| format!("Failed to replace existing exported extension folder: {}", e))?;
+    let backup_dir = if export_dir.exists() {
+        let backup_name = format!(
+            "{}-backup-{}",
+            EXPORTED_EXTENSION_FOLDER_NAME,
+            generate_random_hex_token(6)?
+        );
+        let backup_dir = export_dir
+            .parent()
+            .unwrap_or(&destination_root)
+            .join(backup_name);
+        fs::rename(&export_dir, &backup_dir).map_err(|e| {
+            format!(
+                "Failed to move existing exported extension folder out of the way: {}",
+                e
+            )
+        })?;
+        Some(backup_dir)
+    } else {
+        None
+    };
+
+    let copy_result = copy_directory_recursive(&staging_root, &export_dir);
+    if let Err(err) = copy_result {
+        let _ = fs::remove_dir_all(&staging_root);
+        if let Err(restore_err) = restore_exported_extension_backup(&export_dir, backup_dir.as_deref())
+        {
+            return Err(format!("{} (restore failed: {})", err, restore_err));
+        }
+        return Err(err);
     }
-    copy_directory_recursive(&staging_root, &export_dir)?;
+
+    if let Err(err) = apply_exported_extension_pairing(&app, &extension_id, &generated_password) {
+        let _ = fs::remove_dir_all(&staging_root);
+        if let Err(restore_err) = restore_exported_extension_backup(&export_dir, backup_dir.as_deref())
+        {
+            return Err(format!("{} (restore failed: {})", err, restore_err));
+        }
+        return Err(err);
+    }
+
+    if let Some(backup_dir) = backup_dir.as_ref() {
+        if let Err(error) = fs::remove_dir_all(backup_dir) {
+            log::warn!(
+                "Export succeeded but failed to remove the backup extension folder '{}': {}",
+                backup_dir.display(),
+                error
+            );
+        }
+    }
+
     let _ = fs::remove_dir_all(&staging_root);
 
     let export_dir_string = export_dir.to_string_lossy().to_string();

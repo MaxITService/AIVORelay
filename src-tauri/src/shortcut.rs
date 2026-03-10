@@ -23,6 +23,11 @@ use crate::settings::{
     SONIOX_DEFAULT_LIVE_FINALIZE_TIMEOUT_MS, SONIOX_DEFAULT_MAX_ENDPOINT_DELAY_MS,
     SONIOX_DEFAULT_MODEL,
 };
+use crate::url_security::{
+    canonical_llm_provider_base_url, remote_stt_base_url_for_preset,
+    remote_stt_default_model_for_preset, validate_remote_stt_base_url,
+    REMOTE_STT_PRESET_CUSTOM,
+};
 use crate::tray;
 use crate::ManagedToggleState;
 
@@ -1678,7 +1683,68 @@ pub fn change_convert_lf_to_crlf_setting(app: AppHandle, enabled: bool) -> Resul
 #[specta::specta]
 pub fn change_remote_stt_base_url_setting(app: AppHandle, base_url: String) -> Result<(), String> {
     let mut settings = settings::get_settings(&app);
-    settings.remote_stt.base_url = base_url;
+    if settings.remote_stt.provider_preset != REMOTE_STT_PRESET_CUSTOM {
+        return Err(
+            "Only the Custom Remote STT provider allows editing the base URL.".to_string(),
+        );
+    }
+
+    let mut candidate = settings.remote_stt.clone();
+    candidate.base_url = base_url;
+    let normalized = validate_remote_stt_base_url(&candidate, None)?;
+
+    settings.remote_stt.base_url = normalized;
+    settings::write_settings(&app, settings);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_remote_stt_provider_preset_setting(
+    app: AppHandle,
+    preset: String,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+
+    if preset != "custom" && remote_stt_base_url_for_preset(&preset).is_none() {
+        return Err(format!("Unknown Remote STT provider preset '{}'.", preset));
+    }
+
+    settings.remote_stt.provider_preset = preset.clone();
+
+    if let Some(base_url) = remote_stt_base_url_for_preset(&preset) {
+        settings.remote_stt.allow_insecure_http = false;
+        if let Some(default_model) = remote_stt_default_model_for_preset(&preset) {
+            settings.remote_stt.model_id = default_model.to_string();
+        }
+        settings.remote_stt.base_url = base_url.to_string();
+    }
+
+    settings::write_settings(&app, settings);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_remote_stt_allow_insecure_http_setting(
+    app: AppHandle,
+    enabled: bool,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+
+    if enabled && settings.remote_stt.provider_preset != REMOTE_STT_PRESET_CUSTOM {
+        return Err(
+            "Plain HTTP can only be enabled for the Custom Remote STT provider.".to_string(),
+        );
+    }
+
+    if !settings.remote_stt.base_url.trim().is_empty() {
+        let mut candidate = settings.remote_stt.clone();
+        candidate.allow_insecure_http = enabled;
+        validate_remote_stt_base_url(&candidate, None)?;
+    }
+
+    settings.remote_stt.allow_insecure_http = enabled;
     settings::write_settings(&app, settings);
     Ok(())
 }
@@ -2496,7 +2562,33 @@ pub fn change_post_process_base_url_setting(
         ));
     }
 
-    provider.base_url = base_url;
+    let mut candidate = provider.clone();
+    candidate.base_url = base_url;
+    let normalized = canonical_llm_provider_base_url(&candidate)?;
+
+    provider.base_url = normalized;
+    settings::write_settings(&app, settings);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_post_process_custom_http_override_setting(
+    app: AppHandle,
+    enabled: bool,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    let provider = settings
+        .post_process_provider_mut("custom")
+        .ok_or_else(|| "Provider 'custom' not found".to_string())?;
+
+    if !provider.base_url.trim().is_empty() {
+        let mut candidate = provider.clone();
+        candidate.allow_insecure_http = enabled;
+        canonical_llm_provider_base_url(&candidate)?;
+    }
+
+    provider.allow_insecure_http = enabled;
     settings::write_settings(&app, settings);
     Ok(())
 }

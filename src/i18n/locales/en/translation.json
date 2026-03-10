@@ -221,7 +221,19 @@
       "deepgramRealtimeWarning": "Deepgram live mode follows the standard live cycle and skips LLM post-processing.",
       "baseUrl": {
         "label": "Server URL",
-        "hint": "OpenAI-compatible transcription API endpoint"
+        "hint": "Known providers stay on locked HTTPS URLs. Custom lets you enter your own endpoint."
+      },
+      "providerPreset": {
+        "label": "API Provider",
+        "options": {
+          "groq": "Groq",
+          "openai": "OpenAI",
+          "custom": "Custom"
+        }
+      },
+      "customHttpOverride": {
+        "label": "Allow insecure HTTP for custom/local testing",
+        "warning": "Warning: plain HTTP can expose your API key and transcript contents to interception or tampering. Use it only on a trusted local or self-hosted network."
       },
       "modelId": {
         "label": "Model ID",
@@ -917,10 +929,24 @@
         "windowsOnly": "Remote transcription is currently Windows-only."
       },
       "remoteStt": {
+        "providerPreset": {
+          "title": "Remote Provider Preset",
+          "description": "Use locked HTTPS presets for Groq or OpenAI. Switch to Custom only when you need a self-hosted or non-standard endpoint.",
+          "options": {
+            "groq": "Groq",
+            "openai": "OpenAI",
+            "custom": "Custom"
+          }
+        },
         "baseUrl": {
           "title": "Remote Base URL",
-          "description": "Base URL for the OpenAI-compatible speech-to-text API.",
+          "description": "Known providers use locked HTTPS URLs. Only the Custom preset can edit this field.",
           "placeholder": "https://api.groq.com/openai/v1"
+        },
+        "customHttpOverride": {
+          "title": "Allow Insecure HTTP",
+          "description": "Advanced override for custom/local endpoints only. Leave this OFF unless you intentionally trust a local or self-hosted plain HTTP server.",
+          "warning": "Warning: plain HTTP can expose your API key and transcript contents to interception or tampering. Use it only for trusted local/self-hosted testing."
         },
         "modelId": {
           "title": "Remote Model ID",
@@ -1354,8 +1380,13 @@
         },
         "baseUrl": {
           "title": "Base URL",
-          "description": "API base URL for the selected provider. Only the custom provider can be edited.",
+          "description": "API base URL for the selected provider. Known providers are locked to their canonical HTTPS URLs. Only the custom provider can be edited.",
           "placeholder": "https://api.openai.com/v1"
+        },
+        "customHttpOverride": {
+          "title": "Allow Insecure HTTP",
+          "description": "Advanced override for the Custom provider only. Leave this OFF unless you intentionally trust a local or self-hosted plain HTTP endpoint.",
+          "warning": "Warning: plain HTTP can expose your API key and text contents to interception or tampering. Use it only on a trusted local or self-hosted network."
         },
         "apiKey": {
           "title": "API Key",

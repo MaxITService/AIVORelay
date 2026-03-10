@@ -1009,7 +1009,7 @@ export const useSettingsStore = create<SettingsStore>()(
         );
         if (urlResult.status === "error") {
           console.error("Failed to persist base URL:", urlResult.error);
-          return;
+          throw new Error(urlResult.error);
         }
 
         // Reset the stored model since the previous value is almost certainly
@@ -1021,7 +1021,7 @@ export const useSettingsStore = create<SettingsStore>()(
         );
         if (modelResult.status === "error") {
           console.error("Failed to reset model setting:", modelResult.error);
-          return;
+          throw new Error(modelResult.error);
         }
 
         // Clear cached model options only after both backend writes succeed.
@@ -1036,6 +1036,7 @@ export const useSettingsStore = create<SettingsStore>()(
         await refreshSettings();
       } catch (error) {
         console.error("Failed to update post-process base URL:", error);
+        throw error;
       } finally {
         setUpdating(updateKey, false);
       }
@@ -1262,10 +1263,14 @@ export const useSettingsStore = create<SettingsStore>()(
 
       setUpdating(updateKey, true);
       try {
-        await commands.changeRemoteSttBaseUrlSetting(baseUrl);
+        const result = await commands.changeRemoteSttBaseUrlSetting(baseUrl);
+        if (result.status === "error") {
+          throw new Error(result.error);
+        }
         await refreshSettings();
       } catch (error) {
         console.error("Failed to update remote STT base URL:", error);
+        throw error;
       } finally {
         setUpdating(updateKey, false);
       }

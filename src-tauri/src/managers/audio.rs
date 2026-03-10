@@ -6,6 +6,7 @@ use crate::helpers::clamshell;
 use crate::settings::{get_settings, AppSettings, LiveSoundCaptureSource};
 use crate::utils;
 use log::{debug, error, info, warn};
+use std::fmt;
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 use tauri::Manager;
@@ -119,6 +120,57 @@ pub enum MicrophoneMode {
 struct ActiveRecorderSelection {
     source: AudioCaptureSource,
     device_name: Option<String>,
+}
+
+#[derive(Clone, Debug)]
+pub enum StartRecordingError {
+    AlreadyRecording,
+    StreamOpenFailed {
+        source: AudioCaptureSource,
+        message: String,
+    },
+    RecorderStartFailed {
+        source: AudioCaptureSource,
+        message: String,
+    },
+    RecorderUnavailable {
+        source: AudioCaptureSource,
+    },
+}
+
+impl StartRecordingError {
+    pub fn source(&self) -> Option<AudioCaptureSource> {
+        match self {
+            StartRecordingError::AlreadyRecording => None,
+            StartRecordingError::StreamOpenFailed { source, .. }
+            | StartRecordingError::RecorderStartFailed { source, .. }
+            | StartRecordingError::RecorderUnavailable { source } => Some(*source),
+        }
+    }
+
+    pub fn is_microphone_related(&self) -> bool {
+        matches!(self.source(), Some(AudioCaptureSource::Microphone))
+    }
+}
+
+impl fmt::Display for StartRecordingError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            StartRecordingError::AlreadyRecording => {
+                write!(f, "Recording is already in progress.")
+            }
+            StartRecordingError::StreamOpenFailed { message, .. }
+            | StartRecordingError::RecorderStartFailed { message, .. } => write!(f, "{}", message),
+            StartRecordingError::RecorderUnavailable { source } => match source {
+                AudioCaptureSource::Microphone => {
+                    write!(f, "Microphone recorder is not available.")
+                }
+                AudioCaptureSource::SystemOutputLoopback => {
+                    write!(f, "System output recorder is not available.")
+                }
+            },
+        }
+    }
 }
 
 /* ──────────────────────────────────────────────────────────────── */
@@ -423,7 +475,10 @@ impl AudioRecordingManager {
 
     /* ---------- recording --------------------------------------------------- */
 
-    pub fn try_start_recording(&self, binding_id: &str) -> bool {
+    pub fn try_start_recording_detailed(
+        &self,
+        binding_id: &str,
+    ) -> Result<(), StartRecordingError> {
         let settings = get_settings(&self.app_handle);
         let selection = self.resolve_selection_for_binding(&settings, Some(binding_id));
         if selection.source == AudioCaptureSource::Microphone {
@@ -443,25 +498,38 @@ impl AudioRecordingManager {
 
         if let RecordingState::Idle = *state {
             // Ensure the correct capture source is open for this binding.
-            if let Err(e) = self.start_stream_for_binding(Some(binding_id)) {
-                error!("Failed to open audio capture stream: {e}");
-                return false;
+            if let Err(e) = self.start_stream_for_selection(selection.clone(), &settings) {
+                let message = e.to_string();
+                error!("Failed to open audio capture stream: {}", message);
+                return Err(StartRecordingError::StreamOpenFailed {
+                    source: selection.source,
+                    message,
+                });
             }
 
             if let Some(rec) = self.recorder.lock().unwrap().as_ref() {
-                if rec.start().is_ok() {
-                    *self.is_recording.lock().unwrap() = true;
-                    *state = RecordingState::Recording {
-                        binding_id: binding_id.to_string(),
-                    };
-                    debug!("Recording started for binding {binding_id}");
-                    return true;
+                if let Err(err) = rec.start() {
+                    let message = err.to_string();
+                    error!("Failed to start recorder for binding {binding_id}: {}", message);
+                    return Err(StartRecordingError::RecorderStartFailed {
+                        source: selection.source,
+                        message,
+                    });
                 }
+
+                *self.is_recording.lock().unwrap() = true;
+                *state = RecordingState::Recording {
+                    binding_id: binding_id.to_string(),
+                };
+                debug!("Recording started for binding {binding_id}");
+                return Ok(());
             }
             error!("Recorder not available");
-            false
+            Err(StartRecordingError::RecorderUnavailable {
+                source: selection.source,
+            })
         } else {
-            false
+            Err(StartRecordingError::AlreadyRecording)
         }
     }
 

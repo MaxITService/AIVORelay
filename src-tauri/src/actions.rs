@@ -2,7 +2,7 @@
 use crate::apple_intelligence;
 use crate::audio_feedback::{play_feedback_sound, play_feedback_sound_blocking, SoundType};
 use crate::audio_toolkit::apply_custom_words;
-use crate::managers::audio::AudioRecordingManager;
+use crate::managers::audio::{AudioRecordingManager, StartRecordingError};
 use crate::managers::connector::ConnectorManager;
 use crate::managers::deepgram_realtime::{
     DeepgramRealtimeManager, DeepgramRealtimeOptions,
@@ -708,6 +708,16 @@ fn show_ai_replace_error_overlay(app: &AppHandle, message: impl Into<String>) {
     );
 }
 
+fn show_recording_start_error_overlay(app: &AppHandle, error: &StartRecordingError) {
+    let category = if error.is_microphone_related() {
+        crate::plus_overlay_state::OverlayErrorCategory::MicrophoneUnavailable
+    } else {
+        crate::plus_overlay_state::OverlayErrorCategory::Unknown
+    };
+
+    crate::plus_overlay_state::show_error_overlay_with_message(app, category, error.to_string());
+}
+
 fn maybe_restore_ai_replace_selection(
     app: &AppHandle,
     original_text: &str,
@@ -840,7 +850,7 @@ fn start_recording_with_feedback(app: &AppHandle, binding_id: &str) -> bool {
     let is_always_on = settings.always_on_microphone;
     debug!("Microphone mode - always_on: {}", is_always_on);
 
-    let mut recording_started = false;
+    let mut recording_error: Option<StartRecordingError> = None;
     if is_always_on {
         // Always-on mode: Play audio feedback immediately, then apply mute after sound finishes
         debug!("Always-on mode: Playing audio feedback immediately");
@@ -851,27 +861,37 @@ fn start_recording_with_feedback(app: &AppHandle, binding_id: &str) -> bool {
             rm_clone.apply_mute();
         });
 
-        recording_started = rm.try_start_recording(binding_id);
-        debug!("Recording started: {}", recording_started);
+        match rm.try_start_recording_detailed(binding_id) {
+            Ok(()) => debug!("Recording started"),
+            Err(err) => {
+                debug!("Failed to start recording: {}", err);
+                recording_error = Some(err);
+            }
+        }
     } else {
         // On-demand mode: Start recording first, then play audio feedback, then apply mute
         debug!("On-demand mode: Starting recording first, then audio feedback");
         let recording_start_time = Instant::now();
-        if rm.try_start_recording(binding_id) {
-            recording_started = true;
-            debug!("Recording started in {:?}", recording_start_time.elapsed());
-            let app_clone = app.clone();
-            let rm_clone = Arc::clone(&rm);
-            std::thread::spawn(move || {
-                std::thread::sleep(std::time::Duration::from_millis(100));
-                debug!("Handling delayed audio feedback/mute sequence");
-                play_feedback_sound_blocking(&app_clone, SoundType::Start);
-                rm_clone.apply_mute();
-            });
-        } else {
-            debug!("Failed to start recording");
+        match rm.try_start_recording_detailed(binding_id) {
+            Ok(()) => {
+                debug!("Recording started in {:?}", recording_start_time.elapsed());
+                let app_clone = app.clone();
+                let rm_clone = Arc::clone(&rm);
+                std::thread::spawn(move || {
+                    std::thread::sleep(std::time::Duration::from_millis(100));
+                    debug!("Handling delayed audio feedback/mute sequence");
+                    play_feedback_sound_blocking(&app_clone, SoundType::Start);
+                    rm_clone.apply_mute();
+                });
+            }
+            Err(err) => {
+                debug!("Failed to start recording: {}", err);
+                recording_error = Some(err);
+            }
         }
     }
+
+    let recording_started = recording_error.is_none();
 
     if recording_started {
         // Register cancel shortcut now that recording is confirmed
@@ -894,8 +914,11 @@ fn start_recording_with_feedback(app: &AppHandle, binding_id: &str) -> bool {
         *state_guard = session_manager::SessionState::Idle;
         drop(state_guard);
 
-        // Show microphone error overlay instead of just hiding
-        crate::plus_overlay_state::show_mic_error_overlay(app);
+        if let Some(err) = recording_error.as_ref() {
+            show_recording_start_error_overlay(app, err);
+        } else {
+            crate::plus_overlay_state::show_mic_error_overlay(app);
+        }
     }
 
     recording_started
@@ -2017,9 +2040,11 @@ pub(crate) fn transcribe_action_for_binding(binding_id: &str) -> Option<Arc<dyn 
 
 pub(crate) fn start_live_sound_transcription_session(app: &AppHandle) -> Result<(), String> {
     crate::managers::live_sound_audio::start(app)?;
+    let auto_stop_minutes = crate::settings::get_settings(app).live_sound_auto_stop_minutes;
     crate::managers::live_sound_transcription::activate_session(
         app,
         LIVE_SOUND_TRANSCRIPTION_BINDING_ID.to_string(),
+        auto_stop_minutes,
     );
     Ok(())
 }
@@ -2029,11 +2054,14 @@ pub(crate) fn is_live_sound_recording(_app: &AppHandle) -> bool {
 }
 
 pub(crate) fn stop_live_sound_transcription_session(app: &AppHandle) -> Result<(), String> {
+    let session_id = crate::managers::live_sound_transcription::current_session_id();
     // Immediately reflect stop in the UI.
-    crate::managers::live_sound_transcription::set_recording(app, false);
+    crate::managers::live_sound_transcription::set_recording_if_session_matches(
+        app, session_id, false,
+    );
     // The pipeline finalizes the WebSocket session asynchronously and calls
     // set_recording(false) again once done (harmless duplicate).
-    crate::managers::live_sound_audio::stop(app);
+    crate::managers::live_sound_audio::stop(app, session_id);
     Ok(())
 }
 

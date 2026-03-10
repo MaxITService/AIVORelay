@@ -214,6 +214,7 @@ const PostProcessingSettingsPromptsComponent: React.FC = () => {
                   "settings.postProcessing.prompts.promptInstructionsPlaceholder",
                 )}
               />
+              {/* Trusted HTML from repo-controlled translations only. Do not pass user, model, or network content here. */}
               <p
                 className="text-xs text-mid-gray/70"
                 dangerouslySetInnerHTML={{
@@ -281,6 +282,7 @@ const PostProcessingSettingsPromptsComponent: React.FC = () => {
                   "settings.postProcessing.prompts.promptInstructionsPlaceholder",
                 )}
               />
+              {/* Trusted HTML from repo-controlled translations only. Do not pass user, model, or network content here. */}
               <p
                 className="text-xs text-mid-gray/70"
                 dangerouslySetInnerHTML={{
