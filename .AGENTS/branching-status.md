@@ -5,8 +5,6 @@ Before starting a new `main` -> `Microsoft-store` sync, verify the target branch
 
 ## Microsoft-store
 
-Last synced commit from `main`: `6e8bb7a` (propagated as `d34378e`) — fix(connector): rollback export and harden remote stt state.
-Propagation was re-run from the correct later sync point on 2026-03-10 after restoring the branch to `9834519`, then completed through the remote STT / connector fix stack later the same day.
-Note: `git cherry` may still show some older `main` commits because of historical patch-id/documentation divergence, not because this branch is missing the current propagated content.
+Last synced commit from `main`: `750d9ce` — chore: bump version to 0.9.8.
 Sync rule: for this branch, source commits come from `main` only.
 Propagation scope rule: for Microsoft Store Edition propagation, bring over the intended `main` commit set in order unless a commit is store-incompatible. Default exclusions are self-update/auto-update changes and AVX512-only changes; AVX2 is allowed.
