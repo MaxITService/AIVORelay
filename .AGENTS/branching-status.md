@@ -5,6 +5,7 @@ Before starting a new `main` -> `Microsoft-store` sync, verify the target branch
 
 ## Microsoft-store
 
-Last synced commit from `main`: `750d9ce` — chore: bump version to 0.9.8.
+Last synced commit from `main`: `5bfa71f` — chore: bump version to 0.9.8.
+Note: the cursor always points to the last propagated commit, not the cursor-update commit itself (to avoid a circular hash dependency).
 Sync rule: for this branch, source commits come from `main` only.
 Propagation scope rule: for Microsoft Store Edition propagation, bring over the intended `main` commit set in order unless a commit is store-incompatible. Default exclusions are self-update/auto-update changes and AVX512-only changes; AVX2 is allowed.
