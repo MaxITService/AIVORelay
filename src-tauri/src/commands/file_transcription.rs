@@ -25,6 +25,7 @@ use serde::{Deserialize, Serialize};
 use specta::Type;
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::time::Instant;
 use tauri::{AppHandle, Manager};
 
 /// Result of a file transcription operation
@@ -122,6 +123,7 @@ pub async fn transcribe_audio_file(
         "Transcribing audio file: {} (format: {:?})",
         file_path, format
     );
+    let transcription_started_at = Instant::now();
 
     // Get settings and determine profile to use
     let settings = get_settings(&app);
@@ -547,9 +549,18 @@ pub async fn transcribe_audio_file(
     };
 
     info!(
-        "Transcription completed: {} characters (format: {:?})",
+        "Transcription completed: {} characters (format: {:?}) in {}",
         output_text.len(),
-        format
+        format,
+        format_elapsed(transcription_started_at.elapsed())
+    );
+
+    append_info_message(
+        &mut info_message,
+        format!(
+            "Benchmark: file transcription completed in {}.",
+            format_elapsed(transcription_started_at.elapsed())
+        ),
     );
 
     // Save to file if requested
@@ -570,6 +581,28 @@ pub async fn transcribe_audio_file(
         info_message,
         speaker_session,
     })
+}
+
+fn append_info_message(info_message: &mut Option<String>, next_message: String) {
+    match info_message {
+        Some(existing) if !existing.is_empty() => {
+            existing.push_str("\n");
+            existing.push_str(&next_message);
+        }
+        _ => {
+            *info_message = Some(next_message);
+        }
+    }
+}
+
+fn format_elapsed(elapsed: std::time::Duration) -> String {
+    let total_ms = elapsed.as_millis();
+    if total_ms < 1_000 {
+        return format!("{} ms", total_ms);
+    }
+
+    let seconds = elapsed.as_secs_f64();
+    format!("{seconds:.2} s")
 }
 
 fn apply_transcription_post_processing(
