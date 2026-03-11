@@ -37,6 +37,11 @@ Windows was switched from `whisper-rs` feature `vulkan` to `cuda`.
 - This was **not** a system-wide change. Environment changes are process-local inside `build-cuda.ps1`.
 - For Tauri 2 CLI, `--no-bundle` works; `--bundle none` does **not**.
 - Current non-blocking warning in local `transcribe-rs-test`: unexpected feature `itn`. It does not stop the build.
+- Added runtime Whisper backend debug logging on the CUDA branch. When a local Whisper model loads, the app now logs:
+  - `whisper_cpp_version`
+  - compile-time `cuda` / `blas` flags from `whisper_rs::SystemInfo`
+  - raw `whisper_rs::print_system_info()` output
+- `-DoDev` now runs `tauri dev --release` instead of debug dev mode. Reason: debug CUDA configure on Windows fails inside `nvcc` with `The input line is too long` while setting up `vcvars64.bat`.
 
 ## Current Status (2026-02-01 15:15)
 **Branch:** `cuda-integration`  

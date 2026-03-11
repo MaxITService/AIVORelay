@@ -29,6 +29,30 @@ use transcribe_rs::{
     TranscriptionEngine,
 };
 
+#[cfg(target_os = "windows")]
+fn log_whisper_backend_debug(model_id: &str, model_path: &std::path::Path) {
+    let system_info = whisper_rs::SystemInfo::default();
+    info!(
+        "Whisper backend debug: model_id={} model_path={} whisper_cpp_version={} cuda_compiled={} blas_compiled={} avx={} avx2={} fma={} f16c={}",
+        model_id,
+        model_path.display(),
+        whisper_rs::WHISPER_CPP_VERSION,
+        system_info.cuda,
+        system_info.blas,
+        system_info.avx,
+        system_info.avx2,
+        system_info.fma,
+        system_info.f16c
+    );
+    info!(
+        "Whisper system info: {}",
+        whisper_rs::print_system_info()
+    );
+}
+
+#[cfg(not(target_os = "windows"))]
+fn log_whisper_backend_debug(_model_id: &str, _model_path: &std::path::Path) {}
+
 #[derive(Clone, Debug, Serialize)]
 pub struct ModelStateEvent {
     pub event_type: String,
@@ -262,6 +286,7 @@ impl TranscriptionManager {
                     );
                     anyhow::anyhow!(error_msg)
                 })?;
+                log_whisper_backend_debug(model_id, &model_path);
                 LoadedEngine::Whisper(engine)
             }
             EngineType::Parakeet => {

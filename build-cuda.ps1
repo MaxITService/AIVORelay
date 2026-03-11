@@ -164,30 +164,21 @@ function Invoke-LoggedNativeCommand {
         [Parameter(Mandatory = $true)][string]$LogPrefix
     )
 
-    $stdoutLog = Join-Path $repoRoot "$LogPrefix.stdout.log"
-    $stderrLog = Join-Path $repoRoot "$LogPrefix.stderr.log"
+    $combinedLog = Join-Path $repoRoot "$LogPrefix.log"
 
-    if (Test-Path $stdoutLog) { Remove-Item $stdoutLog -Force }
-    if (Test-Path $stderrLog) { Remove-Item $stderrLog -Force }
+    if (Test-Path $combinedLog) { Remove-Item $combinedLog -Force }
 
-    $process = Start-Process -FilePath $FilePath `
-        -ArgumentList $ArgumentList `
-        -WorkingDirectory $repoRoot `
-        -NoNewWindow `
-        -Wait `
-        -PassThru `
-        -RedirectStandardOutput $stdoutLog `
-        -RedirectStandardError $stderrLog
-
-    if (Test-Path $stdoutLog) {
-        Get-Content $stdoutLog
+    Push-Location $repoRoot
+    try {
+        & $FilePath @ArgumentList 2>&1 | Tee-Object -FilePath $combinedLog
+        $exitCode = $LASTEXITCODE
     }
-    if (Test-Path $stderrLog) {
-        Get-Content $stderrLog
+    finally {
+        Pop-Location
     }
 
-    if ($process.ExitCode -ne 0) {
-        throw "$FilePath $($ArgumentList -join ' ') failed with exit code $($process.ExitCode)"
+    if ($exitCode -ne 0) {
+        throw "$FilePath $($ArgumentList -join ' ') failed with exit code $exitCode"
     }
 }
 
@@ -204,7 +195,7 @@ try {
 
     if ($DoDev) {
         Write-Host "--- START TASK ---"
-        Invoke-LoggedNativeCommand -FilePath "bun" -ArgumentList @("run", "tauri", "dev") -LogPrefix "tauri-dev"
+        Invoke-LoggedNativeCommand -FilePath "bun" -ArgumentList @("run", "tauri", "dev", "--release") -LogPrefix "tauri-dev"
         Write-Host "--- END TASK ---"
         exit 0
     }

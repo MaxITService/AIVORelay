@@ -139,6 +139,7 @@ dependencies = [
  "tower-http",
  "transcribe-rs",
  "vad-rs",
+ "whisper-rs",
  "windows 0.61.3",
  "zip 0.6.6",
 ]

@@ -31,6 +31,8 @@ Dev mode is available, but release build is the recommended path:
 pwsh -NoProfile -File .\build-cuda.ps1 -DoDev
 ```
 
+`-DoDev` uses `tauri dev --release` on purpose. Debug CUDA builds on Windows currently fail in `nvcc` compiler detection with `The input line is too long`, while the release-mode dev run works around that issue.
+
 ## Output
 
 With the short target directory, the main binary lands under:
