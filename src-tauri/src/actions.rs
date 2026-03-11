@@ -2796,7 +2796,7 @@ async fn ai_replace_with_llm(
     );
 
     let api_key = settings.ai_replace_api_key(&provider.id);
-    if api_key.trim().is_empty() {
+    if api_key.trim().is_empty() && provider.id != "custom" {
         return Err(format!(
             "No API key configured for provider '{}'",
             provider.label
