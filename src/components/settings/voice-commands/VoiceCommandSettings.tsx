@@ -2,17 +2,21 @@ import { useState, useEffect, useRef } from "react";
 import { useSettings } from "@/hooks/useSettings";
 import { useTranslation } from "react-i18next";
 import { RefreshCcw } from "lucide-react";
+import { invoke } from "@tauri-apps/api/core";
 import { VoiceCommand, commands, ExecutionPolicy } from "@/bindings";
 import { HandyShortcut } from "../HandyShortcut";
 import { listen } from "@tauri-apps/api/event";
 import type { VoiceCommandResultPayload } from "@/command-confirm/CommandConfirmOverlay";
 import { ExtendedThinkingSection } from "../ExtendedThinkingSection";
 import { ProviderSelect } from "../PostProcessingSettingsApi/ProviderSelect";
+import { BaseUrlField } from "../PostProcessingSettingsApi/BaseUrlField";
 import { ApiKeyField } from "../PostProcessingSettingsApi/ApiKeyField";
 import { ModelSelect } from "../PostProcessingSettingsApi/ModelSelect";
 import { ResetButton } from "../../ui/ResetButton";
 import { TellMeMore } from "../../ui/TellMeMore";
+import { ToggleSwitch } from "../../ui/ToggleSwitch";
 import { useVoiceCommandProviderState } from "./useVoiceCommandProviderState";
+import { toast } from "sonner";
 import "./VoiceCommandSettings.css";
 
 const DEFAULT_VOICE_COMMAND_SYSTEM_PROMPT = `You are a Windows command generator. The user will describe what they want to do, and you must generate a SINGLE PowerShell one-liner command that accomplishes it.
@@ -297,7 +301,7 @@ function VoiceCommandCard({
 
 export default function VoiceCommandSettings() {
   const { t } = useTranslation();
-  const { settings, updateSetting } = useSettings();
+  const { settings, updateSetting, refreshSettings, isUpdating } = useSettings();
   const voiceCommandProviderState = useVoiceCommandProviderState();
   const [executionLog, setExecutionLog] = useState<LogEntry[]>([]);
   const logEndRef = useRef<HTMLDivElement>(null);
@@ -438,7 +442,23 @@ export default function VoiceCommandSettings() {
     ? t("settings.postProcessing.api.model.placeholderApple")
     : voiceCommandProviderState.modelOptions.length > 0
       ? t("settings.postProcessing.api.model.placeholderWithOptions")
-      : t("settings.postProcessing.api.model.placeholderNoOptions");
+    : t("settings.postProcessing.api.model.placeholderNoOptions");
+
+  const allowInsecureHttp = Boolean(
+    (voiceCommandProviderState.selectedProvider as any)?.allow_insecure_http ??
+      false,
+  );
+
+  const handleCustomHttpOverrideChange = async (enabled: boolean) => {
+    try {
+      await invoke("change_post_process_custom_http_override_setting", {
+        enabled,
+      });
+      await refreshSettings();
+    } catch (error) {
+      toast.error(String(error));
+    }
+  };
 
   return (
     <div className="voice-command-settings">
@@ -636,39 +656,99 @@ export default function VoiceCommandSettings() {
                         </div>
                       ) : (
                         <div className="setting-row llm-api-row">
-                          <div className="setting-label">
-                            <span>
-                              {t("settings.postProcessing.api.apiKey.title")}
-                            </span>
-                            <span className="setting-sublabel">
-                              {t(
-                                "settings.postProcessing.api.apiKey.description",
-                              )}
-                            </span>
-                          </div>
-                          <div className="llm-api-control">
-                            <ApiKeyField
-                              value={voiceCommandProviderState.apiKey}
-                              onBlur={
-                                voiceCommandProviderState.handleApiKeyChange
-                              }
-                              placeholder={t(
-                                "settings.postProcessing.api.apiKey.placeholder",
-                              )}
-                              disabled={
-                                voiceCommandProviderState.isApiKeyUpdating
-                              }
-                              secureStorage={
-                                voiceCommandProviderState.selectedProvider?.id
-                                  ? {
-                                      feature: "voice_command",
-                                      providerId:
-                                        voiceCommandProviderState.selectedProvider
-                                          .id,
-                                    }
-                                  : undefined
-                              }
-                            />
+                          <div className="llm-api-control w-full">
+                            {voiceCommandProviderState.isCustomProvider ? (
+                              <div className="space-y-4">
+                                <div className="setting-row llm-api-row">
+                                  <div className="setting-label">
+                                    <span>
+                                      {t("settings.postProcessing.api.baseUrl.title")}
+                                    </span>
+                                    <span className="setting-sublabel">
+                                      {t("settings.postProcessing.api.baseUrl.description")}
+                                    </span>
+                                  </div>
+                                  <div className="llm-api-control">
+                                    <BaseUrlField
+                                      value={voiceCommandProviderState.baseUrl}
+                                      onBlur={
+                                        voiceCommandProviderState.handleBaseUrlChange
+                                      }
+                                      placeholder={t(
+                                        "settings.postProcessing.api.baseUrl.placeholder",
+                                      )}
+                                      disabled={
+                                        voiceCommandProviderState.isBaseUrlUpdating
+                                      }
+                                      className="min-w-[380px]"
+                                    />
+                                  </div>
+                                </div>
+
+                                <ToggleSwitch
+                                  checked={allowInsecureHttp}
+                                  onChange={(enabled) =>
+                                    void handleCustomHttpOverrideChange(enabled)
+                                  }
+                                  isUpdating={isUpdating("post_process_custom_http_override")}
+                                  label={t(
+                                    "settings.postProcessing.api.customHttpOverride.title",
+                                  )}
+                                  description={t(
+                                    "settings.postProcessing.api.customHttpOverride.description",
+                                  )}
+                                  descriptionMode="tooltip"
+                                  grouped={false}
+                                />
+
+                                {allowInsecureHttp ? (
+                                  <div className="rounded-lg border border-red-500/40 bg-red-500/10 p-3">
+                                    <p className="text-sm text-red-200">
+                                      {t(
+                                        "settings.postProcessing.api.customHttpOverride.warning",
+                                      )}
+                                    </p>
+                                  </div>
+                                ) : null}
+                              </div>
+                            ) : null}
+
+                            <div className="setting-row llm-api-row">
+                              <div className="setting-label">
+                                <span>
+                                  {t("settings.postProcessing.api.apiKey.title")}
+                                </span>
+                                <span className="setting-sublabel">
+                                  {t(
+                                    "settings.postProcessing.api.apiKey.description",
+                                  )}
+                                </span>
+                              </div>
+                              <div className="llm-api-control">
+                                <ApiKeyField
+                                  value={voiceCommandProviderState.apiKey}
+                                  onBlur={
+                                    voiceCommandProviderState.handleApiKeyChange
+                                  }
+                                  placeholder={t(
+                                    "settings.postProcessing.api.apiKey.placeholder",
+                                  )}
+                                  disabled={
+                                    voiceCommandProviderState.isApiKeyUpdating
+                                  }
+                                  secureStorage={
+                                    voiceCommandProviderState.selectedProvider?.id
+                                      ? {
+                                          feature: "voice_command",
+                                          providerId:
+                                            voiceCommandProviderState.selectedProvider
+                                              .id,
+                                        }
+                                      : undefined
+                                  }
+                                />
+                              </div>
+                            </div>
                           </div>
                         </div>
                       )}

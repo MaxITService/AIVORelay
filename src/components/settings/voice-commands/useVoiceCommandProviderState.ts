@@ -1,6 +1,7 @@
 import { useCallback, useMemo } from "react";
 import { useSettings } from "../../../hooks/useSettings";
 import type { PostProcessProvider } from "@/bindings";
+import { toast } from "sonner";
 import type { DropdownOption } from "../../ui/Dropdown";
 
 export interface ModelOption {
@@ -17,6 +18,8 @@ type VoiceCommandProviderState = {
   isCustomProvider: boolean;
   isAppleProvider: boolean;
   baseUrl: string;
+  handleBaseUrlChange: (value: string) => Promise<void>;
+  isBaseUrlUpdating: boolean;
   apiKey: string;
   handleApiKeyChange: (value: string) => void;
   isApiKeyUpdating: boolean;
@@ -41,6 +44,7 @@ export const useVoiceCommandProviderState = (): VoiceCommandProviderState => {
     postProcessModelOptions,
     fetchLlmModels,
     setVoiceCommandProvider,
+    updatePostProcessBaseUrl,
     updateVoiceCommandApiKey,
     updateVoiceCommandModel,
   } = useSettings();
@@ -84,6 +88,24 @@ export const useVoiceCommandProviderState = (): VoiceCommandProviderState => {
     settings?.post_process_api_keys,
     effectiveProviderId,
   ]);
+
+  const handleBaseUrlChange = useCallback(
+    async (value: string) => {
+      if (!selectedProvider || selectedProvider.id !== "custom") {
+        return;
+      }
+
+      const trimmed = value.trim();
+      if (trimmed && trimmed !== baseUrl) {
+        try {
+          await updatePostProcessBaseUrl(selectedProvider.id, trimmed);
+        } catch (error) {
+          toast.error(String(error));
+        }
+      }
+    },
+    [selectedProvider, baseUrl, updatePostProcessBaseUrl],
+  );
 
   const model = useMemo(() => {
     const voiceCommandModel =
@@ -196,6 +218,9 @@ export const useVoiceCommandProviderState = (): VoiceCommandProviderState => {
   const isApiKeyUpdating = isUpdating(
     `voice_command_api_key:${effectiveProviderId}`
   );
+  const isBaseUrlUpdating = isUpdating(
+    `post_process_base_url:${effectiveProviderId}`
+  );
   const isModelUpdating = isUpdating(
     `voice_command_model:${effectiveProviderId}`
   );
@@ -216,6 +241,8 @@ export const useVoiceCommandProviderState = (): VoiceCommandProviderState => {
     isCustomProvider,
     isAppleProvider,
     baseUrl,
+    handleBaseUrlChange,
+    isBaseUrlUpdating,
     apiKey,
     handleApiKeyChange,
     isApiKeyUpdating,
