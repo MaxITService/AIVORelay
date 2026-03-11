@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import { useSettings } from "../../../hooks/useSettings";
 import { commands } from "@/bindings";
 import type { PostProcessProvider } from "@/bindings";
+import { toast } from "sonner";
 import type { DropdownOption } from "../../ui/Dropdown";
 
 export interface ModelOption {
@@ -19,6 +20,8 @@ type AiReplaceProviderState = {
   isCustomProvider: boolean;
   isAppleProvider: boolean;
   baseUrl: string;
+  handleBaseUrlChange: (value: string) => Promise<void>;
+  isBaseUrlUpdating: boolean;
   apiKey: string;
   handleApiKeyChange: (value: string) => void;
   isApiKeyUpdating: boolean;
@@ -44,6 +47,7 @@ export const useAiReplaceProviderState = (): AiReplaceProviderState => {
     postProcessModelOptions,
     fetchLlmModels,
     setAiReplaceProvider,
+    updatePostProcessBaseUrl,
     updateAiReplaceApiKey,
     updateAiReplaceModel,
   } = useSettings();
@@ -88,6 +92,24 @@ export const useAiReplaceProviderState = (): AiReplaceProviderState => {
     settings?.post_process_api_keys,
     effectiveProviderId,
   ]);
+
+  const handleBaseUrlChange = useCallback(
+    async (value: string) => {
+      if (!selectedProvider || selectedProvider.id !== "custom") {
+        return;
+      }
+
+      const trimmed = value.trim();
+      if (trimmed && trimmed !== baseUrl) {
+        try {
+          await updatePostProcessBaseUrl(selectedProvider.id, trimmed);
+        } catch (error) {
+          toast.error(String(error));
+        }
+      }
+    },
+    [selectedProvider, baseUrl, updatePostProcessBaseUrl],
+  );
 
   const model = useMemo(() => {
     if (useSameAsPostProcess) {
@@ -205,6 +227,9 @@ export const useAiReplaceProviderState = (): AiReplaceProviderState => {
   const isApiKeyUpdating = isUpdating(
     `ai_replace_api_key:${effectiveProviderId}`
   );
+  const isBaseUrlUpdating = isUpdating(
+    `post_process_base_url:${effectiveProviderId}`
+  );
   const isModelUpdating = isUpdating(
     `ai_replace_model:${effectiveProviderId}`
   );
@@ -225,6 +250,8 @@ export const useAiReplaceProviderState = (): AiReplaceProviderState => {
     isCustomProvider,
     isAppleProvider,
     baseUrl,
+    handleBaseUrlChange,
+    isBaseUrlUpdating,
     apiKey,
     handleApiKeyChange,
     isApiKeyUpdating,
