@@ -8114,8 +8114,6 @@ dependencies = [
 [[package]]
 name = "transcribe-rs"
 version = "0.2.8"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "811b3e12455e39ad39003be9a4b7043363a7082b50484a3eb6e3e862466520e4"
 dependencies = [
  "base64 0.22.1",
  "derive_builder",
@@ -8892,17 +8890,13 @@ dependencies = [
 [[package]]
 name = "whisper-rs"
 version = "0.13.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "40b6fc553156b521663bfa8e713e7ad58c7ca262d46de9998cd7f2e4de5ba0d9"
 dependencies = [
  "whisper-rs-sys",
 ]
 
 [[package]]
 name = "whisper-rs-sys"
-version = "0.11.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "76bab42b2c319e3a1e0280137c59368072348d3277873c7588b6466a127dca58"
+version = "0.11.2"
 dependencies = [
  "bindgen",
  "cfg-if",

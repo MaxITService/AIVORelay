@@ -130,3 +130,8 @@ lto = true
 codegen-units = 1
 strip = true
 panic = "abort"
+
+[patch.crates-io]
+transcribe-rs = { path = "C:/Code/experiments/transcribe-rs-test" }
+whisper-rs = { path = "C:/Code/experiments/whisper-rs-test" }
+whisper-rs-sys = { path = "C:/Code/experiments/whisper-rs-test/sys" }

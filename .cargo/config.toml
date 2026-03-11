@@ -1,1 +1,2 @@
 [build]
+target-dir = "C:/Code/build/aivorelay-cuda"
