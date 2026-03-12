@@ -75,6 +75,7 @@ export const ModelUnloadTimeoutSetting: React.FC<ModelUnloadTimeoutProps> = ({
           } as React.ChangeEvent<HTMLSelectElement>)
         }
         disabled={false}
+        dropUp={true}
       />
     </SettingContainer>
   );
