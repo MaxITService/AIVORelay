@@ -11,6 +11,8 @@ Rules:
 
 | Propagation Date | Target Branch | Main SHA | Main Message | Branch SHA | Branch Message | Issues |
 | --- | --- | --- | --- | --- | --- | --- |
+| 2026-03-12 | `cuda-integration` | `e561c58` | fix(connector): decouple export restart and clarify status states | `49b002a` | fix(connector): decouple export restart and clarify status states | clean cherry-pick |
+| 2026-03-12 | `Microsoft-store` | `e561c58` | fix(connector): decouple export restart and clarify status states | `7eb4f05` | fix(connector): decouple export restart and clarify status states | clean cherry-pick |
 | 2026-03-12 | `Microsoft-store` | `0efb3f7` | fix: dropdown opens upward when at bottom of group; menu widens to fit long options | `6f6e4e8` | fix: dropdown opens upward when at bottom of group; menu widens to fit long options | clean cherry-pick |
 | 2026-03-12 | `cuda-integration` | `0efb3f7` | fix: dropdown opens upward when at bottom of group; menu widens to fit long options | `41c6348` | fix: dropdown opens upward when at bottom of group; menu widens to fit long options | clean cherry-pick |
 | 2026-03-11 | `cuda-integration` | `6029d1e` | feat: show file transcription benchmark time | `a918c1b` | feat: show file transcription benchmark time | clean cherry-pick |
