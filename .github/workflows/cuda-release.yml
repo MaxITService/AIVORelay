@@ -1,0 +1,128 @@
+name: "CUDA Release"
+
+on: workflow_dispatch
+
+jobs:
+  create-release:
+    permissions:
+      contents: write
+    runs-on: ubuntu-latest
+    outputs:
+      release-id: ${{ steps.create-release.outputs.result }}
+      version: ${{ steps.get-version.outputs.version }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Get version from tauri.conf.json
+        id: get-version
+        shell: bash
+        run: |
+          VERSION=$(grep -o '"version": "[^"]*"' src-tauri/tauri.conf.json | cut -d'"' -f4)
+          echo "Application version from tauri.conf.json: $VERSION"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Create Draft Release
+        id: create-release
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { data } = await github.rest.repos.createRelease({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              tag_name: `v${{ steps.get-version.outputs.version }}-cuda`,
+              name: `v${{ steps.get-version.outputs.version }} (CUDA Edition)`,
+              body: "This is a specialized CUDA build for NVIDIA systems.\n" +
+                    "It is built from the cuda-integration branch using the AIVORelay dependency forks for transcribe-rs and whisper-rs.",
+              draft: true,
+              prerelease: false,
+              generate_release_notes: true
+            })
+            return data.id
+
+  build-portable:
+    permissions:
+      contents: write
+    needs: create-release
+    runs-on: windows-latest
+    env:
+      CUDA_DEPENDENCY_ROOT: ${{ github.workspace }}\aivorelay-deps
+      CUDA_TARGET_DIR: C:\aivorelay-cuda
+      CUDA_TOOLKIT_ROOT: C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.4
+    steps:
+      - name: Checkout AIVORelay
+        uses: actions/checkout@v4
+
+      - name: Checkout CUDA dependency repo: transcribe-rs
+        uses: actions/checkout@v4
+        with:
+          repository: MaxITService/AIVORelay-dep-transcribe-rs
+          path: aivorelay-deps/AIVORelay-dep-transcribe-rs
+          fetch-depth: 1
+          token: ${{ secrets.CUDA_DEPENDENCY_REPO_TOKEN != '' && secrets.CUDA_DEPENDENCY_REPO_TOKEN || github.token }}
+
+      - name: Checkout CUDA dependency repo: whisper-rs
+        uses: actions/checkout@v4
+        with:
+          repository: MaxITService/AIVORelay-dep-whisper-rs
+          path: aivorelay-deps/AIVORelay-dep-whisper-rs
+          fetch-depth: 1
+          token: ${{ secrets.CUDA_DEPENDENCY_REPO_TOKEN != '' && secrets.CUDA_DEPENDENCY_REPO_TOKEN || github.token }}
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install LLVM and Ninja
+        shell: pwsh
+        run: |
+          choco install llvm ninja -y --no-progress
+
+      - name: Install CUDA Toolkit 12.4
+        uses: Jimver/cuda-toolkit@v0.2.24
+        with:
+          cuda: "12.4.0"
+          method: "network"
+
+      - name: Build CUDA portable app
+        shell: pwsh
+        run: |
+          pwsh -NoProfile -File .\build-cuda.ps1 `
+            -DoBuild `
+            -CudaPath "${env:CUDA_TOOLKIT_ROOT}" `
+            -DependencyRoot "${env:CUDA_DEPENDENCY_ROOT}"
+
+      - name: Package CUDA portable zip
+        shell: pwsh
+        run: |
+          $releaseDir = Join-Path $env:CUDA_TARGET_DIR "release"
+          $stageDir = Join-Path $env:RUNNER_TEMP "aivorelay-cuda-portable"
+          $zipPath = Join-Path $env:RUNNER_TEMP "aivorelay-cuda_windows_x64.zip"
+
+          Remove-Item $stageDir -Recurse -Force -ErrorAction SilentlyContinue
+          Remove-Item $zipPath -Force -ErrorAction SilentlyContinue
+          New-Item -ItemType Directory -Path $stageDir | Out-Null
+
+          Copy-Item (Join-Path $releaseDir "aivorelay.exe") $stageDir -Force
+
+          if (Test-Path (Join-Path $releaseDir "resources")) {
+            Copy-Item (Join-Path $releaseDir "resources") $stageDir -Recurse -Force
+          }
+
+          Get-ChildItem $releaseDir -Filter *.dll | ForEach-Object {
+            Copy-Item $_.FullName $stageDir -Force
+          }
+
+          Compress-Archive -Path (Join-Path $stageDir "*") -DestinationPath $zipPath
+          "CUDA_ZIP_PATH=$zipPath" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Upload CUDA zip to release
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release upload "v${{ needs.create-release.outputs.version }}-cuda" "${{ env.CUDA_ZIP_PATH }}" \
+            --repo "${{ github.repository }}" \
+            --clobber

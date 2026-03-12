@@ -24,7 +24,7 @@ When asked to bump the app version:
 6. Do not run build or verification commands unless the user explicitly asks. This repo expects build verification to be user-driven.
 7. Before final commit, ask the user whether a new release body draft is needed.
 8. If user says yes, prepare a short release body draft:
-   - detect previous release tag for the branch (`vx.y.z` for `main`, `vx.y.z-store` for `Microsoft-store`);
+   - detect previous release tag for the branch (`vx.y.z` for `main`, `vx.y.z-store` for `Microsoft-store`, `vx.y.z-cuda` for `cuda-integration`);
    - review commits between previous tag and new version commit;
    - include only end-user facing changes in short bullets;
    - keep the standard static notice text that is normally used in release body.
@@ -46,6 +46,13 @@ For `Microsoft-store`: if asked, prepare this branch too. If not asked, skip it 
 3. Tag `vx.y.z-store` only when the user explicitly asks for the store tag.
 4. Push `Microsoft-store` and the store tag only when the user explicitly asks.
 
+For `cuda-integration`: if asked, prepare this branch too. If not asked, skip it entirely.
+1. Keep the app version numeric, for example `0.9.1`. Same number may be reused, but only by user's approval.
+2. Use the CUDA release workflow and CUDA-specific release naming.
+3. Tag `vx.y.z-cuda` only when the user explicitly asks for the CUDA tag.
+4. Push `cuda-integration` and the CUDA tag only when the user explicitly asks.
+5. The CUDA release workflow builds a portable zip and expects the dependency repos `MaxITService/AIVORelay-dep-transcribe-rs` and `MaxITService/AIVORelay-dep-whisper-rs`.
+
 ## Release Body Drafting
 
 When preparing release text for user review:
@@ -55,5 +62,6 @@ When preparing release text for user review:
 4. Keep/update the baseline static notice text from workflow `body` (this is where the hardcoded release description lives):
    - `main`: `.github/workflows/release.yml`
    - `Microsoft-store`: `.github/workflows/microsoft-store-release.yml`
+   - `cuda-integration`: `.github/workflows/cuda-release.yml`
 5. Present the final draft in chat and ask explicitly: use as-is or apply user-edited text from chat.
 6. When editing the YAML `body` field, use JavaScript string concatenation and escape special characters correctly.
