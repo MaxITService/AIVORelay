@@ -1,24 +1,17 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { listen } from "@tauri-apps/api/event";
-import { invoke } from "@tauri-apps/api/core";
 import { Wifi, WifiOff, Server, AlertTriangle, Copy, Check } from "lucide-react";
+import type { ConnectorStatus } from "@/bindings";
 import { SettingContainer } from "../../ui/SettingContainer";
 
-// Types matching Rust backend
-type ExtensionStatus = "online" | "offline" | "unknown";
-
-interface ConnectorStatusResponse {
-  status: ExtensionStatus;
-  last_poll_at: number;
-  server_running: boolean;
-  port: number;
-  server_error: string | null;
-}
+type DisplayState = "loading" | "disabled" | "starting" | "unavailable" | "waiting" | "online" | "offline";
 
 interface ConnectorStatusIndicatorProps {
   grouped?: boolean;
   descriptionMode?: "inline" | "tooltip" | "none";
+  connectorEnabled: boolean;
+  status: ConnectorStatus | null;
+  restartNotice?: string | null;
 }
 
 /**
@@ -49,21 +42,13 @@ function formatTimeAgo(timestamp: number, t: (key: string, options?: any) => str
 export const ConnectorStatusIndicator: React.FC<ConnectorStatusIndicatorProps> = ({
   grouped = false,
   descriptionMode = "tooltip",
+  connectorEnabled,
+  status,
+  restartNotice = null,
 }) => {
   const { t } = useTranslation();
-  const [status, setStatus] = useState<ConnectorStatusResponse | null>(null);
   const [lastSeenText, setLastSeenText] = useState<string>("");
   const [errorCopied, setErrorCopied] = useState(false);
-
-  // Fetch status from backend
-  const fetchStatus = useCallback(async () => {
-    try {
-      const result = await invoke<ConnectorStatusResponse>("connector_get_status");
-      setStatus(result);
-    } catch (error) {
-      console.error("Failed to get connector status:", error);
-    }
-  }, []);
 
   // Update "last seen" text periodically
   useEffect(() => {
@@ -80,39 +65,6 @@ export const ConnectorStatusIndicator: React.FC<ConnectorStatusIndicatorProps> =
     }
   }, [status, t]);
 
-  // Initial fetch and periodic polling
-  useEffect(() => {
-    fetchStatus();
-
-    const interval = setInterval(fetchStatus, 5000); // Poll every 5 seconds
-
-    return () => clearInterval(interval);
-  }, [fetchStatus]);
-
-  // Listen for status change events from backend
-  useEffect(() => {
-    const unlisten = listen<ExtensionStatus>("extension-status-changed", () => {
-      // Refetch full status when event received
-      fetchStatus();
-    });
-
-    return () => {
-      unlisten.then((fn) => fn());
-    };
-  }, [fetchStatus]);
-
-  // Listen for server error events from backend
-  useEffect(() => {
-    const unlisten = listen<string>("connector-server-error", () => {
-      // Refetch full status to get the error
-      fetchStatus();
-    });
-
-    return () => {
-      unlisten.then((fn) => fn());
-    };
-  }, [fetchStatus]);
-
   // Copy error to clipboard
   const handleCopyError = () => {
     if (status?.server_error) {
@@ -122,58 +74,83 @@ export const ConnectorStatusIndicator: React.FC<ConnectorStatusIndicatorProps> =
     }
   };
 
-  const getStatusColor = (): string => {
-    if (!status || !status.server_running) {
-      return "text-gray-400";
+  const getDisplayState = (): DisplayState => {
+    if (!connectorEnabled) {
+      return "disabled";
     }
-    switch (status.status) {
+    if (!status) {
+      return "loading";
+    }
+    if (!status.server_running) {
+      return status.server_error ? "unavailable" : "starting";
+    }
+    if (status.status === "online") {
+      return "online";
+    }
+    if (status.status === "offline") {
+      return "offline";
+    }
+    return "waiting";
+  };
+
+  const displayState = getDisplayState();
+
+  const getStatusColor = (): string => {
+    switch (displayState) {
       case "online":
         return "text-green-500";
       case "offline":
+      case "unavailable":
         return "text-red-500";
-      default:
+      case "waiting":
+      case "starting":
         return "text-yellow-500";
+      default:
+        return "text-gray-400";
     }
   };
 
   const getStatusIcon = () => {
-    if (!status || !status.server_running) {
-      return <Server className="w-5 h-5 text-gray-400" />;
-    }
-    if (status.status === "online") {
+    if (displayState === "online") {
       return <Wifi className={`w-5 h-5 ${getStatusColor()}`} />;
     }
-    return <WifiOff className={`w-5 h-5 ${getStatusColor()}`} />;
+    if (displayState === "offline") {
+      return <WifiOff className={`w-5 h-5 ${getStatusColor()}`} />;
+    }
+    return <Server className={`w-5 h-5 ${getStatusColor()}`} />;
   };
 
   const getStatusText = (): string => {
-    if (!status) {
-      return t("settings.browserConnector.status.loading");
-    }
-    if (!status.server_running) {
-      return t("settings.browserConnector.status.serverStopped");
-    }
-    switch (status.status) {
+    switch (displayState) {
+      case "loading":
+        return t("settings.browserConnector.status.loading");
+      case "disabled":
+        return t("settings.browserConnector.status.serverStopped");
+      case "starting":
+        return t("settings.browserConnector.status.applyingSettings");
+      case "unavailable":
+        return t("settings.browserConnector.status.serverUnavailable");
       case "online":
         return t("settings.browserConnector.status.online");
       case "offline":
         return t("settings.browserConnector.status.offline");
       default:
-        return t("settings.browserConnector.status.waiting");
+        return t("settings.browserConnector.status.waitingForExtension");
     }
   };
 
   const getStatusBadgeClass = (): string => {
-    if (!status || !status.server_running) {
-      return "bg-gray-500/20 border-gray-500/30";
-    }
-    switch (status.status) {
+    switch (displayState) {
       case "online":
         return "bg-green-500/20 border-green-500/30";
       case "offline":
+      case "unavailable":
         return "bg-red-500/20 border-red-500/30";
-      default:
+      case "waiting":
+      case "starting":
         return "bg-yellow-500/20 border-yellow-500/30";
+      default:
+        return "bg-gray-500/20 border-gray-500/30";
     }
   };
 
@@ -185,10 +162,11 @@ export const ConnectorStatusIndicator: React.FC<ConnectorStatusIndicatorProps> =
       grouped={grouped}
       layout="horizontal"
     >
-      <div className="flex flex-col gap-2">
+      <div className="flex flex-col gap-2.5">
         <div className="flex items-center gap-2">
           <div
             className={`flex items-center gap-1.5 px-2 py-1 rounded border text-xs ${getStatusBadgeClass()}`}
+            title={t("settings.browserConnector.status.activityHintTooltip")}
           >
             {React.cloneElement(getStatusIcon(), { className: `w-3.5 h-3.5 ${getStatusColor()}` })}
             <span className={`font-medium ${getStatusColor()}`}>
@@ -196,23 +174,35 @@ export const ConnectorStatusIndicator: React.FC<ConnectorStatusIndicatorProps> =
             </span>
           </div>
 
-          {/* Show port info when server is running */}
           {status?.server_running && (
             <span className="text-xs text-text/40">
               {t("settings.browserConnector.status.port", { port: status.port })}
             </span>
           )}
 
-          {/* Show last seen time when offline */}
-          {status?.status === "offline" && lastSeenText && (
+          {displayState === "offline" && lastSeenText && (
             <span className="text-xs text-text/50">
               {t("settings.browserConnector.status.lastSeen", { time: lastSeenText })}
             </span>
           )}
         </div>
 
-        {/* Show server error if present */}
-        {status?.server_error && (
+        {connectorEnabled && (
+          <div
+            className="text-xs text-text/50 underline decoration-dotted underline-offset-2"
+            title={t("settings.browserConnector.status.activityHintTooltip")}
+          >
+            {t("settings.browserConnector.status.activityHintLabel")}
+          </div>
+        )}
+
+        {restartNotice && (
+          <div className="rounded border border-yellow-500/30 bg-yellow-500/10 px-3 py-2 text-xs text-yellow-100">
+            {restartNotice}
+          </div>
+        )}
+
+        {connectorEnabled && status?.server_error && (
           <div className="flex flex-col gap-1.5 p-2 rounded border border-red-500/30 bg-red-500/10">
             <div className="flex items-start gap-1.5">
               <AlertTriangle className="w-3.5 h-3.5 text-red-400 mt-0.5 flex-shrink-0" />
