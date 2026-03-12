@@ -16,6 +16,8 @@ interface DropdownProps {
   placeholder?: string;
   disabled?: boolean;
   onRefresh?: () => void;
+  /** Open the menu upward instead of downward */
+  dropUp?: boolean;
 }
 
 export const Dropdown: React.FC<DropdownProps> = ({
@@ -26,6 +28,7 @@ export const Dropdown: React.FC<DropdownProps> = ({
   placeholder = "Select an option...",
   disabled = false,
   onRefresh,
+  dropUp = false,
 }) => {
   const { t } = useTranslation();
   const [isOpen, setIsOpen] = useState(false);
@@ -187,7 +190,7 @@ export const Dropdown: React.FC<DropdownProps> = ({
       {isOpen && !disabled && (
         <div
           ref={listRef}
-          className="absolute top-full left-0 right-0 mt-1 bg-[#252525]/98 backdrop-blur-xl border border-[#3c3c3c] rounded-lg shadow-[0_12px_40px_rgba(0,0,0,0.5)] z-50 max-h-60 overflow-y-auto p-1"
+          className={`absolute ${dropUp ? "bottom-full mb-1" : "top-full mt-1"} right-0 min-w-full w-max max-w-sm bg-[#252525]/98 backdrop-blur-xl border border-[#3c3c3c] rounded-lg shadow-[0_12px_40px_rgba(0,0,0,0.5)] z-50 max-h-60 overflow-y-auto p-1`}
           onKeyDown={handleKeyDown}
         >
           {options.length === 0 ? (
