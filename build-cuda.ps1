@@ -1,7 +1,8 @@
 param(
     [switch]$DoBuild,
     [switch]$DoDev,
-    [string]$CudaPath = "C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.4"
+    [string]$CudaPath = "C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.4",
+    [string]$DependencyRoot = "C:\Code\AIVORelay-deps"
 )
 
 $ErrorActionPreference = "Stop"
@@ -135,7 +136,7 @@ function Set-CudaEnv {
 
     Set-ProcessEnv "CUDA_PATH" $CudaPath
     Set-ProcessEnv "CMAKE_GENERATOR" "Ninja"
-    Set-ProcessEnv "CARGO_TARGET_DIR" "C:/Code/build/aivorelay-cuda"
+    Set-ProcessEnv "CARGO_TARGET_DIR" "C:/aivorelay-cuda"
 
     $env:PATH = "$CudaPath\bin;$CudaPath\libnvvp;$llvmBin;$env:PATH"
     [Environment]::SetEnvironmentVariable("PATH", $env:PATH, "Process")
@@ -144,16 +145,35 @@ function Set-CudaEnv {
 }
 
 function Assert-LocalForks {
+    $transcribeRoot = Join-Path $DependencyRoot "AIVORelay-dep-transcribe-rs"
+    $whisperRoot = Join-Path $DependencyRoot "AIVORelay-dep-whisper-rs"
     $requiredPaths = @(
-        "C:\Code\experiments\transcribe-rs-test\Cargo.toml",
-        "C:\Code\experiments\whisper-rs-test\Cargo.toml",
-        "C:\Code\experiments\whisper-rs-test\sys\build.rs"
+        (Join-Path $transcribeRoot "Cargo.toml"),
+        (Join-Path $whisperRoot "Cargo.toml"),
+        (Join-Path $whisperRoot "sys\build.rs")
     )
 
     foreach ($path in $requiredPaths) {
         if (-not (Test-Path $path)) {
             throw "Required local CUDA dependency is missing: $path"
         }
+    }
+}
+
+function Sync-CargoPatchPaths {
+    $cargoTomlPath = Join-Path $repoRoot "src-tauri\Cargo.toml"
+    $transcribePath = (Join-Path $DependencyRoot "AIVORelay-dep-transcribe-rs").Replace("\", "/")
+    $whisperPath = (Join-Path $DependencyRoot "AIVORelay-dep-whisper-rs").Replace("\", "/")
+    $whisperSysPath = "$whisperPath/sys"
+
+    $content = Get-Content $cargoTomlPath -Raw
+    $updated = $content
+    $updated = [regex]::Replace($updated, 'transcribe-rs = \{ path = "[^"]+" \}', "transcribe-rs = { path = `"$transcribePath`" }")
+    $updated = [regex]::Replace($updated, 'whisper-rs = \{ path = "[^"]+" \}', "whisper-rs = { path = `"$whisperPath`" }")
+    $updated = [regex]::Replace($updated, 'whisper-rs-sys = \{ path = "[^"]+" \}', "whisper-rs-sys = { path = `"$whisperSysPath`" }")
+
+    if ($updated -ne $content) {
+        Set-Content -Path $cargoTomlPath -Value $updated -NoNewline
     }
 }
 
@@ -185,6 +205,7 @@ function Invoke-LoggedNativeCommand {
 Push-Location $repoRoot
 try {
     Assert-LocalForks
+    Sync-CargoPatchPaths
     Import-VsDevEnvironment
     Set-BindgenEnv
     Set-CudaEnv

@@ -5,14 +5,25 @@
 **Branch:** `cuda-integration`  
 **Outcome:** ✅ `tauri build --no-bundle` finished successfully with local-only changes.
 
+## Update: Local dependency repos renamed for AIVORelay (2026-03-12) ✅
+
+The external CUDA dependency folders were renamed so they are clearly AIVORelay-specific dependency forks and not confused with generic upstream source checkouts.
+
+- `C:\Code\AIVORelay-deps\AIVORelay-dep-transcribe-rs`
+- `C:\Code\AIVORelay-deps\AIVORelay-dep-whisper-rs`
+
+`src-tauri/Cargo.toml` on the CUDA branch now points to those paths instead of `C:\Code\experiments\...`.
+
+The plan for GitHub Actions CUDA releases is to treat these as separate dependency repositories and let the CUDA release workflow check them out explicitly before running `build-cuda.ps1`.
+
 ### What changed in this branch
 
-1. `src-tauri/Cargo.toml` now patches crates.io dependencies to local folders in `C:\Code\experiments`:
+1. `src-tauri/Cargo.toml` now patches crates.io dependencies to local folders in `C:\Code\AIVORelay-deps`:
    - `transcribe-rs`
    - `whisper-rs`
    - `whisper-rs-sys`
 2. `.cargo/config.toml` now uses a short target directory:
-   - `C:\Code\build\aivorelay-cuda`
+   - `C:\aivorelay-cuda`
 3. Added `build-cuda.ps1`:
    - finds a VS 2022 instance that actually has MSVC tools
    - sets process-only `CUDA_PATH`, `LIBCLANG_PATH`, `INCLUDE`, `BINDGEN_EXTRA_CLANG_ARGS`
@@ -22,15 +33,15 @@
 
 ### External local dependency changes
 
-- `C:\Code\experiments\transcribe-rs-test\Cargo.toml`
-- `C:\Code\experiments\transcribe-rs-test\Cargo.toml.orig`
+- `C:\Code\AIVORelay-deps\AIVORelay-dep-transcribe-rs\Cargo.toml`
+- `C:\Code\AIVORelay-deps\AIVORelay-dep-transcribe-rs\Cargo.toml.orig`
 
 Windows was switched from `whisper-rs` feature `vulkan` to `cuda`.
 
 ### Build result
 
 - **Build time:** `8m 24s`
-- **Binary:** `C:\Code\build\aivorelay-cuda\release\aivorelay.exe`
+- **Binary:** `C:\aivorelay-cuda\release\aivorelay.exe`
 
 ### Notes
 

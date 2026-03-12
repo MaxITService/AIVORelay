@@ -133,6 +133,6 @@ strip = true
 panic = "abort"
 
 [patch.crates-io]
-transcribe-rs = { path = "C:/Code/experiments/transcribe-rs-test" }
-whisper-rs = { path = "C:/Code/experiments/whisper-rs-test" }
-whisper-rs-sys = { path = "C:/Code/experiments/whisper-rs-test/sys" }
+transcribe-rs = { path = "C:/Code/AIVORelay-deps/AIVORelay-dep-transcribe-rs" }
+whisper-rs = { path = "C:/Code/AIVORelay-deps/AIVORelay-dep-whisper-rs" }
+whisper-rs-sys = { path = "C:/Code/AIVORelay-deps/AIVORelay-dep-whisper-rs/sys" }

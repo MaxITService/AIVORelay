@@ -2,9 +2,10 @@
 
 This playbook is only for `upstream -> main`.
 
-Do not use this file for `main -> Microsoft-store` propagation.
+Do not use this file for `main -> Microsoft-store` or `main -> cuda-integration` propagation.
 That is a separate workflow described in:
 - [[.AGENTS/main-to-microsoft-store-propagation-playbook|main-to-microsoft-store-propagation-playbook.md]]
+- [[.AGENTS/main-to-cuda-propagation-playbook|main-to-cuda-propagation-playbook.md]]
 
 ## Scope
 
@@ -58,7 +59,7 @@ Skip:
 5. If conflicts are many/high-risk, run `git cherry-pick --abort` and switch to diff-path using `.AGENTS/.UNTRACKED/<sha>.diff.txt`.
 6. Record resulting `main` commit hashes.
 7. Update [[.AGENTS/upstream-sync-log|upstream-sync-log.md]].
-8. If the user later wants `main -> Microsoft-store`, stop using this playbook and switch to the Microsoft Store propagation playbook.
+8. If the user later wants `main -> Microsoft-store` or `main -> cuda-integration`, stop using this playbook and switch to the branch propagation playbook.
 
 ## Cargo.lock
 

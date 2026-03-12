@@ -49,8 +49,9 @@ This is a **fork** of [cjpais/Handy](https://github.com/cjpais/Handy). This repo
 Only interact with these branches:
 - `main`
 - `Microsoft-store`
+- `cuda-integration`
 
-(When user says "all branches", they currently mean `main` and `Microsoft-store`.)
+(When user says "all branches", they currently mean `main`, `Microsoft-store`, and `cuda-integration`.)
 For work on non-`main` branches, use `main` as the only sync source.
 
 ## Fork Documentation - Read file(s) that is related to current task ONLY.
@@ -62,8 +63,10 @@ Docs use Obsidian-style links like `[[path|label]]`.
 - [[README]]: fork features overview
 - [[.AGENTS/upstream-intake-playbook|upstream-intake-playbook.md]]: `upstream -> main` intake playbook
 - [[.AGENTS/main-to-microsoft-store-propagation-playbook|main-to-microsoft-store-propagation-playbook.md]]: `main -> Microsoft-store` propagation playbook
-- [[.AGENTS/upstream-OrBranches-intake-playbook|upstream-OrBranches-intake-playbook.md]]: compatibility index pointing to the two playbooks above
+- [[.AGENTS/main-to-cuda-propagation-playbook|main-to-cuda-propagation-playbook.md]]: `main -> cuda-integration` propagation playbook
+- [[.AGENTS/upstream-OrBranches-intake-playbook|upstream-OrBranches-intake-playbook.md]]: compatibility index pointing to the branch-specific playbooks above
 - [[.AGENTS/upstream-sync-log|upstream-sync-log.md]]: rolling log of last synced upstream commits (max 10)
+- [[.AGENTS/branch-propagation-log|branch-propagation-log.md]]: rolling log of last propagated `main` commits into release branches (max 10)
 - [[.AGENTS/branching-status|branching-status.md]]: branch sync/cherry-pick status
 
 
