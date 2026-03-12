@@ -69,6 +69,8 @@ const BLOB_EXPIRY_MS: i64 = 300_000;
 const MAX_WAIT_SECONDS: u32 = 30;
 /// Default long-poll wait (0 = immediate response for backward compat)
 const DEFAULT_WAIT_SECONDS: u32 = 0;
+/// When a background restart takes longer than this, warn the UI.
+const RESTART_DELAY_WARNING_MS: u64 = 4_000;
 /// Cooldown for auth-failure toasts in ms
 const AUTH_FAILURE_TOAST_COOLDOWN_MS: i64 = 5000;
 const INITIAL_AUTH_BACKOFF_MS: i64 = 150;
@@ -355,6 +357,7 @@ struct AppState {
     app_handle: AppHandle,
     state: Arc<Mutex<ConnectorState>>,
     last_poll_at: Arc<AtomicI64>,
+    stop_flag: Arc<AtomicBool>,
     /// Stored for consistency with ConnectorManager; handlers get port from settings
     #[allow(dead_code)]
     port: Arc<RwLock<u16>>,
@@ -394,6 +397,8 @@ pub struct ConnectorManager {
     auth_failure_count: Arc<AtomicU32>,
     /// Earliest time when a new auth failure response may be returned
     auth_backoff_until_ms: Arc<AtomicI64>,
+    /// Prevent overlapping background restart workers when export reapplies settings.
+    background_restart_in_progress: Arc<AtomicBool>,
 }
 
 impl ConnectorManager {
@@ -428,6 +433,7 @@ impl ConnectorManager {
             sessions: Arc::new(Mutex::new(HashMap::new())),
             auth_failure_count: Arc::new(AtomicU32::new(0)),
             auth_backoff_until_ms: Arc::new(AtomicI64::new(0)),
+            background_restart_in_progress: Arc::new(AtomicBool::new(false)),
         };
 
         Ok(manager)
@@ -537,6 +543,7 @@ impl ConnectorManager {
             app_handle: self.app_handle.clone(),
             state: self.state.clone(),
             last_poll_at: Arc::clone(&self.last_poll_at),
+            stop_flag: self.stop_flag.clone(),
             port: self.port.clone(),
             message_notify: self.message_notify.clone(),
             last_auth_failure_emitted_at: self.last_auth_failure_emitted_at.clone(),
@@ -754,6 +761,7 @@ impl ConnectorManager {
     /// Stop the HTTP server.
     pub fn stop_server(&self) {
         self.stop_flag.store(true, Ordering::SeqCst);
+        self.message_notify.notify_waiters();
     }
 
     /// Restart the server using the current settings.
@@ -820,6 +828,67 @@ impl ConnectorManager {
         }
 
         Ok(())
+    }
+
+    /// Reload connector settings without blocking the caller on server shutdown.
+    ///
+    /// This is primarily used by extension export/pairing. The settings themselves are already
+    /// persisted, so the export can succeed immediately while the server restarts in the background.
+    /// If shutdown takes a while, we notify the UI so it can tell the user that the new settings may
+    /// need a manual app restart to take effect.
+    pub fn reload_runtime_config_async(&self) {
+        let settings = get_settings(&self.app_handle);
+        if !settings.connector_enabled {
+            return;
+        }
+
+        if !self.server_running.load(Ordering::SeqCst) {
+            if let Err(err) = self.start_server() {
+                error!("Failed to start connector server after export: {}", err);
+            }
+            return;
+        }
+
+        if self
+            .background_restart_in_progress
+            .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+            .is_err()
+        {
+            return;
+        }
+
+        self.stop_server();
+
+        let app_handle = self.app_handle.clone();
+        let background_restart_in_progress = self.background_restart_in_progress.clone();
+        std::thread::spawn(move || {
+            let Some(manager_state) = app_handle.try_state::<Arc<ConnectorManager>>() else {
+                background_restart_in_progress.store(false, Ordering::SeqCst);
+                return;
+            };
+            let manager = manager_state.inner().clone();
+            let started_waiting_at = std::time::Instant::now();
+            let mut delay_warning_emitted = false;
+
+            while manager.server_running.load(Ordering::SeqCst) {
+                if !delay_warning_emitted
+                    && started_waiting_at.elapsed() >= Duration::from_millis(RESTART_DELAY_WARNING_MS)
+                {
+                    let _ = manager
+                        .app_handle
+                        .emit("connector-restart-delayed", true);
+                    delay_warning_emitted = true;
+                }
+
+                std::thread::sleep(Duration::from_millis(100));
+            }
+
+            if let Err(err) = manager.start_server() {
+                error!("Failed to restart connector server in background: {}", err);
+            }
+
+            background_restart_in_progress.store(false, Ordering::SeqCst);
+        });
     }
 
     /// Queue a message to be sent to the extension.
@@ -1150,6 +1219,10 @@ async fn handle_get_messages(
         let deadline = tokio::time::Instant::now() + Duration::from_secs(wait_seconds as u64);
 
         loop {
+            if app_state.stop_flag.load(Ordering::SeqCst) {
+                break (Vec::new(), Vec::new());
+            }
+
             let (msgs, ids) = get_pending_messages(&app_state.state, cursor);
             if !msgs.is_empty() {
                 break (msgs, ids);
@@ -1162,6 +1235,9 @@ async fn handle_get_messages(
 
             tokio::select! {
                 _ = app_state.message_notify.notified() => {
+                    if app_state.stop_flag.load(Ordering::SeqCst) {
+                        break (Vec::new(), Vec::new());
+                    }
                     continue;
                 }
                 _ = tokio::time::sleep(remaining) => {

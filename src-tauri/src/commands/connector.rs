@@ -267,8 +267,7 @@ fn apply_exported_extension_pairing(
     extension_id: &str,
     generated_password: &str,
 ) -> Result<(), String> {
-    let previous_settings = get_settings(app);
-    let mut settings = previous_settings.clone();
+    let mut settings = get_settings(app);
     settings.connector_allow_any_cors = false;
     settings.connector_cors = format!("{}{}", CHROME_EXTENSION_ORIGIN_PREFIX, extension_id);
     settings.connector_password = generated_password.to_string();
@@ -278,17 +277,7 @@ fn apply_exported_extension_pairing(
     write_settings(app, settings.clone());
 
     if let Some(connector_manager) = app.try_state::<Arc<ConnectorManager>>() {
-        if let Err(err) = connector_manager.reload_runtime_config() {
-            write_settings(app, previous_settings.clone());
-            let _ = connector_manager.reload_runtime_config();
-            connector_manager.refresh_crypto_state(
-                &previous_settings.connector_password,
-                previous_settings.connector_pending_password.as_deref(),
-            );
-            connector_manager.clear_sessions();
-            return Err(err);
-        }
-
+        connector_manager.reload_runtime_config_async();
         connector_manager.refresh_crypto_state(&settings.connector_password, None);
         connector_manager.clear_sessions();
     }

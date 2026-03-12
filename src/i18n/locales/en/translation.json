@@ -1732,7 +1732,7 @@
             "pathPlaceholder": "C:\\Users\\You\\Downloads",
             "pathHint": "Choose the parent folder, not the final extension folder. AivoRelay will create the \"AivoRelay Connector\" folder inside it.",
             "selectFolderTitle": "Choose where to export the browser extension",
-            "exportSuccess": "Browser extension exported to {{path}}. Configured origin: {{origin}}. A new connector password was generated and applied."
+            "exportSuccess": "Browser extension exported to {{path}}. Configured origin: {{origin}}. A new connector password was generated and saved. The local connector server is refreshing in the background, so the first reconnect can take a few seconds."
           }
         },
         "install": {
@@ -1760,12 +1760,15 @@
       "status": {
         "sectionTitle": "Extension Status",
         "title": "Extension Connection",
-        "description": "Real-time connection status with the browser extension.",
+        "description": "Connection state inferred from recent extension polling. After closing the browser, it can take up to about 35 seconds to switch from Online to Offline.",
         "online": "Online",
         "offline": "Offline",
         "waiting": "Waiting...",
+        "waitingForExtension": "Waiting for extension",
         "loading": "Loading...",
         "serverStopped": "Server OFF",
+        "applyingSettings": "Applying settings...",
+        "serverUnavailable": "Server unavailable",
         "never": "Never",
         "justNow": "Just now",
         "secondsAgo": "{{count}}s ago",
@@ -1773,6 +1776,9 @@
         "hoursAgo": "{{count}}h ago",
         "lastSeen": "Last seen: {{time}}",
         "port": "Port {{port}}",
+        "activityHintLabel": "Status can lag a little",
+        "activityHintTooltip": "The app treats the extension as online while recent long-poll requests are still fresh. After closing the browser, the status may need about 35 seconds to show Offline.",
+        "restartDelayed": "New connector settings were saved, but the local connector server is still shutting down. If the extension does not reconnect soon, restart AivoRelay so the new settings can fully apply.",
         "serverError": "Server Error",
         "copyError": "Copy error details",
         "errorHint": "The port may be in use by another application. Try a different port in Connection Settings below, or close the conflicting application."
@@ -1854,7 +1860,7 @@
         "title": "Connection Settings",
         "enabled": {
           "label": "Enable Connector Server",
-          "description": "Start the local HTTP server to communicate with the browser extension. The connector now requires one exact allowed origin before it can start. When OFF, the status shows \"Server OFF\" and all communication is disabled."
+          "description": "Start the local HTTP server to communicate with the browser extension. The connector now requires one exact allowed origin before it can start. When OFF, the status shows \"Server OFF\". When ON but startup/restart fails, the status shows a separate unavailable/restarting state with details."
         },
         "featureRequiresServer": "The Connector Server is currently OFF. Enable it below in Connection Settings near the bottom of this page, otherwise this feature will not work.",
         "cors": {

@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import { useTranslation, Trans } from "react-i18next";
 import { Globe, Info, ExternalLink, Eye, EyeOff, Copy, AlertTriangle, Download, RefreshCw } from "lucide-react";
 import { open } from "@tauri-apps/plugin-dialog";
@@ -68,6 +68,7 @@ export const BrowserConnectorSettings: React.FC = () => {
     message: string;
   } | null>(null);
   const [connectorStatus, setConnectorStatus] = useState<ConnectorStatus | null>(null);
+  const [connectorRestartNotice, setConnectorRestartNotice] = useState<string | null>(null);
   const [isRotatingPassword, setIsRotatingPassword] = useState(false);
   const [passwordRotationStatus, setPasswordRotationStatus] = useState<{
     type: "success" | "error";
@@ -158,22 +159,20 @@ export const BrowserConnectorSettings: React.FC = () => {
     };
   }, []);
 
-  useEffect(() => {
-    let isMounted = true;
+  const fetchConnectorStatus = useCallback(async () => {
+    try {
+      const status = await commands.connectorGetStatus();
+      setConnectorStatus(status);
 
-    const fetchConnectorStatus = async () => {
-      try {
-        const status = await commands.connectorGetStatus();
-        if (isMounted) {
-          setConnectorStatus(status);
-        }
-      } catch {
-        if (isMounted) {
-          setConnectorStatus(null);
-        }
+      if (status.server_running) {
+        setConnectorRestartNotice(null);
       }
-    };
+    } catch {
+      setConnectorStatus(null);
+    }
+  }, []);
 
+  useEffect(() => {
     void fetchConnectorStatus();
     const interval = window.setInterval(fetchConnectorStatus, 5000);
 
@@ -183,14 +182,24 @@ export const BrowserConnectorSettings: React.FC = () => {
     const errorUnlisten = listen("connector-server-error", () => {
       void fetchConnectorStatus();
     });
+    const delayedRestartUnlisten = listen("connector-restart-delayed", () => {
+      setConnectorRestartNotice(t("settings.browserConnector.status.restartDelayed"));
+      void fetchConnectorStatus();
+    });
 
     return () => {
-      isMounted = false;
       window.clearInterval(interval);
       void statusUnlisten.then((fn) => fn());
       void errorUnlisten.then((fn) => fn());
+      void delayedRestartUnlisten.then((fn) => fn());
     };
-  }, []);
+  }, [fetchConnectorStatus, t]);
+
+  useEffect(() => {
+    if (!(settings?.connector_enabled ?? false)) {
+      setConnectorRestartNotice(null);
+    }
+  }, [settings?.connector_enabled]);
 
   // Screenshot settings sync with settings
   useEffect(() => {
@@ -342,6 +351,7 @@ export const BrowserConnectorSettings: React.FC = () => {
       }
 
       await refreshSettings();
+      await fetchConnectorStatus();
 
       setExtensionExportStatus({
         type: "success",
@@ -386,8 +396,7 @@ export const BrowserConnectorSettings: React.FC = () => {
       }
 
       await refreshSettings();
-      const status = await commands.connectorGetStatus();
-      setConnectorStatus(status);
+      await fetchConnectorStatus();
       setPasswordRotationStatus({
         type: "success",
         message: t("settings.browserConnector.connection.password.rotate.success"),
@@ -704,7 +713,13 @@ export const BrowserConnectorSettings: React.FC = () => {
 
       {/* Extension Status */}
       <SettingsGroup title={t("settings.browserConnector.status.sectionTitle")}>
-        <ConnectorStatusIndicator grouped={true} descriptionMode="tooltip" />
+        <ConnectorStatusIndicator
+          grouped={true}
+          descriptionMode="tooltip"
+          connectorEnabled={settings?.connector_enabled ?? false}
+          status={connectorStatus}
+          restartNotice={connectorRestartNotice}
+        />
       </SettingsGroup>
 
       {/* Feature 1: Send Transcription Directly to Extension */}
