@@ -12,7 +12,7 @@ Propagation scope rule: for Microsoft Store Edition propagation, bring over the 
 
 ## cuda-integration
 
-Last synced commit from `main`: `0f5a937` — docs(connector): note local Axum server version.
+Last synced commit from `main`: `d984060` — fix(actions): quote CUDA workflow step names.
 Note: the cursor always points to the last propagated commit from `main`, not to CUDA-only commits that were created on top of it.
 Sync rule: for this branch, source commits come from `main` only.
 Propagation scope rule: for CUDA Edition propagation, bring over the intended `main` commit set in order unless a commit is CUDA-incompatible. Default exclusions are Microsoft Store-specific changes and branch-local CUDA dependency/release wiring that only exists on `cuda-integration`.
