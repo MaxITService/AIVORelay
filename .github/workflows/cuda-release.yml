@@ -59,7 +59,6 @@ jobs:
           repository: MaxITService/AIVORelay-dep-transcribe-rs
           path: aivorelay-deps/AIVORelay-dep-transcribe-rs
           fetch-depth: 1
-          token: ${{ secrets.CUDA_DEPENDENCY_REPO_TOKEN != '' && secrets.CUDA_DEPENDENCY_REPO_TOKEN || github.token }}
 
       - name: Checkout CUDA dependency repo: whisper-rs
         uses: actions/checkout@v4
@@ -67,7 +66,6 @@ jobs:
           repository: MaxITService/AIVORelay-dep-whisper-rs
           path: aivorelay-deps/AIVORelay-dep-whisper-rs
           fetch-depth: 1
-          token: ${{ secrets.CUDA_DEPENDENCY_REPO_TOKEN != '' && secrets.CUDA_DEPENDENCY_REPO_TOKEN || github.token }}
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
