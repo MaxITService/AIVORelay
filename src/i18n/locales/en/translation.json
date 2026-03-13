@@ -1713,7 +1713,8 @@
         "feature1": "Speak and send messages directly to ChatGPT or other AI chats",
         "feature2": "Use \"Send Transcription + Selection\" to include selected text as context",
         "feature3": "Optional LLM processing before sending (e.g., translate, reformat)",
-        "feature4": "Security Recommendation: You should change the connection password. On a fresh install, the extension uses a default password that could allow other programs to intercept your communication. Changing it here will automatically update the extension if it is connected. For maximum security, we recommend doing this while offline to prevent any local interference during the handshake."
+        "feature4": "Security Recommendation: You should change the connection password. On a fresh install, the extension uses a default password that could allow other programs to intercept your communication. Changing it here will automatically update the extension if it is connected. For maximum security, we recommend doing this while offline to prevent any local interference during the handshake.",
+        "feature5": "AivoRelay exposes this connector through a local Axum v{{version}} web server on your computer. If you consider this Axum version unsafe for your threat model, disable Browser Connector entirely."
       },
       "tellMeMore": {
         "title": "How to Install the Browser Extension",
