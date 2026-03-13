@@ -35,6 +35,7 @@ const EXTENSION_DOWNLOAD_URL = "https://github.com/MaxITService/AIVORelay-relay/
 const EXPORT_PATH_STORAGE_KEY = "aivorelay.connectorExportPath";
 const EXPORTED_EXTENSION_FOLDER_NAME = "AivoRelay Connector";
 const COMPATIBLE_CONNECTOR_VERSION = "1.0.5";
+const AXUM_VERSION = "0.8.8";
 
 type ExportBundledExtensionResult = {
   exportPath: string;
@@ -617,7 +618,10 @@ export const BrowserConnectorSettings: React.FC = () => {
             <div className="mt-4 p-3 rounded border border-yellow-500/30 bg-yellow-500/5 text-yellow-200/90 italic">
               <div className="flex gap-2">
                 <AlertTriangle className="w-4 h-4 text-yellow-400 mt-0.5 flex-shrink-0" />
-                <p>{t("settings.browserConnector.help.feature4")}</p>
+                <div className="space-y-2">
+                  <p>{t("settings.browserConnector.help.feature4")}</p>
+                  <p>{t("settings.browserConnector.help.feature5", { version: AXUM_VERSION })}</p>
+                </div>
               </div>
             </div>
           </div>
