@@ -34,7 +34,7 @@ const EXTENSION_REPO_URL = "https://github.com/MaxITService/AIVORelay-relay";
 const EXTENSION_DOWNLOAD_URL = "https://github.com/MaxITService/AIVORelay-relay/archive/refs/heads/main.zip";
 const EXPORT_PATH_STORAGE_KEY = "aivorelay.connectorExportPath";
 const EXPORTED_EXTENSION_FOLDER_NAME = "AivoRelay Connector";
-const COMPATIBLE_CONNECTOR_VERSION = "1.0.4";
+const COMPATIBLE_CONNECTOR_VERSION = "1.0.5";
 
 type ExportBundledExtensionResult = {
   exportPath: string;
