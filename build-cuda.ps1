@@ -150,11 +150,15 @@ function Assert-LocalForks {
     $requiredPaths = @(
         (Join-Path $transcribeRoot "Cargo.toml"),
         (Join-Path $whisperRoot "Cargo.toml"),
-        (Join-Path $whisperRoot "sys\build.rs")
+        (Join-Path $whisperRoot "sys\build.rs"),
+        (Join-Path $whisperRoot "sys\whisper.cpp\include\whisper.h")
     )
 
     foreach ($path in $requiredPaths) {
         if (-not (Test-Path $path)) {
+            if ($path -like "*sys\whisper.cpp\include\whisper.h") {
+                throw "Required whisper.cpp headers are missing: $path . Ensure the AIVORelay-dep-whisper-rs checkout includes its sys/whisper.cpp submodule."
+            }
             throw "Required local CUDA dependency is missing: $path"
         }
     }

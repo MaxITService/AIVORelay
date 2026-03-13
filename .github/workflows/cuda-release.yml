@@ -66,6 +66,7 @@ jobs:
           repository: MaxITService/AIVORelay-dep-whisper-rs
           path: aivorelay-deps/AIVORelay-dep-whisper-rs
           fetch-depth: 1
+          submodules: recursive
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
