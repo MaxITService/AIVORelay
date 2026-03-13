@@ -53,14 +53,14 @@ jobs:
       - name: Checkout AIVORelay
         uses: actions/checkout@v4
 
-      - name: Checkout CUDA dependency repo: transcribe-rs
+      - name: "Checkout CUDA dependency repo: transcribe-rs"
         uses: actions/checkout@v4
         with:
           repository: MaxITService/AIVORelay-dep-transcribe-rs
           path: aivorelay-deps/AIVORelay-dep-transcribe-rs
           fetch-depth: 1
 
-      - name: Checkout CUDA dependency repo: whisper-rs
+      - name: "Checkout CUDA dependency repo: whisper-rs"
         uses: actions/checkout@v4
         with:
           repository: MaxITService/AIVORelay-dep-whisper-rs
