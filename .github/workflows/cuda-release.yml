@@ -53,7 +53,7 @@ jobs:
       - name: Checkout AIVORelay
         uses: actions/checkout@v4
 
-      - name: Checkout CUDA dependency repo: transcribe-rs
+      - name: "Checkout CUDA dependency repo: transcribe-rs"
         uses: actions/checkout@v4
         with:
           repository: MaxITService/AIVORelay-dep-transcribe-rs
@@ -61,7 +61,7 @@ jobs:
           fetch-depth: 1
           token: ${{ secrets.CUDA_DEPENDENCY_REPO_TOKEN != '' && secrets.CUDA_DEPENDENCY_REPO_TOKEN || github.token }}
 
-      - name: Checkout CUDA dependency repo: whisper-rs
+      - name: "Checkout CUDA dependency repo: whisper-rs"
         uses: actions/checkout@v4
         with:
           repository: MaxITService/AIVORelay-dep-whisper-rs
