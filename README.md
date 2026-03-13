@@ -11,9 +11,8 @@ AI Voice Relay
 
 > ## 📥 **[Download AivoRelay](https://github.com/MaxITService/AIVORelay/releases/latest)** — Get the latest release!
 
-> ✨ **[v1.0.1 Beta Release](https://github.com/MaxITService/AIVORelay/releases/tag/v1.0.1)** — Latest beta release, includes the AI Replace hotfix.
 
-> 🛒 **[Microsoft Store Version](https://apps.microsoft.com/detail/9ppfkfh2zn1l)** — This is an official listing on the Microsoft Store. Note that the Store version is not updated as frequently as the desktop application available here on GitHub, but it does not require administrator rights to install, is signed by Microsoft, and is verified by Microsoft before releasing.
+> 🛒 **[Microsoft Store Version](https://apps.microsoft.com/detail/9ppfkfh2zn1l)** — This is an official listing on the Microsoft Store. Note that the Store version is **not updated as frequently as the desktop application** available here on GitHub, but it does not require administrator rights to install, is signed by Microsoft, and is verified by Microsoft before releasing.
 
 ## ✨ Key Features
 
