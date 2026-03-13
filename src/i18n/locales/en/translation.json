@@ -1709,6 +1709,7 @@
       "help": {
         "title": "What is Browser Connector?",
         "description": "Browser Connector sends your voice transcriptions directly to AI chat interfaces (like ChatGPT, Claude) through the <link>AivoRelay Connector</link> Chrome extension.",
+        "feature0": "AivoRelay can unpack the extension for you. Click \"How to Install the Browser Extension\" below and then use \"Extract Here\".",
         "feature1": "Speak and send messages directly to ChatGPT or other AI chats",
         "feature2": "Use \"Send Transcription + Selection\" to include selected text as context",
         "feature3": "Optional LLM processing before sending (e.g., translate, reformat)",
@@ -1718,6 +1719,7 @@
         "title": "How to Install the Browser Extension",
         "headline": "Bridge the gap to the Web.",
         "intro": "The AivoRelay Connector Chrome extension connects this desktop app to AI chat tabs in your browser.",
+        "compatibility": "This AivoRelay build is currently packaged for AivoRelay Connector v{{version}}.",
         "getExtension": {
           "title": "Get the Extension:",
           "step1": "Browse the source on GitHub: <link>AivoRelay Connector</link>",
@@ -1731,8 +1733,15 @@
             "pathLabel": "Export Path",
             "pathPlaceholder": "C:\\Users\\You\\Downloads",
             "pathHint": "Choose the parent folder, not the final extension folder. AivoRelay will create the \"AivoRelay Connector\" folder inside it.",
+            "reloadHint": "If this folder is already loaded as an unpacked extension in Chrome/Edge, open chrome://extensions and click Reload for AivoRelay Connector. Browsers do not auto-reload unpacked extensions when files change on disk.",
+            "identityHint": "The extension identity is also part of AivoRelay's trusted CORS allow-list for the local connector server. Keeping the same identity preserves that browser trust for this exported copy.",
+            "generateNewIdLabel": "Fresh start (new extension identity)",
+            "generateNewIdHint": "Leave this off to update the connector copy that AivoRelay already exported to this same path. Turn it on only when you intentionally want a new browser-extension identity, new trusted CORS origin, and a new connector pairing state.",
+            "generateNewIdForcedHint": "Required for this path because AivoRelay has no previous export record here yet. The first export creates a new extension identity, a new trusted CORS origin, and a new initial connector secret.",
             "selectFolderTitle": "Choose where to export the browser extension",
-            "exportSuccess": "Browser extension exported to {{path}}. Configured origin: {{origin}}. A new connector password was generated and saved. The local connector server is refreshing in the background, so the first reconnect can take a few seconds."
+            "exportSuccess": "Browser extension exported to {{path}}. Configured origin: {{origin}}. A new connector password was generated and saved. The local connector server is refreshing in the background, so the first reconnect can take a few seconds. If Chrome/Edge already has this unpacked folder loaded, click Reload on the extension card to apply the new files.",
+            "exportSuccessReusedId": "Browser extension exported to {{path}}. Configured origin: {{origin}}. The previous extension ID was kept, so the existing unpacked extension can stay installed. In Chrome/Edge, click Reload on the extension card to apply the updated files.",
+            "exportSuccessWithNewId": "Browser extension exported to {{path}}. Configured origin: {{origin}}. A fresh extension identity was created for this export. If an older unpacked AivoRelay Connector is still installed in Chrome/Edge, remove it manually and then load this folder again, because the browser will treat it as a different extension."
           }
         },
         "install": {

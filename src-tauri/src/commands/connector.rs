@@ -2,7 +2,7 @@
 //!
 //! Commands to control and query the connector server status.
 
-use crate::managers::connector::{ConnectorManager, ConnectorStatus};
+use crate::managers::connector::{active_pending_password, ConnectorManager, ConnectorStatus};
 use crate::settings::{get_settings, write_settings};
 use base64::{engine::general_purpose::STANDARD, Engine as _};
 use rsa::pkcs8::EncodePublicKey;
@@ -38,6 +38,8 @@ pub struct BundledExtensionExportResult {
     pub extension_id: String,
     pub configured_origin: String,
     pub generated_password: String,
+    pub reused_existing_id: bool,
+    pub replaced_existing_export: bool,
 }
 
 fn unzip_to_directory<R>(archive: &mut ZipArchive<R>, destination_dir: &Path) -> Result<(), String>
@@ -177,6 +179,44 @@ fn generate_extension_manifest_key() -> Result<(String, String), String> {
     Ok((manifest_key, extension_id))
 }
 
+fn resolve_export_dir(destination_root: &Path) -> PathBuf {
+    if destination_root
+        .file_name()
+        .map(|name| name == EXPORTED_EXTENSION_FOLDER_NAME)
+        .unwrap_or(false)
+    {
+        destination_root.to_path_buf()
+    } else {
+        destination_root.join(EXPORTED_EXTENSION_FOLDER_NAME)
+    }
+}
+
+fn normalize_metadata_path_string(raw: &str) -> String {
+    let normalized = raw.trim().replace('/', "\\");
+    let trimmed = normalized.trim_end_matches('\\');
+    #[cfg(target_os = "windows")]
+    {
+        trimmed.to_lowercase()
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        trimmed.to_string()
+    }
+}
+
+fn normalize_metadata_path(path: &Path) -> String {
+    normalize_metadata_path_string(&path.to_string_lossy())
+}
+
+fn stored_export_matches(settings: &crate::settings::AppSettings, export_dir: &Path) -> bool {
+    if settings.connector_last_export_dir.trim().is_empty() {
+        return false;
+    }
+
+    normalize_metadata_path_string(&settings.connector_last_export_dir)
+        == normalize_metadata_path(export_dir)
+}
+
 fn patch_exported_manifest(export_dir: &Path, manifest_key: &str) -> Result<(), String> {
     let manifest_path = export_dir.join("manifest.json");
     let manifest_contents = fs::read_to_string(&manifest_path)
@@ -264,16 +304,21 @@ fn patch_exported_default_port(export_dir: &Path, port: u16) -> Result<(), Strin
 
 fn apply_exported_extension_pairing(
     app: &AppHandle,
+    export_dir: &Path,
     extension_id: &str,
-    generated_password: &str,
+    manifest_key: &str,
+    connector_password: &str,
 ) -> Result<(), String> {
     let mut settings = get_settings(app);
     settings.connector_allow_any_cors = false;
     settings.connector_cors = format!("{}{}", CHROME_EXTENSION_ORIGIN_PREFIX, extension_id);
-    settings.connector_password = generated_password.to_string();
+    settings.connector_password = connector_password.to_string();
     settings.connector_password_user_set = false;
     settings.connector_pending_password = None;
     settings.connector_pending_password_issued_at_ms = 0;
+    settings.connector_last_export_dir = export_dir.to_string_lossy().to_string();
+    settings.connector_last_export_extension_id = extension_id.to_string();
+    settings.connector_last_export_manifest_key = manifest_key.to_string();
     write_settings(app, settings.clone());
 
     if let Some(connector_manager) = app.try_state::<Arc<ConnectorManager>>() {
@@ -358,6 +403,7 @@ pub fn connector_cancel_message(
 pub fn connector_export_bundled_extension(
     app: AppHandle,
     destination_dir: String,
+    generate_new_id: bool,
 ) -> Result<BundledExtensionExportResult, String> {
     let trimmed_destination = destination_dir.trim();
     if trimmed_destination.is_empty() {
@@ -395,24 +441,34 @@ pub fn connector_export_bundled_extension(
 
     unzip_to_directory(&mut archive, &staging_root)?;
 
-    let generated_password = generate_secure_password()?;
-    let (manifest_key, extension_id) = generate_extension_manifest_key()?;
-    patch_exported_manifest(&staging_root, &manifest_key)?;
-    patch_exported_default_password(&staging_root, &generated_password)?;
-    patch_exported_default_port(&staging_root, current_settings.connector_port)?;
+    let export_dir = resolve_export_dir(&destination_root);
+    let export_dir_string = export_dir.to_string_lossy().to_string();
 
-    // If the selected destination already ends with the extension folder name,
-    // use it directly to avoid confusing nested paths like
-    // "AivoRelay Connector/AivoRelay Connector".
-    let export_dir = if destination_root
-        .file_name()
-        .map(|name| name == EXPORTED_EXTENSION_FOLDER_NAME)
-        .unwrap_or(false)
+    let replaced_existing_export = export_dir.exists();
+    let known_export_for_path = !generate_new_id
+        && stored_export_matches(&current_settings, &export_dir)
+        && !current_settings.connector_last_export_manifest_key.trim().is_empty()
+        && !current_settings.connector_last_export_extension_id.trim().is_empty();
+
+    let (manifest_key, extension_id, connector_password, reused_existing_id) = if known_export_for_path
     {
-        destination_root.clone()
+        let effective_password = active_pending_password(&app, &current_settings)
+            .unwrap_or_else(|| current_settings.connector_password.clone());
+        (
+            current_settings.connector_last_export_manifest_key.clone(),
+            current_settings.connector_last_export_extension_id.clone(),
+            effective_password,
+            true,
+        )
     } else {
-        destination_root.join(EXPORTED_EXTENSION_FOLDER_NAME)
+        let (new_key, new_id) = generate_extension_manifest_key()?;
+        let new_password = generate_secure_password()?;
+        (new_key, new_id, new_password, false)
     };
+
+    patch_exported_manifest(&staging_root, &manifest_key)?;
+    patch_exported_default_password(&staging_root, &connector_password)?;
+    patch_exported_default_port(&staging_root, current_settings.connector_port)?;
 
     let backup_dir = if export_dir.exists() {
         let backup_name = format!(
@@ -445,7 +501,13 @@ pub fn connector_export_bundled_extension(
         return Err(err);
     }
 
-    if let Err(err) = apply_exported_extension_pairing(&app, &extension_id, &generated_password) {
+    if let Err(err) = apply_exported_extension_pairing(
+        &app,
+        &export_dir,
+        &extension_id,
+        &manifest_key,
+        &connector_password,
+    ) {
         let _ = fs::remove_dir_all(&staging_root);
         if let Err(restore_err) = restore_exported_extension_backup(&export_dir, backup_dir.as_deref())
         {
@@ -466,7 +528,6 @@ pub fn connector_export_bundled_extension(
 
     let _ = fs::remove_dir_all(&staging_root);
 
-    let export_dir_string = export_dir.to_string_lossy().to_string();
     if let Err(error) = app
         .opener()
         .open_path(export_dir_string.clone(), None::<String>)
@@ -482,6 +543,8 @@ pub fn connector_export_bundled_extension(
         export_path: export_dir_string,
         extension_id: extension_id.clone(),
         configured_origin: format!("{}{}", CHROME_EXTENSION_ORIGIN_PREFIX, extension_id),
-        generated_password,
+        generated_password: connector_password,
+        reused_existing_id,
+        replaced_existing_export,
     })
 }
