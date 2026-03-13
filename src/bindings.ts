@@ -2420,9 +2420,9 @@ async connectorCancelMessage(messageId: string) : Promise<Result<boolean, string
 /**
  * Export the bundled browser connector extension zip into a folder selected by the user.
  */
-async connectorExportBundledExtension(destinationDir: string) : Promise<Result<BundledExtensionExportResult, string>> {
+async connectorExportBundledExtension(destinationDir: string, generateNewId: boolean) : Promise<Result<BundledExtensionExportResult, string>> {
     try {
-    return { status: "ok", data: await TAURI_INVOKE("connector_export_bundled_extension", { destinationDir }) };
+    return { status: "ok", data: await TAURI_INVOKE("connector_export_bundled_extension", { destinationDir, generateNewId }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
@@ -2788,6 +2788,18 @@ connector_pending_password?: string | null;
  */
 connector_pending_password_issued_at_ms?: number; 
 /**
+ * Last extension export directory created by AivoRelay for the browser connector.
+ */
+connector_last_export_dir?: string; 
+/**
+ * Last exported extension identity used by AivoRelay for browser connector packaging.
+ */
+connector_last_export_extension_id?: string; 
+/**
+ * Last exported manifest key used for connector identity continuity across re-extracts.
+ */
+connector_last_export_manifest_key?: string; 
+/**
  * Per-model transcription prompts (model_id -> prompt text)
  * For Whisper: context/terms prompt. For Parakeet: comma-separated boost words.
  */
@@ -3035,7 +3047,7 @@ saved_window_y?: number }
 export type AudioDevice = { index: string; name: string; is_default: boolean }
 export type AutoSubmitKey = "enter" | "ctrl_enter" | "cmd_enter"
 export type BindingResponse = { success: boolean; binding: ShortcutBinding | null; error: string | null }
-export type BundledExtensionExportResult = { exportPath: string; extensionId: string; configuredOrigin: string; generatedPassword: string }
+export type BundledExtensionExportResult = { exportPath: string; extensionId: string; configuredOrigin: string; generatedPassword: string; reusedExistingId: boolean; replacedExistingExport: boolean }
 export type ClipboardHandling = "dont_modify" | "copy_to_clipboard" | 
 /**
  * Experimental: Try to restore all clipboard formats including images, HTML, files (Windows-only)

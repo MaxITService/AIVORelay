@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useState } from "react";
 import { useTranslation, Trans } from "react-i18next";
 import { Globe, Info, ExternalLink, Eye, EyeOff, Copy, AlertTriangle, Download, RefreshCw } from "lucide-react";
 import { open } from "@tauri-apps/plugin-dialog";
+import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { downloadDir } from "@tauri-apps/api/path";
 import { TellMeMore } from "../../ui/TellMeMore";
@@ -32,6 +33,17 @@ const DEFAULT_CONNECTOR_PASSWORD = "befc3aa14cc05e56011865df1c49d16ef9100a53d9bf
 const EXTENSION_REPO_URL = "https://github.com/MaxITService/AIVORelay-relay";
 const EXTENSION_DOWNLOAD_URL = "https://github.com/MaxITService/AIVORelay-relay/archive/refs/heads/main.zip";
 const EXPORT_PATH_STORAGE_KEY = "aivorelay.connectorExportPath";
+const EXPORTED_EXTENSION_FOLDER_NAME = "AivoRelay Connector";
+const COMPATIBLE_CONNECTOR_VERSION = "1.0.4";
+
+type ExportBundledExtensionResult = {
+  exportPath: string;
+  extensionId: string;
+  configuredOrigin: string;
+  generatedPassword: string;
+  reusedExistingId: boolean;
+  replacedExistingExport: boolean;
+};
 
 const isAllowedConnectorPassword = (value: string) => {
   const trimmed = value.trim();
@@ -49,6 +61,25 @@ const getDefaultScreenshotFolder = () => {
   return "%USERPROFILE%\\Documents\\ShareX\\Screenshots";
 };
 
+const normalizeWindowsPath = (value: string) =>
+  value.trim().replace(/\//g, "\\").replace(/[\\]+$/, "").toLowerCase();
+
+const resolveConnectorExportDir = (value: string) => {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return "";
+  }
+
+  const normalized = trimmed.replace(/\//g, "\\").replace(/[\\]+$/, "");
+  const pathParts = normalized.split("\\");
+  const lastSegment = pathParts[pathParts.length - 1]?.toLowerCase();
+  if (lastSegment === EXPORTED_EXTENSION_FOLDER_NAME.toLowerCase()) {
+    return normalized;
+  }
+
+  return `${normalized}\\${EXPORTED_EXTENSION_FOLDER_NAME}`;
+};
+
 export const BrowserConnectorSettings: React.FC = () => {
   const { t } = useTranslation();
   const { settings, updateSetting, isUpdating, refreshSettings } = useSettings();
@@ -63,6 +94,7 @@ export const BrowserConnectorSettings: React.FC = () => {
   const [showCopiedTooltip, setShowCopiedTooltip] = useState(false);
   const [isExportingExtension, setIsExportingExtension] = useState(false);
   const [exportPathInput, setExportPathInput] = useState("");
+  const [generateNewExtensionId, setGenerateNewExtensionId] = useState(false);
   const [extensionExportStatus, setExtensionExportStatus] = useState<{
     type: "success" | "error";
     message: string;
@@ -344,21 +376,39 @@ export const BrowserConnectorSettings: React.FC = () => {
     setIsExportingExtension(true);
 
     try {
-      const result = await commands.connectorExportBundledExtension(targetDirectory);
-      if (result.status === "error") {
-        setExtensionExportStatus({ type: "error", message: result.error });
-        return;
-      }
+      const targetExportDir = resolveConnectorExportDir(targetDirectory);
+      const hasKnownPreviousExtractionForTarget =
+        !!targetExportDir &&
+        !!lastExportDir &&
+        normalizeWindowsPath(lastExportDir) === normalizeWindowsPath(targetExportDir);
+      const effectiveFreshStartForExport = hasKnownPreviousExtractionForTarget ? generateNewExtensionId : true;
+
+      const result = await invoke<ExportBundledExtensionResult>("connector_export_bundled_extension", {
+        destinationDir: targetDirectory,
+        generateNewId: effectiveFreshStartForExport,
+      });
 
       await refreshSettings();
       await fetchConnectorStatus();
 
+      const successMessage = effectiveFreshStartForExport
+        ? t("settings.browserConnector.tellMeMore.getExtension.actions.exportSuccessWithNewId", {
+            path: result.exportPath,
+            origin: result.configuredOrigin,
+          })
+        : result.reusedExistingId
+          ? t("settings.browserConnector.tellMeMore.getExtension.actions.exportSuccessReusedId", {
+              path: result.exportPath,
+              origin: result.configuredOrigin,
+            })
+          : t("settings.browserConnector.tellMeMore.getExtension.actions.exportSuccess", {
+              path: result.exportPath,
+              origin: result.configuredOrigin,
+            });
+
       setExtensionExportStatus({
         type: "success",
-        message: t("settings.browserConnector.tellMeMore.getExtension.actions.exportSuccess", {
-          path: result.data.exportPath,
-          origin: result.data.configuredOrigin,
-        }),
+        message: successMessage,
       });
     } catch (error) {
       setExtensionExportStatus({
@@ -416,6 +466,16 @@ export const BrowserConnectorSettings: React.FC = () => {
   const isConnectorOnline = connectorStatus?.server_running === true && connectorStatus.status === "online";
   const showPasswordRotationWakeHint =
     isRotatingPassword || passwordRotationStatus?.type === "error";
+  const lastExportDir = String((settings as any)?.connector_last_export_dir ?? "").trim();
+  const resolvedExportDir = resolveConnectorExportDir(exportPathInput);
+  const hasKnownPreviousExtractionForPath =
+    !!resolvedExportDir &&
+    !!lastExportDir &&
+    normalizeWindowsPath(lastExportDir) === normalizeWindowsPath(resolvedExportDir);
+  const effectiveFreshStart = hasKnownPreviousExtractionForPath ? generateNewExtensionId : true;
+  const freshStartHintKey = hasKnownPreviousExtractionForPath
+    ? "settings.browserConnector.tellMeMore.getExtension.actions.generateNewIdHint"
+    : "settings.browserConnector.tellMeMore.getExtension.actions.generateNewIdForcedHint";
 
   const handleAutoOpenEnabledChange = (enabled: boolean) => {
     void updateSetting("connector_auto_open_enabled", enabled);
@@ -546,6 +606,9 @@ export const BrowserConnectorSettings: React.FC = () => {
                 }}
               />
             </p>
+            <p className="rounded-md border border-sky-400/20 bg-sky-500/10 px-3 py-2 text-sky-100/95">
+              {t("settings.browserConnector.help.feature0")}
+            </p>
             <ul className="list-disc list-inside space-y-1 ml-1">
               <li>{t("settings.browserConnector.help.feature1")}</li>
               <li>{t("settings.browserConnector.help.feature2")}</li>
@@ -563,13 +626,18 @@ export const BrowserConnectorSettings: React.FC = () => {
 
       {/* Installation Instructions - Collapsible */}
       <TellMeMore title={t("settings.browserConnector.tellMeMore.title")}>
-        <div className="space-y-4">
+          <div className="space-y-4">
           <p>
             <strong>{t("settings.browserConnector.tellMeMore.headline")}</strong>
           </p>
           <p className="opacity-90">
             {t("settings.browserConnector.tellMeMore.intro")}
           </p>
+          <div className="rounded-md border border-sky-400/25 bg-sky-500/10 px-3 py-2 text-sm text-sky-100">
+            {t("settings.browserConnector.tellMeMore.compatibility", {
+              version: COMPATIBLE_CONNECTOR_VERSION,
+            })}
+          </div>
 
           {/* Step 1: Get the Extension */}
           <div className="space-y-2">
@@ -620,6 +688,33 @@ export const BrowserConnectorSettings: React.FC = () => {
                 <p className="text-xs text-text/55">
                   {t("settings.browserConnector.tellMeMore.getExtension.actions.pathHint")}
                 </p>
+                <p className="text-xs text-amber-200/80">
+                  {t("settings.browserConnector.tellMeMore.getExtension.actions.reloadHint")}
+                </p>
+                <p className="text-xs text-text/55">
+                  {t("settings.browserConnector.tellMeMore.getExtension.actions.identityHint")}
+                </p>
+                <label
+                  className={`flex items-start gap-2 rounded-md border border-white/10 bg-mid-gray/10 px-3 py-2 text-xs text-text/80 ${
+                    hasKnownPreviousExtractionForPath ? "" : "opacity-75"
+                  }`}
+                >
+                  <input
+                    type="checkbox"
+                    checked={effectiveFreshStart}
+                    disabled={!hasKnownPreviousExtractionForPath}
+                    onChange={(event) => setGenerateNewExtensionId(event.target.checked)}
+                    className="mt-0.5"
+                  />
+                  <span>
+                    <span className="block font-medium text-text">
+                      {t("settings.browserConnector.tellMeMore.getExtension.actions.generateNewIdLabel")}
+                    </span>
+                    <span className="block mt-1 text-text/60">
+                      {t(freshStartHintKey)}
+                    </span>
+                  </span>
+                </label>
               </div>
               <div className="flex flex-wrap gap-3">
               <button

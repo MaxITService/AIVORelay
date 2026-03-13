@@ -3870,6 +3870,8 @@ pub async fn rotate_connector_password_now(
     }
 
     let mut settings = settings::get_settings(&app);
+    let _ = crate::managers::connector::active_pending_password(&app, &settings);
+    settings = settings::get_settings(&app);
     if settings.connector_pending_password.is_some() {
         return Err(
             "A connector password rotation is already pending. Wait for the extension to acknowledge it first."
@@ -3913,17 +3915,8 @@ pub async fn rotate_connector_password_now(
         return Ok(());
     }
 
-    if current.connector_pending_password.as_deref() == Some(new_password.as_str()) {
-        let mut rollback_settings = current.clone();
-        rollback_settings.connector_pending_password = None;
-        rollback_settings.connector_pending_password_issued_at_ms = 0;
-        settings::write_settings(&app, rollback_settings.clone());
-        connector_manager.refresh_crypto_state(&rollback_settings.connector_password, None);
-        connector_manager.clear_sessions();
-    }
-
     Err(
-        "Password rotation was not confirmed by the connected extension in time. The connector password was left unchanged."
+        "Password rotation is still pending. The app will keep accepting both the current and pending connector passwords until the browser extension acknowledges the change."
             .to_string(),
     )
 }
