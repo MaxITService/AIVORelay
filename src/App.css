@@ -72,6 +72,14 @@
   /* Apply colors */
   color: var(--color-text);
   background-color: var(--color-background);
+
+  /* Scrollbar */
+  --scrollbar-thumb: color-mix(in srgb, var(--color-text), transparent 82%);
+  --scrollbar-thumb-hover: color-mix(
+    in srgb,
+    var(--color-accent-primary) 35%,
+    var(--color-text) 65%
+  );
 }
 
 /* ============================================
@@ -314,21 +322,26 @@
    ============================================ */
 
 ::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
+  width: 14px;
+  height: 14px;
 }
 
 ::-webkit-scrollbar-track {
-  background: var(--color-background);
+  background: transparent;
 }
 
 ::-webkit-scrollbar-thumb {
-  background: var(--color-border-accent);
-  border-radius: 4px;
+  background-color: var(--scrollbar-thumb);
+  border-radius: 20px;
+  border: 3px solid transparent;
+  border-right-width: 4px;
+  border-left-width: 3px;
+  background-clip: content-box;
+  min-height: 32px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #5a5a5a;
+  background-color: var(--scrollbar-thumb-hover);
 }
 
 /* ============================================
