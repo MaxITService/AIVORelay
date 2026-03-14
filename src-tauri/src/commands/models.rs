@@ -84,11 +84,17 @@ pub fn switch_active_model(app: &AppHandle, model_id: &str) -> Result<(), String
     let unload_timeout = settings.model_unload_timeout;
     let previous_model_id = settings.selected_model.clone();
 
-    let mut updated_settings = settings;
-    updated_settings.selected_model = model_id.to_string();
-    write_settings(app, updated_settings);
-
     if unload_timeout == ModelUnloadTimeout::Immediately {
+        if transcription_manager.is_model_loaded() {
+            transcription_manager
+                .unload_model()
+                .map_err(|e| format!("Failed to unload previous model: {}", e))?;
+        }
+
+        let mut updated_settings = settings;
+        updated_settings.selected_model = model_id.to_string();
+        write_settings(app, updated_settings);
+
         let _ = app.emit(
             "model-state-changed",
             ModelStateEvent {
@@ -101,6 +107,10 @@ pub fn switch_active_model(app: &AppHandle, model_id: &str) -> Result<(), String
         tray::refresh_tray_menu(app, None);
         return Ok(());
     }
+
+    let mut updated_settings = settings;
+    updated_settings.selected_model = model_id.to_string();
+    write_settings(app, updated_settings);
 
     if let Err(err) = transcription_manager.load_model(model_id) {
         let mut reverted_settings = get_settings(app);

@@ -83,6 +83,11 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({
             setModelStatus("loading");
             setModelError(null);
             break;
+          case "selection_changed":
+            setModelStatus("unloaded");
+            setModelError(null);
+            if (model_id) setCurrentModelId(model_id);
+            break;
           case "loading_completed":
             setModelStatus("ready");
             setModelError(null);
