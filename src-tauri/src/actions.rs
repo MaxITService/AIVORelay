@@ -916,6 +916,7 @@ fn start_recording_with_feedback(app: &AppHandle, binding_id: &str) -> bool {
 
         if let Some(err) = recording_error.as_ref() {
             show_recording_start_error_overlay(app, err);
+            let _ = app.emit("recording-error", err.to_string());
         } else {
             crate::plus_overlay_state::show_mic_error_overlay(app);
         }
