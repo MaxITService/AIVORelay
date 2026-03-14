@@ -12,6 +12,7 @@ use crate::managers::audio::AudioRecordingManager;
 use crate::managers::key_listener::{KeyListenerState, ShortcutEvent};
 use crate::managers::remote_stt::RemoteSttManager;
 use crate::settings::ShortcutBinding;
+use crate::shortcut_handy_keys;
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 use crate::settings::APPLE_INTELLIGENCE_DEFAULT_MODEL_ID;
 use crate::settings::{
@@ -292,6 +293,11 @@ fn is_binding_currently_registered(app: &AppHandle, binding: &ShortcutBinding) -
         }
     }
 
+    #[cfg(target_os = "windows")]
+    if shortcut_handy_keys::is_registered(app, &binding.id) {
+        return true;
+    }
+
     if binding.current_binding.trim().is_empty() {
         return false;
     }
@@ -349,17 +355,53 @@ pub fn init_shortcuts(app: &AppHandle) {
         // even when the main shortcut engine is Tauri.
         setup_rdev_shortcut_handler(app);
 
-        if user_settings.shortcut_engine == ShortcutEngine::Rdev {
-            // Start the rdev key listener
-            start_rdev_listener(app);
-            info!("Using rdev shortcut engine (processes all keystrokes)");
-        } else if user_settings.text_replacement_decapitalize_after_edit_key_enabled {
-            start_rdev_listener(app);
-            info!(
-                "Using Tauri shortcut engine with rdev monitor key for text replacement decapitalize trigger"
-            );
-        } else {
-            info!("Using Tauri shortcut engine (high performance, limited key support)");
+        let mut effective_engine = user_settings.shortcut_engine;
+
+        match user_settings.shortcut_engine {
+            ShortcutEngine::Rdev => {
+                start_rdev_listener(app);
+                info!("Using rdev shortcut engine (processes all keystrokes)");
+            }
+            ShortcutEngine::HandyKeys => {
+                if let Err(err) = shortcut_handy_keys::initialize(app) {
+                    error!("Failed to initialize HandyKeys backend: {}", err);
+                    warn!("Falling back to Tauri shortcut engine");
+
+                    let mut repaired_settings = user_settings.clone();
+                    repaired_settings.shortcut_engine = ShortcutEngine::Tauri;
+                    settings::write_settings(app, repaired_settings);
+
+                    effective_engine = ShortcutEngine::Tauri;
+                    if let Some(active_engine_state) = app.try_state::<ActiveShortcutEngine>() {
+                        if let Ok(mut engine) = active_engine_state.lock() {
+                            *engine = ShortcutEngine::Tauri;
+                        }
+                    }
+                }
+
+                if user_settings.text_replacement_decapitalize_after_edit_key_enabled {
+                    start_rdev_listener(app);
+                    info!(
+                        "Using HandyKeys shortcut engine with rdev monitor key for text replacement decapitalize trigger"
+                    );
+                } else if effective_engine == ShortcutEngine::HandyKeys {
+                    info!("Using HandyKeys shortcut engine");
+                } else {
+                    info!(
+                        "Using Tauri shortcut engine (high performance, limited key support)"
+                    );
+                }
+            }
+            ShortcutEngine::Tauri => {
+                if user_settings.text_replacement_decapitalize_after_edit_key_enabled {
+                    start_rdev_listener(app);
+                    info!(
+                        "Using Tauri shortcut engine with rdev monitor key for text replacement decapitalize trigger"
+                    );
+                } else {
+                    info!("Using Tauri shortcut engine (high performance, limited key support)");
+                }
+            }
         }
     }
 
@@ -446,13 +488,18 @@ fn setup_rdev_shortcut_handler(app: &AppHandle) {
 
 /// Handle a shortcut event from rdev (mirrors the tauri-plugin-global-shortcut handler logic)
 fn handle_rdev_shortcut_event(app: &AppHandle, event: ShortcutEvent) {
-    let binding_id = event.id;
-    let shortcut_string = event.binding;
-    let pressed = event.pressed;
+    handle_shortcut_event(app, &event.id, &event.binding, event.pressed);
+}
 
+pub(crate) fn handle_shortcut_event(
+    app: &AppHandle,
+    binding_id: &str,
+    shortcut_string: &str,
+    pressed: bool,
+) {
     let settings = get_settings(app);
 
-    if is_decapitalize_monitor_shortcut_id(&binding_id) {
+    if is_decapitalize_monitor_shortcut_id(binding_id) {
         if pressed && settings.text_replacement_decapitalize_after_edit_key_enabled {
             crate::text_replacement_decapitalize::mark_edit_key_pressed(
                 clamp_decapitalize_timeout_ms(settings.text_replacement_decapitalize_timeout_ms),
@@ -462,8 +509,7 @@ fn handle_rdev_shortcut_event(app: &AppHandle, event: ShortcutEvent) {
         return;
     }
 
-    // Look up action - for profile-based bindings, fall back to "transcribe" action
-    let action = ACTION_MAP.get(&binding_id).or_else(|| {
+    let action = ACTION_MAP.get(binding_id).or_else(|| {
         if binding_id.starts_with("transcribe_") {
             ACTION_MAP.get("transcribe")
         } else {
@@ -473,28 +519,25 @@ fn handle_rdev_shortcut_event(app: &AppHandle, event: ShortcutEvent) {
 
     let Some(action) = action else {
         warn!(
-            "No action defined for rdev shortcut ID '{}'. Binding: '{}'",
+            "No action defined for shortcut ID '{}'. Binding: '{}'",
             binding_id, shortcut_string
         );
         return;
     };
 
-    // Handle cancel action
     if binding_id == "cancel" {
         let audio_manager = app.state::<Arc<AudioRecordingManager>>();
         if audio_manager.is_recording() && pressed {
-            action.start(app, &binding_id, &shortcut_string);
+            action.start(app, binding_id, shortcut_string);
         }
         return;
     }
 
-    // Skip actions that are feature-disabled.
-    if !is_binding_enabled_for_settings(&settings, &binding_id) {
+    if !is_binding_enabled_for_settings(&settings, binding_id) {
         return;
     }
 
-    // Determine push-to-talk setting
-    let use_push_to_talk = match binding_id.as_str() {
+    let use_push_to_talk = match binding_id {
         "send_to_extension" => settings.send_to_extension_push_to_talk,
         "send_to_extension_with_selection" => {
             settings.send_to_extension_with_selection_push_to_talk
@@ -519,7 +562,6 @@ fn handle_rdev_shortcut_event(app: &AppHandle, event: ShortcutEvent) {
         _ => settings.push_to_talk,
     };
 
-    // Handle instant actions
     if action.is_instant() {
         let should_fire = if action.instant_fire_on_release() {
             !pressed
@@ -528,41 +570,38 @@ fn handle_rdev_shortcut_event(app: &AppHandle, event: ShortcutEvent) {
         };
 
         if should_fire {
-            action.start(app, &binding_id, &shortcut_string);
+            action.start(app, binding_id, shortcut_string);
         }
         return;
     }
 
     if use_push_to_talk {
         if pressed {
-            action.start(app, &binding_id, &shortcut_string);
+            action.start(app, binding_id, shortcut_string);
         } else {
-            action.stop(app, &binding_id, &shortcut_string);
+            action.stop(app, binding_id, shortcut_string);
         }
-    } else {
-        // Toggle mode
-        if pressed {
-            let should_start: bool;
-            {
-                let toggle_state_manager = app.state::<ManagedToggleState>();
-                let mut states = toggle_state_manager
-                    .lock()
-                    .expect("Failed to lock toggle state manager");
+    } else if pressed {
+        let should_start: bool;
+        {
+            let toggle_state_manager = app.state::<ManagedToggleState>();
+            let mut states = toggle_state_manager
+                .lock()
+                .expect("Failed to lock toggle state manager");
 
-                let is_currently_active = states
-                    .active_toggles
-                    .entry(binding_id.clone())
-                    .or_insert(false);
+            let is_currently_active = states
+                .active_toggles
+                .entry(binding_id.to_string())
+                .or_insert(false);
 
-                should_start = !*is_currently_active;
-                *is_currently_active = should_start;
-            }
+            should_start = !*is_currently_active;
+            *is_currently_active = should_start;
+        }
 
-            if should_start {
-                action.start(app, &binding_id, &shortcut_string);
-            } else {
-                action.stop(app, &binding_id, &shortcut_string);
-            }
+        if should_start {
+            action.start(app, binding_id, shortcut_string);
+        } else {
+            action.stop(app, binding_id, shortcut_string);
         }
     }
 }
@@ -613,7 +652,7 @@ pub fn change_binding(
 
     // 1. Validate the new shortcut BEFORE unregistering the old one
     //    This prevents losing the shortcut if the new one is invalid
-    if let Err(e) = validate_shortcut_string(&binding) {
+    if let Err(e) = validate_shortcut_string(&app, &binding) {
         warn!("change_binding validation error: {}", e);
         return Err(e);
     }
@@ -1173,7 +1212,7 @@ pub fn change_soniox_live_preview_delete_last_word_hotkey_setting(
     hotkey: String,
 ) -> Result<(), String> {
     let normalized_hotkey = normalize_soniox_live_preview_hotkey(&hotkey);
-    validate_shortcut_string(&normalized_hotkey)?;
+    validate_shortcut_string(&app, &normalized_hotkey)?;
 
     let mut settings = settings::get_settings(&app);
     let binding_id = settings::PREVIEW_DELETE_LAST_WORD_BINDING_ID.to_string();
@@ -4204,23 +4243,35 @@ pub fn get_tauri_incompatible_shortcuts(app: AppHandle) -> Vec<ShortcutBinding> 
 
 /// Validate that a shortcut has valid structure.
 /// Empty string is allowed and means "unbound".
-/// On Windows, modifier-only shortcuts (like Ctrl+Alt) are allowed via rdev.
+/// On Windows, validation follows the configured shortcut engine.
 /// On other platforms, tauri-plugin-global-shortcut requires a main key.
-fn validate_shortcut_string(raw: &str) -> Result<(), String> {
+fn validate_shortcut_string(app: &AppHandle, raw: &str) -> Result<(), String> {
     if raw.trim().is_empty() {
         return Ok(());
     }
 
-    // On Windows, we use rdev which supports modifier-only shortcuts
     #[cfg(target_os = "windows")]
     {
-        // Just check it's not empty - rdev can handle modifier-only
-        Ok(())
+        let normalized = normalize_shortcut_binding(raw);
+        let settings = get_settings(app);
+
+        match settings.shortcut_engine {
+            ShortcutEngine::Tauri => {
+                if is_shortcut_tauri_compatible(&normalized) {
+                    Ok(())
+                } else {
+                    Err("Shortcut is not compatible with the Tauri engine. Switch to HandyKeys or rdev for lock keys or modifier-only shortcuts.".to_string())
+                }
+            }
+            ShortcutEngine::HandyKeys => shortcut_handy_keys::validate_shortcut(&normalized),
+            ShortcutEngine::Rdev => crate::managers::key_listener::parse_shortcut_string(&normalized)
+                .map(|_| ()),
+        }
     }
 
-    // On other platforms, require a main key for tauri-plugin compatibility
     #[cfg(not(target_os = "windows"))]
     {
+        let _ = app;
         let normalized = normalize_shortcut_binding(raw);
         let modifiers = [
             "ctrl", "control", "shift", "alt", "option", "meta", "command", "cmd", "super", "win",
@@ -4322,7 +4373,7 @@ pub fn register_shortcut(app: &AppHandle, binding: ShortcutBinding) -> Result<()
                 if !is_shortcut_tauri_compatible(&binding.current_binding) {
                     // Return error - incompatible shortcuts are not allowed in Tauri mode
                     let error_msg = format!(
-                        "Shortcut '{}' is not compatible with Tauri engine. To use CapsLock, NumLock, ScrollLock, Pause, or modifier-only shortcuts, switch to the rdev engine in Settings → Debug → Experimental Features.",
+                        "Shortcut '{}' is not compatible with Tauri engine. To use lock keys or modifier-only shortcuts, switch to the HandyKeys or rdev engine in Settings → Debug → Experimental Features.",
                         binding.current_binding
                     );
                     warn!("{}", error_msg);
@@ -4330,6 +4381,7 @@ pub fn register_shortcut(app: &AppHandle, binding: ShortcutBinding) -> Result<()
                 }
                 register_shortcut_tauri(app, binding)
             }
+            ShortcutEngine::HandyKeys => shortcut_handy_keys::register_shortcut(app, binding),
             ShortcutEngine::Rdev => register_shortcut_via_rdev(app, binding),
         }
     }
@@ -4565,6 +4617,11 @@ pub fn unregister_shortcut(app: &AppHandle, binding: ShortcutBinding) -> Result<
             // Unregister from rdev
             return unregister_shortcut_via_rdev(app, &binding.id, &mut rdev_shortcuts);
         }
+    }
+
+    #[cfg(target_os = "windows")]
+    if shortcut_handy_keys::is_registered(app, &binding.id) {
+        return shortcut_handy_keys::unregister_shortcut(app, binding);
     }
 
     // If not found in rdev set, try tauri-plugin-global-shortcut

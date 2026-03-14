@@ -349,14 +349,14 @@ export const TextReplacementSettings: React.FC = () => {
                         )}
                       </p>
                       <p className="text-red-100/80">
-                        {configuredShortcutEngine === "tauri"
+                        {configuredShortcutEngine === "rdev"
                           ? t(
-                              "textReplacement.decapitalizeAfterEditRdevWarningTauriBody",
-                              "Your main Shortcut Engine remains Tauri, but enabling this feature starts an extra rdev listener. Turn this feature off to stop this extra rdev usage."
-                            )
-                          : t(
                               "textReplacement.decapitalizeAfterEditRdevWarningRdevBody",
                               "Your main Shortcut Engine is already rdev, so turning this feature off disables only this decapitalize monitor."
+                            )
+                          : t(
+                              "textReplacement.decapitalizeAfterEditRdevWarningNonRdevBody",
+                              "Your main Shortcut Engine is not rdev, but enabling this feature starts an extra rdev listener alongside it. Turn this feature off to stop this extra rdev usage."
                             )}
                       </p>
                       <div className="flex flex-wrap items-center gap-x-3 gap-y-2">

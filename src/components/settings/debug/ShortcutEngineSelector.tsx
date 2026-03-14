@@ -69,6 +69,17 @@ export const ShortcutEngineSelector: React.FC = () => {
     setIncompatibleShortcuts(shortcuts);
   };
 
+  const getEngineLabel = (engine: string) => {
+    switch (engine) {
+      case "rdev":
+        return t("settings.debug.shortcutEngine.options.rdev");
+      case "handy_keys":
+        return t("settings.debug.shortcutEngine.options.handyKeys");
+      default:
+        return t("settings.debug.shortcutEngine.options.tauri");
+    }
+  };
+
   const handleEngineChange = async (newEngine: string) => {
     if (newEngine === configuredEngine) return;
 
@@ -138,9 +149,10 @@ export const ShortcutEngineSelector: React.FC = () => {
         title={t("settings.debug.shortcutEngine.title")}
         description={
           <span className="text-gray-400">
-            Choose the keyboard shortcut detection method. rdev supports all keys but uses more CPU:{" "}
-            <span className="text-red-400 font-medium">read warning in "tell me more" below</span>.{" "}
-            Tauri is faster but has limited key support.
+            {t("settings.debug.shortcutEngine.description")}{" "}
+            <span className="text-red-400 font-medium">
+              {t("settings.debug.shortcutEngine.descriptionSuffix")}
+            </span>
           </span>
         }
         descriptionMode="inline"
@@ -154,6 +166,7 @@ export const ShortcutEngineSelector: React.FC = () => {
             className="bg-[#2b2b2b] border border-[#3c3c3c] rounded-lg px-3 py-2 text-sm min-w-[160px] focus:outline-none focus:ring-2 focus:ring-[#9b5de5]/40 disabled:opacity-50"
           >
             <option value="rdev">{t("settings.debug.shortcutEngine.options.rdev")}</option>
+            <option value="handy_keys">{t("settings.debug.shortcutEngine.options.handyKeys")}</option>
             <option value="tauri">{t("settings.debug.shortcutEngine.options.tauri")}</option>
           </select>
         </div>
@@ -166,10 +179,7 @@ export const ShortcutEngineSelector: React.FC = () => {
           <span>
             {t("settings.debug.shortcutEngine.activeEngine")}: {" "}
             <span className="font-semibold text-gray-200">
-              {activeEngine === "rdev" 
-                ? t("settings.debug.shortcutEngine.options.rdev")
-                : t("settings.debug.shortcutEngine.options.tauri")
-              }
+              {getEngineLabel(activeEngine)}
             </span>
           </span>
         </div>
@@ -283,7 +293,7 @@ export const ShortcutEngineSelector: React.FC = () => {
               {t("settings.debug.shortcutEngine.tellMeMore.intro")}
             </p>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
               {/* Native Engine Column */}
               <div className="space-y-4">
                 <div className="flex items-center gap-2 pb-2 border-b border-white/5">
@@ -310,6 +320,44 @@ export const ShortcutEngineSelector: React.FC = () => {
                       <li>{t("settings.debug.shortcutEngine.tellMeMore.tauri.cons.modifierOnly")}</li>
                       <li>{t("settings.debug.shortcutEngine.tellMeMore.tauri.cons.lockKeys")}</li>
                       <li>{t("settings.debug.shortcutEngine.tellMeMore.tauri.cons.conflicts")}</li>
+                    </ul>
+                  </div>
+                </div>
+              </div>
+
+              {/* HandyKeys Engine Column */}
+              <div className="space-y-4">
+                <div className="flex items-center gap-2 pb-2 border-b border-white/5">
+                  <CheckCircle className="w-5 h-5 text-sky-400" />
+                  <h4 className="font-bold text-base text-sky-400">
+                    {t("settings.debug.shortcutEngine.tellMeMore.handyKeys.title")}
+                  </h4>
+                </div>
+
+                <p
+                  className="text-sm text-gray-300"
+                  dangerouslySetInnerHTML={{
+                    __html: t("settings.debug.shortcutEngine.tellMeMore.handyKeys.description"),
+                  }}
+                />
+
+                <div className="space-y-3">
+                  <div className="bg-green-500/5 border border-green-500/10 p-3 rounded-lg shadow-sm">
+                    <p className="text-xs font-bold text-green-400 uppercase tracking-wider mb-2">
+                      {t("settings.debug.shortcutEngine.tellMeMore.handyKeys.pros.title")}
+                    </p>
+                    <ul className="text-xs text-gray-400 space-y-1.5 list-disc list-inside">
+                      <li>{t("settings.debug.shortcutEngine.tellMeMore.handyKeys.pros.compatibility")}</li>
+                      <li>{t("settings.debug.shortcutEngine.tellMeMore.handyKeys.pros.recording")}</li>
+                    </ul>
+                  </div>
+                  <div className="bg-orange-500/5 border border-orange-500/10 p-3 rounded-lg shadow-sm font-light">
+                    <p className="text-xs font-bold text-orange-400 uppercase tracking-wider mb-2">
+                      {t("settings.debug.shortcutEngine.tellMeMore.handyKeys.cons.title")}
+                    </p>
+                    <ul className="text-xs text-gray-400 space-y-1.5 list-disc list-inside">
+                      <li>{t("settings.debug.shortcutEngine.tellMeMore.handyKeys.cons.restart")}</li>
+                      <li>{t("settings.debug.shortcutEngine.tellMeMore.handyKeys.cons.scope")}</li>
                     </ul>
                   </div>
                 </div>

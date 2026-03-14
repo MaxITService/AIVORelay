@@ -75,7 +75,7 @@ tar = "0.4.44"
 flate2 = "1.0"
 transcribe-rs = { version = "0.2.8", features = ["whisper", "parakeet", "moonshine", "sense_voice", "gigaam"] }
 whisper-rs = { version = "0.13.2" }
-handy-keys = "0.2.2"
+handy-keys = "0.2.4"
 ferrous-opencc = "0.2.3"
 keyring = "2.3.3"
 axum = "0.8"
