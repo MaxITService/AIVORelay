@@ -11,19 +11,7 @@
   },
   "app": {
     "macOSPrivateApi": true,
-    "windows": [
-      {
-        "label": "main",
-        "title": "AivoRelay",
-        "width": 680,
-        "height": 570,
-        "minWidth": 680,
-        "minHeight": 570,
-        "resizable": true,
-        "maximizable": true,
-        "visible": false
-      }
-    ],
+    "windows": [],
     "security": {
       "csp": {
         "default-src": ["'self'"],
@@ -72,7 +60,9 @@
         "scope": {
           "allow": [
             "$APPDATA/recordings/**",
-            "$APPCACHE/transcribe-file-preview/**"
+            "$APPCACHE/transcribe-file-preview/**",
+            "**/Data/recordings/**",
+            "**/Data/cache/transcribe-file-preview/**"
           ],
           "requireLiteralLeadingDot": false
         }

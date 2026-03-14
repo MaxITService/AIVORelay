@@ -30,9 +30,7 @@ pub fn cancel_operation(app: AppHandle) {
 #[tauri::command]
 #[specta::specta]
 pub fn get_app_dir_path(app: AppHandle) -> Result<String, String> {
-    let app_data_dir = app
-        .path()
-        .app_data_dir()
+    let app_data_dir = crate::portable::app_data_dir(&app)
         .map_err(|e| format!("Failed to get app data directory: {}", e))?;
 
     Ok(app_data_dir.to_string_lossy().to_string())
@@ -53,9 +51,7 @@ pub fn get_default_settings() -> Result<AppSettings, String> {
 #[tauri::command]
 #[specta::specta]
 pub fn get_log_dir_path(app: AppHandle) -> Result<String, String> {
-    let log_dir = app
-        .path()
-        .app_log_dir()
+    let log_dir = crate::portable::app_log_dir(&app)
         .map_err(|e| format!("Failed to get log directory: {}", e))?;
 
     Ok(log_dir.to_string_lossy().to_string())
@@ -82,9 +78,7 @@ pub fn set_log_level(app: AppHandle, level: LogLevel) -> Result<(), String> {
 #[specta::specta]
 #[tauri::command]
 pub fn open_recordings_folder(app: AppHandle) -> Result<(), String> {
-    let app_data_dir = app
-        .path()
-        .app_data_dir()
+    let app_data_dir = crate::portable::app_data_dir(&app)
         .map_err(|e| format!("Failed to get app data directory: {}", e))?;
 
     let recordings_dir = app_data_dir.join("recordings");
@@ -100,9 +94,7 @@ pub fn open_recordings_folder(app: AppHandle) -> Result<(), String> {
 #[specta::specta]
 #[tauri::command]
 pub fn open_log_dir(app: AppHandle) -> Result<(), String> {
-    let log_dir = app
-        .path()
-        .app_log_dir()
+    let log_dir = crate::portable::app_log_dir(&app)
         .map_err(|e| format!("Failed to get log directory: {}", e))?;
 
     let path = log_dir.to_string_lossy().as_ref().to_string();
@@ -116,9 +108,7 @@ pub fn open_log_dir(app: AppHandle) -> Result<(), String> {
 #[specta::specta]
 #[tauri::command]
 pub fn open_app_data_dir(app: AppHandle) -> Result<(), String> {
-    let app_data_dir = app
-        .path()
-        .app_data_dir()
+    let app_data_dir = crate::portable::app_data_dir(&app)
         .map_err(|e| format!("Failed to get app data directory: {}", e))?;
 
     let path = app_data_dir.to_string_lossy().as_ref().to_string();
