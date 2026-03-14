@@ -46,6 +46,25 @@ enum LoadedEngine {
     GigaAM(GigaAMEngine),
 }
 
+fn build_whisper_initial_prompt(
+    base_prompt: Option<String>,
+    custom_words: &[String],
+    include_custom_words: bool,
+) -> Option<String> {
+    let custom_words_prompt = if include_custom_words && !custom_words.is_empty() {
+        Some(custom_words.join(", "))
+    } else {
+        None
+    };
+
+    match (base_prompt, custom_words_prompt) {
+        (Some(prompt), Some(words)) => Some(format!("{}\n{}", prompt, words)),
+        (Some(prompt), None) => Some(prompt),
+        (None, Some(words)) => Some(words),
+        (None, None) => None,
+    }
+}
+
 #[derive(Clone)]
 pub struct TranscriptionManager {
     engine: Arc<Mutex<Option<LoadedEngine>>>,
@@ -507,15 +526,19 @@ impl TranscriptionManager {
                             let params = WhisperInferenceParams {
                                 language: whisper_language,
                                 translate: settings.translate_to_english,
-                                initial_prompt: {
-                                    // Get the prompt for current model from the per-model HashMap
-                                    let current_model_id = self.current_model_id.lock().unwrap();
-                                    current_model_id
-                                        .as_ref()
-                                        .and_then(|id| settings.transcription_prompts.get(id))
-                                        .filter(|p| !p.trim().is_empty())
-                                        .cloned()
-                                },
+                                initial_prompt: build_whisper_initial_prompt(
+                                    {
+                                        // Get the prompt for current model from the per-model HashMap
+                                        let current_model_id = self.current_model_id.lock().unwrap();
+                                        current_model_id
+                                            .as_ref()
+                                            .and_then(|id| settings.transcription_prompts.get(id))
+                                            .filter(|p| !p.trim().is_empty())
+                                            .cloned()
+                                    },
+                                    &settings.custom_words,
+                                    apply_custom_words_enabled,
+                                ),
                                 ..Default::default()
                             };
 
@@ -743,7 +766,7 @@ impl TranscriptionManager {
                     let params = WhisperInferenceParams {
                         language: whisper_language,
                         translate: translate_to_english,
-                        initial_prompt: {
+                        initial_prompt: build_whisper_initial_prompt(
                             // Priority: 1) profile override, 2) global per-model prompt
                             prompt_override
                                 .filter(|p| !p.trim().is_empty())
@@ -754,8 +777,10 @@ impl TranscriptionManager {
                                         .and_then(|id| settings.transcription_prompts.get(id))
                                         .filter(|p| !p.trim().is_empty())
                                         .cloned()
-                                })
-                        },
+                                }),
+                            &settings.custom_words,
+                            apply_custom_words_enabled,
+                        ),
                         ..Default::default()
                     };
 
@@ -929,7 +954,7 @@ impl TranscriptionManager {
                     let params = WhisperInferenceParams {
                         language: whisper_language,
                         translate: translate_to_english,
-                        initial_prompt: {
+                        initial_prompt: build_whisper_initial_prompt(
                             prompt_override
                                 .filter(|p| !p.trim().is_empty())
                                 .or_else(|| {
@@ -939,8 +964,10 @@ impl TranscriptionManager {
                                         .and_then(|id| settings.transcription_prompts.get(id))
                                         .filter(|p| !p.trim().is_empty())
                                         .cloned()
-                                })
-                        },
+                                }),
+                            &settings.custom_words,
+                            apply_custom_words_enabled,
+                        ),
                         ..Default::default()
                     };
 
