@@ -5,33 +5,51 @@ import { commands, type ModelInfo } from "@/bindings";
 import ModelCard from "./ModelCard";
 import HandyTextLogo from "../icons/HandyTextLogo";
 import { RemoteSttWizard } from "./RemoteSttWizard";
+import AccessibilityOnboarding from "./AccessibilityOnboarding";
 import { HandyShortcut } from "../settings/HandyShortcut";
 
 type WelcomeVariant = "local" | "remote";
+type OnboardingMode = "permissions" | "select" | "local" | "welcome";
 
 interface OnboardingProps {
   onModelSelected: () => void;
   onRemoteSelected: () => void;
   showFullCatalog?: boolean;
+  startWithPermissionStep?: boolean;
+  permissionOnly?: boolean;
+  onPermissionResolved?: () => void;
 }
 
 const Onboarding: React.FC<OnboardingProps> = ({
   onModelSelected,
   onRemoteSelected,
   showFullCatalog = false,
+  startWithPermissionStep = false,
+  permissionOnly = false,
+  onPermissionResolved,
 }) => {
   const { t } = useTranslation();
   const isWindows = type() === "windows";
   const [availableModels, setAvailableModels] = useState<ModelInfo[]>([]);
   const [downloading, setDownloading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [mode, setMode] = useState<"select" | "local" | "welcome">("select");
+  const [mode, setMode] = useState<OnboardingMode>(
+    startWithPermissionStep && isWindows ? "permissions" : "select",
+  );
   const [welcomeVariant, setWelcomeVariant] = useState<WelcomeVariant>("local");
   const [showRemoteWizard, setShowRemoteWizard] = useState(false);
 
   useEffect(() => {
     loadModels();
   }, [showFullCatalog]);
+
+  useEffect(() => {
+    if (startWithPermissionStep && isWindows) {
+      setMode("permissions");
+    } else if (mode === "permissions") {
+      setMode("select");
+    }
+  }, [isWindows, mode, startWithPermissionStep]);
 
   const loadModels = async () => {
     try {
@@ -124,6 +142,15 @@ const Onboarding: React.FC<OnboardingProps> = ({
     setShowRemoteWizard(false);
   };
 
+  const handlePermissionsComplete = () => {
+    if (permissionOnly) {
+      onPermissionResolved?.();
+      return;
+    }
+
+    setMode("select");
+  };
+
   const handleGetStarted = () => {
     if (welcomeVariant === "remote") {
       onRemoteSelected();
@@ -134,6 +161,12 @@ const Onboarding: React.FC<OnboardingProps> = ({
 
   const getSubtitle = () => {
     if (mode === "welcome") return null;
+    if (mode === "permissions") {
+      return t(
+        "onboarding.permissions.subtitle",
+        "Windows microphone access is needed before recording can work.",
+      );
+    }
     if (mode === "select") return t("onboarding.mode.subtitle");
     return t("onboarding.subtitle");
   };
@@ -160,7 +193,9 @@ const Onboarding: React.FC<OnboardingProps> = ({
         )}
 
         <div className="flex flex-col gap-4 ">
-          {mode === "welcome" ? (
+          {mode === "permissions" ? (
+            <AccessibilityOnboarding onComplete={handlePermissionsComplete} />
+          ) : mode === "welcome" ? (
             <div className="flex flex-col items-center gap-6 mt-4">
               <h2 className="text-2xl font-bold text-[#f5f5f5]">
                 {t("onboarding.welcome.title")}

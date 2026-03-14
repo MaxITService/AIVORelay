@@ -10,9 +10,12 @@ import { HotkeySidebar } from "./components/hotkey-sidebar";
 import { useSettings } from "./hooks/useSettings";
 import { commands } from "@/bindings";
 import { listen } from "@tauri-apps/api/event";
+import { invoke } from "@tauri-apps/api/core";
+import { type } from "@tauri-apps/plugin-os";
 import { useNavigationStore } from "./stores/navigationStore";
 import { OPEN_FIRST_START_WIZARD_EVENT } from "./constants/appEvents";
 import type { ModelStateEvent } from "./lib/types/events";
+import type { WindowsMicrophonePermissionStatus } from "./lib/types/windowsPermissions";
 
 const renderSettingsContent = (section: SidebarSection) => {
   const ActiveComponent =
@@ -24,6 +27,10 @@ function App() {
   const { t } = useTranslation();
   const [showOnboarding, setShowOnboarding] = useState<boolean | null>(null);
   const [onboardingFromDebug, setOnboardingFromDebug] = useState(false);
+  const [onboardingStartsWithPermissions, setOnboardingStartsWithPermissions] =
+    useState(false);
+  const [onboardingPermissionOnly, setOnboardingPermissionOnly] =
+    useState(false);
   const { currentSection, setSection: setCurrentSection } =
     useNavigationStore();
   const { refreshSettings, refreshAudioDevices } = useSettings();
@@ -35,6 +42,8 @@ function App() {
   useEffect(() => {
     const handleOpenFirstStartWizard = () => {
       setOnboardingFromDebug(true);
+      setOnboardingStartsWithPermissions(false);
+      setOnboardingPermissionOnly(false);
       setShowOnboarding(true);
     };
 
@@ -142,10 +151,29 @@ function App() {
 
   const checkOnboardingStatus = async () => {
     try {
+      const currentPlatform = type();
       const [settingsResult, modelResult] = await Promise.all([
         commands.getAppSettings(),
         commands.hasAnyModelsAvailable(),
       ]);
+      let windowsMicPermissionDenied = false;
+
+      if (currentPlatform === "windows") {
+        try {
+          const permissionStatus =
+            await invoke<WindowsMicrophonePermissionStatus>(
+              "get_windows_microphone_permission_status",
+            );
+          windowsMicPermissionDenied =
+            permissionStatus.supported &&
+            permissionStatus.overall_access === "denied";
+        } catch (permissionError) {
+          console.warn(
+            "Failed to check Windows microphone permissions:",
+            permissionError,
+          );
+        }
+      }
 
       if (settingsResult.status === "ok") {
         const provider = String(settingsResult.data.transcription_provider);
@@ -154,18 +182,39 @@ function App() {
           provider === "remote_soniox" ||
           provider === "remote_deepgram"
         ) {
+          if (windowsMicPermissionDenied) {
+            setOnboardingStartsWithPermissions(true);
+            setOnboardingPermissionOnly(true);
+            setShowOnboarding(true);
+            return;
+          }
+          setOnboardingStartsWithPermissions(false);
+          setOnboardingPermissionOnly(false);
           setShowOnboarding(false);
           return;
         }
       }
 
       if (modelResult.status === "ok") {
+        if (modelResult.data && windowsMicPermissionDenied) {
+          setOnboardingStartsWithPermissions(true);
+          setOnboardingPermissionOnly(true);
+          setShowOnboarding(true);
+          return;
+        }
+
+        setOnboardingStartsWithPermissions(windowsMicPermissionDenied);
+        setOnboardingPermissionOnly(false);
         setShowOnboarding(!modelResult.data);
       } else {
+        setOnboardingStartsWithPermissions(windowsMicPermissionDenied);
+        setOnboardingPermissionOnly(false);
         setShowOnboarding(true);
       }
     } catch (error) {
       console.error("Failed to check onboarding status:", error);
+      setOnboardingStartsWithPermissions(false);
+      setOnboardingPermissionOnly(false);
       setShowOnboarding(true);
     }
   };
@@ -173,14 +222,26 @@ function App() {
   const handleModelSelected = () => {
     // Transition to main app - user has started a download
     setOnboardingFromDebug(false);
+    setOnboardingStartsWithPermissions(false);
+    setOnboardingPermissionOnly(false);
     setShowOnboarding(false);
   };
 
   const handleRemoteSelected = () => {
     setOnboardingFromDebug(false);
+    setOnboardingStartsWithPermissions(false);
+    setOnboardingPermissionOnly(false);
     setShowOnboarding(false);
     setCurrentSection("general");
     refreshSettings();
+  };
+
+  const handlePermissionResolved = () => {
+    setOnboardingStartsWithPermissions(false);
+    if (onboardingPermissionOnly) {
+      setOnboardingPermissionOnly(false);
+      setShowOnboarding(false);
+    }
   };
 
   if (showOnboarding) {
@@ -189,6 +250,9 @@ function App() {
         onModelSelected={handleModelSelected}
         onRemoteSelected={handleRemoteSelected}
         showFullCatalog={onboardingFromDebug}
+        startWithPermissionStep={onboardingStartsWithPermissions}
+        permissionOnly={onboardingPermissionOnly}
+        onPermissionResolved={handlePermissionResolved}
       />
     );
   }

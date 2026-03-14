@@ -146,6 +146,34 @@ fn show_main_window(app: &AppHandle) {
     }
 }
 
+fn should_force_show_permissions_window(app: &AppHandle) -> bool {
+    #[cfg(target_os = "windows")]
+    {
+        let settings = get_settings(app);
+        let model_manager = app.state::<Arc<ModelManager>>();
+        let has_downloaded_models = model_manager
+            .get_available_models()
+            .iter()
+            .any(|model| model.is_downloaded);
+        let uses_remote_provider =
+            settings.transcription_provider != settings::TranscriptionProvider::Local;
+
+        if !has_downloaded_models && !uses_remote_provider {
+            return false;
+        }
+
+        let status = commands::audio::get_windows_microphone_permission_status();
+        if status.supported && status.overall_access == commands::audio::PermissionAccess::Denied {
+            log::info!(
+                "Windows microphone permissions are denied; forcing main window visible for onboarding"
+            );
+            return true;
+        }
+    }
+
+    false
+}
+
 fn initialize_core_logic(app_handle: &AppHandle) {
     // Initialize the input state (Enigo singleton for keyboard/mouse simulation)
     let enigo_state = input::EnigoState::new().expect("Failed to initialize input state (Enigo)");
@@ -698,6 +726,8 @@ pub fn run() {
         commands::models::get_active_gpu_vram_status,
         commands::audio::update_microphone_mode,
         commands::audio::get_available_microphones,
+        commands::audio::get_windows_microphone_permission_status,
+        commands::audio::open_microphone_privacy_settings,
         commands::audio::set_selected_microphone,
         commands::audio::change_selected_microphone_auto_switch_enabled_setting,
         commands::audio::change_selected_microphone_name_pattern_setting,
@@ -892,8 +922,11 @@ pub fn run() {
 
             initialize_core_logic(&app_handle);
 
-            // Show main window only if not starting hidden
-            if !settings.start_hidden {
+            let should_force_show_permissions =
+                should_force_show_permissions_window(&app_handle);
+
+            // Show main window only if not starting hidden, unless permission onboarding must be shown
+            if !settings.start_hidden || should_force_show_permissions {
                 main_window.show().unwrap();
                 main_window.set_focus().unwrap();
             }
