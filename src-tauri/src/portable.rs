@@ -19,10 +19,6 @@ pub fn init() {
     });
 }
 
-pub fn is_portable() -> bool {
-    data_dir().is_some()
-}
-
 pub fn data_dir() -> Option<&'static PathBuf> {
     PORTABLE_DATA_DIR.get().and_then(|dir| dir.as_ref())
 }
