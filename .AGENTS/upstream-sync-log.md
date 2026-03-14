@@ -10,6 +10,7 @@ Rules:
 
 | Merge Date | Upstream Date | Upstream SHA | Upstream Message | Local SHA | Local Message | Issues |
 | --- | --- | --- | --- | --- | --- | --- |
+| 2026-03-14 | 2026-03-11 | `dfd445d` | Add Windows microphone permission onboarding (#991) | `f3d8c86` | Add Windows microphone permission onboarding | adapted onto fork onboarding; covers remote-only and local setups; frontend uses `invoke` |
 | 2026-03-14 | 2026-03-06 | `e354c0a` | update dialog package.json | `c6dec17` | Pin dialog plugin to 2.6.x | current fork already on 2.6; lockfile intentionally untouched |
 | 2026-03-14 | 2026-03-11 | `d6ed1f9` | ui: improve scrollbar UI with custom colors and rounded thumb (#983) | `a272fd6` | Refine themed scrollbar styling | adapted onto fork dark theme instead of replacing existing look |
 | 2026-03-14 | 2026-03-14 | `e3a040c` | Remove `step` prop from VolumeSlider component (#944) | `abc12c7` | Simplify volume slider props | current slider already handles default stepping |
@@ -19,7 +20,6 @@ Rules:
 | 2026-03-14 | 2026-03-14 | `30a9406` | be able to change models from the tray (#1002) | `d939e64` | Add tray model switching | adapted onto fork tray/microphone layout; shared backend switch path |
 | 2026-03-14 | 2026-03-14 | `85a8ed7` | feat: pass custom words as Whisper initial_prompt instead of post-correction (#1035) | `794d651` | Bias Whisper custom words via initial prompt | added Whisper biasing; kept fork post-correction path |
 | 2026-03-14 | 2026-03-12 | `aebd432` | fix: overlay not showing on non-primary monitors (#969) | `bcbd97f` | Fix overlay placement on non-primary monitors | extended to shared overlay helpers/live preview geometry |
-| 2026-03-14 | 2026-03-11 | `82297fa` | Add model loading failure notifications with i18n support (#997) | `7f99cb5` | Notify on model loading failures | reused existing `loading_failed`; added shared TS event type; en/ru only |
 
 Entry template:
 
