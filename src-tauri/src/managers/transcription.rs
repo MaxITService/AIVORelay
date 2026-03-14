@@ -634,7 +634,11 @@ impl TranscriptionManager {
 
         // Filter out filler words and hallucinations (if enabled)
         let filtered_result = if settings.filler_word_filter_enabled {
-            filter_transcription_output(&corrected_result)
+            filter_transcription_output(
+                &corrected_result,
+                &settings.selected_language,
+                &settings.custom_filler_words,
+            )
         } else {
             corrected_result
         };
@@ -816,7 +820,11 @@ impl TranscriptionManager {
 
         // Filter out filler words and hallucinations (if enabled)
         let filtered_result = if settings.filler_word_filter_enabled {
-            filter_transcription_output(&corrected_result)
+            filter_transcription_output(
+                &corrected_result,
+                &selected_language,
+                &settings.custom_filler_words,
+            )
         } else {
             corrected_result
         };
@@ -1020,7 +1028,11 @@ impl TranscriptionManager {
 
         // Filter out filler words and hallucinations (if enabled)
         let filtered_result = if settings.filler_word_filter_enabled {
-            filter_transcription_output(&corrected_result)
+            filter_transcription_output(
+                &corrected_result,
+                &selected_language,
+                &settings.custom_filler_words,
+            )
         } else {
             corrected_result
         };

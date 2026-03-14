@@ -179,11 +179,40 @@ fn extract_punctuation(word: &str) -> (&str, &str) {
     (prefix, suffix)
 }
 
-/// Filler words to remove from transcriptions
-const FILLER_WORDS: &[&str] = &[
-    "uh", "um", "uhm", "umm", "uhh", "uhhh", "ah", "eh", "hmm", "hm", "mmm", "mm", "mh", "ha",
-    "ehh",
-];
+/// Returns filler words appropriate for the given language code.
+///
+/// Some words like "um" and "ha" are real words in certain languages
+/// (e.g., Portuguese "um" = "a/an", Spanish "ha" = "has"), so we only
+/// include them as fillers for languages where they are truly fillers.
+fn get_filler_words_for_language(lang: &str) -> &'static [&'static str] {
+    let base_lang = lang.split(&['-', '_'][..]).next().unwrap_or(lang);
+
+    match base_lang {
+        "en" => &[
+            "uh", "um", "uhm", "umm", "uhh", "uhhh", "ah", "hmm", "hm", "mmm", "mm", "mh", "eh",
+            "ehh", "ha",
+        ],
+        "es" => &["ehm", "mmm", "hmm", "hm"],
+        "pt" => &["ahm", "hmm", "mmm", "hm"],
+        "fr" => &["euh", "hmm", "hm", "mmm"],
+        "de" => &["äh", "ähm", "hmm", "hm", "mmm"],
+        "it" => &["ehm", "hmm", "mmm", "hm"],
+        "cs" => &["ehm", "hmm", "mmm", "hm"],
+        "pl" => &["hmm", "mmm", "hm"],
+        "tr" => &["hmm", "mmm", "hm"],
+        "ru" => &["хм", "ммм", "hmm", "mmm"],
+        "uk" => &["хм", "ммм", "hmm", "mmm"],
+        "ar" => &["hmm", "mmm"],
+        "ja" => &["hmm", "mmm"],
+        "ko" => &["hmm", "mmm"],
+        "vi" => &["hmm", "mmm", "hm"],
+        "zh" => &["hmm", "mmm"],
+        // Conservative universal fallback (no "um", "eh", "ha")
+        _ => &[
+            "uh", "uhm", "umm", "uhh", "uhhh", "ah", "hmm", "hm", "mmm", "mm", "mh", "ehh",
+        ],
+    }
+}
 
 /// Pre-compiled regex patterns for filtering transcription output
 /// Note: Matches simple XML-like tags (Rust regex doesn't support backreferences)
@@ -237,31 +266,27 @@ fn collapse_stutters(text: &str) -> String {
     result.join(" ")
 }
 
-/// Pre-compiled filler word patterns (built lazily)
-static FILLER_PATTERNS: Lazy<Vec<Regex>> = Lazy::new(|| {
-    FILLER_WORDS
-        .iter()
-        .map(|word| {
-            // Match filler word with word boundaries, optionally followed by comma or period
-            Regex::new(&format!(r"(?i)\b{}\b[,.]?", regex::escape(word))).unwrap()
-        })
-        .collect()
-});
-
 /// Filters transcription output by removing filler words and hallucination patterns.
 ///
 /// This function cleans up raw transcription text by:
 /// 1. Removing XML-style `<TAG>...</TAG>` blocks
 /// 2. Removing bracketed content like `[AUDIO]`, `(pause)`, `{noise}`
-/// 3. Removing filler words (uh, um, hmm, etc.)
+/// 3. Removing filler words based on transcription language or a custom list
 /// 4. Cleaning up excess whitespace
 ///
 /// # Arguments
 /// * `text` - The raw transcription text to filter
+/// * `lang` - The transcription language code (e.g., "en", "pt-BR")
+/// * `custom_filler_words` - Optional user-provided filler word list. `Some(vec)` overrides
+///   language defaults; `Some(empty vec)` disables filtering; `None` uses language defaults.
 ///
 /// # Returns
 /// The filtered text with filler words and hallucinations removed
-pub fn filter_transcription_output(text: &str) -> String {
+pub fn filter_transcription_output(
+    text: &str,
+    lang: &str,
+    custom_filler_words: &Option<Vec<String>>,
+) -> String {
     let mut filtered = text.to_string();
 
     // Remove <TAG>...</TAG> blocks (hallucinations from some models)
@@ -272,8 +297,19 @@ pub fn filter_transcription_output(text: &str) -> String {
     filtered = PAREN_PATTERN.replace_all(&filtered, "").to_string();
     filtered = BRACE_PATTERN.replace_all(&filtered, "").to_string();
 
+    let filler_patterns: Vec<Regex> = match custom_filler_words {
+        Some(words) => words
+            .iter()
+            .filter_map(|word| Regex::new(&format!(r"(?i)\b{}\b[,.]?", regex::escape(word))).ok())
+            .collect(),
+        None => get_filler_words_for_language(lang)
+            .iter()
+            .map(|word| Regex::new(&format!(r"(?i)\b{}\b[,.]?", regex::escape(word))).unwrap())
+            .collect(),
+    };
+
     // Remove filler words
-    for pattern in FILLER_PATTERNS.iter() {
+    for pattern in &filler_patterns {
         filtered = pattern.replace_all(&filtered, "").to_string();
     }
 
@@ -377,91 +413,106 @@ mod tests {
     #[test]
     fn test_filter_filler_words() {
         let text = "So um I was thinking uh about this";
-        let result = filter_transcription_output(text);
+        let result = filter_transcription_output(text, "en", &None);
         assert_eq!(result, "So I was thinking about this");
     }
 
     #[test]
     fn test_filter_filler_words_case_insensitive() {
         let text = "UM this is UH a test";
-        let result = filter_transcription_output(text);
+        let result = filter_transcription_output(text, "en", &None);
         assert_eq!(result, "this is a test");
     }
 
     #[test]
     fn test_filter_filler_words_with_punctuation() {
         let text = "Well, um, I think, uh. that's right";
-        let result = filter_transcription_output(text);
+        let result = filter_transcription_output(text, "en", &None);
         assert_eq!(result, "Well, I think, that's right");
     }
 
     #[test]
     fn test_filter_bracketed_hallucinations() {
         let text = "Hello [AUDIO] world (pause) test {noise}";
-        let result = filter_transcription_output(text);
+        let result = filter_transcription_output(text, "en", &None);
         assert_eq!(result, "Hello world test");
     }
 
     #[test]
     fn test_filter_tag_blocks() {
         let text = "Hello <speaker>John</speaker> world";
-        let result = filter_transcription_output(text);
+        let result = filter_transcription_output(text, "en", &None);
         assert_eq!(result, "Hello world");
     }
 
     #[test]
     fn test_filter_cleans_whitespace() {
         let text = "Hello    world   test";
-        let result = filter_transcription_output(text);
+        let result = filter_transcription_output(text, "en", &None);
         assert_eq!(result, "Hello world test");
     }
 
     #[test]
     fn test_filter_trims() {
         let text = "  Hello world  ";
-        let result = filter_transcription_output(text);
+        let result = filter_transcription_output(text, "en", &None);
         assert_eq!(result, "Hello world");
     }
 
     #[test]
     fn test_filter_combined() {
         let text = "  Um, so [AUDIO] I was, uh, thinking (pause) about this  ";
-        let result = filter_transcription_output(text);
+        let result = filter_transcription_output(text, "en", &None);
         assert_eq!(result, "so I was, thinking about this");
     }
 
     #[test]
     fn test_filter_preserves_valid_text() {
         let text = "This is a completely normal sentence.";
-        let result = filter_transcription_output(text);
+        let result = filter_transcription_output(text, "en", &None);
         assert_eq!(result, "This is a completely normal sentence.");
     }
 
     #[test]
     fn test_filter_stutter_collapse() {
         let text = "w wh wh wh wh wh wh wh wh wh why";
-        let result = filter_transcription_output(text);
+        let result = filter_transcription_output(text, "en", &None);
         assert_eq!(result, "w wh why");
     }
 
     #[test]
     fn test_filter_stutter_short_words() {
         let text = "I I I I think so so so so";
-        let result = filter_transcription_output(text);
+        let result = filter_transcription_output(text, "en", &None);
         assert_eq!(result, "I think so");
     }
 
     #[test]
     fn test_filter_stutter_mixed_case() {
         let text = "No NO no NO no";
-        let result = filter_transcription_output(text);
+        let result = filter_transcription_output(text, "en", &None);
         assert_eq!(result, "No");
     }
 
     #[test]
     fn test_filter_stutter_preserves_two_repetitions() {
         let text = "no no is fine";
-        let result = filter_transcription_output(text);
+        let result = filter_transcription_output(text, "en", &None);
         assert_eq!(result, "no no is fine");
+    }
+
+    #[test]
+    fn test_filter_respects_language_specific_fillers() {
+        let text = "isso foi um teste";
+        let result = filter_transcription_output(text, "pt-BR", &None);
+        assert_eq!(result, "isso foi um teste");
+    }
+
+    #[test]
+    fn test_filter_uses_custom_filler_words_when_provided() {
+        let text = "like this should stay, but maybe this should go";
+        let custom_filler_words = Some(vec!["maybe".to_string()]);
+        let result = filter_transcription_output(text, "en", &custom_filler_words);
+        assert_eq!(result, "like this should stay, but this should go");
     }
 }
