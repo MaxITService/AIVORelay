@@ -16,6 +16,8 @@ use tauri::{AppHandle, Emitter, Manager, PhysicalPosition, PhysicalSize};
 /// this is incremented so stale timers do not hide newer overlays.
 static TRANSIENT_OVERLAY_GENERATION: AtomicU64 = AtomicU64::new(0);
 static RECORDING_OVERLAY_LAYOUT: AtomicU8 = AtomicU8::new(0);
+static RECORDING_OVERLAY_MANUAL_POSITION: LazyLock<Mutex<Option<(f64, f64)>>> =
+    LazyLock::new(|| Mutex::new(None));
 
 #[cfg(not(target_os = "macos"))]
 use log::debug;
@@ -134,6 +136,11 @@ pub struct SonioxLivePreviewAppearancePayload {
     pub show_drag_grip: bool,
 }
 
+#[derive(Serialize, Clone)]
+struct RecordingOverlayAppearancePayload {
+    show_drag_grip: bool,
+}
+
 static SONIOX_LIVE_PREVIEW_STATE: LazyLock<Mutex<SonioxLivePreviewPayload>> =
     LazyLock::new(|| Mutex::new(SonioxLivePreviewPayload::default()));
 static SONIOX_LIVE_PREVIEW_RUNTIME_STATE: LazyLock<Mutex<SonioxLivePreviewRuntimeState>> =
@@ -240,14 +247,103 @@ fn is_mouse_within_monitor(
         && mouse_y < (monitor_y + monitor_height as i32)
 }
 
-fn get_monitor_logical_bounds(monitor: &tauri::Monitor) -> (f64, f64, f64, f64) {
+#[derive(Clone, Copy)]
+struct LogicalBounds {
+    x: f64,
+    y: f64,
+    width: f64,
+    height: f64,
+}
+
+fn get_monitor_logical_bounds(monitor: &tauri::Monitor) -> LogicalBounds {
     let scale = monitor.scale_factor();
-    (
-        monitor.position().x as f64 / scale,
-        monitor.position().y as f64 / scale,
-        monitor.size().width as f64 / scale,
-        monitor.size().height as f64 / scale,
-    )
+    LogicalBounds {
+        x: monitor.position().x as f64 / scale,
+        y: monitor.position().y as f64 / scale,
+        width: monitor.size().width as f64 / scale,
+        height: monitor.size().height as f64 / scale,
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn get_monitor_logical_work_area_bounds(monitor: &tauri::Monitor) -> Option<LogicalBounds> {
+    use std::mem::size_of;
+    use windows::Win32::Foundation::RECT;
+    use windows::Win32::Graphics::Gdi::{
+        GetMonitorInfoW, MonitorFromRect, MONITORINFO, MONITOR_DEFAULTTONEAREST,
+    };
+
+    let monitor_rect = RECT {
+        left: monitor.position().x,
+        top: monitor.position().y,
+        right: monitor.position().x + monitor.size().width as i32,
+        bottom: monitor.position().y + monitor.size().height as i32,
+    };
+
+    unsafe {
+        let hmonitor = MonitorFromRect(&monitor_rect, MONITOR_DEFAULTTONEAREST);
+        let mut info = MONITORINFO {
+            cbSize: size_of::<MONITORINFO>() as u32,
+            ..Default::default()
+        };
+        if !GetMonitorInfoW(hmonitor, &mut info as *mut MONITORINFO).as_bool() {
+            return None;
+        }
+
+        // Win32 reports rcWork in physical pixels. Convert it back to the same
+        // logical coordinate space used for Tauri window placement.
+        let scale = monitor.scale_factor();
+        Some(LogicalBounds {
+            x: info.rcWork.left as f64 / scale,
+            y: info.rcWork.top as f64 / scale,
+            width: (info.rcWork.right - info.rcWork.left) as f64 / scale,
+            height: (info.rcWork.bottom - info.rcWork.top) as f64 / scale,
+        })
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
+fn get_monitor_logical_work_area_bounds(_monitor: &tauri::Monitor) -> Option<LogicalBounds> {
+    None
+}
+
+fn get_monitor_logical_auto_position_bounds(
+    monitor: &tauri::Monitor,
+    allow_reserved_areas: bool,
+) -> LogicalBounds {
+    let full_bounds = get_monitor_logical_bounds(monitor);
+    if allow_reserved_areas {
+        return full_bounds;
+    }
+
+    get_monitor_logical_work_area_bounds(monitor).unwrap_or(full_bounds)
+}
+
+fn recording_overlay_manual_position() -> Option<(f64, f64)> {
+    RECORDING_OVERLAY_MANUAL_POSITION
+        .lock()
+        .ok()
+        .and_then(|position| *position)
+}
+
+fn set_recording_overlay_manual_position(position: Option<(f64, f64)>) {
+    if let Ok(mut stored_position) = RECORDING_OVERLAY_MANUAL_POSITION.lock() {
+        *stored_position = position;
+    }
+}
+
+fn emit_recording_overlay_appearance_update(app_handle: &AppHandle) {
+    let payload = RecordingOverlayAppearancePayload {
+        show_drag_grip: settings::get_settings(app_handle).recording_overlay_show_drag_grip,
+    };
+
+    let _ = app_handle.emit("recording-overlay-appearance-update", payload.clone());
+    let _ = app_handle.emit("recording_overlay_appearance_update", payload.clone());
+
+    if let Some(window) = app_handle.get_webview_window("recording_overlay") {
+        let _ = window.emit("recording-overlay-appearance-update", payload.clone());
+        let _ = window.emit("recording_overlay_appearance_update", payload);
+    }
 }
 
 fn calculate_overlay_position_for_size(
@@ -256,15 +352,21 @@ fn calculate_overlay_position_for_size(
     overlay_height: f64,
 ) -> Option<(f64, f64)> {
     let monitor = get_monitor_with_cursor(app_handle)?;
-    let (monitor_x, monitor_y, monitor_width, monitor_height) =
-        get_monitor_logical_bounds(&monitor);
     let settings = settings::get_settings(app_handle);
+    let bounds = get_monitor_logical_auto_position_bounds(
+        &monitor,
+        settings.auto_position_allow_reserved_areas,
+    );
 
-    let x = monitor_x + (monitor_width - overlay_width) / 2.0;
+    if let Some((x, y)) = recording_overlay_manual_position() {
+        return Some((x, y));
+    }
+
+    let x = bounds.x + (bounds.width - overlay_width) / 2.0;
     let y = match settings.overlay_position {
-        OverlayPosition::Top => monitor_y + OVERLAY_TOP_OFFSET,
+        OverlayPosition::Top => bounds.y + OVERLAY_TOP_OFFSET,
         OverlayPosition::Bottom | OverlayPosition::None => {
-            monitor_y + monitor_height - overlay_height - OVERLAY_BOTTOM_OFFSET
+            bounds.y + bounds.height - overlay_height - OVERLAY_BOTTOM_OFFSET
         }
     };
 
@@ -282,6 +384,7 @@ fn apply_recording_overlay_layout(app_handle: &AppHandle, width: f64, height: f6
             let _ = overlay_window
                 .set_position(tauri::Position::Logical(tauri::LogicalPosition { x, y }));
         }
+        emit_recording_overlay_appearance_update(app_handle);
     }
 }
 
@@ -453,20 +556,22 @@ fn resolve_soniox_live_preview_geometry(app_handle: &AppHandle) -> Option<(f64, 
 
     if let Some(monitor) = get_monitor_with_cursor(app_handle) {
         let scale = monitor.scale_factor();
-        let (monitor_x, monitor_y, monitor_width, monitor_height) =
-            get_monitor_logical_bounds(&monitor);
+        let bounds = get_monitor_logical_auto_position_bounds(
+            &monitor,
+            app_settings.auto_position_allow_reserved_areas,
+        );
 
         let x;
         let y;
 
         match app_settings.soniox_live_preview_position {
             SonioxLivePreviewPosition::Top => {
-                x = monitor_x + (monitor_width - width) / 2.0;
-                y = monitor_y + SONIOX_LIVE_PREVIEW_TOP_OFFSET;
+                x = bounds.x + (bounds.width - width) / 2.0;
+                y = bounds.y + SONIOX_LIVE_PREVIEW_TOP_OFFSET;
             }
             SonioxLivePreviewPosition::Bottom => {
-                x = monitor_x + (monitor_width - width) / 2.0;
-                y = monitor_y + monitor_height - height - SONIOX_LIVE_PREVIEW_BOTTOM_OFFSET;
+                x = bounds.x + (bounds.width - width) / 2.0;
+                y = bounds.y + bounds.height - height - SONIOX_LIVE_PREVIEW_BOTTOM_OFFSET;
             }
             SonioxLivePreviewPosition::NearCursor => {
                 let (cursor_x, cursor_y) = input::get_cursor_position(app_handle).unwrap_or((
@@ -478,13 +583,12 @@ fn resolve_soniox_live_preview_geometry(app_handle: &AppHandle) -> Option<(f64, 
                 let cursor_y_logical = cursor_y as f64 / scale;
                 let distance = app_settings.soniox_live_preview_cursor_offset_px as f64;
 
-                let min_x = monitor_x + SONIOX_LIVE_PREVIEW_CURSOR_EDGE_MARGIN;
+                let min_x = bounds.x + SONIOX_LIVE_PREVIEW_CURSOR_EDGE_MARGIN;
                 let max_x =
-                    monitor_x + monitor_width - width - SONIOX_LIVE_PREVIEW_CURSOR_EDGE_MARGIN;
-                let min_y = monitor_y + SONIOX_LIVE_PREVIEW_CURSOR_EDGE_MARGIN;
-                let max_y = monitor_y + monitor_height
-                    - height
-                    - SONIOX_LIVE_PREVIEW_CURSOR_EDGE_MARGIN;
+                    bounds.x + bounds.width - width - SONIOX_LIVE_PREVIEW_CURSOR_EDGE_MARGIN;
+                let min_y = bounds.y + SONIOX_LIVE_PREVIEW_CURSOR_EDGE_MARGIN;
+                let max_y =
+                    bounds.y + bounds.height - height - SONIOX_LIVE_PREVIEW_CURSOR_EDGE_MARGIN;
 
                 x = clamp_f64(cursor_x_logical - (width / 2.0), min_x, max_x);
                 y = clamp_f64(cursor_y_logical - height - distance, min_y, max_y);
@@ -782,6 +886,8 @@ pub fn update_overlay_position(app_handle: &AppHandle) {
 
 /// Hides the recording overlay window with fade-out animation
 pub fn hide_recording_overlay(app_handle: &AppHandle) {
+    set_recording_overlay_manual_position(None);
+
     // Always hide the overlay regardless of settings - if setting was changed while recording,
     // we still want to hide it properly
     if let Some(overlay_window) = app_handle.get_webview_window("recording_overlay") {
@@ -796,6 +902,8 @@ pub fn hide_recording_overlay(app_handle: &AppHandle) {
 ///
 /// Useful when the next operation is a screen capture, so we don't accidentally capture the overlay.
 pub fn hide_recording_overlay_immediately(app_handle: &AppHandle) {
+    set_recording_overlay_manual_position(None);
+
     if let Some(overlay_window) = app_handle.get_webview_window("recording_overlay") {
         let _ = overlay_window.hide();
     }
@@ -1081,11 +1189,13 @@ pub fn emit_levels(app_handle: &AppHandle, levels: &Vec<f32>) {
 /// Calculates centered position for command confirmation overlay
 fn calculate_command_confirm_position(app_handle: &AppHandle) -> Option<(f64, f64)> {
     let monitor = get_monitor_with_cursor(app_handle)?;
-    let (monitor_x, monitor_y, monitor_width, monitor_height) =
-        get_monitor_logical_bounds(&monitor);
+    let bounds = get_monitor_logical_auto_position_bounds(
+        &monitor,
+        settings::get_settings(app_handle).auto_position_allow_reserved_areas,
+    );
 
-    let x = monitor_x + (monitor_width - COMMAND_CONFIRM_WIDTH) / 2.0;
-    let y = monitor_y + (monitor_height - COMMAND_CONFIRM_HEIGHT) / 2.0 - 50.0;
+    let x = bounds.x + (bounds.width - COMMAND_CONFIRM_WIDTH) / 2.0;
+    let y = bounds.y + (bounds.height - COMMAND_CONFIRM_HEIGHT) / 2.0 - 50.0;
 
     Some((x, y))
 }
@@ -1093,13 +1203,35 @@ fn calculate_command_confirm_position(app_handle: &AppHandle) -> Option<(f64, f6
 /// Calculates bottom-center position for the floating voice activation button window.
 fn calculate_voice_button_position(app_handle: &AppHandle) -> Option<(f64, f64)> {
     let monitor = get_monitor_with_cursor(app_handle)?;
-    let (monitor_x, monitor_y, monitor_width, monitor_height) =
-        get_monitor_logical_bounds(&monitor);
+    let bounds = get_monitor_logical_auto_position_bounds(
+        &monitor,
+        settings::get_settings(app_handle).auto_position_allow_reserved_areas,
+    );
 
-    let x = monitor_x + (monitor_width - VOICE_BUTTON_WIDTH) / 2.0;
-    let y = monitor_y + monitor_height - VOICE_BUTTON_HEIGHT - 40.0;
+    let x = bounds.x + (bounds.width - VOICE_BUTTON_WIDTH) / 2.0;
+    let y = bounds.y + bounds.height - VOICE_BUTTON_HEIGHT - 40.0;
     Some((x, y))
 }
+
+pub fn update_command_confirm_position(app_handle: &AppHandle) {
+    if let Some(window) = app_handle.get_webview_window("command_confirm") {
+        if let Some((x, y)) = calculate_command_confirm_position(app_handle) {
+            let _ = window.set_position(tauri::Position::Logical(tauri::LogicalPosition { x, y }));
+        }
+    }
+}
+
+#[cfg(target_os = "windows")]
+pub fn update_voice_activation_button_position(app_handle: &AppHandle) {
+    if let Some(window) = app_handle.get_webview_window("voice_activation_button") {
+        if let Some((x, y)) = calculate_voice_button_position(app_handle) {
+            let _ = window.set_position(tauri::Position::Logical(tauri::LogicalPosition { x, y }));
+        }
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
+pub fn update_voice_activation_button_position(_app_handle: &AppHandle) {}
 
 /// Shows the floating voice activation button window.
 /// Creates the window if it doesn't exist yet.
@@ -1410,6 +1542,21 @@ pub fn show_profile_switch_overlay(app_handle: &AppHandle, profile_name: &str) {
 pub fn show_microphone_switch_overlay(app_handle: &AppHandle, microphone_name: &str) {
     show_transient_message_overlay(app_handle, "microphone_switch", microphone_name, 1500);
 }
+
+#[tauri::command]
+#[specta::specta]
+pub fn remember_recording_overlay_window_position(
+    x_px: i32,
+    y_px: i32,
+) -> Result<(), String> {
+    set_recording_overlay_manual_position(Some((x_px as f64, y_px as f64)));
+    Ok(())
+}
+
+pub fn clear_recording_overlay_manual_position() {
+    set_recording_overlay_manual_position(None);
+}
+
 #[derive(Clone, Copy)]
 enum RecordingOverlayLayout {
     Default = 0,

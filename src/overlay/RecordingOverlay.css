@@ -25,6 +25,50 @@ body,
   box-sizing: border-box;
 }
 
+.recording-overlay-with-grip {
+  padding-top: 10px;
+}
+
+.recording-overlay-grip-row {
+  position: absolute;
+  top: 1px;
+  left: 0;
+  right: 0;
+  z-index: 5;
+  display: flex;
+  justify-content: center;
+  pointer-events: none;
+}
+
+.recording-overlay-grip {
+  display: grid;
+  grid-template-columns: repeat(3, 4px);
+  gap: 2px 4px;
+  align-content: center;
+  justify-content: center;
+  width: 28px;
+  height: 8px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: grab;
+  touch-action: none;
+  line-height: 0;
+  pointer-events: auto;
+}
+
+.recording-overlay-grip:active {
+  cursor: grabbing;
+}
+
+.recording-overlay-grip-dot {
+  width: 2px;
+  height: 2px;
+  border-radius: 999px;
+  background: rgba(245, 245, 245, 0.52);
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.04);
+}
+
 .overlay-left {
   display: flex;
   align-items: center;

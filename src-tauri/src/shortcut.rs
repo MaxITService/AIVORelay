@@ -193,6 +193,13 @@ fn refresh_soniox_live_preview_window(app: &AppHandle) {
     crate::overlay::update_soniox_live_preview_window(app);
 }
 
+fn refresh_auto_positioned_windows(app: &AppHandle) {
+    crate::utils::update_overlay_position(app);
+    crate::overlay::update_soniox_live_preview_window(app);
+    crate::overlay::update_command_confirm_position(app);
+    crate::overlay::update_voice_activation_button_position(app);
+}
+
 fn is_decapitalize_monitor_shortcut_id(id: &str) -> bool {
     matches!(
         id,
@@ -854,10 +861,24 @@ pub fn change_overlay_position_setting(app: AppHandle, position: String) -> Resu
     };
     settings.overlay_position = parsed;
     settings::write_settings(&app, settings);
+    crate::overlay::clear_recording_overlay_manual_position();
 
     // Update overlay position without recreating window
     crate::utils::update_overlay_position(&app);
 
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_auto_position_allow_reserved_areas_setting(
+    app: AppHandle,
+    enabled: bool,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.auto_position_allow_reserved_areas = enabled;
+    settings::write_settings(&app, settings);
+    refresh_auto_positioned_windows(&app);
     Ok(())
 }
 
@@ -880,6 +901,19 @@ pub fn change_error_feedback_enabled_setting(app: AppHandle, enabled: bool) -> R
     let mut settings = settings::get_settings(&app);
     settings.error_feedback_enabled = enabled;
     settings::write_settings(&app, settings);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_recording_overlay_show_drag_grip_setting(
+    app: AppHandle,
+    enabled: bool,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.recording_overlay_show_drag_grip = enabled;
+    settings::write_settings(&app, settings);
+    crate::overlay::update_overlay_position(&app);
     Ok(())
 }
 

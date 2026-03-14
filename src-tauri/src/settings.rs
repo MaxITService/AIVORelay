@@ -1195,12 +1195,16 @@ pub struct AppSettings {
     pub selected_language: String,
     #[serde(default = "default_overlay_position")]
     pub overlay_position: OverlayPosition,
+    #[serde(default)]
+    pub auto_position_allow_reserved_areas: bool,
     /// Auto-hide duration for error overlay in milliseconds.
     #[serde(default = "default_error_overlay_auto_hide_ms")]
     pub error_overlay_auto_hide_ms: u64,
     /// Show runtime errors in the recording overlay.
     #[serde(default = "default_true")]
     pub error_feedback_enabled: bool,
+    #[serde(default)]
+    pub recording_overlay_show_drag_grip: bool,
     #[serde(default = "default_soniox_live_preview_enabled")]
     pub soniox_live_preview_enabled: bool,
     #[serde(default = "default_soniox_live_preview_position")]
@@ -2555,8 +2559,10 @@ pub fn get_default_settings() -> AppSettings {
         translate_to_english: false,
         selected_language: "auto".to_string(),
         overlay_position: default_overlay_position(),
+        auto_position_allow_reserved_areas: false,
         error_overlay_auto_hide_ms: default_error_overlay_auto_hide_ms(),
         error_feedback_enabled: default_true(),
+        recording_overlay_show_drag_grip: false,
         soniox_live_preview_enabled: default_soniox_live_preview_enabled(),
         soniox_live_preview_position: default_soniox_live_preview_position(),
         soniox_live_preview_cursor_offset_px: default_soniox_live_preview_cursor_offset_px(),

@@ -829,6 +829,14 @@
           "label": "Show Error Overlay",
           "description": "Show runtime errors in the recording overlay.",
           "danger": "Dangerous: disabling overlay errors can hide broken setup and failed transcriptions."
+        },
+        "allowReservedAreas": {
+          "label": "Allow Auto-Positioning in Reserved Areas",
+          "description": "Let auto-placed overlay, preview, confirmation, and voice button windows use taskbar or docked-bar space. Manual dragging can still place them anywhere."
+        },
+        "dragGrip": {
+          "label": "Show Recording Overlay Drag Grip",
+          "description": "Show a small top handle so you can drag the recording overlay during a session."
         }
       },
       "pasteMethod": {

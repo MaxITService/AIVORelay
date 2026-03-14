@@ -27,8 +27,13 @@ export const ShowOverlay: React.FC<ShowOverlayProps> = React.memo(
 
     const selectedPosition = (getSetting("overlay_position") ||
       "bottom") as OverlayPosition;
+    const autoPositionAllowReservedAreas =
+      Boolean((settings as any)?.auto_position_allow_reserved_areas ?? false);
     const errorFeedbackEnabled =
       (getSetting("error_feedback_enabled" as any) ?? true) === true;
+    const recordingOverlayShowDragGrip = Boolean(
+      (settings as any)?.recording_overlay_show_drag_grip ?? false,
+    );
     const errorOverlayAutoHideMs = Number(
       settings?.error_overlay_auto_hide_ms ?? 2000,
     );
@@ -73,6 +78,48 @@ export const ShowOverlay: React.FC<ShowOverlayProps> = React.memo(
             disabled={isUpdating("overlay_position")}
           />
         </SettingContainer>
+
+        <ToggleSwitch
+          checked={autoPositionAllowReservedAreas}
+          onChange={(enabled) =>
+            void updateSetting(
+              "auto_position_allow_reserved_areas" as any,
+              enabled as any,
+            )
+          }
+          isUpdating={isUpdating("auto_position_allow_reserved_areas")}
+          label={t(
+            "settings.advanced.overlay.allowReservedAreas.label",
+            "Allow Auto-Positioning in Reserved Areas",
+          )}
+          description={t(
+            "settings.advanced.overlay.allowReservedAreas.description",
+            "Let auto-placed overlay, preview, confirmation, and voice button windows use taskbar or docked-bar space. Manual dragging can still place them anywhere.",
+          )}
+          descriptionMode={descriptionMode}
+          grouped={grouped}
+        />
+
+        <ToggleSwitch
+          checked={recordingOverlayShowDragGrip}
+          onChange={(enabled) =>
+            void updateSetting(
+              "recording_overlay_show_drag_grip" as any,
+              enabled as any,
+            )
+          }
+          isUpdating={isUpdating("recording_overlay_show_drag_grip")}
+          label={t(
+            "settings.advanced.overlay.dragGrip.label",
+            "Show Recording Overlay Drag Grip",
+          )}
+          description={t(
+            "settings.advanced.overlay.dragGrip.description",
+            "Show a small top handle so you can drag the recording overlay during a session.",
+          )}
+          descriptionMode={descriptionMode}
+          grouped={grouped}
+        />
 
         <ToggleSwitch
           checked={errorFeedbackEnabled}

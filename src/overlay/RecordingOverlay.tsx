@@ -1,5 +1,6 @@
 import { listen } from "@tauri-apps/api/event";
 import { invoke } from "@tauri-apps/api/core";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import React, { useEffect, useRef, useState } from "react";
 import type { TFunction } from "i18next";
 import { useTranslation } from "react-i18next";
@@ -23,6 +24,8 @@ import type {
   OverlayErrorEnvelope,
   OverlayErrorPhase,
 } from "./plus_overlay_states";
+
+const windowRef = getCurrentWindow();
 
 const COMPACT_ERROR_CODE_MAP: Record<string, string> = {
   E_AUTH: "AUTH",
@@ -58,6 +61,11 @@ function compactOverlayErrorCode(rawCode: string): string {
 type OverlayErrorCopy = {
   title: string;
   hint: string;
+};
+
+type RecordingOverlayAppearancePayload = {
+  show_drag_grip?: boolean;
+  showDragGrip?: boolean;
 };
 
 function getOverlayErrorCopy(
@@ -215,7 +223,131 @@ const RecordingOverlay: React.FC = () => {
   const [errorCode, setErrorCode] = useState<string | null>(null);
   const [errorTechnical, setErrorTechnical] = useState<string | null>(null);
   const [levels, setLevels] = useState<number[]>(Array(16).fill(0));
+  const [showDragGrip, setShowDragGrip] = useState(false);
   const smoothedLevelsRef = useRef<number[]>(Array(16).fill(0));
+  const dragGripStateRef = useRef<{
+    armed: boolean;
+    sawMove: boolean;
+    saveTimer: number | null;
+  }>({
+    armed: false,
+    sawMove: false,
+    saveTimer: null,
+  });
+
+  useEffect(() => {
+    let active = true;
+    let unlistenMoved: (() => void) | null = null;
+    const unlistenFns: Array<() => void> = [];
+
+    const applyAppearance = (raw: unknown) => {
+      if (!active) {
+        return;
+      }
+
+      let payload = raw;
+      if (typeof payload === "string") {
+        try {
+          payload = JSON.parse(payload);
+        } catch {
+          return;
+        }
+      }
+      if (!payload || typeof payload !== "object") {
+        return;
+      }
+
+      const data = payload as RecordingOverlayAppearancePayload;
+      setShowDragGrip(
+        typeof data.show_drag_grip === "boolean"
+          ? data.show_drag_grip
+          : typeof data.showDragGrip === "boolean"
+            ? data.showDragGrip
+            : false,
+      );
+    };
+
+    const refreshAppearance = async () => {
+      try {
+        const result = await commands.getAppSettings();
+        if (result.status !== "ok") {
+          return;
+        }
+
+        applyAppearance({
+          show_drag_grip: Boolean(
+            (result.data as any)?.recording_overlay_show_drag_grip ?? false,
+          ),
+        });
+      } catch {
+        // Keep the overlay resilient if settings refresh fails.
+      }
+    };
+
+    const setup = async () => {
+      for (const eventName of [
+        "recording-overlay-appearance-update",
+        "recording_overlay_appearance_update",
+      ]) {
+        const unlisten = await listen<unknown>(eventName, (event) => {
+          applyAppearance(event.payload);
+        });
+        unlistenFns.push(unlisten);
+      }
+
+      try {
+        unlistenMoved = await windowRef.onMoved(({ payload }) => {
+          const dragState = dragGripStateRef.current;
+          if (!dragState.armed) {
+            return;
+          }
+
+          dragState.sawMove = true;
+          if (dragState.saveTimer !== null) {
+            window.clearTimeout(dragState.saveTimer);
+          }
+
+          dragState.saveTimer = window.setTimeout(async () => {
+            try {
+              const scaleFactor = await windowRef.scaleFactor();
+              const logicalX = Math.round(payload.x / scaleFactor);
+              const logicalY = Math.round(payload.y / scaleFactor);
+              await invoke("remember_recording_overlay_window_position", {
+                xPx: logicalX,
+                yPx: logicalY,
+              });
+            } catch (error) {
+              console.error("Failed to remember recording overlay position:", error);
+            } finally {
+              dragState.armed = false;
+              dragState.sawMove = false;
+              dragState.saveTimer = null;
+            }
+          }, 180);
+        });
+      } catch (error) {
+        console.error("Failed to subscribe to recording overlay move events:", error);
+      }
+    };
+
+    void refreshAppearance();
+    void setup();
+
+    return () => {
+      active = false;
+      for (const unlisten of unlistenFns) {
+        unlisten();
+      }
+      if (unlistenMoved) {
+        unlistenMoved();
+      }
+      const dragState = dragGripStateRef.current;
+      if (dragState.saveTimer !== null) {
+        window.clearTimeout(dragState.saveTimer);
+        dragState.saveTimer = null;
+      }
+    };
+  }, []);
 
   useEffect(() => {
     let cleanup: (() => void) | undefined;
@@ -389,10 +521,57 @@ const RecordingOverlay: React.FC = () => {
     }
   };
 
+  const handleDragGripPointerDown = (event: React.PointerEvent<HTMLButtonElement>) => {
+    if (event.button !== 0) {
+      return;
+    }
+
+    event.preventDefault();
+    event.stopPropagation();
+
+    const dragState = dragGripStateRef.current;
+    dragState.armed = true;
+    dragState.sawMove = false;
+    if (dragState.saveTimer !== null) {
+      window.clearTimeout(dragState.saveTimer);
+      dragState.saveTimer = null;
+    }
+
+    void windowRef.startDragging().catch((error) => {
+      dragState.armed = false;
+      dragState.sawMove = false;
+      console.error("Failed to start recording overlay dragging:", error);
+    });
+  };
+
+  const handleDragGripPointerEnd = () => {
+    const dragState = dragGripStateRef.current;
+    if (!dragState.sawMove) {
+      dragState.armed = false;
+    }
+  };
+
   return (
     <div
-      className={`recording-overlay ${isVisible ? "fade-in" : ""} ${state === "error" ? "overlay-error" : ""} ${state === "microphone_switch" ? "overlay-microphone-switch" : ""}`}
+      className={`recording-overlay ${isVisible ? "fade-in" : ""} ${state === "error" ? "overlay-error" : ""} ${state === "microphone_switch" ? "overlay-microphone-switch" : ""} ${showDragGrip ? "recording-overlay-with-grip" : ""}`}
     >
+      {showDragGrip && (
+        <div className="recording-overlay-grip-row">
+          <button
+            type="button"
+            className="recording-overlay-grip"
+            aria-label="Drag to move overlay"
+            title="Drag to move overlay"
+            onPointerDown={handleDragGripPointerDown}
+            onPointerUp={handleDragGripPointerEnd}
+            onPointerCancel={handleDragGripPointerEnd}
+          >
+            {Array.from({ length: 6 }).map((_, index) => (
+              <span key={index} className="recording-overlay-grip-dot" />
+            ))}
+          </button>
+        </div>
+      )}
       {decapIndicatorEligible &&
         decapIndicatorArmed &&
         state !== "profile_switch" &&

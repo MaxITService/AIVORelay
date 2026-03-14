@@ -488,6 +488,14 @@ settingUpdaters.error_overlay_auto_hide_ms = (value) =>
   invoke("change_soniox_live_preview_backspace_delete_last_char_setting", {
     enabled: value,
   });
+(settingUpdaters as any).recording_overlay_show_drag_grip = (value: any) =>
+  invoke("change_recording_overlay_show_drag_grip_setting", {
+    enabled: value,
+  });
+(settingUpdaters as any).auto_position_allow_reserved_areas = (value: any) =>
+  invoke("change_auto_position_allow_reserved_areas_setting", {
+    enabled: value,
+  });
 (settingUpdaters as any).soniox_live_preview_show_drag_grip = (value: any) =>
   invoke("change_soniox_live_preview_show_drag_grip_setting", {
     enabled: value,
