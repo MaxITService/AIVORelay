@@ -63,6 +63,9 @@ function App() {
         toast.error(event.payload, { duration: ERROR_TOAST_DURATION_MS });
       },
     );
+    const unlistenRecording = listen<string>("recording-error", (event) => {
+      toast.error(event.payload, { duration: ERROR_TOAST_DURATION_MS });
+    });
 
     const unlistenAuthFailed = listen<{ message: string }>("connector-auth-failed", (event) => {
       toast.warning(event.payload.message || "Connector authentication failed", { duration: 5000 });
@@ -72,6 +75,7 @@ function App() {
       unlistenRemote.then((unlisten) => unlisten());
       unlistenScreenshot.then((unlisten) => unlisten());
       unlistenVoiceCommand.then((unlisten) => unlisten());
+      unlistenRecording.then((unlisten) => unlisten());
       unlistenAuthFailed.then((unlisten) => unlisten());
     };
   }, []);
