@@ -1161,6 +1161,22 @@ async resumeBinding(id: string) : Promise<Result<null, string>> {
     else return { status: "error", error: e  as any };
 }
 },
+async startHandyKeysRecording(bindingId: string) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("start_handy_keys_recording", { bindingId }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async stopHandyKeysRecording() : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("stop_handy_keys_recording") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async changeMuteWhileRecordingSetting(enabled: boolean) : Promise<Result<null, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("change_mute_while_recording_setting", { enabled }) };
@@ -3256,6 +3272,11 @@ export type ShortcutEngine =
  * Does NOT support: Caps Lock, Num Lock, Scroll Lock, modifier-only shortcuts
  */
 "tauri" | 
+/**
+ * Use the upstream handy-keys backend (global hotkeys with backend-side recording)
+ * Supports broader key coverage than Tauri without replacing fork-specific rdev monitors
+ */
+"handy_keys" | 
 /**
  * Use rdev low-level hooks (all keys supported, higher CPU usage)
  * Supports ALL keys including Caps Lock, Num Lock, and modifier-only shortcuts

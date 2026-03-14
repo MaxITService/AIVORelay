@@ -30,6 +30,7 @@ Files that are added by this fork rather than upstream files that were modified.
 | `src-tauri/src/url_security.rs` | Canonical provider URLs and HTTPS/HTTP override validation for Remote STT and LLM endpoints. |
 | `src-tauri/src/managers/key_listener.rs` | rdev Key Listener (Windows). |
 | `src-tauri/src/commands/key_listener.rs` | Commands for key listener. |
+| `src-tauri/src/shortcut_handy_keys.rs` | Ported upstream HandyKeys shortcut backend and backend-side shortcut recording. |
 | `src-tauri/src/language_resolver.rs` | Soniox language resolver. |
 | `src-tauri/src/text_replacement_decapitalize.rs` | Decapitalize trigger. |
 
@@ -55,6 +56,8 @@ Files that are added by this fork rather than upstream files that were modified.
 | `src/components/settings/live-sound-transcription/LiveSoundTranscriptionSettings.tsx` | Live Sound Transcription page with in-page diarized transcript and source/device controls. |
 | `src/components/settings/text-replacement/TextReplacementSettings.tsx` | Text Replacement rules UI. |
 | `src/components/settings/audio-processing/AudioProcessingSettings.tsx` | Audio processing UI. |
+| `src/components/settings/GlobalShortcutInput.tsx` | Browser-side shortcut capture for Tauri/rdev engines. |
+| `src/components/settings/HandyKeysShortcutInput.tsx` | Backend-side shortcut capture UI for HandyKeys engine. |
 | `src/components/settings/debug/ShortcutEngineSelector.tsx` | Shortcut engine toggle UI. |
 | `src/lib/constants/sonioxLanguages.ts` | Soniox languages mapping. |
 | `src/lib/constants/remoteSttProviders.ts` | Remote STT preset metadata for Groq/OpenAI/custom URL handling. |
@@ -77,7 +80,7 @@ Files that are added by this fork rather than upstream files that were modified.
 | `src-tauri/src/overlay.rs` | Overlay states, preview window helpers, live preview geometry constraints, preview action appearance payload. |
 | `src-tauri/src/settings.rs` | Fork-specific settings & features, including live preview action toggles/hotkeys and preview action bindings. |
 | `src-tauri/src/lib.rs` | Registers managers, commands, tray. |
-| `src-tauri/src/shortcut.rs` | Dual-engine shortcut bindings, live preview geometry persistence commands, preview action settings commands, preview delete-last-word global hotkey sync. |
+| `src-tauri/src/shortcut.rs` | Multi-engine shortcut bindings (Tauri/rdev/HandyKeys), live preview geometry persistence commands, preview action settings commands, preview delete-last-word global hotkey sync. |
 | `src-tauri/src/clipboard.rs` | Clipboard behavior. |
 | `src-tauri/src/input.rs` | Selection capture utilities. |
 | `src-tauri/src/tray.rs` | Custom tray menu. |

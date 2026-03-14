@@ -1484,9 +1484,11 @@
       },
       "shortcutEngine": {
         "title": "Shortcut Engine",
-        "description": "Choose the keyboard shortcut detection method. rdev supports all keys but uses more CPU: read warning in \"tell me more\" below. Tauri is faster but has limited key support.",
+        "description": "Choose the keyboard shortcut detection method. Tauri is fastest, HandyKeys adds upstream backend hotkey support, and rdev remains the most flexible but most invasive option.",
+        "descriptionSuffix": "Read the detailed comparison below.",
         "options": {
           "rdev": "rdev (All Keys)",
+          "handyKeys": "HandyKeys (Upstream Backend)",
           "tauri": "Tauri (High Performance)"
         },
         "activeEngine": "Currently active",
@@ -1510,7 +1512,7 @@
         },
         "tellMeMore": {
           "title": "Tell me more: Shortcut Engines",
-          "intro": "AivoRelay offers two different methods (Engines) for detecting when you press your recording hotkeys. Each has different trade-offs in compatibility, performance, and security.",
+          "intro": "AivoRelay offers three different methods (Engines) for detecting when you press your recording hotkeys. Each has different trade-offs in compatibility, performance, and security.",
           "tauri": {
             "title": "Native Engine (Tauri / RegisterHotKey)",
             "description": "The recommended engine for most users; its limitations are hardcoded into the <code>win32</code> <code>RegisterHotKey</code> API because Windows prioritizes system stability over individual app flexibility. Technically, the OS kernel takes over the keyboard monitoring; AivoRelay remains completely idle until the system posts a <code>WM_HOTKEY</code> message directly to its internal message queue. This architecture provides near-zero overhead because there is no continuous polling and zero risk of system-wide input lag.",
@@ -1524,6 +1526,20 @@
               "modifierOnly": "Cannot detect 'modifier-only' shortcuts (e.g., just Ctrl+Shift).",
               "lockKeys": "Cannot use 'Lock' keys (Caps Lock, Num Lock) as modifiers (though they can be the main key).",
               "conflicts": "Shortcut registration may fail if another application is already using it."
+            }
+          },
+          "handyKeys": {
+            "title": "Upstream Backend (HandyKeys)",
+            "description": "This engine ports Handy's upstream <code>handy-keys</code> backend into AivoRelay. It keeps shortcut handling in a dedicated backend manager thread and also provides backend-side shortcut recording, which is useful for keys the browser cannot capture reliably.",
+            "pros": {
+              "title": "Pros:",
+              "compatibility": "Better shortcut coverage than Tauri without replacing the fork's existing rdev monitor-only features.",
+              "recording": "Can record shortcuts through the backend instead of relying only on browser keyboard events."
+            },
+            "cons": {
+              "title": "Limitations:",
+              "restart": "Like the other Windows engine changes in AivoRelay, switching to HandyKeys still requires an app restart.",
+              "scope": "Passive key-monitor features in the fork still use rdev where that behavior is required."
             }
           },
           "rdev": {
@@ -2336,6 +2352,7 @@
     "decapitalizeAfterEditRdevWarningTitle": "Warning: this feature uses passive rdev monitoring",
     "decapitalizeAfterEditRdevWarningBody": "Only rdev can passively monitor keys like Backspace or Delete while the active application still receives those keys normally.",
     "decapitalizeAfterEditRdevWarningTauriBody": "Your main Shortcut Engine remains Tauri, but enabling this feature starts an extra rdev listener. Turn this feature off to stop this extra rdev usage.",
+    "decapitalizeAfterEditRdevWarningNonRdevBody": "Your main Shortcut Engine is not rdev, but enabling this feature starts an extra rdev listener alongside it. Turn this feature off to stop this extra rdev usage.",
     "decapitalizeAfterEditRdevWarningRdevBody": "Your main Shortcut Engine is already rdev, so turning this feature off disables only this decapitalize monitor.",
     "decapitalizeAfterEditRdevWarningLinkHint": "Open Debug -> Experimental Features -> Shortcut Engine and read the rdev warning before using this.",
     "decapitalizeAfterEditRdevWarningLink": "Open Debug Shortcut Settings",

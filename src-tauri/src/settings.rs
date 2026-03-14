@@ -799,6 +799,9 @@ pub enum ShortcutEngine {
     /// Use tauri-plugin-global-shortcut (high performance, limited key support)
     /// Does NOT support: Caps Lock, Num Lock, Scroll Lock, modifier-only shortcuts
     Tauri,
+    /// Use the upstream handy-keys backend (global hotkeys with backend-side recording)
+    /// Supports broader key coverage than Tauri without replacing fork-specific rdev monitors
+    HandyKeys,
     /// Use rdev low-level hooks (all keys supported, higher CPU usage)
     /// Supports ALL keys including Caps Lock, Num Lock, and modifier-only shortcuts
     Rdev,
