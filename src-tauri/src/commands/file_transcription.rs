@@ -220,7 +220,11 @@ pub async fn transcribe_audio_file(
 
         // Apply filler word filter (if enabled)
         let corrected = if settings.filler_word_filter_enabled {
-            crate::audio_toolkit::filter_transcription_output(&corrected)
+            crate::audio_toolkit::filter_transcription_output(
+                &corrected,
+                language.as_str(),
+                &settings.custom_filler_words,
+            )
         } else {
             corrected
         };
@@ -494,10 +498,18 @@ pub async fn transcribe_audio_file(
         }
 
         let (text, segs) = result?;
+        let filter_language = profile
+            .as_ref()
+            .map(|p| p.language.as_str())
+            .unwrap_or(settings.selected_language.as_str());
         
         // Apply filler word filter (if enabled)
         let text = if settings.filler_word_filter_enabled {
-            crate::audio_toolkit::filter_transcription_output(&text)
+            crate::audio_toolkit::filter_transcription_output(
+                &text,
+                filter_language,
+                &settings.custom_filler_words,
+            )
         } else {
             text
         };
@@ -506,7 +518,11 @@ pub async fn transcribe_audio_file(
         let segs = segs.map(|mut segments| {
             for segment in &mut segments {
                 segment.text = if settings.filler_word_filter_enabled {
-                    crate::audio_toolkit::filter_transcription_output(&segment.text)
+                    crate::audio_toolkit::filter_transcription_output(
+                        &segment.text,
+                        filter_language,
+                        &settings.custom_filler_words,
+                    )
                 } else {
                     segment.text.clone()
                 };
@@ -622,7 +638,11 @@ fn apply_transcription_post_processing(
     };
 
     if settings.filler_word_filter_enabled {
-        crate::audio_toolkit::filter_transcription_output(&corrected)
+        crate::audio_toolkit::filter_transcription_output(
+            &corrected,
+            &settings.selected_language,
+            &settings.custom_filler_words,
+        )
     } else {
         corrected
     }

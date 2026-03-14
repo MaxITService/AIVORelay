@@ -1054,7 +1054,11 @@ async fn perform_transcription_for_profile(
                     };
                 // Apply filler word filter (if enabled)
                 if settings.filler_word_filter_enabled {
-                    crate::audio_toolkit::filter_transcription_output(&corrected)
+                    crate::audio_toolkit::filter_transcription_output(
+                        &corrected,
+                        language.as_str(),
+                        &settings.custom_filler_words,
+                    )
                 } else {
                     corrected
                 }
@@ -1217,7 +1221,11 @@ async fn perform_transcription_for_profile(
                 text
             };
             if settings.filler_word_filter_enabled {
-                crate::audio_toolkit::filter_transcription_output(&corrected)
+                crate::audio_toolkit::filter_transcription_output(
+                    &corrected,
+                    language.as_str(),
+                    &settings.custom_filler_words,
+                )
             } else {
                 corrected
             }
@@ -1307,7 +1315,11 @@ async fn perform_transcription_for_profile(
                         text
                     };
                 if settings.filler_word_filter_enabled {
-                    crate::audio_toolkit::filter_transcription_output(&corrected)
+                    crate::audio_toolkit::filter_transcription_output(
+                        &corrected,
+                        language.as_str(),
+                        &settings.custom_filler_words,
+                    )
                 } else {
                     corrected
                 }
@@ -2488,7 +2500,11 @@ fn apply_soniox_output_filters(settings: &AppSettings, text: String) -> String {
     };
 
     if settings.filler_word_filter_enabled {
-        crate::audio_toolkit::filter_transcription_output(&corrected)
+        crate::audio_toolkit::filter_transcription_output(
+            &corrected,
+            &settings.selected_language,
+            &settings.custom_filler_words,
+        )
     } else {
         corrected
     }

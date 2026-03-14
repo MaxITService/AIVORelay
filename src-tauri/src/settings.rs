@@ -1592,6 +1592,9 @@ pub struct AppSettings {
     /// Whether to filter filler words (uh, um, hmm, etc.) from transcriptions
     #[serde(default)]
     pub filler_word_filter_enabled: bool,
+    /// Optional custom filler words. When set, overrides language defaults for filler filtering.
+    #[serde(default)]
+    pub custom_filler_words: Option<Vec<String>>,
     /// Whether to strip invisible Unicode characters (zero-width spaces, BOM) from LLM output
     #[serde(default = "default_true")]
     pub zero_width_filter_enabled: bool,
@@ -2724,6 +2727,7 @@ pub fn get_default_settings() -> AppSettings {
         output_whitespace_trailing_mode: OutputWhitespaceMode::default(),
         // Audio Processing
         filler_word_filter_enabled: false,
+        custom_filler_words: None,
         zero_width_filter_enabled: true,
         vad_threshold: default_vad_threshold(),
         // Shortcut Engine (Windows only)
