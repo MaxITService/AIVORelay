@@ -10,6 +10,7 @@ Rules:
 
 | Merge Date | Upstream Date | Upstream SHA | Upstream Message | Local SHA | Local Message | Issues |
 | --- | --- | --- | --- | --- | --- | --- |
+| 2026-03-14 | 2026-03-14 | `85a8ed7` | feat: pass custom words as Whisper initial_prompt instead of post-correction (#1035) | `794d651` | Bias Whisper custom words via initial prompt | added Whisper biasing; kept fork post-correction path |
 | 2026-03-14 | 2026-03-12 | `aebd432` | fix: overlay not showing on non-primary monitors (#969) | `bcbd97f` | Fix overlay placement on non-primary monitors | extended to shared overlay helpers/live preview geometry |
 | 2026-03-14 | 2026-03-11 | `82297fa` | Add model loading failure notifications with i18n support (#997) | `7f99cb5` | Notify on model loading failures | reused existing `loading_failed`; added shared TS event type; en/ru only |
 | 2026-03-14 | 2026-03-10 | `785c331` | Handle microphone init failure without aborting (#945) | `e890d40` | Surface recording start failures in UI | backend already in fork; ported missing `recording-error` UI path |
@@ -19,7 +20,6 @@ Rules:
 | 2026-03-05 | 2026-03-01 | `f403cb1` | update transcribe-rs | `0ca85fa` | update transcribe-rs | Cargo.lock conflict resolved with ours; diff saved |
 | 2026-03-04 | 2026-03-02 | `a6b5c32` | move to tauri dialog 2.6 | `ba650a3` | move to tauri dialog 2.6 | conflicts in Cargo.toml/Cargo.lock; lock=ours; diff saved |
 | 2026-03-04 | 2026-02-25 | `f1516d9` | fix: auto-refresh model list when switching post-processing providers (#854) | `1a4bd4c` | fix: auto-refresh model list when switching post-processing providers (#854) | clean cherry-pick |
-| 2026-03-01 | 2026-03-01 | `ff86122` | feat: add GigaAM v3 for Russian speech recognition (#913) | `feb6f48` | feat: add GigaAM v3 for Russian speech recognition (#913) | none |
 
 Entry template:
 
