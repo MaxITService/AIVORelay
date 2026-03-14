@@ -2,10 +2,7 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { listen } from "@tauri-apps/api/event";
 import { commands, type GpuVramStatus } from "@/bindings";
-
-interface ModelStateEvent {
-  event_type: string;
-}
+import type { ModelStateEvent } from "@/lib/types/events";
 
 interface VramMeterProps {
   refreshNonce?: number;

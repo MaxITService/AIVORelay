@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Toaster, toast } from "sonner";
 import "./App.css";
 import AccessibilityPermissions from "./components/AccessibilityPermissions";
@@ -11,6 +12,7 @@ import { commands } from "@/bindings";
 import { listen } from "@tauri-apps/api/event";
 import { useNavigationStore } from "./stores/navigationStore";
 import { OPEN_FIRST_START_WIZARD_EVENT } from "./constants/appEvents";
+import type { ModelStateEvent } from "./lib/types/events";
 
 const renderSettingsContent = (section: SidebarSection) => {
   const ActiveComponent =
@@ -19,6 +21,7 @@ const renderSettingsContent = (section: SidebarSection) => {
 };
 
 function App() {
+  const { t } = useTranslation();
   const [showOnboarding, setShowOnboarding] = useState<boolean | null>(null);
   const [onboardingFromDebug, setOnboardingFromDebug] = useState(false);
   const { currentSection, setSection: setCurrentSection } =
@@ -66,6 +69,26 @@ function App() {
     const unlistenRecording = listen<string>("recording-error", (event) => {
       toast.error(event.payload, { duration: ERROR_TOAST_DURATION_MS });
     });
+    const unlistenModelState = listen<ModelStateEvent>(
+      "model-state-changed",
+      (event) => {
+        if (event.payload.event_type !== "loading_failed") {
+          return;
+        }
+
+        toast.error(
+          t("errors.modelLoadFailed", {
+            model:
+              event.payload.model_name ||
+              t("errors.modelLoadFailedUnknown"),
+          }),
+          {
+            duration: ERROR_TOAST_DURATION_MS,
+            description: event.payload.error,
+          },
+        );
+      },
+    );
 
     const unlistenAuthFailed = listen<{ message: string }>("connector-auth-failed", (event) => {
       toast.warning(event.payload.message || "Connector authentication failed", { duration: 5000 });
@@ -76,9 +99,10 @@ function App() {
       unlistenScreenshot.then((unlisten) => unlisten());
       unlistenVoiceCommand.then((unlisten) => unlisten());
       unlistenRecording.then((unlisten) => unlisten());
+      unlistenModelState.then((unlisten) => unlisten());
       unlistenAuthFailed.then((unlisten) => unlisten());
     };
-  }, []);
+  }, [t]);
 
   // Sync soniox_live_preview_enabled when the active profile changes (e.g. via shortcut)
   useEffect(() => {
