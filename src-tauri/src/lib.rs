@@ -22,6 +22,7 @@ mod secure_keys;
 mod session_manager;
 mod settings;
 mod shortcut;
+mod shortcut_handy_keys;
 mod signal_handle;
 mod soniox_stream_processor;
 pub mod subtitle;
@@ -545,6 +546,8 @@ pub fn run() {
         shortcut::change_custom_words_ngram_enabled_setting,
         shortcut::suspend_binding,
         shortcut::resume_binding,
+        shortcut_handy_keys::start_handy_keys_recording,
+        shortcut_handy_keys::stop_handy_keys_recording,
         shortcut::change_mute_while_recording_setting,
         shortcut::change_filter_silence_setting,
         shortcut::change_recording_auto_stop_enabled_setting,
