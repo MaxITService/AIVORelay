@@ -10,6 +10,11 @@ body,
 }
 
 .recording-overlay {
+  --recording-overlay-accent: #ff4d8d;
+  --recording-overlay-accent-soft: rgba(255, 77, 141, 0.22);
+  --recording-overlay-accent-border: rgba(255, 77, 141, 0.34);
+  --recording-overlay-bar-color: rgba(255, 77, 141, 0.9);
+  --recording-overlay-bar-width: 6px;
   height: 100%;
   width: 100%;
   display: grid;
@@ -25,13 +30,9 @@ body,
   box-sizing: border-box;
 }
 
-.recording-overlay-with-grip {
-  padding-top: 10px;
-}
-
 .recording-overlay-grip-row {
   position: absolute;
-  top: 1px;
+  top: 4px;
   left: 0;
   right: 0;
   z-index: 5;
@@ -47,7 +48,7 @@ body,
   align-content: center;
   justify-content: center;
   width: 28px;
-  height: 8px;
+  height: 10px;
   padding: 0;
   border: 0;
   background: transparent;
@@ -65,7 +66,7 @@ body,
   width: 2px;
   height: 2px;
   border-radius: 999px;
-  background: rgba(245, 245, 245, 0.52);
+  background: var(--recording-overlay-accent-border);
   box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.04);
 }
 
@@ -98,8 +99,8 @@ body,
 }
 
 .bar {
-  width: 6px;
-  background: #ffe5ee;
+  width: var(--recording-overlay-bar-width);
+  background: var(--recording-overlay-bar-color);
   max-height: 20px;
   border-radius: 2px;
   transition: height 80ms linear;
@@ -133,7 +134,7 @@ body,
 }
 
 .microphone-switch-label {
-  color: #ffd5e3;
+  color: var(--recording-overlay-accent-border);
   font-size: 9px;
   font-family:
     -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
@@ -179,7 +180,7 @@ body,
 }
 
 .cancel-button:hover {
-  background: #faa2ca33;
+  background: var(--recording-overlay-accent-soft);
   transform: scale(1.05);
 }
 
@@ -267,7 +268,7 @@ body,
 
 .overlay-decapitalize-indicator {
   position: absolute;
-  top: 1px;
+  top: 2px;
   left: 50%;
   transform: translateX(-50%);
   color: #72f29a;

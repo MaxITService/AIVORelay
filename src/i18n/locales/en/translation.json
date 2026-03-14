@@ -344,6 +344,37 @@
       "sidebarReorder": {
         "title": "Sidebar Customization",
         "description": "You can customize your navigation! Reorder the sections in the sidebar on the left by clicking and dragging them to your preferred position. Your custom layout is automatically saved and persists between app restarts."
+      },
+      "recordingOverlay": {
+        "title": "Recording Overlay",
+        "preview": {
+          "title": "Recording Overlay Preview",
+          "description": "Preview the main overlay style here before using it in live recording."
+        },
+        "theme": {
+          "title": "Overlay Theme",
+          "description": "Change the surface style of the recording overlay."
+        },
+        "statusIcon": {
+          "label": "Show Status Icon",
+          "description": "Show the microphone, processing, and error icon on the left side of the overlay."
+        },
+        "barCount": {
+          "title": "Bar Count",
+          "description": "Choose how many audio bars are shown while recording."
+        },
+        "barStyle": {
+          "title": "Bar Style",
+          "description": "Choose the visual style of the recording meter bars."
+        },
+        "barWidth": {
+          "title": "Bar Width",
+          "description": "Adjust the thickness of the recording bars."
+        },
+        "accentColor": {
+          "title": "Overlay Accent Color",
+          "description": "Pick the accent color used for recording bars and hover accents."
+        }
       }
     },
     "general": {

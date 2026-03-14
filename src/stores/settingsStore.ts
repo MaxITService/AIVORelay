@@ -492,6 +492,18 @@ settingUpdaters.error_overlay_auto_hide_ms = (value) =>
   invoke("change_recording_overlay_show_drag_grip_setting", {
     enabled: value,
   });
+(settingUpdaters as any).recording_overlay_theme = (value: any) =>
+  commands.changeRecordingOverlayThemeSetting(String(value));
+(settingUpdaters as any).recording_overlay_show_status_icon = (value: any) =>
+  commands.changeRecordingOverlayShowStatusIconSetting(Boolean(value));
+(settingUpdaters as any).recording_overlay_bar_count = (value: any) =>
+  commands.changeRecordingOverlayBarCountSetting(Number(value));
+(settingUpdaters as any).recording_overlay_bar_width_px = (value: any) =>
+  commands.changeRecordingOverlayBarWidthSetting(Number(value));
+(settingUpdaters as any).recording_overlay_bar_style = (value: any) =>
+  commands.changeRecordingOverlayBarStyleSetting(String(value));
+(settingUpdaters as any).recording_overlay_accent_color = (value: any) =>
+  commands.changeRecordingOverlayAccentColorSetting(String(value));
 (settingUpdaters as any).auto_position_allow_reserved_areas = (value: any) =>
   invoke("change_auto_position_allow_reserved_areas_setting", {
     enabled: value,

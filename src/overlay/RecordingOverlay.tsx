@@ -12,8 +12,16 @@ import {
   ThinkingIcon,
 } from "../components/icons";
 import "./RecordingOverlay.css";
-import { commands } from "@/bindings";
+import { commands, type RecordingOverlayAppearancePayload } from "@/bindings";
 import { syncLanguageFromSettings } from "@/i18n";
+import {
+  getRecordingOverlayBarStyle,
+  getRecordingOverlaySurfaceStyle,
+  normalizeRecordingOverlayBarStyle,
+  normalizeRecordingOverlayColor,
+  type RecordingOverlayBarStyle,
+  type RecordingOverlayTheme,
+} from "./recordingOverlayAppearance";
 import {
   ExtendedOverlayState,
   fallbackCodeFromCategory,
@@ -63,9 +71,14 @@ type OverlayErrorCopy = {
   hint: string;
 };
 
-type RecordingOverlayAppearancePayload = {
-  show_drag_grip?: boolean;
-  showDragGrip?: boolean;
+const DEFAULT_OVERLAY_APPEARANCE: RecordingOverlayAppearancePayload = {
+  theme: "classic",
+  accent_color: "#ff4d8d",
+  show_status_icon: true,
+  bar_count: 9,
+  bar_width_px: 6,
+  bar_style: "solid",
+  show_drag_grip: false,
 };
 
 function getOverlayErrorCopy(
@@ -222,9 +235,11 @@ const RecordingOverlay: React.FC = () => {
   const [errorHint, setErrorHint] = useState<string | null>(null);
   const [errorCode, setErrorCode] = useState<string | null>(null);
   const [errorTechnical, setErrorTechnical] = useState<string | null>(null);
-  const [levels, setLevels] = useState<number[]>(Array(16).fill(0));
-  const [showDragGrip, setShowDragGrip] = useState(false);
-  const smoothedLevelsRef = useRef<number[]>(Array(16).fill(0));
+  const [levels, setLevels] = useState<number[]>(Array(20).fill(0));
+  const [appearance, setAppearance] = useState<RecordingOverlayAppearancePayload>(
+    DEFAULT_OVERLAY_APPEARANCE,
+  );
+  const smoothedLevelsRef = useRef<number[]>(Array(20).fill(0));
   const dragGripStateRef = useRef<{
     armed: boolean;
     sawMove: boolean;
@@ -257,28 +272,40 @@ const RecordingOverlay: React.FC = () => {
         return;
       }
 
-      const data = payload as RecordingOverlayAppearancePayload;
-      setShowDragGrip(
-        typeof data.show_drag_grip === "boolean"
-          ? data.show_drag_grip
-          : typeof data.showDragGrip === "boolean"
-            ? data.showDragGrip
-            : false,
-      );
+      const data = payload as Partial<RecordingOverlayAppearancePayload> & {
+        showDragGrip?: boolean;
+      };
+      const theme =
+        data.theme === "minimal" || data.theme === "glass" ? data.theme : "classic";
+
+      setAppearance({
+        theme,
+        accent_color: normalizeRecordingOverlayColor(data.accent_color),
+        show_status_icon:
+          typeof data.show_status_icon === "boolean"
+            ? data.show_status_icon
+            : DEFAULT_OVERLAY_APPEARANCE.show_status_icon,
+        bar_count:
+          typeof data.bar_count === "number"
+            ? Math.max(3, Math.min(16, Math.round(data.bar_count)))
+            : DEFAULT_OVERLAY_APPEARANCE.bar_count,
+        bar_width_px:
+          typeof data.bar_width_px === "number"
+            ? Math.max(2, Math.min(12, Math.round(data.bar_width_px)))
+            : DEFAULT_OVERLAY_APPEARANCE.bar_width_px,
+        bar_style: normalizeRecordingOverlayBarStyle(data.bar_style),
+        show_drag_grip:
+          typeof data.show_drag_grip === "boolean"
+            ? data.show_drag_grip
+            : typeof data.showDragGrip === "boolean"
+              ? data.showDragGrip
+              : DEFAULT_OVERLAY_APPEARANCE.show_drag_grip,
+      });
     };
 
     const refreshAppearance = async () => {
       try {
-        const result = await commands.getAppSettings();
-        if (result.status !== "ok") {
-          return;
-        }
-
-        applyAppearance({
-          show_drag_grip: Boolean(
-            (result.data as any)?.recording_overlay_show_drag_grip ?? false,
-          ),
-        });
+        applyAppearance(await commands.getRecordingOverlayAppearance());
       } catch {
         // Keep the overlay resilient if settings refresh fails.
       }
@@ -432,7 +459,7 @@ const RecordingOverlay: React.FC = () => {
         });
 
         smoothedLevelsRef.current = smoothed;
-        setLevels(smoothed.slice(0, 9));
+        setLevels(smoothed);
       });
 
       cleanup = () => {
@@ -499,6 +526,17 @@ const RecordingOverlay: React.FC = () => {
     };
   }, [decapIndicatorEligible, isVisible, state]);
 
+  const overlayTheme = appearance.theme as RecordingOverlayTheme;
+  const barStyle = appearance.bar_style as RecordingOverlayBarStyle;
+  const showDragGrip = appearance.show_drag_grip;
+  const showStatusIcon = appearance.show_status_icon;
+  const visibleLevels = levels.slice(0, appearance.bar_count);
+  const surfaceStyle = getRecordingOverlaySurfaceStyle(
+    overlayTheme,
+    appearance.accent_color,
+    appearance.bar_width_px,
+  );
+
   const getIcon = () => {
     switch (state) {
       case "recording":
@@ -553,7 +591,8 @@ const RecordingOverlay: React.FC = () => {
 
   return (
     <div
-      className={`recording-overlay ${isVisible ? "fade-in" : ""} ${state === "error" ? "overlay-error" : ""} ${state === "microphone_switch" ? "overlay-microphone-switch" : ""} ${showDragGrip ? "recording-overlay-with-grip" : ""}`}
+      className={`recording-overlay ${isVisible ? "fade-in" : ""} ${state === "error" ? "overlay-error" : ""} ${state === "microphone_switch" ? "overlay-microphone-switch" : ""}`}
+      style={surfaceStyle}
     >
       {showDragGrip && (
         <div className="recording-overlay-grip-row">
@@ -582,19 +621,26 @@ const RecordingOverlay: React.FC = () => {
         </div>
       )}
 
-      <div className="overlay-left">{getIcon()}</div>
+      <div className="overlay-left">
+        {showStatusIcon ? getIcon() : null}
+      </div>
 
       <div className="overlay-middle">
         {state === "recording" && (
           <div className="bars-container">
-            {levels.map((v, i) => (
+            {visibleLevels.map((v, i) => (
               <div
                 key={i}
                 className="bar"
                 style={{
                   height: `${Math.min(20, 4 + Math.pow(v, 0.7) * 16)}px`, // Cap at 20px max height
                   transition: "height 60ms ease-out, opacity 120ms ease-out",
-                  opacity: Math.max(0.2, v * 1.7), // Minimum opacity for visibility
+                  ...getRecordingOverlayBarStyle(
+                    barStyle,
+                    appearance.accent_color,
+                    v,
+                    i,
+                  ),
                 }}
               />
             ))}

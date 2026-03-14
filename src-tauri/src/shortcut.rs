@@ -17,8 +17,10 @@ use crate::shortcut_handy_keys;
 use crate::settings::APPLE_INTELLIGENCE_DEFAULT_MODEL_ID;
 use crate::settings::{
     self, get_settings, AutoSubmitKey, ClipboardHandling, LLMPrompt, OutputWhitespaceMode,
-    OverlayPosition, PasteMethod, RemoteSttDebugMode, ShortcutEngine, SonioxLivePreviewPosition,
-    SonioxLivePreviewSize, SonioxLivePreviewTheme, SoundTheme, TranscriptionProvider,
+    OverlayPosition, PasteMethod, RecordingOverlayBarStyle, RecordingOverlayTheme,
+    RemoteSttDebugMode, ShortcutEngine, SonioxLivePreviewPosition, SonioxLivePreviewSize,
+    SonioxLivePreviewTheme, SoundTheme,
+    TranscriptionProvider,
     APPLE_INTELLIGENCE_PROVIDER_ID, DEEPGRAM_DEFAULT_ENDPOINTING_MS,
     DEEPGRAM_DEFAULT_LIVE_FINALIZE_TIMEOUT_MS, DEEPGRAM_DEFAULT_MODEL,
     SONIOX_DEFAULT_LIVE_FINALIZE_TIMEOUT_MS, SONIOX_DEFAULT_MAX_ENDPOINT_DELAY_MS,
@@ -193,11 +195,39 @@ fn refresh_soniox_live_preview_window(app: &AppHandle) {
     crate::overlay::update_soniox_live_preview_window(app);
 }
 
+fn refresh_recording_overlay_window(app: &AppHandle) {
+    crate::overlay::update_overlay_position(app);
+}
+
 fn refresh_auto_positioned_windows(app: &AppHandle) {
-    crate::utils::update_overlay_position(app);
+    refresh_recording_overlay_window(app);
     crate::overlay::update_soniox_live_preview_window(app);
     crate::overlay::update_command_confirm_position(app);
     crate::overlay::update_voice_activation_button_position(app);
+}
+
+fn normalize_recording_overlay_color(value: &str) -> String {
+    let trimmed = value.trim();
+    if trimmed.len() == 7
+        && trimmed.starts_with('#')
+        && trimmed.chars().skip(1).all(|ch| ch.is_ascii_hexdigit())
+    {
+        return format!("#{}", trimmed[1..].to_ascii_lowercase());
+    }
+
+    warn!(
+        "Invalid recording overlay color '{}', defaulting to #ff4d8d",
+        value
+    );
+    "#ff4d8d".to_string()
+}
+
+fn clamp_recording_overlay_bar_count(value: u8) -> u8 {
+    value.clamp(3, 16)
+}
+
+fn clamp_recording_overlay_bar_width_px(value: u8) -> u8 {
+    value.clamp(2, 12)
 }
 
 fn is_decapitalize_monitor_shortcut_id(id: &str) -> bool {
@@ -860,11 +890,11 @@ pub fn change_overlay_position_setting(app: AppHandle, position: String) -> Resu
         }
     };
     settings.overlay_position = parsed;
+    settings.recording_overlay_use_manual_position = false;
     settings::write_settings(&app, settings);
-    crate::overlay::clear_recording_overlay_manual_position();
 
     // Update overlay position without recreating window
-    crate::utils::update_overlay_position(&app);
+    refresh_recording_overlay_window(&app);
 
     Ok(())
 }
@@ -913,7 +943,108 @@ pub fn change_recording_overlay_show_drag_grip_setting(
     let mut settings = settings::get_settings(&app);
     settings.recording_overlay_show_drag_grip = enabled;
     settings::write_settings(&app, settings);
-    crate::overlay::update_overlay_position(&app);
+    refresh_recording_overlay_window(&app);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_recording_overlay_theme_setting(
+    app: AppHandle,
+    theme: String,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.recording_overlay_theme = match theme.as_str() {
+        "minimal" => RecordingOverlayTheme::Minimal,
+        "glass" => RecordingOverlayTheme::Glass,
+        "classic" => RecordingOverlayTheme::Classic,
+        other => {
+            warn!(
+                "Invalid recording overlay theme '{}', defaulting to classic",
+                other
+            );
+            RecordingOverlayTheme::Classic
+        }
+    };
+    settings::write_settings(&app, settings);
+    refresh_recording_overlay_window(&app);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_recording_overlay_show_status_icon_setting(
+    app: AppHandle,
+    enabled: bool,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.recording_overlay_show_status_icon = enabled;
+    settings::write_settings(&app, settings);
+    refresh_recording_overlay_window(&app);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_recording_overlay_bar_count_setting(
+    app: AppHandle,
+    count: u8,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.recording_overlay_bar_count = clamp_recording_overlay_bar_count(count);
+    settings::write_settings(&app, settings);
+    refresh_recording_overlay_window(&app);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_recording_overlay_bar_width_setting(
+    app: AppHandle,
+    width_px: u8,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.recording_overlay_bar_width_px = clamp_recording_overlay_bar_width_px(width_px);
+    settings::write_settings(&app, settings);
+    refresh_recording_overlay_window(&app);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_recording_overlay_bar_style_setting(
+    app: AppHandle,
+    style: String,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.recording_overlay_bar_style = match style.as_str() {
+        "capsule" => RecordingOverlayBarStyle::Capsule,
+        "glow" => RecordingOverlayBarStyle::Glow,
+        "prism" => RecordingOverlayBarStyle::Prism,
+        "solid" => RecordingOverlayBarStyle::Solid,
+        other => {
+            warn!(
+                "Invalid recording overlay bar style '{}', defaulting to solid",
+                other
+            );
+            RecordingOverlayBarStyle::Solid
+        }
+    };
+    settings::write_settings(&app, settings);
+    refresh_recording_overlay_window(&app);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_recording_overlay_accent_color_setting(
+    app: AppHandle,
+    color: String,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.recording_overlay_accent_color = normalize_recording_overlay_color(&color);
+    settings::write_settings(&app, settings);
+    refresh_recording_overlay_window(&app);
     Ok(())
 }
 

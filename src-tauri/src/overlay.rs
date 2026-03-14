@@ -3,7 +3,8 @@ use crate::managers::preview_output_mode::PreviewOutputModeStatePayload;
 use crate::plus_overlay_state;
 use crate::settings;
 use crate::settings::{
-    OverlayPosition, SonioxLivePreviewPosition, SonioxLivePreviewSize, SonioxLivePreviewTheme,
+    OverlayPosition, RecordingOverlayBarStyle, RecordingOverlayTheme, SonioxLivePreviewPosition,
+    SonioxLivePreviewSize, SonioxLivePreviewTheme,
 };
 use serde::Serialize;
 use specta::Type;
@@ -16,8 +17,6 @@ use tauri::{AppHandle, Emitter, Manager, PhysicalPosition, PhysicalSize};
 /// this is incremented so stale timers do not hide newer overlays.
 static TRANSIENT_OVERLAY_GENERATION: AtomicU64 = AtomicU64::new(0);
 static RECORDING_OVERLAY_LAYOUT: AtomicU8 = AtomicU8::new(0);
-static RECORDING_OVERLAY_MANUAL_POSITION: LazyLock<Mutex<Option<(f64, f64)>>> =
-    LazyLock::new(|| Mutex::new(None));
 
 #[cfg(not(target_os = "macos"))]
 use log::debug;
@@ -47,6 +46,7 @@ const OVERLAY_WIDTH: f64 = 172.0;
 const OVERLAY_HEIGHT: f64 = 36.0;
 const ERROR_OVERLAY_WIDTH: f64 = 340.0;
 const ERROR_OVERLAY_HEIGHT: f64 = 82.0;
+const RECORDING_OVERLAY_BAR_GAP: f64 = 3.0;
 
 // Command Confirmation Overlay dimensions
 const COMMAND_CONFIRM_WIDTH: f64 = 520.0;
@@ -136,8 +136,14 @@ pub struct SonioxLivePreviewAppearancePayload {
     pub show_drag_grip: bool,
 }
 
-#[derive(Serialize, Clone)]
-struct RecordingOverlayAppearancePayload {
+#[derive(Serialize, Clone, Type)]
+pub struct RecordingOverlayAppearancePayload {
+    theme: String,
+    accent_color: String,
+    show_status_icon: bool,
+    bar_count: u8,
+    bar_width_px: u8,
+    bar_style: String,
     show_drag_grip: bool,
 }
 
@@ -319,23 +325,41 @@ fn get_monitor_logical_auto_position_bounds(
     get_monitor_logical_work_area_bounds(monitor).unwrap_or(full_bounds)
 }
 
-fn recording_overlay_manual_position() -> Option<(f64, f64)> {
-    RECORDING_OVERLAY_MANUAL_POSITION
-        .lock()
-        .ok()
-        .and_then(|position| *position)
+fn recording_overlay_theme_key(theme: RecordingOverlayTheme) -> &'static str {
+    match theme {
+        RecordingOverlayTheme::Classic => "classic",
+        RecordingOverlayTheme::Minimal => "minimal",
+        RecordingOverlayTheme::Glass => "glass",
+    }
 }
 
-fn set_recording_overlay_manual_position(position: Option<(f64, f64)>) {
-    if let Ok(mut stored_position) = RECORDING_OVERLAY_MANUAL_POSITION.lock() {
-        *stored_position = position;
+fn recording_overlay_bar_style_key(style: RecordingOverlayBarStyle) -> &'static str {
+    match style {
+        RecordingOverlayBarStyle::Solid => "solid",
+        RecordingOverlayBarStyle::Capsule => "capsule",
+        RecordingOverlayBarStyle::Glow => "glow",
+        RecordingOverlayBarStyle::Prism => "prism",
+    }
+}
+
+fn build_recording_overlay_appearance_payload(
+    app_handle: &AppHandle,
+) -> RecordingOverlayAppearancePayload {
+    let settings = settings::get_settings(app_handle);
+    RecordingOverlayAppearancePayload {
+        theme: recording_overlay_theme_key(settings.recording_overlay_theme).to_string(),
+        accent_color: settings.recording_overlay_accent_color,
+        show_status_icon: settings.recording_overlay_show_status_icon,
+        bar_count: settings.recording_overlay_bar_count.clamp(3, 16),
+        bar_width_px: settings.recording_overlay_bar_width_px.clamp(2, 12),
+        bar_style: recording_overlay_bar_style_key(settings.recording_overlay_bar_style)
+            .to_string(),
+        show_drag_grip: settings.recording_overlay_show_drag_grip,
     }
 }
 
 fn emit_recording_overlay_appearance_update(app_handle: &AppHandle) {
-    let payload = RecordingOverlayAppearancePayload {
-        show_drag_grip: settings::get_settings(app_handle).recording_overlay_show_drag_grip,
-    };
+    let payload = build_recording_overlay_appearance_payload(app_handle);
 
     let _ = app_handle.emit("recording-overlay-appearance-update", payload.clone());
     let _ = app_handle.emit("recording_overlay_appearance_update", payload.clone());
@@ -358,8 +382,11 @@ fn calculate_overlay_position_for_size(
         settings.auto_position_allow_reserved_areas,
     );
 
-    if let Some((x, y)) = recording_overlay_manual_position() {
-        return Some((x, y));
+    if settings.recording_overlay_use_manual_position {
+        return Some((
+            settings.recording_overlay_custom_x_px as f64,
+            settings.recording_overlay_custom_y_px as f64,
+        ));
     }
 
     let x = bounds.x + (bounds.width - overlay_width) / 2.0;
@@ -371,10 +398,6 @@ fn calculate_overlay_position_for_size(
     };
 
     Some((x, y))
-}
-
-fn calculate_overlay_position(app_handle: &AppHandle) -> Option<(f64, f64)> {
-    calculate_overlay_position_for_size(app_handle, OVERLAY_WIDTH, OVERLAY_HEIGHT)
 }
 
 fn apply_recording_overlay_layout(app_handle: &AppHandle, width: f64, height: f64) {
@@ -395,16 +418,37 @@ fn current_recording_overlay_layout() -> RecordingOverlayLayout {
     }
 }
 
-fn recording_overlay_dimensions(layout: RecordingOverlayLayout) -> (f64, f64) {
+fn recording_overlay_default_width(app_handle: &AppHandle) -> f64 {
+    let settings = settings::get_settings(app_handle);
+    let bar_count = settings.recording_overlay_bar_count.clamp(3, 16) as f64;
+    let bar_width = settings.recording_overlay_bar_width_px.clamp(2, 12) as f64;
+    let bar_gap_count = if bar_count > 1.0 { bar_count - 1.0 } else { 0.0 };
+    let bar_track_width =
+        (bar_count * bar_width) + (bar_gap_count * RECORDING_OVERLAY_BAR_GAP);
+    let status_icon_width = if settings.recording_overlay_show_status_icon {
+        28.0
+    } else {
+        0.0
+    };
+
+    (60.0 + status_icon_width + bar_track_width).max(OVERLAY_WIDTH)
+}
+
+fn recording_overlay_dimensions(
+    app_handle: &AppHandle,
+    layout: RecordingOverlayLayout,
+) -> (f64, f64) {
     match layout {
-        RecordingOverlayLayout::Default => (OVERLAY_WIDTH, OVERLAY_HEIGHT),
+        RecordingOverlayLayout::Default => {
+            (recording_overlay_default_width(app_handle), OVERLAY_HEIGHT)
+        }
         RecordingOverlayLayout::Error => (ERROR_OVERLAY_WIDTH, ERROR_OVERLAY_HEIGHT),
     }
 }
 
 fn set_recording_overlay_layout(app_handle: &AppHandle, layout: RecordingOverlayLayout) {
     RECORDING_OVERLAY_LAYOUT.store(layout as u8, Ordering::SeqCst);
-    let (width, height) = recording_overlay_dimensions(layout);
+    let (width, height) = recording_overlay_dimensions(app_handle, layout);
     apply_recording_overlay_layout(app_handle, width, height);
 }
 
@@ -607,7 +651,9 @@ fn resolve_soniox_live_preview_geometry(app_handle: &AppHandle) -> Option<(f64, 
 /// Creates the recording overlay window and keeps it hidden by default
 #[cfg(not(target_os = "macos"))]
 pub fn create_recording_overlay(app_handle: &AppHandle) {
-    let position = calculate_overlay_position(app_handle);
+    let (width, height) =
+        recording_overlay_dimensions(app_handle, current_recording_overlay_layout());
+    let position = calculate_overlay_position_for_size(app_handle, width, height);
 
     #[cfg(not(target_os = "linux"))]
     if position.is_none() {
@@ -622,7 +668,7 @@ pub fn create_recording_overlay(app_handle: &AppHandle) {
     )
     .title("Recording")
     .resizable(false)
-    .inner_size(OVERLAY_WIDTH, OVERLAY_HEIGHT)
+    .inner_size(width, height)
     .shadow(false)
     .maximizable(false)
     .minimizable(false)
@@ -710,7 +756,9 @@ pub fn create_soniox_live_preview_window(_app_handle: &AppHandle) {}
 /// Creates the recording overlay panel and keeps it hidden by default (macOS)
 #[cfg(target_os = "macos")]
 pub fn create_recording_overlay(app_handle: &AppHandle) {
-    if let Some((x, y)) = calculate_overlay_position(app_handle) {
+    let (width, height) =
+        recording_overlay_dimensions(app_handle, current_recording_overlay_layout());
+    if let Some((x, y)) = calculate_overlay_position_for_size(app_handle, width, height) {
         // PanelBuilder creates a Tauri window then converts it to NSPanel.
         // The window remains registered, so get_webview_window() still works.
         match PanelBuilder::<_, RecordingOverlayPanel>::new(app_handle, "recording_overlay")
@@ -719,8 +767,8 @@ pub fn create_recording_overlay(app_handle: &AppHandle) {
             .position(tauri::Position::Logical(tauri::LogicalPosition { x, y }))
             .level(PanelLevel::Status)
             .size(tauri::Size::Logical(tauri::LogicalSize {
-                width: OVERLAY_WIDTH,
-                height: OVERLAY_HEIGHT,
+                width,
+                height,
             }))
             .has_shadow(false)
             .transparent(true)
@@ -880,14 +928,13 @@ pub fn show_finalizing_overlay(app_handle: &AppHandle) {
 
 /// Updates the overlay window position based on current settings
 pub fn update_overlay_position(app_handle: &AppHandle) {
-    let (width, height) = recording_overlay_dimensions(current_recording_overlay_layout());
+    let (width, height) =
+        recording_overlay_dimensions(app_handle, current_recording_overlay_layout());
     apply_recording_overlay_layout(app_handle, width, height);
 }
 
 /// Hides the recording overlay window with fade-out animation
 pub fn hide_recording_overlay(app_handle: &AppHandle) {
-    set_recording_overlay_manual_position(None);
-
     // Always hide the overlay regardless of settings - if setting was changed while recording,
     // we still want to hide it properly
     if let Some(overlay_window) = app_handle.get_webview_window("recording_overlay") {
@@ -902,8 +949,6 @@ pub fn hide_recording_overlay(app_handle: &AppHandle) {
 ///
 /// Useful when the next operation is a screen capture, so we don't accidentally capture the overlay.
 pub fn hide_recording_overlay_immediately(app_handle: &AppHandle) {
-    set_recording_overlay_manual_position(None);
-
     if let Some(overlay_window) = app_handle.get_webview_window("recording_overlay") {
         let _ = overlay_window.hide();
     }
@@ -1546,15 +1591,24 @@ pub fn show_microphone_switch_overlay(app_handle: &AppHandle, microphone_name: &
 #[tauri::command]
 #[specta::specta]
 pub fn remember_recording_overlay_window_position(
+    app_handle: AppHandle,
     x_px: i32,
     y_px: i32,
 ) -> Result<(), String> {
-    set_recording_overlay_manual_position(Some((x_px as f64, y_px as f64)));
+    let mut settings = settings::get_settings(&app_handle);
+    settings.recording_overlay_use_manual_position = true;
+    settings.recording_overlay_custom_x_px = x_px.clamp(-10000, 10000);
+    settings.recording_overlay_custom_y_px = y_px.clamp(-10000, 10000);
+    settings::write_settings(&app_handle, settings);
     Ok(())
 }
 
-pub fn clear_recording_overlay_manual_position() {
-    set_recording_overlay_manual_position(None);
+#[tauri::command]
+#[specta::specta]
+pub fn get_recording_overlay_appearance(
+    app_handle: AppHandle,
+) -> RecordingOverlayAppearancePayload {
+    build_recording_overlay_appearance_payload(&app_handle)
 }
 
 #[derive(Clone, Copy)]

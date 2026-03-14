@@ -865,6 +865,23 @@ pub enum SonioxLivePreviewSize {
 
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Type)]
 #[serde(rename_all = "snake_case")]
+pub enum RecordingOverlayTheme {
+    Classic,
+    Minimal,
+    Glass,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Type)]
+#[serde(rename_all = "snake_case")]
+pub enum RecordingOverlayBarStyle {
+    Solid,
+    Capsule,
+    Glow,
+    Prism,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Type)]
+#[serde(rename_all = "snake_case")]
 pub enum SonioxLivePreviewTheme {
     MainDark,
     Ocean,
@@ -1197,6 +1214,12 @@ pub struct AppSettings {
     pub overlay_position: OverlayPosition,
     #[serde(default)]
     pub auto_position_allow_reserved_areas: bool,
+    #[serde(default)]
+    pub recording_overlay_use_manual_position: bool,
+    #[serde(default = "default_recording_overlay_custom_x_px")]
+    pub recording_overlay_custom_x_px: i32,
+    #[serde(default = "default_recording_overlay_custom_y_px")]
+    pub recording_overlay_custom_y_px: i32,
     /// Auto-hide duration for error overlay in milliseconds.
     #[serde(default = "default_error_overlay_auto_hide_ms")]
     pub error_overlay_auto_hide_ms: u64,
@@ -1205,6 +1228,18 @@ pub struct AppSettings {
     pub error_feedback_enabled: bool,
     #[serde(default)]
     pub recording_overlay_show_drag_grip: bool,
+    #[serde(default = "default_recording_overlay_theme")]
+    pub recording_overlay_theme: RecordingOverlayTheme,
+    #[serde(default = "default_true")]
+    pub recording_overlay_show_status_icon: bool,
+    #[serde(default = "default_recording_overlay_bar_count")]
+    pub recording_overlay_bar_count: u8,
+    #[serde(default = "default_recording_overlay_bar_width_px")]
+    pub recording_overlay_bar_width_px: u8,
+    #[serde(default = "default_recording_overlay_bar_style")]
+    pub recording_overlay_bar_style: RecordingOverlayBarStyle,
+    #[serde(default = "default_recording_overlay_accent_color")]
+    pub recording_overlay_accent_color: String,
     #[serde(default = "default_soniox_live_preview_enabled")]
     pub soniox_live_preview_enabled: bool,
     #[serde(default = "default_soniox_live_preview_position")]
@@ -1791,6 +1826,34 @@ fn default_overlay_position() -> OverlayPosition {
 
 fn default_error_overlay_auto_hide_ms() -> u64 {
     2000
+}
+
+fn default_recording_overlay_custom_x_px() -> i32 {
+    0
+}
+
+fn default_recording_overlay_custom_y_px() -> i32 {
+    0
+}
+
+fn default_recording_overlay_theme() -> RecordingOverlayTheme {
+    RecordingOverlayTheme::Classic
+}
+
+fn default_recording_overlay_bar_count() -> u8 {
+    9
+}
+
+fn default_recording_overlay_bar_width_px() -> u8 {
+    6
+}
+
+fn default_recording_overlay_bar_style() -> RecordingOverlayBarStyle {
+    RecordingOverlayBarStyle::Solid
+}
+
+fn default_recording_overlay_accent_color() -> String {
+    "#ff4d8d".to_string()
 }
 
 fn default_soniox_live_preview_enabled() -> bool {
@@ -2560,9 +2623,18 @@ pub fn get_default_settings() -> AppSettings {
         selected_language: "auto".to_string(),
         overlay_position: default_overlay_position(),
         auto_position_allow_reserved_areas: false,
+        recording_overlay_use_manual_position: false,
+        recording_overlay_custom_x_px: default_recording_overlay_custom_x_px(),
+        recording_overlay_custom_y_px: default_recording_overlay_custom_y_px(),
         error_overlay_auto_hide_ms: default_error_overlay_auto_hide_ms(),
         error_feedback_enabled: default_true(),
         recording_overlay_show_drag_grip: false,
+        recording_overlay_theme: default_recording_overlay_theme(),
+        recording_overlay_show_status_icon: default_true(),
+        recording_overlay_bar_count: default_recording_overlay_bar_count(),
+        recording_overlay_bar_width_px: default_recording_overlay_bar_width_px(),
+        recording_overlay_bar_style: default_recording_overlay_bar_style(),
+        recording_overlay_accent_color: default_recording_overlay_accent_color(),
         soniox_live_preview_enabled: default_soniox_live_preview_enabled(),
         soniox_live_preview_position: default_soniox_live_preview_position(),
         soniox_live_preview_cursor_offset_px: default_soniox_live_preview_cursor_offset_px(),
