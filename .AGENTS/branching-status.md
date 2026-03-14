@@ -5,7 +5,7 @@ Before starting a new `main` -> branch sync, verify the target branch directly w
 
 ## Microsoft-store
 
-Last synced commit from `main`: `0efb3f7` — fix: dropdown opens upward when at bottom of group; menu widens to fit long options.
+Last synced commit from `main`: `7f99cb5` — Notify on model loading failures.
 Note: the cursor always points to the last propagated commit, not the cursor-update commit itself (to avoid a circular hash dependency).
 Sync rule: for this branch, source commits come from `main` only.
 Propagation scope rule: for Microsoft Store Edition propagation, bring over the intended `main` commit set in order unless a commit is store-incompatible. Default exclusions are self-update/auto-update changes and AVX512-only changes; AVX2 is allowed.
