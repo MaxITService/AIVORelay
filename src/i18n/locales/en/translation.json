@@ -134,6 +134,22 @@
       },
       "changeProviderLater": "You can always change your transcription provider later in the Models section."
     },
+    "permissions": {
+      "subtitle": "Windows microphone access is needed before recording can work.",
+      "title": "Allow microphone access",
+      "description": "AivoRelay needs Windows microphone permission before voice recording can work.",
+      "checking": "Checking microphone access...",
+      "waiting": "Waiting for Windows microphone access...",
+      "allGranted": "Microphone access is ready.",
+      "openSettings": "Open Windows settings",
+      "microphone": {
+        "title": "Windows microphone privacy",
+        "description": "Open the Windows privacy settings page, allow microphone access, then return here. AivoRelay will detect the change automatically."
+      },
+      "errors": {
+        "openSettingsFailed": "Failed to open Windows microphone privacy settings."
+      }
+    },
     "recommended": "Recommended",
     "download": "Download",
     "downloading": "Downloading...",
