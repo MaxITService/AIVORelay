@@ -1,11 +1,12 @@
 use crate::managers::model::{ModelInfo, ModelManager};
-use crate::managers::transcription::TranscriptionManager;
-use crate::settings::{get_settings, write_settings};
+use crate::managers::transcription::{ModelStateEvent, TranscriptionManager};
+use crate::settings::{get_settings, write_settings, ModelUnloadTimeout};
+use crate::tray;
 use serde::Serialize;
 use specta::Type;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
-use tauri::{AppHandle, State};
+use tauri::{AppHandle, Emitter, State};
 
 #[tauri::command]
 #[specta::specta]
@@ -56,29 +57,60 @@ pub async fn delete_model(
 #[specta::specta]
 pub async fn set_active_model(
     app_handle: AppHandle,
-    model_manager: State<'_, Arc<ModelManager>>,
-    transcription_manager: State<'_, Arc<TranscriptionManager>>,
+    _model_manager: State<'_, Arc<ModelManager>>,
+    _transcription_manager: State<'_, Arc<TranscriptionManager>>,
     model_id: String,
 ) -> Result<(), String> {
-    // Check if model exists and is available
+    switch_active_model(&app_handle, &model_id)
+}
+
+pub fn switch_active_model(app: &AppHandle, model_id: &str) -> Result<(), String> {
+    let model_manager = app.state::<Arc<ModelManager>>();
+    let transcription_manager = app.state::<Arc<TranscriptionManager>>();
+
+    let _loading_guard = transcription_manager
+        .try_start_loading()
+        .ok_or_else(|| "Model load already in progress".to_string())?;
+
     let model_info = model_manager
-        .get_model_info(&model_id)
+        .get_model_info(model_id)
         .ok_or_else(|| format!("Model not found: {}", model_id))?;
 
     if !model_info.is_downloaded {
         return Err(format!("Model not downloaded: {}", model_id));
     }
 
-    // Load the model in the transcription manager
-    transcription_manager
-        .load_model(&model_id)
-        .map_err(|e| e.to_string())?;
+    let settings = get_settings(app);
+    let unload_timeout = settings.model_unload_timeout;
+    let previous_model_id = settings.selected_model.clone();
 
-    // Update settings
-    let mut settings = get_settings(&app_handle);
-    settings.selected_model = model_id.clone();
-    write_settings(&app_handle, settings);
+    let mut updated_settings = settings;
+    updated_settings.selected_model = model_id.to_string();
+    write_settings(app, updated_settings);
 
+    if unload_timeout == ModelUnloadTimeout::Immediately {
+        let _ = app.emit(
+            "model-state-changed",
+            ModelStateEvent {
+                event_type: "selection_changed".to_string(),
+                model_id: Some(model_id.to_string()),
+                model_name: Some(model_info.name.clone()),
+                error: None,
+            },
+        );
+        tray::refresh_tray_menu(app, None);
+        return Ok(());
+    }
+
+    if let Err(err) = transcription_manager.load_model(model_id) {
+        let mut reverted_settings = get_settings(app);
+        reverted_settings.selected_model = previous_model_id;
+        write_settings(app, reverted_settings);
+        tray::refresh_tray_menu(app, None);
+        return Err(err.to_string());
+    }
+
+    tray::refresh_tray_menu(app, None);
     Ok(())
 }
 
@@ -346,4 +378,3 @@ pub async fn cancel_download(
         .cancel_download(&model_id)
         .map_err(|e| e.to_string())
 }
-
