@@ -33,6 +33,8 @@ Local dependency directories:
 
 - `C:\Code\AIVORelay-deps\AIVORelay-dep-transcribe-rs`
 - `C:\Code\AIVORelay-deps\AIVORelay-dep-whisper-rs`
+  - `sys/whisper.cpp` inside this repo is a **git submodule** — must be checked out with `--recurse-submodules`
+  - Required header: `C:\Code\AIVORelay-deps\AIVORelay-dep-whisper-rs\sys\whisper.cpp\include\whisper.h`
 
 Public GitHub repositories used by the CUDA release workflow:
 
@@ -82,6 +84,8 @@ With the short target directory, the main binary lands under:
 
 `C:\aivorelay-cuda\release\`
 
+The short target directory is required: Windows has a ~255-character path limit, and the CUDA/GGML CMake build tree generates deeply nested object file paths that exceed it if the target dir stays inside the source tree.
+
 The build script uses `tauri build --no-bundle` on purpose, because that is the simplest path to a CUDA-enabled executable without dealing with MSI packaging problems first.
 
 Generated logs next to the repo root:
@@ -98,6 +102,7 @@ Current release behavior:
 
 - builds from the `cuda-integration` branch
 - checks out the two public dependency repos
+  - `AIVORelay-dep-whisper-rs` **must** be checked out with `submodules: recursive` (whisper.cpp is a submodule inside it)
 - installs LLVM, Ninja, Rust, Bun, and CUDA 12.4
 - runs `build-cuda.ps1 -DoBuild`
 - uploads a portable zip, not an MSI installer
@@ -111,3 +116,9 @@ That means:
 - local builds depend on an installed CUDA toolkit during build
 - runtime still expects the required NVIDIA/CUDA libraries to be available on the target system
 - the portable CUDA release is currently aimed at NVIDIA systems with matching runtime support, not as a fully self-contained universal Windows package
+
+## Non-obvious build constraints
+
+- **Linker:** `.cargo/config.toml` configures `lld-link` as the linker for this branch. This is  for speed
+- **No MSI path:** MSI/NSIS bundling is not supported yet for the CUDA build; portable zip only.
+- **CUDA version lock:** Must use CUDA **12.4**. CUDA 13.x requires C++17, which `whisper-rs-sys 0.11.x` cannot pass to `nvcc`.
