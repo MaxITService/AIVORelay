@@ -198,9 +198,18 @@ fn get_monitor_with_cursor(app_handle: &AppHandle) -> Option<tauri::Monitor> {
     if let Some(mouse_location) = input::get_cursor_position(app_handle) {
         if let Ok(monitors) = app_handle.available_monitors() {
             for monitor in monitors {
-                let is_within =
-                    is_mouse_within_monitor(mouse_location, monitor.position(), monitor.size());
-                if is_within {
+                // Tauri monitor coordinates are physical pixels, while cursor coordinates
+                // may be logical depending on DPI-awareness. Normalize monitors to logical.
+                let scale = monitor.scale_factor();
+                let position = PhysicalPosition::new(
+                    (monitor.position().x as f64 / scale) as i32,
+                    (monitor.position().y as f64 / scale) as i32,
+                );
+                let size = PhysicalSize::new(
+                    (monitor.size().width as f64 / scale) as u32,
+                    (monitor.size().height as f64 / scale) as u32,
+                );
+                if is_mouse_within_monitor(mouse_location, &position, &size) {
                     return Some(monitor);
                 }
             }
@@ -231,32 +240,35 @@ fn is_mouse_within_monitor(
         && mouse_y < (monitor_y + monitor_height as i32)
 }
 
+fn get_monitor_logical_bounds(monitor: &tauri::Monitor) -> (f64, f64, f64, f64) {
+    let scale = monitor.scale_factor();
+    (
+        monitor.position().x as f64 / scale,
+        monitor.position().y as f64 / scale,
+        monitor.size().width as f64 / scale,
+        monitor.size().height as f64 / scale,
+    )
+}
+
 fn calculate_overlay_position_for_size(
     app_handle: &AppHandle,
     overlay_width: f64,
     overlay_height: f64,
 ) -> Option<(f64, f64)> {
-    if let Some(monitor) = get_monitor_with_cursor(app_handle) {
-        let work_area = monitor.work_area();
-        let scale = monitor.scale_factor();
-        let work_area_width = work_area.size.width as f64 / scale;
-        let work_area_height = work_area.size.height as f64 / scale;
-        let work_area_x = work_area.position.x as f64 / scale;
-        let work_area_y = work_area.position.y as f64 / scale;
+    let monitor = get_monitor_with_cursor(app_handle)?;
+    let (monitor_x, monitor_y, monitor_width, monitor_height) =
+        get_monitor_logical_bounds(&monitor);
+    let settings = settings::get_settings(app_handle);
 
-        let settings = settings::get_settings(app_handle);
+    let x = monitor_x + (monitor_width - overlay_width) / 2.0;
+    let y = match settings.overlay_position {
+        OverlayPosition::Top => monitor_y + OVERLAY_TOP_OFFSET,
+        OverlayPosition::Bottom | OverlayPosition::None => {
+            monitor_y + monitor_height - overlay_height - OVERLAY_BOTTOM_OFFSET
+        }
+    };
 
-        let x = work_area_x + (work_area_width - overlay_width) / 2.0;
-        let y = match settings.overlay_position {
-            OverlayPosition::Top => work_area_y + OVERLAY_TOP_OFFSET,
-            OverlayPosition::Bottom | OverlayPosition::None => {
-                work_area_y + work_area_height - overlay_height - OVERLAY_BOTTOM_OFFSET
-            }
-        };
-
-        return Some((x, y));
-    }
-    None
+    Some((x, y))
 }
 
 fn calculate_overlay_position(app_handle: &AppHandle) -> Option<(f64, f64)> {
@@ -440,40 +452,37 @@ fn resolve_soniox_live_preview_geometry(app_handle: &AppHandle) -> Option<(f64, 
     }
 
     if let Some(monitor) = get_monitor_with_cursor(app_handle) {
-        let work_area = monitor.work_area();
         let scale = monitor.scale_factor();
-        let work_area_width = work_area.size.width as f64 / scale;
-        let work_area_height = work_area.size.height as f64 / scale;
-        let work_area_x = work_area.position.x as f64 / scale;
-        let work_area_y = work_area.position.y as f64 / scale;
+        let (monitor_x, monitor_y, monitor_width, monitor_height) =
+            get_monitor_logical_bounds(&monitor);
 
         let x;
         let y;
 
         match app_settings.soniox_live_preview_position {
             SonioxLivePreviewPosition::Top => {
-                x = work_area_x + (work_area_width - width) / 2.0;
-                y = work_area_y + SONIOX_LIVE_PREVIEW_TOP_OFFSET;
+                x = monitor_x + (monitor_width - width) / 2.0;
+                y = monitor_y + SONIOX_LIVE_PREVIEW_TOP_OFFSET;
             }
             SonioxLivePreviewPosition::Bottom => {
-                x = work_area_x + (work_area_width - width) / 2.0;
-                y = work_area_y + work_area_height - height - SONIOX_LIVE_PREVIEW_BOTTOM_OFFSET;
+                x = monitor_x + (monitor_width - width) / 2.0;
+                y = monitor_y + monitor_height - height - SONIOX_LIVE_PREVIEW_BOTTOM_OFFSET;
             }
             SonioxLivePreviewPosition::NearCursor => {
                 let (cursor_x, cursor_y) = input::get_cursor_position(app_handle).unwrap_or((
-                    (work_area.position.x + (work_area.size.width as i32 / 2)),
-                    (work_area.position.y + (work_area.size.height as i32 / 2)),
+                    monitor.position().x + (monitor.size().width as i32 / 2),
+                    monitor.position().y + (monitor.size().height as i32 / 2),
                 ));
 
                 let cursor_x_logical = cursor_x as f64 / scale;
                 let cursor_y_logical = cursor_y as f64 / scale;
                 let distance = app_settings.soniox_live_preview_cursor_offset_px as f64;
 
-                let min_x = work_area_x + SONIOX_LIVE_PREVIEW_CURSOR_EDGE_MARGIN;
+                let min_x = monitor_x + SONIOX_LIVE_PREVIEW_CURSOR_EDGE_MARGIN;
                 let max_x =
-                    work_area_x + work_area_width - width - SONIOX_LIVE_PREVIEW_CURSOR_EDGE_MARGIN;
-                let min_y = work_area_y + SONIOX_LIVE_PREVIEW_CURSOR_EDGE_MARGIN;
-                let max_y = work_area_y + work_area_height
+                    monitor_x + monitor_width - width - SONIOX_LIVE_PREVIEW_CURSOR_EDGE_MARGIN;
+                let min_y = monitor_y + SONIOX_LIVE_PREVIEW_CURSOR_EDGE_MARGIN;
+                let max_y = monitor_y + monitor_height
                     - height
                     - SONIOX_LIVE_PREVIEW_CURSOR_EDGE_MARGIN;
 
@@ -494,14 +503,20 @@ fn resolve_soniox_live_preview_geometry(app_handle: &AppHandle) -> Option<(f64, 
 /// Creates the recording overlay window and keeps it hidden by default
 #[cfg(not(target_os = "macos"))]
 pub fn create_recording_overlay(app_handle: &AppHandle) {
-    if let Some((x, y)) = calculate_overlay_position(app_handle) {
-        match WebviewWindowBuilder::new(
-            app_handle,
-            "recording_overlay",
-            tauri::WebviewUrl::App("src/overlay/index.html".into()),
-        )
+    let position = calculate_overlay_position(app_handle);
+
+    #[cfg(not(target_os = "linux"))]
+    if position.is_none() {
+        debug!("Failed to determine overlay position, not creating overlay window");
+        return;
+    }
+
+    match WebviewWindowBuilder::new(
+        app_handle,
+        "recording_overlay",
+        tauri::WebviewUrl::App("src/overlay/index.html".into()),
+    )
         .title("Recording")
-        .position(x, y)
         .resizable(false)
         .inner_size(OVERLAY_WIDTH, OVERLAY_HEIGHT)
         .shadow(false)
@@ -516,13 +531,12 @@ pub fn create_recording_overlay(app_handle: &AppHandle) {
         .focused(false)
         .visible(false)
         .build()
-        {
-            Ok(_window) => {
-                debug!("Recording overlay window created successfully (hidden)");
-            }
-            Err(e) => {
-                debug!("Failed to create recording overlay window: {}", e);
-            }
+    {
+        Ok(_window) => {
+            debug!("Recording overlay window created successfully (hidden)");
+        }
+        Err(e) => {
+            debug!("Failed to create recording overlay window: {}", e);
         }
     }
 }
@@ -1056,38 +1070,25 @@ pub fn emit_levels(app_handle: &AppHandle, levels: &Vec<f32>) {
 
 /// Calculates centered position for command confirmation overlay
 fn calculate_command_confirm_position(app_handle: &AppHandle) -> Option<(f64, f64)> {
-    if let Some(monitor) = get_monitor_with_cursor(app_handle) {
-        let work_area = monitor.work_area();
-        let scale = monitor.scale_factor();
-        let work_area_width = work_area.size.width as f64 / scale;
-        let work_area_height = work_area.size.height as f64 / scale;
-        let work_area_x = work_area.position.x as f64 / scale;
-        let work_area_y = work_area.position.y as f64 / scale;
+    let monitor = get_monitor_with_cursor(app_handle)?;
+    let (monitor_x, monitor_y, monitor_width, monitor_height) =
+        get_monitor_logical_bounds(&monitor);
 
-        // Center the overlay
-        let x = work_area_x + (work_area_width - COMMAND_CONFIRM_WIDTH) / 2.0;
-        let y = work_area_y + (work_area_height - COMMAND_CONFIRM_HEIGHT) / 2.0 - 50.0; // Slightly above center
+    let x = monitor_x + (monitor_width - COMMAND_CONFIRM_WIDTH) / 2.0;
+    let y = monitor_y + (monitor_height - COMMAND_CONFIRM_HEIGHT) / 2.0 - 50.0;
 
-        return Some((x, y));
-    }
-    None
+    Some((x, y))
 }
 
 /// Calculates bottom-center position for the floating voice activation button window.
 fn calculate_voice_button_position(app_handle: &AppHandle) -> Option<(f64, f64)> {
-    if let Some(monitor) = get_monitor_with_cursor(app_handle) {
-        let work_area = monitor.work_area();
-        let scale = monitor.scale_factor();
-        let work_area_width = work_area.size.width as f64 / scale;
-        let work_area_height = work_area.size.height as f64 / scale;
-        let work_area_x = work_area.position.x as f64 / scale;
-        let work_area_y = work_area.position.y as f64 / scale;
+    let monitor = get_monitor_with_cursor(app_handle)?;
+    let (monitor_x, monitor_y, monitor_width, monitor_height) =
+        get_monitor_logical_bounds(&monitor);
 
-        let x = work_area_x + (work_area_width - VOICE_BUTTON_WIDTH) / 2.0;
-        let y = work_area_y + work_area_height - VOICE_BUTTON_HEIGHT - 40.0;
-        return Some((x, y));
-    }
-    None
+    let x = monitor_x + (monitor_width - VOICE_BUTTON_WIDTH) / 2.0;
+    let y = monitor_y + monitor_height - VOICE_BUTTON_HEIGHT - 40.0;
+    Some((x, y))
 }
 
 /// Shows the floating voice activation button window.
