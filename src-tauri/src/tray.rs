@@ -1,11 +1,12 @@
 use crate::managers::history::{HistoryEntry, HistoryManager};
+use crate::managers::model::ModelManager;
 use crate::managers::transcription::TranscriptionManager;
 use crate::{commands::audio, settings};
 use crate::tray_i18n::get_tray_translations;
 use log::{error, info, warn};
 use std::sync::{Arc, Mutex};
 use tauri::image::Image;
-use tauri::menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem};
+use tauri::menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu};
 use tauri::tray::TrayIcon;
 use tauri::{AppHandle, Manager, Theme};
 use tauri_plugin_clipboard_manager::ClipboardExt;
@@ -27,6 +28,7 @@ impl Default for ManagedTrayState {
 
 pub const TRAY_MICROPHONE_MENU_PREFIX: &str = "tray_microphone::";
 pub const TRAY_MICROPHONE_DEFAULT_ID: &str = "tray_microphone::default";
+pub const TRAY_MODEL_MENU_PREFIX: &str = "model_select:";
 const TRAY_MICROPHONE_MISSING_ID: &str = "tray_microphone::missing";
 const TRAY_MICROPHONE_HEADER_ID: &str = "tray_microphone_header";
 const TRAY_MICROPHONE_HEADER_LABEL: &str = "Microphone";
@@ -177,6 +179,20 @@ fn try_update_tray_menu(
         model_loaded,
         None::<&str>,
     )?;
+    let model_menu_label = {
+        let fallback_label = if strings.model.is_empty() {
+            "Model"
+        } else {
+            &strings.model
+        };
+        let model_manager = app.state::<Arc<ModelManager>>();
+        model_manager
+            .get_available_models()
+            .into_iter()
+            .find(|model| model.id == settings.selected_model.as_str())
+            .map(|model| model.name)
+            .unwrap_or_else(|| fallback_label.to_string())
+    };
     let quit_i = MenuItem::with_id(app, "quit", &strings.quit, true, quit_accelerator)?;
     let separator = || PredefinedMenuItem::separator(app);
 
@@ -201,6 +217,12 @@ fn try_update_tray_menu(
     menu.append(&copy_last_transcript_i)?;
 
     if state == &TrayIconState::Idle {
+        if let Some(model_submenu) =
+            build_model_submenu(app, &model_menu_label, &settings.selected_model)?
+        {
+            menu.append(&separator()?)?;
+            menu.append(&model_submenu)?;
+        }
         menu.append(&unload_model_i)?;
     }
 
@@ -319,6 +341,41 @@ fn append_microphone_items(
     }
 
     Ok(())
+}
+
+fn build_model_submenu(
+    app: &AppHandle,
+    label: &str,
+    current_model_id: &str,
+) -> Result<Option<Submenu<tauri::Wry>>, Box<dyn std::error::Error>> {
+    let model_manager = app.state::<Arc<ModelManager>>();
+    let mut downloaded_models: Vec<_> = model_manager
+        .get_available_models()
+        .into_iter()
+        .filter(|model| model.is_downloaded)
+        .collect();
+
+    if downloaded_models.is_empty() {
+        return Ok(None);
+    }
+
+    downloaded_models.sort_by(|left, right| left.name.cmp(&right.name));
+
+    let submenu = Submenu::with_id(app, "model_submenu", label, true)?;
+
+    for model in downloaded_models {
+        let item = CheckMenuItem::with_id(
+            app,
+            format!("{TRAY_MODEL_MENU_PREFIX}{}", model.id),
+            &model.name,
+            true,
+            model.id == current_model_id,
+            None::<&str>,
+        )?;
+        submenu.append(&item)?;
+    }
+
+    Ok(Some(submenu))
 }
 
 pub fn set_tray_visibility(app: &AppHandle, visible: bool) {
