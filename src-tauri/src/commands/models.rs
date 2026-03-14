@@ -6,7 +6,7 @@ use serde::Serialize;
 use specta::Type;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
-use tauri::{AppHandle, Emitter, State};
+use tauri::{AppHandle, Emitter, Manager, State};
 
 #[tauri::command]
 #[specta::specta]

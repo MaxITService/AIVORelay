@@ -2133,6 +2133,17 @@ async getAvailableMicrophones() : Promise<Result<AudioDevice[], string>> {
     else return { status: "error", error: e  as any };
 }
 },
+async getWindowsMicrophonePermissionStatus() : Promise<WindowsMicrophonePermissionStatus> {
+    return await TAURI_INVOKE("get_windows_microphone_permission_status");
+},
+async openMicrophonePrivacySettings() : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("open_microphone_privacy_settings") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async setSelectedMicrophone(deviceName: string) : Promise<Result<null, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("set_selected_microphone", { deviceName }) };
@@ -3001,6 +3012,10 @@ output_whitespace_trailing_mode?: OutputWhitespaceMode;
  */
 filler_word_filter_enabled?: boolean; 
 /**
+ * Optional custom filler words. When set, overrides language defaults for filler filtering.
+ */
+custom_filler_words?: string[] | null; 
+/**
  * Whether to strip invisible Unicode characters (zero-width spaces, BOM) from LLM output
  */
 zero_width_filter_enabled?: boolean; 
@@ -3226,6 +3241,7 @@ export type OutputFormat =
 export type OutputWhitespaceMode = "preserve" | "remove_if_present" | "add_if_missing"
 export type OverlayPosition = "none" | "top" | "bottom"
 export type PasteMethod = "ctrl_v" | "direct" | "none" | "shift_insert" | "ctrl_shift_v"
+export type PermissionAccess = "allowed" | "denied" | "unknown"
 export type PostProcessProvider = { id: string; label: string; base_url: string; allow_base_url_edit?: boolean; allow_insecure_http?: boolean; models_endpoint?: string | null }
 export type PreviewOutputModeStatePayload = { active: boolean; recording: boolean; processing_llm: boolean; flush_visible: boolean; is_realtime: boolean; binding_id: string | null; profile_id: string | null; error_message: string | null }
 /**
@@ -3513,6 +3529,7 @@ use_pwsh?: boolean;
  * Execution policy for scripts
  */
 execution_policy?: ExecutionPolicy }
+export type WindowsMicrophonePermissionStatus = { supported: boolean; overall_access: PermissionAccess; device_access: PermissionAccess; app_access: PermissionAccess; desktop_app_access: PermissionAccess }
 
 /** tauri-specta globals **/
 

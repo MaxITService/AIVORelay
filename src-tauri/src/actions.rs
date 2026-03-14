@@ -1036,7 +1036,7 @@ async fn perform_transcription_for_profile(
                 &settings.remote_stt,
                 &samples,
                 prompt,
-                Some(language),
+                Some(language.clone()),
                 translate_to_english,
             )
             .await

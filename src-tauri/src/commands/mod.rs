@@ -14,7 +14,7 @@ pub mod voice_command;
 
 use crate::settings::{get_settings, write_settings, AppSettings, LlmFeature, LogLevel};
 use crate::utils::cancel_current_operation;
-use tauri::{AppHandle, Manager};
+use tauri::AppHandle;
 use tauri_plugin_opener::OpenerExt;
 
 #[tauri::command]

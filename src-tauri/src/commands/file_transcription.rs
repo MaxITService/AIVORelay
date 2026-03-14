@@ -198,7 +198,7 @@ pub async fn transcribe_audio_file(
                 &settings.remote_stt,
                 &samples,
                 prompt,
-                Some(language),
+                Some(language.clone()),
                 translate_to_english,
             )
             .await
