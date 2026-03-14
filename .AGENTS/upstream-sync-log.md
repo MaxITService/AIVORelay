@@ -10,6 +10,7 @@ Rules:
 
 | Merge Date | Upstream Date | Upstream SHA | Upstream Message | Local SHA | Local Message | Issues |
 | --- | --- | --- | --- | --- | --- | --- |
+| 2026-03-14 | 2026-03-14 | `79f28f5` | remove usage of dangerouslySetInnerHTML | `f673a80` | Remove unsafe HTML in post-processing settings | used `Trans` for prompt tip; other fork HTML uses remain |
 | 2026-03-14 | 2026-03-13 | `3795bc2` | unwind instead of crash (#1030) | `a5c48d0` | Set release panic strategy to unwind | adopted release panic policy only |
 | 2026-03-14 | 2026-03-06 | `10beb60` | feat: add portable mode to NSIS installer (#807) | `58756bc` | Add portable runtime data mode | took runtime half only; kept WiX/MSI; extended to fork cache/staging paths |
 | 2026-03-14 | 2026-03-14 | `30a9406` | be able to change models from the tray (#1002) | `d939e64` | Add tray model switching | adapted onto fork tray/microphone layout; shared backend switch path |
@@ -19,7 +20,6 @@ Rules:
 | 2026-03-14 | 2026-03-10 | `785c331` | Handle microphone init failure without aborting (#945) | `e890d40` | Surface recording start failures in UI | backend already in fork; ported missing `recording-error` UI path |
 | 2026-03-14 | 2026-03-06 | `615b3c9` | feat: language-aware filler word removal (#971) | `871eb1e` | Port language-aware filler word removal | adapted to transcription language; bindings not regenerated |
 | 2026-03-05 | 2026-03-01 | `17d34a9` | fix: upgrade tauri-plugin-updater to v2.10.0 to fix duplicate registry entries (#873) (#876) | `6164c50` | fix: upgrade tauri and updater to 2.10.x (from 17d34a9) | cherry-pick aborted (4-way conflicts); selective manifest intake; lockfiles untouched; diff saved |
-| 2026-03-05 | 2026-03-01 | `eade87a` | upgrade to handy keys 0.2.2 (#926) | `3452e0b` | chore(deps): bump handy-keys to 0.2.2 | selective intake: Cargo.toml only; no upstream Cargo.lock/i18n |
 
 Entry template:
 
