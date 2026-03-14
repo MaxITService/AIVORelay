@@ -10,6 +10,7 @@ Rules:
 
 | Merge Date | Upstream Date | Upstream SHA | Upstream Message | Local SHA | Local Message | Issues |
 | --- | --- | --- | --- | --- | --- | --- |
+| 2026-03-14 | 2026-03-06 | `10beb60` | feat: add portable mode to NSIS installer (#807) | `58756bc` | Add portable runtime data mode | took runtime half only; kept WiX/MSI; extended to fork cache/staging paths |
 | 2026-03-14 | 2026-03-14 | `30a9406` | be able to change models from the tray (#1002) | `d939e64` | Add tray model switching | adapted onto fork tray/microphone layout; shared backend switch path |
 | 2026-03-14 | 2026-03-14 | `85a8ed7` | feat: pass custom words as Whisper initial_prompt instead of post-correction (#1035) | `794d651` | Bias Whisper custom words via initial prompt | added Whisper biasing; kept fork post-correction path |
 | 2026-03-14 | 2026-03-12 | `aebd432` | fix: overlay not showing on non-primary monitors (#969) | `bcbd97f` | Fix overlay placement on non-primary monitors | extended to shared overlay helpers/live preview geometry |
@@ -19,7 +20,6 @@ Rules:
 | 2026-03-05 | 2026-03-01 | `17d34a9` | fix: upgrade tauri-plugin-updater to v2.10.0 to fix duplicate registry entries (#873) (#876) | `6164c50` | fix: upgrade tauri and updater to 2.10.x (from 17d34a9) | cherry-pick aborted (4-way conflicts); selective manifest intake; lockfiles untouched; diff saved |
 | 2026-03-05 | 2026-03-01 | `eade87a` | upgrade to handy keys 0.2.2 (#926) | `3452e0b` | chore(deps): bump handy-keys to 0.2.2 | selective intake: Cargo.toml only; no upstream Cargo.lock/i18n |
 | 2026-03-05 | 2026-03-01 | `f403cb1` | update transcribe-rs | `0ca85fa` | update transcribe-rs | Cargo.lock conflict resolved with ours; diff saved |
-| 2026-03-04 | 2026-03-02 | `a6b5c32` | move to tauri dialog 2.6 | `ba650a3` | move to tauri dialog 2.6 | conflicts in Cargo.toml/Cargo.lock; lock=ours; diff saved |
 
 Entry template:
 
