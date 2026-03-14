@@ -882,7 +882,7 @@ pub fn run() {
         .setup(move |app| {
             let mut window_builder =
                 tauri::WebviewWindowBuilder::new(app, "main", tauri::WebviewUrl::App("/".into()))
-                    .title("AivoRelay")
+                    .title("AivoRelay (Store Edition)")
                     .inner_size(680.0, 570.0)
                     .min_inner_size(680.0, 570.0)
                     .resizable(true)
