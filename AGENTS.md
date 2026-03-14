@@ -51,6 +51,11 @@ Only interact with these branches:
 - `Microsoft-store`
 - `cuda-integration`
 
+Relative worktree paths:
+- `main` -> `.`
+- `Microsoft-store` -> `../AIVORelay-ms-prop`
+- `cuda-integration` -> `../worktree/cuda-integration`
+
 (When user says "all branches", they currently mean `main`, `Microsoft-store`, and `cuda-integration`.)
 For work on non-`main` branches, use `main` as the only sync source.
 
