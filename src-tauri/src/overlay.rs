@@ -511,26 +511,31 @@ pub fn create_recording_overlay(app_handle: &AppHandle) {
         return;
     }
 
-    match WebviewWindowBuilder::new(
+    let mut builder = WebviewWindowBuilder::new(
         app_handle,
         "recording_overlay",
         tauri::WebviewUrl::App("src/overlay/index.html".into()),
     )
-        .title("Recording")
-        .resizable(false)
-        .inner_size(OVERLAY_WIDTH, OVERLAY_HEIGHT)
-        .shadow(false)
-        .maximizable(false)
-        .minimizable(false)
-        .closable(false)
-        .accept_first_mouse(true)
-        .decorations(false)
-        .always_on_top(true)
-        .skip_taskbar(true)
-        .transparent(true)
-        .focused(false)
-        .visible(false)
-        .build()
+    .title("Recording")
+    .resizable(false)
+    .inner_size(OVERLAY_WIDTH, OVERLAY_HEIGHT)
+    .shadow(false)
+    .maximizable(false)
+    .minimizable(false)
+    .closable(false)
+    .accept_first_mouse(true)
+    .decorations(false)
+    .always_on_top(true)
+    .skip_taskbar(true)
+    .transparent(true)
+    .focused(false)
+    .visible(false);
+
+    if let Some(data_dir) = crate::portable::data_dir() {
+        builder = builder.data_directory(data_dir.join("webview"));
+    }
+
+    match builder.build()
     {
         Ok(_window) => {
             debug!("Recording overlay window created successfully (hidden)");
@@ -551,7 +556,7 @@ pub fn create_soniox_live_preview_window(app_handle: &AppHandle) {
     }
 
     if let Some((x, y, width, height)) = resolve_soniox_live_preview_geometry(app_handle) {
-        match WebviewWindowBuilder::new(
+        let mut builder = WebviewWindowBuilder::new(
             app_handle,
             SONIOX_LIVE_PREVIEW_WINDOW_LABEL,
             tauri::WebviewUrl::App("src/soniox-live-preview/index.html".into()),
@@ -577,8 +582,13 @@ pub fn create_soniox_live_preview_window(app_handle: &AppHandle) {
         .skip_taskbar(true)
         .transparent(true)
         .focused(false)
-        .visible(false)
-        .build()
+        .visible(false);
+
+        if let Some(data_dir) = crate::portable::data_dir() {
+            builder = builder.data_directory(data_dir.join("webview"));
+        }
+
+        match builder.build()
         {
             Ok(_window) => {
                 debug!("Live preview window created successfully (hidden)");
@@ -1112,7 +1122,7 @@ pub fn show_voice_activation_button_window(app_handle: &AppHandle) -> Result<(),
             "Creating new voice activation button window at ({}, {})",
             x, y
         );
-        match WebviewWindowBuilder::new(
+        let mut builder = WebviewWindowBuilder::new(
             app_handle,
             window_label,
             tauri::WebviewUrl::App("src/voice-activation-button/index.html".into()),
@@ -1129,8 +1139,13 @@ pub fn show_voice_activation_button_window(app_handle: &AppHandle) -> Result<(),
         .skip_taskbar(true)
         .transparent(false)
         .focused(false)
-        .visible(false)
-        .build()
+        .visible(false);
+
+        if let Some(data_dir) = crate::portable::data_dir() {
+            builder = builder.data_directory(data_dir.join("webview"));
+        }
+
+        match builder.build()
         {
             Ok(window) => window,
             Err(e) => {
@@ -1143,7 +1158,7 @@ pub fn show_voice_activation_button_window(app_handle: &AppHandle) -> Result<(),
         is_new_window = true;
         info!("Primary position unavailable; using fallback position (100, 100)");
         // Fallback if monitor detection fails.
-        match WebviewWindowBuilder::new(
+        let mut builder = WebviewWindowBuilder::new(
             app_handle,
             window_label,
             tauri::WebviewUrl::App("src/voice-activation-button/index.html".into()),
@@ -1160,8 +1175,13 @@ pub fn show_voice_activation_button_window(app_handle: &AppHandle) -> Result<(),
         .skip_taskbar(true)
         .transparent(false)
         .focused(false)
-        .visible(false)
-        .build()
+        .visible(false);
+
+        if let Some(data_dir) = crate::portable::data_dir() {
+            builder = builder.data_directory(data_dir.join("webview"));
+        }
+
+        match builder.build()
         {
             Ok(window) => window,
             Err(e) => {
@@ -1225,7 +1245,7 @@ pub fn show_command_confirm_overlay(
         // Create the window
         if let Some((x, y)) = calculate_command_confirm_position(app_handle) {
             debug!("Window position calculated: ({}, {})", x, y);
-            match WebviewWindowBuilder::new(
+            let mut builder = WebviewWindowBuilder::new(
                 app_handle,
                 window_label,
                 tauri::WebviewUrl::App("src/command-confirm/index.html".into()),
@@ -1243,8 +1263,13 @@ pub fn show_command_confirm_overlay(
             .skip_taskbar(true)
             .transparent(true)
             .focused(true)
-            .visible(false)
-            .build()
+            .visible(false);
+
+            if let Some(data_dir) = crate::portable::data_dir() {
+                builder = builder.data_directory(data_dir.join("webview"));
+            }
+
+            match builder.build()
             {
                 Ok(window) => {
                     debug!("Command confirm overlay window created successfully");
