@@ -46,6 +46,19 @@ enum LoadedEngine {
     GigaAM(GigaAMEngine),
 }
 
+pub struct LoadingGuard {
+    is_loading: Arc<Mutex<bool>>,
+    loading_condvar: Arc<Condvar>,
+}
+
+impl Drop for LoadingGuard {
+    fn drop(&mut self) {
+        let mut is_loading = self.is_loading.lock().unwrap();
+        *is_loading = false;
+        self.loading_condvar.notify_all();
+    }
+}
+
 fn build_whisper_initial_prompt(
     base_prompt: Option<String>,
     custom_words: &[String],
@@ -171,6 +184,18 @@ impl TranscriptionManager {
     pub fn is_model_loaded(&self) -> bool {
         let engine = self.lock_engine();
         engine.is_some()
+    }
+
+    pub fn try_start_loading(&self) -> Option<LoadingGuard> {
+        let mut is_loading = self.is_loading.lock().unwrap();
+        if *is_loading {
+            return None;
+        }
+        *is_loading = true;
+        Some(LoadingGuard {
+            is_loading: self.is_loading.clone(),
+            loading_condvar: self.loading_condvar.clone(),
+        })
     }
 
     pub fn unload_model(&self) -> Result<()> {
@@ -419,21 +444,20 @@ impl TranscriptionManager {
 
     /// Kicks off the model loading in a background thread if it's not already loaded
     pub fn initiate_model_load(&self) {
-        let mut is_loading = self.is_loading.lock().unwrap();
-        if *is_loading || self.is_model_loaded() {
+        if self.is_model_loaded() {
             return;
         }
 
-        *is_loading = true;
+        let Some(loading_guard) = self.try_start_loading() else {
+            return;
+        };
         let self_clone = self.clone();
         thread::spawn(move || {
+            let _loading_guard = loading_guard;
             let settings = get_settings(&self_clone.app_handle);
             if let Err(e) = self_clone.load_model(&settings.selected_model) {
                 error!("Failed to load model: {}", e);
             }
-            let mut is_loading = self_clone.is_loading.lock().unwrap();
-            *is_loading = false;
-            self_clone.loading_condvar.notify_all();
         });
     }
 

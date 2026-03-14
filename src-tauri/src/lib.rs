@@ -60,7 +60,7 @@ use tauri::image::Image;
 
 use tauri::tray::TrayIconBuilder;
 use tauri::Emitter;
-use tauri::{AppHandle, Manager};
+use tauri::{AppHandle, Listener, Manager};
 use tauri_plugin_autostart::{MacosLauncher, ManagerExt};
 use tauri_plugin_log::{
     Builder as LogBuilder, RotationStrategy, Target, TargetKind, TimezoneStrategy,
@@ -317,6 +317,28 @@ fn initialize_core_logic(app_handle: &AppHandle) {
                 return;
             }
 
+            if let Some(model_id) = event.id.as_ref().strip_prefix(tray::TRAY_MODEL_MENU_PREFIX)
+            {
+                if model_id == settings::get_settings(app).selected_model {
+                    return;
+                }
+
+                let app_clone = app.clone();
+                let model_id = model_id.to_string();
+                std::thread::spawn(move || {
+                    match commands::models::switch_active_model(&app_clone, &model_id) {
+                        Ok(()) => {
+                            log::info!("Model switched to {} via tray.", model_id);
+                        }
+                        Err(err) => {
+                            log::error!("Failed to switch model via tray: {}", err);
+                            tray::refresh_tray_menu(&app_clone, None);
+                        }
+                    }
+                });
+                return;
+            }
+
             match event.id.as_ref() {
                 "settings" => {
                     show_main_window(app);
@@ -367,6 +389,11 @@ fn initialize_core_logic(app_handle: &AppHandle) {
     if !settings.show_tray_icon {
         tray::set_tray_visibility(app_handle, false);
     }
+
+    let tray_refresh_handle = app_handle.clone();
+    app_handle.listen("model-state-changed", move |_| {
+        tray::refresh_tray_menu(&tray_refresh_handle, None);
+    });
 
     // Get the autostart manager and configure based on user setting
     let autostart_manager = app_handle.autolaunch();
