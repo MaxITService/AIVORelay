@@ -429,9 +429,7 @@ pub fn connector_export_bundled_extension(
         .map_err(|e| format!("Failed to open bundled extension zip: {}", e))?;
     let mut archive = ZipArchive::new(zip_file)
         .map_err(|e| format!("Failed to read bundled extension zip: {}", e))?;
-    let app_data_dir = app
-        .path()
-        .app_data_dir()
+    let app_data_dir = crate::portable::app_data_dir(&app)
         .map_err(|e| format!("Failed to resolve app data directory for export staging: {}", e))?;
     let staging_root = app_data_dir
         .join(STAGING_FOLDER_NAME)

@@ -7,9 +7,7 @@ use tauri::{AppHandle, Manager};
 const TRANSCRIBE_FILE_PREVIEW_DIR: &str = "transcribe-file-preview";
 
 fn preview_dir(app: &AppHandle) -> Result<PathBuf, String> {
-    let cache_dir = app
-        .path()
-        .app_cache_dir()
+    let cache_dir = crate::portable::app_cache_dir(app)
         .map_err(|e| format!("Failed to get app cache directory: {}", e))?;
 
     Ok(cache_dir.join(TRANSCRIBE_FILE_PREVIEW_DIR))

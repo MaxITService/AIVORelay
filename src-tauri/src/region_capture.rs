@@ -324,7 +324,7 @@ pub async fn open_region_picker(app: &AppHandle, mode: NativeRegionCaptureMode) 
     );
 
     // Create the overlay window
-    let window_result = WebviewWindowBuilder::new(
+    let mut builder = WebviewWindowBuilder::new(
         app,
         "region_capture",
         tauri::WebviewUrl::App("src/region-capture/index.html".into()),
@@ -338,8 +338,13 @@ pub async fn open_region_picker(app: &AppHandle, mode: NativeRegionCaptureMode) 
     .skip_taskbar(true)
     .resizable(false)
     .focused(true)
-    .visible(false) // Start hidden, show after ready
-    .build();
+    .visible(false); // Start hidden, show after ready
+
+    if let Some(data_dir) = crate::portable::data_dir() {
+        builder = builder.data_directory(data_dir.join("webview"));
+    }
+
+    let window_result = builder.build();
 
     match window_result {
         Ok(window) => {

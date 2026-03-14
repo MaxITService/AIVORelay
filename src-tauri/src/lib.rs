@@ -15,6 +15,7 @@ mod llm_client;
 mod managers;
 mod overlay;
 mod plus_overlay_state;
+mod portable;
 mod recording_auto_stop;
 #[cfg(target_os = "windows")]
 mod region_capture;
@@ -427,6 +428,8 @@ fn trigger_update_check(app: AppHandle) -> Result<(), String> {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    portable::init();
+
     // Parse console logging directives from RUST_LOG, falling back to info-level logging
     // when the variable is unset
     let console_filter = build_console_filter();
@@ -795,8 +798,15 @@ pub fn run() {
                         move |metadata| console_filter.enabled(metadata)
                     }),
                     // File logs respect the user's settings (stored in FILE_LOG_LEVEL atomic)
-                    Target::new(TargetKind::LogDir {
-                        file_name: Some("aivorelay".into()),
+                    Target::new(if let Some(data_dir) = portable::data_dir() {
+                        TargetKind::Folder {
+                            path: data_dir.join("logs"),
+                            file_name: Some("aivorelay".into()),
+                        }
+                    } else {
+                        TargetKind::LogDir {
+                            file_name: Some("aivorelay".into()),
+                        }
                     })
                     .filter(|metadata| {
                         let file_level = FILE_LOG_LEVEL.load(Ordering::Relaxed);
@@ -840,6 +850,20 @@ pub fn run() {
         .manage(std::sync::Mutex::new(settings::ShortcutEngine::default())
             as shortcut::ActiveShortcutEngine)
         .setup(move |app| {
+            let mut window_builder =
+                tauri::WebviewWindowBuilder::new(app, "main", tauri::WebviewUrl::App("/".into()))
+                    .title("AivoRelay")
+                    .inner_size(680.0, 570.0)
+                    .min_inner_size(680.0, 570.0)
+                    .resizable(true)
+                    .maximizable(true)
+                    .visible(false);
+
+            if let Some(data_dir) = portable::data_dir() {
+                window_builder = window_builder.data_directory(data_dir.join("webview"));
+            }
+
+            let main_window = window_builder.build()?;
             let settings = get_settings(&app.handle());
             let tauri_log_level: tauri_plugin_log::LogLevel = settings.log_level.into();
             let file_log_level: log::Level = tauri_log_level.into();
@@ -847,35 +871,31 @@ pub fn run() {
             FILE_LOG_LEVEL.store(file_log_level.to_level_filter() as u8, Ordering::Relaxed);
             let app_handle = app.handle().clone();
 
-            initialize_core_logic(&app_handle);
-
             // Restore main window geometry before showing
-            if let Some(main_window) = app_handle.get_webview_window("main") {
-                if settings.remember_window_size
-                    && settings.saved_window_width > 0
-                    && settings.saved_window_height > 0
-                {
-                    let _ = main_window.set_size(tauri::Size::Physical(tauri::PhysicalSize {
-                        width: settings.saved_window_width,
-                        height: settings.saved_window_height,
-                    }));
-                }
-                if settings.remember_window_position && settings.saved_window_x != i32::MIN {
-                    let _ = main_window.set_position(tauri::Position::Physical(
-                        tauri::PhysicalPosition {
-                            x: settings.saved_window_x,
-                            y: settings.saved_window_y,
-                        },
-                    ));
-                }
+            if settings.remember_window_size
+                && settings.saved_window_width > 0
+                && settings.saved_window_height > 0
+            {
+                let _ = main_window.set_size(tauri::Size::Physical(tauri::PhysicalSize {
+                    width: settings.saved_window_width,
+                    height: settings.saved_window_height,
+                }));
             }
+            if settings.remember_window_position && settings.saved_window_x != i32::MIN {
+                let _ = main_window.set_position(tauri::Position::Physical(
+                    tauri::PhysicalPosition {
+                        x: settings.saved_window_x,
+                        y: settings.saved_window_y,
+                    },
+                ));
+            }
+
+            initialize_core_logic(&app_handle);
 
             // Show main window only if not starting hidden
             if !settings.start_hidden {
-                if let Some(main_window) = app_handle.get_webview_window("main") {
-                    main_window.show().unwrap();
-                    main_window.set_focus().unwrap();
-                }
+                main_window.show().unwrap();
+                main_window.set_focus().unwrap();
             }
 
             Ok(())
