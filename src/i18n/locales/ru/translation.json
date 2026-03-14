@@ -1512,7 +1512,9 @@
     "dismiss": "Увольнять"
   },
   "errors": {
-    "loadDirectory": "Ошибка загрузки каталога: {{error}}."
+    "loadDirectory": "Ошибка загрузки каталога: {{error}}.",
+    "modelLoadFailed": "Не удалось загрузить модель: {{model}}",
+    "modelLoadFailedUnknown": "Неизвестная модель"
   },
   "appLanguage": {
     "title": "Язык приложения",
