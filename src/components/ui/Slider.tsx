@@ -4,6 +4,7 @@ import { SettingContainer } from "./SettingContainer";
 interface SliderProps {
   value: number;
   onChange: (value: number) => void;
+  onChangeComplete?: (value: number) => void;
   min: number;
   max: number;
   step?: number;
@@ -19,6 +20,7 @@ interface SliderProps {
 export const Slider: React.FC<SliderProps> = ({
   value,
   onChange,
+  onChangeComplete,
   min,
   max,
   step = 0.01,
@@ -30,8 +32,22 @@ export const Slider: React.FC<SliderProps> = ({
   showValue = true,
   formatValue = (v) => v.toFixed(2),
 }) => {
+  const [internalValue, setInternalValue] = React.useState(value);
+
+  React.useEffect(() => {
+    setInternalValue(value);
+  }, [value]);
+
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    onChange(parseFloat(e.target.value));
+    const nextValue = parseFloat(e.target.value);
+    setInternalValue(nextValue);
+    onChange(nextValue);
+  };
+
+  const commitValue = () => {
+    if (onChangeComplete) {
+      onChangeComplete(internalValue);
+    }
   };
 
   return (
@@ -50,21 +66,34 @@ export const Slider: React.FC<SliderProps> = ({
             min={min}
             max={max}
             step={step}
-            value={value}
+            value={internalValue}
             onChange={handleChange}
+            onMouseUp={commitValue}
+            onTouchEnd={commitValue}
+            onKeyUp={(event) => {
+              if (
+                event.key.startsWith("Arrow") ||
+                event.key === "Home" ||
+                event.key === "End" ||
+                event.key === "PageUp" ||
+                event.key === "PageDown"
+              ) {
+                commitValue();
+              }
+            }}
             disabled={disabled}
             className="flex-grow h-2 rounded-full appearance-none cursor-pointer focus:outline-none focus:ring-2 focus:ring-[#ff4d8d]/40 disabled:opacity-40 disabled:cursor-not-allowed"
             style={{
               background: `linear-gradient(to right, #ff4d8d ${
-                ((value - min) / (max - min)) * 100
+                ((internalValue - min) / (max - min)) * 100
               }%, #333333 ${
-                ((value - min) / (max - min)) * 100
+                ((internalValue - min) / (max - min)) * 100
               }%)`,
             }}
           />
           {showValue && (
             <span className="text-sm font-semibold text-[#ff4d8d] min-w-12 text-right tabular-nums">
-              {formatValue(value)}
+              {formatValue(internalValue)}
             </span>
           )}
         </div>

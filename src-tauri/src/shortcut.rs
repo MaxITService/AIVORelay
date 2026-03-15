@@ -228,12 +228,20 @@ fn clamp_recording_overlay_bar_count(value: u8) -> u8 {
     value.clamp(3, 16)
 }
 
+fn clamp_recording_overlay_width_px(value: u16) -> u16 {
+    value.clamp(172, 420)
+}
+
 fn clamp_recording_overlay_bar_width_px(value: u8) -> u8 {
     value.clamp(2, 12)
 }
 
 fn clamp_recording_overlay_audio_reactive_scale_max_percent(value: u8) -> u8 {
     value.clamp(0, 24)
+}
+
+fn clamp_recording_overlay_voice_sensitivity_percent(value: u8) -> u8 {
+    value.clamp(0, 100)
 }
 
 fn clamp_recording_overlay_animation_softness_percent(value: u8) -> u8 {
@@ -1100,6 +1108,19 @@ pub fn change_recording_overlay_bar_count_setting(
 
 #[tauri::command]
 #[specta::specta]
+pub fn change_recording_overlay_width_setting(
+    app: AppHandle,
+    width_px: u16,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.recording_overlay_width_px = clamp_recording_overlay_width_px(width_px);
+    settings::write_settings(&app, settings);
+    refresh_recording_overlay_window(&app);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
 pub fn change_recording_overlay_bar_width_setting(
     app: AppHandle,
     width_px: u8,
@@ -1196,6 +1217,20 @@ pub fn change_recording_overlay_audio_reactive_scale_max_percent_setting(
     let mut settings = settings::get_settings(&app);
     settings.recording_overlay_audio_reactive_scale_max_percent =
         clamp_recording_overlay_audio_reactive_scale_max_percent(value);
+    settings::write_settings(&app, settings);
+    refresh_recording_overlay_window(&app);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_recording_overlay_voice_sensitivity_percent_setting(
+    app: AppHandle,
+    value: u8,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.recording_overlay_voice_sensitivity_percent =
+        clamp_recording_overlay_voice_sensitivity_percent(value);
     settings::write_settings(&app, settings);
     refresh_recording_overlay_window(&app);
     Ok(())

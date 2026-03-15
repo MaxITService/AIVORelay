@@ -16,6 +16,7 @@ export interface RecordingOverlayMotionOptions {
   levels: number[];
   audioReactiveScale: boolean;
   audioReactiveScaleMaxPercent: number;
+  voiceSensitivityPercent: number;
   animationSoftnessPercent: number;
   opacityPercent: number;
   silenceFade: boolean;
@@ -57,6 +58,7 @@ export function getRecordingOverlayMotionStyle(
     levels,
     audioReactiveScale,
     audioReactiveScaleMaxPercent,
+    voiceSensitivityPercent,
     animationSoftnessPercent,
     opacityPercent,
     silenceFade,
@@ -77,7 +79,19 @@ export function getRecordingOverlayMotionStyle(
 
   const isReactiveState = state === "recording";
   const energy = isReactiveState ? computeEnergy(levels) : 0;
-  const easedEnergy = Math.pow(energy, 0.8);
+  const clampedVoiceSensitivity = clampPercent(voiceSensitivityPercent, 0, 100);
+  const sensitivityOffset = (clampedVoiceSensitivity - 50) / 50;
+  const responsiveEnergy =
+    sensitivityOffset >= 0
+      ? clampUnit(energy * (1 + (sensitivityOffset * 1.6)))
+      : (() => {
+          const threshold = Math.abs(sensitivityOffset) * 0.22;
+          if (energy <= threshold) {
+            return 0;
+          }
+          return clampUnit((energy - threshold) / (1 - threshold));
+        })();
+  const easedEnergy = Math.pow(responsiveEnergy, 0.8);
 
   const maxScaleBoost =
     (clampPercent(audioReactiveScaleMaxPercent, 0, 24) / 100) *

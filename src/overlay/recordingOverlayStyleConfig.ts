@@ -30,6 +30,7 @@ export interface RecordingOverlayStyleConfig {
   showDragGrip: boolean;
   audioReactiveScale: boolean;
   audioReactiveScaleMaxPercent: number;
+  voiceSensitivityPercent: number;
   animationSoftnessPercent: number;
   depthParallaxPercent: number;
   opacityPercent: number;
@@ -60,6 +61,7 @@ export const DEFAULT_RECORDING_OVERLAY_STYLE_CONFIG: RecordingOverlayStyleConfig
   showDragGrip: false,
   audioReactiveScale: false,
   audioReactiveScaleMaxPercent: 12,
+  voiceSensitivityPercent: 50,
   animationSoftnessPercent: 55,
   depthParallaxPercent: 40,
   opacityPercent: 100,
@@ -391,7 +393,7 @@ export const RECORDING_OVERLAY_STYLE_PRESETS: RecordingOverlayStylePreset[] = [
       theme: "glass",
       backgroundMode: "soft_glow_field",
       showStatusIcon: true,
-      barCount: 12,
+      barCount: 6,
       barWidthPx: 4,
       barStyle: "fireflies",
       accentColor: "#ff8fd2",
@@ -515,7 +517,7 @@ export const RECORDING_OVERLAY_STYLE_PRESETS: RecordingOverlayStylePreset[] = [
       centerpieceMode: "halo_core",
       animatedBorderMode: "breathing_contour",
       showStatusIcon: true,
-      barCount: 12,
+      barCount: 6,
       barWidthPx: 4,
       barStyle: "fireflies",
       accentColor: "#ff78be",
@@ -662,6 +664,12 @@ export function normalizeRecordingOverlayStyleConfig(
       24,
       DEFAULT_RECORDING_OVERLAY_STYLE_CONFIG.audioReactiveScaleMaxPercent,
     ),
+    voiceSensitivityPercent: clampInteger(
+      raw.voiceSensitivityPercent ?? raw.voice_sensitivity_percent,
+      0,
+      100,
+      DEFAULT_RECORDING_OVERLAY_STYLE_CONFIG.voiceSensitivityPercent,
+    ),
     animationSoftnessPercent: clampInteger(
       raw.animationSoftnessPercent ?? raw.animation_softness_percent,
       0,
@@ -717,6 +725,8 @@ export function getRecordingOverlayStyleConfigFromSettings(
     audioReactiveScale: settings.recording_overlay_audio_reactive_scale,
     audioReactiveScaleMaxPercent:
       settings.recording_overlay_audio_reactive_scale_max_percent,
+    voiceSensitivityPercent:
+      settings.recording_overlay_voice_sensitivity_percent,
     animationSoftnessPercent:
       settings.recording_overlay_animation_softness_percent,
     depthParallaxPercent: settings.recording_overlay_depth_parallax_percent,
@@ -793,6 +803,10 @@ export const RECORDING_OVERLAY_STYLE_SETTING_ENTRIES = (
     [
       "recording_overlay_audio_reactive_scale_max_percent",
       normalized.audioReactiveScaleMaxPercent,
+    ],
+    [
+      "recording_overlay_voice_sensitivity_percent",
+      normalized.voiceSensitivityPercent,
     ],
     [
       "recording_overlay_animation_softness_percent",

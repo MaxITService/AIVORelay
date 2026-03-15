@@ -1310,6 +1310,8 @@ pub struct AppSettings {
     pub recording_overlay_show_status_icon: bool,
     #[serde(default = "default_recording_overlay_bar_count")]
     pub recording_overlay_bar_count: u8,
+    #[serde(default = "default_recording_overlay_width_px")]
+    pub recording_overlay_width_px: u16,
     #[serde(default = "default_recording_overlay_bar_width_px")]
     pub recording_overlay_bar_width_px: u8,
     #[serde(default = "default_recording_overlay_bar_style")]
@@ -1320,6 +1322,8 @@ pub struct AppSettings {
     pub recording_overlay_audio_reactive_scale: bool,
     #[serde(default = "default_recording_overlay_audio_reactive_scale_max_percent")]
     pub recording_overlay_audio_reactive_scale_max_percent: u8,
+    #[serde(default = "default_recording_overlay_voice_sensitivity_percent")]
+    pub recording_overlay_voice_sensitivity_percent: u8,
     #[serde(default = "default_recording_overlay_animation_softness_percent")]
     pub recording_overlay_animation_softness_percent: u8,
     #[serde(default = "default_recording_overlay_depth_parallax_percent")]
@@ -1950,6 +1954,10 @@ fn default_recording_overlay_bar_count() -> u8 {
     9
 }
 
+fn default_recording_overlay_width_px() -> u16 {
+    172
+}
+
 fn default_recording_overlay_bar_width_px() -> u8 {
     6
 }
@@ -1964,6 +1972,10 @@ fn default_recording_overlay_accent_color() -> String {
 
 fn default_recording_overlay_audio_reactive_scale_max_percent() -> u8 {
     12
+}
+
+fn default_recording_overlay_voice_sensitivity_percent() -> u8 {
+    50
 }
 
 fn default_recording_overlay_animation_softness_percent() -> u8 {
@@ -2762,12 +2774,15 @@ pub fn get_default_settings() -> AppSettings {
         recording_overlay_animated_border_mode: default_recording_overlay_animated_border_mode(),
         recording_overlay_show_status_icon: default_true(),
         recording_overlay_bar_count: default_recording_overlay_bar_count(),
+        recording_overlay_width_px: default_recording_overlay_width_px(),
         recording_overlay_bar_width_px: default_recording_overlay_bar_width_px(),
         recording_overlay_bar_style: default_recording_overlay_bar_style(),
         recording_overlay_accent_color: default_recording_overlay_accent_color(),
         recording_overlay_audio_reactive_scale: false,
         recording_overlay_audio_reactive_scale_max_percent:
             default_recording_overlay_audio_reactive_scale_max_percent(),
+        recording_overlay_voice_sensitivity_percent:
+            default_recording_overlay_voice_sensitivity_percent(),
         recording_overlay_animation_softness_percent:
             default_recording_overlay_animation_softness_percent(),
         recording_overlay_depth_parallax_percent:

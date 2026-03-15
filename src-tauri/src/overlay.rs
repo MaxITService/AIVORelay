@@ -152,6 +152,7 @@ pub struct RecordingOverlayAppearancePayload {
     show_drag_grip: bool,
     audio_reactive_scale: bool,
     audio_reactive_scale_max_percent: u8,
+    voice_sensitivity_percent: u8,
     animation_softness_percent: u8,
     depth_parallax_percent: u8,
     opacity_percent: u8,
@@ -470,6 +471,9 @@ fn build_recording_overlay_appearance_payload(
         audio_reactive_scale_max_percent: settings
             .recording_overlay_audio_reactive_scale_max_percent
             .clamp(0, 24),
+        voice_sensitivity_percent: settings
+            .recording_overlay_voice_sensitivity_percent
+            .clamp(0, 100),
         animation_softness_percent: settings
             .recording_overlay_animation_softness_percent
             .clamp(0, 100),
@@ -552,6 +556,7 @@ fn current_recording_overlay_layout() -> RecordingOverlayLayout {
 fn recording_overlay_default_width(app_handle: &AppHandle) -> f64 {
     let settings = settings::get_settings(app_handle);
     let bar_count = settings.recording_overlay_bar_count.clamp(3, 16) as f64;
+    let minimum_width = settings.recording_overlay_width_px.clamp(172, 420) as f64;
     let base_bar_width = settings.recording_overlay_bar_width_px.clamp(2, 12) as f64;
     let bar_width = match settings.recording_overlay_bar_style {
         RecordingOverlayBarStyle::Vinyl => base_bar_width + 6.0,
@@ -579,7 +584,7 @@ fn recording_overlay_default_width(app_handle: &AppHandle) -> f64 {
         0.0
     };
 
-    (60.0 + status_icon_width + bar_track_width).max(OVERLAY_WIDTH)
+    (60.0 + status_icon_width + bar_track_width).max(minimum_width)
 }
 
 fn recording_overlay_frame_dimensions(

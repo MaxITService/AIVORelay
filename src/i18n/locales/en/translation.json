@@ -355,13 +355,30 @@
           "title": "Preset Packs",
           "description": "Apply a strong, curated overlay look in one click.",
           "applied": "Preset applied.",
-          "applyError": "Could not apply preset."
+          "applyError": "Could not apply preset.",
+          "active": "Applied",
+          "applyCta": "Apply",
+          "memoryHint": "Collapse preset packs to unload the preview cards and save memory.",
+          "collapse": "Collapse Presets",
+          "expand": "Expand Presets"
+        },
+        "help": {
+          "title": "How To Use These Controls",
+          "presetsFirst": "Start with Preset Packs if you want a fast direction, then shape the result with the controls below.",
+          "grouping": "Think in this order: Layout sets the silhouette, Style sets the core look, Atmosphere adds decorative layers, and Motion controls how the overlay behaves while you speak.",
+          "sliders": "Slider drags now update the page preview immediately and commit to the live overlay when you release them."
         },
         "reset": {
           "title": "Reset Overlay",
           "description": "Reset either the overlay look or its saved manual position without touching unrelated settings.",
           "appearance": "Reset Appearance",
-          "position": "Reset Position"
+          "position": "Reset Position",
+          "appearanceDone": "Overlay appearance reset to the default look."
+        },
+        "errorPreview": {
+          "title": "Overlay Error Test",
+          "description": "Show a sample error overlay so you can preview each built-in error state.",
+          "button": "Show Error Overlay"
         },
         "styleCode": {
           "title": "Share Style",
@@ -399,6 +416,10 @@
           "title": "Visualizer Size",
           "description": "Adjust the size or thickness of the recording visualizer elements."
         },
+        "overlayWidth": {
+          "title": "Overlay Width",
+          "description": "Choose the base width of the recording overlay. It can still expand if the current visualizer needs more room."
+        },
         "accentColor": {
           "title": "Overlay Accent Color",
           "description": "Pick the accent color used for the recording visualizer and hover accents."
@@ -410,6 +431,10 @@
         "audioReactiveScaleAmount": {
           "title": "Scale Strength",
           "description": "Choose the maximum growth amount when you speak loudly."
+        },
+        "voiceSensitivity": {
+          "title": "Voice Sensitivity",
+          "description": "Choose how easily the overlay reacts to quieter speech. Higher values wake up sooner; lower values wait for stronger voice input."
         },
         "silenceFade": {
           "label": "Silence Fade",

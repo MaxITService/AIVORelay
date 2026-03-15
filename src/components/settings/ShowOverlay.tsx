@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { invoke } from "@tauri-apps/api/core";
 import { Dropdown } from "../ui/Dropdown";
 import { SettingContainer } from "../ui/SettingContainer";
 import { Input } from "../ui/Input";
@@ -12,12 +13,29 @@ interface ShowOverlayProps {
   grouped?: boolean;
 }
 
+const ERROR_OVERLAY_CATEGORIES = [
+  { value: "Auth", label: "Auth" },
+  { value: "RateLimited", label: "Rate Limited" },
+  { value: "Billing", label: "Billing" },
+  { value: "BadRequest", label: "Bad Request" },
+  { value: "TlsCertificate", label: "TLS Certificate" },
+  { value: "TlsHandshake", label: "TLS Handshake" },
+  { value: "Timeout", label: "Timeout" },
+  { value: "NetworkError", label: "Network Error" },
+  { value: "ServerError", label: "Server Error" },
+  { value: "ParseError", label: "Parse Error" },
+  { value: "ExtensionOffline", label: "Extension Offline" },
+  { value: "MicrophoneUnavailable", label: "Mic Unavailable" },
+  { value: "Unknown", label: "Unknown" },
+] as const;
+
 export const ShowOverlay: React.FC<ShowOverlayProps> = React.memo(
   ({ descriptionMode = "tooltip", grouped = false }) => {
     const { t } = useTranslation();
     const { getSetting, updateSetting, isUpdating, settings } = useSettings();
     const [errorOverlayAutoHideInput, setErrorOverlayAutoHideInput] =
       useState("2000");
+    const [selectedErrorCategory, setSelectedErrorCategory] = useState("Auth");
 
     const overlayOptions = [
       { value: "none", label: t("settings.advanced.overlay.options.none") },
@@ -176,6 +194,47 @@ export const ShowOverlay: React.FC<ShowOverlayProps> = React.memo(
               className="px-3 py-1.5 bg-[#2b2b2b] hover:bg-[#3c3c3c] border border-[#3c3c3c] rounded-lg text-xs text-gray-200 font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {t("settings.advanced.overlay.errorDuration.apply", "Apply")}
+            </button>
+          </div>
+        </SettingContainer>
+
+        <SettingContainer
+          title={t(
+            "settings.userInterface.recordingOverlay.errorPreview.title",
+            "Overlay Error Test",
+          )}
+          description={t(
+            "settings.userInterface.recordingOverlay.errorPreview.description",
+            "Show a sample error overlay so you can preview each built-in error state.",
+          )}
+          descriptionMode={descriptionMode}
+          grouped={grouped}
+        >
+          <div className="flex items-center gap-2">
+            <select
+              value={selectedErrorCategory}
+              onChange={(event) => setSelectedErrorCategory(event.target.value)}
+              className="px-2 py-1.5 bg-[#2b2b2b] border border-[#3c3c3c] rounded-lg text-xs text-gray-200 font-medium transition-colors appearance-none cursor-pointer"
+            >
+              {ERROR_OVERLAY_CATEGORIES.map((category) => (
+                <option key={category.value} value={category.value}>
+                  {category.label}
+                </option>
+              ))}
+            </select>
+            <button
+              type="button"
+              onClick={() => {
+                void invoke("debug_show_error_overlay", {
+                  category: selectedErrorCategory,
+                });
+              }}
+              className="px-3 py-1.5 bg-[#2b2b2b] hover:bg-[#3c3c3c] border border-[#3c3c3c] rounded-lg text-xs text-gray-200 font-medium transition-colors"
+            >
+              {t(
+                "settings.userInterface.recordingOverlay.errorPreview.button",
+                "Show Error Overlay",
+              )}
             </button>
           </div>
         </SettingContainer>

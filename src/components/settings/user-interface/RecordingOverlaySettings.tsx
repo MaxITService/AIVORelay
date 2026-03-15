@@ -6,6 +6,7 @@ import { SettingContainer } from "../../ui/SettingContainer";
 import { ToggleSwitch } from "../../ui/ToggleSwitch";
 import { Dropdown } from "../../ui/Dropdown";
 import { Slider } from "../../ui/Slider";
+import { TellMeMore } from "../../ui/TellMeMore";
 import { useSettings } from "../../../hooks/useSettings";
 import { ShowOverlay } from "../ShowOverlay";
 import { RecordingOverlayPreview } from "./RecordingOverlayPreview";
@@ -37,6 +38,23 @@ import {
 } from "../../../overlay/recordingOverlayStyleConfig";
 
 type PreviewState = "recording" | "transcribing" | "error";
+
+type OverlaySliderDraftKey =
+  | "recording_overlay_bar_count"
+  | "recording_overlay_width_px"
+  | "recording_overlay_bar_width_px"
+  | "recording_overlay_audio_reactive_scale_max_percent"
+  | "recording_overlay_voice_sensitivity_percent"
+  | "recording_overlay_animation_softness_percent"
+  | "recording_overlay_depth_parallax_percent"
+  | "recording_overlay_opacity_percent"
+  | "recording_overlay_silence_opacity_percent";
+
+type OverlaySliderDrafts = Record<OverlaySliderDraftKey, number>;
+
+const RESET_RECORDING_OVERLAY_STYLE_CONFIG: RecordingOverlayStyleConfig = {
+  ...DEFAULT_RECORDING_OVERLAY_STYLE_CONFIG,
+};
 
 const THEME_OPTIONS: Array<{ value: RecordingOverlayTheme; label: string }> = [
   { value: "classic", label: "Classic" },
@@ -131,13 +149,13 @@ const PREVIEW_STATES: Array<{ value: PreviewState; label: string }> = [
 
 export const RecordingOverlaySettings: React.FC = () => {
   const { t } = useTranslation();
-  const { settings, updateSetting, isUpdating, resetSetting, refreshSettings } =
-    useSettings();
+  const { settings, updateSetting, isUpdating, refreshSettings } = useSettings();
   const [previewState, setPreviewState] = React.useState<PreviewState>("recording");
   const [isResettingAppearance, setIsResettingAppearance] = React.useState(false);
   const [isResettingPosition, setIsResettingPosition] = React.useState(false);
   const [isApplyingPreset, setIsApplyingPreset] = React.useState(false);
   const [isApplyingStyleCode, setIsApplyingStyleCode] = React.useState(false);
+  const [arePresetsExpanded, setArePresetsExpanded] = React.useState(true);
   const [styleCodeDraft, setStyleCodeDraft] = React.useState("");
   const [styleToolsStatus, setStyleToolsStatus] = React.useState<string | null>(null);
 
@@ -162,8 +180,16 @@ export const RecordingOverlaySettings: React.FC = () => {
   const rawBarWidthPx = Number(
     (settings as any)?.recording_overlay_bar_width_px ?? 6,
   );
+  const rawOverlayWidthPx = Number(
+    (settings as any)?.recording_overlay_width_px ?? 172,
+  );
   const barCount = Number.isFinite(rawBarCount) ? rawBarCount : 9;
   const barWidthPx = Number.isFinite(rawBarWidthPx) ? rawBarWidthPx : 6;
+  const overlayWidthPx = Number.isFinite(rawOverlayWidthPx) ? rawOverlayWidthPx : 172;
+  const clampedOverlayWidthPx = Math.max(
+    172,
+    Math.min(420, Math.round(overlayWidthPx)),
+  );
   const barStyle = normalizeRecordingOverlayBarStyle(
     (settings as any)?.recording_overlay_bar_style,
   );
@@ -178,6 +204,9 @@ export const RecordingOverlaySettings: React.FC = () => {
   );
   const audioReactiveScaleMaxPercent = Number(
     (settings as any)?.recording_overlay_audio_reactive_scale_max_percent ?? 12,
+  );
+  const voiceSensitivityPercent = Number(
+    (settings as any)?.recording_overlay_voice_sensitivity_percent ?? 50,
   );
   const animationSoftnessPercent = Number(
     (settings as any)?.recording_overlay_animation_softness_percent ?? 55,
@@ -205,6 +234,84 @@ export const RecordingOverlaySettings: React.FC = () => {
     () => serializeRecordingOverlayStyleConfig(currentStyleConfig),
     [currentStyleConfig],
   );
+  const appliedPresetId = React.useMemo(() => {
+    for (const preset of RECORDING_OVERLAY_STYLE_PRESETS) {
+      const presetStyleCode = serializeRecordingOverlayStyleConfig({
+        ...DEFAULT_RECORDING_OVERLAY_STYLE_CONFIG,
+        ...preset.config,
+      });
+      if (presetStyleCode === currentStyleCode) {
+        return preset.id;
+      }
+    }
+
+    return null;
+  }, [currentStyleCode]);
+  const sliderDraftSource = React.useMemo<OverlaySliderDrafts>(
+    () => ({
+      recording_overlay_bar_count: Math.max(3, Math.min(16, Math.round(barCount))),
+      recording_overlay_width_px: clampedOverlayWidthPx,
+      recording_overlay_bar_width_px: Math.max(2, Math.min(12, Math.round(barWidthPx))),
+      recording_overlay_audio_reactive_scale_max_percent: Math.max(
+        0,
+        Math.min(24, Math.round(audioReactiveScaleMaxPercent)),
+      ),
+      recording_overlay_voice_sensitivity_percent: Math.max(
+        0,
+        Math.min(100, Math.round(voiceSensitivityPercent)),
+      ),
+      recording_overlay_animation_softness_percent: Math.max(
+        0,
+        Math.min(100, Math.round(animationSoftnessPercent)),
+      ),
+      recording_overlay_depth_parallax_percent: Math.max(
+        0,
+        Math.min(100, Math.round(depthParallaxPercent)),
+      ),
+      recording_overlay_opacity_percent: Math.max(
+        20,
+        Math.min(100, Math.round(opacityPercent)),
+      ),
+      recording_overlay_silence_opacity_percent: Math.max(
+        20,
+        Math.min(100, Math.round(silenceOpacityPercent)),
+      ),
+    }),
+    [
+      audioReactiveScaleMaxPercent,
+      animationSoftnessPercent,
+      barCount,
+      barWidthPx,
+      clampedOverlayWidthPx,
+      depthParallaxPercent,
+      opacityPercent,
+      silenceOpacityPercent,
+      voiceSensitivityPercent,
+    ],
+  );
+  const [sliderDrafts, setSliderDrafts] =
+    React.useState<OverlaySliderDrafts>(sliderDraftSource);
+
+  React.useEffect(() => {
+    setSliderDrafts(sliderDraftSource);
+  }, [sliderDraftSource]);
+
+  const updateSliderDraft = React.useCallback(
+    (key: OverlaySliderDraftKey, value: number) => {
+      setSliderDrafts((current) => ({
+        ...current,
+        [key]: value,
+      }));
+    },
+    [],
+  );
+
+  const commitSliderDraft = React.useCallback(
+    async (key: OverlaySliderDraftKey, value: number) => {
+      await updateSetting(key as any, Math.round(value) as any);
+    },
+    [updateSetting],
+  );
 
   const applyStyleConfig = React.useCallback(
     async (config: RecordingOverlayStyleConfig) => {
@@ -222,28 +329,32 @@ export const RecordingOverlaySettings: React.FC = () => {
 
     setIsResettingAppearance(true);
     try {
-      for (const key of [
-        "recording_overlay_theme",
-        "recording_overlay_background_mode",
-        "recording_overlay_material_mode",
-        "recording_overlay_centerpiece_mode",
-        "recording_overlay_animated_border_mode",
-        "recording_overlay_show_status_icon",
-        "recording_overlay_bar_count",
-        "recording_overlay_bar_width_px",
-        "recording_overlay_bar_style",
-        "recording_overlay_accent_color",
-        "recording_overlay_show_drag_grip",
-        "recording_overlay_audio_reactive_scale",
-        "recording_overlay_audio_reactive_scale_max_percent",
-        "recording_overlay_animation_softness_percent",
-        "recording_overlay_depth_parallax_percent",
-        "recording_overlay_opacity_percent",
-        "recording_overlay_silence_fade",
-        "recording_overlay_silence_opacity_percent",
-      ] as const) {
-        await resetSetting(key as any);
-      }
+      await applyStyleConfig(RESET_RECORDING_OVERLAY_STYLE_CONFIG);
+      await updateSetting("recording_overlay_width_px" as any, 172 as any);
+      setSliderDrafts({
+        ...sliderDraftSource,
+        recording_overlay_bar_count: RESET_RECORDING_OVERLAY_STYLE_CONFIG.barCount,
+        recording_overlay_width_px: 172,
+        recording_overlay_bar_width_px: RESET_RECORDING_OVERLAY_STYLE_CONFIG.barWidthPx,
+        recording_overlay_audio_reactive_scale_max_percent:
+          RESET_RECORDING_OVERLAY_STYLE_CONFIG.audioReactiveScaleMaxPercent,
+        recording_overlay_voice_sensitivity_percent:
+          RESET_RECORDING_OVERLAY_STYLE_CONFIG.voiceSensitivityPercent,
+        recording_overlay_animation_softness_percent:
+          RESET_RECORDING_OVERLAY_STYLE_CONFIG.animationSoftnessPercent,
+        recording_overlay_depth_parallax_percent:
+          RESET_RECORDING_OVERLAY_STYLE_CONFIG.depthParallaxPercent,
+        recording_overlay_opacity_percent:
+          RESET_RECORDING_OVERLAY_STYLE_CONFIG.opacityPercent,
+        recording_overlay_silence_opacity_percent:
+          RESET_RECORDING_OVERLAY_STYLE_CONFIG.silenceOpacityPercent,
+      });
+      setStyleToolsStatus(
+        t(
+          "settings.userInterface.recordingOverlay.reset.appearanceDone",
+          "Overlay appearance reset to the default look.",
+        ),
+      );
     } catch (error) {
       console.error("Failed to reset recording overlay appearance:", error);
     } finally {
@@ -377,6 +488,8 @@ export const RecordingOverlaySettings: React.FC = () => {
         "Recording Overlay",
       )}
     >
+      <div className="flex flex-col divide-y divide-white/[0.05]">
+        <div className="order-1">
       <SettingContainer
         title={t(
           "settings.userInterface.recordingOverlay.preview.title",
@@ -418,22 +531,36 @@ export const RecordingOverlaySettings: React.FC = () => {
             backgroundMode={backgroundMode}
             centerpieceMode={centerpieceMode}
             animatedBorderMode={animatedBorderMode}
-            barCount={barCount}
-            barWidthPx={barWidthPx}
+            barCount={sliderDrafts.recording_overlay_bar_count}
+            barWidthPx={sliderDrafts.recording_overlay_bar_width_px}
             barStyle={barStyle}
             showDragGrip={showDragGrip}
             state={previewState}
             audioReactiveScale={audioReactiveScale}
-            audioReactiveScaleMaxPercent={audioReactiveScaleMaxPercent}
-            animationSoftnessPercent={animationSoftnessPercent}
-            depthParallaxPercent={depthParallaxPercent}
-            opacityPercent={opacityPercent}
+            audioReactiveScaleMaxPercent={
+              sliderDrafts.recording_overlay_audio_reactive_scale_max_percent
+            }
+            voiceSensitivityPercent={
+              sliderDrafts.recording_overlay_voice_sensitivity_percent
+            }
+            animationSoftnessPercent={
+              sliderDrafts.recording_overlay_animation_softness_percent
+            }
+            depthParallaxPercent={
+              sliderDrafts.recording_overlay_depth_parallax_percent
+            }
+            opacityPercent={sliderDrafts.recording_overlay_opacity_percent}
             silenceFade={silenceFade}
-            silenceOpacityPercent={silenceOpacityPercent}
+            silenceOpacityPercent={
+              sliderDrafts.recording_overlay_silence_opacity_percent
+            }
+            minimumWidthPx={sliderDrafts.recording_overlay_width_px}
           />
         </div>
       </SettingContainer>
+        </div>
 
+        <div className="order-2">
       <SettingContainer
         title={t(
           "settings.userInterface.recordingOverlay.presets.title",
@@ -448,68 +575,160 @@ export const RecordingOverlaySettings: React.FC = () => {
         grouped={true}
       >
         <div className="space-y-3">
-          <div className="grid gap-3 xl:grid-cols-2">
-            {RECORDING_OVERLAY_STYLE_PRESETS.map((preset) => {
-              const presetConfig = {
-                ...DEFAULT_RECORDING_OVERLAY_STYLE_CONFIG,
-                ...preset.config,
-              };
-              return (
-              <button
-                key={preset.id}
-                type="button"
-                onClick={() => void handleApplyPreset(presetConfig)}
-                disabled={isApplyingPreset}
-                className="rounded-xl border border-[#323232] bg-[#191919] p-3 text-left transition-colors hover:border-[#4a4a4a] hover:bg-[#202020] disabled:cursor-not-allowed disabled:opacity-45"
-              >
-                <div className="mb-3 flex items-start justify-between gap-3">
-                  <div>
-                    <div className="text-sm font-semibold text-[#f2f2f2]">
-                      {preset.name}
-                    </div>
-                    <div className="mt-1 text-xs leading-relaxed text-[#9d9d9d]">
-                      {preset.description}
-                    </div>
-                  </div>
-                  <span className="rounded-full border border-[#4a4a4a] bg-[#232323] px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.16em] text-[#ff8ebb]">
-                    Apply
-                  </span>
-                </div>
-                <RecordingOverlayPreview
-                  theme={presetConfig.theme}
-                  accentColor={presetConfig.accentColor}
-                  materialMode={presetConfig.materialMode}
-                  showStatusIcon={presetConfig.showStatusIcon}
-                  backgroundMode={presetConfig.backgroundMode}
-                  centerpieceMode={presetConfig.centerpieceMode}
-                  animatedBorderMode={presetConfig.animatedBorderMode}
-                  barCount={presetConfig.barCount}
-                  barWidthPx={presetConfig.barWidthPx}
-                  barStyle={presetConfig.barStyle}
-                  showDragGrip={presetConfig.showDragGrip}
-                  state="recording"
-                  audioReactiveScale={presetConfig.audioReactiveScale}
-                  audioReactiveScaleMaxPercent={
-                    presetConfig.audioReactiveScaleMaxPercent
-                  }
-                  animationSoftnessPercent={
-                    presetConfig.animationSoftnessPercent
-                  }
-                  depthParallaxPercent={presetConfig.depthParallaxPercent}
-                  opacityPercent={presetConfig.opacityPercent}
-                  silenceFade={presetConfig.silenceFade}
-                  silenceOpacityPercent={presetConfig.silenceOpacityPercent}
-                />
-              </button>
-              );
-            })}
+          <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-[#2f2f2f] bg-[#171717] px-3 py-2">
+            <div className="text-xs text-[#a7a7a7]">
+              {t(
+                "settings.userInterface.recordingOverlay.presets.memoryHint",
+                "Collapse preset packs to unload the preview cards and save memory.",
+              )}
+            </div>
+            <button
+              type="button"
+              onClick={() => setArePresetsExpanded((current) => !current)}
+              className="rounded-md border border-[#3f3f3f] bg-[#202020] px-3 py-1.5 text-xs font-medium text-[#ededed] transition-colors hover:bg-[#2b2b2b]"
+            >
+              {arePresetsExpanded
+                ? t(
+                    "settings.userInterface.recordingOverlay.presets.collapse",
+                    "Collapse Presets",
+                  )
+                : t(
+                    "settings.userInterface.recordingOverlay.presets.expand",
+                    "Expand Presets",
+                  )}
+            </button>
           </div>
+          {arePresetsExpanded && (
+            <div className="grid gap-3 xl:grid-cols-2">
+              {RECORDING_OVERLAY_STYLE_PRESETS.map((preset) => {
+                const presetConfig = {
+                  ...DEFAULT_RECORDING_OVERLAY_STYLE_CONFIG,
+                  ...preset.config,
+                };
+                const isApplied = preset.id === appliedPresetId;
+                return (
+                  <button
+                    key={preset.id}
+                    type="button"
+                    onClick={() => void handleApplyPreset(presetConfig)}
+                    aria-pressed={isApplied}
+                    disabled={isApplyingPreset}
+                    className={`rounded-xl border p-3 text-left transition-all duration-200 disabled:cursor-not-allowed disabled:opacity-45 ${
+                      isApplied
+                        ? "border-[#ff78b4] bg-[#20161c]"
+                        : "border-[#323232] bg-[#191919] hover:border-[#4a4a4a] hover:bg-[#202020]"
+                    }`}
+                    style={
+                      isApplied
+                        ? {
+                            background:
+                              "linear-gradient(180deg, rgba(255,120,180,0.12), rgba(255,120,180,0.04))",
+                            boxShadow:
+                              "0 0 0 1px rgba(255,120,180,0.22), 0 18px 38px rgba(0,0,0,0.22)",
+                          }
+                        : undefined
+                    }
+                  >
+                    <div className="mb-3 flex items-start justify-between gap-3">
+                      <div>
+                        <div className="text-sm font-semibold text-[#f2f2f2]">
+                          {preset.name}
+                        </div>
+                        <div className="mt-1 text-xs leading-relaxed text-[#9d9d9d]">
+                          {preset.description}
+                        </div>
+                      </div>
+                      <span
+                        className={`rounded-full px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.16em] ${
+                          isApplied
+                            ? "border border-[#ff92c1]/60 bg-[#ff5fa4]/20 text-[#ffd6e8]"
+                            : "border border-[#4a4a4a] bg-[#232323] text-[#ff8ebb]"
+                        }`}
+                      >
+                        {isApplied
+                          ? t(
+                              "settings.userInterface.recordingOverlay.presets.active",
+                              "Applied",
+                            )
+                          : t(
+                              "settings.userInterface.recordingOverlay.presets.applyCta",
+                              "Apply",
+                            )}
+                      </span>
+                    </div>
+                    <RecordingOverlayPreview
+                      theme={presetConfig.theme}
+                      accentColor={presetConfig.accentColor}
+                      materialMode={presetConfig.materialMode}
+                      showStatusIcon={presetConfig.showStatusIcon}
+                      backgroundMode={presetConfig.backgroundMode}
+                      centerpieceMode={presetConfig.centerpieceMode}
+                      animatedBorderMode={presetConfig.animatedBorderMode}
+                      barCount={presetConfig.barCount}
+                      barWidthPx={presetConfig.barWidthPx}
+                      barStyle={presetConfig.barStyle}
+                      showDragGrip={presetConfig.showDragGrip}
+                      state="recording"
+                      audioReactiveScale={presetConfig.audioReactiveScale}
+                      audioReactiveScaleMaxPercent={
+                        presetConfig.audioReactiveScaleMaxPercent
+                      }
+                      voiceSensitivityPercent={
+                        presetConfig.voiceSensitivityPercent
+                      }
+                      animationSoftnessPercent={
+                        presetConfig.animationSoftnessPercent
+                      }
+                      depthParallaxPercent={presetConfig.depthParallaxPercent}
+                      opacityPercent={presetConfig.opacityPercent}
+                      silenceFade={presetConfig.silenceFade}
+                      silenceOpacityPercent={presetConfig.silenceOpacityPercent}
+                      maxPreviewWidthPx={248}
+                    />
+                  </button>
+                );
+              })}
+            </div>
+          )}
           {styleToolsStatus && (
             <div className="text-xs text-[#ffb6cf]">{styleToolsStatus}</div>
           )}
         </div>
       </SettingContainer>
+        </div>
 
+        <div className="order-3">
+      <TellMeMore
+        title={t(
+          "settings.userInterface.recordingOverlay.help.title",
+          "How To Use These Controls",
+        )}
+        defaultOpen={false}
+      >
+        <div className="space-y-2">
+          <p>
+            {t(
+              "settings.userInterface.recordingOverlay.help.presetsFirst",
+              "Start with Preset Packs if you want a fast direction, then shape the result with the controls below.",
+            )}
+          </p>
+          <p>
+            {t(
+              "settings.userInterface.recordingOverlay.help.grouping",
+              "Think in this order: Layout sets the silhouette, Style sets the core look, Atmosphere adds decorative layers, and Motion controls how the overlay behaves while you speak.",
+            )}
+          </p>
+          <p>
+            {t(
+              "settings.userInterface.recordingOverlay.help.sliders",
+              "Slider drags now update the page preview immediately and commit to the live overlay when you release them.",
+            )}
+          </p>
+        </div>
+      </TellMeMore>
+        </div>
+
+        <div className="order-7">
       <SettingContainer
         title={t(
           "settings.userInterface.recordingOverlay.styleCode.title",
@@ -592,7 +811,9 @@ export const RecordingOverlaySettings: React.FC = () => {
           </div>
         </div>
       </SettingContainer>
+        </div>
 
+        <div className="order-8">
       <SettingContainer
         title={t(
           "settings.userInterface.recordingOverlay.reset.title",
@@ -638,7 +859,9 @@ export const RecordingOverlaySettings: React.FC = () => {
       </SettingContainer>
 
       <ShowOverlay descriptionMode="tooltip" grouped={true} />
+        </div>
 
+        <div className="order-4">
       <SettingContainer
         title={t(
           "settings.userInterface.recordingOverlay.theme.title",
@@ -812,15 +1035,40 @@ export const RecordingOverlaySettings: React.FC = () => {
         min={3}
         max={16}
         step={1}
-        value={Math.max(3, Math.min(16, Math.round(barCount)))}
+        value={sliderDrafts.recording_overlay_bar_count}
         formatValue={(value) => String(Math.round(value))}
         onChange={(value) =>
-          void updateSetting(
-            "recording_overlay_bar_count" as any,
-            Math.round(value) as any,
-          )
+          updateSliderDraft("recording_overlay_bar_count", value)
+        }
+        onChangeComplete={(value) =>
+          void commitSliderDraft("recording_overlay_bar_count", value)
         }
         disabled={isUpdating("recording_overlay_bar_count")}
+      />
+
+      <Slider
+        label={t(
+          "settings.userInterface.recordingOverlay.overlayWidth.title",
+          "Overlay Width",
+        )}
+        description={t(
+          "settings.userInterface.recordingOverlay.overlayWidth.description",
+          "Choose the base width of the recording overlay. It can still expand if the current visualizer needs more room.",
+        )}
+        descriptionMode="tooltip"
+        grouped={true}
+        min={172}
+        max={420}
+        step={1}
+        value={sliderDrafts.recording_overlay_width_px}
+        formatValue={(value) => `${Math.round(value)} px`}
+        onChange={(value) =>
+          updateSliderDraft("recording_overlay_width_px", value)
+        }
+        onChangeComplete={(value) =>
+          void commitSliderDraft("recording_overlay_width_px", value)
+        }
+        disabled={isUpdating("recording_overlay_width_px")}
       />
 
       <Slider
@@ -837,13 +1085,13 @@ export const RecordingOverlaySettings: React.FC = () => {
         min={2}
         max={12}
         step={1}
-        value={Math.max(2, Math.min(12, Math.round(barWidthPx)))}
+        value={sliderDrafts.recording_overlay_bar_width_px}
         formatValue={(value) => `${Math.round(value)} px`}
         onChange={(value) =>
-          void updateSetting(
-            "recording_overlay_bar_width_px" as any,
-            Math.round(value) as any,
-          )
+          updateSliderDraft("recording_overlay_bar_width_px", value)
+        }
+        onChangeComplete={(value) =>
+          void commitSliderDraft("recording_overlay_bar_width_px", value)
         }
         disabled={isUpdating("recording_overlay_bar_width_px")}
       />
@@ -876,7 +1124,9 @@ export const RecordingOverlaySettings: React.FC = () => {
           <span className="text-xs font-mono text-[#a0a0a0]">{accentColor}</span>
         </div>
       </SettingContainer>
+        </div>
 
+        <div className="order-5">
       <ToggleSwitch
         checked={audioReactiveScale}
         onChange={(enabled) =>
@@ -912,17 +1162,54 @@ export const RecordingOverlaySettings: React.FC = () => {
         min={0}
         max={24}
         step={1}
-        value={Math.max(0, Math.min(24, Math.round(audioReactiveScaleMaxPercent)))}
+        value={sliderDrafts.recording_overlay_audio_reactive_scale_max_percent}
         formatValue={(value) => `${Math.round(value)} %`}
         onChange={(value) =>
-          void updateSetting(
-            "recording_overlay_audio_reactive_scale_max_percent" as any,
-            Math.round(value) as any,
+          updateSliderDraft(
+            "recording_overlay_audio_reactive_scale_max_percent",
+            value,
+          )
+        }
+        onChangeComplete={(value) =>
+          void commitSliderDraft(
+            "recording_overlay_audio_reactive_scale_max_percent",
+            value,
           )
         }
         disabled={
           isUpdating("recording_overlay_audio_reactive_scale_max_percent") ||
           !audioReactiveScale
+        }
+      />
+
+      <Slider
+        label={t(
+          "settings.userInterface.recordingOverlay.voiceSensitivity.title",
+          "Voice Sensitivity",
+        )}
+        description={t(
+          "settings.userInterface.recordingOverlay.voiceSensitivity.description",
+          "Choose how easily the overlay reacts to quieter speech. Higher values wake up sooner; lower values wait for stronger voice input.",
+        )}
+        descriptionMode="tooltip"
+        grouped={true}
+        min={0}
+        max={100}
+        step={1}
+        value={sliderDrafts.recording_overlay_voice_sensitivity_percent}
+        formatValue={(value) => `${Math.round(value)} %`}
+        onChange={(value) =>
+          updateSliderDraft("recording_overlay_voice_sensitivity_percent", value)
+        }
+        onChangeComplete={(value) =>
+          void commitSliderDraft(
+            "recording_overlay_voice_sensitivity_percent",
+            value,
+          )
+        }
+        disabled={
+          isUpdating("recording_overlay_voice_sensitivity_percent") ||
+          (!audioReactiveScale && !silenceFade)
         }
       />
 
@@ -940,12 +1227,15 @@ export const RecordingOverlaySettings: React.FC = () => {
         min={0}
         max={100}
         step={1}
-        value={Math.max(0, Math.min(100, Math.round(animationSoftnessPercent)))}
+        value={sliderDrafts.recording_overlay_animation_softness_percent}
         formatValue={(value) => `${Math.round(value)} %`}
         onChange={(value) =>
-          void updateSetting(
-            "recording_overlay_animation_softness_percent" as any,
-            Math.round(value) as any,
+          updateSliderDraft("recording_overlay_animation_softness_percent", value)
+        }
+        onChangeComplete={(value) =>
+          void commitSliderDraft(
+            "recording_overlay_animation_softness_percent",
+            value,
           )
         }
         disabled={isUpdating("recording_overlay_animation_softness_percent")}
@@ -965,12 +1255,15 @@ export const RecordingOverlaySettings: React.FC = () => {
         min={0}
         max={100}
         step={1}
-        value={Math.max(0, Math.min(100, Math.round(depthParallaxPercent)))}
+        value={sliderDrafts.recording_overlay_depth_parallax_percent}
         formatValue={(value) => `${Math.round(value)} %`}
         onChange={(value) =>
-          void updateSetting(
-            "recording_overlay_depth_parallax_percent" as any,
-            Math.round(value) as any,
+          updateSliderDraft("recording_overlay_depth_parallax_percent", value)
+        }
+        onChangeComplete={(value) =>
+          void commitSliderDraft(
+            "recording_overlay_depth_parallax_percent",
+            value,
           )
         }
         disabled={isUpdating("recording_overlay_depth_parallax_percent")}
@@ -1011,13 +1304,13 @@ export const RecordingOverlaySettings: React.FC = () => {
         min={20}
         max={100}
         step={1}
-        value={Math.max(20, Math.min(100, Math.round(opacityPercent)))}
+        value={sliderDrafts.recording_overlay_opacity_percent}
         formatValue={(value) => `${Math.round(value)} %`}
         onChange={(value) =>
-          void updateSetting(
-            "recording_overlay_opacity_percent" as any,
-            Math.round(value) as any,
-          )
+          updateSliderDraft("recording_overlay_opacity_percent", value)
+        }
+        onChangeComplete={(value) =>
+          void commitSliderDraft("recording_overlay_opacity_percent", value)
         }
         disabled={isUpdating("recording_overlay_opacity_percent")}
       />
@@ -1036,12 +1329,15 @@ export const RecordingOverlaySettings: React.FC = () => {
         min={20}
         max={100}
         step={1}
-        value={Math.max(20, Math.min(100, Math.round(silenceOpacityPercent)))}
+        value={sliderDrafts.recording_overlay_silence_opacity_percent}
         formatValue={(value) => `${Math.round(value)} %`}
         onChange={(value) =>
-          void updateSetting(
-            "recording_overlay_silence_opacity_percent" as any,
-            Math.round(value) as any,
+          updateSliderDraft("recording_overlay_silence_opacity_percent", value)
+        }
+        onChangeComplete={(value) =>
+          void commitSliderDraft(
+            "recording_overlay_silence_opacity_percent",
+            value,
           )
         }
         disabled={
@@ -1049,6 +1345,8 @@ export const RecordingOverlaySettings: React.FC = () => {
           !silenceFade
         }
       />
+        </div>
+      </div>
     </SettingsGroup>
   );
 };

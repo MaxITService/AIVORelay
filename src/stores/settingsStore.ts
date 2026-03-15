@@ -506,6 +506,10 @@ settingUpdaters.error_overlay_auto_hide_ms = (value) =>
   commands.changeRecordingOverlayShowStatusIconSetting(Boolean(value));
 (settingUpdaters as any).recording_overlay_bar_count = (value: any) =>
   commands.changeRecordingOverlayBarCountSetting(Number(value));
+(settingUpdaters as any).recording_overlay_width_px = (value: any) =>
+  invoke("change_recording_overlay_width_setting", {
+    widthPx: Number(value),
+  });
 (settingUpdaters as any).recording_overlay_bar_width_px = (value: any) =>
   commands.changeRecordingOverlayBarWidthSetting(Number(value));
 (settingUpdaters as any).recording_overlay_bar_style = (value: any) =>
@@ -520,6 +524,12 @@ settingUpdaters.error_overlay_auto_hide_ms = (value) =>
   commands.changeRecordingOverlayAudioReactiveScaleMaxPercentSetting(
     Number(value),
   );
+(settingUpdaters as any).recording_overlay_voice_sensitivity_percent = (
+  value: any,
+) =>
+  invoke("change_recording_overlay_voice_sensitivity_percent_setting", {
+    value: Number(value),
+  });
 (settingUpdaters as any).recording_overlay_animation_softness_percent = (
   value: any,
 ) =>

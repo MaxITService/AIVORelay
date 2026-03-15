@@ -98,6 +98,7 @@ const DEFAULT_OVERLAY_APPEARANCE: RecordingOverlayAppearancePayload = {
   show_drag_grip: false,
   audio_reactive_scale: false,
   audio_reactive_scale_max_percent: 12,
+  voice_sensitivity_percent: 50,
   animation_softness_percent: 55,
   depth_parallax_percent: 40,
   opacity_percent: 100,
@@ -344,6 +345,10 @@ const RecordingOverlay: React.FC = () => {
           typeof data.audio_reactive_scale_max_percent === "number"
             ? Math.max(0, Math.min(24, Math.round(data.audio_reactive_scale_max_percent)))
             : DEFAULT_OVERLAY_APPEARANCE.audio_reactive_scale_max_percent,
+        voice_sensitivity_percent:
+          typeof data.voice_sensitivity_percent === "number"
+            ? Math.max(0, Math.min(100, Math.round(data.voice_sensitivity_percent)))
+            : DEFAULT_OVERLAY_APPEARANCE.voice_sensitivity_percent,
         animation_softness_percent:
           typeof data.animation_softness_percent === "number"
             ? Math.max(0, Math.min(100, Math.round(data.animation_softness_percent)))
@@ -634,6 +639,7 @@ const RecordingOverlay: React.FC = () => {
     levels: visibleLevels,
     audioReactiveScale: appearance.audio_reactive_scale,
     audioReactiveScaleMaxPercent: appearance.audio_reactive_scale_max_percent,
+    voiceSensitivityPercent: appearance.voice_sensitivity_percent,
     animationSoftnessPercent: appearance.animation_softness_percent,
     opacityPercent: appearance.opacity_percent,
     silenceFade: appearance.silence_fade,
