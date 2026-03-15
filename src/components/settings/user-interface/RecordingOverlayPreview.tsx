@@ -35,6 +35,8 @@ interface RecordingOverlayPreviewProps {
   customEnabled: boolean;
   theme: RecordingOverlayTheme;
   accentColor: string;
+  surfaceBaseColor: string;
+  bodyBackgroundColor: string;
   materialMode: RecordingOverlayMaterialMode;
   showStatusIcon: boolean;
   backgroundMode: RecordingOverlayBackgroundMode;
@@ -72,6 +74,8 @@ export const RecordingOverlayPreview: React.FC<RecordingOverlayPreviewProps> = (
   customEnabled,
   theme,
   accentColor,
+  surfaceBaseColor,
+  bodyBackgroundColor,
   materialMode,
   showStatusIcon,
   backgroundMode,
@@ -94,6 +98,14 @@ export const RecordingOverlayPreview: React.FC<RecordingOverlayPreviewProps> = (
   maxPreviewWidthPx,
 }) => {
   const normalizedAccent = normalizeRecordingOverlayColor(accentColor);
+  const normalizedSurfaceBaseColor = normalizeRecordingOverlayColor(
+    surfaceBaseColor,
+    "#101216",
+  );
+  const normalizedBodyBackgroundColor = normalizeRecordingOverlayColor(
+    bodyBackgroundColor,
+    "#101216",
+  );
   const normalizedBackgroundMode =
     normalizeRecordingOverlayBackgroundMode(backgroundMode);
   const normalizedMaterialMode =
@@ -149,8 +161,18 @@ export const RecordingOverlayPreview: React.FC<RecordingOverlayPreviewProps> = (
         barWidthPx,
         effectiveOpacityPercent,
         effectiveMaterialMode,
+        normalizedSurfaceBaseColor,
+        normalizedBodyBackgroundColor,
       ),
-    [barWidthPx, effectiveMaterialMode, effectiveOpacityPercent, normalizedAccent, theme],
+    [
+      barWidthPx,
+      normalizedBodyBackgroundColor,
+      effectiveMaterialMode,
+      effectiveOpacityPercent,
+      normalizedAccent,
+      normalizedSurfaceBaseColor,
+      theme,
+    ],
   );
 
   const effectiveBarCount = Math.max(3, Math.min(16, Math.round(barCount)));

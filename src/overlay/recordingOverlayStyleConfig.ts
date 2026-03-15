@@ -22,6 +22,8 @@ export interface RecordingOverlayStyleConfig {
   materialMode: RecordingOverlayMaterialMode;
   centerpieceMode: RecordingOverlayCenterpieceMode;
   animatedBorderMode: RecordingOverlayAnimatedBorderMode;
+  surfaceBaseColor: string;
+  bodyBackgroundColor: string;
   showStatusIcon: boolean;
   barCount: number;
   barWidthPx: number;
@@ -53,6 +55,8 @@ export const DEFAULT_RECORDING_OVERLAY_STYLE_CONFIG: RecordingOverlayStyleConfig
   materialMode: "liquid_glass",
   centerpieceMode: "none",
   animatedBorderMode: "none",
+  surfaceBaseColor: "#101216",
+  bodyBackgroundColor: "#101216",
   showStatusIcon: true,
   barCount: 9,
   barWidthPx: 6,
@@ -613,6 +617,22 @@ export function normalizeRecordingOverlayStyleConfig(
           ? raw.animated_border_mode
           : undefined,
     ),
+    surfaceBaseColor: normalizeRecordingOverlayColor(
+      typeof raw.surfaceBaseColor === "string"
+        ? raw.surfaceBaseColor
+        : typeof raw.surface_base_color === "string"
+          ? raw.surface_base_color
+          : undefined,
+      DEFAULT_RECORDING_OVERLAY_STYLE_CONFIG.surfaceBaseColor,
+    ),
+    bodyBackgroundColor: normalizeRecordingOverlayColor(
+      typeof raw.bodyBackgroundColor === "string"
+        ? raw.bodyBackgroundColor
+        : typeof raw.body_background_color === "string"
+          ? raw.body_background_color
+          : undefined,
+      DEFAULT_RECORDING_OVERLAY_STYLE_CONFIG.bodyBackgroundColor,
+    ),
     showStatusIcon:
       typeof raw.showStatusIcon === "boolean"
         ? raw.showStatusIcon
@@ -716,6 +736,12 @@ export function getRecordingOverlayStyleConfigFromSettings(
     materialMode: settings.recording_overlay_material_mode,
     centerpieceMode: settings.recording_overlay_centerpiece_mode,
     animatedBorderMode: settings.recording_overlay_animated_border_mode,
+    surfaceBaseColor:
+      (settings as any).recording_overlay_surface_base_color ??
+      DEFAULT_RECORDING_OVERLAY_STYLE_CONFIG.surfaceBaseColor,
+    bodyBackgroundColor:
+      (settings as any).recording_overlay_body_background_color ??
+      DEFAULT_RECORDING_OVERLAY_STYLE_CONFIG.bodyBackgroundColor,
     showStatusIcon: settings.recording_overlay_show_status_icon,
     barCount: settings.recording_overlay_bar_count,
     barWidthPx: settings.recording_overlay_bar_width_px,
@@ -785,7 +811,7 @@ export function parseRecordingOverlayStyleConfig(
 
 export const RECORDING_OVERLAY_STYLE_SETTING_ENTRIES = (
   config: RecordingOverlayStyleConfig,
-): Array<[keyof AppSettings, AppSettings[keyof AppSettings]]> => {
+): Array<[string, unknown]> => {
   const normalized = normalizeRecordingOverlayStyleConfig(config);
   return [
     ["recording_overlay_theme", normalized.theme],
@@ -793,6 +819,8 @@ export const RECORDING_OVERLAY_STYLE_SETTING_ENTRIES = (
     ["recording_overlay_material_mode", normalized.materialMode],
     ["recording_overlay_centerpiece_mode", normalized.centerpieceMode],
     ["recording_overlay_animated_border_mode", normalized.animatedBorderMode],
+    ["recording_overlay_surface_base_color", normalized.surfaceBaseColor],
+    ["recording_overlay_body_background_color", normalized.bodyBackgroundColor],
     ["recording_overlay_show_status_icon", normalized.showStatusIcon],
     ["recording_overlay_bar_count", normalized.barCount],
     ["recording_overlay_bar_width_px", normalized.barWidthPx],

@@ -520,6 +520,14 @@ settingUpdaters.error_overlay_auto_hide_ms = (value) =>
   commands.changeRecordingOverlayBarStyleSetting(String(value));
 (settingUpdaters as any).recording_overlay_accent_color = (value: any) =>
   commands.changeRecordingOverlayAccentColorSetting(String(value));
+(settingUpdaters as any).recording_overlay_surface_base_color = (value: any) =>
+  invoke("change_recording_overlay_surface_base_color_setting", {
+    color: String(value),
+  });
+(settingUpdaters as any).recording_overlay_body_background_color = (value: any) =>
+  invoke("change_recording_overlay_body_background_color_setting", {
+    color: String(value),
+  });
 (settingUpdaters as any).recording_overlay_audio_reactive_scale = (value: any) =>
   commands.changeRecordingOverlayAudioReactiveScaleSetting(Boolean(value));
 (settingUpdaters as any).recording_overlay_audio_reactive_scale_max_percent = (

@@ -519,6 +519,14 @@
           "title": "Overlay Accent Color",
           "description": "Pick the accent color used for the recording visualizer and hover accents."
         },
+        "bodyBackgroundColor": {
+          "title": "Body Background Color",
+          "description": "Adjust the true background color of the overlay body beneath the material and glow layers."
+        },
+        "surfaceBaseColor": {
+          "title": "Surface Tint",
+          "description": "Adjust the tint and glow layered over the body background. Use Body Background Color for the actual base fill."
+        },
         "audioReactiveScale": {
           "label": "Voice-Reactive Scale",
           "description": "Make the overlay subtly expand with stronger voice input."
@@ -541,7 +549,7 @@
         },
         "opacity": {
           "title": "Overlay Opacity",
-          "description": "Set the base transparency of the recording overlay."
+          "description": "Set the base transparency of the recording overlay. At 100%, the surface becomes fully opaque."
         },
         "silenceFade": {
           "label": "Fade When Quiet",

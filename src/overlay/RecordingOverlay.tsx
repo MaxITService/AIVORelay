@@ -48,6 +48,11 @@ import type {
   OverlayErrorPhase,
 } from "./plus_overlay_states";
 
+type RecordingOverlayAppearanceState = RecordingOverlayAppearancePayload & {
+  surface_base_color: string;
+  body_background_color: string;
+};
+
 const windowRef = getCurrentWindow();
 
 const COMPACT_ERROR_CODE_MAP: Record<string, string> = {
@@ -86,7 +91,7 @@ type OverlayErrorCopy = {
   hint: string;
 };
 
-const DEFAULT_OVERLAY_APPEARANCE: RecordingOverlayAppearancePayload = {
+const DEFAULT_OVERLAY_APPEARANCE: RecordingOverlayAppearanceState = {
   custom_enabled: false,
   theme: "classic",
   background_mode: "none",
@@ -94,6 +99,8 @@ const DEFAULT_OVERLAY_APPEARANCE: RecordingOverlayAppearancePayload = {
   centerpiece_mode: "none",
   animated_border_mode: "none",
   accent_color: "#ff4d8d",
+  surface_base_color: "#101216",
+  body_background_color: "#101216",
   show_status_icon: true,
   bar_count: 9,
   bar_width_px: 6,
@@ -266,7 +273,7 @@ const RecordingOverlay: React.FC = () => {
   const [errorCode, setErrorCode] = useState<string | null>(null);
   const [errorTechnical, setErrorTechnical] = useState<string | null>(null);
   const [levels, setLevels] = useState<number[]>(Array(20).fill(0));
-  const [appearance, setAppearance] = useState<RecordingOverlayAppearancePayload>(
+  const [appearance, setAppearance] = useState<RecordingOverlayAppearanceState>(
     DEFAULT_OVERLAY_APPEARANCE,
   );
   const smoothedLevelsRef = useRef<number[]>(Array(20).fill(0));
@@ -302,7 +309,7 @@ const RecordingOverlay: React.FC = () => {
         return;
       }
 
-      const data = payload as Partial<RecordingOverlayAppearancePayload> & {
+      const data = payload as Partial<RecordingOverlayAppearanceState> & {
         showDragGrip?: boolean;
       };
       const theme =
@@ -325,6 +332,14 @@ const RecordingOverlay: React.FC = () => {
           data.animated_border_mode,
         ),
         accent_color: normalizeRecordingOverlayColor(data.accent_color),
+        surface_base_color: normalizeRecordingOverlayColor(
+          data.surface_base_color,
+          DEFAULT_OVERLAY_APPEARANCE.surface_base_color,
+        ),
+        body_background_color: normalizeRecordingOverlayColor(
+          data.body_background_color,
+          DEFAULT_OVERLAY_APPEARANCE.body_background_color,
+        ),
         show_status_icon:
           typeof data.show_status_icon === "boolean"
             ? data.show_status_icon
@@ -638,6 +653,8 @@ const RecordingOverlay: React.FC = () => {
     appearance.bar_width_px,
     effectiveOpacityPercent,
     effectiveMaterialMode,
+    appearance.surface_base_color,
+    appearance.body_background_color,
   );
   const resolvedSurfaceStyle = customOverlayEnabled
     ? surfaceStyle

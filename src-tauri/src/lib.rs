@@ -493,6 +493,8 @@ pub fn run() {
         shortcut::change_recording_overlay_bar_width_setting,
         shortcut::change_recording_overlay_bar_style_setting,
         shortcut::change_recording_overlay_accent_color_setting,
+        shortcut::change_recording_overlay_surface_base_color_setting,
+        shortcut::change_recording_overlay_body_background_color_setting,
         shortcut::change_recording_overlay_audio_reactive_scale_setting,
         shortcut::change_recording_overlay_audio_reactive_scale_max_percent_setting,
         shortcut::change_recording_overlay_voice_sensitivity_percent_setting,

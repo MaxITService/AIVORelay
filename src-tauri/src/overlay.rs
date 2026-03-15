@@ -145,6 +145,8 @@ pub struct RecordingOverlayAppearancePayload {
     centerpiece_mode: String,
     animated_border_mode: String,
     accent_color: String,
+    surface_base_color: String,
+    body_background_color: String,
     show_status_icon: bool,
     bar_count: u8,
     bar_width_px: u8,
@@ -462,6 +464,8 @@ fn build_recording_overlay_appearance_payload(
         )
         .to_string(),
         accent_color: settings.recording_overlay_accent_color,
+        surface_base_color: settings.recording_overlay_surface_base_color,
+        body_background_color: settings.recording_overlay_body_background_color,
         show_status_icon: settings.recording_overlay_show_status_icon,
         bar_count: settings.recording_overlay_bar_count.clamp(3, 16),
         bar_width_px: settings.recording_overlay_bar_width_px.clamp(2, 12),

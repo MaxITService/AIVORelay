@@ -292,6 +292,14 @@ export const RecordingOverlaySettings: React.FC = () => {
   const accentColor = normalizeRecordingOverlayColor(
     (settings as any)?.recording_overlay_accent_color,
   );
+  const surfaceBaseColor = normalizeRecordingOverlayColor(
+    (settings as any)?.recording_overlay_surface_base_color,
+    "#101216",
+  );
+  const bodyBackgroundColor = normalizeRecordingOverlayColor(
+    (settings as any)?.recording_overlay_body_background_color,
+    "#101216",
+  );
   const showDragGrip = Boolean(
     (settings as any)?.recording_overlay_show_drag_grip ?? false,
   );
@@ -677,6 +685,8 @@ export const RecordingOverlaySettings: React.FC = () => {
             customEnabled={customOverlayEnabled}
             theme={overlayTheme}
             accentColor={accentColor}
+            surfaceBaseColor={surfaceBaseColor}
+            bodyBackgroundColor={bodyBackgroundColor}
             materialMode={materialMode}
             showStatusIcon={showStatusIcon}
             backgroundMode={backgroundMode}
@@ -866,6 +876,8 @@ export const RecordingOverlaySettings: React.FC = () => {
                       customEnabled={true}
                       theme={presetConfig.theme}
                       accentColor={presetConfig.accentColor}
+                      surfaceBaseColor={presetConfig.surfaceBaseColor}
+                      bodyBackgroundColor={presetConfig.bodyBackgroundColor}
                       materialMode={presetConfig.materialMode}
                       showStatusIcon={presetConfig.showStatusIcon}
                       backgroundMode={presetConfig.backgroundMode}
@@ -1337,6 +1349,68 @@ export const RecordingOverlaySettings: React.FC = () => {
         }
         disabled={isUpdating("recording_overlay_bar_width_px")}
       />
+
+      <SettingContainer
+        title={t(
+          "settings.userInterface.recordingOverlay.bodyBackgroundColor.title",
+          "Body Background Color",
+        )}
+        description={t(
+          "settings.userInterface.recordingOverlay.bodyBackgroundColor.description",
+          "Adjust the true background color of the overlay body beneath the material and glow layers.",
+        )}
+        descriptionMode="tooltip"
+        grouped={true}
+      >
+        <div className="flex items-center gap-3">
+          <input
+            type="color"
+            value={bodyBackgroundColor}
+            onChange={(event) =>
+              void updateSetting(
+                "recording_overlay_body_background_color" as any,
+                event.target.value as any,
+              )
+            }
+            disabled={isUpdating("recording_overlay_body_background_color")}
+            className="h-8 w-12 rounded border border-[#3c3c3c] bg-transparent disabled:opacity-40"
+          />
+          <span className="text-xs font-mono text-[#a0a0a0]">
+            {bodyBackgroundColor}
+          </span>
+        </div>
+      </SettingContainer>
+
+      <SettingContainer
+        title={t(
+          "settings.userInterface.recordingOverlay.surfaceBaseColor.title",
+          "Surface Tint",
+        )}
+        description={t(
+          "settings.userInterface.recordingOverlay.surfaceBaseColor.description",
+          "Adjust the tint and glow layered over the body background. Use Body Background Color for the actual base fill.",
+        )}
+        descriptionMode="tooltip"
+        grouped={true}
+      >
+        <div className="flex items-center gap-3">
+          <input
+            type="color"
+            value={surfaceBaseColor}
+            onChange={(event) =>
+              void updateSetting(
+                "recording_overlay_surface_base_color" as any,
+                event.target.value as any,
+              )
+            }
+            disabled={isUpdating("recording_overlay_surface_base_color")}
+            className="h-8 w-12 rounded border border-[#3c3c3c] bg-transparent disabled:opacity-40"
+          />
+          <span className="text-xs font-mono text-[#a0a0a0]">
+            {surfaceBaseColor}
+          </span>
+        </div>
+      </SettingContainer>
 
       <SettingContainer
         title={t(

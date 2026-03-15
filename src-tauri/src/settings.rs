@@ -1320,6 +1320,10 @@ pub struct AppSettings {
     pub recording_overlay_bar_style: RecordingOverlayBarStyle,
     #[serde(default = "default_recording_overlay_accent_color")]
     pub recording_overlay_accent_color: String,
+    #[serde(default = "default_recording_overlay_surface_base_color")]
+    pub recording_overlay_surface_base_color: String,
+    #[serde(default = "default_recording_overlay_body_background_color")]
+    pub recording_overlay_body_background_color: String,
     #[serde(default)]
     pub recording_overlay_audio_reactive_scale: bool,
     #[serde(default = "default_recording_overlay_audio_reactive_scale_max_percent")]
@@ -1970,6 +1974,14 @@ fn default_recording_overlay_bar_style() -> RecordingOverlayBarStyle {
 
 fn default_recording_overlay_accent_color() -> String {
     "#ff4d8d".to_string()
+}
+
+fn default_recording_overlay_surface_base_color() -> String {
+    "#101216".to_string()
+}
+
+fn default_recording_overlay_body_background_color() -> String {
+    "#101216".to_string()
 }
 
 fn default_recording_overlay_audio_reactive_scale_max_percent() -> u8 {
@@ -2781,6 +2793,9 @@ pub fn get_default_settings() -> AppSettings {
         recording_overlay_bar_width_px: default_recording_overlay_bar_width_px(),
         recording_overlay_bar_style: default_recording_overlay_bar_style(),
         recording_overlay_accent_color: default_recording_overlay_accent_color(),
+        recording_overlay_surface_base_color: default_recording_overlay_surface_base_color(),
+        recording_overlay_body_background_color:
+            default_recording_overlay_body_background_color(),
         recording_overlay_audio_reactive_scale: false,
         recording_overlay_audio_reactive_scale_max_percent:
             default_recording_overlay_audio_reactive_scale_max_percent(),

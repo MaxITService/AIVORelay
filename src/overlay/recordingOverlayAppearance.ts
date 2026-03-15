@@ -88,6 +88,28 @@ export function recordingOverlayHexToRgba(hex: string, alpha: number): string {
   return `rgba(${red}, ${green}, ${blue}, ${alpha})`;
 }
 
+function mixRecordingOverlayHexColors(
+  first: string,
+  second: string,
+  secondWeight: number,
+): string {
+  const a = normalizeRecordingOverlayColor(first);
+  const b = normalizeRecordingOverlayColor(second);
+  const weight = Math.max(0, Math.min(1, secondWeight));
+  const aRed = Number.parseInt(a.slice(1, 3), 16);
+  const aGreen = Number.parseInt(a.slice(3, 5), 16);
+  const aBlue = Number.parseInt(a.slice(5, 7), 16);
+  const bRed = Number.parseInt(b.slice(1, 3), 16);
+  const bGreen = Number.parseInt(b.slice(3, 5), 16);
+  const bBlue = Number.parseInt(b.slice(5, 7), 16);
+  const mixChannel = (aChannel: number, bChannel: number) =>
+    Math.round((aChannel * (1 - weight)) + (bChannel * weight))
+      .toString(16)
+      .padStart(2, "0");
+
+  return `#${mixChannel(aRed, bRed)}${mixChannel(aGreen, bGreen)}${mixChannel(aBlue, bBlue)}`;
+}
+
 export function normalizeRecordingOverlayBackgroundMode(
   value: string | undefined,
 ): RecordingOverlayBackgroundMode {
@@ -169,13 +191,46 @@ export function getRecordingOverlaySurfaceStyle(
   barWidthPx: number,
   opacityPercent = 100,
   materialMode: RecordingOverlayMaterialMode = "liquid_glass",
+  surfaceBaseColor = "#101216",
+  bodyBackgroundColor = "#101216",
 ): CSSProperties {
   const accent = normalizeRecordingOverlayColor(accentColor);
+  const normalizedSurfaceBaseColor = normalizeRecordingOverlayColor(
+    surfaceBaseColor,
+    "#101216",
+  );
+  const normalizedBodyBackgroundColor = normalizeRecordingOverlayColor(
+    bodyBackgroundColor,
+    "#101216",
+  );
   const surfaceOpacity = Math.max(20, Math.min(100, Math.round(opacityPercent))) / 100;
+  const opaqueBaseAlpha = Math.min(1, 0.22 + (surfaceOpacity * 0.78));
   const normalizedMaterialMode = normalizeRecordingOverlayMaterialMode(materialMode);
   const baseGlow = recordingOverlayHexToRgba(accent, 0.18);
   const strongGlow = recordingOverlayHexToRgba(accent, 0.32);
   const sheen = recordingOverlayHexToRgba(accent, 0.14);
+  const bodyHighlightColor = mixRecordingOverlayHexColors(
+    normalizedBodyBackgroundColor,
+    "#ffffff",
+    0.12,
+  );
+  const bodyDeepColor = mixRecordingOverlayHexColors(
+    normalizedBodyBackgroundColor,
+    "#000000",
+    0.22,
+  );
+  const bodyEdgeColor = mixRecordingOverlayHexColors(
+    normalizedBodyBackgroundColor,
+    "#000000",
+    0.34,
+  );
+  const stackSurfaceLayers = (
+    decorativeLayer: string,
+    baseColor: string = normalizedSurfaceBaseColor,
+  ): string => `
+      ${decorativeLayer},
+      linear-gradient(180deg, ${recordingOverlayHexToRgba(baseColor, opaqueBaseAlpha)} 0%, ${recordingOverlayHexToRgba(baseColor, opaqueBaseAlpha)} 100%)
+    `;
   const baseStyle: CSSProperties = {
     "--recording-overlay-accent": accent,
     "--recording-overlay-accent-soft": recordingOverlayHexToRgba(accent, 0.22),
@@ -219,24 +274,32 @@ export function getRecordingOverlaySurfaceStyle(
     switch (theme) {
       case "minimal":
         return {
-          background: `linear-gradient(180deg, rgba(30, 30, 30, ${0.82 * surfaceOpacity}) 0%, rgba(12, 12, 12, ${0.92 * surfaceOpacity}) 100%)`,
+          background: stackSurfaceLayers(
+            `linear-gradient(180deg, ${recordingOverlayHexToRgba(bodyHighlightColor, 0.82 * surfaceOpacity)} 0%, ${recordingOverlayHexToRgba(bodyDeepColor, 0.92 * surfaceOpacity)} 100%)`,
+          ),
           border: `1px solid ${recordingOverlayHexToRgba(accent, 0.18)}`,
           borderRadius: "12px",
           boxShadow: `inset 0 1px 0 rgba(255, 255, 255, 0.04), 0 8px 18px rgba(0, 0, 0, 0.22), 0 0 0 1px ${recordingOverlayHexToRgba(accent, 0.04)}`,
         };
       case "glass":
         return {
-          background: `linear-gradient(180deg, ${recordingOverlayHexToRgba(accent, 0.22 * surfaceOpacity)} 0%, rgba(18, 18, 18, ${0.66 * surfaceOpacity}) 52%, rgba(10, 10, 10, ${0.76 * surfaceOpacity}) 100%)`,
+          background: stackSurfaceLayers(
+            `linear-gradient(180deg, ${recordingOverlayHexToRgba(accent, 0.22 * surfaceOpacity)} 0%, ${recordingOverlayHexToRgba(bodyDeepColor, 0.66 * surfaceOpacity)} 52%, ${recordingOverlayHexToRgba(bodyEdgeColor, 0.76 * surfaceOpacity)} 100%)`,
+          ),
           border: `1px solid ${recordingOverlayHexToRgba(accent, 0.26)}`,
           borderRadius: "18px",
-          backdropFilter: "blur(14px) saturate(160%)",
-          WebkitBackdropFilter: "blur(14px) saturate(160%)",
+          backdropFilter:
+            surfaceOpacity >= 1 ? "none" : "blur(14px) saturate(160%)",
+          WebkitBackdropFilter:
+            surfaceOpacity >= 1 ? "none" : "blur(14px) saturate(160%)",
           boxShadow: `inset 0 1px 0 rgba(255, 255, 255, 0.1), 0 12px 30px rgba(0, 0, 0, 0.35), 0 0 22px ${recordingOverlayHexToRgba(accent, 0.16)}`,
         };
       case "classic":
       default:
         return {
-          background: `linear-gradient(180deg, rgba(20, 20, 20, ${0.74 * surfaceOpacity}) 0%, rgba(0, 0, 0, ${0.84 * surfaceOpacity}) 100%)`,
+          background: stackSurfaceLayers(
+            `linear-gradient(180deg, ${recordingOverlayHexToRgba(bodyHighlightColor, 0.74 * surfaceOpacity)} 0%, ${recordingOverlayHexToRgba(bodyEdgeColor, 0.84 * surfaceOpacity)} 100%)`,
+          ),
           borderRadius: "18px",
           boxShadow: `inset 0 1px 0 rgba(255, 255, 255, 0.05), 0 10px 24px rgba(0, 0, 0, 0.28), 0 0 0 1px ${recordingOverlayHexToRgba(accent, 0.05)}`,
         };
@@ -246,23 +309,33 @@ export function getRecordingOverlaySurfaceStyle(
   const materialTuning: Record<RecordingOverlayMaterialMode, CSSProperties> = {
     liquid_glass: {},
     pearl: {
-      background: `linear-gradient(180deg, rgba(255,255,255,${0.18 * surfaceOpacity}) 0%, rgba(248,243,255,${0.52 * surfaceOpacity}) 28%, rgba(22,22,24,${0.74 * surfaceOpacity}) 100%)`,
+      background: stackSurfaceLayers(
+        `linear-gradient(180deg, rgba(255,255,255,${0.18 * surfaceOpacity}) 0%, rgba(248,243,255,${0.52 * surfaceOpacity}) 28%, ${recordingOverlayHexToRgba(bodyDeepColor, 0.74 * surfaceOpacity)} 100%)`,
+      ),
       boxShadow: `inset 0 1px 0 rgba(255,255,255,0.16), inset 0 -10px 24px rgba(255,255,255,0.03), 0 12px 28px rgba(0,0,0,0.24), 0 0 18px rgba(255,255,255,0.08)`,
     },
     velvet_neon: {
-      background: `linear-gradient(180deg, rgba(28,18,26,${0.84 * surfaceOpacity}) 0%, rgba(12,8,14,${0.92 * surfaceOpacity}) 100%)`,
+      background: stackSurfaceLayers(
+        `linear-gradient(180deg, ${recordingOverlayHexToRgba(bodyHighlightColor, 0.84 * surfaceOpacity)} 0%, ${recordingOverlayHexToRgba(bodyEdgeColor, 0.92 * surfaceOpacity)} 100%)`,
+      ),
       border: `1px solid ${recordingOverlayHexToRgba(accent, 0.36)}`,
       boxShadow: `inset 0 1px 0 rgba(255,255,255,0.08), 0 12px 30px rgba(0,0,0,0.4), 0 0 30px ${recordingOverlayHexToRgba(accent, 0.22)}`,
     },
     frost: {
-      background: `linear-gradient(180deg, rgba(248,252,255,${0.16 * surfaceOpacity}) 0%, rgba(170,188,212,${0.1 * surfaceOpacity}) 26%, rgba(16,18,20,${0.7 * surfaceOpacity}) 100%)`,
+      background: stackSurfaceLayers(
+        `linear-gradient(180deg, rgba(248,252,255,${0.16 * surfaceOpacity}) 0%, rgba(170,188,212,${0.1 * surfaceOpacity}) 26%, ${recordingOverlayHexToRgba(bodyDeepColor, 0.7 * surfaceOpacity)} 100%)`,
+      ),
       border: `1px solid rgba(255,255,255,0.14)`,
       boxShadow: `inset 0 1px 0 rgba(255,255,255,0.18), 0 10px 24px rgba(0,0,0,0.24), 0 0 14px rgba(255,255,255,0.06)`,
-      backdropFilter: "blur(18px) saturate(130%)",
-      WebkitBackdropFilter: "blur(18px) saturate(130%)",
+      backdropFilter:
+        surfaceOpacity >= 1 ? "none" : "blur(18px) saturate(130%)",
+      WebkitBackdropFilter:
+        surfaceOpacity >= 1 ? "none" : "blur(18px) saturate(130%)",
     },
     candy_chrome: {
-      background: `linear-gradient(180deg, rgba(255,255,255,${0.22 * surfaceOpacity}) 0%, ${recordingOverlayHexToRgba(accent, 0.18 * surfaceOpacity)} 18%, rgba(28,16,24,${0.8 * surfaceOpacity}) 100%)`,
+      background: stackSurfaceLayers(
+        `linear-gradient(180deg, rgba(255,255,255,${0.22 * surfaceOpacity}) 0%, ${recordingOverlayHexToRgba(accent, 0.18 * surfaceOpacity)} 18%, ${recordingOverlayHexToRgba(bodyEdgeColor, 0.8 * surfaceOpacity)} 100%)`,
+      ),
       border: `1px solid ${recordingOverlayHexToRgba(accent, 0.3)}`,
       boxShadow: `inset 0 1px 0 rgba(255,255,255,0.18), 0 12px 28px rgba(0,0,0,0.32), 0 0 24px ${recordingOverlayHexToRgba(accent, 0.18)}`,
     },
@@ -322,10 +395,12 @@ export function getRecordingOverlayErrorStateStyle(
   opacityPercent = 100,
 ): CSSProperties {
   const surfaceOpacity = Math.max(20, Math.min(100, Math.round(opacityPercent))) / 100;
+  const opaqueBaseAlpha = Math.min(1, 0.22 + (surfaceOpacity * 0.78));
   return {
     background: `
       radial-gradient(circle at 18% 18%, rgba(255, 138, 138, ${0.18 * surfaceOpacity}) 0%, rgba(255, 138, 138, 0) 30%),
-      linear-gradient(180deg, rgba(78, 10, 14, ${0.92 * surfaceOpacity}) 0%, rgba(28, 4, 7, ${0.98 * surfaceOpacity}) 100%)
+      linear-gradient(180deg, rgba(78, 10, 14, ${0.92 * surfaceOpacity}) 0%, rgba(28, 4, 7, ${0.98 * surfaceOpacity}) 100%),
+      linear-gradient(180deg, rgba(78, 10, 14, ${opaqueBaseAlpha}) 0%, rgba(28, 4, 7, ${opaqueBaseAlpha}) 100%)
     `,
     border: "1px solid rgba(255, 115, 115, 0.3)",
     boxShadow:

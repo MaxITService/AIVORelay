@@ -1210,6 +1210,32 @@ pub fn change_recording_overlay_accent_color_setting(
 
 #[tauri::command]
 #[specta::specta]
+pub fn change_recording_overlay_surface_base_color_setting(
+    app: AppHandle,
+    color: String,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.recording_overlay_surface_base_color = normalize_recording_overlay_color(&color);
+    settings::write_settings(&app, settings);
+    refresh_recording_overlay_window(&app);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_recording_overlay_body_background_color_setting(
+    app: AppHandle,
+    color: String,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.recording_overlay_body_background_color = normalize_recording_overlay_color(&color);
+    settings::write_settings(&app, settings);
+    refresh_recording_overlay_window(&app);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
 pub fn change_recording_overlay_audio_reactive_scale_setting(
     app: AppHandle,
     enabled: bool,
