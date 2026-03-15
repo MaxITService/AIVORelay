@@ -1,6 +1,7 @@
 use log::{debug, warn};
 use serde::de::{self, Visitor};
 use serde::{Deserialize, Deserializer, Serialize};
+use serde_json::Value;
 use specta::Type;
 use std::collections::HashMap;
 use tauri::AppHandle;
@@ -3001,6 +3002,251 @@ pub fn get_default_settings() -> AppSettings {
     }
 }
 
+#[derive(Clone, Debug)]
+enum JsonPathSegment {
+    Key(String),
+    Index(usize),
+}
+
+fn parse_json_path(path: &str) -> Vec<JsonPathSegment> {
+    let mut segments = Vec::new();
+    let mut current = String::new();
+    let chars: Vec<char> = path.chars().collect();
+    let mut index = 0;
+
+    while index < chars.len() {
+        match chars[index] {
+            '.' => {
+                if !current.is_empty() {
+                    segments.push(JsonPathSegment::Key(std::mem::take(&mut current)));
+                }
+                index += 1;
+            }
+            '[' => {
+                if !current.is_empty() {
+                    segments.push(JsonPathSegment::Key(std::mem::take(&mut current)));
+                }
+                index += 1;
+                let mut raw_index = String::new();
+                while index < chars.len() && chars[index] != ']' {
+                    raw_index.push(chars[index]);
+                    index += 1;
+                }
+                if let Ok(parsed) = raw_index.parse::<usize>() {
+                    segments.push(JsonPathSegment::Index(parsed));
+                }
+                if index < chars.len() && chars[index] == ']' {
+                    index += 1;
+                }
+            }
+            ch => {
+                current.push(ch);
+                index += 1;
+            }
+        }
+    }
+
+    if !current.is_empty() {
+        segments.push(JsonPathSegment::Key(current));
+    }
+
+    segments
+}
+
+fn merge_json_with_defaults(default_value: &Value, current_value: &Value) -> Value {
+    match (default_value, current_value) {
+        (Value::Object(default_map), Value::Object(current_map)) => {
+            let mut merged = default_map.clone();
+            for (key, current_child) in current_map {
+                if let Some(default_child) = default_map.get(key) {
+                    merged.insert(
+                        key.clone(),
+                        merge_json_with_defaults(default_child, current_child),
+                    );
+                } else {
+                    merged.insert(key.clone(), current_child.clone());
+                }
+            }
+            Value::Object(merged)
+        }
+        (Value::Array(default_items), Value::Array(current_items)) => {
+            if let Some(default_item) = default_items.first() {
+                Value::Array(
+                    current_items
+                        .iter()
+                        .map(|item| merge_json_with_defaults(default_item, item))
+                        .collect(),
+                )
+            } else {
+                Value::Array(current_items.clone())
+            }
+        }
+        (Value::Null, current) => current.clone(),
+        (default, current)
+            if std::mem::discriminant(default) == std::mem::discriminant(current) =>
+        {
+            current.clone()
+        }
+        (default, _) => default.clone(),
+    }
+}
+
+fn value_at_path<'a>(value: &'a Value, path: &[JsonPathSegment]) -> Option<&'a Value> {
+    let mut current = value;
+    for segment in path {
+        match segment {
+            JsonPathSegment::Key(key) => {
+                current = current.as_object()?.get(key)?;
+            }
+            JsonPathSegment::Index(index) => {
+                current = current.as_array()?.get(*index)?;
+            }
+        }
+    }
+    Some(current)
+}
+
+fn set_value_at_path(target: &mut Value, path: &[JsonPathSegment], replacement: Value) -> bool {
+    if path.is_empty() {
+        *target = replacement;
+        return true;
+    }
+
+    let mut current = target;
+    for segment in &path[..path.len() - 1] {
+        match segment {
+            JsonPathSegment::Key(key) => {
+                let Some(next) = current.as_object_mut().and_then(|map| map.get_mut(key)) else {
+                    return false;
+                };
+                current = next;
+            }
+            JsonPathSegment::Index(index) => {
+                let Some(next) = current.as_array_mut().and_then(|items| items.get_mut(*index))
+                else {
+                    return false;
+                };
+                current = next;
+            }
+        }
+    }
+
+    match &path[path.len() - 1] {
+        JsonPathSegment::Key(key) => current
+            .as_object_mut()
+            .map(|map| {
+                map.insert(key.clone(), replacement);
+                true
+            })
+            .unwrap_or(false),
+        JsonPathSegment::Index(index) => current
+            .as_array_mut()
+            .and_then(|items| items.get_mut(*index))
+            .map(|slot| {
+                *slot = replacement;
+                true
+            })
+            .unwrap_or(false),
+    }
+}
+
+fn remove_value_at_path(target: &mut Value, path: &[JsonPathSegment]) -> bool {
+    if path.is_empty() {
+        return false;
+    }
+
+    let mut current = target;
+    for segment in &path[..path.len() - 1] {
+        match segment {
+            JsonPathSegment::Key(key) => {
+                let Some(next) = current.as_object_mut().and_then(|map| map.get_mut(key)) else {
+                    return false;
+                };
+                current = next;
+            }
+            JsonPathSegment::Index(index) => {
+                let Some(next) = current.as_array_mut().and_then(|items| items.get_mut(*index))
+                else {
+                    return false;
+                };
+                current = next;
+            }
+        }
+    }
+
+    match &path[path.len() - 1] {
+        JsonPathSegment::Key(key) => current
+            .as_object_mut()
+            .map(|map| map.remove(key).is_some())
+            .unwrap_or(false),
+        JsonPathSegment::Index(index) => current
+            .as_array_mut()
+            .map(|items| {
+                if *index < items.len() {
+                    items.remove(*index);
+                    true
+                } else {
+                    false
+                }
+            })
+            .unwrap_or(false),
+    }
+}
+
+fn repair_settings_value_at_path(
+    candidate: &mut Value,
+    default_value: &Value,
+    path: &str,
+) -> bool {
+    let segments = parse_json_path(path);
+    if segments.is_empty() {
+        return false;
+    }
+
+    for prefix_len in (1..=segments.len()).rev() {
+        let prefix = &segments[..prefix_len];
+        if let Some(default_replacement) = value_at_path(default_value, prefix) {
+            if set_value_at_path(candidate, prefix, default_replacement.clone()) {
+                return true;
+            }
+        }
+        if remove_value_at_path(candidate, prefix) {
+            return true;
+        }
+    }
+
+    false
+}
+
+fn deserialize_settings_value_with_repair(settings_value: &Value) -> (AppSettings, bool) {
+    let default_settings = get_default_settings();
+    let default_value = serde_json::to_value(&default_settings).unwrap();
+    let mut candidate = merge_json_with_defaults(&default_value, settings_value);
+    let mut repaired = candidate != *settings_value;
+
+    for _ in 0..64 {
+        let serialized = candidate.to_string();
+        let mut deserializer = serde_json::Deserializer::from_str(&serialized);
+        match serde_path_to_error::deserialize::<_, AppSettings>(&mut deserializer) {
+            Ok(settings) => return (settings, repaired),
+            Err(error) => {
+                let path = error.path().to_string();
+                warn!("Repairing invalid settings value at '{}': {}", path, error);
+                if path.is_empty()
+                    || !repair_settings_value_at_path(&mut candidate, &default_value, &path)
+                {
+                    warn!("Falling back to default settings after unrecoverable parse error");
+                    return (default_settings, true);
+                }
+                repaired = true;
+            }
+        }
+    }
+
+    warn!("Falling back to default settings after repeated repair attempts");
+    (default_settings, true)
+}
+
 impl AppSettings {
     pub fn active_post_process_provider(&self) -> Option<&PostProcessProvider> {
         self.post_process_providers
@@ -3228,109 +3474,90 @@ pub fn load_or_create_app_settings(app: &AppHandle) -> AppSettings {
         .expect("Failed to initialize store");
 
     let mut settings = if let Some(settings_value) = store.get("settings") {
-        // Parse the entire settings object
-        match serde_json::from_value::<AppSettings>(settings_value) {
-            Ok(mut settings) => {
-                debug!("Found existing settings: {:?}", settings);
-                let default_settings = get_default_settings();
-                let mut updated = false;
+        let (mut settings, mut updated) = deserialize_settings_value_with_repair(&settings_value);
+        debug!("Found existing settings: {:?}", settings);
+        let default_settings = get_default_settings();
 
-                // Merge default bindings into existing settings
-                for (key, value) in default_settings.bindings {
-                    if !settings.bindings.contains_key(&key) {
-                        debug!("Adding missing binding: {}", key);
-                        settings.bindings.insert(key, value);
-                        updated = true;
-                    }
-                }
-
-                let preview_delete_last_word_binding = build_preview_delete_last_word_binding(
-                    settings
-                        .soniox_live_preview_delete_last_word_hotkey
-                        .trim()
-                        .to_string(),
-                );
-                match settings.bindings.get(PREVIEW_DELETE_LAST_WORD_BINDING_ID) {
-                    Some(binding)
-                        if binding.current_binding
-                            == preview_delete_last_word_binding.current_binding
-                            && binding.name == preview_delete_last_word_binding.name
-                            && binding.description
-                                == preview_delete_last_word_binding.description
-                            && binding.default_binding
-                                == preview_delete_last_word_binding.default_binding => {}
-                    _ => {
-                        settings.bindings.insert(
-                            PREVIEW_DELETE_LAST_WORD_BINDING_ID.to_string(),
-                            preview_delete_last_word_binding,
-                        );
-                        updated = true;
-                    }
-                }
-
-                // Migrate API keys from JSON to secure storage (Windows only)
-                #[cfg(target_os = "windows")]
-                {
-                    let (migrated, migrated_pp, migrated_ai) =
-                        crate::secure_keys::migrate_keys_from_settings(
-                            &settings.post_process_api_keys,
-                            &settings.ai_replace_api_keys,
-                        );
-
-                    if migrated {
-                        debug!(
-                            "Migrated API keys to secure storage. Post-process: {:?}, AI Replace: {:?}",
-                            migrated_pp, migrated_ai
-                        );
-
-                        // Clear migrated keys from JSON settings
-                        for provider_id in migrated_pp {
-                            settings
-                                .post_process_api_keys
-                                .insert(provider_id, String::new());
-                        }
-                        for provider_id in migrated_ai {
-                            settings
-                                .ai_replace_api_keys
-                                .insert(provider_id, String::new());
-                        }
-                        updated = true;
-                    }
-                }
-
-                // Migrate old voice_command_keep_window_open to voice_command_defaults.silent
-                // voice_command_keep_window_open: true → silent: false
-                // voice_command_keep_window_open: false → silent: true (default)
-                if settings.voice_command_keep_window_open {
-                    debug!(
-                        "Migrating voice_command_keep_window_open to voice_command_defaults.silent"
-                    );
-                    settings.voice_command_defaults.silent = false;
-                    settings.voice_command_keep_window_open = false;
-                    updated = true;
-                }
-
-                if updated {
-                    debug!("Settings updated with new bindings");
-                    store.set("settings", serde_json::to_value(&settings).unwrap());
-                    if let Err(e) = store.save() {
-                        warn!("Failed to flush repaired settings to disk: {}", e);
-                    }
-                }
-
-                settings
-            }
-            Err(e) => {
-                warn!("Failed to parse settings: {}", e);
-                // Fall back to default settings if parsing fails
-                let default_settings = get_default_settings();
-                store.set("settings", serde_json::to_value(&default_settings).unwrap());
-                if let Err(e) = store.save() {
-                    warn!("Failed to flush default settings to disk: {}", e);
-                }
-                default_settings
+        // Merge default bindings into existing settings
+        for (key, value) in default_settings.bindings {
+            if !settings.bindings.contains_key(&key) {
+                debug!("Adding missing binding: {}", key);
+                settings.bindings.insert(key, value);
+                updated = true;
             }
         }
+
+        let preview_delete_last_word_binding = build_preview_delete_last_word_binding(
+            settings
+                .soniox_live_preview_delete_last_word_hotkey
+                .trim()
+                .to_string(),
+        );
+        match settings.bindings.get(PREVIEW_DELETE_LAST_WORD_BINDING_ID) {
+            Some(binding)
+                if binding.current_binding == preview_delete_last_word_binding.current_binding
+                    && binding.name == preview_delete_last_word_binding.name
+                    && binding.description == preview_delete_last_word_binding.description
+                    && binding.default_binding
+                        == preview_delete_last_word_binding.default_binding => {}
+            _ => {
+                settings.bindings.insert(
+                    PREVIEW_DELETE_LAST_WORD_BINDING_ID.to_string(),
+                    preview_delete_last_word_binding,
+                );
+                updated = true;
+            }
+        }
+
+        // Migrate API keys from JSON to secure storage (Windows only)
+        #[cfg(target_os = "windows")]
+        {
+            let (migrated, migrated_pp, migrated_ai) =
+                crate::secure_keys::migrate_keys_from_settings(
+                    &settings.post_process_api_keys,
+                    &settings.ai_replace_api_keys,
+                );
+
+            if migrated {
+                debug!(
+                    "Migrated API keys to secure storage. Post-process: {:?}, AI Replace: {:?}",
+                    migrated_pp, migrated_ai
+                );
+
+                // Clear migrated keys from JSON settings
+                for provider_id in migrated_pp {
+                    settings
+                        .post_process_api_keys
+                        .insert(provider_id, String::new());
+                }
+                for provider_id in migrated_ai {
+                    settings
+                        .ai_replace_api_keys
+                        .insert(provider_id, String::new());
+                }
+                updated = true;
+            }
+        }
+
+        // Migrate old voice_command_keep_window_open to voice_command_defaults.silent
+        // voice_command_keep_window_open: true -> silent: false
+        // voice_command_keep_window_open: false -> silent: true (default)
+        if settings.voice_command_keep_window_open {
+            debug!("Migrating voice_command_keep_window_open to voice_command_defaults.silent");
+            settings.voice_command_defaults.silent = false;
+            settings.voice_command_keep_window_open = false;
+            updated = true;
+        }
+
+        if updated {
+            debug!("Settings updated while loading");
+            store.set("settings", serde_json::to_value(&settings).unwrap());
+            if let Err(e) = store.save() {
+                warn!("Failed to flush repaired settings to disk: {}", e);
+            }
+        }
+
+        settings
     } else {
         let default_settings = get_default_settings();
         store.set("settings", serde_json::to_value(&default_settings).unwrap());
@@ -3376,14 +3603,14 @@ pub fn get_settings(app: &AppHandle) -> AppSettings {
         .expect("Failed to initialize store");
 
     let mut settings = if let Some(settings_value) = store.get("settings") {
-        serde_json::from_value::<AppSettings>(settings_value).unwrap_or_else(|_| {
-            let default_settings = get_default_settings();
-            store.set("settings", serde_json::to_value(&default_settings).unwrap());
+        let (settings, repaired) = deserialize_settings_value_with_repair(&settings_value);
+        if repaired {
+            store.set("settings", serde_json::to_value(&settings).unwrap());
             if let Err(e) = store.save() {
-                warn!("Failed to flush default settings to disk: {}", e);
+                warn!("Failed to flush repaired settings to disk: {}", e);
             }
-            default_settings
-        })
+        }
+        settings
     } else {
         let default_settings = get_default_settings();
         store.set("settings", serde_json::to_value(&default_settings).unwrap());
@@ -3395,7 +3622,22 @@ pub fn get_settings(app: &AppHandle) -> AppSettings {
 
     let repaired_post_process = ensure_post_process_defaults(&mut settings);
     let repaired_remote_stt = ensure_remote_stt_defaults(&mut settings);
-    if repaired_post_process || repaired_remote_stt {
+    let repaired_active_profile = if settings.active_profile_id != "default"
+        && !settings
+            .transcription_profiles
+            .iter()
+            .any(|p| p.id == settings.active_profile_id)
+    {
+        warn!(
+            "Active profile '{}' not found, resetting to default",
+            settings.active_profile_id
+        );
+        settings.active_profile_id = "default".to_string();
+        true
+    } else {
+        false
+    };
+    if repaired_post_process || repaired_remote_stt || repaired_active_profile {
         store.set("settings", serde_json::to_value(&settings).unwrap());
         if let Err(e) = store.save() {
             warn!("Failed to flush repaired settings to disk: {}", e);
