@@ -71,7 +71,7 @@ dependencies = [
 
 [[package]]
 name = "aivorelay"
-version = "1.0.2"
+version = "1.0.3"
 dependencies = [
  "aes-gcm",
  "anyhow",
@@ -110,6 +110,7 @@ dependencies = [
  "screenshots",
  "serde",
  "serde_json",
+ "serde_path_to_error",
  "sha2",
  "signal-hook",
  "specta",
