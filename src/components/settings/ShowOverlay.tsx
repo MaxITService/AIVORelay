@@ -133,11 +133,17 @@ export const ShowOverlay: React.FC<ShowOverlayProps> = React.memo(
           )}
           description={t(
             "settings.advanced.overlay.dragGrip.description",
-            "Show a small top handle so you can drag the recording overlay during a session.",
+            "Show a small top handle on hover so you can drag the recording overlay during a session without leaving the grip visible all the time.",
           )}
           descriptionMode={descriptionMode}
           grouped={grouped}
         />
+        <p className="px-6 text-xs text-text/60 -mt-2 mb-2">
+          {t(
+            "settings.advanced.overlay.dragGrip.help",
+            "Tip: move the pointer over the overlay to reveal the grip, then drag from the top center.",
+          )}
+        </p>
 
         <ToggleSwitch
           checked={errorFeedbackEnabled}
@@ -156,7 +162,7 @@ export const ShowOverlay: React.FC<ShowOverlayProps> = React.memo(
           descriptionMode={descriptionMode}
           grouped={grouped}
         />
-        <p className="text-xs text-red-400 -mt-2 mb-2">
+        <p className="px-6 text-xs text-red-400 -mt-2 mb-2">
           {t(
             "settings.advanced.overlay.errorVisibility.danger",
             "Dangerous: disabling overlay errors can hide broken setup and failed transcriptions.",

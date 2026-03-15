@@ -35,6 +35,26 @@ body,
   overflow: hidden;
 }
 
+.recording-overlay.recording-overlay-legacy {
+  grid-template-columns: auto 1fr auto;
+  gap: 0;
+  padding: 6px;
+}
+
+.recording-overlay.recording-overlay-legacy .overlay-middle {
+  text-shadow: none;
+}
+
+.recording-overlay.recording-overlay-legacy .transcribing-text,
+.recording-overlay.recording-overlay-legacy .sending-text,
+.recording-overlay.recording-overlay-legacy .thinking-text,
+.recording-overlay.recording-overlay-legacy .microphone-switch-label,
+.recording-overlay.recording-overlay-legacy .microphone-switch-name,
+.recording-overlay.recording-overlay-legacy .error-title,
+.recording-overlay.recording-overlay-legacy .error-hint {
+  text-shadow: none;
+}
+
 .recording-overlay-sheen {
   position: absolute;
   inset: 1px;
@@ -155,6 +175,19 @@ body,
   touch-action: none;
   line-height: 0;
   pointer-events: auto;
+  opacity: 0;
+  transform: translateY(-2px);
+  transition:
+    opacity 140ms ease-out,
+    transform 140ms ease-out;
+}
+
+.recording-overlay:hover .recording-overlay-grip,
+.recording-overlay:focus-within .recording-overlay-grip,
+.recording-overlay-grip:focus-visible,
+.recording-overlay-grip:active {
+  opacity: 1;
+  transform: translateY(0);
 }
 
 .recording-overlay-grip:active {
@@ -169,14 +202,15 @@ body,
   box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.04);
 }
 
-.overlay-left {
+.recording-overlay.recording-overlay-custom .overlay-left,
+.recording-overlay.recording-overlay-legacy .overlay-left {
   display: flex;
   align-items: center;
   position: relative;
   z-index: 1;
 }
 
-.overlay-icon-wrap {
+.recording-overlay.recording-overlay-custom .overlay-icon-wrap {
   position: relative;
   display: inline-flex;
   align-items: center;
@@ -193,7 +227,7 @@ body,
     0 0 0 1px rgba(0, 0, 0, 0.06);
 }
 
-.overlay-icon-wrap::before {
+.recording-overlay.recording-overlay-custom .overlay-icon-wrap::before {
   content: "";
   position: absolute;
   inset: -6px;
@@ -203,35 +237,40 @@ body,
   pointer-events: none;
 }
 
-.overlay-icon-wrap.is-busy::before {
+.recording-overlay.recording-overlay-custom .overlay-icon-wrap.is-busy::before {
   opacity: 0.55;
 }
 
-.overlay-icon-wrap.is-idle::before {
+.recording-overlay.recording-overlay-custom .overlay-icon-wrap.is-idle::before {
   opacity: 0.4;
 }
 
-.overlay-icon-wrap.is-error {
+.recording-overlay.recording-overlay-custom .overlay-icon-wrap.is-error {
   background: linear-gradient(180deg, rgba(255, 123, 123, 0.14) 0%, rgba(255, 70, 70, 0.04) 100%);
   border-color: rgba(255, 123, 123, 0.18);
 }
 
-.overlay-icon-wrap.is-error::before {
+.recording-overlay.recording-overlay-custom .overlay-icon-wrap.is-error::before {
   background: radial-gradient(circle, rgba(255, 107, 107, 0.26) 0%, rgba(0, 0, 0, 0) 68%);
   opacity: 0.8;
 }
 
-.overlay-middle {
+.recording-overlay.recording-overlay-custom .overlay-middle,
+.recording-overlay.recording-overlay-legacy .overlay-middle {
   display: flex;
   align-items: center;
   justify-content: center;
   min-width: 0;
   position: relative;
   z-index: 1;
+}
+
+.recording-overlay.recording-overlay-custom .overlay-middle {
   text-shadow: 0 0 10px rgba(255, 255, 255, 0.04);
 }
 
-.overlay-right {
+.recording-overlay.recording-overlay-custom .overlay-right,
+.recording-overlay.recording-overlay-legacy .overlay-right {
   display: flex;
   align-items: center;
   justify-content: flex-end;
@@ -239,7 +278,8 @@ body,
   z-index: 1;
 }
 
-.bars-container {
+.recording-overlay.recording-overlay-custom .bars-container,
+.recording-overlay.recording-overlay-legacy .bars-container {
   display: flex;
   align-items: end;
   justify-content: center;
@@ -249,7 +289,8 @@ body,
   overflow: hidden;
 }
 
-.bar {
+.recording-overlay.recording-overlay-custom .bar,
+.recording-overlay.recording-overlay-legacy .bar {
   width: var(--recording-overlay-bar-width);
   background: var(--recording-overlay-bar-color);
   max-height: 20px;
@@ -262,22 +303,27 @@ body,
   opacity: 1;
 }
 
-.transcribing-text {
+.recording-overlay.recording-overlay-custom .transcribing-text,
+.recording-overlay.recording-overlay-legacy .transcribing-text {
   color: white;
   font-size: 12px;
   font-family:
     -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   animation: transcribing-pulse 1.5s infinite ease-in-out;
+}
+
+.recording-overlay.recording-overlay-custom .transcribing-text {
   text-shadow: 0 0 12px rgba(255, 255, 255, 0.08);
   letter-spacing: 0.01em;
 }
 
-.overlay-microphone-switch .overlay-middle {
+.recording-overlay.overlay-microphone-switch .overlay-middle {
   justify-content: flex-start;
   align-items: stretch;
 }
 
-.microphone-switch-copy {
+.recording-overlay.recording-overlay-custom .microphone-switch-copy,
+.recording-overlay.recording-overlay-legacy .microphone-switch-copy {
   display: flex;
   flex-direction: column;
   justify-content: center;
@@ -286,7 +332,8 @@ body,
   padding: 1px 0;
 }
 
-.microphone-switch-label {
+.recording-overlay.recording-overlay-custom .microphone-switch-label,
+.recording-overlay.recording-overlay-legacy .microphone-switch-label {
   color: var(--recording-overlay-accent-border);
   font-size: 9px;
   font-family:
@@ -294,11 +341,15 @@ body,
   font-weight: 600;
   line-height: 1;
   white-space: nowrap;
+}
+
+.recording-overlay.recording-overlay-custom .microphone-switch-label {
   text-transform: uppercase;
   letter-spacing: 0.08em;
 }
 
-.microphone-switch-name {
+.recording-overlay.recording-overlay-custom .microphone-switch-name,
+.recording-overlay.recording-overlay-legacy .microphone-switch-name {
   color: white;
   font-size: 10px;
   font-family:
@@ -307,6 +358,9 @@ body,
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.recording-overlay.recording-overlay-custom .microphone-switch-name {
   text-shadow: 0 0 10px rgba(255, 255, 255, 0.06);
 }
 
@@ -395,9 +449,11 @@ body,
   }
 }
 
-.cancel-button {
+.recording-overlay.recording-overlay-custom .cancel-button,
+.recording-overlay.recording-overlay-legacy .cancel-button {
   width: 24px;
   height: 24px;
+  padding: 0;
   border-radius: 50%;
   border: 1px solid rgba(255, 255, 255, 0.08);
   background:
@@ -419,7 +475,29 @@ body,
   flex-shrink: 0;
 }
 
-.cancel-button:hover {
+.recording-overlay.recording-overlay-legacy .cancel-button.cancel-button-legacy {
+  appearance: none;
+  -webkit-appearance: none;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.recording-overlay.recording-overlay-legacy .cancel-button.cancel-button-legacy svg {
+  width: 24px;
+  height: 24px;
+  display: block;
+  flex-shrink: 0;
+}
+
+.recording-overlay.recording-overlay-legacy .cancel-button.cancel-button-legacy:hover {
+  background: var(--recording-overlay-accent-soft);
+  border-color: transparent;
+  box-shadow: none;
+}
+
+.recording-overlay.recording-overlay-custom .cancel-button:hover,
+.recording-overlay.recording-overlay-legacy .cancel-button:hover {
   background: var(--recording-overlay-accent-soft);
   border-color: var(--recording-overlay-accent-border);
   box-shadow:
@@ -429,28 +507,37 @@ body,
   transform: scale(1.05);
 }
 
-.cancel-button:active {
+.recording-overlay.recording-overlay-custom .cancel-button:active,
+.recording-overlay.recording-overlay-legacy .cancel-button:active {
   transform: scale(0.95);
 }
 
 /* Extended overlay states (plus_overlay_state) */
 
-.sending-text {
+.recording-overlay.recording-overlay-custom .sending-text,
+.recording-overlay.recording-overlay-legacy .sending-text {
   color: white;
   font-size: 12px;
   font-family:
     -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   animation: transcribing-pulse 1.5s infinite ease-in-out;
+}
+
+.recording-overlay.recording-overlay-custom .sending-text {
   text-shadow: 0 0 12px rgba(255, 255, 255, 0.08);
   letter-spacing: 0.01em;
 }
 
-.thinking-text {
+.recording-overlay.recording-overlay-custom .thinking-text,
+.recording-overlay.recording-overlay-legacy .thinking-text {
   color: white;
   font-size: 12px;
   font-family:
     -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   animation: transcribing-pulse 1.5s infinite ease-in-out;
+}
+
+.recording-overlay.recording-overlay-custom .thinking-text {
   text-shadow: 0 0 12px rgba(255, 255, 255, 0.08);
   letter-spacing: 0.01em;
 }
@@ -460,7 +547,7 @@ body,
   line-height: 1;
 }
 
-.recording-overlay.overlay-error {
+.recording-overlay.recording-overlay-custom.overlay-error {
   box-shadow:
     inset 0 1px 0 rgba(255, 221, 221, 0.08),
     inset 0 -10px 20px rgba(255, 120, 120, 0.04),
@@ -468,12 +555,19 @@ body,
     0 0 24px rgba(255, 92, 92, 0.1);
 }
 
-.recording-overlay.overlay-error .overlay-middle {
+.recording-overlay.recording-overlay-legacy.overlay-error {
+  background: #1a0000cc;
+  border: 1px solid #ff6b6b44;
+}
+
+.recording-overlay.recording-overlay-custom.overlay-error .overlay-middle,
+.recording-overlay.recording-overlay-legacy.overlay-error .overlay-middle {
   justify-content: flex-start;
   align-items: stretch;
 }
 
-.error-copy {
+.recording-overlay.recording-overlay-custom .error-copy,
+.recording-overlay.recording-overlay-legacy .error-copy {
   display: flex;
   flex-direction: column;
   justify-content: center;
@@ -483,7 +577,8 @@ body,
   padding: 2px 0;
 }
 
-.error-title {
+.recording-overlay.recording-overlay-custom .error-title,
+.recording-overlay.recording-overlay-legacy .error-title {
   color: #ffb3b3;
   font-size: 12px;
   font-family:
@@ -492,10 +587,14 @@ body,
   line-height: 1.1;
   white-space: normal;
   overflow-wrap: anywhere;
+}
+
+.recording-overlay.recording-overlay-custom .error-title {
   text-shadow: 0 0 14px rgba(255, 120, 120, 0.18);
 }
 
-.error-hint {
+.recording-overlay.recording-overlay-custom .error-hint,
+.recording-overlay.recording-overlay-legacy .error-hint {
   color: #ffd5d5;
   font-size: 10px;
   font-family:
@@ -503,10 +602,14 @@ body,
   line-height: 1.15;
   white-space: normal;
   overflow-wrap: anywhere;
+}
+
+.recording-overlay.recording-overlay-custom .error-hint {
   text-shadow: 0 0 10px rgba(255, 120, 120, 0.12);
 }
 
-.error-code-chip {
+.recording-overlay.recording-overlay-custom .error-code-chip,
+.recording-overlay.recording-overlay-legacy .error-code-chip {
   flex-shrink: 0;
   align-self: flex-start;
   color: #ffd5d5;
@@ -516,6 +619,9 @@ body,
   letter-spacing: 0.02em;
   padding: 1px 5px;
   border-radius: 999px;
+}
+
+.recording-overlay.recording-overlay-custom .error-code-chip {
   border: 1px solid rgba(255, 122, 122, 0.5);
   background:
     linear-gradient(180deg, rgba(255, 145, 145, 0.14) 0%, rgba(255, 107, 107, 0.08) 100%),
@@ -525,7 +631,13 @@ body,
     0 0 16px rgba(255, 92, 92, 0.12);
 }
 
-.overlay-decapitalize-indicator {
+.recording-overlay.recording-overlay-legacy .error-code-chip {
+  border: 1px solid #ff6b6b66;
+  background: #ff6b6b1a;
+}
+
+.recording-overlay.recording-overlay-custom .overlay-decapitalize-indicator,
+.recording-overlay.recording-overlay-legacy .overlay-decapitalize-indicator {
   position: absolute;
   top: 2px;
   left: 50%;

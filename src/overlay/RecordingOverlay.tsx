@@ -15,8 +15,10 @@ import "./RecordingOverlay.css";
 import { commands, type RecordingOverlayAppearancePayload } from "@/bindings";
 import { syncLanguageFromSettings } from "@/i18n";
 import {
+  normalizeLegacyRecordingOverlayBarStyle,
   normalizeRecordingOverlayAnimatedBorderMode,
   normalizeRecordingOverlayBackgroundMode,
+  getRecordingOverlayBarStyle,
   getRecordingOverlayErrorStateStyle,
   getRecordingOverlaySurfaceStyle,
   normalizeRecordingOverlayBarStyle,
@@ -85,6 +87,7 @@ type OverlayErrorCopy = {
 };
 
 const DEFAULT_OVERLAY_APPEARANCE: RecordingOverlayAppearancePayload = {
+  custom_enabled: false,
   theme: "classic",
   background_mode: "none",
   material_mode: "liquid_glass",
@@ -306,6 +309,10 @@ const RecordingOverlay: React.FC = () => {
         data.theme === "minimal" || data.theme === "glass" ? data.theme : "classic";
 
       setAppearance({
+        custom_enabled:
+          typeof data.custom_enabled === "boolean"
+            ? data.custom_enabled
+            : DEFAULT_OVERLAY_APPEARANCE.custom_enabled,
         theme,
         background_mode: normalizeRecordingOverlayBackgroundMode(
           data.background_mode,
@@ -612,7 +619,16 @@ const RecordingOverlay: React.FC = () => {
     appearance.centerpiece_mode as RecordingOverlayCenterpieceMode;
   const animatedBorderMode =
     appearance.animated_border_mode as RecordingOverlayAnimatedBorderMode;
-  const barStyle = appearance.bar_style as RecordingOverlayBarStyle;
+  const customOverlayEnabled = appearance.custom_enabled;
+  const barStyle = customOverlayEnabled
+    ? (appearance.bar_style as RecordingOverlayBarStyle)
+    : normalizeLegacyRecordingOverlayBarStyle(appearance.bar_style);
+  const effectiveMaterialMode = customOverlayEnabled
+    ? materialMode
+    : ("liquid_glass" as RecordingOverlayMaterialMode);
+  const effectiveOpacityPercent = customOverlayEnabled
+    ? appearance.opacity_percent
+    : 100;
   const showDragGrip = appearance.show_drag_grip;
   const showStatusIcon = appearance.show_status_icon;
   const visibleLevels = levels.slice(0, appearance.bar_count);
@@ -620,9 +636,23 @@ const RecordingOverlay: React.FC = () => {
     overlayTheme,
     appearance.accent_color,
     appearance.bar_width_px,
-    appearance.opacity_percent,
-    materialMode,
+    effectiveOpacityPercent,
+    effectiveMaterialMode,
   );
+  const resolvedSurfaceStyle = customOverlayEnabled
+    ? surfaceStyle
+    : {
+        ...surfaceStyle,
+        background: "#000000cc",
+        borderRadius: "18px",
+        border: "none",
+        boxShadow: "none",
+        backdropFilter: "none",
+        WebkitBackdropFilter: "none",
+        ["--recording-overlay-accent-glow" as string]: "rgba(0, 0, 0, 0)",
+        ["--recording-overlay-accent-glow-strong" as string]: "rgba(0, 0, 0, 0)",
+        ["--recording-overlay-sheen" as string]: "rgba(0, 0, 0, 0)",
+      };
   const motionStyle = getRecordingOverlayMotionStyle({
     isVisible,
     state:
@@ -646,7 +676,7 @@ const RecordingOverlay: React.FC = () => {
     silenceOpacityPercent: appearance.silence_opacity_percent,
   });
   const errorSurfaceStyle = getRecordingOverlayErrorStateStyle(
-    appearance.opacity_percent,
+    effectiveOpacityPercent,
   );
 
   const getIcon = () => {
@@ -687,7 +717,6 @@ const RecordingOverlay: React.FC = () => {
         : state === "error"
           ? "overlay-state-error"
           : "overlay-state-idle";
-
   const handleDragGripPointerDown = (event: React.PointerEvent<HTMLButtonElement>) => {
     if (event.button !== 0) {
       return;
@@ -720,41 +749,47 @@ const RecordingOverlay: React.FC = () => {
 
   return (
     <div
-      className={`recording-overlay ${overlayStateClass} ${isVisible ? "fade-in" : ""} ${state === "error" ? "overlay-error" : ""} ${state === "microphone_switch" ? "overlay-microphone-switch" : ""}`}
+      className={`recording-overlay ${customOverlayEnabled ? "recording-overlay-custom" : "recording-overlay-legacy"} ${overlayStateClass} ${isVisible ? "fade-in" : ""} ${state === "error" ? "overlay-error" : ""} ${state === "microphone_switch" ? "overlay-microphone-switch" : ""}`}
       style={{
-        ...surfaceStyle,
-        ...motionStyle,
+        ...resolvedSurfaceStyle,
+        ...(customOverlayEnabled ? motionStyle : {}),
         ...(state === "error" ? errorSurfaceStyle : {}),
         width: `${appearance.frame_width_px}px`,
         minHeight: `${appearance.frame_height_px}px`,
       }}
     >
-      <div className="recording-overlay-sheen" />
-      <div className="recording-overlay-vignette" />
-      <div className="recording-overlay-core-glow" />
-      <div className="recording-overlay-grain" />
+      {customOverlayEnabled && <div className="recording-overlay-sheen" />}
+      {customOverlayEnabled && <div className="recording-overlay-vignette" />}
+      {customOverlayEnabled && <div className="recording-overlay-core-glow" />}
+      {customOverlayEnabled && <div className="recording-overlay-grain" />}
 
-      <RecordingOverlayBackground
-        mode={backgroundMode}
-        accentColor={appearance.accent_color}
-        levels={visibleLevels}
-        animationSoftnessPercent={appearance.animation_softness_percent}
-        depthParallaxPercent={appearance.depth_parallax_percent}
-      />
-      <RecordingOverlayCenterpiece
-        mode={centerpieceMode}
-        accentColor={appearance.accent_color}
-        levels={visibleLevels}
-        animationSoftnessPercent={appearance.animation_softness_percent}
-        depthParallaxPercent={appearance.depth_parallax_percent}
-      />
-      <RecordingOverlayAnimatedBorder
-        mode={animatedBorderMode}
-        accentColor={appearance.accent_color}
-        levels={visibleLevels}
-        animationSoftnessPercent={appearance.animation_softness_percent}
-        depthParallaxPercent={appearance.depth_parallax_percent}
-      />
+      {customOverlayEnabled && (
+        <RecordingOverlayBackground
+          mode={backgroundMode}
+          accentColor={appearance.accent_color}
+          levels={visibleLevels}
+          animationSoftnessPercent={appearance.animation_softness_percent}
+          depthParallaxPercent={appearance.depth_parallax_percent}
+        />
+      )}
+      {customOverlayEnabled && (
+        <RecordingOverlayCenterpiece
+          mode={centerpieceMode}
+          accentColor={appearance.accent_color}
+          levels={visibleLevels}
+          animationSoftnessPercent={appearance.animation_softness_percent}
+          depthParallaxPercent={appearance.depth_parallax_percent}
+        />
+      )}
+      {customOverlayEnabled && (
+        <RecordingOverlayAnimatedBorder
+          mode={animatedBorderMode}
+          accentColor={appearance.accent_color}
+          levels={visibleLevels}
+          animationSoftnessPercent={appearance.animation_softness_percent}
+          depthParallaxPercent={appearance.depth_parallax_percent}
+        />
+      )}
 
       {showDragGrip && (
         <div className="recording-overlay-grip-row">
@@ -784,7 +819,9 @@ const RecordingOverlay: React.FC = () => {
       )}
 
       <div className="overlay-left">
-        {showStatusIcon ? (
+        {showStatusIcon ? !customOverlayEnabled ? (
+          getIcon()
+        ) : (
           <div className={`overlay-icon-wrap ${iconStateClass}`}>
             {getIcon()}
           </div>
@@ -792,7 +829,27 @@ const RecordingOverlay: React.FC = () => {
       </div>
 
       <div className="overlay-middle">
-        {state === "recording" && (
+        {state === "recording" && !customOverlayEnabled && (
+          <div className="bars-container">
+            {visibleLevels.map((value, index) => (
+              <div
+                key={index}
+                className="bar"
+                style={{
+                  height: `${Math.min(20, 4 + Math.pow(value, 0.7) * 16)}px`,
+                  transition: "height 60ms ease-out, opacity 120ms ease-out",
+                  ...getRecordingOverlayBarStyle(
+                    barStyle,
+                    appearance.accent_color,
+                    value,
+                    index,
+                  ),
+                }}
+              />
+            ))}
+          </div>
+        )}
+        {state === "recording" && customOverlayEnabled && (
           <RecordingOverlayBars
             levels={visibleLevels}
             barCount={appearance.bar_count}
@@ -845,7 +902,7 @@ const RecordingOverlay: React.FC = () => {
           state === "finalizing") && (
           <button
             type="button"
-            className="cancel-button"
+            className={`cancel-button ${customOverlayEnabled ? "" : "cancel-button-legacy"}`}
             onClick={() => {
               commands.cancelOperation();
             }}

@@ -33,20 +33,51 @@ export const Slider: React.FC<SliderProps> = ({
   formatValue = (v) => v.toFixed(2),
 }) => {
   const [internalValue, setInternalValue] = React.useState(value);
+  const latestValueRef = React.useRef(value);
+  const [isInteracting, setIsInteracting] = React.useState(false);
 
   React.useEffect(() => {
     setInternalValue(value);
+    latestValueRef.current = value;
   }, [value]);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const nextValue = parseFloat(e.target.value);
     setInternalValue(nextValue);
+    latestValueRef.current = nextValue;
     onChange(nextValue);
   };
 
-  const commitValue = () => {
+  const commitValue = React.useCallback(() => {
     if (onChangeComplete) {
-      onChangeComplete(internalValue);
+      onChangeComplete(latestValueRef.current);
+    }
+  }, [onChangeComplete]);
+
+  React.useEffect(() => {
+    if (!isInteracting) {
+      return;
+    }
+
+    const handleInteractionEnd = () => {
+      setIsInteracting(false);
+      commitValue();
+    };
+
+    window.addEventListener("mouseup", handleInteractionEnd);
+    window.addEventListener("touchend", handleInteractionEnd);
+    window.addEventListener("touchcancel", handleInteractionEnd);
+
+    return () => {
+      window.removeEventListener("mouseup", handleInteractionEnd);
+      window.removeEventListener("touchend", handleInteractionEnd);
+      window.removeEventListener("touchcancel", handleInteractionEnd);
+    };
+  }, [commitValue, isInteracting]);
+
+  const handleInteractionStart = () => {
+    if (onChangeComplete) {
+      setIsInteracting(true);
     }
   };
 
@@ -68,8 +99,13 @@ export const Slider: React.FC<SliderProps> = ({
             step={step}
             value={internalValue}
             onChange={handleChange}
-            onMouseUp={commitValue}
-            onTouchEnd={commitValue}
+            onMouseDown={handleInteractionStart}
+            onTouchStart={handleInteractionStart}
+            onBlur={() => {
+              if (!isInteracting) {
+                commitValue();
+              }
+            }}
             onKeyUp={(event) => {
               if (
                 event.key.startsWith("Arrow") ||

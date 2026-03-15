@@ -5,7 +5,9 @@ import {
   TranscriptionIcon,
 } from "../../icons";
 import {
+  normalizeLegacyRecordingOverlayBarStyle,
   normalizeRecordingOverlayAnimatedBorderMode,
+  getRecordingOverlayBarStyle,
   getRecordingOverlayErrorStateStyle,
   getRecordingOverlaySurfaceStyle,
   normalizeRecordingOverlayBackgroundMode,
@@ -30,6 +32,7 @@ import { getRecordingOverlayMotionStyle } from "../../../overlay/recordingOverla
 type PreviewState = "recording" | "transcribing" | "error";
 
 interface RecordingOverlayPreviewProps {
+  customEnabled: boolean;
   theme: RecordingOverlayTheme;
   accentColor: string;
   materialMode: RecordingOverlayMaterialMode;
@@ -66,6 +69,7 @@ function createPreviewLevels(count: number, phase = 0): number[] {
 }
 
 export const RecordingOverlayPreview: React.FC<RecordingOverlayPreviewProps> = ({
+  customEnabled,
   theme,
   accentColor,
   materialMode,
@@ -94,12 +98,18 @@ export const RecordingOverlayPreview: React.FC<RecordingOverlayPreviewProps> = (
     normalizeRecordingOverlayBackgroundMode(backgroundMode);
   const normalizedMaterialMode =
     normalizeRecordingOverlayMaterialMode(materialMode);
-  const normalizedBarStyle = normalizeRecordingOverlayBarStyle(barStyle);
+  const normalizedBarStyle = customEnabled
+    ? normalizeRecordingOverlayBarStyle(barStyle)
+    : normalizeLegacyRecordingOverlayBarStyle(barStyle);
   const normalizedCenterpieceMode =
     normalizeRecordingOverlayCenterpieceMode(centerpieceMode);
   const normalizedAnimatedBorderMode =
     normalizeRecordingOverlayAnimatedBorderMode(animatedBorderMode);
   const normalizedOpacityPercent = Math.max(20, Math.min(100, Math.round(opacityPercent)));
+  const effectiveMaterialMode = customEnabled
+    ? normalizedMaterialMode
+    : ("liquid_glass" as RecordingOverlayMaterialMode);
+  const effectiveOpacityPercent = customEnabled ? normalizedOpacityPercent : 100;
   const baseLevels = useMemo(() => createPreviewLevels(barCount), [barCount]);
   const [isHovered, setIsHovered] = useState(false);
   const [levels, setLevels] = useState<number[]>(baseLevels);
@@ -137,10 +147,10 @@ export const RecordingOverlayPreview: React.FC<RecordingOverlayPreviewProps> = (
         theme,
         normalizedAccent,
         barWidthPx,
-        opacityPercent,
-        normalizedMaterialMode,
+        effectiveOpacityPercent,
+        effectiveMaterialMode,
       ),
-    [barWidthPx, normalizedAccent, normalizedMaterialMode, opacityPercent, theme],
+    [barWidthPx, effectiveMaterialMode, effectiveOpacityPercent, normalizedAccent, theme],
   );
 
   const effectiveBarCount = Math.max(3, Math.min(16, Math.round(barCount)));
@@ -215,9 +225,23 @@ export const RecordingOverlayPreview: React.FC<RecordingOverlayPreviewProps> = (
     ],
   );
   const errorStyle = useMemo(
-    () => getRecordingOverlayErrorStateStyle(normalizedOpacityPercent),
-    [normalizedOpacityPercent],
+    () => getRecordingOverlayErrorStateStyle(effectiveOpacityPercent),
+    [effectiveOpacityPercent],
   );
+  const resolvedSurfaceStyle = customEnabled
+    ? surfaceStyle
+    : {
+        ...surfaceStyle,
+        background: "#000000cc",
+        borderRadius: "18px",
+        border: "none",
+        boxShadow: "none",
+        backdropFilter: "none",
+        WebkitBackdropFilter: "none",
+        ["--recording-overlay-accent-glow" as string]: "rgba(0, 0, 0, 0)",
+        ["--recording-overlay-accent-glow-strong" as string]: "rgba(0, 0, 0, 0)",
+        ["--recording-overlay-sheen" as string]: "rgba(0, 0, 0, 0)",
+      };
 
   return (
     <div
@@ -294,14 +318,17 @@ export const RecordingOverlayPreview: React.FC<RecordingOverlayPreviewProps> = (
           <div
             style={{
               ...surfaceStyle,
-              ...motionStyle,
+              ...resolvedSurfaceStyle,
+              ...(customEnabled ? motionStyle : {}),
               width: `${overlayWidth}px`,
               minHeight: `${overlayHeight}px`,
               display: "grid",
-              gridTemplateColumns: "auto minmax(0, 1fr) auto",
+              gridTemplateColumns: customEnabled
+                ? "auto minmax(0, 1fr) auto"
+                : "auto 1fr auto",
               alignItems: "center",
-              gap: "8px",
-              padding: "6px 8px",
+              gap: customEnabled ? "8px" : "0px",
+              padding: customEnabled ? "6px 8px" : "6px",
               position: "relative",
               boxSizing: "border-box",
               ...(state === "error" ? errorStyle : {}),
@@ -320,27 +347,33 @@ export const RecordingOverlayPreview: React.FC<RecordingOverlayPreviewProps> = (
                 zIndex: 0,
               }}
             />
-            <RecordingOverlayBackground
-              mode={normalizedBackgroundMode}
-              accentColor={normalizedAccent}
-              levels={levels.slice(0, effectiveBarCount)}
-              animationSoftnessPercent={animationSoftnessPercent}
-              depthParallaxPercent={depthParallaxPercent}
-            />
-            <RecordingOverlayCenterpiece
-              mode={normalizedCenterpieceMode}
-              accentColor={normalizedAccent}
-              levels={levels.slice(0, effectiveBarCount)}
-              animationSoftnessPercent={animationSoftnessPercent}
-              depthParallaxPercent={depthParallaxPercent}
-            />
-            <RecordingOverlayAnimatedBorder
-              mode={normalizedAnimatedBorderMode}
-              accentColor={normalizedAccent}
-              levels={levels.slice(0, effectiveBarCount)}
-              animationSoftnessPercent={animationSoftnessPercent}
-              depthParallaxPercent={depthParallaxPercent}
-            />
+            {customEnabled && (
+              <RecordingOverlayBackground
+                mode={normalizedBackgroundMode}
+                accentColor={normalizedAccent}
+                levels={levels.slice(0, effectiveBarCount)}
+                animationSoftnessPercent={animationSoftnessPercent}
+                depthParallaxPercent={depthParallaxPercent}
+              />
+            )}
+            {customEnabled && (
+              <RecordingOverlayCenterpiece
+                mode={normalizedCenterpieceMode}
+                accentColor={normalizedAccent}
+                levels={levels.slice(0, effectiveBarCount)}
+                animationSoftnessPercent={animationSoftnessPercent}
+                depthParallaxPercent={depthParallaxPercent}
+              />
+            )}
+            {customEnabled && (
+              <RecordingOverlayAnimatedBorder
+                mode={normalizedAnimatedBorderMode}
+                accentColor={normalizedAccent}
+                levels={levels.slice(0, effectiveBarCount)}
+                animationSoftnessPercent={animationSoftnessPercent}
+                depthParallaxPercent={depthParallaxPercent}
+              />
+            )}
 
             {showDragGrip && (
               <div
@@ -363,6 +396,9 @@ export const RecordingOverlayPreview: React.FC<RecordingOverlayPreviewProps> = (
                     height: "10px",
                     alignContent: "center",
                     justifyContent: "center",
+                    opacity: isHovered ? 1 : 0,
+                    transform: isHovered ? "translateY(0)" : "translateY(-2px)",
+                    transition: "opacity 140ms ease-out, transform 140ms ease-out",
                   }}
                 >
                   {Array.from({ length: 6 }).map((_, index) => (
@@ -384,7 +420,15 @@ export const RecordingOverlayPreview: React.FC<RecordingOverlayPreviewProps> = (
               className="flex items-center"
               style={{ position: "relative", zIndex: 1 }}
             >
-              {showStatusIcon ? (
+              {showStatusIcon ? !customEnabled ? (
+                state === "recording" ? (
+                  <MicrophoneIcon />
+                ) : state === "error" ? (
+                  <span style={{ fontSize: "16px", lineHeight: 1 }}>❌</span>
+                ) : (
+                  <TranscriptionIcon />
+                )
+              ) : (
                 <div
                   style={{
                     position: "relative",
@@ -443,7 +487,35 @@ export const RecordingOverlayPreview: React.FC<RecordingOverlayPreviewProps> = (
                 zIndex: 1,
               }}
             >
-              {state === "recording" && (
+              {state === "recording" && !customEnabled && (
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "end",
+                    justifyContent: "center",
+                    gap: "3px",
+                    height: "24px",
+                    overflow: "hidden",
+                  }}
+                >
+                  {levels.slice(0, effectiveBarCount).map((value, index) => (
+                    <div
+                      key={index}
+                      style={{
+                        height: `${Math.min(20, 4 + Math.pow(value, 0.7) * 16)}px`,
+                        transition: "height 60ms ease-out, opacity 120ms ease-out",
+                        ...getRecordingOverlayBarStyle(
+                          normalizedBarStyle,
+                          normalizedAccent,
+                          value,
+                          index,
+                        ),
+                      }}
+                    />
+                  ))}
+                </div>
+              )}
+              {state === "recording" && customEnabled && (
                 <RecordingOverlayBars
                   levels={levels}
                   barCount={effectiveBarCount}
@@ -482,11 +554,13 @@ export const RecordingOverlayPreview: React.FC<RecordingOverlayPreviewProps> = (
                     display: "flex",
                     alignItems: "center",
                     justifyContent: "center",
-                    border: "1px solid rgba(255,255,255,0.08)",
-                    background:
-                      `linear-gradient(180deg, rgba(255,255,255,0.08) 0%, rgba(255,255,255,0.02) 100%), ${cancelHover}`,
-                    boxShadow:
-                      `inset 0 1px 0 rgba(255,255,255,0.08), 0 6px 12px rgba(0,0,0,0.16), 0 0 12px ${recordingOverlayHexToRgba(normalizedAccent, 0.12)}`,
+                    border: customEnabled ? "1px solid rgba(255,255,255,0.08)" : "0",
+                    background: customEnabled
+                      ? `linear-gradient(180deg, rgba(255,255,255,0.08) 0%, rgba(255,255,255,0.02) 100%), ${cancelHover}`
+                      : "transparent",
+                    boxShadow: customEnabled
+                      ? `inset 0 1px 0 rgba(255,255,255,0.08), 0 6px 12px rgba(0,0,0,0.16), 0 0 12px ${recordingOverlayHexToRgba(normalizedAccent, 0.12)}`
+                      : "none",
                   }}
                 >
                   <CancelIcon />

@@ -351,6 +351,13 @@
           "title": "Recording Overlay Preview",
           "description": "Preview the main overlay style here before using it in live recording."
         },
+        "customOverlay": {
+          "label": "Custom Overlay",
+          "description": "Turn on the premium custom renderer with presets, decorative layers, and advanced motion controls.",
+          "enabledHelp": "Custom mode is active. Decorative layers, presets, and advanced motion controls are available below.",
+          "disabledHelp": "Classic mode stays simpler, but still keeps the same overlay moving, drag handle, and placement behavior.",
+          "disabledTooltip": "Enable Custom Overlay to use these controls."
+        },
         "presets": {
           "title": "Preset Packs",
           "description": "Apply a strong, curated overlay look in one click.",
@@ -936,7 +943,8 @@
         },
         "dragGrip": {
           "label": "Show Recording Overlay Drag Grip",
-          "description": "Show a small top handle so you can drag the recording overlay during a session."
+          "description": "Show a small top handle on hover so you can drag the recording overlay during a session without leaving the grip visible all the time.",
+          "help": "Tip: move the pointer over the overlay to reveal the grip, then drag from the top center."
         }
       },
       "pasteMethod": {

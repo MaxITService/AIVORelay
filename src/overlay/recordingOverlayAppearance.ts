@@ -59,6 +59,13 @@ export type RecordingOverlayBarStyle =
   | "tuner"
   | "vinyl";
 
+export const LEGACY_RECORDING_OVERLAY_BAR_STYLES: RecordingOverlayBarStyle[] = [
+  "solid",
+  "capsule",
+  "glow",
+  "prism",
+];
+
 export function normalizeRecordingOverlayColor(
   value: string | undefined,
   fallback = "#ff4d8d",
@@ -269,6 +276,48 @@ export function getRecordingOverlaySurfaceStyle(
   };
 }
 
+export function getRecordingOverlayBarStyle(
+  barStyle: RecordingOverlayBarStyle,
+  accentColor: string,
+  level: number,
+  index: number,
+): CSSProperties {
+  const accent = normalizeRecordingOverlayColor(accentColor);
+  const baseOpacity = Math.max(0.24, Math.min(1, level * 1.7));
+
+  switch (barStyle) {
+    case "capsule":
+      return {
+        background: `linear-gradient(180deg, ${recordingOverlayHexToRgba(accent, 0.98)}, ${recordingOverlayHexToRgba(accent, 0.44)})`,
+        borderRadius: "999px",
+        opacity: Math.max(0.35, baseOpacity),
+      };
+    case "glow":
+      return {
+        background: `linear-gradient(180deg, ${recordingOverlayHexToRgba(accent, 1)}, ${recordingOverlayHexToRgba(accent, 0.42)})`,
+        borderRadius: "3px",
+        opacity: baseOpacity,
+        boxShadow: `0 0 10px ${recordingOverlayHexToRgba(accent, 0.34)}, 0 0 3px ${recordingOverlayHexToRgba(accent, 0.66)}`,
+        transform: `translateY(${index % 2 === 0 ? "0" : "0.5px"})`,
+      };
+    case "prism":
+      return {
+        background: `linear-gradient(180deg, ${recordingOverlayHexToRgba(accent, 0.98)} 0%, rgba(255,255,255,0.92) 34%, ${recordingOverlayHexToRgba(accent, 0.38)} 100%)`,
+        borderRadius: "1px",
+        opacity: Math.max(0.4, baseOpacity),
+        boxShadow: `inset 0 1px 0 rgba(255,255,255,0.45), 0 0 0 1px ${recordingOverlayHexToRgba(accent, 0.18)}`,
+        transform: `skewX(${index % 2 === 0 ? "-5deg" : "5deg"})`,
+      };
+    case "solid":
+    default:
+      return {
+        background: recordingOverlayHexToRgba(accent, 0.9),
+        borderRadius: "2px",
+        opacity: baseOpacity,
+      };
+  }
+}
+
 export function getRecordingOverlayErrorStateStyle(
   opacityPercent = 100,
 ): CSSProperties {
@@ -349,4 +398,13 @@ export function normalizeRecordingOverlayBarStyle(
     default:
       return "solid";
   }
+}
+
+export function normalizeLegacyRecordingOverlayBarStyle(
+  value: string | undefined,
+): RecordingOverlayBarStyle {
+  const normalized = normalizeRecordingOverlayBarStyle(value);
+  return LEGACY_RECORDING_OVERLAY_BAR_STYLES.includes(normalized)
+    ? normalized
+    : "solid";
 }

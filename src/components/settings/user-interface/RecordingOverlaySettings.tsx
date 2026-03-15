@@ -20,6 +20,8 @@ import type {
 } from "@/bindings";
 import { commands } from "@/bindings";
 import {
+  LEGACY_RECORDING_OVERLAY_BAR_STYLES,
+  normalizeLegacyRecordingOverlayBarStyle,
   normalizeRecordingOverlayAnimatedBorderMode,
   normalizeRecordingOverlayBackgroundMode,
   normalizeRecordingOverlayBarStyle,
@@ -193,6 +195,9 @@ export const RecordingOverlaySettings: React.FC = () => {
   const barStyle = normalizeRecordingOverlayBarStyle(
     (settings as any)?.recording_overlay_bar_style,
   );
+  const effectiveBarStyle = customOverlayEnabled
+    ? barStyle
+    : normalizeLegacyRecordingOverlayBarStyle(barStyle);
   const accentColor = normalizeRecordingOverlayColor(
     (settings as any)?.recording_overlay_accent_color,
   );
@@ -225,6 +230,13 @@ export const RecordingOverlaySettings: React.FC = () => {
   );
   const hasManualPosition = Boolean(
     (settings as any)?.recording_overlay_use_manual_position ?? false,
+  );
+  const customOverlayEnabled = Boolean(
+    (settings as any)?.recording_overlay_custom_enabled ?? false,
+  );
+  const customOverlayDisabledReason = t(
+    "settings.userInterface.recordingOverlay.customOverlay.disabledTooltip",
+    "Enable Custom Overlay to use these controls.",
   );
   const currentStyleConfig = React.useMemo(
     () => getRecordingOverlayStyleConfigFromSettings(settings),
@@ -329,6 +341,7 @@ export const RecordingOverlaySettings: React.FC = () => {
 
     setIsResettingAppearance(true);
     try {
+      await updateSetting("recording_overlay_custom_enabled" as any, false as any);
       await applyStyleConfig(RESET_RECORDING_OVERLAY_STYLE_CONFIG);
       await updateSetting("recording_overlay_width_px" as any, 172 as any);
       setSliderDrafts({
@@ -524,6 +537,7 @@ export const RecordingOverlaySettings: React.FC = () => {
             })}
           </div>
           <RecordingOverlayPreview
+            customEnabled={customOverlayEnabled}
             theme={overlayTheme}
             accentColor={accentColor}
             materialMode={materialMode}
@@ -533,7 +547,7 @@ export const RecordingOverlaySettings: React.FC = () => {
             animatedBorderMode={animatedBorderMode}
             barCount={sliderDrafts.recording_overlay_bar_count}
             barWidthPx={sliderDrafts.recording_overlay_bar_width_px}
-            barStyle={barStyle}
+            barStyle={effectiveBarStyle}
             showDragGrip={showDragGrip}
             state={previewState}
             audioReactiveScale={audioReactiveScale}
@@ -561,6 +575,61 @@ export const RecordingOverlaySettings: React.FC = () => {
         </div>
 
         <div className="order-2">
+      <ToggleSwitch
+        checked={customOverlayEnabled}
+        onChange={(enabled) =>
+          void (async () => {
+            if (!enabled) {
+              const legacyBarStyle = normalizeLegacyRecordingOverlayBarStyle(barStyle);
+              if (legacyBarStyle !== barStyle) {
+                await updateSetting(
+                  "recording_overlay_bar_style" as any,
+                  legacyBarStyle as any,
+                );
+              }
+            }
+            await updateSetting(
+              "recording_overlay_custom_enabled" as any,
+              enabled as any,
+            );
+          })()
+        }
+        isUpdating={isUpdating("recording_overlay_custom_enabled")}
+        label={t(
+          "settings.userInterface.recordingOverlay.customOverlay.label",
+          "Custom Overlay",
+        )}
+        description={t(
+          "settings.userInterface.recordingOverlay.customOverlay.description",
+          "Turn on the premium custom renderer with presets, decorative layers, and advanced motion controls.",
+        )}
+        descriptionMode="tooltip"
+        grouped={true}
+      />
+      <div className="px-4 pb-4 text-xs text-[#a8a8a8]">
+        {customOverlayEnabled
+          ? t(
+              "settings.userInterface.recordingOverlay.customOverlay.enabledHelp",
+              "Custom mode is active. Decorative layers, presets, and advanced motion controls are available below.",
+            )
+          : t(
+              "settings.userInterface.recordingOverlay.customOverlay.disabledHelp",
+              "Classic mode stays simpler, but still keeps the same overlay moving, drag handle, and placement behavior.",
+            )}
+      </div>
+        </div>
+
+        <div
+          className="order-3"
+          title={customOverlayEnabled ? undefined : customOverlayDisabledReason}
+        >
+          <div
+            className={
+              customOverlayEnabled
+                ? undefined
+                : "pointer-events-none select-none opacity-45"
+            }
+          >
       <SettingContainer
         title={t(
           "settings.userInterface.recordingOverlay.presets.title",
@@ -657,6 +726,7 @@ export const RecordingOverlaySettings: React.FC = () => {
                       </span>
                     </div>
                     <RecordingOverlayPreview
+                      customEnabled={true}
                       theme={presetConfig.theme}
                       accentColor={presetConfig.accentColor}
                       materialMode={presetConfig.materialMode}
@@ -695,9 +765,10 @@ export const RecordingOverlaySettings: React.FC = () => {
           )}
         </div>
       </SettingContainer>
+          </div>
         </div>
 
-        <div className="order-3">
+        <div className="order-4">
       <TellMeMore
         title={t(
           "settings.userInterface.recordingOverlay.help.title",
@@ -728,7 +799,17 @@ export const RecordingOverlaySettings: React.FC = () => {
       </TellMeMore>
         </div>
 
-        <div className="order-7">
+        <div
+          className="order-8"
+          title={customOverlayEnabled ? undefined : customOverlayDisabledReason}
+        >
+          <div
+            className={
+              customOverlayEnabled
+                ? undefined
+                : "pointer-events-none select-none opacity-45"
+            }
+          >
       <SettingContainer
         title={t(
           "settings.userInterface.recordingOverlay.styleCode.title",
@@ -811,9 +892,10 @@ export const RecordingOverlaySettings: React.FC = () => {
           </div>
         </div>
       </SettingContainer>
+          </div>
         </div>
 
-        <div className="order-8">
+        <div className="order-9">
       <SettingContainer
         title={t(
           "settings.userInterface.recordingOverlay.reset.title",
@@ -861,7 +943,7 @@ export const RecordingOverlaySettings: React.FC = () => {
       <ShowOverlay descriptionMode="tooltip" grouped={true} />
         </div>
 
-        <div className="order-4">
+        <div className="order-5">
       <SettingContainer
         title={t(
           "settings.userInterface.recordingOverlay.theme.title",
@@ -884,6 +966,14 @@ export const RecordingOverlaySettings: React.FC = () => {
         />
       </SettingContainer>
 
+      <div
+        title={customOverlayEnabled ? undefined : customOverlayDisabledReason}
+        className={
+          customOverlayEnabled
+            ? undefined
+            : "pointer-events-none select-none opacity-45"
+        }
+      >
       <SettingContainer
         title={t(
           "settings.userInterface.recordingOverlay.materialMode.title",
@@ -902,7 +992,9 @@ export const RecordingOverlaySettings: React.FC = () => {
           onSelect={(value) =>
             void updateSetting("recording_overlay_material_mode" as any, value as any)
           }
-          disabled={isUpdating("recording_overlay_material_mode")}
+          disabled={
+            isUpdating("recording_overlay_material_mode") || !customOverlayEnabled
+          }
         />
       </SettingContainer>
 
@@ -927,7 +1019,9 @@ export const RecordingOverlaySettings: React.FC = () => {
               value as any,
             )
           }
-          disabled={isUpdating("recording_overlay_background_mode")}
+          disabled={
+            isUpdating("recording_overlay_background_mode") || !customOverlayEnabled
+          }
         />
       </SettingContainer>
 
@@ -949,7 +1043,9 @@ export const RecordingOverlaySettings: React.FC = () => {
           onSelect={(value) =>
             void updateSetting("recording_overlay_centerpiece_mode" as any, value as any)
           }
-          disabled={isUpdating("recording_overlay_centerpiece_mode")}
+          disabled={
+            isUpdating("recording_overlay_centerpiece_mode") || !customOverlayEnabled
+          }
         />
       </SettingContainer>
 
@@ -974,9 +1070,12 @@ export const RecordingOverlaySettings: React.FC = () => {
               value as any,
             )
           }
-          disabled={isUpdating("recording_overlay_animated_border_mode")}
+          disabled={
+            isUpdating("recording_overlay_animated_border_mode") || !customOverlayEnabled
+          }
         />
       </SettingContainer>
+      </div>
 
       <ToggleSwitch
         checked={showStatusIcon}
@@ -1012,8 +1111,14 @@ export const RecordingOverlaySettings: React.FC = () => {
         grouped={true}
       >
         <Dropdown
-          options={BAR_STYLE_OPTIONS}
-          selectedValue={barStyle}
+          options={
+            customOverlayEnabled
+              ? BAR_STYLE_OPTIONS
+              : BAR_STYLE_OPTIONS.filter((option) =>
+                  LEGACY_RECORDING_OVERLAY_BAR_STYLES.includes(option.value),
+                )
+          }
+          selectedValue={effectiveBarStyle}
           onSelect={(value) =>
             void updateSetting("recording_overlay_bar_style" as any, value as any)
           }
@@ -1126,7 +1231,17 @@ export const RecordingOverlaySettings: React.FC = () => {
       </SettingContainer>
         </div>
 
-        <div className="order-5">
+        <div
+          className="order-6"
+          title={customOverlayEnabled ? undefined : customOverlayDisabledReason}
+        >
+          <div
+            className={
+              customOverlayEnabled
+                ? undefined
+                : "pointer-events-none select-none opacity-45"
+            }
+          >
       <ToggleSwitch
         checked={audioReactiveScale}
         onChange={(enabled) =>
@@ -1345,6 +1460,7 @@ export const RecordingOverlaySettings: React.FC = () => {
           !silenceFade
         }
       />
+          </div>
         </div>
       </div>
     </SettingsGroup>

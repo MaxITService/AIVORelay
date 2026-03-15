@@ -966,6 +966,19 @@ pub fn change_error_feedback_enabled_setting(app: AppHandle, enabled: bool) -> R
 
 #[tauri::command]
 #[specta::specta]
+pub fn change_recording_overlay_custom_enabled_setting(
+    app: AppHandle,
+    enabled: bool,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.recording_overlay_custom_enabled = enabled;
+    settings::write_settings(&app, settings);
+    refresh_recording_overlay_window(&app);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
 pub fn change_recording_overlay_show_drag_grip_setting(
     app: AppHandle,
     enabled: bool,

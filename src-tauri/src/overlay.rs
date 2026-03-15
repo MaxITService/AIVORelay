@@ -43,7 +43,6 @@ tauri_panel! {
     })
 }
 
-const OVERLAY_WIDTH: f64 = 172.0;
 const OVERLAY_HEIGHT: f64 = 36.0;
 const ERROR_OVERLAY_WIDTH: f64 = 340.0;
 const ERROR_OVERLAY_HEIGHT: f64 = 82.0;
@@ -139,6 +138,7 @@ pub struct SonioxLivePreviewAppearancePayload {
 
 #[derive(Serialize, Clone, Type)]
 pub struct RecordingOverlayAppearancePayload {
+    custom_enabled: bool,
     theme: String,
     background_mode: String,
     material_mode: String,
@@ -443,6 +443,7 @@ fn build_recording_overlay_appearance_payload(
     let metrics =
         recording_overlay_window_metrics(app_handle, current_recording_overlay_layout());
     RecordingOverlayAppearancePayload {
+        custom_enabled: settings.recording_overlay_custom_enabled,
         theme: recording_overlay_theme_key(settings.recording_overlay_theme).to_string(),
         background_mode: recording_overlay_background_mode_key(
             settings.recording_overlay_background_mode,
