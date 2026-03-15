@@ -544,12 +544,12 @@
           "description": "Set the base transparency of the recording overlay."
         },
         "silenceFade": {
-          "label": "Silence Fade",
-          "description": "Make the overlay quieter during pauses and wake instantly when speech returns."
+          "label": "Fade When Quiet",
+          "description": "Make the overlay more transparent during pauses. Turn this off to keep opacity constant."
         },
         "silenceOpacity": {
-          "title": "Silence Opacity",
-          "description": "Set how visible the overlay stays while you are quiet."
+          "title": "Quiet Opacity",
+          "description": "Only used when Fade When Quiet is enabled. Sets how visible the overlay stays while you are quiet."
         }
       }
     },
