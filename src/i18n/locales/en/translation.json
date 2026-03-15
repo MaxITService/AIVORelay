@@ -400,6 +400,7 @@
           "title": "Reset Overlay",
           "description": "Reset either the overlay look or its saved manual position without touching unrelated settings.",
           "appearance": "Reset Appearance",
+          "appearanceTooltip": "This resets the current overlay look. For the most default/basic variant, turn off Custom Overlay.",
           "position": "Reset Position",
           "appearanceDone": "Overlay appearance reset to the default look."
         },

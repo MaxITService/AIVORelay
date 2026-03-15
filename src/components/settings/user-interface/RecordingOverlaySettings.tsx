@@ -486,7 +486,6 @@ export const RecordingOverlaySettings: React.FC = () => {
 
     setIsResettingAppearance(true);
     try {
-      await updateSetting("recording_overlay_custom_enabled" as any, false as any);
       await applyStyleConfig(RESET_RECORDING_OVERLAY_STYLE_CONFIG);
       await updateSetting("recording_overlay_width_px" as any, 172 as any);
       setSliderDrafts({
@@ -1062,6 +1061,10 @@ export const RecordingOverlaySettings: React.FC = () => {
             type="button"
             onClick={() => void handleResetAppearance()}
             disabled={isResettingAppearance}
+            title={t(
+              "settings.userInterface.recordingOverlay.reset.appearanceTooltip",
+              "This resets the current overlay look. For the most default/basic variant, turn off Custom Overlay.",
+            )}
             className="inline-flex items-center gap-2 rounded-md border border-[#3c3c3c] bg-[#202020] px-3 py-2 text-xs font-medium text-[#e5e5e5] transition-colors hover:bg-[#2a2a2a] disabled:cursor-not-allowed disabled:opacity-45"
           >
             <RotateCcw className="h-3.5 w-3.5" />
