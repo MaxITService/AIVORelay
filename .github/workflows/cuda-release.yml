@@ -40,7 +40,7 @@ jobs:
             })
             return data.id
 
-  build-portable:
+  build-windows:
     permissions:
       contents: write
     needs: create-release
@@ -49,6 +49,7 @@ jobs:
       CUDA_DEPENDENCY_ROOT: ${{ github.workspace }}\aivorelay-deps
       CUDA_TARGET_DIR: C:\aivorelay-cuda
       CUDA_TOOLKIT_ROOT: C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.4
+      LLVM_BIN: C:\Program Files\LLVM\bin
     steps:
       - name: Checkout AIVORelay
         uses: actions/checkout@v4
@@ -68,16 +69,129 @@ jobs:
           fetch-depth: 1
           submodules: recursive
 
+      - name: Import Certificate to Windows Store
+        shell: pwsh
+        env:
+          WIN_PFX_B64: ${{ secrets.CODE_CERT_MAXITSERVICE_01_2026 }}
+          WIN_PFX_PASSWORD: ${{ secrets.WIN_PFX_PASSWORD }}
+        run: |
+          Write-Host "========================================" -ForegroundColor Cyan
+          Write-Host " IMPORT CERTIFICATE TO WINDOWS STORE" -ForegroundColor Cyan
+          Write-Host "========================================" -ForegroundColor Cyan
+
+          if ([string]::IsNullOrWhiteSpace($env:WIN_PFX_B64)) {
+            Write-Host "ERROR: WIN_PFX_B64 secret is empty or not set!" -ForegroundColor Red
+            exit 1
+          }
+          Write-Host "WIN_PFX_B64 secret    = (set, $($env:WIN_PFX_B64.Length) chars)" -ForegroundColor Green
+
+          if ([string]::IsNullOrWhiteSpace($env:WIN_PFX_PASSWORD)) {
+            Write-Host "ERROR: WIN_PFX_PASSWORD secret is empty or not set!" -ForegroundColor Red
+            exit 1
+          }
+          Write-Host "WIN_PFX_PASSWORD      = (set, $($env:WIN_PFX_PASSWORD.Length) chars)" -ForegroundColor Green
+
+          $pfxPath = Join-Path $env:RUNNER_TEMP "codesign.pfx"
+          Write-Host "PFX output path       = $pfxPath"
+
+          try {
+            $b64 = $env:WIN_PFX_B64 -replace "`r","" -replace "`n",""
+            $bytes = [Convert]::FromBase64String($b64)
+            Write-Host "Base64 decoded        = $($bytes.Length) bytes" -ForegroundColor Green
+            [IO.File]::WriteAllBytes($pfxPath, $bytes)
+          }
+          catch {
+            Write-Host "ERROR: Failed to decode Base64 or write file: $($_.Exception.Message)" -ForegroundColor Red
+            exit 1
+          }
+
+          if (!(Test-Path $pfxPath)) {
+            Write-Host "ERROR: PFX file was not created!" -ForegroundColor Red
+            exit 1
+          }
+
+          $fileSize = (Get-Item $pfxPath).Length
+          Write-Host "PFX file created      = $fileSize bytes" -ForegroundColor Green
+
+          if ($fileSize -lt 100) {
+            Write-Host "ERROR: PFX file is too small, likely corrupted!" -ForegroundColor Red
+            exit 1
+          }
+
+          Write-Host ""
+          Write-Host "Importing certificate into Cert:\CurrentUser\My..." -ForegroundColor Yellow
+
+          try {
+            $securePassword = ConvertTo-SecureString -String $env:WIN_PFX_PASSWORD -Force -AsPlainText
+            $cert = Import-PfxCertificate -FilePath $pfxPath -CertStoreLocation Cert:\CurrentUser\My -Password $securePassword
+
+            Write-Host "Certificate imported successfully!" -ForegroundColor Green
+            Write-Host "  Subject:    $($cert.Subject)"
+            Write-Host "  Thumbprint: $($cert.Thumbprint)"
+            Write-Host "  NotAfter:   $($cert.NotAfter)"
+          }
+          catch {
+            Write-Host "ERROR: Failed to import certificate: $($_.Exception.Message)" -ForegroundColor Red
+            exit 1
+          }
+
+          $installedCert = Get-ChildItem Cert:\CurrentUser\My | Where-Object { $_.Thumbprint -eq "C1F83B324662E8D224282F9D587B030426346A77" }
+          if ($installedCert) {
+            Write-Host ""
+            Write-Host "Certificate verified in store!" -ForegroundColor Green
+          } else {
+            Write-Host "WARNING: Certificate not found in store after import!" -ForegroundColor Yellow
+          }
+
+          Remove-Item $pfxPath -Force -ErrorAction SilentlyContinue
+
+          Write-Host "========================================" -ForegroundColor Cyan
+
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
 
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: "./src-tauri -> target"
+          key: windows-latest-x86_64-pc-windows-msvc-cuda
+
       - name: Install LLVM and Ninja
         shell: pwsh
         run: |
           choco install llvm ninja -y --no-progress
+
+      - name: Install Vulkan SDK (Windows x64)
+        uses: humbletim/install-vulkan-sdk@v1.2
+        with:
+          version: 1.4.309.0
+          cache: true
+
+      - name: Bundle Vulkan Loader DLL (Windows x64)
+        shell: pwsh
+        run: |
+          Write-Host "Copying vulkan-1.dll to src-tauri for bundling..."
+          $vulkanDll = Join-Path $env:VULKAN_SDK "Bin\vulkan-1.dll"
+          $targetDir = "src-tauri"
+
+          if (Test-Path $vulkanDll) {
+            Copy-Item $vulkanDll -Destination $targetDir -Force
+            $size = [math]::Round((Get-Item "$targetDir\vulkan-1.dll").Length / 1MB, 2)
+            Write-Host "Successfully copied vulkan-1.dll ($size MB) to $targetDir"
+          } else {
+            Write-Host "WARNING: vulkan-1.dll not found at $vulkanDll"
+            $systemDll = "C:\Windows\System32\vulkan-1.dll"
+            if (Test-Path $systemDll) {
+              Copy-Item $systemDll -Destination $targetDir -Force
+              Write-Host "Copied vulkan-1.dll from System32 instead"
+            } else {
+              Write-Host "ERROR: Could not find vulkan-1.dll anywhere!"
+              exit 1
+            }
+          }
 
       - name: Install CUDA Toolkit 12.4
         uses: Jimver/cuda-toolkit@v0.2.24
@@ -85,20 +199,114 @@ jobs:
           cuda: "12.4.0"
           method: "network"
 
-      - name: Build CUDA portable app
+      - name: Import Visual Studio build environment
         shell: pwsh
         run: |
-          pwsh -NoProfile -File .\build-cuda.ps1 `
-            -DoBuild `
-            -CudaPath "${env:CUDA_TOOLKIT_ROOT}" `
-            -DependencyRoot "${env:CUDA_DEPENDENCY_ROOT}"
+          $vswhere = Join-Path ${env:ProgramFiles(x86)} "Microsoft Visual Studio\Installer\vswhere.exe"
+          if (!(Test-Path $vswhere)) {
+            throw "vswhere.exe not found at $vswhere"
+          }
+
+          $vsPath = & $vswhere -latest -products * -property installationPath
+          if ([string]::IsNullOrWhiteSpace($vsPath)) {
+            throw "Visual Studio installation with build tools not found."
+          }
+
+          $devCmd = Join-Path $vsPath "Common7\Tools\VsDevCmd.bat"
+          if (!(Test-Path $devCmd)) {
+            throw "VsDevCmd.bat not found at $devCmd"
+          }
+
+          cmd /c "`"$devCmd`" -arch=x64 && set" |
+            Where-Object { $_ -match '^(.+?)=(.*)$' } |
+            ForEach-Object { Add-Content -Path $env:GITHUB_ENV -Value $_ }
+
+      - name: Configure CUDA build environment
+        shell: pwsh
+        run: |
+          $clangExe = Join-Path $env:LLVM_BIN "clang.exe"
+          if (!(Test-Path $clangExe)) {
+            throw "clang.exe not found at $clangExe"
+          }
+
+          $resourceDir = (& $clangExe --print-resource-dir).Trim()
+          if (-not $resourceDir) {
+            throw "Unable to determine clang resource dir."
+          }
+
+          $vcInclude = Join-Path $env:VCToolsInstallDir "include"
+          $winSdkVer = $env:WindowsSDKVersion.TrimEnd("\")
+          $ucrt = Join-Path $env:WindowsSdkDir "Include\$winSdkVer\ucrt"
+          $um = Join-Path $env:WindowsSdkDir "Include\$winSdkVer\um"
+          $shared = Join-Path $env:WindowsSdkDir "Include\$winSdkVer\shared"
+          $clangBuiltinInclude = Join-Path $resourceDir "include"
+          $includeValue = @($vcInclude, $ucrt, $um, $shared) -join ";"
+
+          $clangArgs = @(
+            "--target=x86_64-pc-windows-msvc"
+            "-resource-dir `"$resourceDir`""
+            "-I`"$clangBuiltinInclude`""
+            "-I`"$vcInclude`""
+            "-I`"$ucrt`""
+            "-I`"$um`""
+            "-I`"$shared`""
+            "-fms-compatibility"
+            "-fms-extensions"
+            "-fms-compatibility-version=19"
+            "-x c++"
+            "-std=c++14"
+          ) -join " "
+
+          Add-Content -Path $env:GITHUB_ENV -Value "INCLUDE=$includeValue"
+          Add-Content -Path $env:GITHUB_ENV -Value "LIBCLANG_PATH=$env:LLVM_BIN"
+          Add-Content -Path $env:GITHUB_ENV -Value "CUDA_PATH=$env:CUDA_TOOLKIT_ROOT"
+          Add-Content -Path $env:GITHUB_ENV -Value "CMAKE_GENERATOR=Ninja"
+          Add-Content -Path $env:GITHUB_ENV -Value "CARGO_TARGET_DIR=$env:CUDA_TARGET_DIR"
+          Add-Content -Path $env:GITHUB_ENV -Value "BINDGEN_EXTRA_CLANG_ARGS<<EOF`n$clangArgs`nEOF"
+          Add-Content -Path $env:GITHUB_ENV -Value "BINDGEN_EXTRA_CLANG_ARGS_x86_64-pc-windows-msvc<<EOF`n$clangArgs`nEOF"
+
+          Add-Content -Path $env:GITHUB_PATH -Value $env:LLVM_BIN
+          Add-Content -Path $env:GITHUB_PATH -Value (Join-Path $env:CUDA_TOOLKIT_ROOT "bin")
+          Add-Content -Path $env:GITHUB_PATH -Value (Join-Path $env:CUDA_TOOLKIT_ROOT "libnvvp")
+
+      - name: Sync CUDA Cargo patch paths
+        shell: pwsh
+        run: |
+          $cargoTomlPath = Join-Path $env:GITHUB_WORKSPACE "src-tauri\Cargo.toml"
+          $transcribePath = (Join-Path $env:CUDA_DEPENDENCY_ROOT "AIVORelay-dep-transcribe-rs").Replace("\", "/")
+          $whisperPath = (Join-Path $env:CUDA_DEPENDENCY_ROOT "AIVORelay-dep-whisper-rs").Replace("\", "/")
+          $whisperSysPath = "$whisperPath/sys"
+
+          $content = Get-Content $cargoTomlPath -Raw
+          $updated = $content
+          $updated = [regex]::Replace($updated, 'transcribe-rs = \{ path = "[^"]+" \}', "transcribe-rs = { path = `"$transcribePath`" }")
+          $updated = [regex]::Replace($updated, 'whisper-rs = \{ path = "[^"]+" \}', "whisper-rs = { path = `"$whisperPath`" }")
+          $updated = [regex]::Replace($updated, 'whisper-rs-sys = \{ path = "[^"]+" \}', "whisper-rs-sys = { path = `"$whisperSysPath`" }")
+
+          if ($updated -ne $content) {
+            Set-Content -Path $cargoTomlPath -Value $updated -NoNewline
+          }
+
+      - name: install frontend dependencies
+        run: bun install
+
+      - name: Build with Tauri
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          tagName: v${{ needs.create-release.outputs.version }}-cuda
+          releaseName: v${{ needs.create-release.outputs.version }} (CUDA Edition)
+          releaseId: ${{ needs.create-release.outputs.release-id }}
 
       - name: Package CUDA portable zip
         shell: pwsh
         run: |
           $releaseDir = Join-Path $env:CUDA_TARGET_DIR "release"
           $stageDir = Join-Path $env:RUNNER_TEMP "aivorelay-cuda-portable"
-          $zipPath = Join-Path $env:RUNNER_TEMP "aivorelay-cuda_windows_x64.zip"
+          $zipPath = Join-Path $env:RUNNER_TEMP "aivorelay-cuda_${{ needs.create-release.outputs.version }}_x64_portable.zip"
 
           Remove-Item $stageDir -Recurse -Force -ErrorAction SilentlyContinue
           Remove-Item $zipPath -Force -ErrorAction SilentlyContinue
@@ -108,6 +316,19 @@ jobs:
 
           if (Test-Path (Join-Path $releaseDir "resources")) {
             Copy-Item (Join-Path $releaseDir "resources") $stageDir -Recurse -Force
+          }
+
+          $vulkanRootPath = Join-Path $releaseDir "vulkan-1.dll"
+          $vulkanResourcePath = Join-Path $releaseDir "resources\vulkan-1.dll"
+          $vulkanStagingPath = Join-Path $stageDir "vulkan-1.dll"
+
+          if (Test-Path $vulkanRootPath) {
+            Copy-Item $vulkanRootPath $vulkanStagingPath -Force
+          } elseif (Test-Path $vulkanResourcePath) {
+            Copy-Item $vulkanResourcePath $vulkanStagingPath -Force
+          } else {
+            Write-Error "vulkan-1.dll not found in CUDA build output"
+            exit 1
           }
 
           Get-ChildItem $releaseDir -Filter *.dll | ForEach-Object {
@@ -125,3 +346,37 @@ jobs:
           gh release upload "v${{ needs.create-release.outputs.version }}-cuda" "${{ env.CUDA_ZIP_PATH }}" \
             --repo "${{ github.repository }}" \
             --clobber
+
+      - name: Upload Certificate Files to Release (Windows)
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const path = require('path');
+
+            const files = [
+              { path: 'Certificate/install_Root_Cert-embedded-in-this-file.ps1', name: 'install_Root_Cert-embedded-in-this-file.ps1' },
+              { path: 'Certificate/max.root.cert.cer', name: 'max.root.cert.cer' }
+            ];
+
+            for (const file of files) {
+              const filePath = path.join(process.env.GITHUB_WORKSPACE, file.path);
+
+              if (!fs.existsSync(filePath)) {
+                console.log(`File not found: ${filePath}, skipping...`);
+                continue;
+              }
+
+              const content = fs.readFileSync(filePath);
+              console.log(`Uploading ${file.name} (${content.length} bytes)...`);
+
+              await github.rest.repos.uploadReleaseAsset({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                release_id: ${{ needs.create-release.outputs.release-id }},
+                name: file.name,
+                data: content
+              });
+
+              console.log(`Successfully uploaded ${file.name}`);
+            }

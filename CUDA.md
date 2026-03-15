@@ -48,7 +48,7 @@ Public GitHub repositories used by the CUDA release workflow:
 | Local release build | `pwsh -NoProfile -File .\build-cuda.ps1 -DoBuild` | Main local CUDA build path | `C:\aivorelay-cuda\release\` |
 | Local dev run | `pwsh -NoProfile -File .\build-cuda.ps1 -DoDev` | Launch `tauri dev --release` with CUDA env | live dev process + logs |
 | Default behavior | `pwsh -NoProfile -File .\build-cuda.ps1` | Same as `-DoBuild` | `C:\aivorelay-cuda\release\` |
-| GitHub Actions CUDA release | `.github/workflows/cuda-release.yml` | Draft release + portable zip | `vX.Y.Z-cuda` draft release asset |
+| GitHub Actions CUDA release | `.github/workflows/cuda-release.yml` | Draft release + signed MSI + portable zip | `vX.Y.Z-cuda` draft release assets |
 
 ## Build
 
@@ -86,7 +86,7 @@ With the short target directory, the main binary lands under:
 
 The short target directory is required: Windows has a ~255-character path limit, and the CUDA/GGML CMake build tree generates deeply nested object file paths that exceed it if the target dir stays inside the source tree.
 
-The build script uses `tauri build --no-bundle` on purpose, because that is the simplest path to a CUDA-enabled executable without dealing with MSI packaging problems first.
+The local build script still uses `tauri build --no-bundle` on purpose, because that is the simplest local path to a CUDA-enabled executable without dealing with MSI packaging problems first.
 
 Generated logs next to the repo root:
 
@@ -96,16 +96,17 @@ Generated logs next to the repo root:
 
 ## GitHub Actions release mode
 
-The CUDA release workflow builds the same no-bundle executable and uploads a portable zip to the draft release tag `vX.Y.Z-cuda`.
+The CUDA release workflow now builds a signed Windows installer and also uploads a portable zip to the draft release tag `vX.Y.Z-cuda`.
 
 Current release behavior:
 
 - builds from the `cuda-integration` branch
 - checks out the two public dependency repos
   - `AIVORelay-dep-whisper-rs` **must** be checked out with `submodules: recursive` (whisper.cpp is a submodule inside it)
-- installs LLVM, Ninja, Rust, Bun, and CUDA 12.4
-- runs `build-cuda.ps1 -DoBuild`
-- uploads a portable zip, not an MSI installer
+- imports the Windows signing certificate and signs the installer/binaries
+- installs LLVM, Ninja, Rust, Bun, Vulkan SDK, and CUDA 12.4
+- patches CUDA dependency paths for the GitHub Actions workspace
+- uploads a signed MSI installer, a portable zip, and the certificate helper files
 
 ## Runtime note
 
@@ -120,5 +121,5 @@ That means:
 ## Non-obvious build constraints
 
 - **Linker:** `.cargo/config.toml` configures `lld-link` as the linker for this branch. This is  for speed
-- **No MSI path:** MSI/NSIS bundling is not supported yet for the CUDA build; portable zip only.
+- **Local build mode:** local `build-cuda.ps1` remains `--no-bundle`; MSI is brought back in the GitHub Actions release workflow, not in the local helper script.
 - **CUDA version lock:** Must use CUDA **12.4**. CUDA 13.x requires C++17, which `whisper-rs-sys 0.11.x` cannot pass to `nvcc`.
