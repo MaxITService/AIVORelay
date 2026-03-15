@@ -2959,8 +2959,8 @@ pub fn get_default_settings() -> AppSettings {
         recording_auto_stop_timeout_seconds: 1800,
         recording_auto_stop_paste: false,
         // Window Geometry
-        remember_window_size: false,
-        remember_window_position: false,
+        remember_window_size: true,
+        remember_window_position: true,
         saved_window_width: 0,
         saved_window_height: 0,
         saved_window_x: i32::MIN,
