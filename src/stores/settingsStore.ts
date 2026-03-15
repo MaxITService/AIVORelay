@@ -494,6 +494,14 @@ settingUpdaters.error_overlay_auto_hide_ms = (value) =>
   });
 (settingUpdaters as any).recording_overlay_theme = (value: any) =>
   commands.changeRecordingOverlayThemeSetting(String(value));
+(settingUpdaters as any).recording_overlay_background_mode = (value: any) =>
+  commands.changeRecordingOverlayBackgroundModeSetting(String(value));
+(settingUpdaters as any).recording_overlay_material_mode = (value: any) =>
+  commands.changeRecordingOverlayMaterialModeSetting(String(value));
+(settingUpdaters as any).recording_overlay_centerpiece_mode = (value: any) =>
+  commands.changeRecordingOverlayCenterpieceModeSetting(String(value));
+(settingUpdaters as any).recording_overlay_animated_border_mode = (value: any) =>
+  commands.changeRecordingOverlayAnimatedBorderModeSetting(String(value));
 (settingUpdaters as any).recording_overlay_show_status_icon = (value: any) =>
   commands.changeRecordingOverlayShowStatusIconSetting(Boolean(value));
 (settingUpdaters as any).recording_overlay_bar_count = (value: any) =>
@@ -504,6 +512,30 @@ settingUpdaters.error_overlay_auto_hide_ms = (value) =>
   commands.changeRecordingOverlayBarStyleSetting(String(value));
 (settingUpdaters as any).recording_overlay_accent_color = (value: any) =>
   commands.changeRecordingOverlayAccentColorSetting(String(value));
+(settingUpdaters as any).recording_overlay_audio_reactive_scale = (value: any) =>
+  commands.changeRecordingOverlayAudioReactiveScaleSetting(Boolean(value));
+(settingUpdaters as any).recording_overlay_audio_reactive_scale_max_percent = (
+  value: any,
+) =>
+  commands.changeRecordingOverlayAudioReactiveScaleMaxPercentSetting(
+    Number(value),
+  );
+(settingUpdaters as any).recording_overlay_animation_softness_percent = (
+  value: any,
+) =>
+  commands.changeRecordingOverlayAnimationSoftnessPercentSetting(Number(value));
+(settingUpdaters as any).recording_overlay_depth_parallax_percent = (
+  value: any,
+) =>
+  commands.changeRecordingOverlayDepthParallaxPercentSetting(Number(value));
+(settingUpdaters as any).recording_overlay_opacity_percent = (value: any) =>
+  commands.changeRecordingOverlayOpacityPercentSetting(Number(value));
+(settingUpdaters as any).recording_overlay_silence_fade = (value: any) =>
+  commands.changeRecordingOverlaySilenceFadeSetting(Boolean(value));
+(settingUpdaters as any).recording_overlay_silence_opacity_percent = (
+  value: any,
+) =>
+  commands.changeRecordingOverlaySilenceOpacityPercentSetting(Number(value));
 (settingUpdaters as any).auto_position_allow_reserved_areas = (value: any) =>
   invoke("change_auto_position_allow_reserved_areas_setting", {
     enabled: value,

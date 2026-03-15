@@ -5,26 +5,50 @@ import {
   TranscriptionIcon,
 } from "../../icons";
 import {
-  getRecordingOverlayBarStyle,
+  normalizeRecordingOverlayAnimatedBorderMode,
+  getRecordingOverlayErrorStateStyle,
   getRecordingOverlaySurfaceStyle,
+  normalizeRecordingOverlayBackgroundMode,
   normalizeRecordingOverlayBarStyle,
+  normalizeRecordingOverlayCenterpieceMode,
   normalizeRecordingOverlayColor,
+  normalizeRecordingOverlayMaterialMode,
   recordingOverlayHexToRgba,
+  type RecordingOverlayAnimatedBorderMode,
   type RecordingOverlayBarStyle,
+  type RecordingOverlayBackgroundMode,
+  type RecordingOverlayCenterpieceMode,
+  type RecordingOverlayMaterialMode,
   type RecordingOverlayTheme,
 } from "../../../overlay/recordingOverlayAppearance";
+import { RecordingOverlayBars } from "../../../overlay/RecordingOverlayBars";
+import { RecordingOverlayAnimatedBorder } from "../../../overlay/RecordingOverlayAnimatedBorder";
+import { RecordingOverlayBackground } from "../../../overlay/RecordingOverlayBackground";
+import { RecordingOverlayCenterpiece } from "../../../overlay/RecordingOverlayCenterpiece";
+import { getRecordingOverlayMotionStyle } from "../../../overlay/recordingOverlayMotion";
 
 type PreviewState = "recording" | "transcribing" | "error";
 
 interface RecordingOverlayPreviewProps {
   theme: RecordingOverlayTheme;
   accentColor: string;
+  materialMode: RecordingOverlayMaterialMode;
   showStatusIcon: boolean;
+  backgroundMode: RecordingOverlayBackgroundMode;
+  centerpieceMode: RecordingOverlayCenterpieceMode;
+  animatedBorderMode: RecordingOverlayAnimatedBorderMode;
   barCount: number;
   barWidthPx: number;
   barStyle: RecordingOverlayBarStyle;
   showDragGrip: boolean;
   state: PreviewState;
+  audioReactiveScale: boolean;
+  audioReactiveScaleMaxPercent: number;
+  animationSoftnessPercent: number;
+  depthParallaxPercent: number;
+  opacityPercent: number;
+  silenceFade: boolean;
+  silenceOpacityPercent: number;
 }
 
 function createLevels(count: number): number[] {
@@ -35,15 +59,35 @@ function createLevels(count: number): number[] {
 export const RecordingOverlayPreview: React.FC<RecordingOverlayPreviewProps> = ({
   theme,
   accentColor,
+  materialMode,
   showStatusIcon,
+  backgroundMode,
+  centerpieceMode,
+  animatedBorderMode,
   barCount,
   barWidthPx,
   barStyle,
   showDragGrip,
   state,
+  audioReactiveScale,
+  audioReactiveScaleMaxPercent,
+  animationSoftnessPercent,
+  depthParallaxPercent,
+  opacityPercent,
+  silenceFade,
+  silenceOpacityPercent,
 }) => {
   const normalizedAccent = normalizeRecordingOverlayColor(accentColor);
+  const normalizedBackgroundMode =
+    normalizeRecordingOverlayBackgroundMode(backgroundMode);
+  const normalizedMaterialMode =
+    normalizeRecordingOverlayMaterialMode(materialMode);
   const normalizedBarStyle = normalizeRecordingOverlayBarStyle(barStyle);
+  const normalizedCenterpieceMode =
+    normalizeRecordingOverlayCenterpieceMode(centerpieceMode);
+  const normalizedAnimatedBorderMode =
+    normalizeRecordingOverlayAnimatedBorderMode(animatedBorderMode);
+  const normalizedOpacityPercent = Math.max(20, Math.min(100, Math.round(opacityPercent)));
   const [levels, setLevels] = useState<number[]>(() => createLevels(barCount));
 
   useEffect(() => {
@@ -65,14 +109,35 @@ export const RecordingOverlayPreview: React.FC<RecordingOverlayPreviewProps> = (
   }, [barCount, state]);
 
   const surfaceStyle = useMemo(
-    () => getRecordingOverlaySurfaceStyle(theme, normalizedAccent, barWidthPx),
-    [barWidthPx, normalizedAccent, theme],
+    () =>
+      getRecordingOverlaySurfaceStyle(
+        theme,
+        normalizedAccent,
+        barWidthPx,
+        opacityPercent,
+        normalizedMaterialMode,
+      ),
+    [barWidthPx, normalizedAccent, normalizedMaterialMode, opacityPercent, theme],
   );
 
   const effectiveBarCount = Math.max(3, Math.min(16, Math.round(barCount)));
   const effectiveBarWidth = Math.max(2, Math.min(12, Math.round(barWidthPx)));
+  const laneWidth =
+    normalizedBarStyle === "vinyl"
+      ? Math.max(effectiveBarWidth + 6, 10)
+      : normalizedBarStyle === "constellation" ||
+          normalizedBarStyle === "fireflies" ||
+          normalizedBarStyle === "helix" ||
+          normalizedBarStyle === "petals" ||
+          normalizedBarStyle === "pulse_rings"
+        ? Math.max(effectiveBarWidth + 8, 14)
+      : normalizedBarStyle === "orbit" ||
+          normalizedBarStyle === "tuner" ||
+          normalizedBarStyle === "morse"
+        ? Math.max(effectiveBarWidth + 2, 8)
+        : effectiveBarWidth;
   const barTrackWidth =
-    effectiveBarCount * effectiveBarWidth + (effectiveBarCount - 1) * 3;
+    effectiveBarCount * laneWidth + (effectiveBarCount - 1) * 3;
   const overlayWidth =
     state === "error"
       ? 340
@@ -80,12 +145,93 @@ export const RecordingOverlayPreview: React.FC<RecordingOverlayPreviewProps> = (
   const overlayHeight = state === "error" ? 82 : 36;
   const gripColor = recordingOverlayHexToRgba(normalizedAccent, 0.34);
   const cancelHover = recordingOverlayHexToRgba(normalizedAccent, 0.22);
+  const stageGlow = recordingOverlayHexToRgba(normalizedAccent, 0.16);
+  const stageGlowStrong = recordingOverlayHexToRgba(normalizedAccent, 0.22);
+  const iconShellBorder = recordingOverlayHexToRgba(normalizedAccent, 0.18);
+  const iconHalo = recordingOverlayHexToRgba(normalizedAccent, 0.28);
+  const motionStyle = useMemo(
+    () =>
+      getRecordingOverlayMotionStyle({
+        state: state === "recording" ? "recording" : state,
+        levels: levels.slice(0, effectiveBarCount),
+        audioReactiveScale,
+        audioReactiveScaleMaxPercent,
+        animationSoftnessPercent,
+        opacityPercent,
+        silenceFade,
+        silenceOpacityPercent,
+      }),
+    [
+      audioReactiveScale,
+      audioReactiveScaleMaxPercent,
+      animationSoftnessPercent,
+      effectiveBarCount,
+      levels,
+      opacityPercent,
+      silenceFade,
+      silenceOpacityPercent,
+      state,
+    ],
+  );
+  const errorStyle = useMemo(
+    () => getRecordingOverlayErrorStateStyle(normalizedOpacityPercent),
+    [normalizedOpacityPercent],
+  );
 
   return (
-    <div className="flex items-center justify-center rounded-xl border border-[#3a3a3a] bg-[#171717] px-6 py-6">
+    <div
+      className="relative flex items-center justify-center overflow-hidden rounded-[22px] border border-[#2f2f2f] px-6 py-6"
+      style={{
+        background: `
+          radial-gradient(circle at 18% 22%, ${stageGlowStrong} 0%, rgba(0,0,0,0) 34%),
+          radial-gradient(circle at 82% 18%, rgba(255,255,255,0.05) 0%, rgba(0,0,0,0) 26%),
+          linear-gradient(180deg, #202020 0%, #121212 100%)
+        `,
+        boxShadow: `inset 0 1px 0 rgba(255,255,255,0.05), 0 18px 40px rgba(0,0,0,0.28), 0 0 0 1px ${recordingOverlayHexToRgba(normalizedAccent, 0.08)}`,
+      }}
+    >
+      <div
+        style={{
+          position: "absolute",
+          inset: 0,
+          backgroundImage:
+            "linear-gradient(rgba(255,255,255,0.035) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.035) 1px, transparent 1px)",
+          backgroundSize: "22px 22px",
+          maskImage: "linear-gradient(180deg, rgba(0,0,0,0.55), rgba(0,0,0,0.12))",
+          opacity: 0.26,
+          pointerEvents: "none",
+        }}
+      />
+      <div
+        style={{
+          position: "absolute",
+          width: "62%",
+          height: "62%",
+          borderRadius: "999px",
+          background: `radial-gradient(circle, ${stageGlow} 0%, rgba(0,0,0,0) 72%)`,
+          filter: "blur(18px)",
+          opacity: 0.85,
+          transform: "translateY(8px)",
+          pointerEvents: "none",
+        }}
+      />
+      <div
+        style={{
+          position: "absolute",
+          inset: 0,
+          backgroundImage:
+            "radial-gradient(rgba(255,255,255,0.03) 0.6px, transparent 0.7px), radial-gradient(rgba(255,255,255,0.018) 0.6px, transparent 0.7px)",
+          backgroundSize: "13px 13px, 17px 17px",
+          backgroundPosition: "0 0, 7px 5px",
+          opacity: 0.24,
+          mixBlendMode: "screen",
+          pointerEvents: "none",
+        }}
+      />
       <div
         style={{
           ...surfaceStyle,
+          ...motionStyle,
           width: `${overlayWidth}px`,
           minHeight: `${overlayHeight}px`,
           display: "grid",
@@ -95,14 +241,44 @@ export const RecordingOverlayPreview: React.FC<RecordingOverlayPreviewProps> = (
           padding: "6px 8px",
           position: "relative",
           boxSizing: "border-box",
-          ...(state === "error"
-            ? {
-                background: "rgba(26, 0, 0, 0.8)",
-                border: "1px solid rgba(255, 107, 107, 0.27)",
-              }
-            : {}),
+          ...(state === "error" ? errorStyle : {}),
         }}
       >
+        <div
+          style={{
+            position: "absolute",
+            inset: 0,
+            borderRadius: "inherit",
+            background:
+              state === "error"
+                ? "linear-gradient(180deg, rgba(255,132,132,0.1) 0%, rgba(255,72,72,0.02) 100%)"
+                : "none",
+            pointerEvents: "none",
+            zIndex: 0,
+          }}
+        />
+        <RecordingOverlayBackground
+          mode={normalizedBackgroundMode}
+          accentColor={normalizedAccent}
+          levels={levels.slice(0, effectiveBarCount)}
+          animationSoftnessPercent={animationSoftnessPercent}
+          depthParallaxPercent={depthParallaxPercent}
+        />
+        <RecordingOverlayCenterpiece
+          mode={normalizedCenterpieceMode}
+          accentColor={normalizedAccent}
+          levels={levels.slice(0, effectiveBarCount)}
+          animationSoftnessPercent={animationSoftnessPercent}
+          depthParallaxPercent={depthParallaxPercent}
+        />
+        <RecordingOverlayAnimatedBorder
+          mode={normalizedAnimatedBorderMode}
+          accentColor={normalizedAccent}
+          levels={levels.slice(0, effectiveBarCount)}
+          animationSoftnessPercent={animationSoftnessPercent}
+          depthParallaxPercent={depthParallaxPercent}
+        />
+
         {showDragGrip && (
           <div
             style={{
@@ -141,15 +317,48 @@ export const RecordingOverlayPreview: React.FC<RecordingOverlayPreviewProps> = (
           </div>
         )}
 
-        <div className="flex items-center">
+        <div className="flex items-center" style={{ position: "relative", zIndex: 1 }}>
           {showStatusIcon ? (
-            state === "recording" ? (
-              <MicrophoneIcon />
-            ) : state === "error" ? (
-              <span style={{ fontSize: "16px", lineHeight: 1 }}>❌</span>
-            ) : (
-              <TranscriptionIcon />
-            )
+            <div
+              style={{
+                position: "relative",
+                display: "inline-flex",
+                alignItems: "center",
+                justifyContent: "center",
+                width: "24px",
+                height: "24px",
+                borderRadius: "999px",
+                border: `1px solid ${state === "error" ? "rgba(255,123,123,0.18)" : iconShellBorder}`,
+                background:
+                  state === "error"
+                    ? "linear-gradient(180deg, rgba(255,123,123,0.14) 0%, rgba(255,70,70,0.04) 100%)"
+                    : "linear-gradient(180deg, rgba(255,255,255,0.08) 0%, rgba(255,255,255,0.02) 100%), rgba(255,255,255,0.03)",
+                boxShadow:
+                  "inset 0 1px 0 rgba(255,255,255,0.08), 0 0 0 1px rgba(0,0,0,0.06)",
+              }}
+            >
+              <div
+                style={{
+                  position: "absolute",
+                  inset: "-6px",
+                  borderRadius: "999px",
+                  background:
+                    state === "error"
+                      ? "radial-gradient(circle, rgba(255,107,107,0.26) 0%, rgba(0,0,0,0) 68%)"
+                      : `radial-gradient(circle, ${iconHalo} 0%, rgba(0,0,0,0) 68%)`,
+                  opacity: state === "recording" ? 0.76 : state === "error" ? 0.8 : 0.5,
+                }}
+              />
+              <div style={{ position: "relative", zIndex: 1 }}>
+                {state === "recording" ? (
+                  <MicrophoneIcon />
+                ) : state === "error" ? (
+                  <span style={{ fontSize: "16px", lineHeight: 1 }}>❌</span>
+                ) : (
+                  <TranscriptionIcon />
+                )}
+              </div>
+            </div>
           ) : null}
         </div>
 
@@ -159,36 +368,19 @@ export const RecordingOverlayPreview: React.FC<RecordingOverlayPreviewProps> = (
             alignItems: "center",
             justifyContent: state === "error" ? "flex-start" : "center",
             minWidth: 0,
+            position: "relative",
+            zIndex: 1,
           }}
         >
           {state === "recording" && (
-            <div
-              style={{
-                display: "flex",
-                alignItems: "flex-end",
-                justifyContent: "center",
-                gap: "3px",
-                height: "24px",
-              }}
-            >
-              {levels.slice(0, effectiveBarCount).map((level, index) => (
-                <div
-                  key={index}
-                  style={{
-                    width: `${effectiveBarWidth}px`,
-                    height: `${Math.min(20, 4 + Math.pow(level, 0.7) * 16)}px`,
-                    minHeight: "4px",
-                    transition: "height 60ms ease-out, opacity 120ms ease-out",
-                    ...getRecordingOverlayBarStyle(
-                      normalizedBarStyle,
-                      normalizedAccent,
-                      level,
-                      index,
-                    ),
-                  }}
-                />
-              ))}
-            </div>
+            <RecordingOverlayBars
+              levels={levels}
+              barCount={effectiveBarCount}
+              barWidthPx={effectiveBarWidth}
+              accentColor={normalizedAccent}
+              barStyle={normalizedBarStyle}
+              animationSoftnessPercent={animationSoftnessPercent}
+            />
           )}
           {state === "transcribing" && (
             <div className="text-xs text-white">Transcribing...</div>
@@ -205,7 +397,7 @@ export const RecordingOverlayPreview: React.FC<RecordingOverlayPreviewProps> = (
           )}
         </div>
 
-        <div className="flex items-center justify-end">
+        <div className="flex items-center justify-end" style={{ position: "relative", zIndex: 1 }}>
           {state === "recording" && (
             <div
               style={{
@@ -215,7 +407,11 @@ export const RecordingOverlayPreview: React.FC<RecordingOverlayPreviewProps> = (
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "center",
-                background: cancelHover,
+                border: "1px solid rgba(255,255,255,0.08)",
+                background:
+                  `linear-gradient(180deg, rgba(255,255,255,0.08) 0%, rgba(255,255,255,0.02) 100%), ${cancelHover}`,
+                boxShadow:
+                  `inset 0 1px 0 rgba(255,255,255,0.08), 0 6px 12px rgba(0,0,0,0.16), 0 0 12px ${recordingOverlayHexToRgba(normalizedAccent, 0.12)}`,
               }}
             >
               <CancelIcon />

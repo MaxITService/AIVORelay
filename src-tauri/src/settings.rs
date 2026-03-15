@@ -873,11 +873,79 @@ pub enum RecordingOverlayTheme {
 
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Type)]
 #[serde(rename_all = "snake_case")]
+pub enum RecordingOverlayBackgroundMode {
+    None,
+    Mist,
+    PetalsHaze,
+    SoftGlowField,
+    Stardust,
+    SilkFog,
+    FireflyVeil,
+    RoseSparks,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Type)]
+#[serde(rename_all = "snake_case")]
+pub enum RecordingOverlayMaterialMode {
+    LiquidGlass,
+    Pearl,
+    VelvetNeon,
+    Frost,
+    CandyChrome,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Type)]
+#[serde(rename_all = "snake_case")]
+pub enum RecordingOverlayCenterpieceMode {
+    None,
+    HaloCore,
+    AuroraRibbon,
+    OrbitalBeads,
+    BloomHeart,
+    SignalCrown,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Type)]
+#[serde(rename_all = "snake_case")]
+pub enum RecordingOverlayAnimatedBorderMode {
+    None,
+    ShimmerEdge,
+    TravelingHighlight,
+    BreathingContour,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Type)]
+#[serde(rename_all = "snake_case")]
 pub enum RecordingOverlayBarStyle {
     Solid,
     Capsule,
     Glow,
     Prism,
+    Radar,
+    Shards,
+    Retro,
+    Needles,
+    Orbit,
+    Aurora,
+    BloomBounce,
+    PulseRings,
+    Fireflies,
+    Helix,
+    Constellation,
+    Petals,
+    PetalRain,
+    Daisy,
+    Lotus,
+    GardenSway,
+    Matrix,
+    Skyline,
+    Comet,
+    Tuner,
+    Ember,
+    Hologram,
+    Vinyl,
+    Morse,
+    Crown,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Type)]
@@ -1230,6 +1298,14 @@ pub struct AppSettings {
     pub recording_overlay_show_drag_grip: bool,
     #[serde(default = "default_recording_overlay_theme")]
     pub recording_overlay_theme: RecordingOverlayTheme,
+    #[serde(default = "default_recording_overlay_background_mode")]
+    pub recording_overlay_background_mode: RecordingOverlayBackgroundMode,
+    #[serde(default = "default_recording_overlay_material_mode")]
+    pub recording_overlay_material_mode: RecordingOverlayMaterialMode,
+    #[serde(default = "default_recording_overlay_centerpiece_mode")]
+    pub recording_overlay_centerpiece_mode: RecordingOverlayCenterpieceMode,
+    #[serde(default = "default_recording_overlay_animated_border_mode")]
+    pub recording_overlay_animated_border_mode: RecordingOverlayAnimatedBorderMode,
     #[serde(default = "default_true")]
     pub recording_overlay_show_status_icon: bool,
     #[serde(default = "default_recording_overlay_bar_count")]
@@ -1240,6 +1316,20 @@ pub struct AppSettings {
     pub recording_overlay_bar_style: RecordingOverlayBarStyle,
     #[serde(default = "default_recording_overlay_accent_color")]
     pub recording_overlay_accent_color: String,
+    #[serde(default)]
+    pub recording_overlay_audio_reactive_scale: bool,
+    #[serde(default = "default_recording_overlay_audio_reactive_scale_max_percent")]
+    pub recording_overlay_audio_reactive_scale_max_percent: u8,
+    #[serde(default = "default_recording_overlay_animation_softness_percent")]
+    pub recording_overlay_animation_softness_percent: u8,
+    #[serde(default = "default_recording_overlay_depth_parallax_percent")]
+    pub recording_overlay_depth_parallax_percent: u8,
+    #[serde(default = "default_recording_overlay_opacity_percent")]
+    pub recording_overlay_opacity_percent: u8,
+    #[serde(default)]
+    pub recording_overlay_silence_fade: bool,
+    #[serde(default = "default_recording_overlay_silence_opacity_percent")]
+    pub recording_overlay_silence_opacity_percent: u8,
     #[serde(default = "default_soniox_live_preview_enabled")]
     pub soniox_live_preview_enabled: bool,
     #[serde(default = "default_soniox_live_preview_position")]
@@ -1840,6 +1930,22 @@ fn default_recording_overlay_theme() -> RecordingOverlayTheme {
     RecordingOverlayTheme::Classic
 }
 
+fn default_recording_overlay_background_mode() -> RecordingOverlayBackgroundMode {
+    RecordingOverlayBackgroundMode::None
+}
+
+fn default_recording_overlay_material_mode() -> RecordingOverlayMaterialMode {
+    RecordingOverlayMaterialMode::LiquidGlass
+}
+
+fn default_recording_overlay_centerpiece_mode() -> RecordingOverlayCenterpieceMode {
+    RecordingOverlayCenterpieceMode::None
+}
+
+fn default_recording_overlay_animated_border_mode() -> RecordingOverlayAnimatedBorderMode {
+    RecordingOverlayAnimatedBorderMode::None
+}
+
 fn default_recording_overlay_bar_count() -> u8 {
     9
 }
@@ -1854,6 +1960,26 @@ fn default_recording_overlay_bar_style() -> RecordingOverlayBarStyle {
 
 fn default_recording_overlay_accent_color() -> String {
     "#ff4d8d".to_string()
+}
+
+fn default_recording_overlay_audio_reactive_scale_max_percent() -> u8 {
+    12
+}
+
+fn default_recording_overlay_animation_softness_percent() -> u8 {
+    55
+}
+
+fn default_recording_overlay_depth_parallax_percent() -> u8 {
+    40
+}
+
+fn default_recording_overlay_opacity_percent() -> u8 {
+    100
+}
+
+fn default_recording_overlay_silence_opacity_percent() -> u8 {
+    58
 }
 
 fn default_soniox_live_preview_enabled() -> bool {
@@ -2630,11 +2756,26 @@ pub fn get_default_settings() -> AppSettings {
         error_feedback_enabled: default_true(),
         recording_overlay_show_drag_grip: false,
         recording_overlay_theme: default_recording_overlay_theme(),
+        recording_overlay_background_mode: default_recording_overlay_background_mode(),
+        recording_overlay_material_mode: default_recording_overlay_material_mode(),
+        recording_overlay_centerpiece_mode: default_recording_overlay_centerpiece_mode(),
+        recording_overlay_animated_border_mode: default_recording_overlay_animated_border_mode(),
         recording_overlay_show_status_icon: default_true(),
         recording_overlay_bar_count: default_recording_overlay_bar_count(),
         recording_overlay_bar_width_px: default_recording_overlay_bar_width_px(),
         recording_overlay_bar_style: default_recording_overlay_bar_style(),
         recording_overlay_accent_color: default_recording_overlay_accent_color(),
+        recording_overlay_audio_reactive_scale: false,
+        recording_overlay_audio_reactive_scale_max_percent:
+            default_recording_overlay_audio_reactive_scale_max_percent(),
+        recording_overlay_animation_softness_percent:
+            default_recording_overlay_animation_softness_percent(),
+        recording_overlay_depth_parallax_percent:
+            default_recording_overlay_depth_parallax_percent(),
+        recording_overlay_opacity_percent: default_recording_overlay_opacity_percent(),
+        recording_overlay_silence_fade: false,
+        recording_overlay_silence_opacity_percent:
+            default_recording_overlay_silence_opacity_percent(),
         soniox_live_preview_enabled: default_soniox_live_preview_enabled(),
         soniox_live_preview_position: default_soniox_live_preview_position(),
         soniox_live_preview_cursor_offset_px: default_soniox_live_preview_cursor_offset_px(),

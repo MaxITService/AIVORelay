@@ -15,13 +15,26 @@ import "./RecordingOverlay.css";
 import { commands, type RecordingOverlayAppearancePayload } from "@/bindings";
 import { syncLanguageFromSettings } from "@/i18n";
 import {
-  getRecordingOverlayBarStyle,
+  normalizeRecordingOverlayAnimatedBorderMode,
+  normalizeRecordingOverlayBackgroundMode,
+  getRecordingOverlayErrorStateStyle,
   getRecordingOverlaySurfaceStyle,
   normalizeRecordingOverlayBarStyle,
+  normalizeRecordingOverlayCenterpieceMode,
   normalizeRecordingOverlayColor,
+  normalizeRecordingOverlayMaterialMode,
+  type RecordingOverlayAnimatedBorderMode,
   type RecordingOverlayBarStyle,
+  type RecordingOverlayBackgroundMode,
+  type RecordingOverlayCenterpieceMode,
+  type RecordingOverlayMaterialMode,
   type RecordingOverlayTheme,
 } from "./recordingOverlayAppearance";
+import { RecordingOverlayAnimatedBorder } from "./RecordingOverlayAnimatedBorder";
+import { RecordingOverlayBars } from "./RecordingOverlayBars";
+import { RecordingOverlayBackground } from "./RecordingOverlayBackground";
+import { RecordingOverlayCenterpiece } from "./RecordingOverlayCenterpiece";
+import { getRecordingOverlayMotionStyle } from "./recordingOverlayMotion";
 import {
   ExtendedOverlayState,
   fallbackCodeFromCategory,
@@ -73,12 +86,25 @@ type OverlayErrorCopy = {
 
 const DEFAULT_OVERLAY_APPEARANCE: RecordingOverlayAppearancePayload = {
   theme: "classic",
+  background_mode: "none",
+  material_mode: "liquid_glass",
+  centerpiece_mode: "none",
+  animated_border_mode: "none",
   accent_color: "#ff4d8d",
   show_status_icon: true,
   bar_count: 9,
   bar_width_px: 6,
   bar_style: "solid",
   show_drag_grip: false,
+  audio_reactive_scale: false,
+  audio_reactive_scale_max_percent: 12,
+  animation_softness_percent: 55,
+  depth_parallax_percent: 40,
+  opacity_percent: 100,
+  silence_fade: false,
+  silence_opacity_percent: 58,
+  frame_width_px: 172,
+  frame_height_px: 36,
 };
 
 function getOverlayErrorCopy(
@@ -280,6 +306,16 @@ const RecordingOverlay: React.FC = () => {
 
       setAppearance({
         theme,
+        background_mode: normalizeRecordingOverlayBackgroundMode(
+          data.background_mode,
+        ),
+        material_mode: normalizeRecordingOverlayMaterialMode(data.material_mode),
+        centerpiece_mode: normalizeRecordingOverlayCenterpieceMode(
+          data.centerpiece_mode,
+        ),
+        animated_border_mode: normalizeRecordingOverlayAnimatedBorderMode(
+          data.animated_border_mode,
+        ),
         accent_color: normalizeRecordingOverlayColor(data.accent_color),
         show_status_icon:
           typeof data.show_status_icon === "boolean"
@@ -300,6 +336,42 @@ const RecordingOverlay: React.FC = () => {
             : typeof data.showDragGrip === "boolean"
               ? data.showDragGrip
               : DEFAULT_OVERLAY_APPEARANCE.show_drag_grip,
+        audio_reactive_scale:
+          typeof data.audio_reactive_scale === "boolean"
+            ? data.audio_reactive_scale
+            : DEFAULT_OVERLAY_APPEARANCE.audio_reactive_scale,
+        audio_reactive_scale_max_percent:
+          typeof data.audio_reactive_scale_max_percent === "number"
+            ? Math.max(0, Math.min(24, Math.round(data.audio_reactive_scale_max_percent)))
+            : DEFAULT_OVERLAY_APPEARANCE.audio_reactive_scale_max_percent,
+        animation_softness_percent:
+          typeof data.animation_softness_percent === "number"
+            ? Math.max(0, Math.min(100, Math.round(data.animation_softness_percent)))
+            : DEFAULT_OVERLAY_APPEARANCE.animation_softness_percent,
+        depth_parallax_percent:
+          typeof data.depth_parallax_percent === "number"
+            ? Math.max(0, Math.min(100, Math.round(data.depth_parallax_percent)))
+            : DEFAULT_OVERLAY_APPEARANCE.depth_parallax_percent,
+        opacity_percent:
+          typeof data.opacity_percent === "number"
+            ? Math.max(20, Math.min(100, Math.round(data.opacity_percent)))
+            : DEFAULT_OVERLAY_APPEARANCE.opacity_percent,
+        silence_fade:
+          typeof data.silence_fade === "boolean"
+            ? data.silence_fade
+            : DEFAULT_OVERLAY_APPEARANCE.silence_fade,
+        silence_opacity_percent:
+          typeof data.silence_opacity_percent === "number"
+            ? Math.max(20, Math.min(100, Math.round(data.silence_opacity_percent)))
+            : DEFAULT_OVERLAY_APPEARANCE.silence_opacity_percent,
+        frame_width_px:
+          typeof data.frame_width_px === "number"
+            ? Math.max(0, Math.round(data.frame_width_px))
+            : DEFAULT_OVERLAY_APPEARANCE.frame_width_px,
+        frame_height_px:
+          typeof data.frame_height_px === "number"
+            ? Math.max(0, Math.round(data.frame_height_px))
+            : DEFAULT_OVERLAY_APPEARANCE.frame_height_px,
       });
     };
 
@@ -527,6 +599,14 @@ const RecordingOverlay: React.FC = () => {
   }, [decapIndicatorEligible, isVisible, state]);
 
   const overlayTheme = appearance.theme as RecordingOverlayTheme;
+  const backgroundMode =
+    appearance.background_mode as RecordingOverlayBackgroundMode;
+  const materialMode =
+    appearance.material_mode as RecordingOverlayMaterialMode;
+  const centerpieceMode =
+    appearance.centerpiece_mode as RecordingOverlayCenterpieceMode;
+  const animatedBorderMode =
+    appearance.animated_border_mode as RecordingOverlayAnimatedBorderMode;
   const barStyle = appearance.bar_style as RecordingOverlayBarStyle;
   const showDragGrip = appearance.show_drag_grip;
   const showStatusIcon = appearance.show_status_icon;
@@ -535,6 +615,32 @@ const RecordingOverlay: React.FC = () => {
     overlayTheme,
     appearance.accent_color,
     appearance.bar_width_px,
+    appearance.opacity_percent,
+    materialMode,
+  );
+  const motionStyle = getRecordingOverlayMotionStyle({
+    isVisible,
+    state:
+      state === "recording" ||
+      state === "sending" ||
+      state === "thinking" ||
+      state === "finalizing" ||
+      state === "transcribing" ||
+      state === "error" ||
+      state === "profile_switch" ||
+      state === "microphone_switch"
+        ? state
+        : "transcribing",
+    levels: visibleLevels,
+    audioReactiveScale: appearance.audio_reactive_scale,
+    audioReactiveScaleMaxPercent: appearance.audio_reactive_scale_max_percent,
+    animationSoftnessPercent: appearance.animation_softness_percent,
+    opacityPercent: appearance.opacity_percent,
+    silenceFade: appearance.silence_fade,
+    silenceOpacityPercent: appearance.silence_opacity_percent,
+  });
+  const errorSurfaceStyle = getRecordingOverlayErrorStateStyle(
+    appearance.opacity_percent,
   );
 
   const getIcon = () => {
@@ -556,8 +662,25 @@ const RecordingOverlay: React.FC = () => {
       case "transcribing":
       default:
         return <TranscriptionIcon />;
-    }
+      }
   };
+
+  const iconStateClass =
+    state === "error"
+      ? "is-error"
+      : state === "recording"
+        ? "is-recording"
+        : state === "sending" || state === "thinking" || state === "finalizing"
+          ? "is-busy"
+          : "is-idle";
+  const overlayStateClass =
+    state === "recording"
+      ? "overlay-state-recording"
+      : state === "sending" || state === "thinking" || state === "finalizing"
+        ? "overlay-state-busy"
+        : state === "error"
+          ? "overlay-state-error"
+          : "overlay-state-idle";
 
   const handleDragGripPointerDown = (event: React.PointerEvent<HTMLButtonElement>) => {
     if (event.button !== 0) {
@@ -591,9 +714,42 @@ const RecordingOverlay: React.FC = () => {
 
   return (
     <div
-      className={`recording-overlay ${isVisible ? "fade-in" : ""} ${state === "error" ? "overlay-error" : ""} ${state === "microphone_switch" ? "overlay-microphone-switch" : ""}`}
-      style={surfaceStyle}
+      className={`recording-overlay ${overlayStateClass} ${isVisible ? "fade-in" : ""} ${state === "error" ? "overlay-error" : ""} ${state === "microphone_switch" ? "overlay-microphone-switch" : ""}`}
+      style={{
+        ...surfaceStyle,
+        ...motionStyle,
+        ...(state === "error" ? errorSurfaceStyle : {}),
+        width: `${appearance.frame_width_px}px`,
+        minHeight: `${appearance.frame_height_px}px`,
+      }}
     >
+      <div className="recording-overlay-sheen" />
+      <div className="recording-overlay-vignette" />
+      <div className="recording-overlay-core-glow" />
+      <div className="recording-overlay-grain" />
+
+      <RecordingOverlayBackground
+        mode={backgroundMode}
+        accentColor={appearance.accent_color}
+        levels={visibleLevels}
+        animationSoftnessPercent={appearance.animation_softness_percent}
+        depthParallaxPercent={appearance.depth_parallax_percent}
+      />
+      <RecordingOverlayCenterpiece
+        mode={centerpieceMode}
+        accentColor={appearance.accent_color}
+        levels={visibleLevels}
+        animationSoftnessPercent={appearance.animation_softness_percent}
+        depthParallaxPercent={appearance.depth_parallax_percent}
+      />
+      <RecordingOverlayAnimatedBorder
+        mode={animatedBorderMode}
+        accentColor={appearance.accent_color}
+        levels={visibleLevels}
+        animationSoftnessPercent={appearance.animation_softness_percent}
+        depthParallaxPercent={appearance.depth_parallax_percent}
+      />
+
       {showDragGrip && (
         <div className="recording-overlay-grip-row">
           <button
@@ -622,29 +778,23 @@ const RecordingOverlay: React.FC = () => {
       )}
 
       <div className="overlay-left">
-        {showStatusIcon ? getIcon() : null}
+        {showStatusIcon ? (
+          <div className={`overlay-icon-wrap ${iconStateClass}`}>
+            {getIcon()}
+          </div>
+        ) : null}
       </div>
 
       <div className="overlay-middle">
         {state === "recording" && (
-          <div className="bars-container">
-            {visibleLevels.map((v, i) => (
-              <div
-                key={i}
-                className="bar"
-                style={{
-                  height: `${Math.min(20, 4 + Math.pow(v, 0.7) * 16)}px`, // Cap at 20px max height
-                  transition: "height 60ms ease-out, opacity 120ms ease-out",
-                  ...getRecordingOverlayBarStyle(
-                    barStyle,
-                    appearance.accent_color,
-                    v,
-                    i,
-                  ),
-                }}
-              />
-            ))}
-          </div>
+          <RecordingOverlayBars
+            levels={visibleLevels}
+            barCount={appearance.bar_count}
+            barWidthPx={appearance.bar_width_px}
+            accentColor={appearance.accent_color}
+            barStyle={barStyle}
+            animationSoftnessPercent={appearance.animation_softness_percent}
+          />
         )}
         {state === "sending" && (
           <div className="sending-text">Sending...</div>
@@ -687,14 +837,15 @@ const RecordingOverlay: React.FC = () => {
           state === "sending" ||
           state === "thinking" ||
           state === "finalizing") && (
-          <div
+          <button
+            type="button"
             className="cancel-button"
             onClick={() => {
               commands.cancelOperation();
             }}
           >
             <CancelIcon />
-          </div>
+          </button>
         )}
         {state === "error" && (
           <span

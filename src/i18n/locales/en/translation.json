@@ -351,6 +351,34 @@
           "title": "Recording Overlay Preview",
           "description": "Preview the main overlay style here before using it in live recording."
         },
+        "presets": {
+          "title": "Preset Packs",
+          "description": "Apply a strong, curated overlay look in one click.",
+          "applied": "Preset applied.",
+          "applyError": "Could not apply preset."
+        },
+        "reset": {
+          "title": "Reset Overlay",
+          "description": "Reset either the overlay look or its saved manual position without touching unrelated settings.",
+          "appearance": "Reset Appearance",
+          "position": "Reset Position"
+        },
+        "styleCode": {
+          "title": "Share Style",
+          "description": "Copy your current look as a reusable code, or import one from anywhere.",
+          "current": "Current Style Code",
+          "copy": "Copy Current Code",
+          "copySuccess": "Style code copied.",
+          "copyError": "Could not copy style code.",
+          "import": "Import Style Code",
+          "importPlaceholder": "Paste an Aivo overlay style code or JSON here.",
+          "loadClipboard": "Load From Clipboard",
+          "pasteSuccess": "Clipboard loaded into the import field.",
+          "pasteError": "Could not read clipboard.",
+          "apply": "Apply Imported Style",
+          "applySuccess": "Imported style applied.",
+          "applyError": "Could not import style code."
+        },
         "theme": {
           "title": "Overlay Theme",
           "description": "Change the surface style of the recording overlay."
@@ -360,20 +388,36 @@
           "description": "Show the microphone, processing, and error icon on the left side of the overlay."
         },
         "barCount": {
-          "title": "Bar Count",
-          "description": "Choose how many audio bars are shown while recording."
+          "title": "Visualizer Count",
+          "description": "Choose how many animated elements are shown while recording."
         },
         "barStyle": {
-          "title": "Bar Style",
-          "description": "Choose the visual style of the recording meter bars."
+          "title": "Visualizer Style",
+          "description": "Choose how recording activity is visualized."
         },
         "barWidth": {
-          "title": "Bar Width",
-          "description": "Adjust the thickness of the recording bars."
+          "title": "Visualizer Size",
+          "description": "Adjust the size or thickness of the recording visualizer elements."
         },
         "accentColor": {
           "title": "Overlay Accent Color",
-          "description": "Pick the accent color used for recording bars and hover accents."
+          "description": "Pick the accent color used for the recording visualizer and hover accents."
+        },
+        "audioReactiveScale": {
+          "label": "Voice-Reactive Scale",
+          "description": "Make the overlay subtly expand with stronger voice input."
+        },
+        "audioReactiveScaleAmount": {
+          "title": "Scale Strength",
+          "description": "Choose the maximum growth amount when you speak loudly."
+        },
+        "silenceFade": {
+          "label": "Silence Fade",
+          "description": "Make the overlay quieter during pauses and wake instantly when speech returns."
+        },
+        "silenceOpacity": {
+          "title": "Silence Opacity",
+          "description": "Set how visible the overlay stays while you are quiet."
         }
       }
     },
