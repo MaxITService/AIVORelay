@@ -58,95 +58,183 @@ const RESET_RECORDING_OVERLAY_STYLE_CONFIG: RecordingOverlayStyleConfig = {
   ...DEFAULT_RECORDING_OVERLAY_STYLE_CONFIG,
 };
 
-const THEME_OPTIONS: Array<{ value: RecordingOverlayTheme; label: string }> = [
-  { value: "classic", label: "Classic" },
-  { value: "minimal", label: "Minimal" },
-  { value: "glass", label: "Glass" },
+const THEME_OPTIONS: Array<{
+  value: RecordingOverlayTheme;
+  label: string;
+  labelKey: string;
+}> = [
+  { value: "classic", label: "Classic", labelKey: "classic" },
+  { value: "minimal", label: "Minimal", labelKey: "minimal" },
+  { value: "glass", label: "Glass", labelKey: "glass" },
 ];
 
 const BACKGROUND_MODE_OPTIONS: Array<{
   value: RecordingOverlayBackgroundMode;
   label: string;
+  labelKey: string;
 }> = [
-  { value: "none", label: "None" },
-  { value: "mist", label: "Mist" },
-  { value: "petals_haze", label: "Petals Haze" },
-  { value: "soft_glow_field", label: "Soft Glow Field" },
-  { value: "stardust", label: "Stardust" },
-  { value: "silk_fog", label: "Silk Fog" },
-  { value: "firefly_veil", label: "Firefly Veil" },
-  { value: "rose_sparks", label: "Rose Sparks" },
+  { value: "none", label: "None", labelKey: "none" },
+  { value: "mist", label: "Mist", labelKey: "mist" },
+  { value: "petals_haze", label: "Petals Haze", labelKey: "petalsHaze" },
+  {
+    value: "soft_glow_field",
+    label: "Soft Glow Field",
+    labelKey: "softGlowField",
+  },
+  { value: "stardust", label: "Stardust", labelKey: "stardust" },
+  { value: "silk_fog", label: "Silk Fog", labelKey: "silkFog" },
+  {
+    value: "firefly_veil",
+    label: "Firefly Veil",
+    labelKey: "fireflyVeil",
+  },
+  { value: "rose_sparks", label: "Rose Sparks", labelKey: "roseSparks" },
 ];
 
 const MATERIAL_MODE_OPTIONS: Array<{
   value: RecordingOverlayMaterialMode;
   label: string;
+  labelKey: string;
 }> = [
-  { value: "liquid_glass", label: "Liquid Glass" },
-  { value: "pearl", label: "Pearl" },
-  { value: "velvet_neon", label: "Velvet Neon" },
-  { value: "frost", label: "Frost" },
-  { value: "candy_chrome", label: "Candy Chrome" },
+  {
+    value: "liquid_glass",
+    label: "Liquid Glass",
+    labelKey: "liquidGlass",
+  },
+  { value: "pearl", label: "Pearl", labelKey: "pearl" },
+  {
+    value: "velvet_neon",
+    label: "Velvet Neon",
+    labelKey: "velvetNeon",
+  },
+  { value: "frost", label: "Frost", labelKey: "frost" },
+  {
+    value: "candy_chrome",
+    label: "Candy Chrome",
+    labelKey: "candyChrome",
+  },
 ];
 
 const CENTERPIECE_MODE_OPTIONS: Array<{
   value: RecordingOverlayCenterpieceMode;
   label: string;
+  labelKey: string;
 }> = [
-  { value: "none", label: "None" },
-  { value: "halo_core", label: "Halo Core" },
-  { value: "aurora_ribbon", label: "Aurora Ribbon" },
-  { value: "orbital_beads", label: "Orbital Beads" },
-  { value: "bloom_heart", label: "Bloom Heart" },
-  { value: "signal_crown", label: "Signal Crown" },
+  { value: "none", label: "None", labelKey: "none" },
+  { value: "halo_core", label: "Halo Core", labelKey: "haloCore" },
+  {
+    value: "aurora_ribbon",
+    label: "Aurora Ribbon",
+    labelKey: "auroraRibbon",
+  },
+  {
+    value: "orbital_beads",
+    label: "Orbital Beads",
+    labelKey: "orbitalBeads",
+  },
+  { value: "bloom_heart", label: "Bloom Heart", labelKey: "bloomHeart" },
+  {
+    value: "signal_crown",
+    label: "Signal Crown",
+    labelKey: "signalCrown",
+  },
 ];
 
 const ANIMATED_BORDER_MODE_OPTIONS: Array<{
   value: RecordingOverlayAnimatedBorderMode;
   label: string;
+  labelKey: string;
 }> = [
-  { value: "none", label: "None" },
-  { value: "shimmer_edge", label: "Shimmer Edge" },
-  { value: "traveling_highlight", label: "Traveling Highlight" },
-  { value: "breathing_contour", label: "Breathing Contour" },
+  { value: "none", label: "None", labelKey: "none" },
+  {
+    value: "shimmer_edge",
+    label: "Shimmer Edge",
+    labelKey: "shimmerEdge",
+  },
+  {
+    value: "traveling_highlight",
+    label: "Traveling Highlight",
+    labelKey: "travelingHighlight",
+  },
+  {
+    value: "breathing_contour",
+    label: "Breathing Contour",
+    labelKey: "breathingContour",
+  },
 ];
 
-const BAR_STYLE_OPTIONS: Array<{ value: RecordingOverlayBarStyle; label: string }> = [
-  { value: "aurora", label: "Aurora" },
-  { value: "bloom_bounce", label: "Bloom Bounce" },
-  { value: "comet", label: "Comet" },
-  { value: "constellation", label: "Constellation" },
-  { value: "crown", label: "Crown" },
-  { value: "daisy", label: "Daisy" },
-  { value: "ember", label: "Ember" },
-  { value: "fireflies", label: "Fireflies" },
-  { value: "garden_sway", label: "Garden Sway" },
-  { value: "hologram", label: "Hologram" },
-  { value: "helix", label: "Helix" },
-  { value: "lotus", label: "Lotus" },
-  { value: "matrix", label: "Matrix Rain" },
-  { value: "morse", label: "Morse" },
-  { value: "needles", label: "Needles" },
-  { value: "orbit", label: "Orbit" },
-  { value: "petals", label: "Petals" },
-  { value: "petal_rain", label: "Petal Rain" },
-  { value: "radar", label: "Radar" },
-  { value: "pulse_rings", label: "Pulse Rings" },
-  { value: "retro", label: "Equalizer Retro" },
-  { value: "shards", label: "Shards" },
-  { value: "skyline", label: "Skyline" },
-  { value: "solid", label: "Solid" },
-  { value: "capsule", label: "Capsule" },
-  { value: "glow", label: "Glow" },
-  { value: "prism", label: "Prism" },
-  { value: "tuner", label: "Tuner" },
-  { value: "vinyl", label: "Vinyl" },
+const BAR_STYLE_OPTIONS: Array<{
+  value: RecordingOverlayBarStyle;
+  label: string;
+  labelKey: string;
+}> = [
+  { value: "aurora", label: "Aurora", labelKey: "aurora" },
+  {
+    value: "bloom_bounce",
+    label: "Bloom Bounce",
+    labelKey: "bloomBounce",
+  },
+  { value: "comet", label: "Comet", labelKey: "comet" },
+  {
+    value: "constellation",
+    label: "Constellation",
+    labelKey: "constellation",
+  },
+  { value: "crown", label: "Crown", labelKey: "crown" },
+  { value: "daisy", label: "Daisy", labelKey: "daisy" },
+  { value: "ember", label: "Ember", labelKey: "ember" },
+  { value: "fireflies", label: "Fireflies", labelKey: "fireflies" },
+  {
+    value: "garden_sway",
+    label: "Garden Sway",
+    labelKey: "gardenSway",
+  },
+  { value: "hologram", label: "Hologram", labelKey: "hologram" },
+  { value: "helix", label: "Helix", labelKey: "helix" },
+  { value: "lotus", label: "Lotus", labelKey: "lotus" },
+  { value: "matrix", label: "Matrix Rain", labelKey: "matrix" },
+  { value: "morse", label: "Morse", labelKey: "morse" },
+  { value: "needles", label: "Needles", labelKey: "needles" },
+  { value: "orbit", label: "Orbit", labelKey: "orbit" },
+  { value: "petals", label: "Petals", labelKey: "petals" },
+  {
+    value: "petal_rain",
+    label: "Petal Rain",
+    labelKey: "petalRain",
+  },
+  { value: "radar", label: "Radar", labelKey: "radar" },
+  {
+    value: "pulse_rings",
+    label: "Pulse Rings",
+    labelKey: "pulseRings",
+  },
+  {
+    value: "retro",
+    label: "Equalizer Retro",
+    labelKey: "retro",
+  },
+  { value: "shards", label: "Shards", labelKey: "shards" },
+  { value: "skyline", label: "Skyline", labelKey: "skyline" },
+  { value: "solid", label: "Solid", labelKey: "solid" },
+  { value: "capsule", label: "Capsule", labelKey: "capsule" },
+  { value: "glow", label: "Glow", labelKey: "glow" },
+  { value: "prism", label: "Prism", labelKey: "prism" },
+  { value: "tuner", label: "Tuner", labelKey: "tuner" },
+  { value: "vinyl", label: "Vinyl", labelKey: "vinyl" },
 ];
 
-const PREVIEW_STATES: Array<{ value: PreviewState; label: string }> = [
-  { value: "recording", label: "Recording" },
-  { value: "transcribing", label: "Processing" },
-  { value: "error", label: "Error" },
+const PREVIEW_STATES: Array<{
+  value: PreviewState;
+  label: string;
+  labelKey: string;
+}> = [
+  { value: "recording", label: "Recording", labelKey: "recording" },
+  {
+    value: "transcribing",
+    label: "Processing",
+    labelKey: "transcribing",
+  },
+  { value: "error", label: "Error", labelKey: "error" },
 ];
 
 export const RecordingOverlaySettings: React.FC = () => {
@@ -192,6 +280,9 @@ export const RecordingOverlaySettings: React.FC = () => {
     172,
     Math.min(420, Math.round(overlayWidthPx)),
   );
+  const customOverlayEnabled = Boolean(
+    (settings as any)?.recording_overlay_custom_enabled ?? false,
+  );
   const barStyle = normalizeRecordingOverlayBarStyle(
     (settings as any)?.recording_overlay_bar_style,
   );
@@ -231,13 +322,59 @@ export const RecordingOverlaySettings: React.FC = () => {
   const hasManualPosition = Boolean(
     (settings as any)?.recording_overlay_use_manual_position ?? false,
   );
-  const customOverlayEnabled = Boolean(
-    (settings as any)?.recording_overlay_custom_enabled ?? false,
-  );
   const customOverlayDisabledReason = t(
     "settings.userInterface.recordingOverlay.customOverlay.disabledTooltip",
     "Enable Custom Overlay to use these controls.",
   );
+  const previewStates = PREVIEW_STATES.map((option) => ({
+    value: option.value,
+    label: t(
+      `settings.userInterface.recordingOverlay.previewStates.${option.labelKey}`,
+      option.label,
+    ),
+  }));
+  const themeOptions = THEME_OPTIONS.map((option) => ({
+    value: option.value,
+    label: t(
+      `settings.userInterface.recordingOverlay.theme.options.${option.labelKey}`,
+      option.label,
+    ),
+  }));
+  const backgroundModeOptions = BACKGROUND_MODE_OPTIONS.map((option) => ({
+    value: option.value,
+    label: t(
+      `settings.userInterface.recordingOverlay.backgroundMode.options.${option.labelKey}`,
+      option.label,
+    ),
+  }));
+  const materialModeOptions = MATERIAL_MODE_OPTIONS.map((option) => ({
+    value: option.value,
+    label: t(
+      `settings.userInterface.recordingOverlay.materialMode.options.${option.labelKey}`,
+      option.label,
+    ),
+  }));
+  const centerpieceModeOptions = CENTERPIECE_MODE_OPTIONS.map((option) => ({
+    value: option.value,
+    label: t(
+      `settings.userInterface.recordingOverlay.centerpieceMode.options.${option.labelKey}`,
+      option.label,
+    ),
+  }));
+  const animatedBorderModeOptions = ANIMATED_BORDER_MODE_OPTIONS.map((option) => ({
+    value: option.value,
+    label: t(
+      `settings.userInterface.recordingOverlay.animatedBorderMode.options.${option.labelKey}`,
+      option.label,
+    ),
+  }));
+  const barStyleOptions = BAR_STYLE_OPTIONS.map((option) => ({
+    value: option.value,
+    label: t(
+      `settings.userInterface.recordingOverlay.barStyle.options.${option.labelKey}`,
+      option.label,
+    ),
+  }));
   const currentStyleConfig = React.useMemo(
     () => getRecordingOverlayStyleConfigFromSettings(settings),
     [settings],
@@ -518,7 +655,7 @@ export const RecordingOverlaySettings: React.FC = () => {
       >
         <div className="space-y-4">
           <div className="flex flex-wrap gap-2">
-            {PREVIEW_STATES.map((option) => {
+            {previewStates.map((option) => {
               const selected = previewState === option.value;
               return (
                 <button
@@ -957,7 +1094,7 @@ export const RecordingOverlaySettings: React.FC = () => {
         grouped={true}
       >
         <Dropdown
-          options={THEME_OPTIONS}
+          options={themeOptions}
           selectedValue={overlayTheme}
           onSelect={(value) =>
             void updateSetting("recording_overlay_theme" as any, value as any)
@@ -987,7 +1124,7 @@ export const RecordingOverlaySettings: React.FC = () => {
         grouped={true}
       >
         <Dropdown
-          options={MATERIAL_MODE_OPTIONS}
+          options={materialModeOptions}
           selectedValue={materialMode}
           onSelect={(value) =>
             void updateSetting("recording_overlay_material_mode" as any, value as any)
@@ -1011,7 +1148,7 @@ export const RecordingOverlaySettings: React.FC = () => {
         grouped={true}
       >
         <Dropdown
-          options={BACKGROUND_MODE_OPTIONS}
+          options={backgroundModeOptions}
           selectedValue={backgroundMode}
           onSelect={(value) =>
             void updateSetting(
@@ -1038,7 +1175,7 @@ export const RecordingOverlaySettings: React.FC = () => {
         grouped={true}
       >
         <Dropdown
-          options={CENTERPIECE_MODE_OPTIONS}
+          options={centerpieceModeOptions}
           selectedValue={centerpieceMode}
           onSelect={(value) =>
             void updateSetting("recording_overlay_centerpiece_mode" as any, value as any)
@@ -1062,7 +1199,7 @@ export const RecordingOverlaySettings: React.FC = () => {
         grouped={true}
       >
         <Dropdown
-          options={ANIMATED_BORDER_MODE_OPTIONS}
+          options={animatedBorderModeOptions}
           selectedValue={animatedBorderMode}
           onSelect={(value) =>
             void updateSetting(
@@ -1113,8 +1250,8 @@ export const RecordingOverlaySettings: React.FC = () => {
         <Dropdown
           options={
             customOverlayEnabled
-              ? BAR_STYLE_OPTIONS
-              : BAR_STYLE_OPTIONS.filter((option) =>
+              ? barStyleOptions
+              : barStyleOptions.filter((option) =>
                   LEGACY_RECORDING_OVERLAY_BAR_STYLES.includes(option.value),
                 )
           }
