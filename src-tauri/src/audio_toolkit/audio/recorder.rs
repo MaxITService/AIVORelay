@@ -474,7 +474,6 @@ mod tests {
     fn does_not_match_unrelated_errors() {
         assert!(!is_microphone_access_denied("device not found"));
     }
-
     #[test]
     fn microphone_input_boost_defaults_to_no_gain() {
         assert_eq!(super::microphone_input_gain_from_db(0.0), 1.0);
@@ -547,7 +546,6 @@ fn apply_input_gain_if_needed<'a>(
             .collect(),
     )
 }
-
 fn process_consumer_cmd(
     cmd: Cmd,
     recording: &mut bool,
@@ -631,7 +629,13 @@ fn run_consumer(
 
     const BUCKETS: usize = 16;
     const WINDOW_SIZE: usize = 512;
-    let mut visualizer = AudioVisualiser::new(in_sample_rate, WINDOW_SIZE, BUCKETS, 400.0, 4000.0);
+    let mut visualizer = AudioVisualiser::new(
+        in_sample_rate,
+        WINDOW_SIZE,
+        BUCKETS,
+        400.0,
+        4000.0,
+    );
 
     loop {
         while let Ok(cmd) = cmd_rx.try_recv() {
