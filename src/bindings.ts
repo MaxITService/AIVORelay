@@ -2527,6 +2527,15 @@ async setLiveSoundDeepgramEndpointingMs(value: number | null) : Promise<Result<n
 async setModelUnloadTimeout(timeout: ModelUnloadTimeout) : Promise<void> {
     await TAURI_INVOKE("set_model_unload_timeout", { timeout });
 },
+async changeWhisperAcceleratorSetting(accelerator: WhisperAcceleratorSetting) : Promise<void> {
+    await TAURI_INVOKE("change_whisper_accelerator_setting", { accelerator });
+},
+async changeOrtAcceleratorSetting(accelerator: OrtAcceleratorSetting) : Promise<void> {
+    await TAURI_INVOKE("change_ort_accelerator_setting", { accelerator });
+},
+async getAvailableAccelerators() : Promise<AvailableAccelerators> {
+    return await TAURI_INVOKE("get_available_accelerators");
+},
 async unloadModelManually() : Promise<Result<null, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("unload_model_manually") };
@@ -3225,7 +3234,7 @@ filler_word_filter_enabled?: boolean;
 /**
  * Optional custom filler words. When set, overrides language defaults for filler filtering.
  */
-custom_filler_words?: string[] | null; 
+custom_filler_words?: string[] | null; whisper_accelerator?: WhisperAcceleratorSetting; ort_accelerator?: OrtAcceleratorSetting; 
 /**
  * Whether to strip invisible Unicode characters (zero-width spaces, BOM) from LLM output
  */
@@ -3288,6 +3297,7 @@ saved_window_x?: number;
 saved_window_y?: number }
 export type AudioDevice = { index: string; name: string; is_default: boolean }
 export type AutoSubmitKey = "enter" | "ctrl_enter" | "cmd_enter"
+export type AvailableAccelerators = { whisper: string[]; ort: string[] }
 export type BindingResponse = { success: boolean; binding: ShortcutBinding | null; error: string | null }
 export type BundledExtensionExportResult = { exportPath: string; extensionId: string; configuredOrigin: string; generatedPassword: string; reusedExistingId: boolean; replacedExistingExport: boolean }
 export type ClipboardHandling = "dont_modify" | "copy_to_clipboard" | 
@@ -3320,7 +3330,7 @@ export type DecapitalizeOverlayStateResponse = { decapitalizeEligible: boolean; 
 export type DeepgramFileTranscriptionOptions = { diarize: boolean | null; multichannel: boolean | null }
 export type DiarizationSpeakerNameProfile = { id: string; name: string; speaker_names?: string[] }
 export type DiarizedTranscriptProvider = "deepgram" | "soniox"
-export type EngineType = "Whisper" | "Parakeet" | "Moonshine" | "MoonshineStreaming" | "SenseVoice" | "GigaAM"
+export type EngineType = "Whisper" | "Parakeet" | "Moonshine" | "MoonshineStreaming" | "SenseVoice" | "GigaAM" | "Canary"
 /**
  * PowerShell execution policy for voice commands.
  * Controls script execution permissions.
@@ -3433,6 +3443,7 @@ export type NativeRegionCaptureMode =
  * Legacy: capture a full screenshot first and use it as the picker background.
  */
 "screenshot_background"
+export type OrtAcceleratorSetting = "auto" | "cpu" | "cuda" | "directml" | "rocm"
 /**
  * Output format for transcription
  */
@@ -3747,6 +3758,7 @@ use_pwsh?: boolean;
  * Execution policy for scripts
  */
 execution_policy?: ExecutionPolicy }
+export type WhisperAcceleratorSetting = "auto" | "cpu" | "gpu"
 export type WindowsMicrophonePermissionStatus = { supported: boolean; overall_access: PermissionAccess; device_access: PermissionAccess; app_access: PermissionAccess; desktop_app_access: PermissionAccess }
 
 /** tauri-specta globals **/
