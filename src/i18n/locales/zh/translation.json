@@ -54,6 +54,14 @@
       "moonshine-base": {
         "name": "Moonshine Base",
         "description": "Very fast, English only. Handles accents well."
+      },
+      "canary-180m-flash": {
+        "name": "Canary 180M Flash",
+        "description": "非常快速。支持英语、德语、西班牙语、法语。支持翻译。"
+      },
+      "canary-1b-v2": {
+        "name": "Canary 1B v2",
+        "description": "准确的多语言模型。25种欧洲语言。支持翻译。"
       }
     },
     "errors": {
@@ -230,6 +238,16 @@
         "add": "添加",
         "remove": "删除 {{word}}",
         "duplicate": "\"{{word}}\" 已存在"
+      },
+      "acceleration": {
+        "whisper": {
+          "title": "Whisper 加速",
+          "description": "Whisper 模型的硬件加速。自动模式在可用时使用 GPU（macOS 上使用 Metal，Windows/Linux 上使用 Vulkan）。"
+        },
+        "ort": {
+          "title": "ONNX 加速",
+          "description": "ONNX 模型的硬件加速（Parakeet、Canary、Moonshine 等）。Windows 上的 DirectML 为实验性功能。模型可能无法正常转录。"
+        }
       }
     },
     "postProcessing": {

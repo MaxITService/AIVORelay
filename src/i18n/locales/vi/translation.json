@@ -55,6 +55,14 @@
       "moonshine-base": {
         "name": "Moonshine Base",
         "description": "Very fast, English only. Handles accents well."
+      },
+      "canary-180m-flash": {
+        "name": "Canary 180M Flash",
+        "description": "Rất nhanh. Tiếng Anh, tiếng Đức, tiếng Tây Ban Nha, tiếng Pháp. Hỗ trợ dịch thuật."
+      },
+      "canary-1b-v2": {
+        "name": "Canary 1B v2",
+        "description": "Đa ngôn ngữ chính xác. 25 ngôn ngữ châu Âu. Hỗ trợ dịch thuật."
       }
     },
     "errors": {
@@ -231,6 +239,16 @@
         "add": "Thêm",
         "remove": "Xóa {{word}}",
         "duplicate": "\"{{word}}\" đã tồn tại"
+      },
+      "acceleration": {
+        "whisper": {
+          "title": "Tăng tốc Whisper",
+          "description": "Tăng tốc phần cứng cho các mô hình Whisper. Chế độ tự động sử dụng GPU nếu có (Metal trên macOS, Vulkan trên Windows/Linux)."
+        },
+        "ort": {
+          "title": "Tăng tốc ONNX",
+          "description": "Tăng tốc phần cứng cho các mô hình ONNX (Parakeet, Canary, Moonshine, v.v.). DirectML trên Windows là thử nghiệm. Các mô hình có thể không chuyển đổi giọng nói được."
+        }
       }
     },
     "postProcessing": {

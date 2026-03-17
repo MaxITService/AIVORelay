@@ -794,6 +794,17 @@
           "title": "Model Unload:",
           "description": "Automatically free GPU/CPU memory when the speech model hasn't been used for a while. Useful if you need resources for other apps."
         },
+        "acceleration": {
+          "whisper": {
+            "title": "Whisper Acceleration",
+            "description": "Hardware acceleration for Whisper models. Auto uses GPU if available (Metal on macOS, Vulkan on Windows/Linux)."
+          },
+          "ort": {
+            "title": "ONNX Acceleration",
+            "description": "Hardware acceleration for ONNX models (Parakeet, Canary, Moonshine, etc.). DirectML on Windows is experimental. Models may fail to transcribe."
+          },
+          "note": "If you are unsure, leave both settings on Auto. Changing acceleration unloads the current local model so the new backend is used the next time it loads."
+        },
         "customWords": {
           "title": "Custom Words:",
           "description": "Configure this in Text Processing > Fuzzy Word Correction. Add words that are often misheard (names, technical terms, brand names) so similar-sounding words are corrected automatically."
