@@ -54,6 +54,44 @@ export const AdvancedSettings: React.FC = () => {
           </TellMeMore>
         </div>
         <ModelUnloadTimeoutSetting descriptionMode="tooltip" grouped={true} />
+        <div className="px-6 pt-4">
+          <TellMeMore
+            title={t("settings.advanced.tellMeMore.acceleration.title", {
+              defaultValue: "Tell me more: Acceleration",
+            })}
+          >
+            <div className="space-y-3 text-text/90">
+              <p className="text-sm">
+                <strong>
+                  {t("settings.advanced.tellMeMore.acceleration.whisper.title", {
+                    defaultValue: "Whisper Acceleration:",
+                  })}
+                </strong>{" "}
+                {t("settings.advanced.tellMeMore.acceleration.whisper.description", {
+                  defaultValue:
+                    "Hardware acceleration for Whisper models. Auto uses GPU if available.",
+                })}
+              </p>
+              <p className="text-sm">
+                <strong>
+                  {t("settings.advanced.tellMeMore.acceleration.ort.title", {
+                    defaultValue: "ONNX Acceleration:",
+                  })}
+                </strong>{" "}
+                {t("settings.advanced.tellMeMore.acceleration.ort.description", {
+                  defaultValue:
+                    "Hardware acceleration for ONNX models like Parakeet, Canary, Moonshine, SenseVoice, and GigaAM.",
+                })}
+              </p>
+              <p className="text-xs text-text/70">
+                {t("settings.advanced.tellMeMore.acceleration.note", {
+                  defaultValue:
+                    "If you are unsure, leave both settings on Auto. Changing acceleration unloads the current local model so the new backend is used the next time it loads.",
+                })}
+              </p>
+            </div>
+          </TellMeMore>
+        </div>
         <AccelerationSelector descriptionMode="tooltip" grouped={true} />
       </SettingsGroup>
 

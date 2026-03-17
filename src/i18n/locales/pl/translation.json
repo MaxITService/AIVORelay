@@ -54,6 +54,14 @@
       "moonshine-base": {
         "name": "Moonshine Base",
         "description": "Very fast, English only. Handles accents well."
+      },
+      "canary-180m-flash": {
+        "name": "Canary 180M Flash",
+        "description": "Bardzo szybki. Angielski, niemiecki, hiszpański, francuski. Obsługuje tłumaczenie."
+      },
+      "canary-1b-v2": {
+        "name": "Canary 1B v2",
+        "description": "Dokładny wielojęzyczny. 25 języków europejskich. Obsługuje tłumaczenie."
       }
     },
     "errors": {
@@ -230,6 +238,16 @@
         "add": "Dodaj",
         "remove": "Usuń {{word}}",
         "duplicate": "\"{{word}}\" już istnieje"
+      },
+      "acceleration": {
+        "whisper": {
+          "title": "Akceleracja Whisper",
+          "description": "Akceleracja sprzętowa dla modeli Whisper. Tryb automatyczny używa GPU, jeśli jest dostępny (Metal na macOS, Vulkan na Windows/Linux)."
+        },
+        "ort": {
+          "title": "Akceleracja ONNX",
+          "description": "Akceleracja sprzętowa dla modeli ONNX (Parakeet, Canary, Moonshine itp.). DirectML na Windows jest eksperymentalne. Modele mogą nie transkrybować poprawnie."
+        }
       }
     },
     "postProcessing": {

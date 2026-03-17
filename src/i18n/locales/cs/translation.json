@@ -54,6 +54,14 @@
       "moonshine-base": {
         "name": "Moonshine Base",
         "description": "Velmi rychlý, pouze angličtina. Dobře zvládá přízvuky."
+      },
+      "canary-180m-flash": {
+        "name": "Canary 180M Flash",
+        "description": "Velmi rychlý. Angličtina, němčina, španělština, francouzština. Podporuje překlad."
+      },
+      "canary-1b-v2": {
+        "name": "Canary 1B v2",
+        "description": "Přesný vícejazyčný. 25 evropských jazyků. Podporuje překlad."
       }
     },
     "errors": {
@@ -230,6 +238,16 @@
         "add": "Přidat",
         "remove": "Odebrat {{word}}",
         "duplicate": "\"{{word}}\" již existuje"
+      },
+      "acceleration": {
+        "whisper": {
+          "title": "Akcelerace Whisper",
+          "description": "Hardwarová akcelerace pro modely Whisper. Automatický režim používá GPU, pokud je k dispozici (Metal na macOS, Vulkan na Windows/Linux)."
+        },
+        "ort": {
+          "title": "Akcelerace ONNX",
+          "description": "Hardwarová akcelerace pro modely ONNX (Parakeet, Canary, Moonshine atd.). DirectML na Windows je experimentální. Modely nemusí správně přepisovat."
+        }
       }
     },
     "postProcessing": {

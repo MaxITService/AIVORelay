@@ -1009,12 +1009,13 @@
         "acceleration": {
           "whisper": {
             "title": "Whisper Acceleration",
-            "description": "Hardware acceleration for Whisper models. Auto uses GPU if available."
+            "description": "Hardware acceleration for Whisper models. Auto uses GPU if available (Metal on macOS, Vulkan on Windows/Linux)."
           },
           "ort": {
             "title": "ONNX Acceleration",
-            "description": "Hardware acceleration for ONNX models like Parakeet, Canary, Moonshine, SenseVoice, and GigaAM. DirectML on Windows is experimental."
-          }
+            "description": "Hardware acceleration for ONNX models (Parakeet, Canary, Moonshine, etc.). DirectML on Windows is experimental. Models may fail to transcribe."
+          },
+          "note": "If you are unsure, leave both settings on Auto. Changing acceleration unloads the current local model so the new backend is used the next time it loads."
         },
         "customWords": {
           "title": "Custom Words:",
@@ -1588,6 +1589,16 @@
         "add": "Add",
         "remove": "Remove {{word}}",
         "duplicate": "\"{{word}}\" already exists"
+      },
+      "acceleration": {
+        "whisper": {
+          "title": "Whisper Acceleration",
+          "description": "Hardware acceleration for Whisper models. Auto uses GPU if available (Metal on macOS, Vulkan on Windows/Linux)."
+        },
+        "ort": {
+          "title": "ONNX Acceleration",
+          "description": "Hardware acceleration for ONNX models (Parakeet, Canary, Moonshine, etc.). DirectML on Windows is experimental. Models may fail to transcribe."
+        }
       }
     },
     "postProcessing": {

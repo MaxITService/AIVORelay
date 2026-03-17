@@ -309,11 +309,11 @@
       },
       "canary-180m-flash": {
         "name": "Canary 180M Flash",
-        "description": "Очень быстро. Английский, немецкий, испанский, французский. Поддерживает перевод."
+        "description": "Очень быстрая. Английский, немецкий, испанский, французский. Поддержка перевода."
       },
       "canary-1b-v2": {
         "name": "Canary 1B v2",
-        "description": "Точная мультиязычная модель. 25 европейских языков. Поддерживает перевод."
+        "description": "Точная многоязычная. 25 европейских языков. Поддержка перевода."
       }
     },
     "errors": {
@@ -703,12 +703,13 @@
         "acceleration": {
           "whisper": {
             "title": "Ускорение Whisper",
-            "description": "Аппаратное ускорение для моделей Whisper. Режим Auto использует GPU, если он доступен."
+            "description": "Аппаратное ускорение для моделей Whisper. Автоматический режим использует GPU при наличии (Metal на macOS, Vulkan на Windows/Linux)."
           },
           "ort": {
             "title": "Ускорение ONNX",
-            "description": "Аппаратное ускорение для ONNX-моделей, таких как Parakeet, Canary, Moonshine, SenseVoice и GigaAM. DirectML на Windows пока экспериментальный."
-          }
+            "description": "Аппаратное ускорение для ONNX-моделей (Parakeet, Canary, Moonshine и др.). DirectML на Windows является экспериментальным. Модели могут не выполнять транскрипцию."
+          },
+          "note": "Если не уверены, оставьте оба параметра в режиме Auto. При смене ускорения текущая локальная модель выгружается, чтобы при следующей загрузке использовался новый backend."
         },
         "customWords": {
           "title": "Пользовательские слова:",
@@ -1118,6 +1119,16 @@
           "title": "API-ключ Deepgram",
           "description": "Безопасно хранится в диспетчере учётных данных Windows.",
           "placeholder": "dg_..."
+        }
+      },
+      "acceleration": {
+        "whisper": {
+          "title": "Ускорение Whisper",
+          "description": "Аппаратное ускорение для моделей Whisper. Автоматический режим использует GPU при наличии (Metal на macOS, Vulkan на Windows/Linux)."
+        },
+        "ort": {
+          "title": "Ускорение ONNX",
+          "description": "Аппаратное ускорение для ONNX-моделей (Parakeet, Canary, Moonshine и др.). DirectML на Windows является экспериментальным. Модели могут не выполнять транскрипцию."
         }
       }
     },
