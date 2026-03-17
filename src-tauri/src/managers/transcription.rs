@@ -116,6 +116,7 @@ impl TranscriptionManager {
             let manager_cloned = manager.clone();
             let shutdown_signal = manager.shutdown_signal.clone();
             let handle = thread::spawn(move || {
+                debug!("Idle watcher thread started");
                 while !shutdown_signal.load(Ordering::Relaxed) {
                     thread::sleep(Duration::from_secs(10)); // Check every 10 seconds
 
@@ -138,28 +139,30 @@ impl TranscriptionManager {
                             .duration_since(SystemTime::UNIX_EPOCH)
                             .unwrap()
                             .as_millis() as u64;
+                        let idle_ms = now_ms.saturating_sub(last);
+                        let limit_ms = limit_seconds * 1000;
 
-                        if now_ms.saturating_sub(last) > limit_seconds * 1000 {
+                        if idle_ms > limit_ms {
                             // idle -> unload
                             if manager_cloned.is_model_loaded() {
                                 let unload_start = std::time::Instant::now();
-                                debug!("Starting to unload model due to inactivity");
+                                info!(
+                                    "Model idle for {}s (limit: {}s), unloading",
+                                    idle_ms / 1000,
+                                    limit_seconds
+                                );
 
-                                if let Ok(()) = manager_cloned.unload_model() {
-                                    let _ = app_handle_cloned.emit(
-                                        "model-state-changed",
-                                        ModelStateEvent {
-                                            event_type: "unloaded".to_string(),
-                                            model_id: None,
-                                            model_name: None,
-                                            error: None,
-                                        },
-                                    );
-                                    let unload_duration = unload_start.elapsed();
-                                    debug!(
-                                        "Model unloaded due to inactivity (took {}ms)",
-                                        unload_duration.as_millis()
-                                    );
+                                match manager_cloned.unload_model() {
+                                    Ok(()) => {
+                                        let unload_duration = unload_start.elapsed();
+                                        info!(
+                                            "Model unloaded due to inactivity (took {}ms)",
+                                            unload_duration.as_millis()
+                                        );
+                                    }
+                                    Err(e) => {
+                                        error!("Failed to unload idle model: {}", e);
+                                    }
                                 }
                             }
                         }
@@ -421,6 +424,14 @@ impl TranscriptionManager {
             let mut current_model = self.current_model_id.lock().unwrap();
             *current_model = Some(model_id.to_string());
         }
+
+        self.last_activity.store(
+            SystemTime::now()
+                .duration_since(SystemTime::UNIX_EPOCH)
+                .unwrap()
+                .as_millis() as u64,
+            Ordering::Relaxed,
+        );
 
         // Emit loading completed event
         let _ = self.app_handle.emit(
@@ -1116,7 +1127,9 @@ impl TranscriptionManager {
 
 impl Drop for TranscriptionManager {
     fn drop(&mut self) {
-        debug!("Shutting down TranscriptionManager");
+        if Arc::strong_count(&self.engine) > 1 {
+            return;
+        }
 
         // Signal the watcher thread to shutdown
         self.shutdown_signal.store(true, Ordering::Relaxed);

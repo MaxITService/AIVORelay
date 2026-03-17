@@ -1033,7 +1033,7 @@ pub enum RecordingRetentionPeriod {
 
 impl Default for ModelUnloadTimeout {
     fn default() -> Self {
-        ModelUnloadTimeout::Never
+        ModelUnloadTimeout::Min5
     }
 }
 
@@ -2848,7 +2848,7 @@ pub fn get_default_settings() -> AppSettings {
         custom_words: Vec::new(),
         custom_words_enabled: default_custom_words_enabled(),
         custom_words_ngram_enabled: default_custom_words_ngram_enabled(),
-        model_unload_timeout: ModelUnloadTimeout::Never,
+        model_unload_timeout: ModelUnloadTimeout::default(),
         word_correction_threshold: default_word_correction_threshold(),
         history_limit: default_history_limit(),
         recording_retention_period: default_recording_retention_period(),
