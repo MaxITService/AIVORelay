@@ -38,6 +38,7 @@ Files that are added by this fork rather than upstream files that were modified.
 
 | File | Purpose |
 | --- | --- |
+| `src/components/settings/AccelerationSelector.tsx` | Whisper/ORT accelerator selector UI for local model backends. |
 | `src/components/settings/SonioxContextEditor.tsx` | Soniox context editor. |
 | `src/components/settings/ai-replace/AiReplaceSelectionSettings.tsx` | AI Replace config UI. |
 | `src/components/settings/advanced/AiReplaceSettings.tsx` | Legacy AI Replace UI. |
@@ -96,7 +97,7 @@ Files that are added by this fork rather than upstream files that were modified.
 | `src-tauri/src/audio_toolkit/audio/utils.rs` | WAV encoding utils. |
 | `src-tauri/src/audio_toolkit/audio/recorder.rs` | Audio capture stream logic, including Windows output loopback support. |
 | `src-tauri/src/managers/audio.rs` | Routes recordings between mic capture and Windows output loopback for live sound. |
-| `src-tauri/src/managers/transcription.rs` | Local STT runtime (SenseVoice). |
+| `src-tauri/src/managers/transcription.rs` | Local STT runtime, now including transcribe-rs 0.3.1 backend updates, Canary support, and Whisper/ORT accelerator selection wiring. |
 | `src-tauri/src/commands/file_transcription.rs` | Soniox async integration overrides and diarized speaker-session handling. |
 | `src-tauri/src/settings.rs` | Also stores saved diarization speaker-name set profiles for file transcription. |
 | `src-tauri/src/shortcut.rs` | Includes persisted setting update commands for diarization speaker-name sets. |
@@ -112,7 +113,7 @@ Files that are added by this fork rather than upstream files that were modified.
 | File | Current State |
 | --- | --- |
 | `src/components/icons/index.ts` | Exports icons. |
-| `src/components/settings/advanced/AdvancedSettings.tsx` | Extra startup/paste toggles. |
+| `src/components/settings/advanced/AdvancedSettings.tsx` | Extra startup/paste toggles and local accelerator settings entry point. |
 | `src/components/settings/browser-connector/BrowserConnectorSettings.tsx` | Extension/screenshot UI. |
 | `src/components/settings/general/GeneralSettings.tsx` | Fork settings layout. |
 | `src/components/settings/user-interface/UserInterfaceSettings.tsx` | Soniox live preview UI. |
@@ -124,7 +125,7 @@ Files that are added by this fork rather than upstream files that were modified.
 | `src/components/settings/TranscriptionSystemPrompt.tsx` | Prompt limits handling. |
 | `src/components/settings/TranslateToEnglish.tsx` | Soniox/Deepgram-aware UI state. |
 | `src/lib/constants/languages.ts` | Custom profile languages. |
-| `src/stores/settingsStore.ts` | Store for fork settings. |
+| `src/stores/settingsStore.ts` | Store for fork settings, including invoke-based handlers for fork-only settings before bindings regeneration. |
 | `src/stores/transcribeFileStore.ts` | Holds editable diarization speaker cards and bulk profile-apply helpers. |
 | `src/i18n/locales/en/translation.json` | EN strings. |
 | `src/i18n/locales/ru/translation.json` | RU strings. |
@@ -146,7 +147,7 @@ Files that are added by this fork rather than upstream files that were modified.
 | File | Purpose |
 | --- | --- |
 | `src-tauri/src/llm_client.rs` | LLM API client. |
-| `src-tauri/src/managers/model.rs` | Local model definitions (`EngineType`). |
+| `src-tauri/src/managers/model.rs` | Local model definitions (`EngineType`), including Canary model metadata. |
 | `src-tauri/src/commands/models.rs` | Defines `get_active_gpu_vram_status`. |
 | `src/components/footer/VramMeter.tsx` | Frontend VRAM meter UI. |
 | `src/components/footer/Footer.tsx` | Footer integration for VRAM meter. |
