@@ -8,7 +8,7 @@ use crate::settings::{
     WhisperAcceleratorSetting,
 };
 use std::sync::Arc;
-use tauri::{AppHandle, State};
+use tauri::{AppHandle, Manager, State};
 
 #[tauri::command]
 #[specta::specta]
@@ -21,7 +21,7 @@ pub fn set_model_unload_timeout(app: AppHandle, timeout: ModelUnloadTimeout) {
 #[tauri::command]
 #[specta::specta]
 pub fn unload_model_manually(
-    transcription_manager: State<TranscriptionManager>,
+    transcription_manager: State<'_, Arc<TranscriptionManager>>,
 ) -> Result<(), String> {
     transcription_manager
         .unload_model()
