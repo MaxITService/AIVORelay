@@ -306,6 +306,14 @@
       "gigaam-v3-e2e-ctc": {
         "name": "GigaAM v3",
         "description": "Распознавание русской речи. Быстро и точно."
+      },
+      "canary-180m-flash": {
+        "name": "Canary 180M Flash",
+        "description": "Очень быстро. Английский, немецкий, испанский, французский. Поддерживает перевод."
+      },
+      "canary-1b-v2": {
+        "name": "Canary 1B v2",
+        "description": "Точная мультиязычная модель. 25 европейских языков. Поддерживает перевод."
       }
     },
     "errors": {
@@ -691,6 +699,16 @@
         "modelUnload": {
           "title": "Выгрузка модели:",
           "description": "Автоматически освобождает память GPU/CPU, если модель распознавания речи долго не использовалась. Полезно, если ресурсы нужны другим приложениям."
+        },
+        "acceleration": {
+          "whisper": {
+            "title": "Ускорение Whisper",
+            "description": "Аппаратное ускорение для моделей Whisper. Режим Auto использует GPU, если он доступен."
+          },
+          "ort": {
+            "title": "Ускорение ONNX",
+            "description": "Аппаратное ускорение для ONNX-моделей, таких как Parakeet, Canary, Moonshine, SenseVoice и GigaAM. DirectML на Windows пока экспериментальный."
+          }
         },
         "customWords": {
           "title": "Пользовательские слова:",

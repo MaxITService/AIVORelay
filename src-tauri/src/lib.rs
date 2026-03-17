@@ -181,6 +181,7 @@ fn initialize_core_logic(app_handle: &AppHandle) {
     app_handle.manage(tray::ManagedTrayState::default());
 
     let current_settings = settings::get_settings(app_handle);
+    managers::transcription::apply_accelerator_settings(app_handle);
     app_handle.manage(managers::microphone_auto_switch::ManagedManualMicrophoneSelection::new(
         current_settings
             .last_manual_microphone
@@ -779,6 +780,9 @@ pub fn run() {
         commands::live_sound_transcription::set_live_sound_deepgram_endpointing_enabled,
         commands::live_sound_transcription::set_live_sound_deepgram_endpointing_ms,
         commands::transcription::set_model_unload_timeout,
+        commands::transcription::change_whisper_accelerator_setting,
+        commands::transcription::change_ort_accelerator_setting,
+        commands::transcription::get_available_accelerators,
         commands::transcription::unload_model_manually,
         commands::history::get_history_entries,
         commands::history::toggle_history_entry_saved,

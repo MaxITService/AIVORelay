@@ -356,6 +356,10 @@ settingUpdaters.error_overlay_auto_hide_ms = (value) =>
   invoke("change_recording_auto_stop_timeout_seconds_setting", {
     seconds: value,
   });
+(settingUpdaters as any).whisper_accelerator = (value: any) =>
+  invoke("change_whisper_accelerator_setting", { accelerator: value });
+(settingUpdaters as any).ort_accelerator = (value: any) =>
+  invoke("change_ort_accelerator_setting", { accelerator: value });
 (settingUpdaters as any).recording_auto_stop_paste = (value: any) =>
   invoke("change_recording_auto_stop_paste_setting", { paste: value });
 (settingUpdaters as any).native_region_capture_mode = (value: any) =>

@@ -84,6 +84,25 @@ pub fn switch_active_model(app: &AppHandle, model_id: &str) -> Result<(), String
     let unload_timeout = settings.model_unload_timeout;
     let previous_model_id = settings.selected_model.clone();
 
+    let mut updated_settings = settings;
+    updated_settings.selected_model = model_id.to_string();
+
+    // Reset unsupported language selections so backend engines like Canary
+    // never receive stale language codes from the previously active model.
+    if updated_settings.selected_language != "auto"
+        && !model_info.supported_languages.is_empty()
+        && !model_info
+            .supported_languages
+            .contains(&updated_settings.selected_language)
+    {
+        log::info!(
+            "Resetting language from '{}' to 'auto' (not supported by {})",
+            updated_settings.selected_language,
+            model_id
+        );
+        updated_settings.selected_language = "auto".to_string();
+    }
+
     if unload_timeout == ModelUnloadTimeout::Immediately {
         if transcription_manager.is_model_loaded() {
             transcription_manager
@@ -91,8 +110,6 @@ pub fn switch_active_model(app: &AppHandle, model_id: &str) -> Result<(), String
                 .map_err(|e| format!("Failed to unload previous model: {}", e))?;
         }
 
-        let mut updated_settings = settings;
-        updated_settings.selected_model = model_id.to_string();
         write_settings(app, updated_settings);
 
         let _ = app.emit(
@@ -108,8 +125,6 @@ pub fn switch_active_model(app: &AppHandle, model_id: &str) -> Result<(), String
         return Ok(());
     }
 
-    let mut updated_settings = settings;
-    updated_settings.selected_model = model_id.to_string();
     write_settings(app, updated_settings);
 
     if let Err(err) = transcription_manager.load_model(model_id) {

@@ -10,6 +10,7 @@ import { ConvertLfToCrlfSetting } from "../ConvertLfToCrlfSetting";
 import { AutoSubmit } from "../AutoSubmit";
 import { TellMeMore } from "../../ui/TellMeMore";
 import { RecordingAutoStop } from "../RecordingAutoStop";
+import { AccelerationSelector } from "../AccelerationSelector";
 
 export const AdvancedSettings: React.FC = () => {
   const { t } = useTranslation();
@@ -53,6 +54,7 @@ export const AdvancedSettings: React.FC = () => {
           </TellMeMore>
         </div>
         <ModelUnloadTimeoutSetting descriptionMode="tooltip" grouped={true} />
+        <AccelerationSelector descriptionMode="tooltip" grouped={true} />
       </SettingsGroup>
 
       <SettingsGroup title={t("settings.advanced.pasteMethod.title")}>

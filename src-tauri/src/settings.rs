@@ -988,6 +988,37 @@ pub enum ModelUnloadTimeout {
 
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Type)]
 #[serde(rename_all = "snake_case")]
+pub enum WhisperAcceleratorSetting {
+    Auto,
+    Cpu,
+    Gpu,
+}
+
+impl Default for WhisperAcceleratorSetting {
+    fn default() -> Self {
+        WhisperAcceleratorSetting::Auto
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Type)]
+#[serde(rename_all = "snake_case")]
+pub enum OrtAcceleratorSetting {
+    Auto,
+    Cpu,
+    Cuda,
+    #[serde(rename = "directml")]
+    DirectMl,
+    Rocm,
+}
+
+impl Default for OrtAcceleratorSetting {
+    fn default() -> Self {
+        OrtAcceleratorSetting::Auto
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Type)]
+#[serde(rename_all = "snake_case")]
 pub enum PasteMethod {
     CtrlV,
     Direct,
@@ -1735,6 +1766,10 @@ pub struct AppSettings {
     /// Optional custom filler words. When set, overrides language defaults for filler filtering.
     #[serde(default)]
     pub custom_filler_words: Option<Vec<String>>,
+    #[serde(default)]
+    pub whisper_accelerator: WhisperAcceleratorSetting,
+    #[serde(default)]
+    pub ort_accelerator: OrtAcceleratorSetting,
     /// Whether to strip invisible Unicode characters (zero-width spaces, BOM) from LLM output
     #[serde(default = "default_true")]
     pub zero_width_filter_enabled: bool,
@@ -2981,6 +3016,8 @@ pub fn get_default_settings() -> AppSettings {
         // Audio Processing
         filler_word_filter_enabled: false,
         custom_filler_words: None,
+        whisper_accelerator: WhisperAcceleratorSetting::default(),
+        ort_accelerator: OrtAcceleratorSetting::default(),
         zero_width_filter_enabled: true,
         vad_threshold: default_vad_threshold(),
         // Shortcut Engine (Windows only)
