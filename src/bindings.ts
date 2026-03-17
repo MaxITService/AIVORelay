@@ -2367,6 +2367,15 @@ async setLiveSoundDeepgramEndpointingMs(value: number | null) : Promise<Result<n
 async setModelUnloadTimeout(timeout: ModelUnloadTimeout) : Promise<void> {
     await TAURI_INVOKE("set_model_unload_timeout", { timeout });
 },
+async changeWhisperAcceleratorSetting(accelerator: WhisperAcceleratorSetting) : Promise<void> {
+    await TAURI_INVOKE("change_whisper_accelerator_setting", { accelerator });
+},
+async changeOrtAcceleratorSetting(accelerator: OrtAcceleratorSetting) : Promise<void> {
+    await TAURI_INVOKE("change_ort_accelerator_setting", { accelerator });
+},
+async getAvailableAccelerators() : Promise<AvailableAccelerators> {
+    return await TAURI_INVOKE("get_available_accelerators");
+},
 async unloadModelManually() : Promise<Result<null, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("unload_model_manually") };
@@ -3125,6 +3134,7 @@ saved_window_x?: number;
 saved_window_y?: number }
 export type AudioDevice = { index: string; name: string; is_default: boolean }
 export type AutoSubmitKey = "enter" | "ctrl_enter" | "cmd_enter"
+export type AvailableAccelerators = { whisper: string[]; ort: string[] }
 export type BindingResponse = { success: boolean; binding: ShortcutBinding | null; error: string | null }
 export type BundledExtensionExportResult = { exportPath: string; extensionId: string; configuredOrigin: string; generatedPassword: string; reusedExistingId: boolean; replacedExistingExport: boolean }
 export type ClipboardHandling = "dont_modify" | "copy_to_clipboard" | 
@@ -3157,7 +3167,7 @@ export type DecapitalizeOverlayStateResponse = { decapitalizeEligible: boolean; 
 export type DeepgramFileTranscriptionOptions = { diarize: boolean | null; multichannel: boolean | null }
 export type DiarizationSpeakerNameProfile = { id: string; name: string; speaker_names?: string[] }
 export type DiarizedTranscriptProvider = "deepgram" | "soniox"
-export type EngineType = "Whisper" | "Parakeet" | "Moonshine" | "MoonshineStreaming" | "SenseVoice" | "GigaAM"
+export type EngineType = "Whisper" | "Parakeet" | "Moonshine" | "MoonshineStreaming" | "SenseVoice" | "GigaAM" | "Canary"
 /**
  * PowerShell execution policy for voice commands.
  * Controls script execution permissions.
