@@ -57,6 +57,7 @@ Files that are added by this fork rather than upstream files that were modified.
 | `src/components/settings/live-sound-transcription/LiveSoundTranscriptionSettings.tsx` | Live Sound Transcription page with in-page diarized transcript and source/device controls. |
 | `src/components/settings/text-replacement/TextReplacementSettings.tsx` | Text Replacement rules UI. |
 | `src/components/settings/audio-processing/AudioProcessingSettings.tsx` | Audio processing UI. |
+| `src/components/settings/debug/RecordingBuffer.tsx` | Local-only extra recording buffer UI for trailing speech capture after hotkey release. |
 | `src/components/settings/GlobalShortcutInput.tsx` | Browser-side shortcut capture for Tauri/rdev engines. |
 | `src/components/settings/HandyKeysShortcutInput.tsx` | Backend-side shortcut capture UI for HandyKeys engine. |
 | `src/components/settings/debug/ShortcutEngineSelector.tsx` | Shortcut engine toggle UI. |
@@ -80,7 +81,7 @@ Files that are added by this fork rather than upstream files that were modified.
 | --- | --- |
 | `src-tauri/src/actions.rs` | Shortcut actions, variable resolution, preview delete actions. |
 | `src-tauri/src/overlay.rs` | Overlay states, preview window helpers, live preview geometry constraints, preview action appearance payload. |
-| `src-tauri/src/settings.rs` | Fork-specific settings & features, including live preview action toggles/hotkeys and preview action bindings. |
+| `src-tauri/src/settings.rs` | Fork-specific settings & features, including live preview actions, preview bindings, and local-only recording tail buffer controls. |
 | `src-tauri/src/lib.rs` | Registers managers, commands, tray. |
 | `src-tauri/src/shortcut.rs` | Multi-engine shortcut bindings (Tauri/rdev/HandyKeys), live preview geometry persistence commands, preview action settings commands, preview delete-last-word global hotkey sync. |
 | `src-tauri/src/clipboard.rs` | Clipboard behavior. |
@@ -97,7 +98,7 @@ Files that are added by this fork rather than upstream files that were modified.
 | `src-tauri/src/audio_toolkit/mod.rs` | Includes `encode_wav_bytes()`. |
 | `src-tauri/src/audio_toolkit/audio/utils.rs` | WAV encoding utils. |
 | `src-tauri/src/audio_toolkit/audio/recorder.rs` | Audio capture stream logic, including Windows output loopback support. |
-| `src-tauri/src/managers/audio.rs` | Routes recordings between mic capture and Windows output loopback for live sound. |
+| `src-tauri/src/managers/audio.rs` | Routes recordings between mic capture and Windows output loopback for live sound, plus local-only release-tail buffering. |
 | `src-tauri/src/managers/transcription.rs` | Local STT runtime, now including transcribe-rs 0.3.1 backend updates, Canary support, Whisper/ORT accelerator selection wiring, and GigaAM v3 on the non-legacy API. |
 | `src-tauri/src/commands/file_transcription.rs` | Soniox async integration overrides and diarized speaker-session handling. |
 | `src-tauri/src/settings.rs` | Also stores saved diarization speaker-name set profiles for file transcription. |
