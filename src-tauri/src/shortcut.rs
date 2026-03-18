@@ -5452,3 +5452,15 @@ pub fn change_recording_auto_stop_paste_setting(app: AppHandle, paste: bool) -> 
     settings::write_settings(&app, settings);
     Ok(())
 }
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_extra_recording_buffer_setting(
+    app: AppHandle,
+    value_ms: u64,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.extra_recording_buffer_ms = value_ms.clamp(0, 1500);
+    settings::write_settings(&app, settings);
+    Ok(())
+}

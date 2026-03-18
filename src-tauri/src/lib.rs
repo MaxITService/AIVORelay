@@ -636,6 +636,7 @@ pub fn run() {
         shortcut::change_recording_auto_stop_enabled_setting,
         shortcut::change_recording_auto_stop_timeout_seconds_setting,
         shortcut::change_recording_auto_stop_paste_setting,
+        shortcut::change_extra_recording_buffer_setting,
         shortcut::change_ai_replace_system_prompt_setting,
         shortcut::change_ai_replace_user_prompt_setting,
         shortcut::change_ai_replace_max_chars_setting,

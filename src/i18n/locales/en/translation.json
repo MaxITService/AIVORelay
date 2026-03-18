@@ -1894,6 +1894,10 @@
         "label": "Mute While Recording",
         "description": "Mute system audio during recording"
       },
+      "recordingBuffer": {
+        "title": "Extra Local Recording Buffer",
+        "description": "Extra time in milliseconds to keep recording after you release the hotkey on local STT paths. Helps catch the tail end of a phrase without changing remote streaming behavior."
+      },
       "appendTrailingSpace": {
         "label": "[Legacy] Append Trailing Space",
         "description": "[Legacy] Deprecated debug option, no longer used."

@@ -1794,6 +1794,9 @@ pub struct AppSettings {
     /// When true, auto-stop pastes normally; when false, cancels/wipes the recording
     #[serde(default = "default_true")]
     pub recording_auto_stop_paste: bool,
+    /// Extra trailing capture time for local STT paths after hotkey release (0..1500 ms)
+    #[serde(default)]
+    pub extra_recording_buffer_ms: u64,
     // ==================== UI State ====================
     /// Whether the hotkey sidebar is pinned open
     #[serde(default)]
@@ -3029,6 +3032,7 @@ pub fn get_default_settings() -> AppSettings {
         recording_auto_stop_enabled: false,
         recording_auto_stop_timeout_seconds: 1800,
         recording_auto_stop_paste: false,
+        extra_recording_buffer_ms: 0,
         // Window Geometry
         remember_window_size: true,
         remember_window_position: true,

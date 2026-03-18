@@ -3,12 +3,15 @@ use crate::audio_toolkit::{
     AudioRecorder, SileroVad, StreamFrameCallback,
 };
 use crate::helpers::clamshell;
-use crate::settings::{get_settings, AppSettings, LiveSoundCaptureSource};
+use crate::settings::{
+    get_settings, resolve_live_sound_provider, AppSettings, LiveSoundCaptureSource,
+    TranscriptionProvider,
+};
 use crate::utils;
 use log::{debug, error, info, warn};
 use std::fmt;
 use std::sync::{Arc, Mutex};
-use std::time::Instant;
+use std::time::{Duration, Instant};
 use tauri::Manager;
 
 fn set_mute(mute: bool) {
@@ -201,6 +204,20 @@ fn create_audio_recorder(
     });
 
     Ok(recorder)
+}
+
+fn should_apply_extra_recording_buffer(settings: &AppSettings, binding_id: &str) -> bool {
+    if settings.extra_recording_buffer_ms == 0 {
+        return false;
+    }
+
+    let effective_provider = if binding_id == crate::actions::LIVE_SOUND_TRANSCRIPTION_BINDING_ID {
+        resolve_live_sound_provider(settings)
+    } else {
+        settings.transcription_provider
+    };
+
+    effective_provider == TranscriptionProvider::Local
 }
 
 /* ──────────────────────────────────────────────────────────────── */
@@ -591,6 +608,15 @@ impl AudioRecordingManager {
             } if active == binding_id => {
                 *state = RecordingState::Idle;
                 drop(state);
+
+                let settings = get_settings(&self.app_handle);
+                if should_apply_extra_recording_buffer(&settings, binding_id) {
+                    debug!(
+                        "Extra local recording buffer: sleeping {}ms before stopping",
+                        settings.extra_recording_buffer_ms
+                    );
+                    std::thread::sleep(Duration::from_millis(settings.extra_recording_buffer_ms));
+                }
 
                 let samples = if let Some(rec) = self.recorder.lock().unwrap().as_ref() {
                     match rec.stop() {
