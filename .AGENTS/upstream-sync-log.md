@@ -10,6 +10,7 @@ Rules:
 
 | Merge Date | Upstream Date | Upstream SHA | Upstream Message | Local SHA | Local Message | Issues |
 | --- | --- | --- | --- | --- | --- | --- |
+| 2026-03-18 | 2026-03-18 | `e1a484f7` | ci: reduce PR check time from ~30 min to ~1 min (#1073) | `5dc33a2d` | Consolidate PR code quality checks | partial port only; merged lint+prettier with concurrency/path filters, skipped nix/playwright/test pieces |
 | 2026-03-18 | 2026-03-18 | `5a3e6e33` | add extra recording buffer (#1089) | `ba2bba60` | Add local-only extra recording buffer | partial port only; kept remote Soniox/Deepgram buffer behavior unchanged |
 | 2026-03-18 | 2026-03-18 | `2eeb2129` | upgrade path from old giga-am to new (#1088) | `25a03b17` | Port GigaAM v3 directory migration | adapted onto fork transcribe-rs 0.3.x state; added vocab resource + old-format migration |
 | 2026-03-17 | 2026-03-17 | `d1da9354` | fix: auto-unload model after idle timeout to reduce memory (#1051) | `70163254` | Improve idle model unload behavior | adapted onto existing fork unload flow; kept fork events/settings structure |
@@ -19,7 +20,6 @@ Rules:
 | 2026-03-14 | 2026-03-11 | `dfd445d` | Add Windows microphone permission onboarding (#991) | `f3d8c86` | Add Windows microphone permission onboarding | adapted onto fork onboarding; covers remote-only and local setups; frontend uses `invoke` |
 | 2026-03-14 | 2026-03-06 | `e354c0a` | update dialog package.json | `c6dec17` | Pin dialog plugin to 2.6.x | current fork already on 2.6; lockfile intentionally untouched |
 | 2026-03-14 | 2026-03-11 | `d6ed1f9` | ui: improve scrollbar UI with custom colors and rounded thumb (#983) | `a272fd6` | Refine themed scrollbar styling | adapted onto fork dark theme instead of replacing existing look |
-| 2026-03-14 | 2026-03-14 | `e3a040c` | Remove `step` prop from VolumeSlider component (#944) | `abc12c7` | Simplify volume slider props | current slider already handles default stepping |
 
 Entry template:
 

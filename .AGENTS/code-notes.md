@@ -70,6 +70,7 @@ Files that are added by this fork rather than upstream files that were modified.
 | --- | --- |
 | `build-local.ps1` | Local rebuild script (Windows). |
 | `build-unsigned.js` | Unsigned build Node.js script. |
+| `.github/workflows/code-quality.yml` | Combined PR lint/format workflow with path filters and cancellation of stale runs. |
 | `.AGENTS/rebuild-browser-connector-bundle.ps1` | Rebuilds the tracked bundled browser-extension zip from the sibling `AIVORelay-relay` repo. |
 
 ## Fork-Differing Existing Files
