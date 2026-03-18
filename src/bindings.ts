@@ -1409,6 +1409,14 @@ async changeRecordingAutoStopPasteSetting(paste: boolean) : Promise<Result<null,
     else return { status: "error", error: e  as any };
 }
 },
+async changeExtraRecordingBufferSetting(valueMs: number) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("change_extra_recording_buffer_setting", { valueMs }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async changeAiReplaceSystemPromptSetting(prompt: string) : Promise<Result<null, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("change_ai_replace_system_prompt_setting", { prompt }) };
@@ -3263,6 +3271,10 @@ recording_auto_stop_timeout_seconds?: number;
  * When true, auto-stop pastes normally; when false, cancels/wipes the recording
  */
 recording_auto_stop_paste?: boolean; 
+/**
+ * Extra trailing capture time for local STT paths after hotkey release (0..1500 ms)
+ */
+extra_recording_buffer_ms?: number; 
 /**
  * Whether the hotkey sidebar is pinned open
  */
