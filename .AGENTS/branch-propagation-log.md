@@ -12,6 +12,8 @@ Rules:
 
 | Propagation Date | Target Branch | Main SHA | Main Message | Branch SHA | Branch Message | Issues |
 | --- | --- | --- | --- | --- | --- | --- |
+| 2026-03-19 | `cuda-integration` | `1a13f626` | fix(ui): stabilize microphone boost slider | `dc28b67f` | fix(ui): stabilize microphone boost slider | 2 picks; manual merge in `recorder.rs`, `settings.rs`, `lib.rs` |
+| 2026-03-19 | `Microsoft-store` | `1a13f626` | fix(ui): stabilize microphone boost slider | `b3b0b0f6` | fix(ui): stabilize microphone boost slider | 2 picks; manual merge in `recorder.rs`, `settings.rs`, `lib.rs` |
 | 2026-03-15 | `cuda-integration` | `ca08fe72` | feat(settings): repair invalid settings and bump version to 1.0.3 | `fc78b7b6` | feat(settings): repair invalid settings and bump version to 1.0.3 | clean cherry-pick |
 | 2026-03-15 | `Microsoft-store` | `ca08fe72` | feat(settings): repair invalid settings and bump version to 1.0.3 | `c0fbd1c3` | feat(settings): repair invalid settings and bump version to 1.0.3 | clean cherry-pick |
 | 2026-03-14 | `cuda-integration` | `7d594c0` | Fix immediate model switching state | `9c2f4f7` | Fix immediate model switching state | clean cherry-pick |

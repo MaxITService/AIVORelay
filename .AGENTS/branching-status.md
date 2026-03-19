@@ -5,7 +5,7 @@ Before starting a new `main` -> branch sync, verify the target branch directly w
 
 ## Microsoft-store
 
-Last synced commit from `main`: `ca08fe72` — feat(settings): repair invalid settings and bump version to 1.0.3.
+Last synced commit from `main`: `1a13f626` — fix(ui): stabilize microphone boost slider.
 Maintenance rule: after a successful `main` -> `Microsoft-store` propagation, update this main-copy cursor and the `Microsoft-store` worktree copy together.
 Note: the cursor always points to the last propagated commit, not the cursor-update commit itself (to avoid a circular hash dependency).
 Sync rule: for this branch, source commits come from `main` only.
@@ -13,7 +13,7 @@ Propagation scope rule: for Microsoft Store Edition propagation, bring over the 
 
 ## cuda-integration
 
-Last synced commit from `main`: `ca08fe72` — feat(settings): repair invalid settings and bump version to 1.0.3.
+Last synced commit from `main`: `1a13f626` — fix(ui): stabilize microphone boost slider.
 Maintenance rule: after a successful `main` -> `cuda-integration` propagation, update this main-copy cursor and the `cuda-integration` worktree copy together.
 Note: the cursor always points to the last propagated commit from `main`, not to CUDA-only commits that were created on top of it.
 Sync rule: for this branch, source commits come from `main` only.
