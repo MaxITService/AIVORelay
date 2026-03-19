@@ -629,13 +629,7 @@ fn run_consumer(
 
     const BUCKETS: usize = 16;
     const WINDOW_SIZE: usize = 512;
-    let mut visualizer = AudioVisualiser::new(
-        in_sample_rate,
-        WINDOW_SIZE,
-        BUCKETS,
-        400.0,
-        4000.0,
-    );
+    let mut visualizer = AudioVisualiser::new(in_sample_rate, WINDOW_SIZE, BUCKETS, 400.0, 4000.0);
 
     loop {
         while let Ok(cmd) = cmd_rx.try_recv() {
