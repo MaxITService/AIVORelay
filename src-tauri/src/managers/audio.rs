@@ -1,6 +1,6 @@
 use crate::audio_toolkit::{
-    list_input_devices, list_output_devices, vad::SmoothedVad, AudioCaptureSource,
-    AudioRecorder, SileroVad, StreamFrameCallback,
+    list_input_devices, list_output_devices, vad::SmoothedVad, AudioCaptureSource, AudioRecorder,
+    SileroVad, StreamFrameCallback,
 };
 use crate::helpers::clamshell;
 use crate::settings::{get_settings, AppSettings, LiveSoundCaptureSource};
@@ -273,7 +273,8 @@ impl AudioRecordingManager {
         settings: &AppSettings,
         binding_id: Option<&str>,
     ) -> ActiveRecorderSelection {
-        let use_live_sound_output = binding_id == Some(crate::actions::LIVE_SOUND_TRANSCRIPTION_BINDING_ID)
+        let use_live_sound_output = binding_id
+            == Some(crate::actions::LIVE_SOUND_TRANSCRIPTION_BINDING_ID)
             && settings.live_sound_capture_source == LiveSoundCaptureSource::SystemOutput;
 
         if use_live_sound_output {
@@ -289,7 +290,10 @@ impl AudioRecordingManager {
         }
     }
 
-    fn resolve_device_for_selection(&self, selection: &ActiveRecorderSelection) -> Option<cpal::Device> {
+    fn resolve_device_for_selection(
+        &self,
+        selection: &ActiveRecorderSelection,
+    ) -> Option<cpal::Device> {
         let Some(device_name) = selection.device_name.as_ref() else {
             return None;
         };
@@ -366,7 +370,10 @@ impl AudioRecordingManager {
         let is_open = *self.is_open.lock().unwrap();
         let active_selection = self.active_selection.lock().unwrap().clone();
         if is_open && active_selection.as_ref() == Some(&selection) {
-            debug!("Audio capture stream already active for {:?}", selection.source);
+            debug!(
+                "Audio capture stream already active for {:?}",
+                selection.source
+            );
             return Ok(());
         }
 
@@ -411,6 +418,9 @@ impl AudioRecordingManager {
         let selected_device = self.resolve_device_for_selection(&selection);
 
         if let Some(rec) = recorder_opt.as_mut() {
+            rec.set_microphone_input_boost_db(
+                settings.microphone_input_boost_db_for_device(selection.device_name.as_deref()),
+            );
             rec.open_with_source(selected_device, selection.source)
                 .map_err(|e| anyhow::anyhow!("Failed to open recorder: {}", e))?;
         }
@@ -510,7 +520,10 @@ impl AudioRecordingManager {
             if let Some(rec) = self.recorder.lock().unwrap().as_ref() {
                 if let Err(err) = rec.start() {
                     let message = err.to_string();
-                    error!("Failed to start recorder for binding {binding_id}: {}", message);
+                    error!(
+                        "Failed to start recorder for binding {binding_id}: {}",
+                        message
+                    );
                     return Err(StartRecordingError::RecorderStartFailed {
                         source: selection.source,
                         message,
@@ -572,8 +585,8 @@ impl AudioRecordingManager {
 
         if was_open {
             let settings = get_settings(&self.app_handle);
-            let selection =
-                restart_selection.unwrap_or_else(|| self.resolve_selection_for_binding(&settings, None));
+            let selection = restart_selection
+                .unwrap_or_else(|| self.resolve_selection_for_binding(&settings, None));
             if let Err(e) = self.start_stream_for_selection(selection, &settings) {
                 error!("Failed to restart audio capture stream after recorder invalidation: {e}");
             }
@@ -656,6 +669,22 @@ impl AudioRecordingManager {
     pub fn update_vad_threshold(&self, threshold: f32) {
         if let Some(rec) = self.recorder.lock().unwrap().as_ref() {
             rec.set_vad_threshold(threshold);
+        }
+    }
+
+    pub fn refresh_microphone_input_boost_from_settings(&self) {
+        let selection = self.active_selection.lock().unwrap().clone();
+        let settings = get_settings(&self.app_handle);
+
+        if let Some(rec) = self.recorder.lock().unwrap().as_ref() {
+            let boost_db = selection
+                .as_ref()
+                .filter(|selection| selection.source == AudioCaptureSource::Microphone)
+                .map(|selection| {
+                    settings.microphone_input_boost_db_for_device(selection.device_name.as_deref())
+                })
+                .unwrap_or(0.0);
+            rec.set_microphone_input_boost_db(boost_db);
         }
     }
 

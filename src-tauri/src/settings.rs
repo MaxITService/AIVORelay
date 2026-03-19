@@ -9,14 +9,15 @@ use tauri_plugin_store::StoreExt;
 
 use crate::url_security::{
     infer_remote_stt_preset, is_plain_http_url, remote_stt_base_url_for_preset,
-    LLM_ANTHROPIC_BASE_URL, LLM_CEREBRAS_BASE_URL, LLM_GROQ_BASE_URL,
-    LLM_OPENAI_BASE_URL, LLM_OPENROUTER_BASE_URL, LLM_ZAI_BASE_URL,
-    REMOTE_STT_GROQ_BASE_URL, REMOTE_STT_GROQ_DEFAULT_MODEL, REMOTE_STT_PRESET_GROQ,
+    LLM_ANTHROPIC_BASE_URL, LLM_CEREBRAS_BASE_URL, LLM_GROQ_BASE_URL, LLM_OPENAI_BASE_URL,
+    LLM_OPENROUTER_BASE_URL, LLM_ZAI_BASE_URL, REMOTE_STT_GROQ_BASE_URL,
+    REMOTE_STT_GROQ_DEFAULT_MODEL, REMOTE_STT_PRESET_GROQ,
 };
 
 pub const APPLE_INTELLIGENCE_PROVIDER_ID: &str = "apple_intelligence";
 pub const APPLE_INTELLIGENCE_DEFAULT_MODEL_ID: &str = "Apple Intelligence";
 pub const MAX_HISTORY_LIMIT: usize = 1000;
+pub const DEFAULT_MICROPHONE_INPUT_BOOST_DEVICE_KEY: &str = "__default__";
 
 #[derive(Serialize, Debug, Clone, Copy, PartialEq, Eq, Type)]
 #[serde(rename_all = "lowercase")]
@@ -866,6 +867,91 @@ pub enum SonioxLivePreviewSize {
 
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Type)]
 #[serde(rename_all = "snake_case")]
+pub enum RecordingOverlayTheme {
+    Classic,
+    Minimal,
+    Glass,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Type)]
+#[serde(rename_all = "snake_case")]
+pub enum RecordingOverlayBackgroundMode {
+    None,
+    Mist,
+    PetalsHaze,
+    SoftGlowField,
+    Stardust,
+    SilkFog,
+    FireflyVeil,
+    RoseSparks,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Type)]
+#[serde(rename_all = "snake_case")]
+pub enum RecordingOverlayMaterialMode {
+    LiquidGlass,
+    Pearl,
+    VelvetNeon,
+    Frost,
+    CandyChrome,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Type)]
+#[serde(rename_all = "snake_case")]
+pub enum RecordingOverlayCenterpieceMode {
+    None,
+    HaloCore,
+    AuroraRibbon,
+    OrbitalBeads,
+    BloomHeart,
+    SignalCrown,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Type)]
+#[serde(rename_all = "snake_case")]
+pub enum RecordingOverlayAnimatedBorderMode {
+    None,
+    ShimmerEdge,
+    TravelingHighlight,
+    BreathingContour,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Type)]
+#[serde(rename_all = "snake_case")]
+pub enum RecordingOverlayBarStyle {
+    Solid,
+    Capsule,
+    Glow,
+    Prism,
+    Radar,
+    Shards,
+    Retro,
+    Needles,
+    Orbit,
+    Aurora,
+    BloomBounce,
+    PulseRings,
+    Fireflies,
+    Helix,
+    Constellation,
+    Petals,
+    PetalRain,
+    Daisy,
+    Lotus,
+    GardenSway,
+    Matrix,
+    Skyline,
+    Comet,
+    Tuner,
+    Ember,
+    Hologram,
+    Vinyl,
+    Morse,
+    Crown,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Type)]
+#[serde(rename_all = "snake_case")]
 pub enum SonioxLivePreviewTheme {
     MainDark,
     Ocean,
@@ -899,6 +985,37 @@ pub enum ModelUnloadTimeout {
     Min15,
     Hour1,
     Sec5, // Debug mode only
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Type)]
+#[serde(rename_all = "snake_case")]
+pub enum WhisperAcceleratorSetting {
+    Auto,
+    Cpu,
+    Gpu,
+}
+
+impl Default for WhisperAcceleratorSetting {
+    fn default() -> Self {
+        WhisperAcceleratorSetting::Auto
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Type)]
+#[serde(rename_all = "snake_case")]
+pub enum OrtAcceleratorSetting {
+    Auto,
+    Cpu,
+    Cuda,
+    #[serde(rename = "directml")]
+    DirectMl,
+    Rocm,
+}
+
+impl Default for OrtAcceleratorSetting {
+    fn default() -> Self {
+        OrtAcceleratorSetting::Auto
+    }
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Type)]
@@ -948,7 +1065,7 @@ pub enum RecordingRetentionPeriod {
 
 impl Default for ModelUnloadTimeout {
     fn default() -> Self {
-        ModelUnloadTimeout::Never
+        ModelUnloadTimeout::Min5
     }
 }
 
@@ -1196,12 +1313,66 @@ pub struct AppSettings {
     pub selected_language: String,
     #[serde(default = "default_overlay_position")]
     pub overlay_position: OverlayPosition,
+    #[serde(default)]
+    pub auto_position_allow_reserved_areas: bool,
+    #[serde(default)]
+    pub recording_overlay_use_manual_position: bool,
+    #[serde(default = "default_recording_overlay_custom_x_px")]
+    pub recording_overlay_custom_x_px: i32,
+    #[serde(default = "default_recording_overlay_custom_y_px")]
+    pub recording_overlay_custom_y_px: i32,
     /// Auto-hide duration for error overlay in milliseconds.
     #[serde(default = "default_error_overlay_auto_hide_ms")]
     pub error_overlay_auto_hide_ms: u64,
     /// Show runtime errors in the recording overlay.
     #[serde(default = "default_true")]
     pub error_feedback_enabled: bool,
+    #[serde(default)]
+    pub recording_overlay_custom_enabled: bool,
+    #[serde(default)]
+    pub recording_overlay_show_drag_grip: bool,
+    #[serde(default = "default_recording_overlay_theme")]
+    pub recording_overlay_theme: RecordingOverlayTheme,
+    #[serde(default = "default_recording_overlay_background_mode")]
+    pub recording_overlay_background_mode: RecordingOverlayBackgroundMode,
+    #[serde(default = "default_recording_overlay_material_mode")]
+    pub recording_overlay_material_mode: RecordingOverlayMaterialMode,
+    #[serde(default = "default_recording_overlay_centerpiece_mode")]
+    pub recording_overlay_centerpiece_mode: RecordingOverlayCenterpieceMode,
+    #[serde(default = "default_recording_overlay_animated_border_mode")]
+    pub recording_overlay_animated_border_mode: RecordingOverlayAnimatedBorderMode,
+    #[serde(default = "default_true")]
+    pub recording_overlay_show_status_icon: bool,
+    #[serde(default = "default_recording_overlay_bar_count")]
+    pub recording_overlay_bar_count: u8,
+    #[serde(default = "default_recording_overlay_width_px")]
+    pub recording_overlay_width_px: u16,
+    #[serde(default = "default_recording_overlay_bar_width_px")]
+    pub recording_overlay_bar_width_px: u8,
+    #[serde(default = "default_recording_overlay_bar_style")]
+    pub recording_overlay_bar_style: RecordingOverlayBarStyle,
+    #[serde(default = "default_recording_overlay_accent_color")]
+    pub recording_overlay_accent_color: String,
+    #[serde(default = "default_recording_overlay_surface_base_color")]
+    pub recording_overlay_surface_base_color: String,
+    #[serde(default = "default_recording_overlay_body_background_color")]
+    pub recording_overlay_body_background_color: String,
+    #[serde(default)]
+    pub recording_overlay_audio_reactive_scale: bool,
+    #[serde(default = "default_recording_overlay_audio_reactive_scale_max_percent")]
+    pub recording_overlay_audio_reactive_scale_max_percent: u8,
+    #[serde(default = "default_recording_overlay_voice_sensitivity_percent")]
+    pub recording_overlay_voice_sensitivity_percent: u8,
+    #[serde(default = "default_recording_overlay_animation_softness_percent")]
+    pub recording_overlay_animation_softness_percent: u8,
+    #[serde(default = "default_recording_overlay_depth_parallax_percent")]
+    pub recording_overlay_depth_parallax_percent: u8,
+    #[serde(default = "default_recording_overlay_opacity_percent")]
+    pub recording_overlay_opacity_percent: u8,
+    #[serde(default)]
+    pub recording_overlay_silence_fade: bool,
+    #[serde(default = "default_recording_overlay_silence_opacity_percent")]
+    pub recording_overlay_silence_opacity_percent: u8,
     #[serde(default = "default_soniox_live_preview_enabled")]
     pub soniox_live_preview_enabled: bool,
     #[serde(default = "default_soniox_live_preview_position")]
@@ -1377,6 +1548,12 @@ pub struct AppSettings {
     pub mute_while_recording: bool,
     #[serde(default = "default_filter_silence")]
     pub filter_silence: bool,
+    /// Optional microphone-only preamp in dB, saved per microphone device name.
+    #[serde(default = "default_microphone_input_boost_db_by_device")]
+    pub microphone_input_boost_db_by_device: HashMap<String, f32>,
+    /// Optional microphone-only preamp in dB (0.0-12.0). Zero keeps the capture path vanilla.
+    #[serde(default = "default_microphone_input_boost_db")]
+    pub microphone_input_boost_db: f32,
     #[serde(default = "default_connector_port")]
     pub connector_port: u16,
     #[serde(default = "default_connector_enabled")]
@@ -1596,6 +1773,10 @@ pub struct AppSettings {
     /// Optional custom filler words. When set, overrides language defaults for filler filtering.
     #[serde(default)]
     pub custom_filler_words: Option<Vec<String>>,
+    #[serde(default)]
+    pub whisper_accelerator: WhisperAcceleratorSetting,
+    #[serde(default)]
+    pub ort_accelerator: OrtAcceleratorSetting,
     /// Whether to strip invisible Unicode characters (zero-width spaces, BOM) from LLM output
     #[serde(default = "default_true")]
     pub zero_width_filter_enabled: bool,
@@ -1620,6 +1801,9 @@ pub struct AppSettings {
     /// When true, auto-stop pastes normally; when false, cancels/wipes the recording
     #[serde(default = "default_true")]
     pub recording_auto_stop_paste: bool,
+    /// Extra trailing capture time for local STT paths after hotkey release (0..1500 ms)
+    #[serde(default)]
+    pub extra_recording_buffer_ms: u64,
     // ==================== UI State ====================
     /// Whether the hotkey sidebar is pinned open
     #[serde(default)]
@@ -1747,6 +1931,33 @@ fn default_vad_threshold() -> f32 {
     0.3 // Original Handy default - more sensitive
 }
 
+fn default_microphone_input_boost_db() -> f32 {
+    0.0
+}
+
+fn default_microphone_input_boost_db_by_device() -> HashMap<String, f32> {
+    HashMap::new()
+}
+
+pub fn sanitize_microphone_input_boost_db(db: f32) -> f32 {
+    if db.is_finite() {
+        db.clamp(0.0, 12.0)
+    } else {
+        0.0
+    }
+}
+
+pub fn microphone_input_boost_device_key(device_name: Option<&str>) -> String {
+    let normalized = device_name
+        .map(str::trim)
+        .filter(|name| !name.is_empty())
+        .filter(|name| !name.eq_ignore_ascii_case("default"));
+
+    normalized
+        .unwrap_or(DEFAULT_MICROPHONE_INPUT_BOOST_DEVICE_KEY)
+        .to_string()
+}
+
 fn default_always_on_microphone() -> bool {
     false
 }
@@ -1788,6 +1999,86 @@ fn default_overlay_position() -> OverlayPosition {
 
 fn default_error_overlay_auto_hide_ms() -> u64 {
     2000
+}
+
+fn default_recording_overlay_custom_x_px() -> i32 {
+    0
+}
+
+fn default_recording_overlay_custom_y_px() -> i32 {
+    0
+}
+
+fn default_recording_overlay_theme() -> RecordingOverlayTheme {
+    RecordingOverlayTheme::Classic
+}
+
+fn default_recording_overlay_background_mode() -> RecordingOverlayBackgroundMode {
+    RecordingOverlayBackgroundMode::None
+}
+
+fn default_recording_overlay_material_mode() -> RecordingOverlayMaterialMode {
+    RecordingOverlayMaterialMode::LiquidGlass
+}
+
+fn default_recording_overlay_centerpiece_mode() -> RecordingOverlayCenterpieceMode {
+    RecordingOverlayCenterpieceMode::None
+}
+
+fn default_recording_overlay_animated_border_mode() -> RecordingOverlayAnimatedBorderMode {
+    RecordingOverlayAnimatedBorderMode::None
+}
+
+fn default_recording_overlay_bar_count() -> u8 {
+    9
+}
+
+fn default_recording_overlay_width_px() -> u16 {
+    172
+}
+
+fn default_recording_overlay_bar_width_px() -> u8 {
+    6
+}
+
+fn default_recording_overlay_bar_style() -> RecordingOverlayBarStyle {
+    RecordingOverlayBarStyle::Solid
+}
+
+fn default_recording_overlay_accent_color() -> String {
+    "#ff4d8d".to_string()
+}
+
+fn default_recording_overlay_surface_base_color() -> String {
+    "#101216".to_string()
+}
+
+fn default_recording_overlay_body_background_color() -> String {
+    "#101216".to_string()
+}
+
+fn default_recording_overlay_audio_reactive_scale_max_percent() -> u8 {
+    12
+}
+
+fn default_recording_overlay_voice_sensitivity_percent() -> u8 {
+    50
+}
+
+fn default_recording_overlay_animation_softness_percent() -> u8 {
+    55
+}
+
+fn default_recording_overlay_depth_parallax_percent() -> u8 {
+    40
+}
+
+fn default_recording_overlay_opacity_percent() -> u8 {
+    100
+}
+
+fn default_recording_overlay_silence_opacity_percent() -> u8 {
+    58
 }
 
 fn default_soniox_live_preview_enabled() -> bool {
@@ -2035,7 +2326,7 @@ Example inputs and outputs:
 pub fn default_connector_password() -> String {
     // This hardcoded bootstrap password is only an onboarding fallback, and only if user uses very exotic, manual onboading,
     // while other methods are primary in this app.
-    // User DOES NOT need to use this at all and can be perfectly secure by using own password. 
+    // User DOES NOT need to use this at all and can be perfectly secure by using own password.
     // It is not the steady-state connector secret. The app rotates away from it or replaces it
     // during pairing/export, so its presence in source is not relied on as a
     // long-term security boundary.
@@ -2326,7 +2617,8 @@ fn ensure_remote_stt_defaults(settings: &mut AppSettings) -> bool {
             settings.remote_stt.allow_insecure_http = false;
             changed = true;
         }
-    } else if is_plain_http_url(&settings.remote_stt.base_url) && !settings.remote_stt.allow_insecure_http
+    } else if is_plain_http_url(&settings.remote_stt.base_url)
+        && !settings.remote_stt.allow_insecure_http
     {
         settings.remote_stt.allow_insecure_http = true;
         changed = true;
@@ -2556,8 +2848,40 @@ pub fn get_default_settings() -> AppSettings {
         translate_to_english: false,
         selected_language: "auto".to_string(),
         overlay_position: default_overlay_position(),
+        auto_position_allow_reserved_areas: false,
+        recording_overlay_use_manual_position: false,
+        recording_overlay_custom_x_px: default_recording_overlay_custom_x_px(),
+        recording_overlay_custom_y_px: default_recording_overlay_custom_y_px(),
         error_overlay_auto_hide_ms: default_error_overlay_auto_hide_ms(),
         error_feedback_enabled: default_true(),
+        recording_overlay_custom_enabled: false,
+        recording_overlay_show_drag_grip: false,
+        recording_overlay_theme: default_recording_overlay_theme(),
+        recording_overlay_background_mode: default_recording_overlay_background_mode(),
+        recording_overlay_material_mode: default_recording_overlay_material_mode(),
+        recording_overlay_centerpiece_mode: default_recording_overlay_centerpiece_mode(),
+        recording_overlay_animated_border_mode: default_recording_overlay_animated_border_mode(),
+        recording_overlay_show_status_icon: default_true(),
+        recording_overlay_bar_count: default_recording_overlay_bar_count(),
+        recording_overlay_width_px: default_recording_overlay_width_px(),
+        recording_overlay_bar_width_px: default_recording_overlay_bar_width_px(),
+        recording_overlay_bar_style: default_recording_overlay_bar_style(),
+        recording_overlay_accent_color: default_recording_overlay_accent_color(),
+        recording_overlay_surface_base_color: default_recording_overlay_surface_base_color(),
+        recording_overlay_body_background_color: default_recording_overlay_body_background_color(),
+        recording_overlay_audio_reactive_scale: false,
+        recording_overlay_audio_reactive_scale_max_percent:
+            default_recording_overlay_audio_reactive_scale_max_percent(),
+        recording_overlay_voice_sensitivity_percent:
+            default_recording_overlay_voice_sensitivity_percent(),
+        recording_overlay_animation_softness_percent:
+            default_recording_overlay_animation_softness_percent(),
+        recording_overlay_depth_parallax_percent: default_recording_overlay_depth_parallax_percent(
+        ),
+        recording_overlay_opacity_percent: default_recording_overlay_opacity_percent(),
+        recording_overlay_silence_fade: false,
+        recording_overlay_silence_opacity_percent:
+            default_recording_overlay_silence_opacity_percent(),
         soniox_live_preview_enabled: default_soniox_live_preview_enabled(),
         soniox_live_preview_position: default_soniox_live_preview_position(),
         soniox_live_preview_cursor_offset_px: default_soniox_live_preview_cursor_offset_px(),
@@ -2596,7 +2920,7 @@ pub fn get_default_settings() -> AppSettings {
         custom_words: Vec::new(),
         custom_words_enabled: default_custom_words_enabled(),
         custom_words_ngram_enabled: default_custom_words_ngram_enabled(),
-        model_unload_timeout: ModelUnloadTimeout::Never,
+        model_unload_timeout: ModelUnloadTimeout::default(),
         word_correction_threshold: default_word_correction_threshold(),
         history_limit: default_history_limit(),
         recording_retention_period: default_recording_retention_period(),
@@ -2645,6 +2969,8 @@ pub fn get_default_settings() -> AppSettings {
         ai_replace_selection_push_to_talk: true,
         mute_while_recording: false,
         filter_silence: default_filter_silence(),
+        microphone_input_boost_db_by_device: default_microphone_input_boost_db_by_device(),
+        microphone_input_boost_db: default_microphone_input_boost_db(),
         connector_port: default_connector_port(),
         connector_enabled: default_connector_enabled(),
         connector_encryption_enabled: default_connector_encryption_enabled(),
@@ -2729,6 +3055,8 @@ pub fn get_default_settings() -> AppSettings {
         // Audio Processing
         filler_word_filter_enabled: false,
         custom_filler_words: None,
+        whisper_accelerator: WhisperAcceleratorSetting::default(),
+        ort_accelerator: OrtAcceleratorSetting::default(),
         zero_width_filter_enabled: true,
         vad_threshold: default_vad_threshold(),
         // Shortcut Engine (Windows only)
@@ -2740,9 +3068,10 @@ pub fn get_default_settings() -> AppSettings {
         recording_auto_stop_enabled: false,
         recording_auto_stop_timeout_seconds: 1800,
         recording_auto_stop_paste: false,
+        extra_recording_buffer_ms: 0,
         // Window Geometry
-        remember_window_size: false,
-        remember_window_position: false,
+        remember_window_size: true,
+        remember_window_position: true,
         saved_window_width: 0,
         saved_window_height: 0,
         saved_window_x: i32::MIN,
@@ -2870,7 +3199,9 @@ fn set_value_at_path(target: &mut Value, path: &[JsonPathSegment], replacement: 
                 current = next;
             }
             JsonPathSegment::Index(index) => {
-                let Some(next) = current.as_array_mut().and_then(|items| items.get_mut(*index))
+                let Some(next) = current
+                    .as_array_mut()
+                    .and_then(|items| items.get_mut(*index))
                 else {
                     return false;
                 };
@@ -2913,7 +3244,9 @@ fn remove_value_at_path(target: &mut Value, path: &[JsonPathSegment]) -> bool {
                 current = next;
             }
             JsonPathSegment::Index(index) => {
-                let Some(next) = current.as_array_mut().and_then(|items| items.get_mut(*index))
+                let Some(next) = current
+                    .as_array_mut()
+                    .and_then(|items| items.get_mut(*index))
                 else {
                     return false;
                 };
@@ -2941,11 +3274,7 @@ fn remove_value_at_path(target: &mut Value, path: &[JsonPathSegment]) -> bool {
     }
 }
 
-fn repair_settings_value_at_path(
-    candidate: &mut Value,
-    default_value: &Value,
-    path: &str,
-) -> bool {
+fn repair_settings_value_at_path(candidate: &mut Value, default_value: &Value, path: &str) -> bool {
     let segments = parse_json_path(path);
     if segments.is_empty() {
         return false;
@@ -2996,6 +3325,15 @@ fn deserialize_settings_value_with_repair(settings_value: &Value) -> (AppSetting
 }
 
 impl AppSettings {
+    pub fn microphone_input_boost_db_for_device(&self, device_name: Option<&str>) -> f32 {
+        let key = microphone_input_boost_device_key(device_name);
+
+        self.microphone_input_boost_db_by_device
+            .get(&key)
+            .copied()
+            .unwrap_or(self.microphone_input_boost_db)
+    }
+
     pub fn active_post_process_provider(&self) -> Option<&PostProcessProvider> {
         self.post_process_providers
             .iter()

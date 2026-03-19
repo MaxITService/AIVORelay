@@ -25,6 +25,10 @@ interface SettingsStore {
   refreshSettings: () => Promise<void>;
   refreshAudioDevices: () => Promise<void>;
   refreshOutputDevices: () => Promise<void>;
+  updateMicrophoneInputBoostForDevice: (
+    deviceName: string,
+    db: number,
+  ) => Promise<void>;
   updateBinding: (id: string, binding: string) => Promise<void>;
   resetBinding: (id: string) => Promise<void>;
   getSetting: <K extends keyof Settings>(key: K) => Settings[K] | undefined;
@@ -83,6 +87,16 @@ const DEFAULT_AUDIO_DEVICE: AudioDevice = {
   index: "default",
   name: "Default",
   is_default: true,
+};
+
+const DEFAULT_MICROPHONE_INPUT_BOOST_DEVICE_KEY = "__default__";
+
+const microphoneInputBoostDeviceKey = (deviceName: string) => {
+  const normalized = deviceName.trim();
+  if (!normalized || normalized.toLowerCase() === "default") {
+    return DEFAULT_MICROPHONE_INPUT_BOOST_DEVICE_KEY;
+  }
+  return normalized;
 };
 
 const settingUpdaters: {
@@ -352,6 +366,10 @@ settingUpdaters.error_overlay_auto_hide_ms = (value) =>
 // Fork-specific settings not yet present in generated bindings.
 (settingUpdaters as any).recording_auto_stop_enabled = (value: any) =>
   invoke("change_recording_auto_stop_enabled_setting", { enabled: value });
+(settingUpdaters as any).microphone_input_boost_db = (value: any) =>
+  invoke("change_microphone_input_boost_db_setting", {
+    db: Number(value),
+  });
 (settingUpdaters as any).recording_auto_stop_timeout_seconds = (value: any) =>
   invoke("change_recording_auto_stop_timeout_seconds_setting", {
     seconds: value,
@@ -734,6 +752,75 @@ export const useSettingsStore = create<SettingsStore>()(
       } catch (error) {
         console.error("Failed to load output devices:", error);
         set({ outputDevices: [DEFAULT_AUDIO_DEVICE] });
+      }
+    },
+
+    updateMicrophoneInputBoostForDevice: async (deviceName: string, db: number) => {
+      const { setUpdating } = get();
+      const deviceKey = microphoneInputBoostDeviceKey(deviceName);
+      const updateKey = `microphone_input_boost_db_by_device:${deviceKey}`;
+      const sanitized = Number.isFinite(db) ? Math.max(0, Math.min(12, db)) : 0;
+      const originalSettings = get().settings;
+      const originalLegacyBoost = Number(
+        ((originalSettings as any)?.microphone_input_boost_db ?? 0) as number,
+      );
+      const originalBoostMap = {
+        ...((((originalSettings as any)?.microphone_input_boost_db_by_device ?? {}) as Record<
+          string,
+          number
+        >)),
+      };
+
+      setUpdating(updateKey, true);
+
+      try {
+        set((state) => {
+          if (!state.settings) {
+            return state;
+          }
+
+          const nextBoostMap = {
+            ...((((state.settings as any)?.microphone_input_boost_db_by_device ?? {}) as Record<
+              string,
+              number
+            >)),
+          };
+
+          if (sanitized <= 0) {
+            delete nextBoostMap[deviceKey];
+          } else {
+            nextBoostMap[deviceKey] = sanitized;
+          }
+
+          return {
+            settings: {
+              ...state.settings,
+              microphone_input_boost_db: 0,
+              microphone_input_boost_db_by_device: nextBoostMap,
+            } as any,
+          };
+        });
+
+        await invoke("change_microphone_input_boost_for_device_setting", {
+          deviceName,
+          db: sanitized,
+        });
+      } catch (error) {
+        console.error(
+          `Failed to update microphone input boost for ${deviceName}:`,
+          error,
+        );
+        set((state) => ({
+          settings: state.settings
+            ? ({
+                ...state.settings,
+                microphone_input_boost_db: originalLegacyBoost,
+                microphone_input_boost_db_by_device: originalBoostMap,
+              } as any)
+            : state.settings,
+        }));
+      } finally {
+        setUpdating(updateKey, false);
       }
     },
 

@@ -2,7 +2,10 @@ use crate::audio_feedback;
 use crate::audio_toolkit::audio::{list_input_devices, list_output_devices};
 use crate::managers::audio::{AudioRecordingManager, MicrophoneMode};
 use crate::managers::microphone_auto_switch;
-use crate::settings::{get_settings, write_settings, LiveSoundCaptureSource};
+use crate::settings::{
+    get_settings, microphone_input_boost_device_key, sanitize_microphone_input_boost_db,
+    write_settings, LiveSoundCaptureSource,
+};
 use log::warn;
 use serde::{Deserialize, Serialize};
 use specta::Type;
@@ -15,7 +18,7 @@ use std::process::Command;
 #[cfg(target_os = "windows")]
 use winreg::{
     enums::{HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE},
-    HKEY, RegKey,
+    RegKey, HKEY,
 };
 
 #[derive(Serialize, Type)]
@@ -208,10 +211,7 @@ pub fn set_selected_microphone(app: AppHandle, device_name: String) -> Result<()
         settings.last_manual_microphone = selected_microphone.clone();
     }
     write_settings(&app, settings);
-    microphone_auto_switch::remember_manual_microphone_selection(
-        &app,
-        selected_microphone.clone(),
-    );
+    microphone_auto_switch::remember_manual_microphone_selection(&app, selected_microphone.clone());
 
     // Update the audio manager to use the new device
     let rm = app.state::<Arc<AudioRecordingManager>>();
@@ -374,6 +374,50 @@ pub fn change_vad_threshold_setting(app: AppHandle, threshold: f32) -> Result<()
     // Update the audio manager immediately
     let rm = app.state::<Arc<AudioRecordingManager>>();
     rm.update_vad_threshold(threshold);
+
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_microphone_input_boost_db_setting(app: AppHandle, db: f32) -> Result<(), String> {
+    let sanitized = sanitize_microphone_input_boost_db(db);
+
+    let mut settings = get_settings(&app);
+    settings.microphone_input_boost_db = sanitized;
+    write_settings(&app, settings);
+
+    let rm = app.state::<Arc<AudioRecordingManager>>();
+    rm.refresh_microphone_input_boost_from_settings();
+    crate::managers::live_sound_audio::refresh_microphone_input_boost_from_settings(&app);
+
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_microphone_input_boost_for_device_setting(
+    app: AppHandle,
+    device_name: String,
+    db: f32,
+) -> Result<(), String> {
+    let sanitized = sanitize_microphone_input_boost_db(db);
+    let key = microphone_input_boost_device_key(Some(&device_name));
+
+    let mut settings = get_settings(&app);
+    if sanitized <= 0.0 {
+        settings.microphone_input_boost_db_by_device.remove(&key);
+    } else {
+        settings
+            .microphone_input_boost_db_by_device
+            .insert(key, sanitized);
+    }
+    settings.microphone_input_boost_db = 0.0;
+    write_settings(&app, settings);
+
+    let rm = app.state::<Arc<AudioRecordingManager>>();
+    rm.refresh_microphone_input_boost_from_settings();
+    crate::managers::live_sound_audio::refresh_microphone_input_boost_from_settings(&app);
 
     Ok(())
 }
