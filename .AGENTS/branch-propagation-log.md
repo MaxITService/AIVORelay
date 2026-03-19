@@ -12,6 +12,8 @@ Rules:
 
 | Propagation Date | Target Branch | Main SHA | Main Message | Branch SHA | Branch Message | Issues |
 | --- | --- | --- | --- | --- | --- | --- |
+| 2026-03-19 | `cuda-integration` | `f5bcf1bf` | docs(agents): allow safe local verification commands | `81c63888` | docs(agents): allow safe local verification commands | backfill cherry-pick |
+| 2026-03-19 | `Microsoft-store` | `f5bcf1bf` | docs(agents): allow safe local verification commands | `8c37a2e6` | docs(agents): allow safe local verification commands | backfill cherry-pick; `AGENTS.md` conflict |
 | 2026-03-19 | `cuda-integration` | `1a13f626` | fix(ui): stabilize microphone boost slider | `dc28b67f` | fix(ui): stabilize microphone boost slider | 2 picks; manual merge in `recorder.rs`, `settings.rs`, `lib.rs` |
 | 2026-03-19 | `Microsoft-store` | `1a13f626` | fix(ui): stabilize microphone boost slider | `b3b0b0f6` | fix(ui): stabilize microphone boost slider | 2 picks; manual merge in `recorder.rs`, `settings.rs`, `lib.rs` |
 | 2026-03-15 | `cuda-integration` | `ca08fe72` | feat(settings): repair invalid settings and bump version to 1.0.3 | `fc78b7b6` | feat(settings): repair invalid settings and bump version to 1.0.3 | clean cherry-pick |
@@ -21,8 +23,6 @@ Rules:
 | 2026-03-12 | `cuda-integration` | `0efb3f7` | fix: dropdown opens upward when at bottom of group; menu widens to fit long options | `41c6348` | fix: dropdown opens upward when at bottom of group; menu widens to fit long options | clean cherry-pick |
 | 2026-03-11 | `cuda-integration` | `6029d1e` | feat: show file transcription benchmark time | `a918c1b` | feat: show file transcription benchmark time | clean cherry-pick |
 | 2026-03-11 | `Microsoft-store` | `5fc34cd` | chore: bump version to 1.0.1 | `ba38285` | chore: bump version to 1.0.1 | store release bump |
-| 2026-03-11 | `Microsoft-store` | `ad387df` | fix(ai-replace): restore custom provider setup | `e133f59` | fix(ai-replace): restore custom provider setup | clean cherry-pick |
-| 2026-03-11 | `Microsoft-store` | `46566c1` | fix(voice-command): restore custom LLM endpoint config | `129ade1` | fix(voice-command): restore custom LLM endpoint config | clean cherry-pick |
 
 Entry template:
 
