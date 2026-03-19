@@ -1,6 +1,7 @@
 import React from "react";
 import { useTranslation } from "react-i18next";
 import { AutomaticMicrophoneMask } from "../AutomaticMicrophoneMask";
+import { MicrophoneInputBoost } from "../MicrophoneInputBoost";
 import { MicrophoneSelector } from "../MicrophoneSelector";
 import { SettingsGroup } from "../../ui/SettingsGroup";
 import { OutputDeviceSelector } from "../OutputDeviceSelector";
@@ -18,6 +19,7 @@ export const GeneralSettings: React.FC = () => {
 
       <SettingsGroup title={t("settings.sound.title")}>
         <MicrophoneSelector descriptionMode="tooltip" grouped={true} />
+        <MicrophoneInputBoost descriptionMode="tooltip" grouped={true} />
         <AutomaticMicrophoneMask descriptionMode="tooltip" grouped={true} />
         <AudioFeedback descriptionMode="tooltip" grouped={true} />
         <OutputDeviceSelector

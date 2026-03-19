@@ -181,12 +181,15 @@ fn initialize_core_logic(app_handle: &AppHandle) {
     app_handle.manage(tray::ManagedTrayState::default());
 
     let current_settings = settings::get_settings(app_handle);
-    app_handle.manage(managers::microphone_auto_switch::ManagedManualMicrophoneSelection::new(
-        current_settings
-            .last_manual_microphone
-            .clone()
-            .or(current_settings.selected_microphone.clone()),
-    ));
+    managers::transcription::apply_accelerator_settings(app_handle);
+    app_handle.manage(
+        managers::microphone_auto_switch::ManagedManualMicrophoneSelection::new(
+            current_settings
+                .last_manual_microphone
+                .clone()
+                .or(current_settings.selected_microphone.clone()),
+        ),
+    );
     crate::plus_overlay_state::set_error_overlay_auto_hide_ms(
         current_settings.error_overlay_auto_hide_ms,
     );
@@ -286,38 +289,32 @@ fn initialize_core_logic(app_handle: &AppHandle) {
         )
         .show_menu_on_left_click(false)
         .icon_as_template(true)
-        .on_tray_icon_event(|tray, event| {
-            match event {
-                tauri::tray::TrayIconEvent::Enter { .. } => {
-                    tray::refresh_tray_menu(tray.app_handle(), None);
-                }
-                tauri::tray::TrayIconEvent::DoubleClick {
-                    button: tauri::tray::MouseButton::Left,
-                    ..
-                } => {
-                    tray::refresh_tray_menu(tray.app_handle(), None);
-                    show_main_window(tray.app_handle());
-                }
-                _ => {}
+        .on_tray_icon_event(|tray, event| match event {
+            tauri::tray::TrayIconEvent::Enter { .. } => {
+                tray::refresh_tray_menu(tray.app_handle(), None);
             }
+            tauri::tray::TrayIconEvent::DoubleClick {
+                button: tauri::tray::MouseButton::Left,
+                ..
+            } => {
+                tray::refresh_tray_menu(tray.app_handle(), None);
+                show_main_window(tray.app_handle());
+            }
+            _ => {}
         })
         .on_menu_event(|app, event| {
             if let Some(selection) = tray::parse_microphone_menu_selection(event.id.as_ref()) {
                 let result = match selection {
-                    None => commands::audio::set_selected_microphone(
-                        app.clone(),
-                        "default".to_string(),
-                    ),
+                    None => {
+                        commands::audio::set_selected_microphone(app.clone(), "default".to_string())
+                    }
                     Some(device_index) => match commands::audio::get_available_microphones() {
                         Ok(devices) => {
                             if let Some(device) = devices
                                 .into_iter()
                                 .find(|device| !device.is_default && device.index == device_index)
                             {
-                                commands::audio::set_selected_microphone(
-                                    app.clone(),
-                                    device.name,
-                                )
+                                commands::audio::set_selected_microphone(app.clone(), device.name)
                             } else {
                                 log::warn!(
                                     "Tray microphone selection '{}' is no longer available.",
@@ -346,8 +343,7 @@ fn initialize_core_logic(app_handle: &AppHandle) {
                 return;
             }
 
-            if let Some(model_id) = event.id.as_ref().strip_prefix(tray::TRAY_MODEL_MENU_PREFIX)
-            {
+            if let Some(model_id) = event.id.as_ref().strip_prefix(tray::TRAY_MODEL_MENU_PREFIX) {
                 if model_id == settings::get_settings(app).selected_model {
                     return;
                 }
@@ -741,6 +737,8 @@ pub fn run() {
         commands::audio::set_live_sound_microphone,
         commands::audio::is_recording,
         commands::audio::change_vad_threshold_setting,
+        commands::audio::change_microphone_input_boost_db_setting,
+        commands::audio::change_microphone_input_boost_for_device_setting,
         commands::live_sound_transcription::live_sound_transcription_start,
         commands::live_sound_transcription::live_sound_transcription_stop,
         commands::live_sound_transcription::live_sound_transcription_clear,
@@ -912,18 +910,16 @@ pub fn run() {
                 }));
             }
             if settings.remember_window_position && settings.saved_window_x != i32::MIN {
-                let _ = main_window.set_position(tauri::Position::Physical(
-                    tauri::PhysicalPosition {
+                let _ =
+                    main_window.set_position(tauri::Position::Physical(tauri::PhysicalPosition {
                         x: settings.saved_window_x,
                         y: settings.saved_window_y,
-                    },
-                ));
+                    }));
             }
 
             initialize_core_logic(&app_handle);
 
-            let should_force_show_permissions =
-                should_force_show_permissions_window(&app_handle);
+            let should_force_show_permissions = should_force_show_permissions_window(&app_handle);
 
             // Show main window only if not starting hidden, unless permission onboarding must be shown
             if !settings.start_hidden || should_force_show_permissions {

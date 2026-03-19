@@ -38,7 +38,7 @@ export const AudioProcessingSettings: React.FC = () => {
         <FilterSilence descriptionMode="tooltip" grouped={true} />
 
         {/* VAD Threshold */}
-        <div className="px-4 py-4">
+        <div className="px-4 py-4 border-t border-white/[0.05]">
           <div className="flex items-center justify-between mb-2">
             <label className="text-sm text-[#f5f5f5]">
               {t("audioProcessing.vadThreshold", "Voice Detection Sensitivity")}
