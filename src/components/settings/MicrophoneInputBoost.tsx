@@ -25,7 +25,7 @@ export const MicrophoneInputBoost: React.FC<MicrophoneInputBoostProps> = React.m
     disabled = false,
   }) => {
     const { t } = useTranslation();
-    const { settings, getSetting, isUpdating, updateMicrophoneInputBoostForDevice } =
+    const { settings, getSetting, updateMicrophoneInputBoostForDevice } =
       useSettings();
 
     const selectedMicrophone =
@@ -43,16 +43,84 @@ export const MicrophoneInputBoost: React.FC<MicrophoneInputBoostProps> = React.m
     const microphoneInputBoostDb =
       boostMap[deviceKey] ??
       (((settings as any)?.microphone_input_boost_db as number | undefined) ?? 0);
-    const updateKey = `microphone_input_boost_db_by_device:${deviceKey}`;
-    const isBusy = disabled || isUpdating(updateKey);
+
+    const [draftValue, setDraftValue] = React.useState(microphoneInputBoostDb);
+    const [isInteracting, setIsInteracting] = React.useState(false);
+    const [isSaving, setIsSaving] = React.useState(false);
+    const latestValueRef = React.useRef(microphoneInputBoostDb);
+
+    React.useEffect(() => {
+      latestValueRef.current = draftValue;
+    }, [draftValue]);
+
+    React.useEffect(() => {
+      if (isInteracting || isSaving) {
+        return;
+      }
+
+      setDraftValue(microphoneInputBoostDb);
+      latestValueRef.current = microphoneInputBoostDb;
+    }, [isInteracting, isSaving, microphoneInputBoostDb, deviceKey]);
+
+    const commitValue = React.useCallback(
+      async (nextValue?: number) => {
+        const valueToCommit = Math.max(
+          0,
+          Math.min(12, nextValue ?? latestValueRef.current),
+        );
+        setIsInteracting(false);
+
+        if (valueToCommit === microphoneInputBoostDb) {
+          setDraftValue(microphoneInputBoostDb);
+          latestValueRef.current = microphoneInputBoostDb;
+          return;
+        }
+
+        setIsSaving(true);
+        try {
+          await updateMicrophoneInputBoostForDevice(
+            selectedMicrophone,
+            valueToCommit,
+          );
+        } finally {
+          setIsSaving(false);
+        }
+      },
+      [
+        microphoneInputBoostDb,
+        selectedMicrophone,
+        updateMicrophoneInputBoostForDevice,
+      ],
+    );
+
+    React.useEffect(() => {
+      if (!isInteracting) {
+        return;
+      }
+
+      const handleInteractionEnd = () => {
+        void commitValue();
+      };
+
+      window.addEventListener("mouseup", handleInteractionEnd);
+      window.addEventListener("touchend", handleInteractionEnd);
+      window.addEventListener("touchcancel", handleInteractionEnd);
+
+      return () => {
+        window.removeEventListener("mouseup", handleInteractionEnd);
+        window.removeEventListener("touchend", handleInteractionEnd);
+        window.removeEventListener("touchcancel", handleInteractionEnd);
+      };
+    }, [commitValue, isInteracting]);
 
     const handleReset = async () => {
-      await updateMicrophoneInputBoostForDevice(selectedMicrophone, 0);
+      setDraftValue(0);
+      latestValueRef.current = 0;
+      await commitValue(0);
     };
 
-    const handleChange = async (value: number) => {
-      await updateMicrophoneInputBoostForDevice(selectedMicrophone, value);
-    };
+    const displayValue = draftValue <= 0 ? 0 : draftValue;
+    const isBusy = disabled || isSaving;
 
     return (
       <SettingContainer
@@ -66,21 +134,22 @@ export const MicrophoneInputBoost: React.FC<MicrophoneInputBoostProps> = React.m
         )}
         descriptionMode={descriptionMode}
         grouped={grouped}
+        layout="stacked"
         disabled={disabled}
       >
-        <div className="space-y-3">
-          <div className="flex items-center justify-between gap-3">
-            <span className="text-xs text-[#808080]">
+        <div className="w-full space-y-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <span className="text-xs text-[#808080] break-all">
               {t("settings.sound.microphone.boost.appliesTo", {
                 defaultValue: "Applies to: {{name}}",
                 name: selectedMicrophone,
               })}
             </span>
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-3 ml-auto">
               <span className="text-sm text-[#9b5de5] font-mono min-w-[52px] text-right">
-                {microphoneInputBoostDb <= 0
+                {displayValue <= 0
                   ? t("settings.sound.microphone.boost.off", "Off")
-                  : `+${microphoneInputBoostDb.toFixed(0)} dB`}
+                  : `+${displayValue.toFixed(0)} dB`}
               </span>
               <button
                 onClick={() => void handleReset()}
@@ -98,9 +167,36 @@ export const MicrophoneInputBoost: React.FC<MicrophoneInputBoostProps> = React.m
             min="0"
             max="12"
             step="1"
-            value={microphoneInputBoostDb}
-            onChange={(e) => void handleChange(parseFloat(e.target.value))}
-            className="w-full h-2 bg-[#252525] rounded-lg appearance-none cursor-pointer accent-[#9b5de5]"
+            value={displayValue}
+            onChange={(e) => {
+              const nextValue = parseFloat(e.target.value);
+              setDraftValue(nextValue);
+              latestValueRef.current = nextValue;
+            }}
+            onMouseDown={() => setIsInteracting(true)}
+            onTouchStart={() => setIsInteracting(true)}
+            onBlur={() => {
+              if (!isInteracting) {
+                void commitValue();
+              }
+            }}
+            onKeyUp={(event) => {
+              if (
+                event.key.startsWith("Arrow") ||
+                event.key === "Home" ||
+                event.key === "End" ||
+                event.key === "PageUp" ||
+                event.key === "PageDown"
+              ) {
+                void commitValue();
+              }
+            }}
+            className="w-full h-2 rounded-full appearance-none cursor-pointer focus:outline-none focus:ring-2 focus:ring-[#9b5de5]/40 disabled:opacity-40 disabled:cursor-not-allowed"
+            style={{
+              background: `linear-gradient(to right, #9b5de5 ${
+                (displayValue / 12) * 100
+              }%, #252525 ${(displayValue / 12) * 100}%)`,
+            }}
             disabled={isBusy}
           />
 
