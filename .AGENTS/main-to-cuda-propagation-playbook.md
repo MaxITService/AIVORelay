@@ -63,9 +63,10 @@ Always propagate from `main`.
 5. If conflicts are small and safe, resolve and continue.
 6. If conflicts are many/high-risk, run `git cherry-pick --abort` and switch to diff-path using `.AGENTS/.UNTRACKED/<sha>.diff.txt`.
 7. Record resulting local commit hashes.
-8. Update [[.AGENTS/branch-propagation-log|branch-propagation-log.md]] after successful propagation.
-9. Update [[.AGENTS/branching-status|branching-status.md]] after successful propagation.
-10. Return to the original branch if needed.
+8. Update [[.AGENTS/branch-propagation-log|branch-propagation-log.md]] in the target branch worktree after successful propagation.
+9. Update [[.AGENTS/branching-status|branching-status.md]] in the target branch worktree after successful propagation.
+10. Mirror the same propagation-log entry and cursor update back into `main`'s `.AGENTS` docs before considering the sync finished.
+11. Return to the original branch if needed.
 
 ## Cargo.lock
 
