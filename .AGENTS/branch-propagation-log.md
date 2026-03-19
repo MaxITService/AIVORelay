@@ -8,6 +8,7 @@ Rules:
 - Use one row per branch propagation event.
 - On new entry #11, remove the oldest row.
 - Keep issue notes very short.
+- After a successful propagation, mirror the same new row in both `main` and the target branch worktree copy of this file.
 
 | Propagation Date | Target Branch | Main SHA | Main Message | Branch SHA | Branch Message | Issues |
 | --- | --- | --- | --- | --- | --- | --- |

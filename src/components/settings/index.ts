@@ -17,6 +17,7 @@ export { LiveSoundTranscriptionSettings } from "./live-sound-transcription/LiveS
 
 // Individual setting components
 export { MicrophoneSelector } from "./MicrophoneSelector";
+export { MicrophoneInputBoost } from "./MicrophoneInputBoost";
 export { ClamshellMicrophoneSelector } from "./ClamshellMicrophoneSelector";
 export { OutputDeviceSelector } from "./OutputDeviceSelector";
 export { AlwaysOnMicrophone } from "./AlwaysOnMicrophone";

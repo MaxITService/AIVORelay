@@ -1,4 +1,5 @@
 use std::{
+    borrow::Cow,
     io::{Error, ErrorKind},
     sync::{
         atomic::{AtomicBool, Ordering},
@@ -45,6 +46,7 @@ pub struct AudioRecorder {
     vad: Option<Arc<Mutex<Box<dyn vad::VoiceActivityDetector>>>>,
     level_cb: Option<Arc<dyn Fn(Vec<f32>) + Send + Sync + 'static>>,
     stream_frame_cb: Arc<Mutex<Option<StreamFrameCallback>>>,
+    microphone_input_gain: Arc<Mutex<f32>>,
 }
 
 impl AudioRecorder {
@@ -56,6 +58,7 @@ impl AudioRecorder {
             vad: None,
             level_cb: None,
             stream_frame_cb: Arc::new(Mutex::new(None)),
+            microphone_input_gain: Arc::new(Mutex::new(1.0)),
         })
     }
 
@@ -69,6 +72,11 @@ impl AudioRecorder {
         F: Fn(Vec<f32>) + Send + Sync + 'static,
     {
         self.level_cb = Some(Arc::new(cb));
+        self
+    }
+
+    pub fn with_microphone_input_boost_db(self, db: f32) -> Self {
+        self.set_microphone_input_boost_db(db);
         self
     }
 
@@ -114,6 +122,7 @@ impl AudioRecorder {
         let vad = self.vad.clone();
         let level_cb = self.level_cb.clone();
         let stream_frame_cb = Arc::clone(&self.stream_frame_cb);
+        let microphone_input_gain = Arc::clone(&self.microphone_input_gain);
 
         let worker = std::thread::spawn(move || {
             let stop_flag = Arc::new(AtomicBool::new(false));
@@ -196,6 +205,8 @@ impl AudioRecorder {
                         cmd_rx,
                         level_cb,
                         stream_frame_cb,
+                        source,
+                        microphone_input_gain,
                         stop_flag,
                     );
                     drop(stream);
@@ -262,6 +273,12 @@ impl AudioRecorder {
     pub fn set_vad_threshold(&self, threshold: f32) {
         if let Some(vad) = &self.vad {
             vad.lock().unwrap().set_threshold(threshold);
+        }
+    }
+
+    pub fn set_microphone_input_boost_db(&self, db: f32) {
+        if let Ok(mut gain) = self.microphone_input_gain.lock() {
+            *gain = microphone_input_gain_from_db(db);
         }
     }
 
@@ -406,6 +423,19 @@ mod tests {
     fn does_not_match_unrelated_errors() {
         assert!(!is_microphone_access_denied("device not found"));
     }
+
+    #[test]
+    fn microphone_input_boost_defaults_to_no_gain() {
+        assert_eq!(super::microphone_input_gain_from_db(0.0), 1.0);
+        assert_eq!(super::microphone_input_gain_from_db(-5.0), 1.0);
+    }
+
+    #[test]
+    fn microphone_input_boost_clamps_to_supported_range() {
+        let gain = super::microphone_input_gain_from_db(30.0);
+        let expected = 10f32.powf(12.0 / 20.0);
+        assert!((gain - expected).abs() < 0.0001);
+    }
 }
 
 fn handle_frame(
@@ -429,6 +459,44 @@ fn handle_frame(
     }
 }
 
+fn microphone_input_gain_from_db(db: f32) -> f32 {
+    let sanitized = if db.is_finite() {
+        db.clamp(0.0, 12.0)
+    } else {
+        0.0
+    };
+    if sanitized <= 0.0 {
+        1.0
+    } else {
+        10f32.powf(sanitized / 20.0)
+    }
+}
+
+fn apply_input_gain_if_needed<'a>(
+    samples: &'a [f32],
+    source: AudioCaptureSource,
+    microphone_input_gain: &Arc<Mutex<f32>>,
+) -> Cow<'a, [f32]> {
+    if source != AudioCaptureSource::Microphone {
+        return Cow::Borrowed(samples);
+    }
+
+    let gain = microphone_input_gain
+        .lock()
+        .map(|guard| *guard)
+        .unwrap_or(1.0);
+    if (gain - 1.0).abs() <= f32::EPSILON {
+        return Cow::Borrowed(samples);
+    }
+
+    Cow::Owned(
+        samples
+            .iter()
+            .map(|sample| (*sample * gain).clamp(-1.0, 1.0))
+            .collect(),
+    )
+}
+
 fn process_consumer_cmd(
     cmd: Cmd,
     recording: &mut bool,
@@ -437,6 +505,8 @@ fn process_consumer_cmd(
     frame_resampler: &mut FrameResampler,
     vad: &Option<Arc<Mutex<Box<dyn vad::VoiceActivityDetector>>>>,
     visualizer: &mut AudioVisualiser,
+    source: AudioCaptureSource,
+    microphone_input_gain: &Arc<Mutex<f32>>,
     stop_flag: &Arc<AtomicBool>,
 ) -> bool {
     match cmd {
@@ -458,7 +528,9 @@ fn process_consumer_cmd(
                 match sample_rx.recv_timeout(Duration::from_secs(2)) {
                     Ok(AudioChunk::Samples(remaining)) => {
                         frame_resampler.push(&remaining, &mut |frame: &[f32]| {
-                            handle_frame(frame, true, vad, processed_samples)
+                            let adjusted =
+                                apply_input_gain_if_needed(frame, source, microphone_input_gain);
+                            handle_frame(adjusted.as_ref(), true, vad, processed_samples)
                         });
                     }
                     Ok(AudioChunk::EndOfStream) => break,
@@ -470,7 +542,8 @@ fn process_consumer_cmd(
             }
 
             frame_resampler.finish(&mut |frame: &[f32]| {
-                handle_frame(frame, true, vad, processed_samples)
+                let adjusted = apply_input_gain_if_needed(frame, source, microphone_input_gain);
+                handle_frame(adjusted.as_ref(), true, vad, processed_samples)
             });
 
             let _ = reply_tx.send(std::mem::take(processed_samples));
@@ -492,6 +565,8 @@ fn run_consumer(
     cmd_rx: mpsc::Receiver<Cmd>,
     level_cb: Option<Arc<dyn Fn(Vec<f32>) + Send + Sync + 'static>>,
     stream_frame_cb: Arc<Mutex<Option<StreamFrameCallback>>>,
+    source: AudioCaptureSource,
+    microphone_input_gain: Arc<Mutex<f32>>,
     stop_flag: Arc<AtomicBool>,
 ) {
     let mut frame_resampler = FrameResampler::new(
@@ -505,13 +580,7 @@ fn run_consumer(
 
     const BUCKETS: usize = 16;
     const WINDOW_SIZE: usize = 512;
-    let mut visualizer = AudioVisualiser::new(
-        in_sample_rate,
-        WINDOW_SIZE,
-        BUCKETS,
-        400.0,
-        4000.0,
-    );
+    let mut visualizer = AudioVisualiser::new(in_sample_rate, WINDOW_SIZE, BUCKETS, 400.0, 4000.0);
 
     loop {
         while let Ok(cmd) = cmd_rx.try_recv() {
@@ -523,6 +592,8 @@ fn run_consumer(
                 &mut frame_resampler,
                 &vad,
                 &mut visualizer,
+                source,
+                &microphone_input_gain,
                 &stop_flag,
             ) {
                 return;
@@ -547,13 +618,14 @@ fn run_consumer(
         }
 
         frame_resampler.push(&raw, &mut |frame: &[f32]| {
+            let adjusted = apply_input_gain_if_needed(frame, source, &microphone_input_gain);
             if recording {
                 let callback = stream_frame_cb.lock().ok().and_then(|guard| guard.clone());
                 if let Some(cb) = callback {
-                    cb(frame.to_vec());
+                    cb(adjusted.to_vec());
                 }
             }
-            handle_frame(frame, recording, &vad, &mut processed_samples)
+            handle_frame(adjusted.as_ref(), recording, &vad, &mut processed_samples)
         });
 
         while let Ok(cmd) = cmd_rx.try_recv() {
@@ -565,6 +637,8 @@ fn run_consumer(
                 &mut frame_resampler,
                 &vad,
                 &mut visualizer,
+                source,
+                &microphone_input_gain,
                 &stop_flag,
             ) {
                 return;

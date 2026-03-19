@@ -9,14 +9,15 @@ use tauri_plugin_store::StoreExt;
 
 use crate::url_security::{
     infer_remote_stt_preset, is_plain_http_url, remote_stt_base_url_for_preset,
-    LLM_ANTHROPIC_BASE_URL, LLM_CEREBRAS_BASE_URL, LLM_GROQ_BASE_URL,
-    LLM_OPENAI_BASE_URL, LLM_OPENROUTER_BASE_URL, LLM_ZAI_BASE_URL,
-    REMOTE_STT_GROQ_BASE_URL, REMOTE_STT_GROQ_DEFAULT_MODEL, REMOTE_STT_PRESET_GROQ,
+    LLM_ANTHROPIC_BASE_URL, LLM_CEREBRAS_BASE_URL, LLM_GROQ_BASE_URL, LLM_OPENAI_BASE_URL,
+    LLM_OPENROUTER_BASE_URL, LLM_ZAI_BASE_URL, REMOTE_STT_GROQ_BASE_URL,
+    REMOTE_STT_GROQ_DEFAULT_MODEL, REMOTE_STT_PRESET_GROQ,
 };
 
 pub const APPLE_INTELLIGENCE_PROVIDER_ID: &str = "apple_intelligence";
 pub const APPLE_INTELLIGENCE_DEFAULT_MODEL_ID: &str = "Apple Intelligence";
 pub const MAX_HISTORY_LIMIT: usize = 1000;
+pub const DEFAULT_MICROPHONE_INPUT_BOOST_DEVICE_KEY: &str = "__default__";
 
 #[derive(Serialize, Debug, Clone, Copy, PartialEq, Eq, Type)]
 #[serde(rename_all = "lowercase")]
@@ -1547,6 +1548,12 @@ pub struct AppSettings {
     pub mute_while_recording: bool,
     #[serde(default = "default_filter_silence")]
     pub filter_silence: bool,
+    /// Optional microphone-only preamp in dB, saved per microphone device name.
+    #[serde(default = "default_microphone_input_boost_db_by_device")]
+    pub microphone_input_boost_db_by_device: HashMap<String, f32>,
+    /// Optional microphone-only preamp in dB (0.0-12.0). Zero keeps the capture path vanilla.
+    #[serde(default = "default_microphone_input_boost_db")]
+    pub microphone_input_boost_db: f32,
     #[serde(default = "default_connector_port")]
     pub connector_port: u16,
     #[serde(default = "default_connector_enabled")]
@@ -1924,6 +1931,33 @@ fn default_vad_threshold() -> f32 {
     0.3 // Original Handy default - more sensitive
 }
 
+fn default_microphone_input_boost_db() -> f32 {
+    0.0
+}
+
+fn default_microphone_input_boost_db_by_device() -> HashMap<String, f32> {
+    HashMap::new()
+}
+
+pub fn sanitize_microphone_input_boost_db(db: f32) -> f32 {
+    if db.is_finite() {
+        db.clamp(0.0, 12.0)
+    } else {
+        0.0
+    }
+}
+
+pub fn microphone_input_boost_device_key(device_name: Option<&str>) -> String {
+    let normalized = device_name
+        .map(str::trim)
+        .filter(|name| !name.is_empty())
+        .filter(|name| !name.eq_ignore_ascii_case("default"));
+
+    normalized
+        .unwrap_or(DEFAULT_MICROPHONE_INPUT_BOOST_DEVICE_KEY)
+        .to_string()
+}
+
 fn default_always_on_microphone() -> bool {
     false
 }
@@ -2292,7 +2326,7 @@ Example inputs and outputs:
 pub fn default_connector_password() -> String {
     // This hardcoded bootstrap password is only an onboarding fallback, and only if user uses very exotic, manual onboading,
     // while other methods are primary in this app.
-    // User DOES NOT need to use this at all and can be perfectly secure by using own password. 
+    // User DOES NOT need to use this at all and can be perfectly secure by using own password.
     // It is not the steady-state connector secret. The app rotates away from it or replaces it
     // during pairing/export, so its presence in source is not relied on as a
     // long-term security boundary.
@@ -2583,7 +2617,8 @@ fn ensure_remote_stt_defaults(settings: &mut AppSettings) -> bool {
             settings.remote_stt.allow_insecure_http = false;
             changed = true;
         }
-    } else if is_plain_http_url(&settings.remote_stt.base_url) && !settings.remote_stt.allow_insecure_http
+    } else if is_plain_http_url(&settings.remote_stt.base_url)
+        && !settings.remote_stt.allow_insecure_http
     {
         settings.remote_stt.allow_insecure_http = true;
         changed = true;
@@ -2833,8 +2868,7 @@ pub fn get_default_settings() -> AppSettings {
         recording_overlay_bar_style: default_recording_overlay_bar_style(),
         recording_overlay_accent_color: default_recording_overlay_accent_color(),
         recording_overlay_surface_base_color: default_recording_overlay_surface_base_color(),
-        recording_overlay_body_background_color:
-            default_recording_overlay_body_background_color(),
+        recording_overlay_body_background_color: default_recording_overlay_body_background_color(),
         recording_overlay_audio_reactive_scale: false,
         recording_overlay_audio_reactive_scale_max_percent:
             default_recording_overlay_audio_reactive_scale_max_percent(),
@@ -2842,8 +2876,8 @@ pub fn get_default_settings() -> AppSettings {
             default_recording_overlay_voice_sensitivity_percent(),
         recording_overlay_animation_softness_percent:
             default_recording_overlay_animation_softness_percent(),
-        recording_overlay_depth_parallax_percent:
-            default_recording_overlay_depth_parallax_percent(),
+        recording_overlay_depth_parallax_percent: default_recording_overlay_depth_parallax_percent(
+        ),
         recording_overlay_opacity_percent: default_recording_overlay_opacity_percent(),
         recording_overlay_silence_fade: false,
         recording_overlay_silence_opacity_percent:
@@ -2935,6 +2969,8 @@ pub fn get_default_settings() -> AppSettings {
         ai_replace_selection_push_to_talk: true,
         mute_while_recording: false,
         filter_silence: default_filter_silence(),
+        microphone_input_boost_db_by_device: default_microphone_input_boost_db_by_device(),
+        microphone_input_boost_db: default_microphone_input_boost_db(),
         connector_port: default_connector_port(),
         connector_enabled: default_connector_enabled(),
         connector_encryption_enabled: default_connector_encryption_enabled(),
@@ -3163,7 +3199,9 @@ fn set_value_at_path(target: &mut Value, path: &[JsonPathSegment], replacement: 
                 current = next;
             }
             JsonPathSegment::Index(index) => {
-                let Some(next) = current.as_array_mut().and_then(|items| items.get_mut(*index))
+                let Some(next) = current
+                    .as_array_mut()
+                    .and_then(|items| items.get_mut(*index))
                 else {
                     return false;
                 };
@@ -3206,7 +3244,9 @@ fn remove_value_at_path(target: &mut Value, path: &[JsonPathSegment]) -> bool {
                 current = next;
             }
             JsonPathSegment::Index(index) => {
-                let Some(next) = current.as_array_mut().and_then(|items| items.get_mut(*index))
+                let Some(next) = current
+                    .as_array_mut()
+                    .and_then(|items| items.get_mut(*index))
                 else {
                     return false;
                 };
@@ -3234,11 +3274,7 @@ fn remove_value_at_path(target: &mut Value, path: &[JsonPathSegment]) -> bool {
     }
 }
 
-fn repair_settings_value_at_path(
-    candidate: &mut Value,
-    default_value: &Value,
-    path: &str,
-) -> bool {
+fn repair_settings_value_at_path(candidate: &mut Value, default_value: &Value, path: &str) -> bool {
     let segments = parse_json_path(path);
     if segments.is_empty() {
         return false;
@@ -3289,6 +3325,15 @@ fn deserialize_settings_value_with_repair(settings_value: &Value) -> (AppSetting
 }
 
 impl AppSettings {
+    pub fn microphone_input_boost_db_for_device(&self, device_name: Option<&str>) -> f32 {
+        let key = microphone_input_boost_device_key(device_name);
+
+        self.microphone_input_boost_db_by_device
+            .get(&key)
+            .copied()
+            .unwrap_or(self.microphone_input_boost_db)
+    }
+
     pub fn active_post_process_provider(&self) -> Option<&PostProcessProvider> {
         self.post_process_providers
             .iter()

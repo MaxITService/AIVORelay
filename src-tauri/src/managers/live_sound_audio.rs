@@ -23,21 +23,20 @@ enum ActiveRealtimeManager {
 }
 
 struct LiveSoundAudioSession {
+    primary_source: AudioCaptureSource,
+    primary_device_name: Option<String>,
+    mic_device_name: Option<String>,
     recorder: AudioRecorder,
     /// Second recorder used only in `Both` mode (mic alongside loopback).
     mic_recorder: Option<AudioRecorder>,
     realtime: Option<ActiveRealtimeManager>,
 }
 
-static SESSION: LazyLock<Mutex<Option<LiveSoundAudioSession>>> =
-    LazyLock::new(|| Mutex::new(None));
+static SESSION: LazyLock<Mutex<Option<LiveSoundAudioSession>>> = LazyLock::new(|| Mutex::new(None));
 
 /* ── helpers ──────────────────────────────────────────────────────────────── */
 
-fn resolve_device(
-    source: &AudioCaptureSource,
-    device_name: Option<&str>,
-) -> Option<cpal::Device> {
+fn resolve_device(source: &AudioCaptureSource, device_name: Option<&str>) -> Option<cpal::Device> {
     let name = device_name?;
     let devices = match source {
         AudioCaptureSource::Microphone => list_input_devices(),
@@ -213,14 +212,19 @@ fn open_mic_recorder_for_both(
         }
     })));
 
+    let mic_device_name = settings
+        .live_sound_microphone
+        .as_deref()
+        .or(settings.selected_microphone.as_deref());
+
     // Open the mic recorder; it drives the clock and mixes in loopback.
     let mut mic_rec = AudioRecorder::new()
-        .map_err(|e| format!("Failed to create mic recorder: {}", e))?;
+        .map_err(|e| format!("Failed to create mic recorder: {}", e))?
+        .with_microphone_input_boost_db(settings.microphone_input_boost_db_for_device(
+            mic_device_name,
+        ));
 
-    let mic_device = resolve_device(
-        &AudioCaptureSource::Microphone,
-        settings.live_sound_microphone.as_deref().or(settings.selected_microphone.as_deref()),
-    );
+    let mic_device = resolve_device(&AudioCaptureSource::Microphone, mic_device_name);
     mic_rec
         .open_with_source(mic_device, AudioCaptureSource::Microphone)
         .map_err(|e| format!("Failed to open mic stream: {}", e))?;
@@ -258,12 +262,22 @@ pub fn start(app: &AppHandle) -> Result<(), String> {
         ),
         LiveSoundCaptureSource::Microphone => (
             AudioCaptureSource::Microphone,
-            settings.live_sound_microphone.clone().or_else(|| settings.selected_microphone.clone()),
+            settings
+                .live_sound_microphone
+                .clone()
+                .or_else(|| settings.selected_microphone.clone()),
         ),
     };
 
     let mut recorder = AudioRecorder::new()
-        .map_err(|e| format!("Failed to create audio recorder: {}", e))?;
+        .map_err(|e| format!("Failed to create audio recorder: {}", e))?
+        .with_microphone_input_boost_db(
+            if source == AudioCaptureSource::Microphone {
+                settings.microphone_input_boost_db_for_device(device_name.as_deref())
+            } else {
+                0.0
+            },
+        );
 
     let device = resolve_device(&source, device_name.as_deref());
 
@@ -290,7 +304,10 @@ pub fn start(app: &AppHandle) -> Result<(), String> {
         match open_mic_recorder_for_both(&settings, &mut recorder, realtime.as_ref()) {
             Ok(r) => Some(r),
             Err(e) => {
-                warn!("Both mode: mic recorder failed to open, falling back to loopback only: {}", e);
+                warn!(
+                    "Both mode: mic recorder failed to open, falling back to loopback only: {}",
+                    e
+                );
                 None
             }
         }
@@ -308,7 +325,17 @@ pub fn start(app: &AppHandle) -> Result<(), String> {
         }
     }
 
-    *guard = Some(LiveSoundAudioSession { recorder, mic_recorder, realtime });
+    *guard = Some(LiveSoundAudioSession {
+        primary_source: source,
+        primary_device_name: device_name,
+        mic_device_name: settings
+            .live_sound_microphone
+            .clone()
+            .or_else(|| settings.selected_microphone.clone()),
+        recorder,
+        mic_recorder,
+        realtime,
+    });
     info!(
         "Live sound audio pipeline started (live_streaming={}, both_mode={})",
         use_live, is_both
@@ -357,9 +384,7 @@ pub fn stop(app: &AppHandle, session_id: u64) {
                 }
                 // Session loop already cleared interim text on "finished" payload.
                 crate::managers::live_sound_transcription::set_recording_if_session_matches(
-                    &app,
-                    session_id,
-                    false,
+                    &app, session_id, false,
                 );
             });
         }
@@ -372,9 +397,7 @@ pub fn stop(app: &AppHandle, session_id: u64) {
                     warn!("Live sound Deepgram finalization error: {}", e);
                 }
                 crate::managers::live_sound_transcription::set_recording_if_session_matches(
-                    &app,
-                    session_id,
-                    false,
+                    &app, session_id, false,
                 );
             });
         }
@@ -383,9 +406,7 @@ pub fn stop(app: &AppHandle, session_id: u64) {
             // Batch mode — mark as not recording immediately.
             // Full batch transcription support is a future enhancement.
             crate::managers::live_sound_transcription::set_recording_if_session_matches(
-                app,
-                session_id,
-                false,
+                app, session_id, false,
             );
         }
     }
@@ -396,4 +417,25 @@ pub fn stop(app: &AppHandle, session_id: u64) {
 /// Returns true if a pipeline session is currently active (recording).
 pub fn is_active() -> bool {
     SESSION.lock().map(|g| g.is_some()).unwrap_or(false)
+}
+
+pub fn refresh_microphone_input_boost_from_settings(app: &AppHandle) {
+    if let Ok(mut guard) = SESSION.lock() {
+        if let Some(session) = guard.as_mut() {
+            let settings = get_settings(app);
+            let primary_boost_db = if session.primary_source == AudioCaptureSource::Microphone {
+                settings.microphone_input_boost_db_for_device(session.primary_device_name.as_deref())
+            } else {
+                0.0
+            };
+            session.recorder.set_microphone_input_boost_db(primary_boost_db);
+            if let Some(mic_recorder) = session.mic_recorder.as_ref() {
+                mic_recorder.set_microphone_input_boost_db(
+                    settings.microphone_input_boost_db_for_device(
+                        session.mic_device_name.as_deref(),
+                    ),
+                );
+            }
+        }
+    }
 }
