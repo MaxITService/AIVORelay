@@ -5,7 +5,7 @@
 > **AGENT RULE:** Always refer to this version as the **Microsoft Store Edition**.
 > All updates must be compliant with Microsoft Store policies (e.g., no self-updating, sandboxed file access in mind (MSIX packaged, this will be handled atomatically later)). Warn the user in case something is not compatible with the Microsoft Store.
 
-> **Agent rule:** all debugging/build verification is done by the user (do not run automated tests/builds unless explicitly requested).
+> **Agent rule:** the user still owns final debugging/build verification, but agents may run `cargo check`, `cargo clippy`, `cargo fmt`, and similar non-conflicting verification commands when no conflicting `cargo`/`tauri`/`rustc`/`bun` process is already running.
 > This file provides guidance for AI code agents working with this fork.
 > CODE ONLY WHEN APPROVED BY USER. Otherwise, only your thoughts in chat are needed.
 > If you are not very sure that change will fix it, consult user first, user may want to revert unsuccessful fix, so user needs to commit and stuff.
