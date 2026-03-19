@@ -9,10 +9,11 @@ Rules:
 - On new entry #11, remove the oldest row.
 - After a successful propagation, mirror the same new row in both `main` and the target branch worktree copy of this file.
 - Keep issue notes very short.
-- After a successful propagation, mirror the same new row in both `main` and the target branch worktree copy of this file.
 
 | Propagation Date | Target Branch | Main SHA | Main Message | Branch SHA | Branch Message | Issues |
 | --- | --- | --- | --- | --- | --- | --- |
+| 2026-03-19 | `cuda-integration` | `1a13f626` | fix(ui): stabilize microphone boost slider | `dc28b67f` | fix(ui): stabilize microphone boost slider | 2 picks; manual merge in `recorder.rs`, `settings.rs`, `lib.rs` |
+| 2026-03-19 | `Microsoft-store` | `1a13f626` | fix(ui): stabilize microphone boost slider | `b3b0b0f6` | fix(ui): stabilize microphone boost slider | 2 picks; manual merge in `recorder.rs`, `settings.rs`, `lib.rs` |
 | 2026-03-15 | `cuda-integration` | `ca08fe72` | feat(settings): repair invalid settings and bump version to 1.0.3 | `fc78b7b6` | feat(settings): repair invalid settings and bump version to 1.0.3 | clean cherry-pick |
 | 2026-03-15 | `Microsoft-store` | `ca08fe72` | feat(settings): repair invalid settings and bump version to 1.0.3 | `c0fbd1c3` | feat(settings): repair invalid settings and bump version to 1.0.3 | clean cherry-pick |
 | 2026-03-14 | `Microsoft-store` | `7f99cb5` | Notify on model loading failures | `b104ad2` | Notify on model loading failures | 4 clean picks: `ed9c1fb..7f99cb5` |
