@@ -2,9 +2,8 @@
 
 > **Agent rule:** the user still owns final debugging/build verification, but agents may run `cargo check`, `cargo clippy`, `cargo fmt`, and similar non-conflicting verification commands when no conflicting `cargo`/`tauri`/`rustc`/`bun` process is already running.
 > This file provides guidance for AI code agents working with this fork.
-> CODE ONLY WHEN APPROVED BY USER. Otherwise, only your thoughts in chat are needed.
 > If you are not very sure that change will fix it, consult user first, user may want to revert unsuccessful fix, so user needs to commit and stuff.
-> Never Commit unless received clear instruction to do so!
+> Use git commit with proper message, after you feel that application is at the completed step, ready for testing. Amend in case that user asked you to fix something related to previous commit, so we don't commit anything improper. Do not push untill asked
 > Start from writing instructions about building rules only in chat to user. Write them to user!!!!
 
 ## Environment:
