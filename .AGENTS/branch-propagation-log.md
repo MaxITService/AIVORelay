@@ -12,6 +12,9 @@ Rules:
 
 | Propagation Date | Target Branch | Main SHA | Main Message | Branch SHA | Branch Message | Issues |
 | --- | --- | --- | --- | --- | --- | --- |
+| 2026-03-21 | `Microsoft-store` | `70163254` | Improve idle model unload behavior | `382ef7b6` | Improve idle model unload behavior | clean cherry-pick during post-1.0.3 backfill |
+| 2026-03-21 | `Microsoft-store` | `3346d7d8` | ensure samples don't get dropped (#1043) | `d2ca9803` | ensure samples don't get dropped (#1043) | manual merge in `recorder.rs` during post-1.0.3 backfill |
+| 2026-03-21 | `Microsoft-store` | `5dd380a0` | docs: add branch sync status tracking file | `53cf016f` | docs: add branch sync status tracking file | historical docs backfill |
 | 2026-03-21 | `cuda-integration` | `ffb30103` | docs(sync): advance upstream intake log to 58cda3f3 | `a125e2dc` | docs(sync): advance upstream intake log to 58cda3f3 | upstream log conflict resolved by taking main copy |
 | 2026-03-21 | `Microsoft-store` | `ffb30103` | docs(sync): advance upstream intake log to 58cda3f3 | `1346f4c6` | docs(sync): advance upstream intake log to 58cda3f3 | equivalent apply on dirty worktree; vendor patch was already staged |
 | 2026-03-21 | `cuda-integration` | `e7ca2c90` | refactor(transcription): dedupe model load failure events | `d7387e5c` | fix(cuda): trim overlay merge fallout after audio intake | 6 picks; 2 CUDA fixes; release build ok |
@@ -19,9 +22,6 @@ Rules:
 | 2026-03-19 | `cuda-integration` | `c900c3fa` | chore(release): bump version to 1.0.4 | `5ff5e9df` | chore(release): bump version to 1.0.4 | clean cherry-pick |
 | 2026-03-19 | `Microsoft-store` | `c900c3fa` | chore(release): bump version to 1.0.4 | `77745b15` | chore(release): bump version to 1.0.4 | clean cherry-pick |
 | 2026-03-19 | `cuda-integration` | `30895116` | chore(bindings): regenerate tauri bindings | `a14f2913` | chore(bindings): regenerate tauri bindings | clean cherry-pick |
-| 2026-03-19 | `Microsoft-store` | `30895116` | chore(bindings): regenerate tauri bindings | `eac6b050` | chore(bindings): regenerate tauri bindings | clean cherry-pick |
-| 2026-03-19 | `cuda-integration` | `f5bcf1bf` | docs(agents): allow safe local verification commands | `81c63888` | docs(agents): allow safe local verification commands | backfill cherry-pick |
-| 2026-03-19 | `Microsoft-store` | `f5bcf1bf` | docs(agents): allow safe local verification commands | `8c37a2e6` | docs(agents): allow safe local verification commands | backfill cherry-pick; `AGENTS.md` conflict |
 
 Entry template:
 
