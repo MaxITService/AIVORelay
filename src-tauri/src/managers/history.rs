@@ -40,6 +40,23 @@ static MIGRATIONS: &[M] = &[
 ];
 
 #[derive(Clone, Debug, Serialize, Deserialize, Type)]
+pub struct PaginatedHistory {
+    pub entries: Vec<HistoryEntry>,
+    pub has_more: bool,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, Type)]
+#[serde(tag = "action")]
+pub enum HistoryUpdatePayload {
+    #[serde(rename = "added")]
+    Added { entry: HistoryEntry },
+    #[serde(rename = "deleted")]
+    Deleted { id: i64 },
+    #[serde(rename = "toggled")]
+    Toggled { id: i64 },
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, Type)]
 pub struct HistoryEntry {
     pub id: i64,
     pub file_name: String,
@@ -204,8 +221,7 @@ impl HistoryManager {
         let file_path = self.recordings_dir.join(&file_name);
         save_wav_file(file_path, &audio_samples).await?;
 
-        // Save to database
-        self.save_to_database(
+        let entry = self.save_to_database(
             file_name,
             timestamp,
             title,
@@ -214,13 +230,8 @@ impl HistoryManager {
             post_process_prompt,
         )?;
 
-        // Clean up old entries
         self.cleanup_old_entries()?;
-
-        // Emit history updated event
-        if let Err(e) = self.app_handle.emit("history-updated", ()) {
-            error!("Failed to emit history-updated event: {}", e);
-        }
+        self.emit_history_added(entry);
 
         Ok(())
     }
@@ -233,15 +244,29 @@ impl HistoryManager {
         transcription_text: String,
         post_processed_text: Option<String>,
         post_process_prompt: Option<String>,
-    ) -> Result<()> {
+    ) -> Result<HistoryEntry> {
         let conn = self.get_connection()?;
         conn.execute(
             "INSERT INTO transcription_history (file_name, timestamp, saved, title, transcription_text, post_processed_text, post_process_prompt, action_type) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
             params![file_name, timestamp, false, title, transcription_text, post_processed_text, post_process_prompt, "transcribe"],
         )?;
 
+        let entry = HistoryEntry {
+            id: conn.last_insert_rowid(),
+            file_name,
+            timestamp,
+            saved: false,
+            title,
+            transcription_text,
+            post_processed_text,
+            post_process_prompt,
+            action_type: "transcribe".to_string(),
+            original_selection: None,
+            ai_response: None,
+        };
+
         debug!("Saved transcription to database");
-        Ok(())
+        Ok(entry)
     }
 
     pub fn cleanup_old_entries(&self) -> Result<()> {
@@ -364,36 +389,116 @@ impl HistoryManager {
         Ok(())
     }
 
-    pub async fn get_history_entries(&self) -> Result<Vec<HistoryEntry>> {
-        let conn = self.get_connection()?;
-        let mut stmt = conn.prepare(
-            "SELECT id, file_name, timestamp, saved, title, transcription_text, post_processed_text, post_process_prompt, action_type, original_selection, ai_response FROM transcription_history ORDER BY timestamp DESC"
-        )?;
+    fn map_history_entry(row: &rusqlite::Row) -> rusqlite::Result<HistoryEntry> {
+        Ok(HistoryEntry {
+            id: row.get("id")?,
+            file_name: row.get("file_name")?,
+            timestamp: row.get("timestamp")?,
+            saved: row.get("saved")?,
+            title: row.get("title")?,
+            transcription_text: row.get("transcription_text")?,
+            post_processed_text: row.get("post_processed_text")?,
+            post_process_prompt: row.get("post_process_prompt")?,
+            action_type: row
+                .get::<_, Option<String>>("action_type")?
+                .unwrap_or_else(|| "transcribe".to_string()),
+            original_selection: row.get("original_selection")?,
+            ai_response: row.get("ai_response")?,
+        })
+    }
 
-        let rows = stmt.query_map([], |row| {
-            Ok(HistoryEntry {
-                id: row.get("id")?,
-                file_name: row.get("file_name")?,
-                timestamp: row.get("timestamp")?,
-                saved: row.get("saved")?,
-                title: row.get("title")?,
-                transcription_text: row.get("transcription_text")?,
-                post_processed_text: row.get("post_processed_text")?,
-                post_process_prompt: row.get("post_process_prompt")?,
-                action_type: row
-                    .get::<_, Option<String>>("action_type")?
-                    .unwrap_or_else(|| "transcribe".to_string()),
-                original_selection: row.get("original_selection")?,
-                ai_response: row.get("ai_response")?,
-            })
-        })?;
-
-        let mut entries = Vec::new();
-        for row in rows {
-            entries.push(row?);
+    fn emit_history_added(&self, entry: HistoryEntry) {
+        if let Err(e) = self.app_handle.emit(
+            "history-update-payload",
+            &HistoryUpdatePayload::Added {
+                entry: entry.clone(),
+            },
+        ) {
+            error!("Failed to emit history-update-payload event: {}", e);
         }
 
-        Ok(entries)
+        if let Err(e) = self.app_handle.emit("history-updated", ()) {
+            error!("Failed to emit history-updated event: {}", e);
+        }
+    }
+
+    fn emit_history_deleted(&self, id: i64) {
+        if let Err(e) = self
+            .app_handle
+            .emit("history-update-payload", &HistoryUpdatePayload::Deleted { id })
+        {
+            error!("Failed to emit history-update-payload event: {}", e);
+        }
+
+        if let Err(e) = self.app_handle.emit("history-updated", ()) {
+            error!("Failed to emit history-updated event: {}", e);
+        }
+    }
+
+    fn emit_history_toggled(&self, id: i64) {
+        if let Err(e) = self
+            .app_handle
+            .emit("history-update-payload", &HistoryUpdatePayload::Toggled { id })
+        {
+            error!("Failed to emit history-update-payload event: {}", e);
+        }
+
+        if let Err(e) = self.app_handle.emit("history-updated", ()) {
+            error!("Failed to emit history-updated event: {}", e);
+        }
+    }
+
+    pub async fn get_history_entries(
+        &self,
+        cursor: Option<i64>,
+        limit: Option<usize>,
+    ) -> Result<PaginatedHistory> {
+        let conn = self.get_connection()?;
+        let limit = limit.map(|value| value.min(100));
+
+        let mut entries = match (cursor, limit) {
+            (Some(cursor_id), Some(page_size)) => {
+                let mut stmt = conn.prepare(
+                    "SELECT id, file_name, timestamp, saved, title, transcription_text, post_processed_text, post_process_prompt, action_type, original_selection, ai_response
+                     FROM transcription_history
+                     WHERE id < ?1
+                     ORDER BY id DESC
+                     LIMIT ?2",
+                )?;
+                let rows = stmt.query_map(
+                    params![cursor_id, (page_size + 1) as i64],
+                    Self::map_history_entry,
+                )?;
+                rows.collect::<std::result::Result<Vec<_>, _>>()?
+            }
+            (None, Some(page_size)) => {
+                let mut stmt = conn.prepare(
+                    "SELECT id, file_name, timestamp, saved, title, transcription_text, post_processed_text, post_process_prompt, action_type, original_selection, ai_response
+                     FROM transcription_history
+                     ORDER BY id DESC
+                     LIMIT ?1",
+                )?;
+                let rows =
+                    stmt.query_map(params![(page_size + 1) as i64], Self::map_history_entry)?;
+                rows.collect::<std::result::Result<Vec<_>, _>>()?
+            }
+            (_, None) => {
+                let mut stmt = conn.prepare(
+                    "SELECT id, file_name, timestamp, saved, title, transcription_text, post_processed_text, post_process_prompt, action_type, original_selection, ai_response
+                     FROM transcription_history
+                     ORDER BY id DESC",
+                )?;
+                let rows = stmt.query_map([], Self::map_history_entry)?;
+                rows.collect::<std::result::Result<Vec<_>, _>>()?
+            }
+        };
+
+        let has_more = limit.is_some_and(|page_size| entries.len() > page_size);
+        if has_more {
+            entries.pop();
+        }
+
+        Ok(PaginatedHistory { entries, has_more })
     }
 
     pub fn get_latest_entry(&self) -> Result<Option<HistoryEntry>> {
@@ -410,23 +515,7 @@ impl HistoryManager {
         )?;
 
         let entry = stmt
-            .query_row([], |row| {
-                Ok(HistoryEntry {
-                    id: row.get("id")?,
-                    file_name: row.get("file_name")?,
-                    timestamp: row.get("timestamp")?,
-                    saved: row.get("saved")?,
-                    title: row.get("title")?,
-                    transcription_text: row.get("transcription_text")?,
-                    post_processed_text: row.get("post_processed_text")?,
-                    post_process_prompt: row.get("post_process_prompt")?,
-                    action_type: row
-                        .get::<_, Option<String>>("action_type")?
-                        .unwrap_or_else(|| "transcribe".to_string()),
-                    original_selection: row.get("original_selection")?,
-                    ai_response: row.get("ai_response")?,
-                })
-            })
+            .query_row([], Self::map_history_entry)
             .optional()?;
 
         Ok(entry)
@@ -451,10 +540,7 @@ impl HistoryManager {
 
         debug!("Toggled saved status for entry {}: {}", id, new_saved);
 
-        // Emit history updated event
-        if let Err(e) = self.app_handle.emit("history-updated", ()) {
-            error!("Failed to emit history-updated event: {}", e);
-        }
+        self.emit_history_toggled(id);
 
         Ok(())
     }
@@ -471,23 +557,7 @@ impl HistoryManager {
         )?;
 
         let entry = stmt
-            .query_row([id], |row| {
-                Ok(HistoryEntry {
-                    id: row.get("id")?,
-                    file_name: row.get("file_name")?,
-                    timestamp: row.get("timestamp")?,
-                    saved: row.get("saved")?,
-                    title: row.get("title")?,
-                    transcription_text: row.get("transcription_text")?,
-                    post_processed_text: row.get("post_processed_text")?,
-                    post_process_prompt: row.get("post_process_prompt")?,
-                    action_type: row
-                        .get::<_, Option<String>>("action_type")?
-                        .unwrap_or_else(|| "transcribe".to_string()),
-                    original_selection: row.get("original_selection")?,
-                    ai_response: row.get("ai_response")?,
-                })
-            })
+            .query_row([id], Self::map_history_entry)
             .optional()?;
 
         Ok(entry)
@@ -516,10 +586,7 @@ impl HistoryManager {
 
         debug!("Deleted history entry with id: {}", id);
 
-        // Emit history updated event
-        if let Err(e) = self.app_handle.emit("history-updated", ()) {
-            error!("Failed to emit history-updated event: {}", e);
-        }
+        self.emit_history_deleted(id);
 
         Ok(())
     }
@@ -542,14 +609,20 @@ impl HistoryManager {
         )?;
 
         debug!("Saved AI Replace entry to database");
-
-        // Clean up old entries
         self.cleanup_old_entries()?;
-
-        // Emit history updated event
-        if let Err(e) = self.app_handle.emit("history-updated", ()) {
-            error!("Failed to emit history-updated event: {}", e);
-        }
+        self.emit_history_added(HistoryEntry {
+            id: conn.last_insert_rowid(),
+            file_name,
+            timestamp,
+            saved: false,
+            title,
+            transcription_text: instruction,
+            post_processed_text: None,
+            post_process_prompt: None,
+            action_type: "ai_replace".to_string(),
+            original_selection: Some(original_selection),
+            ai_response,
+        });
 
         Ok(())
     }
