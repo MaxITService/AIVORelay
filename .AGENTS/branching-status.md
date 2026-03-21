@@ -13,7 +13,7 @@ Propagation scope rule: for Microsoft Store Edition propagation, bring over the 
 
 ## cuda-integration
 
-Last synced commit from `main`: `c900c3fa` — chore(release): bump version to 1.0.4.
+Last synced commit from `main`: `e7ca2c90` — refactor(transcription): dedupe model load failure events.
 Maintenance rule: after a successful `main` -> `cuda-integration` propagation, update this main-copy cursor and the `cuda-integration` worktree copy together.
 Note: the cursor always points to the last propagated commit from `main`, not to CUDA-only commits that were created on top of it.
 Sync rule: for this branch, source commits come from `main` only.
