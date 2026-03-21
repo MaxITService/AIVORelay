@@ -1217,6 +1217,22 @@ async changeRecordingAutoStopPasteSetting(paste: boolean) : Promise<Result<null,
     else return { status: "error", error: e  as any };
 }
 },
+async changeExtraRecordingBufferSetting(valueMs: number) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("change_extra_recording_buffer_setting", { valueMs }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async changeLazyStreamCloseSetting(enabled: boolean) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("change_lazy_stream_close_setting", { enabled }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async changeAiReplaceSystemPromptSetting(prompt: string) : Promise<Result<null, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("change_ai_replace_system_prompt_setting", { prompt }) };
@@ -2359,9 +2375,9 @@ async unloadModelManually() : Promise<Result<null, string>> {
     else return { status: "error", error: e  as any };
 }
 },
-async getHistoryEntries() : Promise<Result<HistoryEntry[], string>> {
+async getHistoryEntries(cursor: number | null, limit: number | null) : Promise<Result<PaginatedHistory, string>> {
     try {
-    return { status: "ok", data: await TAURI_INVOKE("get_history_entries") };
+    return { status: "ok", data: await TAURI_INVOKE("get_history_entries", { cursor, limit }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
@@ -2769,7 +2785,7 @@ live_sound_microphone?: string | null; selected_output_device?: string | null; l
 /**
  * Overrides for Live Monitor sessions — None means inherit global provider setting.
  */
-live_sound_soniox_endpoint_detection?: boolean | null; live_sound_soniox_max_endpoint_delay_ms?: number | null; live_sound_deepgram_endpointing_enabled?: boolean | null; live_sound_deepgram_endpointing_ms?: number | null; translate_to_english?: boolean; selected_language?: string; overlay_position?: OverlayPosition; 
+live_sound_soniox_endpoint_detection?: boolean | null; live_sound_soniox_max_endpoint_delay_ms?: number | null; live_sound_deepgram_endpointing_enabled?: boolean | null; live_sound_deepgram_endpointing_ms?: number | null; translate_to_english?: boolean; selected_language?: string; overlay_position?: OverlayPosition; auto_position_allow_reserved_areas?: boolean; recording_overlay_use_manual_position?: boolean; recording_overlay_custom_x_px?: number; recording_overlay_custom_y_px?: number; 
 /**
  * Auto-hide duration for error overlay in milliseconds.
  */
@@ -2777,7 +2793,7 @@ error_overlay_auto_hide_ms?: number;
 /**
  * Show runtime errors in the recording overlay.
  */
-error_feedback_enabled?: boolean; soniox_live_preview_enabled?: boolean; soniox_live_preview_position?: SonioxLivePreviewPosition; soniox_live_preview_cursor_offset_px?: number; soniox_live_preview_custom_x_px?: number; soniox_live_preview_custom_y_px?: number; soniox_live_preview_size?: SonioxLivePreviewSize; soniox_live_preview_custom_width_px?: number; soniox_live_preview_custom_height_px?: number; soniox_live_preview_theme?: SonioxLivePreviewTheme; soniox_live_preview_opacity_percent?: number; soniox_live_preview_font_color?: string; soniox_live_preview_interim_font_color?: string; soniox_live_preview_accent_color?: string; soniox_live_preview_interim_opacity_percent?: number; soniox_live_preview_close_hotkey?: string; soniox_live_preview_clear_hotkey?: string; soniox_live_preview_flush_hotkey?: string; soniox_live_preview_process_hotkey?: string; soniox_live_preview_insert_hotkey?: string; soniox_live_preview_delete_until_dot_or_comma_hotkey?: string; soniox_live_preview_delete_until_dot_hotkey?: string; soniox_live_preview_delete_last_word_hotkey?: string; soniox_live_preview_show_clear_button?: boolean; soniox_live_preview_show_flush_button?: boolean; soniox_live_preview_show_process_button?: boolean; soniox_live_preview_show_insert_button?: boolean; soniox_live_preview_show_delete_until_dot_or_comma_button?: boolean; soniox_live_preview_show_delete_until_dot_button?: boolean; soniox_live_preview_show_delete_last_word_button?: boolean; soniox_live_preview_ctrl_backspace_delete_last_word?: boolean; soniox_live_preview_backspace_delete_last_char?: boolean; soniox_live_preview_show_drag_grip?: boolean; debug_mode?: boolean; log_level?: LogLevel; custom_words?: string[]; custom_words_enabled?: boolean; custom_words_ngram_enabled?: boolean; model_unload_timeout?: ModelUnloadTimeout; word_correction_threshold?: number; history_limit?: number; recording_retention_period?: RecordingRetentionPeriod; paste_method?: PasteMethod; paste_delay_ms?: number; 
+error_feedback_enabled?: boolean; recording_overlay_custom_enabled?: boolean; recording_overlay_show_drag_grip?: boolean; recording_overlay_theme?: RecordingOverlayTheme; recording_overlay_background_mode?: RecordingOverlayBackgroundMode; recording_overlay_material_mode?: RecordingOverlayMaterialMode; recording_overlay_centerpiece_mode?: RecordingOverlayCenterpieceMode; recording_overlay_animated_border_mode?: RecordingOverlayAnimatedBorderMode; recording_overlay_show_status_icon?: boolean; recording_overlay_bar_count?: number; recording_overlay_width_px?: number; recording_overlay_bar_width_px?: number; recording_overlay_bar_style?: RecordingOverlayBarStyle; recording_overlay_accent_color?: string; recording_overlay_surface_base_color?: string; recording_overlay_body_background_color?: string; recording_overlay_audio_reactive_scale?: boolean; recording_overlay_audio_reactive_scale_max_percent?: number; recording_overlay_voice_sensitivity_percent?: number; recording_overlay_animation_softness_percent?: number; recording_overlay_depth_parallax_percent?: number; recording_overlay_opacity_percent?: number; recording_overlay_silence_fade?: boolean; recording_overlay_silence_opacity_percent?: number; soniox_live_preview_enabled?: boolean; soniox_live_preview_position?: SonioxLivePreviewPosition; soniox_live_preview_cursor_offset_px?: number; soniox_live_preview_custom_x_px?: number; soniox_live_preview_custom_y_px?: number; soniox_live_preview_size?: SonioxLivePreviewSize; soniox_live_preview_custom_width_px?: number; soniox_live_preview_custom_height_px?: number; soniox_live_preview_theme?: SonioxLivePreviewTheme; soniox_live_preview_opacity_percent?: number; soniox_live_preview_font_color?: string; soniox_live_preview_interim_font_color?: string; soniox_live_preview_accent_color?: string; soniox_live_preview_interim_opacity_percent?: number; soniox_live_preview_close_hotkey?: string; soniox_live_preview_clear_hotkey?: string; soniox_live_preview_flush_hotkey?: string; soniox_live_preview_process_hotkey?: string; soniox_live_preview_insert_hotkey?: string; soniox_live_preview_delete_until_dot_or_comma_hotkey?: string; soniox_live_preview_delete_until_dot_hotkey?: string; soniox_live_preview_delete_last_word_hotkey?: string; soniox_live_preview_show_clear_button?: boolean; soniox_live_preview_show_flush_button?: boolean; soniox_live_preview_show_process_button?: boolean; soniox_live_preview_show_insert_button?: boolean; soniox_live_preview_show_delete_until_dot_or_comma_button?: boolean; soniox_live_preview_show_delete_until_dot_button?: boolean; soniox_live_preview_show_delete_last_word_button?: boolean; soniox_live_preview_ctrl_backspace_delete_last_word?: boolean; soniox_live_preview_backspace_delete_last_char?: boolean; soniox_live_preview_show_drag_grip?: boolean; debug_mode?: boolean; log_level?: LogLevel; custom_words?: string[]; custom_words_enabled?: boolean; custom_words_ngram_enabled?: boolean; model_unload_timeout?: ModelUnloadTimeout; word_correction_threshold?: number; history_limit?: number; recording_retention_period?: RecordingRetentionPeriod; paste_method?: PasteMethod; paste_delay_ms?: number; 
 /**
  * Convert LF to CRLF before clipboard paste (fixes newlines on Windows)
  */
@@ -3038,7 +3054,7 @@ filler_word_filter_enabled?: boolean;
 /**
  * Optional custom filler words. When set, overrides language defaults for filler filtering.
  */
-custom_filler_words?: string[] | null; 
+custom_filler_words?: string[] | null; whisper_accelerator?: WhisperAcceleratorSetting; ort_accelerator?: OrtAcceleratorSetting; 
 /**
  * Whether to strip invisible Unicode characters (zero-width spaces, BOM) from LLM output
  */
@@ -3067,6 +3083,14 @@ recording_auto_stop_timeout_seconds?: number;
  * When true, auto-stop pastes normally; when false, cancels/wipes the recording
  */
 recording_auto_stop_paste?: boolean; 
+/**
+ * Extra trailing capture time for local STT paths after hotkey release (0..1500 ms)
+ */
+extra_recording_buffer_ms?: number; 
+/**
+ * Keep the microphone stream alive briefly after stop to reduce startup latency.
+ */
+lazy_stream_close?: boolean; 
 /**
  * Whether the hotkey sidebar is pinned open
  */
@@ -3235,7 +3259,7 @@ export type LlmFeature =
  */
 "voice_command"
 export type LogLevel = "trace" | "debug" | "info" | "warn" | "error"
-export type ModelInfo = { id: string; name: string; description: string; filename: string; url: string | null; size_mb: number; is_downloaded: boolean; is_downloading: boolean; partial_size: number; is_directory: boolean; engine_type: EngineType; accuracy_score: number; speed_score: number; supports_translation: boolean; is_recommended: boolean; supported_languages: string[]; is_custom: boolean }
+export type ModelInfo = { id: string; name: string; description: string; filename: string; url: string | null; sha256: string | null; size_mb: number; is_downloaded: boolean; is_downloading: boolean; partial_size: number; is_directory: boolean; engine_type: EngineType; accuracy_score: number; speed_score: number; supports_translation: boolean; is_recommended: boolean; supported_languages: string[]; is_custom: boolean }
 export type ModelUnloadTimeout = "never" | "immediately" | "min_2" | "min_5" | "min_10" | "min_15" | "hour_1" | "sec_5"
 export type NativeRegionCaptureMode = 
 /**
@@ -3246,6 +3270,7 @@ export type NativeRegionCaptureMode =
  * Legacy: capture a full screenshot first and use it as the picker background.
  */
 "screenshot_background"
+export type OrtAcceleratorSetting = "auto" | "cpu" | "cuda" | "directml" | "rocm"
 /**
  * Output format for transcription
  */
@@ -3264,6 +3289,7 @@ export type OutputFormat =
 "vtt"
 export type OutputWhitespaceMode = "preserve" | "remove_if_present" | "add_if_missing"
 export type OverlayPosition = "none" | "top" | "bottom"
+export type PaginatedHistory = { entries: HistoryEntry[]; has_more: boolean }
 export type PasteMethod = "ctrl_v" | "direct" | "none" | "shift_insert" | "ctrl_shift_v"
 export type PermissionAccess = "allowed" | "denied" | "unknown"
 export type PostProcessProvider = { id: string; label: string; base_url: string; allow_base_url_edit?: boolean; allow_insecure_http?: boolean; models_endpoint?: string | null }
@@ -3273,6 +3299,12 @@ export type PreviewOutputModeStatePayload = { active: boolean; recording: boolea
  * Used as a parameter struct for update_transcription_profile to reduce argument count.
  */
 export type ProfileLlmSettings = { enabled: boolean; promptOverride: string | null; modelOverride: string | null }
+export type RecordingOverlayAnimatedBorderMode = "none" | "shimmer_edge" | "traveling_highlight" | "breathing_contour"
+export type RecordingOverlayBackgroundMode = "none" | "mist" | "petals_haze" | "soft_glow_field" | "stardust" | "silk_fog" | "firefly_veil" | "rose_sparks"
+export type RecordingOverlayBarStyle = "solid" | "capsule" | "glow" | "prism" | "radar" | "shards" | "retro" | "needles" | "orbit" | "aurora" | "bloom_bounce" | "pulse_rings" | "fireflies" | "helix" | "constellation" | "petals" | "petal_rain" | "daisy" | "lotus" | "garden_sway" | "matrix" | "skyline" | "comet" | "tuner" | "ember" | "hologram" | "vinyl" | "morse" | "crown"
+export type RecordingOverlayCenterpieceMode = "none" | "halo_core" | "aurora_ribbon" | "orbital_beads" | "bloom_heart" | "signal_crown"
+export type RecordingOverlayMaterialMode = "liquid_glass" | "pearl" | "velvet_neon" | "frost" | "candy_chrome"
+export type RecordingOverlayTheme = "classic" | "minimal" | "glass"
 export type RecordingRetentionPeriod = "never" | "preserve_limit" | "days_3" | "weeks_2" | "months_3"
 /**
  * Response for get_data command
@@ -3553,6 +3585,7 @@ use_pwsh?: boolean;
  * Execution policy for scripts
  */
 execution_policy?: ExecutionPolicy }
+export type WhisperAcceleratorSetting = "auto" | "cpu" | "gpu"
 export type WindowsMicrophonePermissionStatus = { supported: boolean; overall_access: PermissionAccess; device_access: PermissionAccess; app_access: PermissionAccess; desktop_app_access: PermissionAccess }
 
 /** tauri-specta globals **/

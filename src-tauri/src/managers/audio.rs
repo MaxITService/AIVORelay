@@ -9,7 +9,7 @@ use log::{debug, error, info, warn};
 use std::fmt;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::Instant;
+use std::time::{Duration, Instant};
 use tauri::Manager;
 
 const STREAM_IDLE_TIMEOUT: Duration = Duration::from_secs(30);

@@ -1079,6 +1079,11 @@ impl TranscriptionManager {
     }
 }
 
+pub fn apply_accelerator_settings(app: &tauri::AppHandle) {
+    let _settings = get_settings(app);
+    info!("Accelerator preferences are not applied on the Microsoft-store runtime");
+}
+
 impl Drop for TranscriptionManager {
     fn drop(&mut self) {
         debug!("Shutting down TranscriptionManager");

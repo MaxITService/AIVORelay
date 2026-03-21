@@ -132,3 +132,6 @@ lto = true
 codegen-units = 1
 strip = true
 panic = "unwind"
+
+[patch.crates-io]
+whisper-rs-sys = { path = "vendor/whisper-rs-sys" }

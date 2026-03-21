@@ -197,6 +197,62 @@ fn refresh_soniox_live_preview_window(app: &AppHandle) {
     crate::overlay::update_soniox_live_preview_window(app);
 }
 
+fn refresh_recording_overlay_window(app: &AppHandle) {
+    crate::overlay::update_overlay_position(app);
+}
+
+fn normalize_recording_overlay_color(value: &str) -> String {
+    let trimmed = value.trim();
+    if trimmed.len() == 7
+        && trimmed.starts_with('#')
+        && trimmed.chars().skip(1).all(|ch| ch.is_ascii_hexdigit())
+    {
+        return format!("#{}", trimmed[1..].to_ascii_lowercase());
+    }
+
+    warn!(
+        "Invalid recording overlay color '{}', defaulting to #ff4d8d",
+        value
+    );
+    "#ff4d8d".to_string()
+}
+
+fn clamp_recording_overlay_bar_count(value: u8) -> u8 {
+    value.clamp(3, 16)
+}
+
+fn clamp_recording_overlay_width_px(value: u16) -> u16 {
+    value.clamp(172, 420)
+}
+
+fn clamp_recording_overlay_bar_width_px(value: u8) -> u8 {
+    value.clamp(2, 12)
+}
+
+fn clamp_recording_overlay_audio_reactive_scale_max_percent(value: u8) -> u8 {
+    value.clamp(0, 24)
+}
+
+fn clamp_recording_overlay_voice_sensitivity_percent(value: u8) -> u8 {
+    value.clamp(0, 100)
+}
+
+fn clamp_recording_overlay_animation_softness_percent(value: u8) -> u8 {
+    value.clamp(0, 100)
+}
+
+fn clamp_recording_overlay_depth_parallax_percent(value: u8) -> u8 {
+    value.clamp(0, 100)
+}
+
+fn clamp_recording_overlay_opacity_percent(value: u8) -> u8 {
+    value.clamp(20, 100)
+}
+
+fn clamp_recording_overlay_silence_opacity_percent(value: u8) -> u8 {
+    value.clamp(20, 100)
+}
+
 fn is_decapitalize_monitor_shortcut_id(id: &str) -> bool {
     matches!(
         id,
