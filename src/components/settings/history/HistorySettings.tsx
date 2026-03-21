@@ -1,13 +1,25 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { AudioPlayer } from "../../ui/AudioPlayer";
 import { Button } from "../../ui/Button";
 import { Copy, Star, Check, Trash2, FolderOpen, Wand2, AlertTriangle } from "lucide-react";
-import { convertFileSrc } from "@tauri-apps/api/core";
+import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { commands, type HistoryEntry } from "@/bindings";
 import { formatDateTime } from "@/utils/dateFormat";
 import { HandyShortcut } from "../HandyShortcut";
+
+const PAGE_SIZE = 30;
+
+interface PaginatedHistory {
+  entries: HistoryEntry[];
+  has_more: boolean;
+}
+
+type HistoryUpdatePayload =
+  | { action: "added"; entry: HistoryEntry }
+  | { action: "deleted"; id: number }
+  | { action: "toggled"; id: number };
 
 interface OpenRecordingsButtonProps {
   onClick: () => void;
@@ -34,35 +46,95 @@ export const HistorySettings: React.FC = () => {
   const { t } = useTranslation();
   const [historyEntries, setHistoryEntries] = useState<HistoryEntry[]>([]);
   const [loading, setLoading] = useState(true);
+  const [hasMore, setHasMore] = useState(true);
+  const sentinelRef = useRef<HTMLDivElement>(null);
+  const entriesRef = useRef<HistoryEntry[]>([]);
+  const loadingRef = useRef(false);
 
-  const loadHistoryEntries = useCallback(async () => {
+  useEffect(() => {
+    entriesRef.current = historyEntries;
+  }, [historyEntries]);
+
+  const loadHistoryEntries = useCallback(async (cursor?: number) => {
+    const isFirstPage = cursor === undefined;
+    if (!isFirstPage && loadingRef.current) {
+      return;
+    }
+
+    loadingRef.current = true;
+    if (isFirstPage) {
+      setLoading(true);
+    }
+
     try {
-      const result = await commands.getHistoryEntries();
-      if (result.status === "ok") {
-        setHistoryEntries(result.data);
-      }
+      const result = await invoke<PaginatedHistory>("get_history_entries", {
+        cursor: cursor ?? null,
+        limit: PAGE_SIZE,
+      });
+
+      const nextEntries = result.entries ?? [];
+      setHistoryEntries((prev) => (isFirstPage ? nextEntries : [...prev, ...nextEntries]));
+      setHasMore(Boolean(result.has_more));
     } catch (error) {
       console.error("Failed to load history entries:", error);
     } finally {
       setLoading(false);
+      loadingRef.current = false;
     }
   }, []);
 
   useEffect(() => {
     loadHistoryEntries();
+  }, [loadHistoryEntries]);
 
-    // Listen for history update events
+  useEffect(() => {
+    if (loading) {
+      return;
+    }
+
+    const sentinel = sentinelRef.current;
+    if (!sentinel || !hasMore) {
+      return;
+    }
+
+    const observer = new IntersectionObserver(
+      (observerEntries) => {
+        const first = observerEntries[0];
+        if (!first.isIntersecting) {
+          return;
+        }
+
+        const lastEntry = entriesRef.current[entriesRef.current.length - 1];
+        if (lastEntry) {
+          loadHistoryEntries(lastEntry.id);
+        }
+      },
+      { threshold: 0 },
+    );
+
+    observer.observe(sentinel);
+
+    return () => {
+      observer.disconnect();
+    };
+  }, [hasMore, loadHistoryEntries, loading]);
+
+  useEffect(() => {
     const setupListener = async () => {
-      const unlisten = await listen("history-updated", () => {
-        console.log("History updated, reloading entries...");
-        loadHistoryEntries();
-      });
+      const unlisten = await listen<HistoryUpdatePayload>(
+        "history-update-payload",
+        (event) => {
+          const payload = event.payload;
+          if (payload.action === "added") {
+            setHistoryEntries((prev) => [payload.entry, ...prev]);
+          }
+        },
+      );
 
-      // Return cleanup function
       return unlisten;
     };
 
-    let unlistenPromise = setupListener();
+    const unlistenPromise = setupListener();
 
     return () => {
       unlistenPromise.then((unlisten) => {
@@ -71,14 +143,25 @@ export const HistorySettings: React.FC = () => {
         }
       });
     };
-  }, [loadHistoryEntries]);
+  }, []);
 
   const toggleSaved = async (id: number) => {
+    setHistoryEntries((prev) =>
+      prev.map((entry) => (entry.id === id ? { ...entry, saved: !entry.saved } : entry)),
+    );
+
     try {
-      await commands.toggleHistoryEntrySaved(id);
-      // No need to reload here - the event listener will handle it
+      const result = await commands.toggleHistoryEntrySaved(id);
+      if (result.status === "error") {
+        setHistoryEntries((prev) =>
+          prev.map((entry) => (entry.id === id ? { ...entry, saved: !entry.saved } : entry)),
+        );
+      }
     } catch (error) {
       console.error("Failed to toggle saved status:", error);
+      setHistoryEntries((prev) =>
+        prev.map((entry) => (entry.id === id ? { ...entry, saved: !entry.saved } : entry)),
+      );
     }
   };
 
@@ -104,10 +187,16 @@ export const HistorySettings: React.FC = () => {
   }, []);
 
   const deleteAudioEntry = async (id: number) => {
+    setHistoryEntries((prev) => prev.filter((entry) => entry.id !== id));
+
     try {
-      await commands.deleteHistoryEntry(id);
+      const result = await commands.deleteHistoryEntry(id);
+      if (result.status === "error") {
+        loadHistoryEntries();
+      }
     } catch (error) {
       console.error("Failed to delete audio entry:", error);
+      loadHistoryEntries();
       throw error;
     }
   };
@@ -203,7 +292,6 @@ export const HistorySettings: React.FC = () => {
                 entry={entry}
                 onToggleSaved={() => toggleSaved(entry.id)}
                 onCopyText={() => {
-                  // For AI Replace, copy the AI response if available
                   const textToCopy =
                     entry.action_type === "ai_replace"
                       ? entry.ai_response ?? entry.transcription_text
@@ -215,6 +303,7 @@ export const HistorySettings: React.FC = () => {
               />
             ))}
           </div>
+          {hasMore && <div ref={sentinelRef} className="h-1" />}
         </div>
       </div>
     </div>
