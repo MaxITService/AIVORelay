@@ -12,25 +12,28 @@ use crate::managers::audio::AudioRecordingManager;
 use crate::managers::key_listener::{KeyListenerState, ShortcutEvent};
 use crate::managers::remote_stt::RemoteSttManager;
 use crate::settings::ShortcutBinding;
+use crate::shortcut_handy_keys;
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 use crate::settings::APPLE_INTELLIGENCE_DEFAULT_MODEL_ID;
 use crate::settings::{
     self, get_settings, AutoSubmitKey, ClipboardHandling, LLMPrompt, OutputWhitespaceMode,
     OverlayPosition, PasteMethod, RecordingOverlayAnimatedBorderMode,
     RecordingOverlayBackgroundMode, RecordingOverlayBarStyle, RecordingOverlayCenterpieceMode,
-    RecordingOverlayMaterialMode, RecordingOverlayTheme, RemoteSttDebugMode, ShortcutEngine,
-    SonioxLivePreviewPosition, SonioxLivePreviewSize, SonioxLivePreviewTheme, SoundTheme,
-    TranscriptionProvider, APPLE_INTELLIGENCE_PROVIDER_ID, DEEPGRAM_DEFAULT_ENDPOINTING_MS,
+    RecordingOverlayMaterialMode, RecordingOverlayTheme,
+    RemoteSttDebugMode, ShortcutEngine, SonioxLivePreviewPosition, SonioxLivePreviewSize,
+    SonioxLivePreviewTheme, SoundTheme,
+    TranscriptionProvider,
+    APPLE_INTELLIGENCE_PROVIDER_ID, DEEPGRAM_DEFAULT_ENDPOINTING_MS,
     DEEPGRAM_DEFAULT_LIVE_FINALIZE_TIMEOUT_MS, DEEPGRAM_DEFAULT_MODEL,
     SONIOX_DEFAULT_LIVE_FINALIZE_TIMEOUT_MS, SONIOX_DEFAULT_MAX_ENDPOINT_DELAY_MS,
     SONIOX_DEFAULT_MODEL,
 };
-use crate::shortcut_handy_keys;
-use crate::tray;
 use crate::url_security::{
     canonical_llm_provider_base_url, remote_stt_base_url_for_preset,
-    remote_stt_default_model_for_preset, validate_remote_stt_base_url, REMOTE_STT_PRESET_CUSTOM,
+    remote_stt_default_model_for_preset, validate_remote_stt_base_url,
+    REMOTE_STT_PRESET_CUSTOM,
 };
+use crate::tray;
 use crate::ManagedToggleState;
 
 /// Track which shortcuts are registered via rdev (not tauri-plugin-global-shortcut)
@@ -451,7 +454,9 @@ pub fn init_shortcuts(app: &AppHandle) {
                 } else if effective_engine == ShortcutEngine::HandyKeys {
                     info!("Using HandyKeys shortcut engine");
                 } else {
-                    info!("Using Tauri shortcut engine (high performance, limited key support)");
+                    info!(
+                        "Using Tauri shortcut engine (high performance, limited key support)"
+                    );
                 }
             }
             ShortcutEngine::Tauri => {
@@ -987,7 +992,10 @@ pub fn change_recording_overlay_show_drag_grip_setting(
 
 #[tauri::command]
 #[specta::specta]
-pub fn change_recording_overlay_theme_setting(app: AppHandle, theme: String) -> Result<(), String> {
+pub fn change_recording_overlay_theme_setting(
+    app: AppHandle,
+    theme: String,
+) -> Result<(), String> {
     let mut settings = settings::get_settings(&app);
     settings.recording_overlay_theme = match theme.as_str() {
         "minimal" => RecordingOverlayTheme::Minimal,
@@ -1100,7 +1108,10 @@ pub fn change_recording_overlay_show_status_icon_setting(
 
 #[tauri::command]
 #[specta::specta]
-pub fn change_recording_overlay_bar_count_setting(app: AppHandle, count: u8) -> Result<(), String> {
+pub fn change_recording_overlay_bar_count_setting(
+    app: AppHandle,
+    count: u8,
+) -> Result<(), String> {
     let mut settings = settings::get_settings(&app);
     settings.recording_overlay_bar_count = clamp_recording_overlay_bar_count(count);
     settings::write_settings(&app, settings);
@@ -1110,7 +1121,10 @@ pub fn change_recording_overlay_bar_count_setting(app: AppHandle, count: u8) -> 
 
 #[tauri::command]
 #[specta::specta]
-pub fn change_recording_overlay_width_setting(app: AppHandle, width_px: u16) -> Result<(), String> {
+pub fn change_recording_overlay_width_setting(
+    app: AppHandle,
+    width_px: u16,
+) -> Result<(), String> {
     let mut settings = settings::get_settings(&app);
     settings.recording_overlay_width_px = clamp_recording_overlay_width_px(width_px);
     settings::write_settings(&app, settings);
@@ -1296,7 +1310,8 @@ pub fn change_recording_overlay_opacity_percent_setting(
     value: u8,
 ) -> Result<(), String> {
     let mut settings = settings::get_settings(&app);
-    settings.recording_overlay_opacity_percent = clamp_recording_overlay_opacity_percent(value);
+    settings.recording_overlay_opacity_percent =
+        clamp_recording_overlay_opacity_percent(value);
     settings::write_settings(&app, settings);
     refresh_recording_overlay_window(&app);
     Ok(())
@@ -2169,7 +2184,9 @@ pub fn change_convert_lf_to_crlf_setting(app: AppHandle, enabled: bool) -> Resul
 pub fn change_remote_stt_base_url_setting(app: AppHandle, base_url: String) -> Result<(), String> {
     let mut settings = settings::get_settings(&app);
     if settings.remote_stt.provider_preset != REMOTE_STT_PRESET_CUSTOM {
-        return Err("Only the Custom Remote STT provider allows editing the base URL.".to_string());
+        return Err(
+            "Only the Custom Remote STT provider allows editing the base URL.".to_string(),
+        );
     }
 
     let mut candidate = settings.remote_stt.clone();
@@ -4383,9 +4400,7 @@ pub async fn rotate_connector_password_now(
 
     while std::time::Instant::now() < deadline {
         let current = settings::get_settings(&app);
-        if current.connector_password == new_password
-            && current.connector_pending_password.is_none()
-        {
+        if current.connector_password == new_password && current.connector_pending_password.is_none() {
             return Ok(());
         }
 
@@ -4710,9 +4725,8 @@ fn validate_shortcut_string(app: &AppHandle, raw: &str) -> Result<(), String> {
                 }
             }
             ShortcutEngine::HandyKeys => shortcut_handy_keys::validate_shortcut(&normalized),
-            ShortcutEngine::Rdev => {
-                crate::managers::key_listener::parse_shortcut_string(&normalized).map(|_| ())
-            }
+            ShortcutEngine::Rdev => crate::managers::key_listener::parse_shortcut_string(&normalized)
+                .map(|_| ()),
         }
     }
 
@@ -5441,7 +5455,10 @@ pub fn change_recording_auto_stop_paste_setting(app: AppHandle, paste: bool) -> 
 
 #[tauri::command]
 #[specta::specta]
-pub fn change_extra_recording_buffer_setting(app: AppHandle, value_ms: u64) -> Result<(), String> {
+pub fn change_extra_recording_buffer_setting(
+    app: AppHandle,
+    value_ms: u64,
+) -> Result<(), String> {
     let mut settings = settings::get_settings(&app);
     settings.extra_recording_buffer_ms = value_ms.clamp(0, 1500);
     settings::write_settings(&app, settings);
