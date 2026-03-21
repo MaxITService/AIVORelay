@@ -290,20 +290,24 @@ impl TranscriptionManager {
         let model_path = self.model_manager.get_model_path(model_id)?;
 
         // Create appropriate engine based on model type
+        let emit_loading_failed = |error_msg: &str| {
+            let _ = self.app_handle.emit(
+                "model-state-changed",
+                ModelStateEvent {
+                    event_type: "loading_failed".to_string(),
+                    model_id: Some(model_id.to_string()),
+                    model_name: Some(model_info.name.clone()),
+                    error: Some(error_msg.to_string()),
+                },
+            );
+        };
+
         let loaded_engine = match model_info.engine_type {
             EngineType::Whisper => {
                 let mut engine = WhisperEngine::new();
                 engine.load_model(&model_path).map_err(|e| {
                     let error_msg = format!("Failed to load whisper model {}: {}", model_id, e);
-                    let _ = self.app_handle.emit(
-                        "model-state-changed",
-                        ModelStateEvent {
-                            event_type: "loading_failed".to_string(),
-                            model_id: Some(model_id.to_string()),
-                            model_name: Some(model_info.name.clone()),
-                            error: Some(error_msg.clone()),
-                        },
-                    );
+                    emit_loading_failed(&error_msg);
                     anyhow::anyhow!(error_msg)
                 })?;
                 LoadedEngine::Whisper(engine)
@@ -315,15 +319,7 @@ impl TranscriptionManager {
                     .map_err(|e| {
                         let error_msg =
                             format!("Failed to load parakeet model {}: {}", model_id, e);
-                        let _ = self.app_handle.emit(
-                            "model-state-changed",
-                            ModelStateEvent {
-                                event_type: "loading_failed".to_string(),
-                                model_id: Some(model_id.to_string()),
-                                model_name: Some(model_info.name.clone()),
-                                error: Some(error_msg.clone()),
-                            },
-                        );
+                        emit_loading_failed(&error_msg);
                         anyhow::anyhow!(error_msg)
                     })?;
                 LoadedEngine::Parakeet(engine)
@@ -338,15 +334,7 @@ impl TranscriptionManager {
                     .map_err(|e| {
                         let error_msg =
                             format!("Failed to load moonshine model {}: {}", model_id, e);
-                        let _ = self.app_handle.emit(
-                            "model-state-changed",
-                            ModelStateEvent {
-                                event_type: "loading_failed".to_string(),
-                                model_id: Some(model_id.to_string()),
-                                model_name: Some(model_info.name.clone()),
-                                error: Some(error_msg.clone()),
-                            },
-                        );
+                        emit_loading_failed(&error_msg);
                         anyhow::anyhow!(error_msg)
                     })?;
                 LoadedEngine::Moonshine(engine)
@@ -360,15 +348,7 @@ impl TranscriptionManager {
                             "Failed to load moonshine streaming model {}: {}",
                             model_id, e
                         );
-                        let _ = self.app_handle.emit(
-                            "model-state-changed",
-                            ModelStateEvent {
-                                event_type: "loading_failed".to_string(),
-                                model_id: Some(model_id.to_string()),
-                                model_name: Some(model_info.name.clone()),
-                                error: Some(error_msg.clone()),
-                            },
-                        );
+                        emit_loading_failed(&error_msg);
                         anyhow::anyhow!(error_msg)
                     })?;
                 LoadedEngine::MoonshineStreaming(engine)
@@ -380,15 +360,7 @@ impl TranscriptionManager {
                     .map_err(|e| {
                         let error_msg =
                             format!("Failed to load SenseVoice model {}: {}", model_id, e);
-                        let _ = self.app_handle.emit(
-                            "model-state-changed",
-                            ModelStateEvent {
-                                event_type: "loading_failed".to_string(),
-                                model_id: Some(model_id.to_string()),
-                                model_name: Some(model_info.name.clone()),
-                                error: Some(error_msg.clone()),
-                            },
-                        );
+                        emit_loading_failed(&error_msg);
                         anyhow::anyhow!(error_msg)
                     })?;
                 LoadedEngine::SenseVoice(engine)
@@ -397,15 +369,7 @@ impl TranscriptionManager {
                 let mut engine = GigaAMEngine::new();
                 engine.load_model(&model_path).map_err(|e| {
                     let error_msg = format!("Failed to load gigaam model {}: {}", model_id, e);
-                    let _ = self.app_handle.emit(
-                        "model-state-changed",
-                        ModelStateEvent {
-                            event_type: "loading_failed".to_string(),
-                            model_id: Some(model_id.to_string()),
-                            model_name: Some(model_info.name.clone()),
-                            error: Some(error_msg.clone()),
-                        },
-                    );
+                    emit_loading_failed(&error_msg);
                     anyhow::anyhow!(error_msg)
                 })?;
                 LoadedEngine::GigaAM(engine)
@@ -553,7 +517,8 @@ impl TranscriptionManager {
                                 initial_prompt: build_whisper_initial_prompt(
                                     {
                                         // Get the prompt for current model from the per-model HashMap
-                                        let current_model_id = self.current_model_id.lock().unwrap();
+                                        let current_model_id =
+                                            self.current_model_id.lock().unwrap();
                                         current_model_id
                                             .as_ref()
                                             .and_then(|id| settings.transcription_prompts.get(id))
