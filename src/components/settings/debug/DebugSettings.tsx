@@ -13,6 +13,8 @@ import { HistoryLimit } from "../HistoryLimit";
 import { AlwaysOnMicrophone } from "../AlwaysOnMicrophone";
 import { SoundPicker } from "../SoundPicker";
 import { MuteWhileRecording } from "../MuteWhileRecording";
+import { LazyStreamClose } from "./LazyStreamClose";
+import { RecordingBuffer } from "./RecordingBuffer";
 import { RecordingRetentionPeriodSelector } from "../RecordingRetentionPeriod";
 import { ClamshellMicrophoneSelector } from "../ClamshellMicrophoneSelector";
 import { HandyShortcut } from "../HandyShortcut";
@@ -85,6 +87,7 @@ export const DebugSettings: React.FC = () => {
         <AlwaysOnMicrophone descriptionMode="tooltip" grouped={true} />
         <ClamshellMicrophoneSelector descriptionMode="tooltip" grouped={true} />
         <MuteWhileRecording descriptionMode="tooltip" grouped={true} />
+        <RecordingBuffer descriptionMode="tooltip" grouped={true} />
         {/* Cancel shortcut is disabled on Linux due to instability with dynamic shortcut registration */}
         {!isLinux && (
           <HandyShortcut
@@ -111,6 +114,7 @@ export const DebugSettings: React.FC = () => {
         {/* Voice Commands Toggle - Windows only */}
         {isWindows && (
           <>
+            <LazyStreamClose descriptionMode="tooltip" grouped={true} />
             <SettingContainer
               title="Voice Commands"
               description="Execute scripts and commands using voice triggers"

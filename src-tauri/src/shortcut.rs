@@ -12,24 +12,25 @@ use crate::managers::audio::AudioRecordingManager;
 use crate::managers::key_listener::{KeyListenerState, ShortcutEvent};
 use crate::managers::remote_stt::RemoteSttManager;
 use crate::settings::ShortcutBinding;
-use crate::shortcut_handy_keys;
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 use crate::settings::APPLE_INTELLIGENCE_DEFAULT_MODEL_ID;
 use crate::settings::{
     self, get_settings, AutoSubmitKey, ClipboardHandling, LLMPrompt, OutputWhitespaceMode,
-    OverlayPosition, PasteMethod, RemoteSttDebugMode, ShortcutEngine, SonioxLivePreviewPosition,
-    SonioxLivePreviewSize, SonioxLivePreviewTheme, SoundTheme, TranscriptionProvider,
-    APPLE_INTELLIGENCE_PROVIDER_ID, DEEPGRAM_DEFAULT_ENDPOINTING_MS,
+    OverlayPosition, PasteMethod, RecordingOverlayAnimatedBorderMode,
+    RecordingOverlayBackgroundMode, RecordingOverlayBarStyle, RecordingOverlayCenterpieceMode,
+    RecordingOverlayMaterialMode, RecordingOverlayTheme, RemoteSttDebugMode, ShortcutEngine,
+    SonioxLivePreviewPosition, SonioxLivePreviewSize, SonioxLivePreviewTheme, SoundTheme,
+    TranscriptionProvider, APPLE_INTELLIGENCE_PROVIDER_ID, DEEPGRAM_DEFAULT_ENDPOINTING_MS,
     DEEPGRAM_DEFAULT_LIVE_FINALIZE_TIMEOUT_MS, DEEPGRAM_DEFAULT_MODEL,
     SONIOX_DEFAULT_LIVE_FINALIZE_TIMEOUT_MS, SONIOX_DEFAULT_MAX_ENDPOINT_DELAY_MS,
     SONIOX_DEFAULT_MODEL,
 };
+use crate::shortcut_handy_keys;
+use crate::tray;
 use crate::url_security::{
     canonical_llm_provider_base_url, remote_stt_base_url_for_preset,
-    remote_stt_default_model_for_preset, validate_remote_stt_base_url,
-    REMOTE_STT_PRESET_CUSTOM,
+    remote_stt_default_model_for_preset, validate_remote_stt_base_url, REMOTE_STT_PRESET_CUSTOM,
 };
-use crate::tray;
 use crate::ManagedToggleState;
 
 /// Track which shortcuts are registered via rdev (not tauri-plugin-global-shortcut)
@@ -387,9 +388,7 @@ pub fn init_shortcuts(app: &AppHandle) {
                 } else if effective_engine == ShortcutEngine::HandyKeys {
                     info!("Using HandyKeys shortcut engine");
                 } else {
-                    info!(
-                        "Using Tauri shortcut engine (high performance, limited key support)"
-                    );
+                    info!("Using Tauri shortcut engine (high performance, limited key support)");
                 }
             }
             ShortcutEngine::Tauri => {
@@ -880,6 +879,376 @@ pub fn change_error_feedback_enabled_setting(app: AppHandle, enabled: bool) -> R
     let mut settings = settings::get_settings(&app);
     settings.error_feedback_enabled = enabled;
     settings::write_settings(&app, settings);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_recording_overlay_custom_enabled_setting(
+    app: AppHandle,
+    enabled: bool,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.recording_overlay_custom_enabled = enabled;
+    settings::write_settings(&app, settings);
+    refresh_recording_overlay_window(&app);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_recording_overlay_show_drag_grip_setting(
+    app: AppHandle,
+    enabled: bool,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.recording_overlay_show_drag_grip = enabled;
+    settings::write_settings(&app, settings);
+    refresh_recording_overlay_window(&app);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_recording_overlay_theme_setting(app: AppHandle, theme: String) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.recording_overlay_theme = match theme.as_str() {
+        "minimal" => RecordingOverlayTheme::Minimal,
+        "glass" => RecordingOverlayTheme::Glass,
+        "classic" => RecordingOverlayTheme::Classic,
+        other => {
+            warn!(
+                "Invalid recording overlay theme '{}', defaulting to classic",
+                other
+            );
+            RecordingOverlayTheme::Classic
+        }
+    };
+    settings::write_settings(&app, settings);
+    refresh_recording_overlay_window(&app);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_recording_overlay_background_mode_setting(
+    app: AppHandle,
+    mode: String,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.recording_overlay_background_mode = match mode.as_str() {
+        "mist" => RecordingOverlayBackgroundMode::Mist,
+        "petals_haze" => RecordingOverlayBackgroundMode::PetalsHaze,
+        "soft_glow_field" => RecordingOverlayBackgroundMode::SoftGlowField,
+        "stardust" => RecordingOverlayBackgroundMode::Stardust,
+        "silk_fog" => RecordingOverlayBackgroundMode::SilkFog,
+        "firefly_veil" => RecordingOverlayBackgroundMode::FireflyVeil,
+        "rose_sparks" => RecordingOverlayBackgroundMode::RoseSparks,
+        _ => RecordingOverlayBackgroundMode::None,
+    };
+    settings::write_settings(&app, settings);
+    refresh_recording_overlay_window(&app);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_recording_overlay_material_mode_setting(
+    app: AppHandle,
+    mode: String,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.recording_overlay_material_mode = match mode.as_str() {
+        "pearl" => RecordingOverlayMaterialMode::Pearl,
+        "velvet_neon" => RecordingOverlayMaterialMode::VelvetNeon,
+        "frost" => RecordingOverlayMaterialMode::Frost,
+        "candy_chrome" => RecordingOverlayMaterialMode::CandyChrome,
+        _ => RecordingOverlayMaterialMode::LiquidGlass,
+    };
+    settings::write_settings(&app, settings);
+    refresh_recording_overlay_window(&app);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_recording_overlay_centerpiece_mode_setting(
+    app: AppHandle,
+    mode: String,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.recording_overlay_centerpiece_mode = match mode.as_str() {
+        "halo_core" => RecordingOverlayCenterpieceMode::HaloCore,
+        "aurora_ribbon" => RecordingOverlayCenterpieceMode::AuroraRibbon,
+        "orbital_beads" => RecordingOverlayCenterpieceMode::OrbitalBeads,
+        "bloom_heart" => RecordingOverlayCenterpieceMode::BloomHeart,
+        "signal_crown" => RecordingOverlayCenterpieceMode::SignalCrown,
+        _ => RecordingOverlayCenterpieceMode::None,
+    };
+    settings::write_settings(&app, settings);
+    refresh_recording_overlay_window(&app);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_recording_overlay_animated_border_mode_setting(
+    app: AppHandle,
+    mode: String,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.recording_overlay_animated_border_mode = match mode.as_str() {
+        "shimmer_edge" => RecordingOverlayAnimatedBorderMode::ShimmerEdge,
+        "traveling_highlight" => RecordingOverlayAnimatedBorderMode::TravelingHighlight,
+        "breathing_contour" => RecordingOverlayAnimatedBorderMode::BreathingContour,
+        _ => RecordingOverlayAnimatedBorderMode::None,
+    };
+    settings::write_settings(&app, settings);
+    refresh_recording_overlay_window(&app);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_recording_overlay_show_status_icon_setting(
+    app: AppHandle,
+    enabled: bool,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.recording_overlay_show_status_icon = enabled;
+    settings::write_settings(&app, settings);
+    refresh_recording_overlay_window(&app);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_recording_overlay_bar_count_setting(app: AppHandle, count: u8) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.recording_overlay_bar_count = clamp_recording_overlay_bar_count(count);
+    settings::write_settings(&app, settings);
+    refresh_recording_overlay_window(&app);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_recording_overlay_width_setting(app: AppHandle, width_px: u16) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.recording_overlay_width_px = clamp_recording_overlay_width_px(width_px);
+    settings::write_settings(&app, settings);
+    refresh_recording_overlay_window(&app);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_recording_overlay_bar_width_setting(
+    app: AppHandle,
+    width_px: u8,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.recording_overlay_bar_width_px = clamp_recording_overlay_bar_width_px(width_px);
+    settings::write_settings(&app, settings);
+    refresh_recording_overlay_window(&app);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_recording_overlay_bar_style_setting(
+    app: AppHandle,
+    style: String,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.recording_overlay_bar_style = match style.as_str() {
+        "aurora" => RecordingOverlayBarStyle::Aurora,
+        "bloom_bounce" => RecordingOverlayBarStyle::BloomBounce,
+        "capsule" => RecordingOverlayBarStyle::Capsule,
+        "comet" => RecordingOverlayBarStyle::Comet,
+        "constellation" => RecordingOverlayBarStyle::Constellation,
+        "crown" => RecordingOverlayBarStyle::Crown,
+        "daisy" => RecordingOverlayBarStyle::Daisy,
+        "ember" => RecordingOverlayBarStyle::Ember,
+        "fireflies" => RecordingOverlayBarStyle::Fireflies,
+        "garden_sway" => RecordingOverlayBarStyle::GardenSway,
+        "glow" => RecordingOverlayBarStyle::Glow,
+        "hologram" => RecordingOverlayBarStyle::Hologram,
+        "helix" => RecordingOverlayBarStyle::Helix,
+        "lotus" => RecordingOverlayBarStyle::Lotus,
+        "matrix" => RecordingOverlayBarStyle::Matrix,
+        "morse" => RecordingOverlayBarStyle::Morse,
+        "petals" => RecordingOverlayBarStyle::Petals,
+        "petal_rain" => RecordingOverlayBarStyle::PetalRain,
+        "pulse_rings" => RecordingOverlayBarStyle::PulseRings,
+        "radar" => RecordingOverlayBarStyle::Radar,
+        "needles" => RecordingOverlayBarStyle::Needles,
+        "orbit" => RecordingOverlayBarStyle::Orbit,
+        "prism" => RecordingOverlayBarStyle::Prism,
+        "retro" => RecordingOverlayBarStyle::Retro,
+        "shards" => RecordingOverlayBarStyle::Shards,
+        "skyline" => RecordingOverlayBarStyle::Skyline,
+        "solid" => RecordingOverlayBarStyle::Solid,
+        "tuner" => RecordingOverlayBarStyle::Tuner,
+        "vinyl" => RecordingOverlayBarStyle::Vinyl,
+        other => {
+            warn!(
+                "Invalid recording overlay bar style '{}', defaulting to solid",
+                other
+            );
+            RecordingOverlayBarStyle::Solid
+        }
+    };
+    settings::write_settings(&app, settings);
+    refresh_recording_overlay_window(&app);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_recording_overlay_accent_color_setting(
+    app: AppHandle,
+    color: String,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.recording_overlay_accent_color = normalize_recording_overlay_color(&color);
+    settings::write_settings(&app, settings);
+    refresh_recording_overlay_window(&app);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_recording_overlay_surface_base_color_setting(
+    app: AppHandle,
+    color: String,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.recording_overlay_surface_base_color = normalize_recording_overlay_color(&color);
+    settings::write_settings(&app, settings);
+    refresh_recording_overlay_window(&app);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_recording_overlay_body_background_color_setting(
+    app: AppHandle,
+    color: String,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.recording_overlay_body_background_color = normalize_recording_overlay_color(&color);
+    settings::write_settings(&app, settings);
+    refresh_recording_overlay_window(&app);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_recording_overlay_audio_reactive_scale_setting(
+    app: AppHandle,
+    enabled: bool,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.recording_overlay_audio_reactive_scale = enabled;
+    settings::write_settings(&app, settings);
+    refresh_recording_overlay_window(&app);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_recording_overlay_audio_reactive_scale_max_percent_setting(
+    app: AppHandle,
+    value: u8,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.recording_overlay_audio_reactive_scale_max_percent =
+        clamp_recording_overlay_audio_reactive_scale_max_percent(value);
+    settings::write_settings(&app, settings);
+    refresh_recording_overlay_window(&app);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_recording_overlay_voice_sensitivity_percent_setting(
+    app: AppHandle,
+    value: u8,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.recording_overlay_voice_sensitivity_percent =
+        clamp_recording_overlay_voice_sensitivity_percent(value);
+    settings::write_settings(&app, settings);
+    refresh_recording_overlay_window(&app);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_recording_overlay_animation_softness_percent_setting(
+    app: AppHandle,
+    value: u8,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.recording_overlay_animation_softness_percent =
+        clamp_recording_overlay_animation_softness_percent(value);
+    settings::write_settings(&app, settings);
+    refresh_recording_overlay_window(&app);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_recording_overlay_depth_parallax_percent_setting(
+    app: AppHandle,
+    value: u8,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.recording_overlay_depth_parallax_percent =
+        clamp_recording_overlay_depth_parallax_percent(value);
+    settings::write_settings(&app, settings);
+    refresh_recording_overlay_window(&app);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_recording_overlay_opacity_percent_setting(
+    app: AppHandle,
+    value: u8,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.recording_overlay_opacity_percent = clamp_recording_overlay_opacity_percent(value);
+    settings::write_settings(&app, settings);
+    refresh_recording_overlay_window(&app);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_recording_overlay_silence_fade_setting(
+    app: AppHandle,
+    enabled: bool,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.recording_overlay_silence_fade = enabled;
+    settings::write_settings(&app, settings);
+    refresh_recording_overlay_window(&app);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_recording_overlay_silence_opacity_percent_setting(
+    app: AppHandle,
+    value: u8,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.recording_overlay_silence_opacity_percent =
+        clamp_recording_overlay_silence_opacity_percent(value);
+    settings::write_settings(&app, settings);
+    refresh_recording_overlay_window(&app);
     Ok(())
 }
 
@@ -1723,9 +2092,7 @@ pub fn change_convert_lf_to_crlf_setting(app: AppHandle, enabled: bool) -> Resul
 pub fn change_remote_stt_base_url_setting(app: AppHandle, base_url: String) -> Result<(), String> {
     let mut settings = settings::get_settings(&app);
     if settings.remote_stt.provider_preset != REMOTE_STT_PRESET_CUSTOM {
-        return Err(
-            "Only the Custom Remote STT provider allows editing the base URL.".to_string(),
-        );
+        return Err("Only the Custom Remote STT provider allows editing the base URL.".to_string());
     }
 
     let mut candidate = settings.remote_stt.clone();
@@ -3939,7 +4306,9 @@ pub async fn rotate_connector_password_now(
 
     while std::time::Instant::now() < deadline {
         let current = settings::get_settings(&app);
-        if current.connector_password == new_password && current.connector_pending_password.is_none() {
+        if current.connector_password == new_password
+            && current.connector_pending_password.is_none()
+        {
             return Ok(());
         }
 
@@ -4264,8 +4633,9 @@ fn validate_shortcut_string(app: &AppHandle, raw: &str) -> Result<(), String> {
                 }
             }
             ShortcutEngine::HandyKeys => shortcut_handy_keys::validate_shortcut(&normalized),
-            ShortcutEngine::Rdev => crate::managers::key_listener::parse_shortcut_string(&normalized)
-                .map(|_| ()),
+            ShortcutEngine::Rdev => {
+                crate::managers::key_listener::parse_shortcut_string(&normalized).map(|_| ())
+            }
         }
     }
 
@@ -4988,6 +5358,24 @@ pub fn change_recording_auto_stop_timeout_seconds_setting(
 pub fn change_recording_auto_stop_paste_setting(app: AppHandle, paste: bool) -> Result<(), String> {
     let mut settings = settings::get_settings(&app);
     settings.recording_auto_stop_paste = paste;
+    settings::write_settings(&app, settings);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_extra_recording_buffer_setting(app: AppHandle, value_ms: u64) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.extra_recording_buffer_ms = value_ms.clamp(0, 1500);
+    settings::write_settings(&app, settings);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_lazy_stream_close_setting(app: AppHandle, enabled: bool) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.lazy_stream_close = enabled;
     settings::write_settings(&app, settings);
     Ok(())
 }

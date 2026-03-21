@@ -376,6 +376,12 @@ settingUpdaters.error_overlay_auto_hide_ms = (value) =>
   });
 (settingUpdaters as any).recording_auto_stop_paste = (value: any) =>
   invoke("change_recording_auto_stop_paste_setting", { paste: value });
+(settingUpdaters as any).extra_recording_buffer_ms = (value: any) =>
+  invoke("change_extra_recording_buffer_setting", {
+    valueMs: Math.round(Number(value)),
+  });
+(settingUpdaters as any).lazy_stream_close = (value: any) =>
+  invoke("change_lazy_stream_close_setting", { enabled: Boolean(value) });
 (settingUpdaters as any).native_region_capture_mode = (value: any) =>
   invoke("change_native_region_capture_mode_setting", { mode: value });
 (settingUpdaters as any).beta_voice_commands_enabled = (value: any) =>

@@ -1804,6 +1804,9 @@ pub struct AppSettings {
     /// Extra trailing capture time for local STT paths after hotkey release (0..1500 ms)
     #[serde(default)]
     pub extra_recording_buffer_ms: u64,
+    /// Keep the microphone stream alive briefly after stop to reduce startup latency.
+    #[serde(default)]
+    pub lazy_stream_close: bool,
     // ==================== UI State ====================
     /// Whether the hotkey sidebar is pinned open
     #[serde(default)]
@@ -3069,6 +3072,7 @@ pub fn get_default_settings() -> AppSettings {
         recording_auto_stop_timeout_seconds: 1800,
         recording_auto_stop_paste: false,
         extra_recording_buffer_ms: 0,
+        lazy_stream_close: false,
         // Window Geometry
         remember_window_size: true,
         remember_window_position: true,

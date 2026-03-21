@@ -7,9 +7,12 @@ use crate::settings::{get_settings, AppSettings, LiveSoundCaptureSource};
 use crate::utils;
 use log::{debug, error, info, warn};
 use std::fmt;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 use tauri::Manager;
+
+const STREAM_IDLE_TIMEOUT: Duration = Duration::from_secs(30);
 
 fn set_mute(mute: bool) {
     // Expected behavior:
@@ -215,6 +218,7 @@ pub struct AudioRecordingManager {
     is_open: Arc<Mutex<bool>>,
     is_recording: Arc<Mutex<bool>>,
     did_mute: Arc<Mutex<bool>>,
+    close_generation: Arc<AtomicU64>,
     active_selection: Arc<Mutex<Option<ActiveRecorderSelection>>>,
     stream_frame_callback: Arc<Mutex<Option<StreamFrameCallback>>>,
 }
@@ -239,6 +243,7 @@ impl AudioRecordingManager {
             is_open: Arc::new(Mutex::new(false)),
             is_recording: Arc::new(Mutex::new(false)),
             did_mute: Arc::new(Mutex::new(false)),
+            close_generation: Arc::new(AtomicU64::new(0)),
             active_selection: Arc::new(Mutex::new(None)),
             stream_frame_callback: Arc::new(Mutex::new(None)),
         };
@@ -315,6 +320,40 @@ impl AudioRecordingManager {
         }
     }
 
+    fn should_use_lazy_stream_close(&self) -> bool {
+        if !get_settings(&self.app_handle).lazy_stream_close {
+            return false;
+        }
+
+        self.active_selection
+            .lock()
+            .unwrap()
+            .as_ref()
+            .map(|selection| selection.source == AudioCaptureSource::Microphone)
+            .unwrap_or(false)
+    }
+
+    fn schedule_lazy_close(&self) {
+        let generation = self.close_generation.fetch_add(1, Ordering::SeqCst) + 1;
+        let app_handle = self.app_handle.clone();
+
+        std::thread::spawn(move || {
+            std::thread::sleep(STREAM_IDLE_TIMEOUT);
+            let manager = app_handle.state::<Arc<AudioRecordingManager>>();
+            let state = manager.state.lock().unwrap();
+
+            if manager.close_generation.load(Ordering::SeqCst) == generation
+                && matches!(*state, RecordingState::Idle)
+            {
+                info!(
+                    "Closing idle microphone stream after {:?}",
+                    STREAM_IDLE_TIMEOUT
+                );
+                manager.stop_microphone_stream();
+            }
+        });
+    }
+
     /* ---------- microphone life-cycle -------------------------------------- */
 
     /// Applies mute if mute_while_recording is enabled and stream is open
@@ -367,6 +406,8 @@ impl AudioRecordingManager {
         selection: ActiveRecorderSelection,
         settings: &AppSettings,
     ) -> Result<(), anyhow::Error> {
+        self.close_generation.fetch_add(1, Ordering::SeqCst);
+
         let is_open = *self.is_open.lock().unwrap();
         let active_selection = self.active_selection.lock().unwrap().clone();
         if is_open && active_selection.as_ref() == Some(&selection) {
@@ -437,6 +478,7 @@ impl AudioRecordingManager {
     }
 
     pub fn stop_microphone_stream(&self) {
+        self.close_generation.fetch_add(1, Ordering::SeqCst);
         let mut open_flag = self.is_open.lock().unwrap();
         if !*open_flag {
             return;
@@ -620,9 +662,13 @@ impl AudioRecordingManager {
 
                 *self.is_recording.lock().unwrap() = false;
 
-                // In on-demand mode turn the mic off again
+                // In on-demand mode, close the microphone lazily only for real mic capture.
                 if matches!(*self.mode.lock().unwrap(), MicrophoneMode::OnDemand) {
-                    self.stop_microphone_stream();
+                    if self.should_use_lazy_stream_close() {
+                        self.schedule_lazy_close();
+                    } else {
+                        self.stop_microphone_stream();
+                    }
                 }
 
                 // Pad if very short
@@ -660,9 +706,13 @@ impl AudioRecordingManager {
 
             *self.is_recording.lock().unwrap() = false;
 
-            // In on-demand mode turn the mic off again
+            // In on-demand mode, close the microphone lazily only for real mic capture.
             if matches!(*self.mode.lock().unwrap(), MicrophoneMode::OnDemand) {
-                self.stop_microphone_stream();
+                if self.should_use_lazy_stream_close() {
+                    self.schedule_lazy_close();
+                } else {
+                    self.stop_microphone_stream();
+                }
             }
         }
     }
