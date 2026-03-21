@@ -12,6 +12,7 @@ Rules:
 
 | Propagation Date | Target Branch | Main SHA | Main Message | Branch SHA | Branch Message | Issues |
 | --- | --- | --- | --- | --- | --- | --- |
+| 2026-03-21 | `Microsoft-store` | `5dc33a2d` | Consolidate PR code quality checks | `20f2eb8e` | Consolidate PR code quality checks | clean cherry-pick during post-1.0.3 backfill |
 | 2026-03-21 | `Microsoft-store` | `8fe4b1fd` | Promo | `62ff3a69` | Promo | clean cherry-pick during post-1.0.3 backfill |
 | 2026-03-21 | `Microsoft-store` | `96ebb0e7` | Fix clamshell test import warning | `2a644fda` | Fix clamshell test import warning | clean cherry-pick during post-1.0.3 backfill |
 | 2026-03-21 | `Microsoft-store` | `25a03b17` | Port GigaAM v3 directory migration | `96041be0` | Port GigaAM v3 directory migration | migration already present; resolved remaining SHA256/resource tail |
