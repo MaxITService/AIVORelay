@@ -2,6 +2,12 @@
 
 Small rolling log of upstream commits integrated into `main`.
 
+Audit note (2026-03-21):
+- Current fetched `upstream/main` head checked locally: `58cda3f3`.
+- Safe review cursor for the next `upstream -> main` intake: `d33535cf` (`release v0.7.12`).
+- The table below logs integrated upstream commits only; the review cursor may be newer because it also accounts for explicitly skipped commits.
+- Re-triaged corridor up to `d33535cf`: taken/logged `e1a484f7`, `5a3e6e33`, `2eeb2129`; skipped `075a5887` (Italian translation), `012e0666` (macOS-only scrollbar), `d33535cf` (release-only).
+
 Rules:
 - Keep newest entries first.
 - Keep only last 10 entries.
