@@ -98,6 +98,22 @@ function App() {
         );
       },
     );
+    const unlistenModelDownloadFailed = listen<{
+      model_id: string;
+      error: string;
+    }>("model-download-failed", (event) => {
+      toast.error(
+        t("errors.modelDownloadFailed", {
+          model:
+            event.payload.model_id ||
+            t("errors.modelDownloadFailedUnknown"),
+        }),
+        {
+          duration: ERROR_TOAST_DURATION_MS,
+          description: event.payload.error,
+        },
+      );
+    });
 
     const unlistenAuthFailed = listen<{ message: string }>("connector-auth-failed", (event) => {
       toast.warning(event.payload.message || "Connector authentication failed", { duration: 5000 });
@@ -109,6 +125,7 @@ function App() {
       unlistenVoiceCommand.then((unlisten) => unlisten());
       unlistenRecording.then((unlisten) => unlisten());
       unlistenModelState.then((unlisten) => unlisten());
+      unlistenModelDownloadFailed.then((unlisten) => unlisten());
       unlistenAuthFailed.then((unlisten) => unlisten());
     };
   }, [t]);
