@@ -5,7 +5,7 @@ Before starting a new `main` -> branch sync, verify the target branch directly w
 
 ## Microsoft-store
 
-Last synced commit from `main`: `c900c3fa` — chore(release): bump version to 1.0.4.
+Last synced commit from `main`: `e7ca2c90` — refactor(transcription): dedupe model load failure events.
 Maintenance rule: after a successful `main` -> `Microsoft-store` propagation, update this main-copy cursor and the `Microsoft-store` worktree copy together.
 Note: the cursor always points to the last propagated commit, not the cursor-update commit itself (to avoid a circular hash dependency).
 Sync rule: for this branch, source commits come from `main` only.
