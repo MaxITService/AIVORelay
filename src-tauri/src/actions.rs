@@ -3215,10 +3215,7 @@ impl ShortcutAction for TranscribeAction {
                                 if let Err(err) =
                                     finalize_preview_workflow_after_stop(&ah, text_to_insert).await
                                 {
-                                    crate::managers::preview_output_mode::set_error(
-                                        &ah,
-                                        Some(err),
-                                    );
+                                    crate::managers::preview_output_mode::set_error(&ah, Some(err));
                                 }
                             }
                             if binding_id == LIVE_SOUND_TRANSCRIPTION_BINDING_ID {

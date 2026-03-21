@@ -92,8 +92,7 @@ impl KeyListenerManager {
     /// Register a shortcut from a string like "ctrl+shift+a" or "caps lock"
     pub async fn register_shortcut(&self, id: String, binding: String) -> Result<(), String> {
         let (key, modifiers) = parse_shortcut_string(&binding)?;
-        let match_main_key_in_any_combo =
-            id.starts_with(DECAPITALIZE_MONITOR_SHORTCUT_ID_PREFIX);
+        let match_main_key_in_any_combo = id.starts_with(DECAPITALIZE_MONITOR_SHORTCUT_ID_PREFIX);
 
         let shortcut = RegisteredShortcut {
             key,
@@ -351,7 +350,6 @@ impl KeyListenerManager {
                 | Key::MetaRight
         )
     }
-
 }
 
 /// Parse a shortcut string like "ctrl+shift+a", "caps lock", or "ctrl+alt" into key and modifiers
@@ -383,11 +381,7 @@ pub fn parse_shortcut_string(binding: &str) -> Result<(Option<Key>, ModifierStat
 
     // Modifier-only shortcuts are valid (e.g., Ctrl+Alt)
     // But we need at least one modifier if there's no main key
-    if main_key.is_none()
-        && !modifiers.ctrl
-        && !modifiers.shift
-        && !modifiers.alt
-        && !modifiers.win
+    if main_key.is_none() && !modifiers.ctrl && !modifiers.shift && !modifiers.alt && !modifiers.win
     {
         return Err("Shortcut must have at least one key or modifier".to_string());
     }

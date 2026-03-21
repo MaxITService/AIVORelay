@@ -10,7 +10,10 @@ use strsim::levenshtein;
 fn build_ngram(words: &[&str]) -> String {
     words
         .iter()
-        .map(|w| w.trim_matches(|c: char| !c.is_alphanumeric()).to_lowercase())
+        .map(|w| {
+            w.trim_matches(|c: char| !c.is_alphanumeric())
+                .to_lowercase()
+        })
         .collect::<Vec<_>>()
         .concat()
 }
@@ -93,8 +96,10 @@ pub fn apply_custom_words(
     // Pre-compute lowercase versions to avoid repeated allocations
     let custom_words_lower: Vec<String> = custom_words.iter().map(|w| w.to_lowercase()).collect();
     // Remove spaces for robust matching against split terms
-    let custom_words_nospace: Vec<String> =
-        custom_words_lower.iter().map(|w| w.replace(' ', "")).collect();
+    let custom_words_nospace: Vec<String> = custom_words_lower
+        .iter()
+        .map(|w| w.replace(' ', ""))
+        .collect();
 
     let words: Vec<&str> = text.split_whitespace().collect();
     let mut result = Vec::new();
@@ -216,8 +221,9 @@ fn get_filler_words_for_language(lang: &str) -> &'static [&'static str] {
 
 /// Pre-compiled regex patterns for filtering transcription output
 /// Note: Matches simple XML-like tags (Rust regex doesn't support backreferences)
-static TAG_BLOCK_PATTERN: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r"<[A-Za-z][A-Za-z0-9:_-]*[^>]*>.*?</[A-Za-z][A-Za-z0-9:_-]*>").unwrap());
+static TAG_BLOCK_PATTERN: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r"<[A-Za-z][A-Za-z0-9:_-]*[^>]*>.*?</[A-Za-z][A-Za-z0-9:_-]*>").unwrap()
+});
 
 static BRACKET_PATTERN: Lazy<Regex> = Lazy::new(|| Regex::new(r"\[[^\]]*\]").unwrap());
 static PAREN_PATTERN: Lazy<Regex> = Lazy::new(|| Regex::new(r"\([^)]*\)").unwrap());
@@ -243,9 +249,7 @@ fn collapse_stutters(text: &str) -> String {
         if word_lower.len() <= 2 && word_lower.chars().all(|c| c.is_alphabetic()) {
             // Count consecutive repetitions (case-insensitive)
             let mut count = 1;
-            while i + count < words.len()
-                && words[i + count].to_lowercase() == word_lower
-            {
+            while i + count < words.len() && words[i + count].to_lowercase() == word_lower {
                 count += 1;
             }
 

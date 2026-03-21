@@ -257,7 +257,10 @@ fn crop_region_to_png(
 }
 
 #[cfg(target_os = "windows")]
-fn crop_png_region_to_png(screenshot_data: &[u8], region: &SelectedRegion) -> Result<Vec<u8>, String> {
+fn crop_png_region_to_png(
+    screenshot_data: &[u8],
+    region: &SelectedRegion,
+) -> Result<Vec<u8>, String> {
     use screenshots::image;
 
     let img = image::load_from_memory(screenshot_data)
@@ -269,7 +272,10 @@ fn crop_png_region_to_png(screenshot_data: &[u8], region: &SelectedRegion) -> Re
 
 /// Opens the region capture overlay and returns when user selects a region or cancels.
 #[cfg(target_os = "windows")]
-pub async fn open_region_picker(app: &AppHandle, mode: NativeRegionCaptureMode) -> RegionCaptureResult {
+pub async fn open_region_picker(
+    app: &AppHandle,
+    mode: NativeRegionCaptureMode,
+) -> RegionCaptureResult {
     // Close any existing region capture window first and wait for it to be destroyed
     if let Some(existing_window) = app.get_webview_window("region_capture") {
         debug!("Closing existing region capture window");
@@ -292,10 +298,12 @@ pub async fn open_region_picker(app: &AppHandle, mode: NativeRegionCaptureMode) 
 
     let screenshot_data = match mode {
         NativeRegionCaptureMode::LiveDesktop => None,
-        NativeRegionCaptureMode::ScreenshotBackground => match capture_virtual_screen_png(&virtual_info) {
-            Ok(data) => Some(data),
-            Err(e) => return RegionCaptureResult::Error(e),
-        },
+        NativeRegionCaptureMode::ScreenshotBackground => {
+            match capture_virtual_screen_png(&virtual_info) {
+                Ok(data) => Some(data),
+                Err(e) => return RegionCaptureResult::Error(e),
+            }
+        }
     };
 
     // Create a channel for receiving the result

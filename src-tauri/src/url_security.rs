@@ -125,10 +125,6 @@ pub fn canonical_llm_provider_base_url(provider: &PostProcessProvider) -> Result
             "Custom LLM base URL",
         ),
         APPLE_INTELLIGENCE_PROVIDER_ID => Ok(provider.base_url.clone()),
-        _ => validate_network_base_url(
-            &provider.base_url,
-            false,
-            "LLM provider base URL",
-        ),
+        _ => validate_network_base_url(&provider.base_url, false, "LLM provider base URL"),
     }
 }

@@ -3,11 +3,10 @@ use std::sync::LazyLock;
 
 static SONIOX_SUPPORTED_LANGUAGE_CODES: LazyLock<HashSet<&'static str>> = LazyLock::new(|| {
     [
-        "af", "sq", "ar", "az", "eu", "be", "bn", "bs", "bg", "ca", "zh", "hr", "cs", "da",
-        "nl", "en", "et", "fi", "fr", "gl", "de", "el", "gu", "he", "hi", "hu", "id", "it",
-        "ja", "kn", "kk", "ko", "lv", "lt", "mk", "ms", "ml", "mr", "no", "fa", "pl", "pt",
-        "pa", "ro", "ru", "sr", "sk", "sl", "es", "sw", "sv", "tl", "ta", "te", "th", "tr",
-        "uk", "ur", "vi", "cy",
+        "af", "sq", "ar", "az", "eu", "be", "bn", "bs", "bg", "ca", "zh", "hr", "cs", "da", "nl",
+        "en", "et", "fi", "fr", "gl", "de", "el", "gu", "he", "hi", "hu", "id", "it", "ja", "kn",
+        "kk", "ko", "lv", "lt", "mk", "ms", "ml", "mr", "no", "fa", "pl", "pt", "pa", "ro", "ru",
+        "sr", "sk", "sl", "es", "sw", "sv", "tl", "ta", "te", "th", "tr", "uk", "ur", "vi", "cy",
     ]
     .into_iter()
     .collect()
@@ -85,7 +84,10 @@ where
         }
     }
 
-    SonioxHintListNormalization { normalized, rejected }
+    SonioxHintListNormalization {
+        normalized,
+        rejected,
+    }
 }
 
 pub fn resolve_requested_language_for_soniox(language: Option<&str>) -> SonioxLanguageResolution {

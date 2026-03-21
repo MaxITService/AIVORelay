@@ -55,7 +55,9 @@ struct DiarizedTranscriptArtifact {
     blocks: Vec<DiarizedTranscriptBlock>,
 }
 
-pub fn normalize_raw_speaker_blocks(raw_blocks: Vec<RawSpeakerBlock>) -> Vec<DiarizedTranscriptBlock> {
+pub fn normalize_raw_speaker_blocks(
+    raw_blocks: Vec<RawSpeakerBlock>,
+) -> Vec<DiarizedTranscriptBlock> {
     let mut speaker_ids = HashMap::new();
     let mut default_names = HashMap::new();
     let mut next_speaker_id = 0u32;
@@ -72,11 +74,13 @@ pub fn normalize_raw_speaker_blocks(raw_blocks: Vec<RawSpeakerBlock>) -> Vec<Dia
             continue;
         }
 
-        let speaker_id = *speaker_ids.entry(speaker_key.to_string()).or_insert_with(|| {
-            let assigned_id = next_speaker_id;
-            next_speaker_id += 1;
-            assigned_id
-        });
+        let speaker_id = *speaker_ids
+            .entry(speaker_key.to_string())
+            .or_insert_with(|| {
+                let assigned_id = next_speaker_id;
+                next_speaker_id += 1;
+                assigned_id
+            });
         default_names
             .entry(speaker_key.to_string())
             .or_insert_with(|| {
@@ -136,7 +140,9 @@ pub fn reapply_diarized_transcript(
 ) -> Result<String, String> {
     let artifact = read_artifact(artifact_path)?;
     if artifact.blocks.is_empty() {
-        return Err("The temporary speaker session does not contain any speaker blocks".to_string());
+        return Err(
+            "The temporary speaker session does not contain any speaker blocks".to_string(),
+        );
     }
 
     Ok(render_diarized_transcript(&artifact.blocks, speaker_names))
@@ -210,8 +216,9 @@ fn validate_artifact_path(artifact_path: &str) -> Result<PathBuf, String> {
     let artifact_dir = artifact_dir()?;
     let canonical_dir = fs::canonicalize(&artifact_dir)
         .map_err(|e| format!("Failed to validate speaker session directory: {}", e))?;
-    let canonical_path = fs::canonicalize(&requested_path)
-        .map_err(|_| "The temporary speaker session is no longer available. Run transcription again.".to_string())?;
+    let canonical_path = fs::canonicalize(&requested_path).map_err(|_| {
+        "The temporary speaker session is no longer available. Run transcription again.".to_string()
+    })?;
 
     if !canonical_path.starts_with(&canonical_dir) {
         return Err("Invalid speaker session path".to_string());
@@ -261,7 +268,11 @@ fn cleanup_old_artifacts() {
         }
 
         if let Err(err) = fs::remove_file(&path) {
-            warn!("Failed to remove stale speaker session {}: {}", path.display(), err);
+            warn!(
+                "Failed to remove stale speaker session {}: {}",
+                path.display(),
+                err
+            );
         }
     }
 }

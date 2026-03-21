@@ -3,10 +3,10 @@ use crate::settings::SonioxContext;
 use anyhow::{anyhow, Result};
 use futures_util::{Sink, SinkExt, Stream, StreamExt};
 use log::{debug, info, warn};
+use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::sync::Arc;
-use parking_lot::Mutex;
 use std::time::{Duration, Instant};
 use tauri::async_runtime::JoinHandle;
 use tauri::{AppHandle, Emitter};
@@ -661,7 +661,11 @@ impl SonioxRealtimeManager {
     }
 
     pub fn push_audio_frame(&self, frame_16khz_mono: Vec<f32>) {
-        let sender = self.active_session.lock().as_ref().map(|session| session.audio_tx.clone());
+        let sender = self
+            .active_session
+            .lock()
+            .as_ref()
+            .map(|session| session.audio_tx.clone());
 
         let Some(sender) = sender else {
             let mut pending = self.pending_audio.lock();
@@ -709,9 +713,7 @@ impl SonioxRealtimeManager {
             mut join_handle,
             ..
         } = session;
-        let read_final_text = || -> String {
-            final_text.lock().trim().to_string()
-        };
+        let read_final_text = || -> String { final_text.lock().trim().to_string() };
 
         // Manual finalization first, then graceful stream end.
         let _ = control_tx.send(ControlMessage::Finalize);

@@ -220,9 +220,9 @@ fn open_mic_recorder_for_both(
     // Open the mic recorder; it drives the clock and mixes in loopback.
     let mut mic_rec = AudioRecorder::new()
         .map_err(|e| format!("Failed to create mic recorder: {}", e))?
-        .with_microphone_input_boost_db(settings.microphone_input_boost_db_for_device(
-            mic_device_name,
-        ));
+        .with_microphone_input_boost_db(
+            settings.microphone_input_boost_db_for_device(mic_device_name),
+        );
 
     let mic_device = resolve_device(&AudioCaptureSource::Microphone, mic_device_name);
     mic_rec
@@ -271,13 +271,11 @@ pub fn start(app: &AppHandle) -> Result<(), String> {
 
     let mut recorder = AudioRecorder::new()
         .map_err(|e| format!("Failed to create audio recorder: {}", e))?
-        .with_microphone_input_boost_db(
-            if source == AudioCaptureSource::Microphone {
-                settings.microphone_input_boost_db_for_device(device_name.as_deref())
-            } else {
-                0.0
-            },
-        );
+        .with_microphone_input_boost_db(if source == AudioCaptureSource::Microphone {
+            settings.microphone_input_boost_db_for_device(device_name.as_deref())
+        } else {
+            0.0
+        });
 
     let device = resolve_device(&source, device_name.as_deref());
 
@@ -424,16 +422,18 @@ pub fn refresh_microphone_input_boost_from_settings(app: &AppHandle) {
         if let Some(session) = guard.as_mut() {
             let settings = get_settings(app);
             let primary_boost_db = if session.primary_source == AudioCaptureSource::Microphone {
-                settings.microphone_input_boost_db_for_device(session.primary_device_name.as_deref())
+                settings
+                    .microphone_input_boost_db_for_device(session.primary_device_name.as_deref())
             } else {
                 0.0
             };
-            session.recorder.set_microphone_input_boost_db(primary_boost_db);
+            session
+                .recorder
+                .set_microphone_input_boost_db(primary_boost_db);
             if let Some(mic_recorder) = session.mic_recorder.as_ref() {
                 mic_recorder.set_microphone_input_boost_db(
-                    settings.microphone_input_boost_db_for_device(
-                        session.mic_device_name.as_deref(),
-                    ),
+                    settings
+                        .microphone_input_boost_db_for_device(session.mic_device_name.as_deref()),
                 );
             }
         }

@@ -1,7 +1,6 @@
 use crate::managers::transcription::{
     apply_accelerator_settings, get_available_accelerators as collect_available_accelerators,
-    AvailableAccelerators,
-    TranscriptionManager,
+    AvailableAccelerators, TranscriptionManager,
 };
 use crate::settings::{
     get_settings, write_settings, ModelUnloadTimeout, OrtAcceleratorSetting,
@@ -41,10 +40,7 @@ fn apply_and_reload_accelerator(app: &AppHandle) {
 
 #[tauri::command]
 #[specta::specta]
-pub fn change_whisper_accelerator_setting(
-    app: AppHandle,
-    accelerator: WhisperAcceleratorSetting,
-) {
+pub fn change_whisper_accelerator_setting(app: AppHandle, accelerator: WhisperAcceleratorSetting) {
     let mut settings = get_settings(&app);
     settings.whisper_accelerator = accelerator;
     write_settings(&app, settings);

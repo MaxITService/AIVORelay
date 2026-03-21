@@ -1,8 +1,8 @@
 use crate::managers::history::{HistoryEntry, HistoryManager};
 use crate::managers::model::ModelManager;
 use crate::managers::transcription::TranscriptionManager;
-use crate::{commands::audio, settings};
 use crate::tray_i18n::get_tray_translations;
+use crate::{commands::audio, settings};
 use log::{error, info, warn};
 use std::sync::{Arc, Mutex};
 use tauri::image::Image;
@@ -148,8 +148,7 @@ fn try_update_tray_menu(
     } else {
         format!("AivoRelay v{}", env!("CARGO_PKG_VERSION"))
     };
-    let version_i =
-        MenuItem::with_id(app, "version", &version_label, false, None::<&str>)?;
+    let version_i = MenuItem::with_id(app, "version", &version_label, false, None::<&str>)?;
     let settings_i = MenuItem::with_id(
         app,
         "settings",
@@ -200,8 +199,7 @@ fn try_update_tray_menu(
 
     match state {
         TrayIconState::Recording | TrayIconState::Transcribing => {
-            let cancel_i =
-                MenuItem::with_id(app, "cancel", &strings.cancel, true, None::<&str>)?;
+            let cancel_i = MenuItem::with_id(app, "cancel", &strings.cancel, true, None::<&str>)?;
             menu.append(&version_i)?;
             menu.append(&separator()?)?;
             menu.append(&cancel_i)?;
