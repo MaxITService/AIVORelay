@@ -12,6 +12,7 @@ Rules:
 
 | Propagation Date | Target Branch | Main SHA | Main Message | Branch SHA | Branch Message | Issues |
 | --- | --- | --- | --- | --- | --- | --- |
+| 2026-03-21 | `Microsoft-store` | `25a03b17` | Port GigaAM v3 directory migration | `96041be0` | Port GigaAM v3 directory migration | migration already present; resolved remaining SHA256/resource tail |
 | 2026-03-21 | `Microsoft-store` | `70163254` | Improve idle model unload behavior | `382ef7b6` | Improve idle model unload behavior | clean cherry-pick during post-1.0.3 backfill |
 | 2026-03-21 | `Microsoft-store` | `3346d7d8` | ensure samples don't get dropped (#1043) | `d2ca9803` | ensure samples don't get dropped (#1043) | manual merge in `recorder.rs` during post-1.0.3 backfill |
 | 2026-03-21 | `Microsoft-store` | `5dd380a0` | docs: add branch sync status tracking file | `53cf016f` | docs: add branch sync status tracking file | historical docs backfill |
@@ -21,7 +22,6 @@ Rules:
 | 2026-03-21 | `Microsoft-store` | `e7ca2c90` | refactor(transcription): dedupe model load failure events | `7635ad15` | refactor(transcription): dedupe model load failure events | 6 picks; manual merges; old `whisper-rs-sys` block |
 | 2026-03-19 | `cuda-integration` | `c900c3fa` | chore(release): bump version to 1.0.4 | `5ff5e9df` | chore(release): bump version to 1.0.4 | clean cherry-pick |
 | 2026-03-19 | `Microsoft-store` | `c900c3fa` | chore(release): bump version to 1.0.4 | `77745b15` | chore(release): bump version to 1.0.4 | clean cherry-pick |
-| 2026-03-19 | `cuda-integration` | `30895116` | chore(bindings): regenerate tauri bindings | `a14f2913` | chore(bindings): regenerate tauri bindings | clean cherry-pick |
 
 Entry template:
 
