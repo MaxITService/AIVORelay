@@ -423,10 +423,10 @@ impl HistoryManager {
     }
 
     fn emit_history_deleted(&self, id: i64) {
-        if let Err(e) = self
-            .app_handle
-            .emit("history-update-payload", &HistoryUpdatePayload::Deleted { id })
-        {
+        if let Err(e) = self.app_handle.emit(
+            "history-update-payload",
+            &HistoryUpdatePayload::Deleted { id },
+        ) {
             error!("Failed to emit history-update-payload event: {}", e);
         }
 
@@ -436,10 +436,10 @@ impl HistoryManager {
     }
 
     fn emit_history_toggled(&self, id: i64) {
-        if let Err(e) = self
-            .app_handle
-            .emit("history-update-payload", &HistoryUpdatePayload::Toggled { id })
-        {
+        if let Err(e) = self.app_handle.emit(
+            "history-update-payload",
+            &HistoryUpdatePayload::Toggled { id },
+        ) {
             error!("Failed to emit history-update-payload event: {}", e);
         }
 
@@ -514,9 +514,7 @@ impl HistoryManager {
              LIMIT 1",
         )?;
 
-        let entry = stmt
-            .query_row([], Self::map_history_entry)
-            .optional()?;
+        let entry = stmt.query_row([], Self::map_history_entry).optional()?;
 
         Ok(entry)
     }
@@ -556,9 +554,7 @@ impl HistoryManager {
              FROM transcription_history WHERE id = ?1",
         )?;
 
-        let entry = stmt
-            .query_row([id], Self::map_history_entry)
-            .optional()?;
+        let entry = stmt.query_row([id], Self::map_history_entry).optional()?;
 
         Ok(entry)
     }
