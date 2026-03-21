@@ -56,4 +56,3 @@ pub async fn key_listener_unregister_shortcut(
 
     key_listener_state.manager.unregister_shortcut(&id).await
 }
-

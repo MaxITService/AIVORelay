@@ -3,7 +3,10 @@ use crate::managers::preview_output_mode::PreviewOutputModeStatePayload;
 use crate::plus_overlay_state;
 use crate::settings;
 use crate::settings::{
-    OverlayPosition, SonioxLivePreviewPosition, SonioxLivePreviewSize, SonioxLivePreviewTheme,
+    OverlayPosition, RecordingOverlayAnimatedBorderMode, RecordingOverlayBackgroundMode,
+    RecordingOverlayBarStyle, RecordingOverlayCenterpieceMode, RecordingOverlayMaterialMode,
+    RecordingOverlayTheme, SonioxLivePreviewPosition, SonioxLivePreviewSize,
+    SonioxLivePreviewTheme,
 };
 use serde::Serialize;
 use specta::Type;
@@ -41,10 +44,10 @@ tauri_panel! {
     })
 }
 
-const OVERLAY_WIDTH: f64 = 172.0;
 const OVERLAY_HEIGHT: f64 = 36.0;
 const ERROR_OVERLAY_WIDTH: f64 = 340.0;
 const ERROR_OVERLAY_HEIGHT: f64 = 82.0;
+const RECORDING_OVERLAY_BAR_GAP: f64 = 3.0;
 
 // Command Confirmation Overlay dimensions
 const COMMAND_CONFIRM_WIDTH: f64 = 520.0;
@@ -134,10 +137,47 @@ pub struct SonioxLivePreviewAppearancePayload {
     pub show_drag_grip: bool,
 }
 
+#[derive(Serialize, Clone, Type)]
+pub struct RecordingOverlayAppearancePayload {
+    custom_enabled: bool,
+    theme: String,
+    background_mode: String,
+    material_mode: String,
+    centerpiece_mode: String,
+    animated_border_mode: String,
+    accent_color: String,
+    surface_base_color: String,
+    body_background_color: String,
+    show_status_icon: bool,
+    bar_count: u8,
+    bar_width_px: u8,
+    bar_style: String,
+    show_drag_grip: bool,
+    audio_reactive_scale: bool,
+    audio_reactive_scale_max_percent: u8,
+    voice_sensitivity_percent: u8,
+    animation_softness_percent: u8,
+    depth_parallax_percent: u8,
+    opacity_percent: u8,
+    silence_fade: bool,
+    silence_opacity_percent: u8,
+    frame_width_px: u16,
+    frame_height_px: u16,
+}
+
 static SONIOX_LIVE_PREVIEW_STATE: LazyLock<Mutex<SonioxLivePreviewPayload>> =
     LazyLock::new(|| Mutex::new(SonioxLivePreviewPayload::default()));
 static SONIOX_LIVE_PREVIEW_RUNTIME_STATE: LazyLock<Mutex<SonioxLivePreviewRuntimeState>> =
     LazyLock::new(|| Mutex::new(SonioxLivePreviewRuntimeState::default()));
+
+#[derive(Clone, Copy)]
+struct RecordingOverlayWindowMetrics {
+    frame_width: f64,
+    frame_height: f64,
+    padding: f64,
+    window_width: f64,
+    window_height: f64,
+}
 
 fn build_overlay_state_payload(
     state: &str,
@@ -240,48 +280,273 @@ fn is_mouse_within_monitor(
         && mouse_y < (monitor_y + monitor_height as i32)
 }
 
-fn get_monitor_logical_bounds(monitor: &tauri::Monitor) -> (f64, f64, f64, f64) {
-    let scale = monitor.scale_factor();
-    (
-        monitor.position().x as f64 / scale,
-        monitor.position().y as f64 / scale,
-        monitor.size().width as f64 / scale,
-        monitor.size().height as f64 / scale,
-    )
+#[derive(Clone, Copy)]
+struct LogicalBounds {
+    x: f64,
+    y: f64,
+    width: f64,
+    height: f64,
 }
 
-fn calculate_overlay_position_for_size(
+fn get_monitor_logical_bounds(monitor: &tauri::Monitor) -> LogicalBounds {
+    let scale = monitor.scale_factor();
+    LogicalBounds {
+        x: monitor.position().x as f64 / scale,
+        y: monitor.position().y as f64 / scale,
+        width: monitor.size().width as f64 / scale,
+        height: monitor.size().height as f64 / scale,
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn get_monitor_logical_work_area_bounds(monitor: &tauri::Monitor) -> Option<LogicalBounds> {
+    use std::mem::size_of;
+    use windows::Win32::Foundation::RECT;
+    use windows::Win32::Graphics::Gdi::{
+        GetMonitorInfoW, MonitorFromRect, MONITORINFO, MONITOR_DEFAULTTONEAREST,
+    };
+
+    let monitor_rect = RECT {
+        left: monitor.position().x,
+        top: monitor.position().y,
+        right: monitor.position().x + monitor.size().width as i32,
+        bottom: monitor.position().y + monitor.size().height as i32,
+    };
+
+    unsafe {
+        let hmonitor = MonitorFromRect(&monitor_rect, MONITOR_DEFAULTTONEAREST);
+        let mut info = MONITORINFO {
+            cbSize: size_of::<MONITORINFO>() as u32,
+            ..Default::default()
+        };
+        if !GetMonitorInfoW(hmonitor, &mut info as *mut MONITORINFO).as_bool() {
+            return None;
+        }
+
+        // Win32 reports rcWork in physical pixels. Convert it back to the same
+        // logical coordinate space used for Tauri window placement.
+        let scale = monitor.scale_factor();
+        Some(LogicalBounds {
+            x: info.rcWork.left as f64 / scale,
+            y: info.rcWork.top as f64 / scale,
+            width: (info.rcWork.right - info.rcWork.left) as f64 / scale,
+            height: (info.rcWork.bottom - info.rcWork.top) as f64 / scale,
+        })
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
+fn get_monitor_logical_work_area_bounds(_monitor: &tauri::Monitor) -> Option<LogicalBounds> {
+    None
+}
+
+fn get_monitor_logical_auto_position_bounds(
+    monitor: &tauri::Monitor,
+    allow_reserved_areas: bool,
+) -> LogicalBounds {
+    let full_bounds = get_monitor_logical_bounds(monitor);
+    if allow_reserved_areas {
+        return full_bounds;
+    }
+
+    get_monitor_logical_work_area_bounds(monitor).unwrap_or(full_bounds)
+}
+
+fn recording_overlay_theme_key(theme: RecordingOverlayTheme) -> &'static str {
+    match theme {
+        RecordingOverlayTheme::Classic => "classic",
+        RecordingOverlayTheme::Minimal => "minimal",
+        RecordingOverlayTheme::Glass => "glass",
+    }
+}
+
+fn recording_overlay_background_mode_key(mode: RecordingOverlayBackgroundMode) -> &'static str {
+    match mode {
+        RecordingOverlayBackgroundMode::Mist => "mist",
+        RecordingOverlayBackgroundMode::PetalsHaze => "petals_haze",
+        RecordingOverlayBackgroundMode::SoftGlowField => "soft_glow_field",
+        RecordingOverlayBackgroundMode::Stardust => "stardust",
+        RecordingOverlayBackgroundMode::SilkFog => "silk_fog",
+        RecordingOverlayBackgroundMode::FireflyVeil => "firefly_veil",
+        RecordingOverlayBackgroundMode::RoseSparks => "rose_sparks",
+        RecordingOverlayBackgroundMode::None => "none",
+    }
+}
+
+fn recording_overlay_material_mode_key(mode: RecordingOverlayMaterialMode) -> &'static str {
+    match mode {
+        RecordingOverlayMaterialMode::LiquidGlass => "liquid_glass",
+        RecordingOverlayMaterialMode::Pearl => "pearl",
+        RecordingOverlayMaterialMode::VelvetNeon => "velvet_neon",
+        RecordingOverlayMaterialMode::Frost => "frost",
+        RecordingOverlayMaterialMode::CandyChrome => "candy_chrome",
+    }
+}
+
+fn recording_overlay_centerpiece_mode_key(mode: RecordingOverlayCenterpieceMode) -> &'static str {
+    match mode {
+        RecordingOverlayCenterpieceMode::HaloCore => "halo_core",
+        RecordingOverlayCenterpieceMode::AuroraRibbon => "aurora_ribbon",
+        RecordingOverlayCenterpieceMode::OrbitalBeads => "orbital_beads",
+        RecordingOverlayCenterpieceMode::BloomHeart => "bloom_heart",
+        RecordingOverlayCenterpieceMode::SignalCrown => "signal_crown",
+        RecordingOverlayCenterpieceMode::None => "none",
+    }
+}
+
+fn recording_overlay_animated_border_mode_key(
+    mode: RecordingOverlayAnimatedBorderMode,
+) -> &'static str {
+    match mode {
+        RecordingOverlayAnimatedBorderMode::ShimmerEdge => "shimmer_edge",
+        RecordingOverlayAnimatedBorderMode::TravelingHighlight => "traveling_highlight",
+        RecordingOverlayAnimatedBorderMode::BreathingContour => "breathing_contour",
+        RecordingOverlayAnimatedBorderMode::None => "none",
+    }
+}
+
+fn recording_overlay_bar_style_key(style: RecordingOverlayBarStyle) -> &'static str {
+    match style {
+        RecordingOverlayBarStyle::Aurora => "aurora",
+        RecordingOverlayBarStyle::BloomBounce => "bloom_bounce",
+        RecordingOverlayBarStyle::Solid => "solid",
+        RecordingOverlayBarStyle::Capsule => "capsule",
+        RecordingOverlayBarStyle::Comet => "comet",
+        RecordingOverlayBarStyle::Constellation => "constellation",
+        RecordingOverlayBarStyle::Crown => "crown",
+        RecordingOverlayBarStyle::Daisy => "daisy",
+        RecordingOverlayBarStyle::Ember => "ember",
+        RecordingOverlayBarStyle::Fireflies => "fireflies",
+        RecordingOverlayBarStyle::GardenSway => "garden_sway",
+        RecordingOverlayBarStyle::Glow => "glow",
+        RecordingOverlayBarStyle::Hologram => "hologram",
+        RecordingOverlayBarStyle::Helix => "helix",
+        RecordingOverlayBarStyle::Lotus => "lotus",
+        RecordingOverlayBarStyle::Matrix => "matrix",
+        RecordingOverlayBarStyle::Morse => "morse",
+        RecordingOverlayBarStyle::Petals => "petals",
+        RecordingOverlayBarStyle::PetalRain => "petal_rain",
+        RecordingOverlayBarStyle::Prism => "prism",
+        RecordingOverlayBarStyle::PulseRings => "pulse_rings",
+        RecordingOverlayBarStyle::Radar => "radar",
+        RecordingOverlayBarStyle::Shards => "shards",
+        RecordingOverlayBarStyle::Retro => "retro",
+        RecordingOverlayBarStyle::Needles => "needles",
+        RecordingOverlayBarStyle::Orbit => "orbit",
+        RecordingOverlayBarStyle::Skyline => "skyline",
+        RecordingOverlayBarStyle::Tuner => "tuner",
+        RecordingOverlayBarStyle::Vinyl => "vinyl",
+    }
+}
+
+fn build_recording_overlay_appearance_payload(
     app_handle: &AppHandle,
-    overlay_width: f64,
-    overlay_height: f64,
+) -> RecordingOverlayAppearancePayload {
+    let settings = settings::get_settings(app_handle);
+    let metrics = recording_overlay_window_metrics(app_handle, current_recording_overlay_layout());
+    RecordingOverlayAppearancePayload {
+        custom_enabled: settings.recording_overlay_custom_enabled,
+        theme: recording_overlay_theme_key(settings.recording_overlay_theme).to_string(),
+        background_mode: recording_overlay_background_mode_key(
+            settings.recording_overlay_background_mode,
+        )
+        .to_string(),
+        material_mode: recording_overlay_material_mode_key(
+            settings.recording_overlay_material_mode,
+        )
+        .to_string(),
+        centerpiece_mode: recording_overlay_centerpiece_mode_key(
+            settings.recording_overlay_centerpiece_mode,
+        )
+        .to_string(),
+        animated_border_mode: recording_overlay_animated_border_mode_key(
+            settings.recording_overlay_animated_border_mode,
+        )
+        .to_string(),
+        accent_color: settings.recording_overlay_accent_color,
+        surface_base_color: settings.recording_overlay_surface_base_color,
+        body_background_color: settings.recording_overlay_body_background_color,
+        show_status_icon: settings.recording_overlay_show_status_icon,
+        bar_count: settings.recording_overlay_bar_count.clamp(3, 16),
+        bar_width_px: settings.recording_overlay_bar_width_px.clamp(2, 12),
+        bar_style: recording_overlay_bar_style_key(settings.recording_overlay_bar_style)
+            .to_string(),
+        show_drag_grip: settings.recording_overlay_show_drag_grip,
+        audio_reactive_scale: settings.recording_overlay_audio_reactive_scale,
+        audio_reactive_scale_max_percent: settings
+            .recording_overlay_audio_reactive_scale_max_percent
+            .clamp(0, 24),
+        voice_sensitivity_percent: settings
+            .recording_overlay_voice_sensitivity_percent
+            .clamp(0, 100),
+        animation_softness_percent: settings
+            .recording_overlay_animation_softness_percent
+            .clamp(0, 100),
+        depth_parallax_percent: settings
+            .recording_overlay_depth_parallax_percent
+            .clamp(0, 100),
+        opacity_percent: settings.recording_overlay_opacity_percent.clamp(20, 100),
+        silence_fade: settings.recording_overlay_silence_fade,
+        silence_opacity_percent: settings
+            .recording_overlay_silence_opacity_percent
+            .clamp(20, 100),
+        frame_width_px: metrics.frame_width.round().clamp(0.0, u16::MAX as f64) as u16,
+        frame_height_px: metrics.frame_height.round().clamp(0.0, u16::MAX as f64) as u16,
+    }
+}
+
+fn emit_recording_overlay_appearance_update(app_handle: &AppHandle) {
+    let payload = build_recording_overlay_appearance_payload(app_handle);
+
+    let _ = app_handle.emit("recording-overlay-appearance-update", payload.clone());
+    let _ = app_handle.emit("recording_overlay_appearance_update", payload.clone());
+
+    if let Some(window) = app_handle.get_webview_window("recording_overlay") {
+        let _ = window.emit("recording-overlay-appearance-update", payload.clone());
+        let _ = window.emit("recording_overlay_appearance_update", payload);
+    }
+}
+
+fn calculate_overlay_position_for_window(
+    app_handle: &AppHandle,
+    metrics: RecordingOverlayWindowMetrics,
 ) -> Option<(f64, f64)> {
     let monitor = get_monitor_with_cursor(app_handle)?;
-    let (monitor_x, monitor_y, monitor_width, monitor_height) =
-        get_monitor_logical_bounds(&monitor);
     let settings = settings::get_settings(app_handle);
+    let bounds = get_monitor_logical_auto_position_bounds(
+        &monitor,
+        settings.auto_position_allow_reserved_areas,
+    );
 
-    let x = monitor_x + (monitor_width - overlay_width) / 2.0;
-    let y = match settings.overlay_position {
-        OverlayPosition::Top => monitor_y + OVERLAY_TOP_OFFSET,
+    if settings.recording_overlay_use_manual_position {
+        return Some((
+            settings.recording_overlay_custom_x_px as f64 - metrics.padding,
+            settings.recording_overlay_custom_y_px as f64 - metrics.padding,
+        ));
+    }
+
+    let window_x = bounds.x + (bounds.width - metrics.window_width) / 2.0;
+    let window_y = match settings.overlay_position {
+        OverlayPosition::Top => bounds.y + OVERLAY_TOP_OFFSET,
         OverlayPosition::Bottom | OverlayPosition::None => {
-            monitor_y + monitor_height - overlay_height - OVERLAY_BOTTOM_OFFSET
+            bounds.y + bounds.height - metrics.window_height - OVERLAY_BOTTOM_OFFSET
         }
     };
 
-    Some((x, y))
+    Some((window_x, window_y))
 }
 
-fn calculate_overlay_position(app_handle: &AppHandle) -> Option<(f64, f64)> {
-    calculate_overlay_position_for_size(app_handle, OVERLAY_WIDTH, OVERLAY_HEIGHT)
-}
-
-fn apply_recording_overlay_layout(app_handle: &AppHandle, width: f64, height: f64) {
+fn apply_recording_overlay_layout(app_handle: &AppHandle, metrics: RecordingOverlayWindowMetrics) {
     if let Some(overlay_window) = app_handle.get_webview_window("recording_overlay") {
-        let _ = overlay_window.set_size(tauri::Size::Logical(tauri::LogicalSize { width, height }));
-        if let Some((x, y)) = calculate_overlay_position_for_size(app_handle, width, height) {
+        let _ = overlay_window.set_size(tauri::Size::Logical(tauri::LogicalSize {
+            width: metrics.window_width,
+            height: metrics.window_height,
+        }));
+        if let Some((x, y)) = calculate_overlay_position_for_window(app_handle, metrics) {
             let _ = overlay_window
                 .set_position(tauri::Position::Logical(tauri::LogicalPosition { x, y }));
         }
+        emit_recording_overlay_appearance_update(app_handle);
     }
 }
 
@@ -292,17 +557,167 @@ fn current_recording_overlay_layout() -> RecordingOverlayLayout {
     }
 }
 
-fn recording_overlay_dimensions(layout: RecordingOverlayLayout) -> (f64, f64) {
+fn recording_overlay_default_width(app_handle: &AppHandle) -> f64 {
+    let settings = settings::get_settings(app_handle);
+    let bar_count = settings.recording_overlay_bar_count.clamp(3, 16) as f64;
+    let minimum_width = settings.recording_overlay_width_px.clamp(172, 420) as f64;
+    let base_bar_width = settings.recording_overlay_bar_width_px.clamp(2, 12) as f64;
+    let bar_width = match settings.recording_overlay_bar_style {
+        RecordingOverlayBarStyle::Vinyl => base_bar_width + 6.0,
+        RecordingOverlayBarStyle::BloomBounce
+        | RecordingOverlayBarStyle::Daisy
+        | RecordingOverlayBarStyle::Lotus
+        | RecordingOverlayBarStyle::GardenSway => base_bar_width + 10.0,
+        RecordingOverlayBarStyle::Constellation
+        | RecordingOverlayBarStyle::Fireflies
+        | RecordingOverlayBarStyle::Helix
+        | RecordingOverlayBarStyle::Petals
+        | RecordingOverlayBarStyle::PetalRain
+        | RecordingOverlayBarStyle::PulseRings => base_bar_width + 8.0,
+        RecordingOverlayBarStyle::Orbit
+        | RecordingOverlayBarStyle::Tuner
+        | RecordingOverlayBarStyle::Morse => base_bar_width + 2.0,
+        _ => base_bar_width,
+    };
+    let bar_gap_count = if bar_count > 1.0 {
+        bar_count - 1.0
+    } else {
+        0.0
+    };
+    let bar_track_width = (bar_count * bar_width) + (bar_gap_count * RECORDING_OVERLAY_BAR_GAP);
+    let status_icon_width = if settings.recording_overlay_show_status_icon {
+        28.0
+    } else {
+        0.0
+    };
+
+    (60.0 + status_icon_width + bar_track_width).max(minimum_width)
+}
+
+fn recording_overlay_frame_dimensions(
+    app_handle: &AppHandle,
+    layout: RecordingOverlayLayout,
+) -> (f64, f64) {
     match layout {
-        RecordingOverlayLayout::Default => (OVERLAY_WIDTH, OVERLAY_HEIGHT),
+        RecordingOverlayLayout::Default => {
+            (recording_overlay_default_width(app_handle), OVERLAY_HEIGHT)
+        }
         RecordingOverlayLayout::Error => (ERROR_OVERLAY_WIDTH, ERROR_OVERLAY_HEIGHT),
+    }
+}
+
+fn recording_overlay_window_padding(
+    app_handle: &AppHandle,
+    layout: RecordingOverlayLayout,
+    frame_width: f64,
+    frame_height: f64,
+) -> f64 {
+    let settings = settings::get_settings(app_handle);
+    let reactive_padding = if settings.recording_overlay_audio_reactive_scale {
+        let boost = settings
+            .recording_overlay_audio_reactive_scale_max_percent
+            .clamp(0, 24) as f64
+            / 100.0;
+        frame_width.max(frame_height) * boost * 0.5
+    } else {
+        0.0
+    };
+
+    let style_padding = match settings.recording_overlay_bar_style {
+        RecordingOverlayBarStyle::Aurora
+        | RecordingOverlayBarStyle::Glow
+        | RecordingOverlayBarStyle::Comet
+        | RecordingOverlayBarStyle::Ember => 6.0,
+        RecordingOverlayBarStyle::BloomBounce
+        | RecordingOverlayBarStyle::Daisy
+        | RecordingOverlayBarStyle::Lotus
+        | RecordingOverlayBarStyle::GardenSway => 12.0,
+        RecordingOverlayBarStyle::Constellation
+        | RecordingOverlayBarStyle::Fireflies
+        | RecordingOverlayBarStyle::Helix
+        | RecordingOverlayBarStyle::Petals
+        | RecordingOverlayBarStyle::PetalRain
+        | RecordingOverlayBarStyle::PulseRings => 10.0,
+        _ => 4.0,
+    };
+
+    let centerpiece_padding = match settings.recording_overlay_centerpiece_mode {
+        RecordingOverlayCenterpieceMode::AuroraRibbon => 10.0,
+        RecordingOverlayCenterpieceMode::OrbitalBeads
+        | RecordingOverlayCenterpieceMode::HaloCore
+        | RecordingOverlayCenterpieceMode::BloomHeart
+        | RecordingOverlayCenterpieceMode::SignalCrown => 6.0,
+        RecordingOverlayCenterpieceMode::None => 0.0,
+    };
+
+    let border_padding = match settings.recording_overlay_animated_border_mode {
+        RecordingOverlayAnimatedBorderMode::TravelingHighlight => 6.0,
+        RecordingOverlayAnimatedBorderMode::BreathingContour => 5.0,
+        RecordingOverlayAnimatedBorderMode::ShimmerEdge => 4.0,
+        RecordingOverlayAnimatedBorderMode::None => 0.0,
+    };
+
+    let ambient_padding = match settings.recording_overlay_background_mode {
+        RecordingOverlayBackgroundMode::Mist
+        | RecordingOverlayBackgroundMode::SoftGlowField
+        | RecordingOverlayBackgroundMode::SilkFog => 6.0,
+        RecordingOverlayBackgroundMode::PetalsHaze
+        | RecordingOverlayBackgroundMode::Stardust
+        | RecordingOverlayBackgroundMode::FireflyVeil
+        | RecordingOverlayBackgroundMode::RoseSparks => 4.0,
+        RecordingOverlayBackgroundMode::None => 0.0,
+    };
+
+    let material_padding = match settings.recording_overlay_material_mode {
+        RecordingOverlayMaterialMode::VelvetNeon | RecordingOverlayMaterialMode::CandyChrome => 5.0,
+        RecordingOverlayMaterialMode::LiquidGlass
+        | RecordingOverlayMaterialMode::Pearl
+        | RecordingOverlayMaterialMode::Frost => 3.0,
+    };
+
+    let parallax_padding = settings
+        .recording_overlay_depth_parallax_percent
+        .clamp(0, 100) as f64
+        * 0.08;
+
+    let layout_padding = match layout {
+        RecordingOverlayLayout::Error => 10.0,
+        RecordingOverlayLayout::Default => 4.0,
+    };
+
+    // Keep extra transparent room around overlays that scale or glow so the
+    // visible frame can grow inside the window without clipping.
+    (reactive_padding
+        .max(style_padding)
+        .max(centerpiece_padding)
+        .max(border_padding)
+        .max(ambient_padding)
+        .max(material_padding)
+        + parallax_padding
+        + layout_padding)
+        .ceil()
+}
+
+fn recording_overlay_window_metrics(
+    app_handle: &AppHandle,
+    layout: RecordingOverlayLayout,
+) -> RecordingOverlayWindowMetrics {
+    let (frame_width, frame_height) = recording_overlay_frame_dimensions(app_handle, layout);
+    let padding = recording_overlay_window_padding(app_handle, layout, frame_width, frame_height);
+
+    RecordingOverlayWindowMetrics {
+        frame_width,
+        frame_height,
+        padding,
+        window_width: frame_width + (padding * 2.0),
+        window_height: frame_height + (padding * 2.0),
     }
 }
 
 fn set_recording_overlay_layout(app_handle: &AppHandle, layout: RecordingOverlayLayout) {
     RECORDING_OVERLAY_LAYOUT.store(layout as u8, Ordering::SeqCst);
-    let (width, height) = recording_overlay_dimensions(layout);
-    apply_recording_overlay_layout(app_handle, width, height);
+    let metrics = recording_overlay_window_metrics(app_handle, layout);
+    apply_recording_overlay_layout(app_handle, metrics);
 }
 
 pub fn set_recording_overlay_default_layout(app_handle: &AppHandle) {
@@ -453,20 +868,22 @@ fn resolve_soniox_live_preview_geometry(app_handle: &AppHandle) -> Option<(f64, 
 
     if let Some(monitor) = get_monitor_with_cursor(app_handle) {
         let scale = monitor.scale_factor();
-        let (monitor_x, monitor_y, monitor_width, monitor_height) =
-            get_monitor_logical_bounds(&monitor);
+        let bounds = get_monitor_logical_auto_position_bounds(
+            &monitor,
+            app_settings.auto_position_allow_reserved_areas,
+        );
 
         let x;
         let y;
 
         match app_settings.soniox_live_preview_position {
             SonioxLivePreviewPosition::Top => {
-                x = monitor_x + (monitor_width - width) / 2.0;
-                y = monitor_y + SONIOX_LIVE_PREVIEW_TOP_OFFSET;
+                x = bounds.x + (bounds.width - width) / 2.0;
+                y = bounds.y + SONIOX_LIVE_PREVIEW_TOP_OFFSET;
             }
             SonioxLivePreviewPosition::Bottom => {
-                x = monitor_x + (monitor_width - width) / 2.0;
-                y = monitor_y + monitor_height - height - SONIOX_LIVE_PREVIEW_BOTTOM_OFFSET;
+                x = bounds.x + (bounds.width - width) / 2.0;
+                y = bounds.y + bounds.height - height - SONIOX_LIVE_PREVIEW_BOTTOM_OFFSET;
             }
             SonioxLivePreviewPosition::NearCursor => {
                 let (cursor_x, cursor_y) = input::get_cursor_position(app_handle).unwrap_or((
@@ -478,13 +895,12 @@ fn resolve_soniox_live_preview_geometry(app_handle: &AppHandle) -> Option<(f64, 
                 let cursor_y_logical = cursor_y as f64 / scale;
                 let distance = app_settings.soniox_live_preview_cursor_offset_px as f64;
 
-                let min_x = monitor_x + SONIOX_LIVE_PREVIEW_CURSOR_EDGE_MARGIN;
+                let min_x = bounds.x + SONIOX_LIVE_PREVIEW_CURSOR_EDGE_MARGIN;
                 let max_x =
-                    monitor_x + monitor_width - width - SONIOX_LIVE_PREVIEW_CURSOR_EDGE_MARGIN;
-                let min_y = monitor_y + SONIOX_LIVE_PREVIEW_CURSOR_EDGE_MARGIN;
-                let max_y = monitor_y + monitor_height
-                    - height
-                    - SONIOX_LIVE_PREVIEW_CURSOR_EDGE_MARGIN;
+                    bounds.x + bounds.width - width - SONIOX_LIVE_PREVIEW_CURSOR_EDGE_MARGIN;
+                let min_y = bounds.y + SONIOX_LIVE_PREVIEW_CURSOR_EDGE_MARGIN;
+                let max_y =
+                    bounds.y + bounds.height - height - SONIOX_LIVE_PREVIEW_CURSOR_EDGE_MARGIN;
 
                 x = clamp_f64(cursor_x_logical - (width / 2.0), min_x, max_x);
                 y = clamp_f64(cursor_y_logical - height - distance, min_y, max_y);
@@ -503,7 +919,8 @@ fn resolve_soniox_live_preview_geometry(app_handle: &AppHandle) -> Option<(f64, 
 /// Creates the recording overlay window and keeps it hidden by default
 #[cfg(not(target_os = "macos"))]
 pub fn create_recording_overlay(app_handle: &AppHandle) {
-    let position = calculate_overlay_position(app_handle);
+    let metrics = recording_overlay_window_metrics(app_handle, current_recording_overlay_layout());
+    let position = calculate_overlay_position_for_window(app_handle, metrics);
 
     #[cfg(not(target_os = "linux"))]
     if position.is_none() {
@@ -518,7 +935,7 @@ pub fn create_recording_overlay(app_handle: &AppHandle) {
     )
     .title("Recording")
     .resizable(false)
-    .inner_size(OVERLAY_WIDTH, OVERLAY_HEIGHT)
+    .inner_size(metrics.window_width, metrics.window_height)
     .shadow(false)
     .maximizable(false)
     .minimizable(false)
@@ -535,8 +952,7 @@ pub fn create_recording_overlay(app_handle: &AppHandle) {
         builder = builder.data_directory(data_dir.join("webview"));
     }
 
-    match builder.build()
-    {
+    match builder.build() {
         Ok(_window) => {
             debug!("Recording overlay window created successfully (hidden)");
         }
@@ -588,8 +1004,7 @@ pub fn create_soniox_live_preview_window(app_handle: &AppHandle) {
             builder = builder.data_directory(data_dir.join("webview"));
         }
 
-        match builder.build()
-        {
+        match builder.build() {
             Ok(_window) => {
                 debug!("Live preview window created successfully (hidden)");
             }
@@ -606,7 +1021,8 @@ pub fn create_soniox_live_preview_window(_app_handle: &AppHandle) {}
 /// Creates the recording overlay panel and keeps it hidden by default (macOS)
 #[cfg(target_os = "macos")]
 pub fn create_recording_overlay(app_handle: &AppHandle) {
-    if let Some((x, y)) = calculate_overlay_position(app_handle) {
+    let metrics = recording_overlay_window_metrics(app_handle, current_recording_overlay_layout());
+    if let Some((x, y)) = calculate_overlay_position_for_window(app_handle, metrics) {
         // PanelBuilder creates a Tauri window then converts it to NSPanel.
         // The window remains registered, so get_webview_window() still works.
         match PanelBuilder::<_, RecordingOverlayPanel>::new(app_handle, "recording_overlay")
@@ -615,8 +1031,8 @@ pub fn create_recording_overlay(app_handle: &AppHandle) {
             .position(tauri::Position::Logical(tauri::LogicalPosition { x, y }))
             .level(PanelLevel::Status)
             .size(tauri::Size::Logical(tauri::LogicalSize {
-                width: OVERLAY_WIDTH,
-                height: OVERLAY_HEIGHT,
+                width: metrics.window_width,
+                height: metrics.window_height,
             }))
             .has_shadow(false)
             .transparent(true)
@@ -776,8 +1192,8 @@ pub fn show_finalizing_overlay(app_handle: &AppHandle) {
 
 /// Updates the overlay window position based on current settings
 pub fn update_overlay_position(app_handle: &AppHandle) {
-    let (width, height) = recording_overlay_dimensions(current_recording_overlay_layout());
-    apply_recording_overlay_layout(app_handle, width, height);
+    let metrics = recording_overlay_window_metrics(app_handle, current_recording_overlay_layout());
+    apply_recording_overlay_layout(app_handle, metrics);
 }
 
 /// Hides the recording overlay window with fade-out animation
@@ -1081,11 +1497,13 @@ pub fn emit_levels(app_handle: &AppHandle, levels: &Vec<f32>) {
 /// Calculates centered position for command confirmation overlay
 fn calculate_command_confirm_position(app_handle: &AppHandle) -> Option<(f64, f64)> {
     let monitor = get_monitor_with_cursor(app_handle)?;
-    let (monitor_x, monitor_y, monitor_width, monitor_height) =
-        get_monitor_logical_bounds(&monitor);
+    let bounds = get_monitor_logical_auto_position_bounds(
+        &monitor,
+        settings::get_settings(app_handle).auto_position_allow_reserved_areas,
+    );
 
-    let x = monitor_x + (monitor_width - COMMAND_CONFIRM_WIDTH) / 2.0;
-    let y = monitor_y + (monitor_height - COMMAND_CONFIRM_HEIGHT) / 2.0 - 50.0;
+    let x = bounds.x + (bounds.width - COMMAND_CONFIRM_WIDTH) / 2.0;
+    let y = bounds.y + (bounds.height - COMMAND_CONFIRM_HEIGHT) / 2.0 - 50.0;
 
     Some((x, y))
 }
@@ -1093,13 +1511,35 @@ fn calculate_command_confirm_position(app_handle: &AppHandle) -> Option<(f64, f6
 /// Calculates bottom-center position for the floating voice activation button window.
 fn calculate_voice_button_position(app_handle: &AppHandle) -> Option<(f64, f64)> {
     let monitor = get_monitor_with_cursor(app_handle)?;
-    let (monitor_x, monitor_y, monitor_width, monitor_height) =
-        get_monitor_logical_bounds(&monitor);
+    let bounds = get_monitor_logical_auto_position_bounds(
+        &monitor,
+        settings::get_settings(app_handle).auto_position_allow_reserved_areas,
+    );
 
-    let x = monitor_x + (monitor_width - VOICE_BUTTON_WIDTH) / 2.0;
-    let y = monitor_y + monitor_height - VOICE_BUTTON_HEIGHT - 40.0;
+    let x = bounds.x + (bounds.width - VOICE_BUTTON_WIDTH) / 2.0;
+    let y = bounds.y + bounds.height - VOICE_BUTTON_HEIGHT - 40.0;
     Some((x, y))
 }
+
+pub fn update_command_confirm_position(app_handle: &AppHandle) {
+    if let Some(window) = app_handle.get_webview_window("command_confirm") {
+        if let Some((x, y)) = calculate_command_confirm_position(app_handle) {
+            let _ = window.set_position(tauri::Position::Logical(tauri::LogicalPosition { x, y }));
+        }
+    }
+}
+
+#[cfg(target_os = "windows")]
+pub fn update_voice_activation_button_position(app_handle: &AppHandle) {
+    if let Some(window) = app_handle.get_webview_window("voice_activation_button") {
+        if let Some((x, y)) = calculate_voice_button_position(app_handle) {
+            let _ = window.set_position(tauri::Position::Logical(tauri::LogicalPosition { x, y }));
+        }
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
+pub fn update_voice_activation_button_position(_app_handle: &AppHandle) {}
 
 /// Shows the floating voice activation button window.
 /// Creates the window if it doesn't exist yet.
@@ -1145,8 +1585,7 @@ pub fn show_voice_activation_button_window(app_handle: &AppHandle) -> Result<(),
             builder = builder.data_directory(data_dir.join("webview"));
         }
 
-        match builder.build()
-        {
+        match builder.build() {
             Ok(window) => window,
             Err(e) => {
                 let msg = format!("Failed to create voice activation button window: {}", e);
@@ -1181,8 +1620,7 @@ pub fn show_voice_activation_button_window(app_handle: &AppHandle) -> Result<(),
             builder = builder.data_directory(data_dir.join("webview"));
         }
 
-        match builder.build()
-        {
+        match builder.build() {
             Ok(window) => window,
             Err(e) => {
                 let msg = format!(
@@ -1269,8 +1707,7 @@ pub fn show_command_confirm_overlay(
                 builder = builder.data_directory(data_dir.join("webview"));
             }
 
-            match builder.build()
-            {
+            match builder.build() {
                 Ok(window) => {
                     debug!("Command confirm overlay window created successfully");
                     window
@@ -1349,9 +1786,7 @@ fn show_transient_message_overlay(
 
     let show_overlay = {
         let session_state = app_handle.state::<crate::session_manager::ManagedSessionState>();
-        let state_guard = session_state
-            .lock()
-            .expect("Failed to lock session state");
+        let state_guard = session_state.lock().expect("Failed to lock session state");
         matches!(*state_guard, crate::session_manager::SessionState::Idle)
     };
 
@@ -1410,6 +1845,47 @@ pub fn show_profile_switch_overlay(app_handle: &AppHandle, profile_name: &str) {
 pub fn show_microphone_switch_overlay(app_handle: &AppHandle, microphone_name: &str) {
     show_transient_message_overlay(app_handle, "microphone_switch", microphone_name, 1500);
 }
+
+#[tauri::command]
+#[specta::specta]
+pub fn remember_recording_overlay_window_position(
+    app_handle: AppHandle,
+    x_px: i32,
+    y_px: i32,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app_handle);
+    let metrics = recording_overlay_window_metrics(&app_handle, current_recording_overlay_layout());
+    settings.recording_overlay_use_manual_position = true;
+    settings.recording_overlay_custom_x_px = (x_px as f64 + metrics.padding).round() as i32;
+    settings.recording_overlay_custom_y_px = (y_px as f64 + metrics.padding).round() as i32;
+    settings.recording_overlay_custom_x_px =
+        settings.recording_overlay_custom_x_px.clamp(-10000, 10000);
+    settings.recording_overlay_custom_y_px =
+        settings.recording_overlay_custom_y_px.clamp(-10000, 10000);
+    settings::write_settings(&app_handle, settings);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn reset_recording_overlay_manual_position(app_handle: AppHandle) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app_handle);
+    settings.recording_overlay_use_manual_position = false;
+    settings.recording_overlay_custom_x_px = 0;
+    settings.recording_overlay_custom_y_px = 0;
+    settings::write_settings(&app_handle, settings);
+    update_overlay_position(&app_handle);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn get_recording_overlay_appearance(
+    app_handle: AppHandle,
+) -> RecordingOverlayAppearancePayload {
+    build_recording_overlay_appearance_payload(&app_handle)
+}
+
 #[derive(Clone, Copy)]
 enum RecordingOverlayLayout {
     Default = 0,

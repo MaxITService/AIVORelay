@@ -201,6 +201,13 @@ fn refresh_recording_overlay_window(app: &AppHandle) {
     crate::overlay::update_overlay_position(app);
 }
 
+fn refresh_auto_positioned_windows(app: &AppHandle) {
+    refresh_recording_overlay_window(app);
+    crate::overlay::update_soniox_live_preview_window(app);
+    crate::overlay::update_command_confirm_position(app);
+    crate::overlay::update_voice_activation_button_position(app);
+}
+
 fn normalize_recording_overlay_color(value: &str) -> String {
     let trimmed = value.trim();
     if trimmed.len() == 7
@@ -913,11 +920,25 @@ pub fn change_overlay_position_setting(app: AppHandle, position: String) -> Resu
         }
     };
     settings.overlay_position = parsed;
+    settings.recording_overlay_use_manual_position = false;
     settings::write_settings(&app, settings);
 
     // Update overlay position without recreating window
-    crate::utils::update_overlay_position(&app);
+    refresh_recording_overlay_window(&app);
 
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_auto_position_allow_reserved_areas_setting(
+    app: AppHandle,
+    enabled: bool,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.auto_position_allow_reserved_areas = enabled;
+    settings::write_settings(&app, settings);
+    refresh_auto_positioned_windows(&app);
     Ok(())
 }
 

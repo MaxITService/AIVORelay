@@ -196,9 +196,9 @@ impl SonioxStreamProcessor {
 
             processed = match self.leading_mode {
                 OutputWhitespaceMode::Preserve => processed,
-                OutputWhitespaceMode::RemoveIfPresent => {
-                    processed.trim_start_matches(char::is_whitespace).to_string()
-                }
+                OutputWhitespaceMode::RemoveIfPresent => processed
+                    .trim_start_matches(char::is_whitespace)
+                    .to_string(),
                 OutputWhitespaceMode::AddIfMissing => {
                     if processed
                         .chars()
@@ -215,8 +215,8 @@ impl SonioxStreamProcessor {
 
             // For remove-if-present, keep applying until the first non-whitespace
             // character is emitted; this handles initial whitespace-only chunks.
-            self.leading_applied = self.leading_mode != OutputWhitespaceMode::RemoveIfPresent
-                || !processed.is_empty();
+            self.leading_applied =
+                self.leading_mode != OutputWhitespaceMode::RemoveIfPresent || !processed.is_empty();
 
             if processed.is_empty() {
                 return processed;
@@ -253,8 +253,8 @@ fn apply_custom_words_preserving_whitespace(
     // apply_custom_words() tokenizes by whitespace and rejoins with single spaces.
     // Skip fuzzy for this chunk if internal whitespace is non-trivial so we do not
     // normalize tabs/newlines or repeated spaces in streaming output.
-    let has_complex_whitespace = core.contains("  ")
-        || core.chars().any(|c| matches!(c, '\n' | '\r' | '\t'));
+    let has_complex_whitespace =
+        core.contains("  ") || core.chars().any(|c| matches!(c, '\n' | '\r' | '\t'));
     if has_complex_whitespace {
         return text.to_string();
     }

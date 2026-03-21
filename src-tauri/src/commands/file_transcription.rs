@@ -14,8 +14,7 @@ use crate::managers::remote_stt::RemoteSttManager;
 use crate::managers::soniox_stt::{SonioxAsyncTranscriptionOptions, SonioxSttManager};
 use crate::managers::transcription::TranscriptionManager;
 use crate::settings::{
-    apply_output_whitespace_policy_for_settings, get_settings, AppSettings,
-    TranscriptionProvider,
+    apply_output_whitespace_policy_for_settings, get_settings, AppSettings, TranscriptionProvider,
 };
 use crate::subtitle::{
     get_format_extension, segments_to_srt, segments_to_vtt, OutputFormat, SubtitleSegment,
@@ -25,6 +24,7 @@ use serde::{Deserialize, Serialize};
 use specta::Type;
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::time::Instant;
 use tauri::{AppHandle, Manager};
 
 /// Result of a file transcription operation
@@ -122,13 +122,14 @@ pub async fn transcribe_audio_file(
         "Transcribing audio file: {} (format: {:?})",
         file_path, format
     );
+    let transcription_started_at = Instant::now();
 
     // Get settings and determine profile to use
     let settings = get_settings(&app);
     let profile_id = profile_id.unwrap_or_else(|| settings.active_profile_id.clone());
     let profile = settings.transcription_profile(&profile_id);
-    let should_unload_override_model = model_override.is_some()
-        && settings.transcription_provider == TranscriptionProvider::Local;
+    let should_unload_override_model =
+        model_override.is_some() && settings.transcription_provider == TranscriptionProvider::Local;
 
     let apply_custom_words_enabled =
         custom_words_enabled_override.unwrap_or(settings.custom_words_enabled);
@@ -268,10 +269,11 @@ pub async fn transcribe_audio_file(
             .unwrap_or_else(|| settings.selected_language.clone());
 
         let soniox_options_override = soniox_options_override.unwrap_or_default();
-        let language_hints = normalize_soniox_language_hints(
-            soniox_options_override.language_hints.clone(),
-        )
-        .or_else(|| normalize_soniox_language_hints(Some(settings.soniox_language_hints.clone())));
+        let language_hints =
+            normalize_soniox_language_hints(soniox_options_override.language_hints.clone())
+                .or_else(|| {
+                    normalize_soniox_language_hints(Some(settings.soniox_language_hints.clone()))
+                });
         let enable_speaker_diarization = soniox_options_override
             .enable_speaker_diarization
             .unwrap_or(settings.soniox_enable_speaker_diarization);
@@ -316,8 +318,7 @@ pub async fn transcribe_audio_file(
                 save_to_file,
                 &settings,
                 should_apply_custom_words,
-            )?
-        {
+            )? {
             (rendered_text, session)
         } else {
             (
@@ -400,8 +401,7 @@ pub async fn transcribe_audio_file(
                 save_to_file,
                 &settings,
                 should_apply_custom_words,
-            )?
-        {
+            )? {
             (rendered_text, session)
         } else {
             (
@@ -500,7 +500,7 @@ pub async fn transcribe_audio_file(
             .as_ref()
             .map(|p| p.language.as_str())
             .unwrap_or(settings.selected_language.as_str());
-        
+
         // Apply filler word filter (if enabled)
         let text = if settings.filler_word_filter_enabled {
             crate::audio_toolkit::filter_transcription_output(
@@ -511,7 +511,7 @@ pub async fn transcribe_audio_file(
         } else {
             text
         };
-        
+
         // If we have segments, apply filter to each segment
         let segs = segs.map(|mut segments| {
             for segment in &mut segments {
@@ -527,7 +527,7 @@ pub async fn transcribe_audio_file(
             }
             segments
         });
-        
+
         (text, segs)
     };
 
@@ -563,9 +563,18 @@ pub async fn transcribe_audio_file(
     };
 
     info!(
-        "Transcription completed: {} characters (format: {:?})",
+        "Transcription completed: {} characters (format: {:?}) in {}",
         output_text.len(),
-        format
+        format,
+        format_elapsed(transcription_started_at.elapsed())
+    );
+
+    append_info_message(
+        &mut info_message,
+        format!(
+            "Benchmark: file transcription completed in {}.",
+            format_elapsed(transcription_started_at.elapsed())
+        ),
     );
 
     // Save to file if requested
@@ -586,6 +595,28 @@ pub async fn transcribe_audio_file(
         info_message,
         speaker_session,
     })
+}
+
+fn append_info_message(info_message: &mut Option<String>, next_message: String) {
+    match info_message {
+        Some(existing) if !existing.is_empty() => {
+            existing.push_str("\n");
+            existing.push_str(&next_message);
+        }
+        _ => {
+            *info_message = Some(next_message);
+        }
+    }
+}
+
+fn format_elapsed(elapsed: std::time::Duration) -> String {
+    let total_ms = elapsed.as_millis();
+    if total_ms < 1_000 {
+        return format!("{} ms", total_ms);
+    }
+
+    let seconds = elapsed.as_secs_f64();
+    format!("{seconds:.2} s")
 }
 
 fn apply_transcription_post_processing(
@@ -623,7 +654,8 @@ fn apply_transcription_post_processing_to_blocks(
     let mut processed_blocks: Vec<DiarizedTranscriptBlock> = Vec::new();
 
     for block in blocks {
-        let text = apply_transcription_post_processing(block.text, settings, should_apply_custom_words);
+        let text =
+            apply_transcription_post_processing(block.text, settings, should_apply_custom_words);
         let trimmed = text.trim();
         if trimmed.is_empty() {
             continue;
@@ -679,8 +711,7 @@ fn build_diarized_text_output(
     let session = if save_to_file {
         None
     } else {
-        create_diarized_transcript_session(provider, processed_blocks)?
-            .map(|(session, _)| session)
+        create_diarized_transcript_session(provider, processed_blocks)?.map(|(session, _)| session)
     };
 
     Ok(Some((rendered_text, session)))

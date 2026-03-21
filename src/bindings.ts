@@ -117,6 +117,14 @@ async changeOverlayPositionSetting(position: string) : Promise<Result<null, stri
     else return { status: "error", error: e  as any };
 }
 },
+async changeAutoPositionAllowReservedAreasSetting(enabled: boolean) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("change_auto_position_allow_reserved_areas_setting", { enabled }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async changeErrorOverlayAutoHideMsSetting(valueMs: number) : Promise<Result<null, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("change_error_overlay_auto_hide_ms_setting", { valueMs }) };
@@ -128,6 +136,190 @@ async changeErrorOverlayAutoHideMsSetting(valueMs: number) : Promise<Result<null
 async changeErrorFeedbackEnabledSetting(enabled: boolean) : Promise<Result<null, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("change_error_feedback_enabled_setting", { enabled }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async changeRecordingOverlayCustomEnabledSetting(enabled: boolean) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("change_recording_overlay_custom_enabled_setting", { enabled }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async changeRecordingOverlayShowDragGripSetting(enabled: boolean) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("change_recording_overlay_show_drag_grip_setting", { enabled }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async changeRecordingOverlayThemeSetting(theme: string) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("change_recording_overlay_theme_setting", { theme }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async changeRecordingOverlayBackgroundModeSetting(mode: string) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("change_recording_overlay_background_mode_setting", { mode }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async changeRecordingOverlayMaterialModeSetting(mode: string) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("change_recording_overlay_material_mode_setting", { mode }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async changeRecordingOverlayCenterpieceModeSetting(mode: string) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("change_recording_overlay_centerpiece_mode_setting", { mode }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async changeRecordingOverlayAnimatedBorderModeSetting(mode: string) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("change_recording_overlay_animated_border_mode_setting", { mode }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async changeRecordingOverlayShowStatusIconSetting(enabled: boolean) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("change_recording_overlay_show_status_icon_setting", { enabled }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async changeRecordingOverlayBarCountSetting(count: number) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("change_recording_overlay_bar_count_setting", { count }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async changeRecordingOverlayWidthSetting(widthPx: number) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("change_recording_overlay_width_setting", { widthPx }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async changeRecordingOverlayBarWidthSetting(widthPx: number) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("change_recording_overlay_bar_width_setting", { widthPx }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async changeRecordingOverlayBarStyleSetting(style: string) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("change_recording_overlay_bar_style_setting", { style }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async changeRecordingOverlayAccentColorSetting(color: string) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("change_recording_overlay_accent_color_setting", { color }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async changeRecordingOverlaySurfaceBaseColorSetting(color: string) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("change_recording_overlay_surface_base_color_setting", { color }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async changeRecordingOverlayBodyBackgroundColorSetting(color: string) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("change_recording_overlay_body_background_color_setting", { color }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async changeRecordingOverlayAudioReactiveScaleSetting(enabled: boolean) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("change_recording_overlay_audio_reactive_scale_setting", { enabled }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async changeRecordingOverlayAudioReactiveScaleMaxPercentSetting(value: number) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("change_recording_overlay_audio_reactive_scale_max_percent_setting", { value }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async changeRecordingOverlayVoiceSensitivityPercentSetting(value: number) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("change_recording_overlay_voice_sensitivity_percent_setting", { value }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async changeRecordingOverlayAnimationSoftnessPercentSetting(value: number) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("change_recording_overlay_animation_softness_percent_setting", { value }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async changeRecordingOverlayDepthParallaxPercentSetting(value: number) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("change_recording_overlay_depth_parallax_percent_setting", { value }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async changeRecordingOverlayOpacityPercentSetting(value: number) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("change_recording_overlay_opacity_percent_setting", { value }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async changeRecordingOverlaySilenceFadeSetting(enabled: boolean) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("change_recording_overlay_silence_fade_setting", { enabled }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async changeRecordingOverlaySilenceOpacityPercentSetting(value: number) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("change_recording_overlay_silence_opacity_percent_setting", { value }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
@@ -1220,14 +1412,6 @@ async changeRecordingAutoStopPasteSetting(paste: boolean) : Promise<Result<null,
 async changeExtraRecordingBufferSetting(valueMs: number) : Promise<Result<null, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("change_extra_recording_buffer_setting", { valueMs }) };
-} catch (e) {
-    if(e instanceof Error) throw e;
-    else return { status: "error", error: e  as any };
-}
-},
-async changeLazyStreamCloseSetting(enabled: boolean) : Promise<Result<null, string>> {
-    try {
-    return { status: "ok", data: await TAURI_INVOKE("change_lazy_stream_close_setting", { enabled }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
@@ -2384,9 +2568,9 @@ async unloadModelManually() : Promise<Result<null, string>> {
     else return { status: "error", error: e  as any };
 }
 },
-async getHistoryEntries(cursor: number | null, limit: number | null) : Promise<Result<PaginatedHistory, string>> {
+async getHistoryEntries() : Promise<Result<HistoryEntry[], string>> {
     try {
-    return { status: "ok", data: await TAURI_INVOKE("get_history_entries", { cursor, limit }) };
+    return { status: "ok", data: await TAURI_INVOKE("get_history_entries") };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
@@ -2743,6 +2927,25 @@ async previewDeleteLastCharAction() : Promise<Result<null, string>> {
     else return { status: "error", error: e  as any };
 }
 },
+async rememberRecordingOverlayWindowPosition(xPx: number, yPx: number) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("remember_recording_overlay_window_position", { xPx, yPx }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async resetRecordingOverlayManualPosition() : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("reset_recording_overlay_manual_position") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async getRecordingOverlayAppearance() : Promise<RecordingOverlayAppearancePayload> {
+    return await TAURI_INVOKE("get_recording_overlay_appearance");
+},
 async getSonioxLivePreviewState() : Promise<SonioxLivePreviewPayload> {
     return await TAURI_INVOKE("get_soniox_live_preview_state");
 },
@@ -3097,10 +3300,6 @@ recording_auto_stop_paste?: boolean;
  */
 extra_recording_buffer_ms?: number; 
 /**
- * Keep the microphone stream alive briefly after stop to reduce startup latency.
- */
-lazy_stream_close?: boolean; 
-/**
  * Whether the hotkey sidebar is pinned open
  */
 sidebar_pinned?: boolean; 
@@ -3269,7 +3468,7 @@ export type LlmFeature =
  */
 "voice_command"
 export type LogLevel = "trace" | "debug" | "info" | "warn" | "error"
-export type ModelInfo = { id: string; name: string; description: string; filename: string; url: string | null; sha256: string | null; size_mb: number; is_downloaded: boolean; is_downloading: boolean; partial_size: number; is_directory: boolean; engine_type: EngineType; accuracy_score: number; speed_score: number; supports_translation: boolean; is_recommended: boolean; supported_languages: string[]; is_custom: boolean }
+export type ModelInfo = { id: string; name: string; description: string; filename: string; url: string | null; size_mb: number; is_downloaded: boolean; is_downloading: boolean; partial_size: number; is_directory: boolean; engine_type: EngineType; accuracy_score: number; speed_score: number; supports_translation: boolean; is_recommended: boolean; supported_languages: string[]; is_custom: boolean }
 export type ModelUnloadTimeout = "never" | "immediately" | "min_2" | "min_5" | "min_10" | "min_15" | "hour_1" | "sec_5"
 export type NativeRegionCaptureMode = 
 /**
@@ -3299,7 +3498,6 @@ export type OutputFormat =
 "vtt"
 export type OutputWhitespaceMode = "preserve" | "remove_if_present" | "add_if_missing"
 export type OverlayPosition = "none" | "top" | "bottom"
-export type PaginatedHistory = { entries: HistoryEntry[]; has_more: boolean }
 export type PasteMethod = "ctrl_v" | "direct" | "none" | "shift_insert" | "ctrl_shift_v"
 export type PermissionAccess = "allowed" | "denied" | "unknown"
 export type PostProcessProvider = { id: string; label: string; base_url: string; allow_base_url_edit?: boolean; allow_insecure_http?: boolean; models_endpoint?: string | null }
@@ -3310,6 +3508,7 @@ export type PreviewOutputModeStatePayload = { active: boolean; recording: boolea
  */
 export type ProfileLlmSettings = { enabled: boolean; promptOverride: string | null; modelOverride: string | null }
 export type RecordingOverlayAnimatedBorderMode = "none" | "shimmer_edge" | "traveling_highlight" | "breathing_contour"
+export type RecordingOverlayAppearancePayload = { custom_enabled: boolean; theme: string; background_mode: string; material_mode: string; centerpiece_mode: string; animated_border_mode: string; accent_color: string; surface_base_color: string; body_background_color: string; show_status_icon: boolean; bar_count: number; bar_width_px: number; bar_style: string; show_drag_grip: boolean; audio_reactive_scale: boolean; audio_reactive_scale_max_percent: number; voice_sensitivity_percent: number; animation_softness_percent: number; depth_parallax_percent: number; opacity_percent: number; silence_fade: boolean; silence_opacity_percent: number; frame_width_px: number; frame_height_px: number }
 export type RecordingOverlayBackgroundMode = "none" | "mist" | "petals_haze" | "soft_glow_field" | "stardust" | "silk_fog" | "firefly_veil" | "rose_sparks"
 export type RecordingOverlayBarStyle = "solid" | "capsule" | "glow" | "prism" | "radar" | "shards" | "retro" | "needles" | "orbit" | "aurora" | "bloom_bounce" | "pulse_rings" | "fireflies" | "helix" | "constellation" | "petals" | "petal_rain" | "daisy" | "lotus" | "garden_sway" | "matrix" | "skyline" | "comet" | "tuner" | "ember" | "hologram" | "vinyl" | "morse" | "crown"
 export type RecordingOverlayCenterpieceMode = "none" | "halo_core" | "aurora_ribbon" | "orbital_beads" | "bloom_heart" | "signal_crown"

@@ -43,6 +43,7 @@ export const MicrophoneInputBoost: React.FC<MicrophoneInputBoostProps> = React.m
     const microphoneInputBoostDb =
       boostMap[deviceKey] ??
       (((settings as any)?.microphone_input_boost_db as number | undefined) ?? 0);
+
     const [draftValue, setDraftValue] = React.useState(microphoneInputBoostDb);
     const [isInteracting, setIsInteracting] = React.useState(false);
     const [isSaving, setIsSaving] = React.useState(false);

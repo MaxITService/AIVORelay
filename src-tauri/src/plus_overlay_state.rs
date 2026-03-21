@@ -13,8 +13,7 @@ use tauri::{AppHandle, Emitter, Manager};
 const DEFAULT_ERROR_OVERLAY_AUTO_HIDE_MS: u64 = 2000;
 
 static OVERLAY_GENERATION: AtomicU64 = AtomicU64::new(0);
-static ERROR_OVERLAY_AUTO_HIDE_MS: AtomicU64 =
-    AtomicU64::new(DEFAULT_ERROR_OVERLAY_AUTO_HIDE_MS);
+static ERROR_OVERLAY_AUTO_HIDE_MS: AtomicU64 = AtomicU64::new(DEFAULT_ERROR_OVERLAY_AUTO_HIDE_MS);
 
 /// Invalidate pending error auto-hide timers.
 /// Call this when showing any non-error overlay state.
@@ -816,7 +815,9 @@ mod tests {
     #[test]
     fn test_categorize_auth() {
         assert!(matches!(
-            categorize_error("Remote STT failed: status=401 elapsed_ms=123 body_snippet=Unauthorized"),
+            categorize_error(
+                "Remote STT failed: status=401 elapsed_ms=123 body_snippet=Unauthorized"
+            ),
             OverlayErrorCategory::Auth
         ));
         assert!(matches!(
@@ -828,7 +829,9 @@ mod tests {
     #[test]
     fn test_categorize_rate_limited() {
         assert!(matches!(
-            categorize_error("Remote STT failed: status=429 elapsed_ms=123 body_snippet=Rate limit exceeded"),
+            categorize_error(
+                "Remote STT failed: status=429 elapsed_ms=123 body_snippet=Rate limit exceeded"
+            ),
             OverlayErrorCategory::RateLimited
         ));
     }

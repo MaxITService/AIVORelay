@@ -150,8 +150,12 @@ impl SonioxSttManager {
     /// Marks all operations started before now as cancelled.
     pub fn cancel(&self) {
         let current = self.current_operation_id.load(Ordering::SeqCst);
-        self.cancelled_before_id.store(current + 1, Ordering::SeqCst);
-        info!("SonioxSttManager: cancelled all operations up to id {}", current + 1);
+        self.cancelled_before_id
+            .store(current + 1, Ordering::SeqCst);
+        info!(
+            "SonioxSttManager: cancelled all operations up to id {}",
+            current + 1
+        );
     }
 
     /// Returns true if the given operation ID has been cancelled.
@@ -186,8 +190,7 @@ impl SonioxSttManager {
             match operation().await {
                 Ok(result) => return Ok(result),
                 Err(err)
-                    if attempt < MAX_RETRIES - 1
-                        && Self::should_retry(operation_name, &err) =>
+                    if attempt < MAX_RETRIES - 1 && Self::should_retry(operation_name, &err) =>
                 {
                     warn!(
                         "{} attempt {}/{} failed: {}. Retrying in {:?}",
@@ -332,7 +335,8 @@ impl SonioxSttManager {
                 continue;
             };
 
-            if current_speaker.as_deref() != Some(speaker.as_str()) && !current_text.trim().is_empty()
+            if current_speaker.as_deref() != Some(speaker.as_str())
+                && !current_text.trim().is_empty()
             {
                 blocks.push(RawSpeakerBlock {
                     speaker_key: current_speaker.clone().unwrap_or_default(),
@@ -482,14 +486,15 @@ impl SonioxSttManager {
 
             match frame {
                 Message::Text(text) => {
-                    let payload: SonioxResponse = serde_json::from_str(text.as_ref()).map_err(|e| {
-                        let preview: String = text.chars().take(200).collect();
-                        anyhow!(
-                            "Invalid Soniox WebSocket payload: {} (body: {})",
-                            e,
-                            preview
-                        )
-                    })?;
+                    let payload: SonioxResponse =
+                        serde_json::from_str(text.as_ref()).map_err(|e| {
+                            let preview: String = text.chars().take(200).collect();
+                            anyhow!(
+                                "Invalid Soniox WebSocket payload: {} (body: {})",
+                                e,
+                                preview
+                            )
+                        })?;
 
                     if let Some(code) = payload.error_code {
                         let message = payload
@@ -499,7 +504,8 @@ impl SonioxSttManager {
                     }
 
                     for token in payload.tokens.into_iter().filter(|token| token.is_final) {
-                        if !token.text.is_empty() && token.text != "<fin>" && token.text != "<end>" {
+                        if !token.text.is_empty() && token.text != "<fin>" && token.text != "<end>"
+                        {
                             final_tokens.push(token.text);
                         }
                     }
@@ -638,14 +644,15 @@ impl SonioxSttManager {
 
             match frame {
                 Message::Text(text) => {
-                    let payload: SonioxResponse = serde_json::from_str(text.as_ref()).map_err(|e| {
-                        let preview: String = text.chars().take(200).collect();
-                        anyhow!(
-                            "Invalid Soniox WebSocket payload: {} (body: {})",
-                            e,
-                            preview
-                        )
-                    })?;
+                    let payload: SonioxResponse =
+                        serde_json::from_str(text.as_ref()).map_err(|e| {
+                            let preview: String = text.chars().take(200).collect();
+                            anyhow!(
+                                "Invalid Soniox WebSocket payload: {} (body: {})",
+                                e,
+                                preview
+                            )
+                        })?;
 
                     if let Some(code) = payload.error_code {
                         let message = payload
@@ -784,7 +791,10 @@ impl SonioxSttManager {
 
             let response = self
                 .http_client
-                .get(format!("{}/transcriptions/{}", SONIOX_API_URL, transcription_id))
+                .get(format!(
+                    "{}/transcriptions/{}",
+                    SONIOX_API_URL, transcription_id
+                ))
                 .header("Authorization", format!("Bearer {}", api_key))
                 .send()
                 .await?;

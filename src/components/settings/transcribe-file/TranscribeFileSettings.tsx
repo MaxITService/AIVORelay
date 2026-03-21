@@ -1217,7 +1217,9 @@ export const TranscribeFileSettings: React.FC = () => {
         {infoMessage && (
           <div className="px-4 py-3 border-t border-white/[0.05]">
             <div className="p-3 bg-[#9b5de5]/10 border border-[#9b5de5]/30 rounded-lg">
-              <p className="text-sm text-[#d7b9ff]">{infoMessage}</p>
+              <p className="text-sm whitespace-pre-line text-[#d7b9ff]">
+                {infoMessage}
+              </p>
             </div>
           </div>
         )}

@@ -138,7 +138,8 @@ dependencies = [
  "tokio-tungstenite",
  "tokio-util",
  "tower-http",
- "transcribe-rs",
+ "transcribe-rs 0.2.9",
+ "transcribe-rs 0.3.1",
  "vad-rs",
  "windows 0.61.3",
  "winreg 0.55.0",
@@ -8115,9 +8116,27 @@ dependencies = [
 
 [[package]]
 name = "transcribe-rs"
-version = "0.2.8"
+version = "0.2.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "811b3e12455e39ad39003be9a4b7043363a7082b50484a3eb6e3e862466520e4"
+checksum = "f6fe25a69f6aa6ca4a8cb1dfc201e94c4cc7acb43f69353aa9ebb6aa4d0d26a9"
+dependencies = [
+ "derive_builder",
+ "env_logger",
+ "hound",
+ "log",
+ "ndarray",
+ "ort",
+ "rustfft",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+]
+
+[[package]]
+name = "transcribe-rs"
+version = "0.3.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a74103eb9d8148a277bcf0a4f0e8fb8c08a624e7daf39d1b255af190927c3040"
 dependencies = [
  "base64 0.22.1",
  "derive_builder",

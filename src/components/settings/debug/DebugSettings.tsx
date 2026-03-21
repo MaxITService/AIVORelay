@@ -1,6 +1,5 @@
 import React, { useState } from "react";
 import { useTranslation } from "react-i18next";
-import { invoke } from "@tauri-apps/api/core";
 import { type } from "@tauri-apps/plugin-os";
 import { AlertTriangle } from "lucide-react";
 import { LogDirectory } from "./LogDirectory";
@@ -18,6 +17,7 @@ import { RecordingBuffer } from "./RecordingBuffer";
 import { RecordingRetentionPeriodSelector } from "../RecordingRetentionPeriod";
 import { ClamshellMicrophoneSelector } from "../ClamshellMicrophoneSelector";
 import { HandyShortcut } from "../HandyShortcut";
+import { UpdateChecksToggle } from "../UpdateChecksToggle";
 import { ToggleSwitch } from "../../ui/ToggleSwitch";
 import { ConfirmationModal } from "../../ui/ConfirmationModal";
 import { useSettings } from "../../../hooks/useSettings";
@@ -32,25 +32,6 @@ export const DebugSettings: React.FC = () => {
 
   // Modal states
   const [showVoiceCommandsWarning, setShowVoiceCommandsWarning] = useState(false);
-
-  // Overlay error test
-  const [selectedErrorCategory, setSelectedErrorCategory] = useState("Auth");
-
-  const errorCategories = [
-    { value: "Auth", label: "Auth" },
-    { value: "RateLimited", label: "Rate Limited" },
-    { value: "Billing", label: "Billing" },
-    { value: "BadRequest", label: "Bad Request" },
-    { value: "TlsCertificate", label: "TLS Certificate" },
-    { value: "TlsHandshake", label: "TLS Handshake" },
-    { value: "Timeout", label: "Timeout" },
-    { value: "NetworkError", label: "Network Error" },
-    { value: "ServerError", label: "Server Error" },
-    { value: "ParseError", label: "Parse Error" },
-    { value: "ExtensionOffline", label: "Extension Offline" },
-    { value: "MicrophoneUnavailable", label: "Mic Unavailable" },
-    { value: "Unknown", label: "Unknown" },
-  ];
 
   const betaVoiceCommandsEnabled = (settings as any)?.beta_voice_commands_enabled ?? false;
 
@@ -75,6 +56,7 @@ export const DebugSettings: React.FC = () => {
         <LogDirectory grouped={true} />
         <SettingsDirectory grouped={true} />
         <LogLevelSelector grouped={true} />
+        <UpdateChecksToggle descriptionMode="tooltip" grouped={true} />
         <SoundPicker
           label={t("settings.debug.soundTheme.label")}
           description={t("settings.debug.soundTheme.description")}
@@ -162,36 +144,6 @@ export const DebugSettings: React.FC = () => {
           >
             {t("settings.debug.firstStartWizard.button")}
           </button>
-        </SettingContainer>
-
-        <SettingContainer
-          title={t("settings.debug.overlayError.title")}
-          description={t("settings.debug.overlayError.description")}
-          descriptionMode="inline"
-          grouped={true}
-        >
-          <div className="flex items-center gap-2">
-            <select
-              value={selectedErrorCategory}
-              onChange={(e) => setSelectedErrorCategory(e.target.value)}
-              className="px-2 py-1.5 bg-[#2b2b2b] border border-[#3c3c3c] rounded-lg text-xs text-gray-200 font-medium transition-colors appearance-none cursor-pointer"
-            >
-              {errorCategories.map((cat) => (
-                <option key={cat.value} value={cat.value}>
-                  {cat.label}
-                </option>
-              ))}
-            </select>
-            <button
-              type="button"
-              onClick={() => {
-                void invoke("debug_show_error_overlay", { category: selectedErrorCategory });
-              }}
-              className="px-3 py-1.5 bg-[#2b2b2b] hover:bg-[#3c3c3c] border border-[#3c3c3c] rounded-lg text-xs text-gray-200 font-medium transition-colors"
-            >
-              {t("settings.debug.overlayError.button")}
-            </button>
-          </div>
         </SettingContainer>
       </SettingsGroup>
 

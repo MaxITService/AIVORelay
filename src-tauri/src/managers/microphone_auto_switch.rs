@@ -77,10 +77,7 @@ fn matches_name_mask(device_name: &str, pattern: &str) -> bool {
     }
 }
 
-fn select_matching_microphone(
-    device_names: &[String],
-    pattern: &str,
-) -> Option<String> {
+fn select_matching_microphone(device_names: &[String], pattern: &str) -> Option<String> {
     device_names
         .iter()
         .find(|name| matches_name_mask(name, pattern))
@@ -90,7 +87,10 @@ fn select_matching_microphone(
 fn refresh_active_microphone_stream(app: &AppHandle) {
     let recording_manager = app.state::<Arc<AudioRecordingManager>>();
     if let Err(err) = recording_manager.update_selected_device() {
-        warn!("Failed to refresh active microphone stream after device change: {}", err);
+        warn!(
+            "Failed to refresh active microphone stream after device change: {}",
+            err
+        );
     }
 }
 
@@ -133,7 +133,9 @@ fn last_manual_microphone_selection(app: &AppHandle) -> Option<String> {
                 err
             );
             let settings = get_settings(app);
-            settings.last_manual_microphone.or(settings.selected_microphone)
+            settings
+                .last_manual_microphone
+                .or(settings.selected_microphone)
         }
     };
 

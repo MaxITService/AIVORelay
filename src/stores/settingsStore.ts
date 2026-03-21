@@ -374,6 +374,10 @@ settingUpdaters.error_overlay_auto_hide_ms = (value) =>
   invoke("change_recording_auto_stop_timeout_seconds_setting", {
     seconds: value,
   });
+(settingUpdaters as any).whisper_accelerator = (value: any) =>
+  invoke("change_whisper_accelerator_setting", { accelerator: value });
+(settingUpdaters as any).ort_accelerator = (value: any) =>
+  invoke("change_ort_accelerator_setting", { accelerator: value });
 (settingUpdaters as any).recording_auto_stop_paste = (value: any) =>
   invoke("change_recording_auto_stop_paste_setting", { paste: value });
 (settingUpdaters as any).extra_recording_buffer_ms = (value: any) =>
@@ -510,6 +514,80 @@ settingUpdaters.error_overlay_auto_hide_ms = (value) =>
   value: any,
 ) =>
   invoke("change_soniox_live_preview_backspace_delete_last_char_setting", {
+    enabled: value,
+  });
+(settingUpdaters as any).recording_overlay_custom_enabled = (value: any) =>
+  invoke("change_recording_overlay_custom_enabled_setting", {
+    enabled: value,
+  });
+(settingUpdaters as any).recording_overlay_show_drag_grip = (value: any) =>
+  invoke("change_recording_overlay_show_drag_grip_setting", {
+    enabled: value,
+  });
+(settingUpdaters as any).recording_overlay_theme = (value: any) =>
+  commands.changeRecordingOverlayThemeSetting(String(value));
+(settingUpdaters as any).recording_overlay_background_mode = (value: any) =>
+  commands.changeRecordingOverlayBackgroundModeSetting(String(value));
+(settingUpdaters as any).recording_overlay_material_mode = (value: any) =>
+  commands.changeRecordingOverlayMaterialModeSetting(String(value));
+(settingUpdaters as any).recording_overlay_centerpiece_mode = (value: any) =>
+  commands.changeRecordingOverlayCenterpieceModeSetting(String(value));
+(settingUpdaters as any).recording_overlay_animated_border_mode = (value: any) =>
+  commands.changeRecordingOverlayAnimatedBorderModeSetting(String(value));
+(settingUpdaters as any).recording_overlay_show_status_icon = (value: any) =>
+  commands.changeRecordingOverlayShowStatusIconSetting(Boolean(value));
+(settingUpdaters as any).recording_overlay_bar_count = (value: any) =>
+  commands.changeRecordingOverlayBarCountSetting(Number(value));
+(settingUpdaters as any).recording_overlay_width_px = (value: any) =>
+  invoke("change_recording_overlay_width_setting", {
+    widthPx: Number(value),
+  });
+(settingUpdaters as any).recording_overlay_bar_width_px = (value: any) =>
+  commands.changeRecordingOverlayBarWidthSetting(Number(value));
+(settingUpdaters as any).recording_overlay_bar_style = (value: any) =>
+  commands.changeRecordingOverlayBarStyleSetting(String(value));
+(settingUpdaters as any).recording_overlay_accent_color = (value: any) =>
+  commands.changeRecordingOverlayAccentColorSetting(String(value));
+(settingUpdaters as any).recording_overlay_surface_base_color = (value: any) =>
+  invoke("change_recording_overlay_surface_base_color_setting", {
+    color: String(value),
+  });
+(settingUpdaters as any).recording_overlay_body_background_color = (value: any) =>
+  invoke("change_recording_overlay_body_background_color_setting", {
+    color: String(value),
+  });
+(settingUpdaters as any).recording_overlay_audio_reactive_scale = (value: any) =>
+  commands.changeRecordingOverlayAudioReactiveScaleSetting(Boolean(value));
+(settingUpdaters as any).recording_overlay_audio_reactive_scale_max_percent = (
+  value: any,
+) =>
+  commands.changeRecordingOverlayAudioReactiveScaleMaxPercentSetting(
+    Number(value),
+  );
+(settingUpdaters as any).recording_overlay_voice_sensitivity_percent = (
+  value: any,
+) =>
+  invoke("change_recording_overlay_voice_sensitivity_percent_setting", {
+    value: Number(value),
+  });
+(settingUpdaters as any).recording_overlay_animation_softness_percent = (
+  value: any,
+) =>
+  commands.changeRecordingOverlayAnimationSoftnessPercentSetting(Number(value));
+(settingUpdaters as any).recording_overlay_depth_parallax_percent = (
+  value: any,
+) =>
+  commands.changeRecordingOverlayDepthParallaxPercentSetting(Number(value));
+(settingUpdaters as any).recording_overlay_opacity_percent = (value: any) =>
+  commands.changeRecordingOverlayOpacityPercentSetting(Number(value));
+(settingUpdaters as any).recording_overlay_silence_fade = (value: any) =>
+  commands.changeRecordingOverlaySilenceFadeSetting(Boolean(value));
+(settingUpdaters as any).recording_overlay_silence_opacity_percent = (
+  value: any,
+) =>
+  commands.changeRecordingOverlaySilenceOpacityPercentSetting(Number(value));
+(settingUpdaters as any).auto_position_allow_reserved_areas = (value: any) =>
+  invoke("change_auto_position_allow_reserved_areas_setting", {
     enabled: value,
   });
 (settingUpdaters as any).soniox_live_preview_show_drag_grip = (value: any) =>

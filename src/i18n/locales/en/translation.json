@@ -214,6 +214,14 @@
       "gigaam-v3-e2e-ctc": {
         "name": "GigaAM v3",
         "description": "Russian speech recognition. Fast and accurate."
+      },
+      "canary-180m-flash": {
+        "name": "Canary 180M Flash",
+        "description": "Very fast. English, German, Spanish, French. Supports translation."
+      },
+      "canary-1b-v2": {
+        "name": "Canary 1B v2",
+        "description": "Accurate multilingual. 25 European languages. Supports translation."
       }
     },
     "errors": {
@@ -348,6 +356,222 @@
       "sidebarReorder": {
         "title": "Sidebar Customization",
         "description": "You can customize your navigation! Reorder the sections in the sidebar on the left by clicking and dragging them to your preferred position. Your custom layout is automatically saved and persists between app restarts."
+      },
+      "recordingOverlay": {
+        "title": "Recording Overlay",
+        "preview": {
+          "title": "Recording Overlay Preview",
+          "description": "Preview the main overlay style here before using it in live recording."
+        },
+        "previewStates": {
+          "recording": "Recording",
+          "transcribing": "Processing",
+          "error": "Error"
+        },
+        "customOverlay": {
+          "label": "Custom Overlay",
+          "description": "Turn on the premium custom renderer with presets, decorative layers, and advanced motion controls.",
+          "enabledHelp": "Custom mode is active. Decorative layers, presets, and advanced motion controls are available below.",
+          "disabledHelp": "Classic mode stays simpler, but still keeps the same overlay moving, drag handle, and placement behavior.",
+          "disabledTooltip": "Enable Custom Overlay to use these controls."
+        },
+        "presets": {
+          "title": "Preset Packs",
+          "description": "Apply a strong, curated overlay look in one click.",
+          "applied": "Preset applied.",
+          "applyError": "Could not apply preset.",
+          "active": "Applied",
+          "applyCta": "Apply",
+          "memoryHint": "Collapse preset packs to unload the preview cards and save memory.",
+          "collapse": "Collapse Presets",
+          "expand": "Expand Presets"
+        },
+        "help": {
+          "title": "How To Use These Controls",
+          "presetsFirst": "Start with Preset Packs if you want a fast direction, then shape the result with the controls below.",
+          "grouping": "Think in this order: Layout sets the silhouette, Style sets the core look, Atmosphere adds decorative layers, and Motion controls how the overlay behaves while you speak.",
+          "sliders": "Slider drags now update the page preview immediately and commit to the live overlay when you release them."
+        },
+        "styleCode": {
+          "title": "Share Style",
+          "description": "Copy your current look as a reusable code, or import one from anywhere.",
+          "current": "Current Style Code",
+          "copy": "Copy Current Code",
+          "copySuccess": "Style code copied.",
+          "copyError": "Could not copy style code.",
+          "import": "Import Style Code",
+          "importPlaceholder": "Paste an Aivo overlay style code or JSON here.",
+          "loadClipboard": "Load From Clipboard",
+          "pasteSuccess": "Clipboard loaded into the import field.",
+          "pasteError": "Could not read clipboard.",
+          "apply": "Apply Imported Style",
+          "applySuccess": "Imported style applied.",
+          "applyError": "Could not import style code."
+        },
+        "reset": {
+          "title": "Reset Overlay",
+          "description": "Reset either the overlay look or its saved manual position without touching unrelated settings.",
+          "appearance": "Reset Appearance",
+          "appearanceTooltip": "This resets the current overlay look. For the most default/basic variant, turn off Custom Overlay.",
+          "position": "Reset Position",
+          "appearanceDone": "Overlay appearance reset to the default look."
+        },
+        "errorPreview": {
+          "title": "Overlay Error Test",
+          "description": "Show a sample error overlay so you can preview each built-in error state.",
+          "button": "Show Error Overlay"
+        },
+        "theme": {
+          "title": "Overlay Theme",
+          "description": "Change the surface style of the recording overlay.",
+          "options": {
+            "classic": "Classic",
+            "minimal": "Minimal",
+            "glass": "Glass"
+          }
+        },
+        "materialMode": {
+          "title": "Material Mode",
+          "description": "Choose the base material treatment used for the overlay shell.",
+          "options": {
+            "liquidGlass": "Liquid Glass",
+            "pearl": "Pearl",
+            "velvetNeon": "Velvet Neon",
+            "frost": "Frost",
+            "candyChrome": "Candy Chrome"
+          }
+        },
+        "backgroundMode": {
+          "title": "Ambient Background",
+          "description": "Add decorative atmosphere behind the main visualizer.",
+          "options": {
+            "none": "None",
+            "mist": "Mist",
+            "petalsHaze": "Petals Haze",
+            "softGlowField": "Soft Glow Field",
+            "stardust": "Stardust",
+            "silkFog": "Silk Fog",
+            "fireflyVeil": "Firefly Veil",
+            "roseSparks": "Rose Sparks"
+          }
+        },
+        "centerpieceMode": {
+          "title": "Centerpiece",
+          "description": "Add a decorative focal layer in the center of the overlay.",
+          "options": {
+            "none": "None",
+            "haloCore": "Halo Core",
+            "auroraRibbon": "Aurora Ribbon",
+            "orbitalBeads": "Orbital Beads",
+            "bloomHeart": "Bloom Heart",
+            "signalCrown": "Signal Crown"
+          }
+        },
+        "animatedBorderMode": {
+          "title": "Animated Border",
+          "description": "Add motion around the edge of the overlay frame.",
+          "options": {
+            "none": "None",
+            "shimmerEdge": "Shimmer Edge",
+            "travelingHighlight": "Traveling Highlight",
+            "breathingContour": "Breathing Contour"
+          }
+        },
+        "statusIcon": {
+          "label": "Show Status Icon",
+          "description": "Show the microphone, processing, and error icon on the left side of the overlay."
+        },
+        "barStyle": {
+          "title": "Visualizer Style",
+          "description": "Choose how recording activity is visualized.",
+          "options": {
+            "aurora": "Aurora",
+            "bloomBounce": "Bloom Bounce",
+            "comet": "Comet",
+            "constellation": "Constellation",
+            "crown": "Crown",
+            "daisy": "Daisy",
+            "ember": "Ember",
+            "fireflies": "Fireflies",
+            "gardenSway": "Garden Sway",
+            "hologram": "Hologram",
+            "helix": "Helix",
+            "lotus": "Lotus",
+            "matrix": "Matrix Rain",
+            "morse": "Morse",
+            "needles": "Needles",
+            "orbit": "Orbit",
+            "petals": "Petals",
+            "petalRain": "Petal Rain",
+            "radar": "Radar",
+            "pulseRings": "Pulse Rings",
+            "retro": "Equalizer Retro",
+            "shards": "Shards",
+            "skyline": "Skyline",
+            "solid": "Solid",
+            "capsule": "Capsule",
+            "glow": "Glow",
+            "prism": "Prism",
+            "tuner": "Tuner",
+            "vinyl": "Vinyl"
+          }
+        },
+        "barCount": {
+          "title": "Visualizer Count",
+          "description": "Choose how many animated elements are shown while recording."
+        },
+        "overlayWidth": {
+          "title": "Overlay Width",
+          "description": "Choose the base width of the recording overlay. It can still expand if the current visualizer needs more room."
+        },
+        "barWidth": {
+          "title": "Visualizer Size",
+          "description": "Adjust the size or thickness of the recording visualizer elements."
+        },
+        "accentColor": {
+          "title": "Overlay Accent Color",
+          "description": "Pick the accent color used for the recording visualizer and hover accents."
+        },
+        "bodyBackgroundColor": {
+          "title": "Body Background Color",
+          "description": "Adjust the true background color of the overlay body beneath the material and glow layers."
+        },
+        "surfaceBaseColor": {
+          "title": "Surface Tint",
+          "description": "Adjust the tint and glow layered over the body background. Use Body Background Color for the actual base fill."
+        },
+        "audioReactiveScale": {
+          "label": "Voice-Reactive Scale",
+          "description": "Make the overlay subtly expand with stronger voice input."
+        },
+        "audioReactiveScaleAmount": {
+          "title": "Scale Strength",
+          "description": "Choose the maximum growth amount when you speak loudly."
+        },
+        "voiceSensitivity": {
+          "title": "Voice Sensitivity",
+          "description": "Choose how easily the overlay reacts to quieter speech. Higher values wake up sooner; lower values wait for stronger voice input."
+        },
+        "animationSoftness": {
+          "title": "Animation Softness",
+          "description": "Make the overlay calmer and smoother, or snappier and more alive."
+        },
+        "depthParallax": {
+          "title": "Depth Parallax",
+          "description": "Adjust how much decorative layers drift to create a sense of depth."
+        },
+        "opacity": {
+          "title": "Overlay Opacity",
+          "description": "Set the base transparency of the recording overlay. At 100%, the surface becomes fully opaque."
+        },
+        "silenceFade": {
+          "label": "Fade When Quiet",
+          "description": "Make the overlay more transparent during pauses. Turn this off to keep opacity constant."
+        },
+        "silenceOpacity": {
+          "title": "Quiet Opacity",
+          "description": "Only used when Fade When Quiet is enabled. Sets how visible the overlay stays while you are quiet."
+        }
       }
     },
     "general": {
@@ -852,6 +1076,15 @@
           "label": "Show Error Overlay",
           "description": "Show runtime errors in the recording overlay.",
           "danger": "Dangerous: disabling overlay errors can hide broken setup and failed transcriptions."
+        },
+        "allowReservedAreas": {
+          "label": "Allow Auto-Positioning in Reserved Areas",
+          "description": "Let auto-placed overlay, preview, confirmation, and voice button windows use taskbar or docked-bar space. Manual dragging can still place them anywhere."
+        },
+        "dragGrip": {
+          "label": "Show Recording Overlay Drag Grip",
+          "description": "Show a small top handle on hover so you can drag the recording overlay during a session without leaving the grip visible all the time.",
+          "help": "Tip: move the pointer over the overlay to reveal the grip, then drag from the top center."
         }
       },
       "pasteMethod": {
@@ -2229,6 +2462,8 @@
     "englishOnlyNote": "Sorry, I mostly only made english version of this application."
   },
   "overlay": {
+    "sending": "Sending...",
+    "thinking": "Thinking...",
     "transcribing": "Transcribing...",
     "finalizing": "Finalizing...",
     "microphoneChanged": "Microphone: {{name}}",
