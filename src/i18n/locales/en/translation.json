@@ -1611,6 +1611,10 @@
           "title": "ONNX Acceleration",
           "description": "Hardware acceleration for ONNX models (Parakeet, Canary, Moonshine, etc.). DirectML on Windows is experimental. Models may fail to transcribe."
         }
+      },
+      "lazyStreamClose": {
+        "label": "Keep Mic Open Between Transcriptions",
+        "description": "Keeps the microphone stream open for 30 seconds after recording stops, reducing latency for back-to-back transcriptions. Applies only to microphone capture and may affect Bluetooth audio quality while active."
       }
     },
     "postProcessing": {

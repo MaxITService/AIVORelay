@@ -12,6 +12,7 @@ import { HistoryLimit } from "../HistoryLimit";
 import { AlwaysOnMicrophone } from "../AlwaysOnMicrophone";
 import { SoundPicker } from "../SoundPicker";
 import { MuteWhileRecording } from "../MuteWhileRecording";
+import { LazyStreamClose } from "./LazyStreamClose";
 import { RecordingBuffer } from "./RecordingBuffer";
 import { RecordingRetentionPeriodSelector } from "../RecordingRetentionPeriod";
 import { ClamshellMicrophoneSelector } from "../ClamshellMicrophoneSelector";
@@ -95,6 +96,7 @@ export const DebugSettings: React.FC = () => {
         {/* Voice Commands Toggle - Windows only */}
         {isWindows && (
           <>
+            <LazyStreamClose descriptionMode="tooltip" grouped={true} />
             <SettingContainer
               title="Voice Commands"
               description="Execute scripts and commands using voice triggers"
