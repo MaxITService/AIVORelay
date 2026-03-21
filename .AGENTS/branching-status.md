@@ -5,9 +5,10 @@ Before starting a new `main` -> branch sync, verify the target branch directly w
 
 ## Microsoft-store
 
-Last synced commit from `main`: `ffb30103` — docs(sync): advance upstream intake log to 58cda3f3.
+Last synced commit from `main`: `ca08fe72` — feat(settings): repair invalid settings and bump version to 1.0.3.
 Maintenance rule: after a successful `main` -> `Microsoft-store` propagation, update this main-copy cursor and the `Microsoft-store` worktree copy together.
 Note: the cursor always points to the last propagated commit, not the cursor-update commit itself (to avoid a circular hash dependency).
+Backfill note: selective backfill above `ca08fe72` is in progress. Newer cherry-picked commits may already exist on `Microsoft-store`, but the contiguous `main` sync frontier stays at `ca08fe72` until all intervening commits are classified and propagated.
 Sync rule: for this branch, source commits come from `main` only.
 Propagation scope rule: for Microsoft Store Edition propagation, bring over the intended `main` commit set in order unless a commit is store-incompatible. Default exclusions are self-update/auto-update changes and AVX512-only changes; AVX2 is allowed.
 
