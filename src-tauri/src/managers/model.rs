@@ -121,7 +121,8 @@ impl ModelManager {
                 filename: "ggml-small.bin".to_string(),
                 url: Some("https://blob.handy.computer/ggml-small.bin".to_string()),
                 sha256: Some(
-                    "1be3a9b2063867b937e64e2ec7483364a79917e157fa98c5d94b5c1fffea987b".to_string(),
+                    "1be3a9b2063867b937e64e2ec7483364a79917e157fa98c5d94b5c1fffea987b"
+                        .to_string(),
                 ),
                 size_mb: 487,
                 is_downloaded: false,
@@ -148,7 +149,8 @@ impl ModelManager {
                 filename: "whisper-medium-q4_1.bin".to_string(),
                 url: Some("https://blob.handy.computer/whisper-medium-q4_1.bin".to_string()),
                 sha256: Some(
-                    "79283fc1f9fe12ca3248543fbd54b73292164d8df5a16e095e2bceeaaabddf57".to_string(),
+                    "79283fc1f9fe12ca3248543fbd54b73292164d8df5a16e095e2bceeaaabddf57"
+                        .to_string(),
                 ),
                 size_mb: 492, // Approximate size
                 is_downloaded: false,
@@ -174,7 +176,8 @@ impl ModelManager {
                 filename: "ggml-large-v3-turbo.bin".to_string(),
                 url: Some("https://blob.handy.computer/ggml-large-v3-turbo.bin".to_string()),
                 sha256: Some(
-                    "1fc70f774d38eb169993ac391eea357ef47c88757ef72ee5943879b7e8e2bc69".to_string(),
+                    "1fc70f774d38eb169993ac391eea357ef47c88757ef72ee5943879b7e8e2bc69"
+                        .to_string(),
                 ),
                 size_mb: 1600, // Approximate size
                 is_downloaded: false,
@@ -200,7 +203,8 @@ impl ModelManager {
                 filename: "ggml-large-v3-q5_0.bin".to_string(),
                 url: Some("https://blob.handy.computer/ggml-large-v3-q5_0.bin".to_string()),
                 sha256: Some(
-                    "d75795ecff3f83b5faa89d1900604ad8c780abd5739fae406de19f23ecd98ad1".to_string(),
+                    "d75795ecff3f83b5faa89d1900604ad8c780abd5739fae406de19f23ecd98ad1"
+                        .to_string(),
                 ),
                 size_mb: 1100, // Approximate size
                 is_downloaded: false,
@@ -227,7 +231,8 @@ impl ModelManager {
                 filename: "breeze-asr-q5_k.bin".to_string(),
                 url: Some("https://blob.handy.computer/breeze-asr-q5_k.bin".to_string()),
                 sha256: Some(
-                    "8efbf0ce8a3f50fe332b7617da787fb81354b358c288b008d3bdef8359df64c6".to_string(),
+                    "8efbf0ce8a3f50fe332b7617da787fb81354b358c288b008d3bdef8359df64c6"
+                        .to_string(),
                 ),
                 size_mb: 1080,
                 is_downloaded: false,
@@ -254,7 +259,8 @@ impl ModelManager {
                 filename: "parakeet-tdt-0.6b-v2-int8".to_string(), // Directory name
                 url: Some("https://blob.handy.computer/parakeet-v2-int8.tar.gz".to_string()),
                 sha256: Some(
-                    "ac9b9429984dd565b25097337a887bb7f0f8ac393573661c651f0e7d31563991".to_string(),
+                    "ac9b9429984dd565b25097337a887bb7f0f8ac393573661c651f0e7d31563991"
+                        .to_string(),
                 ),
                 size_mb: 473, // Approximate size for int8 quantized model
                 is_downloaded: false,
@@ -280,7 +286,8 @@ impl ModelManager {
                 filename: "parakeet-tdt-0.6b-v3-int8".to_string(), // Directory name
                 url: Some("https://blob.handy.computer/parakeet-v3-int8.tar.gz".to_string()),
                 sha256: Some(
-                    "43d37191602727524a7d8c6da0eef11c4ba24320f5b4730f1a2497befc2efa77".to_string(),
+                    "43d37191602727524a7d8c6da0eef11c4ba24320f5b4730f1a2497befc2efa77"
+                        .to_string(),
                 ),
                 size_mb: 478, // Approximate size for int8 quantized model
                 is_downloaded: false,
@@ -306,7 +313,8 @@ impl ModelManager {
                 filename: "moonshine-base".to_string(),
                 url: Some("https://blob.handy.computer/moonshine-base.tar.gz".to_string()),
                 sha256: Some(
-                    "04bf6ab012cfceebd4ac7cf88c1b31d027bbdd3cd704649b692e2e935236b7e8".to_string(),
+                    "04bf6ab012cfceebd4ac7cf88c1b31d027bbdd3cd704649b692e2e935236b7e8"
+                        .to_string(),
                 ),
                 size_mb: 58,
                 is_downloaded: false,
@@ -334,7 +342,8 @@ impl ModelManager {
                     "https://blob.handy.computer/moonshine-tiny-streaming-en.tar.gz".to_string(),
                 ),
                 sha256: Some(
-                    "465addcfca9e86117415677dfdc98b21edc53537210333a3ecdb58509a80abaf".to_string(),
+                    "465addcfca9e86117415677dfdc98b21edc53537210333a3ecdb58509a80abaf"
+                        .to_string(),
                 ),
                 size_mb: 31,
                 is_downloaded: false,
@@ -362,7 +371,8 @@ impl ModelManager {
                     "https://blob.handy.computer/moonshine-small-streaming-en.tar.gz".to_string(),
                 ),
                 sha256: Some(
-                    "dbb3e1c1832bd88a4ac712f7449a136cc2c9a18c5fe33a12ed1b7cb1cfe9cdd5".to_string(),
+                    "dbb3e1c1832bd88a4ac712f7449a136cc2c9a18c5fe33a12ed1b7cb1cfe9cdd5"
+                        .to_string(),
                 ),
                 size_mb: 100,
                 is_downloaded: false,
@@ -390,7 +400,8 @@ impl ModelManager {
                     "https://blob.handy.computer/moonshine-medium-streaming-en.tar.gz".to_string(),
                 ),
                 sha256: Some(
-                    "07a66f3bff1c77e75a2f637e5a263928a08baae3c29c4c053fc968a9a9373d13".to_string(),
+                    "07a66f3bff1c77e75a2f637e5a263928a08baae3c29c4c053fc968a9a9373d13"
+                        .to_string(),
                 ),
                 size_mb: 192,
                 is_downloaded: false,
@@ -417,7 +428,8 @@ impl ModelManager {
                 filename: "sense-voice-int8".to_string(),
                 url: Some("https://blob.handy.computer/sense-voice-int8.tar.gz".to_string()),
                 sha256: Some(
-                    "171d611fe5d353a50bbb741b6f3ef42559b1565685684e9aa888ef563ba3e8a4".to_string(),
+                    "171d611fe5d353a50bbb741b6f3ef42559b1565685684e9aa888ef563ba3e8a4"
+                        .to_string(),
                 ),
                 size_mb: 160,
                 is_downloaded: false,
@@ -446,7 +458,8 @@ impl ModelManager {
                 filename: "giga-am-v3-int8".to_string(),
                 url: Some("https://blob.handy.computer/giga-am-v3-int8.tar.gz".to_string()),
                 sha256: Some(
-                    "d872462268430db140b69b72e0fc4b787b194c1dbe51b58de39444d55b6da45b".to_string(),
+                    "d872462268430db140b69b72e0fc4b787b194c1dbe51b58de39444d55b6da45b"
+                        .to_string(),
                 ),
                 size_mb: 152,
                 is_downloaded: false,
@@ -478,7 +491,8 @@ impl ModelManager {
                 filename: "canary-180m-flash".to_string(),
                 url: Some("https://blob.handy.computer/canary-180m-flash.tar.gz".to_string()),
                 sha256: Some(
-                    "6d9cfca6118b296e196eaedc1c8fa9788305a7b0f1feafdb6dc91932ab6e53f7".to_string(),
+                    "6d9cfca6118b296e196eaedc1c8fa9788305a7b0f1feafdb6dc91932ab6e53f7"
+                        .to_string(),
                 ),
                 size_mb: 146,
                 is_downloaded: false,
@@ -513,7 +527,8 @@ impl ModelManager {
                 filename: "canary-1b-v2".to_string(),
                 url: Some("https://blob.handy.computer/canary-1b-v2.tar.gz".to_string()),
                 sha256: Some(
-                    "02305b2a25f9cf3e7deaffa7f94df00efa44f442cd55c101c2cb9c000f904666".to_string(),
+                    "02305b2a25f9cf3e7deaffa7f94df00efa44f442cd55c101c2cb9c000f904666"
+                        .to_string(),
                 ),
                 size_mb: 692,
                 is_downloaded: false,
@@ -568,10 +583,7 @@ impl ModelManager {
     }
 
     fn clear_download_state(&self, model_id: &str, partial_path: &Path) {
-        let partial_size = partial_path
-            .metadata()
-            .map(|metadata| metadata.len())
-            .unwrap_or(0);
+        let partial_size = partial_path.metadata().map(|metadata| metadata.len()).unwrap_or(0);
 
         {
             let mut models = self.available_models.lock().unwrap();
