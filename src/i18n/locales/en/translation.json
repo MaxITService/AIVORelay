@@ -2208,7 +2208,9 @@
   "errors": {
     "loadDirectory": "Error loading directory: {{error}}",
     "modelLoadFailed": "Failed to load model: {{model}}",
-    "modelLoadFailedUnknown": "Unknown model"
+    "modelLoadFailedUnknown": "Unknown model",
+    "modelDownloadFailed": "Failed to download model: {{model}}",
+    "modelDownloadFailedUnknown": "Unknown model"
   },
   "appLanguage": {
     "title": "Application Language",

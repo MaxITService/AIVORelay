@@ -9,6 +9,11 @@ interface DownloadProgress {
   percentage: number;
 }
 
+interface ModelDownloadFailedEvent {
+  model_id: string;
+  error: string;
+}
+
 export const useModels = () => {
   const [models, setModels] = useState<ModelInfo[]>([]);
   const [currentModel, setCurrentModel] = useState<string>("");
@@ -263,6 +268,30 @@ export const useModels = () => {
       setError(`Failed to extract model: ${event.payload.error}`);
     });
 
+    const downloadFailedUnlisten = listen<ModelDownloadFailedEvent>(
+      "model-download-failed",
+      (event) => {
+        const { model_id, error } = event.payload;
+        setDownloadingModels((prev) => {
+          const next = new Set(prev);
+          next.delete(model_id);
+          return next;
+        });
+        setExtractingModels((prev) => {
+          const next = new Set(prev);
+          next.delete(model_id);
+          return next;
+        });
+        setDownloadProgress((prev) => {
+          const next = new Map(prev);
+          next.delete(model_id);
+          return next;
+        });
+        setError(error);
+        loadModels();
+      },
+    );
+
     const modelDeletedUnlisten = listen<string>("model-deleted", async () => {
       await loadModels();
       await loadCurrentModel();
@@ -275,6 +304,7 @@ export const useModels = () => {
       extractionStartedUnlisten.then((fn) => fn());
       extractionCompletedUnlisten.then((fn) => fn());
       extractionFailedUnlisten.then((fn) => fn());
+      downloadFailedUnlisten.then((fn) => fn());
       modelDeletedUnlisten.then((fn) => fn());
     };
   }, []);

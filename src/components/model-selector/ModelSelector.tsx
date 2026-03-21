@@ -16,6 +16,11 @@ interface DownloadProgress {
   percentage: number;
 }
 
+interface ModelDownloadFailedEvent {
+  model_id: string;
+  error: string;
+}
+
 type ModelStatus =
   | "ready"
   | "loading"
@@ -256,6 +261,31 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({
       setModelStatus("error");
     });
 
+    const downloadFailedUnlisten = listen<ModelDownloadFailedEvent>(
+      "model-download-failed",
+      (event) => {
+        const { model_id, error } = event.payload;
+        setModelDownloadProgress((prev) => {
+          const newMap = new Map(prev);
+          newMap.delete(model_id);
+          return newMap;
+        });
+        setDownloadStats((prev) => {
+          const newStats = new Map(prev);
+          newStats.delete(model_id);
+          return newStats;
+        });
+        setExtractingModels((prev) => {
+          const next = new Set(prev);
+          next.delete(model_id);
+          return next;
+        });
+        setModelError(error);
+        setModelStatus("error");
+        loadModels();
+      },
+    );
+
     // Listen for model deletion (e.g. from Models settings page)
     const modelDeletedUnlisten = listen<string>("model-deleted", () => {
       loadModels();
@@ -283,6 +313,7 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({
       extractionStartedUnlisten.then((fn) => fn());
       extractionCompletedUnlisten.then((fn) => fn());
       extractionFailedUnlisten.then((fn) => fn());
+      downloadFailedUnlisten.then((fn) => fn());
       modelDeletedUnlisten.then((fn) => fn());
     };
   }, []);
