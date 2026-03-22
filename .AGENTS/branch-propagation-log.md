@@ -12,6 +12,8 @@ Rules:
 
 | Propagation Date | Target Branch | Main SHA | Main Message | Branch SHA | Branch Message | Issues |
 | --- | --- | --- | --- | --- | --- | --- |
+| 2026-03-22 | `Microsoft-store` | `9da5f76f` | feat(history): save recordings before transcription | `50457733` | feat(history): save recordings before transcription | upstream log conflict only |
+| 2026-03-22 | `cuda-integration` | `9da5f76f` | feat(history): save recordings before transcription | `118a9e86` | feat(history): save recordings before transcription | upstream log conflict only |
 | 2026-03-22 | `cuda-integration` | `5bcc9c6b` | feat(audio): add recording overlay appearance customization | `self` | sync(cuda): hard align branch to main head | hard overwrite; preserved CUDA wiring/docs |
 | 2026-03-21 | `Microsoft-store` | `5508e69a` | docs(sync): record AGENTS wording backfill for Microsoft-store | `c110904a` | sync(ms-store): align non-store-specific files with main | force overwrite path; preserved only Store-specific docs/config/workflow/updater/AVX2 files |
 | 2026-03-21 | `Microsoft-store` | `9864ac9f` | agents | `0aed32ef` | agents | clean AGENTS docs backfill on top of Microsoft Store branch notes |
@@ -20,8 +22,6 @@ Rules:
 | 2026-03-21 | `Microsoft-store` | `48988a2f` | Update bindings for accelerator settings | `b88ebe50` | Update bindings for accelerator settings | clean bindings backfill after accelerator help sync |
 | 2026-03-21 | `Microsoft-store` | `90d868ce` | Sync acceleration i18n and add help | `28aa51db` | Sync acceleration i18n and add help | merged help/i18n onto existing accelerator layer and preserved branch-local lazy mic text |
 | 2026-03-21 | `Microsoft-store` | `653e69ea` | Fix accelerator command state access | `7bb22aaa` | Fix accelerator command state access | resolved command state type onto existing `Arc<TranscriptionManager>` wiring |
-| 2026-03-21 | `Microsoft-store` | `20b116dd` | Document recording buffer intake | `3d0515f7` | Document recording buffer intake | upstream log already newer; preserved current rows and applied recording-buffer docs notes |
-| 2026-03-21 | `Microsoft-store` | `a53b07a1` | Document GigaAM upstream intake | `62158743` | Document GigaAM upstream intake | upstream log already newer; preserved current rows and applied GigaAM docs notes |
 
 Entry template:
 

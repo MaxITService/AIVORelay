@@ -5,7 +5,7 @@ Before starting a new `main` -> branch sync, verify the target branch directly w
 
 ## Microsoft-store
 
-Last synced commit from `main`: `5508e69a` — docs(sync): record AGENTS wording backfill for Microsoft-store.
+Last synced commit from `main`: `9da5f76f` — feat(history): save recordings before transcription.
 Maintenance rule: after a successful `main` -> `Microsoft-store` propagation, update this main-copy cursor and the `Microsoft-store` worktree copy together.
 Note: the cursor always points to the last propagated `main` state reflected in branch content, not to a docs-only cursor-update commit itself.
 Alignment note: `Microsoft-store` now matches `main` for all non-Store-specific files via force overwrite. Intentional differences remain only for Microsoft Store-specific docs/config/workflow/updater/AVX2 files.
@@ -14,9 +14,9 @@ Propagation scope rule: for Microsoft Store Edition propagation, bring over the 
 
 ## cuda-integration
 
-Last synced commit from `main`: `5bcc9c6b` — feat(audio): add recording overlay appearance customization.
+Last synced commit from `main`: `9da5f76f` — feat(history): save recordings before transcription.
 Maintenance rule: after a successful `main` -> `cuda-integration` propagation, update this main-copy cursor and the `cuda-integration` worktree copy together.
 Note: the cursor always points to the last propagated commit from `main`, not to CUDA-only commits that were created on top of it.
 Sync rule: for this branch, source commits come from `main` only.
 Propagation scope rule: for CUDA Edition propagation, bring over the intended `main` commit set in order unless a commit is CUDA-incompatible. Default exclusions are Microsoft Store-specific changes and branch-local CUDA dependency/release wiring that only exists on `cuda-integration`.
-Operational note (2026-03-22): for content documentation, treat the branch as reset to the `5bcc9c6b` baseline and describe only the remaining CUDA/build/docs layer listed in the `cuda-integration` worktree copy of `[[.AGENTS/cuda-branch-notes|cuda-branch-notes.md]]`.
+Operational note (2026-03-22): for content documentation, treat the branch as reset to the `9da5f76f` baseline and describe only the remaining CUDA/build/docs layer listed in the `cuda-integration` worktree copy of `[[.AGENTS/cuda-branch-notes|cuda-branch-notes.md]]`.
