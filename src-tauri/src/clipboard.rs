@@ -32,10 +32,12 @@ mod win_clipboard {
     use std::ptr;
     use windows::core::{Free, PCWSTR};
     use windows::Win32::Foundation::{HANDLE, HGLOBAL};
-    use windows::Win32::Graphics::Gdi::{CopyEnhMetaFileW, CopyMetaFileW, HBITMAP, HENHMETAFILE, HMETAFILE};
+    use windows::Win32::Graphics::Gdi::{
+        CopyEnhMetaFileW, CopyMetaFileW, HBITMAP, HENHMETAFILE, HMETAFILE,
+    };
     use windows::Win32::System::DataExchange::{
-        CloseClipboard, EmptyClipboard, EnumClipboardFormats, GetClipboardData, OpenClipboard, SetClipboardData,
-        METAFILEPICT,
+        CloseClipboard, EmptyClipboard, EnumClipboardFormats, GetClipboardData, OpenClipboard,
+        SetClipboardData, METAFILEPICT,
     };
     use windows::Win32::System::Memory::{GlobalAlloc, GlobalLock, GlobalSize, GlobalUnlock, GHND};
     use windows::Win32::UI::WindowsAndMessaging::{CopyImage, IMAGE_BITMAP, IMAGE_FLAGS};
@@ -340,7 +342,10 @@ mod win_clipboard {
         if let Err(e) = SetClipboardData(format, Some(handle)) {
             let mut metafile = metafile;
             metafile.free();
-            return Err(format!("SetClipboardData failed for enhanced metafile: {}", e));
+            return Err(format!(
+                "SetClipboardData failed for enhanced metafile: {}",
+                e
+            ));
         }
         Ok(())
     }
@@ -379,7 +384,10 @@ mod win_clipboard {
             h.free();
             let mut metafile = metafile;
             metafile.free();
-            return Err(format!("SetClipboardData failed for CF_METAFILEPICT: {}", e));
+            return Err(format!(
+                "SetClipboardData failed for CF_METAFILEPICT: {}",
+                e
+            ));
         }
 
         Ok(())
@@ -1064,15 +1072,13 @@ pub fn paste_stream_chunk(text: String, app_handle: AppHandle) -> Result<(), Str
         let guard = STREAMING_PASTE_SESSION
             .lock()
             .map_err(|_| "Streaming clipboard session lock poisoned".to_string())?;
-        guard
-            .as_ref()
-            .map(|session| {
-                (
-                    session.paste_method,
-                    session.paste_delay_ms,
-                    session.convert_lf_to_crlf,
-                )
-            })
+        guard.as_ref().map(|session| {
+            (
+                session.paste_method,
+                session.paste_delay_ms,
+                session.convert_lf_to_crlf,
+            )
+        })
     };
 
     let enigo_state = app_handle
@@ -1160,9 +1166,12 @@ fn restore_cut_selection_from_backup(app_handle: &AppHandle, text: &str) -> Resu
     }
 
     let clipboard = app_handle.clipboard();
-    clipboard
-        .write_text(text)
-        .map_err(|e| format!("Failed to restore clipboard text for selection recovery: {}", e))?;
+    clipboard.write_text(text).map_err(|e| {
+        format!(
+            "Failed to restore clipboard text for selection recovery: {}",
+            e
+        )
+    })?;
 
     let enigo_state = app_handle
         .try_state::<EnigoState>()

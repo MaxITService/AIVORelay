@@ -10,12 +10,12 @@ use rsa::rand_core::OsRng;
 use rsa::RsaPrivateKey;
 use serde::Serialize;
 use sha2::{Digest, Sha256};
+use specta::Type;
 use std::env;
 use std::fs::{self, File};
 use std::io::{self, Read, Seek};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use specta::Type;
 use tauri::path::BaseDirectory;
 use tauri::{AppHandle, Manager, State};
 use tauri_plugin_opener::OpenerExt;
@@ -80,8 +80,8 @@ fn copy_directory_recursive(source_dir: &Path, destination_dir: &Path) -> Result
     fs::create_dir_all(destination_dir)
         .map_err(|e| format!("Failed to create export directory: {}", e))?;
 
-    for entry in fs::read_dir(source_dir)
-        .map_err(|e| format!("Failed to read staging directory: {}", e))?
+    for entry in
+        fs::read_dir(source_dir).map_err(|e| format!("Failed to read staging directory: {}", e))?
     {
         let entry = entry.map_err(|e| format!("Failed to read staging entry: {}", e))?;
         let source_path = entry.path();
@@ -235,13 +235,16 @@ fn patch_exported_manifest(export_dir: &Path, manifest_key: &str) -> Result<(), 
     fs::write(&manifest_path, format!("{}\n", updated_manifest))
         .map_err(|e| format!("Failed to write exported manifest.json: {}", e))
 }
-    // This hardcoded bootstrap password is only an onboarding fallback, and only if user uses very exotic, manual onboarding,
-    // while other methods are primary in this app.
-    // User DOES NOT need to use this at all and can be perfectly secure by using own password.
-    // It is not the steady-state connector secret. The app rotates away from it or replaces it
-    // during pairing/export, so its presence in source is not relied on as a
-    // long-term security boundary.
-fn patch_exported_default_password(export_dir: &Path, generated_password: &str) -> Result<(), String> {
+// This hardcoded bootstrap password is only an onboarding fallback, and only if user uses very exotic, manual onboarding,
+// while other methods are primary in this app.
+// User DOES NOT need to use this at all and can be perfectly secure by using own password.
+// It is not the steady-state connector secret. The app rotates away from it or replaces it
+// during pairing/export, so its presence in source is not relied on as a
+// long-term security boundary.
+fn patch_exported_default_password(
+    export_dir: &Path,
+    generated_password: &str,
+) -> Result<(), String> {
     let escaped_password = serde_json::to_string(generated_password)
         .map_err(|e| format!("Failed to escape generated connector password: {}", e))?;
     let replacement_line = format!("const DEFAULT_PASSWORD = {};", escaped_password);
@@ -250,8 +253,12 @@ fn patch_exported_default_password(export_dir: &Path, generated_password: &str) 
 
     for relative_path in EXTENSION_PASSWORD_FILES {
         let file_path = export_dir.join(relative_path);
-        let original = fs::read_to_string(&file_path)
-            .map_err(|e| format!("Failed to read exported extension file '{}': {}", relative_path, e))?;
+        let original = fs::read_to_string(&file_path).map_err(|e| {
+            format!(
+                "Failed to read exported extension file '{}': {}",
+                relative_path, e
+            )
+        })?;
         let updated = original.replacen(search_pattern, &replacement_line, 1);
         if updated == original {
             return Err(format!(
@@ -340,8 +347,12 @@ fn restore_exported_extension_backup(
     }
 
     if let Some(backup_dir) = backup_dir {
-        fs::rename(backup_dir, export_dir)
-            .map_err(|e| format!("Failed to restore previous exported extension folder: {}", e))?;
+        fs::rename(backup_dir, export_dir).map_err(|e| {
+            format!(
+                "Failed to restore previous exported extension folder: {}",
+                e
+            )
+        })?;
     }
 
     Ok(())
@@ -429,8 +440,12 @@ pub fn connector_export_bundled_extension(
         .map_err(|e| format!("Failed to open bundled extension zip: {}", e))?;
     let mut archive = ZipArchive::new(zip_file)
         .map_err(|e| format!("Failed to read bundled extension zip: {}", e))?;
-    let app_data_dir = crate::portable::app_data_dir(&app)
-        .map_err(|e| format!("Failed to resolve app data directory for export staging: {}", e))?;
+    let app_data_dir = crate::portable::app_data_dir(&app).map_err(|e| {
+        format!(
+            "Failed to resolve app data directory for export staging: {}",
+            e
+        )
+    })?;
     let staging_root = app_data_dir
         .join(STAGING_FOLDER_NAME)
         .join(generate_random_hex_token(8)?);
@@ -445,24 +460,30 @@ pub fn connector_export_bundled_extension(
     let replaced_existing_export = export_dir.exists();
     let known_export_for_path = !generate_new_id
         && stored_export_matches(&current_settings, &export_dir)
-        && !current_settings.connector_last_export_manifest_key.trim().is_empty()
-        && !current_settings.connector_last_export_extension_id.trim().is_empty();
+        && !current_settings
+            .connector_last_export_manifest_key
+            .trim()
+            .is_empty()
+        && !current_settings
+            .connector_last_export_extension_id
+            .trim()
+            .is_empty();
 
-    let (manifest_key, extension_id, connector_password, reused_existing_id) = if known_export_for_path
-    {
-        let effective_password = active_pending_password(&app, &current_settings)
-            .unwrap_or_else(|| current_settings.connector_password.clone());
-        (
-            current_settings.connector_last_export_manifest_key.clone(),
-            current_settings.connector_last_export_extension_id.clone(),
-            effective_password,
-            true,
-        )
-    } else {
-        let (new_key, new_id) = generate_extension_manifest_key()?;
-        let new_password = generate_secure_password()?;
-        (new_key, new_id, new_password, false)
-    };
+    let (manifest_key, extension_id, connector_password, reused_existing_id) =
+        if known_export_for_path {
+            let effective_password = active_pending_password(&app, &current_settings)
+                .unwrap_or_else(|| current_settings.connector_password.clone());
+            (
+                current_settings.connector_last_export_manifest_key.clone(),
+                current_settings.connector_last_export_extension_id.clone(),
+                effective_password,
+                true,
+            )
+        } else {
+            let (new_key, new_id) = generate_extension_manifest_key()?;
+            let new_password = generate_secure_password()?;
+            (new_key, new_id, new_password, false)
+        };
 
     patch_exported_manifest(&staging_root, &manifest_key)?;
     patch_exported_default_password(&staging_root, &connector_password)?;
@@ -492,7 +513,8 @@ pub fn connector_export_bundled_extension(
     let copy_result = copy_directory_recursive(&staging_root, &export_dir);
     if let Err(err) = copy_result {
         let _ = fs::remove_dir_all(&staging_root);
-        if let Err(restore_err) = restore_exported_extension_backup(&export_dir, backup_dir.as_deref())
+        if let Err(restore_err) =
+            restore_exported_extension_backup(&export_dir, backup_dir.as_deref())
         {
             return Err(format!("{} (restore failed: {})", err, restore_err));
         }
@@ -507,7 +529,8 @@ pub fn connector_export_bundled_extension(
         &connector_password,
     ) {
         let _ = fs::remove_dir_all(&staging_root);
-        if let Err(restore_err) = restore_exported_extension_backup(&export_dir, backup_dir.as_deref())
+        if let Err(restore_err) =
+            restore_exported_extension_backup(&export_dir, backup_dir.as_deref())
         {
             return Err(format!("{} (restore failed: {})", err, restore_err));
         }

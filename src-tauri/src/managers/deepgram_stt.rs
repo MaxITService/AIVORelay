@@ -62,7 +62,8 @@ impl DeepgramSttManager {
     /// Marks all operations started before now as cancelled.
     pub fn cancel(&self) {
         let current = self.current_operation_id.load(Ordering::SeqCst);
-        self.cancelled_before_id.store(current + 1, Ordering::SeqCst);
+        self.cancelled_before_id
+            .store(current + 1, Ordering::SeqCst);
         log::info!(
             "DeepgramSttManager: cancelled all operations up to id {}",
             current + 1
@@ -197,13 +198,14 @@ impl DeepgramSttManager {
                     "false"
                 },
             );
-            qp.append_pair(
-                "diarize",
-                if diarize_enabled { "true" } else { "false" },
-            );
+            qp.append_pair("diarize", if diarize_enabled { "true" } else { "false" });
             qp.append_pair(
                 "multichannel",
-                if multichannel_enabled { "true" } else { "false" },
+                if multichannel_enabled {
+                    "true"
+                } else {
+                    "false"
+                },
             );
             if diarize_enabled {
                 qp.append_pair("utterances", "true");
@@ -306,7 +308,8 @@ impl DeepgramSttManager {
     }
 
     fn extract_channel_index(value: &Value) -> Option<u32> {
-        value.get("channel")
+        value
+            .get("channel")
             .and_then(Self::parse_channel_value)
             .or_else(|| {
                 value
@@ -326,7 +329,8 @@ impl DeepgramSttManager {
     }
 
     fn build_transcript_from_words(words: &[Value]) -> String {
-        words.iter()
+        words
+            .iter()
             .filter_map(Self::extract_token_text)
             .collect::<Vec<_>>()
             .join(" ")
@@ -494,7 +498,8 @@ impl DeepgramSttManager {
     fn extract_multichannel_channel_blocks(payload: &Value) -> Vec<RawSpeakerBlock> {
         let mut blocks = Vec::new();
 
-        for (channel_index, alternative) in Self::extract_prerecorded_channel_alternatives(payload) {
+        for (channel_index, alternative) in Self::extract_prerecorded_channel_alternatives(payload)
+        {
             let transcript = Self::extract_transcript(Some(alternative));
             let transcript = if transcript.is_empty() {
                 alternative
@@ -620,7 +625,9 @@ impl DeepgramSttManager {
             .post(url)
             .header("Authorization", format!("Token {}", api_key.trim()))
             .header(reqwest::header::CONTENT_TYPE, "application/octet-stream")
-            .timeout(Duration::from_secs(timeout_seconds.max(MIN_TIMEOUT_SECONDS) as u64))
+            .timeout(Duration::from_secs(
+                timeout_seconds.max(MIN_TIMEOUT_SECONDS) as u64,
+            ))
             .body(audio_bytes.to_vec())
             .send()
             .await
@@ -636,15 +643,12 @@ impl DeepgramSttManager {
         self.ensure_not_cancelled(operation_id)?;
 
         let status = response.status();
-        let body = response
-            .text()
-            .await
-            .map_err(|e| {
-                anyhow!(
-                    "Failed to read Deepgram pre-recorded response: {}",
-                    Self::format_reqwest_error(&e)
-                )
-            })?;
+        let body = response.text().await.map_err(|e| {
+            anyhow!(
+                "Failed to read Deepgram pre-recorded response: {}",
+                Self::format_reqwest_error(&e)
+            )
+        })?;
 
         self.ensure_not_cancelled(operation_id)?;
 
@@ -774,7 +778,9 @@ impl DeepgramSttManager {
             .await
             .map_err(|e| anyhow!("Failed to send Deepgram finalize message: {}", e))?;
         write
-            .send(Message::Text(r#"{"type":"CloseStream"}"#.to_string().into()))
+            .send(Message::Text(
+                r#"{"type":"CloseStream"}"#.to_string().into(),
+            ))
             .await
             .map_err(|e| anyhow!("Failed to send Deepgram close stream message: {}", e))?;
         write
@@ -803,7 +809,11 @@ impl DeepgramSttManager {
                 Message::Text(text) => {
                     let payload: Value = serde_json::from_str(text.as_ref()).map_err(|e| {
                         let preview: String = text.chars().take(200).collect();
-                        anyhow!("Invalid Deepgram WebSocket payload: {} (body: {})", e, preview)
+                        anyhow!(
+                            "Invalid Deepgram WebSocket payload: {} (body: {})",
+                            e,
+                            preview
+                        )
                     })?;
 
                     let msg_type = payload

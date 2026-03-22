@@ -21,106 +21,106 @@ const REMOTE_STT_USER: &str = "remote_stt_api_key";
 /// Based on OpenAI Whisper documentation and Groq's supported languages list
 /// https://github.com/openai/whisper/blob/main/whisper/tokenizer.py
 const WHISPER_SUPPORTED_LANGUAGES: &[&str] = &[
-    "af", // Afrikaans
-    "am", // Amharic
-    "ar", // Arabic
-    "as", // Assamese
-    "az", // Azerbaijani
-    "ba", // Bashkir
-    "be", // Belarusian
-    "bg", // Bulgarian
-    "bn", // Bengali
-    "bo", // Tibetan
-    "br", // Breton
-    "bs", // Bosnian
-    "ca", // Catalan
-    "cs", // Czech
-    "cy", // Welsh
-    "da", // Danish
-    "de", // German
-    "el", // Greek
-    "en", // English
-    "es", // Spanish
-    "et", // Estonian
-    "eu", // Basque
-    "fa", // Persian
-    "fi", // Finnish
-    "fo", // Faroese
-    "fr", // French
-    "gl", // Galician
-    "gu", // Gujarati
-    "ha", // Hausa
+    "af",  // Afrikaans
+    "am",  // Amharic
+    "ar",  // Arabic
+    "as",  // Assamese
+    "az",  // Azerbaijani
+    "ba",  // Bashkir
+    "be",  // Belarusian
+    "bg",  // Bulgarian
+    "bn",  // Bengali
+    "bo",  // Tibetan
+    "br",  // Breton
+    "bs",  // Bosnian
+    "ca",  // Catalan
+    "cs",  // Czech
+    "cy",  // Welsh
+    "da",  // Danish
+    "de",  // German
+    "el",  // Greek
+    "en",  // English
+    "es",  // Spanish
+    "et",  // Estonian
+    "eu",  // Basque
+    "fa",  // Persian
+    "fi",  // Finnish
+    "fo",  // Faroese
+    "fr",  // French
+    "gl",  // Galician
+    "gu",  // Gujarati
+    "ha",  // Hausa
     "haw", // Hawaiian
-    "he", // Hebrew
-    "hi", // Hindi
-    "hr", // Croatian
-    "ht", // Haitian Creole
-    "hu", // Hungarian
-    "hy", // Armenian
-    "id", // Indonesian
-    "is", // Icelandic
-    "it", // Italian
-    "ja", // Japanese
-    "jv", // Javanese
-    "ka", // Georgian
-    "kk", // Kazakh
-    "km", // Khmer
-    "kn", // Kannada
-    "ko", // Korean
-    "la", // Latin
-    "lb", // Luxembourgish
-    "ln", // Lingala
-    "lo", // Lao
-    "lt", // Lithuanian
-    "lv", // Latvian
-    "mg", // Malagasy
-    "mi", // Maori
-    "mk", // Macedonian
-    "ml", // Malayalam
-    "mn", // Mongolian
-    "mr", // Marathi
-    "ms", // Malay
-    "mt", // Maltese
-    "my", // Myanmar (Burmese)
-    "ne", // Nepali
-    "nl", // Dutch
-    "nn", // Norwegian Nynorsk
-    "no", // Norwegian
-    "oc", // Occitan
-    "pa", // Punjabi
-    "pl", // Polish
-    "ps", // Pashto
-    "pt", // Portuguese
-    "ro", // Romanian
-    "ru", // Russian
-    "sa", // Sanskrit
-    "sd", // Sindhi
-    "si", // Sinhala
-    "sk", // Slovak
-    "sl", // Slovenian
-    "sn", // Shona
-    "so", // Somali
-    "sq", // Albanian
-    "sr", // Serbian
-    "su", // Sundanese
-    "sv", // Swedish
-    "sw", // Swahili
-    "ta", // Tamil
-    "te", // Telugu
-    "tg", // Tajik
-    "th", // Thai
-    "tk", // Turkmen
-    "tl", // Tagalog
-    "tr", // Turkish
-    "tt", // Tatar
-    "uk", // Ukrainian
-    "ur", // Urdu
-    "uz", // Uzbek
-    "vi", // Vietnamese
-    "yi", // Yiddish
-    "yo", // Yoruba
+    "he",  // Hebrew
+    "hi",  // Hindi
+    "hr",  // Croatian
+    "ht",  // Haitian Creole
+    "hu",  // Hungarian
+    "hy",  // Armenian
+    "id",  // Indonesian
+    "is",  // Icelandic
+    "it",  // Italian
+    "ja",  // Japanese
+    "jv",  // Javanese
+    "ka",  // Georgian
+    "kk",  // Kazakh
+    "km",  // Khmer
+    "kn",  // Kannada
+    "ko",  // Korean
+    "la",  // Latin
+    "lb",  // Luxembourgish
+    "ln",  // Lingala
+    "lo",  // Lao
+    "lt",  // Lithuanian
+    "lv",  // Latvian
+    "mg",  // Malagasy
+    "mi",  // Maori
+    "mk",  // Macedonian
+    "ml",  // Malayalam
+    "mn",  // Mongolian
+    "mr",  // Marathi
+    "ms",  // Malay
+    "mt",  // Maltese
+    "my",  // Myanmar (Burmese)
+    "ne",  // Nepali
+    "nl",  // Dutch
+    "nn",  // Norwegian Nynorsk
+    "no",  // Norwegian
+    "oc",  // Occitan
+    "pa",  // Punjabi
+    "pl",  // Polish
+    "ps",  // Pashto
+    "pt",  // Portuguese
+    "ro",  // Romanian
+    "ru",  // Russian
+    "sa",  // Sanskrit
+    "sd",  // Sindhi
+    "si",  // Sinhala
+    "sk",  // Slovak
+    "sl",  // Slovenian
+    "sn",  // Shona
+    "so",  // Somali
+    "sq",  // Albanian
+    "sr",  // Serbian
+    "su",  // Sundanese
+    "sv",  // Swedish
+    "sw",  // Swahili
+    "ta",  // Tamil
+    "te",  // Telugu
+    "tg",  // Tajik
+    "th",  // Thai
+    "tk",  // Turkmen
+    "tl",  // Tagalog
+    "tr",  // Turkish
+    "tt",  // Tatar
+    "uk",  // Ukrainian
+    "ur",  // Urdu
+    "uz",  // Uzbek
+    "vi",  // Vietnamese
+    "yi",  // Yiddish
+    "yo",  // Yoruba
     "yue", // Cantonese
-    "zh", // Chinese
+    "zh",  // Chinese
 ];
 
 /// Check if a language code is supported by Whisper models
@@ -396,7 +396,7 @@ impl RemoteSttManager {
                         lang = "auto".to_string();
                     }
                 }
-                
+
                 // Skip "auto" - let API auto-detect
                 if lang != "auto" {
                     // Normalize language code for OpenAI/Whisper
@@ -500,12 +500,11 @@ impl RemoteSttManager {
         base_url: &str,
     ) -> Result<()> {
         let override_base_url = (!base_url.trim().is_empty()).then_some(base_url.trim());
-        let base_url = validate_remote_stt_base_url(settings, override_base_url).map_err(
-            |message| {
+        let base_url =
+            validate_remote_stt_base_url(settings, override_base_url).map_err(|message| {
                 self.record_error(settings, message.clone());
                 anyhow!(message)
-            },
-        )?;
+            })?;
 
         let api_key = get_remote_stt_api_key().map_err(|e| {
             let message = format!("Remote STT API key unavailable: {}", e);

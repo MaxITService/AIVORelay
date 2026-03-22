@@ -4,11 +4,12 @@ use flate2::read::GzDecoder;
 use futures_util::StreamExt;
 use log::{debug, info, warn};
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use specta::Type;
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::fs::File;
-use std::io::Write;
+use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use tar::Archive;
@@ -23,6 +24,7 @@ pub enum EngineType {
     MoonshineStreaming,
     SenseVoice,
     GigaAM,
+    Canary,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
@@ -32,6 +34,7 @@ pub struct ModelInfo {
     pub description: String,
     pub filename: String,
     pub url: Option<String>,
+    pub sha256: Option<String>,
     pub size_mb: u64,
     pub is_downloaded: bool,
     pub is_downloading: bool,
@@ -117,6 +120,9 @@ impl ModelManager {
                 description: "Fast and fairly accurate.".to_string(),
                 filename: "ggml-small.bin".to_string(),
                 url: Some("https://blob.handy.computer/ggml-small.bin".to_string()),
+                sha256: Some(
+                    "1be3a9b2063867b937e64e2ec7483364a79917e157fa98c5d94b5c1fffea987b".to_string(),
+                ),
                 size_mb: 487,
                 is_downloaded: false,
                 is_downloading: false,
@@ -141,6 +147,9 @@ impl ModelManager {
                 description: "Good accuracy, medium speed".to_string(),
                 filename: "whisper-medium-q4_1.bin".to_string(),
                 url: Some("https://blob.handy.computer/whisper-medium-q4_1.bin".to_string()),
+                sha256: Some(
+                    "79283fc1f9fe12ca3248543fbd54b73292164d8df5a16e095e2bceeaaabddf57".to_string(),
+                ),
                 size_mb: 492, // Approximate size
                 is_downloaded: false,
                 is_downloading: false,
@@ -164,6 +173,9 @@ impl ModelManager {
                 description: "Balanced accuracy and speed.".to_string(),
                 filename: "ggml-large-v3-turbo.bin".to_string(),
                 url: Some("https://blob.handy.computer/ggml-large-v3-turbo.bin".to_string()),
+                sha256: Some(
+                    "1fc70f774d38eb169993ac391eea357ef47c88757ef72ee5943879b7e8e2bc69".to_string(),
+                ),
                 size_mb: 1600, // Approximate size
                 is_downloaded: false,
                 is_downloading: false,
@@ -187,6 +199,9 @@ impl ModelManager {
                 description: "Good accuracy, but slow.".to_string(),
                 filename: "ggml-large-v3-q5_0.bin".to_string(),
                 url: Some("https://blob.handy.computer/ggml-large-v3-q5_0.bin".to_string()),
+                sha256: Some(
+                    "d75795ecff3f83b5faa89d1900604ad8c780abd5739fae406de19f23ecd98ad1".to_string(),
+                ),
                 size_mb: 1100, // Approximate size
                 is_downloaded: false,
                 is_downloading: false,
@@ -211,6 +226,9 @@ impl ModelManager {
                     .to_string(),
                 filename: "breeze-asr-q5_k.bin".to_string(),
                 url: Some("https://blob.handy.computer/breeze-asr-q5_k.bin".to_string()),
+                sha256: Some(
+                    "8efbf0ce8a3f50fe332b7617da787fb81354b358c288b008d3bdef8359df64c6".to_string(),
+                ),
                 size_mb: 1080,
                 is_downloaded: false,
                 is_downloading: false,
@@ -235,6 +253,9 @@ impl ModelManager {
                 description: "English only. The best model for English speakers.".to_string(),
                 filename: "parakeet-tdt-0.6b-v2-int8".to_string(), // Directory name
                 url: Some("https://blob.handy.computer/parakeet-v2-int8.tar.gz".to_string()),
+                sha256: Some(
+                    "ac9b9429984dd565b25097337a887bb7f0f8ac393573661c651f0e7d31563991".to_string(),
+                ),
                 size_mb: 473, // Approximate size for int8 quantized model
                 is_downloaded: false,
                 is_downloading: false,
@@ -258,6 +279,9 @@ impl ModelManager {
                 description: "Fast and accurate. Supports 25 European languages.".to_string(),
                 filename: "parakeet-tdt-0.6b-v3-int8".to_string(), // Directory name
                 url: Some("https://blob.handy.computer/parakeet-v3-int8.tar.gz".to_string()),
+                sha256: Some(
+                    "43d37191602727524a7d8c6da0eef11c4ba24320f5b4730f1a2497befc2efa77".to_string(),
+                ),
                 size_mb: 478, // Approximate size for int8 quantized model
                 is_downloaded: false,
                 is_downloading: false,
@@ -281,6 +305,9 @@ impl ModelManager {
                 description: "Very fast, English only. Handles accents well.".to_string(),
                 filename: "moonshine-base".to_string(),
                 url: Some("https://blob.handy.computer/moonshine-base.tar.gz".to_string()),
+                sha256: Some(
+                    "04bf6ab012cfceebd4ac7cf88c1b31d027bbdd3cd704649b692e2e935236b7e8".to_string(),
+                ),
                 size_mb: 58,
                 is_downloaded: false,
                 is_downloading: false,
@@ -305,6 +332,9 @@ impl ModelManager {
                 filename: "moonshine-tiny-streaming-en".to_string(),
                 url: Some(
                     "https://blob.handy.computer/moonshine-tiny-streaming-en.tar.gz".to_string(),
+                ),
+                sha256: Some(
+                    "465addcfca9e86117415677dfdc98b21edc53537210333a3ecdb58509a80abaf".to_string(),
                 ),
                 size_mb: 31,
                 is_downloaded: false,
@@ -331,6 +361,9 @@ impl ModelManager {
                 url: Some(
                     "https://blob.handy.computer/moonshine-small-streaming-en.tar.gz".to_string(),
                 ),
+                sha256: Some(
+                    "dbb3e1c1832bd88a4ac712f7449a136cc2c9a18c5fe33a12ed1b7cb1cfe9cdd5".to_string(),
+                ),
                 size_mb: 100,
                 is_downloaded: false,
                 is_downloading: false,
@@ -356,6 +389,9 @@ impl ModelManager {
                 url: Some(
                     "https://blob.handy.computer/moonshine-medium-streaming-en.tar.gz".to_string(),
                 ),
+                sha256: Some(
+                    "07a66f3bff1c77e75a2f637e5a263928a08baae3c29c4c053fc968a9a9373d13".to_string(),
+                ),
                 size_mb: 192,
                 is_downloaded: false,
                 is_downloading: false,
@@ -380,6 +416,9 @@ impl ModelManager {
                     .to_string(),
                 filename: "sense-voice-int8".to_string(),
                 url: Some("https://blob.handy.computer/sense-voice-int8.tar.gz".to_string()),
+                sha256: Some(
+                    "171d611fe5d353a50bbb741b6f3ef42559b1565685684e9aa888ef563ba3e8a4".to_string(),
+                ),
                 size_mb: 160,
                 is_downloaded: false,
                 is_downloading: false,
@@ -404,19 +443,89 @@ impl ModelManager {
                 id: "gigaam-v3-e2e-ctc".to_string(),
                 name: "GigaAM v3".to_string(),
                 description: "Russian speech recognition. Fast and accurate.".to_string(),
-                filename: "giga-am-v3.int8.onnx".to_string(),
-                url: Some("https://blob.handy.computer/giga-am-v3.int8.onnx".to_string()),
-                size_mb: 225,
+                filename: "giga-am-v3-int8".to_string(),
+                url: Some("https://blob.handy.computer/giga-am-v3-int8.tar.gz".to_string()),
+                sha256: Some(
+                    "d872462268430db140b69b72e0fc4b787b194c1dbe51b58de39444d55b6da45b".to_string(),
+                ),
+                size_mb: 152,
                 is_downloaded: false,
                 is_downloading: false,
                 partial_size: 0,
-                is_directory: false,
+                is_directory: true,
                 engine_type: EngineType::GigaAM,
                 accuracy_score: 0.85,
                 speed_score: 0.75,
                 supports_translation: false,
                 is_recommended: false,
                 supported_languages: gigaam_languages,
+                is_custom: false,
+            },
+        );
+
+        let canary_flash_languages: Vec<String> = vec!["en", "de", "es", "fr"]
+            .into_iter()
+            .map(String::from)
+            .collect();
+
+        available_models.insert(
+            "canary-180m-flash".to_string(),
+            ModelInfo {
+                id: "canary-180m-flash".to_string(),
+                name: "Canary 180M Flash".to_string(),
+                description: "Very fast. English, German, Spanish, French. Supports translation."
+                    .to_string(),
+                filename: "canary-180m-flash".to_string(),
+                url: Some("https://blob.handy.computer/canary-180m-flash.tar.gz".to_string()),
+                sha256: Some(
+                    "6d9cfca6118b296e196eaedc1c8fa9788305a7b0f1feafdb6dc91932ab6e53f7".to_string(),
+                ),
+                size_mb: 146,
+                is_downloaded: false,
+                is_downloading: false,
+                partial_size: 0,
+                is_directory: true,
+                engine_type: EngineType::Canary,
+                accuracy_score: 0.75,
+                speed_score: 0.85,
+                supports_translation: true,
+                is_recommended: false,
+                supported_languages: canary_flash_languages,
+                is_custom: false,
+            },
+        );
+
+        let canary_1b_languages: Vec<String> = vec![
+            "bg", "hr", "cs", "da", "nl", "en", "et", "fi", "fr", "de", "el", "hu", "it", "lv",
+            "lt", "mt", "pl", "pt", "ro", "sk", "sl", "es", "sv", "ru", "uk",
+        ]
+        .into_iter()
+        .map(String::from)
+        .collect();
+
+        available_models.insert(
+            "canary-1b-v2".to_string(),
+            ModelInfo {
+                id: "canary-1b-v2".to_string(),
+                name: "Canary 1B v2".to_string(),
+                description: "Accurate multilingual. 25 European languages. Supports translation."
+                    .to_string(),
+                filename: "canary-1b-v2".to_string(),
+                url: Some("https://blob.handy.computer/canary-1b-v2.tar.gz".to_string()),
+                sha256: Some(
+                    "02305b2a25f9cf3e7deaffa7f94df00efa44f442cd55c101c2cb9c000f904666".to_string(),
+                ),
+                size_mb: 692,
+                is_downloaded: false,
+                is_downloading: false,
+                partial_size: 0,
+                is_directory: true,
+                engine_type: EngineType::Canary,
+                accuracy_score: 0.85,
+                speed_score: 0.70,
+                supports_translation: true,
+                is_recommended: false,
+                supported_languages: canary_1b_languages,
                 is_custom: false,
             },
         );
@@ -436,6 +545,9 @@ impl ModelManager {
         // Migrate any bundled models to user directory
         manager.migrate_bundled_models()?;
 
+        // Migrate GigaAM from its old single-file format to the new directory layout
+        manager.migrate_gigaam_to_directory()?;
+
         // Check which models are already downloaded
         manager.update_download_status()?;
 
@@ -453,6 +565,71 @@ impl ModelManager {
     pub fn get_model_info(&self, model_id: &str) -> Option<ModelInfo> {
         let models = self.available_models.lock().unwrap();
         models.get(model_id).cloned()
+    }
+
+    fn clear_download_state(&self, model_id: &str, partial_path: &Path) {
+        let partial_size = partial_path
+            .metadata()
+            .map(|metadata| metadata.len())
+            .unwrap_or(0);
+
+        {
+            let mut models = self.available_models.lock().unwrap();
+            if let Some(model) = models.get_mut(model_id) {
+                model.is_downloading = false;
+                model.partial_size = partial_size;
+            }
+        }
+
+        self.cancellation_tokens.lock().unwrap().remove(model_id);
+    }
+
+    fn verify_sha256(path: &Path, expected_sha256: Option<&str>, model_id: &str) -> Result<()> {
+        let Some(expected) = expected_sha256 else {
+            return Ok(());
+        };
+
+        match Self::compute_sha256(path) {
+            Ok(actual) if actual == expected => {
+                info!("SHA256 verified for model {}", model_id);
+                Ok(())
+            }
+            Ok(actual) => {
+                warn!(
+                    "SHA256 mismatch for model {}: expected {}, got {}",
+                    model_id, expected, actual
+                );
+                let _ = fs::remove_file(path);
+                Err(anyhow::anyhow!(
+                    "Download verification failed for model {}: file is corrupt. Please retry.",
+                    model_id
+                ))
+            }
+            Err(error) => {
+                let _ = fs::remove_file(path);
+                Err(anyhow::anyhow!(
+                    "Failed to verify download for model {}: {}. Please retry.",
+                    model_id,
+                    error
+                ))
+            }
+        }
+    }
+
+    fn compute_sha256(path: &Path) -> Result<String> {
+        let mut file = File::open(path)?;
+        let mut hasher = Sha256::new();
+        let mut buffer = [0u8; 65536];
+
+        loop {
+            let bytes_read = file.read(&mut buffer)?;
+            if bytes_read == 0 {
+                break;
+            }
+            hasher.update(&buffer[..bytes_read]);
+        }
+
+        Ok(format!("{:x}", hasher.finalize()))
     }
 
     fn migrate_bundled_models(&self) -> Result<()> {
@@ -479,6 +656,41 @@ impl ModelManager {
             }
         }
 
+        Ok(())
+    }
+
+    /// Migrate GigaAM from the old single-file format (`giga-am-v3.int8.onnx`)
+    /// to the new directory format expected by transcribe-rs 0.3.x
+    /// (`giga-am-v3-int8/model.int8.onnx` + `vocab.txt`).
+    fn migrate_gigaam_to_directory(&self) -> Result<()> {
+        let old_file = self.models_dir.join("giga-am-v3.int8.onnx");
+        let new_dir = self.models_dir.join("giga-am-v3-int8");
+
+        if !old_file.exists() || new_dir.exists() {
+            return Ok(());
+        }
+
+        info!("Migrating GigaAM from single-file to directory format");
+
+        let vocab_path = self
+            .app_handle
+            .path()
+            .resolve(
+                "resources/models/gigaam_vocab.txt",
+                tauri::path::BaseDirectory::Resource,
+            )
+            .map_err(|e| anyhow::anyhow!("Failed to resolve GigaAM vocab path: {}", e))?;
+
+        fs::create_dir_all(&new_dir)?;
+        fs::rename(&old_file, new_dir.join("model.int8.onnx"))?;
+        fs::copy(&vocab_path, new_dir.join("vocab.txt"))?;
+
+        let old_partial = self.models_dir.join("giga-am-v3.int8.onnx.partial");
+        if old_partial.exists() {
+            let _ = fs::remove_file(&old_partial);
+        }
+
+        info!("GigaAM migration complete");
         Ok(())
     }
 
@@ -673,6 +885,7 @@ impl ModelManager {
                     description: "Not officially supported".to_string(),
                     filename,
                     url: None,
+                    sha256: None,
                     size_mb,
                     is_downloaded: true,
                     is_downloading: false,
@@ -709,9 +922,7 @@ impl ModelManager {
             .models_dir
             .join(format!("{}.partial", &model_info.filename));
 
-        // Don't download if complete version already exists
         if model_path.exists() {
-            // Clean up any partial file that might exist
             if partial_path.exists() {
                 let _ = fs::remove_file(&partial_path);
             }
@@ -719,24 +930,11 @@ impl ModelManager {
             return Ok(());
         }
 
-        // Check if we have a partial download to resume
-        let mut resume_from = if partial_path.exists() {
-            let size = partial_path.metadata()?.len();
-            info!("Resuming download of model {} from byte {}", model_id, size);
-            size
-        } else {
-            info!("Starting fresh download of model {} from {}", model_id, url);
-            0
-        };
-
-        // Create cancellation token for this download
         let cancel_token = CancellationToken::new();
         {
             let mut tokens = self.cancellation_tokens.lock().unwrap();
             tokens.insert(model_id.to_string(), cancel_token.clone());
         }
-
-        // Mark as downloading
         {
             let mut models = self.available_models.lock().unwrap();
             if let Some(model) = models.get_mut(model_id) {
@@ -744,273 +942,231 @@ impl ModelManager {
             }
         }
 
-        // Create HTTP client with range request for resuming
-        let client = reqwest::Client::new();
-        let mut request = client.get(&url);
+        let result: Result<()> = async {
+            let mut resume_from = if partial_path.exists() {
+                let size = partial_path.metadata()?.len();
+                info!("Resuming download of model {} from byte {}", model_id, size);
+                size
+            } else {
+                info!("Starting fresh download of model {} from {}", model_id, url);
+                0
+            };
 
-        if resume_from > 0 {
-            request = request.header("Range", format!("bytes={}-", resume_from));
-        }
+            let client = reqwest::Client::new();
+            let mut request = client.get(&url);
 
-        let mut response = request.send().await?;
+            if resume_from > 0 {
+                request = request.header("Range", format!("bytes={}-", resume_from));
+            }
 
-        // If we tried to resume but server returned 200 (not 206 Partial Content),
-        // the server doesn't support range requests. Delete partial file and restart
-        // fresh to avoid file corruption (appending full file to partial).
-        if resume_from > 0 && response.status() == reqwest::StatusCode::OK {
-            warn!(
-                "Server doesn't support range requests for model {}, restarting download",
-                model_id
-            );
-            drop(response);
-            let _ = fs::remove_file(&partial_path);
+            let mut response = request.send().await?;
 
-            // Reset resume_from since we're starting fresh
-            resume_from = 0;
+            if resume_from > 0 && response.status() == reqwest::StatusCode::OK {
+                warn!(
+                    "Server doesn't support range requests for model {}, restarting download",
+                    model_id
+                );
+                drop(response);
+                let _ = fs::remove_file(&partial_path);
+                resume_from = 0;
+                response = client.get(&url).send().await?;
+            }
 
-            // Restart download without range header
-            response = client.get(&url).send().await?;
-        }
+            if !response.status().is_success()
+                && response.status() != reqwest::StatusCode::PARTIAL_CONTENT
+            {
+                return Err(anyhow::anyhow!(
+                    "Failed to download model: HTTP {}",
+                    response.status()
+                ));
+            }
 
-        // Check for success or partial content status
-        if !response.status().is_success()
-            && response.status() != reqwest::StatusCode::PARTIAL_CONTENT
-        {
-            // Mark as not downloading on error
+            let total_size = if resume_from > 0 {
+                resume_from + response.content_length().unwrap_or(0)
+            } else {
+                response.content_length().unwrap_or(0)
+            };
+
+            let mut downloaded = resume_from;
+            let mut stream = response.bytes_stream();
+            let mut file = if resume_from > 0 {
+                std::fs::OpenOptions::new()
+                    .create(true)
+                    .append(true)
+                    .open(&partial_path)?
+            } else {
+                std::fs::File::create(&partial_path)?
+            };
+
+            let initial_progress = DownloadProgress {
+                model_id: model_id.to_string(),
+                downloaded,
+                total: total_size,
+                percentage: if total_size > 0 {
+                    (downloaded as f64 / total_size as f64) * 100.0
+                } else {
+                    0.0
+                },
+            };
+            let _ = self
+                .app_handle
+                .emit("model-download-progress", &initial_progress);
+
+            loop {
+                tokio::select! {
+                    _ = cancel_token.cancelled() => {
+                        info!("Download cancelled for model: {}", model_id);
+                        drop(file);
+                        self.clear_download_state(model_id, &partial_path);
+                        let _ = self.app_handle.emit("model-download-cancelled", model_id);
+                        return Ok(());
+                    }
+                    chunk_result = stream.next() => {
+                        match chunk_result {
+                            Some(Ok(chunk)) => {
+                                file.write_all(&chunk)?;
+                                downloaded += chunk.len() as u64;
+
+                                let percentage = if total_size > 0 {
+                                    (downloaded as f64 / total_size as f64) * 100.0
+                                } else {
+                                    0.0
+                                };
+
+                                let progress = DownloadProgress {
+                                    model_id: model_id.to_string(),
+                                    downloaded,
+                                    total: total_size,
+                                    percentage,
+                                };
+                                let _ = self.app_handle.emit("model-download-progress", &progress);
+                            }
+                            Some(Err(error)) => return Err(error.into()),
+                            None => break,
+                        }
+                    }
+                }
+            }
+
+            file.flush()?;
+            drop(file);
+
+            if total_size > 0 {
+                let actual_size = partial_path.metadata()?.len();
+                if actual_size != total_size {
+                    let _ = fs::remove_file(&partial_path);
+                    return Err(anyhow::anyhow!(
+                        "Download incomplete: expected {} bytes, got {} bytes",
+                        total_size,
+                        actual_size
+                    ));
+                }
+            }
+
+            let _ = self.app_handle.emit("model-verification-started", model_id);
+            info!("Verifying SHA256 for model {}...", model_id);
+            let verify_path = partial_path.clone();
+            let verify_expected = model_info.sha256.clone();
+            let verify_model_id = model_id.to_string();
+            let verify_result = tokio::task::spawn_blocking(move || {
+                Self::verify_sha256(&verify_path, verify_expected.as_deref(), &verify_model_id)
+            })
+            .await
+            .map_err(|error| anyhow::anyhow!("SHA256 task panicked: {}", error))?;
+            verify_result?;
+            let _ = self
+                .app_handle
+                .emit("model-verification-completed", model_id);
+
+            if model_info.is_directory {
+                let _ = self.app_handle.emit("model-extraction-started", model_id);
+                info!("Extracting archive for directory-based model: {}", model_id);
+
+                let temp_extract_dir = self
+                    .models_dir
+                    .join(format!("{}.extracting", &model_info.filename));
+                let final_model_dir = self.models_dir.join(&model_info.filename);
+
+                if temp_extract_dir.exists() {
+                    let _ = fs::remove_dir_all(&temp_extract_dir);
+                }
+                fs::create_dir_all(&temp_extract_dir)?;
+
+                let extraction_result: Result<()> = (|| {
+                    let tar_gz = File::open(&partial_path)?;
+                    let tar = GzDecoder::new(tar_gz);
+                    let mut archive = Archive::new(tar);
+                    archive.unpack(&temp_extract_dir)?;
+
+                    let extracted_dirs: Vec<_> = fs::read_dir(&temp_extract_dir)?
+                        .filter_map(|entry| entry.ok())
+                        .filter(|entry| entry.file_type().map(|ft| ft.is_dir()).unwrap_or(false))
+                        .collect();
+
+                    if extracted_dirs.len() == 1 {
+                        let source_dir = extracted_dirs[0].path();
+                        if final_model_dir.exists() {
+                            fs::remove_dir_all(&final_model_dir)?;
+                        }
+                        fs::rename(&source_dir, &final_model_dir)?;
+                        let _ = fs::remove_dir_all(&temp_extract_dir);
+                    } else {
+                        if final_model_dir.exists() {
+                            fs::remove_dir_all(&final_model_dir)?;
+                        }
+                        fs::rename(&temp_extract_dir, &final_model_dir)?;
+                    }
+
+                    Ok(())
+                })();
+
+                if let Err(error) = extraction_result {
+                    let error_msg = format!("Failed to extract archive: {}", error);
+                    let _ = fs::remove_dir_all(&temp_extract_dir);
+                    let _ = fs::remove_file(&partial_path);
+                    let _ = self.app_handle.emit(
+                        "model-extraction-failed",
+                        &serde_json::json!({
+                            "model_id": model_id,
+                            "error": error_msg
+                        }),
+                    );
+                    return Err(anyhow::anyhow!(error_msg));
+                }
+
+                info!("Successfully extracted archive for model: {}", model_id);
+                let _ = self.app_handle.emit("model-extraction-completed", model_id);
+                let _ = fs::remove_file(&partial_path);
+            } else {
+                fs::rename(&partial_path, &model_path)?;
+            }
+
             {
                 let mut models = self.available_models.lock().unwrap();
                 if let Some(model) = models.get_mut(model_id) {
                     model.is_downloading = false;
+                    model.is_downloaded = true;
+                    model.partial_size = 0;
                 }
             }
-            return Err(anyhow::anyhow!(
-                "Failed to download model: HTTP {}",
-                response.status()
-            ));
+            self.cancellation_tokens.lock().unwrap().remove(model_id);
+
+            let _ = self.app_handle.emit("model-download-complete", model_id);
+
+            info!(
+                "Successfully downloaded model {} to {:?}",
+                model_id, model_path
+            );
+
+            Ok(())
+        }
+        .await;
+
+        if result.is_err() {
+            self.clear_download_state(model_id, &partial_path);
         }
 
-        let total_size = if resume_from > 0 {
-            // For resumed downloads, add the resume point to content length
-            resume_from + response.content_length().unwrap_or(0)
-        } else {
-            response.content_length().unwrap_or(0)
-        };
-
-        let mut downloaded = resume_from;
-        let mut stream = response.bytes_stream();
-
-        // Open file for appending if resuming, or create new if starting fresh
-        let mut file = if resume_from > 0 {
-            std::fs::OpenOptions::new()
-                .create(true)
-                .append(true)
-                .open(&partial_path)?
-        } else {
-            std::fs::File::create(&partial_path)?
-        };
-
-        // Emit initial progress
-        let initial_progress = DownloadProgress {
-            model_id: model_id.to_string(),
-            downloaded,
-            total: total_size,
-            percentage: if total_size > 0 {
-                (downloaded as f64 / total_size as f64) * 100.0
-            } else {
-                0.0
-            },
-        };
-        let _ = self
-            .app_handle
-            .emit("model-download-progress", &initial_progress);
-
-        // Download with progress, checking for cancellation
-        loop {
-            tokio::select! {
-                _ = cancel_token.cancelled() => {
-                    info!("Download cancelled for model: {}", model_id);
-                    // Mark as not downloading
-                    {
-                        let mut models = self.available_models.lock().unwrap();
-                        if let Some(model) = models.get_mut(model_id) {
-                            model.is_downloading = false;
-                        }
-                    }
-                    // Remove cancellation token
-                    {
-                        let mut tokens = self.cancellation_tokens.lock().unwrap();
-                        tokens.remove(model_id);
-                    }
-                    // Emit cancellation event
-                    let _ = self.app_handle.emit("model-download-cancelled", model_id);
-                    return Err(anyhow::anyhow!("Download cancelled by user"));
-                }
-                chunk_result = stream.next() => {
-                    match chunk_result {
-                        Some(Ok(chunk)) => {
-                            file.write_all(&chunk)?;
-                            downloaded += chunk.len() as u64;
-
-                            let percentage = if total_size > 0 {
-                                (downloaded as f64 / total_size as f64) * 100.0
-                            } else {
-                                0.0
-                            };
-
-                            // Emit progress event
-                            let progress = DownloadProgress {
-                                model_id: model_id.to_string(),
-                                downloaded,
-                                total: total_size,
-                                percentage,
-                            };
-
-                            let _ = self.app_handle.emit("model-download-progress", &progress);
-                        }
-                        Some(Err(e)) => {
-                            // Mark as not downloading on error
-                            {
-                                let mut models = self.available_models.lock().unwrap();
-                                if let Some(model) = models.get_mut(model_id) {
-                                    model.is_downloading = false;
-                                }
-                            }
-                            // Remove cancellation token
-                            {
-                                let mut tokens = self.cancellation_tokens.lock().unwrap();
-                                tokens.remove(model_id);
-                            }
-                            return Err(e.into());
-                        }
-                        None => {
-                            // Stream finished
-                            break;
-                        }
-                    }
-                }
-            }
-        }
-
-        file.flush()?;
-        drop(file); // Ensure file is closed before moving
-
-        // Verify downloaded file size matches expected size
-        if total_size > 0 {
-            let actual_size = partial_path.metadata()?.len();
-            if actual_size != total_size {
-                // Download is incomplete/corrupted - delete partial and return error
-                let _ = fs::remove_file(&partial_path);
-                {
-                    let mut models = self.available_models.lock().unwrap();
-                    if let Some(model) = models.get_mut(model_id) {
-                        model.is_downloading = false;
-                    }
-                }
-                return Err(anyhow::anyhow!(
-                    "Download incomplete: expected {} bytes, got {} bytes",
-                    total_size,
-                    actual_size
-                ));
-            }
-        }
-
-        // Handle directory-based models (extract tar.gz) vs file-based models
-        if model_info.is_directory {
-            // Emit extraction started event
-            let _ = self.app_handle.emit("model-extraction-started", model_id);
-            info!("Extracting archive for directory-based model: {}", model_id);
-
-            // Use a temporary extraction directory to ensure atomic operations
-            let temp_extract_dir = self
-                .models_dir
-                .join(format!("{}.extracting", &model_info.filename));
-            let final_model_dir = self.models_dir.join(&model_info.filename);
-
-            // Clean up any previous incomplete extraction
-            if temp_extract_dir.exists() {
-                let _ = fs::remove_dir_all(&temp_extract_dir);
-            }
-
-            // Create temporary extraction directory
-            fs::create_dir_all(&temp_extract_dir)?;
-
-            // Open the downloaded tar.gz file
-            let tar_gz = File::open(&partial_path)?;
-            let tar = GzDecoder::new(tar_gz);
-            let mut archive = Archive::new(tar);
-
-            // Extract to the temporary directory first
-            archive.unpack(&temp_extract_dir).map_err(|e| {
-                let error_msg = format!("Failed to extract archive: {}", e);
-                // Clean up failed extraction
-                let _ = fs::remove_dir_all(&temp_extract_dir);
-                let _ = self.app_handle.emit(
-                    "model-extraction-failed",
-                    &serde_json::json!({
-                        "model_id": model_id,
-                        "error": error_msg
-                    }),
-                );
-                anyhow::anyhow!(error_msg)
-            })?;
-
-            // Find the actual extracted directory (archive might have a nested structure)
-            let extracted_dirs: Vec<_> = fs::read_dir(&temp_extract_dir)?
-                .filter_map(|entry| entry.ok())
-                .filter(|entry| entry.file_type().map(|ft| ft.is_dir()).unwrap_or(false))
-                .collect();
-
-            if extracted_dirs.len() == 1 {
-                // Single directory extracted, move it to the final location
-                let source_dir = extracted_dirs[0].path();
-                if final_model_dir.exists() {
-                    fs::remove_dir_all(&final_model_dir)?;
-                }
-                fs::rename(&source_dir, &final_model_dir)?;
-                // Clean up temp directory
-                let _ = fs::remove_dir_all(&temp_extract_dir);
-            } else {
-                // Multiple items or no directories, rename the temp directory itself
-                if final_model_dir.exists() {
-                    fs::remove_dir_all(&final_model_dir)?;
-                }
-                fs::rename(&temp_extract_dir, &final_model_dir)?;
-            }
-
-            info!("Successfully extracted archive for model: {}", model_id);
-            // Emit extraction completed event
-            let _ = self.app_handle.emit("model-extraction-completed", model_id);
-
-            // Remove the downloaded tar.gz file
-            let _ = fs::remove_file(&partial_path);
-        } else {
-            // Move partial file to final location for file-based models
-            fs::rename(&partial_path, &model_path)?;
-        }
-
-        // Update download status and remove cancellation token
-        {
-            let mut models = self.available_models.lock().unwrap();
-            if let Some(model) = models.get_mut(model_id) {
-                model.is_downloading = false;
-                model.is_downloaded = true;
-                model.partial_size = 0;
-            }
-        }
-        {
-            let mut tokens = self.cancellation_tokens.lock().unwrap();
-            tokens.remove(model_id);
-        }
-
-        // Emit completion event
-        let _ = self.app_handle.emit("model-download-complete", model_id);
-
-        info!(
-            "Successfully downloaded model {} to {:?}",
-            model_id, model_path
-        );
-
-        Ok(())
+        result
     }
 
     pub fn delete_model(&self, model_id: &str) -> Result<()> {
@@ -1177,5 +1333,68 @@ impl ModelManager {
 
         info!("Download cancelled for: {}", model_id);
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ModelManager;
+    use std::fs;
+    use std::path::PathBuf;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    fn temp_file_path(name: &str) -> PathBuf {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        std::env::temp_dir().join(format!("aivorelay-{name}-{unique}.partial"))
+    }
+
+    #[test]
+    fn verify_sha256_skips_when_hash_is_missing() {
+        let path = temp_file_path("skip");
+        fs::write(&path, b"hello").unwrap();
+
+        assert!(ModelManager::verify_sha256(&path, None, "custom").is_ok());
+        assert!(path.exists());
+
+        let _ = fs::remove_file(path);
+    }
+
+    #[test]
+    fn verify_sha256_accepts_matching_hash() {
+        let path = temp_file_path("match");
+        fs::write(&path, b"hello").unwrap();
+        let hash = ModelManager::compute_sha256(&path).unwrap();
+
+        assert!(ModelManager::verify_sha256(&path, Some(&hash), "test").is_ok());
+        assert!(path.exists());
+
+        let _ = fs::remove_file(path);
+    }
+
+    #[test]
+    fn verify_sha256_deletes_corrupt_partial() {
+        let path = temp_file_path("mismatch");
+        fs::write(&path, b"hello").unwrap();
+
+        let result = ModelManager::verify_sha256(
+            &path,
+            Some("ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"),
+            "bad-model",
+        );
+
+        assert!(result.is_err());
+        assert!(!path.exists());
+    }
+
+    #[test]
+    fn verify_sha256_fails_when_file_is_missing() {
+        let path = temp_file_path("missing");
+
+        let result = ModelManager::verify_sha256(&path, Some("deadbeef"), "missing-model");
+
+        assert!(result.is_err());
     }
 }

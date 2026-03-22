@@ -12,6 +12,7 @@ Rules:
 
 | Propagation Date | Target Branch | Main SHA | Main Message | Branch SHA | Branch Message | Issues |
 | --- | --- | --- | --- | --- | --- | --- |
+| 2026-03-22 | `cuda-integration` | `5bcc9c6b` | feat(audio): add recording overlay appearance customization | `self` | sync(cuda): hard align branch to main head | hard overwrite; preserved CUDA wiring/docs |
 | 2026-03-19 | `cuda-integration` | `c900c3fa` | chore(release): bump version to 1.0.4 | `5ff5e9df` | chore(release): bump version to 1.0.4 | clean cherry-pick |
 | 2026-03-19 | `Microsoft-store` | `c900c3fa` | chore(release): bump version to 1.0.4 | `77745b15` | chore(release): bump version to 1.0.4 | clean cherry-pick |
 | 2026-03-19 | `cuda-integration` | `30895116` | chore(bindings): regenerate tauri bindings | `a14f2913` | chore(bindings): regenerate tauri bindings | clean cherry-pick |
@@ -21,7 +22,6 @@ Rules:
 | 2026-03-19 | `cuda-integration` | `1a13f626` | fix(ui): stabilize microphone boost slider | `dc28b67f` | fix(ui): stabilize microphone boost slider | 2 picks; manual merge in `recorder.rs`, `settings.rs`, `lib.rs` |
 | 2026-03-19 | `Microsoft-store` | `1a13f626` | fix(ui): stabilize microphone boost slider | `b3b0b0f6` | fix(ui): stabilize microphone boost slider | 2 picks; manual merge in `recorder.rs`, `settings.rs`, `lib.rs` |
 | 2026-03-15 | `cuda-integration` | `ca08fe72` | feat(settings): repair invalid settings and bump version to 1.0.3 | `fc78b7b6` | feat(settings): repair invalid settings and bump version to 1.0.3 | clean cherry-pick |
-| 2026-03-15 | `Microsoft-store` | `ca08fe72` | feat(settings): repair invalid settings and bump version to 1.0.3 | `c0fbd1c3` | feat(settings): repair invalid settings and bump version to 1.0.3 | clean cherry-pick |
 
 Entry template:
 

@@ -63,7 +63,11 @@ fn execute_powershell_command(
     script: &str,
     options: &ResolvedExecutionOptions,
 ) -> Result<String, String> {
-    let shell = if options.use_pwsh { "pwsh" } else { "powershell" };
+    let shell = if options.use_pwsh {
+        "pwsh"
+    } else {
+        "powershell"
+    };
 
     info!(
         "Executing voice command via {}: {} (silent={}, no_profile={}, policy={:?})",

@@ -74,7 +74,7 @@
     "publisher": "MaxITService",
     "copyright": "Copyright © 2026 Maxim Fomin",
     "shortDescription": "AivoRelay - AI Voice Relay",
-    "createUpdaterArtifacts": false,
+    "createUpdaterArtifacts": true,
     "targets": "msi",
     "resources": ["resources/**/*", "vulkan-1.dll"],
     "license": "MIT",
@@ -114,7 +114,9 @@
   "plugins": {
     "updater": {
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEM4NjVDMjVCMEY3REY4OTYKUldTVytIMFBXOEpseUk1NCtIM0ROTklHdS9MVUNyNVZTM3c5ZFoxdXRRdWE5cjVUaWRpbUhTUHoK",
-      "endpoints": []
+      "endpoints": [
+        "https://github.com/MaxITService/AIVORelay/releases/latest/download/latest.json"
+      ]
     }
   }
 }

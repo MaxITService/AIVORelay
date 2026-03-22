@@ -25,9 +25,9 @@ use axum::{
     routing::{get, post},
     Json, Router,
 };
-use log::{debug, error, info, warn};
 use hkdf::Hkdf;
 use hmac::{Hmac, Mac};
+use log::{debug, error, info, warn};
 use p256::ecdh::EphemeralSecret;
 use p256::elliptic_curve::rand_core::OsRng;
 use p256::elliptic_curve::sec1::ToEncodedPoint;
@@ -104,8 +104,7 @@ const PENDING_PASSWORD_TTL_MS: i64 = 120_000;
 /// 4. The server returns per-session response sequence headers plus
 ///    X-AivoRelay-Response-Mac to support client-side replay detection and integrity checks.
 const CONNECTOR_PROTOCOL_VERSION: u8 = 3;
-const CONNECTOR_PASSWORD_AUTH_CONTEXT: &[u8] =
-    b"AivoRelay Connector Protocol v3 password auth key";
+const CONNECTOR_PASSWORD_AUTH_CONTEXT: &[u8] = b"AivoRelay Connector Protocol v3 password auth key";
 const CONNECTOR_SESSION_ENC_CONTEXT: &[u8] =
     b"AivoRelay Connector Protocol v3 session AES-256-GCM key";
 const CONNECTOR_SESSION_MAC_CONTEXT: &[u8] =
@@ -864,11 +863,10 @@ impl ConnectorManager {
 
             while manager.server_running.load(Ordering::SeqCst) {
                 if !delay_warning_emitted
-                    && started_waiting_at.elapsed() >= Duration::from_millis(RESTART_DELAY_WARNING_MS)
+                    && started_waiting_at.elapsed()
+                        >= Duration::from_millis(RESTART_DELAY_WARNING_MS)
                 {
-                    let _ = manager
-                        .app_handle
-                        .emit("connector-restart-delayed", true);
+                    let _ = manager.app_handle.emit("connector-restart-delayed", true);
                     delay_warning_emitted = true;
                 }
 
@@ -1187,8 +1185,8 @@ async fn handle_get_messages(
     let route_label = request_route_label(&uri);
     let validated_session =
         match validate_session_request(&app_state, &headers, &settings, &route_label, &[]).await {
-        Ok(session) => session,
-        Err(response) => return response,
+            Ok(session) => session,
+            Err(response) => return response,
         };
 
     let now = now_ms();
@@ -1245,9 +1243,10 @@ async fn handle_get_messages(
         let mut state_guard = app_state.state.lock().unwrap();
         for id in &delivered_ids {
             state_guard.delivered_ids.insert(id.clone());
-            let _ = app_state
-                .app_handle
-                .emit("connector-message-delivered", MessageDeliveredEvent { id: id.clone() });
+            let _ = app_state.app_handle.emit(
+                "connector-message-delivered",
+                MessageDeliveredEvent { id: id.clone() },
+            );
         }
 
         let current_ids: HashSet<_> = state_guard.messages.iter().map(|m| m.id.clone()).collect();
@@ -1279,7 +1278,10 @@ async fn handle_get_messages(
         let plain_json = match serde_json::to_vec(&response_body) {
             Ok(payload) => payload,
             Err(e) => {
-                error!("Failed to serialize connector response for encryption: {}", e);
+                error!(
+                    "Failed to serialize connector response for encryption: {}",
+                    e
+                );
                 return json_session_response(response_body, &validated_session, &route_label);
             }
         };
@@ -1312,13 +1314,11 @@ async fn handle_create_session(
         return response;
     }
 
-    let cors_policy = match parse_cors_policy(
-        &settings.connector_cors,
-        settings.connector_allow_any_cors,
-    ) {
-        Ok(policy) => policy,
-        Err(err) => return error_response(StatusCode::FORBIDDEN, &err),
-    };
+    let cors_policy =
+        match parse_cors_policy(&settings.connector_cors, settings.connector_allow_any_cors) {
+            Ok(policy) => policy,
+            Err(err) => return error_response(StatusCode::FORBIDDEN, &err),
+        };
     let request_origin = match validate_origin_header(&headers, &cors_policy) {
         Ok(origin) => origin,
         Err(response) => return response,
@@ -1339,12 +1339,7 @@ async fn handle_create_session(
         };
     let client_public_key = match PublicKey::from_sec1_bytes(&client_public_key_bytes) {
         Ok(key) => key,
-        Err(_) => {
-            return error_response(
-                StatusCode::BAD_REQUEST,
-                "Malformed client public key",
-            )
-        }
+        Err(_) => return error_response(StatusCode::BAD_REQUEST, "Malformed client public key"),
     };
     let client_nonce_bytes = match decode_base64_field(&request.client_nonce, "client nonce") {
         Ok(bytes) => bytes,
@@ -1374,14 +1369,18 @@ async fn handle_create_session(
     };
     let server_secret = EphemeralSecret::random(&mut OsRng);
     let server_public_key = PublicKey::from(&server_secret);
-    let server_public_key_bytes = server_public_key.to_encoded_point(false).as_bytes().to_vec();
+    let server_public_key_bytes = server_public_key
+        .to_encoded_point(false)
+        .as_bytes()
+        .to_vec();
     let server_public_key_b64 = STANDARD.encode(&server_public_key_bytes);
     let shared_secret = server_secret.diffie_hellman(&client_public_key);
     let auth_key = derive_password_auth_key(match auth_match {
         AuthMatch::CurrentPassword => &settings.connector_password,
-        AuthMatch::PendingPassword => {
-            settings.connector_pending_password.as_deref().unwrap_or(&settings.connector_password)
-        }
+        AuthMatch::PendingPassword => settings
+            .connector_pending_password
+            .as_deref()
+            .unwrap_or(&settings.connector_password),
     });
     let transcript_hash = build_handshake_transcript_hash(
         &session_id,
@@ -1583,10 +1582,11 @@ fn get_pending_messages(
 fn register_auth_failure(app_state: &AppState) -> i64 {
     let failure_count = app_state.auth_failure_count.fetch_add(1, Ordering::SeqCst) + 1;
     let exponent = failure_count.saturating_sub(1).min(4);
-    let delay_ms =
-        (INITIAL_AUTH_BACKOFF_MS * (1_i64 << exponent)).min(MAX_AUTH_BACKOFF_MS);
+    let delay_ms = (INITIAL_AUTH_BACKOFF_MS * (1_i64 << exponent)).min(MAX_AUTH_BACKOFF_MS);
     let until = now_ms() + delay_ms;
-    app_state.auth_backoff_until_ms.store(until, Ordering::SeqCst);
+    app_state
+        .auth_backoff_until_ms
+        .store(until, Ordering::SeqCst);
     delay_ms
 }
 
@@ -1682,9 +1682,9 @@ fn validate_origin_header(
     cors_policy: &CorsPolicy,
 ) -> Result<String, Response> {
     let origin = match headers.get(header::ORIGIN) {
-        Some(origin_value) => origin_value.to_str().map_err(|_| {
-            error_response(StatusCode::BAD_REQUEST, "Malformed Origin header")
-        })?,
+        Some(origin_value) => origin_value
+            .to_str()
+            .map_err(|_| error_response(StatusCode::BAD_REQUEST, "Malformed Origin header"))?,
         None => "",
     };
 
@@ -1692,13 +1692,10 @@ fn validate_origin_header(
         CorsPolicy::Any => Ok(origin.to_string()),
         CorsPolicy::Exact(expected_origin) => {
             if origin.is_empty() && expected_origin.starts_with("chrome-extension://") {
-                let extension_id = required_string_header(
-                    headers,
-                    HEADER_EXTENSION_ID,
-                    "extension id",
-                )?;
-                let expected_extension_id = expected_origin
-                    .trim_start_matches("chrome-extension://");
+                let extension_id =
+                    required_string_header(headers, HEADER_EXTENSION_ID, "extension id")?;
+                let expected_extension_id =
+                    expected_origin.trim_start_matches("chrome-extension://");
                 if extension_id != expected_extension_id {
                     return Err(error_response(
                         StatusCode::FORBIDDEN,
@@ -1770,13 +1767,11 @@ async fn validate_session_request(
     body: &[u8],
 ) -> Result<ValidatedSession, Response> {
     validate_protocol_header(headers)?;
-    let cors_policy = match parse_cors_policy(
-        &settings.connector_cors,
-        settings.connector_allow_any_cors,
-    ) {
-        Ok(policy) => policy,
-        Err(err) => return Err(error_response(StatusCode::FORBIDDEN, &err)),
-    };
+    let cors_policy =
+        match parse_cors_policy(&settings.connector_cors, settings.connector_allow_any_cors) {
+            Ok(policy) => policy,
+            Err(err) => return Err(error_response(StatusCode::FORBIDDEN, &err)),
+        };
     let origin = validate_origin_header(headers, &cors_policy)?;
     let session_id = required_string_header(headers, HEADER_SESSION_ID, "session id")?;
     let client_sequence = required_u64_header(headers, HEADER_CLIENT_SEQUENCE, "sequence")?;
@@ -1866,7 +1861,10 @@ fn uuid_simple() -> String {
 fn generate_random_bytes(byte_len: usize) -> Option<Vec<u8>> {
     let mut bytes = vec![0u8; byte_len];
     if let Err(err) = getrandom::getrandom(&mut bytes) {
-        error!("Failed to generate secure random bytes from OS CSPRNG: {}", err);
+        error!(
+            "Failed to generate secure random bytes from OS CSPRNG: {}",
+            err
+        );
         return None;
     }
     Some(bytes)
@@ -1967,7 +1965,9 @@ fn maybe_migrate_legacy_connector_password(
 }
 
 fn ensure_pending_password_metadata(app: &AppHandle, settings: &crate::settings::AppSettings) {
-    if settings.connector_pending_password.is_none() || settings.connector_pending_password_issued_at_ms > 0 {
+    if settings.connector_pending_password.is_none()
+        || settings.connector_pending_password_issued_at_ms > 0
+    {
         return;
     }
 
@@ -2180,7 +2180,12 @@ fn hash_body_base64(body: &[u8]) -> String {
     STANDARD.encode(digest)
 }
 
-fn build_request_mac_payload(route_label: &str, sequence: u64, timestamp: i64, body: &[u8]) -> Vec<u8> {
+fn build_request_mac_payload(
+    route_label: &str,
+    sequence: u64,
+    timestamp: i64,
+    body: &[u8],
+) -> Vec<u8> {
     format!(
         "aivorelay-v3-request\n{}\n{}\n{}\n{}",
         route_label,
@@ -2308,7 +2313,10 @@ pub(crate) fn normalize_connector_cors_setting(raw_value: &str) -> Result<String
                 trimmed
             ));
         }
-        return Ok(format!("chrome-extension://{}", extension_id.to_ascii_lowercase()));
+        return Ok(format!(
+            "chrome-extension://{}",
+            extension_id.to_ascii_lowercase()
+        ));
     }
 
     let uri: Uri = trimmed.parse().map_err(|_| {
@@ -2354,10 +2362,7 @@ fn apply_security_headers(mut response: Response) -> Response {
     let headers = response.headers_mut();
     headers.insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
     headers.insert(header::PRAGMA, HeaderValue::from_static("no-cache"));
-    headers.insert(
-        header::VARY,
-        HeaderValue::from_static("Origin"),
-    );
+    headers.insert(header::VARY, HeaderValue::from_static("Origin"));
     headers.insert(
         header::HeaderName::from_static(HEADER_PROTOCOL_VERSION),
         HeaderValue::from_static("3"),
@@ -2387,7 +2392,10 @@ fn session_bytes_response(
 
     let headers = response.headers_mut();
     if let Ok(session_id) = HeaderValue::from_str(&session.id) {
-        headers.insert(header::HeaderName::from_static(HEADER_SESSION_ID), session_id);
+        headers.insert(
+            header::HeaderName::from_static(HEADER_SESSION_ID),
+            session_id,
+        );
     }
     if let Ok(server_sequence) = HeaderValue::from_str(&session.server_sequence.to_string()) {
         headers.insert(
@@ -2446,7 +2454,10 @@ fn json_session_response<T: Serialize>(
             false,
         ),
         Err(err) => {
-            error!("Failed to serialize connector session JSON response: {}", err);
+            error!(
+                "Failed to serialize connector session JSON response: {}",
+                err
+            );
             error_response(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "Failed to serialize connector response",

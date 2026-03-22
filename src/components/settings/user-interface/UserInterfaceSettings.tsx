@@ -12,8 +12,8 @@ import { Input } from "../../ui/Input";
 import { TellMeMore } from "../../ui/TellMeMore";
 import { useTranslation } from "react-i18next";
 import { useSettings } from "../../../hooks/useSettings";
-import { ShowOverlay } from "../ShowOverlay";
 import { ShowTrayIcon } from "../ShowTrayIcon";
+import { RecordingOverlaySettings } from "./RecordingOverlaySettings";
 import type { OSType } from "../../../lib/utils/keyboard";
 import {
   formatPreviewHotkeyForDisplay,
@@ -247,8 +247,9 @@ export const UserInterfaceSettings: React.FC = () => {
 
       <SettingsGroup title={t("settings.userInterface.title")}>
         <ShowTrayIcon descriptionMode="tooltip" grouped={true} />
-        <ShowOverlay descriptionMode="tooltip" grouped={true} />
       </SettingsGroup>
+
+      <RecordingOverlaySettings />
 
       {isWindows && (
         <SettingsGroup title="Live Preview">

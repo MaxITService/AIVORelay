@@ -159,20 +159,20 @@ pub fn get_current_input_source() -> Option<String> {
 pub fn get_current_input_source() -> Option<String> {
     use windows::Win32::UI::Input::KeyboardAndMouse::GetKeyboardLayout;
     use windows::Win32::UI::WindowsAndMessaging::{GetForegroundWindow, GetWindowThreadProcessId};
-    
+
     unsafe {
         // Get the foreground window's thread ID
         let hwnd = GetForegroundWindow();
         let thread_id = GetWindowThreadProcessId(hwnd, None);
-        
+
         // Get the keyboard layout for that thread
         let hkl = GetKeyboardLayout(thread_id);
-        
+
         // HKL is a handle where the low word is the language ID
         // Format as 8-digit hex KLID (e.g., "00000409" for US English)
         let lang_id = (hkl.0 as usize) & 0xFFFF;
         let klid = format!("{:08x}", lang_id);
-        
+
         Some(klid)
     }
 }

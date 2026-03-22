@@ -4,8 +4,8 @@ use specta::Type;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{LazyLock, Mutex};
 use std::time::{Duration, Instant};
-use tauri::{AppHandle, Emitter};
 use tauri::async_runtime::JoinHandle;
+use tauri::{AppHandle, Emitter};
 
 const EVENT_KEBAB: &str = "live-sound-transcription-state";
 const EVENT_SNAKE: &str = "live_sound_transcription_state";
@@ -240,10 +240,7 @@ pub fn activate_session(app: &AppHandle, binding_id: String, auto_stop_minutes: 
 
     let session_id = NEXT_LIVE_SOUND_SESSION_ID.fetch_add(1, Ordering::Relaxed);
     let auto_stop_deadline = if auto_stop_minutes > 0 {
-        Some(
-            Instant::now()
-                + Duration::from_secs(u64::from(auto_stop_minutes).saturating_mul(60)),
-        )
+        Some(Instant::now() + Duration::from_secs(u64::from(auto_stop_minutes).saturating_mul(60)))
     } else {
         None
     };
@@ -359,11 +356,7 @@ pub fn append_final_result(
     });
 }
 
-pub fn set_interim_result(
-    app: &AppHandle,
-    interim_text: String,
-    raw_blocks: Vec<RawSpeakerBlock>,
-) {
+pub fn set_interim_result(app: &AppHandle, interim_text: String, raw_blocks: Vec<RawSpeakerBlock>) {
     update_state(app, move |state| {
         state.interim_text = interim_text.trim().to_string();
         state.interim_raw_blocks = raw_blocks;

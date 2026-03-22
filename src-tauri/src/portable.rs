@@ -19,10 +19,6 @@ pub fn init() {
     });
 }
 
-pub fn is_portable() -> bool {
-    data_dir().is_some()
-}
-
 pub fn data_dir() -> Option<&'static PathBuf> {
     PORTABLE_DATA_DIR.get().and_then(|dir| dir.as_ref())
 }
@@ -51,10 +47,7 @@ pub fn app_cache_dir(app: &tauri::AppHandle) -> Result<PathBuf, tauri::Error> {
     }
 }
 
-pub fn resolve_app_data(
-    app: &tauri::AppHandle,
-    relative: &str,
-) -> Result<PathBuf, tauri::Error> {
+pub fn resolve_app_data(app: &tauri::AppHandle, relative: &str) -> Result<PathBuf, tauri::Error> {
     Ok(app_data_dir(app)?.join(relative))
 }
 

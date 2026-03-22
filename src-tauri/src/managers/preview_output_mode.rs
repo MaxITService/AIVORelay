@@ -148,7 +148,12 @@ pub fn is_active_for_binding(binding_id: &str) -> bool {
     PREVIEW_OUTPUT_MODE_STATE
         .lock()
         .map(|state| {
-            state.active && state.binding_id.as_deref().map(|id| id == binding_id).unwrap_or(false)
+            state.active
+                && state
+                    .binding_id
+                    .as_deref()
+                    .map(|id| id == binding_id)
+                    .unwrap_or(false)
         })
         .unwrap_or(false)
 }

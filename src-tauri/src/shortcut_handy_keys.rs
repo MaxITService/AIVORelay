@@ -270,7 +270,9 @@ impl HandyKeysState {
                     break;
                 };
                 let listener = state.recording_listener.lock().ok();
-                listener.as_ref().and_then(|value| value.as_ref()?.try_recv())
+                listener
+                    .as_ref()
+                    .and_then(|value| value.as_ref()?.try_recv())
             };
 
             if let Some(key_event) = event {

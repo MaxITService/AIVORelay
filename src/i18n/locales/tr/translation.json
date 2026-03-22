@@ -54,6 +54,14 @@
       "moonshine-base": {
         "name": "Moonshine Base",
         "description": "Çok hızlı, yalnızca İngilizce. Aksanları iyi işler."
+      },
+      "canary-180m-flash": {
+        "name": "Canary 180M Flash",
+        "description": "Çok hızlı. İngilizce, Almanca, İspanyolca, Fransızca. Çeviri desteği."
+      },
+      "canary-1b-v2": {
+        "name": "Canary 1B v2",
+        "description": "Doğru çok dilli. 25 Avrupa dili. Çeviri desteği."
       }
     },
     "errors": {
@@ -250,6 +258,16 @@
         "add": "Ekle",
         "remove": "{{word}} Kaldır",
         "duplicate": "\"{{word}}\" zaten mevcut"
+      },
+      "acceleration": {
+        "whisper": {
+          "title": "Whisper Hızlandırma",
+          "description": "Whisper modelleri için donanım hızlandırma. Otomatik mod, mevcutsa GPU kullanır (macOS'ta Metal, Windows/Linux'ta Vulkan)."
+        },
+        "ort": {
+          "title": "ONNX Hızlandırma",
+          "description": "ONNX modelleri için donanım hızlandırma (Parakeet, Canary, Moonshine vb.). Windows'ta DirectML deneyseldir. Modeller transkripsiyon yapamayabilir."
+        }
       }
     },
     "postProcessing": {
