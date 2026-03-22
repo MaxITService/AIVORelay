@@ -383,6 +383,7 @@ impl HistoryManager {
                 "DELETE FROM transcription_history WHERE id = ?1",
                 params![id],
             )?;
+            self.emit_history_deleted(*id);
 
             // Delete WAV file
             let file_path = self.recordings_dir.join(file_name);
