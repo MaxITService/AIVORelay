@@ -665,6 +665,27 @@ async fn maybe_convert_chinese_variant(
     }
 }
 
+fn resolve_history_post_process_requested(
+    settings: &AppSettings,
+    profile: Option<&TranscriptionProfile>,
+) -> bool {
+    let enabled = profile
+        .map(|p| p.llm_post_process_enabled)
+        .unwrap_or(settings.post_process_enabled);
+
+    enabled
+        && settings.transcription_provider != TranscriptionProvider::RemoteSoniox
+        && !(settings.transcription_provider == TranscriptionProvider::RemoteDeepgram
+            && settings.deepgram_live_enabled)
+}
+
+pub(crate) struct ProcessedTranscription {
+    pub final_text: String,
+    pub post_processed_text: Option<String>,
+    pub post_process_prompt: Option<String>,
+    pub post_process_requested: bool,
+}
+
 pub(crate) fn reset_toggle_state(app: &AppHandle, binding_id: &str) {
     if let Ok(mut states) = app.state::<ManagedToggleState>().lock() {
         if let Some(state) = states.active_toggles.get_mut(binding_id) {
@@ -965,7 +986,7 @@ enum TranscriptionFetchOutcome {
 /// The captured_profile_id parameter is the profile that was active when recording started.
 /// This ensures transcription uses the correct profile even if the user switches profiles
 /// mid-recording. If None, no profile is used (global settings apply).
-async fn perform_transcription_for_profile(
+pub(crate) async fn perform_transcription_for_profile(
     app: &AppHandle,
     samples: Vec<f32>,
     binding_id: Option<&str>,
@@ -1638,6 +1659,117 @@ async fn get_transcription_or_cleanup_detailed(
         utils::hide_recording_overlay(app);
         change_tray_icon(app, TrayIconState::Idle);
         TranscriptionFetchOutcome::ErrorNoOverlay
+    }
+}
+
+async fn save_recording_wav_for_history(app: &AppHandle, samples: &[f32]) -> Option<String> {
+    if samples.is_empty() {
+        return None;
+    }
+
+    let hm = Arc::clone(&app.state::<Arc<HistoryManager>>());
+    let file_name = format!("aivorelay-{}.wav", chrono::Utc::now().timestamp_millis());
+    let file_path = hm.recordings_dir().join(&file_name);
+    let samples_for_wav = samples.to_vec();
+    let sample_count = samples_for_wav.len();
+
+    let wav_handle = tauri::async_runtime::spawn_blocking(move || {
+        crate::audio_toolkit::save_wav_file(&file_path, &samples_for_wav)?;
+        crate::audio_toolkit::verify_wav_file(&file_path, sample_count)?;
+        anyhow::Ok(())
+    });
+
+    match wav_handle.await {
+        Ok(Ok(())) => Some(file_name),
+        Ok(Err(err)) => {
+            error!("Failed to save WAV file for history: {}", err);
+            None
+        }
+        Err(err) => {
+            error!("WAV save task panicked: {}", err);
+            None
+        }
+    }
+}
+
+fn save_failed_transcription_entry(
+    app: &AppHandle,
+    file_name: String,
+    post_process_requested: bool,
+) {
+    let hm = Arc::clone(&app.state::<Arc<HistoryManager>>());
+    if let Err(err) = hm.save_entry(file_name, String::new(), post_process_requested, None, None) {
+        error!("Failed to save failed history entry: {}", err);
+    }
+}
+
+async fn get_transcription_for_transcribe_action(
+    app: &AppHandle,
+    binding_id: &str,
+    captured_profile_id: Option<String>,
+    recording_settings: AppSettings,
+) -> Option<(String, Vec<f32>, Option<String>, bool)> {
+    let rm = Arc::clone(&app.state::<Arc<AudioRecordingManager>>());
+
+    let samples = match rm.stop_recording(binding_id) {
+        Some(samples) => samples,
+        None => {
+            debug!("No samples retrieved from recording stop");
+            utils::hide_recording_overlay(app);
+            change_tray_icon(app, TrayIconState::Idle);
+            return None;
+        }
+    };
+
+    if should_skip_transcription_for_quick_tap(binding_id, &recording_settings, samples.len()) {
+        debug!(
+            "Quick tap detected for {} ({} samples), skipping transcription/finalization",
+            binding_id,
+            samples.len()
+        );
+        return Some((String::new(), samples, None, false));
+    }
+
+    if is_transcribe_binding_id(binding_id)
+        && recording_settings.text_replacement_decapitalize_after_edit_key_enabled
+    {
+        crate::text_replacement_decapitalize::begin_standard_post_recording_monitor(
+            recording_settings.text_replacement_decapitalize_standard_post_recording_monitor_ms,
+        );
+    }
+
+    let profile = captured_profile_id
+        .as_ref()
+        .and_then(|profile_id| recording_settings.transcription_profile(profile_id));
+    let post_process_requested =
+        resolve_history_post_process_requested(&recording_settings, profile);
+    let pre_saved_file_name = save_recording_wav_for_history(app, &samples).await;
+
+    match perform_transcription_for_profile(
+        app,
+        samples.clone(),
+        Some(binding_id),
+        captured_profile_id,
+        &recording_settings,
+    )
+    .await
+    {
+        TranscriptionOutcome::Success(text) => {
+            Some((text, samples, pre_saved_file_name, post_process_requested))
+        }
+        TranscriptionOutcome::Cancelled => None,
+        TranscriptionOutcome::Error {
+            shown_in_overlay, ..
+        } => {
+            if let Some(file_name) = pre_saved_file_name {
+                save_failed_transcription_entry(app, file_name, post_process_requested);
+            }
+            if !shown_in_overlay {
+                utils::hide_recording_overlay(app);
+                change_tray_icon(app, TrayIconState::Idle);
+            }
+            None
+        }
     }
 }
 
@@ -2560,31 +2692,22 @@ fn apply_stream_trailing_adjustment(app: &AppHandle, adjustment: StreamTrailingA
     }
 }
 
-/// Applies Chinese conversion, LLM post-processing and saves to history.
-///
-/// `profile_id` is the ID of the active transcription profile (e.g., "default" or "profile_1234").
-/// If a custom profile is used, its LLM settings will be applied for post-processing.
-///
-/// Text replacement order is controlled by `text_replacements_before_llm`:
-/// - When true:  STT → Text Replacement → LLM → Output
-/// - When false: STT → LLM → Text Replacement → Output (default)
-async fn apply_post_processing_and_history(
+pub(crate) async fn process_transcription_output(
     app: &AppHandle,
     settings: &AppSettings,
-    transcription: String,
-    samples: Vec<f32>,
-    profile_id: Option<String>,
+    transcription: &str,
+    profile_id: Option<&str>,
     current_app: &str,
-) -> Option<String> {
-    let mut final_text = transcription.clone();
+) -> Option<ProcessedTranscription> {
+    let mut final_text = transcription.to_string();
     let mut post_processed_text: Option<String> = None;
     let mut post_process_prompt: Option<String> = None;
 
     // Look up the profile if a custom profile is being used
     let profile = profile_id
-        .as_ref()
         .filter(|id| *id != "default")
         .and_then(|id| settings.transcription_profile(id));
+    let post_process_requested = resolve_history_post_process_requested(settings, profile);
 
     // Helper closure for applying text replacements
     let apply_replacements = |text: &str| -> String {
@@ -2619,27 +2742,32 @@ async fn apply_post_processing_and_history(
         final_text = converted_text;
     }
 
-    let template_context =
-        build_llm_template_context(app, settings, profile, current_app, &final_text, "", "");
+    if post_process_requested {
+        let template_context =
+            build_llm_template_context(app, settings, profile, current_app, &final_text, "", "");
 
-    match maybe_post_process_transcription(app, settings, profile, &template_context, false).await {
-        PostProcessTranscriptionOutcome::Skipped => {
-            if final_text != transcription {
-                // Chinese conversion was applied but LLM post-processing was not.
-                post_processed_text = Some(final_text.clone());
+        match maybe_post_process_transcription(app, settings, profile, &template_context, false)
+            .await
+        {
+            PostProcessTranscriptionOutcome::Skipped => {
+                if final_text != transcription {
+                    post_processed_text = Some(final_text.clone());
+                }
+            }
+            PostProcessTranscriptionOutcome::Cancelled => {
+                return None;
+            }
+            PostProcessTranscriptionOutcome::Processed {
+                text,
+                prompt_template,
+            } => {
+                final_text = text.clone();
+                post_processed_text = Some(text);
+                post_process_prompt = Some(prompt_template);
             }
         }
-        PostProcessTranscriptionOutcome::Cancelled => {
-            return None;
-        }
-        PostProcessTranscriptionOutcome::Processed {
-            text,
-            prompt_template,
-        } => {
-            final_text = text.clone();
-            post_processed_text = Some(text);
-            post_process_prompt = Some(prompt_template);
-        }
+    } else if final_text != transcription {
+        post_processed_text = Some(final_text.clone());
     }
 
     // Apply text replacements AFTER LLM if NOT configured for before
@@ -2656,24 +2784,70 @@ async fn apply_post_processing_and_history(
 
     // Keep recent transcript context per app for prompt variable ${short_prev_transcript}.
     // Use raw transcription (before post-processing) to avoid compounding LLM output.
-    update_short_prev_transcript(settings, current_app, &transcription);
+    update_short_prev_transcript(settings, current_app, transcription);
+
+    Some(ProcessedTranscription {
+        final_text,
+        post_processed_text,
+        post_process_prompt,
+        post_process_requested,
+    })
+}
+
+/// Applies Chinese conversion, LLM post-processing and saves to history.
+///
+/// `profile_id` is the ID of the active transcription profile (e.g., "default" or "profile_1234").
+/// If a custom profile is used, its LLM settings will be applied for post-processing.
+///
+/// Text replacement order is controlled by `text_replacements_before_llm`:
+/// - When true:  STT → Text Replacement → LLM → Output
+/// - When false: STT → LLM → Text Replacement → Output (default)
+async fn apply_post_processing_and_history(
+    app: &AppHandle,
+    settings: &AppSettings,
+    transcription: String,
+    samples: Vec<f32>,
+    profile_id: Option<String>,
+    current_app: &str,
+    pre_saved_file_name: Option<String>,
+) -> Option<String> {
+    let processed = process_transcription_output(
+        app,
+        settings,
+        &transcription,
+        profile_id.as_deref(),
+        current_app,
+    )
+    .await?;
 
     let hm = Arc::clone(&app.state::<Arc<HistoryManager>>());
     tauri::async_runtime::spawn(async move {
-        if let Err(e) = hm
-            .save_transcription(
+        let save_result = if let Some(file_name) = pre_saved_file_name {
+            hm.save_entry(
+                file_name,
+                transcription,
+                processed.post_process_requested,
+                processed.post_processed_text.clone(),
+                processed.post_process_prompt.clone(),
+            )
+            .map(|_| ())
+        } else {
+            hm.save_transcription(
                 samples,
                 transcription,
-                post_processed_text,
-                post_process_prompt,
+                processed.post_process_requested,
+                processed.post_processed_text.clone(),
+                processed.post_process_prompt.clone(),
             )
             .await
-        {
+        };
+
+        if let Err(e) = save_result {
             error!("Failed to save transcription to history: {}", e);
         }
     });
 
-    Some(final_text)
+    Some(processed.final_text)
 }
 
 // ============================================================================
@@ -3309,6 +3483,7 @@ impl ShortcutAction for TranscribeAction {
                     samples,
                     profile_id_for_postprocess,
                     &current_app,
+                    None,
                 )
                 .await
                 {
@@ -3435,25 +3610,26 @@ impl ShortcutAction for TranscribeAction {
                 }
             }
             let profile_id_for_postprocess = captured_profile_id.clone();
-            let (transcription, samples) = match get_transcription_or_cleanup(
-                &ah,
-                &binding_id,
-                captured_profile_id,
-                recording_settings.clone(),
-            )
-            .await
-            {
-                Some(res) => res,
-                None => {
-                    if is_soniox_provider && !preview_output_only_enabled {
-                        let _ = crate::clipboard::end_streaming_paste_session(&ah);
-                    } else if preview_output_only_enabled && !invoked_from_preview_action {
-                        close_preview_output_mode_workflow(&ah, true);
+            let (transcription, samples, pre_saved_file_name, post_process_requested) =
+                match get_transcription_for_transcribe_action(
+                    &ah,
+                    &binding_id,
+                    captured_profile_id,
+                    recording_settings.clone(),
+                )
+                .await
+                {
+                    Some(res) => res,
+                    None => {
+                        if is_soniox_provider && !preview_output_only_enabled {
+                            let _ = crate::clipboard::end_streaming_paste_session(&ah);
+                        } else if preview_output_only_enabled && !invoked_from_preview_action {
+                            close_preview_output_mode_workflow(&ah, true);
+                        }
+                        session_manager::exit_processing(&ah);
+                        return;
                     }
-                    session_manager::exit_processing(&ah);
-                    return;
-                }
-            };
+                };
 
             if transcription.is_empty() {
                 if is_soniox_provider && !preview_output_only_enabled {
@@ -3466,6 +3642,9 @@ impl ShortcutAction for TranscribeAction {
                     {
                         crate::managers::preview_output_mode::set_error(&ah, Some(err));
                     }
+                }
+                if let Some(file_name) = pre_saved_file_name {
+                    save_failed_transcription_entry(&ah, file_name, post_process_requested);
                 }
                 utils::hide_recording_overlay(&ah);
                 change_tray_icon(&ah, TrayIconState::Idle);
@@ -3492,6 +3671,7 @@ impl ShortcutAction for TranscribeAction {
                 samples,
                 profile_id_for_postprocess,
                 &current_app,
+                pre_saved_file_name,
             )
             .await
             {
@@ -3655,6 +3835,7 @@ impl ShortcutAction for SendToExtensionAction {
                 samples,
                 None,
                 &current_app,
+                None,
             )
             .await
             {
@@ -3796,6 +3977,7 @@ impl ShortcutAction for SendToExtensionWithSelectionAction {
                     samples,
                     None,
                     &current_app,
+                    None,
                 )
                 .await
                 {

@@ -5,8 +5,8 @@ pub mod utils;
 pub mod vad;
 
 pub use audio::{
-    encode_wav_bytes, list_input_devices, list_output_devices, save_wav_file, AudioCaptureSource,
-    AudioRecorder, CpalDeviceInfo, StreamFrameCallback,
+    encode_wav_bytes, list_input_devices, list_output_devices, read_wav_samples, save_wav_file,
+    verify_wav_file, AudioCaptureSource, AudioRecorder, CpalDeviceInfo, StreamFrameCallback,
 };
 pub use text::{apply_custom_words, filter_transcription_output};
 pub use utils::get_cpal_host;
