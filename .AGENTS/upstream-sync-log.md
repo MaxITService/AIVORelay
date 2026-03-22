@@ -16,6 +16,7 @@ Rules:
 
 | Merge Date | Upstream Date | Upstream SHA | Upstream Message | Local SHA | Local Message | Issues |
 | --- | --- | --- | --- | --- | --- | --- |
+| 2026-03-22 | 2026-03-22 | `17277cf6` | Save recordings before transcription (#1024) | `f5d15bc9` | feat(history): save recordings before transcription | adapted via diff path; retry limited to transcription entries |
 | 2026-03-21 | 2026-03-21 | `58cda3f3` | fix: sha256 verification to prevent corrupt partial download loop (#1095) | `4d4b46db` | fix(models): verify downloads and clear corrupt partials | partial port; runtime fix kept, UI/state handling simplified |
 | 2026-03-21 | 2026-03-21 | `e35f0a71` | improve history performance (#1107) | `f0eb727b` | perf(history): paginate history settings list | adapted for fork history fields; raw invoke/listen instead of bindings |
 | 2026-03-21 | 2026-03-19 | `cb32d35b` | feat(audio): lazy stream close for bluetooth mic latency (#747) | `54696496` | feat(audio): add lazy mic stream close toggle | adapted; backend intent kept, Debug UI/bindings diverged |
@@ -25,7 +26,6 @@ Rules:
 | 2026-03-18 | 2026-03-18 | `2eeb2129` | upgrade path from old giga-am to new (#1088) | `25a03b17` | Port GigaAM v3 directory migration | adapted onto fork transcribe-rs 0.3.x state; added vocab resource + old-format migration |
 | 2026-03-17 | 2026-03-17 | `d1da9354` | fix: auto-unload model after idle timeout to reduce memory (#1051) | `70163254` | Improve idle model unload behavior | adapted onto existing fork unload flow; kept fork events/settings structure |
 | 2026-03-17 | 2026-03-16 | `cafc2b72` | experimental: pick between cpu/gpu acceleration + enable directml on windows (#1058) | `02ce4b07` | Port Canary models and accelerator settings | ported from Handy HEAD; adapted to fork commands/UI/settings |
-| 2026-03-17 | 2026-03-16 | `f8bbcd79` | Migrate to transcribe-rs-0.3.1 and add Canary support (#1023) | `02ce4b07` | Port Canary models and accelerator settings | combined with accel intake in one local port commit |
 
 Entry template:
 
