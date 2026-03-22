@@ -1417,6 +1417,14 @@ async changeExtraRecordingBufferSetting(valueMs: number) : Promise<Result<null, 
     else return { status: "error", error: e  as any };
 }
 },
+async changeLazyStreamCloseSetting(enabled: boolean) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("change_lazy_stream_close_setting", { enabled }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async changeAiReplaceSystemPromptSetting(prompt: string) : Promise<Result<null, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("change_ai_replace_system_prompt_setting", { prompt }) };
@@ -2568,9 +2576,9 @@ async unloadModelManually() : Promise<Result<null, string>> {
     else return { status: "error", error: e  as any };
 }
 },
-async getHistoryEntries() : Promise<Result<HistoryEntry[], string>> {
+async getHistoryEntries(cursor: number | null, limit: number | null) : Promise<Result<PaginatedHistory, string>> {
     try {
-    return { status: "ok", data: await TAURI_INVOKE("get_history_entries") };
+    return { status: "ok", data: await TAURI_INVOKE("get_history_entries", { cursor, limit }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
@@ -2595,6 +2603,14 @@ async getAudioFilePath(fileName: string) : Promise<Result<string, string>> {
 async deleteHistoryEntry(id: number) : Promise<Result<null, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("delete_history_entry", { id }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async retryHistoryEntryTranscription(id: number) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("retry_history_entry_transcription", { id }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
@@ -3300,6 +3316,10 @@ recording_auto_stop_paste?: boolean;
  */
 extra_recording_buffer_ms?: number; 
 /**
+ * Keep the microphone stream alive briefly after stop to reduce startup latency.
+ */
+lazy_stream_close?: boolean; 
+/**
  * Whether the hotkey sidebar is pinned open
  */
 sidebar_pinned?: boolean; 
@@ -3432,7 +3452,7 @@ export type FileTranscriptionSpeaker = { speaker_id: number; default_name: strin
 export type FileTranscriptionSpeakerNameInput = { speaker_id: number; name: string }
 export type FileTranscriptionSpeakerSession = { artifact_path: string; provider: DiarizedTranscriptProvider; speakers: FileTranscriptionSpeaker[] }
 export type GpuVramStatus = { is_supported: boolean; adapter_name: string | null; used_bytes: number; budget_bytes: number; system_used_bytes: number; system_free_bytes: number; total_vram_bytes: number; updated_at_unix_ms: number; error: string | null }
-export type HistoryEntry = { id: number; file_name: string; timestamp: number; saved: boolean; title: string; transcription_text: string; post_processed_text: string | null; post_process_prompt: string | null; 
+export type HistoryEntry = { id: number; file_name: string; timestamp: number; saved: boolean; title: string; transcription_text: string; post_processed_text: string | null; post_process_prompt: string | null; post_process_requested: boolean; 
 /**
  * Type of action: "transcribe", "ai_replace", etc.
  */
@@ -3468,7 +3488,7 @@ export type LlmFeature =
  */
 "voice_command"
 export type LogLevel = "trace" | "debug" | "info" | "warn" | "error"
-export type ModelInfo = { id: string; name: string; description: string; filename: string; url: string | null; size_mb: number; is_downloaded: boolean; is_downloading: boolean; partial_size: number; is_directory: boolean; engine_type: EngineType; accuracy_score: number; speed_score: number; supports_translation: boolean; is_recommended: boolean; supported_languages: string[]; is_custom: boolean }
+export type ModelInfo = { id: string; name: string; description: string; filename: string; url: string | null; sha256: string | null; size_mb: number; is_downloaded: boolean; is_downloading: boolean; partial_size: number; is_directory: boolean; engine_type: EngineType; accuracy_score: number; speed_score: number; supports_translation: boolean; is_recommended: boolean; supported_languages: string[]; is_custom: boolean }
 export type ModelUnloadTimeout = "never" | "immediately" | "min_2" | "min_5" | "min_10" | "min_15" | "hour_1" | "sec_5"
 export type NativeRegionCaptureMode = 
 /**
@@ -3498,6 +3518,7 @@ export type OutputFormat =
 "vtt"
 export type OutputWhitespaceMode = "preserve" | "remove_if_present" | "add_if_missing"
 export type OverlayPosition = "none" | "top" | "bottom"
+export type PaginatedHistory = { entries: HistoryEntry[]; has_more: boolean }
 export type PasteMethod = "ctrl_v" | "direct" | "none" | "shift_insert" | "ctrl_shift_v"
 export type PermissionAccess = "allowed" | "denied" | "unknown"
 export type PostProcessProvider = { id: string; label: string; base_url: string; allow_base_url_edit?: boolean; allow_insecure_http?: boolean; models_endpoint?: string | null }
