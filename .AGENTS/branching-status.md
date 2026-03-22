@@ -14,8 +14,9 @@ Propagation scope rule: for Microsoft Store Edition propagation, bring over the 
 
 ## cuda-integration
 
-Last synced commit from `main`: `ffb30103` — docs(sync): advance upstream intake log to 58cda3f3.
+Last synced commit from `main`: `5bcc9c6b` — feat(audio): add recording overlay appearance customization.
 Maintenance rule: after a successful `main` -> `cuda-integration` propagation, update this main-copy cursor and the `cuda-integration` worktree copy together.
 Note: the cursor always points to the last propagated commit from `main`, not to CUDA-only commits that were created on top of it.
 Sync rule: for this branch, source commits come from `main` only.
 Propagation scope rule: for CUDA Edition propagation, bring over the intended `main` commit set in order unless a commit is CUDA-incompatible. Default exclusions are Microsoft Store-specific changes and branch-local CUDA dependency/release wiring that only exists on `cuda-integration`.
+Operational note (2026-03-22): for content documentation, treat the branch as reset to the `5bcc9c6b` baseline and describe only the remaining CUDA/build/docs layer listed in the `cuda-integration` worktree copy of `[[.AGENTS/cuda-branch-notes|cuda-branch-notes.md]]`.
