@@ -82,6 +82,7 @@ export const HistorySettings: React.FC = () => {
   const sentinelRef = useRef<HTMLDivElement>(null);
   const entriesRef = useRef<HistoryEntry[]>([]);
   const loadingRef = useRef(false);
+  const pendingToggleIdsRef = useRef<Set<number>>(new Set());
 
   useEffect(() => {
     entriesRef.current = historyEntries;
@@ -163,6 +164,17 @@ export const HistorySettings: React.FC = () => {
             setHistoryEntries((prev) =>
               prev.map((entry) => (entry.id === payload.entry.id ? payload.entry : entry)),
             );
+          } else if (payload.action === "deleted") {
+            setHistoryEntries((prev) => prev.filter((entry) => entry.id !== payload.id));
+          } else if (payload.action === "toggled") {
+            if (pendingToggleIdsRef.current.has(payload.id)) {
+              return;
+            }
+            setHistoryEntries((prev) =>
+              prev.map((entry) =>
+                entry.id === payload.id ? { ...entry, saved: !entry.saved } : entry,
+              ),
+            );
           }
         },
       );
@@ -182,6 +194,7 @@ export const HistorySettings: React.FC = () => {
   }, []);
 
   const toggleSaved = async (id: number) => {
+    pendingToggleIdsRef.current.add(id);
     setHistoryEntries((prev) =>
       prev.map((entry) => (entry.id === id ? { ...entry, saved: !entry.saved } : entry)),
     );
@@ -198,6 +211,8 @@ export const HistorySettings: React.FC = () => {
       setHistoryEntries((prev) =>
         prev.map((entry) => (entry.id === id ? { ...entry, saved: !entry.saved } : entry)),
       );
+    } finally {
+      pendingToggleIdsRef.current.delete(id);
     }
   };
 
@@ -223,16 +238,36 @@ export const HistorySettings: React.FC = () => {
   }, []);
 
   const deleteAudioEntry = async (id: number) => {
+    const previousEntries = entriesRef.current;
+    const deletedIndex = previousEntries.findIndex((entry) => entry.id === id);
+    const deletedEntry = deletedIndex >= 0 ? previousEntries[deletedIndex] : null;
+
     setHistoryEntries((prev) => prev.filter((entry) => entry.id !== id));
 
     try {
       const result = await commands.deleteHistoryEntry(id);
       if (result.status === "error") {
-        loadHistoryEntries();
+        setHistoryEntries((prev) => {
+          if (!deletedEntry || prev.some((entry) => entry.id === id)) {
+            return prev;
+          }
+
+          const nextEntries = [...prev];
+          nextEntries.splice(Math.min(deletedIndex, nextEntries.length), 0, deletedEntry);
+          return nextEntries;
+        });
       }
     } catch (error) {
       console.error("Failed to delete audio entry:", error);
-      loadHistoryEntries();
+      setHistoryEntries((prev) => {
+        if (!deletedEntry || prev.some((entry) => entry.id === id)) {
+          return prev;
+        }
+
+        const nextEntries = [...prev];
+        nextEntries.splice(Math.min(deletedIndex, nextEntries.length), 0, deletedEntry);
+        return nextEntries;
+      });
       throw error;
     }
   };
