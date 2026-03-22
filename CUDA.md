@@ -1,14 +1,24 @@
 # CUDA Build Notes
 
+This note describes the CUDA-specific build/dependency layer of `cuda-integration`.
+
+For the exact current file-by-file diff against `main`, see:
+- [[.AGENTS/cuda-branch-notes|cuda-branch-notes.md]]
+
 This branch uses a local-only CUDA setup. Nothing here requires global environment changes or registry edits.
 
 ## What is patched locally
 
-- `src-tauri/Cargo.toml` redirects `transcribe-rs`, `whisper-rs`, and `whisper-rs-sys` to local forks in `C:\Code\AIVORelay-deps`.
+- `src-tauri/Cargo.toml` uses `transcribe-rs 0.3.2` and redirects `transcribe-rs`, `whisper-rs`, and `whisper-rs-sys` to local forks in `C:\Code\AIVORelay-deps`.
 - `C:\Code\AIVORelay-deps\AIVORelay-dep-transcribe-rs` is the local `transcribe-rs` dependency fork used by AIVORelay.
 - `C:\Code\AIVORelay-deps\AIVORelay-dep-whisper-rs` contains the Windows CUDA bindgen/API fixes needed by AIVORelay.
 - `build-cuda.ps1` rewrites the local `[patch.crates-io]` paths before building, so the same branch can work with a different dependency root.
 - `.cargo/config.toml` uses a short target directory: `C:/aivorelay-cuda`
+
+Current branch dependency intent:
+- base features: `whisper-cpp` + `onnx`
+- Windows-only extra features: `whisper-cuda` + `ort-cuda`
+- local lockfile resolves against the local dependency forks, not `main`'s vendored `whisper-rs-sys` setup
 
 ## Planned repository names for CI
 

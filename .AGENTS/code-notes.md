@@ -2,6 +2,10 @@
 
 Files that differentiate this fork from the original [cjpais/Handy](https://github.com/cjpais/Handy).
 
+Branch note:
+- For the current `cuda-integration -> main` file diff and CUDA dependency wiring, use [[.AGENTS/cuda-branch-notes|cuda-branch-notes.md]].
+- This file remains fork-vs-upstream focused.
+
 ## Fork-Added Files
 
 Files that are added by this fork rather than upstream files that were modified.

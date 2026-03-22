@@ -8,6 +8,7 @@ That is a separate workflow described in:
 
 Primary rolling reference:
 - [[.AGENTS/branch-propagation-log|branch-propagation-log.md]]
+- [[.AGENTS/cuda-branch-notes|cuda-branch-notes.md]]
 
 ## Scope
 
@@ -65,8 +66,9 @@ Always propagate from `main`.
 7. Record resulting local commit hashes.
 8. Update [[.AGENTS/branch-propagation-log|branch-propagation-log.md]] in the target branch worktree after successful propagation.
 9. Update [[.AGENTS/branching-status|branching-status.md]] in the target branch worktree after successful propagation.
-10. Mirror the same propagation-log entry and cursor update back into `main`'s `.AGENTS` docs before considering the sync finished.
-11. Return to the original branch if needed.
+10. Refresh [[CUDA]] and [[.AGENTS/cuda-branch-notes|cuda-branch-notes.md]] so the documented file list still matches the real branch-local layer.
+11. Mirror the same propagation-log entry and cursor update back into `main`'s `.AGENTS` docs before considering the sync finished.
+12. Return to the original branch if needed.
 
 ## Cargo.lock
 

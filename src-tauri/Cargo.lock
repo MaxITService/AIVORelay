@@ -140,7 +140,6 @@ dependencies = [
  "tower-http",
  "transcribe-rs",
  "vad-rs",
- "whisper-rs",
  "windows 0.61.3",
  "winreg 0.55.0",
  "zip 0.6.6",
@@ -8116,7 +8115,7 @@ dependencies = [
 
 [[package]]
 name = "transcribe-rs"
-version = "0.2.8"
+version = "0.3.2"
 dependencies = [
  "base64 0.22.1",
  "derive_builder",
