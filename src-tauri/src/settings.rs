@@ -979,11 +979,17 @@ pub enum NativeRegionCaptureMode {
 pub enum ModelUnloadTimeout {
     Never,
     Immediately,
+    #[serde(rename = "min_2", alias = "min2")]
     Min2,
+    #[serde(rename = "min_5", alias = "min5")]
     Min5,
+    #[serde(rename = "min_10", alias = "min10")]
     Min10,
+    #[serde(rename = "min_15", alias = "min15")]
     Min15,
+    #[serde(rename = "hour_1", alias = "hour1")]
     Hour1,
+    #[serde(rename = "sec_5", alias = "sec5")]
     Sec5, // Debug mode only
 }
 
