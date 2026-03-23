@@ -1,6 +1,10 @@
 import { create } from "zustand";
 import { subscribeWithSelector } from "zustand/middleware";
-import type { AppSettings as Settings, AudioDevice } from "@/bindings";
+import type {
+  AppSettings as Settings,
+  AudioDevice,
+  ModelUnloadTimeout,
+} from "@/bindings";
 import { commands } from "@/bindings";
 import { invoke } from "@tauri-apps/api/core";
 
@@ -87,6 +91,27 @@ const DEFAULT_AUDIO_DEVICE: AudioDevice = {
   index: "default",
   name: "Default",
   is_default: true,
+};
+
+const normalizeModelUnloadTimeout = (
+  value: string | null | undefined,
+): ModelUnloadTimeout | undefined => {
+  switch (value) {
+    case "min2":
+      return "min_2";
+    case "min5":
+      return "min_5";
+    case "min10":
+      return "min_10";
+    case "min15":
+      return "min_15";
+    case "hour1":
+      return "hour_1";
+    case "sec5":
+      return "sec_5";
+    default:
+      return value as ModelUnloadTimeout | undefined;
+  }
 };
 
 const DEFAULT_MICROPHONE_INPUT_BOOST_DEVICE_KEY = "__default__";
@@ -785,6 +810,9 @@ export const useSettingsStore = create<SettingsStore>()(
             live_sound_microphone: settings.live_sound_microphone ?? "Default",
             selected_output_device:
               settings.selected_output_device ?? "Default",
+            model_unload_timeout: normalizeModelUnloadTimeout(
+              settings.model_unload_timeout as string | undefined,
+            ),
           };
           set({ settings: normalizedSettings, isLoading: false });
         } else {
@@ -1497,7 +1525,14 @@ export const useSettingsStore = create<SettingsStore>()(
       try {
         const result = await commands.getDefaultSettings();
         if (result.status === "ok") {
-          set({ defaultSettings: result.data });
+          set({
+            defaultSettings: {
+              ...result.data,
+              model_unload_timeout: normalizeModelUnloadTimeout(
+                result.data.model_unload_timeout as string | undefined,
+              ),
+            },
+          });
         } else {
           console.error("Failed to load default settings:", result.error);
         }
