@@ -12,6 +12,7 @@ Rules:
 
 | Propagation Date | Target Branch | Main SHA | Main Message | Branch SHA | Branch Message | Issues |
 | --- | --- | --- | --- | --- | --- | --- |
+| 2026-03-24 | `Microsoft-store` | `869dea81` | chore(release): load release body from markdown | `f4202690` | chore(release): load release body from markdown | kept store-specific lead-in text |
 | 2026-03-23 | `Microsoft-store` | `8c52c9f0` | chore: bump version to 1.0.6 | `96af69bd` | chore: bump version to 1.0.6 | includes e0b993b6; reused local 1.0.5 bump |
 | 2026-03-22 | `Microsoft-store` | `65c2b65b` | fix(history): keep paginated history in sync | `726cb79a` | fix(history): keep paginated history in sync | includes 951a73e1; clean cherry-pick |
 | 2026-03-22 | `Microsoft-store` | `9da5f76f` | feat(history): save recordings before transcription | `50457733` | feat(history): save recordings before transcription | conflict only in upstream sync log |
@@ -21,7 +22,6 @@ Rules:
 | 2026-03-21 | `Microsoft-store` | `463a0947` | Add per-microphone input boost and sync branch docs | `c521b2a6` | Add per-microphone input boost and sync branch docs | feature already present; kept richer branch implementation and resolved only absorbed tail |
 | 2026-03-21 | `Microsoft-store` | `48988a2f` | Update bindings for accelerator settings | `b88ebe50` | Update bindings for accelerator settings | clean bindings backfill after accelerator help sync |
 | 2026-03-21 | `Microsoft-store` | `90d868ce` | Sync acceleration i18n and add help | `28aa51db` | Sync acceleration i18n and add help | merged help/i18n onto existing accelerator layer and preserved branch-local lazy mic text |
-| 2026-03-21 | `Microsoft-store` | `653e69ea` | Fix accelerator command state access | `7bb22aaa` | Fix accelerator command state access | resolved command state type onto existing `Arc<TranscriptionManager>` wiring |
 
 Entry template:
 
