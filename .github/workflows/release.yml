@@ -27,28 +27,15 @@ jobs:
         uses: actions/github-script@v7
         with:
           script: |
+            const fs = require('fs');
+            const body = fs.readFileSync('.github/release-notes/main.md', 'utf8');
+
             const { data } = await github.rest.repos.createRelease({
               owner: context.repo.owner,
               repo: context.repo.repo,
               tag_name: `v${{ steps.get-version.outputs.version }}`,
               name: `v${{ steps.get-version.outputs.version }}`,
-              body: "## What's New in v0.9.6\n" +
-                    "No new features since 0.9.3, just minor hotfixes.\n" +
-                    "### 🎙️ Live Sound Transcription & Monitoring\n" +
-                    "*   **Live Monitor**: Real-time transcription of both system audio (loopback) and microphone simultaneously.\n" +
-                    "*   **Speaker Diarization**: Full support for identifying speakers in real-time (supported providers only).\n\n" +
-                    "### 👥 Speaker Diarization\n" +
-                    "*   **Live & File Support**: High-precision speaker identification for both the Live Monitor and audio file transcriptions.\n" +
-                    "*   **Speaker Labeling**: Robust support for identifying and labeling multiple speakers.\n" +
-                    "*   **Profiles**: Create and save speaker name profiles to automatically map recognized speakers to real names.\n\n" +
-                    "### 📺 Advanced Preview Window\n" +
-                    "*   **Interactive Controls**: Support for manual corrections (Backspace) directly within the live preview.\n" +
-                    "*   **Layout Persistence**: The preview window now remembers its exact position, size, and sidebar configuration across sessions.\n\n" +
-                    "---\n" +
-                    "**Notice:**\n" +
-                    "If the application crashes on an old CPU during transcription, please use the Microsoft Store version:\n" +
-                    "https://github.com/MaxITService/AIVORelay/releases/tag/v0.9.1-store\n\n" +
-                    "**Full Changelog**: https://github.com/MaxITService/AIVORelay/compare/v0.9.2...v0.9.4",
+              body,
               draft: true,
               prerelease: false,
               generate_release_notes: true

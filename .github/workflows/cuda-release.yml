@@ -27,13 +27,15 @@ jobs:
         uses: actions/github-script@v7
         with:
           script: |
+            const fs = require('fs');
+            const body = fs.readFileSync('.github/release-notes/cuda.md', 'utf8');
+
             const { data } = await github.rest.repos.createRelease({
               owner: context.repo.owner,
               repo: context.repo.repo,
               tag_name: `v${{ steps.get-version.outputs.version }}-cuda`,
               name: `v${{ steps.get-version.outputs.version }} (CUDA Edition)`,
-              body: "This is a specialized CUDA build for NVIDIA systems.\n" +
-                    "It is built from the cuda-integration branch using the AIVORelay dependency forks for transcribe-rs and whisper-rs.",
+              body,
               draft: true,
               prerelease: false,
               generate_release_notes: true
