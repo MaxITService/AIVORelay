@@ -466,6 +466,8 @@
   },
   "errors": {
     "loadDirectory": "Lỗi khi tải thư mục: {{error}}",
+    "noInputDeviceTitle": "Không tìm thấy micrô",
+    "noInputDevice": "Không phát hiện thiết bị đầu vào âm thanh nào. Vui lòng kết nối micrô hoặc tai nghe và thử lại."
   },
   "appLanguage": {
     "title": "Ngôn ngữ ứng dụng",

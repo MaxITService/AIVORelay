@@ -1,7 +1,9 @@
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 use crate::apple_intelligence;
 use crate::audio_feedback::{play_feedback_sound, play_feedback_sound_blocking, SoundType};
-use crate::audio_toolkit::apply_custom_words;
+use crate::audio_toolkit::{
+    apply_custom_words, is_microphone_access_denied, is_no_input_device_error,
+};
 use crate::managers::audio::{AudioRecordingManager, StartRecordingError};
 use crate::managers::connector::ConnectorManager;
 use crate::managers::deepgram_realtime::{
@@ -34,6 +36,7 @@ use ferrous_opencc::{config::BuiltinConfig, OpenCC};
 use log::{debug, error, warn};
 use natural::phonetics::soundex;
 use once_cell::sync::Lazy;
+use serde::Serialize;
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
@@ -739,6 +742,12 @@ fn show_recording_start_error_overlay(app: &AppHandle, error: &StartRecordingErr
     crate::plus_overlay_state::show_error_overlay_with_message(app, category, error.to_string());
 }
 
+#[derive(Clone, Debug, Serialize)]
+struct RecordingErrorPayload {
+    error_type: &'static str,
+    detail: String,
+}
+
 fn maybe_restore_ai_replace_selection(
     app: &AppHandle,
     original_text: &str,
@@ -937,7 +946,18 @@ fn start_recording_with_feedback(app: &AppHandle, binding_id: &str) -> bool {
 
         if let Some(err) = recording_error.as_ref() {
             show_recording_start_error_overlay(app, err);
-            let _ = app.emit("recording-error", err.to_string());
+            let detail = err.to_string();
+            let error_type = if is_microphone_access_denied(&detail) {
+                "microphone_permission_denied"
+            } else if is_no_input_device_error(&detail) {
+                "no_input_device"
+            } else {
+                "unknown"
+            };
+            let _ = app.emit(
+                "recording-error",
+                RecordingErrorPayload { error_type, detail },
+            );
         } else {
             crate::plus_overlay_state::show_mic_error_overlay(app);
         }

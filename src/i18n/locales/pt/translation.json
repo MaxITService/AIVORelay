@@ -465,6 +465,8 @@
   },
   "errors": {
     "loadDirectory": "Erro ao carregar diretório: {{error}}",
+    "noInputDeviceTitle": "Nenhum microfone encontrado",
+    "noInputDevice": "Nenhum dispositivo de entrada de áudio foi detectado. Conecte um microfone ou fone de ouvido e tente novamente."
   },
   "appLanguage": {
     "title": "Idioma da Aplicação",

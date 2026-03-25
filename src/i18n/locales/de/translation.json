@@ -465,6 +465,8 @@
   },
   "errors": {
     "loadDirectory": "Fehler beim Laden des Verzeichnisses: {{error}}",
+    "noInputDeviceTitle": "Kein Mikrofon gefunden",
+    "noInputDevice": "Es wurde kein Audio-Eingabegerät erkannt. Bitte schließen Sie ein Mikrofon oder Headset an und versuchen Sie es erneut."
   },
   "appLanguage": {
     "title": "Anwendungssprache",
