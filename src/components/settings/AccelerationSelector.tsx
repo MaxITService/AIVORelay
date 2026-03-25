@@ -11,13 +11,14 @@ type OrtAcceleratorSetting = "auto" | "cpu" | "cuda" | "directml" | "rocm";
 interface AvailableAccelerators {
   whisper: string[];
   ort: string[];
+  gpu_devices: GpuDeviceOption[];
 }
 
-const WHISPER_LABELS: Record<WhisperAcceleratorSetting, string> = {
-  auto: "Auto",
-  cpu: "CPU",
-  gpu: "GPU",
-};
+interface GpuDeviceOption {
+  id: number;
+  name: string;
+  total_vram_mb: number;
+}
 
 const ORT_LABELS: Record<OrtAcceleratorSetting, string> = {
   auto: "Auto",
@@ -32,6 +33,29 @@ interface AccelerationSelectorProps {
   grouped?: boolean;
 }
 
+function encodeWhisperValue(
+  accelerator: WhisperAcceleratorSetting,
+  gpuDevice: number,
+): string {
+  if (accelerator === "cpu") return "cpu";
+  if (accelerator === "gpu" && gpuDevice >= 0) return `gpu:${gpuDevice}`;
+  return "auto";
+}
+
+function decodeWhisperValue(value: string): {
+  accelerator: WhisperAcceleratorSetting;
+  gpuDevice: number;
+} {
+  if (value === "cpu") return { accelerator: "cpu", gpuDevice: -1 };
+  if (value.startsWith("gpu:")) {
+    return {
+      accelerator: "gpu",
+      gpuDevice: Number.parseInt(value.slice(4), 10),
+    };
+  }
+  return { accelerator: "auto", gpuDevice: -1 };
+}
+
 export const AccelerationSelector: FC<AccelerationSelectorProps> = ({
   descriptionMode = "tooltip",
   grouped = false,
@@ -44,12 +68,29 @@ export const AccelerationSelector: FC<AccelerationSelectorProps> = ({
   useEffect(() => {
     void invoke<AvailableAccelerators>("get_available_accelerators").then(
       (available) => {
-        setWhisperOptions(
-          available.whisper.map((value) => ({
-            value,
-            label: WHISPER_LABELS[value as WhisperAcceleratorSetting] ?? value,
-          })),
-        );
+        const nextWhisperOptions: DropdownOption[] = [
+          {
+            value: "auto",
+            label: t("settings.advanced.acceleration.gpuDevice.auto"),
+          },
+        ];
+
+        for (const device of available.gpu_devices) {
+          const vramLabel =
+            device.total_vram_mb >= 1024
+              ? `${(device.total_vram_mb / 1024).toFixed(1)} GB`
+              : `${device.total_vram_mb} MB`;
+          nextWhisperOptions.push({
+            value: `gpu:${device.id}`,
+            label: `${device.name} (${vramLabel})`,
+          });
+        }
+
+        nextWhisperOptions.push({
+          value: "cpu",
+          label: "CPU",
+        });
+        setWhisperOptions(nextWhisperOptions);
 
         const ortValues = available.ort.includes("auto")
           ? available.ort
@@ -62,13 +103,21 @@ export const AccelerationSelector: FC<AccelerationSelectorProps> = ({
         );
       },
     );
-  }, []);
+  }, [t]);
 
-  const currentWhisper =
-    (getSetting("whisper_accelerator" as any) as WhisperAcceleratorSetting) ??
-    "auto";
+  const currentWhisper = encodeWhisperValue(
+    ((getSetting("whisper_accelerator" as any) as WhisperAcceleratorSetting) ??
+      "auto") as WhisperAcceleratorSetting,
+    ((getSetting("whisper_gpu_device" as any) as number) ?? -1) as number,
+  );
   const currentOrt =
     (getSetting("ort_accelerator" as any) as OrtAcceleratorSetting) ?? "auto";
+
+  const handleWhisperChange = async (value: string) => {
+    const { accelerator, gpuDevice } = decodeWhisperValue(value);
+    await updateSetting("whisper_accelerator" as any, accelerator as any);
+    await updateSetting("whisper_gpu_device" as any, gpuDevice as any);
+  };
 
   return (
     <>
@@ -82,13 +131,11 @@ export const AccelerationSelector: FC<AccelerationSelectorProps> = ({
         <Dropdown
           options={whisperOptions}
           selectedValue={currentWhisper}
-          onSelect={(value) =>
-            void updateSetting(
-              "whisper_accelerator" as any,
-              value as WhisperAcceleratorSetting as any,
-            )
+          onSelect={(value) => void handleWhisperChange(value)}
+          disabled={
+            isUpdating("whisper_accelerator") ||
+            isUpdating("whisper_gpu_device")
           }
-          disabled={isUpdating("whisper_accelerator")}
         />
       </SettingContainer>
       {ortOptions.length > 2 && (

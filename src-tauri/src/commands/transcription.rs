@@ -58,6 +58,15 @@ pub fn change_ort_accelerator_setting(app: AppHandle, accelerator: OrtAccelerato
 
 #[tauri::command]
 #[specta::specta]
+pub fn change_whisper_gpu_device(app: AppHandle, device: i32) {
+    let mut settings = get_settings(&app);
+    settings.whisper_gpu_device = device;
+    write_settings(&app, settings);
+    apply_and_reload_accelerator(&app);
+}
+
+#[tauri::command]
+#[specta::specta]
 pub fn get_available_accelerators() -> AvailableAccelerators {
     collect_available_accelerators()
 }

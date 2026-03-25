@@ -781,6 +781,7 @@ pub fn run() {
         commands::transcription::set_model_unload_timeout,
         commands::transcription::change_whisper_accelerator_setting,
         commands::transcription::change_ort_accelerator_setting,
+        commands::transcription::change_whisper_gpu_device,
         commands::transcription::get_available_accelerators,
         commands::transcription::unload_model_manually,
         commands::history::get_history_entries,
