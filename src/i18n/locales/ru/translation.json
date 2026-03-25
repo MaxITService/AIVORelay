@@ -1129,6 +1129,11 @@
         "ort": {
           "title": "Ускорение ONNX",
           "description": "Аппаратное ускорение для ONNX-моделей (Parakeet, Canary, Moonshine и др.). DirectML на Windows является экспериментальным. Модели могут не выполнять транскрипцию."
+        },
+        "gpuDevice": {
+          "title": "Устройство GPU",
+          "description": "Выберите GPU для инференса Whisper. Авто выбирает выделенный GPU.",
+          "auto": "Авто"
         }
       }
     },
@@ -1814,7 +1819,7 @@
   "errors": {
     "loadDirectory": "Ошибка загрузки каталога: {{error}}.",
     "modelLoadFailed": "Не удалось загрузить модель: {{model}}",
-    "modelLoadFailedUnknown": "Неизвестная модель"
+    "modelLoadFailedUnknown": "Неизвестная модель",
   },
   "appLanguage": {
     "title": "Язык приложения",
