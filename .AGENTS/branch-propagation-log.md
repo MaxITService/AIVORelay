@@ -12,6 +12,7 @@ Rules:
 
 | Propagation Date | Target Branch | Main SHA | Main Message | Branch SHA | Branch Message | Issues |
 | --- | --- | --- | --- | --- | --- | --- |
+| 2026-03-25 | `cuda-integration` | `2dfc6ae3` | docs(sync): record v0.8.0 intake cursor | `11169944` | docs(sync): record v0.8.0 intake cursor | 4 commits; upstream-sync-log conflict only; kept CUDA-specific dependency path |
 | 2026-03-24 | `cuda-integration` | `869dea81` | chore(release): load release body from markdown | `54bfd4c7` | chore(release): load release body from markdown | code-notes conflict only |
 | 2026-03-23 | `cuda-integration` | `8c52c9f0` | chore: bump version to 1.0.6 | `ef3b9058` | chore: bump version to 1.0.6 | includes e0b993b6; reused local 1.0.5 bump |
 | 2026-03-22 | `cuda-integration` | `65c2b65b` | fix(history): keep paginated history in sync | `2071d410` | fix(history): keep paginated history in sync | includes 951a73e1; clean cherry-pick |
