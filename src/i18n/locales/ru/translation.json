@@ -1820,6 +1820,8 @@
     "loadDirectory": "Ошибка загрузки каталога: {{error}}.",
     "modelLoadFailed": "Не удалось загрузить модель: {{model}}",
     "modelLoadFailedUnknown": "Неизвестная модель",
+    "noInputDeviceTitle": "Микрофон не найден",
+    "noInputDevice": "Аудиоустройство ввода не обнаружено. Подключите микрофон или гарнитуру и попробуйте снова."
   },
   "appLanguage": {
     "title": "Язык приложения",

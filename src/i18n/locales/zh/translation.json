@@ -465,6 +465,8 @@
   },
   "errors": {
     "loadDirectory": "加载目录时出错: {{error}}",
+    "noInputDeviceTitle": "未找到麦克风",
+    "noInputDevice": "未检测到音频输入设备。请连接麦克风或耳机后重试。"
   },
   "appLanguage": {
     "title": "应用语言",

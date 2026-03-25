@@ -2464,6 +2464,8 @@
     "modelLoadFailedUnknown": "Unknown model",
     "modelDownloadFailed": "Failed to download model: {{model}}",
     "modelDownloadFailedUnknown": "Unknown model",
+    "noInputDeviceTitle": "No Microphone Found",
+    "noInputDevice": "No audio input device was detected. Please connect a microphone or headset and try again."
   },
   "appLanguage": {
     "title": "Application Language",

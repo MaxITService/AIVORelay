@@ -465,6 +465,8 @@
   },
   "errors": {
     "loadDirectory": "Błąd wczytywania katalogu: {{error}}",
+    "noInputDeviceTitle": "Nie znaleziono mikrofonu",
+    "noInputDevice": "Nie wykryto żadnego urządzenia wejściowego audio. Podłącz mikrofon lub słuchawki i spróbuj ponownie."
   },
   "appLanguage": {
     "title": "Język aplikacji",

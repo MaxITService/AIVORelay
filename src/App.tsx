@@ -17,6 +17,11 @@ import { OPEN_FIRST_START_WIZARD_EVENT } from "./constants/appEvents";
 import type { ModelStateEvent } from "./lib/types/events";
 import type { WindowsMicrophonePermissionStatus } from "./lib/types/windowsPermissions";
 
+type RecordingErrorPayload = {
+  error_type: "microphone_permission_denied" | "no_input_device" | "unknown";
+  detail: string;
+};
+
 const renderSettingsContent = (section: SidebarSection) => {
   const ActiveComponent =
     SECTIONS_CONFIG[section]?.component || SECTIONS_CONFIG.general.component;
@@ -75,9 +80,22 @@ function App() {
         toast.error(event.payload, { duration: ERROR_TOAST_DURATION_MS });
       },
     );
-    const unlistenRecording = listen<string>("recording-error", (event) => {
-      toast.error(event.payload, { duration: ERROR_TOAST_DURATION_MS });
-    });
+    const unlistenRecording = listen<RecordingErrorPayload>(
+      "recording-error",
+      (event) => {
+        const { error_type, detail } = event.payload;
+
+        if (error_type === "no_input_device") {
+          toast.error(t("errors.noInputDeviceTitle"), {
+            duration: ERROR_TOAST_DURATION_MS,
+            description: t("errors.noInputDevice"),
+          });
+          return;
+        }
+
+        toast.error(detail, { duration: ERROR_TOAST_DURATION_MS });
+      },
+    );
     const unlistenModelState = listen<ModelStateEvent>(
       "model-state-changed",
       (event) => {
