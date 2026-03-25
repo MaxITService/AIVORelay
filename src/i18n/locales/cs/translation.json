@@ -465,6 +465,8 @@
   },
   "errors": {
     "loadDirectory": "Chyba při načítání adresáře: {{error}}",
+    "noInputDeviceTitle": "Mikrofon nebyl nalezen",
+    "noInputDevice": "Nebylo detekováno žádné zvukové vstupní zařízení. Připojte mikrofon nebo sluchátka a zkuste to znovu."
   },
   "appLanguage": {
     "title": "Jazyk aplikace",

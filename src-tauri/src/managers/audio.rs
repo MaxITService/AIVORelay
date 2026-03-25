@@ -474,6 +474,14 @@ impl AudioRecordingManager {
         }
 
         let selected_device = self.resolve_device_for_selection(&selection);
+        if selection.source == AudioCaptureSource::Microphone && selected_device.is_none() {
+            let has_any_input_device = list_input_devices()
+                .map(|devices| !devices.is_empty())
+                .unwrap_or(false);
+            if !has_any_input_device {
+                return Err(anyhow::anyhow!("No input device found"));
+            }
+        }
 
         if let Some(rec) = recorder_opt.as_mut() {
             rec.set_microphone_input_boost_db(

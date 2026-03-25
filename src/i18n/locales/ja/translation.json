@@ -465,6 +465,8 @@
   },
   "errors": {
     "loadDirectory": "ディレクトリの読み込みエラー: {{error}}",
+    "noInputDeviceTitle": "マイクが見つかりません",
+    "noInputDevice": "オーディオ入力デバイスが検出されませんでした。マイクまたはヘッドセットを接続してから再試行してください。"
   },
   "appLanguage": {
     "title": "アプリケーション言語",
