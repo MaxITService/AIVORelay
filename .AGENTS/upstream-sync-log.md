@@ -2,11 +2,11 @@
 
 Small rolling log of upstream commits integrated into `main`.
 
-Audit note (2026-03-21):
-- Current fetched `upstream/main` head checked locally: `58cda3f3`.
-- Safe review cursor for the next `upstream -> main` intake: `58cda3f3`.
+Audit note (2026-03-25):
+- Current fetched `upstream/main` head checked locally: `557d274d`.
+- Safe review cursor for the next `upstream -> main` intake: `557d274d`.
 - The table below logs integrated upstream commits only; the review cursor may be newer because it also accounts for explicitly skipped commits.
-- Re-triaged corridor up to `58cda3f3`: taken/logged `58cda3f3`, `e35f0a71`, `cb32d35b`, `0b3322fa`, `e1a484f7`, `5a3e6e33`, `2eeb2129`; already covered `095f4ac4`; skipped `8836d455`, `1a95c9c4`, `cd3ec3ab`, `c5ec92b3`, `e3c9f581`, `075a5887`, `012e0666`, `d33535cf`; treated `a3015026` as separate research / split adaptation, not a normal intake row.
+- Re-triaged corridor up to `557d274d`: taken/logged `557d274d`, `17277cf6`, `58cda3f3`, `e35f0a71`, `cb32d35b`, `0b3322fa`, `e1a484f7`, `5a3e6e33`, `2eeb2129`; already covered `095f4ac4`; skipped `8836d455`, `1a95c9c4`, `cd3ec3ab`, `c5ec92b3`, `e3c9f581`, `075a5887`, `012e0666`, `d33535cf`; treated `a3015026` as separate research / split adaptation, not a normal intake row.
 
 Rules:
 - Keep newest entries first.
@@ -16,6 +16,7 @@ Rules:
 
 | Merge Date | Upstream Date | Upstream SHA | Upstream Message | Local SHA | Local Message | Issues |
 | --- | --- | --- | --- | --- | --- | --- |
+| 2026-03-25 | 2026-03-23 | `557d274d` | release v0.8.0 | `152c2c1e` | fix(audio): surface no-input-device errors | partial intake split across `68fa267f`, `83295a35`, `152c2c1e` |
 | 2026-03-22 | 2026-03-22 | `17277cf6` | Save recordings before transcription (#1024) | `f5d15bc9` | feat(history): save recordings before transcription | adapted via diff path; retry limited to transcription entries |
 | 2026-03-21 | 2026-03-21 | `58cda3f3` | fix: sha256 verification to prevent corrupt partial download loop (#1095) | `4d4b46db` | fix(models): verify downloads and clear corrupt partials | partial port; runtime fix kept, UI/state handling simplified |
 | 2026-03-21 | 2026-03-21 | `e35f0a71` | improve history performance (#1107) | `f0eb727b` | perf(history): paginate history settings list | adapted for fork history fields; raw invoke/listen instead of bindings |
@@ -25,7 +26,6 @@ Rules:
 | 2026-03-18 | 2026-03-18 | `5a3e6e33` | add extra recording buffer (#1089) | `ba2bba60` | Add local-only extra recording buffer | partial port only; kept remote Soniox/Deepgram buffer behavior unchanged |
 | 2026-03-18 | 2026-03-18 | `2eeb2129` | upgrade path from old giga-am to new (#1088) | `25a03b17` | Port GigaAM v3 directory migration | adapted onto fork transcribe-rs 0.3.x state; added vocab resource + old-format migration |
 | 2026-03-17 | 2026-03-17 | `d1da9354` | fix: auto-unload model after idle timeout to reduce memory (#1051) | `70163254` | Improve idle model unload behavior | adapted onto existing fork unload flow; kept fork events/settings structure |
-| 2026-03-17 | 2026-03-16 | `cafc2b72` | experimental: pick between cpu/gpu acceleration + enable directml on windows (#1058) | `02ce4b07` | Port Canary models and accelerator settings | ported from Handy HEAD; adapted to fork commands/UI/settings |
 
 Entry template:
 
