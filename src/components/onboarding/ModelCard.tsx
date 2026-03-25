@@ -32,7 +32,7 @@ const ModelCard: React.FC<ModelCardProps> = ({
   const displayDescription = getTranslatedModelDescription(model, t);
 
   const baseButtonClasses =
-    "flex justify-between items-center rounded-xl p-4 px-5 text-left transition-all duration-200 disabled:opacity-40 disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-[#ff4d8d]/30 active:scale-[0.98] cursor-pointer group";
+    "flex justify-between items-center rounded-xl p-4 px-5 text-start transition-all duration-200 disabled:opacity-40 disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-[#ff4d8d]/30 active:scale-[0.98] cursor-pointer group";
 
   const variantClasses = isFeatured
     ? "glass-panel border border-[#ff4d8d]/30 hover:border-[#ff4d8d]/50 hover:shadow-[0_8px_32px_rgba(255,77,141,0.2)] hover:-translate-y-0.5 disabled:hover:border-[#ff4d8d]/30 disabled:hover:shadow-none disabled:hover:translate-y-0"
@@ -68,7 +68,7 @@ const ModelCard: React.FC<ModelCardProps> = ({
       {(model.accuracy_score > 0 || model.speed_score > 0) && (
         <div className="space-y-2">
           <div className="flex items-center gap-2">
-            <p className="text-xs text-[#6b6b6b] w-16 text-right">
+            <p className="text-xs text-[#6b6b6b] w-24 text-end">
               {t("onboarding.modelCard.accuracy")}
             </p>
             <div className="w-20 h-1.5 bg-[#2b2b2b] rounded-full overflow-hidden">
@@ -79,7 +79,7 @@ const ModelCard: React.FC<ModelCardProps> = ({
             </div>
           </div>
           <div className="flex items-center gap-2">
-            <p className="text-xs text-[#6b6b6b] w-16 text-right">
+            <p className="text-xs text-[#6b6b6b] w-24 text-end">
               {t("onboarding.modelCard.speed")}
             </p>
             <div className="w-20 h-1.5 bg-[#2b2b2b] rounded-full overflow-hidden">
