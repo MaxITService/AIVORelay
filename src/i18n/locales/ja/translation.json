@@ -247,6 +247,11 @@
         "ort": {
           "title": "ONNX アクセラレーション",
           "description": "ONNX モデルのハードウェアアクセラレーション（Parakeet、Canary、Moonshine など）。Windows の DirectML は実験的です。モデルの文字起こしに失敗する場合があります。"
+        },
+        "gpuDevice": {
+          "title": "GPUデバイス",
+          "description": "Whisper推論に使用するGPUを選択します。自動は専用GPUを選択します。",
+          "auto": "自動"
         }
       }
     },
@@ -459,7 +464,7 @@
     "dismiss": "閉じる"
   },
   "errors": {
-    "loadDirectory": "ディレクトリの読み込みエラー: {{error}}"
+    "loadDirectory": "ディレクトリの読み込みエラー: {{error}}",
   },
   "appLanguage": {
     "title": "アプリケーション言語",

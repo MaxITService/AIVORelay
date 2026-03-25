@@ -19,26 +19,59 @@ function Test-Command($command) {
     $null -ne (Get-Command $command -ErrorAction SilentlyContinue)
 }
 
-function Set-BindgenWindowsEnv {
-    if (-not $env:INCLUDE) {
-        Write-Host "  WARNING: INCLUDE is empty, skipping bindgen include configuration" -ForegroundColor Yellow
-        return
+function Get-NewestChildDirectory([string]$Path) {
+    if (-not (Test-Path $Path)) {
+        return $null
     }
 
-    $includeArgs = @()
-    foreach ($path in ($env:INCLUDE -split ';')) {
-        if (-not [string]::IsNullOrWhiteSpace($path) -and (Test-Path $path)) {
-            $includeArgs += "--include-directory=$path"
+    return Get-ChildItem -Path $Path -Directory -ErrorAction SilentlyContinue |
+        Sort-Object Name -Descending |
+        Select-Object -First 1
+}
+
+function Set-BindgenWindowsEnv {
+    $includePaths = @()
+
+    $vsInstallPath = $env:VSINSTALLDIR
+    if (-not $vsInstallPath) {
+        $vsWhere = Join-Path ${env:ProgramFiles(x86)} "Microsoft Visual Studio\Installer\vswhere.exe"
+        if (Test-Path $vsWhere) {
+            $vsInstallPath = & $vsWhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
         }
     }
 
-    if ($includeArgs.Count -eq 0) {
-        Write-Host "  WARNING: No valid INCLUDE paths found for bindgen" -ForegroundColor Yellow
+    if ($vsInstallPath) {
+        $msvcRoot = Join-Path $vsInstallPath "VC\Tools\MSVC"
+        $latestMsvcDir = Get-NewestChildDirectory $msvcRoot
+        if ($latestMsvcDir) {
+            $msvcInclude = Join-Path $latestMsvcDir.FullName "include"
+            if (Test-Path $msvcInclude) {
+                $includePaths += $msvcInclude
+            }
+        }
+    }
+
+    $windowsSdkRoot = Join-Path ${env:ProgramFiles(x86)} "Windows Kits\10\Include"
+    $latestSdkDir = Get-NewestChildDirectory $windowsSdkRoot
+    if ($latestSdkDir) {
+        foreach ($subdir in @("ucrt", "shared", "um", "winrt", "cppwinrt")) {
+            $candidate = Join-Path $latestSdkDir.FullName $subdir
+            if (Test-Path $candidate) {
+                $includePaths += $candidate
+            }
+        }
+    }
+
+    $includePaths = $includePaths | Select-Object -Unique
+    if ($includePaths.Count -eq 0) {
+        Write-Host "  WARNING: No valid MSVC/Windows SDK include paths found for bindgen" -ForegroundColor Yellow
         return
     }
 
-    $env:BINDGEN_EXTRA_CLANG_ARGS = "--target=x86_64-pc-windows-msvc $($includeArgs -join ' ')"
-    Write-Host "  OK - Configured BINDGEN_EXTRA_CLANG_ARGS for MSVC headers" -ForegroundColor Green
+    $bindgenVar = "BINDGEN_EXTRA_CLANG_ARGS_x86_64_pc_windows_msvc"
+    $bindgenArgs = "--target=x86_64-pc-windows-msvc $(($includePaths | ForEach-Object { "-isystem '$_'" }) -join ' ')"
+    Set-Item -Path "Env:$bindgenVar" -Value $bindgenArgs
+    Write-Host "  OK - Configured $bindgenVar for MSVC headers" -ForegroundColor Green
 
     if (-not $env:LIBCLANG_PATH) {
         $defaultLibclangPath = "C:\Program Files\LLVM\bin"
@@ -46,6 +79,11 @@ function Set-BindgenWindowsEnv {
             $env:LIBCLANG_PATH = $defaultLibclangPath
             Write-Host "  OK - Set LIBCLANG_PATH to $defaultLibclangPath" -ForegroundColor Green
         }
+    }
+
+    if (Test-Path "C:\Program Files\LLVM\bin\clang.exe") {
+        $env:PATH = "C:\Program Files\LLVM\bin;$env:PATH"
+        Write-Host "  OK - Added LLVM bin to PATH for bindgen" -ForegroundColor Green
     }
 }
 
@@ -71,23 +109,38 @@ Write-Host ""
 Write-Host "[2/6] Setting up Visual Studio build environment..." -ForegroundColor Yellow
 
 if (-not $SkipChecks) {
-    # Use Launch-VsDevShell.ps1 (same as user's working Get-Dev function)
-    Write-Host "  Running Launch-VsDevShell.ps1..." -ForegroundColor Gray
+    Write-Host "  Importing VS dev environment via vswhere + VsDevCmd.bat..." -ForegroundColor Gray
 
     try {
-        # Use the same hardcoded path as user's Get-Dev function
-        # (VS Community, not BuildTools which vswhere may find)
-        $launchScript = "C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\Tools\Launch-VsDevShell.ps1"
-
-        if (-not (Test-Path $launchScript)) {
-            Write-Host "ERROR: Launch-VsDevShell.ps1 not found at $launchScript" -ForegroundColor Red
-            Write-Host "Please install Visual Studio 2022 Community with C++ build tools." -ForegroundColor Yellow
+        $vsWhere = Join-Path ${env:ProgramFiles(x86)} "Microsoft Visual Studio\Installer\vswhere.exe"
+        if (-not (Test-Path $vsWhere)) {
+            Write-Host "ERROR: vswhere.exe not found at $vsWhere" -ForegroundColor Red
             exit 1
         }
 
-        Write-Host "  Found VS Community at: C:\Program Files\Microsoft Visual Studio\2022\Community" -ForegroundColor Gray
+        $vsPath = & $vsWhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+        if (-not $vsPath) {
+            Write-Host "ERROR: Visual Studio installation not found." -ForegroundColor Red
+            exit 1
+        }
 
-        & $launchScript -Arch amd64 -HostArch amd64 -SkipAutomaticLocation
+        $vsDevCmd = Join-Path $vsPath "Common7\Tools\VsDevCmd.bat"
+        if (-not (Test-Path $vsDevCmd)) {
+            Write-Host "ERROR: VsDevCmd.bat not found at $vsDevCmd" -ForegroundColor Red
+            exit 1
+        }
+
+        $vars = cmd /c "`"$vsDevCmd`" -arch=x64 -host_arch=x64 && set"
+        if ($LASTEXITCODE -ne 0) {
+            Write-Host "ERROR: VsDevCmd.bat failed with exit code $LASTEXITCODE" -ForegroundColor Red
+            exit 1
+        }
+
+        foreach ($line in $vars) {
+            if ($line -match '^(.+?)=(.*)$') {
+                Set-Item -Path "Env:$($Matches[1])" -Value $Matches[2]
+            }
+        }
 
         Write-Host "  OK - Visual Studio environment configured" -ForegroundColor Green
         Set-BindgenWindowsEnv
@@ -174,81 +227,112 @@ if ($missingTools.Count -gt 0) {
     exit 1
 }
 
-# Step 5: Install dependencies
-Write-Host ""
-Write-Host "[5/6] Installing dependencies..." -ForegroundColor Yellow
-Write-Host "  Running: bun install" -ForegroundColor Gray
-
+$shortPathDrive = $null
 try {
-    & bun install
-    if ($LASTEXITCODE -ne 0) {
-        throw "bun install failed with exit code $LASTEXITCODE"
+    $workspacePath = (Get-Location).Path
+    if ($workspacePath.Length -gt 40) {
+        foreach ($letter in @("W", "V", "U", "T", "S")) {
+            if (-not (Get-PSDrive -Name $letter -ErrorAction SilentlyContinue)) {
+                $candidateDrive = "${letter}:"
+                $null = & subst $candidateDrive $workspacePath
+                if ($LASTEXITCODE -eq 0) {
+                    $shortPathDrive = $candidateDrive
+                    Push-Location "$candidateDrive\"
+                    Write-Host ""
+                    Write-Host "  OK - Using temporary short workspace path $candidateDrive for build" -ForegroundColor Green
+                    break
+                }
+            }
+        }
+
+        if (-not $shortPathDrive) {
+            Write-Host ""
+            Write-Host "  WARNING: Could not create temporary short workspace path. Build may fail in deep Vulkan/CMake directories." -ForegroundColor Yellow
+        }
     }
-    Write-Host "  OK - Dependencies installed" -ForegroundColor Green
-} catch {
-    Write-Host "  ERROR: Failed to install dependencies: $_" -ForegroundColor Red
-    exit 1
-}
 
-# Step 6: Build
-Write-Host ""
-Write-Host "[6/6] Building AIVORelay (unsigned)..." -ForegroundColor Yellow
-Write-Host ""
-
-if ($Debug) {
-    Write-Host "  Building in DEBUG mode..." -ForegroundColor Cyan
-    Write-Host "  Running: bun run tauri build --debug --no-sign" -ForegroundColor Gray
+    # Step 5: Install dependencies
     Write-Host ""
+    Write-Host "[5/6] Installing dependencies..." -ForegroundColor Yellow
+    Write-Host "  Running: bun install" -ForegroundColor Gray
 
     try {
-        & bun run tauri build --debug --no-sign
+        & bun install
         if ($LASTEXITCODE -ne 0) {
-            throw "Build failed with exit code $LASTEXITCODE"
+            throw "bun install failed with exit code $LASTEXITCODE"
         }
+        Write-Host "  OK - Dependencies installed" -ForegroundColor Green
     } catch {
-        Write-Host ""
-        Write-Host "ERROR: Debug build failed: $_" -ForegroundColor Red
+        Write-Host "  ERROR: Failed to install dependencies: $_" -ForegroundColor Red
         exit 1
     }
-} else {
-    Write-Host "  Building in RELEASE mode..." -ForegroundColor Cyan
-    Write-Host "  Running: bun run build:unsigned" -ForegroundColor Gray
+
+    # Step 6: Build
+    Write-Host ""
+    Write-Host "[6/6] Building AIVORelay (unsigned)..." -ForegroundColor Yellow
     Write-Host ""
 
-    try {
-        & bun run build:unsigned
-        if ($LASTEXITCODE -ne 0) {
-            throw "Build failed with exit code $LASTEXITCODE"
-        }
-    } catch {
+    if ($Debug) {
+        Write-Host "  Building in DEBUG mode..." -ForegroundColor Cyan
+        Write-Host "  Running: bun run tauri build --debug --no-sign" -ForegroundColor Gray
         Write-Host ""
-        Write-Host "ERROR: Release build failed: $_" -ForegroundColor Red
-        exit 1
+
+        try {
+            & bun run tauri build --debug --no-sign
+            if ($LASTEXITCODE -ne 0) {
+                throw "Build failed with exit code $LASTEXITCODE"
+            }
+        } catch {
+            Write-Host ""
+            Write-Host "ERROR: Debug build failed: $_" -ForegroundColor Red
+            exit 1
+        }
+    } else {
+        Write-Host "  Building in RELEASE mode..." -ForegroundColor Cyan
+        Write-Host "  Running: bun run build:unsigned" -ForegroundColor Gray
+        Write-Host ""
+
+        try {
+            & bun run build:unsigned
+            if ($LASTEXITCODE -ne 0) {
+                throw "Build failed with exit code $LASTEXITCODE"
+            }
+        } catch {
+            Write-Host ""
+            Write-Host "ERROR: Release build failed: $_" -ForegroundColor Red
+            exit 1
+        }
+    }
+
+    # Success!
+    Write-Host ""
+    Write-Host "=======================================" -ForegroundColor Green
+    Write-Host " Build completed successfully!" -ForegroundColor Green
+    Write-Host "=======================================" -ForegroundColor Green
+    Write-Host ""
+
+    if ($Debug) {
+        $bundlePath = "src-tauri\target\debug\bundle\msi"
+    } else {
+        $bundlePath = "src-tauri\target\release\bundle\msi"
+    }
+
+    if (Test-Path $bundlePath) {
+        Write-Host "Build artifacts:" -ForegroundColor Cyan
+        Get-ChildItem $bundlePath -Filter *.msi | ForEach-Object {
+            $sizeMB = [math]::Round($_.Length / 1MB, 2)
+            $name = $_.Name
+            Write-Host "  - $name - $sizeMB MB" -ForegroundColor Gray
+        }
+    }
+
+    Write-Host ""
+    Write-Host "Note: This is an unsigned build without auto-update functionality" -ForegroundColor Yellow
+    Write-Host ""
+}
+finally {
+    if ($shortPathDrive) {
+        Pop-Location
+        & subst $shortPathDrive /d | Out-Null
     }
 }
-
-# Success!
-Write-Host ""
-Write-Host "=======================================" -ForegroundColor Green
-Write-Host " Build completed successfully!" -ForegroundColor Green
-Write-Host "=======================================" -ForegroundColor Green
-Write-Host ""
-
-if ($Debug) {
-    $bundlePath = "src-tauri\target\debug\bundle\msi"
-} else {
-    $bundlePath = "src-tauri\target\release\bundle\msi"
-}
-
-if (Test-Path $bundlePath) {
-    Write-Host "Build artifacts:" -ForegroundColor Cyan
-    Get-ChildItem $bundlePath -Filter *.msi | ForEach-Object {
-        $sizeMB = [math]::Round($_.Length / 1MB, 2)
-        $name = $_.Name
-        Write-Host "  - $name - $sizeMB MB" -ForegroundColor Gray
-    }
-}
-
-Write-Host ""
-Write-Host "Note: This is an unsigned build without auto-update functionality" -ForegroundColor Yellow
-Write-Host ""

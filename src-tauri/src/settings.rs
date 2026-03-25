@@ -1783,6 +1783,8 @@ pub struct AppSettings {
     pub whisper_accelerator: WhisperAcceleratorSetting,
     #[serde(default)]
     pub ort_accelerator: OrtAcceleratorSetting,
+    #[serde(default = "default_whisper_gpu_device")]
+    pub whisper_gpu_device: i32,
     /// Whether to strip invisible Unicode characters (zero-width spaces, BOM) from LLM output
     #[serde(default = "default_true")]
     pub zero_width_filter_enabled: bool,
@@ -1843,6 +1845,10 @@ pub struct AppSettings {
 
 fn default_recording_auto_stop_timeout_seconds() -> u32 {
     1800
+}
+
+fn default_whisper_gpu_device() -> i32 {
+    -1
 }
 
 fn default_sidebar_width() -> u32 {
@@ -3066,6 +3072,7 @@ pub fn get_default_settings() -> AppSettings {
         custom_filler_words: None,
         whisper_accelerator: WhisperAcceleratorSetting::default(),
         ort_accelerator: OrtAcceleratorSetting::default(),
+        whisper_gpu_device: default_whisper_gpu_device(),
         zero_width_filter_enabled: true,
         vad_threshold: default_vad_threshold(),
         // Shortcut Engine (Windows only)

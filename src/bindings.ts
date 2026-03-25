@@ -2565,6 +2565,9 @@ async changeWhisperAcceleratorSetting(accelerator: WhisperAcceleratorSetting) : 
 async changeOrtAcceleratorSetting(accelerator: OrtAcceleratorSetting) : Promise<void> {
     await TAURI_INVOKE("change_ort_accelerator_setting", { accelerator });
 },
+async changeWhisperGpuDevice(device: number) : Promise<void> {
+    await TAURI_INVOKE("change_whisper_gpu_device", { device });
+},
 async getAvailableAccelerators() : Promise<AvailableAccelerators> {
     return await TAURI_INVOKE("get_available_accelerators");
 },
@@ -3350,11 +3353,12 @@ saved_window_x?: number;
 /**
  * Saved main window Y position in physical pixels (i32::MIN = not set)
  */
-saved_window_y?: number }
+saved_window_y?: number; whisper_gpu_device?: number }
 export type AudioDevice = { index: string; name: string; is_default: boolean }
 export type AutoSubmitKey = "enter" | "ctrl_enter" | "cmd_enter"
-export type AvailableAccelerators = { whisper: string[]; ort: string[] }
+export type AvailableAccelerators = { whisper: string[]; ort: string[]; gpu_devices: GpuDeviceOption[] }
 export type BindingResponse = { success: boolean; binding: ShortcutBinding | null; error: string | null }
+export type GpuDeviceOption = { id: number; name: string; total_vram_mb: number }
 export type BundledExtensionExportResult = { exportPath: string; extensionId: string; configuredOrigin: string; generatedPassword: string; reusedExistingId: boolean; replacedExistingExport: boolean }
 export type ClipboardHandling = "dont_modify" | "copy_to_clipboard" | 
 /**

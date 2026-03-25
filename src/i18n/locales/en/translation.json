@@ -1610,6 +1610,11 @@
         "ort": {
           "title": "ONNX Acceleration",
           "description": "Hardware acceleration for ONNX models (Parakeet, Canary, Moonshine, etc.). DirectML on Windows is experimental. Models may fail to transcribe."
+        },
+        "gpuDevice": {
+          "title": "GPU Device",
+          "description": "Select which GPU to use for Whisper inference. Auto picks the dedicated GPU.",
+          "auto": "Auto"
         }
       },
       "lazyStreamClose": {
@@ -2458,7 +2463,7 @@
     "modelLoadFailed": "Failed to load model: {{model}}",
     "modelLoadFailedUnknown": "Unknown model",
     "modelDownloadFailed": "Failed to download model: {{model}}",
-    "modelDownloadFailedUnknown": "Unknown model"
+    "modelDownloadFailedUnknown": "Unknown model",
   },
   "appLanguage": {
     "title": "Application Language",

@@ -34,6 +34,7 @@ After running this once, cargo/rustc commands work for the rest of the conversat
 4. **Wait**: If a background dev/build command is already running, do not start Cargo tools until it has clearly finished.
 5. **Get-Dev Once**: Run environment setup ($vsPath) ONCE per conversation, not inline.
 6. **Output Markers**: Wrap long commands: `Write-Host "--- START TASK ---"; <cmd>; Write-Host "--- END TASK ---"`
+7. **To check processes**: `Get-Process | Where-Object { $_.Name -match "cargo|tauri|rustc|bun" } | Select-Object Name, Id`
 
 **Key Tools:** Use frontend-only tools (`bun x tsc --noEmit`, `bun run lint`, `bun run format:frontend`, `bun run check:translations`) anytime. Use Rust tools (`cargo fmt`, `cargo clippy`, `cargo check`) ONLY if NO dev processes are running.
 

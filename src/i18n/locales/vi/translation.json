@@ -248,6 +248,11 @@
         "ort": {
           "title": "Tăng tốc ONNX",
           "description": "Tăng tốc phần cứng cho các mô hình ONNX (Parakeet, Canary, Moonshine, v.v.). DirectML trên Windows là thử nghiệm. Các mô hình có thể không chuyển đổi giọng nói được."
+        },
+        "gpuDevice": {
+          "title": "Thiết bị GPU",
+          "description": "Chọn GPU để sử dụng cho suy luận Whisper. Tự động chọn GPU chuyên dụng.",
+          "auto": "Tự động"
         }
       }
     },
@@ -460,7 +465,7 @@
     "dismiss": "Bỏ qua"
   },
   "errors": {
-    "loadDirectory": "Lỗi khi tải thư mục: {{error}}"
+    "loadDirectory": "Lỗi khi tải thư mục: {{error}}",
   },
   "appLanguage": {
     "title": "Ngôn ngữ ứng dụng",
