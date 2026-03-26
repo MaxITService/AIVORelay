@@ -476,11 +476,12 @@ jobs:
           # Determine the target output directory
           $target = "${{ inputs.target }}"
           $profile = "${{ steps.build-profile.outputs.profile }}"
+          $cargoTargetDir = if ($env:CARGO_TARGET_DIR) { $env:CARGO_TARGET_DIR } else { "src-tauri/target" }
           if ($target -eq "x86_64-pc-windows-msvc" -or $target -eq "") {
-            $targetDir = "src-tauri/target/$profile"
+            $targetDir = "$cargoTargetDir/$profile"
             $arch = "x64"
           } else {
-            $targetDir = "src-tauri/target/$target/$profile"
+            $targetDir = "$cargoTargetDir/$target/$profile"
             $arch = "arm64"
           }
 
@@ -530,6 +531,32 @@ jobs:
           echo "PORTABLE_ZIP_PATH=$zipName" >> $env:GITHUB_ENV
           echo "PORTABLE_ZIP_NAME=$zipName" >> $env:GITHUB_ENV
 
+      - name: Collect Windows MSI artifacts
+        if: inputs.upload-artifacts && contains(inputs.platform, 'windows')
+        shell: pwsh
+        run: |
+          $target = "${{ inputs.target }}"
+          $profile = "${{ steps.build-profile.outputs.profile }}"
+          $cargoTargetDir = if ($env:CARGO_TARGET_DIR) { $env:CARGO_TARGET_DIR } else { "src-tauri/target" }
+          if ($target -eq "x86_64-pc-windows-msvc" -or $target -eq "") {
+            $bundleDir = "$cargoTargetDir/$profile/bundle/msi"
+          } else {
+            $bundleDir = "$cargoTargetDir/$target/$profile/bundle/msi"
+          }
+
+          $artifactDir = "windows-artifacts"
+          New-Item -ItemType Directory -Force -Path $artifactDir | Out-Null
+
+          $msiFiles = Get-ChildItem -Path $bundleDir -Filter *.msi -ErrorAction SilentlyContinue
+          if (-not $msiFiles) {
+            Write-Error "No MSI artifacts found in $bundleDir"
+            exit 1
+          }
+
+          foreach ($msi in $msiFiles) {
+            Copy-Item $msi.FullName "$artifactDir/" -Force
+          }
+
       - name: Upload portable ZIP to release (Windows)
         if: contains(inputs.platform, 'windows') && inputs.release-id != ''
         shell: bash
@@ -545,9 +572,8 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: ${{ inputs.asset-prefix }}-${{ inputs.target }}
-          # Default Windows builds place bundles under release/, but cross-compiles (ARM64) nest under target/<triple>/release.
           path: |
-            src-tauri/target/${{ inputs.target != '' && inputs.target != 'x86_64-pc-windows-msvc' && format('{0}/{1}', inputs.target, steps.build-profile.outputs.profile) || steps.build-profile.outputs.profile }}/bundle/msi/*.msi
+            windows-artifacts/*.msi
             ${{ env.PORTABLE_ZIP_NAME }}
           retention-days: 30
 
