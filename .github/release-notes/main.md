@@ -5,9 +5,9 @@ GitHub Actions prepends this Markdown above GitHub-generated release notes.
 
 ## Highlights
 
-- Live Monitor supports real-time transcription for system audio and microphone capture.
-- Speaker diarization can label multiple speakers in live and file transcription flows.
-- The preview window supports in-place corrections and remembers its layout between sessions.
+- Whisper acceleration can now list detected GPUs and let you choose a specific device directly.
+- The app now shows a clearer message when no microphone or other audio input device is available.
+- Settings dropdowns now open upward to reduce overlap and clipping issues in the settings UI.
 
 ---
 
