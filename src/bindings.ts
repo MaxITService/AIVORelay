@@ -3285,7 +3285,7 @@ filler_word_filter_enabled?: boolean;
 /**
  * Optional custom filler words. When set, overrides language defaults for filler filtering.
  */
-custom_filler_words?: string[] | null; whisper_accelerator?: WhisperAcceleratorSetting; ort_accelerator?: OrtAcceleratorSetting; 
+custom_filler_words?: string[] | null; whisper_accelerator?: WhisperAcceleratorSetting; ort_accelerator?: OrtAcceleratorSetting; whisper_gpu_device?: number; 
 /**
  * Whether to strip invisible Unicode characters (zero-width spaces, BOM) from LLM output
  */
@@ -3353,12 +3353,11 @@ saved_window_x?: number;
 /**
  * Saved main window Y position in physical pixels (i32::MIN = not set)
  */
-saved_window_y?: number; whisper_gpu_device?: number }
+saved_window_y?: number }
 export type AudioDevice = { index: string; name: string; is_default: boolean }
 export type AutoSubmitKey = "enter" | "ctrl_enter" | "cmd_enter"
 export type AvailableAccelerators = { whisper: string[]; ort: string[]; gpu_devices: GpuDeviceOption[] }
 export type BindingResponse = { success: boolean; binding: ShortcutBinding | null; error: string | null }
-export type GpuDeviceOption = { id: number; name: string; total_vram_mb: number }
 export type BundledExtensionExportResult = { exportPath: string; extensionId: string; configuredOrigin: string; generatedPassword: string; reusedExistingId: boolean; replacedExistingExport: boolean }
 export type ClipboardHandling = "dont_modify" | "copy_to_clipboard" | 
 /**
@@ -3455,6 +3454,7 @@ speaker_session: FileTranscriptionSpeakerSession | null }
 export type FileTranscriptionSpeaker = { speaker_id: number; default_name: string }
 export type FileTranscriptionSpeakerNameInput = { speaker_id: number; name: string }
 export type FileTranscriptionSpeakerSession = { artifact_path: string; provider: DiarizedTranscriptProvider; speakers: FileTranscriptionSpeaker[] }
+export type GpuDeviceOption = { id: number; name: string; total_vram_mb: number }
 export type GpuVramStatus = { is_supported: boolean; adapter_name: string | null; used_bytes: number; budget_bytes: number; system_used_bytes: number; system_free_bytes: number; total_vram_bytes: number; updated_at_unix_ms: number; error: string | null }
 export type HistoryEntry = { id: number; file_name: string; timestamp: number; saved: boolean; title: string; transcription_text: string; post_processed_text: string | null; post_process_prompt: string | null; post_process_requested: boolean; 
 /**
