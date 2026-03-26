@@ -31,17 +31,34 @@ function Get-NewestChildDirectory([string]$Path) {
 
 function Set-BindgenWindowsEnv {
     $includePaths = @()
+    $msvcRoot = $null
 
-    $vsInstallPath = $env:VSINSTALLDIR
-    if (-not $vsInstallPath) {
-        $vsWhere = Join-Path ${env:ProgramFiles(x86)} "Microsoft Visual Studio\Installer\vswhere.exe"
-        if (Test-Path $vsWhere) {
-            $vsInstallPath = & $vsWhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+    if ($env:VCToolsInstallDir -and (Test-Path (Join-Path $env:VCToolsInstallDir "include\vcruntime.h"))) {
+        $includePaths += (Join-Path $env:VCToolsInstallDir "include")
+    } else {
+        $vsInstallPath = $env:VSINSTALLDIR
+        if ($vsInstallPath) {
+            $candidateRoot = Join-Path $vsInstallPath "VC\Tools\MSVC"
+            if (Test-Path $candidateRoot) {
+                $msvcRoot = $candidateRoot
+            }
+        }
+
+        if (-not $msvcRoot) {
+            $vsWhere = Join-Path ${env:ProgramFiles(x86)} "Microsoft Visual Studio\Installer\vswhere.exe"
+            if (Test-Path $vsWhere) {
+                $vsInstallPath = & $vsWhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+                if ($vsInstallPath) {
+                    $candidateRoot = Join-Path $vsInstallPath "VC\Tools\MSVC"
+                    if (Test-Path $candidateRoot) {
+                        $msvcRoot = $candidateRoot
+                    }
+                }
+            }
         }
     }
 
-    if ($vsInstallPath) {
-        $msvcRoot = Join-Path $vsInstallPath "VC\Tools\MSVC"
+    if ($msvcRoot) {
         $latestMsvcDir = Get-NewestChildDirectory $msvcRoot
         if ($latestMsvcDir) {
             $msvcInclude = Join-Path $latestMsvcDir.FullName "include"
@@ -227,29 +244,12 @@ if ($missingTools.Count -gt 0) {
     exit 1
 }
 
-$shortPathDrive = $null
+$cargoTargetDir = "C:\t\aivorelay-local-build"
 try {
-    $workspacePath = (Get-Location).Path
-    if ($workspacePath.Length -gt 40) {
-        foreach ($letter in @("W", "V", "U", "T", "S")) {
-            if (-not (Get-PSDrive -Name $letter -ErrorAction SilentlyContinue)) {
-                $candidateDrive = "${letter}:"
-                $null = & subst $candidateDrive $workspacePath
-                if ($LASTEXITCODE -eq 0) {
-                    $shortPathDrive = $candidateDrive
-                    Push-Location "$candidateDrive\"
-                    Write-Host ""
-                    Write-Host "  OK - Using temporary short workspace path $candidateDrive for build" -ForegroundColor Green
-                    break
-                }
-            }
-        }
-
-        if (-not $shortPathDrive) {
-            Write-Host ""
-            Write-Host "  WARNING: Could not create temporary short workspace path. Build may fail in deep Vulkan/CMake directories." -ForegroundColor Yellow
-        }
-    }
+    New-Item -ItemType Directory -Force -Path $cargoTargetDir | Out-Null
+    $env:CARGO_TARGET_DIR = $cargoTargetDir
+    Write-Host ""
+    Write-Host "  OK - Using short CARGO_TARGET_DIR $cargoTargetDir for build" -ForegroundColor Green
 
     # Step 5: Install dependencies
     Write-Host ""
@@ -331,8 +331,5 @@ try {
     Write-Host ""
 }
 finally {
-    if ($shortPathDrive) {
-        Pop-Location
-        & subst $shortPathDrive /d | Out-Null
-    }
+    $env:CARGO_TARGET_DIR = $null
 }
