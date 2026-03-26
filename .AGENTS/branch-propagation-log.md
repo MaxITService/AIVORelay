@@ -12,6 +12,8 @@ Rules:
 
 | Propagation Date | Target Branch | Main SHA | Main Message | Branch SHA | Branch Message | Issues |
 | --- | --- | --- | --- | --- | --- | --- |
+| 2026-03-26 | `cuda-integration` | `37e5a204` | fix(ci): shorten Windows cargo target dir for whisper build | `1c886375` | fix(ci): shorten Windows cargo target dir for whisper build | clean cherry-pick |
+| 2026-03-26 | `Microsoft-store` | `37e5a204` | fix(ci): shorten Windows cargo target dir for whisper build | `a6974073` | fix(ci): shorten Windows cargo target dir for whisper build | clean cherry-pick |
 | 2026-03-26 | `cuda-integration` | `9cf5c37a` | fix(ui): keep dropdown menus above settings panels | `0aec707f` | fix(ui): keep dropdown menus above settings panels | clean cherry-pick |
 | 2026-03-26 | `Microsoft-store` | `9cf5c37a` | fix(ui): keep dropdown menus above settings panels | `88c25f1a` | fix(ui): keep dropdown menus above settings panels | clean cherry-pick |
 | 2026-03-26 | `cuda-integration` | `d0db58e4` | chore(bindings): regenerate after gpu selector sync | `65b99aba` | chore(bindings): regenerate after gpu selector sync | includes 637f1e6a; kept CUDA-specific transcribe-rs dependency path |
@@ -20,8 +22,6 @@ Rules:
 | 2026-03-25 | `Microsoft-store` | `2dfc6ae3` | docs(sync): record v0.8.0 intake cursor | `46dabe77` | docs(sync): record v0.8.0 intake cursor | 4 commits; clean cherry-pick |
 | 2026-03-24 | `Microsoft-store` | `869dea81` | chore(release): load release body from markdown | `f4202690` | chore(release): load release body from markdown | kept store-specific lead-in text |
 | 2026-03-24 | `cuda-integration` | `869dea81` | chore(release): load release body from markdown | `54bfd4c7` | chore(release): load release body from markdown | code-notes conflict only |
-| 2026-03-23 | `Microsoft-store` | `8c52c9f0` | chore: bump version to 1.0.6 | `96af69bd` | chore: bump version to 1.0.6 | includes e0b993b6; reused local 1.0.5 bump |
-| 2026-03-23 | `cuda-integration` | `8c52c9f0` | chore: bump version to 1.0.6 | `ef3b9058` | chore: bump version to 1.0.6 | includes e0b993b6; reused local 1.0.5 bump |
 
 Entry template:
 
