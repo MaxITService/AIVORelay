@@ -400,11 +400,11 @@ settingUpdaters.error_overlay_auto_hide_ms = (value) =>
     seconds: value,
   });
 (settingUpdaters as any).whisper_accelerator = (value: any) =>
-  invoke("change_whisper_accelerator_setting", { accelerator: value });
+  commands.changeWhisperAcceleratorSetting(value as any);
 (settingUpdaters as any).ort_accelerator = (value: any) =>
-  invoke("change_ort_accelerator_setting", { accelerator: value });
+  commands.changeOrtAcceleratorSetting(value as any);
 (settingUpdaters as any).whisper_gpu_device = (value: any) =>
-  invoke("change_whisper_gpu_device", { device: Math.trunc(Number(value)) });
+  commands.changeWhisperGpuDevice(Math.trunc(Number(value)));
 (settingUpdaters as any).recording_auto_stop_paste = (value: any) =>
   invoke("change_recording_auto_stop_paste_setting", { paste: value });
 (settingUpdaters as any).extra_recording_buffer_ms = (value: any) =>
