@@ -4,10 +4,13 @@ import { getVersion } from "@tauri-apps/api/app";
 import ModelSelector from "../model-selector";
 import UpdateChecker from "../update-checker";
 import VramMeter from "./VramMeter";
+import { useAppRuntimeInfo } from "../../hooks/useAppRuntimeInfo";
 
 const Footer: React.FC = () => {
   const [version, setVersion] = useState("");
   const [vramRefreshNonce, setVramRefreshNonce] = useState(0);
+  const runtimeInfo = useAppRuntimeInfo();
+  const showUpdateChecker = runtimeInfo?.selfUpdateSupported ?? false;
 
   useEffect(() => {
     const fetchVersion = async () => {
@@ -35,8 +38,12 @@ const Footer: React.FC = () => {
 
         {/* Update Status */}
         <div className="flex items-center gap-2">
-          <UpdateChecker />
-          <span className="text-[#333333]">•</span>
+          {showUpdateChecker && (
+            <>
+              <UpdateChecker />
+              <span className="text-[#333333]">•</span>
+            </>
+          )}
           {/* eslint-disable-next-line i18next/no-literal-string */}
           <span className="font-medium">v{version}</span>
         </div>

@@ -19,6 +19,7 @@ mod portable;
 mod recording_auto_stop;
 #[cfg(target_os = "windows")]
 mod region_capture;
+mod runtime_info;
 mod secure_keys;
 mod session_manager;
 mod settings;
@@ -370,7 +371,7 @@ fn initialize_core_logic(app_handle: &AppHandle) {
                 }
                 "check_updates" => {
                     let settings = settings::get_settings(app);
-                    if settings.update_checks_enabled {
+                    if settings.update_checks_enabled && runtime_info::self_update_supported(app) {
                         show_main_window(app);
                         let _ = app.emit("check-for-updates", ());
                     }
@@ -442,7 +443,7 @@ fn initialize_core_logic(app_handle: &AppHandle) {
 #[specta::specta]
 fn trigger_update_check(app: AppHandle) -> Result<(), String> {
     let settings = settings::get_settings(&app);
-    if !settings.update_checks_enabled {
+    if !settings.update_checks_enabled || !runtime_info::self_update_supported(&app) {
         return Ok(());
     }
     app.emit("check-for-updates", ())
@@ -713,6 +714,7 @@ pub fn run() {
         commands::cancel_operation,
         commands::get_app_dir_path,
         commands::get_app_settings,
+        commands::get_app_runtime_info,
         commands::get_default_settings,
         commands::get_log_dir_path,
         commands::asset_preview::prepare_transcribe_file_asset,

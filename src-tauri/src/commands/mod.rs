@@ -12,6 +12,7 @@ pub mod transcription;
 pub mod voice_activation_button;
 pub mod voice_command;
 
+use crate::runtime_info::AppRuntimeInfo;
 use crate::settings::{get_settings, write_settings, AppSettings, LlmFeature, LogLevel};
 use crate::utils::cancel_current_operation;
 use tauri::AppHandle;
@@ -40,6 +41,12 @@ pub fn get_app_dir_path(app: AppHandle) -> Result<String, String> {
 #[specta::specta]
 pub fn get_app_settings(app: AppHandle) -> Result<AppSettings, String> {
     Ok(get_settings(&app))
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn get_app_runtime_info(app: AppHandle) -> Result<AppRuntimeInfo, String> {
+    Ok(crate::runtime_info::get_app_runtime_info(&app))
 }
 
 #[tauri::command]

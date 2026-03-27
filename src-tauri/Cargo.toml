@@ -9,6 +9,10 @@ repository = "https://github.com/MaxITService/AIVORelay"
 license = "MIT"
 default-run = "aivorelay"
 
+[workspace]
+members = ["sidecars/aivorelay-avx2"]
+resolver = "2"
+
 [profile.dev]
 incremental = true # Compile your binary in smaller steps.
 

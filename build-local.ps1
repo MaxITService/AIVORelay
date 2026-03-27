@@ -3,7 +3,8 @@
 
 param(
     [switch]$SkipChecks,
-    [switch]$Debug
+    [switch]$Debug,
+    [switch]$Avx2
 )
 
 $ErrorActionPreference = "Stop"
@@ -104,9 +105,57 @@ function Set-BindgenWindowsEnv {
     }
 }
 
+function Get-PreferredCargoTargetDir([bool]$UseAvx2 = $false) {
+    if ($env:AIVORELAY_CARGO_TARGET_DIR) {
+        return $env:AIVORELAY_CARGO_TARGET_DIR
+    }
+
+    $candidates = if ($UseAvx2) {
+        @("D:\a2", "C:\a2", "C:\t\aivorelay-avx2")
+    } else {
+        @("D:\t", "C:\b", "C:\t\aivorelay-local-build")
+    }
+
+    foreach ($candidate in $candidates) {
+        try {
+            New-Item -ItemType Directory -Force -Path $candidate | Out-Null
+            return $candidate
+        } catch {
+            continue
+        }
+    }
+
+    return if ($UseAvx2) { "C:\t\aivorelay-avx2" } else { "C:\t\aivorelay-local-build" }
+}
+
+function Set-Avx2BuildEnv {
+    $cmakeInclude = Resolve-Path "src-tauri\cmake\force_ggml_avx2.cmake" -ErrorAction Stop
+    $env:RUSTFLAGS = "-C target-feature=+avx2"
+    $env:CMAKE_PROJECT_INCLUDE_BEFORE = $cmakeInclude.Path
+    Write-Host "  OK - Enabled AVX2 Rust/CMake build overrides" -ForegroundColor Green
+}
+
+function Invoke-PrepareAvx2Sidecar([bool]$ReleaseBuild = $false) {
+    $sidecarArgs = @("run", "scripts/prepare-avx2-sidecar.js")
+    if ($ReleaseBuild) {
+        $sidecarArgs += "--release"
+    }
+
+    Write-Host ""
+    Write-Host "[6/7] Preparing AVX2 sidecar executable..." -ForegroundColor Yellow
+    Write-Host "  Running: bun $($sidecarArgs -join ' ')" -ForegroundColor Gray
+
+    & bun @sidecarArgs
+    if ($LASTEXITCODE -ne 0) {
+        throw "AVX2 sidecar preparation failed with exit code $LASTEXITCODE"
+    }
+
+    Write-Host "  OK - AVX2 sidecar prepared" -ForegroundColor Green
+}
+
 # Step 1: Check for running processes
 if (-not $SkipChecks) {
-    Write-Host "[1/6] Checking for running cargo/tauri processes..." -ForegroundColor Yellow
+    Write-Host "[1/7] Checking for running cargo/tauri processes..." -ForegroundColor Yellow
     $runningProcs = Get-Process | Where-Object { $_.Name -match "cargo|tauri|rustc|bun" }
 
     if ($runningProcs) {
@@ -118,12 +167,12 @@ if (-not $SkipChecks) {
     }
     Write-Host "  OK - No conflicting processes found" -ForegroundColor Green
 } else {
-    Write-Host "[1/6] Skipping process check (-SkipChecks)" -ForegroundColor Gray
+    Write-Host "[1/7] Skipping process check (-SkipChecks)" -ForegroundColor Gray
 }
 
 # Step 2: Setup Visual Studio environment (Get-Dev equivalent from AGENTS.md)
 Write-Host ""
-Write-Host "[2/6] Setting up Visual Studio build environment..." -ForegroundColor Yellow
+Write-Host "[2/7] Setting up Visual Studio build environment..." -ForegroundColor Yellow
 
 if (-not $SkipChecks) {
     Write-Host "  Importing VS dev environment via vswhere + VsDevCmd.bat..." -ForegroundColor Gray
@@ -172,7 +221,7 @@ if (-not $SkipChecks) {
 
 # Step 3: Check Vulkan DLL
 Write-Host ""
-Write-Host "[3/6] Checking Vulkan DLL..." -ForegroundColor Yellow
+Write-Host "[3/7] Checking Vulkan DLL..." -ForegroundColor Yellow
 
 $targetDir = "src-tauri"
 $targetDll = Join-Path $targetDir "vulkan-1.dll"
@@ -218,7 +267,7 @@ if (Test-Path $targetDll) {
 
 # Step 4: Check required tools
 Write-Host ""
-Write-Host "[4/6] Checking required tools..." -ForegroundColor Yellow
+Write-Host "[4/7] Checking required tools..." -ForegroundColor Yellow
 
 $requiredTools = @{
     "bun" = "Bun package manager"
@@ -244,16 +293,20 @@ if ($missingTools.Count -gt 0) {
     exit 1
 }
 
-$cargoTargetDir = "C:\t\aivorelay-local-build"
+$cargoTargetDir = Get-PreferredCargoTargetDir $Avx2
 try {
     New-Item -ItemType Directory -Force -Path $cargoTargetDir | Out-Null
     $env:CARGO_TARGET_DIR = $cargoTargetDir
     Write-Host ""
     Write-Host "  OK - Using short CARGO_TARGET_DIR $cargoTargetDir for build" -ForegroundColor Green
 
-    # Step 5: Install dependencies
+    if ($Avx2) {
+        Set-Avx2BuildEnv
+    }
+
+# Step 5: Install dependencies
     Write-Host ""
-    Write-Host "[5/6] Installing dependencies..." -ForegroundColor Yellow
+    Write-Host "[5/7] Installing dependencies..." -ForegroundColor Yellow
     Write-Host "  Running: bun install" -ForegroundColor Gray
 
     try {
@@ -267,9 +320,16 @@ try {
         exit 1
     }
 
-    # Step 6: Build
+    try {
+        Invoke-PrepareAvx2Sidecar -ReleaseBuild:(-not $Debug)
+    } catch {
+        Write-Host "  ERROR: Failed to prepare AVX2 sidecar: $_" -ForegroundColor Red
+        exit 1
+    }
+
+    # Step 7: Build
     Write-Host ""
-    Write-Host "[6/6] Building AIVORelay (unsigned)..." -ForegroundColor Yellow
+    Write-Host "[7/7] Building AIVORelay (unsigned)..." -ForegroundColor Yellow
     Write-Host ""
 
     if ($Debug) {
@@ -293,6 +353,12 @@ try {
         Write-Host ""
 
         try {
+            if ($Avx2) {
+                $env:AIVORELAY_BUILD_AVX2 = "1"
+            } else {
+                $env:AIVORELAY_BUILD_AVX2 = $null
+            }
+            $env:AIVORELAY_CARGO_TARGET_DIR = $cargoTargetDir
             & bun run build:unsigned
             if ($LASTEXITCODE -ne 0) {
                 throw "Build failed with exit code $LASTEXITCODE"
@@ -312,9 +378,9 @@ try {
     Write-Host ""
 
     if ($Debug) {
-        $bundlePath = "src-tauri\target\debug\bundle\msi"
+        $bundlePath = Join-Path $cargoTargetDir "debug\bundle\msi"
     } else {
-        $bundlePath = "src-tauri\target\release\bundle\msi"
+        $bundlePath = Join-Path $cargoTargetDir "release\bundle\msi"
     }
 
     if (Test-Path $bundlePath) {
@@ -332,4 +398,9 @@ try {
 }
 finally {
     $env:CARGO_TARGET_DIR = $null
+    $env:AIVORELAY_CARGO_TARGET_DIR = $null
+    $env:AIVORELAY_AVX2_TARGET_DIR = $null
+    $env:AIVORELAY_BUILD_AVX2 = $null
+    $env:RUSTFLAGS = $null
+    $env:CMAKE_PROJECT_INCLUDE_BEFORE = $null
 }

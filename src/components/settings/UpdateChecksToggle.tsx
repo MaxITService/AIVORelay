@@ -2,6 +2,7 @@ import React from "react";
 import { useTranslation } from "react-i18next";
 import { ToggleSwitch } from "../ui/ToggleSwitch";
 import { useSettings } from "../../hooks/useSettings";
+import { useAppRuntimeInfo } from "../../hooks/useAppRuntimeInfo";
 
 interface UpdateChecksToggleProps {
   descriptionMode?: "inline" | "tooltip";
@@ -14,7 +15,12 @@ export const UpdateChecksToggle: React.FC<UpdateChecksToggleProps> = ({
 }) => {
   const { t } = useTranslation();
   const { getSetting, updateSetting, isUpdating } = useSettings();
+  const runtimeInfo = useAppRuntimeInfo();
   const updateChecksEnabled = getSetting("update_checks_enabled") ?? true;
+
+  if (runtimeInfo?.selfUpdateSupported === false) {
+    return null;
+  }
 
   return (
     <ToggleSwitch

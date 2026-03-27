@@ -76,6 +76,7 @@
     "shortDescription": "AivoRelay - AI Voice Relay",
     "createUpdaterArtifacts": true,
     "targets": "msi",
+    "externalBin": ["binaries/aivorelay-avx2"],
     "resources": ["resources/**/*", "vulkan-1.dll"],
     "license": "MIT",
     "icon": [
