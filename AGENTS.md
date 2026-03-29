@@ -50,13 +50,15 @@ Only interact with these branches:
 - `main`
 - `Microsoft-store`
 - `cuda-integration`
+- `codex/combined`
 
 Relative worktree paths:
 - `main` -> `.`
 - `Microsoft-store` -> `../AIVORelay-ms-prop`
 - `cuda-integration` -> `../worktree/cuda-integration`
+- `codex/combined` -> `../../../AivoRelay`
 
-(When user says "all branches", they currently mean `main`, `Microsoft-store`, and `cuda-integration`.)
+(When user says "all branches", they currently mean `main`, `Microsoft-store`, `cuda-integration`, and `codex/combined`.)
 For work on non-`main` branches, use `main` as the only sync source.
 
 ## Fork Documentation - Read file(s) that is related to current task ONLY.

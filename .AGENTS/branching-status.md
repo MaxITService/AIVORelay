@@ -20,3 +20,11 @@ Note: the cursor always points to the last propagated commit from `main`, not to
 Sync rule: for this branch, source commits come from `main` only.
 Propagation scope rule: for CUDA Edition propagation, bring over the intended `main` commit set in order unless a commit is CUDA-incompatible. Default exclusions are Microsoft Store-specific changes and branch-local CUDA dependency/release wiring that only exists on `cuda-integration`.
 Operational note (2026-03-23): for content documentation, treat the branch as reset to the `8c52c9f0` baseline and describe only the remaining CUDA/build/docs layer listed in the `cuda-integration` worktree copy of `[[.AGENTS/cuda-branch-notes|cuda-branch-notes.md]]`.
+
+## codex/combined
+
+Last synced commit from `main`: `305c6878` — fix(settings): repair invalid portions on load.
+Maintenance rule: after a successful `main` -> `codex/combined` propagation, update this main-copy cursor and the `codex/combined` worktree copy together.
+Note: the cursor always points to the last propagated commit from `main`, not to combined-only commits created on top of it.
+Sync rule: for this branch, source commits come from `main` only.
+Propagation scope rule: for Combined Edition propagation, bring over intended `main` runtime fixes in order unless a commit conflicts with combined packaging or variant-launcher wiring.
