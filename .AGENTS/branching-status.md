@@ -14,7 +14,7 @@ Propagation scope rule: for Microsoft Store Edition propagation, bring over the 
 
 ## cuda-integration
 
-Last synced commit from `main`: `4725eca3` — fix(tray): show app version in tooltip.
+Last synced commit from `main`: `ecb1fbdb` — perf(audio): preload recorder during local model warmup.
 Maintenance rule: after a successful `main` -> `cuda-integration` propagation, update this main-copy cursor and the `cuda-integration` worktree copy together.
 Note: the cursor always points to the last propagated commit from `main`, not to CUDA-only commits that were created on top of it.
 Sync rule: for this branch, source commits come from `main` only.
@@ -23,7 +23,7 @@ Operational note (2026-03-23): for content documentation, treat the branch as re
 
 ## codex/combined
 
-Last synced commit from `main`: `4725eca3` — fix(tray): show app version in tooltip.
+Last synced commit from `main`: `ecb1fbdb` — perf(audio): preload recorder during local model warmup.
 Maintenance rule: after a successful `main` -> `codex/combined` propagation, update this main-copy cursor and the `codex/combined` worktree copy together.
 Note: the cursor always points to the last propagated commit from `main`, not to combined-only commits created on top of it.
 Sync rule: for this branch, source commits come from `main` only.
