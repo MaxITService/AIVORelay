@@ -5,7 +5,7 @@ Before starting a new `main` -> branch sync, verify the target branch directly w
 
 ## Microsoft-store
 
-Last synced commit from `main`: `ecb1fbdb` — perf(audio): preload recorder during local model warmup.
+Last synced commit from `main`: `9b99c39c` — fix(transcription): harden idle unload and windows CI build path.
 Maintenance rule: after a successful `main` -> `Microsoft-store` propagation, update this main-copy cursor and the `Microsoft-store` worktree copy together.
 Note: the cursor always points to the last propagated `main` state reflected in branch content, not to a docs-only cursor-update commit itself.
 Alignment note: `Microsoft-store` now matches `main` for all non-Store-specific files via force overwrite. Intentional differences remain only for Microsoft Store-specific docs/config/workflow/updater/AVX2 files.
@@ -14,8 +14,16 @@ Propagation scope rule: for Microsoft Store Edition propagation, bring over the 
 
 ## cuda-integration
 
-Last synced commit from `main`: `305c6878` — fix(settings): repair invalid portions on load.
+Last synced commit from `main`: `9b99c39c` — fix(transcription): harden idle unload and windows CI build path.
 Maintenance rule: after a successful `main` -> `cuda-integration` propagation, update this main-copy cursor and the `cuda-integration` worktree copy together.
 Note: the cursor always points to the last propagated commit from `main`, not to CUDA-only commits that were created on top of it.
 Sync rule: for this branch, source commits come from `main` only.
 Propagation scope rule: for CUDA Edition propagation, bring over the intended `main` commit set in order unless a commit is CUDA-incompatible. Default exclusions are Microsoft Store-specific changes and branch-local CUDA dependency/release wiring that only exists on `cuda-integration`.
+
+## codex/combined
+
+Last synced commit from `main`: `9b99c39c` — fix(transcription): harden idle unload and windows CI build path.
+Maintenance rule: after a successful `main` -> `codex/combined` propagation, update this main-copy cursor and the `codex/combined` worktree copy together.
+Note: the cursor always points to the last propagated commit from `main`, not to combined-only commits created on top of it.
+Sync rule: for this branch, source commits come from `main` only.
+Propagation scope rule: for Combined Edition propagation, bring over intended `main` runtime fixes in order unless a commit conflicts with combined packaging or variant-launcher wiring.
