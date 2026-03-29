@@ -103,6 +103,18 @@ pub fn change_tray_icon(app: &AppHandle, icon: TrayIconState) {
     update_tray_menu(app, &icon, None);
 }
 
+pub fn tray_tooltip() -> String {
+    version_label()
+}
+
+fn version_label() -> String {
+    if cfg!(debug_assertions) {
+        format!("AivoRelay v{} (Dev)", env!("CARGO_PKG_VERSION"))
+    } else {
+        format!("AivoRelay v{}", env!("CARGO_PKG_VERSION"))
+    }
+}
+
 pub fn update_tray_menu(app: &AppHandle, state: &TrayIconState, locale: Option<&str>) {
     remember_tray_state(app, state);
     if let Err(e) = try_update_tray_menu(app, state, locale) {
@@ -143,11 +155,7 @@ fn try_update_tray_menu(
     let (settings_accelerator, quit_accelerator) = (Some("Ctrl+,"), Some("Ctrl+Q"));
 
     // Create common menu items
-    let version_label = if cfg!(debug_assertions) {
-        format!("AivoRelay v{} (Dev)", env!("CARGO_PKG_VERSION"))
-    } else {
-        format!("AivoRelay v{}", env!("CARGO_PKG_VERSION"))
-    };
+    let version_label = version_label();
     let version_i = MenuItem::with_id(app, "version", &version_label, false, None::<&str>)?;
     let settings_i = MenuItem::with_id(
         app,
@@ -235,6 +243,7 @@ fn try_update_tray_menu(
     };
     let _ = tray.set_menu(Some(menu));
     let _ = tray.set_icon_as_template(true);
+    let _ = tray.set_tooltip(Some(version_label));
     Ok(())
 }
 
