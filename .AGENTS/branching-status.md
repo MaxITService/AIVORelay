@@ -14,7 +14,7 @@ Propagation scope rule: for Microsoft Store Edition propagation, bring over the 
 
 ## cuda-integration
 
-Last synced commit from `main`: `305c6878` — fix(settings): repair invalid portions on load.
+Last synced commit from `main`: `4725eca3` — fix(tray): show app version in tooltip.
 Maintenance rule: after a successful `main` -> `cuda-integration` propagation, update this main-copy cursor and the `cuda-integration` worktree copy together.
 Note: the cursor always points to the last propagated commit from `main`, not to CUDA-only commits that were created on top of it.
 Doc maintenance rule: update this worktree copy and `main`'s `.AGENTS/branching-status.md` together after every successful propagation.
