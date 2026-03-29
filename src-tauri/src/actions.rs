@@ -795,7 +795,13 @@ fn start_recording_with_feedback(app: &AppHandle, binding_id: &str) -> bool {
     // Load model in the background if using local transcription
     let tm = app.state::<Arc<TranscriptionManager>>();
     if settings.transcription_provider == TranscriptionProvider::Local {
+        let rm = Arc::clone(&app.state::<Arc<AudioRecordingManager>>());
         tm.initiate_model_load();
+        std::thread::spawn(move || {
+            if let Err(e) = rm.preload_audio_recorder() {
+                debug!("Audio recorder pre-load failed: {}", e);
+            }
+        });
     }
 
     // Hold the lock for the entire operation to prevent race conditions
