@@ -50,13 +50,15 @@ Only interact with these branches:
 - `main`
 - `Microsoft-store`
 - `cuda-integration`
+- `codex/combined`
 
 Relative worktree paths:
-- `main` -> `../AIVORelay`
-- `Microsoft-store` -> `../AIVORelay-ms-prop`
+- `main` -> `../../AIVORelay`
+- `Microsoft-store` -> `../../AIVORelay-ms-prop`
 - `cuda-integration` -> `.`
+- `codex/combined` -> `../../../../AivoRelay`
 
-(When user says "all branches", they currently mean `main`, `Microsoft-store`, and `cuda-integration`.)
+(When user says "all branches", they currently mean `main`, `Microsoft-store`, `cuda-integration`, and `codex/combined`.)
 For work on non-`main` branches, use `main` as the only sync source.
 
 ## Fork Documentation - Read file(s) that is related to current task ONLY.
@@ -69,6 +71,7 @@ Docs use Obsidian-style links like `[[path|label]]`.
 - [[.AGENTS/upstream-intake-playbook|upstream-intake-playbook.md]]: `upstream -> main` intake playbook
 - [[.AGENTS/main-to-microsoft-store-propagation-playbook|main-to-microsoft-store-propagation-playbook.md]]: `main -> Microsoft-store` propagation playbook
 - [[.AGENTS/main-to-cuda-propagation-playbook|main-to-cuda-propagation-playbook.md]]: `main -> cuda-integration` propagation playbook
+- [[.AGENTS/main-to-combined-propagation-playbook|main-to-combined-propagation-playbook.md]]: `main -> codex/combined` propagation playbook
 - [[.AGENTS/cuda-branch-notes|cuda-branch-notes.md]]: current `cuda-integration -> main` content diff and CUDA dependency model
 - [[.AGENTS/upstream-OrBranches-intake-playbook|upstream-OrBranches-intake-playbook.md]]: compatibility index pointing to the branch-specific playbooks above
 - [[.AGENTS/upstream-sync-log|upstream-sync-log.md]]: rolling log of last synced upstream commits (max 10)
