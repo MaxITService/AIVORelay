@@ -71,6 +71,7 @@ Docs use Obsidian-style links like `[[path|label]]`.
 - [[.AGENTS/upstream-intake-playbook|upstream-intake-playbook.md]]: `upstream -> main` intake playbook
 - [[.AGENTS/main-to-microsoft-store-propagation-playbook|main-to-microsoft-store-propagation-playbook.md]]: `main -> Microsoft-store` propagation playbook
 - [[.AGENTS/main-to-cuda-propagation-playbook|main-to-cuda-propagation-playbook.md]]: `main -> cuda-integration` propagation playbook
+- [[.AGENTS/main-to-combined-propagation-playbook|main-to-combined-propagation-playbook.md]]: `main -> codex/combined` propagation playbook
 - [[.AGENTS/upstream-OrBranches-intake-playbook|upstream-OrBranches-intake-playbook.md]]: compatibility index pointing to the branch-specific playbooks above
 - [[.AGENTS/upstream-sync-log|upstream-sync-log.md]]: rolling log of last synced upstream commits (max 10)
 - [[.AGENTS/branch-propagation-log|branch-propagation-log.md]]: rolling log of last propagated `main` commits into release branches (max 10)
