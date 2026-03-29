@@ -1,4 +1,5 @@
 use crate::audio_toolkit::{apply_custom_words, filter_transcription_output};
+use crate::managers::audio::AudioRecordingManager;
 use crate::managers::model::{EngineType, ModelManager};
 use crate::settings::{
     get_settings, ModelUnloadTimeout, OrtAcceleratorSetting, WhisperAcceleratorSetting,
@@ -12,7 +13,7 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard, OnceLock};
 use std::thread;
 use std::time::{Duration, SystemTime};
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Manager};
 use transcribe_rs::{
     onnx::{
         canary::CanaryModel,
@@ -96,12 +97,7 @@ impl TranscriptionManager {
             model_manager,
             app_handle: app_handle.clone(),
             current_model_id: Arc::new(Mutex::new(None)),
-            last_activity: Arc::new(AtomicU64::new(
-                SystemTime::now()
-                    .duration_since(SystemTime::UNIX_EPOCH)
-                    .unwrap()
-                    .as_millis() as u64,
-            )),
+            last_activity: Arc::new(AtomicU64::new(Self::now_ms())),
             shutdown_signal: Arc::new(AtomicBool::new(false)),
             watcher_handle: Arc::new(Mutex::new(None)),
             is_loading: Arc::new(Mutex::new(false)),
@@ -124,19 +120,25 @@ impl TranscriptionManager {
                     }
 
                     let settings = get_settings(&app_handle_cloned);
-                    let timeout_seconds = settings.model_unload_timeout.to_seconds();
+                    let timeout = settings.model_unload_timeout;
 
-                    if let Some(limit_seconds) = timeout_seconds {
-                        // Skip polling-based unloading for immediate timeout since it's handled directly in transcribe()
-                        if settings.model_unload_timeout == ModelUnloadTimeout::Immediately {
-                            continue;
-                        }
+                    // Immediate unloading is handled after transcription completes.
+                    // The idle watcher should never unload the model mid-recording.
+                    if timeout == ModelUnloadTimeout::Immediately {
+                        continue;
+                    }
 
+                    let is_recording = app_handle_cloned
+                        .try_state::<Arc<AudioRecordingManager>>()
+                        .map_or(false, |manager| manager.is_recording());
+                    if is_recording {
+                        manager_cloned.touch_activity();
+                        continue;
+                    }
+
+                    if let Some(limit_seconds) = timeout.to_seconds() {
                         let last = manager_cloned.last_activity.load(Ordering::Relaxed);
-                        let now_ms = SystemTime::now()
-                            .duration_since(SystemTime::UNIX_EPOCH)
-                            .unwrap()
-                            .as_millis() as u64;
+                        let now_ms = Self::now_ms();
                         let idle_ms = now_ms.saturating_sub(last);
                         let limit_ms = limit_seconds * 1000;
 
@@ -180,6 +182,17 @@ impl TranscriptionManager {
             warn!("Engine mutex was poisoned by a previous panic, recovering");
             poisoned.into_inner()
         })
+    }
+
+    fn now_ms() -> u64 {
+        SystemTime::now()
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .unwrap()
+            .as_millis() as u64
+    }
+
+    fn touch_activity(&self) {
+        self.last_activity.store(Self::now_ms(), Ordering::Relaxed);
     }
 
     pub fn is_model_loaded(&self) -> bool {
@@ -264,23 +277,6 @@ impl TranscriptionManager {
             .get_model_info(model_id)
             .ok_or_else(|| anyhow::anyhow!("Model not found: {}", model_id))?;
 
-        if !model_info.is_downloaded {
-            let error_msg = "Model not downloaded";
-            let _ = self.app_handle.emit(
-                "model-state-changed",
-                ModelStateEvent {
-                    event_type: "loading_failed".to_string(),
-                    model_id: Some(model_id.to_string()),
-                    model_name: Some(model_info.name.clone()),
-                    error: Some(error_msg.to_string()),
-                },
-            );
-            return Err(anyhow::anyhow!(error_msg));
-        }
-
-        let model_path = self.model_manager.get_model_path(model_id)?;
-
-        // Create appropriate engine based on model type
         let emit_loading_failed = |error_msg: &str| {
             let _ = self.app_handle.emit(
                 "model-state-changed",
@@ -292,6 +288,16 @@ impl TranscriptionManager {
                 },
             );
         };
+
+        if !model_info.is_downloaded {
+            let error_msg = "Model not downloaded";
+            emit_loading_failed(error_msg);
+            return Err(anyhow::anyhow!(error_msg));
+        }
+
+        let model_path = self.model_manager.get_model_path(model_id)?;
+
+        // Create appropriate engine based on model type
 
         let loaded_engine = match model_info.engine_type {
             EngineType::Whisper => {
@@ -375,13 +381,7 @@ impl TranscriptionManager {
             *current_model = Some(model_id.to_string());
         }
 
-        self.last_activity.store(
-            SystemTime::now()
-                .duration_since(SystemTime::UNIX_EPOCH)
-                .unwrap()
-                .as_millis() as u64,
-            Ordering::Relaxed,
-        );
+        self.touch_activity();
 
         // Emit loading completed event
         let _ = self.app_handle.emit(
@@ -436,13 +436,7 @@ impl TranscriptionManager {
         }
 
         // Update last activity timestamp
-        self.last_activity.store(
-            SystemTime::now()
-                .duration_since(SystemTime::UNIX_EPOCH)
-                .unwrap()
-                .as_millis() as u64,
-            Ordering::Relaxed,
-        );
+        self.touch_activity();
 
         let st = std::time::Instant::now();
 
@@ -585,6 +579,7 @@ impl TranscriptionManager {
                             let options = TranscribeOptions {
                                 language,
                                 translate: settings.translate_to_english,
+                                ..Default::default()
                             };
                             canary_engine
                                 .transcribe(&audio, &options)
@@ -705,13 +700,7 @@ impl TranscriptionManager {
         apply_custom_words_enabled: bool,
     ) -> Result<String> {
         // Update last activity timestamp
-        self.last_activity.store(
-            SystemTime::now()
-                .duration_since(SystemTime::UNIX_EPOCH)
-                .unwrap()
-                .as_millis() as u64,
-            Ordering::Relaxed,
-        );
+        self.touch_activity();
 
         let st = std::time::Instant::now();
 
@@ -838,6 +827,7 @@ impl TranscriptionManager {
                     let options = TranscribeOptions {
                         language,
                         translate: translate_to_english,
+                        ..Default::default()
                     };
                     canary_engine
                         .transcribe(&audio, &options)
@@ -907,13 +897,7 @@ impl TranscriptionManager {
         apply_custom_words_enabled: bool,
     ) -> Result<(String, Option<Vec<crate::subtitle::SubtitleSegment>>)> {
         // Update last activity timestamp
-        self.last_activity.store(
-            SystemTime::now()
-                .duration_since(SystemTime::UNIX_EPOCH)
-                .unwrap()
-                .as_millis() as u64,
-            Ordering::Relaxed,
-        );
+        self.touch_activity();
 
         let st = std::time::Instant::now();
 
@@ -1039,6 +1023,7 @@ impl TranscriptionManager {
                     let options = TranscribeOptions {
                         language,
                         translate: translate_to_english,
+                        ..Default::default()
                     };
                     canary_engine
                         .transcribe(&audio, &options)
