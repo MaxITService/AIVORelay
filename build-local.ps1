@@ -4,7 +4,8 @@
 param(
     [switch]$SkipChecks,
     [switch]$Debug,
-    [switch]$Avx2
+    [switch]$Avx2,
+    [switch]$Cuda
 )
 
 $ErrorActionPreference = "Stop"
@@ -111,9 +112,9 @@ function Get-PreferredCargoTargetDir([bool]$UseAvx2 = $false) {
     }
 
     $candidates = if ($UseAvx2) {
-        @("D:\a2", "C:\a2", "C:\t\aivorelay-avx2")
+        @("C:\a2", "D:\a2", "C:\t\aivorelay-avx2")
     } else {
-        @("D:\t", "C:\b", "C:\t\aivorelay-local-build")
+        @("C:\b", "D:\t", "C:\t\aivorelay-local-build")
     }
 
     foreach ($candidate in $candidates) {
@@ -151,6 +152,135 @@ function Invoke-PrepareAvx2Sidecar([bool]$ReleaseBuild = $false) {
     }
 
     Write-Host "  OK - AVX2 sidecar prepared" -ForegroundColor Green
+}
+
+function Invoke-PrepareCudaSidecar([bool]$ReleaseBuild = $false) {
+    $sidecarArgs = @("run", "scripts/prepare-cuda-sidecar.js")
+    if ($ReleaseBuild) {
+        $sidecarArgs += "--release"
+    }
+
+    Write-Host ""
+    Write-Host "[6/7] Preparing CUDA sidecar executable..." -ForegroundColor Yellow
+    Write-Host "  Running: bun $($sidecarArgs -join ' ')" -ForegroundColor Gray
+
+    & bun @sidecarArgs
+    if ($LASTEXITCODE -ne 0) {
+        throw "CUDA sidecar preparation failed with exit code $LASTEXITCODE"
+    }
+
+    Write-Host "  OK - CUDA sidecar prepared" -ForegroundColor Green
+}
+
+function Get-TauriBuildOverrideJson([bool]$IncludeCuda = $false, [bool]$DisableUpdaterArtifacts = $false) {
+    $externalBin = @("binaries/aivorelay-avx2")
+    if ($IncludeCuda) {
+        $externalBin += "binaries/aivorelay-cuda"
+    }
+
+    $override = @{
+        bundle = @{
+            externalBin = $externalBin
+        }
+    }
+
+    if ($DisableUpdaterArtifacts) {
+        $override.bundle.createUpdaterArtifacts = $false
+    }
+
+    return ($override | ConvertTo-Json -Compress)
+}
+
+function Test-IsGitHubActions {
+    return $env:GITHUB_ACTIONS -eq "true"
+}
+
+function Test-KeepBuildCache {
+    return @("1", "true", "yes") -contains ($env:AIVORELAY_KEEP_BUILD_CACHE ?? "").ToLowerInvariant()
+}
+
+function Should-CleanupLocalBuildCache {
+    return (-not (Test-IsGitHubActions)) -and (-not (Test-KeepBuildCache))
+}
+
+function Get-ManagedSidecarTargetDir([string]$EnvVarName, [string[]]$Candidates, [string]$Fallback) {
+    $existing = [Environment]::GetEnvironmentVariable($EnvVarName, "Process")
+    if ($existing) {
+        return $existing
+    }
+
+    foreach ($candidate in $Candidates) {
+        try {
+            New-Item -ItemType Directory -Force -Path $candidate | Out-Null
+            Set-Item -Path "Env:$EnvVarName" -Value $candidate
+            return $candidate
+        } catch {
+            continue
+        }
+    }
+
+    Set-Item -Path "Env:$EnvVarName" -Value $Fallback
+    return $Fallback
+}
+
+function Copy-BuildFileIfExists([string]$SourcePath, [string]$DestinationPath) {
+    if (Test-Path $SourcePath) {
+        Copy-Item -LiteralPath $SourcePath -Destination $DestinationPath -Force
+    }
+}
+
+function Copy-LatestMatchingFile([string]$Pattern, [string]$DestinationPath) {
+    $candidate = Get-ChildItem -Path $Pattern -ErrorAction SilentlyContinue |
+        Sort-Object LastWriteTime -Descending |
+        Select-Object -First 1
+
+    if ($candidate) {
+        Copy-Item -LiteralPath $candidate.FullName -Destination $DestinationPath -Force
+    }
+}
+
+function Export-LocalBuildArtifacts([string]$CargoTargetDir, [bool]$ReleaseBuild, [bool]$IncludeCuda) {
+    $profileName = if ($ReleaseBuild) { "release" } else { "debug" }
+    $artifactsDir = Join-Path $PSScriptRoot ".AGENTS\.UNTRACKED\build-artifacts\$profileName"
+
+    if (Test-Path $artifactsDir) {
+        Remove-Item -LiteralPath $artifactsDir -Recurse -Force
+    }
+
+    New-Item -ItemType Directory -Force -Path $artifactsDir | Out-Null
+
+    $mainExe = Join-Path $CargoTargetDir "$profileName\aivorelay.exe"
+    Copy-BuildFileIfExists $mainExe (Join-Path $artifactsDir "aivorelay.exe")
+    Copy-LatestMatchingFile (Join-Path $PSScriptRoot "src-tauri\binaries\aivorelay-avx2-*.exe") (Join-Path $artifactsDir "aivorelay-avx2.exe")
+
+    if ($IncludeCuda) {
+        Copy-LatestMatchingFile (Join-Path $PSScriptRoot "src-tauri\binaries\aivorelay-cuda-*.exe") (Join-Path $artifactsDir "aivorelay-cuda.exe")
+    }
+
+    $bundlePath = Join-Path $CargoTargetDir "$profileName\bundle\msi"
+    if (Test-Path $bundlePath) {
+        Get-ChildItem -Path $bundlePath -Filter *.msi -ErrorAction SilentlyContinue | ForEach-Object {
+            Copy-Item -LiteralPath $_.FullName -Destination (Join-Path $artifactsDir $_.Name) -Force
+        }
+    }
+
+    return $artifactsDir
+}
+
+function Remove-ManagedBuildDirectories([string[]]$PathsToRemove) {
+    foreach ($path in ($PathsToRemove | Where-Object { $_ } | Select-Object -Unique)) {
+        if (-not (Test-Path $path)) {
+            continue
+        }
+
+        $resolved = (Resolve-Path -LiteralPath $path).Path
+        $root = [System.IO.Path]::GetPathRoot($resolved)
+        if ([string]::IsNullOrWhiteSpace($root) -or $resolved.TrimEnd('\') -eq $root.TrimEnd('\')) {
+            throw "Refusing to delete unsafe path: $resolved"
+        }
+
+        Remove-Item -LiteralPath $resolved -Recurse -Force
+    }
 }
 
 # Step 1: Check for running processes
@@ -293,7 +423,11 @@ if ($missingTools.Count -gt 0) {
     exit 1
 }
 
+$cargoTargetDirWasExplicit = [bool]$env:AIVORELAY_CARGO_TARGET_DIR
+$avx2TargetDirWasExplicit = [bool]$env:AIVORELAY_AVX2_TARGET_DIR
+$cudaTargetDirWasExplicit = [bool]$env:AIVORELAY_CUDA_TARGET_DIR
 $cargoTargetDir = Get-PreferredCargoTargetDir $Avx2
+$artifactsDir = $null
 try {
     New-Item -ItemType Directory -Force -Path $cargoTargetDir | Out-Null
     $env:CARGO_TARGET_DIR = $cargoTargetDir
@@ -321,10 +455,25 @@ try {
     }
 
     try {
+        if (-not $avx2TargetDirWasExplicit) {
+            $null = Get-ManagedSidecarTargetDir "AIVORELAY_AVX2_TARGET_DIR" @("C:\a2", "D:\a2", "C:\t\a2") "C:\t\a2"
+        }
         Invoke-PrepareAvx2Sidecar -ReleaseBuild:(-not $Debug)
     } catch {
         Write-Host "  ERROR: Failed to prepare AVX2 sidecar: $_" -ForegroundColor Red
         exit 1
+    }
+
+    if ($Cuda) {
+        try {
+            if (-not $cudaTargetDirWasExplicit) {
+                $null = Get-ManagedSidecarTargetDir "AIVORELAY_CUDA_TARGET_DIR" @("C:\cu", "D:\cu", "C:\t\cu") "C:\t\cu"
+            }
+            Invoke-PrepareCudaSidecar -ReleaseBuild:(-not $Debug)
+        } catch {
+            Write-Host "  ERROR: Failed to prepare CUDA sidecar: $_" -ForegroundColor Red
+            exit 1
+        }
     }
 
     # Step 7: Build
@@ -334,11 +483,15 @@ try {
 
     if ($Debug) {
         Write-Host "  Building in DEBUG mode..." -ForegroundColor Cyan
-        Write-Host "  Running: bun run tauri build --debug --no-sign" -ForegroundColor Gray
+        $tauriArgs = @("run", "tauri", "build", "--debug", "--no-sign")
+        if ($Cuda) {
+            $tauriArgs += @("--config", (Get-TauriBuildOverrideJson -IncludeCuda $true))
+        }
+        Write-Host "  Running: bun $($tauriArgs -join ' ')" -ForegroundColor Gray
         Write-Host ""
 
         try {
-            & bun run tauri build --debug --no-sign
+            & bun @tauriArgs
             if ($LASTEXITCODE -ne 0) {
                 throw "Build failed with exit code $LASTEXITCODE"
             }
@@ -358,6 +511,11 @@ try {
             } else {
                 $env:AIVORELAY_BUILD_AVX2 = $null
             }
+            if ($Cuda) {
+                $env:AIVORELAY_BUILD_CUDA = "1"
+            } else {
+                $env:AIVORELAY_BUILD_CUDA = $null
+            }
             $env:AIVORELAY_CARGO_TARGET_DIR = $cargoTargetDir
             & bun run build:unsigned
             if ($LASTEXITCODE -ne 0) {
@@ -370,6 +528,23 @@ try {
         }
     }
 
+    if (Should-CleanupLocalBuildCache) {
+        $artifactsDir = Export-LocalBuildArtifacts -CargoTargetDir $cargoTargetDir -ReleaseBuild:(-not $Debug) -IncludeCuda:$Cuda
+
+        $pathsToRemove = @()
+        if (-not $cargoTargetDirWasExplicit) {
+            $pathsToRemove += $cargoTargetDir
+        }
+        if (-not $avx2TargetDirWasExplicit) {
+            $pathsToRemove += $env:AIVORELAY_AVX2_TARGET_DIR
+        }
+        if ($Cuda -and -not $cudaTargetDirWasExplicit) {
+            $pathsToRemove += $env:AIVORELAY_CUDA_TARGET_DIR
+        }
+
+        Remove-ManagedBuildDirectories -PathsToRemove $pathsToRemove
+    }
+
     # Success!
     Write-Host ""
     Write-Host "=======================================" -ForegroundColor Green
@@ -377,18 +552,34 @@ try {
     Write-Host "=======================================" -ForegroundColor Green
     Write-Host ""
 
-    if ($Debug) {
-        $bundlePath = Join-Path $cargoTargetDir "debug\bundle\msi"
-    } else {
-        $bundlePath = Join-Path $cargoTargetDir "release\bundle\msi"
-    }
-
-    if (Test-Path $bundlePath) {
+    if ($artifactsDir -and (Test-Path $artifactsDir)) {
         Write-Host "Build artifacts:" -ForegroundColor Cyan
-        Get-ChildItem $bundlePath -Filter *.msi | ForEach-Object {
+        Get-ChildItem $artifactsDir -File | Sort-Object Name | ForEach-Object {
             $sizeMB = [math]::Round($_.Length / 1MB, 2)
             $name = $_.Name
             Write-Host "  - $name - $sizeMB MB" -ForegroundColor Gray
+        }
+        Write-Host ""
+        Write-Host "Local build cache cleaned; preserved artifacts in $artifactsDir" -ForegroundColor Green
+    } elseif ($Debug) {
+        $bundlePath = Join-Path $cargoTargetDir "debug\bundle\msi"
+        if (Test-Path $bundlePath) {
+            Write-Host "Build artifacts:" -ForegroundColor Cyan
+            Get-ChildItem $bundlePath -Filter *.msi | ForEach-Object {
+                $sizeMB = [math]::Round($_.Length / 1MB, 2)
+                $name = $_.Name
+                Write-Host "  - $name - $sizeMB MB" -ForegroundColor Gray
+            }
+        }
+    } else {
+        $bundlePath = Join-Path $cargoTargetDir "release\bundle\msi"
+        if (Test-Path $bundlePath) {
+            Write-Host "Build artifacts:" -ForegroundColor Cyan
+            Get-ChildItem $bundlePath -Filter *.msi | ForEach-Object {
+                $sizeMB = [math]::Round($_.Length / 1MB, 2)
+                $name = $_.Name
+                Write-Host "  - $name - $sizeMB MB" -ForegroundColor Gray
+            }
         }
     }
 
@@ -400,7 +591,9 @@ finally {
     $env:CARGO_TARGET_DIR = $null
     $env:AIVORELAY_CARGO_TARGET_DIR = $null
     $env:AIVORELAY_AVX2_TARGET_DIR = $null
+    $env:AIVORELAY_CUDA_TARGET_DIR = $null
     $env:AIVORELAY_BUILD_AVX2 = $null
+    $env:AIVORELAY_BUILD_CUDA = $null
     $env:RUSTFLAGS = $null
     $env:CMAKE_PROJECT_INCLUDE_BEFORE = $null
 }

@@ -153,6 +153,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "aivorelay-cuda-sidecar"
+version = "1.0.7"
+dependencies = [
+ "aivorelay",
+]
+
+[[package]]
 name = "alloc-no-stdlib"
 version = "2.0.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -8109,9 +8116,8 @@ dependencies = [
 
 [[package]]
 name = "transcribe-rs"
-version = "0.3.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c8af54b24283d1548883a79f258c75c0e02938f5d66073b84b99dcaf00cb06f7"
+version = "0.3.2"
+source = "git+https://github.com/cjpais/transcribe-rs.git?branch=choose-gpu#468d4975c1deb944bfec02ebd25b520d27e1f56b"
 dependencies = [
  "base64 0.22.1",
  "derive_builder",
@@ -8396,7 +8402,7 @@ dependencies = [
 [[package]]
 name = "vad-rs"
 version = "0.1.6"
-source = "git+https://github.com/cjpais/vad-rs#2a412ed858695b9251f3f5a1a20d95b59fa7c498"
+source = "git+https://github.com/cjpais/vad-rs?rev=2a412ed858695b9251f3f5a1a20d95b59fa7c498#2a412ed858695b9251f3f5a1a20d95b59fa7c498"
 dependencies = [
  "eyre",
  "ndarray",

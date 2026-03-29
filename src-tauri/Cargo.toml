@@ -10,8 +10,13 @@ license = "MIT"
 default-run = "aivorelay"
 
 [workspace]
-members = ["sidecars/aivorelay-avx2"]
+members = ["sidecars/aivorelay-avx2", "sidecars/aivorelay-cuda"]
 resolver = "2"
+
+[features]
+default = ["accel-standard"]
+accel-standard = ["transcribe-rs/whisper-vulkan", "transcribe-rs/ort-directml"]
+accel-cuda = ["transcribe-rs/whisper-cuda", "transcribe-rs/ort-cuda"]
 
 [profile.dev]
 incremental = true # Compile your binary in smaller steps.
@@ -63,7 +68,7 @@ log = "0.4.25"
 env_filter = "0.1.0"
 tokio = { version = "1.43.0", features = ["rt-multi-thread", "time", "sync", "net"] }
 tokio-util = "0.7"
-vad-rs = { git = "https://github.com/cjpais/vad-rs", default-features = false }
+vad-rs = { git = "https://github.com/cjpais/vad-rs", rev = "2a412ed858695b9251f3f5a1a20d95b59fa7c498", default-features = false }
 enigo = "0.6.1"
 rodio = { git = "https://github.com/cjpais/rodio.git" }
 reqwest = { version = "0.12", features = ["json", "multipart", "stream"] }
@@ -78,7 +83,7 @@ chrono = "0.4"
 rusqlite = { version = "0.37", features = ["bundled"] }
 tar = "0.4.44"
 flate2 = "1.0"
-transcribe-rs = { version = "0.3.3", features = ["whisper-cpp", "onnx"] }
+transcribe-rs = { git = "https://github.com/cjpais/transcribe-rs.git", branch = "choose-gpu", features = ["whisper-cpp", "onnx"] }
 handy-keys = "0.2.4"
 ferrous-opencc = "0.2.3"
 keyring = "2.3.3"
@@ -111,7 +116,6 @@ tauri-plugin-single-instance = "2.3.2"
 tauri-plugin-updater = "2.10.0"
 
 [target.'cfg(windows)'.dependencies]
-transcribe-rs = { version = "0.3.3", features = ["whisper-vulkan", "ort-directml"] }
 windows = { version = "0.61.3", features = [
   "Win32_Media_Audio_Endpoints",
   "Win32_System_Com_StructuredStorage",

@@ -1,0 +1,12 @@
+[package]
+name = "aivorelay-cuda-sidecar"
+version = "1.0.7"
+edition = "2021"
+publish = false
+
+[[bin]]
+name = "aivorelay-cuda"
+path = "src/main.rs"
+
+[dependencies]
+aivorelay_app_lib = { path = "../..", package = "aivorelay", default-features = false, features = ["accel-cuda"] }

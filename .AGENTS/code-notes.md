@@ -70,6 +70,11 @@ Files that are added by this fork rather than upstream files that were modified.
 | --- | --- |
 | `build-local.ps1` | Local rebuild script (Windows). |
 | `build-unsigned.js` | Unsigned build Node.js script. |
+| `scripts/prepare-avx2-sidecar.js` | Builds the AVX2 sidecar executable into `src-tauri/binaries` before Tauri packaging. |
+| `scripts/prepare-cuda-sidecar.js` | Builds the CUDA sidecar executable into `src-tauri/binaries` before Tauri packaging. |
+| `src-tauri/cmake/force_ggml_avx2.cmake` | Forces ggml AVX2 flags for the AVX2 sidecar build. |
+| `src-tauri/sidecars/aivorelay-avx2/*` | Thin AVX2 launcher package that runs the shared app lib as `aivorelay-avx2.exe`. |
+| `src-tauri/sidecars/aivorelay-cuda/*` | Thin CUDA launcher package that runs the shared app lib as `aivorelay-cuda.exe`. |
 | `.github/workflows/code-quality.yml` | Combined PR lint/format workflow with path filters and cancellation of stale runs. |
 | `.github/release-notes/*.md` | Checked-in branch-specific GitHub release body Markdown picked up by release workflows. |
 | `.AGENTS/rebuild-browser-connector-bundle.ps1` | Rebuilds the tracked bundled browser-extension zip from the sibling `AIVORelay-relay` repo. |
@@ -95,6 +100,7 @@ Files that are added by this fork rather than upstream files that were modified.
 | --- | --- |
 | `src-tauri/src/commands/mod.rs` | Exports custom commands. |
 | `src-tauri/src/managers/mod.rs` | Exports custom managers, including live sound transcript state. |
+| `src-tauri/src/runtime_info.rs` | Runtime executable identity and self-update support detection for combined builds. |
 | `src-tauri/src/managers/live_sound_transcription.rs` | Live Sound page runtime state, transcript events, and speaker-segment payloads. |
 | `src-tauri/src/audio_toolkit/mod.rs` | Includes `encode_wav_bytes()`. |
 | `src-tauri/src/audio_toolkit/audio/utils.rs` | WAV encoding utils. |

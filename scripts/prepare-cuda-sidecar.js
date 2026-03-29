@@ -4,13 +4,13 @@ import path from 'path';
 import { pathToFileURL } from 'url';
 
 function chooseShortTargetDir() {
-    if (process.env.AIVORELAY_AVX2_TARGET_DIR) {
-        return process.env.AIVORELAY_AVX2_TARGET_DIR;
+    if (process.env.AIVORELAY_CUDA_TARGET_DIR) {
+        return process.env.AIVORELAY_CUDA_TARGET_DIR;
     }
 
     const candidates = process.platform === 'win32'
-        ? ['C:\\a2', 'D:\\a2', 'C:\\t\\a2']
-        : [path.join(process.cwd(), 'src-tauri', 'target', 'avx2-sidecar')];
+        ? ['C:\\cu', 'D:\\cu', 'C:\\t\\cu']
+        : [path.join(process.cwd(), 'src-tauri', 'target', 'cuda-sidecar')];
 
     for (const candidate of candidates) {
         try {
@@ -39,44 +39,48 @@ function resolveHostTargetTriple() {
     return hostMatch[1].trim();
 }
 
-function mergeRustFlags(currentValue) {
-    const extraFlags = '-C target-feature=+avx2';
-    if (!currentValue || !currentValue.trim()) {
-        return extraFlags;
-    }
+function resolveCudaPath() {
+    const candidates = [
+        process.env.AIVORELAY_CUDA_PATH,
+        process.env.CUDA_PATH,
+        'C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.4',
+        'C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.5',
+        'C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.6',
+    ].filter(Boolean);
 
-    if (currentValue.includes('target-feature=+avx2')) {
-        return currentValue;
-    }
-
-    return `${currentValue} ${extraFlags}`;
+    return candidates.find(candidate => fs.existsSync(candidate)) ?? null;
 }
 
-export function prepareAvx2Sidecar({ profile = 'debug' } = {}) {
+function resolveLinkerEnvVar(targetTriple) {
+    return `CARGO_TARGET_${targetTriple.toUpperCase().replace(/-/g, '_')}_LINKER`;
+}
+
+export function prepareCudaSidecar({ profile = 'debug' } = {}) {
     if (process.platform !== 'win32') {
-        console.log('Skipping AVX2 sidecar preparation on non-Windows host.');
+        console.log('Skipping CUDA sidecar preparation on non-Windows host.');
         return null;
+    }
+
+    const cudaPath = resolveCudaPath();
+    if (!cudaPath) {
+        throw new Error(
+            'CUDA toolkit was not found. Set AIVORELAY_CUDA_PATH or CUDA_PATH before preparing the CUDA sidecar.',
+        );
     }
 
     const repoRoot = process.cwd();
     const explicitTargetTriple = process.env.AIVORELAY_SIDECAR_TARGET || null;
     const targetTriple = explicitTargetTriple ?? resolveHostTargetTriple();
     const cargoTargetDir = chooseShortTargetDir();
-    const cmakeInclude = path.join(
-        repoRoot,
-        'src-tauri',
-        'cmake',
-        'force_ggml_avx2.cmake',
-    );
     const binaryExtension = targetTriple.includes('windows') ? '.exe' : '';
     const cargoArgs = [
         'build',
         '--manifest-path',
         path.join('src-tauri', 'Cargo.toml'),
         '-p',
-        'aivorelay-avx2-sidecar',
+        'aivorelay-cuda-sidecar',
         '--bin',
-        'aivorelay-avx2',
+        'aivorelay-cuda',
     ];
 
     if (explicitTargetTriple) {
@@ -91,23 +95,33 @@ export function prepareAvx2Sidecar({ profile = 'debug' } = {}) {
         repoRoot,
         'src-tauri',
         'binaries',
-        `aivorelay-avx2-${targetTriple}${binaryExtension}`,
+        `aivorelay-cuda-${targetTriple}${binaryExtension}`,
     );
-
+    const linkerEnvVar = resolveLinkerEnvVar(targetTriple);
+    const llvmBin = 'C:\\Program Files\\LLVM\\bin';
     const buildEnv = {
         ...process.env,
         CARGO_TARGET_DIR: cargoTargetDir,
-        CMAKE_PROJECT_INCLUDE_BEFORE: cmakeInclude,
-        RUSTFLAGS: mergeRustFlags(process.env.RUSTFLAGS),
+        CUDA_PATH: cudaPath,
+        CMAKE_GENERATOR: 'Ninja',
+        [linkerEnvVar]: process.env[linkerEnvVar] || 'lld-link',
     };
 
-    console.log(`Preparing AVX2 sidecar (${profile}) for ${targetTriple}...`);
+    if (fs.existsSync(llvmBin)) {
+        buildEnv.PATH = `${cudaPath}\\bin;${cudaPath}\\libnvvp;${llvmBin};${process.env.PATH}`;
+    } else {
+        buildEnv.PATH = `${cudaPath}\\bin;${cudaPath}\\libnvvp;${process.env.PATH}`;
+    }
+
+    delete buildEnv.WHISPER_DONT_GENERATE_BINDINGS;
+
+    console.log(`Preparing CUDA sidecar (${profile}) for ${targetTriple}...`);
+    console.log(`Using CUDA toolkit at: ${cudaPath}`);
     console.log(`Using sidecar target dir: ${cargoTargetDir}`);
     fs.mkdirSync(path.dirname(tauriSidecarPath), { recursive: true });
 
     if (!fs.existsSync(tauriSidecarPath)) {
-        // Tauri's build script validates externalBin paths even when compiling just this sidecar.
-        // Seed a placeholder so the real sidecar can bootstrap itself.
+        // Tauri validates externalBin paths before the main build starts.
         fs.writeFileSync(tauriSidecarPath, '');
     }
 
@@ -121,20 +135,20 @@ export function prepareAvx2Sidecar({ profile = 'debug' } = {}) {
         cargoTargetDir,
         ...(explicitTargetTriple ? [targetTriple] : []),
         profile,
-        `aivorelay-avx2${binaryExtension}`,
+        `aivorelay-cuda${binaryExtension}`,
     );
 
     if (!fs.existsSync(builtBinaryPath)) {
-        throw new Error(`AVX2 sidecar binary not found at ${builtBinaryPath}`);
+        throw new Error(`CUDA sidecar binary not found at ${builtBinaryPath}`);
     }
 
     fs.copyFileSync(builtBinaryPath, tauriSidecarPath);
-    console.log(`Prepared AVX2 sidecar at ${tauriSidecarPath}`);
+    console.log(`Prepared CUDA sidecar at ${tauriSidecarPath}`);
 
     return tauriSidecarPath;
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
     const profile = process.argv.includes('--release') ? 'release' : 'debug';
-    prepareAvx2Sidecar({ profile });
+    prepareCudaSidecar({ profile });
 }
