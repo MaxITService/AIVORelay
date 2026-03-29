@@ -5,7 +5,7 @@ Before starting a new `main` -> branch sync, verify the target branch directly w
 
 ## Microsoft-store
 
-Last synced commit from `main`: `305c6878` — fix(settings): repair invalid portions on load.
+Last synced commit from `main`: `9a15c63b` — fix: redact stored secrets in settings debug logs.
 Maintenance rule: after a successful `main` -> `Microsoft-store` propagation, update this main-copy cursor and the `Microsoft-store` worktree copy together.
 Note: the cursor always points to the last propagated commit, not the cursor-update commit itself (to avoid a circular hash dependency).
 Doc maintenance rule: update this worktree copy and `main`'s `.AGENTS/branching-status.md` together after every successful propagation.
