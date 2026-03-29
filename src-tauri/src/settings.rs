@@ -3341,6 +3341,137 @@ fn deserialize_settings_value_with_repair(settings_value: &Value) -> (AppSetting
     (default_settings, true)
 }
 
+fn ensure_default_bindings(settings: &mut AppSettings) -> bool {
+    let mut changed = false;
+    for (key, value) in get_default_settings().bindings {
+        if !settings.bindings.contains_key(&key) {
+            debug!("Adding missing binding: {}", key);
+            settings.bindings.insert(key, value);
+            changed = true;
+        }
+    }
+
+    changed
+}
+
+fn ensure_preview_delete_last_word_binding(settings: &mut AppSettings) -> bool {
+    let preview_delete_last_word_binding = build_preview_delete_last_word_binding(
+        settings
+            .soniox_live_preview_delete_last_word_hotkey
+            .trim()
+            .to_string(),
+    );
+
+    match settings.bindings.get(PREVIEW_DELETE_LAST_WORD_BINDING_ID) {
+        Some(binding)
+            if binding.current_binding == preview_delete_last_word_binding.current_binding
+                && binding.name == preview_delete_last_word_binding.name
+                && binding.description == preview_delete_last_word_binding.description
+                && binding.default_binding == preview_delete_last_word_binding.default_binding =>
+        {
+            false
+        }
+        _ => {
+            settings.bindings.insert(
+                PREVIEW_DELETE_LAST_WORD_BINDING_ID.to_string(),
+                preview_delete_last_word_binding,
+            );
+            true
+        }
+    }
+}
+
+fn migrate_legacy_settings_fields(settings: &mut AppSettings) -> bool {
+    if settings.voice_command_keep_window_open {
+        debug!("Migrating voice_command_keep_window_open to voice_command_defaults.silent");
+        settings.voice_command_defaults.silent = false;
+        settings.voice_command_keep_window_open = false;
+        return true;
+    }
+
+    false
+}
+
+fn ensure_active_profile_exists(settings: &mut AppSettings) -> bool {
+    if settings.active_profile_id != "default"
+        && !settings
+            .transcription_profiles
+            .iter()
+            .any(|p| p.id == settings.active_profile_id)
+    {
+        warn!(
+            "Active profile '{}' not found, resetting to default",
+            settings.active_profile_id
+        );
+        settings.active_profile_id = "default".to_string();
+        return true;
+    }
+
+    false
+}
+
+fn repair_soniox_context_portion(
+    label: &str,
+    general_json: &mut String,
+    text: &mut String,
+    terms: &mut Vec<String>,
+    default_general_json: &str,
+    default_text: &str,
+    default_terms: &[String],
+) -> bool {
+    if let Err(err) = build_soniox_context_from_parts(general_json, text, terms) {
+        warn!(
+            "Resetting invalid {} Soniox context to defaults: {}",
+            label, err
+        );
+        *general_json = default_general_json.to_string();
+        *text = default_text.to_string();
+        *terms = default_terms.to_vec();
+        return true;
+    }
+
+    false
+}
+
+fn ensure_valid_soniox_contexts(settings: &mut AppSettings) -> bool {
+    let default_settings = get_default_settings();
+    let mut changed = repair_soniox_context_portion(
+        "global",
+        &mut settings.soniox_context_general_json,
+        &mut settings.soniox_context_text,
+        &mut settings.soniox_context_terms,
+        &default_settings.soniox_context_general_json,
+        &default_settings.soniox_context_text,
+        &default_settings.soniox_context_terms,
+    );
+
+    for profile in &mut settings.transcription_profiles {
+        changed |= repair_soniox_context_portion(
+            &format!("profile '{}'", profile.id),
+            &mut profile.soniox_context_general_json,
+            &mut profile.soniox_context_text,
+            &mut profile.soniox_context_terms,
+            "",
+            "",
+            &[],
+        );
+    }
+
+    changed
+}
+
+fn repair_runtime_settings(settings: &mut AppSettings) -> bool {
+    let mut changed = false;
+    changed |= ensure_default_bindings(settings);
+    changed |= ensure_preview_delete_last_word_binding(settings);
+    changed |= migrate_legacy_settings_fields(settings);
+    changed |= ensure_post_process_defaults(settings);
+    changed |= ensure_remote_stt_defaults(settings);
+    changed |= ensure_active_profile_exists(settings);
+    changed |= ensure_valid_soniox_contexts(settings);
+    changed
+}
+
 impl AppSettings {
     pub fn microphone_input_boost_db_for_device(&self, device_name: Option<&str>) -> f32 {
         let key = microphone_input_boost_device_key(device_name);
@@ -3576,41 +3707,9 @@ pub fn load_or_create_app_settings(app: &AppHandle) -> AppSettings {
         .store(crate::portable::store_path(SETTINGS_STORE_PATH))
         .expect("Failed to initialize store");
 
-    let mut settings = if let Some(settings_value) = store.get("settings") {
+    let settings = if let Some(settings_value) = store.get("settings") {
         let (mut settings, mut updated) = deserialize_settings_value_with_repair(&settings_value);
         debug!("Found existing settings: {:?}", settings);
-        let default_settings = get_default_settings();
-
-        // Merge default bindings into existing settings
-        for (key, value) in default_settings.bindings {
-            if !settings.bindings.contains_key(&key) {
-                debug!("Adding missing binding: {}", key);
-                settings.bindings.insert(key, value);
-                updated = true;
-            }
-        }
-
-        let preview_delete_last_word_binding = build_preview_delete_last_word_binding(
-            settings
-                .soniox_live_preview_delete_last_word_hotkey
-                .trim()
-                .to_string(),
-        );
-        match settings.bindings.get(PREVIEW_DELETE_LAST_WORD_BINDING_ID) {
-            Some(binding)
-                if binding.current_binding == preview_delete_last_word_binding.current_binding
-                    && binding.name == preview_delete_last_word_binding.name
-                    && binding.description == preview_delete_last_word_binding.description
-                    && binding.default_binding
-                        == preview_delete_last_word_binding.default_binding => {}
-            _ => {
-                settings.bindings.insert(
-                    PREVIEW_DELETE_LAST_WORD_BINDING_ID.to_string(),
-                    preview_delete_last_word_binding,
-                );
-                updated = true;
-            }
-        }
 
         // Migrate API keys from JSON to secure storage (Windows only)
         #[cfg(target_os = "windows")]
@@ -3642,15 +3741,7 @@ pub fn load_or_create_app_settings(app: &AppHandle) -> AppSettings {
             }
         }
 
-        // Migrate old voice_command_keep_window_open to voice_command_defaults.silent
-        // voice_command_keep_window_open: true -> silent: false
-        // voice_command_keep_window_open: false -> silent: true (default)
-        if settings.voice_command_keep_window_open {
-            debug!("Migrating voice_command_keep_window_open to voice_command_defaults.silent");
-            settings.voice_command_defaults.silent = false;
-            settings.voice_command_keep_window_open = false;
-            updated = true;
-        }
+        updated |= repair_runtime_settings(&mut settings);
 
         if updated {
             debug!("Settings updated while loading");
@@ -3670,33 +3761,6 @@ pub fn load_or_create_app_settings(app: &AppHandle) -> AppSettings {
         default_settings
     };
 
-    let repaired_post_process = ensure_post_process_defaults(&mut settings);
-    let repaired_remote_stt = ensure_remote_stt_defaults(&mut settings);
-    if repaired_post_process || repaired_remote_stt {
-        store.set("settings", serde_json::to_value(&settings).unwrap());
-        if let Err(e) = store.save() {
-            warn!("Failed to flush repaired settings to disk: {}", e);
-        }
-    }
-
-    // Normalize active_profile_id: if it points to a non-existent profile, reset to "default"
-    if settings.active_profile_id != "default"
-        && !settings
-            .transcription_profiles
-            .iter()
-            .any(|p| p.id == settings.active_profile_id)
-    {
-        warn!(
-            "Active profile '{}' not found, resetting to default",
-            settings.active_profile_id
-        );
-        settings.active_profile_id = "default".to_string();
-        store.set("settings", serde_json::to_value(&settings).unwrap());
-        if let Err(e) = store.save() {
-            warn!("Failed to flush repaired settings to disk: {}", e);
-        }
-    }
-
     settings
 }
 
@@ -3705,8 +3769,9 @@ pub fn get_settings(app: &AppHandle) -> AppSettings {
         .store(crate::portable::store_path(SETTINGS_STORE_PATH))
         .expect("Failed to initialize store");
 
-    let mut settings = if let Some(settings_value) = store.get("settings") {
-        let (settings, repaired) = deserialize_settings_value_with_repair(&settings_value);
+    let settings = if let Some(settings_value) = store.get("settings") {
+        let (mut settings, mut repaired) = deserialize_settings_value_with_repair(&settings_value);
+        repaired |= repair_runtime_settings(&mut settings);
         if repaired {
             store.set("settings", serde_json::to_value(&settings).unwrap());
             if let Err(e) = store.save() {
@@ -3723,37 +3788,17 @@ pub fn get_settings(app: &AppHandle) -> AppSettings {
         default_settings
     };
 
-    let repaired_post_process = ensure_post_process_defaults(&mut settings);
-    let repaired_remote_stt = ensure_remote_stt_defaults(&mut settings);
-    let repaired_active_profile = if settings.active_profile_id != "default"
-        && !settings
-            .transcription_profiles
-            .iter()
-            .any(|p| p.id == settings.active_profile_id)
-    {
-        warn!(
-            "Active profile '{}' not found, resetting to default",
-            settings.active_profile_id
-        );
-        settings.active_profile_id = "default".to_string();
-        true
-    } else {
-        false
-    };
-    if repaired_post_process || repaired_remote_stt || repaired_active_profile {
-        store.set("settings", serde_json::to_value(&settings).unwrap());
-        if let Err(e) = store.save() {
-            warn!("Failed to flush repaired settings to disk: {}", e);
-        }
-    }
-
     settings
 }
 
-pub fn write_settings(app: &AppHandle, settings: AppSettings) {
+pub fn write_settings(app: &AppHandle, mut settings: AppSettings) {
     let store = app
         .store(crate::portable::store_path(SETTINGS_STORE_PATH))
         .expect("Failed to initialize store");
+
+    if repair_runtime_settings(&mut settings) {
+        debug!("Settings repaired before persisting");
+    }
 
     store.set("settings", serde_json::to_value(&settings).unwrap());
 
@@ -3785,4 +3830,40 @@ pub fn get_history_limit(app: &AppHandle) -> usize {
 pub fn get_recording_retention_period(app: &AppHandle) -> RecordingRetentionPeriod {
     let settings = get_settings(app);
     settings.recording_retention_period
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn repairs_only_invalid_deserialized_portion() {
+        let mut value = serde_json::to_value(get_default_settings()).unwrap();
+        value["selected_model"] = json!("keep-me");
+        value["remote_stt"]["debug_mode"] = json!("definitely_invalid");
+
+        let (settings, repaired) = deserialize_settings_value_with_repair(&value);
+
+        assert!(repaired);
+        assert_eq!(settings.selected_model, "keep-me");
+        assert_eq!(settings.remote_stt.debug_mode, RemoteSttDebugMode::Normal);
+    }
+
+    #[test]
+    fn repairs_invalid_soniox_context_portion_only() {
+        let mut settings = get_default_settings();
+        settings.selected_model = "keep-me".to_string();
+        settings.soniox_context_general_json = "{".to_string();
+        settings.soniox_context_text = "hello".to_string();
+        settings.soniox_context_terms = vec!["term".to_string()];
+
+        let repaired = repair_runtime_settings(&mut settings);
+
+        assert!(repaired);
+        assert_eq!(settings.selected_model, "keep-me");
+        assert_eq!(settings.soniox_context_general_json, "");
+        assert_eq!(settings.soniox_context_text, "");
+        assert!(settings.soniox_context_terms.is_empty());
+    }
 }
