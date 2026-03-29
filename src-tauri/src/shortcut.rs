@@ -4326,7 +4326,7 @@ pub fn change_connector_password_setting(
     }
 
     log::info!("User changing connector password - using two-phase commit");
-    settings.connector_pending_password = Some(trimmed.clone());
+    settings.connector_pending_password = Some(trimmed.clone()).into();
     settings.connector_pending_password_issued_at_ms = crate::managers::connector::now_ms();
     settings.connector_password_user_set = true;
     connector_manager.refresh_crypto_state(
@@ -4363,12 +4363,12 @@ pub async fn rotate_connector_password_now(
     }
 
     let mut new_password = generate_random_connector_password()?;
-    if new_password == settings.connector_password {
+    if settings.connector_password == new_password {
         new_password = generate_random_connector_password()?;
     }
 
     log::info!("Rotating connector password now for the connected browser extension");
-    settings.connector_pending_password = Some(new_password.clone());
+    settings.connector_pending_password = Some(new_password.clone()).into();
     settings.connector_pending_password_issued_at_ms = crate::managers::connector::now_ms();
     settings.connector_password_user_set = true;
     connector_manager.refresh_crypto_state(
