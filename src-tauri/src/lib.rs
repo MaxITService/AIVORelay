@@ -287,6 +287,7 @@ fn initialize_core_logic(app_handle: &AppHandle) {
             )
             .unwrap(),
         )
+        .tooltip(tray::tray_tooltip())
         .show_menu_on_left_click(false)
         .icon_as_template(true)
         .on_tray_icon_event(|tray, event| match event {
