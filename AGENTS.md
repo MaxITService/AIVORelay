@@ -53,10 +53,10 @@ Only interact with these branches:
 - `codex/combined`
 
 Relative worktree paths:
-- `main` -> `.`
-- `Microsoft-store` -> `../AIVORelay-ms-prop`
-- `cuda-integration` -> `../worktree/cuda-integration`
-- `codex/combined` -> `../../../AivoRelay`
+- `main` -> `../Code/Released Software/AIVORelay`
+- `Microsoft-store` -> `../Code/Released Software/AIVORelay-ms-prop`
+- `cuda-integration` -> `../Code/Released Software/worktree/cuda-integration`
+- `codex/combined` -> `.`
 
 (When user says "all branches", they currently mean `main`, `Microsoft-store`, `cuda-integration`, and `codex/combined`.)
 For work on non-`main` branches, use `main` as the only sync source.
