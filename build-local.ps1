@@ -104,6 +104,25 @@ function Set-BindgenWindowsEnv {
     }
 }
 
+function Get-PreferredCargoTargetDir {
+    if ($env:AIVORELAY_CARGO_TARGET_DIR) {
+        return $env:AIVORELAY_CARGO_TARGET_DIR
+    }
+
+    $candidates = @("C:\b", "D:\t", "C:\t\aivorelay-local-build")
+
+    foreach ($candidate in $candidates) {
+        try {
+            New-Item -ItemType Directory -Force -Path $candidate | Out-Null
+            return $candidate
+        } catch {
+            continue
+        }
+    }
+
+    return "C:\t\aivorelay-local-build"
+}
+
 # Step 1: Check for running processes
 if (-not $SkipChecks) {
     Write-Host "[1/6] Checking for running cargo/tauri processes..." -ForegroundColor Yellow
@@ -244,7 +263,7 @@ if ($missingTools.Count -gt 0) {
     exit 1
 }
 
-$cargoTargetDir = "C:\t\aivorelay-local-build"
+$cargoTargetDir = Get-PreferredCargoTargetDir
 try {
     New-Item -ItemType Directory -Force -Path $cargoTargetDir | Out-Null
     $env:CARGO_TARGET_DIR = $cargoTargetDir
@@ -312,9 +331,9 @@ try {
     Write-Host ""
 
     if ($Debug) {
-        $bundlePath = "src-tauri\target\debug\bundle\msi"
+        $bundlePath = Join-Path $cargoTargetDir "debug\bundle\msi"
     } else {
-        $bundlePath = "src-tauri\target\release\bundle\msi"
+        $bundlePath = Join-Path $cargoTargetDir "release\bundle\msi"
     }
 
     if (Test-Path $bundlePath) {
