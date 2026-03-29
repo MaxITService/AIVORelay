@@ -418,6 +418,42 @@ impl AudioRecordingManager {
         self.start_stream_for_selection(selection, &settings)
     }
 
+    pub fn preload_audio_recorder(&self) -> Result<(), anyhow::Error> {
+        let settings = get_settings(&self.app_handle);
+        self.ensure_recorder(&settings)
+    }
+
+    fn ensure_recorder(&self, settings: &AppSettings) -> Result<(), anyhow::Error> {
+        let vad_path = self
+            .app_handle
+            .path()
+            .resolve(
+                "resources/models/silero_vad_v4.onnx",
+                tauri::path::BaseDirectory::Resource,
+            )
+            .map_err(|e| anyhow::anyhow!("Failed to resolve VAD path: {}", e))?;
+        let mut recorder_opt = self.recorder.lock().unwrap();
+
+        if recorder_opt.is_none() {
+            let recorder = create_audio_recorder(
+                vad_path.to_str().unwrap(),
+                &self.app_handle,
+                settings.vad_threshold,
+            )?;
+            if let Some(cb) = self
+                .stream_frame_callback
+                .lock()
+                .ok()
+                .and_then(|guard| guard.clone())
+            {
+                recorder.set_stream_frame_callback(Some(cb));
+            }
+            *recorder_opt = Some(recorder);
+        }
+
+        Ok(())
+    }
+
     fn start_stream_for_selection(
         &self,
         selection: ActiveRecorderSelection,
@@ -446,32 +482,7 @@ impl AudioRecordingManager {
         *did_mute_guard = false;
         drop(did_mute_guard);
 
-        let vad_path = self
-            .app_handle
-            .path()
-            .resolve(
-                "resources/models/silero_vad_v4.onnx",
-                tauri::path::BaseDirectory::Resource,
-            )
-            .map_err(|e| anyhow::anyhow!("Failed to resolve VAD path: {}", e))?;
-        let mut recorder_opt = self.recorder.lock().unwrap();
-
-        if recorder_opt.is_none() {
-            let recorder = create_audio_recorder(
-                vad_path.to_str().unwrap(),
-                &self.app_handle,
-                settings.vad_threshold,
-            )?;
-            if let Some(cb) = self
-                .stream_frame_callback
-                .lock()
-                .ok()
-                .and_then(|guard| guard.clone())
-            {
-                recorder.set_stream_frame_callback(Some(cb));
-            }
-            *recorder_opt = Some(recorder);
-        }
+        self.ensure_recorder(settings)?;
 
         let selected_device = self.resolve_device_for_selection(&selection);
         if selection.source == AudioCaptureSource::Microphone && selected_device.is_none() {
@@ -483,6 +494,7 @@ impl AudioRecordingManager {
             }
         }
 
+        let mut recorder_opt = self.recorder.lock().unwrap();
         if let Some(rec) = recorder_opt.as_mut() {
             rec.set_microphone_input_boost_db(
                 settings.microphone_input_boost_db_for_device(selection.device_name.as_deref()),
