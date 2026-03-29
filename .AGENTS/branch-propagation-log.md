@@ -12,6 +12,7 @@ Rules:
 
 | Propagation Date | Target Branch | Main SHA | Main Message | Branch SHA | Branch Message | Issues |
 | --- | --- | --- | --- | --- | --- | --- |
+| 2026-03-29 | `Microsoft-store` | `ecb1fbdb` | perf(audio): preload recorder during local model warmup | `9d8a8e48` | perf(audio): preload recorder during local model warmup | clean cherry-pick |
 | 2026-03-29 | `codex/combined` | `4725eca3` | fix(tray): show app version in tooltip | `1bcda96c` | fix(tray): show app version in tooltip | clean cherry-pick |
 | 2026-03-29 | `cuda-integration` | `4725eca3` | fix(tray): show app version in tooltip | `f2fbfe68` | fix(tray): show app version in tooltip | clean cherry-pick |
 | 2026-03-29 | `Microsoft-store` | `4725eca3` | fix(tray): show app version in tooltip | `f58825a8` | fix(tray): show app version in tooltip | clean cherry-pick |
@@ -21,7 +22,6 @@ Rules:
 | 2026-03-29 | `codex/combined` | `305c6878` | fix(settings): repair invalid portions on load | `b598c953` | fix(settings): repair invalid portions on load | clean cherry-pick |
 | 2026-03-29 | `cuda-integration` | `305c6878` | fix(settings): repair invalid portions on load | `4a983f07` | fix(settings): repair invalid portions on load | clean cherry-pick |
 | 2026-03-29 | `Microsoft-store` | `305c6878` | fix(settings): repair invalid portions on load | `749ed4b4` | fix(settings): repair invalid portions on load | clean cherry-pick |
-| 2026-03-26 | `cuda-integration` | `37e5a204` | fix(ci): shorten Windows cargo target dir for whisper build | `1c886375` | fix(ci): shorten Windows cargo target dir for whisper build | clean cherry-pick |
 
 Entry template:
 

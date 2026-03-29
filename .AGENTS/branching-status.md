@@ -5,7 +5,7 @@ Before starting a new `main` -> branch sync, verify the target branch directly w
 
 ## Microsoft-store
 
-Last synced commit from `main`: `4725eca3` — fix(tray): show app version in tooltip.
+Last synced commit from `main`: `ecb1fbdb` — perf(audio): preload recorder during local model warmup.
 Maintenance rule: after a successful `main` -> `Microsoft-store` propagation, update this main-copy cursor and the `Microsoft-store` worktree copy together.
 Note: the cursor always points to the last propagated `main` state reflected in branch content, not to a docs-only cursor-update commit itself.
 Alignment note: `Microsoft-store` now matches `main` for all non-Store-specific files via force overwrite. Intentional differences remain only for Microsoft Store-specific docs/config/workflow/updater/AVX2 files.
