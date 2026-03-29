@@ -3028,7 +3028,7 @@ error_feedback_enabled?: boolean; recording_overlay_custom_enabled?: boolean; re
 /**
  * Convert LF to CRLF before clipboard paste (fixes newlines on Windows)
  */
-convert_lf_to_crlf?: boolean; clipboard_handling?: ClipboardHandling; auto_submit?: boolean; auto_submit_key?: AutoSubmitKey; post_process_enabled?: boolean; post_process_provider_id?: string; post_process_providers?: PostProcessProvider[]; post_process_api_keys?: Partial<{ [key in string]: string }>; post_process_models?: Partial<{ [key in string]: string }>; post_process_prompts?: LLMPrompt[]; post_process_selected_prompt_id?: string | null; 
+convert_lf_to_crlf?: boolean; clipboard_handling?: ClipboardHandling; auto_submit?: boolean; auto_submit_key?: AutoSubmitKey; post_process_enabled?: boolean; post_process_provider_id?: string; post_process_providers?: PostProcessProvider[]; post_process_api_keys?: SecretMap; post_process_models?: Partial<{ [key in string]: string }>; post_process_prompts?: LLMPrompt[]; post_process_selected_prompt_id?: string | null;
 /**
  * Whether ${short_prev_transcript} is enabled in LLM prompt templates.
  */
@@ -3048,7 +3048,7 @@ ai_replace_provider_id?: string | null;
 /**
  * AI Replace API keys per provider
  */
-ai_replace_api_keys?: Partial<{ [key in string]: string }>; 
+ai_replace_api_keys?: SecretMap;
 /**
  * AI Replace models per provider
  */
@@ -3072,7 +3072,7 @@ microphone_input_boost_db?: number; connector_port?: number; connector_enabled?:
 /**
  * Whether the "Send Transcription + Screenshot to Extension" action is enabled (risky feature)
  */
-send_screenshot_to_extension_enabled?: boolean; send_screenshot_to_extension_push_to_talk?: boolean; app_language?: string; connector_password?: string; 
+send_screenshot_to_extension_enabled?: boolean; send_screenshot_to_extension_push_to_talk?: boolean; app_language?: string; connector_password?: SecretString;
 /**
  * Whether the user explicitly set the connector password (disables auto-generation)
  */
@@ -3080,7 +3080,7 @@ connector_password_user_set?: boolean;
 /**
  * Pending password awaiting acknowledgement from extension (two-phase commit)
  */
-connector_pending_password?: string | null; 
+connector_pending_password?: SecretOptionString;
 /**
  * Timestamp (Unix ms) when the pending connector password was issued.
  */
@@ -3179,7 +3179,7 @@ voice_command_provider_id?: string | null;
 /**
  * Voice Command API keys per provider
  */
-voice_command_api_keys?: Partial<{ [key in string]: string }>; 
+voice_command_api_keys?: SecretMap;
 /**
  * Voice Command models per provider
  */
@@ -3547,6 +3547,9 @@ export type RegionCaptureData = { screenshot: string | null; virtual_screen: Vir
 export type RemoteSttDebugMode = "normal" | "verbose"
 export type RemoteSttSettings = { base_url: string; provider_preset?: string; allow_insecure_http?: boolean; model_id: string; debug_capture?: boolean; debug_mode?: RemoteSttDebugMode }
 export type ScreenshotCaptureMethod = "external_program" | "native"
+export type SecretMap = Partial<{ [key in string]: string }>
+export type SecretOptionString = string | null
+export type SecretString = string
 /**
  * Region selected by the user (in screen coordinates).
  */

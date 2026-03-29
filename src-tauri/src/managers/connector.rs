@@ -1902,7 +1902,7 @@ fn maybe_generate_new_password(app: &AppHandle) -> Option<String> {
         );
 
         let mut new_settings = settings.clone();
-        new_settings.connector_pending_password = Some(new_password.clone());
+        new_settings.connector_pending_password = Some(new_password.clone()).into();
         new_settings.connector_pending_password_issued_at_ms = now_ms();
         new_settings.connector_password_user_set = false;
         write_settings(app, new_settings);
@@ -1923,8 +1923,8 @@ fn commit_pending_password(app: &AppHandle) {
         info!("Extension acknowledged password - committing new password");
 
         let mut new_settings = settings.clone();
-        new_settings.connector_password = pending.clone();
-        new_settings.connector_pending_password = None;
+        new_settings.connector_password = pending.clone().into();
+        new_settings.connector_pending_password = None.into();
         new_settings.connector_pending_password_issued_at_ms = 0;
         write_settings(app, new_settings);
 
@@ -1958,9 +1958,9 @@ fn maybe_migrate_legacy_connector_password(
     );
 
     let mut new_settings = settings.clone();
-    new_settings.connector_pending_password = Some(settings.connector_password.clone());
+    new_settings.connector_pending_password = Some(settings.connector_password.to_string()).into();
     new_settings.connector_pending_password_issued_at_ms = now_ms();
-    new_settings.connector_password = default_password;
+    new_settings.connector_password = default_password.into();
     write_settings(app, new_settings);
 }
 
@@ -1982,7 +1982,7 @@ fn clear_pending_password(app: &AppHandle, settings: &crate::settings::AppSettin
     }
 
     let mut new_settings = settings.clone();
-    new_settings.connector_pending_password = None;
+    new_settings.connector_pending_password = None.into();
     new_settings.connector_pending_password_issued_at_ms = 0;
     write_settings(app, new_settings.clone());
 

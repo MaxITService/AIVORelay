@@ -4,6 +4,7 @@ use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
 use specta::Type;
 use std::collections::HashMap;
+use std::fmt;
 use tauri::AppHandle;
 use tauri_plugin_store::StoreExt;
 
@@ -1194,6 +1195,121 @@ impl SoundTheme {
     }
 }
 
+#[derive(Clone, Default, Serialize, Deserialize, Type)]
+#[serde(transparent)]
+pub struct SecretMap(HashMap<String, String>);
+
+impl fmt::Debug for SecretMap {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let redacted: HashMap<&String, &str> = self
+            .0
+            .iter()
+            .map(|(key, value)| (key, if value.is_empty() { "" } else { "[REDACTED]" }))
+            .collect();
+        redacted.fmt(f)
+    }
+}
+
+impl std::ops::Deref for SecretMap {
+    type Target = HashMap<String, String>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl std::ops::DerefMut for SecretMap {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+
+#[derive(Clone, Default, Serialize, Deserialize, Type, PartialEq, Eq)]
+#[serde(transparent)]
+pub struct SecretString(String);
+
+impl fmt::Debug for SecretString {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if self.0.is_empty() {
+            "".fmt(f)
+        } else {
+            "[REDACTED]".fmt(f)
+        }
+    }
+}
+
+impl std::ops::Deref for SecretString {
+    type Target = String;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl std::ops::DerefMut for SecretString {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+
+impl From<String> for SecretString {
+    fn from(value: String) -> Self {
+        Self(value)
+    }
+}
+
+impl From<&str> for SecretString {
+    fn from(value: &str) -> Self {
+        Self(value.to_string())
+    }
+}
+
+impl PartialEq<String> for SecretString {
+    fn eq(&self, other: &String) -> bool {
+        self.0 == *other
+    }
+}
+
+impl PartialEq<SecretString> for String {
+    fn eq(&self, other: &SecretString) -> bool {
+        *self == other.0
+    }
+}
+
+#[derive(Clone, Default, Serialize, Deserialize, Type, PartialEq, Eq)]
+#[serde(transparent)]
+pub struct SecretOptionString(Option<String>);
+
+impl fmt::Debug for SecretOptionString {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self.0.as_deref() {
+            Some("") => Some("").fmt(f),
+            Some(_) => Some("[REDACTED]").fmt(f),
+            None => None::<&str>.fmt(f),
+        }
+    }
+}
+
+impl std::ops::Deref for SecretOptionString {
+    type Target = Option<String>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl std::ops::DerefMut for SecretOptionString {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+
+impl From<Option<String>> for SecretOptionString {
+    fn from(value: Option<String>) -> Self {
+        Self(value)
+    }
+}
+
 /* still handy for composing the initial JSON in the store ------------- */
 #[derive(Serialize, Deserialize, Debug, Clone, Type)]
 pub struct AppSettings {
@@ -1481,7 +1597,7 @@ pub struct AppSettings {
     #[serde(default = "default_post_process_providers")]
     pub post_process_providers: Vec<PostProcessProvider>,
     #[serde(default = "default_post_process_api_keys")]
-    pub post_process_api_keys: HashMap<String, String>,
+    pub post_process_api_keys: SecretMap,
     #[serde(default = "default_post_process_models")]
     pub post_process_models: HashMap<String, String>,
     #[serde(default = "default_post_process_prompts")]
@@ -1524,7 +1640,7 @@ pub struct AppSettings {
     pub ai_replace_provider_id: Option<String>,
     /// AI Replace API keys per provider
     #[serde(default)]
-    pub ai_replace_api_keys: HashMap<String, String>,
+    pub ai_replace_api_keys: SecretMap,
     /// AI Replace models per provider
     #[serde(default)]
     pub ai_replace_models: HashMap<String, String>,
@@ -1601,14 +1717,14 @@ pub struct AppSettings {
     pub send_screenshot_to_extension_push_to_talk: bool,
     #[serde(default = "default_app_language")]
     pub app_language: String,
-    #[serde(default = "default_connector_password")]
-    pub connector_password: String,
+    #[serde(default = "default_connector_password_secret")]
+    pub connector_password: SecretString,
     /// Whether the user explicitly set the connector password (disables auto-generation)
     #[serde(default)]
     pub connector_password_user_set: bool,
     /// Pending password awaiting acknowledgement from extension (two-phase commit)
     #[serde(default)]
-    pub connector_pending_password: Option<String>,
+    pub connector_pending_password: SecretOptionString,
     /// Timestamp (Unix ms) when the pending connector password was issued.
     #[serde(default)]
     pub connector_pending_password_issued_at_ms: i64,
@@ -1692,7 +1808,7 @@ pub struct AppSettings {
     pub voice_command_provider_id: Option<String>,
     /// Voice Command API keys per provider
     #[serde(default)]
-    pub voice_command_api_keys: HashMap<String, String>,
+    pub voice_command_api_keys: SecretMap,
     /// Voice Command models per provider
     #[serde(default)]
     pub voice_command_models: HashMap<String, String>,
@@ -2348,6 +2464,10 @@ pub fn default_connector_password() -> String {
     "befc3aa14cc05e56011865df1c49d16ef9100a53d9bfa02be8d4ffd386324f65".to_string()
 }
 
+fn default_connector_password_secret() -> SecretString {
+    default_connector_password().into()
+}
+
 /// Default reasoning token budget for Extended Thinking (OpenRouter)
 fn default_reasoning_budget() -> u32 {
     2048
@@ -2501,12 +2621,12 @@ fn default_post_process_providers() -> Vec<PostProcessProvider> {
     providers
 }
 
-fn default_post_process_api_keys() -> HashMap<String, String> {
+fn default_post_process_api_keys() -> SecretMap {
     let mut map = HashMap::new();
     for provider in default_post_process_providers() {
         map.insert(provider.id, String::new());
     }
-    map
+    SecretMap(map)
 }
 
 fn default_model_for_provider(provider_id: &str) -> String {
@@ -2968,7 +3088,7 @@ pub fn get_default_settings() -> AppSettings {
         ai_replace_quick_tap_system_prompt: default_ai_replace_quick_tap_system_prompt(),
         ai_replace_quick_tap_user_prompt: default_ai_replace_user_prompt(),
         ai_replace_provider_id: None,
-        ai_replace_api_keys: HashMap::new(),
+        ai_replace_api_keys: SecretMap::default(),
         ai_replace_models: HashMap::new(),
         send_to_extension_with_selection_system_prompt:
             default_send_to_extension_with_selection_system_prompt(),
@@ -3006,9 +3126,9 @@ pub fn get_default_settings() -> AppSettings {
         send_screenshot_to_extension_enabled: false,
         send_screenshot_to_extension_push_to_talk: true,
         app_language: default_app_language(),
-        connector_password: default_connector_password(),
+        connector_password: default_connector_password().into(),
         connector_password_user_set: false,
-        connector_pending_password: None,
+        connector_pending_password: None.into(),
         connector_pending_password_issued_at_ms: 0,
         connector_last_export_dir: String::new(),
         connector_last_export_extension_id: String::new(),
@@ -3037,7 +3157,7 @@ pub fn get_default_settings() -> AppSettings {
         ai_replace_reasoning_budget: default_reasoning_budget(),
         // Voice Command LLM Settings
         voice_command_provider_id: None,
-        voice_command_api_keys: HashMap::new(),
+        voice_command_api_keys: SecretMap::default(),
         voice_command_models: HashMap::new(),
         voice_command_reasoning_enabled: false,
         voice_command_reasoning_budget: default_reasoning_budget(),
@@ -3865,5 +3985,53 @@ mod tests {
         assert_eq!(settings.soniox_context_general_json, "");
         assert_eq!(settings.soniox_context_text, "");
         assert!(settings.soniox_context_terms.is_empty());
+    }
+
+    #[test]
+    fn debug_output_redacts_all_stored_secrets() {
+        let mut settings = get_default_settings();
+        settings
+            .post_process_api_keys
+            .insert("openai".to_string(), "sk-proj-secret-key-12345".to_string());
+        settings
+            .ai_replace_api_keys
+            .insert("anthropic".to_string(), "sk-ant-secret-key-67890".to_string());
+        settings
+            .voice_command_api_keys
+            .insert("groq".to_string(), "gsk_secret_key_24680".to_string());
+        settings.connector_password = "connector-secret-password".into();
+        settings.connector_pending_password = Some("connector-pending-secret".to_string()).into();
+
+        let debug_output = format!("{:?}", settings);
+
+        assert!(!debug_output.contains("sk-proj-secret-key-12345"));
+        assert!(!debug_output.contains("sk-ant-secret-key-67890"));
+        assert!(!debug_output.contains("gsk_secret_key_24680"));
+        assert!(!debug_output.contains("connector-secret-password"));
+        assert!(!debug_output.contains("connector-pending-secret"));
+        assert!(debug_output.contains("[REDACTED]"));
+    }
+
+    #[test]
+    fn secret_map_debug_redacts_values() {
+        let map = SecretMap(HashMap::from([("key".into(), "secret".into())]));
+        let out = format!("{:?}", map);
+
+        assert!(!out.contains("secret"));
+        assert!(out.contains("[REDACTED]"));
+    }
+
+    #[test]
+    fn secret_string_debug_redacts_values() {
+        let secret = SecretString::from("secret");
+        let pending = SecretOptionString::from(Some("secret".to_string()));
+
+        let secret_out = format!("{:?}", secret);
+        let pending_out = format!("{:?}", pending);
+
+        assert!(!secret_out.contains("secret"));
+        assert!(!pending_out.contains("secret"));
+        assert!(secret_out.contains("[REDACTED]"));
+        assert!(pending_out.contains("[REDACTED]"));
     }
 }

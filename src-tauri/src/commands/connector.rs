@@ -319,9 +319,9 @@ fn apply_exported_extension_pairing(
     let mut settings = get_settings(app);
     settings.connector_allow_any_cors = false;
     settings.connector_cors = format!("{}{}", CHROME_EXTENSION_ORIGIN_PREFIX, extension_id);
-    settings.connector_password = connector_password.to_string();
+    settings.connector_password = connector_password.to_string().into();
     settings.connector_password_user_set = false;
-    settings.connector_pending_password = None;
+    settings.connector_pending_password = None.into();
     settings.connector_pending_password_issued_at_ms = 0;
     settings.connector_last_export_dir = export_dir.to_string_lossy().to_string();
     settings.connector_last_export_extension_id = extension_id.to_string();
@@ -472,7 +472,7 @@ pub fn connector_export_bundled_extension(
     let (manifest_key, extension_id, connector_password, reused_existing_id) =
         if known_export_for_path {
             let effective_password = active_pending_password(&app, &current_settings)
-                .unwrap_or_else(|| current_settings.connector_password.clone());
+                .unwrap_or_else(|| current_settings.connector_password.to_string());
             (
                 current_settings.connector_last_export_manifest_key.clone(),
                 current_settings.connector_last_export_extension_id.clone(),
