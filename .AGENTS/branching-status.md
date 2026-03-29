@@ -23,7 +23,7 @@ Operational note (2026-03-23): for content documentation, treat the branch as re
 
 ## codex/combined
 
-Last synced commit from `main`: `305c6878` — fix(settings): repair invalid portions on load.
+Last synced commit from `main`: `9a15c63b` — fix: redact stored secrets in settings debug logs.
 Maintenance rule: after a successful `main` -> `codex/combined` propagation, update this main-copy cursor and the `codex/combined` worktree copy together.
 Note: the cursor always points to the last propagated commit from `main`, not to combined-only commits created on top of it.
 Sync rule: for this branch, source commits come from `main` only.
