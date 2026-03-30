@@ -9,7 +9,7 @@ This branch uses a local-only CUDA setup. Nothing here requires global environme
 
 ## What is patched locally
 
-- `src-tauri/Cargo.toml` uses `transcribe-rs 0.3.2` and redirects `transcribe-rs`, `whisper-rs`, and `whisper-rs-sys` to local forks in `C:\Code\AIVORelay-deps`.
+- `src-tauri/Cargo.toml` uses `transcribe-rs 0.3.5` and redirects `transcribe-rs`, `whisper-rs`, and `whisper-rs-sys` to local forks in `C:\Code\AIVORelay-deps`.
 - `C:\Code\AIVORelay-deps\AIVORelay-dep-transcribe-rs` is the local `transcribe-rs` dependency fork used by AIVORelay.
 - `C:\Code\AIVORelay-deps\AIVORelay-dep-whisper-rs` contains the Windows CUDA bindgen/API fixes needed by AIVORelay.
 - `build-cuda.ps1` rewrites the local `[patch.crates-io]` paths before building, so the same branch can work with a different dependency root.
