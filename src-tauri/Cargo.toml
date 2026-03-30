@@ -136,11 +136,6 @@ winreg = "0.55"
 [target.'cfg(target_os = "macos")'.dependencies]
 tauri-nspanel = { git = "https://github.com/ahkohd/tauri-nspanel", branch = "v2.1" }
 
-[patch.crates-io]
-transcribe-rs = { path = "C:/Code/AIVORelay-deps/AIVORelay-dep-transcribe-rs" }
-whisper-rs = { path = "C:/Code/AIVORelay-deps/AIVORelay-dep-whisper-rs" }
-whisper-rs-sys = { path = "C:/Code/AIVORelay-deps/AIVORelay-dep-whisper-rs/sys" }
-
 [profile.release]
 lto = true
 codegen-units = 1

@@ -1,0 +1,6 @@
+[build]
+rustflags = ["-C", "target-feature=+avx2"]
+
+[env]
+# Keep ggml on AVX2 for broad Windows compatibility.
+CMAKE_PROJECT_INCLUDE_BEFORE = { value = "cmake/force_ggml_avx2.cmake", relative = true, force = true }
