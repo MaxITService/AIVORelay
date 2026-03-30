@@ -75,6 +75,7 @@ Files that are added by this fork rather than upstream files that were modified.
 | `src-tauri/cmake/force_ggml_avx2.cmake` | Forces ggml AVX2 flags for the AVX2 sidecar build. |
 | `src-tauri/sidecars/aivorelay-avx2/*` | Thin AVX2 launcher package that runs the shared app lib as `aivorelay-avx2.exe`. |
 | `src-tauri/sidecars/aivorelay-cuda/*` | Thin CUDA launcher package that runs the shared app lib as `aivorelay-cuda.exe`. |
+| `benchmark-linkers.ps1` | Benchmarks unsigned Windows builds across supported linker variants using isolated target dirs. |
 | `.github/workflows/code-quality.yml` | Combined PR lint/format workflow with path filters and cancellation of stale runs. |
 | `.github/release-notes/*.md` | Checked-in branch-specific GitHub release body Markdown picked up by release workflows. |
 | `.AGENTS/rebuild-browser-connector-bundle.ps1` | Rebuilds the tracked bundled browser-extension zip from the sibling `AIVORelay-relay` repo. |
