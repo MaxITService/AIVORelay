@@ -74,7 +74,7 @@ chrono = "0.4"
 rusqlite = { version = "0.37", features = ["bundled"] }
 tar = "0.4.44"
 flate2 = "1.0"
-transcribe-rs = { git = "https://github.com/cjpais/transcribe-rs.git", branch = "choose-gpu", features = ["whisper-cpp", "onnx"] }
+transcribe-rs = { version = "0.3.5", features = ["whisper-cpp", "onnx"] }
 handy-keys = "0.2.4"
 ferrous-opencc = "0.2.3"
 keyring = "2.3.3"
@@ -107,7 +107,7 @@ tauri-plugin-single-instance = "2.3.2"
 tauri-plugin-updater = "2.10.0"
 
 [target.'cfg(windows)'.dependencies]
-transcribe-rs = { git = "https://github.com/cjpais/transcribe-rs.git", branch = "choose-gpu", features = ["whisper-cuda", "ort-cuda"] }
+transcribe-rs = { version = "0.3.5", features = ["whisper-cuda", "ort-cuda"] }
 windows = { version = "0.61.3", features = [
   "Win32_Media_Audio_Endpoints",
   "Win32_System_Com_StructuredStorage",
@@ -127,6 +127,11 @@ winreg = "0.55"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 tauri-nspanel = { git = "https://github.com/ahkohd/tauri-nspanel", branch = "v2.1" }
+
+[patch.crates-io]
+transcribe-rs = { path = "C:/Code/AIVORelay-deps/AIVORelay-dep-transcribe-rs" }
+whisper-rs = { path = "C:/Code/AIVORelay-deps/AIVORelay-dep-whisper-rs" }
+whisper-rs-sys = { path = "C:/Code/AIVORelay-deps/AIVORelay-dep-whisper-rs/sys" }
 
 [profile.release]
 lto = true
