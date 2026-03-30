@@ -2,8 +2,19 @@ import { execSync } from 'child_process';
 import fs from 'fs';
 import path from 'path';
 
+function resolveCargoTargetDir() {
+    if (process.env.AIVORELAY_CARGO_TARGET_DIR) {
+        return process.env.AIVORELAY_CARGO_TARGET_DIR;
+    }
+
+    return process.env.CARGO_TARGET_DIR;
+}
+
 // Clean up old build artifacts to avoid confusion
-const bundleDir = path.join('src-tauri', 'target', 'release', 'bundle');
+const cargoTargetDir = resolveCargoTargetDir();
+const bundleDir = cargoTargetDir
+    ? path.join(cargoTargetDir, 'release', 'bundle')
+    : path.join('src-tauri', 'target', 'release', 'bundle');
 const dirsToClean = ['msi', 'nsis'];
 
 dirsToClean.forEach(dir => {

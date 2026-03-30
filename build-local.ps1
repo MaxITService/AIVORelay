@@ -19,6 +19,24 @@ function Test-Command($command) {
     $null -ne (Get-Command $command -ErrorAction SilentlyContinue)
 }
 
+function Get-PreferredCargoTargetDir {
+    if ($env:AIVORELAY_CARGO_TARGET_DIR) {
+        return $env:AIVORELAY_CARGO_TARGET_DIR
+    }
+
+    $candidates = @("C:\b", "D:\t", "C:\t\aivorelay-local-build")
+    foreach ($candidate in $candidates) {
+        try {
+            New-Item -ItemType Directory -Force -Path $candidate | Out-Null
+            return $candidate
+        } catch {
+            continue
+        }
+    }
+
+    return "C:\t\aivorelay-local-build"
+}
+
 function Get-NewestChildDirectory([string]$Path) {
     if (-not (Test-Path $Path)) {
         return $null
@@ -244,10 +262,11 @@ if ($missingTools.Count -gt 0) {
     exit 1
 }
 
-$cargoTargetDir = "C:\t\aivorelay-local-build"
+$cargoTargetDir = Get-PreferredCargoTargetDir
 try {
     New-Item -ItemType Directory -Force -Path $cargoTargetDir | Out-Null
     $env:CARGO_TARGET_DIR = $cargoTargetDir
+    $env:AIVORELAY_CARGO_TARGET_DIR = $cargoTargetDir
     Write-Host ""
     Write-Host "  OK - Using short CARGO_TARGET_DIR $cargoTargetDir for build" -ForegroundColor Green
 
@@ -332,4 +351,5 @@ try {
 }
 finally {
     $env:CARGO_TARGET_DIR = $null
+    $env:AIVORELAY_CARGO_TARGET_DIR = $null
 }
