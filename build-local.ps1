@@ -8,6 +8,11 @@ param(
     [switch]$Cuda
 )
 
+if ($PSVersionTable.PSEdition -ne "Core" -or $PSVersionTable.PSVersion -lt [Version]"7.0") {
+    Write-Error "This script requires pwsh (PowerShell 7+). Run: pwsh -NoProfile -File .\build-local.ps1"
+    exit 1
+}
+
 $ErrorActionPreference = "Stop"
 
 Write-Host ""
@@ -196,7 +201,13 @@ function Test-IsGitHubActions {
 }
 
 function Test-KeepBuildCache {
-    return @("1", "true", "yes") -contains ($env:AIVORELAY_KEEP_BUILD_CACHE ?? "").ToLowerInvariant()
+    $keepBuildCache = if ($null -ne $env:AIVORELAY_KEEP_BUILD_CACHE) {
+        $env:AIVORELAY_KEEP_BUILD_CACHE
+    } else {
+        ""
+    }
+
+    return @("1", "true", "yes") -contains $keepBuildCache.ToLowerInvariant()
 }
 
 function Should-CleanupLocalBuildCache {
