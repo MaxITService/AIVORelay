@@ -12,6 +12,9 @@ Rules:
 
 | Propagation Date | Target Branch | Main SHA | Main Message | Branch SHA | Branch Message | Issues |
 | --- | --- | --- | --- | --- | --- | --- |
+| 2026-03-30 | `codex/combined` | `3aaeda2b` | build(transcription): upgrade transcribe-rs to 0.3.5 | `c4790a64` | build(transcription): upgrade transcribe-rs to 0.3.5 | manual port; kept local fork patches |
+| 2026-03-30 | `cuda-integration` | `3aaeda2b` | build(transcription): upgrade transcribe-rs to 0.3.5 | `93883713` | build(transcription): upgrade transcribe-rs to 0.3.5 | manual port; kept local fork patches |
+| 2026-03-30 | `Microsoft-store` | `3aaeda2b` | build(transcription): upgrade transcribe-rs to 0.3.5 | `9d608233` | build(transcription): upgrade transcribe-rs to 0.3.5 | clean cherry-pick |
 | 2026-03-29 | `codex/combined` | `9b99c39c` | fix(transcription): harden idle unload and windows CI build path | `966e08c0` | fix(transcription): harden idle unload and windows CI build path | clean cherry-pick |
 | 2026-03-29 | `cuda-integration` | `9b99c39c` | fix(transcription): harden idle unload and windows CI build path | `fea50f23` | fix(transcription): harden idle unload and windows CI build path | build.yml auto-merge |
 | 2026-03-29 | `Microsoft-store` | `9b99c39c` | fix(transcription): harden idle unload and windows CI build path | `70de5cdf` | fix(transcription): harden idle unload and windows CI build path | clean cherry-pick |
@@ -21,7 +24,6 @@ Rules:
 | 2026-03-29 | `codex/combined` | `4725eca3` | fix(tray): show app version in tooltip | `1bcda96c` | fix(tray): show app version in tooltip | clean cherry-pick |
 | 2026-03-29 | `cuda-integration` | `4725eca3` | fix(tray): show app version in tooltip | `f2fbfe68` | fix(tray): show app version in tooltip | clean cherry-pick |
 | 2026-03-29 | `Microsoft-store` | `4725eca3` | fix(tray): show app version in tooltip | `f58825a8` | fix(tray): show app version in tooltip | clean cherry-pick |
-| 2026-03-29 | `codex/combined` | `9a15c63b` | fix: redact stored secrets in settings debug logs | `4bcc0a45` | fix: redact stored secrets in settings debug logs | clean cherry-pick |
 
 Entry template:
 
