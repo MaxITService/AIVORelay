@@ -72,6 +72,7 @@ Docs use Obsidian-style links like `[[path|label]]`.
 - [[.AGENTS/code-notes|code-notes.md]]: complete list of fork-specific files and changes
 - [[AGENTS]]: entry file
 - [[README]]: fork features overview
+- [[.AGENTS/dev-build-speed-notes|dev-build-speed-notes.md]]: latest measured safe dev-build speed findings and tradeoffs
 - [[.AGENTS/upstream-intake-playbook|upstream-intake-playbook.md]]: `upstream -> main` intake playbook
 - [[.AGENTS/main-to-microsoft-store-propagation-playbook|main-to-microsoft-store-propagation-playbook.md]]: `main -> Microsoft-store` propagation playbook
 - [[.AGENTS/main-to-cuda-propagation-playbook|main-to-cuda-propagation-playbook.md]]: `main -> cuda-integration` propagation playbook
