@@ -35,10 +35,13 @@ interface RecordingOverlayPreviewProps {
   customEnabled: boolean;
   theme: RecordingOverlayTheme;
   accentColor: string;
+  statusIconColor?: string;
+  cancelIconColor?: string;
   surfaceBaseColor: string;
   bodyBackgroundColor: string;
   materialMode: RecordingOverlayMaterialMode;
   showStatusIcon: boolean;
+  showCancelButton?: boolean;
   backgroundMode: RecordingOverlayBackgroundMode;
   centerpieceMode: RecordingOverlayCenterpieceMode;
   animatedBorderMode: RecordingOverlayAnimatedBorderMode;
@@ -55,6 +58,11 @@ interface RecordingOverlayPreviewProps {
   opacityPercent: number;
   silenceFade: boolean;
   silenceOpacityPercent: number;
+  decapIndicatorMode?: string;
+  decapIndicatorCustomText?: string;
+  decapIndicatorFontFamily?: string;
+  decapIndicatorFontSizePx?: number;
+  decapIndicatorColor?: string;
   minimumWidthPx?: number;
   maxPreviewWidthPx?: number;
 }
@@ -74,10 +82,13 @@ export const RecordingOverlayPreview: React.FC<RecordingOverlayPreviewProps> = (
   customEnabled,
   theme,
   accentColor,
+  statusIconColor = "#faa2ca",
+  cancelIconColor = "#faa2ca",
   surfaceBaseColor,
   bodyBackgroundColor,
   materialMode,
   showStatusIcon,
+  showCancelButton = true,
   backgroundMode,
   centerpieceMode,
   animatedBorderMode,
@@ -94,10 +105,23 @@ export const RecordingOverlayPreview: React.FC<RecordingOverlayPreviewProps> = (
   opacityPercent,
   silenceFade,
   silenceOpacityPercent,
+  decapIndicatorMode = "text",
+  decapIndicatorCustomText = "",
+  decapIndicatorFontFamily = "Segoe UI",
+  decapIndicatorFontSizePx = 16,
+  decapIndicatorColor = "#72f29a",
   minimumWidthPx,
   maxPreviewWidthPx,
 }) => {
   const normalizedAccent = normalizeRecordingOverlayColor(accentColor);
+  const normalizedStatusIconColor = normalizeRecordingOverlayColor(
+    statusIconColor,
+    "#faa2ca",
+  );
+  const normalizedCancelIconColor = normalizeRecordingOverlayColor(
+    cancelIconColor,
+    "#faa2ca",
+  );
   const normalizedSurfaceBaseColor = normalizeRecordingOverlayColor(
     surfaceBaseColor,
     "#101216",
@@ -203,7 +227,11 @@ export const RecordingOverlayPreview: React.FC<RecordingOverlayPreviewProps> = (
     172,
     Math.min(420, Math.round(minimumWidthPx ?? 172)),
   );
-  const contentOverlayWidth = 60 + (showStatusIcon ? 28 : 0) + barTrackWidth;
+  const contentOverlayWidth =
+    32 +
+    (showStatusIcon ? 28 : 0) +
+    (showCancelButton ? 28 : 0) +
+    barTrackWidth;
   const overlayWidth =
     state === "error"
       ? 340
@@ -438,17 +466,54 @@ export const RecordingOverlayPreview: React.FC<RecordingOverlayPreviewProps> = (
               </div>
             )}
 
+            {decapIndicatorMode !== "hidden" && (
+              <div
+                style={{
+                  position: "absolute",
+                  top: "2px",
+                  left: "50%",
+                  transform: "translateX(-50%)",
+                  maxWidth: "calc(100% - 20px)",
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                  whiteSpace: "nowrap",
+                  color: decapIndicatorColor,
+                  fontFamily: `${decapIndicatorFontFamily}, "Segoe UI Emoji", sans-serif`,
+                  fontSize: `${Math.max(10, Math.min(32, Math.round(decapIndicatorFontSizePx)))}px`,
+                  fontWeight: 600,
+                  lineHeight: 1,
+                  letterSpacing: "0.02em",
+                  textAlign: "center",
+                  textShadow: "0 0 12px rgba(114, 242, 154, 0.3)",
+                  pointerEvents: "none",
+                  userSelect: "none",
+                }}
+              >
+                {decapIndicatorMode === "custom"
+                  ? decapIndicatorCustomText.trim() || "Decapitalization"
+                  : "Decapitalization"}
+              </div>
+            )}
+
             <div
               className="flex items-center"
               style={{ position: "relative", zIndex: 1 }}
             >
               {showStatusIcon ? !customEnabled ? (
                 state === "recording" ? (
-                  <MicrophoneIcon />
+                  <MicrophoneIcon color={normalizedStatusIconColor} />
                 ) : state === "error" ? (
-                  <span style={{ fontSize: "16px", lineHeight: 1 }}>❌</span>
+                  <span
+                    style={{
+                      color: normalizedStatusIconColor,
+                      fontSize: "16px",
+                      lineHeight: 1,
+                    }}
+                  >
+                    ❌
+                  </span>
                 ) : (
-                  <TranscriptionIcon />
+                  <TranscriptionIcon color={normalizedStatusIconColor} />
                 )
               ) : (
                 <div
@@ -488,11 +553,19 @@ export const RecordingOverlayPreview: React.FC<RecordingOverlayPreviewProps> = (
                   />
                   <div style={{ position: "relative", zIndex: 1 }}>
                     {state === "recording" ? (
-                      <MicrophoneIcon />
+                      <MicrophoneIcon color={normalizedStatusIconColor} />
                     ) : state === "error" ? (
-                      <span style={{ fontSize: "16px", lineHeight: 1 }}>❌</span>
+                      <span
+                        style={{
+                          color: normalizedStatusIconColor,
+                          fontSize: "16px",
+                          lineHeight: 1,
+                        }}
+                      >
+                        ❌
+                      </span>
                     ) : (
-                      <TranscriptionIcon />
+                      <TranscriptionIcon color={normalizedStatusIconColor} />
                     )}
                   </div>
                 </div>
@@ -567,7 +640,7 @@ export const RecordingOverlayPreview: React.FC<RecordingOverlayPreviewProps> = (
               className="flex items-center justify-end"
               style={{ position: "relative", zIndex: 1 }}
             >
-              {state === "recording" && (
+              {state === "recording" && showCancelButton && (
                 <div
                   style={{
                     width: "24px",
@@ -585,7 +658,7 @@ export const RecordingOverlayPreview: React.FC<RecordingOverlayPreviewProps> = (
                       : "none",
                   }}
                 >
-                  <CancelIcon />
+                  <CancelIcon color={normalizedCancelIconColor} />
                 </div>
               )}
               {state === "error" && (
