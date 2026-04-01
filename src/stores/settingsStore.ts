@@ -563,6 +563,10 @@ settingUpdaters.error_overlay_auto_hide_ms = (value) =>
   commands.changeRecordingOverlayAnimatedBorderModeSetting(String(value));
 (settingUpdaters as any).recording_overlay_show_status_icon = (value: any) =>
   commands.changeRecordingOverlayShowStatusIconSetting(Boolean(value));
+(settingUpdaters as any).recording_overlay_show_cancel_button = (value: any) =>
+  invoke("change_recording_overlay_show_cancel_button_setting", {
+    enabled: Boolean(value),
+  });
 (settingUpdaters as any).recording_overlay_bar_count = (value: any) =>
   commands.changeRecordingOverlayBarCountSetting(Number(value));
 (settingUpdaters as any).recording_overlay_width_px = (value: any) =>
@@ -575,6 +579,14 @@ settingUpdaters.error_overlay_auto_hide_ms = (value) =>
   commands.changeRecordingOverlayBarStyleSetting(String(value));
 (settingUpdaters as any).recording_overlay_accent_color = (value: any) =>
   commands.changeRecordingOverlayAccentColorSetting(String(value));
+(settingUpdaters as any).recording_overlay_status_icon_color = (value: any) =>
+  invoke("change_recording_overlay_status_icon_color_setting", {
+    color: String(value),
+  });
+(settingUpdaters as any).recording_overlay_cancel_icon_color = (value: any) =>
+  invoke("change_recording_overlay_cancel_icon_color_setting", {
+    color: String(value),
+  });
 (settingUpdaters as any).recording_overlay_surface_base_color = (value: any) =>
   invoke("change_recording_overlay_surface_base_color_setting", {
     color: String(value),
@@ -613,6 +625,36 @@ settingUpdaters.error_overlay_auto_hide_ms = (value) =>
   value: any,
 ) =>
   commands.changeRecordingOverlaySilenceOpacityPercentSetting(Number(value));
+(settingUpdaters as any).recording_overlay_decapitalize_indicator_mode = (
+  value: any,
+) =>
+  invoke("change_recording_overlay_decapitalize_indicator_mode_setting", {
+    mode: String(value),
+  });
+(settingUpdaters as any).recording_overlay_decapitalize_indicator_custom_text = (
+  value: any,
+) =>
+  invoke("change_recording_overlay_decapitalize_indicator_custom_text_setting", {
+    text: String(value),
+  });
+(settingUpdaters as any).recording_overlay_decapitalize_indicator_font_family = (
+  value: any,
+) =>
+  invoke("change_recording_overlay_decapitalize_indicator_font_family_setting", {
+    fontFamily: String(value),
+  });
+(settingUpdaters as any).recording_overlay_decapitalize_indicator_font_size_px = (
+  value: any,
+) =>
+  invoke("change_recording_overlay_decapitalize_indicator_font_size_setting", {
+    sizePx: Number(value),
+  });
+(settingUpdaters as any).recording_overlay_decapitalize_indicator_color = (
+  value: any,
+) =>
+  invoke("change_recording_overlay_decapitalize_indicator_color_setting", {
+    color: String(value),
+  });
 (settingUpdaters as any).auto_position_allow_reserved_areas = (value: any) =>
   invoke("change_auto_position_allow_reserved_areas_setting", {
     enabled: value,

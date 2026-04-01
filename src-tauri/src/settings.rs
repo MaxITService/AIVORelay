@@ -953,6 +953,14 @@ pub enum RecordingOverlayBarStyle {
 
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Type)]
 #[serde(rename_all = "snake_case")]
+pub enum RecordingOverlayDecapitalizeIndicatorMode {
+    Text,
+    Custom,
+    Hidden,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Type)]
+#[serde(rename_all = "snake_case")]
 pub enum SonioxLivePreviewTheme {
     MainDark,
     Ocean,
@@ -1465,6 +1473,8 @@ pub struct AppSettings {
     pub recording_overlay_animated_border_mode: RecordingOverlayAnimatedBorderMode,
     #[serde(default = "default_true")]
     pub recording_overlay_show_status_icon: bool,
+    #[serde(default = "default_true")]
+    pub recording_overlay_show_cancel_button: bool,
     #[serde(default = "default_recording_overlay_bar_count")]
     pub recording_overlay_bar_count: u8,
     #[serde(default = "default_recording_overlay_width_px")]
@@ -1475,6 +1485,10 @@ pub struct AppSettings {
     pub recording_overlay_bar_style: RecordingOverlayBarStyle,
     #[serde(default = "default_recording_overlay_accent_color")]
     pub recording_overlay_accent_color: String,
+    #[serde(default = "default_recording_overlay_status_icon_color")]
+    pub recording_overlay_status_icon_color: String,
+    #[serde(default = "default_recording_overlay_cancel_icon_color")]
+    pub recording_overlay_cancel_icon_color: String,
     #[serde(default = "default_recording_overlay_surface_base_color")]
     pub recording_overlay_surface_base_color: String,
     #[serde(default = "default_recording_overlay_body_background_color")]
@@ -1495,6 +1509,16 @@ pub struct AppSettings {
     pub recording_overlay_silence_fade: bool,
     #[serde(default = "default_recording_overlay_silence_opacity_percent")]
     pub recording_overlay_silence_opacity_percent: u8,
+    #[serde(default = "default_recording_overlay_decapitalize_indicator_mode")]
+    pub recording_overlay_decapitalize_indicator_mode: RecordingOverlayDecapitalizeIndicatorMode,
+    #[serde(default)]
+    pub recording_overlay_decapitalize_indicator_custom_text: String,
+    #[serde(default = "default_recording_overlay_decapitalize_indicator_font_family")]
+    pub recording_overlay_decapitalize_indicator_font_family: String,
+    #[serde(default = "default_recording_overlay_decapitalize_indicator_font_size_px")]
+    pub recording_overlay_decapitalize_indicator_font_size_px: u8,
+    #[serde(default = "default_recording_overlay_decapitalize_indicator_color")]
+    pub recording_overlay_decapitalize_indicator_color: String,
     #[serde(default = "default_soniox_live_preview_enabled")]
     pub soniox_live_preview_enabled: bool,
     #[serde(default = "default_soniox_live_preview_position")]
@@ -2180,6 +2204,14 @@ fn default_recording_overlay_accent_color() -> String {
     "#ff4d8d".to_string()
 }
 
+fn default_recording_overlay_status_icon_color() -> String {
+    "#faa2ca".to_string()
+}
+
+fn default_recording_overlay_cancel_icon_color() -> String {
+    "#faa2ca".to_string()
+}
+
 fn default_recording_overlay_surface_base_color() -> String {
     "#101216".to_string()
 }
@@ -2210,6 +2242,23 @@ fn default_recording_overlay_opacity_percent() -> u8 {
 
 fn default_recording_overlay_silence_opacity_percent() -> u8 {
     58
+}
+
+fn default_recording_overlay_decapitalize_indicator_mode(
+) -> RecordingOverlayDecapitalizeIndicatorMode {
+    RecordingOverlayDecapitalizeIndicatorMode::Text
+}
+
+fn default_recording_overlay_decapitalize_indicator_font_family() -> String {
+    "Segoe UI".to_string()
+}
+
+fn default_recording_overlay_decapitalize_indicator_font_size_px() -> u8 {
+    16
+}
+
+fn default_recording_overlay_decapitalize_indicator_color() -> String {
+    "#72f29a".to_string()
 }
 
 fn default_soniox_live_preview_enabled() -> bool {
@@ -2997,11 +3046,14 @@ pub fn get_default_settings() -> AppSettings {
         recording_overlay_centerpiece_mode: default_recording_overlay_centerpiece_mode(),
         recording_overlay_animated_border_mode: default_recording_overlay_animated_border_mode(),
         recording_overlay_show_status_icon: default_true(),
+        recording_overlay_show_cancel_button: default_true(),
         recording_overlay_bar_count: default_recording_overlay_bar_count(),
         recording_overlay_width_px: default_recording_overlay_width_px(),
         recording_overlay_bar_width_px: default_recording_overlay_bar_width_px(),
         recording_overlay_bar_style: default_recording_overlay_bar_style(),
         recording_overlay_accent_color: default_recording_overlay_accent_color(),
+        recording_overlay_status_icon_color: default_recording_overlay_status_icon_color(),
+        recording_overlay_cancel_icon_color: default_recording_overlay_cancel_icon_color(),
         recording_overlay_surface_base_color: default_recording_overlay_surface_base_color(),
         recording_overlay_body_background_color: default_recording_overlay_body_background_color(),
         recording_overlay_audio_reactive_scale: false,
@@ -3017,6 +3069,15 @@ pub fn get_default_settings() -> AppSettings {
         recording_overlay_silence_fade: false,
         recording_overlay_silence_opacity_percent:
             default_recording_overlay_silence_opacity_percent(),
+        recording_overlay_decapitalize_indicator_mode:
+            default_recording_overlay_decapitalize_indicator_mode(),
+        recording_overlay_decapitalize_indicator_custom_text: String::new(),
+        recording_overlay_decapitalize_indicator_font_family:
+            default_recording_overlay_decapitalize_indicator_font_family(),
+        recording_overlay_decapitalize_indicator_font_size_px:
+            default_recording_overlay_decapitalize_indicator_font_size_px(),
+        recording_overlay_decapitalize_indicator_color:
+            default_recording_overlay_decapitalize_indicator_color(),
         soniox_live_preview_enabled: default_soniox_live_preview_enabled(),
         soniox_live_preview_position: default_soniox_live_preview_position(),
         soniox_live_preview_cursor_offset_px: default_soniox_live_preview_cursor_offset_px(),

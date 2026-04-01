@@ -49,8 +49,16 @@ import type {
 } from "./plus_overlay_states";
 
 type RecordingOverlayAppearanceState = RecordingOverlayAppearancePayload & {
+  status_icon_color: string;
+  cancel_icon_color: string;
   surface_base_color: string;
   body_background_color: string;
+  show_cancel_button: boolean;
+  decapitalize_indicator_mode: string;
+  decapitalize_indicator_custom_text: string;
+  decapitalize_indicator_font_family: string;
+  decapitalize_indicator_font_size_px: number;
+  decapitalize_indicator_color: string;
 };
 
 const windowRef = getCurrentWindow();
@@ -99,9 +107,12 @@ const DEFAULT_OVERLAY_APPEARANCE: RecordingOverlayAppearanceState = {
   centerpiece_mode: "none",
   animated_border_mode: "none",
   accent_color: "#ff4d8d",
+  status_icon_color: "#faa2ca",
+  cancel_icon_color: "#faa2ca",
   surface_base_color: "#101216",
   body_background_color: "#101216",
   show_status_icon: true,
+  show_cancel_button: true,
   bar_count: 9,
   bar_width_px: 6,
   bar_style: "solid",
@@ -114,6 +125,11 @@ const DEFAULT_OVERLAY_APPEARANCE: RecordingOverlayAppearanceState = {
   opacity_percent: 100,
   silence_fade: false,
   silence_opacity_percent: 58,
+  decapitalize_indicator_mode: "text",
+  decapitalize_indicator_custom_text: "",
+  decapitalize_indicator_font_family: "Segoe UI",
+  decapitalize_indicator_font_size_px: 16,
+  decapitalize_indicator_color: "#72f29a",
   frame_width_px: 172,
   frame_height_px: 36,
 };
@@ -332,6 +348,14 @@ const RecordingOverlay: React.FC = () => {
           data.animated_border_mode,
         ),
         accent_color: normalizeRecordingOverlayColor(data.accent_color),
+        status_icon_color: normalizeRecordingOverlayColor(
+          data.status_icon_color,
+          DEFAULT_OVERLAY_APPEARANCE.status_icon_color,
+        ),
+        cancel_icon_color: normalizeRecordingOverlayColor(
+          data.cancel_icon_color,
+          DEFAULT_OVERLAY_APPEARANCE.cancel_icon_color,
+        ),
         surface_base_color: normalizeRecordingOverlayColor(
           data.surface_base_color,
           DEFAULT_OVERLAY_APPEARANCE.surface_base_color,
@@ -344,6 +368,10 @@ const RecordingOverlay: React.FC = () => {
           typeof data.show_status_icon === "boolean"
             ? data.show_status_icon
             : DEFAULT_OVERLAY_APPEARANCE.show_status_icon,
+        show_cancel_button:
+          typeof data.show_cancel_button === "boolean"
+            ? data.show_cancel_button
+            : DEFAULT_OVERLAY_APPEARANCE.show_cancel_button,
         bar_count:
           typeof data.bar_count === "number"
             ? Math.max(3, Math.min(16, Math.round(data.bar_count)))
@@ -391,6 +419,28 @@ const RecordingOverlay: React.FC = () => {
           typeof data.silence_opacity_percent === "number"
             ? Math.max(20, Math.min(100, Math.round(data.silence_opacity_percent)))
             : DEFAULT_OVERLAY_APPEARANCE.silence_opacity_percent,
+        decapitalize_indicator_mode:
+          data.decapitalize_indicator_mode === "hidden" ||
+          data.decapitalize_indicator_mode === "custom"
+            ? data.decapitalize_indicator_mode
+            : DEFAULT_OVERLAY_APPEARANCE.decapitalize_indicator_mode,
+        decapitalize_indicator_custom_text:
+          typeof data.decapitalize_indicator_custom_text === "string"
+            ? data.decapitalize_indicator_custom_text
+            : DEFAULT_OVERLAY_APPEARANCE.decapitalize_indicator_custom_text,
+        decapitalize_indicator_font_family:
+          typeof data.decapitalize_indicator_font_family === "string" &&
+          data.decapitalize_indicator_font_family.trim().length > 0
+            ? data.decapitalize_indicator_font_family
+            : DEFAULT_OVERLAY_APPEARANCE.decapitalize_indicator_font_family,
+        decapitalize_indicator_font_size_px:
+          typeof data.decapitalize_indicator_font_size_px === "number"
+            ? Math.max(10, Math.min(32, Math.round(data.decapitalize_indicator_font_size_px)))
+            : DEFAULT_OVERLAY_APPEARANCE.decapitalize_indicator_font_size_px,
+        decapitalize_indicator_color: normalizeRecordingOverlayColor(
+          data.decapitalize_indicator_color,
+          DEFAULT_OVERLAY_APPEARANCE.decapitalize_indicator_color,
+        ),
         frame_width_px:
           typeof data.frame_width_px === "number"
             ? Math.max(0, Math.round(data.frame_width_px))
@@ -695,26 +745,37 @@ const RecordingOverlay: React.FC = () => {
   const errorSurfaceStyle = getRecordingOverlayErrorStateStyle(
     effectiveOpacityPercent,
   );
+  const statusIconColor = appearance.status_icon_color;
+  const cancelIconColor = appearance.cancel_icon_color;
+  const decapIndicatorText =
+    appearance.decapitalize_indicator_mode === "custom"
+      ? appearance.decapitalize_indicator_custom_text.trim() ||
+        t("overlay.decapitalizationIndicator", "Decapitalization")
+      : t("overlay.decapitalizationIndicator", "Decapitalization");
 
   const getIcon = () => {
     switch (state) {
       case "recording":
-        return <MicrophoneIcon />;
+        return <MicrophoneIcon color={statusIconColor} />;
       case "sending":
-        return <SendingIcon />;
+        return <SendingIcon color={statusIconColor} />;
       case "thinking":
-        return <ThinkingIcon />;
+        return <ThinkingIcon color={statusIconColor} />;
       case "finalizing":
-        return <TranscriptionIcon />;
+        return <TranscriptionIcon color={statusIconColor} />;
       case "error":
-        return <span className="overlay-icon-emoji">❌</span>;
+        return (
+          <span className="overlay-icon-emoji" style={{ color: statusIconColor }}>
+            ❌
+          </span>
+        );
       case "profile_switch":
-        return <TranscriptionIcon />;
+        return <TranscriptionIcon color={statusIconColor} />;
       case "microphone_switch":
-        return <MicrophoneIcon />;
+        return <MicrophoneIcon color={statusIconColor} />;
       case "transcribing":
       default:
-        return <TranscriptionIcon />;
+        return <TranscriptionIcon color={statusIconColor} />;
       }
   };
 
@@ -827,11 +888,20 @@ const RecordingOverlay: React.FC = () => {
       )}
       {decapIndicatorEligible &&
         decapIndicatorArmed &&
+        appearance.decapitalize_indicator_mode !== "hidden" &&
         state !== "profile_switch" &&
         state !== "microphone_switch" &&
         state !== "error" && (
-        <div className="overlay-decapitalize-indicator">
-          {t("overlay.decapitalizationIndicator", "Decapitalization")}
+        <div
+          className="overlay-decapitalize-indicator"
+          style={{
+            color: appearance.decapitalize_indicator_color,
+            fontFamily: `${appearance.decapitalize_indicator_font_family}, "Segoe UI Emoji", sans-serif`,
+            fontSize: `${appearance.decapitalize_indicator_font_size_px}px`,
+            textAlign: "center",
+          }}
+        >
+          {decapIndicatorText}
         </div>
       )}
 
@@ -916,7 +986,8 @@ const RecordingOverlay: React.FC = () => {
         {(state === "recording" ||
           state === "sending" ||
           state === "thinking" ||
-          state === "finalizing") && (
+          state === "finalizing") &&
+          appearance.show_cancel_button && (
           <button
             type="button"
             className={`cancel-button ${customOverlayEnabled ? "" : "cancel-button-legacy"}`}
@@ -924,7 +995,7 @@ const RecordingOverlay: React.FC = () => {
               commands.cancelOperation();
             }}
           >
-            <CancelIcon />
+            <CancelIcon color={cancelIconColor} />
           </button>
         )}
         {state === "error" && (

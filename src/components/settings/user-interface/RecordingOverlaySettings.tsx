@@ -237,6 +237,26 @@ const PREVIEW_STATES: Array<{
   { value: "error", label: "Error", labelKey: "error" },
 ];
 
+const DECAPITALIZE_INDICATOR_MODE_OPTIONS = [
+  { value: "text", label: "Default Text" },
+  { value: "custom", label: "Custom Text / Emoji" },
+  { value: "hidden", label: "Hidden" },
+] as const;
+
+const WINDOWS_FONT_FAMILY_OPTIONS = [
+  "Segoe UI",
+  "Segoe UI Emoji",
+  "Bahnschrift",
+  "Arial",
+  "Verdana",
+  "Tahoma",
+  "Trebuchet MS",
+  "Georgia",
+  "Times New Roman",
+  "Consolas",
+  "Cascadia Mono",
+] as const;
+
 export const RecordingOverlaySettings: React.FC = () => {
   const { t } = useTranslation();
   const { settings, updateSetting, isUpdating, refreshSettings } = useSettings();
@@ -266,6 +286,9 @@ export const RecordingOverlaySettings: React.FC = () => {
   const showStatusIcon = Boolean(
     (settings as any)?.recording_overlay_show_status_icon ?? true,
   );
+  const showCancelButton = Boolean(
+    (settings as any)?.recording_overlay_show_cancel_button ?? true,
+  );
   const rawBarCount = Number((settings as any)?.recording_overlay_bar_count ?? 9);
   const rawBarWidthPx = Number(
     (settings as any)?.recording_overlay_bar_width_px ?? 6,
@@ -291,6 +314,14 @@ export const RecordingOverlaySettings: React.FC = () => {
     : normalizeLegacyRecordingOverlayBarStyle(barStyle);
   const accentColor = normalizeRecordingOverlayColor(
     (settings as any)?.recording_overlay_accent_color,
+  );
+  const statusIconColor = normalizeRecordingOverlayColor(
+    (settings as any)?.recording_overlay_status_icon_color,
+    "#faa2ca",
+  );
+  const cancelIconColor = normalizeRecordingOverlayColor(
+    (settings as any)?.recording_overlay_cancel_icon_color,
+    "#faa2ca",
   );
   const surfaceBaseColor = normalizeRecordingOverlayColor(
     (settings as any)?.recording_overlay_surface_base_color,
@@ -326,6 +357,23 @@ export const RecordingOverlaySettings: React.FC = () => {
   );
   const silenceOpacityPercent = Number(
     (settings as any)?.recording_overlay_silence_opacity_percent ?? 58,
+  );
+  const decapIndicatorMode = String(
+    (settings as any)?.recording_overlay_decapitalize_indicator_mode ?? "text",
+  );
+  const decapIndicatorCustomText = String(
+    (settings as any)?.recording_overlay_decapitalize_indicator_custom_text ?? "",
+  );
+  const decapIndicatorFontFamily = String(
+    (settings as any)?.recording_overlay_decapitalize_indicator_font_family ??
+      "Segoe UI",
+  );
+  const decapIndicatorFontSizePx = Number(
+    (settings as any)?.recording_overlay_decapitalize_indicator_font_size_px ?? 16,
+  );
+  const decapIndicatorColor = normalizeRecordingOverlayColor(
+    (settings as any)?.recording_overlay_decapitalize_indicator_color,
+    "#72f29a",
   );
   const hasManualPosition = Boolean(
     (settings as any)?.recording_overlay_use_manual_position ?? false,
@@ -382,6 +430,14 @@ export const RecordingOverlaySettings: React.FC = () => {
       `settings.userInterface.recordingOverlay.barStyle.options.${option.labelKey}`,
       option.label,
     ),
+  }));
+  const decapIndicatorModeOptions = DECAPITALIZE_INDICATOR_MODE_OPTIONS.map((option) => ({
+    value: option.value,
+    label: option.label,
+  }));
+  const decapIndicatorFontOptions = WINDOWS_FONT_FAMILY_OPTIONS.map((fontFamily) => ({
+    value: fontFamily,
+    label: fontFamily,
   }));
   const currentStyleConfig = React.useMemo(
     () => getRecordingOverlayStyleConfigFromSettings(settings),
@@ -684,10 +740,13 @@ export const RecordingOverlaySettings: React.FC = () => {
             customEnabled={customOverlayEnabled}
             theme={overlayTheme}
             accentColor={accentColor}
+            statusIconColor={statusIconColor}
+            cancelIconColor={cancelIconColor}
             surfaceBaseColor={surfaceBaseColor}
             bodyBackgroundColor={bodyBackgroundColor}
             materialMode={materialMode}
             showStatusIcon={showStatusIcon}
+            showCancelButton={showCancelButton}
             backgroundMode={backgroundMode}
             centerpieceMode={centerpieceMode}
             animatedBorderMode={animatedBorderMode}
@@ -714,6 +773,11 @@ export const RecordingOverlaySettings: React.FC = () => {
             silenceOpacityPercent={
               sliderDrafts.recording_overlay_silence_opacity_percent
             }
+            decapIndicatorMode={decapIndicatorMode}
+            decapIndicatorCustomText={decapIndicatorCustomText}
+            decapIndicatorFontFamily={decapIndicatorFontFamily}
+            decapIndicatorFontSizePx={decapIndicatorFontSizePx}
+            decapIndicatorColor={decapIndicatorColor}
             minimumWidthPx={sliderDrafts.recording_overlay_width_px}
           />
         </div>
@@ -875,10 +939,13 @@ export const RecordingOverlaySettings: React.FC = () => {
                       customEnabled={true}
                       theme={presetConfig.theme}
                       accentColor={presetConfig.accentColor}
+                      statusIconColor="#faa2ca"
+                      cancelIconColor="#faa2ca"
                       surfaceBaseColor={presetConfig.surfaceBaseColor}
                       bodyBackgroundColor={presetConfig.bodyBackgroundColor}
                       materialMode={presetConfig.materialMode}
                       showStatusIcon={presetConfig.showStatusIcon}
+                      showCancelButton={true}
                       backgroundMode={presetConfig.backgroundMode}
                       centerpieceMode={presetConfig.centerpieceMode}
                       animatedBorderMode={presetConfig.animatedBorderMode}
@@ -901,6 +968,10 @@ export const RecordingOverlaySettings: React.FC = () => {
                       opacityPercent={presetConfig.opacityPercent}
                       silenceFade={presetConfig.silenceFade}
                       silenceOpacityPercent={presetConfig.silenceOpacityPercent}
+                      decapIndicatorMode="text"
+                      decapIndicatorFontFamily="Segoe UI"
+                      decapIndicatorFontSizePx={16}
+                      decapIndicatorColor="#72f29a"
                       maxPreviewWidthPx={248}
                     />
                   </button>
@@ -1250,6 +1321,121 @@ export const RecordingOverlaySettings: React.FC = () => {
         grouped={true}
       />
 
+      <ToggleSwitch
+        checked={showCancelButton}
+        onChange={(enabled) =>
+          void updateSetting(
+            "recording_overlay_show_cancel_button" as any,
+            enabled as any,
+          )
+        }
+        isUpdating={isUpdating("recording_overlay_show_cancel_button")}
+        label="Show Cancel Button"
+        description="Show the X/cancel action on the right side of the recording overlay."
+        descriptionMode="tooltip"
+        grouped={true}
+      />
+
+      <SettingContainer
+        title="Decapitalize Indicator Mode"
+        description="Show the standard label, a custom emoji/text badge, or hide the decapitalize indicator completely."
+        descriptionMode="tooltip"
+        grouped={true}
+      >
+        <Dropdown
+          options={decapIndicatorModeOptions}
+          selectedValue={decapIndicatorMode}
+          onSelect={(value) =>
+            void updateSetting(
+              "recording_overlay_decapitalize_indicator_mode" as any,
+              value as any,
+            )
+          }
+          disabled={isUpdating("recording_overlay_decapitalize_indicator_mode")}
+        />
+      </SettingContainer>
+
+      <SettingContainer
+        title="Decapitalize Indicator Font"
+        description="Choose a Windows font family for the decapitalize indicator badge."
+        descriptionMode="tooltip"
+        grouped={true}
+      >
+        <Dropdown
+          options={decapIndicatorFontOptions}
+          selectedValue={decapIndicatorFontFamily}
+          onSelect={(value) =>
+            void updateSetting(
+              "recording_overlay_decapitalize_indicator_font_family" as any,
+              value as any,
+            )
+          }
+          disabled={
+            isUpdating("recording_overlay_decapitalize_indicator_font_family") ||
+            decapIndicatorMode === "hidden"
+          }
+        />
+      </SettingContainer>
+
+      <Slider
+        label="Decapitalize Indicator Size"
+        description="Adjust the size of the decapitalize indicator text or emoji."
+        descriptionMode="tooltip"
+        grouped={true}
+        min={10}
+        max={32}
+        step={1}
+        value={Math.max(10, Math.min(32, Math.round(decapIndicatorFontSizePx)))}
+        formatValue={(value) => `${Math.round(value)} px`}
+        onChange={(value) =>
+          void updateSetting(
+            "recording_overlay_decapitalize_indicator_font_size_px" as any,
+            Math.round(value) as any,
+          )
+        }
+        disabled={
+          isUpdating("recording_overlay_decapitalize_indicator_font_size_px") ||
+          decapIndicatorMode === "hidden"
+        }
+      />
+
+      {decapIndicatorMode === "custom" && (
+        <SettingContainer
+          title="Custom Indicator Text / Emoji"
+          description="Enter any short text, emoji, or both. The badge stays centered above the overlay."
+          descriptionMode="tooltip"
+          grouped={true}
+        >
+          <div className="space-y-3">
+            <input
+              type="text"
+              value={decapIndicatorCustomText}
+              maxLength={24}
+              onChange={(event) =>
+                void updateSetting(
+                  "recording_overlay_decapitalize_indicator_custom_text" as any,
+                  event.target.value as any,
+                )
+              }
+              disabled={isUpdating("recording_overlay_decapitalize_indicator_custom_text")}
+              placeholder="eg. a, Aa, ✍️, lower"
+              className="w-full rounded-md border border-[#3c3c3c] bg-[#111111] px-3 py-2 text-sm text-[#f5f5f5] placeholder:text-[#777777] disabled:opacity-40"
+            />
+            <div
+              className="rounded-md border border-white/[0.08] bg-white/[0.03] px-3 py-2 text-center"
+              style={{
+                color: decapIndicatorColor,
+                fontFamily: `${decapIndicatorFontFamily}, "Segoe UI Emoji", sans-serif`,
+                fontSize: `${Math.max(10, Math.min(32, Math.round(decapIndicatorFontSizePx)))}px`,
+                fontWeight: 600,
+              }}
+            >
+              {decapIndicatorCustomText.trim() || "Decapitalization"}
+            </div>
+          </div>
+        </SettingContainer>
+      )}
+
       <SettingContainer
         title={t(
           "settings.userInterface.recordingOverlay.barStyle.title",
@@ -1441,6 +1627,84 @@ export const RecordingOverlaySettings: React.FC = () => {
             className="h-8 w-12 rounded border border-[#3c3c3c] bg-transparent disabled:opacity-40"
           />
           <span className="text-xs font-mono text-[#a0a0a0]">{accentColor}</span>
+        </div>
+      </SettingContainer>
+
+      <SettingContainer
+        title="Status Icon Color"
+        description="Color of the left-side status icon."
+        descriptionMode="tooltip"
+        grouped={true}
+      >
+        <div className="flex items-center gap-3">
+          <input
+            type="color"
+            value={statusIconColor}
+            onChange={(event) =>
+              void updateSetting(
+                "recording_overlay_status_icon_color" as any,
+                event.target.value as any,
+              )
+            }
+            disabled={isUpdating("recording_overlay_status_icon_color")}
+            className="h-8 w-12 rounded border border-[#3c3c3c] bg-transparent disabled:opacity-40"
+          />
+          <span className="text-xs font-mono text-[#a0a0a0]">
+            {statusIconColor}
+          </span>
+        </div>
+      </SettingContainer>
+
+      <SettingContainer
+        title="Cancel Button Icon Color"
+        description="Color of the right-side cancel/X icon."
+        descriptionMode="tooltip"
+        grouped={true}
+      >
+        <div className="flex items-center gap-3">
+          <input
+            type="color"
+            value={cancelIconColor}
+            onChange={(event) =>
+              void updateSetting(
+                "recording_overlay_cancel_icon_color" as any,
+                event.target.value as any,
+              )
+            }
+            disabled={isUpdating("recording_overlay_cancel_icon_color")}
+            className="h-8 w-12 rounded border border-[#3c3c3c] bg-transparent disabled:opacity-40"
+          />
+          <span className="text-xs font-mono text-[#a0a0a0]">
+            {cancelIconColor}
+          </span>
+        </div>
+      </SettingContainer>
+
+      <SettingContainer
+        title="Decapitalize Indicator Color"
+        description="Color of the decapitalize badge text or emoji."
+        descriptionMode="tooltip"
+        grouped={true}
+      >
+        <div className="flex items-center gap-3">
+          <input
+            type="color"
+            value={decapIndicatorColor}
+            onChange={(event) =>
+              void updateSetting(
+                "recording_overlay_decapitalize_indicator_color" as any,
+                event.target.value as any,
+              )
+            }
+            disabled={
+              isUpdating("recording_overlay_decapitalize_indicator_color") ||
+              decapIndicatorMode === "hidden"
+            }
+            className="h-8 w-12 rounded border border-[#3c3c3c] bg-transparent disabled:opacity-40"
+          />
+          <span className="text-xs font-mono text-[#a0a0a0]">
+            {decapIndicatorColor}
+          </span>
         </div>
       </SettingContainer>
         </div>
