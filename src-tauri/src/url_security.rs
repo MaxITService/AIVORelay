@@ -169,7 +169,10 @@ mod tests {
             remote_stt_base_url_for_preset(REMOTE_STT_PRESET_OPENAI),
             Some(REMOTE_STT_OPENAI_BASE_URL)
         );
-        assert_eq!(remote_stt_base_url_for_preset(REMOTE_STT_PRESET_CUSTOM), None);
+        assert_eq!(
+            remote_stt_base_url_for_preset(REMOTE_STT_PRESET_CUSTOM),
+            None
+        );
         assert_eq!(remote_stt_base_url_for_preset("unknown"), None);
     }
 
@@ -215,7 +218,8 @@ mod tests {
 
     #[test]
     fn validate_remote_stt_base_url_returns_canonical_url_for_known_preset() {
-        let settings = remote_settings(REMOTE_STT_PRESET_GROQ, "https://ignored.example.com", false);
+        let settings =
+            remote_settings(REMOTE_STT_PRESET_GROQ, "https://ignored.example.com", false);
 
         assert_eq!(
             validate_remote_stt_base_url(&settings, Some("https://override.example.com")).unwrap(),
@@ -225,7 +229,11 @@ mod tests {
 
     #[test]
     fn validate_remote_stt_base_url_normalizes_custom_https_urls() {
-        let settings = remote_settings(REMOTE_STT_PRESET_CUSTOM, "  https://custom.example.com/v1/ ", false);
+        let settings = remote_settings(
+            REMOTE_STT_PRESET_CUSTOM,
+            "  https://custom.example.com/v1/ ",
+            false,
+        );
 
         assert_eq!(
             validate_remote_stt_base_url(&settings, None).unwrap(),
@@ -244,7 +252,8 @@ mod tests {
 
     #[test]
     fn validate_remote_stt_base_url_accepts_plain_http_when_override_flag_enabled() {
-        let settings = remote_settings(REMOTE_STT_PRESET_CUSTOM, "https://unused.example.com", true);
+        let settings =
+            remote_settings(REMOTE_STT_PRESET_CUSTOM, "https://unused.example.com", true);
 
         assert_eq!(
             validate_remote_stt_base_url(&settings, Some("http://localhost:8000/v1/")).unwrap(),
@@ -264,7 +273,11 @@ mod tests {
 
     #[test]
     fn validate_remote_stt_base_url_rejects_non_http_schemes() {
-        let settings = remote_settings(REMOTE_STT_PRESET_CUSTOM, "ftp://files.example.com/api", false);
+        let settings = remote_settings(
+            REMOTE_STT_PRESET_CUSTOM,
+            "ftp://files.example.com/api",
+            false,
+        );
 
         let error = validate_remote_stt_base_url(&settings, None).unwrap_err();
         assert!(error.contains("http:// or https://"));
@@ -274,18 +287,30 @@ mod tests {
     #[test]
     fn canonical_llm_provider_base_url_returns_known_provider_defaults() {
         assert_eq!(
-            canonical_llm_provider_base_url(&provider("openai", "https://ignored.example.com", false))
-                .unwrap(),
+            canonical_llm_provider_base_url(&provider(
+                "openai",
+                "https://ignored.example.com",
+                false
+            ))
+            .unwrap(),
             LLM_OPENAI_BASE_URL
         );
         assert_eq!(
-            canonical_llm_provider_base_url(&provider("groq", "https://ignored.example.com", false))
-                .unwrap(),
+            canonical_llm_provider_base_url(&provider(
+                "groq",
+                "https://ignored.example.com",
+                false
+            ))
+            .unwrap(),
             LLM_GROQ_BASE_URL
         );
         assert_eq!(
-            canonical_llm_provider_base_url(&provider("cerebras", "https://ignored.example.com", false))
-                .unwrap(),
+            canonical_llm_provider_base_url(&provider(
+                "cerebras",
+                "https://ignored.example.com",
+                false
+            ))
+            .unwrap(),
             LLM_CEREBRAS_BASE_URL
         );
     }
@@ -304,12 +329,9 @@ mod tests {
 
     #[test]
     fn canonical_llm_provider_base_url_rejects_custom_http_without_opt_in() {
-        let error = canonical_llm_provider_base_url(&provider(
-            "custom",
-            "http://llm.local/v1",
-            false,
-        ))
-        .unwrap_err();
+        let error =
+            canonical_llm_provider_base_url(&provider("custom", "http://llm.local/v1", false))
+                .unwrap_err();
 
         assert!(error.contains("Custom LLM base URL"));
         assert!(error.contains("must use HTTPS"));

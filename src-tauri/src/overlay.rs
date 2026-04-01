@@ -5,8 +5,8 @@ use crate::settings;
 use crate::settings::{
     OverlayPosition, RecordingOverlayAnimatedBorderMode, RecordingOverlayBackgroundMode,
     RecordingOverlayBarStyle, RecordingOverlayCenterpieceMode,
-    RecordingOverlayDecapitalizeIndicatorMode, RecordingOverlayMaterialMode,
-    RecordingOverlayTheme, SonioxLivePreviewPosition, SonioxLivePreviewSize, SonioxLivePreviewTheme,
+    RecordingOverlayDecapitalizeIndicatorMode, RecordingOverlayMaterialMode, RecordingOverlayTheme,
+    SonioxLivePreviewPosition, SonioxLivePreviewSize, SonioxLivePreviewTheme,
 };
 use serde::Serialize;
 use specta::Type;
