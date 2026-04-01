@@ -245,6 +245,15 @@ Execute PowerShell scripts with your voice. Pre write scriopts... or make LMM wr
 
 ## ⚙️ Configuration
 
+## 🧪 Testing
+
+Backend Rust tests in this fork should be run through the checked-in Windows harness, not plain `cargo test`.
+
+- All backend tests: `pwsh -NoProfile -File .\test-local.ps1`
+- Library unit tests: `pwsh -NoProfile -File .\test-local.ps1 -LibOnly`
+- Detailed commands and current documented test areas: [`TESTING.md`](TESTING.md)
+- Minimum free disk space before running tests: `50 GB`
+
 ### LLM API Relay
 
 **Settings → LLM API Relay**

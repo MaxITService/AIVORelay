@@ -835,4 +835,81 @@ mod tests {
             OverlayErrorCategory::RateLimited
         ));
     }
+
+    #[test]
+    fn test_extract_status_code_ignores_non_error_codes_and_finds_first_http_error_code() {
+        assert_eq!(
+            extract_3_digit_status_code("attempt one status=200 retry status=429"),
+            Some(429)
+        );
+        assert_eq!(
+            extract_3_digit_status_code("http/200 upstream recovered"),
+            None
+        );
+    }
+
+    #[test]
+    fn test_sanitize_technical_message_collapses_whitespace_and_truncates() {
+        let sanitized = sanitize_technical_message(
+            "remote   stt\nfailed\twith a very long message that should be truncated once it exceeds the configured limit by quite a bit"
+        )
+        .expect("sanitized message");
+
+        assert!(sanitized.starts_with("remote stt failed with a very long message"));
+        assert!(sanitized.ends_with("..."));
+        assert!(sanitized.len() <= 89);
+        assert!(!sanitized.contains('\n'));
+        assert!(!sanitized.contains('\t'));
+    }
+
+    #[test]
+    fn test_build_display_code_prefers_provider_code_alias_mapping() {
+        assert_eq!(
+            build_display_code(
+                &OverlayErrorProvider::OpenAiCompatible,
+                &OverlayErrorTransport::Http,
+                &OverlayCanonicalErrorCode::ERateLimit,
+                None,
+                Some("rate_limit_exceeded"),
+            ),
+            "OPENAI RATE_LIMIT"
+        );
+    }
+
+    #[test]
+    fn test_build_error_envelope_from_string_captures_http_metadata() {
+        let envelope = build_error_envelope_from_string(
+            "Remote STT request failed: status=429 while calling /audio/transcriptions",
+        );
+
+        assert!(matches!(
+            envelope.provider,
+            OverlayErrorProvider::OpenAiCompatible
+        ));
+        assert!(matches!(envelope.transport, OverlayErrorTransport::Http));
+        assert!(matches!(
+            envelope.canonical_code,
+            OverlayCanonicalErrorCode::ERateLimit
+        ));
+        assert_eq!(envelope.status_code, Some(429));
+        assert_eq!(envelope.display_code, "OPENAI HTTP 429");
+        assert!(envelope.retryable);
+    }
+
+    #[test]
+    fn test_build_default_envelope_from_category_uses_local_mic_defaults() {
+        let envelope = build_default_envelope_from_category(
+            &OverlayErrorCategory::MicrophoneUnavailable,
+            "Mic unavailable",
+        );
+
+        assert!(matches!(envelope.provider, OverlayErrorProvider::Local));
+        assert!(matches!(envelope.transport, OverlayErrorTransport::Local));
+        assert!(matches!(
+            envelope.canonical_code,
+            OverlayCanonicalErrorCode::EMicUnavailable
+        ));
+        assert_eq!(envelope.display_code, "LOCAL E_MIC");
+        assert!(!envelope.retryable);
+    }
 }

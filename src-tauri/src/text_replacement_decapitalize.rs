@@ -189,3 +189,169 @@ fn consume_trigger(mode: ApplyMode) {
 fn find_first_alphabetic_char(text: &str) -> Option<(usize, char)> {
     text.char_indices().find(|(_, ch)| ch.is_alphabetic())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    static TEST_MUTEX: Lazy<Mutex<()>> = Lazy::new(|| Mutex::new(()));
+
+    fn reset_global_state() {
+        *DECAPITALIZE_STATE.lock().unwrap() = DecapitalizeState::default();
+    }
+
+    #[test]
+    fn arm_after_edit_sets_realtime_deadline_and_optionally_standard_output() {
+        let now = Instant::now();
+        let mut state = DecapitalizeState::default();
+
+        state.arm_after_edit(250, true, now);
+
+        assert!(state.realtime_trigger_until.is_some());
+        assert!(state.standard_output_armed);
+    }
+
+    #[test]
+    fn arm_after_edit_uses_active_monitor_to_arm_standard_output() {
+        let now = Instant::now();
+        let mut state = DecapitalizeState {
+            standard_monitor_until: Some(now + Duration::from_millis(500)),
+            ..Default::default()
+        };
+
+        state.arm_after_edit(100, false, now);
+
+        assert!(state.standard_output_armed);
+    }
+
+    #[test]
+    fn begin_standard_monitor_zero_window_disables_monitor() {
+        let now = Instant::now();
+        let mut state = DecapitalizeState::default();
+
+        state.begin_standard_monitor(0, now);
+
+        assert_eq!(state.standard_monitor_until, None);
+    }
+
+    #[test]
+    fn cleanup_expired_realtime_trigger_clears_expired_deadline() {
+        let now = Instant::now();
+        let mut state = DecapitalizeState {
+            realtime_trigger_until: Some(now - Duration::from_millis(1)),
+            ..Default::default()
+        };
+
+        assert!(!state.cleanup_expired_realtime_trigger(now));
+        assert_eq!(state.realtime_trigger_until, None);
+    }
+
+    #[test]
+    fn cleanup_expired_standard_monitor_clears_expired_deadline() {
+        let now = Instant::now();
+        let mut state = DecapitalizeState {
+            standard_monitor_until: Some(now - Duration::from_millis(1)),
+            ..Default::default()
+        };
+
+        assert!(!state.cleanup_expired_standard_monitor(now));
+        assert_eq!(state.standard_monitor_until, None);
+    }
+
+    #[test]
+    fn is_trigger_pending_for_standard_output_includes_armed_output_flag() {
+        let now = Instant::now();
+        let mut state = DecapitalizeState {
+            standard_output_armed: true,
+            ..Default::default()
+        };
+
+        assert!(state.is_trigger_pending(ApplyMode::StandardOutput, now));
+        assert!(!state.is_trigger_pending(ApplyMode::RealtimeChunk, now));
+    }
+
+    #[test]
+    fn consume_standard_output_clears_all_standard_state() {
+        let now = Instant::now();
+        let mut state = DecapitalizeState {
+            realtime_trigger_until: Some(now + Duration::from_millis(100)),
+            standard_monitor_until: Some(now + Duration::from_millis(100)),
+            standard_output_armed: true,
+        };
+
+        state.consume(ApplyMode::StandardOutput);
+
+        assert_eq!(state.realtime_trigger_until, None);
+        assert_eq!(state.standard_monitor_until, None);
+        assert!(!state.standard_output_armed);
+    }
+
+    #[test]
+    fn find_first_alphabetic_char_skips_punctuation_and_space() {
+        assert_eq!(find_first_alphabetic_char("  ...Hello"), Some((5, 'H')));
+        assert_eq!(find_first_alphabetic_char("1234"), None);
+    }
+
+    #[test]
+    fn realtime_preview_does_not_consume_trigger_until_finalized_chunk() {
+        let _guard = TEST_MUTEX.lock().unwrap();
+        reset_global_state();
+
+        mark_edit_key_pressed(500, false);
+
+        assert_eq!(preview_decapitalize_next_chunk_realtime(" Hello"), " hello");
+        assert!(is_any_trigger_armed_now());
+        assert_eq!(maybe_decapitalize_next_chunk_realtime(" Hello"), " hello");
+        assert!(!is_any_trigger_armed_now());
+
+        reset_global_state();
+    }
+
+    #[test]
+    fn standard_monitor_allows_edit_key_to_arm_standard_output() {
+        let _guard = TEST_MUTEX.lock().unwrap();
+        reset_global_state();
+
+        begin_standard_post_recording_monitor(500);
+        mark_edit_key_pressed(500, false);
+
+        assert_eq!(maybe_decapitalize_next_chunk_standard(" World"), " world");
+        assert!(!is_any_trigger_armed_now());
+
+        reset_global_state();
+    }
+
+    #[test]
+    fn indicator_state_reports_disabled_as_unarmed() {
+        let _guard = TEST_MUTEX.lock().unwrap();
+        reset_global_state();
+        mark_edit_key_pressed(500, false);
+
+        let disabled = indicator_state(false);
+        let enabled = indicator_state(true);
+
+        assert!(!disabled.eligible);
+        assert!(!disabled.armed);
+        assert!(enabled.eligible);
+        assert!(enabled.armed);
+
+        reset_global_state();
+    }
+
+    #[test]
+    fn maybe_transform_next_chunk_impl_preserves_lowercase_and_non_alpha_inputs() {
+        let _guard = TEST_MUTEX.lock().unwrap();
+        reset_global_state();
+
+        assert_eq!(
+            maybe_transform_next_chunk_impl(" already lower", ApplyMode::RealtimeChunk, false),
+            " already lower"
+        );
+        assert_eq!(
+            maybe_transform_next_chunk_impl("...123", ApplyMode::RealtimeChunk, false),
+            "...123"
+        );
+
+        reset_global_state();
+    }
+}
