@@ -797,6 +797,44 @@ mod tests {
         .expect("insert history entry");
     }
 
+    fn insert_ai_replace_entry(
+        conn: &Connection,
+        timestamp: i64,
+        instruction: &str,
+        original_selection: &str,
+        ai_response: Option<&str>,
+    ) {
+        conn.execute(
+            "INSERT INTO transcription_history (
+                file_name,
+                timestamp,
+                saved,
+                title,
+                transcription_text,
+                post_processed_text,
+                post_process_prompt,
+                post_process_requested,
+                action_type,
+                original_selection,
+                ai_response
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+            params![
+                format!("ai-replace-{}.txt", timestamp),
+                timestamp,
+                false,
+                format!("Recording {}", timestamp),
+                instruction,
+                Option::<String>::None,
+                Option::<String>::None,
+                false,
+                "ai_replace",
+                original_selection,
+                ai_response
+            ],
+        )
+        .expect("insert ai_replace entry");
+    }
+
     #[test]
     fn get_latest_entry_returns_none_when_empty() {
         let conn = setup_conn();
@@ -831,5 +869,72 @@ mod tests {
 
         assert_eq!(entry.timestamp, 100);
         assert_eq!(entry.transcription_text, "completed");
+    }
+
+    #[test]
+    fn get_latest_completed_entry_returns_none_when_only_empty_transcriptions_exist() {
+        let conn = setup_conn();
+        insert_entry(&conn, 100, "", None);
+        insert_entry(&conn, 200, "", Some("processed"));
+
+        let entry =
+            HistoryManager::get_latest_completed_entry_with_conn(&conn).expect("fetch latest");
+
+        assert!(entry.is_none());
+    }
+
+    #[test]
+    fn get_latest_completed_entry_ignores_newer_ai_replace_rows() {
+        let conn = setup_conn();
+        insert_entry(&conn, 100, "spoken text", None);
+        insert_ai_replace_entry(&conn, 200, "rewrite this", "original", Some("rewritten"));
+
+        let entry = HistoryManager::get_latest_completed_entry_with_conn(&conn)
+            .expect("fetch latest completed entry")
+            .expect("completed entry exists");
+
+        assert_eq!(entry.timestamp, 100);
+        assert_eq!(entry.action_type, "transcribe");
+    }
+
+    #[test]
+    fn get_latest_entry_returns_newest_ai_replace_row_with_payload_fields() {
+        let conn = setup_conn();
+        insert_entry(&conn, 100, "spoken text", None);
+        insert_ai_replace_entry(&conn, 300, "rewrite this", "selected", Some("rewritten"));
+
+        let entry = HistoryManager::get_latest_entry_with_conn(&conn)
+            .expect("fetch latest entry")
+            .expect("entry exists");
+
+        assert_eq!(entry.timestamp, 300);
+        assert_eq!(entry.action_type, "ai_replace");
+        assert_eq!(entry.original_selection.as_deref(), Some("selected"));
+        assert_eq!(entry.ai_response.as_deref(), Some("rewritten"));
+    }
+
+    #[test]
+    fn get_latest_completed_entry_prefers_newest_non_empty_transcribe_row() {
+        let conn = setup_conn();
+        insert_entry(&conn, 100, "first", None);
+        insert_entry(&conn, 150, "", None);
+        insert_entry(&conn, 200, "second", Some("processed"));
+
+        let entry = HistoryManager::get_latest_completed_entry_with_conn(&conn)
+            .expect("fetch latest completed entry")
+            .expect("completed entry exists");
+
+        assert_eq!(entry.timestamp, 200);
+        assert_eq!(entry.transcription_text, "second");
+        assert_eq!(entry.post_processed_text.as_deref(), Some("processed"));
+    }
+
+    #[test]
+    fn get_latest_entry_returns_none_when_only_table_exists_without_rows() {
+        let conn = setup_conn();
+
+        let entry = HistoryManager::get_latest_entry_with_conn(&conn).expect("fetch latest entry");
+
+        assert!(entry.is_none());
     }
 }

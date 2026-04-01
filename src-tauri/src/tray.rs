@@ -441,7 +441,11 @@ pub fn copy_last_transcript(app: &AppHandle) {
 
 #[cfg(test)]
 mod tests {
-    use super::last_transcript_text;
+    use super::{
+        get_icon_path, last_transcript_text, parse_microphone_menu_selection, tray_tooltip,
+        AppTheme, TrayIconState, TRAY_MICROPHONE_DEFAULT_ID, TRAY_MICROPHONE_MENU_PREFIX,
+        TRAY_MICROPHONE_MISSING_ID,
+    };
     use crate::managers::history::HistoryEntry;
 
     fn build_entry(transcription: &str, post_processed: Option<&str>) -> HistoryEntry {
@@ -471,5 +475,72 @@ mod tests {
     fn falls_back_to_raw_transcription() {
         let entry = build_entry("raw", None);
         assert_eq!(last_transcript_text(&entry), "raw");
+    }
+
+    #[test]
+    fn get_icon_path_returns_expected_resources_for_dark_theme() {
+        assert_eq!(
+            get_icon_path(AppTheme::Dark, TrayIconState::Idle),
+            "resources/aivo_tray.png"
+        );
+        assert_eq!(
+            get_icon_path(AppTheme::Dark, TrayIconState::Recording),
+            "resources/tray_recording.png"
+        );
+        assert_eq!(
+            get_icon_path(AppTheme::Dark, TrayIconState::Transcribing),
+            "resources/tray_transcribing.png"
+        );
+    }
+
+    #[test]
+    fn get_icon_path_returns_expected_resources_for_light_and_colored_themes() {
+        assert_eq!(
+            get_icon_path(AppTheme::Light, TrayIconState::Recording),
+            "resources/tray_recording_dark.png"
+        );
+        assert_eq!(
+            get_icon_path(AppTheme::Light, TrayIconState::Transcribing),
+            "resources/tray_transcribing_dark.png"
+        );
+        assert_eq!(
+            get_icon_path(AppTheme::Colored, TrayIconState::Recording),
+            "resources/recording.png"
+        );
+        assert_eq!(
+            get_icon_path(AppTheme::Colored, TrayIconState::Transcribing),
+            "resources/transcribing.png"
+        );
+    }
+
+    #[test]
+    fn tray_tooltip_uses_app_version_label() {
+        let tooltip = tray_tooltip();
+
+        assert!(tooltip.contains(env!("CARGO_PKG_VERSION")));
+        #[cfg(debug_assertions)]
+        assert!(tooltip.contains("(Dev)"));
+    }
+
+    #[test]
+    fn parse_microphone_menu_selection_handles_special_ids() {
+        assert_eq!(
+            parse_microphone_menu_selection(TRAY_MICROPHONE_DEFAULT_ID),
+            Some(None)
+        );
+        assert_eq!(
+            parse_microphone_menu_selection(TRAY_MICROPHONE_MISSING_ID),
+            None
+        );
+    }
+
+    #[test]
+    fn parse_microphone_menu_selection_extracts_device_index_suffix() {
+        let id = format!("{TRAY_MICROPHONE_MENU_PREFIX}7");
+        assert_eq!(
+            parse_microphone_menu_selection(&id),
+            Some(Some("7".to_string()))
+        );
+        assert_eq!(parse_microphone_menu_selection("some-other-id"), None);
     }
 }

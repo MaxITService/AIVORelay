@@ -440,3 +440,52 @@ pub fn stop_handy_keys_recording(app: AppHandle) -> Result<(), String> {
         .ok_or_else(|| "HandyKeys backend is not initialized".to_string())?;
     state.stop_recording()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn modifiers_to_strings_returns_expected_platform_order() {
+        let modifiers = handy_keys::Modifiers::CTRL
+            | handy_keys::Modifiers::OPT
+            | handy_keys::Modifiers::SHIFT
+            | handy_keys::Modifiers::CMD
+            | handy_keys::Modifiers::FN;
+
+        #[cfg(target_os = "macos")]
+        assert_eq!(
+            modifiers_to_strings(modifiers),
+            vec!["ctrl", "option", "shift", "command", "fn"]
+        );
+
+        #[cfg(not(target_os = "macos"))]
+        assert_eq!(
+            modifiers_to_strings(modifiers),
+            vec!["ctrl", "alt", "shift", "super", "fn"]
+        );
+    }
+
+    #[test]
+    fn normalize_for_handy_keys_maps_common_modifier_aliases() {
+        assert_eq!(
+            normalize_for_handy_keys("Win+Option+Control+Esc+Return"),
+            "super+alt+ctrl+escape+enter"
+        );
+    }
+
+    #[test]
+    fn normalize_for_handy_keys_trims_and_lowercases_unknown_parts() {
+        assert_eq!(normalize_for_handy_keys(" Shift + A + F13 "), "shift+a+f13");
+    }
+
+    #[test]
+    fn validate_shortcut_allows_blank_strings() {
+        assert!(validate_shortcut("   ").is_ok());
+    }
+
+    #[test]
+    fn validate_shortcut_accepts_aliases_after_normalization() {
+        assert!(validate_shortcut("Control+Esc").is_ok());
+    }
+}

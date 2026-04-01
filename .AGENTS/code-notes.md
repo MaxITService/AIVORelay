@@ -69,6 +69,7 @@ Files that are added by this fork rather than upstream files that were modified.
 | File | Purpose |
 | --- | --- |
 | `build-local.ps1` | Local rebuild script (Windows). |
+| `test-local.ps1` | Local backend test harness with MSVC/bindgen setup and subset filtering. |
 | `build-unsigned.js` | Unsigned build Node.js script. |
 | `scripts/prepare-avx2-sidecar.js` | Builds the AVX2 sidecar executable into `src-tauri/binaries` before Tauri packaging. |
 | `scripts/prepare-cuda-sidecar.js` | Builds the CUDA sidecar executable into `src-tauri/binaries` before Tauri packaging. |
@@ -76,6 +77,7 @@ Files that are added by this fork rather than upstream files that were modified.
 | `src-tauri/sidecars/aivorelay-avx2/*` | Thin AVX2 launcher package that runs the shared app lib as `aivorelay-avx2.exe`. |
 | `src-tauri/sidecars/aivorelay-cuda/*` | Thin CUDA launcher package that runs the shared app lib as `aivorelay-cuda.exe`. |
 | `benchmark-linkers.ps1` | Benchmarks unsigned Windows builds across supported linker variants using isolated target dirs. |
+| `scripts/setup-rust-build-env.ps1` | Shared Windows Rust build/test environment bootstrap for bindgen and short target dirs. |
 | `.github/workflows/code-quality.yml` | Combined PR lint/format workflow with path filters and cancellation of stale runs. |
 | `.github/release-notes/*.md` | Checked-in branch-specific GitHub release body Markdown picked up by release workflows. |
 | `.AGENTS/rebuild-browser-connector-bundle.ps1` | Rebuilds the tracked bundled browser-extension zip from the sibling `AIVORelay-relay` repo. |
@@ -156,6 +158,7 @@ Files that are added by this fork rather than upstream files that were modified.
 
 | File | Purpose |
 | --- | --- |
+| `TESTING.md` | Windows backend testing commands, harness notes, and documented test areas. |
 | `src-tauri/src/llm_client.rs` | LLM API client. |
 | `src-tauri/src/managers/model.rs` | Local model definitions (`EngineType`), including Canary metadata and GigaAM v3 directory-format migration. |
 | `src-tauri/src/commands/models.rs` | Defines `get_active_gpu_vram_status`. |

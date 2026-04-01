@@ -1397,4 +1397,76 @@ mod tests {
 
         assert!(result.is_err());
     }
+
+    #[test]
+    fn compute_sha256_matches_known_hash_for_empty_file() {
+        let path = temp_file_path("empty");
+        fs::write(&path, b"").unwrap();
+
+        let hash = ModelManager::compute_sha256(&path).unwrap();
+
+        assert_eq!(
+            hash,
+            "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        );
+
+        let _ = fs::remove_file(path);
+    }
+
+    #[test]
+    fn compute_sha256_matches_known_hash_for_hello_file() {
+        let path = temp_file_path("hello-known");
+        fs::write(&path, b"hello").unwrap();
+
+        let hash = ModelManager::compute_sha256(&path).unwrap();
+
+        assert_eq!(
+            hash,
+            "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824"
+        );
+
+        let _ = fs::remove_file(path);
+    }
+
+    #[test]
+    fn compute_sha256_fails_for_directory_paths() {
+        let path = temp_file_path("dir");
+        fs::create_dir_all(&path).unwrap();
+
+        let result = ModelManager::compute_sha256(&path);
+
+        assert!(result.is_err());
+
+        let _ = fs::remove_dir_all(path);
+    }
+
+    #[test]
+    fn verify_sha256_mismatch_error_mentions_model_id_and_retry() {
+        let path = temp_file_path("mismatch-message");
+        fs::write(&path, b"hello").unwrap();
+
+        let error = ModelManager::verify_sha256(
+            &path,
+            Some("ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"),
+            "voice-model",
+        )
+        .unwrap_err()
+        .to_string();
+
+        assert!(error.contains("voice-model"));
+        assert!(error.contains("Please retry"));
+        assert!(!path.exists());
+    }
+
+    #[test]
+    fn verify_sha256_missing_file_error_mentions_model_id_and_retry() {
+        let path = temp_file_path("missing-message");
+
+        let error = ModelManager::verify_sha256(&path, Some("deadbeef"), "missing-voice-model")
+            .unwrap_err()
+            .to_string();
+
+        assert!(error.contains("missing-voice-model"));
+        assert!(error.contains("Please retry"));
+    }
 }

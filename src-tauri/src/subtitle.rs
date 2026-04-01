@@ -102,13 +102,18 @@ mod tests {
         assert_eq!(format_srt_time(0.0), "00:00:00,000");
         assert_eq!(format_srt_time(1.5), "00:00:01,500");
         assert_eq!(format_srt_time(61.234), "00:01:01,234");
-        assert_eq!(format_srt_time(3661.999), "01:01:02,000"); // rounds up
+        assert_eq!(format_srt_time(3661.9994), "01:01:02,000"); // rounds up with f32 input
     }
 
     #[test]
     fn test_vtt_time_format() {
         assert_eq!(format_vtt_time(0.0), "00:00:00.000");
         assert_eq!(format_vtt_time(1.5), "00:00:01.500");
+    }
+
+    #[test]
+    fn test_vtt_time_format_rounds_up_with_representable_f32_boundary() {
+        assert_eq!(format_vtt_time(3661.9994), "01:01:02.000");
     }
 
     #[test]
@@ -131,6 +136,17 @@ mod tests {
     }
 
     #[test]
+    fn test_segments_to_srt_trims_surrounding_whitespace() {
+        let segments = vec![SubtitleSegment {
+            start: 0.0,
+            end: 1.0,
+            text: "  Hello world  ".to_string(),
+        }];
+        let srt = segments_to_srt(&segments);
+        assert!(srt.contains("1\n00:00:00,000 --> 00:00:01,000\nHello world"));
+    }
+
+    #[test]
     fn test_segments_to_vtt() {
         let segments = vec![SubtitleSegment {
             start: 0.0,
@@ -140,5 +156,23 @@ mod tests {
         let vtt = segments_to_vtt(&segments);
         assert!(vtt.starts_with("WEBVTT\n"));
         assert!(vtt.contains("00:00:00.000 --> 00:00:02.500"));
+    }
+
+    #[test]
+    fn test_segments_to_vtt_trims_surrounding_whitespace() {
+        let segments = vec![SubtitleSegment {
+            start: 0.0,
+            end: 1.0,
+            text: "  Hello world  ".to_string(),
+        }];
+        let vtt = segments_to_vtt(&segments);
+        assert!(vtt.contains("1\n00:00:00.000 --> 00:00:01.000\nHello world\n\n"));
+    }
+
+    #[test]
+    fn test_get_format_extension_returns_expected_values() {
+        assert_eq!(get_format_extension(OutputFormat::Text), "txt");
+        assert_eq!(get_format_extension(OutputFormat::Srt), "srt");
+        assert_eq!(get_format_extension(OutputFormat::Vtt), "vtt");
     }
 }

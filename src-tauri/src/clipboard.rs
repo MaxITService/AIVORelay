@@ -1269,6 +1269,40 @@ mod tests {
     use super::*;
 
     #[test]
+    fn convert_text_for_clipboard_keeps_text_when_conversion_disabled() {
+        let input = "line1\nline2\r\nline3";
+        assert_eq!(convert_text_for_clipboard(input, false), input);
+    }
+
+    #[test]
+    fn convert_text_for_clipboard_normalizes_lf_to_crlf_when_enabled() {
+        let input = "line1\nline2\nline3";
+
+        #[cfg(target_os = "windows")]
+        assert_eq!(
+            convert_text_for_clipboard(input, true),
+            "line1\r\nline2\r\nline3"
+        );
+
+        #[cfg(not(target_os = "windows"))]
+        assert_eq!(convert_text_for_clipboard(input, true), input);
+    }
+
+    #[test]
+    fn convert_text_for_clipboard_does_not_double_existing_crlf_when_enabled() {
+        let input = "line1\r\nline2\nline3\r\n";
+
+        #[cfg(target_os = "windows")]
+        assert_eq!(
+            convert_text_for_clipboard(input, true),
+            "line1\r\nline2\r\nline3\r\n"
+        );
+
+        #[cfg(not(target_os = "windows"))]
+        assert_eq!(convert_text_for_clipboard(input, true), input);
+    }
+
+    #[test]
     fn auto_submit_requires_setting_enabled() {
         assert!(!should_send_auto_submit(false, PasteMethod::CtrlV));
         assert!(!should_send_auto_submit(false, PasteMethod::Direct));
