@@ -4054,9 +4054,10 @@ mod tests {
         settings
             .post_process_api_keys
             .insert("openai".to_string(), "sk-proj-secret-key-12345".to_string());
-        settings
-            .ai_replace_api_keys
-            .insert("anthropic".to_string(), "sk-ant-secret-key-67890".to_string());
+        settings.ai_replace_api_keys.insert(
+            "anthropic".to_string(),
+            "sk-ant-secret-key-67890".to_string(),
+        );
         settings
             .voice_command_api_keys
             .insert("groq".to_string(), "gsk_secret_key_24680".to_string());
