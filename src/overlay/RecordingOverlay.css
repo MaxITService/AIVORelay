@@ -642,12 +642,14 @@ body,
   top: 2px;
   left: 50%;
   transform: translateX(-50%);
-  color: #72f29a;
-  font-size: 16px;
   line-height: 1;
   font-weight: 600;
   letter-spacing: 0.02em;
   text-shadow: 0 0 12px rgba(114, 242, 154, 0.3);
   pointer-events: none;
   user-select: none;
+  max-width: calc(100% - 20px);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }

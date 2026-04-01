@@ -4,9 +4,9 @@ use crate::plus_overlay_state;
 use crate::settings;
 use crate::settings::{
     OverlayPosition, RecordingOverlayAnimatedBorderMode, RecordingOverlayBackgroundMode,
-    RecordingOverlayBarStyle, RecordingOverlayCenterpieceMode, RecordingOverlayMaterialMode,
-    RecordingOverlayTheme, SonioxLivePreviewPosition, SonioxLivePreviewSize,
-    SonioxLivePreviewTheme,
+    RecordingOverlayBarStyle, RecordingOverlayCenterpieceMode,
+    RecordingOverlayDecapitalizeIndicatorMode, RecordingOverlayMaterialMode,
+    RecordingOverlayTheme, SonioxLivePreviewPosition, SonioxLivePreviewSize, SonioxLivePreviewTheme,
 };
 use serde::Serialize;
 use specta::Type;
@@ -146,9 +146,12 @@ pub struct RecordingOverlayAppearancePayload {
     centerpiece_mode: String,
     animated_border_mode: String,
     accent_color: String,
+    status_icon_color: String,
+    cancel_icon_color: String,
     surface_base_color: String,
     body_background_color: String,
     show_status_icon: bool,
+    show_cancel_button: bool,
     bar_count: u8,
     bar_width_px: u8,
     bar_style: String,
@@ -161,6 +164,11 @@ pub struct RecordingOverlayAppearancePayload {
     opacity_percent: u8,
     silence_fade: bool,
     silence_opacity_percent: u8,
+    decapitalize_indicator_mode: String,
+    decapitalize_indicator_custom_text: String,
+    decapitalize_indicator_font_family: String,
+    decapitalize_indicator_font_size_px: u8,
+    decapitalize_indicator_color: String,
     frame_width_px: u16,
     frame_height_px: u16,
 }
@@ -439,6 +447,16 @@ fn recording_overlay_bar_style_key(style: RecordingOverlayBarStyle) -> &'static 
     }
 }
 
+fn recording_overlay_decapitalize_indicator_mode_key(
+    mode: RecordingOverlayDecapitalizeIndicatorMode,
+) -> &'static str {
+    match mode {
+        RecordingOverlayDecapitalizeIndicatorMode::Text => "text",
+        RecordingOverlayDecapitalizeIndicatorMode::Custom => "custom",
+        RecordingOverlayDecapitalizeIndicatorMode::Hidden => "hidden",
+    }
+}
+
 fn build_recording_overlay_appearance_payload(
     app_handle: &AppHandle,
 ) -> RecordingOverlayAppearancePayload {
@@ -464,9 +482,12 @@ fn build_recording_overlay_appearance_payload(
         )
         .to_string(),
         accent_color: settings.recording_overlay_accent_color,
+        status_icon_color: settings.recording_overlay_status_icon_color,
+        cancel_icon_color: settings.recording_overlay_cancel_icon_color,
         surface_base_color: settings.recording_overlay_surface_base_color,
         body_background_color: settings.recording_overlay_body_background_color,
         show_status_icon: settings.recording_overlay_show_status_icon,
+        show_cancel_button: settings.recording_overlay_show_cancel_button,
         bar_count: settings.recording_overlay_bar_count.clamp(3, 16),
         bar_width_px: settings.recording_overlay_bar_width_px.clamp(2, 12),
         bar_style: recording_overlay_bar_style_key(settings.recording_overlay_bar_style)
@@ -490,6 +511,18 @@ fn build_recording_overlay_appearance_payload(
         silence_opacity_percent: settings
             .recording_overlay_silence_opacity_percent
             .clamp(20, 100),
+        decapitalize_indicator_mode: recording_overlay_decapitalize_indicator_mode_key(
+            settings.recording_overlay_decapitalize_indicator_mode,
+        )
+        .to_string(),
+        decapitalize_indicator_custom_text: settings
+            .recording_overlay_decapitalize_indicator_custom_text,
+        decapitalize_indicator_font_family: settings
+            .recording_overlay_decapitalize_indicator_font_family,
+        decapitalize_indicator_font_size_px: settings
+            .recording_overlay_decapitalize_indicator_font_size_px
+            .clamp(10, 32),
+        decapitalize_indicator_color: settings.recording_overlay_decapitalize_indicator_color,
         frame_width_px: metrics.frame_width.round().clamp(0.0, u16::MAX as f64) as u16,
         frame_height_px: metrics.frame_height.round().clamp(0.0, u16::MAX as f64) as u16,
     }
@@ -590,8 +623,13 @@ fn recording_overlay_default_width(app_handle: &AppHandle) -> f64 {
     } else {
         0.0
     };
+    let cancel_button_width = if settings.recording_overlay_show_cancel_button {
+        28.0
+    } else {
+        0.0
+    };
 
-    (60.0 + status_icon_width + bar_track_width).max(minimum_width)
+    (32.0 + status_icon_width + cancel_button_width + bar_track_width).max(minimum_width)
 }
 
 fn recording_overlay_frame_dimensions(
