@@ -16,14 +16,14 @@ use crate::settings::ShortcutBinding;
 use crate::settings::APPLE_INTELLIGENCE_DEFAULT_MODEL_ID;
 use crate::settings::{
     self, get_settings, AutoSubmitKey, ClipboardHandling, LLMPrompt, OutputWhitespaceMode,
-    OverlayPosition, PasteMethod, RecordingOverlayAnimatedBorderMode,
-    RecordingOverlayBackgroundMode, RecordingOverlayBarStyle, RecordingOverlayCenterpieceMode,
-    RecordingOverlayMaterialMode, RecordingOverlayTheme, RemoteSttDebugMode, ShortcutEngine,
-    SonioxLivePreviewPosition, SonioxLivePreviewSize, SonioxLivePreviewTheme, SoundTheme,
-    TranscriptionProvider, APPLE_INTELLIGENCE_PROVIDER_ID, DEEPGRAM_DEFAULT_ENDPOINTING_MS,
+    OverlayPosition, PasteMethod, RecordingOverlayAnimatedBorderMode, RecordingOverlayBackgroundMode,
+    RecordingOverlayBarStyle, RecordingOverlayCenterpieceMode,
+    RecordingOverlayDecapitalizeIndicatorMode, RecordingOverlayMaterialMode,
+    RecordingOverlayTheme, RemoteSttDebugMode, ShortcutEngine, SonioxLivePreviewPosition,
+    SonioxLivePreviewSize, SonioxLivePreviewTheme, SoundTheme, TranscriptionProvider,
+    APPLE_INTELLIGENCE_PROVIDER_ID, DEEPGRAM_DEFAULT_ENDPOINTING_MS,
     DEEPGRAM_DEFAULT_LIVE_FINALIZE_TIMEOUT_MS, DEEPGRAM_DEFAULT_MODEL,
-    SONIOX_DEFAULT_LIVE_FINALIZE_TIMEOUT_MS, SONIOX_DEFAULT_MAX_ENDPOINT_DELAY_MS,
-    SONIOX_DEFAULT_MODEL,
+    SONIOX_DEFAULT_LIVE_FINALIZE_TIMEOUT_MS, SONIOX_DEFAULT_MAX_ENDPOINT_DELAY_MS, SONIOX_DEFAULT_MODEL,
 };
 use crate::shortcut_handy_keys;
 use crate::tray;
@@ -76,6 +76,25 @@ fn generate_random_connector_password() -> Result<String, String> {
 const SONIOX_LIVE_PREVIEW_DEFAULT_FONT_COLOR: &str = "#f5f5f5";
 const SONIOX_LIVE_PREVIEW_DEFAULT_INTERIM_FONT_COLOR: &str = "#f5f5f5";
 const SONIOX_LIVE_PREVIEW_DEFAULT_ACCENT_COLOR: &str = "#ff4d8d";
+const RECORDING_OVERLAY_STATUS_ICON_DEFAULT_COLOR: &str = "#faa2ca";
+const RECORDING_OVERLAY_CANCEL_ICON_DEFAULT_COLOR: &str = "#faa2ca";
+const RECORDING_OVERLAY_DECAPITALIZE_INDICATOR_DEFAULT_COLOR: &str = "#72f29a";
+const RECORDING_OVERLAY_DECAPITALIZE_INDICATOR_MIN_FONT_SIZE_PX: u8 = 10;
+const RECORDING_OVERLAY_DECAPITALIZE_INDICATOR_MAX_FONT_SIZE_PX: u8 = 32;
+const RECORDING_OVERLAY_DECAPITALIZE_INDICATOR_MAX_TEXT_CHARS: usize = 24;
+const RECORDING_OVERLAY_SYSTEM_FONT_FAMILIES: &[&str] = &[
+    "Segoe UI",
+    "Segoe UI Emoji",
+    "Bahnschrift",
+    "Arial",
+    "Verdana",
+    "Tahoma",
+    "Trebuchet MS",
+    "Georgia",
+    "Times New Roman",
+    "Consolas",
+    "Cascadia Mono",
+];
 
 fn clamp_decapitalize_timeout_ms(value: u32) -> u32 {
     value.clamp(MIN_DECAPITALIZE_TIMEOUT_MS, MAX_DECAPITALIZE_TIMEOUT_MS)
@@ -221,6 +240,22 @@ fn normalize_recording_overlay_color(value: &str) -> String {
     "#ff4d8d".to_string()
 }
 
+fn normalize_recording_overlay_color_with_fallback(value: &str, fallback: &str) -> String {
+    let trimmed = value.trim();
+    if trimmed.len() == 7
+        && trimmed.starts_with('#')
+        && trimmed.chars().skip(1).all(|ch| ch.is_ascii_hexdigit())
+    {
+        return format!("#{}", trimmed[1..].to_ascii_lowercase());
+    }
+
+    warn!(
+        "Invalid recording overlay color '{}', defaulting to {}",
+        value, fallback
+    );
+    fallback.to_string()
+}
+
 fn clamp_recording_overlay_bar_count(value: u8) -> u8 {
     value.clamp(3, 16)
 }
@@ -231,6 +266,33 @@ fn clamp_recording_overlay_width_px(value: u16) -> u16 {
 
 fn clamp_recording_overlay_bar_width_px(value: u8) -> u8 {
     value.clamp(2, 12)
+}
+
+fn clamp_recording_overlay_decapitalize_indicator_font_size_px(value: u8) -> u8 {
+    value.clamp(
+        RECORDING_OVERLAY_DECAPITALIZE_INDICATOR_MIN_FONT_SIZE_PX,
+        RECORDING_OVERLAY_DECAPITALIZE_INDICATOR_MAX_FONT_SIZE_PX,
+    )
+}
+
+fn normalize_recording_overlay_font_family(value: &str) -> String {
+    let trimmed = value.trim();
+    RECORDING_OVERLAY_SYSTEM_FONT_FAMILIES
+        .iter()
+        .find(|candidate| candidate.eq_ignore_ascii_case(trimmed))
+        .copied()
+        .unwrap_or("Segoe UI")
+        .to_string()
+}
+
+fn sanitize_recording_overlay_indicator_text(value: &str) -> String {
+    value
+        .replace('\r', " ")
+        .replace('\n', " ")
+        .trim()
+        .chars()
+        .take(RECORDING_OVERLAY_DECAPITALIZE_INDICATOR_MAX_TEXT_CHARS)
+        .collect()
 }
 
 fn clamp_recording_overlay_audio_reactive_scale_max_percent(value: u8) -> u8 {
@@ -1100,6 +1162,19 @@ pub fn change_recording_overlay_show_status_icon_setting(
 
 #[tauri::command]
 #[specta::specta]
+pub fn change_recording_overlay_show_cancel_button_setting(
+    app: AppHandle,
+    enabled: bool,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.recording_overlay_show_cancel_button = enabled;
+    settings::write_settings(&app, settings);
+    refresh_recording_overlay_window(&app);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
 pub fn change_recording_overlay_bar_count_setting(app: AppHandle, count: u8) -> Result<(), String> {
     let mut settings = settings::get_settings(&app);
     settings.recording_overlay_bar_count = clamp_recording_overlay_bar_count(count);
@@ -1196,6 +1271,40 @@ pub fn change_recording_overlay_accent_color_setting(
 
 #[tauri::command]
 #[specta::specta]
+pub fn change_recording_overlay_status_icon_color_setting(
+    app: AppHandle,
+    color: String,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.recording_overlay_status_icon_color =
+        normalize_recording_overlay_color_with_fallback(
+            &color,
+            RECORDING_OVERLAY_STATUS_ICON_DEFAULT_COLOR,
+        );
+    settings::write_settings(&app, settings);
+    refresh_recording_overlay_window(&app);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_recording_overlay_cancel_icon_color_setting(
+    app: AppHandle,
+    color: String,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.recording_overlay_cancel_icon_color =
+        normalize_recording_overlay_color_with_fallback(
+            &color,
+            RECORDING_OVERLAY_CANCEL_ICON_DEFAULT_COLOR,
+        );
+    settings::write_settings(&app, settings);
+    refresh_recording_overlay_window(&app);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
 pub fn change_recording_overlay_surface_base_color_setting(
     app: AppHandle,
     color: String,
@@ -1215,6 +1324,89 @@ pub fn change_recording_overlay_body_background_color_setting(
 ) -> Result<(), String> {
     let mut settings = settings::get_settings(&app);
     settings.recording_overlay_body_background_color = normalize_recording_overlay_color(&color);
+    settings::write_settings(&app, settings);
+    refresh_recording_overlay_window(&app);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_recording_overlay_decapitalize_indicator_mode_setting(
+    app: AppHandle,
+    mode: String,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.recording_overlay_decapitalize_indicator_mode = match mode.as_str() {
+        "text" => RecordingOverlayDecapitalizeIndicatorMode::Text,
+        "custom" => RecordingOverlayDecapitalizeIndicatorMode::Custom,
+        "hidden" => RecordingOverlayDecapitalizeIndicatorMode::Hidden,
+        other => {
+            warn!(
+                "Invalid recording overlay decapitalize indicator mode '{}', defaulting to text",
+                other
+            );
+            RecordingOverlayDecapitalizeIndicatorMode::Text
+        }
+    };
+    settings::write_settings(&app, settings);
+    refresh_recording_overlay_window(&app);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_recording_overlay_decapitalize_indicator_custom_text_setting(
+    app: AppHandle,
+    text: String,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.recording_overlay_decapitalize_indicator_custom_text =
+        sanitize_recording_overlay_indicator_text(&text);
+    settings::write_settings(&app, settings);
+    refresh_recording_overlay_window(&app);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_recording_overlay_decapitalize_indicator_font_family_setting(
+    app: AppHandle,
+    font_family: String,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.recording_overlay_decapitalize_indicator_font_family =
+        normalize_recording_overlay_font_family(&font_family);
+    settings::write_settings(&app, settings);
+    refresh_recording_overlay_window(&app);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_recording_overlay_decapitalize_indicator_font_size_setting(
+    app: AppHandle,
+    size_px: u8,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.recording_overlay_decapitalize_indicator_font_size_px =
+        clamp_recording_overlay_decapitalize_indicator_font_size_px(size_px);
+    settings::write_settings(&app, settings);
+    refresh_recording_overlay_window(&app);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_recording_overlay_decapitalize_indicator_color_setting(
+    app: AppHandle,
+    color: String,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.recording_overlay_decapitalize_indicator_color =
+        normalize_recording_overlay_color_with_fallback(
+            &color,
+            RECORDING_OVERLAY_DECAPITALIZE_INDICATOR_DEFAULT_COLOR,
+        );
     settings::write_settings(&app, settings);
     refresh_recording_overlay_window(&app);
     Ok(())
