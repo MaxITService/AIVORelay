@@ -12,6 +12,7 @@ Rules:
 
 | Propagation Date | Target Branch | Main SHA | Main Message | Branch SHA | Branch Message | Issues |
 | --- | --- | --- | --- | --- | --- | --- |
+| 2026-04-01 | `codex/combined` | `838de043` | Add overlay icon and decap indicator customization | `e265f3e2` | Add overlay icon and decap indicator customization | code-notes merge |
 | 2026-03-30 | `codex/combined` | `3aaeda2b` | build(transcription): upgrade transcribe-rs to 0.3.5 | `c4790a64` | build(transcription): upgrade transcribe-rs to 0.3.5 | manual port; standard path restored upstream |
 | 2026-03-29 | `codex/combined` | `9b99c39c` | fix(transcription): harden idle unload and windows CI build path | `966e08c0` | fix(transcription): harden idle unload and windows CI build path | clean cherry-pick |
 | 2026-03-29 | `codex/combined` | `ecb1fbdb` | perf(audio): preload recorder during local model warmup | `2f3fe939` | perf(audio): preload recorder during local model warmup | clean cherry-pick |
@@ -21,7 +22,6 @@ Rules:
 | 2026-03-29 | `cuda-integration` | `305c6878` | fix(settings): repair invalid portions on load | `4a983f07` | fix(settings): repair invalid portions on load | clean cherry-pick |
 | 2026-03-26 | `cuda-integration` | `37e5a204` | fix(ci): shorten Windows cargo target dir for whisper build | `1c886375` | fix(ci): shorten Windows cargo target dir for whisper build | clean cherry-pick |
 | 2026-03-26 | `Microsoft-store` | `37e5a204` | fix(ci): shorten Windows cargo target dir for whisper build | `a6974073` | fix(ci): shorten Windows cargo target dir for whisper build | clean cherry-pick |
-| 2026-03-26 | `cuda-integration` | `9cf5c37a` | fix(ui): keep dropdown menus above settings panels | `0aec707f` | fix(ui): keep dropdown menus above settings panels | clean cherry-pick |
 
 Entry template:
 
