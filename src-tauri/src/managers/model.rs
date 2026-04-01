@@ -240,7 +240,12 @@ impl ModelManager {
                 speed_score: 0.35,
                 supports_translation: false,
                 is_recommended: false,
-                supported_languages: whisper_languages.clone(),
+                // Official model card positions Breeze ASR as optimized for
+                // Taiwanese Mandarin and Mandarin-English code-switching.
+                supported_languages: vec!["zh", "zh-Hant", "en"]
+                    .into_iter()
+                    .map(String::from)
+                    .collect(),
                 is_custom: false,
             },
         );
