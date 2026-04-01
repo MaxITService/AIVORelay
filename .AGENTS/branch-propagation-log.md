@@ -12,6 +12,7 @@ Rules:
 
 | Propagation Date | Target Branch | Main SHA | Main Message | Branch SHA | Branch Message | Issues |
 | --- | --- | --- | --- | --- | --- | --- |
+| 2026-04-01 | `cuda-integration` | `838de043` | Add overlay icon and decap indicator customization | `580b7b4d` | Add overlay icon and decap indicator customization | clean cherry-pick |
 | 2026-03-30 | `cuda-integration` | `3aaeda2b` | build(transcription): upgrade transcribe-rs to 0.3.5 | `93883713` | build(transcription): upgrade transcribe-rs to 0.3.5 | manual port; kept local fork patches |
 | 2026-03-29 | `cuda-integration` | `9b99c39c` | fix(transcription): harden idle unload and windows CI build path | `fea50f23` | fix(transcription): harden idle unload and windows CI build path | build.yml auto-merge |
 | 2026-03-29 | `cuda-integration` | `ecb1fbdb` | perf(audio): preload recorder during local model warmup | `8b080182` | perf(audio): preload recorder during local model warmup | clean cherry-pick |
@@ -21,7 +22,6 @@ Rules:
 | 2026-03-26 | `cuda-integration` | `37e5a204` | fix(ci): shorten Windows cargo target dir for whisper build | `1c886375` | fix(ci): shorten Windows cargo target dir for whisper build | clean cherry-pick |
 | 2026-03-26 | `cuda-integration` | `9cf5c37a` | fix(ui): keep dropdown menus above settings panels | `0aec707f` | fix(ui): keep dropdown menus above settings panels | clean cherry-pick |
 | 2026-03-26 | `cuda-integration` | `d0db58e4` | chore(bindings): regenerate after gpu selector sync | `65b99aba` | chore(bindings): regenerate after gpu selector sync | includes 637f1e6a; kept CUDA-specific transcribe-rs dependency path |
-| 2026-03-25 | `cuda-integration` | `2dfc6ae3` | docs(sync): record v0.8.0 intake cursor | `11169944` | docs(sync): record v0.8.0 intake cursor | 4 commits; upstream-sync-log conflict only; kept CUDA-specific dependency path |
 
 Entry template:
 
