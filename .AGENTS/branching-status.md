@@ -14,7 +14,7 @@ Propagation scope rule: for Microsoft Store Edition propagation, bring over the 
 
 ## cuda-integration
 
-Last synced commit from `main`: `838de043` — Add overlay icon and decap indicator customization.
+Last synced commit from `main`: `1027135c` — feat(transcription): port upstream Cohere support.
 Maintenance rule: after a successful `main` -> `cuda-integration` propagation, update this main-copy cursor and the `cuda-integration` worktree copy together.
 Note: the cursor always points to the last propagated commit from `main`, not to CUDA-only commits that were created on top of it.
 Sync rule: for this branch, source commits come from `main` only.
