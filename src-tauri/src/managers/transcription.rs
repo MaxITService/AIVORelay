@@ -17,6 +17,7 @@ use tauri::{AppHandle, Emitter, Manager};
 use transcribe_rs::{
     onnx::{
         canary::CanaryModel,
+        cohere::CohereModel,
         gigaam::GigaAMModel,
         moonshine::{MoonshineModel, MoonshineVariant, StreamingModel},
         parakeet::{ParakeetModel, ParakeetParams, TimestampGranularity},
@@ -43,6 +44,7 @@ enum LoadedEngine {
     SenseVoice(SenseVoiceModel),
     GigaAM(GigaAMModel),
     Canary(CanaryModel),
+    Cohere(CohereModel),
 }
 
 pub struct LoadingGuard {
@@ -369,6 +371,14 @@ impl TranscriptionManager {
                 })?;
                 LoadedEngine::Canary(engine)
             }
+            EngineType::Cohere => {
+                let engine = CohereModel::load(&model_path, &Quantization::Int8).map_err(|e| {
+                    let error_msg = format!("Failed to load cohere model {}: {}", model_id, e);
+                    emit_loading_failed(&error_msg);
+                    anyhow::anyhow!(error_msg)
+                })?;
+                LoadedEngine::Cohere(engine)
+            }
         };
 
         // Update the current engine and model ID
@@ -584,6 +594,24 @@ impl TranscriptionManager {
                             canary_engine
                                 .transcribe(&audio, &options)
                                 .map_err(|e| anyhow::anyhow!("Canary transcription failed: {}", e))
+                        }
+                        LoadedEngine::Cohere(cohere_engine) => {
+                            let language = if settings.selected_language == "auto" {
+                                None
+                            } else if settings.selected_language == "zh-Hans"
+                                || settings.selected_language == "zh-Hant"
+                            {
+                                Some("zh".to_string())
+                            } else {
+                                Some(settings.selected_language.clone())
+                            };
+                            let options = TranscribeOptions {
+                                language,
+                                ..Default::default()
+                            };
+                            cohere_engine
+                                .transcribe(&audio, &options)
+                                .map_err(|e| anyhow::anyhow!("Cohere transcription failed: {}", e))
                         }
                     }
                 },
@@ -833,6 +861,22 @@ impl TranscriptionManager {
                         .transcribe(&audio, &options)
                         .map_err(|e| anyhow::anyhow!("Canary transcription failed: {}", e))?
                 }
+                LoadedEngine::Cohere(cohere_engine) => {
+                    let language = if selected_language == "auto" {
+                        None
+                    } else if selected_language == "zh-Hans" || selected_language == "zh-Hant" {
+                        Some("zh".to_string())
+                    } else {
+                        Some(selected_language.clone())
+                    };
+                    let options = TranscribeOptions {
+                        language,
+                        ..Default::default()
+                    };
+                    cohere_engine
+                        .transcribe(&audio, &options)
+                        .map_err(|e| anyhow::anyhow!("Cohere transcription failed: {}", e))?
+                }
             }
         };
 
@@ -1028,6 +1072,22 @@ impl TranscriptionManager {
                     canary_engine
                         .transcribe(&audio, &options)
                         .map_err(|e| anyhow::anyhow!("Canary transcription failed: {}", e))?
+                }
+                LoadedEngine::Cohere(cohere_engine) => {
+                    let language = if selected_language == "auto" {
+                        None
+                    } else if selected_language == "zh-Hans" || selected_language == "zh-Hant" {
+                        Some("zh".to_string())
+                    } else {
+                        Some(selected_language.clone())
+                    };
+                    let options = TranscribeOptions {
+                        language,
+                        ..Default::default()
+                    };
+                    cohere_engine
+                        .transcribe(&audio, &options)
+                        .map_err(|e| anyhow::anyhow!("Cohere transcription failed: {}", e))?
                 }
             }
         };
