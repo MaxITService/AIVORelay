@@ -4,12 +4,16 @@ import { ask } from "@tauri-apps/plugin-dialog";
 import { Cloud, Cpu, Radio } from "lucide-react";
 import { useModels } from "../../../hooks/useModels";
 import { useSettings } from "../../../hooks/useSettings";
-import { getTranslatedModelDescription, getTranslatedModelName } from "../../../lib/utils/modelTranslation";
+import {
+  getTranslatedModelDescription,
+  getTranslatedModelName,
+} from "../../../lib/utils/modelTranslation";
 import { formatModelSize } from "../../../lib/utils/format";
 import { Button } from "../../ui/Button";
 import { SettingsGroup } from "../../ui/SettingsGroup";
 import { TellMeMore } from "../../ui/TellMeMore";
 import { RemoteSttSettings } from "../remote-stt/RemoteSttSettings";
+import { ModelMetadataPanel } from "./ModelMetadataPanel";
 import type { ModelInfo } from "@/bindings";
 
 export const ModelsSettings: React.FC = () => {
@@ -98,21 +102,24 @@ export const ModelsSettings: React.FC = () => {
           <p>
             <strong>{t("modelSelector.tellMeMore.headline")}</strong>
           </p>
-          <p className="opacity-90">
-            {t("modelSelector.tellMeMore.intro")}
-          </p>
+          <p className="opacity-90">{t("modelSelector.tellMeMore.intro")}</p>
           <ul className="list-disc list-inside space-y-2 ml-1 opacity-90">
             <li>
               <strong>{t("modelSelector.tellMeMore.remoteApi.title")}</strong>{" "}
               {t("modelSelector.tellMeMore.remoteApi.description")}
             </li>
             <li>
-              <strong>{t("modelSelector.tellMeMore.remoteSoniox.title")}</strong>{" "}
+              <strong>
+                {t("modelSelector.tellMeMore.remoteSoniox.title")}
+              </strong>{" "}
               {t("modelSelector.tellMeMore.remoteSoniox.description")}
             </li>
             <li>
               <strong>
-                {t("modelSelector.tellMeMore.remoteDeepgram.title", "Remote via Deepgram")}
+                {t(
+                  "modelSelector.tellMeMore.remoteDeepgram.title",
+                  "Remote via Deepgram",
+                )}
               </strong>{" "}
               {t(
                 "modelSelector.tellMeMore.remoteDeepgram.description",
@@ -135,7 +142,9 @@ export const ModelsSettings: React.FC = () => {
         {/* Remote via API */}
         <div
           className={`px-6 py-4 flex flex-col gap-3 transition-colors ${
-            transcriptionProvider === "remote_openai_compatible" ? "bg-green-500/5" : ""
+            transcriptionProvider === "remote_openai_compatible"
+              ? "bg-green-500/5"
+              : ""
           }`}
         >
           <div className="flex items-center justify-between">
@@ -161,7 +170,9 @@ export const ModelsSettings: React.FC = () => {
               <Button
                 variant="secondary"
                 size="sm"
-                onClick={() => setTranscriptionProvider("remote_openai_compatible")}
+                onClick={() =>
+                  setTranscriptionProvider("remote_openai_compatible")
+                }
               >
                 {t("modelSelector.chooseModel")}
               </Button>
@@ -169,7 +180,11 @@ export const ModelsSettings: React.FC = () => {
           </div>
           {transcriptionProvider === "remote_openai_compatible" && (
             <div className="border-t border-[#3d3d3d] pt-3">
-              <RemoteSttSettings descriptionMode="tooltip" grouped={true} hideProviderSelector />
+              <RemoteSttSettings
+                descriptionMode="tooltip"
+                grouped={true}
+                hideProviderSelector
+              />
             </div>
           )}
         </div>
@@ -213,7 +228,11 @@ export const ModelsSettings: React.FC = () => {
           </div>
           {transcriptionProvider === "remote_soniox" && (
             <div className="border-t border-[#3d3d3d] pt-3">
-              <RemoteSttSettings descriptionMode="tooltip" grouped={true} hideProviderSelector />
+              <RemoteSttSettings
+                descriptionMode="tooltip"
+                grouped={true}
+                hideProviderSelector
+              />
             </div>
           )}
         </div>
@@ -260,7 +279,11 @@ export const ModelsSettings: React.FC = () => {
           </div>
           {transcriptionProvider === "remote_deepgram" && (
             <div className="border-t border-[#3d3d3d] pt-3">
-              <RemoteSttSettings descriptionMode="tooltip" grouped={true} hideProviderSelector />
+              <RemoteSttSettings
+                descriptionMode="tooltip"
+                grouped={true}
+                hideProviderSelector
+              />
             </div>
           )}
         </div>
@@ -275,14 +298,18 @@ export const ModelsSettings: React.FC = () => {
         </p>
         <p className="text-xs text-[#8a8a8a] mt-2">
           {customModelsCount > 0
-            ? t("modelSelector.customModelsDetected", { count: customModelsCount })
+            ? t("modelSelector.customModelsDetected", {
+                count: customModelsCount,
+              })
             : t("modelSelector.customModelsHelpHint")}
         </p>
       </div>
 
       <SettingsGroup title={t("modelSelector.availableModels")}>
         {loading && (
-          <div className="px-6 py-4 text-sm text-[#a0a0a0]">{t("common.loading")}</div>
+          <div className="px-6 py-4 text-sm text-[#a0a0a0]">
+            {t("common.loading")}
+          </div>
         )}
 
         {!loading && downloadedModels.length === 0 && (
@@ -307,7 +334,9 @@ export const ModelsSettings: React.FC = () => {
                 <div className="min-w-0">
                   <div className="flex items-center gap-2">
                     <Cpu className="w-4 h-4 text-[#a0a0a0]" />
-                    <p className="text-sm font-medium text-[#f5f5f5]">{modelName}</p>
+                    <p className="text-sm font-medium text-[#f5f5f5]">
+                      {modelName}
+                    </p>
                     {model.is_custom && (
                       <span className="text-[10px] tracking-wide uppercase text-[#a0a0a0]">
                         {t("modelSelector.custom")}
@@ -322,6 +351,7 @@ export const ModelsSettings: React.FC = () => {
                   <p className="text-xs text-[#a0a0a0] mt-1">
                     {getTranslatedModelDescription(model, t)}
                   </p>
+                  <ModelMetadataPanel model={model} />
                 </div>
 
                 <div className="flex items-center gap-2">
@@ -332,7 +362,9 @@ export const ModelsSettings: React.FC = () => {
                       onClick={() => handleSelectModel(model.id)}
                       disabled={isSwitching}
                     >
-                      {isSwitching ? t("modelSelector.loadingGeneric") : t("modelSelector.chooseModel")}
+                      {isSwitching
+                        ? t("modelSelector.loadingGeneric")
+                        : t("modelSelector.chooseModel")}
                     </Button>
                   )}
                   <Button
@@ -375,8 +407,10 @@ export const ModelsSettings: React.FC = () => {
                 <p className="text-xs text-[#a0a0a0] mt-1">
                   {getTranslatedModelDescription(model, t)}
                 </p>
+                <ModelMetadataPanel model={model} />
                 <p className="text-xs text-[#8a8a8a] mt-1">
-                  {t("modelSelector.downloadSize")} · {formatModelSize(Number(model.size_mb))}
+                  {t("modelSelector.downloadSize")} ·{" "}
+                  {formatModelSize(Number(model.size_mb))}
                 </p>
                 {isDownloading && (
                   <p className="text-xs text-[#ff4d8d] mt-1">
