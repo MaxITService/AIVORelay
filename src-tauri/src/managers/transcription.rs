@@ -9,6 +9,7 @@ use log::{debug, error, info, warn};
 use serde::Serialize;
 use specta::Type;
 use std::panic::{catch_unwind, AssertUnwindSafe};
+use std::path::Path;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard, OnceLock};
 use std::thread;
@@ -58,6 +59,37 @@ impl Drop for LoadingGuard {
         *is_loading = false;
         self.loading_condvar.notify_all();
     }
+}
+
+fn detect_cohere_quantization(model_id: &str, model_path: &Path) -> Quantization {
+    let has_any = |candidates: &[&str]| {
+        [model_path.to_path_buf(), model_path.join("onnx")]
+            .into_iter()
+            .any(|base| candidates.iter().any(|name| base.join(name).exists()))
+    };
+
+    if model_id.contains("fp32")
+        || (has_any(&["cohere-encoder.onnx", "encoder_model.onnx"])
+            && has_any(&["cohere-decoder.onnx", "decoder_model_merged.onnx"]))
+    {
+        return Quantization::FP32;
+    }
+
+    if model_id.contains("fp16")
+        || (has_any(&["cohere-encoder.fp16.onnx", "encoder_model_fp16.onnx"])
+            && has_any(&["cohere-decoder.fp16.onnx", "decoder_model_merged_fp16.onnx"]))
+    {
+        return Quantization::FP16;
+    }
+
+    if model_id.contains("int4")
+        || (has_any(&["cohere-encoder.int4.onnx", "encoder_model.int4.onnx"])
+            && has_any(&["cohere-decoder.int4.onnx", "decoder_model_merged.int4.onnx"]))
+    {
+        return Quantization::Int4;
+    }
+
+    Quantization::Int8
 }
 
 fn build_whisper_initial_prompt(
@@ -372,7 +404,12 @@ impl TranscriptionManager {
                 LoadedEngine::Canary(engine)
             }
             EngineType::Cohere => {
-                let engine = CohereModel::load(&model_path, &Quantization::Int8).map_err(|e| {
+                let quantization = detect_cohere_quantization(model_id, &model_path);
+                info!(
+                    "Loading Cohere model {} using {:?} quantization",
+                    model_id, quantization
+                );
+                let engine = CohereModel::load(&model_path, &quantization).map_err(|e| {
                     let error_msg = format!("Failed to load cohere model {}: {}", model_id, e);
                     emit_loading_failed(&error_msg);
                     anyhow::anyhow!(error_msg)
