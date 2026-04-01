@@ -17,7 +17,14 @@ const CHARS_PER_TOKEN = 4;
 // Model patterns
 const WHISPER_PATTERNS = ["whisper"];
 const DEEPGRAM_PATTERNS = ["deepgram", "nova"];
-const NO_PROMPT_PATTERNS = ["parakeet", "nemo", "canary", "sense-voice", "sense_voice"];
+const NO_PROMPT_PATTERNS = [
+  "parakeet",
+  "nemo",
+  "canary",
+  "cohere",
+  "sense-voice",
+  "sense_voice",
+];
 
 export interface ModelPromptInfo {
   supportsPrompt: boolean;
@@ -35,6 +42,15 @@ export function getModelPromptInfo(
 
   // Check engine type first (for local models)
   if (engineType) {
+    if (engineType === "Whisper") {
+      return {
+        supportsPrompt: true,
+        isWhisperLike: true,
+        isParakeet: false,
+        charLimit: WHISPER_CHAR_LIMIT,
+        modelId,
+      };
+    }
     if (engineType === "Parakeet") {
       return {
         supportsPrompt: false, // Parakeet uses word boosting, not string prompts
@@ -44,21 +60,16 @@ export function getModelPromptInfo(
         modelId,
       };
     }
-    if (engineType === "SenseVoice") {
+    if (
+      engineType === "SenseVoice" ||
+      engineType === "Canary" ||
+      engineType === "Cohere"
+    ) {
       return {
         supportsPrompt: false,
         isWhisperLike: false,
         isParakeet: false,
         charLimit: 0,
-        modelId,
-      };
-    }
-    if (engineType === "Whisper") {
-      return {
-        supportsPrompt: true,
-        isWhisperLike: true,
-        isParakeet: false,
-        charLimit: WHISPER_CHAR_LIMIT,
         modelId,
       };
     }
