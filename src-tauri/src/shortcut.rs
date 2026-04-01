@@ -16,14 +16,14 @@ use crate::settings::ShortcutBinding;
 use crate::settings::APPLE_INTELLIGENCE_DEFAULT_MODEL_ID;
 use crate::settings::{
     self, get_settings, AutoSubmitKey, ClipboardHandling, LLMPrompt, OutputWhitespaceMode,
-    OverlayPosition, PasteMethod, RecordingOverlayAnimatedBorderMode, RecordingOverlayBackgroundMode,
-    RecordingOverlayBarStyle, RecordingOverlayCenterpieceMode,
-    RecordingOverlayDecapitalizeIndicatorMode, RecordingOverlayMaterialMode,
-    RecordingOverlayTheme, RemoteSttDebugMode, ShortcutEngine, SonioxLivePreviewPosition,
-    SonioxLivePreviewSize, SonioxLivePreviewTheme, SoundTheme, TranscriptionProvider,
-    APPLE_INTELLIGENCE_PROVIDER_ID, DEEPGRAM_DEFAULT_ENDPOINTING_MS,
-    DEEPGRAM_DEFAULT_LIVE_FINALIZE_TIMEOUT_MS, DEEPGRAM_DEFAULT_MODEL,
-    SONIOX_DEFAULT_LIVE_FINALIZE_TIMEOUT_MS, SONIOX_DEFAULT_MAX_ENDPOINT_DELAY_MS, SONIOX_DEFAULT_MODEL,
+    OverlayPosition, PasteMethod, RecordingOverlayAnimatedBorderMode,
+    RecordingOverlayBackgroundMode, RecordingOverlayBarStyle, RecordingOverlayCenterpieceMode,
+    RecordingOverlayDecapitalizeIndicatorMode, RecordingOverlayMaterialMode, RecordingOverlayTheme,
+    RemoteSttDebugMode, ShortcutEngine, SonioxLivePreviewPosition, SonioxLivePreviewSize,
+    SonioxLivePreviewTheme, SoundTheme, TranscriptionProvider, APPLE_INTELLIGENCE_PROVIDER_ID,
+    DEEPGRAM_DEFAULT_ENDPOINTING_MS, DEEPGRAM_DEFAULT_LIVE_FINALIZE_TIMEOUT_MS,
+    DEEPGRAM_DEFAULT_MODEL, SONIOX_DEFAULT_LIVE_FINALIZE_TIMEOUT_MS,
+    SONIOX_DEFAULT_MAX_ENDPOINT_DELAY_MS, SONIOX_DEFAULT_MODEL,
 };
 use crate::shortcut_handy_keys;
 use crate::tray;
@@ -1276,11 +1276,10 @@ pub fn change_recording_overlay_status_icon_color_setting(
     color: String,
 ) -> Result<(), String> {
     let mut settings = settings::get_settings(&app);
-    settings.recording_overlay_status_icon_color =
-        normalize_recording_overlay_color_with_fallback(
-            &color,
-            RECORDING_OVERLAY_STATUS_ICON_DEFAULT_COLOR,
-        );
+    settings.recording_overlay_status_icon_color = normalize_recording_overlay_color_with_fallback(
+        &color,
+        RECORDING_OVERLAY_STATUS_ICON_DEFAULT_COLOR,
+    );
     settings::write_settings(&app, settings);
     refresh_recording_overlay_window(&app);
     Ok(())
@@ -1293,11 +1292,10 @@ pub fn change_recording_overlay_cancel_icon_color_setting(
     color: String,
 ) -> Result<(), String> {
     let mut settings = settings::get_settings(&app);
-    settings.recording_overlay_cancel_icon_color =
-        normalize_recording_overlay_color_with_fallback(
-            &color,
-            RECORDING_OVERLAY_CANCEL_ICON_DEFAULT_COLOR,
-        );
+    settings.recording_overlay_cancel_icon_color = normalize_recording_overlay_color_with_fallback(
+        &color,
+        RECORDING_OVERLAY_CANCEL_ICON_DEFAULT_COLOR,
+    );
     settings::write_settings(&app, settings);
     refresh_recording_overlay_window(&app);
     Ok(())
