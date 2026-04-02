@@ -12,6 +12,8 @@ That is a separate workflow described in:
 - Source branch: `upstream/main`
 - Target branch: `main`
 - During this flow, stay on `main` unless the user explicitly requests a later propagation step.
+- This file is maintained from `main` only.
+- Do not keep or update branch-local copies of this file in non-`main` worktrees.
 
 ## Tracking
 
@@ -20,6 +22,11 @@ Primary reference:
 
 Optional context only:
 - [[.AGENTS/branching-status|branching-status.md]]
+
+Authoritative source:
+- [[.AGENTS/upstream-intake-playbook|upstream-intake-playbook.md]] is maintained from `main` only.
+- [[.AGENTS/upstream-sync-log|upstream-sync-log.md]] is maintained from `main` only.
+- Non-`main` branches must not carry independent copies of these upstream intake docs.
 
 Useful commands:
 
@@ -57,7 +64,7 @@ Skip:
 3. Cherry-pick selected upstream commits one by one.
 4. If conflicts are small and safe, resolve and continue.
 5. If conflicts are many/high-risk, run `git cherry-pick --abort` and switch to diff-path using `.AGENTS/.UNTRACKED/<sha>.diff.txt`.
-6. Record resulting `main` commit hashes.
+6. Record the integrated upstream commit SHA and the intended `main` commit message for each taken item.
 7. Update [[.AGENTS/upstream-sync-log|upstream-sync-log.md]].
 8. If the user later wants `main -> Microsoft-store` or `main -> cuda-integration`, stop using this playbook and switch to the branch propagation playbook.
 
