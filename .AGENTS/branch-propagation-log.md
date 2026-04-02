@@ -12,6 +12,7 @@ Rules:
 
 | Propagation Date | Target Branch | Main SHA | Main Message | Branch SHA | Branch Message | Issues |
 | --- | --- | --- | --- | --- | --- | --- |
+| 2026-04-02 | `codex/combined` | `4d2750b5` | fix: accept upstream old CPU crash fix | `4ccf3ab7` | fix: accept upstream old CPU crash fix | clean cherry-pick |
 | 2026-04-01 | `codex/combined` | `3431d1db` | feat(models): show model details and supported languages | `0e6d14c9` | feat(models): show model details and supported languages | includes 1027135c + afd68f69; kept accel wiring |
 | 2026-04-01 | `codex/combined` | `838de043` | Add overlay icon and decap indicator customization | `e265f3e2` | Add overlay icon and decap indicator customization | code-notes merge |
 | 2026-03-30 | `codex/combined` | `3aaeda2b` | build(transcription): upgrade transcribe-rs to 0.3.5 | `c4790a64` | build(transcription): upgrade transcribe-rs to 0.3.5 | manual port; standard path restored upstream |
@@ -21,7 +22,6 @@ Rules:
 | 2026-03-29 | `codex/combined` | `9a15c63b` | fix: redact stored secrets in settings debug logs | `4bcc0a45` | fix: redact stored secrets in settings debug logs | clean cherry-pick |
 | 2026-03-29 | `codex/combined` | `305c6878` | fix(settings): repair invalid portions on load | `b598c953` | fix(settings): repair invalid portions on load | clean cherry-pick |
 | 2026-03-29 | `cuda-integration` | `305c6878` | fix(settings): repair invalid portions on load | `4a983f07` | fix(settings): repair invalid portions on load | clean cherry-pick |
-| 2026-03-26 | `cuda-integration` | `37e5a204` | fix(ci): shorten Windows cargo target dir for whisper build | `1c886375` | fix(ci): shorten Windows cargo target dir for whisper build | clean cherry-pick |
 
 Entry template:
 
