@@ -73,8 +73,8 @@ Conclusion:
 
 Evidence:
 
-- benchmark summary: `.AGENTS/.UNTRACKED/dev-aivorelay-theories-20260331-130124/summary.md`
-- jobs summary: `.AGENTS/.UNTRACKED/dev-aivorelay-jobs-20260331-135034/summary.md`
-- codegen summary: `.AGENTS/.UNTRACKED/dev-aivorelay-codegen-20260331-140404/summary.md`
-- safe config summary: `.AGENTS/.UNTRACKED/dev-aivorelay-safe-config-20260331-152556/summary.md`
-- build-override summary: `.AGENTS/.UNTRACKED/dev-aivorelay-build-override-20260331-173502/summary.md`
+- benchmark summary: `.AGENTS/.UNTRACKED/dev-aivorelay-theories-20260331-130124/dev_aivorelay_config_theory_benchmark_summary.md`
+- jobs summary: `.AGENTS/.UNTRACKED/dev-aivorelay-jobs-20260331-135034/dev_aivorelay_cargo_jobs_benchmark_summary.md`
+- codegen summary: `.AGENTS/.UNTRACKED/dev-aivorelay-codegen-20260331-140404/dev_aivorelay_codegen_units_benchmark_summary.md`
+- safe config summary: `.AGENTS/.UNTRACKED/dev-aivorelay-safe-config-20260331-152556/dev_aivorelay_safe_config_benchmark_summary.md`
+- build-override summary: `.AGENTS/.UNTRACKED/dev-aivorelay-build-override-20260331-173502/dev_aivorelay_build_override_benchmark_summary.md`
