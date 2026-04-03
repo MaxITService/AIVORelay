@@ -9,7 +9,8 @@ Baseline used for this note:
 
 Primary companion docs:
 - [[CUDA]]
-- [[.AGENTS/main-to-cuda-propagation-playbook|main-to-cuda-propagation-playbook.md]]
+- [[.AGENTS/build-cuda|build-cuda.md]]
+- [[.AGENTS/branch-log-maintenance|branch-log-maintenance.md]]
 
 ## How This Branch Works
 
@@ -31,16 +32,16 @@ These are the current branch-local files relative to `main@3aaeda2b`, including 
 
 | File | How it differs from `main` |
 | --- | --- |
-| `.AGENTS/Release.md` | Keeps CUDA-specific release rules: `vx.y.z-cuda`, CUDA workflow usage, and dependency repo expectations for CUDA releases. |
+| `.AGENTS/Release-cuda.md` | Keeps CUDA-specific release rules: `vx.y.z-cuda`, CUDA workflow usage, and dependency repo expectations for CUDA releases. |
 | `.AGENTS/branch-propagation-log.md` | Records each propagated `main` commit on top of the CUDA branch-local dependency/build layer and now includes the `transcribe-rs 0.3.5` intake entry. |
 | `.AGENTS/branching-status.md` | CUDA cursor now points at `main@3aaeda2b` for the `transcribe-rs 0.3.5` propagation instead of the older pre-upgrade sync point. |
+| `.AGENTS/branch-log-maintenance.md` | Short local note for maintaining the CUDA branch log and cursor after successful `main -> cuda-integration` syncs. |
+| `.AGENTS/build-cuda.md` | Branch-local build, toolchain, bindings, and verification rules for CUDA work. |
 | `.AGENTS/cuda-branch-notes.md` | New branch-only note: the authoritative file-by-file `cuda-integration -> main` manifest and dependency-model explanation. |
-| `.AGENTS/code-notes.md` | Adds an explicit pointer that branch-vs-main CUDA notes live in this file, while `code-notes.md` itself remains fork-vs-upstream focused. |
-| `.AGENTS/main-to-cuda-propagation-playbook.md` | Adds an explicit rule that after each propagation, `CUDA.md` and this note must be refreshed so the documented branch-local layer stays accurate. |
-| `.AGENTS/upstream-sync-log.md` | The CUDA worktree copy carries branch-local sync audit text; no runtime effect. |
+| `.AGENTS/MOC.md` | Small branch-local map of CUDA docs that remain in this worktree. |
 | `.cargo/config.toml` | Adds `target-dir = "C:/aivorelay-cuda"` and `linker = "lld-link"` for Windows CUDA builds. |
 | `.github/workflows/cuda-release.yml` | Expands the CUDA release workflow into a Windows CUDA release pipeline: local dependency repo checkout, recursive `whisper.cpp` submodule checkout, certificate import, LLVM/Ninja/Vulkan/CUDA setup, Tauri build, MSI/portable zip upload, and certificate helper asset upload. |
-| `AGENTS.md` | Documents CUDA branch references/worktree expectations and links to this CUDA branch note. |
+| `AGENTS.md` | Short CUDA branch entry file that points non-branch-specific program work back to `main` docs and keeps only CUDA-local documentation links here. |
 | `CUDA.md` | Human-readable CUDA branch overview: dependency model, local build path, runtime assumptions, and a pointer to this exact file manifest. |
 | `README.md` | Keeps the CUDA Edition release mention and now points readers to `CUDA.md` for branch-specific build/dependency notes. |
 | `build-cuda.ps1` | Adds the local CUDA build/dev entrypoint: VS env import, bindgen env setup, CUDA path setup, dependency-root validation, Cargo patch path rewrite, log capture, and `tauri build/dev` invocation. |
