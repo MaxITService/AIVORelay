@@ -1,4 +1,5 @@
 # Sync Playbook Index
+Branch tags: #branch/main #branch/microsoft-store #branch/cuda-integration #branch/codex-combined
 
 This file is kept as a compatibility index because older docs still link to it.
 

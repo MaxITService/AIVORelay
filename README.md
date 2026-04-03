@@ -1,4 +1,6 @@
 # AivoRelay
+Branch tags: #branch/main #branch/microsoft-store #branch/cuda-integration #branch/codex-combined
+
 [![Hits](https://hits.sh/github.com/MaxITService/AIVORelay.svg?style=flat)](https://hits.sh/github.com/MaxITService/AIVORelay/)
 
 ![large_logo](Promo/large_logo.jpg)

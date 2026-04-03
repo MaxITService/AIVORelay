@@ -1,4 +1,5 @@
 # Main To Microsoft-store Propagation Playbook
+Branch tags: #branch/main #branch/microsoft-store
 
 This playbook is only for `main -> Microsoft-store`.
 

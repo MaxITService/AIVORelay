@@ -1,4 +1,5 @@
 # Upstream Sync Log
+Branch tags: #branch/main
 
 Small rolling log of upstream commits integrated into `main`.
 

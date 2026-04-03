@@ -1,4 +1,5 @@
 # Main To codex/combined Propagation Playbook
+Branch tags: #branch/main #branch/codex-combined
 
 This playbook is only for `main -> codex/combined`.
 

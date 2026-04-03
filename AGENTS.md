@@ -47,7 +47,7 @@ When the user says "all branches", they currently mean these four branches.
 - Keep this file short.
 - Keep detailed procedures in linked documents.
 - Keep documentation text in English.
-- when committing, if encoutered surprising behavior, propose edits to docs in chat. Dense, short, and to the point.
+- when committing, if encoutered surprising behavior, like "made change and it does not builds untill we completely overhaul build scripts", propose edits to docs in chat. Dense, short, and to the point.
 
 At the start of a new session, send exactly one short message in a single message:
 `AGENTS.md received.`

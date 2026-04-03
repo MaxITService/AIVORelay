@@ -1,4 +1,5 @@
 # Deepgram Integration Plan (v1)
+Branch tags: #branch/main #branch/microsoft-store #branch/cuda-integration #branch/codex-combined
 
 ## Scope
 - Integrate Deepgram as a first-class transcription provider (live + non-live).

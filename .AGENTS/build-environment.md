@@ -1,4 +1,5 @@
 # Build Environment
+Branch tags: #branch/main #branch/microsoft-store #branch/cuda-integration #branch/codex-combined
 
 Read this file only when the task needs build, toolchain, bindings, or verification rules.
 

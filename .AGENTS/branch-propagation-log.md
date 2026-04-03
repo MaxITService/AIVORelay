@@ -1,4 +1,5 @@
 # Branch Propagation Log
+Branch tags: #branch/main #branch/microsoft-store #branch/cuda-integration #branch/codex-combined
 
 Small rolling log of `main` commits propagated into non-`main` release branches.
 

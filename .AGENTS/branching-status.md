@@ -1,4 +1,5 @@
 # Branching Status
+Branch tags: #branch/main #branch/microsoft-store #branch/cuda-integration #branch/codex-combined
 
 Operational note: this file is a quick reference, not the sole source of truth for the next propagation start point.
 Before starting a new `main` -> branch sync, verify the target branch directly with git history (`git log`, `git cherry`, and if needed `git reflog`).

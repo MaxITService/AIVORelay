@@ -1,4 +1,5 @@
 # .AGENTS MOC
+Branch tags: #branch/main #branch/microsoft-store #branch/cuda-integration #branch/codex-combined
 
 Map of tracked agent documentation.
 

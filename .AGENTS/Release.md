@@ -1,4 +1,5 @@
 # Release Rules
+Branch tags: #branch/main #branch/microsoft-store #branch/cuda-integration #branch/codex-combined
 
 ## GitHub Actions / Workflow YAML
 

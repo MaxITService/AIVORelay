@@ -1,4 +1,5 @@
 # Main To cuda-integration Propagation Playbook
+Branch tags: #branch/main #branch/cuda-integration
 
 This playbook is only for `main -> cuda-integration`.
 

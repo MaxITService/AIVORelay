@@ -1,4 +1,5 @@
 # Fork Code Notes
+Branch tags: #branch/main #branch/microsoft-store #branch/cuda-integration #branch/codex-combined
 
 Files that differentiate this fork from the original [cjpais/Handy](https://github.com/cjpais/Handy).
 
