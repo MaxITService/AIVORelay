@@ -109,7 +109,7 @@ const COHERE_FP16_FILES: &[RemoteModelFile] = &[
     RemoteModelFile {
         relative_path: "tokenizer.json",
         url: "https://huggingface.co/onnx-community/cohere-transcribe-03-2026-ONNX/resolve/main/tokenizer.json?download=true",
-        expected_size_bytes: 155_297,
+        expected_size_bytes: 1_152_395,
     },
 ];
 
@@ -152,7 +152,7 @@ const COHERE_FP32_FILES: &[RemoteModelFile] = &[
     RemoteModelFile {
         relative_path: "tokenizer.json",
         url: "https://huggingface.co/onnx-community/cohere-transcribe-03-2026-ONNX/resolve/main/tokenizer.json?download=true",
-        expected_size_bytes: 155_297,
+        expected_size_bytes: 1_152_395,
     },
 ];
 
