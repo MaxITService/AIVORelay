@@ -7,6 +7,7 @@ This is the entry file for AI/code agents working in the `cuda-integration` bran
 - Do not push unless the user explicitly asks.
 - If you are not confident that a change will fix the issue, stop and confirm before making a risky fix.
 - Use proper commit messages.
+- something isane in user's request? Ask user first!
 - Read extra documentation only when the current task requires it.
 - Use Obsidian-style links.
 - rg, sg, Python and lots of dev tools are installed on this Windows machine.
