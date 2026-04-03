@@ -1,18 +1,14 @@
-# CUDA Sync Log Note
+# CUDA Sync Maintenance
 
 Read this file only when recording a completed `main -> cuda-integration` sync.
-
-## Purpose
-
-This branch does not keep a full propagation manual.
-For local documentation, keep only the log and the branch status accurate.
 
 ## After A Successful Sync
 
 1. Update [[.AGENTS/branch-propagation-log|branch-propagation-log.md]] in this branch.
 2. Update [[.AGENTS/branching-status|branching-status.md]] in this branch.
-3. Refresh [[CUDA]] and [[.AGENTS/cuda-branch-notes|cuda-branch-notes.md]] if the branch-local file set changed.
-4. Mirror the same log and cursor update back into the documentation on `main`.
+3. Refresh [[.AGENTS/cuda-docs-main-diff-manifest|cuda-docs-main-diff-manifest.md]] if the branch-local file set changed.
+4. Refresh [[.AGENTS/cuda-docs-branch-overview|cuda-docs-branch-overview.md]] or [[.AGENTS/cuda-docs-model-runtime-notes|cuda-docs-model-runtime-notes.md]] if branch-local behavior changed.
+5. Mirror the same log and cursor update back into the documentation on `main`.
 
 ## Verification Rule
 

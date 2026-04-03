@@ -27,11 +27,13 @@ Keep branch-local changes limited to CUDA-specific build, dependency, release, a
 
 - If you change the program code that is not branch-only specific behaviour, read `AGENTS.md` on `main` first. Ask the user if that file is not available.
 - If you need fork-wide code notes, read `code-notes.md` on `main`.
-- If you need CUDA branch-local code, dependency, or packaging context, read [[.AGENTS/cuda-branch-notes|cuda-branch-notes.md]].
-- If you need CUDA build, toolchain, bindings, or verification rules, read [[.AGENTS/build-cuda|build-cuda.md]].
-- If you prepare a CUDA release, read [[.AGENTS/Release-cuda|Release-cuda.md]].
-- If you need current CUDA branch sync context or must record a completed `main -> cuda-integration` sync, read [[.AGENTS/branch-log-maintenance|branch-log-maintenance.md]], [[.AGENTS/branch-propagation-log|branch-propagation-log.md]], and [[.AGENTS/branching-status|branching-status.md]].
-- If you need branch-local doc overview, read [[.AGENTS/MOC|MOC.md]].
+- If you need branch-local doc overview, read [[.AGENTS/cuda-docs-index|cuda-docs-index.md]].
+- If you need branch intent or runtime assumptions, read [[.AGENTS/cuda-docs-branch-overview|cuda-docs-branch-overview.md]].
+- If you need CUDA build, toolchain, bindings, or verification rules, read [[.AGENTS/cuda-docs-build-runbook|cuda-docs-build-runbook.md]].
+- If you need local model or runtime behavior, read [[.AGENTS/cuda-docs-model-runtime-notes|cuda-docs-model-runtime-notes.md]].
+- If you need the exact branch-local diff against `main`, read [[.AGENTS/cuda-docs-main-diff-manifest|cuda-docs-main-diff-manifest.md]].
+- If you prepare a CUDA release, read [[.AGENTS/cuda-docs-release-runbook|cuda-docs-release-runbook.md]].
+- If you need current CUDA branch sync context or must record a completed `main -> cuda-integration` sync, read [[.AGENTS/cuda-docs-sync-maintenance|cuda-docs-sync-maintenance.md]], [[.AGENTS/branch-propagation-log|branch-propagation-log.md]], and [[.AGENTS/branching-status|branching-status.md]].
 
 ## Documentation Style
 

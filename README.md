@@ -14,7 +14,7 @@ AI Voice Relay
 > ✨ **[v1.0.1 Beta Release](https://github.com/MaxITService/AIVORelay/releases/tag/v1.0.1)** — Latest beta release, includes the AI Replace hotfix.
 
 > 🚀 **[v1.0.2 CUDA Edition](https://github.com/MaxITService/AIVORelay/releases/tag/v1.0.2-cuda)** — Portable NVIDIA/CUDA build for supported systems.
-> Branch-specific CUDA build/dependency notes: [CUDA.md](CUDA.md)
+> Branch-specific CUDA docs: [.AGENTS/cuda-docs-index.md](.AGENTS/cuda-docs-index.md)
 
 > 🛒 **[Microsoft Store Version](https://apps.microsoft.com/detail/9ppfkfh2zn1l)** — This is an official listing on the Microsoft Store. Note that the Store version is not updated as frequently as the desktop application available here on GitHub, but it does not require administrator rights to install, is signed by Microsoft, and is verified by Microsoft before releasing.
 

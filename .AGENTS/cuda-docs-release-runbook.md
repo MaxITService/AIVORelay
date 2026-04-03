@@ -1,4 +1,4 @@
-# CUDA Release Rules
+# CUDA Release Runbook
 
 Read this file only when preparing a release or version bump for `cuda-integration`.
 

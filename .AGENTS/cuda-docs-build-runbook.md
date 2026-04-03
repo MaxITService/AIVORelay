@@ -1,10 +1,10 @@
-# CUDA Build Rules
+# CUDA Build Runbook
 
 Read this file only when the task needs CUDA build, toolchain, bindings, or verification rules.
 
-## Main Build Path
+## Main Commands
 
-Use the branch-local helper script:
+Release build:
 
 ```powershell
 pwsh -NoProfile -File .\build-cuda.ps1 -DoBuild
@@ -45,11 +45,11 @@ Get-Process | Where-Object { $_.Name -match "cargo|tauri|rustc|bun" } | Select-O
 
 If any such process is already running, do not start another conflicting build command.
 
-## CUDA Branch Build Notes
+## Branch Build Notes
 
 - This branch uses local dependency forks and rewrites Cargo patch paths during `build-cuda.ps1`.
-- `.cargo/config.toml` uses a short target dir: `C:/aivorelay-cuda`
-- The branch uses `lld-link`.
+- `.cargo/config.toml` uses a short target dir: `C:/aivorelay-cuda`.
+- `.cargo/config.toml` currently uses `link.exe`.
 - Local dev mode intentionally uses `tauri dev --release`.
 - Local build path remains `--no-bundle`.
 
@@ -64,5 +64,6 @@ If any such process is already running, do not start another conflicting build c
 
 ## Companion Docs
 
-- For branch-local dependency and file-diff context, read [[.AGENTS/cuda-branch-notes|cuda-branch-notes.md]].
-- For the human-readable branch overview, read [[CUDA]].
+- For branch intent, read [[.AGENTS/cuda-docs-branch-overview|cuda-docs-branch-overview.md]].
+- For model and runtime behavior, read [[.AGENTS/cuda-docs-model-runtime-notes|cuda-docs-model-runtime-notes.md]].
+- For the exact branch-local diff, read [[.AGENTS/cuda-docs-main-diff-manifest|cuda-docs-main-diff-manifest.md]].
