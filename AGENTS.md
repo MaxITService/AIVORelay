@@ -10,7 +10,7 @@ This is the entry file for AI/code agents working with this fork.
 - For work on non-`main` branches, use `main` as the only sync source.
 - Read additional documentation only when the current task requires it.
 - Use Obsidian-style links.
-- rg, sg, Python and lots of dev tools are installed on this machine.
+- rg, sg, Python and lots of dev tools are installed on this Windows machine.
 
 ## Active Branches
 
