@@ -71,4 +71,8 @@ Write-Host "--- END TASK ---"
 - CI compiles the app but does not run it, so CI cannot generate bindings.
 - The file must stay in git so CI has it during build.
 - After changing any `#[tauri::command]` in Rust, ask the user to run `bun tauri dev` to regenerate `src/bindings.ts`, unless the user explicitly asks the agent to do it.
-- Only commit an updated `src/bindings.ts` when the user explicitly asks for that commit.
+- Only commit an updated `src/bindings.ts` when the user explicitly asks for that commit.'
+
+## What user uses? (read only if discussing user's path to build)
+
+User uses dev build via following functions, described in [USERs_BUILD_FUNCTIONS.md](USERs_BUILD_FUNCTIONS.md)
