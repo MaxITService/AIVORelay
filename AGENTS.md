@@ -7,6 +7,7 @@ Branch tags: #branch/microsoft-store
 - Do not push unless the user explicitly asks.
 - If you are not confident a change will fix the issue, stop and confirm before making a risky fix.
 - Use proper commit messages.
+- something isane in user's request? Ask user first!
 - For this branch, use `main` as the only sync source.
 - Keep documentation short, dense, and in English.
 - Use Obsidian-style links.
