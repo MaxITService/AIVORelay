@@ -52,4 +52,6 @@ Rules:
 
 - If the user wants a combined release body draft, build a short user-facing summary from branch-relevant commits only.
 - Exclude internal-only items unless the user asks to include them.
-- If the branch later needs a checked-in release body file, confirm with the user before adding one.
+- `codex/combined` does not currently define or require a checked-in `combined.md` release body file.
+- Any inherited `.github/release-notes/*.md` files present in this worktree are not part of the intended combined branch contract by themselves.
+- Do not add a combined-specific checked-in release body file unless the user explicitly asks for that branch behavior.

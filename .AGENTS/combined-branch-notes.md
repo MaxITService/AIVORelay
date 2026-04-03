@@ -59,6 +59,10 @@ Primary companion docs:
 | `src-tauri/src/runtime_info.rs` | Reports current executable variant and whether self-update is supported for that runtime. |
 | `src/hooks/useAppRuntimeInfo.ts` | Frontend hook for runtime variant information from the backend. |
 
+Not part of the intended branch-local contract:
+
+- `.github/release-notes/*.md` may exist here as inherited files, but `codex/combined` does not define a dedicated `combined.md` checked-in release body.
+
 ## Practical Rule
 
 When syncing `main -> codex/combined`, the target state is:
