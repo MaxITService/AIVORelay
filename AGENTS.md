@@ -12,6 +12,7 @@ This is the entry file for AI/code agents working with this fork.
 - Read additional documentation only when the current task requires it.
 - Use Obsidian-style links.
 - rg, sg, Python and lots of dev tools are installed on this Windows machine.
+- something isane in user's request? Ask user first!
 
 ## Active Branches
 
@@ -48,7 +49,7 @@ When the user says "all branches", they currently mean these four branches.
 - Keep this file short.
 - Keep detailed procedures in linked documents.
 - Keep documentation text in English.
-- when committing, if encoutered surprising behavior, like "made change and it does not builds untill we completely overhaul build scripts", propose edits to docs in chat. Dense, short, and to the point.
+- When committing, if encoutered surprising behavior, like "made change and it does not builds untill we completely overhaul build scripts", propose edits to docs in chat. Dense, short, and to the point.
 
 At the start of a new session, include `AGENTS.md received.` once in your first normal reply.
 
