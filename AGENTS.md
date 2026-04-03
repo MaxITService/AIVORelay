@@ -39,7 +39,6 @@ Keep branch-local changes limited to CUDA-specific build, dependency, release, a
 - Keep documentation text in English.
 - When committing, if encountered surprising behavior, like "made change and it does not build until we completely overhaul build scripts", propose edits to docs in chat. Dense, short, and to the point.
 
-At the start of a new session, send exactly one short message in a single message:
-`AGENTS.md received.`
+At the start of a new session, include `AGENTS.md received.` once in your first normal reply.
 
-Do this only once per session.
+Do not send it as a standalone placeholder message, and do this only once per session.
