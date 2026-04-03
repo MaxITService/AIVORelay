@@ -4,9 +4,14 @@
 
 # Dev-AivoRelay
 # Runs Get-Dev, prepares the Windows bindgen/Vulkan environment, shortens Cargo target output, then starts the Tauri dev server via bun.
+# Optional: -EnablePlaywright exposes the same visible dev window over WebView2 CDP.
 function Dev-AivoRelay {
   [CmdletBinding()]
-  param()
+  param(
+    [switch]$EnablePlaywright,
+    [ValidateRange(1, 65535)]
+    [int]$PlaywrightPort = 9333
+  )
 
   # Run developer environment launcher if available
   if (Get-Command Get-Dev -ErrorAction SilentlyContinue) {
@@ -30,9 +35,16 @@ function Dev-AivoRelay {
   Ensure-AivoRelayVulkanDll -TargetRoot $target
 
   $cargoTargetDir = "C:\t\aivorelay-dev"
+  $previousPlaywrightPort = $env:PLAYWRIGHT_TAURI_REMOTE_DEBUGGING_PORT
+  $hadPreviousPlaywrightPort = Test-Path Env:PLAYWRIGHT_TAURI_REMOTE_DEBUGGING_PORT
   try {
     New-Item -ItemType Directory -Force -Path $cargoTargetDir | Out-Null
     $env:CARGO_TARGET_DIR = $cargoTargetDir
+
+    if ($EnablePlaywright) {
+      $env:PLAYWRIGHT_TAURI_REMOTE_DEBUGGING_PORT = $PlaywrightPort.ToString()
+      Write-Host "Playwright CDP enabled on port $PlaywrightPort." -ForegroundColor Cyan
+    }
 
     Push-Location -LiteralPath $target
     Write-Host "Using CARGO_TARGET_DIR=$cargoTargetDir for AIVORelay dev." -ForegroundColor DarkGray
@@ -42,6 +54,12 @@ function Dev-AivoRelay {
     & bun x tauri dev
   }
   finally {
+    if ($hadPreviousPlaywrightPort) {
+      $env:PLAYWRIGHT_TAURI_REMOTE_DEBUGGING_PORT = $previousPlaywrightPort
+    } else {
+      Remove-Item Env:PLAYWRIGHT_TAURI_REMOTE_DEBUGGING_PORT -ErrorAction SilentlyContinue
+    }
+
     Pop-Location
   }
 }
@@ -60,7 +78,11 @@ or alternatively:
 # The original repo config and environment variables are restored when the dev session exits.
 function Fast-Dev-AivoRelay {
   [CmdletBinding()]
-  param()
+  param(
+    [switch]$EnablePlaywright,
+    [ValidateRange(1, 65535)]
+    [int]$PlaywrightPort = 9333
+  )
 
   $target = 'C:\Code\Released Software\AIVORelay'
   if (-not (Test-Path -LiteralPath $target)) {
@@ -111,7 +133,7 @@ debug = false
     Write-Host "  profile.dev.debug = limited" -ForegroundColor DarkGray
     Write-Host "  profile.dev.package.\"*\".debug = false" -ForegroundColor DarkGray
 
-    Dev-AivoRelay
+    Dev-AivoRelay -EnablePlaywright:$EnablePlaywright -PlaywrightPort $PlaywrightPort
   }
   finally {
     if ($hadCargoConfig) {
@@ -134,6 +156,28 @@ debug = false
   }
 }
 ```
+
+Playwright-enabled launch examples:
+
+```powershell
+Dev-AivoRelay -EnablePlaywright
+Fast-Dev-AivoRelay -EnablePlaywright
+Fast-Dev-AivoRelay -EnablePlaywright -PlaywrightPort 9334
+```
+
+Behavior notes:
+
+- default behavior is unchanged when `-EnablePlaywright` is omitted
+- when enabled, the same visible `bun x tauri dev` instance exposes WebView2 CDP on the selected port
+- the previous `PLAYWRIGHT_TAURI_REMOTE_DEBUGGING_PORT` environment value is restored after the dev session exits
+
+Checked-in repo alternative for agents / no-profile shells:
+
+```powershell
+pwsh -NoProfile -File .\scripts\start-playwright-tauri-dev.ps1
+```
+
+See also [[PLAYWRIGHT_TAURI_CONNECTION]].
 
 ## helper function:
 

@@ -921,6 +921,12 @@ pub fn run() {
         .manage(std::sync::Mutex::new(settings::ShortcutEngine::default())
             as shortcut::ActiveShortcutEngine)
         .setup(move |app| {
+            #[cfg(target_os = "windows")]
+            let playwright_cdp_port = std::env::var("PLAYWRIGHT_TAURI_REMOTE_DEBUGGING_PORT")
+                .ok()
+                .map(|port| port.trim().to_string())
+                .filter(|port| !port.is_empty());
+
             let mut window_builder =
                 tauri::WebviewWindowBuilder::new(app, "main", tauri::WebviewUrl::App("/".into()))
                     .title("AivoRelay")
@@ -930,6 +936,32 @@ pub fn run() {
                     .maximizable(true)
                     .visible(false);
 
+            #[cfg(target_os = "windows")]
+            if let Some(port) = playwright_cdp_port.as_deref() {
+                let browser_args = format!("--remote-debugging-port={port}");
+                window_builder = window_builder.additional_browser_args(&browser_args);
+            }
+
+            #[cfg(target_os = "windows")]
+            {
+                let webview_dir = if let Some(data_dir) = portable::data_dir() {
+                    if let Some(port) = playwright_cdp_port.as_deref() {
+                        data_dir.join(format!("webview-playwright-{port}"))
+                    } else {
+                        data_dir.join("webview")
+                    }
+                } else if let Some(port) = playwright_cdp_port.as_deref() {
+                    app.path()
+                        .app_local_data_dir()?
+                        .join(format!("EBWebView-playwright-{port}"))
+                } else {
+                    app.path().app_local_data_dir()?.join("EBWebView")
+                };
+
+                window_builder = window_builder.data_directory(webview_dir);
+            }
+
+            #[cfg(not(target_os = "windows"))]
             if let Some(data_dir) = portable::data_dir() {
                 window_builder = window_builder.data_directory(data_dir.join("webview"));
             }

@@ -37,6 +37,14 @@ Windows backend tests in this fork must be runnable through the checked-in harne
 - The harness uses a short `CARGO_TARGET_DIR` to reduce Windows path-length pain.
 - By policy, every new test batch must be documented in this file immediately after it is added.
 
+## Playwright + Tauri
+
+- Working Playwright/Tauri instructions live in [[PLAYWRIGHT_TAURI_CONNECTION]].
+- Checked-in launcher for agents or no-profile shells:
+  `pwsh -NoProfile -File .\scripts\start-playwright-tauri-dev.ps1`
+- After launch, verify CDP with:
+  `Invoke-WebRequest -UseBasicParsing http://127.0.0.1:9333/json/version | Select-Object -ExpandProperty Content`
+
 ## Documented Backend Test Areas
 
 Update this section every time new tests are added.
