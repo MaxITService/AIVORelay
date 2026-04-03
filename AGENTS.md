@@ -8,6 +8,7 @@ This is the entry file for AI/code agents working with this fork.
 - If you are not confident that a change will fix the issue, stop and confirm before making a risky fix.
 - Use proper commit messages.
 - For work on non-`main` branches, use `main` as the only sync source.
+- During `main` -> release-branch propagation, never carry documentation by default. If a documentation change looks extraordinarily necessary to propagate, stop and ask the user before including it.
 - Read additional documentation only when the current task requires it.
 - Use Obsidian-style links.
 - rg, sg, Python and lots of dev tools are installed on this Windows machine.

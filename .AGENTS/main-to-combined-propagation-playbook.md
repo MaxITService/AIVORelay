@@ -44,6 +44,7 @@ Default behavior:
 - propagate the intended `main` commit set in order
 
 Default exclusions for Combined Edition:
+- documentation changes
 - Microsoft Store-only updater policy changes
 - CUDA-only dependency/release wiring
 - branch-local multi-exe packaging changes that exist only on `codex/combined`
@@ -52,7 +53,10 @@ Allowed by default:
 - shared runtime fixes from `main`
 - UI fixes from `main`
 - settings fixes from `main`
-- branch-safe documentation updates that also apply to combined
+
+Documentation exception:
+- never propagate documentation by default
+- if a documentation change appears extraordinarily necessary for safe or correct branch behavior, stop and ask the user before including it
 
 Never cherry-pick directly from `upstream` into `codex/combined`.
 Always propagate from `main`.

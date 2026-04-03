@@ -44,11 +44,16 @@ Default behavior:
 - propagate the intended `main` commit set in order
 
 Default exclusions for Microsoft Store Edition:
+- documentation changes
 - self-update / auto-update changes
 - AVX512-only changes
 
 Allowed by default:
 - AVX2-targeted changes
+
+Documentation exception:
+- never propagate documentation by default
+- if a documentation change appears extraordinarily necessary for safe or correct branch behavior, stop and ask the user before including it
 
 Never cherry-pick directly from `upstream` into `Microsoft-store`.
 Always propagate from `main`.

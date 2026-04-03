@@ -44,13 +44,17 @@ Default behavior:
 - propagate the intended `main` commit set in order
 
 Default exclusions for CUDA Edition:
+- documentation changes
 - Microsoft Store-specific changes
 - branch-local CUDA dependency/release wiring changes that only exist on `cuda-integration`
 
 Allowed by default:
 - normal runtime fixes from `main`
 - UI fixes from `main`
-- branch-safe build/release documentation updates that apply to CUDA too
+
+Documentation exception:
+- never propagate documentation by default
+- if a documentation change appears extraordinarily necessary for safe or correct branch behavior, stop and ask the user before including it
 
 Never cherry-pick directly from `upstream` into `cuda-integration`.
 Always propagate from `main`.
