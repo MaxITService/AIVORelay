@@ -30,7 +30,6 @@ Branch tags: #branch/codex-combined
 - If you need local doc overview, read [[.AGENTS/MOC|MOC.md]].
 - If you need local-only materials, read [[.AGENTS/.UNTRACKED/MOC|.UNTRACKED/MOC.md]].
 
-At the start of a new session, send exactly one short message in a single message:
-`AGENTS.md received.`
+At the start of a new session, include `AGENTS.md received.` once in your first normal reply.
 
-Do this only once per session.
+Do not send it as a standalone placeholder message, and do this only once per session.
