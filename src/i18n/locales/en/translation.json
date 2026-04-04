@@ -2598,7 +2598,7 @@
     "chunking": {
       "title": "Smart Chunking",
       "hint": "For longer local files, split on pauses first and fall back to quiet-point splits near your max length.",
-      "providerHint": "Currently applied to local Parakeet file transcription. Other engines keep their normal file-transcription path.",
+      "providerHint": "Applied to local file transcription across local models. Engine-specific options like Whisper prompts are preserved.",
       "modeLabel": "Chunking Mode",
       "mode": {
         "auto": "Auto",
