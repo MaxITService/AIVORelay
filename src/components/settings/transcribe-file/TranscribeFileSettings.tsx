@@ -228,6 +228,8 @@ export const TranscribeFileSettings: React.FC = () => {
   const isDeepgramProvider = transcriptionProvider === "remote_deepgram";
   const showLocalChunkingOptions =
     !!selectedFile && (transcriptionProvider === "local" || !!overrideModelId);
+  const showRemoteProviderHint =
+    !!selectedFile && transcriptionProvider !== "local" && !overrideModelId;
   const fileChunkingMode = String(
     (settings as any)?.file_transcription_chunking_mode ?? "auto",
   ) as "auto" | "off" | "custom";
@@ -1004,10 +1006,20 @@ export const TranscribeFileSettings: React.FC = () => {
               </div>
             </div>
             <p className="mt-2 text-xs text-[#606060]">
-              {t(
-                "transcribeFile.outputFormat.hint",
-                "Accurate timestamps (SRT/VTT) require a local model. Remote STT returns text-only output in this version.",
-              )}
+              {showLocalChunkingOptions
+                ? t(
+                    "transcribeFile.outputFormat.localHint",
+                    "Local models support accurate timestamps for SRT/VTT, and Smart Chunking is available for longer files.",
+                  )
+                : showRemoteProviderHint
+                  ? t(
+                      "transcribeFile.outputFormat.remoteHint",
+                      "Cloud providers use a separate upload flow. Smart chunking is not applied there yet, so the chunking controls are hidden here.",
+                    )
+                  : t(
+                      "transcribeFile.outputFormat.hint",
+                      "Accurate timestamps (SRT/VTT) require a local model. Remote STT returns text-only output in this version.",
+                    )}
             </p>
             {showSonioxFileOptions &&
               sonioxModel.trim() !== "stt-async-v4" &&
