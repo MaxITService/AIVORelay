@@ -14,7 +14,8 @@ use crate::managers::remote_stt::RemoteSttManager;
 use crate::managers::soniox_stt::{SonioxAsyncTranscriptionOptions, SonioxSttManager};
 use crate::managers::transcription::TranscriptionManager;
 use crate::settings::{
-    apply_output_whitespace_policy_for_settings, get_settings, AppSettings, TranscriptionProvider,
+    apply_output_whitespace_policy_for_settings, get_settings, write_settings,
+    FileTranscriptionChunkingMode, TranscriptionProvider,
 };
 use crate::subtitle::{
     get_format_extension, segments_to_srt, segments_to_vtt, OutputFormat, SubtitleSegment,
@@ -55,6 +56,30 @@ pub struct SonioxFileTranscriptionOptions {
 pub struct DeepgramFileTranscriptionOptions {
     pub diarize: Option<bool>,
     pub multichannel: Option<bool>,
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_file_transcription_chunking_mode_setting(
+    app: AppHandle,
+    mode: FileTranscriptionChunkingMode,
+) -> Result<(), String> {
+    let mut settings = get_settings(&app);
+    settings.file_transcription_chunking_mode = mode;
+    write_settings(&app, settings);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_file_transcription_chunking_max_minutes_setting(
+    app: AppHandle,
+    minutes: f32,
+) -> Result<(), String> {
+    let mut settings = get_settings(&app);
+    settings.file_transcription_chunking_max_minutes = minutes.clamp(0.25, 10.0);
+    write_settings(&app, settings);
+    Ok(())
 }
 
 #[tauri::command]
@@ -172,6 +197,7 @@ pub async fn transcribe_audio_file(
         None
     };
 
+    let mut local_execution_meta = None;
     let (transcription_text, segments) = if use_remote {
         // Remote STT - currently doesn't support segments
         let remote_manager = app.state::<Arc<RemoteSttManager>>();
@@ -448,9 +474,8 @@ pub async fn transcribe_audio_file(
         }
 
         let result = if needs_segments {
-            // Use the new method that returns segments
             if let Some(p) = &profile {
-                tm.transcribe_with_segments(
+                tm.transcribe_file_with_segments(
                     samples,
                     Some(&p.language),
                     Some(p.translate_to_english),
@@ -463,13 +488,18 @@ pub async fn transcribe_audio_file(
                 )
                 .map_err(|e| format!("Local transcription failed: {}", e))
             } else {
-                tm.transcribe_with_segments(samples, None, None, None, apply_custom_words_enabled)
-                    .map_err(|e| format!("Local transcription failed: {}", e))
+                tm.transcribe_file_with_segments(
+                    samples,
+                    None,
+                    None,
+                    None,
+                    apply_custom_words_enabled,
+                )
+                .map_err(|e| format!("Local transcription failed: {}", e))
             }
         } else {
-            // Use the standard method for plain text
             let text_result = if let Some(p) = &profile {
-                tm.transcribe_with_overrides(
+                tm.transcribe_file_text(
                     samples,
                     Some(&p.language),
                     Some(p.translate_to_english),
@@ -482,10 +512,10 @@ pub async fn transcribe_audio_file(
                 )
                 .map_err(|e| format!("Local transcription failed: {}", e))
             } else {
-                tm.transcribe(samples, apply_custom_words_enabled)
+                tm.transcribe_file_text(samples, None, None, None, apply_custom_words_enabled)
                     .map_err(|e| format!("Local transcription failed: {}", e))
             };
-            text_result.map(|text| (text, None))
+            text_result.map(|(text, meta)| (text, None, meta))
         };
 
         if should_unload_override_model {
@@ -495,41 +525,21 @@ pub async fn transcribe_audio_file(
             }
         }
 
-        let (text, segs) = result?;
-        let filter_language = profile
-            .as_ref()
-            .map(|p| p.language.as_str())
-            .unwrap_or(settings.selected_language.as_str());
-
-        // Apply filler word filter (if enabled)
-        let text = if settings.filler_word_filter_enabled {
-            crate::audio_toolkit::filter_transcription_output(
-                &text,
-                filter_language,
-                &settings.custom_filler_words,
-            )
-        } else {
-            text
-        };
-
-        // If we have segments, apply filter to each segment
-        let segs = segs.map(|mut segments| {
-            for segment in &mut segments {
-                segment.text = if settings.filler_word_filter_enabled {
-                    crate::audio_toolkit::filter_transcription_output(
-                        &segment.text,
-                        filter_language,
-                        &settings.custom_filler_words,
-                    )
-                } else {
-                    segment.text.clone()
-                };
-            }
-            segments
-        });
-
+        let (text, segs, meta) = result?;
+        local_execution_meta = Some(meta);
         (text, segs)
     };
+
+    if let Some(meta) = local_execution_meta.filter(|meta| meta.used_vad_chunking) {
+        append_info_message(
+            &mut info_message,
+            format!(
+                "Smart chunking used for local Parakeet transcription: {} chunks (max {:.2} min per chunk).",
+                meta.chunk_count,
+                settings.file_transcription_chunking_max_minutes.max(0.25)
+            ),
+        );
+    }
 
     // Format the output based on requested format
     let output_text = match format {

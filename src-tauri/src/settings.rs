@@ -787,6 +787,20 @@ pub enum TranscriptionProvider {
     RemoteDeepgram,
 }
 
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Type)]
+#[serde(rename_all = "snake_case")]
+pub enum FileTranscriptionChunkingMode {
+    Auto,
+    Off,
+    Custom,
+}
+
+impl Default for FileTranscriptionChunkingMode {
+    fn default() -> Self {
+        Self::Auto
+    }
+}
+
 pub const SONIOX_DEFAULT_MODEL: &str = "stt-rt-v4";
 pub const SONIOX_DEFAULT_MAX_ENDPOINT_DELAY_MS: u32 = 2000;
 pub const SONIOX_DEFAULT_LIVE_FINALIZE_TIMEOUT_MS: u32 = 500;
@@ -1694,6 +1708,10 @@ pub struct AppSettings {
     pub mute_while_recording: bool,
     #[serde(default = "default_filter_silence")]
     pub filter_silence: bool,
+    #[serde(default = "default_file_transcription_chunking_mode")]
+    pub file_transcription_chunking_mode: FileTranscriptionChunkingMode,
+    #[serde(default = "default_file_transcription_chunking_max_minutes")]
+    pub file_transcription_chunking_max_minutes: f32,
     /// Optional microphone-only preamp in dB, saved per microphone device name.
     #[serde(default = "default_microphone_input_boost_db_by_device")]
     pub microphone_input_boost_db_by_device: HashMap<String, f32>,
@@ -2084,6 +2102,14 @@ fn default_deepgram_endpointing_ms() -> u32 {
 
 fn default_vad_threshold() -> f32 {
     0.3 // Original Handy default - more sensitive
+}
+
+fn default_file_transcription_chunking_mode() -> FileTranscriptionChunkingMode {
+    FileTranscriptionChunkingMode::Auto
+}
+
+fn default_file_transcription_chunking_max_minutes() -> f32 {
+    0.5
 }
 
 fn default_microphone_input_boost_db() -> f32 {
@@ -3165,6 +3191,8 @@ pub fn get_default_settings() -> AppSettings {
         ai_replace_selection_push_to_talk: true,
         mute_while_recording: false,
         filter_silence: default_filter_silence(),
+        file_transcription_chunking_mode: default_file_transcription_chunking_mode(),
+        file_transcription_chunking_max_minutes: default_file_transcription_chunking_max_minutes(),
         microphone_input_boost_db_by_device: default_microphone_input_boost_db_by_device(),
         microphone_input_boost_db: default_microphone_input_boost_db(),
         connector_port: default_connector_port(),
