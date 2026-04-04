@@ -1,5 +1,6 @@
 param(
     [switch]$DoBuild,
+    [switch]$DoDebugBuild,
     [switch]$DoDev,
     [string]$CudaPath = "C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.4",
     [string]$DependencyRoot = "C:\Code\AIVORelay-deps"
@@ -8,11 +9,13 @@ param(
 $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
 
-if ($DoBuild -and $DoDev) {
-    throw "Use either -DoBuild or -DoDev, not both."
+$selectedModes = @(@($DoBuild, $DoDebugBuild, $DoDev) | Where-Object { $_ })
+
+if ($selectedModes.Count -gt 1) {
+    throw "Use only one of -DoBuild, -DoDebugBuild, or -DoDev."
 }
 
-if (-not $DoBuild -and -not $DoDev) {
+if (-not $DoBuild -and -not $DoDebugBuild -and -not $DoDev) {
     $DoBuild = $true
 }
 
@@ -221,6 +224,13 @@ try {
     if ($DoDev) {
         Write-Host "--- START TASK ---"
         Invoke-LoggedNativeCommand -FilePath "bun" -ArgumentList @("run", "tauri", "dev", "--release") -LogPrefix "tauri-dev"
+        Write-Host "--- END TASK ---"
+        exit 0
+    }
+
+    if ($DoDebugBuild) {
+        Write-Host "--- START TASK ---"
+        Invoke-LoggedNativeCommand -FilePath "bun" -ArgumentList @("run", "tauri", "build", "--debug", "--no-sign", "--no-bundle") -LogPrefix "tauri-build-debug"
         Write-Host "--- END TASK ---"
         exit 0
     }

@@ -10,6 +10,12 @@ Release build:
 pwsh -NoProfile -File .\build-cuda.ps1 -DoBuild
 ```
 
+Debug executable build:
+
+```powershell
+pwsh -NoProfile -File .\build-cuda.ps1 -DoDebugBuild
+```
+
 Dev run:
 
 ```powershell
@@ -50,8 +56,30 @@ If any such process is already running, do not start another conflicting build c
 - This branch uses local dependency forks and rewrites Cargo patch paths during `build-cuda.ps1`.
 - `.cargo/config.toml` uses a short target dir: `C:/aivorelay-cuda`.
 - `.cargo/config.toml` currently uses `link.exe`.
+- `-DoDebugBuild` produces a local debug-profile executable at `C:\aivorelay-cuda\debug\aivorelay.exe`.
 - Local dev mode intentionally uses `tauri dev --release`.
 - Local build path remains `--no-bundle`.
+
+## Debug Executable
+
+Use this when a local CUDA issue needs visible stdout/stderr and the normal release build hides the failure.
+
+```powershell
+cd C:\aivorelay-cuda\debug
+.\aivorelay.exe
+```
+
+```powershell
+$env:RUST_LOG="info"
+.\aivorelay.exe
+```
+
+- Windows release builds hide the console via `windows_subsystem = "windows"`.
+- This is for troubleshooting, not release packaging.
+
+## Agent Guidance
+
+If the user reports a local runtime error and visible console output is likely enough to narrow it, the agent may proactively suggest `-DoDebugBuild`.
 
 ## Bindings
 

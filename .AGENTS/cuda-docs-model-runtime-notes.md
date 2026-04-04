@@ -38,6 +38,10 @@ Current behavior:
 - the loader auto-detects Int8, FP16, or FP32 from the files in the model directory
 - if a Cohere folder contains `tokenizer.json` but no `tokens.txt`, the app generates `tokens.txt` locally before loading
 
+For local CUDA branch troubleshooting:
+
+- prefer the CUDA debug executable build when the release build hides model load, file layout, ONNX session, or download-path failures
+
 ## Download Sources
 
 For branch-local Cohere FP16 and FP32 support, the app currently downloads from:
