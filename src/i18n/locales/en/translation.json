@@ -2576,6 +2576,8 @@
     "title": "Transcribe Audio File",
     "description": "Upload an audio file and transcribe it to text. Supports WAV, MP3, M4A, OGG, FLAC, and WebM formats.",
     "defaultProfile": "Default (Global)",
+    "cancelling": "Cancelling...",
+    "cancelled": "File transcription cancelled.",
     "dropZone": {
       "title": "Drop audio file here or click to browse",
       "subtitle": "Select an audio file to transcribe",
@@ -2609,6 +2611,17 @@
       },
       "maxMinutesLabel": "Max Chunk Length (minutes)",
       "maxMinutesHint": "Used by Auto and Custom modes. Default is 0.5 minutes (30 seconds)."
+    },
+    "chunkingConsole": {
+      "title": "Chunking Console",
+      "hint": "Shows where smart chunking split the file and why each chunk boundary was chosen.",
+      "reason": {
+        "silence_boundary": "silence boundary",
+        "quiet_point_near_limit": "quiet-point split near max length",
+        "hard_limit": "hard split at max length",
+        "end_of_file": "remaining speech at end of file",
+        "fixed_fallback": "bounded fallback after VAD miss"
+      }
     },
     "modelOverride": {
       "label": "Override Model",

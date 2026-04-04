@@ -93,6 +93,7 @@ pub fn cancel_current_operation(app: &AppHandle) {
 
     // Unload model if immediate unload is enabled
     let tm = app.state::<Arc<TranscriptionManager>>();
+    tm.cancel_file_transcription();
     tm.maybe_unload_immediately("cancellation");
 
     info!("Operation cancellation completed - returned to idle state");

@@ -42,6 +42,14 @@ type SpeakerNameSetProfile = {
   speaker_names: string[];
 };
 
+type ChunkingTraceEntry = {
+  chunk_index: number;
+  start_secs: number;
+  end_secs: number;
+  duration_secs: number;
+  reason: string;
+};
+
 const formatAudioDurationClock = (seconds: number | null | undefined): string => {
   if (seconds == null || !Number.isFinite(seconds) || seconds < 0) {
     return "";
@@ -82,6 +90,15 @@ const formatAudioDurationWithUnits = (
   return `${minutes}m ${String(remainingSeconds).padStart(2, "0")}s`;
 };
 
+const formatChunkTraceTime = (seconds: number): string => {
+  const safeSeconds = Math.max(0, seconds);
+  const minutes = Math.floor(safeSeconds / 60);
+  const remainingSeconds = safeSeconds - minutes * 60;
+  return `${String(minutes).padStart(2, "0")}:${remainingSeconds
+    .toFixed(2)
+    .padStart(5, "0")}`;
+};
+
 const loadAudioDuration = async (audioUrl: string): Promise<number | null> =>
   new Promise((resolve) => {
     const audio = document.createElement("audio");
@@ -111,6 +128,11 @@ const loadAudioDuration = async (audioUrl: string): Promise<number | null> =>
     audio.onerror = () => cleanupAndFinish(null);
     audio.src = audioUrl;
   });
+
+const isCancellationMessage = (value: unknown): boolean => {
+  const normalized = String(value ?? "").toLowerCase();
+  return normalized.includes("cancelled") || normalized.includes("canceled");
+};
 
 const cleanupPreparedPreviewAsset = async (selectedFile: SelectedFile | null) => {
   if (!selectedFile?.previewAssetPath) {
@@ -219,6 +241,9 @@ export const TranscribeFileSettings: React.FC = () => {
     useState(false);
   const [showDurationLimitWarningDialog, setShowDurationLimitWarningDialog] =
     useState(false);
+  const [isCancellingTranscription, setIsCancellingTranscription] =
+    useState(false);
+  const [chunkingTrace, setChunkingTrace] = useState<ChunkingTraceEntry[]>([]);
 
   const dropZoneRef = useRef<HTMLDivElement>(null);
   const selectedFileRef = useRef<SelectedFile | null>(selectedFile);
@@ -291,6 +316,7 @@ export const TranscribeFileSettings: React.FC = () => {
     setTranscriptionResult("");
     setSavedFilePath(null);
     setInfoMessage(null);
+    setChunkingTrace([]);
     setShowDurationLimitWarningDialog(false);
     setError(null);
     clearSpeakerSession();
@@ -343,6 +369,12 @@ export const TranscribeFileSettings: React.FC = () => {
     setDeepgramFileMultichannel(globalDeepgramFileMultichannel);
   }, [globalDeepgramFileDiarize, globalDeepgramFileMultichannel]);
 
+  useEffect(() => {
+    if (!isTranscribing) {
+      setIsCancellingTranscription(false);
+    }
+  }, [isTranscribing]);
+
   // Listen for Tauri file drop events
   useEffect(() => {
     const appWindow = getCurrentWebviewWindow();
@@ -374,6 +406,7 @@ export const TranscribeFileSettings: React.FC = () => {
           setTranscriptionResult("");
           setSavedFilePath(null);
           setInfoMessage(null);
+          setChunkingTrace([]);
           setShowDurationLimitWarningDialog(false);
           setError(null);
           clearSpeakerSession();
@@ -389,6 +422,7 @@ export const TranscribeFileSettings: React.FC = () => {
     replaceSelectedFile,
     setError,
     setSavedFilePath,
+    setChunkingTrace,
     setTranscriptionResult,
     t,
   ]);
@@ -689,6 +723,7 @@ export const TranscribeFileSettings: React.FC = () => {
         setTranscriptionResult("");
         setSavedFilePath(null);
         setInfoMessage(null);
+        setChunkingTrace([]);
         setShowDurationLimitWarningDialog(false);
         setError(null);
         clearSpeakerSession();
@@ -714,10 +749,12 @@ export const TranscribeFileSettings: React.FC = () => {
     if (!selectedFile) return;
 
     setIsTranscribing(true);
+    setIsCancellingTranscription(false);
     setError(null);
     setTranscriptionResult("");
     setSavedFilePath(null);
     setInfoMessage(null);
+    setChunkingTrace([]);
     clearSpeakerSession();
 
     try {
@@ -763,21 +800,54 @@ export const TranscribeFileSettings: React.FC = () => {
       );
 
       if (result.status === "ok") {
-        setTranscriptionResult(result.data.text);
-        setInfoMessage(result.data.info_message ?? null);
-        setSpeakerSession(result.data.speaker_session ?? null);
-        if (result.data.saved_file_path) {
-          setSavedFilePath(result.data.saved_file_path);
+        const data = result.data as typeof result.data & {
+          chunking_trace?: ChunkingTraceEntry[] | null;
+        };
+        setTranscriptionResult(data.text);
+        setInfoMessage(data.info_message ?? null);
+        setChunkingTrace(data.chunking_trace ?? []);
+        setSpeakerSession(data.speaker_session ?? null);
+        if (data.saved_file_path) {
+          setSavedFilePath(data.saved_file_path);
         }
+      } else if (isCancellationMessage(result.error)) {
+        clearSpeakerSession();
+        setError(null);
+        setInfoMessage(t("transcribeFile.cancelled"));
+        setChunkingTrace([]);
       } else {
         clearSpeakerSession();
+        setChunkingTrace([]);
         setError(result.error);
       }
     } catch (err) {
       clearSpeakerSession();
-      setError(String(err));
+      if (isCancellationMessage(err)) {
+        setError(null);
+        setInfoMessage(t("transcribeFile.cancelled"));
+        setChunkingTrace([]);
+      } else {
+        setChunkingTrace([]);
+        setError(String(err));
+      }
     } finally {
       setIsTranscribing(false);
+    }
+  };
+
+  const handleCancelTranscription = async () => {
+    if (!isTranscribing || isCancellingTranscription) {
+      return;
+    }
+
+    setError(null);
+    setIsCancellingTranscription(true);
+
+    try {
+      await commands.cancelOperation();
+    } catch (err) {
+      setIsCancellingTranscription(false);
+      setError(String(err));
     }
   };
 
@@ -1297,7 +1367,22 @@ export const TranscribeFileSettings: React.FC = () => {
                   t("transcribeFile.transcribe")
                 )}
               </Button>
-              <Button variant="secondary" onClick={handleClear}>
+              {isTranscribing && (
+                <Button
+                  variant="danger"
+                  onClick={handleCancelTranscription}
+                  disabled={isCancellingTranscription}
+                >
+                  {isCancellingTranscription
+                    ? t("transcribeFile.cancelling")
+                    : t("common.cancel")}
+                </Button>
+              )}
+              <Button
+                variant="secondary"
+                onClick={handleClear}
+                disabled={isTranscribing}
+              >
                 {t("transcribeFile.clear")}
               </Button>
             </div>
@@ -1323,6 +1408,46 @@ export const TranscribeFileSettings: React.FC = () => {
               <p className="text-sm whitespace-pre-line text-[#d7b9ff]">
                 {infoMessage}
               </p>
+            </div>
+          </div>
+        )}
+        {chunkingTrace.length > 0 && (
+          <div className="px-4 py-3 border-t border-white/[0.05]">
+            <div className="rounded-lg border border-[#333333] bg-[#151515] p-3">
+              <div className="mb-3">
+                <p className="text-sm text-[#f5f5f5]">
+                  {t("transcribeFile.chunkingConsole.title")}
+                </p>
+                <p className="text-xs text-[#808080]">
+                  {t("transcribeFile.chunkingConsole.hint")}
+                </p>
+              </div>
+              <div className="max-h-56 overflow-y-auto rounded-lg border border-[#222222] bg-[#0b0b0b] px-3 py-2 font-mono text-xs text-[#d7d7d7]">
+                <div className="space-y-1">
+                  {chunkingTrace.map((entry) => (
+                    <div
+                      key={`${entry.chunk_index}-${entry.start_secs}-${entry.reason}`}
+                      className="flex flex-wrap items-center gap-x-3 gap-y-1"
+                    >
+                      <span className="text-[#9b5de5]">
+                        #{entry.chunk_index}
+                      </span>
+                      <span>
+                        {formatChunkTraceTime(entry.start_secs)} {"->"}{" "}
+                        {formatChunkTraceTime(entry.end_secs)}
+                      </span>
+                      <span className="text-[#8a8a8a]">
+                        ({entry.duration_secs.toFixed(1)}s)
+                      </span>
+                      <span className="text-[#9ad1ff]">
+                        {t(
+                          `transcribeFile.chunkingConsole.reason.${entry.reason}`,
+                        )}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
             </div>
           </div>
         )}
