@@ -7,7 +7,7 @@ Before starting a new `main` -> branch sync, verify the target branch directly w
 
 ## Microsoft-store
 
-Last synced commit from `main`: `4d2750b5` — fix: accept upstream old CPU crash fix.
+Last synced commit from `main`: `5752185f` — change default model unload timeout to 15 minutes.
 Maintenance rule: after a successful `main` -> `Microsoft-store` propagation, update this file and the local propagation log.
 Note: the cursor always points to the last propagated `main` state reflected in branch content, not to a docs-only cursor-update commit itself.
 Alignment note: non-Store-specific program documentation is owned by `main`.
