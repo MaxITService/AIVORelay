@@ -1580,6 +1580,56 @@ export const RecordingOverlaySettings: React.FC = () => {
       />
 
       <SettingContainer
+        title="Status Icon Color"
+        description="Color of the left-side status icon."
+        descriptionMode="tooltip"
+        grouped={true}
+      >
+        <div className="flex items-center gap-3">
+          <input
+            type="color"
+            value={statusIconColor}
+            onChange={(event) =>
+              void updateSetting(
+                "recording_overlay_status_icon_color" as any,
+                event.target.value as any,
+              )
+            }
+            disabled={isUpdating("recording_overlay_status_icon_color")}
+            className="h-8 w-12 rounded border border-[#3c3c3c] bg-transparent disabled:opacity-40"
+          />
+          <span className="text-xs font-mono text-[#a0a0a0]">
+            {statusIconColor}
+          </span>
+        </div>
+      </SettingContainer>
+
+      <SettingContainer
+        title="Cancel Button Icon Color"
+        description="Color of the right-side cancel/X icon."
+        descriptionMode="tooltip"
+        grouped={true}
+      >
+        <div className="flex items-center gap-3">
+          <input
+            type="color"
+            value={cancelIconColor}
+            onChange={(event) =>
+              void updateSetting(
+                "recording_overlay_cancel_icon_color" as any,
+                event.target.value as any,
+              )
+            }
+            disabled={isUpdating("recording_overlay_cancel_icon_color")}
+            className="h-8 w-12 rounded border border-[#3c3c3c] bg-transparent disabled:opacity-40"
+          />
+          <span className="text-xs font-mono text-[#a0a0a0]">
+            {cancelIconColor}
+          </span>
+        </div>
+      </SettingContainer>
+
+      <SettingContainer
         title="Decapitalize Indicator Mode"
         description="Show the standard label, a custom emoji/text badge, or hide the decapitalize indicator completely."
         descriptionMode="tooltip"
@@ -1678,6 +1728,34 @@ export const RecordingOverlaySettings: React.FC = () => {
           </div>
         </SettingContainer>
       )}
+
+      <SettingContainer
+        title="Decapitalize Indicator Color"
+        description="Color of the decapitalize badge text or emoji."
+        descriptionMode="tooltip"
+        grouped={true}
+      >
+        <div className="flex items-center gap-3">
+          <input
+            type="color"
+            value={decapIndicatorColor}
+            onChange={(event) =>
+              void updateSetting(
+                "recording_overlay_decapitalize_indicator_color" as any,
+                event.target.value as any,
+              )
+            }
+            disabled={
+              isUpdating("recording_overlay_decapitalize_indicator_color") ||
+              decapIndicatorMode === "hidden"
+            }
+            className="h-8 w-12 rounded border border-[#3c3c3c] bg-transparent disabled:opacity-40"
+          />
+          <span className="text-xs font-mono text-[#a0a0a0]">
+            {decapIndicatorColor}
+          </span>
+        </div>
+      </SettingContainer>
 
       <SettingContainer
         title={t(
@@ -1873,83 +1951,6 @@ export const RecordingOverlaySettings: React.FC = () => {
         </div>
       </SettingContainer>
 
-      <SettingContainer
-        title="Status Icon Color"
-        description="Color of the left-side status icon."
-        descriptionMode="tooltip"
-        grouped={true}
-      >
-        <div className="flex items-center gap-3">
-          <input
-            type="color"
-            value={statusIconColor}
-            onChange={(event) =>
-              void updateSetting(
-                "recording_overlay_status_icon_color" as any,
-                event.target.value as any,
-              )
-            }
-            disabled={isUpdating("recording_overlay_status_icon_color")}
-            className="h-8 w-12 rounded border border-[#3c3c3c] bg-transparent disabled:opacity-40"
-          />
-          <span className="text-xs font-mono text-[#a0a0a0]">
-            {statusIconColor}
-          </span>
-        </div>
-      </SettingContainer>
-
-      <SettingContainer
-        title="Cancel Button Icon Color"
-        description="Color of the right-side cancel/X icon."
-        descriptionMode="tooltip"
-        grouped={true}
-      >
-        <div className="flex items-center gap-3">
-          <input
-            type="color"
-            value={cancelIconColor}
-            onChange={(event) =>
-              void updateSetting(
-                "recording_overlay_cancel_icon_color" as any,
-                event.target.value as any,
-              )
-            }
-            disabled={isUpdating("recording_overlay_cancel_icon_color")}
-            className="h-8 w-12 rounded border border-[#3c3c3c] bg-transparent disabled:opacity-40"
-          />
-          <span className="text-xs font-mono text-[#a0a0a0]">
-            {cancelIconColor}
-          </span>
-        </div>
-      </SettingContainer>
-
-      <SettingContainer
-        title="Decapitalize Indicator Color"
-        description="Color of the decapitalize badge text or emoji."
-        descriptionMode="tooltip"
-        grouped={true}
-      >
-        <div className="flex items-center gap-3">
-          <input
-            type="color"
-            value={decapIndicatorColor}
-            onChange={(event) =>
-              void updateSetting(
-                "recording_overlay_decapitalize_indicator_color" as any,
-                event.target.value as any,
-              )
-            }
-            disabled={
-              isUpdating("recording_overlay_decapitalize_indicator_color") ||
-              decapIndicatorMode === "hidden"
-            }
-            className="h-8 w-12 rounded border border-[#3c3c3c] bg-transparent disabled:opacity-40"
-          />
-          <span className="text-xs font-mono text-[#a0a0a0]">
-            {decapIndicatorColor}
-          </span>
-        </div>
-      </SettingContainer>
         </div>
 
         <div
