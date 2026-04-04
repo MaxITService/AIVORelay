@@ -391,6 +391,14 @@ settingUpdaters.error_overlay_auto_hide_ms = (value) =>
 // Fork-specific settings not yet present in generated bindings.
 (settingUpdaters as any).recording_auto_stop_enabled = (value: any) =>
   invoke("change_recording_auto_stop_enabled_setting", { enabled: value });
+(settingUpdaters as any).file_transcription_chunking_mode = (value: any) =>
+  invoke("change_file_transcription_chunking_mode_setting", { mode: value });
+(settingUpdaters as any).file_transcription_chunking_max_minutes = (
+  value: any,
+) =>
+  invoke("change_file_transcription_chunking_max_minutes_setting", {
+    minutes: Number(value),
+  });
 (settingUpdaters as any).microphone_input_boost_db = (value: any) =>
   invoke("change_microphone_input_boost_db_setting", {
     db: Number(value),
