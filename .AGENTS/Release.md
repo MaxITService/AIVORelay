@@ -34,8 +34,10 @@ When asked to bump the app version:
     - `main`: `.github/release-notes/main.md`
     - `Microsoft-store`: `.github/release-notes/microsoft-store.md`
     - `cuda-integration`: `.github/release-notes/cuda.md`
-11. Commit with `chore: bump version to x.y.z`.
-12. After commit, ask whether to create tag and push now. 
+11. If `main` release text should point users to a same-version `Microsoft-store` release, prefer publishing the `Microsoft-store` GitHub release first and then copy its final URL into `.github/release-notes/main.md`.
+12. If `main` is being released on its own, do not refresh the Microsoft Store link just to point at an older unrelated release.
+13. Commit with `chore: bump version to x.y.z`.
+14. After commit, ask whether to create tag and push now. 
 
 ## Tags And Branches
 
@@ -47,7 +49,7 @@ For `main`:
 
 For `Microsoft-store`: if asked, prepare this branch too. If not asked, skip it entirely.
 1. Keep the app version numeric, for example `0.9.1`. Same number is released in both branches, but only by user's apporval.
-2. Use the Microsoft Store release workflow and store-specific release naming.
+2. Use the Microsoft Store release workflow and store-specific release naming. Its GitHub release must be published as a pre-release.
 3. Tag `vx.y.z-store` only when the user explicitly asks for the store tag.
 4. Push `Microsoft-store` and the store tag only when the user explicitly asks.
 

@@ -52,9 +52,10 @@ Allowed by default:
 - normal runtime fixes from `main`
 - UI fixes from `main`
 
-Documentation exception:
-- never propagate documentation by default
-- if a documentation change appears extraordinarily necessary for safe or correct branch behavior, stop and ask the user before including it
+Documentation handling:
+- exclude documentation changes from the normal propagation set by default
+- if a documentation file is clearly `main`-only, do not propagate it
+- if a documentation file appears applicable to multiple branches and looks like a file that should exist on all branches, stop and ask the user about that specific file before including it
 
 Never cherry-pick directly from `upstream` into `cuda-integration`.
 Always propagate from `main`.
@@ -63,15 +64,18 @@ Always propagate from `main`.
 
 1. Confirm working tree status and remember starting branch.
 2. Verify the real target-branch sync point with git history.
-3. Switch to `cuda-integration`.
-4. Cherry-pick selected `main` commits in order.
-5. If conflicts are small and safe, resolve and continue.
-6. If conflicts are many/high-risk, run `git cherry-pick --abort` and switch to diff-path using `.AGENTS/.UNTRACKED/<sha>.diff.txt`.
-7. Record resulting local commit hashes.
-8. Update [[.AGENTS/branch-propagation-log|branch-propagation-log.md]] in the target branch worktree after successful propagation.
-9. Update [[.AGENTS/branching-status|branching-status.md]] in the target branch worktree after successful propagation.
-10. Mirror the same propagation-log entry and cursor update back into `main`'s `.AGENTS` docs before considering the sync finished.
-11. Return to the original branch if needed.
+3. Review documentation changes separately from code changes.
+4. Exclude any documentation file that is clearly `main`-only.
+5. If a documentation file appears branch-shared and looks like it should exist on all branches, ask the user about that specific file before propagating it.
+6. Switch to `cuda-integration`.
+7. Cherry-pick selected non-documentation `main` commits in order, plus only the documentation files the user explicitly approved.
+8. If conflicts are small and safe, resolve and continue.
+9. If conflicts are many/high-risk, run `git cherry-pick --abort` and switch to diff-path using `.AGENTS/.UNTRACKED/<sha>.diff.txt`.
+10. Record resulting local commit hashes.
+11. Update [[.AGENTS/branch-propagation-log|branch-propagation-log.md]] in the target branch worktree after successful propagation.
+12. Update [[.AGENTS/branching-status|branching-status.md]] in the target branch worktree after successful propagation.
+13. Mirror the same propagation-log entry and cursor update back into `main`'s `.AGENTS` docs before considering the sync finished.
+14. Return to the original branch if needed.
 
 ## Cargo.lock
 
