@@ -7,7 +7,7 @@ Before starting a new `main` -> branch sync, verify the target branch directly w
 
 ## codex/combined
 
-Last synced commit from `main`: `4d2750b5` — fix: accept upstream old CPU crash fix.
+Last synced commit from `main`: `5752185f` — change default model unload timeout to 15 minutes.
 Maintenance rule: after a successful `main` -> `codex/combined` propagation, update this file and the local propagation log.
 Note: the cursor always points to the last propagated commit from `main`, not to combined-only commits created on top of it.
 Sync rule: for this branch, source commits come from `main` only.

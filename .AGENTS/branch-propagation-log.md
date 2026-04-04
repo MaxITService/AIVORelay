@@ -14,6 +14,7 @@ Rules:
 
 | Propagation Date | Main SHA | Main Message | Branch SHA | Branch Message | Issues |
 | --- | --- | --- | --- | --- | --- |
+| 2026-04-04 | `5752185f` | change default model unload timeout to 15 minutes | `972a80fb` | change default model unload timeout to 15 minutes | includes 09c0b163 + 943cd525 |
 | 2026-04-02 | `4d2750b5` | fix: accept upstream old CPU crash fix | `4ccf3ab7` | fix: accept upstream old CPU crash fix | clean cherry-pick |
 | 2026-04-01 | `3431d1db` | feat(models): show model details and supported languages | `0e6d14c9` | feat(models): show model details and supported languages | includes 1027135c + afd68f69; kept accel wiring |
 | 2026-04-01 | `838de043` | Add overlay icon and decap indicator customization | `e265f3e2` | Add overlay icon and decap indicator customization | code-notes merge |
