@@ -3,11 +3,13 @@ import { useTranslation } from "react-i18next";
 import { listen } from "@tauri-apps/api/event";
 import { commands, type ModelInfo } from "@/bindings";
 import type { ModelStateEvent } from "@/lib/types/events";
+import { EXTERNAL_MODEL_DOWNLOADS } from "@/lib/utils/externalModelDownloads";
 import { getTranslatedModelName } from "../../lib/utils/modelTranslation";
 import ModelStatusButton from "./ModelStatusButton";
 import ModelDropdown from "./ModelDropdown";
 import DownloadProgressDisplay from "./DownloadProgressDisplay";
 import { useSettings } from "../../hooks/useSettings";
+import { ExternalModelDownloadModal } from "../settings/models/ExternalModelDownloadModal";
 
 interface DownloadProgress {
   model_id: string;
@@ -37,6 +39,15 @@ interface DownloadStats {
   speed: number;
 }
 
+interface ExternalDownloadInfo {
+  sourceLabel: string;
+  sourceUrl: string;
+  privacyUrl: string;
+  termsUrl: string;
+  destinationFolder: string;
+  files: string[];
+}
+
 interface ModelSelectorProps {
   onError?: (error: string) => void;
   onInteraction?: () => void;
@@ -61,6 +72,10 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({
   >(new Map());
   const [extractingModels, setExtractingModels] = useState<Set<string>>(
     new Set(),
+  );
+  const [externalDownloadModel, setExternalDownloadModel] = useState<ModelInfo | null>(null);
+  const [externalDownloadInfo, setExternalDownloadInfo] = useState<ExternalDownloadInfo | null>(
+    null,
   );
 
   const transcriptionProvider = String(
@@ -389,6 +404,20 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({
         await setTranscriptionProvider("local");
       }
       setModelError(null);
+      const model = models.find((entry) => entry.id === modelId) || null;
+      const external = EXTERNAL_MODEL_DOWNLOADS[modelId];
+      if (model && external) {
+        const appDirResult = await commands.getAppDirPath();
+        if (appDirResult.status === "error") {
+          throw new Error(appDirResult.error);
+        }
+        setExternalDownloadInfo({
+          ...external,
+          destinationFolder: `${appDirResult.data}\\models\\${model.filename}`,
+        });
+        setExternalDownloadModel(model);
+        return;
+      }
       const result = await commands.downloadModel(modelId);
       if (result.status === "error") {
         const errorMsg = result.error;
@@ -509,7 +538,13 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({
       {/* Model Status and Switcher */}
       <div className="relative" ref={dropdownRef}>
         <ModelStatusButton
-          status={isRemoteProvider ? "ready" : modelStatus}
+          status={
+            isRemoteProvider
+              ? "ready"
+              : modelStatus === "unloaded" && currentModelId
+                ? "ready"
+                : modelStatus
+          }
           displayText={getModelDisplayText()}
           isDropdownOpen={showModelDropdown}
           onClick={() => {
@@ -543,6 +578,39 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({
           />
         )}
       </div>
+
+      <ExternalModelDownloadModal
+        isOpen={Boolean(externalDownloadModel && externalDownloadInfo)}
+        modelName={
+          externalDownloadModel
+            ? getTranslatedModelName(externalDownloadModel, t)
+            : ""
+        }
+        sourceLabel={externalDownloadInfo?.sourceLabel || ""}
+        sourceUrl={externalDownloadInfo?.sourceUrl || ""}
+        privacyUrl={externalDownloadInfo?.privacyUrl || ""}
+        termsUrl={externalDownloadInfo?.termsUrl || ""}
+        destinationPath={externalDownloadInfo?.destinationFolder || ""}
+        files={externalDownloadInfo?.files || []}
+        onAccept={async () => {
+          if (externalDownloadModel) {
+            const result = await commands.downloadModel(externalDownloadModel.id);
+            if (result.status === "error") {
+              const errorMsg = result.error;
+              setModelError(errorMsg);
+              setModelStatus("error");
+              onError?.(errorMsg);
+            }
+          }
+        }}
+        onOpenFolder={async () => {
+          await commands.openAppDataDir();
+        }}
+        onClose={() => {
+          setExternalDownloadModel(null);
+          setExternalDownloadInfo(null);
+        }}
+      />
 
       {/* Download Progress Bar for Models */}
       <DownloadProgressDisplay

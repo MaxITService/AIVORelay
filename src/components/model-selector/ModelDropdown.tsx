@@ -2,6 +2,7 @@ import React from "react";
 import { useTranslation } from "react-i18next";
 import type { ModelInfo } from "@/bindings";
 import { formatModelSize } from "../../lib/utils/format";
+import { hasExternalModelDownload } from "../../lib/utils/externalModelDownloads";
 import {
   getTranslatedModelName,
   getTranslatedModelDescription,
@@ -46,7 +47,9 @@ const ModelDropdown: React.FC<ModelDropdownProps> = ({
     currentProvider === "remote_deepgram";
   const { t } = useTranslation();
   const availableModels = models.filter((m) => m.is_downloaded);
-  const downloadableModels = models.filter((m) => !m.is_downloaded);
+  const downloadableModels = models.filter(
+    (m) => !m.is_downloaded && (Boolean(m.url) || hasExternalModelDownload(m.id)),
+  );
   const isFirstRun = availableModels.length === 0 && models.length > 0;
 
   const handleDeleteClick = async (e: React.MouseEvent, modelId: string) => {

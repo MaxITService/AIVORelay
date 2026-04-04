@@ -6,6 +6,7 @@ import { commands, type ModelInfo } from "@/bindings";
 import { useModels } from "../../../hooks/useModels";
 import { useSettings } from "../../../hooks/useSettings";
 import { getTranslatedModelDescription, getTranslatedModelName } from "../../../lib/utils/modelTranslation";
+import { EXTERNAL_MODEL_DOWNLOADS, hasExternalModelDownload } from "../../../lib/utils/externalModelDownloads";
 import { formatModelSize } from "../../../lib/utils/format";
 import { Button } from "../../ui/Button";
 import { SettingsGroup } from "../../ui/SettingsGroup";
@@ -20,31 +21,6 @@ type ExternalDownloadInfo = {
   termsUrl: string;
   destinationFolder: string;
   files: string[];
-};
-
-const HUGGING_FACE_PRIVACY_URL = "https://huggingface.co/privacy";
-const HUGGING_FACE_TERMS_URL = "https://huggingface.co/terms-of-service";
-const EXTERNAL_DOWNLOADS: Record<string, Omit<ExternalDownloadInfo, "destinationFolder">> = {
-  "cohere-fp32": {
-    sourceLabel: "Hugging Face (eschmidbauer + ONNX Community)",
-    sourceUrl: "https://huggingface.co/eschmidbauer/cohere-transcribe-03-2026-onnx",
-    privacyUrl: HUGGING_FACE_PRIVACY_URL,
-    termsUrl: HUGGING_FACE_TERMS_URL,
-    files: [
-      "eschmidbauer/cohere-transcribe-03-2026-onnx/encoder-0.onnx",
-      "eschmidbauer/cohere-transcribe-03-2026-onnx/encoder-1.onnx",
-      "eschmidbauer/cohere-transcribe-03-2026-onnx/encoder-2.onnx",
-      "eschmidbauer/cohere-transcribe-03-2026-onnx/encoder-3.onnx",
-      "eschmidbauer/cohere-transcribe-03-2026-onnx/cross_kv.onnx",
-      "eschmidbauer/cohere-transcribe-03-2026-onnx/decoder.onnx",
-      "onnx-community/cohere-transcribe-03-2026-ONNX/config.json",
-      "onnx-community/cohere-transcribe-03-2026-ONNX/generation_config.json",
-      "onnx-community/cohere-transcribe-03-2026-ONNX/preprocessor_config.json",
-      "onnx-community/cohere-transcribe-03-2026-ONNX/processor_config.json",
-      "onnx-community/cohere-transcribe-03-2026-ONNX/tokenizer.json",
-      "onnx-community/cohere-transcribe-03-2026-ONNX/tokenizer_config.json",
-    ],
-  },
 };
 
 export const ModelsSettings: React.FC = () => {
@@ -92,7 +68,7 @@ export const ModelsSettings: React.FC = () => {
       models.filter(
         (model: ModelInfo) =>
           !model.is_downloaded &&
-          (Boolean(model.url) || Boolean(EXTERNAL_DOWNLOADS[model.id])),
+          (Boolean(model.url) || hasExternalModelDownload(model.id)),
       ),
     [models],
   );
@@ -120,7 +96,7 @@ export const ModelsSettings: React.FC = () => {
   const handleDownloadModel = async (modelId: string) => {
     await ensureLocalProvider();
     const model = models.find((entry) => entry.id === modelId) || null;
-    const external = EXTERNAL_DOWNLOADS[modelId];
+    const external = EXTERNAL_MODEL_DOWNLOADS[modelId];
     if (model && external) {
       const appDirResult = await commands.getAppDirPath();
       if (appDirResult.status === "error") {
