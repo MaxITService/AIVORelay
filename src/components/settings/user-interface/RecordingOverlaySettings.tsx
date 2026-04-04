@@ -257,10 +257,42 @@ const WINDOWS_FONT_FAMILY_OPTIONS = [
   "Cascadia Mono",
 ] as const;
 
+function findScrollableAncestor(element: HTMLElement | null): HTMLElement | null {
+  let current = element?.parentElement ?? null;
+  while (current) {
+    const style = window.getComputedStyle(current);
+    if (
+      style.overflowY === "auto" ||
+      style.overflowY === "scroll" ||
+      style.overflowY === "overlay"
+    ) {
+      return current;
+    }
+    current = current.parentElement;
+  }
+  return null;
+}
+
 export const RecordingOverlaySettings: React.FC = () => {
   const { t } = useTranslation();
   const { settings, updateSetting, isUpdating, refreshSettings } = useSettings();
   const [previewState, setPreviewState] = React.useState<PreviewState>("recording");
+  const [showDecapIndicatorInPreview, setShowDecapIndicatorInPreview] =
+    React.useState(false);
+  const floatingPreviewAnchorRef = React.useRef<HTMLDivElement | null>(null);
+  const floatingPreviewPanelRef = React.useRef<HTMLDivElement | null>(null);
+  const floatingPreviewButtonRef = React.useRef<HTMLButtonElement | null>(null);
+  const [isCollapsedPreviewOpen, setIsCollapsedPreviewOpen] =
+    React.useState(false);
+  const [floatingPreviewLayout, setFloatingPreviewLayout] = React.useState({
+    dockedVisible: false,
+    dockLeft: 0,
+    dockTop: 24,
+    buttonLeft: 24,
+    buttonTop: 24,
+    overlayLeft: 24,
+    overlayTop: 24,
+  });
   const [isResettingAppearance, setIsResettingAppearance] = React.useState(false);
   const [isResettingPosition, setIsResettingPosition] = React.useState(false);
   const [isApplyingPreset, setIsApplyingPreset] = React.useState(false);
@@ -509,6 +541,115 @@ export const RecordingOverlaySettings: React.FC = () => {
     setSliderDrafts(sliderDraftSource);
   }, [sliderDraftSource]);
 
+  React.useEffect(() => {
+    const anchorElement = floatingPreviewAnchorRef.current;
+    if (!anchorElement) {
+      return;
+    }
+
+    let frameId = 0;
+    const scrollParent = findScrollableAncestor(anchorElement);
+
+    const updateFloatingPreviewLayout = () => {
+      frameId = 0;
+      const anchorRect = anchorElement.getBoundingClientRect();
+      const panelWidth = 360;
+      const gap = 28;
+      const minLeft = 170;
+      const buttonSize = 52;
+      const nextDockLeft = Math.round(anchorRect.left - panelWidth - gap);
+      const panelHeight = floatingPreviewPanelRef.current?.offsetHeight ?? 0;
+      const maxDockTop = Math.max(24, window.innerHeight - panelHeight - 24);
+      const nextDockTop = Math.round(
+        Math.min(Math.max(anchorRect.top, 24), maxDockTop),
+      );
+      const nextDockedVisible =
+        window.innerWidth >= 1280 && nextDockLeft >= minLeft;
+      const nextButtonLeft = Math.round(
+        Math.min(
+          Math.max(anchorRect.left - buttonSize - 18, 20),
+          window.innerWidth - buttonSize - 20,
+        ),
+      );
+      const nextButtonTop = Math.round(
+        Math.min(
+          Math.max(anchorRect.top + 14, 20),
+          window.innerHeight - buttonSize - 20,
+        ),
+      );
+      const preferredOverlayLeft = nextButtonLeft + buttonSize + 14;
+      const fallbackOverlayLeft = nextButtonLeft - panelWidth - 14;
+      const nextOverlayLeft = Math.round(
+        preferredOverlayLeft + panelWidth <= window.innerWidth - 20
+          ? preferredOverlayLeft
+          : fallbackOverlayLeft >= 20
+            ? fallbackOverlayLeft
+            : Math.max(20, Math.min(
+                (window.innerWidth - panelWidth) / 2,
+                window.innerWidth - panelWidth - 20,
+              )),
+      );
+      const overlayHeight = panelHeight || 320;
+      const nextOverlayTop = Math.round(
+        Math.min(
+          Math.max(nextButtonTop - 12, 20),
+          Math.max(20, window.innerHeight - overlayHeight - 20),
+        ),
+      );
+
+      setFloatingPreviewLayout((current) => {
+        if (
+          current.dockedVisible === nextDockedVisible &&
+          current.dockLeft === nextDockLeft &&
+          current.dockTop === nextDockTop &&
+          current.buttonLeft === nextButtonLeft &&
+          current.buttonTop === nextButtonTop &&
+          current.overlayLeft === nextOverlayLeft &&
+          current.overlayTop === nextOverlayTop
+        ) {
+          return current;
+        }
+
+        return {
+          dockedVisible: nextDockedVisible,
+          dockLeft: nextDockLeft,
+          dockTop: nextDockTop,
+          buttonLeft: nextButtonLeft,
+          buttonTop: nextButtonTop,
+          overlayLeft: nextOverlayLeft,
+          overlayTop: nextOverlayTop,
+        };
+      });
+    };
+
+    const scheduleLayoutUpdate = () => {
+      if (frameId !== 0) {
+        window.cancelAnimationFrame(frameId);
+      }
+      frameId = window.requestAnimationFrame(updateFloatingPreviewLayout);
+    };
+
+    scheduleLayoutUpdate();
+    window.addEventListener("resize", scheduleLayoutUpdate);
+    scrollParent?.addEventListener("scroll", scheduleLayoutUpdate, {
+      passive: true,
+    });
+
+    return () => {
+      if (frameId !== 0) {
+        window.cancelAnimationFrame(frameId);
+      }
+      window.removeEventListener("resize", scheduleLayoutUpdate);
+      scrollParent?.removeEventListener("scroll", scheduleLayoutUpdate);
+    };
+  }, [previewState, showDecapIndicatorInPreview, isCollapsedPreviewOpen]);
+
+  React.useEffect(() => {
+    if (floatingPreviewLayout.dockedVisible && isCollapsedPreviewOpen) {
+      setIsCollapsedPreviewOpen(false);
+    }
+  }, [floatingPreviewLayout.dockedVisible, isCollapsedPreviewOpen]);
+
   const updateSliderDraft = React.useCallback(
     (key: OverlaySliderDraftKey, value: number) => {
       setSliderDrafts((current) => ({
@@ -694,7 +835,137 @@ export const RecordingOverlaySettings: React.FC = () => {
     }
   };
 
+  const floatingPreviewCard = (
+    <div className="space-y-3">
+      <div className="mb-3 space-y-1">
+        <div className="text-[11px] font-semibold uppercase tracking-[0.22em] text-[#ff8ebb]">
+          Live Preview
+        </div>
+        <div className="text-sm font-semibold text-[#f4f4f4]">
+          Floating side preview
+        </div>
+        <div className="text-xs leading-relaxed text-[#a8a8a8]">
+          This panel stays reachable at every width. When there is enough room,
+          it docks in the empty gutter; otherwise it collapses into a floating
+          button.
+        </div>
+      </div>
+      <RecordingOverlayPreview
+        customEnabled={customOverlayEnabled}
+        theme={overlayTheme}
+        accentColor={accentColor}
+        statusIconColor={statusIconColor}
+        cancelIconColor={cancelIconColor}
+        surfaceBaseColor={surfaceBaseColor}
+        bodyBackgroundColor={bodyBackgroundColor}
+        materialMode={materialMode}
+        showStatusIcon={showStatusIcon}
+        showCancelButton={showCancelButton}
+        backgroundMode={backgroundMode}
+        centerpieceMode={centerpieceMode}
+        animatedBorderMode={animatedBorderMode}
+        barCount={sliderDrafts.recording_overlay_bar_count}
+        barWidthPx={sliderDrafts.recording_overlay_bar_width_px}
+        barStyle={effectiveBarStyle}
+        showDragGrip={showDragGrip}
+        state={previewState}
+        audioReactiveScale={audioReactiveScale}
+        audioReactiveScaleMaxPercent={
+          sliderDrafts.recording_overlay_audio_reactive_scale_max_percent
+        }
+        voiceSensitivityPercent={
+          sliderDrafts.recording_overlay_voice_sensitivity_percent
+        }
+        animationSoftnessPercent={
+          sliderDrafts.recording_overlay_animation_softness_percent
+        }
+        depthParallaxPercent={
+          sliderDrafts.recording_overlay_depth_parallax_percent
+        }
+        opacityPercent={sliderDrafts.recording_overlay_opacity_percent}
+        silenceFade={silenceFade}
+        silenceOpacityPercent={
+          sliderDrafts.recording_overlay_silence_opacity_percent
+        }
+        decapIndicatorMode={
+          showDecapIndicatorInPreview ? decapIndicatorMode : "hidden"
+        }
+        decapIndicatorCustomText={decapIndicatorCustomText}
+        decapIndicatorFontFamily={decapIndicatorFontFamily}
+        decapIndicatorFontSizePx={decapIndicatorFontSizePx}
+        decapIndicatorColor={decapIndicatorColor}
+        minimumWidthPx={sliderDrafts.recording_overlay_width_px}
+        maxPreviewWidthPx={360}
+      />
+    </div>
+  );
+
+  const floatingPreview = (
+    <>
+      {floatingPreviewLayout.dockedVisible && (
+        <div
+          className="pointer-events-none fixed z-20 hidden xl:block transition-all duration-200 translate-x-0 opacity-100"
+          style={{
+            left: `${floatingPreviewLayout.dockLeft}px`,
+            top: `${floatingPreviewLayout.dockTop}px`,
+            width: "360px",
+          }}
+        >
+          <div
+            ref={floatingPreviewPanelRef}
+            className="pointer-events-auto rounded-[22px] border border-[#2b2b2b] bg-[#131313]/95 p-4 shadow-[0_22px_44px_rgba(0,0,0,0.28)] backdrop-blur-sm"
+          >
+            {floatingPreviewCard}
+          </div>
+        </div>
+      )}
+
+      {!floatingPreviewLayout.dockedVisible && (
+        <>
+          <button
+            ref={floatingPreviewButtonRef}
+            type="button"
+            onClick={() => setIsCollapsedPreviewOpen((current) => !current)}
+            className="fixed z-30 flex h-12 w-12 items-center justify-center rounded-full border border-[#ff4d8d]/35 bg-[#161616]/95 text-[10px] font-semibold uppercase tracking-[0.18em] text-[#ff9cbe] shadow-[0_16px_34px_rgba(0,0,0,0.36)] backdrop-blur-md transition-all duration-200 hover:scale-[1.03] hover:border-[#ff4d8d]/55 hover:text-[#ffd2e1]"
+            style={{
+              left: `${floatingPreviewLayout.buttonLeft}px`,
+              top: `${floatingPreviewLayout.buttonTop}px`,
+            }}
+            aria-label={isCollapsedPreviewOpen ? "Hide preview panel" : "Show preview panel"}
+            title={isCollapsedPreviewOpen ? "Hide preview panel" : "Show preview panel"}
+          >
+            PV
+          </button>
+
+          {isCollapsedPreviewOpen && (
+            <div className="fixed inset-0 z-40 pointer-events-none">
+              <div
+                ref={floatingPreviewPanelRef}
+                className="pointer-events-auto absolute rounded-[22px] border border-[#2b2b2b] bg-[#131313]/98 p-4 pr-16 shadow-[0_26px_60px_rgba(0,0,0,0.4)] backdrop-blur-md"
+                style={{
+                  left: `${floatingPreviewLayout.overlayLeft}px`,
+                  top: `${floatingPreviewLayout.overlayTop}px`,
+                  width: "360px",
+                }}
+              >
+                <button
+                  type="button"
+                  onClick={() => setIsCollapsedPreviewOpen(false)}
+                  className="absolute right-4 top-4 shrink-0 rounded-full border border-white/10 bg-white/5 px-2 py-1 text-xs font-semibold text-[#d7d7d7] transition-colors hover:bg-white/10 hover:text-white"
+                >
+                  Close
+                </button>
+                {floatingPreviewCard}
+              </div>
+            </div>
+          )}
+        </>
+      )}
+    </>
+  );
+
   return (
+    <>
     <SettingsGroup
       title={t(
         "settings.userInterface.recordingOverlay.title",
@@ -717,6 +988,7 @@ export const RecordingOverlaySettings: React.FC = () => {
         grouped={true}
       >
         <div className="space-y-4">
+          <div ref={floatingPreviewAnchorRef} className="h-0" />
           <div className="flex flex-wrap gap-2">
             {previewStates.map((option) => {
               const selected = previewState === option.value;
@@ -736,50 +1008,21 @@ export const RecordingOverlaySettings: React.FC = () => {
               );
             })}
           </div>
-          <RecordingOverlayPreview
-            customEnabled={customOverlayEnabled}
-            theme={overlayTheme}
-            accentColor={accentColor}
-            statusIconColor={statusIconColor}
-            cancelIconColor={cancelIconColor}
-            surfaceBaseColor={surfaceBaseColor}
-            bodyBackgroundColor={bodyBackgroundColor}
-            materialMode={materialMode}
-            showStatusIcon={showStatusIcon}
-            showCancelButton={showCancelButton}
-            backgroundMode={backgroundMode}
-            centerpieceMode={centerpieceMode}
-            animatedBorderMode={animatedBorderMode}
-            barCount={sliderDrafts.recording_overlay_bar_count}
-            barWidthPx={sliderDrafts.recording_overlay_bar_width_px}
-            barStyle={effectiveBarStyle}
-            showDragGrip={showDragGrip}
-            state={previewState}
-            audioReactiveScale={audioReactiveScale}
-            audioReactiveScaleMaxPercent={
-              sliderDrafts.recording_overlay_audio_reactive_scale_max_percent
-            }
-            voiceSensitivityPercent={
-              sliderDrafts.recording_overlay_voice_sensitivity_percent
-            }
-            animationSoftnessPercent={
-              sliderDrafts.recording_overlay_animation_softness_percent
-            }
-            depthParallaxPercent={
-              sliderDrafts.recording_overlay_depth_parallax_percent
-            }
-            opacityPercent={sliderDrafts.recording_overlay_opacity_percent}
-            silenceFade={silenceFade}
-            silenceOpacityPercent={
-              sliderDrafts.recording_overlay_silence_opacity_percent
-            }
-            decapIndicatorMode={decapIndicatorMode}
-            decapIndicatorCustomText={decapIndicatorCustomText}
-            decapIndicatorFontFamily={decapIndicatorFontFamily}
-            decapIndicatorFontSizePx={decapIndicatorFontSizePx}
-            decapIndicatorColor={decapIndicatorColor}
-            minimumWidthPx={sliderDrafts.recording_overlay_width_px}
-          />
+          <div className="mt-3">
+            <ToggleSwitch
+              checked={showDecapIndicatorInPreview}
+              onChange={setShowDecapIndicatorInPreview}
+              label="Show Decapitalize Indicator In Preview"
+              description="Only affects this settings-page preview. Preset cards never show the decapitalize indicator."
+              descriptionMode="tooltip"
+              grouped={true}
+            />
+          </div>
+          <div className="rounded-lg border border-dashed border-[#3a3a3a] bg-[#181818] px-3 py-2 text-xs leading-relaxed text-[#a8a8a8] xl:hidden">
+            Preview docks in the empty left gutter when there is enough room.
+            On narrower windows it collapses into a floating button that opens
+            the preview above everything else.
+          </div>
         </div>
       </SettingContainer>
         </div>
@@ -968,7 +1211,7 @@ export const RecordingOverlaySettings: React.FC = () => {
                       opacityPercent={presetConfig.opacityPercent}
                       silenceFade={presetConfig.silenceFade}
                       silenceOpacityPercent={presetConfig.silenceOpacityPercent}
-                      decapIndicatorMode="text"
+                      decapIndicatorMode="hidden"
                       decapIndicatorFontFamily="Segoe UI"
                       decapIndicatorFontSizePx={16}
                       decapIndicatorColor="#72f29a"
@@ -1942,5 +2185,7 @@ export const RecordingOverlaySettings: React.FC = () => {
         </div>
       </div>
     </SettingsGroup>
+    {floatingPreview}
+    </>
   );
 };
