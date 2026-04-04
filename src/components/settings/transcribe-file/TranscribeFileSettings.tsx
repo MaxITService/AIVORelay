@@ -163,7 +163,7 @@ const buildSelectedFile = async (path: string): Promise<SelectedFile> => {
 
 export const TranscribeFileSettings: React.FC = () => {
   const { t } = useTranslation();
-  const { settings, refreshSettings } = useSettings();
+  const { settings, refreshSettings, updateSetting } = useSettings();
 
   const {
     selectedFile,
@@ -226,6 +226,17 @@ export const TranscribeFileSettings: React.FC = () => {
   const transcriptionProvider = String(settings?.transcription_provider ?? "local");
   const isSonioxProvider = transcriptionProvider === "remote_soniox";
   const isDeepgramProvider = transcriptionProvider === "remote_deepgram";
+  const showLocalChunkingOptions =
+    !!selectedFile && (transcriptionProvider === "local" || !!overrideModelId);
+  const fileChunkingMode = String(
+    (settings as any)?.file_transcription_chunking_mode ?? "auto",
+  ) as "auto" | "off" | "custom";
+  const fileChunkingMaxMinutesRaw = Number(
+    (settings as any)?.file_transcription_chunking_max_minutes ?? 0.5,
+  );
+  const fileChunkingMaxMinutes = Number.isFinite(fileChunkingMaxMinutesRaw)
+    ? Math.min(10, Math.max(0.25, fileChunkingMaxMinutesRaw))
+    : 0.5;
   const showSonioxFileOptions = !!selectedFile && isSonioxProvider && !overrideModelId;
   const showDeepgramFileOptions =
     !!selectedFile && isDeepgramProvider && !overrideModelId;
@@ -288,6 +299,26 @@ export const TranscribeFileSettings: React.FC = () => {
     setSavedFilePath,
     setTranscriptionResult,
   ]);
+
+  const updateFileChunkingMode = useCallback(
+    async (mode: "auto" | "off" | "custom") => {
+      await updateSetting("file_transcription_chunking_mode" as any, mode as any);
+    },
+    [updateSetting],
+  );
+
+  const updateFileChunkingMaxMinutes = useCallback(
+    async (minutes: number) => {
+      if (!Number.isFinite(minutes)) {
+        return;
+      }
+      await updateSetting(
+        "file_transcription_chunking_max_minutes" as any,
+        Math.min(10, Math.max(0.25, minutes)) as any,
+      );
+    },
+    [updateSetting],
+  );
 
   useEffect(() => {
     return () => {
@@ -1016,6 +1047,66 @@ export const TranscribeFileSettings: React.FC = () => {
                 )}
               </p>
             </div>
+
+            {showLocalChunkingOptions && (
+              <div className="mt-4 space-y-3 rounded-lg border border-[#333333] bg-[#151515] p-3">
+                <div className="space-y-1">
+                  <p className="text-sm text-[#f5f5f5]">
+                    {t("transcribeFile.chunking.title")}
+                  </p>
+                  <p className="text-xs text-[#808080]">
+                    {t("transcribeFile.chunking.hint")}
+                  </p>
+                  <p className="text-xs text-[#606060]">
+                    {t("transcribeFile.chunking.providerHint")}
+                  </p>
+                </div>
+                <div className="space-y-2">
+                  <label className="text-xs text-[#808080]">
+                    {t("transcribeFile.chunking.modeLabel")}
+                  </label>
+                  <div className="flex flex-wrap gap-2">
+                    {(["auto", "off", "custom"] as const).map((mode) => (
+                      <button
+                        key={mode}
+                        onClick={() => void updateFileChunkingMode(mode)}
+                        className={`px-3 py-1 text-xs font-medium rounded transition-all ${
+                          fileChunkingMode === mode
+                            ? "bg-[#9b5de5] text-white"
+                            : "bg-[#1a1a1a] text-[#b8b8b8] hover:bg-[#222222] border border-[#333333]"
+                        }`}
+                      >
+                        {t(`transcribeFile.chunking.mode.${mode}`)}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                {fileChunkingMode !== "off" && (
+                  <div className="space-y-2">
+                    <label className="text-xs text-[#808080]">
+                      {t("transcribeFile.chunking.maxMinutesLabel")}
+                    </label>
+                    <input
+                      type="number"
+                      min={0.25}
+                      max={10}
+                      step={0.25}
+                      value={fileChunkingMaxMinutes}
+                      onChange={(event) => {
+                        const nextValue = Number(event.target.value);
+                        if (Number.isFinite(nextValue)) {
+                          void updateFileChunkingMaxMinutes(nextValue);
+                        }
+                      }}
+                      className="w-full rounded border border-[#333333] bg-[#0f0f0f] px-3 py-2 text-sm text-[#f5f5f5] focus:border-[#9b5de5] focus:outline-none"
+                    />
+                    <p className="text-xs text-[#606060]">
+                      {t("transcribeFile.chunking.maxMinutesHint")}
+                    </p>
+                  </div>
+                )}
+              </div>
+            )}
 
             {showSonioxFileOptions && (
               <div className="mt-4 space-y-3 rounded-lg border border-[#333333] bg-[#151515] p-3">

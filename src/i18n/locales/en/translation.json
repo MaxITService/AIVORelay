@@ -2567,6 +2567,19 @@
       "label": "Apply Custom Words",
       "hint": "Applies your Custom Words list to this file transcription only."
     },
+    "chunking": {
+      "title": "Smart Chunking",
+      "hint": "For longer local files, split on pauses first and fall back to quiet-point splits near your max length.",
+      "providerHint": "Currently applied to local Parakeet file transcription. Other engines keep their normal file-transcription path.",
+      "modeLabel": "Chunking Mode",
+      "mode": {
+        "auto": "Auto",
+        "off": "Off",
+        "custom": "Custom"
+      },
+      "maxMinutesLabel": "Max Chunk Length (minutes)",
+      "maxMinutesHint": "Used by Auto and Custom modes. Default is 0.5 minutes (30 seconds)."
+    },
     "modelOverride": {
       "label": "Override Model",
       "placeholder": "Select a model...",
