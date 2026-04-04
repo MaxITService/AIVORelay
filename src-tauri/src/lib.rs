@@ -821,6 +821,8 @@ pub fn run() {
         commands::voice_activation_button::voice_activation_button_press,
         commands::voice_activation_button::voice_activation_button_release,
         commands::file_transcription::transcribe_audio_file,
+        commands::file_transcription::change_file_transcription_chunking_mode_setting,
+        commands::file_transcription::change_file_transcription_chunking_max_minutes_setting,
         commands::file_transcription::reapply_transcription_speaker_names,
         commands::key_listener::key_listener_start,
         commands::key_listener::key_listener_stop,
