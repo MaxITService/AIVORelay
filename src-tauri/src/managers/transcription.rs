@@ -9,7 +9,6 @@ use log::{debug, error, info, warn};
 use serde::Serialize;
 use specta::Type;
 use std::panic::{catch_unwind, AssertUnwindSafe};
-use std::path::Path;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard, OnceLock};
 use std::thread;
@@ -19,6 +18,7 @@ use transcribe_rs::{
     onnx::{
         canary::CanaryModel,
         cohere::CohereModel,
+        cohere_hf::CohereHfModel,
         gigaam::GigaAMModel,
         moonshine::{MoonshineModel, MoonshineVariant, StreamingModel},
         parakeet::{ParakeetModel, ParakeetParams, TimestampGranularity},
@@ -46,6 +46,7 @@ enum LoadedEngine {
     GigaAM(GigaAMModel),
     Canary(CanaryModel),
     Cohere(CohereModel),
+    CohereHf(CohereHfModel),
 }
 
 pub struct LoadingGuard {
@@ -61,35 +62,8 @@ impl Drop for LoadingGuard {
     }
 }
 
-fn detect_cohere_quantization(model_id: &str, model_path: &Path) -> Quantization {
-    let has_any = |candidates: &[&str]| {
-        [model_path.to_path_buf(), model_path.join("onnx")]
-            .into_iter()
-            .any(|base| candidates.iter().any(|name| base.join(name).exists()))
-    };
-
-    if model_id.contains("fp32")
-        || (has_any(&["cohere-encoder.onnx", "encoder_model.onnx"])
-            && has_any(&["cohere-decoder.onnx", "decoder_model_merged.onnx"]))
-    {
-        return Quantization::FP32;
-    }
-
-    if model_id.contains("fp16")
-        || (has_any(&["cohere-encoder.fp16.onnx", "encoder_model_fp16.onnx"])
-            && has_any(&["cohere-decoder.fp16.onnx", "decoder_model_merged_fp16.onnx"]))
-    {
-        return Quantization::FP16;
-    }
-
-    if model_id.contains("int4")
-        || (has_any(&["cohere-encoder.int4.onnx", "encoder_model.int4.onnx"])
-            && has_any(&["cohere-decoder.int4.onnx", "decoder_model_merged.int4.onnx"]))
-    {
-        return Quantization::Int4;
-    }
-
-    Quantization::Int8
+fn map_cohere_error(context: &str, error: impl std::fmt::Display) -> anyhow::Error {
+    anyhow::anyhow!("Cohere {} failed: {}", context, error)
 }
 
 fn build_whisper_initial_prompt(
@@ -404,17 +378,28 @@ impl TranscriptionManager {
                 LoadedEngine::Canary(engine)
             }
             EngineType::Cohere => {
-                let quantization = detect_cohere_quantization(model_id, &model_path);
                 info!(
-                    "Loading Cohere model {} using {:?} quantization",
-                    model_id, quantization
+                    "Loading Cohere model {} using legacy Int8 backend",
+                    model_id
                 );
-                let engine = CohereModel::load(&model_path, &quantization).map_err(|e| {
+                let engine = CohereModel::load(&model_path, &Quantization::Int8).map_err(|e| {
                     let error_msg = format!("Failed to load cohere model {}: {}", model_id, e);
                     emit_loading_failed(&error_msg);
                     anyhow::anyhow!(error_msg)
                 })?;
                 LoadedEngine::Cohere(engine)
+            }
+            EngineType::CohereHf => {
+                info!(
+                    "Loading Cohere HF model {} using split FP32 backend",
+                    model_id
+                );
+                let engine = CohereHfModel::load(&model_path).map_err(|e| {
+                    let error_msg = format!("Failed to load Cohere HF model {}: {}", model_id, e);
+                    emit_loading_failed(&error_msg);
+                    anyhow::anyhow!(error_msg)
+                })?;
+                LoadedEngine::CohereHf(engine)
             }
         };
 
@@ -649,6 +634,24 @@ impl TranscriptionManager {
                             cohere_engine
                                 .transcribe(&audio, &options)
                                 .map_err(|e| anyhow::anyhow!("Cohere transcription failed: {}", e))
+                        }
+                        LoadedEngine::CohereHf(cohere_engine) => {
+                            let language = if settings.selected_language == "auto" {
+                                None
+                            } else if settings.selected_language == "zh-Hans"
+                                || settings.selected_language == "zh-Hant"
+                            {
+                                Some("zh".to_string())
+                            } else {
+                                Some(settings.selected_language.clone())
+                            };
+                            let options = TranscribeOptions {
+                                language,
+                                ..Default::default()
+                            };
+                            cohere_engine.transcribe(&audio, &options).map_err(|e| {
+                                anyhow::anyhow!("Cohere HF transcription failed: {}", e)
+                            })
                         }
                     }
                 },
@@ -912,7 +915,23 @@ impl TranscriptionManager {
                     };
                     cohere_engine
                         .transcribe(&audio, &options)
-                        .map_err(|e| anyhow::anyhow!("Cohere transcription failed: {}", e))?
+                        .map_err(|e| map_cohere_error("transcription", e))?
+                }
+                LoadedEngine::CohereHf(cohere_engine) => {
+                    let language = if selected_language == "auto" {
+                        None
+                    } else if selected_language == "zh-Hans" || selected_language == "zh-Hant" {
+                        Some("zh".to_string())
+                    } else {
+                        Some(selected_language.clone())
+                    };
+                    let options = TranscribeOptions {
+                        language,
+                        ..Default::default()
+                    };
+                    cohere_engine
+                        .transcribe(&audio, &options)
+                        .map_err(|e| anyhow::anyhow!("Cohere HF transcription failed: {}", e))?
                 }
             }
         };
@@ -1124,7 +1143,23 @@ impl TranscriptionManager {
                     };
                     cohere_engine
                         .transcribe(&audio, &options)
-                        .map_err(|e| anyhow::anyhow!("Cohere transcription failed: {}", e))?
+                        .map_err(|e| map_cohere_error("transcription", e))?
+                }
+                LoadedEngine::CohereHf(cohere_engine) => {
+                    let language = if selected_language == "auto" {
+                        None
+                    } else if selected_language == "zh-Hans" || selected_language == "zh-Hant" {
+                        Some("zh".to_string())
+                    } else {
+                        Some(selected_language.clone())
+                    };
+                    let options = TranscribeOptions {
+                        language,
+                        ..Default::default()
+                    };
+                    cohere_engine
+                        .transcribe(&audio, &options)
+                        .map_err(|e| anyhow::anyhow!("Cohere HF transcription failed: {}", e))?
                 }
             }
         };

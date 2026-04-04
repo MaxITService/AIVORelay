@@ -26,7 +26,7 @@ Primary companion docs:
 | `.AGENTS/cuda-docs-index.md` | Branch-local entry point for CUDA docs. |
 | `.AGENTS/cuda-docs-branch-overview.md` | Branch-local overview of CUDA intent, dependency model, and runtime assumptions. |
 | `.AGENTS/cuda-docs-build-runbook.md` | Branch-local build, toolchain, bindings, and verification rules. |
-| `.AGENTS/cuda-docs-model-runtime-notes.md` | Branch-local model/runtime behavior, including Cohere FP16/FP32 notes. |
+| `.AGENTS/cuda-docs-model-runtime-notes.md` | Branch-local model/runtime behavior, including the split between shipped legacy Cohere Int8 and shipped HF-style Cohere FP32 support. |
 | `.AGENTS/cuda-docs-main-diff-manifest.md` | Authoritative branch-local manifest of `cuda-integration -> main` differences. |
 | `.AGENTS/cuda-docs-release-runbook.md` | CUDA release rules and workflow notes. |
 | `.AGENTS/cuda-docs-sync-maintenance.md` | CUDA sync-log and cursor maintenance note. |
@@ -39,7 +39,7 @@ Primary companion docs:
 | `build-cuda.ps1` | Branch-local CUDA build/dev entrypoint. |
 | `src-tauri/Cargo.toml` | Uses the CUDA/local-fork dependency model instead of `main`'s default Windows dependency layout. |
 | `src-tauri/Cargo.lock` | Resolves against the local CUDA dependency graph instead of `main`'s default lock layout. |
-| `src-tauri/src/managers/model.rs` | CUDA branch adds Cohere FP16/FP32 catalog entries, local folder detection, tokenizer-to-tokens generation, and multi-file ONNX download wiring. |
-| `src-tauri/src/managers/transcription.rs` | CUDA branch adds Cohere quantization auto-detection for Int8, FP16, and FP32. |
-| `src/i18n/locales/en/translation.json` | Adds user-facing labels and descriptions for CUDA-branch Cohere FP16/FP32 variants. |
-| `src/i18n/locales/ru/translation.json` | Adds user-facing labels and descriptions for CUDA-branch Cohere FP16/FP32 variants. |
+| `src-tauri/src/managers/model.rs` | CUDA branch carries both the legacy Cohere Int8 catalog path and a separate HF-style Cohere FP32 catalog/download/discovery path. |
+| `src-tauri/src/managers/transcription.rs` | CUDA branch keeps the legacy Int8 Cohere load path separate from the new HF-style Cohere FP32 backend path. |
+| `src/i18n/locales/en/translation.json` | Adjusts CUDA-branch local-model strings, including Cohere Int8 and Cohere FP32 wording. |
+| `src/i18n/locales/ru/translation.json` | Adjusts CUDA-branch local-model strings, including Cohere Int8 and Cohere FP32 wording. |

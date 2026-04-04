@@ -10,46 +10,43 @@ This note keeps branch-local model behavior and runtime assumptions that do not 
 
 ## Local Cohere Variants In This Branch
 
-The CUDA branch currently carries these local Cohere variants:
+The app-facing CUDA branch now ships two distinct Cohere paths:
 
 - `cohere-int8`
-- `cohere-fp16`
 - `cohere-fp32`
 
-Intent in this branch:
+Important split:
 
-- `cohere-int8` remains the lighter packaged local option.
-- `cohere-fp16` is a CUDA/NVIDIA-oriented higher-precision option.
-- `cohere-fp32` is the heaviest local Cohere option and is documented as CUDA/NVIDIA-oriented.
-
-Practical expectations:
-
-- FP16 and FP32 use much more VRAM/RAM than Int8.
-- FP16 is the more realistic first choice for local GPU use.
-- FP32 is the largest and slowest local Cohere variant in this branch.
+- `cohere-int8` stays on the packaged legacy Cohere Int8 runtime contract
+- `cohere-fp32` uses a separate HF-style split-graph runtime contract
+- `cohere-fp16` is still not shipped; FP16 graph surgery is unresolved
 
 ## Local Folder Behavior
 
-The branch-local Cohere loader now understands local Cohere directories with Int8, FP16, or FP32 ONNX layouts.
+Current app behavior:
 
-Current behavior:
-
-- already-present local Cohere folders can be auto-detected
-- the loader auto-detects Int8, FP16, or FP32 from the files in the model directory
-- if a Cohere folder contains `tokenizer.json` but no `tokens.txt`, the app generates `tokens.txt` locally before loading
+- already-present local legacy Cohere Int8 folders can be auto-detected
+- already-present local split-graph HF-style Cohere FP32 folders can also be auto-detected
+- if a supported legacy Cohere folder contains `tokenizer.json` but no `tokens.txt`, the app generates `tokens.txt` locally before loading
+- the same `tokenizer.json -> tokens.txt` generation is used for HF-style Cohere folders
 
 For local CUDA branch troubleshooting:
 
 - prefer the CUDA debug executable build when the release build hides model load, file layout, ONNX session, or download-path failures
 
-## Download Sources
+## HF-Style FP32 Path
 
-For branch-local Cohere FP16 and FP32 support, the app currently downloads from:
+The separate HF-style Cohere GPU experiments are documented locally in:
 
-- [onnx-community/cohere-transcribe-03-2026-ONNX](https://huggingface.co/onnx-community/cohere-transcribe-03-2026-ONNX)
+- [[.AGENTS/.UNTRACKED/cohere-hf-gpu-runner-notes|.AGENTS/.UNTRACKED/cohere-hf-gpu-runner-notes.md]]
 
-Base model reference:
+That work now backs the app-facing `cohere-fp32` model path:
 
-- [CohereLabs/cohere-transcribe-03-2026](https://huggingface.co/CohereLabs/cohere-transcribe-03-2026)
+- graph/export: `eschmidbauer/cohere-transcribe-03-2026-onnx`
+- processor/tokenizer assets: `onnx-community/cohere-transcribe-03-2026-ONNX`
+- download flow is multi-file and external-source backed
 
-The FP16/FP32 flow is a multi-file ONNX download, not the older single-archive model path used by some other bundled models.
+The key architectural point is unchanged:
+
+- HF-style Cohere FP32 is a different runtime contract from the packaged Int8 Cohere backend
+- future FP16 support should reuse the same HF-style backend only after graph surgery succeeds

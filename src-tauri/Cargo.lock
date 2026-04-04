@@ -4800,6 +4800,7 @@ version = "2.0.0-rc.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d7de3af33d24a745ffb8fab904b13478438d1cd52868e6f17735ef6e1f8bf133"
 dependencies = [
+ "half",
  "ndarray",
  "ort-sys",
  "smallvec",
@@ -8125,6 +8126,7 @@ dependencies = [
  "base64 0.22.1",
  "derive_builder",
  "env_logger",
+ "half",
  "hound",
  "log",
  "ndarray",

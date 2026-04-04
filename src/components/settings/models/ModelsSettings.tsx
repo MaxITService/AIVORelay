@@ -18,43 +18,31 @@ type ExternalDownloadInfo = {
   sourceUrl: string;
   privacyUrl: string;
   termsUrl: string;
+  destinationFolder: string;
   files: string[];
 };
 
 const HUGGING_FACE_PRIVACY_URL = "https://huggingface.co/privacy";
 const HUGGING_FACE_TERMS_URL = "https://huggingface.co/terms-of-service";
-const COHERE_ONNX_SOURCE_URL =
-  "https://huggingface.co/onnx-community/cohere-transcribe-03-2026-ONNX";
-
-const EXTERNAL_DOWNLOADS: Record<string, ExternalDownloadInfo> = {
-  "cohere-fp16": {
-    sourceLabel: "Hugging Face",
-    sourceUrl: COHERE_ONNX_SOURCE_URL,
-    privacyUrl: HUGGING_FACE_PRIVACY_URL,
-    termsUrl: HUGGING_FACE_TERMS_URL,
-    files: [
-      "onnx/encoder_model_fp16.onnx",
-      "onnx/encoder_model_fp16.onnx_data",
-      "onnx/encoder_model_fp16.onnx_data_1",
-      "onnx/decoder_model_merged_fp16.onnx",
-      "onnx/decoder_model_merged_fp16.onnx_data",
-      "tokenizer.json",
-    ],
-  },
+const EXTERNAL_DOWNLOADS: Record<string, Omit<ExternalDownloadInfo, "destinationFolder">> = {
   "cohere-fp32": {
-    sourceLabel: "Hugging Face",
-    sourceUrl: COHERE_ONNX_SOURCE_URL,
+    sourceLabel: "Hugging Face (eschmidbauer + ONNX Community)",
+    sourceUrl: "https://huggingface.co/eschmidbauer/cohere-transcribe-03-2026-onnx",
     privacyUrl: HUGGING_FACE_PRIVACY_URL,
     termsUrl: HUGGING_FACE_TERMS_URL,
     files: [
-      "onnx/encoder_model.onnx",
-      "onnx/encoder_model.onnx_data",
-      "onnx/encoder_model.onnx_data_1",
-      "onnx/encoder_model.onnx_data_2",
-      "onnx/encoder_model.onnx_data_3",
-      "onnx/decoder_model_merged.onnx",
-      "onnx/decoder_model_merged.onnx_data",
-      "tokenizer.json",
+      "eschmidbauer/cohere-transcribe-03-2026-onnx/encoder-0.onnx",
+      "eschmidbauer/cohere-transcribe-03-2026-onnx/encoder-1.onnx",
+      "eschmidbauer/cohere-transcribe-03-2026-onnx/encoder-2.onnx",
+      "eschmidbauer/cohere-transcribe-03-2026-onnx/encoder-3.onnx",
+      "eschmidbauer/cohere-transcribe-03-2026-onnx/cross_kv.onnx",
+      "eschmidbauer/cohere-transcribe-03-2026-onnx/decoder.onnx",
+      "onnx-community/cohere-transcribe-03-2026-ONNX/config.json",
+      "onnx-community/cohere-transcribe-03-2026-ONNX/generation_config.json",
+      "onnx-community/cohere-transcribe-03-2026-ONNX/preprocessor_config.json",
+      "onnx-community/cohere-transcribe-03-2026-ONNX/processor_config.json",
+      "onnx-community/cohere-transcribe-03-2026-ONNX/tokenizer.json",
+      "onnx-community/cohere-transcribe-03-2026-ONNX/tokenizer_config.json",
     ],
   },
 };
@@ -77,7 +65,9 @@ export const ModelsSettings: React.FC = () => {
   const { getSetting, setTranscriptionProvider } = useSettings();
   const [switchingModelId, setSwitchingModelId] = useState<string | null>(null);
   const [externalDownloadModel, setExternalDownloadModel] = useState<ModelInfo | null>(null);
-  const [appDataDirPath, setAppDataDirPath] = useState<string | null>(null);
+  const [externalDownloadInfo, setExternalDownloadInfo] = useState<ExternalDownloadInfo | null>(
+    null,
+  );
 
   const transcriptionProvider = String(
     getSetting("transcription_provider") || "local",
@@ -112,18 +102,6 @@ export const ModelsSettings: React.FC = () => {
     }
   };
 
-  const getExternalDownloadInfo = (modelId: string) => EXTERNAL_DOWNLOADS[modelId] ?? null;
-
-  const ensureAppDataDirPath = async () => {
-    if (appDataDirPath) return appDataDirPath;
-    const result = await commands.getAppDirPath();
-    if (result.status !== "ok") {
-      throw new Error(result.error);
-    }
-    setAppDataDirPath(result.data);
-    return result.data;
-  };
-
   const handleSelectModel = async (modelId: string) => {
     setSwitchingModelId(modelId);
     try {
@@ -136,15 +114,21 @@ export const ModelsSettings: React.FC = () => {
 
   const handleDownloadModel = async (modelId: string) => {
     await ensureLocalProvider();
-    const model = models.find((entry) => entry.id === modelId);
-    if (!model) return;
-
-    if (getExternalDownloadInfo(modelId)) {
-      await ensureAppDataDirPath();
+    const model = models.find((entry) => entry.id === modelId) || null;
+    const external = EXTERNAL_DOWNLOADS[modelId];
+    if (model && external) {
+      const appDirResult = await commands.getAppDirPath();
+      if (appDirResult.status === "error") {
+        throw new Error(appDirResult.error);
+      }
+      const destinationFolder = `${appDirResult.data}\\models\\${model.filename}`;
+      setExternalDownloadInfo({
+        ...external,
+        destinationFolder,
+      });
       setExternalDownloadModel(model);
       return;
     }
-
     await downloadModel(modelId);
   };
 
@@ -161,38 +145,8 @@ export const ModelsSettings: React.FC = () => {
     await deleteModel(model.id);
   };
 
-  const externalDownloadInfo =
-    externalDownloadModel && getExternalDownloadInfo(externalDownloadModel.id);
-  const externalDestinationPath =
-    externalDownloadModel && appDataDirPath
-      ? `${appDataDirPath}\\models\\${externalDownloadModel.filename}`
-      : "";
-
   return (
     <div className="max-w-3xl w-full mx-auto space-y-8 pb-12">
-      <ExternalModelDownloadModal
-        isOpen={Boolean(externalDownloadModel && externalDownloadInfo)}
-        modelName={
-          externalDownloadModel
-            ? getTranslatedModelName(externalDownloadModel, t)
-            : ""
-        }
-        sourceLabel={externalDownloadInfo?.sourceLabel || "Hugging Face"}
-        sourceUrl={externalDownloadInfo?.sourceUrl || COHERE_ONNX_SOURCE_URL}
-        privacyUrl={externalDownloadInfo?.privacyUrl || HUGGING_FACE_PRIVACY_URL}
-        termsUrl={externalDownloadInfo?.termsUrl || HUGGING_FACE_TERMS_URL}
-        destinationPath={externalDestinationPath}
-        files={externalDownloadInfo?.files || []}
-        onAccept={async () => {
-          if (!externalDownloadModel) return;
-          await downloadModel(externalDownloadModel.id);
-        }}
-        onOpenFolder={async () => {
-          await commands.openAppDataDir();
-        }}
-        onClose={() => setExternalDownloadModel(null)}
-      />
-
       {/* Help Section */}
       <TellMeMore title={t("modelSelector.tellMeMore.title")}>
         <div className="space-y-3">
@@ -366,6 +320,32 @@ export const ModelsSettings: React.FC = () => {
           )}
         </div>
       </SettingsGroup>
+      <ExternalModelDownloadModal
+        isOpen={Boolean(externalDownloadModel && externalDownloadInfo)}
+        modelName={
+          externalDownloadModel
+            ? getTranslatedModelName(externalDownloadModel, t)
+            : ""
+        }
+        sourceLabel={externalDownloadInfo?.sourceLabel || ""}
+        sourceUrl={externalDownloadInfo?.sourceUrl || ""}
+        privacyUrl={externalDownloadInfo?.privacyUrl || ""}
+        termsUrl={externalDownloadInfo?.termsUrl || ""}
+        destinationPath={externalDownloadInfo?.destinationFolder || ""}
+        files={externalDownloadInfo?.files || []}
+        onAccept={async () => {
+          if (externalDownloadModel) {
+            await downloadModel(externalDownloadModel.id);
+          }
+        }}
+        onOpenFolder={async () => {
+          await commands.openAppDataDir();
+        }}
+        onClose={() => {
+          setExternalDownloadModel(null);
+          setExternalDownloadInfo(null);
+        }}
+      />
 
       <div className="glass-panel-subtle border border-[#3d3d3d] rounded-xl p-4">
         <p className="text-sm text-[#f5f5f5]">

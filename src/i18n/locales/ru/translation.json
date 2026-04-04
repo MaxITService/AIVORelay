@@ -317,15 +317,11 @@
       },
       "cohere-int8": {
         "name": "Cohere",
-        "description": "Большая, медленная, но очень точная многоязычная модель."
-      },
-      "cohere-fp16": {
-        "name": "Cohere FP16",
-        "description": "GPU-only вариант Cohere с более высокой точностью. Требует заметно больше VRAM/RAM, чем Int8."
+        "description": "Упакованный runtime-вариант Cohere Int8. Большая, медленная, но очень точная многоязычная модель."
       },
       "cohere-fp32": {
         "name": "Cohere FP32",
-        "description": "GPU-only полная точность Cohere. Самая большая загрузка и самое тяжёлое потребление VRAM/RAM."
+        "description": "HF-style split-graph runtime-вариант Cohere FP32. Самый качественный локальный путь для Cohere, но очень большой."
       }
     },
     "errors": {

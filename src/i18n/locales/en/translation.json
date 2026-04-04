@@ -225,15 +225,11 @@
       },
       "cohere-int8": {
         "name": "Cohere",
-        "description": "A large, slower, but very accurate multilingual model."
-      },
-      "cohere-fp16": {
-        "name": "Cohere FP16",
-        "description": "GPU-only higher-precision Cohere export. Uses much more VRAM/RAM than Int8."
+        "description": "Packaged Cohere Int8 runtime. Large, slower, but very accurate multilingual transcription."
       },
       "cohere-fp32": {
         "name": "Cohere FP32",
-        "description": "GPU-only full-precision Cohere export. Largest download and heaviest VRAM/RAM usage."
+        "description": "HF-style split-graph Cohere FP32 runtime. Highest-quality local Cohere path, but extremely large."
       }
     },
     "errors": {

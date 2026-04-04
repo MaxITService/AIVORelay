@@ -261,6 +261,7 @@ fn resolve_effective_language(
                     | EngineType::SenseVoice
                     | EngineType::Canary
                     | EngineType::Cohere
+                    | EngineType::CohereHf
             )
         })
         .unwrap_or(false);

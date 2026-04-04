@@ -26,6 +26,7 @@ pub enum EngineType {
     GigaAM,
     Canary,
     Cohere,
+    CohereHf,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
@@ -66,93 +67,73 @@ pub struct ModelManager {
     cancellation_tokens: Mutex<HashMap<String, CancellationToken>>,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum CoherePrecision {
-    Int8,
-    Fp16,
-    Fp32,
-}
-
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy)]
 struct RemoteModelFile {
     relative_path: &'static str,
     url: &'static str,
-    expected_size_bytes: u64,
+    size_bytes: u64,
 }
 
-const COHERE_FP16_FILES: &[RemoteModelFile] = &[
+const COHERE_FP32_REMOTE_FILES: &[RemoteModelFile] = &[
     RemoteModelFile {
-        relative_path: "onnx/encoder_model_fp16.onnx",
-        url: "https://huggingface.co/onnx-community/cohere-transcribe-03-2026-ONNX/resolve/main/onnx/encoder_model_fp16.onnx?download=true",
-        expected_size_bytes: 1_192_583,
+        relative_path: "encoder-0.onnx",
+        url: "https://huggingface.co/eschmidbauer/cohere-transcribe-03-2026-onnx/resolve/main/encoder-0.onnx?download=true",
+        size_bytes: 1_962_965_173,
     },
     RemoteModelFile {
-        relative_path: "onnx/encoder_model_fp16.onnx_data",
-        url: "https://huggingface.co/onnx-community/cohere-transcribe-03-2026-ONNX/resolve/main/onnx/encoder_model_fp16.onnx_data?download=true",
-        expected_size_bytes: 2_094_166_528,
+        relative_path: "encoder-1.onnx",
+        url: "https://huggingface.co/eschmidbauer/cohere-transcribe-03-2026-onnx/resolve/main/encoder-1.onnx?download=true",
+        size_bytes: 1_890_159_312,
     },
     RemoteModelFile {
-        relative_path: "onnx/encoder_model_fp16.onnx_data_1",
-        url: "https://huggingface.co/onnx-community/cohere-transcribe-03-2026-ONNX/resolve/main/onnx/encoder_model_fp16.onnx_data_1?download=true",
-        expected_size_bytes: 1_698_889_728,
+        relative_path: "encoder-2.onnx",
+        url: "https://huggingface.co/eschmidbauer/cohere-transcribe-03-2026-onnx/resolve/main/encoder-2.onnx?download=true",
+        size_bytes: 1_890_159_312,
     },
     RemoteModelFile {
-        relative_path: "onnx/decoder_model_merged_fp16.onnx",
-        url: "https://huggingface.co/onnx-community/cohere-transcribe-03-2026-ONNX/resolve/main/onnx/decoder_model_merged_fp16.onnx?download=true",
-        expected_size_bytes: 155_297,
+        relative_path: "encoder-3.onnx",
+        url: "https://huggingface.co/eschmidbauer/cohere-transcribe-03-2026-onnx/resolve/main/encoder-3.onnx?download=true",
+        size_bytes: 1_895_406_365,
     },
     RemoteModelFile {
-        relative_path: "onnx/decoder_model_merged_fp16.onnx_data",
-        url: "https://huggingface.co/onnx-community/cohere-transcribe-03-2026-ONNX/resolve/main/onnx/decoder_model_merged_fp16.onnx_data?download=true",
-        expected_size_bytes: 337_993_728,
+        relative_path: "cross_kv.onnx",
+        url: "https://huggingface.co/eschmidbauer/cohere-transcribe-03-2026-onnx/resolve/main/cross_kv.onnx?download=true",
+        size_bytes: 67_192_373,
     },
     RemoteModelFile {
-        relative_path: "tokenizer.json",
-        url: "https://huggingface.co/onnx-community/cohere-transcribe-03-2026-ONNX/resolve/main/tokenizer.json?download=true",
-        expected_size_bytes: 1_152_395,
-    },
-];
-
-const COHERE_FP32_FILES: &[RemoteModelFile] = &[
-    RemoteModelFile {
-        relative_path: "onnx/encoder_model.onnx",
-        url: "https://huggingface.co/onnx-community/cohere-transcribe-03-2026-ONNX/resolve/main/onnx/encoder_model.onnx?download=true",
-        expected_size_bytes: 1_181_690,
+        relative_path: "decoder.onnx",
+        url: "https://huggingface.co/eschmidbauer/cohere-transcribe-03-2026-onnx/resolve/main/decoder.onnx?download=true",
+        size_bytes: 608_925_287,
     },
     RemoteModelFile {
-        relative_path: "onnx/encoder_model.onnx_data",
-        url: "https://huggingface.co/onnx-community/cohere-transcribe-03-2026-ONNX/resolve/main/onnx/encoder_model.onnx_data?download=true",
-        expected_size_bytes: 2_095_100_416,
+        relative_path: "config.json",
+        url: "https://huggingface.co/onnx-community/cohere-transcribe-03-2026-ONNX/resolve/main/config.json?download=true",
+        size_bytes: 5_102,
     },
     RemoteModelFile {
-        relative_path: "onnx/encoder_model.onnx_data_1",
-        url: "https://huggingface.co/onnx-community/cohere-transcribe-03-2026-ONNX/resolve/main/onnx/encoder_model.onnx_data_1?download=true",
-        expected_size_bytes: 2_093_235_200,
+        relative_path: "generation_config.json",
+        url: "https://huggingface.co/onnx-community/cohere-transcribe-03-2026-ONNX/resolve/main/generation_config.json?download=true",
+        size_bytes: 233,
     },
     RemoteModelFile {
-        relative_path: "onnx/encoder_model.onnx_data_2",
-        url: "https://huggingface.co/onnx-community/cohere-transcribe-03-2026-ONNX/resolve/main/onnx/encoder_model.onnx_data_2?download=true",
-        expected_size_bytes: 2_080_179_200,
+        relative_path: "preprocessor_config.json",
+        url: "https://huggingface.co/onnx-community/cohere-transcribe-03-2026-ONNX/resolve/main/preprocessor_config.json?download=true",
+        size_bytes: 565,
     },
     RemoteModelFile {
-        relative_path: "onnx/encoder_model.onnx_data_3",
-        url: "https://huggingface.co/onnx-community/cohere-transcribe-03-2026-ONNX/resolve/main/onnx/encoder_model.onnx_data_3?download=true",
-        expected_size_bytes: 1_317_600_256,
+        relative_path: "processor_config.json",
+        url: "https://huggingface.co/onnx-community/cohere-transcribe-03-2026-ONNX/resolve/main/processor_config.json?download=true",
+        size_bytes: 634,
     },
     RemoteModelFile {
-        relative_path: "onnx/decoder_model_merged.onnx",
-        url: "https://huggingface.co/onnx-community/cohere-transcribe-03-2026-ONNX/resolve/main/onnx/decoder_model_merged.onnx?download=true",
-        expected_size_bytes: 153_483,
-    },
-    RemoteModelFile {
-        relative_path: "onnx/decoder_model_merged.onnx_data",
-        url: "https://huggingface.co/onnx-community/cohere-transcribe-03-2026-ONNX/resolve/main/onnx/decoder_model_merged.onnx_data?download=true",
-        expected_size_bytes: 675_987_456,
+        relative_path: "tokenizer_config.json",
+        url: "https://huggingface.co/onnx-community/cohere-transcribe-03-2026-ONNX/resolve/main/tokenizer_config.json?download=true",
+        size_bytes: 4_549,
     },
     RemoteModelFile {
         relative_path: "tokenizer.json",
         url: "https://huggingface.co/onnx-community/cohere-transcribe-03-2026-ONNX/resolve/main/tokenizer.json?download=true",
-        expected_size_bytes: 1_152_395,
+        size_bytes: 1_152_395,
     },
 ];
 
@@ -634,7 +615,9 @@ impl ModelManager {
             ModelInfo {
                 id: "cohere-int8".to_string(),
                 name: "Cohere".to_string(),
-                description: "A large, slower, but very accurate multilingual model.".to_string(),
+                description:
+                    "Packaged Cohere Int8 runtime. Large, slower, but very accurate multilingual transcription."
+                        .to_string(),
                 filename: "cohere-int8".to_string(),
                 url: Some("https://blob.handy.computer/cohere-int8.tar.gz".to_string()),
                 sha256: Some(
@@ -656,55 +639,26 @@ impl ModelManager {
         );
 
         available_models.insert(
-            "cohere-fp16".to_string(),
-            ModelInfo {
-                id: "cohere-fp16".to_string(),
-                name: "Cohere FP16".to_string(),
-                description:
-                    "GPU-only higher-precision Cohere export. Uses much more VRAM/RAM than Int8."
-                        .to_string(),
-                filename: "cohere-fp16".to_string(),
-                url: Some(
-                    "https://huggingface.co/onnx-community/cohere-transcribe-03-2026-ONNX"
-                        .to_string(),
-                ),
-                sha256: None,
-                size_mb: 3941,
-                is_downloaded: false,
-                is_downloading: false,
-                partial_size: 0,
-                is_directory: true,
-                engine_type: EngineType::Cohere,
-                accuracy_score: 0.92,
-                speed_score: 0.40,
-                supports_translation: false,
-                is_recommended: false,
-                supported_languages: cohere_languages.clone(),
-                is_custom: false,
-            },
-        );
-
-        available_models.insert(
             "cohere-fp32".to_string(),
             ModelInfo {
                 id: "cohere-fp32".to_string(),
                 name: "Cohere FP32".to_string(),
                 description:
-                    "GPU-only full-precision Cohere export. Largest download and heaviest VRAM/RAM usage."
+                    "HF-style split-graph Cohere FP32 runtime. Highest-quality local Cohere path, but extremely large."
                         .to_string(),
                 filename: "cohere-fp32".to_string(),
                 url: Some(
-                    "https://huggingface.co/onnx-community/cohere-transcribe-03-2026-ONNX"
+                    "https://huggingface.co/eschmidbauer/cohere-transcribe-03-2026-onnx"
                         .to_string(),
                 ),
                 sha256: None,
-                size_mb: 7881,
+                size_mb: 7931,
                 is_downloaded: false,
                 is_downloading: false,
                 partial_size: 0,
                 is_directory: true,
-                engine_type: EngineType::Cohere,
-                accuracy_score: 0.93,
+                engine_type: EngineType::CohereHf,
+                accuracy_score: 0.95,
                 speed_score: 0.20,
                 supports_translation: false,
                 is_recommended: false,
@@ -723,6 +677,13 @@ impl ModelManager {
             &cohere_languages,
         ) {
             warn!("Failed to discover custom Cohere models: {}", e);
+        }
+        if let Err(e) = Self::discover_custom_cohere_hf_models(
+            &models_dir,
+            &mut available_models,
+            &cohere_languages,
+        ) {
+            warn!("Failed to discover custom Cohere HF models: {}", e);
         }
 
         let manager = Self {
@@ -772,6 +733,23 @@ impl ModelManager {
         }
 
         self.cancellation_tokens.lock().unwrap().remove(model_id);
+    }
+
+    fn clear_directory_download_state(&self, model_id: &str) {
+        let mut models = self.available_models.lock().unwrap();
+        if let Some(model) = models.get_mut(model_id) {
+            model.is_downloading = false;
+            model.partial_size = 0;
+        }
+        drop(models);
+        self.cancellation_tokens.lock().unwrap().remove(model_id);
+    }
+
+    fn remote_files_for_model(model_id: &str) -> Option<&'static [RemoteModelFile]> {
+        match model_id {
+            "cohere-fp32" => Some(COHERE_FP32_REMOTE_FILES),
+            _ => None,
+        }
     }
 
     fn verify_sha256(path: &Path, expected_sha256: Option<&str>, model_id: &str) -> Result<()> {
@@ -986,14 +964,6 @@ impl ModelManager {
         Ok(())
     }
 
-    fn remote_files_for_model(model_id: &str) -> Option<&'static [RemoteModelFile]> {
-        match model_id {
-            "cohere-fp16" => Some(COHERE_FP16_FILES),
-            "cohere-fp32" => Some(COHERE_FP32_FILES),
-            _ => None,
-        }
-    }
-
     fn directory_size_bytes(path: &Path) -> u64 {
         let mut total = 0_u64;
         let mut stack = vec![path.to_path_buf()];
@@ -1022,32 +992,59 @@ impl ModelManager {
         total
     }
 
-    fn cohere_precision_from_dir(model_dir: &Path) -> Option<CoherePrecision> {
-        let has_any = |candidates: &[&str]| {
-            [model_dir.to_path_buf(), model_dir.join("onnx")]
-                .into_iter()
-                .any(|base| candidates.iter().any(|name| base.join(name).exists()))
-        };
+    fn has_any_file(model_dir: &Path, candidates: &[&str]) -> bool {
+        [model_dir.to_path_buf(), model_dir.join("onnx")]
+            .into_iter()
+            .any(|base| candidates.iter().any(|name| base.join(name).exists()))
+    }
 
-        if has_any(&["cohere-encoder.fp16.onnx", "encoder_model_fp16.onnx"])
-            && has_any(&["cohere-decoder.fp16.onnx", "decoder_model_merged_fp16.onnx"])
-        {
-            return Some(CoherePrecision::Fp16);
-        }
+    fn is_legacy_cohere_dir(model_dir: &Path) -> bool {
+        Self::has_any_file(
+            model_dir,
+            &["cohere-encoder.int8.onnx", "encoder_model.int8.onnx"],
+        ) && Self::has_any_file(
+            model_dir,
+            &["cohere-decoder.int8.onnx", "decoder_model_merged.int8.onnx"],
+        )
+    }
 
-        if has_any(&["cohere-encoder.onnx", "encoder_model.onnx"])
-            && has_any(&["cohere-decoder.onnx", "decoder_model_merged.onnx"])
-        {
-            return Some(CoherePrecision::Fp32);
-        }
+    fn is_hf_cohere_dir(model_dir: &Path) -> bool {
+        let has_split_encoder = [
+            "encoder-0.onnx",
+            "encoder-1.onnx",
+            "encoder-2.onnx",
+            "encoder-3.onnx",
+        ]
+        .iter()
+        .all(|name| model_dir.join(name).exists());
+        let has_split_decoder =
+            model_dir.join("decoder.onnx").exists() && model_dir.join("cross_kv.onnx").exists();
+        let has_merged_encoder = Self::has_any_file(
+            model_dir,
+            &["encoder_model.onnx", "encoder_model_fp16.onnx"],
+        );
+        let has_merged_decoder = Self::has_any_file(
+            model_dir,
+            &[
+                "decoder_model_merged.onnx",
+                "decoder_model_merged_fp16.onnx",
+            ],
+        );
+        has_split_encoder && has_split_decoder || has_merged_encoder && has_merged_decoder
+    }
 
-        if has_any(&["cohere-encoder.int8.onnx", "encoder_model.int8.onnx"])
-            && has_any(&["cohere-decoder.int8.onnx", "decoder_model_merged.int8.onnx"])
-        {
-            return Some(CoherePrecision::Int8);
-        }
-
-        None
+    fn is_split_hf_cohere_dir(model_dir: &Path) -> bool {
+        [
+            "encoder-0.onnx",
+            "encoder-1.onnx",
+            "encoder-2.onnx",
+            "encoder-3.onnx",
+            "cross_kv.onnx",
+            "decoder.onnx",
+        ]
+        .iter()
+        .all(|name| model_dir.join(name).exists())
+            && (model_dir.join("tokenizer.json").exists() || model_dir.join("tokens.txt").exists())
     }
 
     fn ensure_cohere_tokens_file(model_dir: &Path) -> Result<()> {
@@ -1164,41 +1161,29 @@ impl ModelManager {
                 continue;
             }
 
-            let Some(precision) = Self::cohere_precision_from_dir(&path) else {
+            if Self::is_hf_cohere_dir(&path) {
                 continue;
-            };
+            }
+
+            if !Self::is_legacy_cohere_dir(&path) {
+                continue;
+            }
 
             let model_id = filename.clone();
             if available_models.contains_key(&model_id) {
                 continue;
             }
 
-            let (name, description, accuracy_score, speed_score) = match precision {
-                CoherePrecision::Int8 => (
-                    format!("{} (Cohere Int8)", filename),
-                    "Detected local Cohere Int8 folder.".to_string(),
-                    0.90,
-                    0.60,
-                ),
-                CoherePrecision::Fp16 => (
-                    format!("{} (Cohere FP16)", filename),
-                    "Detected local Cohere FP16 folder. GPU recommended.".to_string(),
-                    0.92,
-                    0.40,
-                ),
-                CoherePrecision::Fp32 => (
-                    format!("{} (Cohere FP32)", filename),
-                    "Detected local Cohere FP32 folder. GPU strongly recommended.".to_string(),
-                    0.93,
-                    0.20,
-                ),
-            };
+            let name = format!("{} (Cohere Int8)", filename);
+            let description = "Detected local legacy Cohere Int8 folder.".to_string();
+            let accuracy_score = 0.90;
+            let speed_score = 0.60;
 
             let size_mb = Self::directory_size_bytes(&path) / (1024 * 1024);
 
             info!(
-                "Discovered custom Cohere model folder: {} ({:?}, {} MB)",
-                model_id, precision, size_mb
+                "Discovered custom Cohere legacy Int8 folder: {} ({} MB)",
+                model_id, size_mb
             );
 
             available_models.insert(
@@ -1218,6 +1203,90 @@ impl ModelManager {
                     engine_type: EngineType::Cohere,
                     accuracy_score,
                     speed_score,
+                    supports_translation: false,
+                    is_recommended: false,
+                    supported_languages: supported_languages.to_vec(),
+                    is_custom: true,
+                },
+            );
+        }
+
+        Ok(())
+    }
+
+    fn discover_custom_cohere_hf_models(
+        models_dir: &Path,
+        available_models: &mut HashMap<String, ModelInfo>,
+        supported_languages: &[String],
+    ) -> Result<()> {
+        if !models_dir.exists() {
+            return Ok(());
+        }
+
+        let predefined_filenames: HashSet<String> = available_models
+            .values()
+            .filter(|m| matches!(m.engine_type, EngineType::CohereHf) && m.is_directory)
+            .map(|m| m.filename.clone())
+            .collect();
+
+        for entry in fs::read_dir(models_dir)? {
+            let entry = match entry {
+                Ok(entry) => entry,
+                Err(e) => {
+                    warn!("Failed to read models directory entry: {}", e);
+                    continue;
+                }
+            };
+
+            let path = entry.path();
+            if !path.is_dir() {
+                continue;
+            }
+
+            let filename = match path.file_name().and_then(|name| name.to_str()) {
+                Some(name) => name.to_string(),
+                None => continue,
+            };
+
+            if filename.starts_with('.') || predefined_filenames.contains(&filename) {
+                continue;
+            }
+
+            if !Self::is_split_hf_cohere_dir(&path) {
+                continue;
+            }
+
+            let model_id = filename.clone();
+            if available_models.contains_key(&model_id) {
+                continue;
+            }
+
+            let name = format!("{} (Cohere FP32)", filename);
+            let description = "Detected local HF-style Cohere FP32 split-graph folder.".to_string();
+            let size_mb = Self::directory_size_bytes(&path) / (1024 * 1024);
+
+            info!(
+                "Discovered custom Cohere HF folder: {} ({} MB)",
+                model_id, size_mb
+            );
+
+            available_models.insert(
+                model_id.clone(),
+                ModelInfo {
+                    id: model_id,
+                    name,
+                    description,
+                    filename,
+                    url: None,
+                    sha256: None,
+                    size_mb,
+                    is_downloaded: true,
+                    is_downloading: false,
+                    partial_size: 0,
+                    is_directory: true,
+                    engine_type: EngineType::CohereHf,
+                    accuracy_score: 0.95,
+                    speed_score: 0.20,
                     supports_translation: false,
                     is_recommended: false,
                     supported_languages: supported_languages.to_vec(),
@@ -1371,10 +1440,17 @@ impl ModelManager {
             }
         }
 
-        let result: Result<()> = if let Some(files) = Self::remote_files_for_model(model_id) {
-            self.download_multi_file_model(model_id, &model_info, files, cancel_token.clone())
-                .await
-        } else {
+        if let Some(remote_files) = Self::remote_files_for_model(model_id) {
+            let result = self
+                .download_multi_file_model(model_id, &model_info, remote_files, cancel_token)
+                .await;
+            if result.is_err() {
+                self.clear_directory_download_state(model_id);
+            }
+            return result;
+        }
+
+        let result: Result<()> = {
             let url = model_info
                 .url
                 .clone()
@@ -1612,138 +1688,180 @@ impl ModelManager {
         &self,
         model_id: &str,
         model_info: &ModelInfo,
-        files: &[RemoteModelFile],
+        remote_files: &[RemoteModelFile],
         cancel_token: CancellationToken,
     ) -> Result<()> {
         let final_model_dir = self.models_dir.join(&model_info.filename);
-        let temp_extract_dir = self
+        let temp_model_dir = self
             .models_dir
-            .join(format!("{}.extracting", &model_info.filename));
-        let partial_path = self
-            .models_dir
-            .join(format!("{}.partial", &model_info.filename));
+            .join(format!("{}.downloading", &model_info.filename));
 
-        if partial_path.exists() {
-            let _ = fs::remove_file(&partial_path);
+        if final_model_dir.exists() {
+            self.update_download_status()?;
+            self.clear_directory_download_state(model_id);
+            return Ok(());
         }
-        if temp_extract_dir.exists() {
-            let _ = fs::remove_dir_all(&temp_extract_dir);
-        }
-        fs::create_dir_all(&temp_extract_dir)?;
 
-        let total_size = files
-            .iter()
-            .map(|file| file.expected_size_bytes)
-            .sum::<u64>();
-        let mut downloaded = 0_u64;
+        fs::create_dir_all(&temp_model_dir)?;
+
         let client = reqwest::Client::new();
+        let total_size: u64 = remote_files.iter().map(|file| file.size_bytes).sum();
+        let mut downloaded_total = 0_u64;
 
-        let emit_progress = |downloaded: u64| {
-            let progress = DownloadProgress {
+        for file in remote_files {
+            let destination = temp_model_dir.join(file.relative_path);
+            if let Some(parent) = destination.parent() {
+                fs::create_dir_all(parent)?;
+            }
+
+            let partial_path = temp_model_dir.join(format!("{}.partial", file.relative_path));
+
+            if destination.exists() {
+                let existing = destination.metadata().map(|m| m.len()).unwrap_or(0);
+                if existing == file.size_bytes {
+                    downloaded_total = downloaded_total.saturating_add(existing);
+                    let progress = DownloadProgress {
+                        model_id: model_id.to_string(),
+                        downloaded: downloaded_total,
+                        total: total_size,
+                        percentage: if total_size > 0 {
+                            (downloaded_total as f64 / total_size as f64) * 100.0
+                        } else {
+                            0.0
+                        },
+                    };
+                    let _ = self.app_handle.emit("model-download-progress", &progress);
+                    continue;
+                }
+                let _ = fs::remove_file(&destination);
+            }
+
+            let mut resume_from = if partial_path.exists() {
+                partial_path.metadata().map(|m| m.len()).unwrap_or(0)
+            } else {
+                0
+            };
+            if resume_from > file.size_bytes {
+                let _ = fs::remove_file(&partial_path);
+                resume_from = 0;
+            }
+
+            let mut request = client.get(file.url);
+            if resume_from > 0 {
+                request = request.header("Range", format!("bytes={resume_from}-"));
+            }
+
+            let mut response = request.send().await?;
+            if resume_from > 0 && response.status() == reqwest::StatusCode::OK {
+                warn!(
+                    "Server does not support range requests for {}, restarting file download",
+                    file.relative_path
+                );
+                let _ = fs::remove_file(&partial_path);
+                resume_from = 0;
+                response = client.get(file.url).send().await?;
+            }
+
+            if !response.status().is_success()
+                && response.status() != reqwest::StatusCode::PARTIAL_CONTENT
+            {
+                return Err(anyhow::anyhow!(
+                    "Failed to download {}: HTTP {}",
+                    file.relative_path,
+                    response.status()
+                ));
+            }
+
+            let mut stream = response.bytes_stream();
+            let mut downloaded_for_file = resume_from;
+            let downloaded_before_file = downloaded_total;
+            let mut output = if resume_from > 0 {
+                std::fs::OpenOptions::new()
+                    .create(true)
+                    .append(true)
+                    .open(&partial_path)?
+            } else {
+                std::fs::File::create(&partial_path)?
+            };
+
+            let initial_progress = DownloadProgress {
                 model_id: model_id.to_string(),
-                downloaded,
+                downloaded: downloaded_before_file.saturating_add(downloaded_for_file),
                 total: total_size,
                 percentage: if total_size > 0 {
-                    (downloaded as f64 / total_size as f64) * 100.0
+                    ((downloaded_before_file.saturating_add(downloaded_for_file)) as f64
+                        / total_size as f64)
+                        * 100.0
                 } else {
                     0.0
                 },
             };
-            let _ = self.app_handle.emit("model-download-progress", &progress);
-        };
+            let _ = self
+                .app_handle
+                .emit("model-download-progress", &initial_progress);
 
-        emit_progress(downloaded);
-
-        let download_result: Result<()> = async {
-            for file_info in files {
+            loop {
                 tokio::select! {
                     _ = cancel_token.cancelled() => {
+                        info!("Directory download cancelled for model: {}", model_id);
+                        drop(output);
+                        self.clear_directory_download_state(model_id);
+                        let _ = self.app_handle.emit("model-download-cancelled", model_id);
                         return Ok(());
                     }
-                    result = async {
-                        let target_path = temp_extract_dir.join(file_info.relative_path);
-                        if let Some(parent) = target_path.parent() {
-                            fs::create_dir_all(parent)?;
-                        }
-
-                        info!(
-                            "Downloading {} for model {} from {}",
-                            file_info.relative_path, model_id, file_info.url
-                        );
-
-                        let response = client.get(file_info.url).send().await?;
-                        if !response.status().is_success() {
-                            return Err(anyhow::anyhow!(
-                                "Failed to download {}: HTTP {}",
-                                file_info.relative_path,
-                                response.status()
-                            ));
-                        }
-
-                        let mut stream = response.bytes_stream();
-                        let mut file = File::create(&target_path)?;
-                        let mut file_downloaded = 0_u64;
-
-                        while let Some(chunk_result) = stream.next().await {
-                            let chunk = chunk_result?;
-                            file.write_all(&chunk)?;
-                            file_downloaded += chunk.len() as u64;
-                            downloaded += chunk.len() as u64;
-                            emit_progress(downloaded);
-
-                            if cancel_token.is_cancelled() {
-                                return Ok(());
+                    chunk_result = stream.next() => {
+                        match chunk_result {
+                            Some(Ok(chunk)) => {
+                                output.write_all(&chunk)?;
+                                downloaded_for_file += chunk.len() as u64;
+                                let downloaded = downloaded_before_file.saturating_add(downloaded_for_file);
+                                let progress = DownloadProgress {
+                                    model_id: model_id.to_string(),
+                                    downloaded,
+                                    total: total_size,
+                                    percentage: if total_size > 0 {
+                                        (downloaded as f64 / total_size as f64) * 100.0
+                                    } else {
+                                        0.0
+                                    },
+                                };
+                                let _ = self.app_handle.emit("model-download-progress", &progress);
                             }
+                            Some(Err(error)) => return Err(error.into()),
+                            None => break,
                         }
-
-                        file.flush()?;
-                        drop(file);
-
-                        if file_info.expected_size_bytes > 0 && file_downloaded != file_info.expected_size_bytes {
-                            return Err(anyhow::anyhow!(
-                                "Download incomplete for {}: expected {} bytes, got {} bytes",
-                                file_info.relative_path,
-                                file_info.expected_size_bytes,
-                                file_downloaded
-                            ));
-                        }
-
-                        Ok(())
-                    } => {
-                        result?;
                     }
                 }
-
-                if cancel_token.is_cancelled() {
-                    break;
-                }
             }
 
-            if cancel_token.is_cancelled() {
-                return Ok(());
+            output.flush()?;
+            drop(output);
+
+            let actual_size = partial_path.metadata().map(|m| m.len()).unwrap_or(0);
+            if actual_size != file.size_bytes {
+                return Err(anyhow::anyhow!(
+                    "Download incomplete for {}: expected {} bytes, got {} bytes",
+                    file.relative_path,
+                    file.size_bytes,
+                    actual_size
+                ));
             }
 
-            Self::ensure_cohere_tokens_file(&temp_extract_dir)?;
-            Ok(())
-        }
-        .await;
-
-        if cancel_token.is_cancelled() {
-            let _ = fs::remove_dir_all(&temp_extract_dir);
-            self.clear_download_state(model_id, &partial_path);
-            let _ = self.app_handle.emit("model-download-cancelled", model_id);
-            return Ok(());
-        }
-
-        if let Err(error) = download_result {
-            let _ = fs::remove_dir_all(&temp_extract_dir);
-            return Err(error);
+            fs::rename(&partial_path, &destination)?;
+            downloaded_total = downloaded_before_file.saturating_add(file.size_bytes);
         }
 
         if final_model_dir.exists() {
             fs::remove_dir_all(&final_model_dir)?;
         }
-        fs::rename(&temp_extract_dir, &final_model_dir)?;
+        fs::rename(&temp_model_dir, &final_model_dir)?;
+
+        if matches!(
+            model_info.engine_type,
+            EngineType::Cohere | EngineType::CohereHf
+        ) {
+            Self::ensure_cohere_tokens_file(&final_model_dir)?;
+        }
 
         {
             let mut models = self.available_models.lock().unwrap();
@@ -1754,13 +1872,8 @@ impl ModelManager {
             }
         }
         self.cancellation_tokens.lock().unwrap().remove(model_id);
+
         let _ = self.app_handle.emit("model-download-complete", model_id);
-
-        info!(
-            "Successfully downloaded model {} to {:?}",
-            model_id, final_model_dir
-        );
-
         Ok(())
     }
 
@@ -1781,6 +1894,9 @@ impl ModelManager {
         let partial_path = self
             .models_dir
             .join(format!("{}.partial", &model_info.filename));
+        let downloading_dir = self
+            .models_dir
+            .join(format!("{}.downloading", &model_info.filename));
         debug!("ModelManager: Model path: {:?}", model_path);
         debug!("ModelManager: Partial path: {:?}", partial_path);
 
@@ -1809,6 +1925,13 @@ impl ModelManager {
             info!("Deleting partial file at: {:?}", partial_path);
             fs::remove_file(&partial_path)?;
             info!("Partial file deleted successfully");
+            deleted_something = true;
+        }
+
+        if downloading_dir.exists() && downloading_dir.is_dir() {
+            info!("Deleting downloading directory at: {:?}", downloading_dir);
+            fs::remove_dir_all(&downloading_dir)?;
+            info!("Downloading directory deleted successfully");
             deleted_something = true;
         }
 
@@ -1857,7 +1980,10 @@ impl ModelManager {
         if model_info.is_directory {
             // For directory-based models, ensure the directory exists and is complete
             if model_path.exists() && model_path.is_dir() && !partial_path.exists() {
-                if matches!(model_info.engine_type, EngineType::Cohere) {
+                if matches!(
+                    model_info.engine_type,
+                    EngineType::Cohere | EngineType::CohereHf
+                ) {
                     Self::ensure_cohere_tokens_file(&model_path)?;
                 }
                 Ok(model_path)
