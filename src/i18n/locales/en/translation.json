@@ -2589,7 +2589,9 @@
     },
     "outputFormat": {
       "label": "Output Format",
-      "hint": "Accurate timestamps (SRT/VTT) require a local model. Remote STT returns text-only output in this version."
+      "hint": "Accurate timestamps (SRT/VTT) require a local model. Remote STT returns text-only output in this version.",
+      "localHint": "Local models support accurate timestamps for SRT/VTT, and Smart Chunking is available for longer files.",
+      "remoteHint": "Cloud providers use a separate upload flow. Smart chunking is not applied there yet, so the chunking controls are hidden here."
     },
     "customWords": {
       "label": "Apply Custom Words",
