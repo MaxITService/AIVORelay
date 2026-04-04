@@ -25,5 +25,5 @@ This note describes what `cuda-integration` is for and what stays branch-local h
 
 - This branch is aimed at NVIDIA/CUDA-capable Windows systems.
 - Runtime still expects the required NVIDIA/CUDA libraries to exist on the target system.
-- The branch now ships both the packaged legacy Cohere Int8 path and a separate HF-style Cohere FP32 path.
-- HF-style FP16 remains research-only until graph surgery produces a valid runtime package.
+- The branch now ships the packaged legacy Cohere Int8 path plus HF-style Cohere FP16 and FP32 variants on the separate split-graph backend.
+- HF-style FP16 is currently available as a prepared local package path, not as an auto-downloaded hosted artifact.

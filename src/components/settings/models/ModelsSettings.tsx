@@ -88,7 +88,12 @@ export const ModelsSettings: React.FC = () => {
     [models],
   );
   const downloadableModels = useMemo(
-    () => models.filter((model: ModelInfo) => !model.is_downloaded),
+    () =>
+      models.filter(
+        (model: ModelInfo) =>
+          !model.is_downloaded &&
+          (Boolean(model.url) || Boolean(EXTERNAL_DOWNLOADS[model.id])),
+      ),
     [models],
   );
   const customModelsCount = useMemo(

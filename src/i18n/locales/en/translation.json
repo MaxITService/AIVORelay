@@ -230,6 +230,10 @@
       "cohere-fp32": {
         "name": "Cohere FP32",
         "description": "HF-style split-graph Cohere FP32 runtime. Highest-quality local Cohere path, but extremely large."
+      },
+      "cohere-fp16": {
+        "name": "Cohere FP16",
+        "description": "HF-style split-graph Cohere FP16 runtime. Working mixed-precision CUDA path, currently expected as a prebuilt local folder."
       }
     },
     "errors": {

@@ -639,6 +639,32 @@ impl ModelManager {
         );
 
         available_models.insert(
+            "cohere-fp16".to_string(),
+            ModelInfo {
+                id: "cohere-fp16".to_string(),
+                name: "Cohere FP16".to_string(),
+                description:
+                    "HF-style split-graph Cohere FP16 runtime. CUDA-validated mixed-precision package; currently available as a local prebuilt folder."
+                        .to_string(),
+                filename: "cohere-fp16".to_string(),
+                url: None,
+                sha256: None,
+                size_mb: 4012,
+                is_downloaded: false,
+                is_downloading: false,
+                partial_size: 0,
+                is_directory: true,
+                engine_type: EngineType::CohereHf,
+                accuracy_score: 0.94,
+                speed_score: 0.35,
+                supports_translation: false,
+                is_recommended: false,
+                supported_languages: cohere_languages.clone(),
+                is_custom: false,
+            },
+        );
+
+        available_models.insert(
             "cohere-fp32".to_string(),
             ModelInfo {
                 id: "cohere-fp32".to_string(),

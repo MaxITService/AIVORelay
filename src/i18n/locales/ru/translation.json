@@ -322,6 +322,10 @@
       "cohere-fp32": {
         "name": "Cohere FP32",
         "description": "HF-style split-graph runtime-вариант Cohere FP32. Самый качественный локальный путь для Cohere, но очень большой."
+      },
+      "cohere-fp16": {
+        "name": "Cohere FP16",
+        "description": "HF-style split-graph runtime-вариант Cohere FP16. Рабочий mixed-precision CUDA путь; сейчас ожидается как локальная prebuilt-папка."
       }
     },
     "errors": {
