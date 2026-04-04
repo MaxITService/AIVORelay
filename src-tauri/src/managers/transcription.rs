@@ -62,6 +62,16 @@ impl Drop for LoadingGuard {
     }
 }
 
+pub struct FileTranscriptionCancelGuard {
+    cancel_requested: Arc<AtomicBool>,
+}
+
+impl Drop for FileTranscriptionCancelGuard {
+    fn drop(&mut self) {
+        self.cancel_requested.store(false, Ordering::Relaxed);
+    }
+}
+
 fn build_whisper_initial_prompt(
     base_prompt: Option<String>,
     custom_words: &[String],
@@ -89,10 +99,21 @@ const FILE_TRANSCRIPTION_VAD_PREFILL_FRAMES: usize = 15;
 const FILE_TRANSCRIPTION_VAD_HANGOVER_FRAMES: usize = 15;
 const FILE_TRANSCRIPTION_VAD_ONSET_FRAMES: usize = 2;
 
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Debug, Clone, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct FileTranscriptionChunkTraceEntry {
+    pub chunk_index: usize,
+    pub start_secs: f32,
+    pub end_secs: f32,
+    pub duration_secs: f32,
+    pub reason: String,
+}
+
+#[derive(Debug, Clone, Default)]
 pub struct FileTranscriptionExecutionMeta {
     pub used_vad_chunking: bool,
     pub chunk_count: usize,
+    pub chunking_trace: Vec<FileTranscriptionChunkTraceEntry>,
 }
 
 fn rms_energy(frame: &[f32]) -> f32 {
@@ -102,9 +123,27 @@ fn rms_energy(frame: &[f32]) -> f32 {
     (frame.iter().map(|sample| sample * sample).sum::<f32>() / frame.len() as f32).sqrt()
 }
 
-fn merge_transcription_results(results: Vec<TranscriptionResult>) -> TranscriptionResult {
+fn merge_separator_for_language(language: &str) -> &'static str {
+    let base = language
+        .split(['-', '_'])
+        .next()
+        .unwrap_or(language)
+        .trim()
+        .to_lowercase();
+
+    match base.as_str() {
+        "zh" | "ja" | "yue" => "",
+        _ => " ",
+    }
+}
+
+fn merge_transcription_results(
+    results: Vec<TranscriptionResult>,
+    separator: &str,
+) -> TranscriptionResult {
     let mut texts = Vec::new();
     let mut segments = Vec::new();
+    let mut saw_segments = false;
 
     for result in results {
         let trimmed = result.text.trim();
@@ -113,6 +152,7 @@ fn merge_transcription_results(results: Vec<TranscriptionResult>) -> Transcripti
         }
 
         if let Some(chunk_segments) = result.segments {
+            saw_segments = true;
             segments.extend(
                 chunk_segments
                     .into_iter()
@@ -122,9 +162,39 @@ fn merge_transcription_results(results: Vec<TranscriptionResult>) -> Transcripti
     }
 
     TranscriptionResult {
-        text: texts.join(" "),
-        segments: Some(segments),
+        text: texts.join(separator),
+        segments: if saw_segments { Some(segments) } else { None },
     }
+}
+
+fn chunk_sample_ranges(total_samples: usize, max_chunk_secs: f32) -> Vec<(usize, usize)> {
+    let max_chunk_samples = ((max_chunk_secs * FILE_TRANSCRIPTION_SAMPLE_RATE) as usize).max(1);
+    let mut ranges = Vec::new();
+    let mut start = 0usize;
+
+    while start < total_samples {
+        let end = (start + max_chunk_samples).min(total_samples);
+        ranges.push((start, end));
+        start = end;
+    }
+
+    ranges
+}
+
+fn push_chunk_trace(
+    trace: &mut Vec<FileTranscriptionChunkTraceEntry>,
+    start_secs: f32,
+    sample_count: usize,
+    reason: &str,
+) {
+    let duration_secs = sample_count as f32 / FILE_TRANSCRIPTION_SAMPLE_RATE;
+    trace.push(FileTranscriptionChunkTraceEntry {
+        chunk_index: trace.len() + 1,
+        start_secs,
+        end_secs: start_secs + duration_secs,
+        duration_secs,
+        reason: reason.to_string(),
+    });
 }
 
 #[derive(Clone)]
@@ -134,6 +204,7 @@ pub struct TranscriptionManager {
     app_handle: AppHandle,
     current_model_id: Arc<Mutex<Option<String>>>,
     last_activity: Arc<AtomicU64>,
+    file_transcription_cancel_requested: Arc<AtomicBool>,
     shutdown_signal: Arc<AtomicBool>,
     watcher_handle: Arc<Mutex<Option<thread::JoinHandle<()>>>>,
     is_loading: Arc<Mutex<bool>>,
@@ -148,6 +219,7 @@ impl TranscriptionManager {
             app_handle: app_handle.clone(),
             current_model_id: Arc::new(Mutex::new(None)),
             last_activity: Arc::new(AtomicU64::new(Self::now_ms())),
+            file_transcription_cancel_requested: Arc::new(AtomicBool::new(false)),
             shutdown_signal: Arc::new(AtomicBool::new(false)),
             watcher_handle: Arc::new(Mutex::new(None)),
             is_loading: Arc::new(Mutex::new(false)),
@@ -243,6 +315,41 @@ impl TranscriptionManager {
 
     fn touch_activity(&self) {
         self.last_activity.store(Self::now_ms(), Ordering::Relaxed);
+    }
+
+    pub fn cancel_file_transcription(&self) {
+        self.file_transcription_cancel_requested
+            .store(true, Ordering::Relaxed);
+    }
+
+    pub fn begin_file_transcription_operation(&self) -> FileTranscriptionCancelGuard {
+        self.file_transcription_cancel_requested
+            .store(false, Ordering::Relaxed);
+        FileTranscriptionCancelGuard {
+            cancel_requested: self.file_transcription_cancel_requested.clone(),
+        }
+    }
+
+    fn ensure_file_transcription_not_cancelled(&self) -> Result<()> {
+        if self.is_file_transcription_cancel_requested() {
+            anyhow::bail!("File transcription was cancelled");
+        }
+        Ok(())
+    }
+
+    pub fn is_file_transcription_cancel_requested(&self) -> bool {
+        self.file_transcription_cancel_requested
+            .load(Ordering::Relaxed)
+    }
+
+    fn run_cancelable_file_transcription<T, F>(&self, run: F) -> Result<T>
+    where
+        F: FnOnce() -> Result<T>,
+    {
+        self.ensure_file_transcription_not_cancelled()?;
+        let result = run()?;
+        self.ensure_file_transcription_not_cancelled()?;
+        Ok(result)
     }
 
     pub fn is_model_loaded(&self) -> bool {
@@ -1153,6 +1260,8 @@ impl TranscriptionManager {
             ));
         }
 
+        self.ensure_file_transcription_not_cancelled()?;
+
         {
             let mut is_loading = self.is_loading.lock().unwrap();
             while *is_loading {
@@ -1170,6 +1279,7 @@ impl TranscriptionManager {
             .map(|value| value.to_string())
             .unwrap_or_else(|| settings.selected_language.clone());
         let translate_to_english = translate_override.unwrap_or(settings.translate_to_english);
+        let merge_separator = merge_separator_for_language(&selected_language);
 
         let (result, meta) = {
             let mut engine_guard = self.engine.lock().unwrap();
@@ -1178,6 +1288,7 @@ impl TranscriptionManager {
             })?;
 
             let use_chunking = self.should_use_file_transcription_chunking(&settings, &audio);
+            self.ensure_file_transcription_not_cancelled()?;
 
             match engine {
                 LoadedEngine::Parakeet(parakeet_engine) => {
@@ -1185,6 +1296,7 @@ impl TranscriptionManager {
                         match self.transcribe_file_with_vad_chunking(
                             &audio,
                             &settings,
+                            merge_separator,
                             |samples, chunk_start_secs| {
                                 self.transcribe_parakeet_chunk(
                                     parakeet_engine,
@@ -1193,14 +1305,18 @@ impl TranscriptionManager {
                                 )
                             },
                         ) {
-                            Ok((chunked_result, chunk_count)) => (
+                            Ok((chunked_result, chunk_count, chunking_trace)) => (
                                 chunked_result,
                                 FileTranscriptionExecutionMeta {
                                     used_vad_chunking: chunk_count > 1,
                                     chunk_count,
+                                    chunking_trace,
                                 },
                             ),
                             Err(error) => {
+                                if self.is_file_transcription_cancel_requested() {
+                                    return Err(error);
+                                }
                                 warn!(
                                     "Falling back to one-shot Parakeet file transcription after chunking failed: {}",
                                     error
@@ -1210,14 +1326,14 @@ impl TranscriptionManager {
                                     ..Default::default()
                                 };
                                 (
-                                    parakeet_engine
-                                        .transcribe_with(&audio, &params)
-                                        .map_err(|e| {
+                                    self.run_cancelable_file_transcription(|| {
+                                        parakeet_engine.transcribe_with(&audio, &params).map_err(|e| {
                                             anyhow::anyhow!(
                                                 "Parakeet transcription failed after chunking fallback: {}",
                                                 e
                                             )
-                                        })?,
+                                        })
+                                    })?,
                                     FileTranscriptionExecutionMeta::default(),
                                 )
                             }
@@ -1229,11 +1345,13 @@ impl TranscriptionManager {
                         };
 
                         (
-                            parakeet_engine
-                                .transcribe_with(&audio, &params)
-                                .map_err(|e| {
-                                    anyhow::anyhow!("Parakeet transcription failed: {}", e)
-                                })?,
+                            self.run_cancelable_file_transcription(|| {
+                                parakeet_engine
+                                    .transcribe_with(&audio, &params)
+                                    .map_err(|e| {
+                                        anyhow::anyhow!("Parakeet transcription failed: {}", e)
+                                    })
+                            })?,
                             FileTranscriptionExecutionMeta::default(),
                         )
                     }
@@ -1277,6 +1395,7 @@ impl TranscriptionManager {
                         match self.transcribe_file_with_vad_chunking(
                             &audio,
                             &settings,
+                            merge_separator,
                             |samples, chunk_start_secs| {
                                 self.transcribe_whisper_chunk(
                                     whisper_engine,
@@ -1286,38 +1405,44 @@ impl TranscriptionManager {
                                 )
                             },
                         ) {
-                            Ok((chunked_result, chunk_count)) => (
+                            Ok((chunked_result, chunk_count, chunking_trace)) => (
                                 chunked_result,
                                 FileTranscriptionExecutionMeta {
                                     used_vad_chunking: chunk_count > 1,
                                     chunk_count,
+                                    chunking_trace,
                                 },
                             ),
                             Err(error) => {
+                                if self.is_file_transcription_cancel_requested() {
+                                    return Err(error);
+                                }
                                 warn!(
                                     "Falling back to one-shot Whisper file transcription after chunking failed: {}",
                                     error
                                 );
                                 (
-                                    whisper_engine
-                                        .transcribe_with(&audio, &params)
-                                        .map_err(|e| {
+                                    self.run_cancelable_file_transcription(|| {
+                                        whisper_engine.transcribe_with(&audio, &params).map_err(|e| {
                                             anyhow::anyhow!(
                                                 "Whisper transcription failed after chunking fallback: {}",
                                                 e
                                             )
-                                        })?,
+                                        })
+                                    })?,
                                     FileTranscriptionExecutionMeta::default(),
                                 )
                             }
                         }
                     } else {
                         (
-                            whisper_engine
-                                .transcribe_with(&audio, &params)
-                                .map_err(|e| {
-                                    anyhow::anyhow!("Whisper transcription failed: {}", e)
-                                })?,
+                            self.run_cancelable_file_transcription(|| {
+                                whisper_engine
+                                    .transcribe_with(&audio, &params)
+                                    .map_err(|e| {
+                                        anyhow::anyhow!("Whisper transcription failed: {}", e)
+                                    })
+                            })?,
                             FileTranscriptionExecutionMeta::default(),
                         )
                     }
@@ -1328,6 +1453,7 @@ impl TranscriptionManager {
                         moonshine_engine,
                         &audio,
                         &settings,
+                        merge_separator,
                         &options,
                         use_chunking,
                         "Moonshine",
@@ -1339,6 +1465,7 @@ impl TranscriptionManager {
                         streaming_engine,
                         &audio,
                         &settings,
+                        merge_separator,
                         &options,
                         use_chunking,
                         "Moonshine streaming",
@@ -1361,6 +1488,7 @@ impl TranscriptionManager {
                         sense_voice_engine,
                         &audio,
                         &settings,
+                        merge_separator,
                         &options,
                         use_chunking,
                         "SenseVoice",
@@ -1372,6 +1500,7 @@ impl TranscriptionManager {
                         gigaam_engine,
                         &audio,
                         &settings,
+                        merge_separator,
                         &options,
                         use_chunking,
                         "GigaAM",
@@ -1392,6 +1521,7 @@ impl TranscriptionManager {
                         canary_engine,
                         &audio,
                         &settings,
+                        merge_separator,
                         &options,
                         use_chunking,
                         "Canary",
@@ -1413,6 +1543,7 @@ impl TranscriptionManager {
                         cohere_engine,
                         &audio,
                         &settings,
+                        merge_separator,
                         &options,
                         use_chunking,
                         "Cohere",
@@ -1420,6 +1551,8 @@ impl TranscriptionManager {
                 }
             }
         };
+
+        self.ensure_file_transcription_not_cancelled()?;
 
         Ok((
             result,
@@ -1463,6 +1596,7 @@ impl TranscriptionManager {
         model: &mut dyn SpeechModel,
         audio: &[f32],
         settings: &AppSettings,
+        merge_separator: &str,
         options: &TranscribeOptions,
         use_chunking: bool,
         engine_name: &str,
@@ -1471,29 +1605,36 @@ impl TranscriptionManager {
             match self.transcribe_file_with_vad_chunking(
                 audio,
                 settings,
+                merge_separator,
                 |samples, chunk_start_secs| {
                     self.transcribe_speech_model_chunk(model, samples, chunk_start_secs, options)
                 },
             ) {
-                Ok((chunked_result, chunk_count)) => Ok((
+                Ok((chunked_result, chunk_count, chunking_trace)) => Ok((
                     chunked_result,
                     FileTranscriptionExecutionMeta {
                         used_vad_chunking: chunk_count > 1,
                         chunk_count,
+                        chunking_trace,
                     },
                 )),
                 Err(error) => {
+                    if self.is_file_transcription_cancel_requested() {
+                        return Err(error);
+                    }
                     warn!(
                         "Falling back to one-shot {} file transcription after chunking failed: {}",
                         engine_name, error
                     );
                     Ok((
-                        model.transcribe(audio, options).map_err(|e| {
-                            anyhow::anyhow!(
-                                "{} transcription failed after chunking fallback: {}",
-                                engine_name,
-                                e
-                            )
+                        self.run_cancelable_file_transcription(|| {
+                            model.transcribe(audio, options).map_err(|e| {
+                                anyhow::anyhow!(
+                                    "{} transcription failed after chunking fallback: {}",
+                                    engine_name,
+                                    e
+                                )
+                            })
                         })?,
                         FileTranscriptionExecutionMeta::default(),
                     ))
@@ -1501,9 +1642,11 @@ impl TranscriptionManager {
             }
         } else {
             Ok((
-                model
-                    .transcribe(audio, options)
-                    .map_err(|e| anyhow::anyhow!("{} transcription failed: {}", engine_name, e))?,
+                self.run_cancelable_file_transcription(|| {
+                    model
+                        .transcribe(audio, options)
+                        .map_err(|e| anyhow::anyhow!("{} transcription failed: {}", engine_name, e))
+                })?,
                 FileTranscriptionExecutionMeta::default(),
             ))
         }
@@ -1513,11 +1656,17 @@ impl TranscriptionManager {
         &self,
         audio: &[f32],
         settings: &AppSettings,
+        merge_separator: &str,
         mut transcribe_chunk: F,
-    ) -> Result<(TranscriptionResult, usize)>
+    ) -> Result<(
+        TranscriptionResult,
+        usize,
+        Vec<FileTranscriptionChunkTraceEntry>,
+    )>
     where
         F: FnMut(Vec<f32>, f32) -> Result<TranscriptionResult>,
     {
+        self.ensure_file_transcription_not_cancelled()?;
         let vad_model_path = self.resolve_file_transcription_vad_model_path()?;
         let silero = ChunkingSileroVad::new(&vad_model_path, settings.vad_threshold)
             .map_err(|e| anyhow::anyhow!("Failed to create chunking VAD: {}", e))?;
@@ -1539,8 +1688,10 @@ impl TranscriptionManager {
         let mut chunk_start_sample: Option<usize> = None;
         let mut chunk_results = Vec::new();
         let mut chunk_count = 0usize;
+        let mut chunking_trace = Vec::new();
 
         for frame in audio.chunks(frame_size) {
+            self.ensure_file_transcription_not_cancelled()?;
             if frame.len() < frame_size {
                 pending.extend_from_slice(frame);
                 continue;
@@ -1571,6 +1722,8 @@ impl TranscriptionManager {
                         &mut chunk_buffer,
                         &mut chunk_start_sample,
                         elapsed_samples,
+                        "silence_boundary",
+                        &mut chunking_trace,
                         &mut transcribe_chunk,
                     )?;
                     if !result.text.trim().is_empty() {
@@ -1588,6 +1741,7 @@ impl TranscriptionManager {
                     elapsed_samples,
                     frame_size,
                     search_secs,
+                    &mut chunking_trace,
                     &mut transcribe_chunk,
                 )?;
                 if !result.text.trim().is_empty() {
@@ -1597,6 +1751,7 @@ impl TranscriptionManager {
             }
         }
 
+        self.ensure_file_transcription_not_cancelled()?;
         if !pending.is_empty() && chunk_start_sample.is_some() {
             elapsed_samples += pending.len();
             chunk_buffer.extend_from_slice(&pending);
@@ -1607,6 +1762,8 @@ impl TranscriptionManager {
                 &mut chunk_buffer,
                 &mut chunk_start_sample,
                 elapsed_samples,
+                "end_of_file",
+                &mut chunking_trace,
                 &mut transcribe_chunk,
             )?;
             if !result.text.trim().is_empty() {
@@ -1616,11 +1773,72 @@ impl TranscriptionManager {
         }
 
         if chunk_results.is_empty() {
-            let result = transcribe_chunk(audio.to_vec(), 0.0)?;
-            return Ok((result, 0));
+            warn!(
+                "VAD chunking produced no speech regions for {:.2}s of audio; falling back to bounded fixed-size chunks",
+                audio.len() as f32 / FILE_TRANSCRIPTION_SAMPLE_RATE
+            );
+            let (fallback_results, fallback_chunk_count) = self.transcribe_file_with_fixed_chunks(
+                audio,
+                max_chunk_secs,
+                &mut chunking_trace,
+                &mut transcribe_chunk,
+            )?;
+            if fallback_results.is_empty() {
+                return Ok((
+                    TranscriptionResult {
+                        text: String::new(),
+                        segments: None,
+                    },
+                    fallback_chunk_count,
+                    chunking_trace,
+                ));
+            }
+            return Ok((
+                merge_transcription_results(fallback_results, merge_separator),
+                fallback_chunk_count,
+                chunking_trace,
+            ));
         }
 
-        Ok((merge_transcription_results(chunk_results), chunk_count))
+        self.ensure_file_transcription_not_cancelled()?;
+        Ok((
+            merge_transcription_results(chunk_results, merge_separator),
+            chunk_count,
+            chunking_trace,
+        ))
+    }
+
+    fn transcribe_file_with_fixed_chunks<F>(
+        &self,
+        audio: &[f32],
+        max_chunk_secs: f32,
+        trace: &mut Vec<FileTranscriptionChunkTraceEntry>,
+        transcribe_chunk: &mut F,
+    ) -> Result<(Vec<TranscriptionResult>, usize)>
+    where
+        F: FnMut(Vec<f32>, f32) -> Result<TranscriptionResult>,
+    {
+        let mut results = Vec::new();
+        let mut chunk_count = 0usize;
+
+        for (start, end) in chunk_sample_ranges(audio.len(), max_chunk_secs) {
+            self.ensure_file_transcription_not_cancelled()?;
+            let chunk_start_secs = start as f32 / FILE_TRANSCRIPTION_SAMPLE_RATE;
+            push_chunk_trace(
+                trace,
+                chunk_start_secs,
+                end.saturating_sub(start),
+                "fixed_fallback",
+            );
+            let result = transcribe_chunk(audio[start..end].to_vec(), chunk_start_secs)?;
+            self.ensure_file_transcription_not_cancelled()?;
+            if !result.text.trim().is_empty() {
+                results.push(result);
+                chunk_count += 1;
+            }
+        }
+
+        Ok((results, chunk_count))
     }
 
     fn flush_or_split_file_transcription_chunk<F>(
@@ -1630,6 +1848,7 @@ impl TranscriptionManager {
         elapsed_samples: usize,
         frame_size: usize,
         search_secs: f32,
+        trace: &mut Vec<FileTranscriptionChunkTraceEntry>,
         transcribe_chunk: &mut F,
     ) -> Result<TranscriptionResult>
     where
@@ -1640,6 +1859,8 @@ impl TranscriptionManager {
                 speech_buffer,
                 speech_start_sample,
                 elapsed_samples,
+                "hard_limit",
+                trace,
                 transcribe_chunk,
             );
         }
@@ -1673,7 +1894,16 @@ impl TranscriptionManager {
             *speech_start_sample = speech_start_sample.map(|start| start + best_offset);
         }
 
-        transcribe_chunk(chunk, chunk_start_secs)
+        self.ensure_file_transcription_not_cancelled()?;
+        push_chunk_trace(
+            trace,
+            chunk_start_secs,
+            chunk.len(),
+            "quiet_point_near_limit",
+        );
+        let result = transcribe_chunk(chunk, chunk_start_secs)?;
+        self.ensure_file_transcription_not_cancelled()?;
+        Ok(result)
     }
 
     fn flush_file_transcription_chunk<F>(
@@ -1681,6 +1911,8 @@ impl TranscriptionManager {
         speech_buffer: &mut Vec<f32>,
         speech_start_sample: &mut Option<usize>,
         elapsed_samples: usize,
+        reason: &str,
+        trace: &mut Vec<FileTranscriptionChunkTraceEntry>,
         transcribe_chunk: &mut F,
     ) -> Result<TranscriptionResult>
     where
@@ -1692,7 +1924,11 @@ impl TranscriptionManager {
             as f32
             / FILE_TRANSCRIPTION_SAMPLE_RATE;
         *speech_start_sample = None;
-        transcribe_chunk(samples, chunk_start_secs)
+        self.ensure_file_transcription_not_cancelled()?;
+        push_chunk_trace(trace, chunk_start_secs, samples.len(), reason);
+        let result = transcribe_chunk(samples, chunk_start_secs)?;
+        self.ensure_file_transcription_not_cancelled()?;
+        Ok(result)
     }
 
     fn transcribe_speech_model_chunk(
@@ -1718,9 +1954,11 @@ impl TranscriptionManager {
         chunk_options.leading_silence_ms = Some(padding_ms);
         chunk_options.trailing_silence_ms = Some(padding_ms);
 
-        let mut result = model
-            .transcribe(&content, &chunk_options)
-            .map_err(|e| anyhow::anyhow!("Chunk transcription failed: {}", e))?;
+        let mut result = self.run_cancelable_file_transcription(|| {
+            model
+                .transcribe(&content, &chunk_options)
+                .map_err(|e| anyhow::anyhow!("Chunk transcription failed: {}", e))
+        })?;
         if chunk_start_secs > 0.0 {
             result.offset_timestamps(chunk_start_secs);
         }
@@ -1754,9 +1992,11 @@ impl TranscriptionManager {
         padded.extend_from_slice(&content);
         padded.extend(std::iter::repeat(0.0).take(padding_samples));
 
-        let mut result = whisper_engine
-            .transcribe_with(&padded, params)
-            .map_err(|e| anyhow::anyhow!("Whisper chunk transcription failed: {}", e))?;
+        let mut result = self.run_cancelable_file_transcription(|| {
+            whisper_engine
+                .transcribe_with(&padded, params)
+                .map_err(|e| anyhow::anyhow!("Whisper chunk transcription failed: {}", e))
+        })?;
         result
             .offset_timestamps((chunk_start_secs - FILE_TRANSCRIPTION_CHUNK_PADDING_SECS).max(0.0));
         Ok(result)
@@ -1793,247 +2033,14 @@ impl TranscriptionManager {
             ..Default::default()
         };
 
-        let mut result = parakeet_engine
-            .transcribe_with(&padded, &params)
-            .map_err(|e| anyhow::anyhow!("Parakeet chunk transcription failed: {}", e))?;
+        let mut result = self.run_cancelable_file_transcription(|| {
+            parakeet_engine
+                .transcribe_with(&padded, &params)
+                .map_err(|e| anyhow::anyhow!("Parakeet chunk transcription failed: {}", e))
+        })?;
         result
             .offset_timestamps((chunk_start_secs - FILE_TRANSCRIPTION_CHUNK_PADDING_SECS).max(0.0));
         Ok(result)
-    }
-
-    /// Transcribe audio and return full result including segments with timestamps.
-    /// This is used for file transcription where subtitle formats (SRT/VTT) are needed.
-    pub fn transcribe_with_segments(
-        &self,
-        audio: Vec<f32>,
-        language_override: Option<&str>,
-        translate_override: Option<bool>,
-        prompt_override: Option<String>,
-        apply_custom_words_enabled: bool,
-    ) -> Result<(String, Option<Vec<crate::subtitle::SubtitleSegment>>)> {
-        // Update last activity timestamp
-        self.touch_activity();
-
-        let st = std::time::Instant::now();
-
-        debug!("Audio vector length: {} (with segments)", audio.len());
-
-        if audio.len() == 0 {
-            debug!("Empty audio vector");
-            return Ok((String::new(), None));
-        }
-
-        // Check if model is loaded
-        {
-            let mut is_loading = self.is_loading.lock().unwrap();
-            while *is_loading {
-                is_loading = self.loading_condvar.wait(is_loading).unwrap();
-            }
-
-            let engine_guard = self.engine.lock().unwrap();
-            if engine_guard.is_none() {
-                return Err(anyhow::anyhow!("Model is not loaded for transcription."));
-            }
-        }
-
-        let settings = get_settings(&self.app_handle);
-
-        // Apply overrides
-        let selected_language = language_override
-            .map(|s| s.to_string())
-            .unwrap_or_else(|| settings.selected_language.clone());
-        let translate_to_english = translate_override.unwrap_or(settings.translate_to_english);
-
-        let result = {
-            let mut engine_guard = self.engine.lock().unwrap();
-            let engine = engine_guard.as_mut().ok_or_else(|| {
-                anyhow::anyhow!("Model failed to load. Please check your model settings.")
-            })?;
-
-            match engine {
-                LoadedEngine::Whisper(whisper_engine) => {
-                    let whisper_language = if selected_language == "auto" {
-                        None
-                    } else if selected_language == "os_input" {
-                        // Resolve OS input source to language, fall back to auto-detect
-                        crate::input_source::get_language_from_input_source()
-                    } else {
-                        let normalized =
-                            if selected_language == "zh-Hans" || selected_language == "zh-Hant" {
-                                "zh".to_string()
-                            } else {
-                                selected_language.clone()
-                            };
-                        Some(normalized)
-                    };
-
-                    let params = WhisperInferenceParams {
-                        language: whisper_language,
-                        translate: translate_to_english,
-                        initial_prompt: build_whisper_initial_prompt(
-                            prompt_override
-                                .filter(|p| !p.trim().is_empty())
-                                .or_else(|| {
-                                    let current_model_id = self.current_model_id.lock().unwrap();
-                                    current_model_id
-                                        .as_ref()
-                                        .and_then(|id| settings.transcription_prompts.get(id))
-                                        .filter(|p| !p.trim().is_empty())
-                                        .cloned()
-                                }),
-                            &settings.custom_words,
-                            apply_custom_words_enabled,
-                        ),
-                        ..Default::default()
-                    };
-
-                    whisper_engine
-                        .transcribe_with(&audio, &params)
-                        .map_err(|e| anyhow::anyhow!("Whisper transcription failed: {}", e))?
-                }
-                LoadedEngine::Parakeet(parakeet_engine) => {
-                    let params = ParakeetParams {
-                        timestamp_granularity: Some(TimestampGranularity::Segment),
-                        ..Default::default()
-                    };
-
-                    parakeet_engine
-                        .transcribe_with(&audio, &params)
-                        .map_err(|e| anyhow::anyhow!("Parakeet transcription failed: {}", e))?
-                }
-                LoadedEngine::Moonshine(moonshine_engine) => moonshine_engine
-                    .transcribe(&audio, &TranscribeOptions::default())
-                    .map_err(|e| anyhow::anyhow!("Moonshine transcription failed: {}", e))?,
-                LoadedEngine::MoonshineStreaming(streaming_engine) => streaming_engine
-                    .transcribe(&audio, &TranscribeOptions::default())
-                    .map_err(|e| {
-                        anyhow::anyhow!("Moonshine streaming transcription failed: {}", e)
-                    })?,
-                LoadedEngine::SenseVoice(sense_voice_engine) => {
-                    let language = match selected_language.as_str() {
-                        "zh" | "zh-Hans" | "zh-Hant" => Some("zh".to_string()),
-                        "en" => Some("en".to_string()),
-                        "ja" => Some("ja".to_string()),
-                        "ko" => Some("ko".to_string()),
-                        "yue" => Some("yue".to_string()),
-                        _ => None,
-                    };
-                    let params = SenseVoiceParams {
-                        language,
-                        use_itn: Some(true),
-                    };
-                    sense_voice_engine
-                        .transcribe_with(&audio, &params)
-                        .map_err(|e| anyhow::anyhow!("SenseVoice transcription failed: {}", e))?
-                }
-                LoadedEngine::GigaAM(gigaam_engine) => gigaam_engine
-                    .transcribe(&audio, &TranscribeOptions::default())
-                    .map_err(|e| anyhow::anyhow!("GigaAM transcription failed: {}", e))?,
-                LoadedEngine::Canary(canary_engine) => {
-                    let language = if selected_language == "auto" {
-                        None
-                    } else {
-                        Some(selected_language.clone())
-                    };
-                    let options = TranscribeOptions {
-                        language,
-                        translate: translate_to_english,
-                        ..Default::default()
-                    };
-                    canary_engine
-                        .transcribe(&audio, &options)
-                        .map_err(|e| anyhow::anyhow!("Canary transcription failed: {}", e))?
-                }
-                LoadedEngine::Cohere(cohere_engine) => {
-                    let language = if selected_language == "auto" {
-                        None
-                    } else if selected_language == "zh-Hans" || selected_language == "zh-Hant" {
-                        Some("zh".to_string())
-                    } else {
-                        Some(selected_language.clone())
-                    };
-                    let options = TranscribeOptions {
-                        language,
-                        ..Default::default()
-                    };
-                    cohere_engine
-                        .transcribe(&audio, &options)
-                        .map_err(|e| anyhow::anyhow!("Cohere transcription failed: {}", e))?
-                }
-            }
-        };
-
-        let should_apply_custom_words =
-            apply_custom_words_enabled && !settings.custom_words.is_empty();
-
-        // Convert transcribe_rs segments to our SubtitleSegment format
-        let segments: Option<Vec<crate::subtitle::SubtitleSegment>> = result.segments.map(|segs| {
-            segs.into_iter()
-                .map(|seg| {
-                    let text = if should_apply_custom_words {
-                        apply_custom_words(
-                            &seg.text,
-                            &settings.custom_words,
-                            settings.word_correction_threshold,
-                            settings.custom_words_ngram_enabled,
-                        )
-                    } else {
-                        seg.text
-                    };
-                    crate::subtitle::SubtitleSegment {
-                        start: seg.start,
-                        end: seg.end,
-                        text,
-                    }
-                })
-                .collect()
-        });
-
-        let corrected_result = if should_apply_custom_words {
-            apply_custom_words(
-                &result.text,
-                &settings.custom_words,
-                settings.word_correction_threshold,
-                settings.custom_words_ngram_enabled,
-            )
-        } else {
-            result.text
-        };
-
-        // Filter out filler words and hallucinations (if enabled)
-        let filtered_result = if settings.filler_word_filter_enabled {
-            filter_transcription_output(
-                &corrected_result,
-                &selected_language,
-                &settings.custom_filler_words,
-            )
-        } else {
-            corrected_result
-        };
-
-        let et = std::time::Instant::now();
-        let translation_note = if translate_to_english {
-            " (translated)"
-        } else {
-            ""
-        };
-        info!(
-            "Transcription with segments (lang={}) completed in {}ms{}",
-            selected_language,
-            (et - st).as_millis(),
-            translation_note
-        );
-
-        let final_result = filtered_result;
-
-        if settings.model_unload_timeout == ModelUnloadTimeout::Immediately {
-            info!("Immediately unloading model after transcription");
-            if let Err(e) = self.unload_model() {
-                error!("Failed to immediately unload model: {}", e);
-            }
-        }
-
-        Ok((final_result, segments))
     }
 }
 
@@ -2123,6 +2130,107 @@ pub fn get_available_accelerators() -> AvailableAccelerators {
         whisper: vec!["auto".to_string(), "cpu".to_string(), "gpu".to_string()],
         ort: ort_options,
         gpu_devices: cached_gpu_devices().to_vec(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use transcribe_rs::TranscriptionSegment;
+
+    #[test]
+    fn merge_keeps_segments_none_when_chunks_have_no_segments() {
+        let merged = merge_transcription_results(
+            vec![
+                TranscriptionResult {
+                    text: "hello".to_string(),
+                    segments: None,
+                },
+                TranscriptionResult {
+                    text: "world".to_string(),
+                    segments: None,
+                },
+            ],
+            " ",
+        );
+
+        assert_eq!(merged.text, "hello world");
+        assert!(merged.segments.is_none());
+    }
+
+    #[test]
+    fn merge_uses_cjk_safe_separator_when_requested() {
+        let merged = merge_transcription_results(
+            vec![
+                TranscriptionResult {
+                    text: "你好".to_string(),
+                    segments: None,
+                },
+                TranscriptionResult {
+                    text: "世界".to_string(),
+                    segments: None,
+                },
+            ],
+            merge_separator_for_language("zh-Hans"),
+        );
+
+        assert_eq!(merged.text, "你好世界");
+    }
+
+    #[test]
+    fn merge_preserves_segments_when_present() {
+        let merged = merge_transcription_results(
+            vec![TranscriptionResult {
+                text: "hello".to_string(),
+                segments: Some(vec![TranscriptionSegment {
+                    start: 0.0,
+                    end: 1.0,
+                    text: "hello".to_string(),
+                }]),
+            }],
+            " ",
+        );
+
+        assert_eq!(merged.segments.unwrap().len(), 1);
+    }
+
+    #[test]
+    fn chunk_ranges_split_long_audio_into_bounded_ranges() {
+        let max_chunk_secs = 30.0;
+        let total_samples = ((max_chunk_secs * FILE_TRANSCRIPTION_SAMPLE_RATE) as usize) * 3 + 17;
+        let ranges = chunk_sample_ranges(total_samples, max_chunk_secs);
+        let max_chunk_samples = (max_chunk_secs * FILE_TRANSCRIPTION_SAMPLE_RATE) as usize;
+
+        assert!(ranges.len() >= 4);
+        assert_eq!(ranges.first().copied(), Some((0, max_chunk_samples)));
+        assert_eq!(
+            ranges.last().copied(),
+            Some((max_chunk_samples * 3, total_samples))
+        );
+        assert!(ranges.iter().all(|(start, end)| end > start));
+        assert!(ranges
+            .iter()
+            .all(|(start, end)| end.saturating_sub(*start) <= max_chunk_samples));
+    }
+
+    #[test]
+    fn chunk_trace_records_indices_timing_and_reason() {
+        let mut trace = Vec::new();
+
+        push_chunk_trace(&mut trace, 12.5, 32_000, "silence_boundary");
+        push_chunk_trace(&mut trace, 14.5, 8_000, "hard_limit");
+
+        assert_eq!(trace.len(), 2);
+        assert_eq!(trace[0].chunk_index, 1);
+        assert_eq!(trace[0].start_secs, 12.5);
+        assert_eq!(trace[0].end_secs, 14.5);
+        assert_eq!(trace[0].duration_secs, 2.0);
+        assert_eq!(trace[0].reason, "silence_boundary");
+        assert_eq!(trace[1].chunk_index, 2);
+        assert_eq!(trace[1].start_secs, 14.5);
+        assert_eq!(trace[1].end_secs, 15.0);
+        assert_eq!(trace[1].duration_secs, 0.5);
+        assert_eq!(trace[1].reason, "hard_limit");
     }
 }
 
