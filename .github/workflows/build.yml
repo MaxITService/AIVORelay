@@ -16,6 +16,10 @@ on:
       release-id:
         required: false
         type: string
+      release-tag:
+        required: false
+        type: string
+        default: ""
       asset-prefix:
         required: false
         type: string
@@ -587,7 +591,12 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release upload "v${{ steps.get-version.outputs.version }}" "${{ env.PORTABLE_ZIP_PATH }}" \
+          RELEASE_TAG="${{ inputs.release-tag }}"
+          if [[ -z "$RELEASE_TAG" ]]; then
+            RELEASE_TAG="v${{ steps.get-version.outputs.version }}"
+          fi
+
+          gh release upload "$RELEASE_TAG" "${{ env.PORTABLE_ZIP_PATH }}" \
             --repo "${{ github.repository }}" \
             --clobber
 
