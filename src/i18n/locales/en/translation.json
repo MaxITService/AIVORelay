@@ -360,7 +360,27 @@
     "customModelsHelpTitle": "Custom Whisper Models",
     "customModelsHelpDescription": "Place Whisper GGML .bin files into the app models folder. They are detected on startup and shown here as custom models.",
     "customModelsHelpHint": "After adding files, restart AivoRelay to refresh the model list.",
-    "customModelsDetected": "Detected custom models: {{count}}"
+    "customModelsDetected": "Detected custom models: {{count}}",
+    "errorPanel": {
+      "title": "Model operation failed",
+      "openLogs": "Open log folder",
+      "openAppData": "Open app data"
+    },
+    "externalSourceDialog": {
+      "title": "External download required for {{modelName}}",
+      "body": "This model is downloaded directly from {{sourceLabel}}, not from the app's bundled model host. If you continue, AivoRelay will make HTTPS requests to that external service to fetch model files.",
+      "networkTitle": "Network and policy notice",
+      "networkBody": "Only model files are downloaded. Your audio is not uploaded during this step. However, the external host and its CDN will still receive standard download metadata such as your IP address, user agent, and request headers. Review the source page and its policy/terms before continuing.",
+      "openSource": "Open source page",
+      "openPrivacy": "Open privacy policy",
+      "openTerms": "Open terms",
+      "manualTitle": "Manual download",
+      "manualBody": "If you do not want the app to download from the external source automatically, cancel this dialog, download the files yourself from the source page, then place them in the destination folder below while preserving the listed relative paths.",
+      "destinationLabel": "Destination folder",
+      "filesTitle": "Files required",
+      "openDestination": "Open destination folder",
+      "acceptAndDownload": "Accept and download"
+    }
   },
   "settings": {
     "userInterface": {

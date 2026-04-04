@@ -370,7 +370,27 @@
     "customModelsHelpTitle": "Custom Whisper Models",
     "customModelsHelpDescription": "Place Whisper GGML .bin files into the app models folder. They are detected on startup and shown here as custom models.",
     "customModelsHelpHint": "After adding files, restart AivoRelay to refresh the model list.",
-    "customModelsDetected": "Detected custom models: {{count}}"
+    "customModelsDetected": "Detected custom models: {{count}}",
+    "errorPanel": {
+      "title": "Операция с моделью завершилась ошибкой",
+      "openLogs": "Открыть папку логов",
+      "openAppData": "Открыть данные приложения"
+    },
+    "externalSourceDialog": {
+      "title": "Для {{modelName}} нужен внешний источник",
+      "body": "Эта модель скачивается напрямую с {{sourceLabel}}, а не из встроенного хранилища моделей приложения. Если вы продолжите, AivoRelay выполнит HTTPS-запросы к внешнему сервису, чтобы получить файлы модели.",
+      "networkTitle": "Сетевое и правовое уведомление",
+      "networkBody": "На этом шаге скачиваются только файлы модели. Ваше аудио не отправляется. Но внешний хост и его CDN всё равно увидят стандартные метаданные загрузки: IP-адрес, user agent и заголовки запроса. Перед продолжением проверьте страницу источника и его privacy policy / terms.",
+      "openSource": "Открыть страницу источника",
+      "openPrivacy": "Открыть privacy policy",
+      "openTerms": "Открыть terms",
+      "manualTitle": "Ручная загрузка",
+      "manualBody": "Если вы не хотите, чтобы приложение скачивало файлы автоматически с внешнего источника, закройте это окно, скачайте файлы вручную со страницы источника и поместите их в папку ниже, сохранив указанные относительные пути.",
+      "destinationLabel": "Папка назначения",
+      "filesTitle": "Нужные файлы",
+      "openDestination": "Открыть папку назначения",
+      "acceptAndDownload": "Принять и скачать"
+    }
   },
   "settings": {
     "userInterface": {

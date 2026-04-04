@@ -1,7 +1,8 @@
 import React, { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { ask } from "@tauri-apps/plugin-dialog";
-import { Cloud, Cpu, Radio } from "lucide-react";
+import { Cloud, Cpu, FolderOpen, Radio, ShieldAlert } from "lucide-react";
+import { commands, type ModelInfo } from "@/bindings";
 import { useModels } from "../../../hooks/useModels";
 import { useSettings } from "../../../hooks/useSettings";
 import { getTranslatedModelDescription, getTranslatedModelName } from "../../../lib/utils/modelTranslation";
@@ -10,7 +11,53 @@ import { Button } from "../../ui/Button";
 import { SettingsGroup } from "../../ui/SettingsGroup";
 import { TellMeMore } from "../../ui/TellMeMore";
 import { RemoteSttSettings } from "../remote-stt/RemoteSttSettings";
-import type { ModelInfo } from "@/bindings";
+import { ExternalModelDownloadModal } from "./ExternalModelDownloadModal";
+
+type ExternalDownloadInfo = {
+  sourceLabel: string;
+  sourceUrl: string;
+  privacyUrl: string;
+  termsUrl: string;
+  files: string[];
+};
+
+const HUGGING_FACE_PRIVACY_URL = "https://huggingface.co/privacy";
+const HUGGING_FACE_TERMS_URL = "https://huggingface.co/terms-of-service";
+const COHERE_ONNX_SOURCE_URL =
+  "https://huggingface.co/onnx-community/cohere-transcribe-03-2026-ONNX";
+
+const EXTERNAL_DOWNLOADS: Record<string, ExternalDownloadInfo> = {
+  "cohere-fp16": {
+    sourceLabel: "Hugging Face",
+    sourceUrl: COHERE_ONNX_SOURCE_URL,
+    privacyUrl: HUGGING_FACE_PRIVACY_URL,
+    termsUrl: HUGGING_FACE_TERMS_URL,
+    files: [
+      "onnx/encoder_model_fp16.onnx",
+      "onnx/encoder_model_fp16.onnx_data",
+      "onnx/encoder_model_fp16.onnx_data_1",
+      "onnx/decoder_model_merged_fp16.onnx",
+      "onnx/decoder_model_merged_fp16.onnx_data",
+      "tokenizer.json",
+    ],
+  },
+  "cohere-fp32": {
+    sourceLabel: "Hugging Face",
+    sourceUrl: COHERE_ONNX_SOURCE_URL,
+    privacyUrl: HUGGING_FACE_PRIVACY_URL,
+    termsUrl: HUGGING_FACE_TERMS_URL,
+    files: [
+      "onnx/encoder_model.onnx",
+      "onnx/encoder_model.onnx_data",
+      "onnx/encoder_model.onnx_data_1",
+      "onnx/encoder_model.onnx_data_2",
+      "onnx/encoder_model.onnx_data_3",
+      "onnx/decoder_model_merged.onnx",
+      "onnx/decoder_model_merged.onnx_data",
+      "tokenizer.json",
+    ],
+  },
+};
 
 export const ModelsSettings: React.FC = () => {
   const { t } = useTranslation();
@@ -21,6 +68,7 @@ export const ModelsSettings: React.FC = () => {
     downloadingModels,
     extractingModels,
     loading,
+    error,
     selectModel,
     downloadModel,
     cancelDownload,
@@ -28,6 +76,8 @@ export const ModelsSettings: React.FC = () => {
   } = useModels();
   const { getSetting, setTranscriptionProvider } = useSettings();
   const [switchingModelId, setSwitchingModelId] = useState<string | null>(null);
+  const [externalDownloadModel, setExternalDownloadModel] = useState<ModelInfo | null>(null);
+  const [appDataDirPath, setAppDataDirPath] = useState<string | null>(null);
 
   const transcriptionProvider = String(
     getSetting("transcription_provider") || "local",
@@ -62,6 +112,18 @@ export const ModelsSettings: React.FC = () => {
     }
   };
 
+  const getExternalDownloadInfo = (modelId: string) => EXTERNAL_DOWNLOADS[modelId] ?? null;
+
+  const ensureAppDataDirPath = async () => {
+    if (appDataDirPath) return appDataDirPath;
+    const result = await commands.getAppDirPath();
+    if (result.status !== "ok") {
+      throw new Error(result.error);
+    }
+    setAppDataDirPath(result.data);
+    return result.data;
+  };
+
   const handleSelectModel = async (modelId: string) => {
     setSwitchingModelId(modelId);
     try {
@@ -74,6 +136,15 @@ export const ModelsSettings: React.FC = () => {
 
   const handleDownloadModel = async (modelId: string) => {
     await ensureLocalProvider();
+    const model = models.find((entry) => entry.id === modelId);
+    if (!model) return;
+
+    if (getExternalDownloadInfo(modelId)) {
+      await ensureAppDataDirPath();
+      setExternalDownloadModel(model);
+      return;
+    }
+
     await downloadModel(modelId);
   };
 
@@ -90,8 +161,38 @@ export const ModelsSettings: React.FC = () => {
     await deleteModel(model.id);
   };
 
+  const externalDownloadInfo =
+    externalDownloadModel && getExternalDownloadInfo(externalDownloadModel.id);
+  const externalDestinationPath =
+    externalDownloadModel && appDataDirPath
+      ? `${appDataDirPath}\\models\\${externalDownloadModel.filename}`
+      : "";
+
   return (
     <div className="max-w-3xl w-full mx-auto space-y-8 pb-12">
+      <ExternalModelDownloadModal
+        isOpen={Boolean(externalDownloadModel && externalDownloadInfo)}
+        modelName={
+          externalDownloadModel
+            ? getTranslatedModelName(externalDownloadModel, t)
+            : ""
+        }
+        sourceLabel={externalDownloadInfo?.sourceLabel || "Hugging Face"}
+        sourceUrl={externalDownloadInfo?.sourceUrl || COHERE_ONNX_SOURCE_URL}
+        privacyUrl={externalDownloadInfo?.privacyUrl || HUGGING_FACE_PRIVACY_URL}
+        termsUrl={externalDownloadInfo?.termsUrl || HUGGING_FACE_TERMS_URL}
+        destinationPath={externalDestinationPath}
+        files={externalDownloadInfo?.files || []}
+        onAccept={async () => {
+          if (!externalDownloadModel) return;
+          await downloadModel(externalDownloadModel.id);
+        }}
+        onOpenFolder={async () => {
+          await commands.openAppDataDir();
+        }}
+        onClose={() => setExternalDownloadModel(null)}
+      />
+
       {/* Help Section */}
       <TellMeMore title={t("modelSelector.tellMeMore.title")}>
         <div className="space-y-3">
@@ -279,6 +380,30 @@ export const ModelsSettings: React.FC = () => {
             : t("modelSelector.customModelsHelpHint")}
         </p>
       </div>
+
+      {error && (
+        <div className="border border-[#5c2f35] rounded-xl bg-[#2a1618]/70 p-4 space-y-3">
+          <div className="flex items-start gap-3">
+            <ShieldAlert className="w-5 h-5 text-[#ff8ea1] mt-0.5 shrink-0" />
+            <div className="min-w-0">
+              <p className="text-sm font-medium text-[#ffd6dd]">
+                {t("modelSelector.errorPanel.title")}
+              </p>
+              <p className="text-xs text-[#f1b7c1] mt-1 break-words">{error}</p>
+            </div>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Button variant="secondary" size="sm" onClick={() => commands.openLogDir()}>
+              <FolderOpen className="w-3.5 h-3.5 mr-1.5" />
+              {t("modelSelector.errorPanel.openLogs")}
+            </Button>
+            <Button variant="ghost" size="sm" onClick={() => commands.openAppDataDir()}>
+              <FolderOpen className="w-3.5 h-3.5 mr-1.5" />
+              {t("modelSelector.errorPanel.openAppData")}
+            </Button>
+          </div>
+        </div>
+      )}
 
       <SettingsGroup title={t("modelSelector.availableModels")}>
         {loading && (
