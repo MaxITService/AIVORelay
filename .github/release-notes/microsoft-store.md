@@ -7,6 +7,12 @@ Old CPU? Use this! This is a specialized build for the Microsoft Store Edition. 
 
 ## Highlights
 
-- Whisper acceleration can now list detected GPUs and let you choose a specific device directly.
-- The app now shows a clearer message when no microphone or other audio input device is available.
-- Settings dropdowns now open upward to reduce overlap and clipping issues in the settings UI.
+- Fixed loading of partially invalid settings so the app recovers more reliably from broken config state.
+- Added Cohere transcription support.
+- Model settings now show more metadata, including supported languages.
+- Recording overlay customization is expanded with icon and decap indicator controls.
+- Added a floating overlay preview panel and reorganized overlay appearance settings for easier setup.
+- Improved local model warmup by preloading the recorder.
+- Increased the default model unload timeout to 15 minutes.
+- Added a fix for older CPUs that could crash during transcription.
+- The tray tooltip now shows the current app version.
