@@ -1012,7 +1012,7 @@ pub enum WhisperAcceleratorSetting {
 
 impl Default for WhisperAcceleratorSetting {
     fn default() -> Self {
-        WhisperAcceleratorSetting::Auto
+        WhisperAcceleratorSetting::Gpu
     }
 }
 
@@ -1029,7 +1029,7 @@ pub enum OrtAcceleratorSetting {
 
 impl Default for OrtAcceleratorSetting {
     fn default() -> Self {
-        OrtAcceleratorSetting::Auto
+        OrtAcceleratorSetting::Cuda
     }
 }
 
@@ -3563,14 +3563,28 @@ fn ensure_preview_delete_last_word_binding(settings: &mut AppSettings) -> bool {
 }
 
 fn migrate_legacy_settings_fields(settings: &mut AppSettings) -> bool {
+    let mut changed = false;
+
+    if settings.whisper_accelerator == WhisperAcceleratorSetting::Auto {
+        debug!("Migrating whisper_accelerator from auto to gpu for CUDA branch");
+        settings.whisper_accelerator = WhisperAcceleratorSetting::Gpu;
+        changed = true;
+    }
+
+    if settings.ort_accelerator == OrtAcceleratorSetting::Auto {
+        debug!("Migrating ort_accelerator from auto to cuda for CUDA branch");
+        settings.ort_accelerator = OrtAcceleratorSetting::Cuda;
+        changed = true;
+    }
+
     if settings.voice_command_keep_window_open {
         debug!("Migrating voice_command_keep_window_open to voice_command_defaults.silent");
         settings.voice_command_defaults.silent = false;
         settings.voice_command_keep_window_open = false;
-        return true;
+        changed = true;
     }
 
-    false
+    changed
 }
 
 fn ensure_active_profile_exists(settings: &mut AppSettings) -> bool {

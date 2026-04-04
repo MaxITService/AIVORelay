@@ -7,6 +7,8 @@ This note keeps branch-local model behavior and runtime assumptions that do not 
 - This branch builds a CUDA-enabled executable for NVIDIA-capable Windows systems.
 - Runtime still expects the required NVIDIA/CUDA libraries to be available on the target system.
 - The portable CUDA release is not documented as a fully self-contained universal Windows package.
+- Fresh settings default to `GPU` for Whisper-backed models and `CUDA` for ORT-backed models.
+- Legacy stored `Auto` accelerator values are migrated to `GPU` and `CUDA` when settings are loaded on this branch.
 
 ## Local Cohere Variants In This Branch
 

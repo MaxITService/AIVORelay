@@ -90,13 +90,13 @@ export const AccelerationSelector: FC<AccelerationSelectorProps> = ({
     });
   }, [t]);
 
-  const currentAccelerator = getSetting("whisper_accelerator") ?? "auto";
+  const currentAccelerator = getSetting("whisper_accelerator") ?? "gpu";
   const currentGpuDevice = getSetting("whisper_gpu_device") ?? -1;
   const currentWhisper = encodeWhisperValue(
     currentAccelerator as WhisperAcceleratorSetting,
     currentGpuDevice as number,
   );
-  const currentOrt = getSetting("ort_accelerator") ?? "auto";
+  const currentOrt = getSetting("ort_accelerator") ?? "cuda";
 
   const handleWhisperChange = async (value: string) => {
     const { accelerator, gpuDevice } = decodeWhisperValue(value);
