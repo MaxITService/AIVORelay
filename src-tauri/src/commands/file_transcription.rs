@@ -534,7 +534,7 @@ pub async fn transcribe_audio_file(
         append_info_message(
             &mut info_message,
             format!(
-                "Smart chunking used for local Parakeet transcription: {} chunks (max {:.2} min per chunk).",
+                "Smart chunking used for local file transcription: {} chunks (max {:.2} min per chunk).",
                 meta.chunk_count,
                 settings.file_transcription_chunking_max_minutes.max(0.25)
             ),

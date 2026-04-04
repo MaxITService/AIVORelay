@@ -1177,43 +1177,65 @@ impl TranscriptionManager {
                 anyhow::anyhow!("Model failed to load. Please check your model settings.")
             })?;
 
+            let use_chunking = self.should_use_file_transcription_chunking(&settings, &audio);
+
             match engine {
-                LoadedEngine::Parakeet(parakeet_engine)
-                    if self.should_use_file_transcription_chunking(&settings, &audio) =>
-                {
-                    match self.transcribe_parakeet_with_vad_chunking(
-                        parakeet_engine,
-                        &audio,
-                        &settings,
-                    ) {
-                        Ok((chunked_result, chunk_count)) => (
-                            chunked_result,
-                            FileTranscriptionExecutionMeta {
-                                used_vad_chunking: chunk_count > 1,
-                                chunk_count,
+                LoadedEngine::Parakeet(parakeet_engine) => {
+                    if use_chunking {
+                        match self.transcribe_file_with_vad_chunking(
+                            &audio,
+                            &settings,
+                            |samples, chunk_start_secs| {
+                                self.transcribe_parakeet_chunk(
+                                    parakeet_engine,
+                                    samples,
+                                    chunk_start_secs,
+                                )
                             },
-                        ),
-                        Err(error) => {
-                            warn!(
-                                "Falling back to one-shot Parakeet file transcription after chunking failed: {}",
-                                error
-                            );
-                            let params = ParakeetParams {
-                                timestamp_granularity: Some(TimestampGranularity::Segment),
-                                ..Default::default()
-                            };
-                            (
-                                parakeet_engine
-                                    .transcribe_with(&audio, &params)
-                                    .map_err(|e| {
-                                        anyhow::anyhow!(
-                                            "Parakeet transcription failed after chunking fallback: {}",
-                                            e
-                                        )
-                                    })?,
-                                FileTranscriptionExecutionMeta::default(),
-                            )
+                        ) {
+                            Ok((chunked_result, chunk_count)) => (
+                                chunked_result,
+                                FileTranscriptionExecutionMeta {
+                                    used_vad_chunking: chunk_count > 1,
+                                    chunk_count,
+                                },
+                            ),
+                            Err(error) => {
+                                warn!(
+                                    "Falling back to one-shot Parakeet file transcription after chunking failed: {}",
+                                    error
+                                );
+                                let params = ParakeetParams {
+                                    timestamp_granularity: Some(TimestampGranularity::Segment),
+                                    ..Default::default()
+                                };
+                                (
+                                    parakeet_engine
+                                        .transcribe_with(&audio, &params)
+                                        .map_err(|e| {
+                                            anyhow::anyhow!(
+                                                "Parakeet transcription failed after chunking fallback: {}",
+                                                e
+                                            )
+                                        })?,
+                                    FileTranscriptionExecutionMeta::default(),
+                                )
+                            }
                         }
+                    } else {
+                        let params = ParakeetParams {
+                            timestamp_granularity: Some(TimestampGranularity::Segment),
+                            ..Default::default()
+                        };
+
+                        (
+                            parakeet_engine
+                                .transcribe_with(&audio, &params)
+                                .map_err(|e| {
+                                    anyhow::anyhow!("Parakeet transcription failed: {}", e)
+                                })?,
+                            FileTranscriptionExecutionMeta::default(),
+                        )
                     }
                 }
                 LoadedEngine::Whisper(whisper_engine) => {
@@ -1251,40 +1273,77 @@ impl TranscriptionManager {
                         ..Default::default()
                     };
 
-                    (
-                        whisper_engine
-                            .transcribe_with(&audio, &params)
-                            .map_err(|e| anyhow::anyhow!("Whisper transcription failed: {}", e))?,
-                        FileTranscriptionExecutionMeta::default(),
-                    )
+                    if use_chunking {
+                        match self.transcribe_file_with_vad_chunking(
+                            &audio,
+                            &settings,
+                            |samples, chunk_start_secs| {
+                                self.transcribe_whisper_chunk(
+                                    whisper_engine,
+                                    samples,
+                                    chunk_start_secs,
+                                    &params,
+                                )
+                            },
+                        ) {
+                            Ok((chunked_result, chunk_count)) => (
+                                chunked_result,
+                                FileTranscriptionExecutionMeta {
+                                    used_vad_chunking: chunk_count > 1,
+                                    chunk_count,
+                                },
+                            ),
+                            Err(error) => {
+                                warn!(
+                                    "Falling back to one-shot Whisper file transcription after chunking failed: {}",
+                                    error
+                                );
+                                (
+                                    whisper_engine
+                                        .transcribe_with(&audio, &params)
+                                        .map_err(|e| {
+                                            anyhow::anyhow!(
+                                                "Whisper transcription failed after chunking fallback: {}",
+                                                e
+                                            )
+                                        })?,
+                                    FileTranscriptionExecutionMeta::default(),
+                                )
+                            }
+                        }
+                    } else {
+                        (
+                            whisper_engine
+                                .transcribe_with(&audio, &params)
+                                .map_err(|e| {
+                                    anyhow::anyhow!("Whisper transcription failed: {}", e)
+                                })?,
+                            FileTranscriptionExecutionMeta::default(),
+                        )
+                    }
                 }
-                LoadedEngine::Parakeet(parakeet_engine) => {
-                    let params = ParakeetParams {
-                        timestamp_granularity: Some(TimestampGranularity::Segment),
-                        ..Default::default()
-                    };
-
-                    (
-                        parakeet_engine
-                            .transcribe_with(&audio, &params)
-                            .map_err(|e| anyhow::anyhow!("Parakeet transcription failed: {}", e))?,
-                        FileTranscriptionExecutionMeta::default(),
-                    )
+                LoadedEngine::Moonshine(moonshine_engine) => {
+                    let options = TranscribeOptions::default();
+                    self.transcribe_speech_model_file(
+                        moonshine_engine,
+                        &audio,
+                        &settings,
+                        &options,
+                        use_chunking,
+                        "Moonshine",
+                    )?
                 }
-                LoadedEngine::Moonshine(moonshine_engine) => (
-                    moonshine_engine
-                        .transcribe(&audio, &TranscribeOptions::default())
-                        .map_err(|e| anyhow::anyhow!("Moonshine transcription failed: {}", e))?,
-                    FileTranscriptionExecutionMeta::default(),
-                ),
-                LoadedEngine::MoonshineStreaming(streaming_engine) => (
-                    streaming_engine
-                        .transcribe(&audio, &TranscribeOptions::default())
-                        .map_err(|e| {
-                            anyhow::anyhow!("Moonshine streaming transcription failed: {}", e)
-                        })?,
-                    FileTranscriptionExecutionMeta::default(),
-                ),
+                LoadedEngine::MoonshineStreaming(streaming_engine) => {
+                    let options = TranscribeOptions::default();
+                    self.transcribe_speech_model_file(
+                        streaming_engine,
+                        &audio,
+                        &settings,
+                        &options,
+                        use_chunking,
+                        "Moonshine streaming",
+                    )?
+                }
                 LoadedEngine::SenseVoice(sense_voice_engine) => {
                     let language = match selected_language.as_str() {
                         "zh" | "zh-Hans" | "zh-Hant" => Some("zh".to_string()),
@@ -1294,25 +1353,30 @@ impl TranscriptionManager {
                         "yue" => Some("yue".to_string()),
                         _ => None,
                     };
-                    let params = SenseVoiceParams {
+                    let options = TranscribeOptions {
                         language,
-                        use_itn: Some(true),
+                        ..Default::default()
                     };
-                    (
-                        sense_voice_engine
-                            .transcribe_with(&audio, &params)
-                            .map_err(|e| {
-                                anyhow::anyhow!("SenseVoice transcription failed: {}", e)
-                            })?,
-                        FileTranscriptionExecutionMeta::default(),
-                    )
+                    self.transcribe_speech_model_file(
+                        sense_voice_engine,
+                        &audio,
+                        &settings,
+                        &options,
+                        use_chunking,
+                        "SenseVoice",
+                    )?
                 }
-                LoadedEngine::GigaAM(gigaam_engine) => (
-                    gigaam_engine
-                        .transcribe(&audio, &TranscribeOptions::default())
-                        .map_err(|e| anyhow::anyhow!("GigaAM transcription failed: {}", e))?,
-                    FileTranscriptionExecutionMeta::default(),
-                ),
+                LoadedEngine::GigaAM(gigaam_engine) => {
+                    let options = TranscribeOptions::default();
+                    self.transcribe_speech_model_file(
+                        gigaam_engine,
+                        &audio,
+                        &settings,
+                        &options,
+                        use_chunking,
+                        "GigaAM",
+                    )?
+                }
                 LoadedEngine::Canary(canary_engine) => {
                     let language = if selected_language == "auto" {
                         None
@@ -1324,12 +1388,14 @@ impl TranscriptionManager {
                         translate: translate_to_english,
                         ..Default::default()
                     };
-                    (
-                        canary_engine
-                            .transcribe(&audio, &options)
-                            .map_err(|e| anyhow::anyhow!("Canary transcription failed: {}", e))?,
-                        FileTranscriptionExecutionMeta::default(),
-                    )
+                    self.transcribe_speech_model_file(
+                        canary_engine,
+                        &audio,
+                        &settings,
+                        &options,
+                        use_chunking,
+                        "Canary",
+                    )?
                 }
                 LoadedEngine::Cohere(cohere_engine) => {
                     let language = if selected_language == "auto" {
@@ -1343,12 +1409,14 @@ impl TranscriptionManager {
                         language,
                         ..Default::default()
                     };
-                    (
-                        cohere_engine
-                            .transcribe(&audio, &options)
-                            .map_err(|e| anyhow::anyhow!("Cohere transcription failed: {}", e))?,
-                        FileTranscriptionExecutionMeta::default(),
-                    )
+                    self.transcribe_speech_model_file(
+                        cohere_engine,
+                        &audio,
+                        &settings,
+                        &options,
+                        use_chunking,
+                        "Cohere",
+                    )?
                 }
             }
         };
@@ -1390,12 +1458,66 @@ impl TranscriptionManager {
             .map_err(|e| anyhow::anyhow!("Failed to resolve VAD path: {}", e))
     }
 
-    fn transcribe_parakeet_with_vad_chunking(
+    fn transcribe_speech_model_file(
         &self,
-        parakeet_engine: &mut ParakeetModel,
+        model: &mut dyn SpeechModel,
         audio: &[f32],
         settings: &AppSettings,
-    ) -> Result<(TranscriptionResult, usize)> {
+        options: &TranscribeOptions,
+        use_chunking: bool,
+        engine_name: &str,
+    ) -> Result<(TranscriptionResult, FileTranscriptionExecutionMeta)> {
+        if use_chunking {
+            match self.transcribe_file_with_vad_chunking(
+                audio,
+                settings,
+                |samples, chunk_start_secs| {
+                    self.transcribe_speech_model_chunk(model, samples, chunk_start_secs, options)
+                },
+            ) {
+                Ok((chunked_result, chunk_count)) => Ok((
+                    chunked_result,
+                    FileTranscriptionExecutionMeta {
+                        used_vad_chunking: chunk_count > 1,
+                        chunk_count,
+                    },
+                )),
+                Err(error) => {
+                    warn!(
+                        "Falling back to one-shot {} file transcription after chunking failed: {}",
+                        engine_name, error
+                    );
+                    Ok((
+                        model.transcribe(audio, options).map_err(|e| {
+                            anyhow::anyhow!(
+                                "{} transcription failed after chunking fallback: {}",
+                                engine_name,
+                                e
+                            )
+                        })?,
+                        FileTranscriptionExecutionMeta::default(),
+                    ))
+                }
+            }
+        } else {
+            Ok((
+                model
+                    .transcribe(audio, options)
+                    .map_err(|e| anyhow::anyhow!("{} transcription failed: {}", engine_name, e))?,
+                FileTranscriptionExecutionMeta::default(),
+            ))
+        }
+    }
+
+    fn transcribe_file_with_vad_chunking<F>(
+        &self,
+        audio: &[f32],
+        settings: &AppSettings,
+        mut transcribe_chunk: F,
+    ) -> Result<(TranscriptionResult, usize)>
+    where
+        F: FnMut(Vec<f32>, f32) -> Result<TranscriptionResult>,
+    {
         let vad_model_path = self.resolve_file_transcription_vad_model_path()?;
         let silero = ChunkingSileroVad::new(&vad_model_path, settings.vad_threshold)
             .map_err(|e| anyhow::anyhow!("Failed to create chunking VAD: {}", e))?;
@@ -1413,7 +1535,6 @@ impl TranscriptionManager {
 
         let mut chunk_buffer = Vec::new();
         let mut pending = Vec::new();
-        let mut in_speech = false;
         let mut elapsed_samples = 0usize;
         let mut chunk_start_sample: Option<usize> = None;
         let mut chunk_results = Vec::new();
@@ -1441,18 +1562,16 @@ impl TranscriptionManager {
                 }
 
                 chunk_buffer.extend_from_slice(frame);
-                in_speech = true;
             } else if chunk_start_sample.is_some() {
                 chunk_buffer.extend_from_slice(frame);
-                in_speech = false;
 
                 let chunk_secs = chunk_buffer.len() as f32 / FILE_TRANSCRIPTION_SAMPLE_RATE;
                 if chunk_secs >= FILE_TRANSCRIPTION_MIN_CHUNK_SECS {
-                    let result = self.flush_parakeet_chunk(
-                        parakeet_engine,
+                    let result = self.flush_file_transcription_chunk(
                         &mut chunk_buffer,
                         &mut chunk_start_sample,
                         elapsed_samples,
+                        &mut transcribe_chunk,
                     )?;
                     if !result.text.trim().is_empty() {
                         chunk_results.push(result);
@@ -1463,20 +1582,17 @@ impl TranscriptionManager {
 
             let chunk_secs = chunk_buffer.len() as f32 / FILE_TRANSCRIPTION_SAMPLE_RATE;
             if chunk_secs >= max_chunk_secs {
-                let result = self.flush_or_split_parakeet_chunk(
-                    parakeet_engine,
+                let result = self.flush_or_split_file_transcription_chunk(
                     &mut chunk_buffer,
                     &mut chunk_start_sample,
                     elapsed_samples,
                     frame_size,
                     search_secs,
+                    &mut transcribe_chunk,
                 )?;
                 if !result.text.trim().is_empty() {
                     chunk_results.push(result);
                     chunk_count += 1;
-                }
-                if chunk_buffer.is_empty() {
-                    in_speech = false;
                 }
             }
         }
@@ -1487,11 +1603,11 @@ impl TranscriptionManager {
         }
 
         if !chunk_buffer.is_empty() {
-            let result = self.flush_parakeet_chunk(
-                parakeet_engine,
+            let result = self.flush_file_transcription_chunk(
                 &mut chunk_buffer,
                 &mut chunk_start_sample,
                 elapsed_samples,
+                &mut transcribe_chunk,
             )?;
             if !result.text.trim().is_empty() {
                 chunk_results.push(result);
@@ -1500,34 +1616,31 @@ impl TranscriptionManager {
         }
 
         if chunk_results.is_empty() {
-            let params = ParakeetParams {
-                timestamp_granularity: Some(TimestampGranularity::Segment),
-                ..Default::default()
-            };
-            let result = parakeet_engine
-                .transcribe_with(audio, &params)
-                .map_err(|e| anyhow::anyhow!("Parakeet transcription failed: {}", e))?;
+            let result = transcribe_chunk(audio.to_vec(), 0.0)?;
             return Ok((result, 0));
         }
 
         Ok((merge_transcription_results(chunk_results), chunk_count))
     }
 
-    fn flush_or_split_parakeet_chunk(
+    fn flush_or_split_file_transcription_chunk<F>(
         &self,
-        parakeet_engine: &mut ParakeetModel,
         speech_buffer: &mut Vec<f32>,
         speech_start_sample: &mut Option<usize>,
         elapsed_samples: usize,
         frame_size: usize,
         search_secs: f32,
-    ) -> Result<TranscriptionResult> {
+        transcribe_chunk: &mut F,
+    ) -> Result<TranscriptionResult>
+    where
+        F: FnMut(Vec<f32>, f32) -> Result<TranscriptionResult>,
+    {
         if search_secs <= 0.0 || speech_buffer.len() <= frame_size {
-            return self.flush_parakeet_chunk(
-                parakeet_engine,
+            return self.flush_file_transcription_chunk(
                 speech_buffer,
                 speech_start_sample,
                 elapsed_samples,
+                transcribe_chunk,
             );
         }
 
@@ -1560,23 +1673,93 @@ impl TranscriptionManager {
             *speech_start_sample = speech_start_sample.map(|start| start + best_offset);
         }
 
-        self.transcribe_parakeet_chunk(parakeet_engine, chunk, chunk_start_secs)
+        transcribe_chunk(chunk, chunk_start_secs)
     }
 
-    fn flush_parakeet_chunk(
+    fn flush_file_transcription_chunk<F>(
         &self,
-        parakeet_engine: &mut ParakeetModel,
         speech_buffer: &mut Vec<f32>,
         speech_start_sample: &mut Option<usize>,
         elapsed_samples: usize,
-    ) -> Result<TranscriptionResult> {
+        transcribe_chunk: &mut F,
+    ) -> Result<TranscriptionResult>
+    where
+        F: FnMut(Vec<f32>, f32) -> Result<TranscriptionResult>,
+    {
         let samples = std::mem::take(speech_buffer);
         let chunk_start_secs = speech_start_sample
             .unwrap_or_else(|| elapsed_samples.saturating_sub(samples.len()))
             as f32
             / FILE_TRANSCRIPTION_SAMPLE_RATE;
         *speech_start_sample = None;
-        self.transcribe_parakeet_chunk(parakeet_engine, samples, chunk_start_secs)
+        transcribe_chunk(samples, chunk_start_secs)
+    }
+
+    fn transcribe_speech_model_chunk(
+        &self,
+        model: &mut dyn SpeechModel,
+        samples: Vec<f32>,
+        chunk_start_secs: f32,
+        options: &TranscribeOptions,
+    ) -> Result<TranscriptionResult> {
+        let padding_ms = (FILE_TRANSCRIPTION_CHUNK_PADDING_SECS * 1000.0) as u32;
+        let padding_samples =
+            (FILE_TRANSCRIPTION_CHUNK_PADDING_SECS * FILE_TRANSCRIPTION_SAMPLE_RATE) as usize;
+        let min_total_samples =
+            (FILE_TRANSCRIPTION_MIN_CHUNK_SECS * FILE_TRANSCRIPTION_SAMPLE_RATE) as usize;
+        let min_content_samples = min_total_samples.saturating_sub(padding_samples * 2);
+
+        let mut content = samples;
+        if content.len() < min_content_samples {
+            content.resize(min_content_samples, 0.0);
+        }
+
+        let mut chunk_options = options.clone();
+        chunk_options.leading_silence_ms = Some(padding_ms);
+        chunk_options.trailing_silence_ms = Some(padding_ms);
+
+        let mut result = model
+            .transcribe(&content, &chunk_options)
+            .map_err(|e| anyhow::anyhow!("Chunk transcription failed: {}", e))?;
+        if chunk_start_secs > 0.0 {
+            result.offset_timestamps(chunk_start_secs);
+        }
+        Ok(result)
+    }
+
+    fn transcribe_whisper_chunk(
+        &self,
+        whisper_engine: &mut WhisperEngine,
+        samples: Vec<f32>,
+        chunk_start_secs: f32,
+        params: &WhisperInferenceParams,
+    ) -> Result<TranscriptionResult> {
+        let padding_samples =
+            (FILE_TRANSCRIPTION_CHUNK_PADDING_SECS * FILE_TRANSCRIPTION_SAMPLE_RATE) as usize;
+        let min_total_samples =
+            (FILE_TRANSCRIPTION_MIN_CHUNK_SECS * FILE_TRANSCRIPTION_SAMPLE_RATE) as usize;
+        let min_content_samples = min_total_samples.saturating_sub(padding_samples * 2);
+
+        let mut content = samples;
+        if content.len() < min_content_samples {
+            content.resize(min_content_samples, 0.0);
+        }
+
+        let mut padded = Vec::with_capacity(
+            content
+                .len()
+                .saturating_add(padding_samples.saturating_mul(2)),
+        );
+        padded.resize(padding_samples, 0.0);
+        padded.extend_from_slice(&content);
+        padded.extend(std::iter::repeat(0.0).take(padding_samples));
+
+        let mut result = whisper_engine
+            .transcribe_with(&padded, params)
+            .map_err(|e| anyhow::anyhow!("Whisper chunk transcription failed: {}", e))?;
+        result
+            .offset_timestamps((chunk_start_secs - FILE_TRANSCRIPTION_CHUNK_PADDING_SECS).max(0.0));
+        Ok(result)
     }
 
     fn transcribe_parakeet_chunk(
