@@ -12,9 +12,9 @@ use crate::file_transcription_diarization::{
 use crate::managers::deepgram_stt::{DeepgramSttManager, DeepgramTranscriptionOptions};
 use crate::managers::remote_stt::RemoteSttManager;
 use crate::managers::soniox_stt::{SonioxAsyncTranscriptionOptions, SonioxSttManager};
-use crate::managers::transcription::TranscriptionManager;
+use crate::managers::transcription::{FileTranscriptionChunkTraceEntry, TranscriptionManager};
 use crate::settings::{
-    apply_output_whitespace_policy_for_settings, get_settings, write_settings,
+    apply_output_whitespace_policy_for_settings, get_settings, write_settings, AppSettings,
     FileTranscriptionChunkingMode, TranscriptionProvider,
 };
 use crate::subtitle::{
@@ -39,6 +39,8 @@ pub struct FileTranscriptionResult {
     pub segments: Option<Vec<SubtitleSegment>>,
     /// Optional informational message for UI display
     pub info_message: Option<String>,
+    /// Optional smart-chunking trace for UI/debug display
+    pub chunking_trace: Option<Vec<FileTranscriptionChunkTraceEntry>>,
     /// Temporary diarized speaker session for renaming/re-apply
     pub speaker_session: Option<FileTranscriptionSpeakerSession>,
 }
@@ -94,6 +96,15 @@ pub fn reapply_transcription_speaker_names(
 /// Supported audio file extensions
 const SUPPORTED_EXTENSIONS: &[&str] = &["wav", "mp3", "m4a", "ogg", "flac", "webm"];
 const SONIOX_LATEST_ASYNC_MODEL: &str = "stt-async-v4";
+const FILE_TRANSCRIPTION_CANCELLED_MESSAGE: &str = "File transcription was cancelled";
+
+fn ensure_file_transcription_not_cancelled(app: &AppHandle) -> Result<(), String> {
+    let tm = app.state::<Arc<TranscriptionManager>>();
+    if tm.is_file_transcription_cancel_requested() {
+        return Err(FILE_TRANSCRIPTION_CANCELLED_MESSAGE.to_string());
+    }
+    Ok(())
+}
 
 /// Transcribe an audio file to text
 ///
@@ -173,13 +184,28 @@ pub async fn transcribe_audio_file(
         && settings.transcription_provider == TranscriptionProvider::RemoteSoniox;
     let use_deepgram = model_override.is_none()
         && settings.transcription_provider == TranscriptionProvider::RemoteDeepgram;
+    let use_local = !use_remote && !use_soniox && !use_deepgram;
+    let _local_transcription_guard = if use_local {
+        Some(
+            app.state::<Arc<TranscriptionManager>>()
+                .begin_file_transcription_operation(),
+        )
+    } else {
+        None
+    };
     let samples = if use_deepgram {
         Vec::new()
     } else {
+        if use_local {
+            ensure_file_transcription_not_cancelled(&app)?;
+        }
         let samples = decode_audio_file(&path).map_err(|e| {
             error!("Failed to decode audio file: {}", e);
             format!("Failed to decode audio file: {}", e)
         })?;
+        if use_local {
+            ensure_file_transcription_not_cancelled(&app)?;
+        }
 
         if samples.is_empty() {
             return Err("Audio file contains no audio data".to_string());
@@ -189,10 +215,11 @@ pub async fn transcribe_audio_file(
         samples
     };
     let deepgram_audio_bytes = if use_deepgram {
-        Some(std::fs::read(&path).map_err(|e| {
+        let bytes = std::fs::read(&path).map_err(|e| {
             error!("Failed to read audio file for Deepgram: {}", e);
             format!("Failed to read audio file: {}", e)
-        })?)
+        })?;
+        Some(bytes)
     } else {
         None
     };
@@ -530,7 +557,10 @@ pub async fn transcribe_audio_file(
         (text, segs)
     };
 
-    if let Some(meta) = local_execution_meta.filter(|meta| meta.used_vad_chunking) {
+    if let Some(meta) = local_execution_meta
+        .as_ref()
+        .filter(|meta| meta.used_vad_chunking)
+    {
         append_info_message(
             &mut info_message,
             format!(
@@ -597,12 +627,16 @@ pub async fn transcribe_audio_file(
     } else {
         None
     };
+    let chunking_trace = local_execution_meta
+        .as_ref()
+        .and_then(|meta| (!meta.chunking_trace.is_empty()).then(|| meta.chunking_trace.clone()));
 
     Ok(FileTranscriptionResult {
         text: output_text,
         saved_file_path,
         segments,
         info_message,
+        chunking_trace,
         speaker_session,
     })
 }
