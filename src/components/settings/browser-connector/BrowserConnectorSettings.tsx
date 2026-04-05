@@ -578,6 +578,26 @@ export const BrowserConnectorSettings: React.FC = () => {
 
   // Server always binds to 127.0.0.1 and serves /messages
   const endpointUrl = `http://127.0.0.1:${portInput}/messages`;
+  const connectorChecklistItems = [
+    {
+      key: "server",
+      done: Boolean(settings?.connector_enabled),
+      title: t("settings.browserConnector.quickChecklist.server.title"),
+      detail: t("settings.browserConnector.quickChecklist.server.detail"),
+    },
+    {
+      key: "export",
+      done: Boolean(resolvedExportDir),
+      title: t("settings.browserConnector.quickChecklist.export.title"),
+      detail: t("settings.browserConnector.quickChecklist.export.detail"),
+    },
+    {
+      key: "connected",
+      done: Boolean((connectorStatus?.last_poll_at ?? 0) > 0),
+      title: t("settings.browserConnector.quickChecklist.connected.title"),
+      detail: t("settings.browserConnector.quickChecklist.connected.detail"),
+    },
+  ];
 
   return (
     <div className="max-w-3xl w-full mx-auto space-y-8 pb-12">
@@ -624,6 +644,49 @@ export const BrowserConnectorSettings: React.FC = () => {
                 </div>
               </div>
             </div>
+          </div>
+        </div>
+      </div>
+
+      <div className="rounded-lg border border-[#3c3c3c] bg-[#151515] p-4">
+        <div className="space-y-3">
+          <div>
+            <p className="text-sm font-semibold text-text">
+              {t("settings.browserConnector.quickChecklist.title")}
+            </p>
+            <p className="mt-1 text-xs text-text/70">
+              {t("settings.browserConnector.quickChecklist.description")}
+            </p>
+          </div>
+          <div className="space-y-2">
+            {connectorChecklistItems.map((item) => (
+              <div
+                key={item.key}
+                className={`rounded-md border px-3 py-2 ${
+                  item.done
+                    ? "border-emerald-500/30 bg-emerald-500/10"
+                    : "border-[#303030] bg-[#1a1a1a]"
+                }`}
+              >
+                <div className="flex items-start gap-3">
+                  <span
+                    className={`mt-0.5 inline-flex h-5 min-w-5 items-center justify-center rounded-full px-1 text-[10px] font-semibold ${
+                      item.done
+                        ? "bg-emerald-500/20 text-emerald-300"
+                        : "bg-[#262626] text-[#8a8a8a]"
+                    }`}
+                  >
+                    {item.done
+                      ? t("settings.browserConnector.quickChecklist.status.ready")
+                      : t("settings.browserConnector.quickChecklist.status.todo")}
+                  </span>
+                  <div>
+                    <p className="text-sm font-medium text-text">{item.title}</p>
+                    <p className="mt-0.5 text-xs text-text/70">{item.detail}</p>
+                  </div>
+                </div>
+              </div>
+            ))}
           </div>
         </div>
       </div>
