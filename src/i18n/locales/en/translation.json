@@ -356,11 +356,12 @@
   },
   "settings": {
     "generalReadiness": {
-      "title": "Setup health check",
-      "description": "Use this to see what is already configured and what still blocks a smooth first run.",
+      "title": "Things you can setup",
+      "description": "Use this as a quick guide. Optional items are nice extras, not blockers.",
       "status": {
         "ready": "Ready",
-        "todo": "Next"
+        "todo": "Next",
+        "optional": "Optional"
       },
       "microphone": {
         "title": "Microphone selected",
