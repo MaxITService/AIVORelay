@@ -14,6 +14,7 @@ import type { SidebarSection } from "../../Sidebar";
 import { useNavigationStore } from "../../../stores/navigationStore";
 
 type ReadinessTarget = SidebarSection | "profiles" | "sound";
+type ReadinessStatus = "ready" | "todo" | "optional";
 
 export const GeneralSettings: React.FC = () => {
   const { t } = useTranslation();
@@ -74,6 +75,7 @@ export const GeneralSettings: React.FC = () => {
     {
       key: "microphone",
       done: Boolean(settings?.selected_microphone),
+      optional: false,
       title: t("settings.generalReadiness.microphone.title"),
       detail: t("settings.generalReadiness.microphone.detail"),
       actionLabel: t("settings.generalReadiness.microphone.action"),
@@ -82,6 +84,7 @@ export const GeneralSettings: React.FC = () => {
     {
       key: "transcriptionPath",
       done: transcriptionPathReady,
+      optional: false,
       title: t("settings.generalReadiness.transcriptionPath.title"),
       detail: t("settings.generalReadiness.transcriptionPath.detail", {
         mode:
@@ -95,6 +98,7 @@ export const GeneralSettings: React.FC = () => {
     {
       key: "shortcut",
       done: activeProfileShortcut.length > 0,
+      optional: false,
       title: t("settings.generalReadiness.shortcut.title"),
       detail:
         activeProfileShortcut.length > 0
@@ -108,6 +112,7 @@ export const GeneralSettings: React.FC = () => {
     {
       key: "llm",
       done: llmReady,
+      optional: true,
       title: t("settings.generalReadiness.llm.title"),
       detail: t("settings.generalReadiness.llm.detail"),
       actionLabel: t("settings.generalReadiness.llm.action"),
@@ -116,6 +121,7 @@ export const GeneralSettings: React.FC = () => {
     {
       key: "preview",
       done: previewReady,
+      optional: true,
       title: t("settings.generalReadiness.preview.title"),
       detail: t("settings.generalReadiness.preview.detail"),
       actionLabel: t("settings.generalReadiness.preview.action"),
@@ -123,55 +129,36 @@ export const GeneralSettings: React.FC = () => {
     },
   ];
 
+  const getReadinessStatus = (item: (typeof readinessItems)[number]): ReadinessStatus => {
+    if (item.done) return "ready";
+    if (item.optional) return "optional";
+    return "todo";
+  };
+
+  const getReadinessBadgeClass = (status: ReadinessStatus) => {
+    switch (status) {
+      case "ready":
+        return "border-emerald-500/30 bg-emerald-500/15 text-emerald-300";
+      case "optional":
+        return "border-sky-500/30 bg-sky-500/15 text-sky-300";
+      default:
+        return "border-amber-500/30 bg-amber-500/15 text-amber-300";
+    }
+  };
+
+  const getReadinessStatusLabel = (status: ReadinessStatus) => {
+    switch (status) {
+      case "ready":
+        return t("settings.generalReadiness.status.ready");
+      case "optional":
+        return t("settings.generalReadiness.status.optional");
+      default:
+        return t("settings.generalReadiness.status.todo");
+    }
+  };
+
   return (
     <div className="max-w-3xl w-full mx-auto space-y-8 pb-12">
-      <div className="rounded-lg border border-emerald-500/20 bg-emerald-500/8 p-4">
-        <div className="space-y-3">
-          <div>
-            <p className="text-sm font-semibold text-text">
-              {t("settings.generalReadiness.title")}
-            </p>
-            <p className="text-xs text-text/70">
-              {t("settings.generalReadiness.description")}
-            </p>
-          </div>
-          <div className="space-y-2">
-            {readinessItems.map((item) => (
-              <div
-                key={item.key}
-                className="flex flex-col gap-3 rounded-lg border border-white/8 bg-black/10 px-3 py-3 sm:flex-row sm:items-center sm:justify-between"
-              >
-                <div className="min-w-0">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span
-                      className={`inline-flex rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${
-                        item.done
-                          ? "border-emerald-500/30 bg-emerald-500/15 text-emerald-300"
-                          : "border-amber-500/30 bg-amber-500/15 text-amber-300"
-                      }`}
-                    >
-                      {item.done
-                        ? t("settings.generalReadiness.status.ready")
-                        : t("settings.generalReadiness.status.todo")}
-                    </span>
-                    <span className="text-sm font-medium text-text">{item.title}</span>
-                  </div>
-                  <p className="mt-1 text-xs text-text/70">{item.detail}</p>
-                </div>
-                <Button
-                  variant={item.done ? "ghost" : "secondary"}
-                  size="sm"
-                  onClick={() => handleReadinessAction(item.target)}
-                  className="shrink-0"
-                >
-                  {item.actionLabel}
-                </Button>
-              </div>
-            ))}
-          </div>
-        </div>
-      </div>
-
       <div ref={profilesRef}>
         <TranscriptionProfiles />
       </div>
@@ -189,6 +176,52 @@ export const GeneralSettings: React.FC = () => {
           />
           <VolumeSlider disabled={!audioFeedbackEnabled} />
         </SettingsGroup>
+      </div>
+
+      <div className="rounded-lg border border-emerald-500/20 bg-emerald-500/8 p-4">
+        <div className="space-y-3">
+          <div>
+            <p className="text-sm font-semibold text-text">
+              {t("settings.generalReadiness.title")}
+            </p>
+            <p className="text-xs text-text/70">
+              {t("settings.generalReadiness.description")}
+            </p>
+          </div>
+          <div className="space-y-2">
+            {readinessItems.map((item) => {
+              const status = getReadinessStatus(item);
+              return (
+                <div
+                  key={item.key}
+                  className="flex flex-col gap-3 rounded-lg border border-white/8 bg-black/10 px-3 py-3 sm:flex-row sm:items-center sm:justify-between"
+                >
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span
+                        className={`inline-flex rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${getReadinessBadgeClass(
+                          status,
+                        )}`}
+                      >
+                        {getReadinessStatusLabel(status)}
+                      </span>
+                      <span className="text-sm font-medium text-text">{item.title}</span>
+                    </div>
+                    <p className="mt-1 text-xs text-text/70">{item.detail}</p>
+                  </div>
+                  <Button
+                    variant={item.done ? "ghost" : "secondary"}
+                    size="sm"
+                    onClick={() => handleReadinessAction(item.target)}
+                    className="shrink-0"
+                  >
+                    {item.actionLabel}
+                  </Button>
+                </div>
+              );
+            })}
+          </div>
+        </div>
       </div>
     </div>
   );
