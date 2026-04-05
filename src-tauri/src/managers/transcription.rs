@@ -19,7 +19,6 @@ use transcribe_rs::{
     onnx::{
         canary::CanaryModel,
         cohere::CohereModel,
-        cohere_hf::CohereHfModel,
         gigaam::GigaAMModel,
         moonshine::{MoonshineModel, MoonshineVariant, StreamingModel},
         parakeet::{ParakeetModel, ParakeetParams, TimestampGranularity},
@@ -28,7 +27,7 @@ use transcribe_rs::{
     },
     vad::{SileroVad as ChunkingSileroVad, SmoothedVad as ChunkingSmoothedVad, Vad},
     whisper_cpp::{WhisperEngine, WhisperInferenceParams},
-    SpeechModel, TranscribeOptions, TranscriptionResult,
+    SpeechModel, TranscribeOptions, TranscriptionResult, TranscriptionSegment,
 };
 
 #[derive(Clone, Debug, Serialize)]
@@ -48,7 +47,6 @@ enum LoadedEngine {
     GigaAM(GigaAMModel),
     Canary(CanaryModel),
     Cohere(CohereModel),
-    CohereHf(CohereHfModel),
 }
 
 pub struct LoadingGuard {
@@ -545,16 +543,12 @@ impl TranscriptionManager {
                 LoadedEngine::Cohere(engine)
             }
             EngineType::CohereHf => {
-                info!(
-                    "Loading Cohere HF model {} using split FP32 backend",
+                let error_msg = format!(
+                    "Cohere HF model {} is not available in the current CUDA dependency build",
                     model_id
                 );
-                let engine = CohereHfModel::load(&model_path).map_err(|e| {
-                    let error_msg = format!("Failed to load Cohere HF model {}: {}", model_id, e);
-                    emit_loading_failed(&error_msg);
-                    anyhow::anyhow!(error_msg)
-                })?;
-                LoadedEngine::CohereHf(engine)
+                emit_loading_failed(&error_msg);
+                return Err(anyhow::anyhow!(error_msg));
             }
         };
 
@@ -789,24 +783,6 @@ impl TranscriptionManager {
                             cohere_engine
                                 .transcribe(&audio, &options)
                                 .map_err(|e| anyhow::anyhow!("Cohere transcription failed: {}", e))
-                        }
-                        LoadedEngine::CohereHf(cohere_engine) => {
-                            let language = if settings.selected_language == "auto" {
-                                None
-                            } else if settings.selected_language == "zh-Hans"
-                                || settings.selected_language == "zh-Hant"
-                            {
-                                Some("zh".to_string())
-                            } else {
-                                Some(settings.selected_language.clone())
-                            };
-                            let options = TranscribeOptions {
-                                language,
-                                ..Default::default()
-                            };
-                            cohere_engine.transcribe(&audio, &options).map_err(|e| {
-                                anyhow::anyhow!("Cohere HF transcription failed: {}", e)
-                            })
                         }
                     }
                 },
@@ -1072,22 +1048,6 @@ impl TranscriptionManager {
                         .transcribe(&audio, &options)
                         .map_err(|e| map_cohere_error("transcription", e))?
                 }
-                LoadedEngine::CohereHf(cohere_engine) => {
-                    let language = if selected_language == "auto" {
-                        None
-                    } else if selected_language == "zh-Hans" || selected_language == "zh-Hant" {
-                        Some("zh".to_string())
-                    } else {
-                        Some(selected_language.clone())
-                    };
-                    let options = TranscribeOptions {
-                        language,
-                        ..Default::default()
-                    };
-                    cohere_engine
-                        .transcribe(&audio, &options)
-                        .map_err(|e| anyhow::anyhow!("Cohere HF transcription failed: {}", e))?
-                }
             }
         };
 
@@ -1220,7 +1180,9 @@ impl TranscriptionManager {
         let should_apply_custom_words =
             apply_custom_words_enabled && !settings.custom_words.is_empty();
 
-        let segments = result.segments.map(|segs| {
+        let segments = result
+            .segments
+            .map(|segs: Vec<TranscriptionSegment>| {
             segs.into_iter()
                 .map(|seg| {
                     let corrected_text = if should_apply_custom_words {
@@ -1603,28 +1565,6 @@ impl TranscriptionManager {
                         &options,
                         use_chunking,
                         "Cohere",
-                    )?
-                }
-                LoadedEngine::CohereHf(cohere_engine) => {
-                    let language = if selected_language == "auto" {
-                        None
-                    } else if selected_language == "zh-Hans" || selected_language == "zh-Hant" {
-                        Some("zh".to_string())
-                    } else {
-                        Some(selected_language.clone())
-                    };
-                    let options = TranscribeOptions {
-                        language,
-                        ..Default::default()
-                    };
-                    self.transcribe_speech_model_file(
-                        cohere_engine,
-                        &audio,
-                        &settings,
-                        merge_separator,
-                        &options,
-                        use_chunking,
-                        "Cohere HF",
                     )?
                 }
             }
@@ -2280,22 +2220,6 @@ impl TranscriptionManager {
                         .transcribe(&audio, &options)
                         .map_err(|e| map_cohere_error("transcription", e))?
                 }
-                LoadedEngine::CohereHf(cohere_engine) => {
-                    let language = if selected_language == "auto" {
-                        None
-                    } else if selected_language == "zh-Hans" || selected_language == "zh-Hant" {
-                        Some("zh".to_string())
-                    } else {
-                        Some(selected_language.clone())
-                    };
-                    let options = TranscribeOptions {
-                        language,
-                        ..Default::default()
-                    };
-                    cohere_engine
-                        .transcribe(&audio, &options)
-                        .map_err(|e| anyhow::anyhow!("Cohere HF transcription failed: {}", e))?
-                }
             }
         };
 
@@ -2303,7 +2227,8 @@ impl TranscriptionManager {
             apply_custom_words_enabled && !settings.custom_words.is_empty();
 
         // Convert transcribe_rs segments to our SubtitleSegment format
-        let segments: Option<Vec<crate::subtitle::SubtitleSegment>> = result.segments.map(|segs| {
+        let segments: Option<Vec<crate::subtitle::SubtitleSegment>> =
+            result.segments.map(|segs: Vec<TranscriptionSegment>| {
             segs.into_iter()
                 .map(|seg| {
                     let text = if should_apply_custom_words {
@@ -2322,8 +2247,8 @@ impl TranscriptionManager {
                         text,
                     }
                 })
-                .collect()
-        });
+                .collect::<Vec<crate::subtitle::SubtitleSegment>>()
+            });
 
         let corrected_result = if should_apply_custom_words {
             apply_custom_words(
