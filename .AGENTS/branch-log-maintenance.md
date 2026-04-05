@@ -1,20 +1,14 @@
 Branch tags: #branch/codex-combined
 
-# Combined Sync Log Note
+# Combined Sync Maintenance
 
 Read this file only when recording a completed `main -> codex/combined` sync.
-
-## Purpose
-
-This branch does not keep a full propagation manual.
-For local documentation, keep only the log and the branch status accurate.
+This branch does not keep a full propagation log or global status. `main` tracks all branches.
 
 ## After A Successful Sync
 
-1. Update [[.AGENTS/branch-propagation-log|branch-propagation-log.md]] in this branch.
-2. Update [[.AGENTS/branching-status|branching-status.md]] in this branch.
-3. Refresh [[.AGENTS/combined-branch-notes|combined-branch-notes.md]] if the branch-local file set changed.
-4. Mirror the same log and cursor update back into the documentation on `main`.
+1. Refresh [[.AGENTS/combined-branch-notes|combined-branch-notes.md]] if the branch-local file set changed.
+2. Record the successful sync on `main` (update `branch-propagation-log.md` and `branching-status.md` in the `main` branch).
 
 ## Verification Rule
 
@@ -28,9 +22,3 @@ git log codex/combined --oneline
 git cherry -v codex/combined main
 git reflog codex/combined
 ```
-
-## Log Rules
-
-- Keep newest entries first.
-- Keep only the last 10 entries.
-- Keep issue notes very short.
