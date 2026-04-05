@@ -16,6 +16,7 @@ import { stat } from "@tauri-apps/plugin-fs";
 import {
   commands,
   DeepgramFileTranscriptionOptions,
+  FileTranscriptionChunkTraceEntry as BindingChunkingTraceEntry,
   ModelInfo,
   SonioxFileTranscriptionOptions,
 } from "@/bindings";
@@ -43,11 +44,18 @@ type SpeakerNameSetProfile = {
 };
 
 type ChunkingTraceEntry = {
-  chunk_index: number;
-  start_secs: number;
-  end_secs: number;
-  duration_secs: number;
+  chunkIndex: number;
+  startSecs: number;
+  endSecs: number;
+  durationSecs: number;
   reason: string;
+};
+
+type RawChunkingTraceEntry = Partial<BindingChunkingTraceEntry> & {
+  chunk_index?: number;
+  start_secs?: number;
+  end_secs?: number;
+  duration_secs?: number;
 };
 
 const formatAudioDurationClock = (seconds: number | null | undefined): string => {
@@ -97,6 +105,57 @@ const formatChunkTraceTime = (seconds: number): string => {
   return `${String(minutes).padStart(2, "0")}:${remainingSeconds
     .toFixed(2)
     .padStart(5, "0")}`;
+};
+
+const normalizeFiniteNumber = (...values: unknown[]): number | null => {
+  for (const value of values) {
+    if (typeof value === "number" && Number.isFinite(value)) {
+      return value;
+    }
+  }
+  return null;
+};
+
+const normalizeChunkingTrace = (value: unknown): ChunkingTraceEntry[] => {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value.flatMap((rawEntry) => {
+    const entry = rawEntry as RawChunkingTraceEntry;
+    const chunkIndex = normalizeFiniteNumber(entry.chunkIndex, entry.chunk_index);
+    const startSecs = normalizeFiniteNumber(entry.startSecs, entry.start_secs);
+    const endSecs = normalizeFiniteNumber(entry.endSecs, entry.end_secs);
+    const durationSecs = normalizeFiniteNumber(
+      entry.durationSecs,
+      entry.duration_secs,
+      startSecs != null && endSecs != null ? endSecs - startSecs : null,
+    );
+    const reason =
+      typeof entry.reason === "string" && entry.reason.trim().length > 0
+        ? entry.reason
+        : null;
+
+    if (
+      chunkIndex == null ||
+      startSecs == null ||
+      endSecs == null ||
+      durationSecs == null ||
+      reason == null
+    ) {
+      return [];
+    }
+
+    return [
+      {
+        chunkIndex,
+        startSecs,
+        endSecs,
+        durationSecs,
+        reason,
+      },
+    ];
+  });
 };
 
 const loadAudioDuration = async (audioUrl: string): Promise<number | null> =>
@@ -801,11 +860,11 @@ export const TranscribeFileSettings: React.FC = () => {
 
       if (result.status === "ok") {
         const data = result.data as typeof result.data & {
-          chunking_trace?: ChunkingTraceEntry[] | null;
+          chunking_trace?: RawChunkingTraceEntry[] | null;
         };
         setTranscriptionResult(data.text);
         setInfoMessage(data.info_message ?? null);
-        setChunkingTrace(data.chunking_trace ?? []);
+        setChunkingTrace(normalizeChunkingTrace(data.chunking_trace));
         setSpeakerSession(data.speaker_session ?? null);
         if (data.saved_file_path) {
           setSavedFilePath(data.saved_file_path);
@@ -1402,55 +1461,6 @@ export const TranscribeFileSettings: React.FC = () => {
             </div>
           </div>
         )}
-        {infoMessage && (
-          <div className="px-4 py-3 border-t border-white/[0.05]">
-            <div className="p-3 bg-[#9b5de5]/10 border border-[#9b5de5]/30 rounded-lg">
-              <p className="text-sm whitespace-pre-line text-[#d7b9ff]">
-                {infoMessage}
-              </p>
-            </div>
-          </div>
-        )}
-        {chunkingTrace.length > 0 && (
-          <div className="px-4 py-3 border-t border-white/[0.05]">
-            <div className="rounded-lg border border-[#333333] bg-[#151515] p-3">
-              <div className="mb-3">
-                <p className="text-sm text-[#f5f5f5]">
-                  {t("transcribeFile.chunkingConsole.title")}
-                </p>
-                <p className="text-xs text-[#808080]">
-                  {t("transcribeFile.chunkingConsole.hint")}
-                </p>
-              </div>
-              <div className="max-h-56 overflow-y-auto rounded-lg border border-[#222222] bg-[#0b0b0b] px-3 py-2 font-mono text-xs text-[#d7d7d7]">
-                <div className="space-y-1">
-                  {chunkingTrace.map((entry) => (
-                    <div
-                      key={`${entry.chunk_index}-${entry.start_secs}-${entry.reason}`}
-                      className="flex flex-wrap items-center gap-x-3 gap-y-1"
-                    >
-                      <span className="text-[#9b5de5]">
-                        #{entry.chunk_index}
-                      </span>
-                      <span>
-                        {formatChunkTraceTime(entry.start_secs)} {"->"}{" "}
-                        {formatChunkTraceTime(entry.end_secs)}
-                      </span>
-                      <span className="text-[#8a8a8a]">
-                        ({entry.duration_secs.toFixed(1)}s)
-                      </span>
-                      <span className="text-[#9ad1ff]">
-                        {t(
-                          `transcribeFile.chunkingConsole.reason.${entry.reason}`,
-                        )}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
 
         {/* Results */}
         {transcriptionResult && (
@@ -1656,6 +1666,55 @@ export const TranscribeFileSettings: React.FC = () => {
                 </div>
               )}
             </div>
+          </div>
+        )}
+        {(infoMessage || chunkingTrace.length > 0) && (
+          <div className="px-4 py-3 border-t border-white/[0.05] space-y-3">
+            {infoMessage && (
+              <div className="p-3 bg-[#9b5de5]/10 border border-[#9b5de5]/30 rounded-lg">
+                <p className="text-sm whitespace-pre-line text-[#d7b9ff]">
+                  {infoMessage}
+                </p>
+              </div>
+            )}
+            {chunkingTrace.length > 0 && (
+              <div className="rounded-lg border border-[#333333] bg-[#151515] p-3">
+                <div className="mb-3">
+                  <p className="text-sm text-[#f5f5f5]">
+                    {t("transcribeFile.chunkingConsole.title")}
+                  </p>
+                  <p className="text-xs text-[#808080]">
+                    {t("transcribeFile.chunkingConsole.hint")}
+                  </p>
+                </div>
+                <div className="max-h-56 overflow-y-auto rounded-lg border border-[#222222] bg-[#0b0b0b] px-3 py-2 font-mono text-xs text-[#d7d7d7]">
+                  <div className="space-y-1">
+                    {chunkingTrace.map((entry) => (
+                      <div
+                        key={`${entry.chunkIndex}-${entry.startSecs}-${entry.reason}`}
+                        className="flex flex-wrap items-center gap-x-3 gap-y-1"
+                      >
+                        <span className="text-[#9b5de5]">
+                          #{entry.chunkIndex}
+                        </span>
+                        <span>
+                          {formatChunkTraceTime(entry.startSecs)} {"->"}{" "}
+                          {formatChunkTraceTime(entry.endSecs)}
+                        </span>
+                        <span className="text-[#8a8a8a]">
+                          ({entry.durationSecs.toFixed(1)}s)
+                        </span>
+                        <span className="text-[#9ad1ff]">
+                          {t(
+                            `transcribeFile.chunkingConsole.reason.${entry.reason}`,
+                          )}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         )}
       </SettingsGroup>
