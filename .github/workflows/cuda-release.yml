@@ -34,6 +34,7 @@ jobs:
               owner: context.repo.owner,
               repo: context.repo.repo,
               tag_name: `v${{ steps.get-version.outputs.version }}-cuda`,
+              target_commitish: context.sha,
               name: `v${{ steps.get-version.outputs.version }} (CUDA Edition)`,
               body,
               draft: true,
