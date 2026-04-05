@@ -7,7 +7,7 @@ For branch-specific exclusions and allowed commit types, see their respective pl
 - [[.AGENTS/main-to-cuda-propagation-playbook|main-to-cuda-propagation-playbook.md]]
 - [[.AGENTS/main-to-combined-propagation-playbook|main-to-combined-propagation-playbook.md]]
 
-Do not use upstream-intake filtering here. That is a separate workflow described in:
+Do not use upstream-intake filtering here. That is a separate workflow described in and is for upstream only:
 - [[.AGENTS/upstream-intake-playbook|upstream-intake-playbook.md]]
 
 Primary rolling reference:
@@ -55,15 +55,16 @@ Common Documentation Handling:
 4. Exclude any documentation file that is clearly `main`-only.
 5. If a documentation file appears branch-shared and looks like it should exist on all branches, ask the user about that specific file before propagating it.
 6. Check the target branch's specific playbook for additional exclusions/inclusions.
-7. Switch to the target branch.
-8. Cherry-pick selected non-documentation `main` commits in order, plus only the documentation files the user explicitly approved, minus branch-specific exclusions.
-9. If conflicts are small and safe, resolve and continue.
-10. If conflicts are many/high-risk, run `git cherry-pick --abort` and switch to diff-path using `.AGENTS/.UNTRACKED/<sha>.diff.txt`.
-11. Record resulting local commit hashes.
-12. Update [[.AGENTS/branch-propagation-log|branch-propagation-log.md]] in the target branch worktree after successful propagation.
-13. Update [[.AGENTS/branching-status|branching-status.md]] in the target branch worktree after successful propagation.
-14. Mirror the same propagation-log entry and cursor update back into `main`'s `.AGENTS` docs before considering the sync finished.
-15. Return to the original branch if needed.
+7. Propose the list of commits to propagate, in table, with numbers and ask the user for approval, usually user will reject some nubmers. Table features commits already excluded by logic. When user approves, this means proceed on commits that are not rejected.
+8. Switch to the target branch.
+9. Cherry-pick selected non-documentation `main` commits in order, plus only the documentation files the user explicitly approved, minus branch-specific exclusions.
+10. If conflicts are small and safe, resolve and continue.
+11. If conflicts are many/high-risk, run `git cherry-pick --abort` and switch to diff-path using `.AGENTS/.UNTRACKED/<sha>.diff.txt`.
+12. Record resulting local commit hashes.
+13. Update [[.AGENTS/branch-propagation-log|branch-propagation-log.md]] in the target branch worktree after successful propagation.
+14. Update [[.AGENTS/branching-status|branching-status.md]] in the target branch worktree after successful propagation.
+15. Mirror the same propagation-log entry and cursor update back into `main`'s `.AGENTS` docs before considering the sync finished.
+16. Return to the original branch if needed.
 
 ## Cargo.lock Rules
 
