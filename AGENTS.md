@@ -35,7 +35,8 @@ When the user says "all branches", they currently mean these four branches.
 - If you modify fork-specific code or add fork features, read [[.AGENTS/code-notes|code-notes.md]].
 - If you need build, toolchain, bindings, or verification rules, read [[.AGENTS/build-environment|build-environment.md]].
 - If you do `upstream/main -> main` intake, read [[.AGENTS/upstream-intake-playbook|upstream-intake-playbook.md]].
-- If you propagate `main` into a release branch, read the matching playbook:
+- If you propagate `main` into a release branch, read the general playbook and the matching specific one:
+  - [[.AGENTS/general-branch-propagation-playbook|general-branch-propagation-playbook.md]]
   - [[.AGENTS/main-to-microsoft-store-propagation-playbook|main-to-microsoft-store-propagation-playbook.md]]
   - [[.AGENTS/main-to-cuda-propagation-playbook|main-to-cuda-propagation-playbook.md]]
   - [[.AGENTS/main-to-combined-propagation-playbook|main-to-combined-propagation-playbook.md]]
