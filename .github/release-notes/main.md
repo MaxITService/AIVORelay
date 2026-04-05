@@ -5,17 +5,13 @@ GitHub Actions prepends this Markdown above GitHub-generated release notes.
 
 ## Highlights
 
-- Fixed loading of partially invalid settings so the app recovers more reliably from broken config state.
-- Added Cohere transcription support.
-- Model settings now show more metadata, including supported languages.
-- Recording overlay customization is expanded with icon and decap indicator controls.
-- Added a floating overlay preview panel and reorganized overlay appearance settings for easier setup.
-- Improved local model warmup by preloading the recorder.
-- Increased the default model unload timeout to 15 minutes.
-- Added a fix for older CPUs that could crash during transcription.
-- The tray tooltip now shows the current app version.
+- File transcription can now run while recording is in progress.
+- Added a setup checklist and setup health check to make initial setup easier.
+- Improved smart chunking for long local-model file transcription jobs, including Parakeet.
+- Tightened setup readiness checks for shortcuts and the browser connector.
+- Fixed a crash path around the chunking flow and cleaned up the related UI.
 
 ---
 
 **Notice:**
-If the application crashes on an older CPU during transcription, please use the Microsoft Store build for the same app version: [v1.0.8-store](https://github.com/MaxITService/AIVORelay/releases/tag/v1.0.8-store).
+If the application crashes on an older CPU during transcription, please use the Microsoft Store build for the same app version: [v1.0.9-store](https://github.com/MaxITService/AIVORelay/releases/tag/v1.0.9-store).
