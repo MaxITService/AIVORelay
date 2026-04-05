@@ -95,6 +95,7 @@ export const BrowserConnectorSettings: React.FC = () => {
   const [showCopiedTooltip, setShowCopiedTooltip] = useState(false);
   const [isExportingExtension, setIsExportingExtension] = useState(false);
   const [exportPathInput, setExportPathInput] = useState("");
+  const [hasExplicitExportPath, setHasExplicitExportPath] = useState(false);
   const [generateNewExtensionId, setGenerateNewExtensionId] = useState(false);
   const [extensionExportStatus, setExtensionExportStatus] = useState<{
     type: "success" | "error";
@@ -168,6 +169,7 @@ export const BrowserConnectorSettings: React.FC = () => {
         if (storedPath) {
           if (isMounted) {
             setExportPathInput(storedPath);
+            setHasExplicitExportPath(true);
           }
           return;
         }
@@ -353,6 +355,7 @@ export const BrowserConnectorSettings: React.FC = () => {
     }
 
     setExportPathInput(selectedDirectory);
+    setHasExplicitExportPath(true);
     try {
       window.localStorage.setItem(EXPORT_PATH_STORAGE_KEY, selectedDirectory);
     } catch {
@@ -411,6 +414,7 @@ export const BrowserConnectorSettings: React.FC = () => {
         type: "success",
         message: successMessage,
       });
+      setHasExplicitExportPath(true);
     } catch (error) {
       setExtensionExportStatus({
         type: "error",
@@ -587,13 +591,13 @@ export const BrowserConnectorSettings: React.FC = () => {
     },
     {
       key: "export",
-      done: Boolean(resolvedExportDir),
+      done: Boolean(lastExportDir) || (hasExplicitExportPath && Boolean(resolvedExportDir)),
       title: t("settings.browserConnector.quickChecklist.export.title"),
       detail: t("settings.browserConnector.quickChecklist.export.detail"),
     },
     {
       key: "connected",
-      done: Boolean((connectorStatus?.last_poll_at ?? 0) > 0),
+      done: connectorStatus?.status === "online",
       title: t("settings.browserConnector.quickChecklist.connected.title"),
       detail: t("settings.browserConnector.quickChecklist.connected.detail"),
     },
@@ -740,7 +744,10 @@ export const BrowserConnectorSettings: React.FC = () => {
                   <Input
                     type="text"
                     value={exportPathInput}
-                    onChange={(event) => setExportPathInput(event.target.value)}
+                    onChange={(event) => {
+                      setExportPathInput(event.target.value);
+                      setHasExplicitExportPath(true);
+                    }}
                     placeholder={t("settings.browserConnector.tellMeMore.getExtension.actions.pathPlaceholder")}
                     className="flex-1 font-mono text-sm"
                   />
