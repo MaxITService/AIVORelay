@@ -58,6 +58,13 @@ type RawChunkingTraceEntry = Partial<BindingChunkingTraceEntry> & {
   duration_secs?: number;
 };
 
+type FileTranscriptionRecordingState = {
+  isRecording: boolean;
+  recordingUsesLocalModel: boolean;
+  fileTranscriptionUsesLocalModel: boolean;
+  blocksFileTranscription: boolean;
+};
+
 const formatAudioDurationClock = (seconds: number | null | undefined): string => {
   if (seconds == null || !Number.isFinite(seconds) || seconds < 0) {
     return "";
@@ -303,6 +310,8 @@ export const TranscribeFileSettings: React.FC = () => {
   const [isCancellingTranscription, setIsCancellingTranscription] =
     useState(false);
   const [chunkingTrace, setChunkingTrace] = useState<ChunkingTraceEntry[]>([]);
+  const [recordingBlocksFileTranscription, setRecordingBlocksFileTranscription] =
+    useState(false);
 
   const dropZoneRef = useRef<HTMLDivElement>(null);
   const selectedFileRef = useRef<SelectedFile | null>(selectedFile);
@@ -486,21 +495,35 @@ export const TranscribeFileSettings: React.FC = () => {
     t,
   ]);
 
-  // Check recording state periodically
+  // Check active recording state and whether it actually blocks file transcription.
   useEffect(() => {
     const checkRecording = async () => {
       try {
-        const isRec = await commands.isRecording();
-        setIsRecording(isRec);
+        const state = await invoke<FileTranscriptionRecordingState>(
+          "get_file_transcription_recording_state",
+          { modelOverride: overrideModelId },
+        );
+        setIsRecording(Boolean(state.isRecording));
+        setRecordingBlocksFileTranscription(
+          Boolean(state.blocksFileTranscription),
+        );
       } catch (e) {
-        // Ignore errors
+        try {
+          const isRec = await commands.isRecording();
+          setIsRecording(isRec);
+          setRecordingBlocksFileTranscription(
+            isRec && (transcriptionProvider === "local" || !!overrideModelId),
+          );
+        } catch {
+          // Ignore errors
+        }
       }
     };
 
     checkRecording();
     const interval = setInterval(checkRecording, 500);
     return () => clearInterval(interval);
-  }, []);
+  }, [overrideModelId, transcriptionProvider]);
 
   // Fetch available models on mount
   useEffect(() => {
@@ -617,7 +640,7 @@ export const TranscribeFileSettings: React.FC = () => {
         : showSonioxFileOptions
           ? "Soniox"
       : null;
-  const canTranscribe = !isTranscribing && !isRecording;
+  const canTranscribe = !isTranscribing && !recordingBlocksFileTranscription;
 
   useEffect(() => {
     if (!selectedSpeakerNameProfileId) {
@@ -1410,8 +1433,8 @@ export const TranscribeFileSettings: React.FC = () => {
                 disabled={!canTranscribe}
                 className="flex items-center gap-2"
                 title={
-                  isRecording
-                    ? t("transcribeFile.recordingInProgress")
+                  recordingBlocksFileTranscription
+                    ? t("transcribeFile.recordingLocalConflict")
                     : selectedFileDurationWarning
                       ? selectedFileDurationWarning
                       : undefined
@@ -1445,9 +1468,9 @@ export const TranscribeFileSettings: React.FC = () => {
                 {t("transcribeFile.clear")}
               </Button>
             </div>
-            {isRecording && (
+            {recordingBlocksFileTranscription && (
               <p className="text-xs text-amber-400 mt-2">
-                {t("transcribeFile.recordingInProgress")}
+                {t("transcribeFile.recordingLocalConflict")}
               </p>
             )}
           </div>
