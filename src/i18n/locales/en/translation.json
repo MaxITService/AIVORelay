@@ -2054,6 +2054,26 @@
       }
     },
     "browserConnector": {
+      "quickChecklist": {
+        "title": "Quick install checklist",
+        "description": "Use this as the shortest path from zero to a working browser connection.",
+        "status": {
+          "ready": "Ready",
+          "todo": "Next"
+        },
+        "server": {
+          "title": "Enable the connector server",
+          "detail": "This turns on the local endpoint the browser extension talks to."
+        },
+        "export": {
+          "title": "Choose where to export the extension",
+          "detail": "Export once, then load that unpacked folder in your browser."
+        },
+        "connected": {
+          "title": "Confirm the extension has connected at least once",
+          "detail": "A recent poll confirms the browser side can reach AivoRelay successfully."
+        }
+      },
       "help": {
         "title": "What is Browser Connector?",
         "description": "Browser Connector sends your voice transcriptions directly to AI chat interfaces (like ChatGPT, Claude) through the <link>AivoRelay Connector</link> Chrome extension.",
