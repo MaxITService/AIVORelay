@@ -355,6 +355,42 @@
     "customModelsDetected": "Detected custom models: {{count}}"
   },
   "settings": {
+    "generalReadiness": {
+      "title": "Setup health check",
+      "description": "Use this to see what is already configured and what still blocks a smooth first run.",
+      "status": {
+        "ready": "Ready",
+        "todo": "Next"
+      },
+      "microphone": {
+        "title": "Microphone selected",
+        "detail": "Choose the device you actually speak into so the rest of the tuning starts from the right source.",
+        "action": "Review sound settings"
+      },
+      "transcriptionPath": {
+        "title": "Transcription path chosen",
+        "detail": "Your current mode is {{mode}}. Make sure that path already has a usable model or provider selected.",
+        "localMode": "Local",
+        "remoteMode": "Remote",
+        "action": "Open models"
+      },
+      "shortcut": {
+        "title": "Main recording shortcut set",
+        "detail": "Without a shortcut, the app is configured but not convenient to use day to day.",
+        "readyDetail": "Current shortcut: {{binding}}",
+        "action": "Review profiles"
+      },
+      "llm": {
+        "title": "AI refinement ready",
+        "detail": "Optional, but this is what unlocks cleanup, rewriting, translation, and smarter workflows after transcription.",
+        "action": "Open AI settings"
+      },
+      "preview": {
+        "title": "Review-before-insert workflow",
+        "detail": "Optional, but useful when you want to inspect text before it reaches the target app.",
+        "action": "Open preview settings"
+      }
+    },
     "userInterface": {
       "title": "User Interface",
       "sidebarReorder": {
