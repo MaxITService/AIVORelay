@@ -3389,7 +3389,7 @@ export type DecapitalizeOverlayStateResponse = { decapitalizeEligible: boolean; 
 export type DeepgramFileTranscriptionOptions = { diarize: boolean | null; multichannel: boolean | null }
 export type DiarizationSpeakerNameProfile = { id: string; name: string; speaker_names?: string[] }
 export type DiarizedTranscriptProvider = "deepgram" | "soniox"
-export type EngineType = "Whisper" | "Parakeet" | "Moonshine" | "MoonshineStreaming" | "SenseVoice" | "GigaAM" | "Canary"
+export type EngineType = "Whisper" | "Parakeet" | "Moonshine" | "MoonshineStreaming" | "SenseVoice" | "GigaAM" | "Canary" | "Cohere" | "CohereHf"
 /**
  * PowerShell execution policy for voice commands.
  * Controls script execution permissions.

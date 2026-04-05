@@ -13,6 +13,7 @@ import { SettingsGroup } from "../../ui/SettingsGroup";
 import { TellMeMore } from "../../ui/TellMeMore";
 import { RemoteSttSettings } from "../remote-stt/RemoteSttSettings";
 import { ExternalModelDownloadModal } from "./ExternalModelDownloadModal";
+import { ModelMetadataPanel } from "./ModelMetadataPanel";
 
 type ExternalDownloadInfo = {
   sourceLabel: string;
@@ -408,6 +409,7 @@ export const ModelsSettings: React.FC = () => {
                   <p className="text-xs text-[#a0a0a0] mt-1">
                     {getTranslatedModelDescription(model, t)}
                   </p>
+                  <ModelMetadataPanel model={model} />
                 </div>
 
                 <div className="flex items-center gap-2">
@@ -461,6 +463,7 @@ export const ModelsSettings: React.FC = () => {
                 <p className="text-xs text-[#a0a0a0] mt-1">
                   {getTranslatedModelDescription(model, t)}
                 </p>
+                <ModelMetadataPanel model={model} />
                 <p className="text-xs text-[#8a8a8a] mt-1">
                   {t("modelSelector.downloadSize")} · {formatModelSize(Number(model.size_mb))}
                 </p>

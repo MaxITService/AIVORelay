@@ -311,7 +311,12 @@ impl ModelManager {
                 speed_score: 0.35,
                 supports_translation: false,
                 is_recommended: false,
-                supported_languages: whisper_languages.clone(),
+                // Official Breeze ASR positioning is Taiwanese Mandarin first,
+                // with Mandarin-English code-switching support.
+                supported_languages: vec!["zh", "zh-Hant", "en"]
+                    .into_iter()
+                    .map(String::from)
+                    .collect(),
                 is_custom: false,
             },
         );
