@@ -2821,6 +2821,22 @@ async transcribeAudioFile(filePath: string, profileId: string | null, saveToFile
     else return { status: "error", error: e  as any };
 }
 },
+async changeFileTranscriptionChunkingModeSetting(mode: FileTranscriptionChunkingMode) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("change_file_transcription_chunking_mode_setting", { mode }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async changeFileTranscriptionChunkingMaxMinutesSetting(minutes: number) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("change_file_transcription_chunking_max_minutes_setting", { minutes }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async reapplyTranscriptionSpeakerNames(artifactPath: string, speakerNames: FileTranscriptionSpeakerNameInput[]) : Promise<Result<string, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("reapply_transcription_speaker_names", { artifactPath, speakerNames }) };
@@ -3060,7 +3076,7 @@ send_to_extension_enabled?: boolean; send_to_extension_push_to_talk?: boolean;
 /**
  * Whether the "Send Transcription + Selection to Extension" action is enabled (risky feature)
  */
-send_to_extension_with_selection_enabled?: boolean; send_to_extension_with_selection_push_to_talk?: boolean; send_to_extension_with_selection_allow_no_voice?: boolean; send_to_extension_with_selection_quick_tap_threshold_ms?: number; send_to_extension_with_selection_no_voice_system_prompt?: string; ai_replace_selection_push_to_talk?: boolean; mute_while_recording?: boolean; filter_silence?: boolean; 
+send_to_extension_with_selection_enabled?: boolean; send_to_extension_with_selection_push_to_talk?: boolean; send_to_extension_with_selection_allow_no_voice?: boolean; send_to_extension_with_selection_quick_tap_threshold_ms?: number; send_to_extension_with_selection_no_voice_system_prompt?: string; ai_replace_selection_push_to_talk?: boolean; mute_while_recording?: boolean; filter_silence?: boolean; file_transcription_chunking_mode?: FileTranscriptionChunkingMode; file_transcription_chunking_max_minutes?: number; 
 /**
  * Optional microphone-only preamp in dB, saved per microphone device name.
  */
@@ -3427,6 +3443,8 @@ export type ExtensionStatus =
  * Server is starting up, status unknown
  */
 "unknown"
+export type FileTranscriptionChunkTraceEntry = { chunkIndex: number; startSecs: number; endSecs: number; durationSecs: number; reason: string }
+export type FileTranscriptionChunkingMode = "auto" | "off" | "custom"
 /**
  * Result of a file transcription operation
  */
@@ -3447,6 +3465,10 @@ segments: SubtitleSegment[] | null;
  * Optional informational message for UI display
  */
 info_message: string | null; 
+/**
+ * Optional smart-chunking trace for UI/debug display
+ */
+chunking_trace: FileTranscriptionChunkTraceEntry[] | null; 
 /**
  * Temporary diarized speaker session for renaming/re-apply
  */
