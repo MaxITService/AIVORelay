@@ -30,8 +30,16 @@ export const GeneralSettings: React.FC = () => {
     activeProfileId === "default"
       ? null
       : profiles.find((profile) => profile.id === activeProfileId) || null;
-  const activeProfileShortcut =
-    settings?.bindings?.transcribe_active_profile?.current_binding?.trim() || "";
+  const transcribeShortcut = settings?.bindings?.transcribe?.current_binding?.trim() || "";
+  const defaultProfileShortcut =
+    settings?.bindings?.transcribe_default?.current_binding?.trim() || "";
+  const activeProfileBindingId =
+    activeProfileId !== "default" ? `transcribe_${activeProfileId}` : null;
+  const activeProfileSpecificShortcut = activeProfileBindingId
+    ? settings?.bindings?.[activeProfileBindingId]?.current_binding?.trim() || ""
+    : "";
+  const mainRecordingShortcut =
+    transcribeShortcut || activeProfileSpecificShortcut || defaultProfileShortcut;
   const localModelReady = Boolean(settings?.selected_model);
   const remoteModelReady =
     transcriptionProvider === "remote_openai_compatible"
@@ -97,13 +105,13 @@ export const GeneralSettings: React.FC = () => {
     },
     {
       key: "shortcut",
-      done: activeProfileShortcut.length > 0,
+      done: mainRecordingShortcut.length > 0,
       optional: false,
       title: t("settings.generalReadiness.shortcut.title"),
       detail:
-        activeProfileShortcut.length > 0
+        mainRecordingShortcut.length > 0
           ? t("settings.generalReadiness.shortcut.readyDetail", {
-              binding: activeProfileShortcut,
+              binding: mainRecordingShortcut,
             })
           : t("settings.generalReadiness.shortcut.detail"),
       actionLabel: t("settings.generalReadiness.shortcut.action"),
