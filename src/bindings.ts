@@ -2821,6 +2821,9 @@ async transcribeAudioFile(filePath: string, profileId: string | null, saveToFile
     else return { status: "error", error: e  as any };
 }
 },
+async getFileTranscriptionRecordingState(modelOverride: string | null) : Promise<FileTranscriptionRecordingState> {
+    return await TAURI_INVOKE("get_file_transcription_recording_state", { modelOverride });
+},
 async changeFileTranscriptionChunkingModeSetting(mode: FileTranscriptionChunkingMode) : Promise<Result<null, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("change_file_transcription_chunking_mode_setting", { mode }) };
@@ -3445,6 +3448,7 @@ export type ExtensionStatus =
 "unknown"
 export type FileTranscriptionChunkTraceEntry = { chunkIndex: number; startSecs: number; endSecs: number; durationSecs: number; reason: string }
 export type FileTranscriptionChunkingMode = "auto" | "off" | "custom"
+export type FileTranscriptionRecordingState = { isRecording: boolean; recordingUsesLocalModel: boolean; fileTranscriptionUsesLocalModel: boolean; blocksFileTranscription: boolean }
 /**
  * Result of a file transcription operation
  */

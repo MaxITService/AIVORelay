@@ -3,6 +3,7 @@
 //! Supports common audio formats: wav, mp3, m4a, ogg, flac, webm
 //! Uses the same transcription infrastructure as live recording.
 
+use crate::actions::LIVE_SOUND_TRANSCRIPTION_BINDING_ID;
 use crate::audio_toolkit::apply_custom_words;
 use crate::file_transcription_diarization::{
     create_diarized_transcript_session, normalize_raw_speaker_blocks, reapply_diarized_transcript,
@@ -13,9 +14,10 @@ use crate::managers::deepgram_stt::{DeepgramSttManager, DeepgramTranscriptionOpt
 use crate::managers::remote_stt::RemoteSttManager;
 use crate::managers::soniox_stt::{SonioxAsyncTranscriptionOptions, SonioxSttManager};
 use crate::managers::transcription::{FileTranscriptionChunkTraceEntry, TranscriptionManager};
+use crate::session_manager::ManagedSessionState;
 use crate::settings::{
-    apply_output_whitespace_policy_for_settings, get_settings, write_settings, AppSettings,
-    FileTranscriptionChunkingMode, TranscriptionProvider,
+    apply_output_whitespace_policy_for_settings, get_settings, resolve_live_sound_provider,
+    write_settings, AppSettings, FileTranscriptionChunkingMode, TranscriptionProvider,
 };
 use crate::subtitle::{
     get_format_extension, segments_to_srt, segments_to_vtt, OutputFormat, SubtitleSegment,
@@ -60,6 +62,15 @@ pub struct DeepgramFileTranscriptionOptions {
     pub multichannel: Option<bool>,
 }
 
+#[derive(Serialize, Type, Debug, Clone, Copy)]
+#[serde(rename_all = "camelCase")]
+pub struct FileTranscriptionRecordingState {
+    pub is_recording: bool,
+    pub recording_uses_local_model: bool,
+    pub file_transcription_uses_local_model: bool,
+    pub blocks_file_transcription: bool,
+}
+
 #[tauri::command]
 #[specta::specta]
 pub fn change_file_transcription_chunking_mode_setting(
@@ -93,10 +104,64 @@ pub fn reapply_transcription_speaker_names(
     reapply_diarized_transcript(&artifact_path, &speaker_names)
 }
 
+#[tauri::command]
+#[specta::specta]
+pub fn get_file_transcription_recording_state(
+    app: AppHandle,
+    model_override: Option<String>,
+) -> FileTranscriptionRecordingState {
+    let settings = get_settings(&app);
+    let file_transcription_uses_local_model =
+        file_transcription_uses_local_model(&settings, model_override.as_deref());
+    let recording_uses_local_model = active_recording_uses_local_model(&app);
+    let is_recording = app
+        .state::<Arc<crate::managers::audio::AudioRecordingManager>>()
+        .is_recording();
+
+    FileTranscriptionRecordingState {
+        is_recording,
+        recording_uses_local_model,
+        file_transcription_uses_local_model,
+        blocks_file_transcription: is_recording
+            && recording_uses_local_model
+            && file_transcription_uses_local_model,
+    }
+}
+
 /// Supported audio file extensions
 const SUPPORTED_EXTENSIONS: &[&str] = &["wav", "mp3", "m4a", "ogg", "flac", "webm"];
 const SONIOX_LATEST_ASYNC_MODEL: &str = "stt-async-v4";
 const FILE_TRANSCRIPTION_CANCELLED_MESSAGE: &str = "File transcription was cancelled";
+
+fn file_transcription_uses_local_model(
+    settings: &AppSettings,
+    model_override: Option<&str>,
+) -> bool {
+    model_override.is_some() || settings.transcription_provider == TranscriptionProvider::Local
+}
+
+fn active_recording_uses_local_model(app: &AppHandle) -> bool {
+    let state = app.state::<ManagedSessionState>();
+    let Ok(state_guard) = state.lock() else {
+        return false;
+    };
+
+    match &*state_guard {
+        crate::session_manager::SessionState::Recording {
+            binding_id,
+            captured_settings,
+            ..
+        } => {
+            let provider = if binding_id == LIVE_SOUND_TRANSCRIPTION_BINDING_ID {
+                resolve_live_sound_provider(captured_settings)
+            } else {
+                captured_settings.transcription_provider
+            };
+            provider == TranscriptionProvider::Local
+        }
+        _ => false,
+    }
+}
 
 fn ensure_file_transcription_not_cancelled(app: &AppHandle) -> Result<(), String> {
     let tm = app.state::<Arc<TranscriptionManager>>();
@@ -184,7 +249,13 @@ pub async fn transcribe_audio_file(
         && settings.transcription_provider == TranscriptionProvider::RemoteSoniox;
     let use_deepgram = model_override.is_none()
         && settings.transcription_provider == TranscriptionProvider::RemoteDeepgram;
-    let use_local = !use_remote && !use_soniox && !use_deepgram;
+    let use_local = file_transcription_uses_local_model(&settings, model_override.as_deref());
+    if use_local && active_recording_uses_local_model(&app) {
+        return Err(
+            "Local file transcription is unavailable while a local recording is active."
+                .to_string(),
+        );
+    }
     let _local_transcription_guard = if use_local {
         Some(
             app.state::<Arc<TranscriptionManager>>()

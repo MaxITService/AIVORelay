@@ -2742,7 +2742,8 @@
     "savedTo": "Saved to",
     "unsupportedFormat": "Unsupported format: .{{format}}. Supported: {{supported}}",
     "usePicker": "Drag & drop is not supported. Please click to select a file.",
-    "recordingInProgress": "Recording in progress. Please wait for it to finish."
+    "recordingInProgress": "Recording in progress. Please wait for it to finish.",
+    "recordingLocalConflict": "A local recording is currently using the local model. File transcription is blocked only for overlapping local-local runs."
   },
   "textReplacement": {
     "title": "Text Processing",
