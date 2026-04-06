@@ -4,6 +4,7 @@ import { getVersion } from "@tauri-apps/api/app";
 import ModelSelector from "../model-selector";
 import UpdateChecker from "../update-checker";
 import VramMeter from "./VramMeter";
+import FooterCpuWarning from "./FooterCpuWarning";
 
 const Footer: React.FC = () => {
   const [version, setVersion] = useState("");
@@ -31,6 +32,7 @@ const Footer: React.FC = () => {
             onInteraction={() => setVramRefreshNonce((prev) => prev + 1)}
           />
           <VramMeter refreshNonce={vramRefreshNonce} />
+          <FooterCpuWarning />
         </div>
 
         {/* Update Status */}
