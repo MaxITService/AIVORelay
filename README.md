@@ -22,11 +22,11 @@ AI Voice Relay
 
 ### Place cursor anywhere, press hotkey, speak, and watch your text appear in place!
 
-Of cours, basic speech to text, all that upstream can do. Lots of models: cloud, local, languages auto pick up, etc.
+Of course, basic speech-to-text, all that upstream can do. Lots of models: cloud, local, languages auto pick up, etc.
 
 ### 🎚️ Transcription Profiles
 
-Quick-switch between language, prompt, and LLM post-processing presets with dedicated shortcuts: swithc currently active profile or assign each profile its own hotkey!
+Quick-switch between language, prompt, and LLM post-processing presets with dedicated shortcuts: switch the currently active profile or assign each profile its own hotkey!
 
 #### What Are Profiles?
 
@@ -35,7 +35,7 @@ Profiles let you create different transcription configurations and switch betwee
 - **Multilingual users** — Switch between English, Russian, Finnish, etc.
 - **Different use cases** — One profile for dictation, another for code comments
 - **Translation workflows** — Speak in one language, output in another + auto switch language with Windows language!
-- **Everything you can imagine!** — Serioulsy, you can invent so many uses!
+- **Everything you can imagine!** — Seriously, you can invent so many uses!
 
 #### Profile Settings
 
@@ -48,7 +48,7 @@ Each profile can override the global LLM post-processing settings:
 - **Custom Prompt** — Use a different prompt than the global one
 - **Custom Model** — Use a different LLM model per profile
 
-**Example:** Create a "Finnish Translation" profile that takes any language input and outputs Finnish text via L
+**Example:** Create a "Finnish Translation" profile that takes any language input and outputs Finnish text via LLM.
 #### The `${output}` Variable
 
 When writing LLM prompts, use `${output}` as a placeholder for the transcribed text:
@@ -66,13 +66,13 @@ Translate this to Finnish: ${output}
 
 #### Shortcuts
 
-Assign key combination to following actions:
+Assign key combinations to the following actions:
 
 | Shortcut                        | Action                                           |
 | ------------------------------- | ------------------------------------------------ |
 | **Main Transcribe**   | Transcribe using the active profile              |
 | **Cycle Profile**               | Switch to the next active profile in cycle              |
-| **Per-Profile Shortcuts**       | Each profile can have its own dedicated shortcut if you don'w want to cycle profiles but use all at once |
+| **Per-Profile Shortcuts**       | Each profile can have its own dedicated shortcut if you don't want to cycle profiles but use all at once |
 
 
 #### Default Profile
@@ -127,7 +127,7 @@ Voice-controlled text editing — select text, speak instruction, get AI-transfo
 
 ![AI Replace](Promo/ai-replace.gif)
 
-In the demonstration above, first I ask to solve the mathematical task, and then to translate text to finish. 
+In the demonstration above, first I ask to solve the mathematical task, and then to translate text to Finnish.
 
 **Setup:** Settings → Advanced → AI Replace Settings
 
@@ -229,12 +229,12 @@ Use Groq, Deepgram, or other OpenAI-compatible APIs — or keep using local Whis
 ---
 ### 🗣️ Voice Command Center (Dangerous! Do not use)
 
-Execute PowerShell scripts with your voice. Pre write scriopts... or make LMM write them on the fly (confirmation dialog window appears, you can cancel)
+Execute PowerShell scripts with your voice. Pre-write scripts... or make LLM write them on the fly (confirmation dialog window appears, you can cancel)
 
 - Say "lock computer" → Locks Windows
 - Say "open notepad" → Opens Notepad
 - **Somewhat safe:** Always shows confirmation before running
-- **Smart:** If no command matches, use AI to generate a script on the fly (e.g. "open chrome and go to youtube")
+- **Smart:** If no command matches, use AI to generate a script on the fly (e.g., "open Chrome and go to YouTube")
 
 **Setup:** Settings → Voice Command Center
 
