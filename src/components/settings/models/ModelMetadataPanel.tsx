@@ -395,7 +395,11 @@ export const ModelMetadataPanel: React.FC<{ model: ModelInfo }> = ({
         {metadata.badges.map((badge) => (
           <span
             key={badge}
-            className="rounded-full border border-[#3d3d3d] bg-[#1b1b1b] px-2.5 py-1 text-[11px] text-[#cfcfcf]"
+            className={`rounded-full border px-2.5 py-1 text-[11px] ${
+              badge === copy.badgeCudaCapable
+                ? "border-[#365a45] bg-[#1c2a21] text-[#d9f0df]"
+                : "border-[#3d3d3d] bg-[#1b1b1b] text-[#cfcfcf]"
+            }`}
           >
             {badge}
           </span>
