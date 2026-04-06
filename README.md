@@ -20,7 +20,69 @@ AI Voice Relay
 
 ## ✨ Key Features
 
-### 📺 Live Preview
+### Place cursor anywhere, press hotkey, speak, and watch your text appear in place!
+
+Of cours, basic speech to text, all that upstream can do. Lots of models: cloud, local, languages auto pick up, etc.
+
+### 🎚️ Transcription Profiles
+
+Quick-switch between language, prompt, and LLM post-processing presets with dedicated shortcuts: swithc currently active profile or assign each profile its own hotkey!
+
+#### What Are Profiles?
+
+Profiles let you create different transcription configurations and switch between them instantly. Perfect for:
+
+- **Multilingual users** — Switch between English, Russian, Finnish, etc.
+- **Different use cases** — One profile for dictation, another for code comments
+- **Translation workflows** — Speak in one language, output in another + auto switch language with Windows language!
+- **Everything you can imagine!** — Serioulsy, you can invent so many uses!
+
+#### Profile Settings
+
+![Profile Settings](Promo/profiles.png)
+#### LLM Post-Processing Override
+
+Each profile can override the global LLM post-processing settings:
+
+- **Enable/Disable** — Turn LLM processing on/off per profile
+- **Custom Prompt** — Use a different prompt than the global one
+- **Custom Model** — Use a different LLM model per profile
+
+**Example:** Create a "Finnish Translation" profile that takes any language input and outputs Finnish text via L
+#### The `${output}` Variable
+
+When writing LLM prompts, use `${output}` as a placeholder for the transcribed text:
+
+```
+Translate this to Finnish: ${output}
+```
+
+**How it works:**
+
+1. You speak → "Hello, how are you?"
+2. STT transcribes → "Hello, how are you?"
+3. `${output}` is replaced → "Translate this to Finnish: Hello, how are you?"
+4. LLM processes → "Hei, mitä kuuluu?"
+
+#### Shortcuts
+
+Assign key combination to following actions:
+
+| Shortcut                        | Action                                           |
+| ------------------------------- | ------------------------------------------------ |
+| **Main Transcribe**   | Transcribe using the active profile              |
+| **Cycle Profile**               | Switch to the next active profile in cycle              |
+| **Per-Profile Shortcuts**       | Each profile can have its own dedicated shortcut if you don'w want to cycle profiles but use all at once |
+
+
+#### Default Profile
+
+The "Default Profile" uses your global settings (Settings → Speech). It cannot be deleted but can be customized or set as active.
+
+**Setup:** Settings → Speech → Transcription Profiles
+
+
+### 📺 Live Preview (only if you want it)
 
 See your transcription in real-time in a separate, customizable, always-on-top window.
 
@@ -53,65 +115,6 @@ Use Deepgram for fast cloud transcription, including live speech-to-text.
 
 **Setup:** Settings → Advanced → Transcription Provider → Deepgram
 
-
-
-### 🎚️ Transcription Profiles
-
-Quick-switch between language, prompt, and LLM post-processing presets with dedicated shortcuts: swithc currently active profile or assign each profile its own hotkey!
-
-#### What Are Profiles?
-
-Profiles let you create different transcription configurations and switch between them instantly. Perfect for:
-
-- **Multilingual users** — Switch between English, Russian, Finnish, etc.
-- **Different use cases** — One profile for dictation, another for code comments
-- **Translation workflows** — Speak in one language, output in another + auto switch language with Windows language!
-- **Everything you can imagine!** — Serioulsy, you can invent so many uses!
-
-#### Profile Settings
-
-![Profile Settings](Promo/profiles.png)
-#### LLM Post-Processing Override
-
-Each profile can override the global LLM post-processing settings:
-
-- **Enable/Disable** — Turn LLM processing on/off per profile
-- **Custom Prompt** — Use a different prompt than the global one
-- **Custom Model** — Use a different LLM model per profile
-
-**Example:** Create a "Finnish Translation" profile that takes any language input and outputs Finnish text via LLM.
-
-#### The `${output}` Variable
-
-When writing LLM prompts, use `${output}` as a placeholder for the transcribed text:
-
-```
-Translate this to Finnish: ${output}
-```
-
-**How it works:**
-
-1. You speak → "Hello, how are you?"
-2. STT transcribes → "Hello, how are you?"
-3. `${output}` is replaced → "Translate this to Finnish: Hello, how are you?"
-4. LLM processes → "Hei, mitä kuuluu?"
-
-#### Shortcuts
-
-Assign key combination to following actions:
-
-| Shortcut                        | Action                                           |
-| ------------------------------- | ------------------------------------------------ |
-| **Main Transcribe**   | Transcribe using the active profile              |
-| **Cycle Profile**               | Switch to the next active profile in cycle              |
-| **Per-Profile Shortcuts**       | Each profile can have its own dedicated shortcut if you don'w want to cycle profiles but use all at once |
-
-
-#### Default Profile
-
-The "Default Profile" uses your global settings (Settings → Speech). It cannot be deleted but can be customized or set as active.
-
-**Setup:** Settings → Speech → Transcription Profiles
 
 ### 🤖 AI Replace Selection
 
