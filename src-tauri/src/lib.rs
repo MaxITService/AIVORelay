@@ -965,6 +965,17 @@ pub fn run() {
 
             initialize_core_logic(&app_handle);
 
+            // Pre-warm GPU/accelerator enumeration on a background thread.
+            // The first call into transcribe_rs::whisper_cpp::gpu::list_gpu_devices
+            // loads the Metal/Vulkan backend and probes devices, which can take
+            // several seconds. Without this, that cost is paid synchronously the
+            // first time the user opens the Advanced settings page (which calls
+            // the get_available_accelerators command), causing a UI freeze.
+            // Result is cached in a OnceLock inside the transcription manager.
+            std::thread::spawn(|| {
+                let _ = crate::managers::transcription::get_available_accelerators();
+            });
+
             let should_force_show_permissions = should_force_show_permissions_window(&app_handle);
 
             // Show main window only if not starting hidden, unless permission onboarding must be shown
