@@ -23,6 +23,7 @@ Primary reference:
 
 Optional context only:
 - [[.AGENTS/branching-status|branching-status.md]]
+- local machine path hints in [[.AGENTS/.UNTRACKED/local-paths|local-paths.md]] when available
 
 Authoritative source:
 - [[.AGENTS/upstream-intake-playbook|upstream-intake-playbook.md]] is maintained from `main` only.
