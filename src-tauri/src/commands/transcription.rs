@@ -67,6 +67,8 @@ pub fn change_whisper_gpu_device(app: AppHandle, device: i32) {
 
 #[tauri::command]
 #[specta::specta]
-pub fn get_available_accelerators() -> AvailableAccelerators {
-    collect_available_accelerators()
+pub async fn get_available_accelerators() -> AvailableAccelerators {
+    tauri::async_runtime::spawn_blocking(collect_available_accelerators)
+        .await
+        .expect("get_available_accelerators panicked")
 }
