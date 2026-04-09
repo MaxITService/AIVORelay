@@ -560,7 +560,8 @@ async fn maybe_post_process_transcription(
     let reasoning_config = crate::llm_client::ReasoningConfig::new(
         settings.post_process_reasoning_enabled,
         settings.post_process_reasoning_budget,
-    );
+    )
+    .with_disable_by_default_on_compatible_providers(true);
 
     // Send the chat completion request with optional reasoning
     match crate::llm_client::send_chat_completion_with_reasoning(
