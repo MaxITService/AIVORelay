@@ -96,6 +96,12 @@ function App() {
         toast.error(detail, { duration: ERROR_TOAST_DURATION_MS });
       },
     );
+    const unlistenPaste = listen("paste-error", () => {
+      toast.error(t("errors.pasteFailedTitle"), {
+        duration: ERROR_TOAST_DURATION_MS,
+        description: t("errors.pasteFailed"),
+      });
+    });
     const unlistenModelState = listen<ModelStateEvent>(
       "model-state-changed",
       (event) => {
@@ -142,6 +148,7 @@ function App() {
       unlistenScreenshot.then((unlisten) => unlisten());
       unlistenVoiceCommand.then((unlisten) => unlisten());
       unlistenRecording.then((unlisten) => unlisten());
+      unlistenPaste.then((unlisten) => unlisten());
       unlistenModelState.then((unlisten) => unlisten());
       unlistenModelDownloadFailed.then((unlisten) => unlisten());
       unlistenAuthFailed.then((unlisten) => unlisten());
