@@ -9,6 +9,7 @@ use serde::{Deserialize, Serialize};
 pub struct ReasoningConfig {
     pub enabled: bool,
     pub budget: u32, // min 1024 for OpenRouter/Anthropic
+    pub disable_by_default_on_compatible_providers: bool,
 }
 
 impl ReasoningConfig {
@@ -16,7 +17,13 @@ impl ReasoningConfig {
         Self {
             enabled,
             budget: if enabled { budget.max(1024) } else { budget },
+            disable_by_default_on_compatible_providers: false,
         }
+    }
+
+    pub fn with_disable_by_default_on_compatible_providers(mut self, disable: bool) -> Self {
+        self.disable_by_default_on_compatible_providers = disable;
+        self
     }
 }
 
@@ -27,9 +34,14 @@ struct ChatMessage {
 }
 
 /// Reasoning object for OpenRouter API
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Clone, Default)]
 struct ReasoningParams {
-    max_tokens: u32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    max_tokens: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    effort: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    exclude: Option<bool>,
 }
 
 #[derive(Debug, Serialize)]
@@ -38,6 +50,8 @@ struct ChatCompletionRequest {
     messages: Vec<ChatMessage>,
     #[serde(skip_serializing_if = "Option::is_none")]
     max_tokens: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    reasoning_effort: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     reasoning: Option<ReasoningParams>,
 }
@@ -171,22 +185,56 @@ async fn send_chat_completion_with_messages_internal(
 
     // Calculate max_tokens: if reasoning is enabled, ensure enough room for answer
     // Formula: max(4000, reasoning_budget + 2000)
-    let (max_tokens, reasoning_params) = if reasoning.enabled {
+    let (max_tokens, reasoning_effort, reasoning_params) = if reasoning.enabled {
         let budget = reasoning.budget.max(1024);
         let total = (budget + 2000).max(4000);
         debug!(
             "Extended Thinking enabled: reasoning_budget={}, max_tokens={}",
             budget, total
         );
-        (Some(total), Some(ReasoningParams { max_tokens: budget }))
+        (
+            Some(total),
+            None,
+            Some(ReasoningParams {
+                max_tokens: Some(budget),
+                ..Default::default()
+            }),
+        )
+    } else if reasoning.disable_by_default_on_compatible_providers {
+        match provider.id.as_str() {
+            "custom" => {
+                debug!(
+                    "Disabling default provider reasoning for post-processing on '{}'",
+                    provider.id
+                );
+                (None, Some("none".to_string()), None)
+            }
+            "openrouter" => {
+                debug!(
+                    "Disabling default provider reasoning for post-processing on '{}'",
+                    provider.id
+                );
+                (
+                    None,
+                    None,
+                    Some(ReasoningParams {
+                        effort: Some("none".to_string()),
+                        exclude: Some(true),
+                        ..Default::default()
+                    }),
+                )
+            }
+            _ => (None, None, None),
+        }
     } else {
-        (None, None)
+        (None, None, None)
     };
 
     let request_body = ChatCompletionRequest {
         model: model.to_string(),
         messages: messages.clone(),
         max_tokens,
+        reasoning_effort,
         reasoning: reasoning_params,
     };
 
@@ -200,14 +248,16 @@ async fn send_chat_completion_with_messages_internal(
     let status = response.status();
 
     // Fail-soft retry: if we get 400 and reasoning was enabled, retry without reasoning
-    if status.as_u16() == 400 && reasoning.enabled {
+    if status.as_u16() == 400
+        && (request_body.reasoning.is_some() || request_body.reasoning_effort.is_some())
+    {
         let error_text = response
             .text()
             .await
             .unwrap_or_else(|_| "Failed to read error response".to_string());
 
         warn!(
-            "Extended Thinking request failed with 400, retrying without reasoning: {}",
+            "Reasoning-configured request failed with 400, retrying without reasoning controls: {}",
             error_text
         );
 
@@ -216,6 +266,7 @@ async fn send_chat_completion_with_messages_internal(
             model: model.to_string(),
             messages,
             max_tokens: None,
+            reasoning_effort: None,
             reasoning: None,
         };
 
