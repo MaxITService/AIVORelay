@@ -3741,7 +3741,10 @@ impl ShortcutAction for TranscribeAction {
                         let _ = ah_clone.clipboard().write_text(final_text_for_ui.clone());
                     }
                 } else if !preview_output_only_enabled {
-                    let _ = utils::paste(final_text_for_ui.clone(), ah_clone.clone());
+                    if let Err(err) = utils::paste(final_text_for_ui.clone(), ah_clone.clone()) {
+                        error!("Failed to paste transcription: {}", err);
+                        let _ = ah_clone.emit("paste-error", ());
+                    }
                 }
                 utils::hide_recording_overlay(&ah_clone);
                 change_tray_icon(&ah_clone, TrayIconState::Idle);
