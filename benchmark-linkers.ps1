@@ -109,7 +109,7 @@ function Resolve-BaseTargetDir {
         return (Resolve-Path $Preferred).Path
     }
 
-    $candidates = @("C:\b\l", "D:\t\l", "C:\t\l")
+    $candidates = @("Q:\b\l", "Q:\t\l", "D:\t\l", "C:\t\l")
     foreach ($candidate in $candidates) {
         try {
             New-Item -ItemType Directory -Force -Path $candidate | Out-Null
@@ -119,8 +119,8 @@ function Resolve-BaseTargetDir {
         }
     }
 
-    New-Item -ItemType Directory -Force -Path "C:\t\l" | Out-Null
-    return (Resolve-Path "C:\t\l").Path
+    New-Item -ItemType Directory -Force -Path "Q:\t\l" | Out-Null
+    return (Resolve-Path "Q:\t\l").Path
 }
 
 function Initialize-DevEnvironment {
