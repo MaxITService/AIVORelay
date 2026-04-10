@@ -3,7 +3,7 @@ param(
     [switch]$DoDebugBuild,
     [switch]$DoDev,
     [string]$CudaPath = "C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.4",
-    [string]$DependencyRoot = "C:\Code\AIVORelay-deps"
+    [string]$DependencyRoot = "Q:\AIVORelay-deps"
 )
 
 $ErrorActionPreference = "Stop"
