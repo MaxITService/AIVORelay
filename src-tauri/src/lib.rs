@@ -126,6 +126,9 @@ pub type ManagedPressTimestamps = Mutex<PressTimestamps>;
 
 fn show_main_window(app: &AppHandle) {
     if let Some(main_window) = app.get_webview_window("main") {
+        if let Err(e) = main_window.unminimize() {
+            log::error!("Failed to unminimize window: {}", e);
+        }
         // First, ensure the window is visible
         if let Err(e) = main_window.show() {
             log::error!("Failed to show window: {}", e);
@@ -143,6 +146,85 @@ fn show_main_window(app: &AppHandle) {
         }
     } else {
         log::error!("Main window not found.");
+    }
+}
+
+fn is_windows_minimized_position(x: i32, y: i32) -> bool {
+    x <= -30000 || y <= -30000
+}
+
+fn saved_window_position_is_usable(
+    x: i32,
+    y: i32,
+    monitors: Result<Vec<tauri::Monitor>, tauri::Error>,
+) -> bool {
+    if is_windows_minimized_position(x, y) {
+        return false;
+    }
+
+    let Ok(monitors) = monitors else {
+        return true;
+    };
+
+    monitors.iter().any(|monitor| {
+        let position = monitor.position();
+        let size = monitor.size();
+        let left = position.x;
+        let top = position.y;
+        let right = left + size.width as i32;
+        let bottom = top + size.height as i32;
+
+        x >= left && x < right && y >= top && y < bottom
+    })
+}
+
+fn save_main_window_geometry(window: &tauri::Window, save_size: bool, save_position: bool) {
+    if window.label() != "main" {
+        return;
+    }
+
+    let settings = get_settings(&window.app_handle());
+    if (!save_size || !settings.remember_window_size)
+        && (!save_position || !settings.remember_window_position)
+    {
+        return;
+    }
+
+    if window.is_minimized().unwrap_or(false) {
+        return;
+    }
+
+    let mut new_settings = settings.clone();
+    let mut changed = false;
+
+    if save_size && settings.remember_window_size {
+        if let Ok(size) = window.inner_size() {
+            if size.width > 0
+                && size.height > 0
+                && (new_settings.saved_window_width != size.width
+                    || new_settings.saved_window_height != size.height)
+            {
+                new_settings.saved_window_width = size.width;
+                new_settings.saved_window_height = size.height;
+                changed = true;
+            }
+        }
+    }
+
+    if save_position && settings.remember_window_position {
+        if let Ok(pos) = window.outer_position() {
+            if saved_window_position_is_usable(pos.x, pos.y, window.available_monitors())
+                && (new_settings.saved_window_x != pos.x || new_settings.saved_window_y != pos.y)
+            {
+                new_settings.saved_window_x = pos.x;
+                new_settings.saved_window_y = pos.y;
+                changed = true;
+            }
+        }
+    }
+
+    if changed {
+        settings::write_settings(&window.app_handle(), new_settings);
     }
 }
 
@@ -987,7 +1069,14 @@ pub fn run() {
                     height: settings.saved_window_height,
                 }));
             }
-            if settings.remember_window_position && settings.saved_window_x != i32::MIN {
+            if settings.remember_window_position
+                && settings.saved_window_x != i32::MIN
+                && saved_window_position_is_usable(
+                    settings.saved_window_x,
+                    settings.saved_window_y,
+                    main_window.available_monitors(),
+                )
+            {
                 let _ =
                     main_window.set_position(tauri::Position::Physical(tauri::PhysicalPosition {
                         x: settings.saved_window_x,
@@ -1012,6 +1101,7 @@ pub fn run() {
 
             // Show main window only if not starting hidden, unless permission onboarding must be shown
             if !settings.start_hidden || should_force_show_permissions {
+                let _ = main_window.unminimize();
                 main_window.show().unwrap();
                 main_window.set_focus().unwrap();
             }
@@ -1019,35 +1109,17 @@ pub fn run() {
             Ok(())
         })
         .on_window_event(|window, event| match event {
+            tauri::WindowEvent::Resized(_) => {
+                save_main_window_geometry(window, true, false);
+            }
+            tauri::WindowEvent::Moved(_) => {
+                save_main_window_geometry(window, false, true);
+            }
             tauri::WindowEvent::CloseRequested { api, .. } => {
                 // Only the main window should be hidden-to-tray on close.
                 // Auxiliary windows (e.g. voice activation button) must be allowed to close.
                 if window.label() == "main" {
-                    // Save window geometry before hiding/closing
-                    {
-                        let settings = get_settings(&window.app_handle());
-                        if settings.remember_window_size || settings.remember_window_position {
-                            let mut new_settings = settings.clone();
-                            let mut changed = false;
-                            if settings.remember_window_size {
-                                if let Ok(size) = window.inner_size() {
-                                    new_settings.saved_window_width = size.width;
-                                    new_settings.saved_window_height = size.height;
-                                    changed = true;
-                                }
-                            }
-                            if settings.remember_window_position {
-                                if let Ok(pos) = window.outer_position() {
-                                    new_settings.saved_window_x = pos.x;
-                                    new_settings.saved_window_y = pos.y;
-                                    changed = true;
-                                }
-                            }
-                            if changed {
-                                settings::write_settings(&window.app_handle(), new_settings);
-                            }
-                        }
-                    }
+                    save_main_window_geometry(window, true, true);
 
                     if APP_QUIT_REQUESTED.load(Ordering::SeqCst) {
                         return;
