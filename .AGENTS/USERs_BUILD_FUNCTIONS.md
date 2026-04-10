@@ -22,7 +22,7 @@ function Dev-AivoRelay {
     Write-Warning "Get-Dev not found; continuing without it."
   }
 
-  $target = 'C:\Code\Released Software\AIVORelay'
+  $target = 'Q:\AIVORelay'
   if (-not (Test-Path -LiteralPath $target)) {
     Throw "Target folder not found: $target"
   }
@@ -34,7 +34,7 @@ function Dev-AivoRelay {
   Set-AivoRelayBindgenWindowsEnv
   Ensure-AivoRelayVulkanDll -TargetRoot $target
 
-  $cargoTargetDir = "C:\t\aivorelay-dev"
+  $cargoTargetDir = "Q:\t\aivorelay-dev"
   $previousPlaywrightPort = $env:PLAYWRIGHT_TAURI_REMOTE_DEBUGGING_PORT
   $hadPreviousPlaywrightPort = Test-Path Env:PLAYWRIGHT_TAURI_REMOTE_DEBUGGING_PORT
   try {
@@ -84,7 +84,7 @@ function Fast-Dev-AivoRelay {
     [int]$PlaywrightPort = 9333
   )
 
-  $target = 'C:\Code\Released Software\AIVORelay'
+  $target = 'Q:\AIVORelay'
   if (-not (Test-Path -LiteralPath $target)) {
     Throw "Target folder not found: $target"
   }

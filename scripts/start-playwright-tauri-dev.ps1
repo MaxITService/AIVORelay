@@ -1,7 +1,7 @@
 param(
     [ValidateRange(1, 65535)]
     [int]$PlaywrightPort = 9333,
-    [string]$CargoTargetDir = "C:\t\aivorelay-dev",
+    [string]$CargoTargetDir = "Q:\t\aivorelay-dev",
     [switch]$SkipProcessCheck
 )
 

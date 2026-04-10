@@ -109,7 +109,7 @@ function Get-PreferredCargoTargetDir {
         return $env:AIVORELAY_CARGO_TARGET_DIR
     }
 
-    $candidates = @("C:\b", "D:\t", "C:\t\aivorelay-local-build")
+    $candidates = @("Q:\b", "Q:\t\aivorelay-local-build", "D:\t", "C:\t\aivorelay-local-build")
 
     foreach ($candidate in $candidates) {
         try {
@@ -120,7 +120,7 @@ function Get-PreferredCargoTargetDir {
         }
     }
 
-    return "C:\t\aivorelay-local-build"
+    return "Q:\t\aivorelay-local-build"
 }
 
 # Step 1: Check for running processes

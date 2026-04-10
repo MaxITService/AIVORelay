@@ -25,8 +25,8 @@ Relative worktree paths:
 
 - `main` -> `.`
 - `Microsoft-store` -> `../AIVORelay-ms-prop`
-- `cuda-integration` -> `../worktree/cuda-integration`
-- `codex/combined` -> `../../../AivoRelay`
+- `cuda-integration` -> `../cuda-integration`
+- `codex/combined` -> `../AIVORelay-combined`
 
 When the user says "all branches", they currently mean these four branches.
 
