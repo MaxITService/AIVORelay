@@ -1,5 +1,5 @@
 [build]
-target-dir = "C:/aivorelay-cuda"
+target-dir = "Q:/aivorelay-cuda"
 
 [target.x86_64-pc-windows-msvc]
 linker = "link.exe"

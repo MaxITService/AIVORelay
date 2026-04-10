@@ -32,7 +32,7 @@ Primary companion docs:
 | `.AGENTS/cuda-docs-sync-maintenance.md` | CUDA sync-log and cursor maintenance note. |
 | `.AGENTS/branch-propagation-log.md` | Records propagated `main` commits on top of the CUDA branch-local layer. |
 | `.AGENTS/branching-status.md` | Keeps the current `main` sync cursor for `cuda-integration`. |
-| `.cargo/config.toml` | Uses the short target dir `C:/aivorelay-cuda` and the branch-local Windows linker setting. |
+| `.cargo/config.toml` | Uses the short target dir `Q:/aivorelay-cuda` and the branch-local Windows linker setting. |
 | `.github/workflows/cuda-release.yml` | Branch-local Windows CUDA release pipeline. |
 | `AGENTS.md` | Short CUDA branch entry file pointing to the prefixed CUDA docs set. |
 | `README.md` | Keeps the CUDA Edition release mention and now points readers to the CUDA docs index. |

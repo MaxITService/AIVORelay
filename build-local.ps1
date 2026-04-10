@@ -244,7 +244,7 @@ if ($missingTools.Count -gt 0) {
     exit 1
 }
 
-$cargoTargetDir = "C:\t\aivorelay-local-build"
+$cargoTargetDir = "Q:\t\aivorelay-local-build"
 try {
     New-Item -ItemType Directory -Force -Path $cargoTargetDir | Out-Null
     $env:CARGO_TARGET_DIR = $cargoTargetDir

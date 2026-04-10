@@ -54,9 +54,9 @@ If any such process is already running, do not start another conflicting build c
 ## Branch Build Notes
 
 - This branch uses local dependency forks and rewrites Cargo patch paths during `build-cuda.ps1`.
-- `.cargo/config.toml` uses a short target dir: `C:/aivorelay-cuda`.
+- `.cargo/config.toml` uses a short target dir: `Q:/aivorelay-cuda`.
 - `.cargo/config.toml` currently uses `link.exe`.
-- `-DoDebugBuild` produces a local debug-profile executable at `C:\aivorelay-cuda\debug\aivorelay.exe`.
+- `-DoDebugBuild` produces a local debug-profile executable at `Q:\aivorelay-cuda\debug\aivorelay.exe`.
 - Local dev mode intentionally uses `tauri dev --release`.
 - Local build path remains `--no-bundle`.
 
@@ -65,7 +65,7 @@ If any such process is already running, do not start another conflicting build c
 Use this when a local CUDA issue needs visible stdout/stderr and the normal release build hides the failure.
 
 ```powershell
-cd C:\aivorelay-cuda\debug
+cd Q:\aivorelay-cuda\debug
 .\aivorelay.exe
 ```
 
