@@ -1,6 +1,6 @@
 # CUDA Main Diff Manifest
 
-This note documents the current `cuda-integration` branch as a content diff against `main`.
+This note documents the current `integration/cuda` branch as a content diff against `main`.
 
 Baseline used for this note:
 
@@ -27,12 +27,12 @@ Primary companion docs:
 | `.AGENTS/cuda-docs-branch-overview.md` | Branch-local overview of CUDA intent, dependency model, and runtime assumptions. |
 | `.AGENTS/cuda-docs-build-runbook.md` | Branch-local build, toolchain, bindings, and verification rules. |
 | `.AGENTS/cuda-docs-model-runtime-notes.md` | Branch-local model/runtime behavior, including the split between shipped legacy Cohere Int8 and shipped HF-style Cohere FP16/FP32 support. |
-| `.AGENTS/cuda-docs-main-diff-manifest.md` | Authoritative branch-local manifest of `cuda-integration -> main` differences. |
+| `.AGENTS/cuda-docs-main-diff-manifest.md` | Authoritative branch-local manifest of `integration/cuda -> main` differences. |
 | `.AGENTS/cuda-docs-release-runbook.md` | CUDA release rules and workflow notes. |
 | `.AGENTS/cuda-docs-sync-maintenance.md` | CUDA sync-log and cursor maintenance note. |
 | `.AGENTS/branch-propagation-log.md` | Records propagated `main` commits on top of the CUDA branch-local layer. |
-| `.AGENTS/branching-status.md` | Keeps the current `main` sync cursor for `cuda-integration`. |
-| `.cargo/config.toml` | Uses the short target dir `Q:/aivorelay-cuda` and the branch-local Windows linker setting. |
+| `.AGENTS/branching-status.md` | Keeps the current `main` sync cursor for `integration/cuda`. |
+| `.cargo/config.toml` | Uses the short target dir `Q:/t/u` and the branch-local Windows linker setting. |
 | `.github/workflows/cuda-release.yml` | Branch-local Windows CUDA release pipeline. |
 | `AGENTS.md` | Short CUDA branch entry file pointing to the prefixed CUDA docs set. |
 | `README.md` | Keeps the CUDA Edition release mention and now points readers to the CUDA docs index. |

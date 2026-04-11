@@ -1,8 +1,8 @@
-Branch tags: #branch/cuda-integration
+Branch tags: #branch/integration-cuda
 
 # CUDA Sync Maintenance
 
-Read this file only when recording a completed `main -> cuda-integration` sync.
+Read this file only when recording a completed `main -> integration/cuda` sync.
 This branch does not keep a full propagation log or global status. `main` tracks all branches.
 
 ## After A Successful Sync
@@ -19,7 +19,7 @@ Do not trust docs alone as the source of truth.
 Useful commands:
 
 ```bash
-git log cuda-integration --oneline
-git cherry -v cuda-integration main
-git reflog cuda-integration
+git log integration/cuda --oneline
+git cherry -v integration/cuda main
+git reflog integration/cuda
 ```

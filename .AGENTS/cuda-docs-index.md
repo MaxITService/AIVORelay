@@ -1,6 +1,6 @@
 # CUDA Docs Index
 
-Single entry point for branch-local documentation in `cuda-integration`.
+Single entry point for branch-local documentation in `integration/cuda`.
 
 ## Start Here
 

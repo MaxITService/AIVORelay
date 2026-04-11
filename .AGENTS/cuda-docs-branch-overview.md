@@ -1,6 +1,6 @@
 # CUDA Branch Overview
 
-This note describes what `cuda-integration` is for and what stays branch-local here.
+This note describes what `integration/cuda` is for and what stays branch-local here.
 
 ## Purpose
 

@@ -1,6 +1,6 @@
 # CUDA Release Runbook
 
-Read this file only when preparing a release or version bump for `cuda-integration`.
+Read this file only when preparing a release or version bump for `integration/cuda`.
 
 ## Version Bump
 
@@ -19,7 +19,7 @@ When asked to bump the app version:
 ## CUDA Tags And Release Files
 
 - Tag `vx.y.z-cuda` only when the user explicitly asks.
-- Push `cuda-integration` and the CUDA tag only when the user explicitly asks.
+- Push `integration/cuda` and the CUDA tag only when the user explicitly asks.
 - Release body file: `.github/release-notes/cuda.md`
 
 ## CUDA Release Workflow

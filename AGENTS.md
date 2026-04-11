@@ -1,6 +1,6 @@
 # CUDA Branch Agent Guide
 
-This is the entry file for AI/code agents working in the `cuda-integration` branch.
+This is the entry file for AI/code agents working in the `integration/cuda` branch.
 
 ## Always-On Rules
 
@@ -15,7 +15,7 @@ This is the entry file for AI/code agents working in the `cuda-integration` bran
 ## Branch Scope
 
 Current branch:
-- `cuda-integration`
+- `integration/cuda`
 
 Main branch:
 - `main`
@@ -33,7 +33,7 @@ Keep branch-local changes limited to CUDA-specific build, dependency, release, a
 - If you need local model or runtime behavior, read [[.AGENTS/cuda-docs-model-runtime-notes|cuda-docs-model-runtime-notes.md]].
 - If you need the exact branch-local diff against `main`, read [[.AGENTS/cuda-docs-main-diff-manifest|cuda-docs-main-diff-manifest.md]].
 - If you prepare a CUDA release, read [[.AGENTS/cuda-docs-release-runbook|cuda-docs-release-runbook.md]].
-- If you need current CUDA branch sync context or must record a completed `main -> cuda-integration` sync, read [[.AGENTS/cuda-docs-sync-maintenance|cuda-docs-sync-maintenance.md]], [[.AGENTS/branch-propagation-log|branch-propagation-log.md]], and [[.AGENTS/branching-status|branching-status.md]].
+- If you need current CUDA branch sync context or must record a completed `main -> integration/cuda` sync, read [[.AGENTS/cuda-docs-sync-maintenance|cuda-docs-sync-maintenance.md]], [[.AGENTS/branch-propagation-log|branch-propagation-log.md]], and [[.AGENTS/branching-status|branching-status.md]].
 
 ## Documentation Style
 

@@ -139,7 +139,7 @@ function Set-CudaEnv {
 
     Set-ProcessEnv "CUDA_PATH" $CudaPath
     Set-ProcessEnv "CMAKE_GENERATOR" "Ninja"
-    Set-ProcessEnv "CARGO_TARGET_DIR" "Q:/aivorelay-cuda"
+    Set-ProcessEnv "CARGO_TARGET_DIR" "Q:/t/u"
 
     $env:PATH = "$CudaPath\bin;$CudaPath\libnvvp;$llvmBin;$env:PATH"
     [Environment]::SetEnvironmentVariable("PATH", $env:PATH, "Process")
