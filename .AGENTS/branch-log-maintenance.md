@@ -1,8 +1,8 @@
-Branch tags: #branch/codex-combined
+Branch tags: #branch/integration-combined
 
 # Combined Sync Maintenance
 
-Read this file only when recording a completed `main -> codex/combined` sync.
+Read this file only when recording a completed `main -> integration/combined` sync.
 This branch does not keep a full propagation log or global status. `main` tracks all branches.
 
 ## After A Successful Sync
@@ -18,7 +18,7 @@ Do not trust docs alone as the source of truth.
 Useful commands:
 
 ```bash
-git log codex/combined --oneline
-git cherry -v codex/combined main
-git reflog codex/combined
+git log integration/combined --oneline
+git cherry -v integration/combined main
+git reflog integration/combined
 ```

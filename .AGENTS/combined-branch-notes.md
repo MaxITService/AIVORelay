@@ -1,8 +1,8 @@
-Branch tags: #branch/codex-combined
+Branch tags: #branch/integration-combined
 
 # Combined Branch Notes
 
-This note documents the current `codex/combined` branch as a branch-local layer on top of `main`.
+This note documents the current `integration/combined` branch as a branch-local layer on top of `main`.
 
 Baseline used for this note:
 
@@ -43,7 +43,7 @@ Primary companion docs:
 | `.AGENTS/build-combined.md` | Branch-local build, sidecar packaging, bindings, and verification rules for combined work. |
 | `.AGENTS/Release-combined.md` | Combined-specific release rules, packaging choices, and tag guidance. |
 | `.AGENTS/combined-branch-notes.md` | This branch-only note describing current combined behavior and file-level divergence. |
-| `.AGENTS/branch-log-maintenance.md` | Short local note for maintaining the combined branch log and cursor after successful `main -> codex/combined` syncs. |
+| `.AGENTS/branch-log-maintenance.md` | Short local note for maintaining the combined branch log and cursor after successful `main -> integration/combined` syncs. |
 | `.AGENTS/branch-propagation-log.md` | Records each propagated `main` commit reflected in this branch. |
 | `.AGENTS/branching-status.md` | Combined cursor quick reference for the current sync point. |
 | `build-local.ps1` | Branch-local local build path: short target dirs, sidecar preparation, variant-aware Tauri config overrides, and local artifact preservation. |
@@ -61,11 +61,11 @@ Primary companion docs:
 
 Not part of the intended branch-local contract:
 
-- `.github/release-notes/*.md` may exist here as inherited files, but `codex/combined` does not define a dedicated `combined.md` checked-in release body.
+- `.github/release-notes/*.md` may exist here as inherited files, but `integration/combined` does not define a dedicated `combined.md` checked-in release body.
 
 ## Practical Rule
 
-When syncing `main -> codex/combined`, the target state is:
+When syncing `main -> integration/combined`, the target state is:
 
 - ordinary app code follows `main`
 - only the combined packaging, runtime-variant, and local branch docs layer should remain branch-local unless the user explicitly approves wider divergence

@@ -104,7 +104,7 @@ function Get-PreferredCargoTargetDir {
         return $env:AIVORELAY_CARGO_TARGET_DIR
     }
 
-    foreach ($candidate in @("Q:\b", "Q:\t\aivorelay-tests", "D:\t", "C:\t\aivorelay-tests")) {
+    foreach ($candidate in @("Q:\t\c", "Q:\b", "D:\t\c", "C:\t\c")) {
         try {
             New-Item -ItemType Directory -Force -Path $candidate | Out-Null
             return $candidate
@@ -113,7 +113,7 @@ function Get-PreferredCargoTargetDir {
         }
     }
 
-    return "Q:\t\aivorelay-tests"
+    return "Q:\t\c"
 }
 
 function Assert-MinimumFreeSpace {

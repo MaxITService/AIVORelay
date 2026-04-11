@@ -1,4 +1,4 @@
-Branch tags: #branch/codex-combined
+Branch tags: #branch/integration-combined
 
 # Combined Build Rules
 

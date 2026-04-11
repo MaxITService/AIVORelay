@@ -1,8 +1,8 @@
-Branch tags: #branch/codex-combined
+Branch tags: #branch/integration-combined
 
 # Combined Docs MOC
 
-Map of branch-local documentation for `codex/combined`.
+Map of branch-local documentation for `integration/combined`.
 
 ## Entry
 

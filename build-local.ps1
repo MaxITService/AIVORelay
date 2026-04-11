@@ -117,9 +117,9 @@ function Get-PreferredCargoTargetDir([bool]$UseAvx2 = $false) {
     }
 
     $candidates = if ($UseAvx2) {
-        @("Q:\a2", "Q:\t\aivorelay-avx2", "D:\a2", "C:\t\aivorelay-avx2")
+        @("Q:\t\a", "D:\t\a", "C:\t\a")
     } else {
-        @("Q:\b", "Q:\t\aivorelay-local-build", "D:\t", "C:\t\aivorelay-local-build")
+        @("Q:\t\m", "Q:\b", "D:\t\m", "C:\t\m")
     }
 
     foreach ($candidate in $candidates) {
@@ -131,7 +131,7 @@ function Get-PreferredCargoTargetDir([bool]$UseAvx2 = $false) {
         }
     }
 
-    return if ($UseAvx2) { "Q:\t\aivorelay-avx2" } else { "Q:\t\aivorelay-local-build" }
+    return if ($UseAvx2) { "Q:\t\a" } else { "Q:\t\m" }
 }
 
 function Set-Avx2BuildEnv {
@@ -467,7 +467,7 @@ try {
 
     try {
         if (-not $avx2TargetDirWasExplicit) {
-            $null = Get-ManagedSidecarTargetDir "AIVORELAY_AVX2_TARGET_DIR" @("Q:\a2", "Q:\t\a2", "D:\a2", "C:\t\a2") "Q:\t\a2"
+            $null = Get-ManagedSidecarTargetDir "AIVORELAY_AVX2_TARGET_DIR" @("Q:\t\a", "D:\t\a", "C:\t\a") "Q:\t\a"
         }
         Invoke-PrepareAvx2Sidecar -ReleaseBuild:(-not $Debug)
     } catch {
@@ -478,7 +478,7 @@ try {
     if ($Cuda) {
         try {
             if (-not $cudaTargetDirWasExplicit) {
-                $null = Get-ManagedSidecarTargetDir "AIVORELAY_CUDA_TARGET_DIR" @("Q:\cu", "Q:\t\cu", "D:\cu", "C:\t\cu") "Q:\t\cu"
+                $null = Get-ManagedSidecarTargetDir "AIVORELAY_CUDA_TARGET_DIR" @("Q:\t\x", "D:\t\x", "C:\t\x") "Q:\t\x"
             }
             Invoke-PrepareCudaSidecar -ReleaseBuild:(-not $Debug)
         } catch {

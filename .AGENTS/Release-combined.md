@@ -1,8 +1,8 @@
-Branch tags: #branch/codex-combined
+Branch tags: #branch/integration-combined
 
 # Combined Release Rules
 
-Read this file only when preparing a release or version bump for `codex/combined`.
+Read this file only when preparing a release or version bump for `integration/combined`.
 
 ## Version Bump
 
@@ -34,7 +34,7 @@ pwsh -NoProfile -File .\build-local.ps1 -Cuda
 ## Tags And Pushes
 
 - Tag `vx.y.z-combined` only when the user explicitly asks.
-- Push `codex/combined` and the combined tag only when the user explicitly asks.
+- Push `integration/combined` and the combined tag only when the user explicitly asks.
 
 ## Workflow YAML
 
@@ -52,6 +52,6 @@ Rules:
 
 - If the user wants a combined release body draft, build a short user-facing summary from branch-relevant commits only.
 - Exclude internal-only items unless the user asks to include them.
-- `codex/combined` does not currently define or require a checked-in `combined.md` release body file.
+- `integration/combined` does not currently define or require a checked-in `combined.md` release body file.
 - Any inherited `.github/release-notes/*.md` files present in this worktree are not part of the intended combined branch contract by themselves.
 - Do not add a combined-specific checked-in release body file unless the user explicitly asks for that branch behavior.

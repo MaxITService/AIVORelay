@@ -1,6 +1,6 @@
 # Fork Agents Guide
 
-Branch tags: #branch/codex-combined
+Branch tags: #branch/integration-combined
 
 ## Always-On Rules
 
@@ -16,7 +16,7 @@ Branch tags: #branch/codex-combined
 
 ## Branch Scope
 
-- Current branch: `codex/combined`
+- Current branch: `integration/combined`
 - Main branch: `main`
 - This branch should stay close to `main` in normal app code.
 - Keep branch-local changes limited to combined build, packaging, runtime-variant, and release behavior.
@@ -27,7 +27,7 @@ Branch tags: #branch/codex-combined
 - If you need combined branch-local build, sidecar packaging, bindings, or verification rules, read [[.AGENTS/build-combined|build-combined.md]].
 - If you need combined branch-local runtime, packaging, or file-diff context, read [[.AGENTS/combined-branch-notes|combined-branch-notes.md]].
 - If you prepare a combined release, read [[.AGENTS/Release-combined|Release-combined.md]].
-- If you need current combined sync context or must record a completed `main -> codex/combined` sync, read [[.AGENTS/branch-log-maintenance|branch-log-maintenance.md]], [[.AGENTS/branch-propagation-log|branch-propagation-log.md]], and [[.AGENTS/branching-status|branching-status.md]].
+- If you need current combined sync context or must record a completed `main -> integration/combined` sync, read [[.AGENTS/branch-log-maintenance|branch-log-maintenance.md]], [[.AGENTS/branch-propagation-log|branch-propagation-log.md]], and [[.AGENTS/branching-status|branching-status.md]].
 - If you need local doc overview, read [[.AGENTS/MOC|MOC.md]].
 - If you need local-only materials, read [[.AGENTS/.UNTRACKED/MOC|.UNTRACKED/MOC.md]].
 
