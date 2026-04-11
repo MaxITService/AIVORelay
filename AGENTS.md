@@ -17,16 +17,16 @@ This is the entry file for AI/code agents working with this fork.
 ## Active Branches
 
 - `main`
-- `Microsoft-store`
-- `cuda-integration`
-- `codex/combined`
+- `release/microsoft-store`
+- `integration/cuda`
+- `integration/combined`
 
 Relative worktree paths:
 
 - `main` -> `.`
-- `Microsoft-store` -> `../AIVORelay-ms-prop`
-- `cuda-integration` -> `../cuda-integration`
-- `codex/combined` -> `../AIVORelay-combined`
+- `release/microsoft-store` -> `../AIVORelay-store`
+- `integration/cuda` -> `../AIVORelay-cuda`
+- `integration/combined` -> `../AIVORelay-combined`
 
 When the user says "all branches", they currently mean these four branches.
 

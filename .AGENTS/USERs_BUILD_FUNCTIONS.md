@@ -34,7 +34,7 @@ function Dev-AivoRelay {
   Set-AivoRelayBindgenWindowsEnv
   Ensure-AivoRelayVulkanDll -TargetRoot $target
 
-  $cargoTargetDir = "Q:\t\aivorelay-dev"
+  $cargoTargetDir = "Q:\t\d"
   $previousPlaywrightPort = $env:PLAYWRIGHT_TAURI_REMOTE_DEBUGGING_PORT
   $hadPreviousPlaywrightPort = Test-Path Env:PLAYWRIGHT_TAURI_REMOTE_DEBUGGING_PORT
   try {

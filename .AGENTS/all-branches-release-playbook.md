@@ -1,4 +1,4 @@
-Branch tags: #branch/main #branch/microsoft-store #branch/cuda-integration #branch/codex-combined
+Branch tags: #branch/main #branch/release-microsoft-store #branch/integration-cuda #branch/integration-combined
 
 # All Branches Release Playbook
 
@@ -8,16 +8,16 @@ Use this playbook only when the user asks to prepare or publish releases on more
 
 Each branch has its own release contract:
 - `main` -> tag `vx.y.z`
-- `Microsoft-store` -> tag `vx.y.z-store`, GitHub release must be published as a pre-release
-- `cuda-integration` -> tag `vx.y.z-cuda`
-- `codex/combined` -> follow its branch-specific release instructions if the user asks
+- `release/microsoft-store` -> tag `vx.y.z-store`, GitHub release must be published as a pre-release
+- `integration/cuda` -> tag `vx.y.z-cuda`
+- `integration/combined` -> follow its branch-specific release instructions if the user asks
 
 Never assume that a rule from one branch automatically applies to another branch.
 
-## Recommended Order For `Microsoft-store` + `main`
+## Recommended Order For `release/microsoft-store` + `main`
 
-If the same version is being released on both `Microsoft-store` and `main`, and the `main` release body should link to the matching Store release:
-1. Prepare and publish the `Microsoft-store` GitHub release first.
+If the same version is being released on both `release/microsoft-store` and `main`, and the `main` release body should link to the matching Store release:
+1. Prepare and publish the `release/microsoft-store` GitHub release first.
 2. Publish it as a pre-release.
 3. Copy the final published Store release URL.
 4. Insert that URL into `.github/release-notes/main.md`.

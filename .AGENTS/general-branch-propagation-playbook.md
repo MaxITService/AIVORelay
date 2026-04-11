@@ -1,5 +1,5 @@
 # General Branch Propagation Workflow
-Branch tags: #branch/main #branch/microsoft-store #branch/cuda-integration #branch/codex-combined
+Branch tags: #branch/main #branch/release-microsoft-store #branch/integration-cuda #branch/integration-combined
 
 This playbook contains the common rules for propagating commits from `main` to any of the release branches. 
 For branch-specific exclusions and allowed commit types, see their respective playbooks:
