@@ -1,4 +1,4 @@
-Branch tags: #branch/microsoft-store
+Branch tags: #branch/release-microsoft-store
 
 # Store Sync Maintenance
 
@@ -15,7 +15,7 @@ Before changing the sync cursor on `main`, verify the target branch with git his
 Useful commands:
 
 ```bash
-git log Microsoft-store --oneline
-git cherry -v Microsoft-store main
-git reflog Microsoft-store
+git log release/microsoft-store --oneline
+git cherry -v release/microsoft-store main
+git reflog release/microsoft-store
 ```

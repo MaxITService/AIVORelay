@@ -1,4 +1,4 @@
-Branch tags: #branch/microsoft-store
+Branch tags: #branch/release-microsoft-store
 
 # Release Store
 
@@ -26,12 +26,12 @@ When asked to bump the app version:
 7. If yes, prepare a short user-facing draft for `.github/release-notes/microsoft-store.md`.
 8. Commit with `chore: bump version to x.y.z`.
 9. Create tag or push only when the user explicitly asks.
-10. When a GitHub release is created for `Microsoft-store`, mark it as a pre-release.
+10. When a GitHub release is created for `release/microsoft-store`, mark it as a pre-release.
 11. Use the Store-specific workflow and ensure every uploaded release asset targets the Store tag `vx.y.z-store`, not the plain `vx.y.z` tag.
 
 ## Tags And Pushes
 
 - Keep the app version numeric, for example `1.0.2`.
 - Use tag `vx.y.z-store` only when the user explicitly asks for the Store tag.
-- Mark every GitHub release from `Microsoft-store` as a pre-release.
-- Push `Microsoft-store` and the Store tag only when the user explicitly asks.
+- Mark every GitHub release from `release/microsoft-store` as a pre-release.
+- Push `release/microsoft-store` and the Store tag only when the user explicitly asks.

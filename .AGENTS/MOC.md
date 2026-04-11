@@ -1,4 +1,4 @@
-Branch tags: #branch/microsoft-store
+Branch tags: #branch/release-microsoft-store
 
 # .AGENTS MOC
 

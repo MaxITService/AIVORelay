@@ -1,6 +1,6 @@
 # Fork Agents Guide
 
-Branch tags: #branch/microsoft-store
+Branch tags: #branch/release-microsoft-store
 
 ## Always-On Rules
 

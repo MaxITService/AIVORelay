@@ -24,7 +24,7 @@ function Get-PreferredCargoTargetDir {
         return $env:AIVORELAY_CARGO_TARGET_DIR
     }
 
-    $candidates = @("Q:\b", "Q:\t\aivorelay-local-build", "D:\t", "C:\t\aivorelay-local-build")
+    $candidates = @("Q:\t\s", "Q:\b", "D:\t\s", "C:\t\s")
     foreach ($candidate in $candidates) {
         try {
             New-Item -ItemType Directory -Force -Path $candidate | Out-Null
@@ -34,7 +34,7 @@ function Get-PreferredCargoTargetDir {
         }
     }
 
-    return "Q:\t\aivorelay-local-build"
+    return "Q:\t\s"
 }
 
 function Get-NewestChildDirectory([string]$Path) {
