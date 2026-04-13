@@ -13,16 +13,16 @@ Rules:
 
 | Propagation Date | Target Branch | Main SHA | Main Message | Branch SHA | Branch Message | Issues |
 | --- | --- | --- | --- | --- | --- | --- |
+| 2026-04-13 | `integration/combined` | `8268eff1` | fix(settings): show history controls in history panel | `b6f8ddc2` | fix(settings): show history controls in history panel | clean cherry-pick |
+| 2026-04-13 | `integration/cuda` | `8268eff1` | fix(settings): show history controls in history panel | `b1043368` | fix(settings): show history controls in history panel | clean cherry-pick |
+| 2026-04-13 | `release/microsoft-store` | `8268eff1` | fix(settings): show history controls in history panel | `5ef8b775` | fix(settings): show history controls in history panel | clean cherry-pick |
+| 2026-04-13 | `integration/combined` | `b5d14fef` | chore(bindings): refresh pause media recording setting | `02242f89` | chore(bindings): refresh pause media recording setting | clean cherry-pick |
+| 2026-04-13 | `integration/cuda` | `b5d14fef` | chore(bindings): refresh pause media recording setting | `9ffffa01` | chore(bindings): refresh pause media recording setting | clean cherry-pick |
+| 2026-04-13 | `release/microsoft-store` | `b5d14fef` | chore(bindings): refresh pause media recording setting | `3cbf6cfa` | chore(bindings): refresh pause media recording setting | clean cherry-pick |
 | 2026-04-13 | `integration/combined` | `f4532462` | chore(settings): move history controls to history page | `1f21cf32` | chore(settings): move history controls to history page | clean cherry-pick |
 | 2026-04-13 | `integration/cuda` | `f4532462` | chore(settings): move history controls to history page | `79b0f8c9` | chore(settings): move history controls to history page | clean cherry-pick |
 | 2026-04-13 | `release/microsoft-store` | `f4532462` | chore(settings): move history controls to history page | `ed0e33fa` | chore(settings): move history controls to history page | clean cherry-pick |
 | 2026-04-13 | `integration/combined` | `2dabd749` | feat(audio): pause or mute output while recording | `0e661aae` | feat(audio): pause or mute output while recording | clean cherry-pick |
-| 2026-04-13 | `integration/cuda` | `2dabd749` | feat(audio): pause or mute output while recording | `adeeca6b` | feat(audio): pause or mute output while recording | clean cherry-pick |
-| 2026-04-13 | `release/microsoft-store` | `2dabd749` | feat(audio): pause or mute output while recording | `e42bb569` | feat(audio): pause or mute output while recording | clean cherry-pick |
-| 2026-04-13 | `integration/combined` | `28a42507` | chore(bindings): drop accelerator discovery doc comment | `b6ea3b28` | chore(bindings): drop accelerator discovery doc comment | clean cherry-pick |
-| 2026-04-13 | `integration/cuda` | `28a42507` | chore(bindings): drop accelerator discovery doc comment | `8f661f21` | chore(bindings): drop accelerator discovery doc comment | clean cherry-pick |
-| 2026-04-13 | `release/microsoft-store` | `28a42507` | chore(bindings): drop accelerator discovery doc comment | `3211157b` | chore(bindings): drop accelerator discovery doc comment | clean cherry-pick |
-| 2026-04-10 | `integration/combined` | `6ff33177` | fix(window): ignore minimized saved geometry | `56b87b3d` | fix(window): ignore minimized saved geometry | clean cherry-pick |
 
 Entry template:
 
