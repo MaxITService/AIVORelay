@@ -18,6 +18,9 @@ import { toast } from "sonner";
 import { commands, type HistoryEntry } from "@/bindings";
 import { formatDateTime } from "@/utils/dateFormat";
 import { HandyShortcut } from "../HandyShortcut";
+import { HistoryLimit } from "../HistoryLimit";
+import { RecordingRetentionPeriodSelector } from "../RecordingRetentionPeriod";
+import { SettingsGroup } from "../../ui/SettingsGroup";
 
 const PAGE_SIZE = 30;
 
@@ -52,6 +55,20 @@ const OpenRecordingsButton: React.FC<OpenRecordingsButtonProps> = ({
     <span>{label}</span>
   </Button>
 );
+
+const HistoryConfigurationSection: React.FC = () => {
+  const { t } = useTranslation();
+
+  return (
+    <SettingsGroup title={t("settings.history.settings.title")}>
+      <HistoryLimit descriptionMode="tooltip" grouped={true} />
+      <RecordingRetentionPeriodSelector
+        descriptionMode="tooltip"
+        grouped={true}
+      />
+    </SettingsGroup>
+  );
+};
 
 const IconButton: React.FC<{
   onClick: () => void;
@@ -106,7 +123,9 @@ export const HistorySettings: React.FC = () => {
       });
 
       const nextEntries = result.entries ?? [];
-      setHistoryEntries((prev) => (isFirstPage ? nextEntries : [...prev, ...nextEntries]));
+      setHistoryEntries((prev) =>
+        isFirstPage ? nextEntries : [...prev, ...nextEntries],
+      );
       setHasMore(Boolean(result.has_more));
     } catch (error) {
       console.error("Failed to load history entries:", error);
@@ -162,17 +181,23 @@ export const HistorySettings: React.FC = () => {
             setHistoryEntries((prev) => [payload.entry, ...prev]);
           } else if (payload.action === "updated") {
             setHistoryEntries((prev) =>
-              prev.map((entry) => (entry.id === payload.entry.id ? payload.entry : entry)),
+              prev.map((entry) =>
+                entry.id === payload.entry.id ? payload.entry : entry,
+              ),
             );
           } else if (payload.action === "deleted") {
-            setHistoryEntries((prev) => prev.filter((entry) => entry.id !== payload.id));
+            setHistoryEntries((prev) =>
+              prev.filter((entry) => entry.id !== payload.id),
+            );
           } else if (payload.action === "toggled") {
             if (pendingToggleIdsRef.current.has(payload.id)) {
               return;
             }
             setHistoryEntries((prev) =>
               prev.map((entry) =>
-                entry.id === payload.id ? { ...entry, saved: !entry.saved } : entry,
+                entry.id === payload.id
+                  ? { ...entry, saved: !entry.saved }
+                  : entry,
               ),
             );
           }
@@ -196,20 +221,26 @@ export const HistorySettings: React.FC = () => {
   const toggleSaved = async (id: number) => {
     pendingToggleIdsRef.current.add(id);
     setHistoryEntries((prev) =>
-      prev.map((entry) => (entry.id === id ? { ...entry, saved: !entry.saved } : entry)),
+      prev.map((entry) =>
+        entry.id === id ? { ...entry, saved: !entry.saved } : entry,
+      ),
     );
 
     try {
       const result = await commands.toggleHistoryEntrySaved(id);
       if (result.status === "error") {
         setHistoryEntries((prev) =>
-          prev.map((entry) => (entry.id === id ? { ...entry, saved: !entry.saved } : entry)),
+          prev.map((entry) =>
+            entry.id === id ? { ...entry, saved: !entry.saved } : entry,
+          ),
         );
       }
     } catch (error) {
       console.error("Failed to toggle saved status:", error);
       setHistoryEntries((prev) =>
-        prev.map((entry) => (entry.id === id ? { ...entry, saved: !entry.saved } : entry)),
+        prev.map((entry) =>
+          entry.id === id ? { ...entry, saved: !entry.saved } : entry,
+        ),
       );
     } finally {
       pendingToggleIdsRef.current.delete(id);
@@ -240,7 +271,8 @@ export const HistorySettings: React.FC = () => {
   const deleteAudioEntry = async (id: number) => {
     const previousEntries = entriesRef.current;
     const deletedIndex = previousEntries.findIndex((entry) => entry.id === id);
-    const deletedEntry = deletedIndex >= 0 ? previousEntries[deletedIndex] : null;
+    const deletedEntry =
+      deletedIndex >= 0 ? previousEntries[deletedIndex] : null;
 
     setHistoryEntries((prev) => prev.filter((entry) => entry.id !== id));
 
@@ -253,7 +285,11 @@ export const HistorySettings: React.FC = () => {
           }
 
           const nextEntries = [...prev];
-          nextEntries.splice(Math.min(deletedIndex, nextEntries.length), 0, deletedEntry);
+          nextEntries.splice(
+            Math.min(deletedIndex, nextEntries.length),
+            0,
+            deletedEntry,
+          );
           return nextEntries;
         });
       }
@@ -265,7 +301,11 @@ export const HistorySettings: React.FC = () => {
         }
 
         const nextEntries = [...prev];
-        nextEntries.splice(Math.min(deletedIndex, nextEntries.length), 0, deletedEntry);
+        nextEntries.splice(
+          Math.min(deletedIndex, nextEntries.length),
+          0,
+          deletedEntry,
+        );
         return nextEntries;
       });
       throw error;
@@ -287,6 +327,7 @@ export const HistorySettings: React.FC = () => {
   if (loading) {
     return (
       <div className="max-w-3xl w-full mx-auto space-y-6">
+        <HistoryConfigurationSection />
         <div className="space-y-2">
           <div className="px-4 flex items-center justify-between">
             <div>
@@ -312,6 +353,7 @@ export const HistorySettings: React.FC = () => {
   if (historyEntries.length === 0) {
     return (
       <div className="max-w-3xl w-full mx-auto space-y-6">
+        <HistoryConfigurationSection />
         <div className="space-y-2">
           <div className="px-4 flex items-center justify-between">
             <div>
@@ -336,6 +378,8 @@ export const HistorySettings: React.FC = () => {
 
   return (
     <div className="max-w-3xl w-full mx-auto space-y-6">
+      <HistoryConfigurationSection />
+
       {/* Repaste Shortcut Section */}
       <div className="space-y-2">
         <h2 className="px-4 text-xs font-medium text-mid-gray uppercase tracking-wide">
@@ -369,8 +413,8 @@ export const HistorySettings: React.FC = () => {
                 onCopyText={() => {
                   const textToCopy =
                     entry.action_type === "ai_replace"
-                      ? entry.ai_response ?? entry.transcription_text
-                      : entry.post_processed_text ?? entry.transcription_text;
+                      ? (entry.ai_response ?? entry.transcription_text)
+                      : (entry.post_processed_text ?? entry.transcription_text);
                   copyToClipboard(textToCopy);
                 }}
                 getAudioUrl={getAudioUrl}
@@ -409,8 +453,8 @@ const HistoryEntryComponent: React.FC<HistoryEntryProps> = ({
 
   const isAiReplace = entry.action_type === "ai_replace";
   const displayText = isAiReplace
-    ? entry.ai_response ?? entry.transcription_text
-    : entry.post_processed_text ?? entry.transcription_text;
+    ? (entry.ai_response ?? entry.transcription_text)
+    : (entry.post_processed_text ?? entry.transcription_text);
   const hasDisplayText = displayText.trim().length > 0;
 
   const handleLoadAudio = useCallback(
@@ -536,7 +580,8 @@ const HistoryEntryComponent: React.FC<HistoryEntryProps> = ({
                 {t("settings.history.aiReplace.instruction")}
               </p>
               <p className="italic text-text/90 text-sm select-text cursor-text">
-                {entry.transcription_text || t("settings.history.aiReplace.quickTap")}
+                {entry.transcription_text ||
+                  t("settings.history.aiReplace.quickTap")}
               </p>
             </div>
           )}
@@ -559,7 +604,9 @@ const HistoryEntryComponent: React.FC<HistoryEntryProps> = ({
               {t("settings.history.aiReplace.response")}
             </p>
             {entry.ai_response ? (
-              <p className="text-text/90 text-sm select-text cursor-text">{entry.ai_response}</p>
+              <p className="text-text/90 text-sm select-text cursor-text">
+                {entry.ai_response}
+              </p>
             ) : (
               <div className="flex items-center gap-2 text-amber-500">
                 <AlertTriangle width={14} height={14} />

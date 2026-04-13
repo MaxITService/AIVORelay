@@ -27,25 +27,28 @@ export const RecordingRetentionPeriodSelector: React.FC<RecordingRetentionPeriod
     };
 
     const retentionOptions = [
-      { value: "never", label: t("settings.debug.recordingRetention.never") },
+      { value: "never", label: t("settings.history.recordingRetention.never") },
       {
         value: "preserve_limit",
-        label: t("settings.debug.recordingRetention.preserveLimit", {
+        label: t("settings.history.recordingRetention.preserveLimit", {
           count: Number(historyLimit),
         }),
       },
-      { value: "days3", label: t("settings.debug.recordingRetention.days3") },
-      { value: "weeks2", label: t("settings.debug.recordingRetention.weeks2") },
+      { value: "days3", label: t("settings.history.recordingRetention.days3") },
+      {
+        value: "weeks2",
+        label: t("settings.history.recordingRetention.weeks2"),
+      },
       {
         value: "months3",
-        label: t("settings.debug.recordingRetention.months3"),
+        label: t("settings.history.recordingRetention.months3"),
       },
     ];
 
     return (
       <SettingContainer
-        title={t("settings.debug.recordingRetention.title")}
-        description={t("settings.debug.recordingRetention.description")}
+        title={t("settings.history.recordingRetention.title")}
+        description={t("settings.history.recordingRetention.description")}
         descriptionMode={descriptionMode}
         grouped={grouped}
       >
@@ -53,7 +56,7 @@ export const RecordingRetentionPeriodSelector: React.FC<RecordingRetentionPeriod
           options={retentionOptions}
           selectedValue={selectedRetentionPeriod}
           onSelect={handleRetentionPeriodSelect}
-          placeholder={t("settings.debug.recordingRetention.placeholder")}
+          placeholder={t("settings.history.recordingRetention.placeholder")}
           disabled={isUpdating("recording_retention_period")}
         />
       </SettingContainer>
