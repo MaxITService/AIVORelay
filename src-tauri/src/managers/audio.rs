@@ -106,6 +106,240 @@ fn set_mute(mute: bool) {
     }
 }
 
+#[cfg(target_os = "windows")]
+fn pause_media_playback() -> Vec<String> {
+    use windows::Media::Control::{
+        GlobalSystemMediaTransportControlsSessionManager,
+        GlobalSystemMediaTransportControlsSessionPlaybackStatus,
+    };
+
+    let mut paused_sessions = Vec::new();
+
+    let manager = match GlobalSystemMediaTransportControlsSessionManager::RequestAsync()
+        .and_then(|operation| operation.get())
+    {
+        Ok(manager) => manager,
+        Err(err) => {
+            debug!("Media pause unavailable: {}", err);
+            return paused_sessions;
+        }
+    };
+
+    let sessions = match manager.GetSessions() {
+        Ok(sessions) => sessions,
+        Err(err) => {
+            debug!("Media pause failed to enumerate sessions: {}", err);
+            return paused_sessions;
+        }
+    };
+
+    let session_count = sessions.Size().unwrap_or(0);
+    for index in 0..session_count {
+        let Ok(session) = sessions.GetAt(index) else {
+            continue;
+        };
+
+        let is_playing = session
+            .GetPlaybackInfo()
+            .and_then(|info| info.PlaybackStatus())
+            .map(|status| {
+                status == GlobalSystemMediaTransportControlsSessionPlaybackStatus::Playing
+            })
+            .unwrap_or(false);
+
+        if !is_playing {
+            continue;
+        }
+
+        let source_id = session
+            .SourceAppUserModelId()
+            .map(|id| id.to_string_lossy())
+            .unwrap_or_default();
+
+        match session
+            .TryPauseAsync()
+            .and_then(|operation| operation.get())
+        {
+            Ok(true) => {
+                if !source_id.is_empty() {
+                    paused_sessions.push(source_id);
+                }
+            }
+            Ok(false) => debug!("Media pause declined by session"),
+            Err(err) => debug!("Media pause failed: {}", err),
+        }
+    }
+
+    paused_sessions
+}
+
+#[cfg(target_os = "windows")]
+fn resume_media_playback(paused_sessions: &[String]) {
+    use std::collections::HashSet;
+    use windows::Media::Control::GlobalSystemMediaTransportControlsSessionManager;
+
+    if paused_sessions.is_empty() {
+        return;
+    }
+
+    let paused_ids: HashSet<&str> = paused_sessions.iter().map(String::as_str).collect();
+    let manager = match GlobalSystemMediaTransportControlsSessionManager::RequestAsync()
+        .and_then(|operation| operation.get())
+    {
+        Ok(manager) => manager,
+        Err(err) => {
+            debug!("Media resume unavailable: {}", err);
+            return;
+        }
+    };
+
+    let sessions = match manager.GetSessions() {
+        Ok(sessions) => sessions,
+        Err(err) => {
+            debug!("Media resume failed to enumerate sessions: {}", err);
+            return;
+        }
+    };
+
+    let session_count = sessions.Size().unwrap_or(0);
+    for index in 0..session_count {
+        let Ok(session) = sessions.GetAt(index) else {
+            continue;
+        };
+        let source_id = session
+            .SourceAppUserModelId()
+            .map(|id| id.to_string_lossy())
+            .unwrap_or_default();
+
+        if !paused_ids.contains(source_id.as_str()) {
+            continue;
+        }
+
+        if let Err(err) = session.TryPlayAsync().and_then(|operation| operation.get()) {
+            debug!("Media resume failed: {}", err);
+        }
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn pause_media_playback() -> Vec<String> {
+    use std::process::Command;
+
+    let mut paused_players = Vec::new();
+    let output = match Command::new("playerctl").arg("-l").output() {
+        Ok(output) if output.status.success() => output,
+        Ok(_) | Err(_) => return paused_players,
+    };
+
+    let players = String::from_utf8_lossy(&output.stdout);
+    for player in players.lines().map(str::trim).filter(|p| !p.is_empty()) {
+        let status = Command::new("playerctl")
+            .args(["-p", player, "status"])
+            .output()
+            .ok()
+            .filter(|output| output.status.success())
+            .map(|output| String::from_utf8_lossy(&output.stdout).trim().to_string());
+
+        if status.as_deref() != Some("Playing") {
+            continue;
+        }
+
+        if Command::new("playerctl")
+            .args(["-p", player, "pause"])
+            .output()
+            .map(|output| output.status.success())
+            .unwrap_or(false)
+        {
+            paused_players.push(player.to_string());
+        }
+    }
+
+    paused_players
+}
+
+#[cfg(target_os = "linux")]
+fn resume_media_playback(paused_players: &[String]) {
+    use std::process::Command;
+
+    for player in paused_players {
+        let _ = Command::new("playerctl")
+            .args(["-p", player, "play"])
+            .output();
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn run_osascript(script: &str) -> Option<String> {
+    use std::process::Command;
+
+    let output = Command::new("osascript")
+        .args(["-e", script])
+        .output()
+        .ok()?;
+
+    if output.status.success() {
+        Some(String::from_utf8_lossy(&output.stdout).trim().to_string())
+    } else {
+        None
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn macos_process_is_running(process_name: &str) -> bool {
+    let escaped_name = process_name.replace('"', "\\\"");
+    let script = format!(
+        "tell application \"System Events\" to (name of processes) contains \"{}\"",
+        escaped_name
+    );
+    run_osascript(&script).as_deref() == Some("true")
+}
+
+#[cfg(target_os = "macos")]
+fn pause_media_playback() -> Vec<String> {
+    let mut paused_apps = Vec::new();
+    for app_name in ["Music", "Spotify", "QuickTime Player"] {
+        if !macos_process_is_running(app_name) {
+            continue;
+        }
+
+        let escaped_name = app_name.replace('"', "\\\"");
+        let state_script = format!(
+            "tell application \"{}\" to player state as string",
+            escaped_name
+        );
+        if run_osascript(&state_script).as_deref() != Some("playing") {
+            continue;
+        }
+
+        let pause_script = format!("tell application \"{}\" to pause", escaped_name);
+        if run_osascript(&pause_script).is_some() {
+            paused_apps.push(app_name.to_string());
+        }
+    }
+    paused_apps
+}
+
+#[cfg(target_os = "macos")]
+fn resume_media_playback(paused_apps: &[String]) {
+    for app_name in paused_apps {
+        if !macos_process_is_running(app_name) {
+            continue;
+        }
+
+        let escaped_name = app_name.replace('"', "\\\"");
+        let play_script = format!("tell application \"{}\" to play", escaped_name);
+        let _ = run_osascript(&play_script);
+    }
+}
+
+#[cfg(not(any(target_os = "windows", target_os = "linux", target_os = "macos")))]
+fn pause_media_playback() -> Vec<String> {
+    Vec::new()
+}
+
+#[cfg(not(any(target_os = "windows", target_os = "linux", target_os = "macos")))]
+fn resume_media_playback(_paused_sessions: &[String]) {}
+
 const WHISPER_SAMPLE_RATE: usize = 16000;
 
 /* ──────────────────────────────────────────────────────────────── */
@@ -235,6 +469,7 @@ pub struct AudioRecordingManager {
     is_open: Arc<Mutex<bool>>,
     is_recording: Arc<Mutex<bool>>,
     did_mute: Arc<Mutex<bool>>,
+    paused_media_sessions: Arc<Mutex<Vec<String>>>,
     close_generation: Arc<AtomicU64>,
     active_selection: Arc<Mutex<Option<ActiveRecorderSelection>>>,
     stream_frame_callback: Arc<Mutex<Option<StreamFrameCallback>>>,
@@ -260,6 +495,7 @@ impl AudioRecordingManager {
             is_open: Arc::new(Mutex::new(false)),
             is_recording: Arc::new(Mutex::new(false)),
             did_mute: Arc::new(Mutex::new(false)),
+            paused_media_sessions: Arc::new(Mutex::new(Vec::new())),
             close_generation: Arc::new(AtomicU64::new(0)),
             active_selection: Arc::new(Mutex::new(None)),
             stream_frame_callback: Arc::new(Mutex::new(None)),
@@ -398,6 +634,33 @@ impl AudioRecordingManager {
         }
     }
 
+    /// Pauses active media if pause_media_while_recording is enabled.
+    pub fn apply_media_pause(&self) {
+        let settings = get_settings(&self.app_handle);
+        if !settings.pause_media_while_recording {
+            return;
+        }
+
+        // Before pausing, ensure we didn't cancel/stop recording while waiting.
+        if !self.is_recording() {
+            return;
+        }
+
+        let mut paused_guard = self.paused_media_sessions.lock().unwrap();
+        if !paused_guard.is_empty() {
+            return;
+        }
+
+        let paused_sessions = pause_media_playback();
+        if !paused_sessions.is_empty() {
+            debug!(
+                "Paused {} media session(s) while recording",
+                paused_sessions.len()
+            );
+        }
+        *paused_guard = paused_sessions;
+    }
+
     /// Removes mute if it was applied
     pub fn remove_mute(&self) {
         let mut did_mute_guard = self.did_mute.lock().unwrap();
@@ -406,6 +669,21 @@ impl AudioRecordingManager {
             *did_mute_guard = false;
             debug!("Mute removed");
         }
+    }
+
+    /// Resumes media sessions that this recording paused.
+    pub fn resume_media_if_paused(&self) {
+        let mut paused_guard = self.paused_media_sessions.lock().unwrap();
+        if paused_guard.is_empty() {
+            return;
+        }
+
+        resume_media_playback(&paused_guard);
+        debug!(
+            "Requested resume for {} media session(s)",
+            paused_guard.len()
+        );
+        paused_guard.clear();
     }
 
     pub fn start_microphone_stream(&self) -> Result<(), anyhow::Error> {
@@ -481,6 +759,7 @@ impl AudioRecordingManager {
         let mut did_mute_guard = self.did_mute.lock().unwrap();
         *did_mute_guard = false;
         drop(did_mute_guard);
+        self.paused_media_sessions.lock().unwrap().clear();
 
         self.ensure_recorder(settings)?;
 
@@ -526,6 +805,8 @@ impl AudioRecordingManager {
             set_mute(false);
         }
         *did_mute_guard = false;
+        drop(did_mute_guard);
+        self.resume_media_if_paused();
 
         if let Some(rec) = self.recorder.lock().unwrap().as_mut() {
             // If still recording, stop first.
