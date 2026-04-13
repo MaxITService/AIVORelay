@@ -63,6 +63,18 @@ pub async fn delete_history_entry(
 
 #[tauri::command]
 #[specta::specta]
+pub async fn delete_all_history_entries(
+    _app: AppHandle,
+    history_manager: State<'_, Arc<HistoryManager>>,
+) -> Result<usize, String> {
+    history_manager
+        .delete_all_entries()
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+#[specta::specta]
 pub async fn retry_history_entry_transcription(
     app: AppHandle,
     history_manager: State<'_, Arc<HistoryManager>>,
