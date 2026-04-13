@@ -36,8 +36,8 @@ Default behavior with no switch is the same as `-DoBuild`.
 
 Default dependency root:
 
-- `C:\Code\AIVORelay-deps\AIVORelay-dep-transcribe-rs`
-- `C:\Code\AIVORelay-deps\AIVORelay-dep-whisper-rs`
+- `Q:\Code\AIVORelay-deps\AIVORelay-dep-transcribe-rs`
+- `Q:\Code\AIVORelay-deps\AIVORelay-dep-whisper-rs`
 
 `AIVORelay-dep-whisper-rs\sys\whisper.cpp` must be checked out with submodules.
 

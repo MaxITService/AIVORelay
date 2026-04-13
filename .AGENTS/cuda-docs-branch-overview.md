@@ -18,7 +18,7 @@ This note describes what `integration/cuda` is for and what stays branch-local h
 
 - `src-tauri/Cargo.toml` uses `whisper-cpp` + `onnx`.
 - On Windows, this branch additionally enables `whisper-cuda` + `ort-cuda`.
-- The branch uses local dependency forks in `C:\Code\AIVORelay-deps`.
+- The branch uses local dependency forks in `Q:\Code\AIVORelay-deps`.
 - Local builds use [[build-cuda.ps1]] instead of the default `main` flow.
 
 ## Branch-Local Runtime Notes
