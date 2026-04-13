@@ -6,11 +6,12 @@ Small rolling log of upstream commits integrated into `main`.
 This file is maintained from `main` only.
 Non-`main` branches must not carry or update independent copies.
 
-Audit note (2026-04-09):
-- Current fetched `upstream/main` head checked locally: `fdc8cb71`.
-- Safe review cursor for the next `upstream -> main` intake: `fdc8cb71`.
+Audit note (2026-04-13):
+- Current fetched `upstream/main` head checked locally: `564fbc84`.
+- Safe review cursor for the next `upstream -> main` intake: `564fbc84`.
 - The table below logs integrated upstream commits only; the review cursor may be newer because it also accounts for explicitly skipped commits.
 - Re-triaged corridor up to `fdc8cb71`: taken/logged `84d88f91`, `30b57c42`, `b123c1e`, `4609db7f`, `d1d33932`, `557d274d`, `17277cf6`, `58cda3f3`, `e35f0a71`, `cb32d35b`; already covered `095f4ac4`; skipped `fdc8cb71`, `c1697b2a`, `39e855de`, `743d8a54`, `8836d455`, `1a95c9c4`, `cd3ec3ab`, `c5ec92b3`, `e3c9f581`, `075a5887`, `012e0666`, `d33535cf`; treated `a3015026` as separate research / split adaptation, not a normal intake row.
+- Re-triaged corridor from `fdc8cb71` to `564fbc84`: already covered `966ff997` by `cfb7a916`; skipped `f26fe0dc`, `0392b7b6`, `11311bee`, `564fbc84`.
 
 Rules:
 - Keep newest entries first.
