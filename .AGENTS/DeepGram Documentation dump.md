@@ -23,7 +23,7 @@ Here are pages:
 [Recovering From Connection Errors & Timeouts When Live Streaming \| Deepgram's Docs](https://developers.deepgram.com/docs/recovering-from-connection-errors-and-timeouts-when-live-streaming-audio)
 
 Example repo: this is official rust example repositorium cloned from DeepGram:
-C:\Code\experiments\rust-text-to-speech
+Q:\Code\experiments\rust-text-to-speech
 
 ---
 
