@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { AudioPlayer } from "../../ui/AudioPlayer";
 import { Button } from "../../ui/Button";
+import { ConfirmationModal } from "../../ui/ConfirmationModal";
 import {
   Copy,
   Star,
@@ -33,28 +34,48 @@ type HistoryUpdatePayload =
   | { action: "added"; entry: HistoryEntry }
   | { action: "updated"; entry: HistoryEntry }
   | { action: "deleted"; id: number }
+  | { action: "cleared" }
   | { action: "toggled"; id: number };
 
-interface OpenRecordingsButtonProps {
-  onClick: () => void;
-  label: string;
+interface HistoryActionsProps {
+  deleteAllDisabled: boolean;
+  onDeleteAll: () => void;
+  onOpenRecordings: () => void;
 }
 
-const OpenRecordingsButton: React.FC<OpenRecordingsButtonProps> = ({
-  onClick,
-  label,
-}) => (
-  <Button
-    onClick={onClick}
-    variant="secondary"
-    size="sm"
-    className="flex items-center gap-2"
-    title={label}
-  >
-    <FolderOpen className="w-4 h-4" />
-    <span>{label}</span>
-  </Button>
-);
+const HistoryActions: React.FC<HistoryActionsProps> = ({
+  deleteAllDisabled,
+  onDeleteAll,
+  onOpenRecordings,
+}) => {
+  const { t } = useTranslation();
+
+  return (
+    <div className="flex flex-wrap items-center justify-end gap-2">
+      <Button
+        onClick={onDeleteAll}
+        variant="danger"
+        size="sm"
+        className="flex items-center gap-2"
+        title={t("settings.history.deleteAll")}
+        disabled={deleteAllDisabled}
+      >
+        <Trash2 className="w-4 h-4" />
+        <span>{t("settings.history.deleteAll")}</span>
+      </Button>
+      <Button
+        onClick={onOpenRecordings}
+        variant="secondary"
+        size="sm"
+        className="flex items-center gap-2"
+        title={t("settings.history.openFolder")}
+      >
+        <FolderOpen className="w-4 h-4" />
+        <span>{t("settings.history.openFolder")}</span>
+      </Button>
+    </div>
+  );
+};
 
 const HistoryConfigurationSection: React.FC = () => {
   const { t } = useTranslation();
@@ -96,6 +117,8 @@ export const HistorySettings: React.FC = () => {
   const [historyEntries, setHistoryEntries] = useState<HistoryEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [hasMore, setHasMore] = useState(true);
+  const [showDeleteAllConfirm, setShowDeleteAllConfirm] = useState(false);
+  const [isDeletingAll, setIsDeletingAll] = useState(false);
   const sentinelRef = useRef<HTMLDivElement>(null);
   const entriesRef = useRef<HistoryEntry[]>([]);
   const loadingRef = useRef(false);
@@ -189,6 +212,9 @@ export const HistorySettings: React.FC = () => {
             setHistoryEntries((prev) =>
               prev.filter((entry) => entry.id !== payload.id),
             );
+          } else if (payload.action === "cleared") {
+            setHistoryEntries([]);
+            setHasMore(false);
           } else if (payload.action === "toggled") {
             if (pendingToggleIdsRef.current.has(payload.id)) {
               return;
@@ -312,6 +338,25 @@ export const HistorySettings: React.FC = () => {
     }
   };
 
+  const deleteAllHistoryEntries = async () => {
+    setIsDeletingAll(true);
+
+    try {
+      const result = await commands.deleteAllHistoryEntries();
+      if (result.status === "error") {
+        throw new Error(result.error);
+      }
+      setHistoryEntries([]);
+      setHasMore(false);
+      toast.success(t("settings.history.deleteAllSuccess"));
+    } catch (error) {
+      console.error("Failed to delete all history entries:", error);
+      toast.error(t("settings.history.deleteAllError"));
+    } finally {
+      setIsDeletingAll(false);
+    }
+  };
+
   const retryHistoryEntry = async (id: number) => {
     await invoke("retry_history_entry_transcription", { id });
   };
@@ -324,109 +369,135 @@ export const HistorySettings: React.FC = () => {
     }
   };
 
+  const deleteAllModal = (
+    <ConfirmationModal
+      isOpen={showDeleteAllConfirm}
+      onClose={() => setShowDeleteAllConfirm(false)}
+      onConfirm={deleteAllHistoryEntries}
+      title={t("settings.history.deleteAllConfirmTitle")}
+      message={t("settings.history.deleteAllConfirmMessage")}
+      confirmText={t("settings.history.deleteAllConfirmButton")}
+      cancelText={t("common.cancel")}
+      variant="danger"
+    />
+  );
+
   if (loading) {
     return (
-      <div className="max-w-3xl w-full mx-auto space-y-6">
-        <HistoryConfigurationSection />
-        <div className="space-y-2">
-          <div className="px-4 flex items-center justify-between">
-            <div>
-              <h2 className="text-xs font-medium text-mid-gray uppercase tracking-wide">
-                {t("settings.history.title")}
-              </h2>
+      <>
+        <div className="max-w-3xl w-full mx-auto space-y-6">
+          <HistoryConfigurationSection />
+          <div className="space-y-2">
+            <div className="px-4 flex items-center justify-between gap-3">
+              <div>
+                <h2 className="text-xs font-medium text-mid-gray uppercase tracking-wide">
+                  {t("settings.history.title")}
+                </h2>
+              </div>
+              <HistoryActions
+                deleteAllDisabled={true}
+                onDeleteAll={() => setShowDeleteAllConfirm(true)}
+                onOpenRecordings={openRecordingsFolder}
+              />
             </div>
-            <OpenRecordingsButton
-              onClick={openRecordingsFolder}
-              label={t("settings.history.openFolder")}
-            />
-          </div>
-          <div className="bg-background border border-mid-gray/20 rounded-lg overflow-visible">
-            <div className="px-4 py-3 text-center text-text/60">
-              {t("settings.history.loading")}
+            <div className="bg-background border border-mid-gray/20 rounded-lg overflow-visible">
+              <div className="px-4 py-3 text-center text-text/60">
+                {t("settings.history.loading")}
+              </div>
             </div>
           </div>
         </div>
-      </div>
+        {deleteAllModal}
+      </>
     );
   }
 
   if (historyEntries.length === 0) {
     return (
+      <>
+        <div className="max-w-3xl w-full mx-auto space-y-6">
+          <HistoryConfigurationSection />
+          <div className="space-y-2">
+            <div className="px-4 flex items-center justify-between gap-3">
+              <div>
+                <h2 className="text-xs font-medium text-mid-gray uppercase tracking-wide">
+                  {t("settings.history.title")}
+                </h2>
+              </div>
+              <HistoryActions
+                deleteAllDisabled={true}
+                onDeleteAll={() => setShowDeleteAllConfirm(true)}
+                onOpenRecordings={openRecordingsFolder}
+              />
+            </div>
+            <div className="bg-background border border-mid-gray/20 rounded-lg overflow-visible">
+              <div className="px-4 py-3 text-center text-text/60">
+                {t("settings.history.empty")}
+              </div>
+            </div>
+          </div>
+        </div>
+        {deleteAllModal}
+      </>
+    );
+  }
+
+  return (
+    <>
       <div className="max-w-3xl w-full mx-auto space-y-6">
         <HistoryConfigurationSection />
+
+        {/* Repaste Shortcut Section */}
         <div className="space-y-2">
-          <div className="px-4 flex items-center justify-between">
+          <h2 className="px-4 text-xs font-medium text-mid-gray uppercase tracking-wide">
+            {t("settings.history.shortcut.title")}
+          </h2>
+          <div className="bg-background border border-mid-gray/20 rounded-lg overflow-visible">
+            <HandyShortcut shortcutId="repaste_last" grouped={true} />
+          </div>
+        </div>
+
+        {/* History Entries Section */}
+        <div className="space-y-2">
+          <div className="px-4 flex items-center justify-between gap-3">
             <div>
               <h2 className="text-xs font-medium text-mid-gray uppercase tracking-wide">
                 {t("settings.history.title")}
               </h2>
             </div>
-            <OpenRecordingsButton
-              onClick={openRecordingsFolder}
-              label={t("settings.history.openFolder")}
+            <HistoryActions
+              deleteAllDisabled={isDeletingAll || historyEntries.length === 0}
+              onDeleteAll={() => setShowDeleteAllConfirm(true)}
+              onOpenRecordings={openRecordingsFolder}
             />
           </div>
           <div className="bg-background border border-mid-gray/20 rounded-lg overflow-visible">
-            <div className="px-4 py-3 text-center text-text/60">
-              {t("settings.history.empty")}
+            <div className="divide-y divide-mid-gray/20">
+              {historyEntries.map((entry) => (
+                <HistoryEntryComponent
+                  key={entry.id}
+                  entry={entry}
+                  onToggleSaved={() => toggleSaved(entry.id)}
+                  onCopyText={() => {
+                    const textToCopy =
+                      entry.action_type === "ai_replace"
+                        ? (entry.ai_response ?? entry.transcription_text)
+                        : (entry.post_processed_text ??
+                          entry.transcription_text);
+                    copyToClipboard(textToCopy);
+                  }}
+                  getAudioUrl={getAudioUrl}
+                  deleteAudio={deleteAudioEntry}
+                  retryTranscription={retryHistoryEntry}
+                />
+              ))}
             </div>
+            {hasMore && <div ref={sentinelRef} className="h-1" />}
           </div>
         </div>
       </div>
-    );
-  }
-
-  return (
-    <div className="max-w-3xl w-full mx-auto space-y-6">
-      <HistoryConfigurationSection />
-
-      {/* Repaste Shortcut Section */}
-      <div className="space-y-2">
-        <h2 className="px-4 text-xs font-medium text-mid-gray uppercase tracking-wide">
-          {t("settings.history.shortcut.title")}
-        </h2>
-        <div className="bg-background border border-mid-gray/20 rounded-lg overflow-visible">
-          <HandyShortcut shortcutId="repaste_last" grouped={true} />
-        </div>
-      </div>
-
-      {/* History Entries Section */}
-      <div className="space-y-2">
-        <div className="px-4 flex items-center justify-between">
-          <div>
-            <h2 className="text-xs font-medium text-mid-gray uppercase tracking-wide">
-              {t("settings.history.title")}
-            </h2>
-          </div>
-          <OpenRecordingsButton
-            onClick={openRecordingsFolder}
-            label={t("settings.history.openFolder")}
-          />
-        </div>
-        <div className="bg-background border border-mid-gray/20 rounded-lg overflow-visible">
-          <div className="divide-y divide-mid-gray/20">
-            {historyEntries.map((entry) => (
-              <HistoryEntryComponent
-                key={entry.id}
-                entry={entry}
-                onToggleSaved={() => toggleSaved(entry.id)}
-                onCopyText={() => {
-                  const textToCopy =
-                    entry.action_type === "ai_replace"
-                      ? (entry.ai_response ?? entry.transcription_text)
-                      : (entry.post_processed_text ?? entry.transcription_text);
-                  copyToClipboard(textToCopy);
-                }}
-                getAudioUrl={getAudioUrl}
-                deleteAudio={deleteAudioEntry}
-                retryTranscription={retryHistoryEntry}
-              />
-            ))}
-          </div>
-          {hasMore && <div ref={sentinelRef} className="h-1" />}
-        </div>
-      </div>
-    </div>
+      {deleteAllModal}
+    </>
   );
 };
 

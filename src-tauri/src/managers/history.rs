@@ -57,6 +57,8 @@ pub enum HistoryUpdatePayload {
     Updated { entry: HistoryEntry },
     #[serde(rename = "deleted")]
     Deleted { id: i64 },
+    #[serde(rename = "cleared")]
+    Cleared,
     #[serde(rename = "toggled")]
     Toggled { id: i64 },
 }
@@ -519,6 +521,19 @@ impl HistoryManager {
         }
     }
 
+    fn emit_history_cleared(&self) {
+        if let Err(e) = self
+            .app_handle
+            .emit("history-update-payload", &HistoryUpdatePayload::Cleared)
+        {
+            error!("Failed to emit history-update-payload event: {}", e);
+        }
+
+        if let Err(e) = self.app_handle.emit("history-updated", ()) {
+            error!("Failed to emit history-updated event: {}", e);
+        }
+    }
+
     fn emit_history_toggled(&self, id: i64) {
         if let Err(e) = self.app_handle.emit(
             "history-update-payload",
@@ -688,6 +703,35 @@ impl HistoryManager {
         self.emit_history_deleted(id);
 
         Ok(())
+    }
+
+    pub async fn delete_all_entries(&self) -> Result<usize> {
+        let conn = self.get_connection()?;
+        let mut stmt = conn.prepare("SELECT id, file_name FROM transcription_history")?;
+        let rows = stmt.query_map([], |row| {
+            Ok((row.get::<_, i64>("id")?, row.get::<_, String>("file_name")?))
+        })?;
+
+        let mut entries: Vec<(i64, String)> = Vec::new();
+        for row in rows {
+            entries.push(row?);
+        }
+
+        for (_, file_name) in &entries {
+            let file_path = self.recordings_dir.join(file_name);
+            if file_path.exists() {
+                if let Err(e) = fs::remove_file(&file_path) {
+                    error!("Failed to delete audio file {}: {}", file_name, e);
+                }
+            }
+        }
+
+        let deleted_count = conn.execute("DELETE FROM transcription_history", [])?;
+
+        debug!("Deleted all history entries: {}", deleted_count);
+        self.emit_history_cleared();
+
+        Ok(deleted_count)
     }
 
     /// Save an AI Replace operation to history (no audio file, just the text data)
