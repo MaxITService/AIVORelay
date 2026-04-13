@@ -13,6 +13,9 @@ Rules:
 
 | Propagation Date | Target Branch | Main SHA | Main Message | Branch SHA | Branch Message | Issues |
 | --- | --- | --- | --- | --- | --- | --- |
+| 2026-04-14 | `integration/combined` | `f2874155` | feat(history): add delete all action | `d9375635` | feat(history): add delete all action | clean cherry-pick |
+| 2026-04-14 | `integration/cuda` | `f2874155` | feat(history): add delete all action | `bb3bc334` | feat(history): add delete all action | clean cherry-pick |
+| 2026-04-14 | `release/microsoft-store` | `f2874155` | feat(history): add delete all action | `e9fc97f8` | feat(history): add delete all action | clean cherry-pick |
 | 2026-04-14 | `integration/combined` | `827ae3da` | fix(settings): separate history controls from entries | `b6de045c` | fix(settings): separate history controls from entries | clean cherry-pick |
 | 2026-04-14 | `integration/cuda` | `827ae3da` | fix(settings): separate history controls from entries | `fb2f7123` | fix(settings): separate history controls from entries | clean cherry-pick |
 | 2026-04-14 | `release/microsoft-store` | `827ae3da` | fix(settings): separate history controls from entries | `990b7c1b` | fix(settings): separate history controls from entries | clean cherry-pick |
@@ -22,9 +25,6 @@ Rules:
 | 2026-04-13 | `integration/combined` | `b5d14fef` | chore(bindings): refresh pause media recording setting | `02242f89` | chore(bindings): refresh pause media recording setting | clean cherry-pick |
 | 2026-04-13 | `integration/cuda` | `b5d14fef` | chore(bindings): refresh pause media recording setting | `9ffffa01` | chore(bindings): refresh pause media recording setting | clean cherry-pick |
 | 2026-04-13 | `release/microsoft-store` | `b5d14fef` | chore(bindings): refresh pause media recording setting | `3cbf6cfa` | chore(bindings): refresh pause media recording setting | clean cherry-pick |
-| 2026-04-13 | `integration/combined` | `f4532462` | chore(settings): move history controls to history page | `1f21cf32` | chore(settings): move history controls to history page | clean cherry-pick |
-| 2026-04-13 | `integration/cuda` | `f4532462` | chore(settings): move history controls to history page | `79b0f8c9` | chore(settings): move history controls to history page | clean cherry-pick |
-| 2026-04-13 | `release/microsoft-store` | `f4532462` | chore(settings): move history controls to history page | `ed0e33fa` | chore(settings): move history controls to history page | clean cherry-pick |
 
 Entry template:
 
