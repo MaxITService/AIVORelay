@@ -21,21 +21,27 @@ export const HistoryLimit: React.FC<HistoryLimitProps> = ({
 
   const historyLimitRaw = Number(getSetting("history_limit") ?? 5);
   const historyLimit = Number.isFinite(historyLimitRaw)
-    ? Math.min(HISTORY_LIMIT_MAX, Math.max(HISTORY_LIMIT_MIN, Math.round(historyLimitRaw)))
+    ? Math.min(
+        HISTORY_LIMIT_MAX,
+        Math.max(HISTORY_LIMIT_MIN, Math.round(historyLimitRaw)),
+      )
     : 5;
 
   const handleChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const value = parseInt(event.target.value, 10);
     if (!isNaN(value)) {
-      const clamped = Math.min(HISTORY_LIMIT_MAX, Math.max(HISTORY_LIMIT_MIN, value));
+      const clamped = Math.min(
+        HISTORY_LIMIT_MAX,
+        Math.max(HISTORY_LIMIT_MIN, value),
+      );
       updateSetting("history_limit", clamped);
     }
   };
 
   return (
     <SettingContainer
-      title={t("settings.debug.historyLimit.title")}
-      description={t("settings.debug.historyLimit.description")}
+      title={t("settings.history.historyLimit.title")}
+      description={t("settings.history.historyLimit.description")}
       descriptionMode={descriptionMode}
       grouped={grouped}
       layout="horizontal"
@@ -51,7 +57,7 @@ export const HistoryLimit: React.FC<HistoryLimitProps> = ({
           className="w-20"
         />
         <span className="text-sm text-text">
-          {t("settings.debug.historyLimit.entries")}
+          {t("settings.history.historyLimit.entries")}
         </span>
       </div>
     </SettingContainer>
