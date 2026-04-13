@@ -13,16 +13,16 @@ Rules:
 
 | Propagation Date | Target Branch | Main SHA | Main Message | Branch SHA | Branch Message | Issues |
 | --- | --- | --- | --- | --- | --- | --- |
+| 2026-04-13 | `integration/combined` | `f4532462` | chore(settings): move history controls to history page | `1f21cf32` | chore(settings): move history controls to history page | clean cherry-pick |
+| 2026-04-13 | `integration/cuda` | `f4532462` | chore(settings): move history controls to history page | `79b0f8c9` | chore(settings): move history controls to history page | clean cherry-pick |
+| 2026-04-13 | `release/microsoft-store` | `f4532462` | chore(settings): move history controls to history page | `ed0e33fa` | chore(settings): move history controls to history page | clean cherry-pick |
+| 2026-04-13 | `integration/combined` | `2dabd749` | feat(audio): pause or mute output while recording | `0e661aae` | feat(audio): pause or mute output while recording | clean cherry-pick |
+| 2026-04-13 | `integration/cuda` | `2dabd749` | feat(audio): pause or mute output while recording | `adeeca6b` | feat(audio): pause or mute output while recording | clean cherry-pick |
+| 2026-04-13 | `release/microsoft-store` | `2dabd749` | feat(audio): pause or mute output while recording | `e42bb569` | feat(audio): pause or mute output while recording | clean cherry-pick |
 | 2026-04-13 | `integration/combined` | `28a42507` | chore(bindings): drop accelerator discovery doc comment | `b6ea3b28` | chore(bindings): drop accelerator discovery doc comment | clean cherry-pick |
 | 2026-04-13 | `integration/cuda` | `28a42507` | chore(bindings): drop accelerator discovery doc comment | `8f661f21` | chore(bindings): drop accelerator discovery doc comment | clean cherry-pick |
 | 2026-04-13 | `release/microsoft-store` | `28a42507` | chore(bindings): drop accelerator discovery doc comment | `3211157b` | chore(bindings): drop accelerator discovery doc comment | clean cherry-pick |
 | 2026-04-10 | `integration/combined` | `6ff33177` | fix(window): ignore minimized saved geometry | `56b87b3d` | fix(window): ignore minimized saved geometry | clean cherry-pick |
-| 2026-04-10 | `integration/cuda` | `6ff33177` | fix(window): ignore minimized saved geometry | `b7e96bbe` | fix(window): ignore minimized saved geometry | clean cherry-pick |
-| 2026-04-10 | `release/microsoft-store` | `6ff33177` | fix(window): ignore minimized saved geometry | `b70e6e4b` | fix(window): ignore minimized saved geometry | clean cherry-pick |
-| 2026-04-09 | `integration/combined` | `0fd51a6f` | perf(post-processing): disable default reasoning on compatible providers | `e5eda05d` | perf(post-processing): disable default reasoning on compatible providers | kept local Cargo.lock; excluded upstream-sync-log |
-| 2026-04-09 | `integration/cuda` | `0fd51a6f` | perf(post-processing): disable default reasoning on compatible providers | `3cea8f07` | perf(post-processing): disable default reasoning on compatible providers | excluded Cargo.lock + upstream-sync-log |
-| 2026-04-09 | `release/microsoft-store` | `0fd51a6f` | perf(post-processing): disable default reasoning on compatible providers | `6b79473d` | perf(post-processing): disable default reasoning on compatible providers | excluded Cargo.lock + upstream-sync-log |
-| 2026-04-05 | `release/microsoft-store` | `9cf150e4` | better algorithm: transcribe file recording | `8c0cc842` | better algorithm: transcribe file recording | skipped empty version bump |
 
 Entry template:
 
