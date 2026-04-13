@@ -3947,6 +3947,19 @@ pub fn change_mute_while_recording_setting(app: AppHandle, enabled: bool) -> Res
 
 #[tauri::command]
 #[specta::specta]
+pub fn change_pause_media_while_recording_setting(
+    app: AppHandle,
+    enabled: bool,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.pause_media_while_recording = enabled;
+    settings::write_settings(&app, settings);
+
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
 pub fn change_filter_silence_setting(app: AppHandle, enabled: bool) -> Result<(), String> {
     // Don't allow recorder reconfiguration while an active capture is in progress.
     if let Some(audio_mgr) = app.try_state::<Arc<AudioRecordingManager>>() {
