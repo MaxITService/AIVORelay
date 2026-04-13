@@ -8,12 +8,10 @@ import { LogLevelSelector } from "./LogLevelSelector";
 import { ShortcutEngineSelector } from "./ShortcutEngineSelector";
 import { SettingsGroup } from "../../ui/SettingsGroup";
 import { SettingContainer } from "../../ui/SettingContainer";
-import { HistoryLimit } from "../HistoryLimit";
 import { AlwaysOnMicrophone } from "../AlwaysOnMicrophone";
 import { SoundPicker } from "../SoundPicker";
 import { LazyStreamClose } from "./LazyStreamClose";
 import { RecordingBuffer } from "./RecordingBuffer";
-import { RecordingRetentionPeriodSelector } from "../RecordingRetentionPeriod";
 import { ClamshellMicrophoneSelector } from "../ClamshellMicrophoneSelector";
 import { HandyShortcut } from "../HandyShortcut";
 import { UpdateChecksToggle } from "../UpdateChecksToggle";
@@ -62,11 +60,6 @@ export const DebugSettings: React.FC = () => {
         <SoundPicker
           label={t("settings.debug.soundTheme.label")}
           description={t("settings.debug.soundTheme.description")}
-        />
-        <HistoryLimit descriptionMode="tooltip" grouped={true} />
-        <RecordingRetentionPeriodSelector
-          descriptionMode="tooltip"
-          grouped={true}
         />
         <AlwaysOnMicrophone descriptionMode="tooltip" grouped={true} />
         <ClamshellMicrophoneSelector descriptionMode="tooltip" grouped={true} />

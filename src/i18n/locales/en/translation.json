@@ -1791,6 +1791,24 @@
       "openFolder": "Open Recordings Folder",
       "loading": "Loading history...",
       "empty": "No transcriptions yet. Start recording to build your history!",
+      "settings": {
+        "title": "History Settings"
+      },
+      "historyLimit": {
+        "title": "History Limit",
+        "description": "Maximum number of history entries to keep",
+        "entries": "entries"
+      },
+      "recordingRetention": {
+        "title": "Recording Retention",
+        "description": "How long to keep audio recording files before automatic cleanup. Saved transcriptions are always preserved.",
+        "never": "Never delete recordings",
+        "preserveLimit": "Keep with history limit ({{count}} entries)",
+        "days3": "Delete after 3 days",
+        "weeks2": "Delete after 2 weeks",
+        "months3": "Delete after 3 months",
+        "placeholder": "Select retention period..."
+      },
       "copyToClipboard": "Copy transcription to clipboard",
       "save": "Save transcription",
       "unsave": "Remove from saved",
