@@ -154,7 +154,9 @@ const settingUpdaters: {
     ),
   live_sound_microphone: (value) =>
     commands.setLiveSoundMicrophone(
-      (value as string) === "Default" || value === null ? "default" : (value as string),
+      (value as string) === "Default" || value === null
+        ? "default"
+        : (value as string),
     ),
   selected_output_device: (value) =>
     commands.setSelectedOutputDevice(
@@ -391,6 +393,10 @@ settingUpdaters.error_overlay_auto_hide_ms = (value) =>
 // Fork-specific settings not yet present in generated bindings.
 (settingUpdaters as any).recording_auto_stop_enabled = (value: any) =>
   invoke("change_recording_auto_stop_enabled_setting", { enabled: value });
+(settingUpdaters as any).pause_media_while_recording = (value: any) =>
+  invoke("change_pause_media_while_recording_setting", {
+    enabled: Boolean(value),
+  });
 (settingUpdaters as any).file_transcription_chunking_mode = (value: any) =>
   invoke("change_file_transcription_chunking_mode_setting", { mode: value });
 (settingUpdaters as any).file_transcription_chunking_max_minutes = (
@@ -483,12 +489,14 @@ settingUpdaters.error_overlay_auto_hide_ms = (value) =>
   });
 (settingUpdaters as any).soniox_live_preview_insert_hotkey = (value: any) =>
   invoke("change_soniox_live_preview_insert_hotkey_setting", { hotkey: value });
-(settingUpdaters as any).soniox_live_preview_delete_until_dot_or_comma_hotkey = (
-  value: any,
-) =>
-  invoke("change_soniox_live_preview_delete_until_dot_or_comma_hotkey_setting", {
-    hotkey: value,
-  });
+(settingUpdaters as any).soniox_live_preview_delete_until_dot_or_comma_hotkey =
+  (value: any) =>
+    invoke(
+      "change_soniox_live_preview_delete_until_dot_or_comma_hotkey_setting",
+      {
+        hotkey: value,
+      },
+    );
 (settingUpdaters as any).soniox_live_preview_delete_until_dot_hotkey = (
   value: any,
 ) =>
@@ -521,12 +529,15 @@ settingUpdaters.error_overlay_auto_hide_ms = (value) =>
   invoke("change_soniox_live_preview_show_insert_button_setting", {
     enabled: value,
   });
-(settingUpdaters as any).soniox_live_preview_show_delete_until_dot_or_comma_button = (
-  value: any,
-) =>
-  invoke("change_soniox_live_preview_show_delete_until_dot_or_comma_button_setting", {
-    enabled: value,
-  });
+(
+  settingUpdaters as any
+).soniox_live_preview_show_delete_until_dot_or_comma_button = (value: any) =>
+  invoke(
+    "change_soniox_live_preview_show_delete_until_dot_or_comma_button_setting",
+    {
+      enabled: value,
+    },
+  );
 (settingUpdaters as any).soniox_live_preview_show_delete_until_dot_button = (
   value: any,
 ) =>
@@ -567,8 +578,9 @@ settingUpdaters.error_overlay_auto_hide_ms = (value) =>
   commands.changeRecordingOverlayMaterialModeSetting(String(value));
 (settingUpdaters as any).recording_overlay_centerpiece_mode = (value: any) =>
   commands.changeRecordingOverlayCenterpieceModeSetting(String(value));
-(settingUpdaters as any).recording_overlay_animated_border_mode = (value: any) =>
-  commands.changeRecordingOverlayAnimatedBorderModeSetting(String(value));
+(settingUpdaters as any).recording_overlay_animated_border_mode = (
+  value: any,
+) => commands.changeRecordingOverlayAnimatedBorderModeSetting(String(value));
 (settingUpdaters as any).recording_overlay_show_status_icon = (value: any) =>
   commands.changeRecordingOverlayShowStatusIconSetting(Boolean(value));
 (settingUpdaters as any).recording_overlay_show_cancel_button = (value: any) =>
@@ -599,12 +611,15 @@ settingUpdaters.error_overlay_auto_hide_ms = (value) =>
   invoke("change_recording_overlay_surface_base_color_setting", {
     color: String(value),
   });
-(settingUpdaters as any).recording_overlay_body_background_color = (value: any) =>
+(settingUpdaters as any).recording_overlay_body_background_color = (
+  value: any,
+) =>
   invoke("change_recording_overlay_body_background_color_setting", {
     color: String(value),
   });
-(settingUpdaters as any).recording_overlay_audio_reactive_scale = (value: any) =>
-  commands.changeRecordingOverlayAudioReactiveScaleSetting(Boolean(value));
+(settingUpdaters as any).recording_overlay_audio_reactive_scale = (
+  value: any,
+) => commands.changeRecordingOverlayAudioReactiveScaleSetting(Boolean(value));
 (settingUpdaters as any).recording_overlay_audio_reactive_scale_max_percent = (
   value: any,
 ) =>
@@ -623,40 +638,44 @@ settingUpdaters.error_overlay_auto_hide_ms = (value) =>
   commands.changeRecordingOverlayAnimationSoftnessPercentSetting(Number(value));
 (settingUpdaters as any).recording_overlay_depth_parallax_percent = (
   value: any,
-) =>
-  commands.changeRecordingOverlayDepthParallaxPercentSetting(Number(value));
+) => commands.changeRecordingOverlayDepthParallaxPercentSetting(Number(value));
 (settingUpdaters as any).recording_overlay_opacity_percent = (value: any) =>
   commands.changeRecordingOverlayOpacityPercentSetting(Number(value));
 (settingUpdaters as any).recording_overlay_silence_fade = (value: any) =>
   commands.changeRecordingOverlaySilenceFadeSetting(Boolean(value));
 (settingUpdaters as any).recording_overlay_silence_opacity_percent = (
   value: any,
-) =>
-  commands.changeRecordingOverlaySilenceOpacityPercentSetting(Number(value));
+) => commands.changeRecordingOverlaySilenceOpacityPercentSetting(Number(value));
 (settingUpdaters as any).recording_overlay_decapitalize_indicator_mode = (
   value: any,
 ) =>
   invoke("change_recording_overlay_decapitalize_indicator_mode_setting", {
     mode: String(value),
   });
-(settingUpdaters as any).recording_overlay_decapitalize_indicator_custom_text = (
-  value: any,
-) =>
-  invoke("change_recording_overlay_decapitalize_indicator_custom_text_setting", {
-    text: String(value),
-  });
-(settingUpdaters as any).recording_overlay_decapitalize_indicator_font_family = (
-  value: any,
-) =>
-  invoke("change_recording_overlay_decapitalize_indicator_font_family_setting", {
-    fontFamily: String(value),
-  });
-(settingUpdaters as any).recording_overlay_decapitalize_indicator_font_size_px = (
-  value: any,
-) =>
-  invoke("change_recording_overlay_decapitalize_indicator_font_size_setting", {
-    sizePx: Number(value),
-  });
+(settingUpdaters as any).recording_overlay_decapitalize_indicator_custom_text =
+  (value: any) =>
+    invoke(
+      "change_recording_overlay_decapitalize_indicator_custom_text_setting",
+      {
+        text: String(value),
+      },
+    );
+(settingUpdaters as any).recording_overlay_decapitalize_indicator_font_family =
+  (value: any) =>
+    invoke(
+      "change_recording_overlay_decapitalize_indicator_font_family_setting",
+      {
+        fontFamily: String(value),
+      },
+    );
+(settingUpdaters as any).recording_overlay_decapitalize_indicator_font_size_px =
+  (value: any) =>
+    invoke(
+      "change_recording_overlay_decapitalize_indicator_font_size_setting",
+      {
+        sizePx: Number(value),
+      },
+    );
 (settingUpdaters as any).recording_overlay_decapitalize_indicator_color = (
   value: any,
 ) =>
@@ -855,7 +874,8 @@ export const useSettingsStore = create<SettingsStore>()(
             always_on_microphone: settings.always_on_microphone ?? false,
             selected_microphone: settings.selected_microphone ?? "Default",
             selected_microphone_auto_switch_enabled:
-              (settings as any).selected_microphone_auto_switch_enabled ?? false,
+              (settings as any).selected_microphone_auto_switch_enabled ??
+              false,
             selected_microphone_name_pattern:
               (settings as any).selected_microphone_name_pattern ?? "",
             clamshell_microphone: settings.clamshell_microphone ?? "Default",
@@ -919,7 +939,10 @@ export const useSettingsStore = create<SettingsStore>()(
       }
     },
 
-    updateMicrophoneInputBoostForDevice: async (deviceName: string, db: number) => {
+    updateMicrophoneInputBoostForDevice: async (
+      deviceName: string,
+      db: number,
+    ) => {
       const { setUpdating } = get();
       const deviceKey = microphoneInputBoostDeviceKey(deviceName);
       const updateKey = `microphone_input_boost_db_by_device:${deviceKey}`;
@@ -929,10 +952,8 @@ export const useSettingsStore = create<SettingsStore>()(
         ((originalSettings as any)?.microphone_input_boost_db ?? 0) as number,
       );
       const originalBoostMap = {
-        ...((((originalSettings as any)?.microphone_input_boost_db_by_device ?? {}) as Record<
-          string,
-          number
-        >)),
+        ...(((originalSettings as any)?.microphone_input_boost_db_by_device ??
+          {}) as Record<string, number>),
       };
 
       setUpdating(updateKey, true);
@@ -944,10 +965,8 @@ export const useSettingsStore = create<SettingsStore>()(
           }
 
           const nextBoostMap = {
-            ...((((state.settings as any)?.microphone_input_boost_db_by_device ?? {}) as Record<
-              string,
-              number
-            >)),
+            ...(((state.settings as any)?.microphone_input_boost_db_by_device ??
+              {}) as Record<string, number>),
           };
 
           if (sanitized <= 0) {

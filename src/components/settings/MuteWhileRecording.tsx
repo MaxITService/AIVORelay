@@ -20,8 +20,8 @@ export const MuteWhileRecording: React.FC<MuteWhileRecordingToggleProps> =
         checked={muteEnabled}
         onChange={(enabled) => updateSetting("mute_while_recording", enabled)}
         isUpdating={isUpdating("mute_while_recording")}
-        label={t("settings.debug.muteWhileRecording.label")}
-        description={t("settings.debug.muteWhileRecording.description")}
+        label={t("settings.advanced.muteWhileRecording.label")}
+        description={t("settings.advanced.muteWhileRecording.description")}
         descriptionMode={descriptionMode}
         grouped={grouped}
       />

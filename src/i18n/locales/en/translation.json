@@ -1012,6 +1012,14 @@
     },
     "advanced": {
       "title": "Advanced",
+      "muteWhileRecording": {
+        "label": "Mute While Recording",
+        "description": "Mute system audio while recording."
+      },
+      "pauseMediaWhileRecording": {
+        "label": "Pause Media While Recording",
+        "description": "Pause active media when recording starts, then resume what AivoRelay paused after recording stops."
+      },
       "autoStop": {
         "title": "Recording Auto-Stop Safety",
         "description": "Automatically stops recording if it's left on for too long. Crucial safety feature to prevent draining your cloud API budget if you accidentally forget to stop recording.",

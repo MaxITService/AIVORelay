@@ -11,7 +11,6 @@ import { SettingContainer } from "../../ui/SettingContainer";
 import { HistoryLimit } from "../HistoryLimit";
 import { AlwaysOnMicrophone } from "../AlwaysOnMicrophone";
 import { SoundPicker } from "../SoundPicker";
-import { MuteWhileRecording } from "../MuteWhileRecording";
 import { LazyStreamClose } from "./LazyStreamClose";
 import { RecordingBuffer } from "./RecordingBuffer";
 import { RecordingRetentionPeriodSelector } from "../RecordingRetentionPeriod";
@@ -25,15 +24,18 @@ import { OPEN_FIRST_START_WIZARD_EVENT } from "../../../constants/appEvents";
 
 export const DebugSettings: React.FC = () => {
   const { t } = useTranslation();
-  const { getSetting, updateSetting, isUpdating, settings, refreshSettings } = useSettings();
+  const { getSetting, updateSetting, isUpdating, settings, refreshSettings } =
+    useSettings();
   const pushToTalk = getSetting("push_to_talk");
   const isLinux = type() === "linux";
   const isWindows = type() === "windows";
 
   // Modal states
-  const [showVoiceCommandsWarning, setShowVoiceCommandsWarning] = useState(false);
+  const [showVoiceCommandsWarning, setShowVoiceCommandsWarning] =
+    useState(false);
 
-  const betaVoiceCommandsEnabled = (settings as any)?.beta_voice_commands_enabled ?? false;
+  const betaVoiceCommandsEnabled =
+    (settings as any)?.beta_voice_commands_enabled ?? false;
 
   const handleVoiceCommandsToggle = (enabled: boolean) => {
     if (enabled) {
@@ -68,7 +70,6 @@ export const DebugSettings: React.FC = () => {
         />
         <AlwaysOnMicrophone descriptionMode="tooltip" grouped={true} />
         <ClamshellMicrophoneSelector descriptionMode="tooltip" grouped={true} />
-        <MuteWhileRecording descriptionMode="tooltip" grouped={true} />
         <RecordingBuffer descriptionMode="tooltip" grouped={true} />
         {/* Cancel shortcut is disabled on Linux due to instability with dynamic shortcut registration */}
         {!isLinux && (
@@ -86,12 +87,11 @@ export const DebugSettings: React.FC = () => {
           <div className="flex items-start gap-2">
             <AlertTriangle className="w-4 h-4 text-yellow-400 mt-0.5 flex-shrink-0" />
             <p className="text-sm text-yellow-200/90">
-              These features are experimental and may change or be removed in future versions.
+              These features are experimental and may change or be removed in
+              future versions.
             </p>
           </div>
         </div>
-
-
 
         {/* Voice Commands Toggle - Windows only */}
         {isWindows && (
@@ -116,8 +116,10 @@ export const DebugSettings: React.FC = () => {
                   <div className="text-xs text-red-200/80">
                     <p className="font-semibold mb-1">⚠️ Advanced Users Only</p>
                     <p>
-                      Voice Commands can execute <strong>any script or command</strong> on your computer.
-                      Go to <strong>Voice Commands</strong> in the sidebar to configure.
+                      Voice Commands can execute{" "}
+                      <strong>any script or command</strong> on your computer.
+                      Go to <strong>Voice Commands</strong> in the sidebar to
+                      configure.
                     </p>
                   </div>
                 </div>
@@ -160,8 +162,6 @@ export const DebugSettings: React.FC = () => {
         cancelText="Cancel"
         variant="danger"
       />
-
-
     </div>
   );
 };

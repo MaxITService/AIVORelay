@@ -718,6 +718,7 @@ pub fn run() {
         shortcut_handy_keys::start_handy_keys_recording,
         shortcut_handy_keys::stop_handy_keys_recording,
         shortcut::change_mute_while_recording_setting,
+        shortcut::change_pause_media_while_recording_setting,
         shortcut::change_filter_silence_setting,
         shortcut::change_recording_auto_stop_enabled_setting,
         shortcut::change_recording_auto_stop_timeout_seconds_setting,
