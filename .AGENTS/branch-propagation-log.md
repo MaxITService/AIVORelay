@@ -13,6 +13,9 @@ Rules:
 
 | Propagation Date | Target Branch | Main SHA | Main Message | Branch SHA | Branch Message | Issues |
 | --- | --- | --- | --- | --- | --- | --- |
+| 2026-04-13 | `integration/combined` | `28a42507` | chore(bindings): drop accelerator discovery doc comment | `b6ea3b28` | chore(bindings): drop accelerator discovery doc comment | clean cherry-pick |
+| 2026-04-13 | `integration/cuda` | `28a42507` | chore(bindings): drop accelerator discovery doc comment | `8f661f21` | chore(bindings): drop accelerator discovery doc comment | clean cherry-pick |
+| 2026-04-13 | `release/microsoft-store` | `28a42507` | chore(bindings): drop accelerator discovery doc comment | `3211157b` | chore(bindings): drop accelerator discovery doc comment | clean cherry-pick |
 | 2026-04-10 | `integration/combined` | `6ff33177` | fix(window): ignore minimized saved geometry | `56b87b3d` | fix(window): ignore minimized saved geometry | clean cherry-pick |
 | 2026-04-10 | `integration/cuda` | `6ff33177` | fix(window): ignore minimized saved geometry | `b7e96bbe` | fix(window): ignore minimized saved geometry | clean cherry-pick |
 | 2026-04-10 | `release/microsoft-store` | `6ff33177` | fix(window): ignore minimized saved geometry | `b70e6e4b` | fix(window): ignore minimized saved geometry | clean cherry-pick |
@@ -20,9 +23,6 @@ Rules:
 | 2026-04-09 | `integration/cuda` | `0fd51a6f` | perf(post-processing): disable default reasoning on compatible providers | `3cea8f07` | perf(post-processing): disable default reasoning on compatible providers | excluded Cargo.lock + upstream-sync-log |
 | 2026-04-09 | `release/microsoft-store` | `0fd51a6f` | perf(post-processing): disable default reasoning on compatible providers | `6b79473d` | perf(post-processing): disable default reasoning on compatible providers | excluded Cargo.lock + upstream-sync-log |
 | 2026-04-05 | `release/microsoft-store` | `9cf150e4` | better algorithm: transcribe file recording | `8c0cc842` | better algorithm: transcribe file recording | skipped empty version bump |
-| 2026-04-05 | `integration/cuda` | `9cf150e4` | better algorithm: transcribe file recording | `5e7b80bf` | better algorithm: transcribe file recording | solved Cargo.toml conflict |
-| 2026-04-05 | `integration/combined` | `9cf150e4` | better algorithm: transcribe file recording | `8ffe01c4` | better algorithm: transcribe file recording | skipped empty version bump |
-| 2026-04-04 | `release/microsoft-store` | `5752185f` | change default model unload timeout to 15 minutes | `f7044b6b` | change default model unload timeout to 15 minutes | includes 09c0b163 + 943cd525 |
 
 Entry template:
 
