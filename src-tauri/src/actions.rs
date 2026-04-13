@@ -907,7 +907,10 @@ fn start_recording_with_feedback(app: &AppHandle, binding_id: &str) -> bool {
         });
 
         match rm.try_start_recording_detailed(binding_id) {
-            Ok(()) => debug!("Recording started"),
+            Ok(()) => {
+                rm.apply_media_pause();
+                debug!("Recording started");
+            }
             Err(err) => {
                 debug!("Failed to start recording: {}", err);
                 recording_error = Some(err);
@@ -919,6 +922,7 @@ fn start_recording_with_feedback(app: &AppHandle, binding_id: &str) -> bool {
         let recording_start_time = Instant::now();
         match rm.try_start_recording_detailed(binding_id) {
             Ok(()) => {
+                rm.apply_media_pause();
                 debug!("Recording started in {:?}", recording_start_time.elapsed());
                 let app_clone = app.clone();
                 let rm_clone = Arc::clone(&rm);
@@ -1537,6 +1541,7 @@ fn prepare_stop_recording_with_options(
 
         let rm = app.state::<Arc<AudioRecordingManager>>();
         rm.remove_mute();
+        rm.resume_media_if_paused();
 
         play_feedback_sound(app, SoundType::Stop);
         Some(StopRecordingContext {

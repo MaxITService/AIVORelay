@@ -1706,6 +1706,8 @@ pub struct AppSettings {
     pub ai_replace_selection_push_to_talk: bool,
     #[serde(default)]
     pub mute_while_recording: bool,
+    #[serde(default)]
+    pub pause_media_while_recording: bool,
     #[serde(default = "default_filter_silence")]
     pub filter_silence: bool,
     #[serde(default = "default_file_transcription_chunking_mode")]
@@ -3190,6 +3192,7 @@ pub fn get_default_settings() -> AppSettings {
         send_to_extension_with_selection_push_to_talk: true,
         ai_replace_selection_push_to_talk: true,
         mute_while_recording: false,
+        pause_media_while_recording: false,
         filter_silence: default_filter_silence(),
         file_transcription_chunking_mode: default_file_transcription_chunking_mode(),
         file_transcription_chunking_max_minutes: default_file_transcription_chunking_max_minutes(),

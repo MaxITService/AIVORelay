@@ -11,6 +11,8 @@ import { AutoSubmit } from "../AutoSubmit";
 import { TellMeMore } from "../../ui/TellMeMore";
 import { RecordingAutoStop } from "../RecordingAutoStop";
 import { AccelerationSelector } from "../AccelerationSelector";
+import { MuteWhileRecording } from "../MuteWhileRecording";
+import { PauseMediaWhileRecording } from "../PauseMediaWhileRecording";
 
 export const AdvancedSettings: React.FC = () => {
   const { t } = useTranslation();
@@ -31,7 +33,9 @@ export const AdvancedSettings: React.FC = () => {
               {t("settings.advanced.tellMeMore.startup.description")}
             </li>
             <li>
-              <strong>{t("settings.advanced.tellMeMore.customWords.title")}</strong>{" "}
+              <strong>
+                {t("settings.advanced.tellMeMore.customWords.title")}
+              </strong>{" "}
               {t("settings.advanced.tellMeMore.customWords.description")}
             </li>
           </ul>
@@ -46,8 +50,12 @@ export const AdvancedSettings: React.FC = () => {
         <AutostartToggle descriptionMode="tooltip" grouped={true} />
         <AutoSubmit descriptionMode="tooltip" grouped={true} />
         <RecordingAutoStop descriptionMode="tooltip" grouped={true} />
+        <MuteWhileRecording descriptionMode="tooltip" grouped={true} />
+        <PauseMediaWhileRecording descriptionMode="tooltip" grouped={true} />
         <div className="px-6 pt-4">
-          <TellMeMore title={t("settings.advanced.tellMeMore.modelUnload.title")}>
+          <TellMeMore
+            title={t("settings.advanced.tellMeMore.modelUnload.title")}
+          >
             <p className="text-text/90">
               {t("settings.advanced.tellMeMore.modelUnload.description")}
             </p>
@@ -63,14 +71,20 @@ export const AdvancedSettings: React.FC = () => {
             <div className="space-y-3 text-text/90">
               <p className="text-sm">
                 <strong>
-                  {t("settings.advanced.tellMeMore.acceleration.whisper.title", {
-                    defaultValue: "Whisper Acceleration:",
-                  })}
+                  {t(
+                    "settings.advanced.tellMeMore.acceleration.whisper.title",
+                    {
+                      defaultValue: "Whisper Acceleration:",
+                    },
+                  )}
                 </strong>{" "}
-                {t("settings.advanced.tellMeMore.acceleration.whisper.description", {
-                  defaultValue:
-                    "Hardware acceleration for Whisper models. Auto uses GPU if available.",
-                })}
+                {t(
+                  "settings.advanced.tellMeMore.acceleration.whisper.description",
+                  {
+                    defaultValue:
+                      "Hardware acceleration for Whisper models. Auto uses GPU if available.",
+                  },
+                )}
               </p>
               <p className="text-sm">
                 <strong>
@@ -78,10 +92,13 @@ export const AdvancedSettings: React.FC = () => {
                     defaultValue: "ONNX Acceleration:",
                   })}
                 </strong>{" "}
-                {t("settings.advanced.tellMeMore.acceleration.ort.description", {
-                  defaultValue:
-                    "Hardware acceleration for ONNX models like Parakeet, Canary, Moonshine, SenseVoice, and GigaAM.",
-                })}
+                {t(
+                  "settings.advanced.tellMeMore.acceleration.ort.description",
+                  {
+                    defaultValue:
+                      "Hardware acceleration for ONNX models like Parakeet, Canary, Moonshine, SenseVoice, and GigaAM.",
+                  },
+                )}
               </p>
               <p className="text-xs text-text/70">
                 {t("settings.advanced.tellMeMore.acceleration.note", {
@@ -97,10 +114,14 @@ export const AdvancedSettings: React.FC = () => {
 
       <SettingsGroup title={t("settings.advanced.pasteMethod.title")}>
         <div className="px-6 pt-4">
-          <TellMeMore title={t("settings.advanced.pasteMethod.tellMeMore.title")}>
+          <TellMeMore
+            title={t("settings.advanced.pasteMethod.tellMeMore.title")}
+          >
             <div className="space-y-3">
               <p className="mb-2">
-                <strong>{t("settings.advanced.pasteMethod.tellMeMore.headline")}</strong>
+                <strong>
+                  {t("settings.advanced.pasteMethod.tellMeMore.headline")}
+                </strong>
               </p>
               <p className="mb-2">
                 {t("settings.advanced.pasteMethod.tellMeMore.intro")}
@@ -108,20 +129,38 @@ export const AdvancedSettings: React.FC = () => {
 
               <div className="space-y-2 ml-2">
                 <p>
-                  <strong>{t("settings.advanced.pasteMethod.tellMeMore.ctrlV.title")}</strong>{" "}
-                  {t("settings.advanced.pasteMethod.tellMeMore.ctrlV.description")}
+                  <strong>
+                    {t("settings.advanced.pasteMethod.tellMeMore.ctrlV.title")}
+                  </strong>{" "}
+                  {t(
+                    "settings.advanced.pasteMethod.tellMeMore.ctrlV.description",
+                  )}
                 </p>
                 <p>
-                  <strong>{t("settings.advanced.pasteMethod.tellMeMore.direct.title")}</strong>{" "}
-                  {t("settings.advanced.pasteMethod.tellMeMore.direct.description")}
+                  <strong>
+                    {t("settings.advanced.pasteMethod.tellMeMore.direct.title")}
+                  </strong>{" "}
+                  {t(
+                    "settings.advanced.pasteMethod.tellMeMore.direct.description",
+                  )}
                 </p>
                 <p>
-                  <strong>{t("settings.advanced.pasteMethod.tellMeMore.none.title")}</strong>{" "}
-                  {t("settings.advanced.pasteMethod.tellMeMore.none.description")}
+                  <strong>
+                    {t("settings.advanced.pasteMethod.tellMeMore.none.title")}
+                  </strong>{" "}
+                  {t(
+                    "settings.advanced.pasteMethod.tellMeMore.none.description",
+                  )}
                 </p>
                 <p>
-                  <strong>{t("settings.advanced.pasteMethod.tellMeMore.pasteDelay.title")}</strong>{" "}
-                  {t("settings.advanced.pasteMethod.tellMeMore.pasteDelay.description")}
+                  <strong>
+                    {t(
+                      "settings.advanced.pasteMethod.tellMeMore.pasteDelay.title",
+                    )}
+                  </strong>{" "}
+                  {t(
+                    "settings.advanced.pasteMethod.tellMeMore.pasteDelay.description",
+                  )}
                 </p>
               </div>
 
@@ -133,25 +172,51 @@ export const AdvancedSettings: React.FC = () => {
         </div>
         <PasteMethodSetting descriptionMode="tooltip" grouped={true} />
         <div className="px-6 pt-4">
-          <TellMeMore title={t("settings.advanced.tellMeMore.clipboardHandling.title")}>
+          <TellMeMore
+            title={t("settings.advanced.tellMeMore.clipboardHandling.title")}
+          >
             <div className="space-y-3 text-text/90">
               <p>{t("settings.advanced.tellMeMore.clipboardHandling.intro")}</p>
               <p className="text-sm">
-                <strong>{t("settings.advanced.tellMeMore.clipboardHandling.safestChoiceTitle")}</strong>{" "}
-                {t("settings.advanced.tellMeMore.clipboardHandling.safestChoiceDescription")}
+                <strong>
+                  {t(
+                    "settings.advanced.tellMeMore.clipboardHandling.safestChoiceTitle",
+                  )}
+                </strong>{" "}
+                {t(
+                  "settings.advanced.tellMeMore.clipboardHandling.safestChoiceDescription",
+                )}
               </p>
               <div className="space-y-2 ml-2">
                 <p>
-                  <strong>{t("settings.advanced.tellMeMore.clipboardHandling.dontModify.title")}</strong>{" "}
-                  {t("settings.advanced.tellMeMore.clipboardHandling.dontModify.description")}
+                  <strong>
+                    {t(
+                      "settings.advanced.tellMeMore.clipboardHandling.dontModify.title",
+                    )}
+                  </strong>{" "}
+                  {t(
+                    "settings.advanced.tellMeMore.clipboardHandling.dontModify.description",
+                  )}
                 </p>
                 <p>
-                  <strong>{t("settings.advanced.tellMeMore.clipboardHandling.copyToClipboard.title")}</strong>{" "}
-                  {t("settings.advanced.tellMeMore.clipboardHandling.copyToClipboard.description")}
+                  <strong>
+                    {t(
+                      "settings.advanced.tellMeMore.clipboardHandling.copyToClipboard.title",
+                    )}
+                  </strong>{" "}
+                  {t(
+                    "settings.advanced.tellMeMore.clipboardHandling.copyToClipboard.description",
+                  )}
                 </p>
                 <p>
-                  <strong>{t("settings.advanced.tellMeMore.clipboardHandling.restoreAdvanced.title")}</strong>{" "}
-                  {t("settings.advanced.tellMeMore.clipboardHandling.restoreAdvanced.description")}
+                  <strong>
+                    {t(
+                      "settings.advanced.tellMeMore.clipboardHandling.restoreAdvanced.title",
+                    )}
+                  </strong>{" "}
+                  {t(
+                    "settings.advanced.tellMeMore.clipboardHandling.restoreAdvanced.description",
+                  )}
                 </p>
               </div>
               <p className="text-xs text-text/70">
@@ -163,7 +228,6 @@ export const AdvancedSettings: React.FC = () => {
         <ClipboardHandlingSetting descriptionMode="tooltip" grouped={true} />
         <ConvertLfToCrlfSetting descriptionMode="tooltip" grouped={true} />
       </SettingsGroup>
-
     </div>
   );
 };
