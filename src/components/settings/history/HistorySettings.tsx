@@ -20,7 +20,6 @@ import { formatDateTime } from "@/utils/dateFormat";
 import { HandyShortcut } from "../HandyShortcut";
 import { HistoryLimit } from "../HistoryLimit";
 import { RecordingRetentionPeriodSelector } from "../RecordingRetentionPeriod";
-import { SettingsGroup } from "../../ui/SettingsGroup";
 
 const PAGE_SIZE = 30;
 
@@ -56,19 +55,12 @@ const OpenRecordingsButton: React.FC<OpenRecordingsButtonProps> = ({
   </Button>
 );
 
-const HistoryConfigurationSection: React.FC = () => {
-  const { t } = useTranslation();
-
-  return (
-    <SettingsGroup title={t("settings.history.settings.title")}>
-      <HistoryLimit descriptionMode="tooltip" grouped={true} />
-      <RecordingRetentionPeriodSelector
-        descriptionMode="tooltip"
-        grouped={true}
-      />
-    </SettingsGroup>
-  );
-};
+const HistoryControls: React.FC = () => (
+  <>
+    <HistoryLimit descriptionMode="inline" grouped={true} />
+    <RecordingRetentionPeriodSelector descriptionMode="inline" grouped={true} />
+  </>
+);
 
 const IconButton: React.FC<{
   onClick: () => void;
@@ -327,7 +319,6 @@ export const HistorySettings: React.FC = () => {
   if (loading) {
     return (
       <div className="max-w-3xl w-full mx-auto space-y-6">
-        <HistoryConfigurationSection />
         <div className="space-y-2">
           <div className="px-4 flex items-center justify-between">
             <div>
@@ -341,8 +332,11 @@ export const HistorySettings: React.FC = () => {
             />
           </div>
           <div className="bg-background border border-mid-gray/20 rounded-lg overflow-visible">
-            <div className="px-4 py-3 text-center text-text/60">
-              {t("settings.history.loading")}
+            <div className="divide-y divide-mid-gray/20">
+              <HistoryControls />
+              <div className="px-4 py-3 text-center text-text/60">
+                {t("settings.history.loading")}
+              </div>
             </div>
           </div>
         </div>
@@ -353,7 +347,6 @@ export const HistorySettings: React.FC = () => {
   if (historyEntries.length === 0) {
     return (
       <div className="max-w-3xl w-full mx-auto space-y-6">
-        <HistoryConfigurationSection />
         <div className="space-y-2">
           <div className="px-4 flex items-center justify-between">
             <div>
@@ -367,8 +360,11 @@ export const HistorySettings: React.FC = () => {
             />
           </div>
           <div className="bg-background border border-mid-gray/20 rounded-lg overflow-visible">
-            <div className="px-4 py-3 text-center text-text/60">
-              {t("settings.history.empty")}
+            <div className="divide-y divide-mid-gray/20">
+              <HistoryControls />
+              <div className="px-4 py-3 text-center text-text/60">
+                {t("settings.history.empty")}
+              </div>
             </div>
           </div>
         </div>
@@ -378,8 +374,6 @@ export const HistorySettings: React.FC = () => {
 
   return (
     <div className="max-w-3xl w-full mx-auto space-y-6">
-      <HistoryConfigurationSection />
-
       {/* Repaste Shortcut Section */}
       <div className="space-y-2">
         <h2 className="px-4 text-xs font-medium text-mid-gray uppercase tracking-wide">
@@ -405,6 +399,7 @@ export const HistorySettings: React.FC = () => {
         </div>
         <div className="bg-background border border-mid-gray/20 rounded-lg overflow-visible">
           <div className="divide-y divide-mid-gray/20">
+            <HistoryControls />
             {historyEntries.map((entry) => (
               <HistoryEntryComponent
                 key={entry.id}

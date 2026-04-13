@@ -150,9 +150,9 @@ pub async fn update_recording_retention_period(
     let retention_period = match period.as_str() {
         "never" => RecordingRetentionPeriod::Never,
         "preserve_limit" => RecordingRetentionPeriod::PreserveLimit,
-        "days3" => RecordingRetentionPeriod::Days3,
-        "weeks2" => RecordingRetentionPeriod::Weeks2,
-        "months3" => RecordingRetentionPeriod::Months3,
+        "days_3" | "days3" => RecordingRetentionPeriod::Days3,
+        "weeks_2" | "weeks2" => RecordingRetentionPeriod::Weeks2,
+        "months_3" | "months3" => RecordingRetentionPeriod::Months3,
         _ => return Err(format!("Invalid retention period: {}", period)),
     };
 
