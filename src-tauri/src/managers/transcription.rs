@@ -11,7 +11,7 @@ use serde::Serialize;
 use specta::Type;
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::{Arc, Condvar, Mutex, MutexGuard, OnceLock};
+use std::sync::{Arc, Condvar, Mutex, MutexGuard, OnceLock, TryLockError};
 use std::thread;
 use std::time::{Duration, SystemTime};
 use tauri::{AppHandle, Emitter, Manager};
@@ -428,14 +428,47 @@ impl TranscriptionManager {
     /// Unloads the model immediately if the setting is enabled and the model is loaded
     pub fn maybe_unload_immediately(&self, context: &str) {
         let settings = get_settings(&self.app_handle);
-        if settings.model_unload_timeout == ModelUnloadTimeout::Immediately
-            && self.is_model_loaded()
-        {
-            info!("Immediately unloading model after {}", context);
-            if let Err(e) = self.unload_model() {
-                warn!("Failed to immediately unload model: {}", e);
-            }
+        if settings.model_unload_timeout != ModelUnloadTimeout::Immediately {
+            return;
         }
+
+        let mut engine = match self.engine.try_lock() {
+            Ok(engine) => engine,
+            Err(TryLockError::WouldBlock) => {
+                warn!(
+                    "Skipping immediate model unload after {} because the transcription engine is busy",
+                    context
+                );
+                return;
+            }
+            Err(TryLockError::Poisoned(poisoned)) => {
+                warn!("Engine mutex was poisoned during immediate unload, recovering");
+                poisoned.into_inner()
+            }
+        };
+
+        if engine.is_none() {
+            return;
+        }
+
+        info!("Immediately unloading model after {}", context);
+        *engine = None;
+        drop(engine);
+
+        {
+            let mut current_model = self.current_model_id.lock().unwrap();
+            *current_model = None;
+        }
+
+        let _ = self.app_handle.emit(
+            "model-state-changed",
+            ModelStateEvent {
+                event_type: "unloaded".to_string(),
+                model_id: None,
+                model_name: None,
+                error: None,
+            },
+        );
     }
 
     pub fn load_model(&self, model_id: &str) -> Result<()> {
