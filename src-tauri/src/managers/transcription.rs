@@ -98,6 +98,13 @@ const FILE_TRANSCRIPTION_SMART_SPLIT_SEARCH_SECS: f32 = 5.0;
 const FILE_TRANSCRIPTION_VAD_PREFILL_FRAMES: usize = 15;
 const FILE_TRANSCRIPTION_VAD_HANGOVER_FRAMES: usize = 15;
 const FILE_TRANSCRIPTION_VAD_ONSET_FRAMES: usize = 2;
+const FILE_TRANSCRIPTION_COHERE_MAX_CHUNK_SECS: f32 = 15.0;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum FileTranscriptionChunkProfile {
+    Default,
+    Cohere,
+}
 
 #[derive(Debug, Clone, Serialize, Type)]
 #[serde(rename_all = "camelCase")]
@@ -179,6 +186,23 @@ fn chunk_sample_ranges(total_samples: usize, max_chunk_secs: f32) -> Vec<(usize,
     }
 
     ranges
+}
+
+fn configured_file_transcription_max_chunk_secs(settings: &AppSettings) -> f32 {
+    (settings.file_transcription_chunking_max_minutes.max(0.25) * 60.0).max(15.0)
+}
+
+fn effective_file_transcription_max_chunk_secs(
+    settings: &AppSettings,
+    profile: FileTranscriptionChunkProfile,
+) -> f32 {
+    let configured = configured_file_transcription_max_chunk_secs(settings);
+    match profile {
+        FileTranscriptionChunkProfile::Default => configured,
+        FileTranscriptionChunkProfile::Cohere => {
+            configured.min(FILE_TRANSCRIPTION_COHERE_MAX_CHUNK_SECS)
+        }
+    }
 }
 
 fn push_chunk_trace(
@@ -1287,16 +1311,25 @@ impl TranscriptionManager {
                 anyhow::anyhow!("Model failed to load. Please check your model settings.")
             })?;
 
-            let use_chunking = self.should_use_file_transcription_chunking(&settings, &audio);
             self.ensure_file_transcription_not_cancelled()?;
+            let chunking_for = |profile| {
+                let max_chunk_secs =
+                    effective_file_transcription_max_chunk_secs(&settings, profile);
+                let use_chunking =
+                    self.should_use_file_transcription_chunking(&settings, &audio, max_chunk_secs);
+                (use_chunking, max_chunk_secs)
+            };
 
             match engine {
                 LoadedEngine::Parakeet(parakeet_engine) => {
+                    let (use_chunking, max_chunk_secs) =
+                        chunking_for(FileTranscriptionChunkProfile::Default);
                     if use_chunking {
                         match self.transcribe_file_with_vad_chunking(
                             &audio,
                             &settings,
                             merge_separator,
+                            max_chunk_secs,
                             |samples, chunk_start_secs| {
                                 self.transcribe_parakeet_chunk(
                                     parakeet_engine,
@@ -1357,6 +1390,8 @@ impl TranscriptionManager {
                     }
                 }
                 LoadedEngine::Whisper(whisper_engine) => {
+                    let (use_chunking, max_chunk_secs) =
+                        chunking_for(FileTranscriptionChunkProfile::Default);
                     let whisper_language = if selected_language == "auto" {
                         None
                     } else if selected_language == "os_input" {
@@ -1396,6 +1431,7 @@ impl TranscriptionManager {
                             &audio,
                             &settings,
                             merge_separator,
+                            max_chunk_secs,
                             |samples, chunk_start_secs| {
                                 self.transcribe_whisper_chunk(
                                     whisper_engine,
@@ -1448,6 +1484,8 @@ impl TranscriptionManager {
                     }
                 }
                 LoadedEngine::Moonshine(moonshine_engine) => {
+                    let (use_chunking, max_chunk_secs) =
+                        chunking_for(FileTranscriptionChunkProfile::Default);
                     let options = TranscribeOptions::default();
                     self.transcribe_speech_model_file(
                         moonshine_engine,
@@ -1456,10 +1494,13 @@ impl TranscriptionManager {
                         merge_separator,
                         &options,
                         use_chunking,
+                        max_chunk_secs,
                         "Moonshine",
                     )?
                 }
                 LoadedEngine::MoonshineStreaming(streaming_engine) => {
+                    let (use_chunking, max_chunk_secs) =
+                        chunking_for(FileTranscriptionChunkProfile::Default);
                     let options = TranscribeOptions::default();
                     self.transcribe_speech_model_file(
                         streaming_engine,
@@ -1468,10 +1509,13 @@ impl TranscriptionManager {
                         merge_separator,
                         &options,
                         use_chunking,
+                        max_chunk_secs,
                         "Moonshine streaming",
                     )?
                 }
                 LoadedEngine::SenseVoice(sense_voice_engine) => {
+                    let (use_chunking, max_chunk_secs) =
+                        chunking_for(FileTranscriptionChunkProfile::Default);
                     let language = match selected_language.as_str() {
                         "zh" | "zh-Hans" | "zh-Hant" => Some("zh".to_string()),
                         "en" => Some("en".to_string()),
@@ -1491,10 +1535,13 @@ impl TranscriptionManager {
                         merge_separator,
                         &options,
                         use_chunking,
+                        max_chunk_secs,
                         "SenseVoice",
                     )?
                 }
                 LoadedEngine::GigaAM(gigaam_engine) => {
+                    let (use_chunking, max_chunk_secs) =
+                        chunking_for(FileTranscriptionChunkProfile::Default);
                     let options = TranscribeOptions::default();
                     self.transcribe_speech_model_file(
                         gigaam_engine,
@@ -1503,10 +1550,13 @@ impl TranscriptionManager {
                         merge_separator,
                         &options,
                         use_chunking,
+                        max_chunk_secs,
                         "GigaAM",
                     )?
                 }
                 LoadedEngine::Canary(canary_engine) => {
+                    let (use_chunking, max_chunk_secs) =
+                        chunking_for(FileTranscriptionChunkProfile::Default);
                     let language = if selected_language == "auto" {
                         None
                     } else {
@@ -1524,10 +1574,13 @@ impl TranscriptionManager {
                         merge_separator,
                         &options,
                         use_chunking,
+                        max_chunk_secs,
                         "Canary",
                     )?
                 }
                 LoadedEngine::Cohere(cohere_engine) => {
+                    let (use_chunking, max_chunk_secs) =
+                        chunking_for(FileTranscriptionChunkProfile::Cohere);
                     let language = if selected_language == "auto" {
                         None
                     } else if selected_language == "zh-Hans" || selected_language == "zh-Hant" {
@@ -1546,6 +1599,7 @@ impl TranscriptionManager {
                         merge_separator,
                         &options,
                         use_chunking,
+                        max_chunk_secs,
                         "Cohere",
                     )?
                 }
@@ -1567,6 +1621,7 @@ impl TranscriptionManager {
         &self,
         settings: &AppSettings,
         audio: &[f32],
+        max_chunk_secs: f32,
     ) -> bool {
         if matches!(
             settings.file_transcription_chunking_mode,
@@ -1575,8 +1630,6 @@ impl TranscriptionManager {
             return false;
         }
 
-        let max_chunk_secs =
-            (settings.file_transcription_chunking_max_minutes.max(0.25) * 60.0).max(15.0);
         let duration_secs = audio.len() as f32 / FILE_TRANSCRIPTION_SAMPLE_RATE;
         duration_secs > max_chunk_secs
     }
@@ -1599,6 +1652,7 @@ impl TranscriptionManager {
         merge_separator: &str,
         options: &TranscribeOptions,
         use_chunking: bool,
+        max_chunk_secs: f32,
         engine_name: &str,
     ) -> Result<(TranscriptionResult, FileTranscriptionExecutionMeta)> {
         if use_chunking {
@@ -1606,6 +1660,7 @@ impl TranscriptionManager {
                 audio,
                 settings,
                 merge_separator,
+                max_chunk_secs,
                 |samples, chunk_start_secs| {
                     self.transcribe_speech_model_chunk(model, samples, chunk_start_secs, options)
                 },
@@ -1657,6 +1712,7 @@ impl TranscriptionManager {
         audio: &[f32],
         settings: &AppSettings,
         merge_separator: &str,
+        max_chunk_secs: f32,
         mut transcribe_chunk: F,
     ) -> Result<(
         TranscriptionResult,
@@ -1678,8 +1734,6 @@ impl TranscriptionManager {
         );
 
         let frame_size = vad.frame_size();
-        let max_chunk_secs =
-            (settings.file_transcription_chunking_max_minutes.max(0.25) * 60.0).max(15.0);
         let search_secs = FILE_TRANSCRIPTION_SMART_SPLIT_SEARCH_SECS.min(max_chunk_secs / 2.0);
 
         let mut chunk_buffer = Vec::new();
@@ -2211,6 +2265,41 @@ mod tests {
         assert!(ranges
             .iter()
             .all(|(start, end)| end.saturating_sub(*start) <= max_chunk_samples));
+    }
+
+    #[test]
+    fn cohere_chunk_profile_caps_custom_chunk_minutes() {
+        let mut settings = crate::settings::get_default_settings();
+        settings.file_transcription_chunking_max_minutes = 2.75;
+
+        assert_eq!(
+            effective_file_transcription_max_chunk_secs(
+                &settings,
+                FileTranscriptionChunkProfile::Default
+            ),
+            165.0
+        );
+        assert_eq!(
+            effective_file_transcription_max_chunk_secs(
+                &settings,
+                FileTranscriptionChunkProfile::Cohere
+            ),
+            FILE_TRANSCRIPTION_COHERE_MAX_CHUNK_SECS
+        );
+    }
+
+    #[test]
+    fn cohere_chunk_profile_keeps_minimum_chunk_floor() {
+        let mut settings = crate::settings::get_default_settings();
+        settings.file_transcription_chunking_max_minutes = 0.25;
+
+        assert_eq!(
+            effective_file_transcription_max_chunk_secs(
+                &settings,
+                FileTranscriptionChunkProfile::Cohere
+            ),
+            15.0
+        );
     }
 
     #[test]
