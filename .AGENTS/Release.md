@@ -39,6 +39,10 @@ When asked to bump the app version:
 13. Commit with `chore: bump version to x.y.z`.
 14. After commit, ask whether to create tag and push now. 
 
+## Main Release Preflight
+
+Before tagging or running `Release` for `main`, verify `.github/release-notes/main.md` is current for the target version.
+
 ## Tags And Branches
 
 Use the same numeric app version on both release branches.
@@ -72,3 +76,5 @@ When preparing release text for user review:
    - `integration/cuda`: `.github/release-notes/cuda.md`
 5. GitHub Actions reads these Markdown files directly and prepends them ahead of `generate_release_notes: true`.
 6. Present the final draft in chat and ask explicitly: use as-is or apply user-edited text from chat.
+
+If a release was already created with stale body text, do not move tags; ask before editing a public release, and update the checked-in release-notes file separately if it should become the future baseline.
