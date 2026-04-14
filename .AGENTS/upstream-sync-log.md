@@ -21,6 +21,7 @@ Rules:
 
 | Merge Date | Upstream Date | Upstream SHA | Upstream Message | Main Message | Issues |
 | --- | --- | --- | --- | --- | --- |
+| 2026-04-14 | 2026-04-13 | `aee682f6` | feat: add AWS Bedrock (Mantle) as post-processing provider (#1288) | feat(post-processing): add AWS Bedrock Mantle provider | adapted provider fields to fork shape |
 | 2026-04-09 | 2026-04-07 | `84d88f91` | perf: add reasoning_effort passthrough to avoid thinking-mode latency in local models (#1221) | perf(post-processing): disable default reasoning on compatible providers | adapted; preserved fork reasoning controls |
 | 2026-04-09 | 2026-04-07 | `30b57c42` | fix(issue 522): surface paste errors as UI toast notification (#1198) | fix(ui): surface transcription paste failures as toast | adapted to fork App/error flow |
 | 2026-04-02 | 2026-04-02 | `b123c1e5` | fix crash on old cpus (#1176) | fix: accept upstream old CPU crash fix | manual port; forgot log on first pass |
@@ -30,7 +31,6 @@ Rules:
 | 2026-03-22 | 2026-03-22 | `17277cf6` | Save recordings before transcription (#1024) | feat(history): save recordings before transcription | adapted via diff path; retry limited to transcription entries |
 | 2026-03-21 | 2026-03-21 | `58cda3f3` | fix: sha256 verification to prevent corrupt partial download loop (#1095) | fix(models): verify downloads and clear corrupt partials | partial port; runtime fix kept, UI/state handling simplified |
 | 2026-03-21 | 2026-03-21 | `e35f0a71` | improve history performance (#1107) | perf(history): paginate history settings list | adapted for fork history fields; raw invoke/listen instead of bindings |
-| 2026-03-21 | 2026-03-19 | `cb32d35b` | feat(audio): lazy stream close for bluetooth mic latency (#747) | feat(audio): add lazy mic stream close toggle | adapted; backend intent kept, Debug UI/bindings diverged |
 
 Entry template:
 
