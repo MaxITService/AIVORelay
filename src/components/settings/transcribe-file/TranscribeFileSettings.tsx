@@ -1,4 +1,10 @@
-import React, { useState, useRef, useEffect, useMemo, useCallback } from "react";
+import React, {
+  useState,
+  useRef,
+  useEffect,
+  useMemo,
+  useCallback,
+} from "react";
 import { useTranslation } from "react-i18next";
 import {
   FileAudio,
@@ -65,7 +71,9 @@ type FileTranscriptionRecordingState = {
   blocksFileTranscription: boolean;
 };
 
-const formatAudioDurationClock = (seconds: number | null | undefined): string => {
+const formatAudioDurationClock = (
+  seconds: number | null | undefined,
+): string => {
   if (seconds == null || !Number.isFinite(seconds) || seconds < 0) {
     return "";
   }
@@ -130,7 +138,10 @@ const normalizeChunkingTrace = (value: unknown): ChunkingTraceEntry[] => {
 
   return value.flatMap((rawEntry) => {
     const entry = rawEntry as RawChunkingTraceEntry;
-    const chunkIndex = normalizeFiniteNumber(entry.chunkIndex, entry.chunk_index);
+    const chunkIndex = normalizeFiniteNumber(
+      entry.chunkIndex,
+      entry.chunk_index,
+    );
     const startSecs = normalizeFiniteNumber(entry.startSecs, entry.start_secs);
     const endSecs = normalizeFiniteNumber(entry.endSecs, entry.end_secs);
     const durationSecs = normalizeFiniteNumber(
@@ -200,7 +211,9 @@ const isCancellationMessage = (value: unknown): boolean => {
   return normalized.includes("cancelled") || normalized.includes("canceled");
 };
 
-const cleanupPreparedPreviewAsset = async (selectedFile: SelectedFile | null) => {
+const cleanupPreparedPreviewAsset = async (
+  selectedFile: SelectedFile | null,
+) => {
   if (!selectedFile?.previewAssetPath) {
     return;
   }
@@ -309,14 +322,25 @@ export const TranscribeFileSettings: React.FC = () => {
     useState(false);
   const [isCancellingTranscription, setIsCancellingTranscription] =
     useState(false);
-  const [chunkingTrace, setChunkingTrace] = useState<ChunkingTraceEntry[]>([]);
-  const [recordingBlocksFileTranscription, setRecordingBlocksFileTranscription] =
+  const [isTranscriptionCommandPending, setIsTranscriptionCommandPending] =
     useState(false);
+  const [cancelRequestedAt, setCancelRequestedAt] = useState<number | null>(
+    null,
+  );
+  const [cancelElapsedSeconds, setCancelElapsedSeconds] = useState(0);
+  const [chunkingTrace, setChunkingTrace] = useState<ChunkingTraceEntry[]>([]);
+  const [
+    recordingBlocksFileTranscription,
+    setRecordingBlocksFileTranscription,
+  ] = useState(false);
 
   const dropZoneRef = useRef<HTMLDivElement>(null);
   const selectedFileRef = useRef<SelectedFile | null>(selectedFile);
+  const transcriptionRunIdRef = useRef(0);
   const sonioxModel = (settings as any)?.soniox_model ?? "stt-rt-v4";
-  const transcriptionProvider = String(settings?.transcription_provider ?? "local");
+  const transcriptionProvider = String(
+    settings?.transcription_provider ?? "local",
+  );
   const isSonioxProvider = transcriptionProvider === "remote_soniox";
   const isDeepgramProvider = transcriptionProvider === "remote_deepgram";
   const showLocalChunkingOptions =
@@ -332,7 +356,8 @@ export const TranscribeFileSettings: React.FC = () => {
   const fileChunkingMaxMinutes = Number.isFinite(fileChunkingMaxMinutesRaw)
     ? Math.min(10, Math.max(0.25, fileChunkingMaxMinutesRaw))
     : 0.5;
-  const showSonioxFileOptions = !!selectedFile && isSonioxProvider && !overrideModelId;
+  const showSonioxFileOptions =
+    !!selectedFile && isSonioxProvider && !overrideModelId;
   const showDeepgramFileOptions =
     !!selectedFile && isDeepgramProvider && !overrideModelId;
   const canReapplySpeakerNames =
@@ -346,9 +371,8 @@ export const TranscribeFileSettings: React.FC = () => {
       : speakerProvider === "soniox"
         ? "Soniox"
         : null;
-  const settingsSonioxLanguageHints = (settings as any)?.soniox_language_hints as
-    | string[]
-    | undefined;
+  const settingsSonioxLanguageHints = (settings as any)
+    ?.soniox_language_hints as string[] | undefined;
   const globalSonioxLanguageHints = useMemo(
     () => settingsSonioxLanguageHints ?? ["en"],
     [settingsSonioxLanguageHints],
@@ -398,7 +422,10 @@ export const TranscribeFileSettings: React.FC = () => {
 
   const updateFileChunkingMode = useCallback(
     async (mode: "auto" | "off" | "custom") => {
-      await updateSetting("file_transcription_chunking_mode" as any, mode as any);
+      await updateSetting(
+        "file_transcription_chunking_mode" as any,
+        mode as any,
+      );
     },
     [updateSetting],
   );
@@ -425,7 +452,9 @@ export const TranscribeFileSettings: React.FC = () => {
   useEffect(() => {
     setSonioxLanguageHintsInput(globalSonioxLanguageHints.join(", "));
     setSonioxEnableSpeakerDiarization(globalSonioxEnableSpeakerDiarization);
-    setSonioxEnableLanguageIdentification(globalSonioxEnableLanguageIdentification);
+    setSonioxEnableLanguageIdentification(
+      globalSonioxEnableLanguageIdentification,
+    );
   }, [
     globalSonioxEnableLanguageIdentification,
     globalSonioxEnableSpeakerDiarization,
@@ -443,10 +472,27 @@ export const TranscribeFileSettings: React.FC = () => {
     }
   }, [isTranscribing]);
 
+  useEffect(() => {
+    if (!cancelRequestedAt || !isTranscriptionCommandPending) {
+      setCancelElapsedSeconds(0);
+      return;
+    }
+
+    const updateElapsed = () => {
+      setCancelElapsedSeconds(
+        Math.max(0, Math.floor((Date.now() - cancelRequestedAt) / 1000)),
+      );
+    };
+
+    updateElapsed();
+    const interval = window.setInterval(updateElapsed, 1000);
+    return () => window.clearInterval(interval);
+  }, [cancelRequestedAt, isTranscriptionCommandPending]);
+
   // Listen for Tauri file drop events
   useEffect(() => {
     const appWindow = getCurrentWebviewWindow();
-    
+
     const unlistenDrop = appWindow.onDragDropEvent(async (event) => {
       if (event.payload.type === "over") {
         setIsDragOver(true);
@@ -528,10 +574,10 @@ export const TranscribeFileSettings: React.FC = () => {
   // Fetch available models on mount
   useEffect(() => {
     commands.getAvailableModels().then((result) => {
-        if (result.status === "ok") {
-            // Filter only downloaded models
-            setAvailableModels(result.data.filter(m => m.is_downloaded));
-        }
+      if (result.status === "ok") {
+        // Filter only downloaded models
+        setAvailableModels(result.data.filter((m) => m.is_downloaded));
+      }
     });
   }, []);
 
@@ -573,7 +619,9 @@ export const TranscribeFileSettings: React.FC = () => {
         id: String(profile.id ?? ""),
         name: String(profile.name ?? ""),
         speaker_names: Array.isArray(profile.speaker_names)
-          ? profile.speaker_names.map((speakerName) => String(speakerName ?? ""))
+          ? profile.speaker_names.map((speakerName) =>
+              String(speakerName ?? ""),
+            )
           : [],
       })),
     [settings],
@@ -617,20 +665,23 @@ export const TranscribeFileSettings: React.FC = () => {
   const selectedFileHasUnknownRemoteDuration =
     (showDeepgramFileOptions || showSonioxFileOptions) &&
     selectedFileDurationSeconds == null;
-  const selectedFileDurationWarning =
-    selectedFileHasUnknownRemoteDuration
-      ? t("transcribeFile.durationUnknownWarning")
-      : selectedFileExceedsDeepgramLimit
-        ? t("transcribeFile.deepgram.durationLimitExceeded", {
+  const selectedFileDurationWarning = selectedFileHasUnknownRemoteDuration
+    ? t("transcribeFile.durationUnknownWarning")
+    : selectedFileExceedsDeepgramLimit
+      ? t("transcribeFile.deepgram.durationLimitExceeded", {
+          duration: formatAudioDurationWithUnits(selectedFileDurationSeconds),
+          limit: formatAudioDurationWithUnits(
+            DEEPGRAM_MAX_FILE_DURATION_SECONDS,
+          ),
+        })
+      : selectedFileExceedsSonioxLimit
+        ? t("transcribeFile.soniox.durationLimitExceeded", {
             duration: formatAudioDurationWithUnits(selectedFileDurationSeconds),
-            limit: formatAudioDurationWithUnits(DEEPGRAM_MAX_FILE_DURATION_SECONDS),
+            limit: formatAudioDurationWithUnits(
+              SONIOX_MAX_FILE_DURATION_SECONDS,
+            ),
           })
-        : selectedFileExceedsSonioxLimit
-          ? t("transcribeFile.soniox.durationLimitExceeded", {
-              duration: formatAudioDurationWithUnits(selectedFileDurationSeconds),
-              limit: formatAudioDurationWithUnits(SONIOX_MAX_FILE_DURATION_SECONDS),
-            })
-          : null;
+        : null;
   const durationLimitWarningProvider = selectedFileExceedsDeepgramLimit
     ? "Deepgram"
     : selectedFileExceedsSonioxLimit
@@ -639,8 +690,27 @@ export const TranscribeFileSettings: React.FC = () => {
         ? "Deepgram"
         : showSonioxFileOptions
           ? "Soniox"
-      : null;
-  const canTranscribe = !isTranscribing && !recordingBlocksFileTranscription;
+          : null;
+  const canTranscribe =
+    !isTranscribing &&
+    !isTranscriptionCommandPending &&
+    !recordingBlocksFileTranscription;
+  const isFinalizingCancelledTranscription =
+    isTranscriptionCommandPending && !isTranscribing;
+  const activeFileTranscriptionModelId =
+    overrideModelId ?? String(settings?.selected_model ?? "");
+  const activeFileTranscriptionModel = availableModels.find(
+    (model) => model.id === activeFileTranscriptionModelId,
+  );
+  const cancelWaitModelLabel =
+    activeFileTranscriptionModel?.name ||
+    activeFileTranscriptionModelId ||
+    t("transcribeFile.localModelLabel", "Local model");
+  const cancelWaitCopy = t(
+    "transcribeFile.cancelWait.localModel",
+    "{{model}} is finishing the current chunk before the backend can fully stop.",
+    { model: cancelWaitModelLabel },
+  );
 
   useEffect(() => {
     if (!selectedSpeakerNameProfileId) {
@@ -715,7 +785,10 @@ export const TranscribeFileSettings: React.FC = () => {
         speaker_names: buildSpeakerNameProfileNames(),
       };
 
-      await persistSpeakerNameProfiles([...savedSpeakerNameProfiles, nextProfile]);
+      await persistSpeakerNameProfiles([
+        ...savedSpeakerNameProfiles,
+        nextProfile,
+      ]);
       setSelectedSpeakerNameProfileId(nextProfile.id);
       setSpeakerNameProfileDraftName(nextProfile.name);
     } catch (error) {
@@ -830,8 +903,15 @@ export const TranscribeFileSettings: React.FC = () => {
   const runTranscription = async () => {
     if (!selectedFile) return;
 
+    const runId = transcriptionRunIdRef.current + 1;
+    transcriptionRunIdRef.current = runId;
+    const isCurrentRun = () => transcriptionRunIdRef.current === runId;
+
     setIsTranscribing(true);
+    setIsTranscriptionCommandPending(true);
     setIsCancellingTranscription(false);
+    setCancelRequestedAt(null);
+    setCancelElapsedSeconds(0);
     setError(null);
     setTranscriptionResult("");
     setSavedFilePath(null);
@@ -862,7 +942,8 @@ export const TranscribeFileSettings: React.FC = () => {
           enableLanguageIdentification: sonioxEnableLanguageIdentification,
         };
       }
-      let deepgramOptionsOverride: DeepgramFileTranscriptionOptions | null = null;
+      let deepgramOptionsOverride: DeepgramFileTranscriptionOptions | null =
+        null;
       if (showDeepgramFileOptions) {
         deepgramOptionsOverride = {
           diarize: deepgramFileDiarize,
@@ -880,6 +961,10 @@ export const TranscribeFileSettings: React.FC = () => {
         sonioxOptionsOverride,
         deepgramOptionsOverride,
       );
+
+      if (!isCurrentRun()) {
+        return;
+      }
 
       if (result.status === "ok") {
         const data = result.data as typeof result.data & {
@@ -903,6 +988,10 @@ export const TranscribeFileSettings: React.FC = () => {
         setError(result.error);
       }
     } catch (err) {
+      if (!isCurrentRun()) {
+        return;
+      }
+
       clearSpeakerSession();
       if (isCancellationMessage(err)) {
         setError(null);
@@ -913,7 +1002,13 @@ export const TranscribeFileSettings: React.FC = () => {
         setError(String(err));
       }
     } finally {
-      setIsTranscribing(false);
+      setIsTranscriptionCommandPending(false);
+      setCancelRequestedAt(null);
+      if (isCurrentRun()) {
+        setIsTranscribing(false);
+      } else {
+        setInfoMessage(t("transcribeFile.cancelled"));
+      }
     }
   };
 
@@ -924,12 +1019,22 @@ export const TranscribeFileSettings: React.FC = () => {
 
     setError(null);
     setIsCancellingTranscription(true);
+    setCancelRequestedAt(Date.now());
+    setCancelElapsedSeconds(0);
+    transcriptionRunIdRef.current += 1;
+    setTranscriptionResult("");
+    setSavedFilePath(null);
+    clearSpeakerSession();
+    setChunkingTrace([]);
+    setInfoMessage(null);
+    setIsTranscribing(false);
 
     try {
       await commands.cancelOperation();
     } catch (err) {
-      setIsCancellingTranscription(false);
       setError(String(err));
+    } finally {
+      setIsCancellingTranscription(false);
     }
   };
 
@@ -1013,7 +1118,6 @@ export const TranscribeFileSettings: React.FC = () => {
       >
         {/* Drop Zone / File Selection */}
         <div className="px-4 py-4">
-          
           {!selectedFile ? (
             <div
               ref={dropZoneRef}
@@ -1029,7 +1133,9 @@ export const TranscribeFileSettings: React.FC = () => {
               `}
             >
               <div className="flex flex-col items-center gap-3">
-                <div className={`p-3 rounded-full ${isDragOver ? "bg-[#9b5de5]/20" : "bg-[#1a1a1a]"}`}>
+                <div
+                  className={`p-3 rounded-full ${isDragOver ? "bg-[#9b5de5]/20" : "bg-[#1a1a1a]"}`}
+                >
                   <Upload
                     className={`w-8 h-8 ${isDragOver ? "text-[#9b5de5]" : "text-[#b8b8b8]"}`}
                   />
@@ -1139,12 +1245,20 @@ export const TranscribeFileSettings: React.FC = () => {
                   <button
                     key={fmt}
                     onClick={() => {
-                        setOutputFormat(fmt);
-                        // Make sure we have a model selected if switching to subtitle format
-                        if (fmt !== 'text' && !overrideModelId && availableModels.length > 0) {
-                             const current = availableModels.find(m => m.id === settings?.selected_model);
-                             setOverrideModelId(current ? current.id : availableModels[0].id);
-                        }
+                      setOutputFormat(fmt);
+                      // Make sure we have a model selected if switching to subtitle format
+                      if (
+                        fmt !== "text" &&
+                        !overrideModelId &&
+                        availableModels.length > 0
+                      ) {
+                        const current = availableModels.find(
+                          (m) => m.id === settings?.selected_model,
+                        );
+                        setOverrideModelId(
+                          current ? current.id : availableModels[0].id,
+                        );
+                      }
                     }}
                     className={`px-3 py-1 text-xs font-medium rounded transition-all ${
                       outputFormat === fmt
@@ -1176,15 +1290,15 @@ export const TranscribeFileSettings: React.FC = () => {
             {showSonioxFileOptions &&
               sonioxModel.trim() !== "stt-async-v4" &&
               !infoMessage && (
-              <div className="mt-3 rounded-lg border border-[#9b5de5]/40 bg-[#9b5de5]/10 p-3">
-                <p className="text-xs text-[#d7b9ff]">
-                  {t("transcribeFile.soniox.autoSwitchNotice", {
-                    targetModel: "stt-async-v4",
-                    selectedModel: sonioxModel.trim() || "(empty)",
-                  })}
-                </p>
-              </div>
-            )}
+                <div className="mt-3 rounded-lg border border-[#9b5de5]/40 bg-[#9b5de5]/10 p-3">
+                  <p className="text-xs text-[#d7b9ff]">
+                    {t("transcribeFile.soniox.autoSwitchNotice", {
+                      targetModel: "stt-async-v4",
+                      selectedModel: sonioxModel.trim() || "(empty)",
+                    })}
+                  </p>
+                </div>
+              )}
 
             {/* Custom Words Toggle */}
             <div className="mt-4 space-y-2">
@@ -1198,10 +1312,7 @@ export const TranscribeFileSettings: React.FC = () => {
                   className="accent-[#9b5de5] w-4 h-4 rounded border-[#333333] bg-[#1a1a1a]"
                 />
                 <span className="text-sm text-[#f5f5f5]">
-                  {t(
-                    "transcribeFile.customWords.label",
-                    "Apply Custom Words",
-                  )}
+                  {t("transcribeFile.customWords.label", "Apply Custom Words")}
                 </span>
               </label>
               <p className="text-xs text-[#606060] pl-6">
@@ -1284,7 +1395,9 @@ export const TranscribeFileSettings: React.FC = () => {
                   {t("transcribeFile.soniox.durationLimitWarning")}
                   {selectedFileExceedsSonioxLimit
                     ? ` ${t("transcribeFile.soniox.durationLimitExceeded", {
-                        duration: formatAudioDurationWithUnits(selectedFileDurationSeconds),
+                        duration: formatAudioDurationWithUnits(
+                          selectedFileDurationSeconds,
+                        ),
                         limit: formatAudioDurationWithUnits(
                           SONIOX_MAX_FILE_DURATION_SECONDS,
                         ),
@@ -1302,7 +1415,9 @@ export const TranscribeFileSettings: React.FC = () => {
                       setSonioxLanguageHintsInput(event.target.value)
                     }
                     className="w-full rounded border border-[#333333] bg-[#0f0f0f] px-3 py-2 text-sm text-[#f5f5f5] focus:border-[#9b5de5] focus:outline-none"
-                    placeholder={t("transcribeFile.soniox.languageHintsPlaceholder")}
+                    placeholder={t(
+                      "transcribeFile.soniox.languageHintsPlaceholder",
+                    )}
                   />
                 </div>
                 <label className="flex items-center gap-2 cursor-pointer select-none">
@@ -1373,7 +1488,9 @@ export const TranscribeFileSettings: React.FC = () => {
                   <input
                     type="checkbox"
                     checked={deepgramFileMultichannel}
-                    onChange={(e) => setDeepgramFileMultichannel(e.target.checked)}
+                    onChange={(e) =>
+                      setDeepgramFileMultichannel(e.target.checked)
+                    }
                     className="accent-[#9b5de5] w-4 h-4 rounded border-[#333333] bg-[#1a1a1a]"
                   />
                   <span className="text-sm text-[#f5f5f5]">
@@ -1385,40 +1502,53 @@ export const TranscribeFileSettings: React.FC = () => {
 
             {/* Override Model Option */}
             <div className="mt-4 space-y-3">
-                <label className="flex items-center gap-2 cursor-pointer select-none">
-                    <input 
-                        type="checkbox"
-                        checked={!!overrideModelId}
-                        onChange={(e) => {
-                            if (e.target.checked) {
-                                // Default to currently selected model if available, or first available
-                                const current = availableModels.find(m => m.id === settings?.selected_model);
-                                setOverrideModelId(current ? current.id : (availableModels[0]?.id ?? null));
-                            } else {
-                                setOverrideModelId(null);
-                            }
-                        }}
-                        className="accent-[#9b5de5] w-4 h-4 rounded border-[#333333] bg-[#1a1a1a]" 
-                    />
-                    <span className="text-sm text-[#f5f5f5]">
-                            {t("transcribeFile.modelOverride.label", "Override Model")}
-                    </span>
-                </label>
+              <label className="flex items-center gap-2 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={!!overrideModelId}
+                  onChange={(e) => {
+                    if (e.target.checked) {
+                      // Default to currently selected model if available, or first available
+                      const current = availableModels.find(
+                        (m) => m.id === settings?.selected_model,
+                      );
+                      setOverrideModelId(
+                        current ? current.id : (availableModels[0]?.id ?? null),
+                      );
+                    } else {
+                      setOverrideModelId(null);
+                    }
+                  }}
+                  className="accent-[#9b5de5] w-4 h-4 rounded border-[#333333] bg-[#1a1a1a]"
+                />
+                <span className="text-sm text-[#f5f5f5]">
+                  {t("transcribeFile.modelOverride.label", "Override Model")}
+                </span>
+              </label>
 
-                {overrideModelId && (
-                    <div className="pl-6">
-                        <Dropdown 
-                            className="w-full"
-                            selectedValue={overrideModelId}
-                            options={availableModels.map(m => ({ value: m.id, label: m.name }))}
-                            onSelect={setOverrideModelId}
-                            placeholder={t("transcribeFile.modelOverride.placeholder", "Select a model...")}
-                        />
-                         <p className="text-xs text-[#606060] mt-1.5">
-                            {t("transcribeFile.modelOverride.hint", "Select a specific local model for this transcription. Local models support accurate timestamping for SRT/VTT.")}
-                        </p>
-                    </div>
-                )}
+              {overrideModelId && (
+                <div className="pl-6">
+                  <Dropdown
+                    className="w-full"
+                    selectedValue={overrideModelId}
+                    options={availableModels.map((m) => ({
+                      value: m.id,
+                      label: m.name,
+                    }))}
+                    onSelect={setOverrideModelId}
+                    placeholder={t(
+                      "transcribeFile.modelOverride.placeholder",
+                      "Select a model...",
+                    )}
+                  />
+                  <p className="text-xs text-[#606060] mt-1.5">
+                    {t(
+                      "transcribeFile.modelOverride.hint",
+                      "Select a specific local model for this transcription. Local models support accurate timestamping for SRT/VTT.",
+                    )}
+                  </p>
+                </div>
+              )}
             </div>
           </div>
         )}
@@ -1440,7 +1570,12 @@ export const TranscribeFileSettings: React.FC = () => {
                       : undefined
                 }
               >
-                {isTranscribing ? (
+                {isFinalizingCancelledTranscription ? (
+                  t(
+                    "transcribeFile.finalizingCancellation",
+                    "Finishing cancellation...",
+                  )
+                ) : isTranscribing ? (
                   <>
                     <Loader2 className="w-4 h-4 animate-spin" />
                     {t("transcribeFile.transcribing")}
@@ -1473,6 +1608,26 @@ export const TranscribeFileSettings: React.FC = () => {
                 {t("transcribeFile.recordingLocalConflict")}
               </p>
             )}
+            {isFinalizingCancelledTranscription && (
+              <div className="mt-3 rounded-lg border border-amber-400/30 bg-amber-400/10 p-3 text-xs text-amber-200">
+                <p className="font-medium text-amber-100">
+                  {t(
+                    "transcribeFile.cancelWait.requested",
+                    "Cancellation requested.",
+                  )}
+                </p>
+                <p className="mt-1">{cancelWaitCopy}</p>
+                <p className="mt-1">
+                  {t(
+                    "transcribeFile.cancelWait.elapsed",
+                    "Elapsed: {{seconds}}s",
+                    {
+                      seconds: cancelElapsedSeconds,
+                    },
+                  )}
+                </p>
+              </div>
+            )}
           </div>
         )}
 
@@ -1494,7 +1649,10 @@ export const TranscribeFileSettings: React.FC = () => {
                   <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                     <div>
                       <p className="text-sm font-medium text-[#f5f5f5]">
-                        {t("transcribeFile.speakerNames.title", "Speaker Names")}
+                        {t(
+                          "transcribeFile.speakerNames.title",
+                          "Speaker Names",
+                        )}
                         {speakerProviderLabel ? (
                           <span className="ml-2 text-xs font-normal text-[#808080]">
                             {speakerProviderLabel}
@@ -1512,12 +1670,17 @@ export const TranscribeFileSettings: React.FC = () => {
                       variant="secondary"
                       size="sm"
                       onClick={handleReapplySpeakerNames}
-                      disabled={!canReapplySpeakerNames || isReapplyingSpeakerNames}
+                      disabled={
+                        !canReapplySpeakerNames || isReapplyingSpeakerNames
+                      }
                     >
                       {isReapplyingSpeakerNames ? (
                         <>
                           <Loader2 className="mr-2 h-3 w-3 animate-spin" />
-                          {t("transcribeFile.speakerNames.reapplying", "Re-applying...")}
+                          {t(
+                            "transcribeFile.speakerNames.reapplying",
+                            "Re-applying...",
+                          )}
                         </>
                       ) : (
                         t("transcribeFile.speakerNames.reapply", "Re-apply")
@@ -1577,7 +1740,8 @@ export const TranscribeFileSettings: React.FC = () => {
                           size="sm"
                           onClick={handleApplySpeakerNameProfile}
                           disabled={
-                            !canApplySpeakerNameProfile || isSavingSpeakerNameProfile
+                            !canApplySpeakerNameProfile ||
+                            isSavingSpeakerNameProfile
                           }
                         >
                           {t("transcribeFile.speakerNames.applyProfile")}
@@ -1634,7 +1798,10 @@ export const TranscribeFileSettings: React.FC = () => {
                           type="text"
                           value={card.name}
                           onChange={(event) =>
-                            updateSpeakerCardName(card.speakerId, event.target.value)
+                            updateSpeakerCardName(
+                              card.speakerId,
+                              event.target.value,
+                            )
                           }
                           className="mt-2 w-full rounded border border-[#333333] bg-[#0f0f0f] px-3 py-2 text-sm text-[#f5f5f5] focus:border-[#9b5de5] focus:outline-none"
                           placeholder={card.defaultName}
@@ -1725,7 +1892,7 @@ export const TranscribeFileSettings: React.FC = () => {
                           {formatChunkTraceTime(entry.endSecs)}
                         </span>
                         <span className="text-[#8a8a8a]">
-                          ({entry.durationSecs.toFixed(1)}s)
+                          {`(${entry.durationSecs.toFixed(1)}s)`}
                         </span>
                         <span className="text-[#9ad1ff]">
                           {t(
