@@ -2685,6 +2685,16 @@ fn default_post_process_providers() -> Vec<PostProcessProvider> {
         });
     }
 
+    // AWS Bedrock via Mantle (OpenAI-compatible endpoint)
+    providers.push(PostProcessProvider {
+        id: "bedrock_mantle".to_string(),
+        label: "AWS Bedrock (Mantle)".to_string(),
+        base_url: "https://bedrock-mantle.us-east-1.api.aws/v1".to_string(),
+        allow_base_url_edit: false,
+        allow_insecure_http: false,
+        models_endpoint: Some("/models".to_string()),
+    });
+
     // Custom provider always comes last
     providers.push(PostProcessProvider {
         id: "custom".to_string(),
