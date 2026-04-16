@@ -13,16 +13,16 @@ Rules:
 
 | Propagation Date | Target Branch | Main SHA | Main Message | Branch SHA | Branch Message | Issues |
 | --- | --- | --- | --- | --- | --- | --- |
+| 2026-04-16 | `integration/combined` | `c7d56f56` | chore: bump version to 1.0.12 | `c7bf98ec` | chore: bump version to 1.0.12 | direct bump from branch 1.0.9 |
+| 2026-04-16 | `integration/cuda` | `c7d56f56` | chore: bump version to 1.0.12 | `46909845` | chore: bump version to 1.0.12 | direct bump from branch 1.0.9 |
+| 2026-04-16 | `release/microsoft-store` | `c7d56f56` | chore: bump version to 1.0.12 | `691fb7aa` | chore: bump version to 1.0.12 | direct bump from branch 1.0.9 |
+| 2026-04-16 | `integration/combined` | `1dcaffd5` | Fix file transcription cancellation feedback | `180c529e` | Fix file transcription cancellation feedback | clean cherry-pick |
+| 2026-04-16 | `integration/cuda` | `1dcaffd5` | Fix file transcription cancellation feedback | `b5398a6a` | Fix file transcription cancellation feedback | clean cherry-pick |
+| 2026-04-16 | `release/microsoft-store` | `1dcaffd5` | Fix file transcription cancellation feedback | `dace24ec` | Fix file transcription cancellation feedback | clean cherry-pick |
+| 2026-04-16 | `integration/combined` | `d225e59f` | feat(post-processing): add AWS Bedrock Mantle provider | `28c58d3b` | feat(post-processing): add AWS Bedrock Mantle provider | main-only sync log excluded |
+| 2026-04-16 | `integration/cuda` | `d225e59f` | feat(post-processing): add AWS Bedrock Mantle provider | `f55a9b8a` | feat(post-processing): add AWS Bedrock Mantle provider | main-only sync log excluded |
+| 2026-04-16 | `release/microsoft-store` | `d225e59f` | feat(post-processing): add AWS Bedrock Mantle provider | `852109c9` | feat(post-processing): add AWS Bedrock Mantle provider | main-only sync log excluded |
 | 2026-04-14 | `integration/combined` | `40531cd7` | Cap Cohere file transcription chunks | `b84259cb` | Cap Cohere file transcription chunks | clean cherry-pick |
-| 2026-04-14 | `integration/cuda` | `40531cd7` | Cap Cohere file transcription chunks | `40a80921` | Cap Cohere file transcription chunks | clean cherry-pick |
-| 2026-04-14 | `release/microsoft-store` | `40531cd7` | Cap Cohere file transcription chunks | `666ea63a` | Cap Cohere file transcription chunks | clean cherry-pick |
-| 2026-04-14 | `integration/combined` | `f2874155` | feat(history): add delete all action | `d9375635` | feat(history): add delete all action | clean cherry-pick |
-| 2026-04-14 | `integration/cuda` | `f2874155` | feat(history): add delete all action | `bb3bc334` | feat(history): add delete all action | clean cherry-pick |
-| 2026-04-14 | `release/microsoft-store` | `f2874155` | feat(history): add delete all action | `e9fc97f8` | feat(history): add delete all action | clean cherry-pick |
-| 2026-04-14 | `integration/combined` | `827ae3da` | fix(settings): separate history controls from entries | `b6de045c` | fix(settings): separate history controls from entries | clean cherry-pick |
-| 2026-04-14 | `integration/cuda` | `827ae3da` | fix(settings): separate history controls from entries | `fb2f7123` | fix(settings): separate history controls from entries | clean cherry-pick |
-| 2026-04-14 | `release/microsoft-store` | `827ae3da` | fix(settings): separate history controls from entries | `990b7c1b` | fix(settings): separate history controls from entries | clean cherry-pick |
-| 2026-04-13 | `integration/combined` | `8268eff1` | fix(settings): show history controls in history panel | `b6f8ddc2` | fix(settings): show history controls in history panel | clean cherry-pick |
 
 Entry template:
 
