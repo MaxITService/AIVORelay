@@ -13,16 +13,16 @@ Rules:
 
 | Propagation Date | Target Branch | Main SHA | Main Message | Branch SHA | Branch Message | Issues |
 | --- | --- | --- | --- | --- | --- | --- |
+| 2026-04-18 | `integration/combined` | `f36a1cdc` | chore(bindings): commit pending generated update | `0b555fcc` | chore(bindings): commit pending generated update | clean cherry-pick |
+| 2026-04-18 | `integration/cuda` | `f36a1cdc` | chore(bindings): commit pending generated update | `143aa0d0` | chore(bindings): commit pending generated update | clean cherry-pick |
+| 2026-04-18 | `release/microsoft-store` | `f36a1cdc` | chore(bindings): commit pending generated update | `a4363740` | chore(bindings): commit pending generated update | clean cherry-pick |
+| 2026-04-18 | `integration/combined` | `7cf850fd` | fix(overlay): stabilize first paint and placement | `35e44f0d` | fix(overlay): stabilize first paint and placement | clean cherry-pick |
+| 2026-04-18 | `integration/cuda` | `7cf850fd` | fix(overlay): stabilize first paint and placement | `d6b45f25` | fix(overlay): stabilize first paint and placement | clean cherry-pick |
+| 2026-04-18 | `release/microsoft-store` | `7cf850fd` | fix(overlay): stabilize first paint and placement | `38b4c934` | fix(overlay): stabilize first paint and placement | clean cherry-pick |
+| 2026-04-18 | `integration/combined` | `268ffdf9` | feat(about): add Reddit community link | `188b60cf` | feat(about): add Reddit community link | clean cherry-pick |
+| 2026-04-18 | `integration/cuda` | `268ffdf9` | feat(about): add Reddit community link | `933d3c34` | feat(about): add Reddit community link | clean cherry-pick |
+| 2026-04-18 | `release/microsoft-store` | `268ffdf9` | feat(about): add Reddit community link | `03dbcf52` | feat(about): add Reddit community link | clean cherry-pick |
 | 2026-04-16 | `integration/combined` | `c7d56f56` | chore: bump version to 1.0.12 | `c7bf98ec` | chore: bump version to 1.0.12 | direct bump from branch 1.0.9 |
-| 2026-04-16 | `integration/cuda` | `c7d56f56` | chore: bump version to 1.0.12 | `46909845` | chore: bump version to 1.0.12 | direct bump from branch 1.0.9 |
-| 2026-04-16 | `release/microsoft-store` | `c7d56f56` | chore: bump version to 1.0.12 | `691fb7aa` | chore: bump version to 1.0.12 | direct bump from branch 1.0.9 |
-| 2026-04-16 | `integration/combined` | `1dcaffd5` | Fix file transcription cancellation feedback | `180c529e` | Fix file transcription cancellation feedback | clean cherry-pick |
-| 2026-04-16 | `integration/cuda` | `1dcaffd5` | Fix file transcription cancellation feedback | `b5398a6a` | Fix file transcription cancellation feedback | clean cherry-pick |
-| 2026-04-16 | `release/microsoft-store` | `1dcaffd5` | Fix file transcription cancellation feedback | `dace24ec` | Fix file transcription cancellation feedback | clean cherry-pick |
-| 2026-04-16 | `integration/combined` | `d225e59f` | feat(post-processing): add AWS Bedrock Mantle provider | `28c58d3b` | feat(post-processing): add AWS Bedrock Mantle provider | main-only sync log excluded |
-| 2026-04-16 | `integration/cuda` | `d225e59f` | feat(post-processing): add AWS Bedrock Mantle provider | `f55a9b8a` | feat(post-processing): add AWS Bedrock Mantle provider | main-only sync log excluded |
-| 2026-04-16 | `release/microsoft-store` | `d225e59f` | feat(post-processing): add AWS Bedrock Mantle provider | `852109c9` | feat(post-processing): add AWS Bedrock Mantle provider | main-only sync log excluded |
-| 2026-04-14 | `integration/combined` | `40531cd7` | Cap Cohere file transcription chunks | `b84259cb` | Cap Cohere file transcription chunks | clean cherry-pick |
 
 Entry template:
 
