@@ -5,10 +5,12 @@ GitHub Actions prepends this Markdown above GitHub-generated release notes.
 
 ## Highlights
 
-- File transcription can now run while recording is in progress.
-- Added a setup checklist and setup health check to make initial setup easier.
-- Improved smart chunking for long local-model file transcription jobs, including Parakeet.
-- Tightened setup readiness checks for shortcuts and the browser connector.
+- Added a visible CPU acceleration warning for systems that may need the Store build fallback.
+- File transcription can now run while recording is in progress, with shorter bounded Cohere chunks for long files.
+- Added pause or mute while recording options.
+- Improved history controls, including a delete-all action and clearer history settings layout.
+- Added AWS Bedrock (Mantle) as a built-in post-processing provider.
+- File transcription cancellation now gives clearer feedback and handles cancellation more reliably.
 
 ---
 
