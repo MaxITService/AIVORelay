@@ -1809,6 +1809,29 @@
         "months3": "Delete after 3 months",
         "placeholder": "Select retention period..."
       },
+      "dictationStats": {
+        "title": "Dictation Stats",
+        "enable": {
+          "title": "Track Dictation Stats",
+          "description": "Count the final processed text produced by dictation right before it is sent to the target app. History deletion does not affect these totals."
+        },
+        "counts": {
+          "title": "Current Totals",
+          "description": "Independent totals since the last reset."
+        },
+        "words": "Words: {{formattedCount}}",
+        "characters": "Characters: {{formattedCount}}",
+        "since": "Since {{date}}",
+        "reset": {
+          "title": "Reset Counters",
+          "description": "Reset word and character totals independently from transcription history.",
+          "words": "Reset words",
+          "characters": "Reset characters",
+          "both": "Reset both"
+        },
+        "resetting": "Resetting...",
+        "resetError": "Failed to reset dictation stats. Please try again."
+      },
       "copyToClipboard": "Copy transcription to clipboard",
       "save": "Save transcription",
       "unsave": "Remove from saved",
@@ -1825,7 +1848,7 @@
       "transcribing": "Transcribing...",
       "transcriptionFailed": "Transcription failed. You can re-transcribe using the retry icon.",
       "shortcut": {
-        "title": "Repaste Shortcut"
+        "title": "Shortcuts"
       },
       "aiReplace": {
         "badge": "AI Replace",

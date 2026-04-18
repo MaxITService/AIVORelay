@@ -17,11 +17,14 @@ import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { toast } from "sonner";
 import { commands, type HistoryEntry } from "@/bindings";
-import { formatDateTime } from "@/utils/dateFormat";
+import { formatDateTime, formatDate } from "@/utils/dateFormat";
 import { HandyShortcut } from "../HandyShortcut";
 import { HistoryLimit } from "../HistoryLimit";
 import { RecordingRetentionPeriodSelector } from "../RecordingRetentionPeriod";
 import { SettingsGroup } from "../../ui/SettingsGroup";
+import { ToggleSwitch } from "../../ui/ToggleSwitch";
+import { SettingContainer } from "../../ui/SettingContainer";
+import { useSettings } from "@/hooks/useSettings";
 
 const PAGE_SIZE = 30;
 
@@ -91,6 +94,158 @@ const HistoryConfigurationSection: React.FC = () => {
   );
 };
 
+const normalizeCount = (value: unknown) => {
+  const count = Number(value ?? 0);
+  if (!Number.isFinite(count) || count < 0) {
+    return 0;
+  }
+  return Math.trunc(count);
+};
+
+const formatCount = (value: number) => {
+  return new Intl.NumberFormat().format(value);
+};
+
+const DictationStatsSection: React.FC = () => {
+  const { t, i18n } = useTranslation();
+  const { settings, updateSetting, isUpdating, refreshSettings } =
+    useSettings();
+  const [resetting, setResetting] = useState<
+    "words" | "characters" | "both" | null
+  >(null);
+
+  useEffect(() => {
+    const unlisten = listen("dictation-stats-updated", () => {
+      refreshSettings();
+    });
+
+    return () => {
+      unlisten.then((cleanup) => cleanup());
+    };
+  }, [refreshSettings]);
+
+  const statsEnabled = Boolean((settings as any)?.dictation_stats_enabled);
+  const wordCount = normalizeCount((settings as any)?.dictation_word_count);
+  const characterCount = normalizeCount(
+    (settings as any)?.dictation_character_count,
+  );
+  const wordCountSinceMs = Number((settings as any)?.dictation_word_count_since_ms || 0);
+  const charCountSinceMs = Number((settings as any)?.dictation_character_count_since_ms || 0);
+
+  const wordSince = wordCountSinceMs ? formatDate(String(Math.floor(wordCountSinceMs / 1000)), i18n.language) : null;
+  const charSince = charCountSinceMs ? formatDate(String(Math.floor(charCountSinceMs / 1000)), i18n.language) : null;
+  const sameDate = wordSince === charSince;
+
+  const resetStats = async (
+    kind: "words" | "characters" | "both",
+    command: string,
+  ) => {
+    setResetting(kind);
+    try {
+      await invoke(command);
+      await refreshSettings();
+    } catch (error) {
+      console.error("Failed to reset dictation stats:", error);
+      toast.error(t("settings.history.dictationStats.resetError"));
+    } finally {
+      setResetting(null);
+    }
+  };
+
+  return (
+    <SettingsGroup title={t("settings.history.dictationStats.title")}>
+      <ToggleSwitch
+        checked={statsEnabled}
+        onChange={async (enabled) => {
+          await updateSetting("dictation_stats_enabled" as any, enabled as any);
+          await refreshSettings();
+        }}
+        isUpdating={isUpdating("dictation_stats_enabled")}
+        label={t("settings.history.dictationStats.enable.title")}
+        description={t("settings.history.dictationStats.enable.description")}
+        descriptionMode="tooltip"
+        grouped={true}
+      />
+      <SettingContainer
+        title={t("settings.history.dictationStats.counts.title")}
+        description={t("settings.history.dictationStats.counts.description")}
+        descriptionMode="tooltip"
+        grouped={true}
+      >
+        <div className="flex flex-col items-end gap-1">
+          <div className="flex flex-wrap items-center justify-end gap-2 text-sm">
+            <span className="rounded bg-mid-gray/10 px-2 py-1 text-text/90">
+              {t("settings.history.dictationStats.words", {
+                count: wordCount,
+                formattedCount: formatCount(wordCount),
+              })}
+            </span>
+            <span className="rounded bg-mid-gray/10 px-2 py-1 text-text/90">
+              {t("settings.history.dictationStats.characters", {
+                count: characterCount,
+                formattedCount: formatCount(characterCount),
+              })}
+            </span>
+          </div>
+          {sameDate && wordSince && (
+            <div className="text-xs text-text/50">
+              {t("settings.history.dictationStats.since", { date: wordSince })}
+            </div>
+          )}
+          {!sameDate && (wordSince || charSince) && (
+            <div className="text-[10px] text-text/40">
+              {wordSince && `Words since ${wordSince}`}
+              {wordSince && charSince && " • "}
+              {charSince && `Characters since ${charSince}`}
+            </div>
+          )}
+        </div>
+      </SettingContainer>
+      <SettingContainer
+        title={t("settings.history.dictationStats.reset.title")}
+        description={t("settings.history.dictationStats.reset.description")}
+        descriptionMode="tooltip"
+        grouped={true}
+      >
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          <Button
+            variant="secondary"
+            size="sm"
+            disabled={resetting !== null}
+            onClick={() => resetStats("words", "reset_dictation_word_count")}
+          >
+            {resetting === "words"
+              ? t("settings.history.dictationStats.resetting")
+              : t("settings.history.dictationStats.reset.words")}
+          </Button>
+          <Button
+            variant="secondary"
+            size="sm"
+            disabled={resetting !== null}
+            onClick={() =>
+              resetStats("characters", "reset_dictation_character_count")
+            }
+          >
+            {resetting === "characters"
+              ? t("settings.history.dictationStats.resetting")
+              : t("settings.history.dictationStats.reset.characters")}
+          </Button>
+          <Button
+            variant="secondary"
+            size="sm"
+            disabled={resetting !== null}
+            onClick={() => resetStats("both", "reset_dictation_stats")}
+          >
+            {resetting === "both"
+              ? t("settings.history.dictationStats.resetting")
+              : t("settings.history.dictationStats.reset.both")}
+          </Button>
+        </div>
+      </SettingContainer>
+    </SettingsGroup>
+  );
+};
+
 const IconButton: React.FC<{
   onClick: () => void;
   title: string;
@@ -111,6 +266,27 @@ const IconButton: React.FC<{
     {children}
   </button>
 );
+
+const RepasteShortcutSection: React.FC = () => {
+  const { t } = useTranslation();
+
+  return (
+    <SettingsGroup title={t("settings.history.shortcut.title")}>
+      <HandyShortcut shortcutId="repaste_last" grouped={true} />
+    </SettingsGroup>
+  );
+};
+
+const HistoryPageLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  return (
+    <div className="max-w-3xl w-full mx-auto space-y-6">
+      <HistoryConfigurationSection />
+      <DictationStatsSection />
+      <RepasteShortcutSection />
+      {children}
+    </div>
+  );
+};
 
 export const HistorySettings: React.FC = () => {
   const { t } = useTranslation();
@@ -385,8 +561,7 @@ export const HistorySettings: React.FC = () => {
   if (loading) {
     return (
       <>
-        <div className="max-w-3xl w-full mx-auto space-y-6">
-          <HistoryConfigurationSection />
+        <HistoryPageLayout>
           <div className="space-y-2">
             <div className="px-4 flex items-center justify-between gap-3">
               <div>
@@ -406,7 +581,7 @@ export const HistorySettings: React.FC = () => {
               </div>
             </div>
           </div>
-        </div>
+        </HistoryPageLayout>
         {deleteAllModal}
       </>
     );
@@ -415,8 +590,7 @@ export const HistorySettings: React.FC = () => {
   if (historyEntries.length === 0) {
     return (
       <>
-        <div className="max-w-3xl w-full mx-auto space-y-6">
-          <HistoryConfigurationSection />
+        <HistoryPageLayout>
           <div className="space-y-2">
             <div className="px-4 flex items-center justify-between gap-3">
               <div>
@@ -436,7 +610,7 @@ export const HistorySettings: React.FC = () => {
               </div>
             </div>
           </div>
-        </div>
+        </HistoryPageLayout>
         {deleteAllModal}
       </>
     );
@@ -444,19 +618,7 @@ export const HistorySettings: React.FC = () => {
 
   return (
     <>
-      <div className="max-w-3xl w-full mx-auto space-y-6">
-        <HistoryConfigurationSection />
-
-        {/* Repaste Shortcut Section */}
-        <div className="space-y-2">
-          <h2 className="px-4 text-xs font-medium text-mid-gray uppercase tracking-wide">
-            {t("settings.history.shortcut.title")}
-          </h2>
-          <div className="bg-background border border-mid-gray/20 rounded-lg overflow-visible">
-            <HandyShortcut shortcutId="repaste_last" grouped={true} />
-          </div>
-        </div>
-
+      <HistoryPageLayout>
         {/* History Entries Section */}
         <div className="space-y-2">
           <div className="px-4 flex items-center justify-between gap-3">
@@ -495,7 +657,7 @@ export const HistorySettings: React.FC = () => {
             {hasMore && <div ref={sentinelRef} className="h-1" />}
           </div>
         </div>
-      </div>
+      </HistoryPageLayout>
       {deleteAllModal}
     </>
   );
