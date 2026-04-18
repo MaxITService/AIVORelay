@@ -28,6 +28,7 @@ mod signal_handle;
 mod soniox_stream_processor;
 pub mod subtitle;
 mod text_replacement_decapitalize;
+mod text_output_hooks;
 mod transcript_context;
 mod tray;
 mod tray_i18n;
@@ -810,6 +811,10 @@ pub fn run() {
         commands::asset_preview::prepare_transcribe_file_asset,
         commands::asset_preview::delete_transcribe_file_asset,
         commands::set_log_level,
+        commands::change_dictation_stats_enabled_setting,
+        commands::reset_dictation_word_count,
+        commands::reset_dictation_character_count,
+        commands::reset_dictation_stats,
         commands::open_recordings_folder,
         commands::open_log_dir,
         commands::open_app_data_dir,

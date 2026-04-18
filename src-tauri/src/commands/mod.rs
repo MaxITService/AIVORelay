@@ -14,7 +14,7 @@ pub mod voice_command;
 
 use crate::settings::{get_settings, write_settings, AppSettings, LlmFeature, LogLevel};
 use crate::utils::cancel_current_operation;
-use tauri::AppHandle;
+use tauri::{AppHandle, Emitter};
 use tauri_plugin_opener::OpenerExt;
 
 #[tauri::command]
@@ -72,6 +72,64 @@ pub fn set_log_level(app: AppHandle, level: LogLevel) -> Result<(), String> {
     settings.log_level = level;
     write_settings(&app, settings);
 
+    Ok(())
+}
+
+#[specta::specta]
+#[tauri::command]
+pub fn change_dictation_stats_enabled_setting(
+    app: AppHandle,
+    enabled: bool,
+) -> Result<(), String> {
+    let mut settings = get_settings(&app);
+    settings.dictation_stats_enabled = enabled;
+    if enabled {
+        let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_millis() as i64;
+        if settings.dictation_word_count_since_ms.is_none() {
+            settings.dictation_word_count_since_ms = Some(now);
+        }
+        if settings.dictation_character_count_since_ms.is_none() {
+            settings.dictation_character_count_since_ms = Some(now);
+        }
+    }
+    write_settings(&app, settings);
+    let _ = app.emit("dictation-stats-updated", ());
+    Ok(())
+}
+
+#[specta::specta]
+#[tauri::command]
+pub fn reset_dictation_word_count(app: AppHandle) -> Result<(), String> {
+    let mut settings = get_settings(&app);
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_millis() as i64;
+    settings.dictation_word_count = 0;
+    settings.dictation_word_count_since_ms = Some(now);
+    write_settings(&app, settings);
+    let _ = app.emit("dictation-stats-updated", ());
+    Ok(())
+}
+
+#[specta::specta]
+#[tauri::command]
+pub fn reset_dictation_character_count(app: AppHandle) -> Result<(), String> {
+    let mut settings = get_settings(&app);
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_millis() as i64;
+    settings.dictation_character_count = 0;
+    settings.dictation_character_count_since_ms = Some(now);
+    write_settings(&app, settings);
+    Ok(())
+}
+
+#[specta::specta]
+#[tauri::command]
+pub fn reset_dictation_stats(app: AppHandle) -> Result<(), String> {
+    let mut settings = get_settings(&app);
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_millis() as i64;
+    settings.dictation_word_count = 0;
+    settings.dictation_word_count_since_ms = Some(now);
+    settings.dictation_character_count = 0;
+    settings.dictation_character_count_since_ms = Some(now);
+    write_settings(&app, settings);
     Ok(())
 }
 

@@ -389,6 +389,8 @@ settingUpdaters.error_overlay_auto_hide_ms = (value) =>
   invoke("change_soniox_realtime_keep_safety_buffer_enabled_setting", {
     enabled: value,
   });
+(settingUpdaters as any).dictation_stats_enabled = (value: any) =>
+  invoke("change_dictation_stats_enabled_setting", { enabled: Boolean(value) });
 
 // Fork-specific settings not yet present in generated bindings.
 (settingUpdaters as any).recording_auto_stop_enabled = (value: any) =>

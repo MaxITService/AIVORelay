@@ -2166,10 +2166,22 @@ async fn preview_delete_action(app: AppHandle, mode: PreviewDeleteMode) -> Resul
     Ok(())
 }
 
+fn before_dictation_final_output(app: &AppHandle, text: &str) {
+    crate::text_output_hooks::before_final_text_output(
+        app,
+        crate::text_output_hooks::FinalTextOutput {
+            source: crate::text_output_hooks::FinalTextOutputSource::Dictation,
+            text,
+        },
+    );
+}
+
 async fn paste_preview_buffer_to_target(app: &AppHandle, text: String) -> Result<(), String> {
     if text.trim().is_empty() {
         return Ok(());
     }
+
+    before_dictation_final_output(app, &text);
 
     // Avoid pasting back into the preview window itself after an action click.
     crate::overlay::hide_soniox_live_preview_window(app);
@@ -3553,6 +3565,9 @@ impl ShortcutAction for TranscribeAction {
                     } else {
                         None
                     };
+                if !preview_output_only_enabled {
+                    before_dictation_final_output(&ah, &final_text);
+                }
                 let main_thread_timeout_ms = recording_settings.paste_delay_ms.saturating_add(1500);
                 if let Err(err) = run_on_main_thread_sync(&ah, main_thread_timeout_ms, move || {
                     if !preview_output_only_enabled {
@@ -3738,6 +3753,9 @@ impl ShortcutAction for TranscribeAction {
                 } else {
                     None
                 };
+            if !preview_output_only_enabled {
+                before_dictation_final_output(&ah, &final_text);
+            }
             ah.run_on_main_thread(move || {
                 if is_soniox_provider && !preview_output_only_enabled {
                     // Soniox path already inserted text incrementally while chunks arrived.

@@ -5,7 +5,7 @@ use serde_json::Value;
 use specta::Type;
 use std::collections::HashMap;
 use std::fmt;
-use tauri::AppHandle;
+use tauri::{AppHandle, Emitter};
 use tauri_plugin_store::StoreExt;
 
 use crate::url_security::{
@@ -1616,6 +1616,16 @@ pub struct AppSettings {
     #[serde(default = "default_recording_retention_period")]
     pub recording_retention_period: RecordingRetentionPeriod,
     #[serde(default)]
+    pub dictation_stats_enabled: bool,
+    #[serde(default)]
+    pub dictation_word_count: u64,
+    #[serde(default)]
+    pub dictation_word_count_since_ms: Option<i64>,
+    #[serde(default)]
+    pub dictation_character_count: u64,
+    #[serde(default)]
+    pub dictation_character_count_since_ms: Option<i64>,
+    #[serde(default)]
     pub paste_method: PasteMethod,
     #[serde(default = "default_paste_delay_ms")]
     pub paste_delay_ms: u64,
@@ -3158,6 +3168,11 @@ pub fn get_default_settings() -> AppSettings {
         word_correction_threshold: default_word_correction_threshold(),
         history_limit: default_history_limit(),
         recording_retention_period: default_recording_retention_period(),
+        dictation_stats_enabled: false,
+        dictation_word_count: 0,
+        dictation_word_count_since_ms: None,
+        dictation_character_count: 0,
+        dictation_character_count_since_ms: None,
         paste_method: PasteMethod::default(),
         paste_delay_ms: default_paste_delay_ms(),
         convert_lf_to_crlf: true,
@@ -4054,6 +4069,36 @@ pub fn get_recording_retention_period(app: &AppHandle) -> RecordingRetentionPeri
     settings.recording_retention_period
 }
 
+pub fn count_dictation_words(text: &str) -> u64 {
+    text.split_whitespace().count() as u64
+}
+
+pub fn count_dictation_characters(text: &str) -> u64 {
+    text.chars().count() as u64
+}
+
+pub fn record_dictation_stats_for_text(app: &AppHandle, text: &str) {
+    if text.trim().is_empty() {
+        return;
+    }
+
+    let mut settings = get_settings(app);
+    if !settings.dictation_stats_enabled {
+        return;
+    }
+
+    let words = count_dictation_words(text);
+    let characters = count_dictation_characters(text);
+
+    settings.dictation_word_count = settings.dictation_word_count.saturating_add(words);
+    settings.dictation_character_count = settings
+        .dictation_character_count
+        .saturating_add(characters);
+
+    write_settings(app, settings);
+    let _ = app.emit("dictation-stats-updated", ());
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -4136,5 +4181,18 @@ mod tests {
         assert!(!pending_out.contains("secret"));
         assert!(secret_out.contains("[REDACTED]"));
         assert!(pending_out.contains("[REDACTED]"));
+    }
+
+    #[test]
+    fn dictation_word_counter_uses_whitespace_boundaries() {
+        assert_eq!(count_dictation_words(" one  two\nthree\t"), 3);
+        assert_eq!(count_dictation_words(""), 0);
+        assert_eq!(count_dictation_words("   "), 0);
+    }
+
+    #[test]
+    fn dictation_character_counter_counts_unicode_scalars() {
+        assert_eq!(count_dictation_characters("abc"), 3);
+        assert_eq!(count_dictation_characters("åβ🙂"), 3);
     }
 }
