@@ -65,7 +65,6 @@ export function getRecordingOverlayMotionStyle(
     silenceOpacityPercent,
   } = options;
   const softness = clampPercent(animationSoftnessPercent, 0, 100) / 100;
-  const opacityDurationMs = Math.round(140 + (softness * 180));
   const transformDurationMs = Math.round(110 + (softness * 170));
 
   if (!isVisible) {
@@ -73,7 +72,7 @@ export function getRecordingOverlayMotionStyle(
       opacity: 0,
       transform: "scale(1)",
       transformOrigin: "center center",
-      transition: `opacity ${opacityDurationMs}ms ease-out, transform ${transformDurationMs}ms ease-out`,
+      transition: `transform ${transformDurationMs}ms ease-out`,
     };
   }
 
@@ -114,6 +113,6 @@ export function getRecordingOverlayMotionStyle(
     opacity,
     transform: `scale(${scale})`,
     transformOrigin: "center center",
-    transition: `opacity ${opacityDurationMs}ms ease-out, transform ${transformDurationMs}ms ease-out`,
+    transition: `transform ${transformDurationMs}ms ease-out`,
   };
 }
