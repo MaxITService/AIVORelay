@@ -60,6 +60,14 @@ export const AboutSettings: React.FC = () => {
     }
   };
 
+  const handleRedditClick = async () => {
+    try {
+      await openUrl("https://www.reddit.com/r/AivoRelay/");
+    } catch (error) {
+      console.error("Failed to open Reddit page:", error);
+    }
+  };
+
   return (
     <div className="max-w-3xl w-full mx-auto space-y-6">
       <SettingsGroup title={t("settings.about.title")}>
@@ -126,6 +134,16 @@ export const AboutSettings: React.FC = () => {
         >
           <Button variant="secondary" size="md" onClick={handleReportIssuesClick}>
             {t("settings.about.reportIssues.button")}
+          </Button>
+        </SettingContainer>
+
+        <SettingContainer
+          title={t("settings.about.reddit.title")}
+          description={t("settings.about.reddit.description")}
+          grouped={true}
+        >
+          <Button variant="secondary" size="md" onClick={handleRedditClick}>
+            {t("settings.about.reddit.button")}
           </Button>
         </SettingContainer>
       </SettingsGroup>
