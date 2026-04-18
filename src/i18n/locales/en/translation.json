@@ -2074,6 +2074,11 @@
         "description": "Found a bug or have a feature request? Open an issue on GitHub.",
         "button": "Open Issues"
       },
+      "reddit": {
+        "title": "Community (Reddit)",
+        "description": "Join the AivoRelay community on Reddit for tips, updates, and discussions.",
+        "button": "Open Reddit"
+      },
       "moreProjects": {
         "title": "More Free & Open Source Software from Author",
         "oneClickPrompts": {
