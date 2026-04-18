@@ -30,7 +30,6 @@ body,
   background: #000000cc;
   border-radius: 18px;
   opacity: 0;
-  transition: opacity 300ms ease-out;
   box-sizing: border-box;
   overflow: hidden;
 }
