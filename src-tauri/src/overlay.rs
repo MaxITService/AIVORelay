@@ -986,6 +986,10 @@ pub fn create_recording_overlay(app_handle: &AppHandle) {
     .focused(false)
     .visible(false);
 
+    if let Some((x, y)) = position {
+        builder = builder.position(x, y);
+    }
+
     if let Some(data_dir) = crate::portable::data_dir() {
         builder = builder.data_directory(data_dir.join("webview"));
     }
@@ -1094,7 +1098,7 @@ pub fn create_recording_overlay(app_handle: &AppHandle) {
     }
 }
 
-/// Shows the recording overlay window with fade-in animation
+/// Shows the recording overlay window after applying the latest layout/state.
 pub fn show_recording_overlay(app_handle: &AppHandle) {
     // Cancel pending error auto-hide timers so a new active overlay is not hidden.
     plus_overlay_state::invalidate_error_overlay_auto_hide();
@@ -1112,15 +1116,14 @@ pub fn show_recording_overlay(app_handle: &AppHandle) {
     set_recording_overlay_default_layout(app_handle);
 
     if let Some(overlay_window) = app_handle.get_webview_window("recording_overlay") {
+        let payload = build_overlay_state_payload("recording", &settings);
+        let _ = overlay_window.emit("show-overlay", payload);
+
         let _ = overlay_window.show();
 
         // On Windows, aggressively re-assert "topmost" in the native Z-order after showing
         #[cfg(target_os = "windows")]
         force_overlay_topmost(&overlay_window);
-
-        // Emit event to trigger fade-in animation with recording state
-        let payload = build_overlay_state_payload("recording", &settings);
-        let _ = overlay_window.emit("show-overlay", payload);
     }
 }
 
@@ -1138,15 +1141,14 @@ pub fn show_transcribing_overlay(app_handle: &AppHandle) {
     set_recording_overlay_default_layout(app_handle);
 
     if let Some(overlay_window) = app_handle.get_webview_window("recording_overlay") {
+        let payload = build_overlay_state_payload("transcribing", &settings);
+        let _ = overlay_window.emit("show-overlay", payload);
+
         let _ = overlay_window.show();
 
         // On Windows, aggressively re-assert "topmost" in the native Z-order after showing
         #[cfg(target_os = "windows")]
         force_overlay_topmost(&overlay_window);
-
-        // Emit event to switch to transcribing state
-        let payload = build_overlay_state_payload("transcribing", &settings);
-        let _ = overlay_window.emit("show-overlay", payload);
     }
 }
 
@@ -1164,15 +1166,14 @@ pub fn show_sending_overlay(app_handle: &AppHandle) {
     set_recording_overlay_default_layout(app_handle);
 
     if let Some(overlay_window) = app_handle.get_webview_window("recording_overlay") {
+        let payload = build_overlay_state_payload("sending", &settings);
+        let _ = overlay_window.emit("show-overlay", payload);
+
         let _ = overlay_window.show();
 
         // On Windows, aggressively re-assert "topmost" in the native Z-order after showing
         #[cfg(target_os = "windows")]
         force_overlay_topmost(&overlay_window);
-
-        // Emit event to switch to sending state
-        let payload = build_overlay_state_payload("sending", &settings);
-        let _ = overlay_window.emit("show-overlay", payload);
     }
 }
 
@@ -1190,15 +1191,14 @@ pub fn show_thinking_overlay(app_handle: &AppHandle) {
     set_recording_overlay_default_layout(app_handle);
 
     if let Some(overlay_window) = app_handle.get_webview_window("recording_overlay") {
+        let payload = build_overlay_state_payload("thinking", &settings);
+        let _ = overlay_window.emit("show-overlay", payload);
+
         let _ = overlay_window.show();
 
         // On Windows, aggressively re-assert "topmost" in the native Z-order after showing
         #[cfg(target_os = "windows")]
         force_overlay_topmost(&overlay_window);
-
-        // Emit event to switch to thinking state
-        let payload = build_overlay_state_payload("thinking", &settings);
-        let _ = overlay_window.emit("show-overlay", payload);
     }
 }
 
@@ -1216,15 +1216,14 @@ pub fn show_finalizing_overlay(app_handle: &AppHandle) {
     set_recording_overlay_default_layout(app_handle);
 
     if let Some(overlay_window) = app_handle.get_webview_window("recording_overlay") {
+        let payload = build_overlay_state_payload("finalizing", &settings);
+        let _ = overlay_window.emit("show-overlay", payload);
+
         let _ = overlay_window.show();
 
         // On Windows, aggressively re-assert "topmost" in the native Z-order after showing
         #[cfg(target_os = "windows")]
         force_overlay_topmost(&overlay_window);
-
-        // Emit event to switch to finalizing state
-        let payload = build_overlay_state_payload("finalizing", &settings);
-        let _ = overlay_window.emit("show-overlay", payload);
     }
 }
 
@@ -1234,7 +1233,7 @@ pub fn update_overlay_position(app_handle: &AppHandle) {
     apply_recording_overlay_layout(app_handle, metrics);
 }
 
-/// Hides the recording overlay window with fade-out animation
+/// Hides the recording overlay window.
 pub fn hide_recording_overlay(app_handle: &AppHandle) {
     // Always hide the overlay regardless of settings - if setting was changed while recording,
     // we still want to hide it properly
@@ -1835,11 +1834,6 @@ fn show_transient_message_overlay(
     set_recording_overlay_default_layout(app_handle);
 
     if let Some(overlay_window) = app_handle.get_webview_window("recording_overlay") {
-        let _ = overlay_window.show();
-
-        #[cfg(target_os = "windows")]
-        force_overlay_topmost(&overlay_window);
-
         let generation_at_start = TRANSIENT_OVERLAY_GENERATION.fetch_add(1, Ordering::SeqCst) + 1;
 
         let payload = TransientMessageOverlayPayload {
@@ -1847,6 +1841,11 @@ fn show_transient_message_overlay(
             message: message.to_string(),
         };
         let _ = overlay_window.emit("show-message-overlay", payload);
+
+        let _ = overlay_window.show();
+
+        #[cfg(target_os = "windows")]
+        force_overlay_topmost(&overlay_window);
 
         let window_clone = overlay_window.clone();
         std::thread::spawn(move || {
