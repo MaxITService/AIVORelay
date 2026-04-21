@@ -39,10 +39,11 @@ When asked to bump the app version:
     - `main`: `.github/release-notes/main.md`
     - `release/microsoft-store`: `.github/release-notes/microsoft-store.md`
     - `integration/cuda`: `.github/release-notes/cuda.md`
-11. If `main` release text should point users to a same-version `release/microsoft-store` release, prefer publishing the `release/microsoft-store` GitHub release first and then copy its final URL into `.github/release-notes/main.md`.
-12. If `main` is being released on its own, do not refresh the Microsoft Store link just to point at an older unrelated release.
-13. Commit with `chore: bump version to x.y.z`.
-14. After commit, ask whether to create tag and push now. 
+11. If `main` release text should point users to a same-version `release/microsoft-store` release, you may predict the final Store release URL as `https://github.com/MaxITService/AIVORelay/releases/tag/vx.y.z-store` and place it into `.github/release-notes/main.md` before the Store release exists.
+12. If the Store release already exists, prefer verifying that the predicted URL resolves and keep the checked-in note aligned with the final GitHub release body.
+13. If `main` is being released on its own, do not refresh the Microsoft Store link just to point at an older unrelated release.
+14. Commit with `chore: bump version to x.y.z`.
+15. After commit, ask whether to create tag and push now. 
 
 ## Main Release Preflight
 
