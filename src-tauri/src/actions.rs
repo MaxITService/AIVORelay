@@ -1414,6 +1414,15 @@ pub(crate) async fn perform_transcription_for_profile(
     } else {
         let tm = app.state::<Arc<TranscriptionManager>>();
 
+        if let Err(err) = tm.ensure_model_loaded(&settings.selected_model) {
+            let err_str = format!("{}", err);
+            debug!("Local transcription model load failed: {}", err_str);
+            return TranscriptionOutcome::Error {
+                message: err_str,
+                shown_in_overlay: false,
+            };
+        }
+
         // Use profile overrides for local transcription if available
         let result = if let Some(p) = &profile {
             log::info!(
