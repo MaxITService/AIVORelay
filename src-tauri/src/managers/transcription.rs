@@ -381,6 +381,10 @@ impl TranscriptionManager {
         engine.is_some()
     }
 
+    fn is_model_loaded_for(&self, model_id: &str) -> bool {
+        self.get_current_model().as_deref() == Some(model_id) && self.is_model_loaded()
+    }
+
     pub fn try_start_loading(&self) -> Option<LoadingGuard> {
         let mut is_loading = self.is_loading.lock().unwrap();
         if *is_loading {
@@ -625,9 +629,47 @@ impl TranscriptionManager {
         Ok(())
     }
 
+    pub fn ensure_model_loaded(&self, model_id: &str) -> Result<()> {
+        let model_id = model_id.trim();
+        if model_id.is_empty() {
+            return Err(anyhow::anyhow!("No local transcription model is selected."));
+        }
+
+        loop {
+            {
+                let mut is_loading = self.is_loading.lock().unwrap();
+                while *is_loading {
+                    is_loading = self.loading_condvar.wait(is_loading).unwrap();
+                }
+            }
+
+            if self.is_model_loaded_for(model_id) {
+                return Ok(());
+            }
+
+            let Some(_loading_guard) = self.try_start_loading() else {
+                continue;
+            };
+
+            info!(
+                "Loading local transcription model before transcription: {}",
+                model_id
+            );
+            return self.load_model(model_id);
+        }
+    }
+
     /// Kicks off the model loading in a background thread if it's not already loaded
     pub fn initiate_model_load(&self) {
-        if self.is_model_loaded() {
+        let settings = get_settings(&self.app_handle);
+        let model_id = settings.selected_model.trim().to_string();
+
+        if model_id.is_empty() {
+            error!("Failed to load model: no local transcription model is selected");
+            return;
+        }
+
+        if self.is_model_loaded_for(&model_id) {
             return;
         }
 
@@ -637,8 +679,7 @@ impl TranscriptionManager {
         let self_clone = self.clone();
         thread::spawn(move || {
             let _loading_guard = loading_guard;
-            let settings = get_settings(&self_clone.app_handle);
-            if let Err(e) = self_clone.load_model(&settings.selected_model) {
+            if let Err(e) = self_clone.load_model(&model_id) {
                 error!("Failed to load model: {}", e);
             }
         });
