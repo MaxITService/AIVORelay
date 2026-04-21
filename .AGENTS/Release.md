@@ -14,6 +14,11 @@ Rules:
 4. Avoid multi-line JavaScript template literals inside YAML `script: |` blocks; prefer plain strings with `\n` or simple concatenation.
 5. If workflow YAML was edited, validate the file before committing when the user asks for verification.
 
+## Fast Draft Release Path
+
+If the user explicitly asks for a full draft release flow such as "do the release", "prepare the release", or "bump, push, and run the release workflow", treat that as approval to execute the whole draft-release path end-to-end for the requested branches.
+In that fast path, do not stop to re-ask about release body draft, push, or workflow dispatch; prepare sensible release notes from the user-facing commits, keep the release as a draft unless the user explicitly asks to publish, and only stop if there is branch/version ambiguity, unusual risk, or a real conflict.
+
 ## Version Bump
 
 When asked to bump the app version:
