@@ -13,6 +13,11 @@ Do not modify `.github/workflows/*.yml` unless the user explicitly asks.
 - Avoid clever multi-line script formatting in YAML.
 - If workflow YAML changed and the user asks for verification, validate it before commit.
 
+## Fast Draft Release Path
+
+If the user explicitly asks for the full Microsoft Store draft release flow, treat that as approval to bump the version, prepare the Store release notes, push the branch, and run the Store release workflow without re-asking each step.
+Keep the GitHub release as a draft pre-release unless the user explicitly asks to publish, and stop only for ambiguity, unusual risk, or a real conflict.
+
 ## Version Bump
 
 When asked to bump the app version:
