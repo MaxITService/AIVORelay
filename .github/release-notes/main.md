@@ -5,11 +5,10 @@ GitHub Actions prepends this Markdown above GitHub-generated release notes.
 
 ## Highlights
 
-This release includes the changes that were prepared for `1.0.11`; that version was not published.
-
-- Cohere file transcription now uses shorter bounded chunks for more reliable long-file processing.
-- Added AWS Bedrock (Mantle) as a built-in post-processing provider.
-- File transcription cancellation now gives clearer feedback and handles cancellation more reliably.
+- Added a word and character counter for transcription-related text output.
+- Recording overlay first paint and placement are more stable.
+- Added a Reddit community link in About settings.
+- Local transcription now makes sure the selected model is loaded before starting.
 
 ---
 
