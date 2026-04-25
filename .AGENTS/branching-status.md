@@ -6,7 +6,7 @@ Before starting a new `main` -> branch sync, verify the target branch directly w
 
 ## release/microsoft-store
 
-Last synced commit from `main`: `1036ed36` — chore: bump version to 1.0.14.
+Last synced commit from `main`: `4b6adfa5` — fix(overlay): keep error layout onscreen.
 Maintenance rule: after a successful `main` -> `release/microsoft-store` propagation, update this main-copy cursor and the `release/microsoft-store` worktree copy together.
 Note: the cursor always points to the last propagated `main` state reflected in branch content, not to a docs-only cursor-update commit itself.
 Alignment note: `release/microsoft-store` now matches `main` for all non-Store-specific files via force overwrite. Intentional differences remain only for Microsoft Store-specific docs/config/workflow/updater/AVX2 files.
@@ -15,7 +15,7 @@ Propagation scope rule: for Microsoft Store Edition propagation, bring over the 
 
 ## integration/cuda
 
-Last synced commit from `main`: `c7d56f56` — chore: bump version to 1.0.12.
+Last synced commit from `main`: `4b6adfa5` — fix(overlay): keep error layout onscreen.
 Maintenance rule: after a successful `main` -> `integration/cuda` propagation, update this main-copy cursor and the `integration/cuda` worktree copy together.
 Note: the cursor always points to the last propagated commit from `main`, not to CUDA-only commits that were created on top of it.
 Sync rule: for this branch, source commits come from `main` only.
@@ -24,7 +24,7 @@ Operational note (2026-03-23): for content documentation, treat the branch as re
 
 ## integration/combined
 
-Last synced commit from `main`: `c7d56f56` — chore: bump version to 1.0.12.
+Last synced commit from `main`: `4b6adfa5` — fix(overlay): keep error layout onscreen.
 Maintenance rule: after a successful `main` -> `integration/combined` propagation, update this main-copy cursor and the `integration/combined` worktree copy together.
 Note: the cursor always points to the last propagated commit from `main`, not to combined-only commits created on top of it.
 Sync rule: for this branch, source commits come from `main` only.
