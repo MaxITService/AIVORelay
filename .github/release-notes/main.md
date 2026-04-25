@@ -5,12 +5,11 @@ GitHub Actions prepends this Markdown above GitHub-generated release notes.
 
 ## Highlights
 
-- Added a word and character counter for transcription-related text output.
-- Recording overlay first paint and placement are more stable.
-- Added a Reddit community link in About settings.
-- Local transcription now makes sure the selected model is loaded before starting.
+- Dictation word and character counters can now be edited safely from History settings.
+- Dictation stats now pause while editing and cap very large values to avoid precision issues.
+- Recording overlay placement is reasserted natively on Windows to prevent rare starts above the saved manual position.
 
 ---
 
 **Notice:**
-If the application crashes on an older CPU during transcription, use the Microsoft Store build when a matching Store release is available for this version: https://github.com/MaxITService/AIVORelay/releases/tag/v1.0.13-store
+If the application crashes on an older CPU during transcription, use the Microsoft Store build when a matching Store release is available for this version: https://github.com/MaxITService/AIVORelay/releases/tag/v1.0.14-store

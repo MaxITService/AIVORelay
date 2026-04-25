@@ -5,10 +5,9 @@ GitHub Actions prepends this Markdown above GitHub-generated release notes.
 
 ## Highlights
 
-- File transcription can now run while recording is in progress.
-- Added a setup checklist and setup health check to make initial setup easier.
-- Improved smart chunking for long local-model file transcription jobs, including Parakeet.
-- Tightened setup readiness checks for shortcuts and the browser connector.
+- Dictation word and character counters can now be edited safely from History settings.
+- Dictation stats now pause while editing and cap very large values to avoid precision issues.
+- Recording overlay placement is reasserted natively on Windows to prevent rare starts above the saved manual position.
 
 ---
 
