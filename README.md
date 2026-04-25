@@ -23,6 +23,10 @@ AI Voice Relay
 ### Place cursor anywhere, press hotkey, speak, and watch your text appear in place!
 
 Of course, basic speech-to-text, all that upstream can do. Lots of models: cloud, local, languages auto pick up, etc.
+If you use local speech-to-text models, then app is local and free. No data goes outside. If you use any cloud models, data goes outside.
+Then after speech-to-text model produced text, it can be processed by LLM model (this is handled via API to the server of your choice).
+And also there are some other processings that can be made, like replacing any text by regular expression or some minor form of post processing.
+Then there are some additonal feautures that you might want to use or not: like relaying your text to the ChatGPT, running commands, making text out of audio files, recording computer audio as text and so on. The app is complex but capable and you can make it simpler by not using some features.
 
 ### 🎚️ Transcription Profiles
 
