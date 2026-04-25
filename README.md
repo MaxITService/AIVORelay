@@ -246,44 +246,7 @@ Execute PowerShell scripts with your voice. Pre-write scripts... or make LLM wri
 
 ---
 
-## ⚙️ Configuration
-
-## 🧪 Testing
-
-Backend Rust tests in this fork should be run through the checked-in Windows harness, not plain `cargo test`.
-
-- All backend tests: `pwsh -NoProfile -File .\test-local.ps1`
-- Library unit tests: `pwsh -NoProfile -File .\test-local.ps1 -LibOnly`
-- Detailed commands and current documented test areas: [`TESTING.md`](TESTING.md)
-- Minimum free disk space before running tests: `50 GB`
-
-### LLM API Relay
-
-**Settings → LLM API Relay**
-
-Configure your LLM provider (OpenAI, Anthropic, etc.) to power AI Replace and Post-Processing features.
-
-### AI Replace Settings
-
-**Settings → AI Replace**
-
-| Setting                        | Description                                                                 |
-| ------------------------------ | --------------------------------------------------------------------------- |
-| **System Prompt**              | Instructions for the LLM (e.g., "return only transformed text")             |
-| **User Prompt Template**       | Template with `${instruction}` (your voice) and `${output}` (selected text) |
-| **No Selection System Prompt** | Alternative prompt when no text is selected                                 |
-| **Max Characters**             | Limit for selected text (default: 20000)                                    |
-
-### Send Screenshot Settings
-
-**Settings → Browser Connector → Screenshot Settings**
-
-- **Default:** Native selection overlay (no external tools needed)
-- **Optional:** Use external tools like ShareX
-- Set screenshot folder path (for external tools)
-- Enable "Allow Without Voice" for quick image-only sends
-
-### AivoRelay Connector Setup
+### AivoRelay Connector Setup - The thing that posts to ChatGPT or others via browser extension
 
 1. Install [AivoRelay Connector](https://github.com/MaxITService/AivoRelay-relay) Chrome extension
 2. Open ChatGPT or Perplexity in a browser tab
@@ -296,7 +259,7 @@ Configure your LLM provider (OpenAI, Anthropic, etc.) to power AI Replace and Po
 
 ## This extension has only been built and tested for Windows. If you need other platforms, Handy can do it but without additional features.
 
-## 🔧 Original Features
+## 🔧 Original Features of upstream app "Handy"
 
 All original Handy features remain available:
 
