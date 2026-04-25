@@ -21,6 +21,8 @@ import { formatDateTime, formatDate } from "@/utils/dateFormat";
 import { HandyShortcut } from "../HandyShortcut";
 import { HistoryLimit } from "../HistoryLimit";
 import { RecordingRetentionPeriodSelector } from "../RecordingRetentionPeriod";
+import { Alert } from "../../ui/Alert";
+import { Input } from "../../ui/Input";
 import { SettingsGroup } from "../../ui/SettingsGroup";
 import { ToggleSwitch } from "../../ui/ToggleSwitch";
 import { SettingContainer } from "../../ui/SettingContainer";
@@ -106,6 +108,68 @@ const formatCount = (value: number) => {
   return new Intl.NumberFormat().format(value);
 };
 
+interface DictationStatsRuntimeState {
+  is_editing: boolean;
+  is_recording: boolean;
+  is_processing: boolean;
+  can_start_edit: boolean;
+  can_apply_edit: boolean;
+  max_count: number;
+  warning_threshold: number;
+}
+
+const DEFAULT_DICTATION_STATS_MAX = Number.MAX_SAFE_INTEGER;
+
+const DEFAULT_DICTATION_STATS_RUNTIME_STATE: DictationStatsRuntimeState = {
+  is_editing: false,
+  is_recording: false,
+  is_processing: false,
+  can_start_edit: true,
+  can_apply_edit: false,
+  max_count: DEFAULT_DICTATION_STATS_MAX,
+  warning_threshold:
+    DEFAULT_DICTATION_STATS_MAX - Math.floor(DEFAULT_DICTATION_STATS_MAX / 20),
+};
+
+const normalizeCountDraft = (value: string) => {
+  const digitsOnly = value.replace(/[^\d]/g, "");
+  if (!digitsOnly) {
+    return "";
+  }
+  return digitsOnly.replace(/^0+(?=\d)/, "");
+};
+
+const parseCountDraft = (value: string) => {
+  if (!value) {
+    return null;
+  }
+
+  try {
+    return BigInt(value);
+  } catch {
+    return null;
+  }
+};
+
+const clampCountDraft = (value: string, maxCount: number) => {
+  const normalized = normalizeCountDraft(value);
+  if (!normalized) {
+    return { value: "", clamped: false };
+  }
+
+  const parsed = parseCountDraft(normalized);
+  if (parsed === null) {
+    return { value: normalized, clamped: false };
+  }
+
+  const maxCountBigInt = BigInt(maxCount);
+  if (parsed > maxCountBigInt) {
+    return { value: maxCountBigInt.toString(), clamped: true };
+  }
+
+  return { value: normalized, clamped: false };
+};
+
 const DictationStatsSection: React.FC = () => {
   const { t, i18n } = useTranslation();
   const { settings, updateSetting, isUpdating, refreshSettings } =
@@ -113,6 +177,25 @@ const DictationStatsSection: React.FC = () => {
   const [resetting, setResetting] = useState<
     "words" | "characters" | "both" | null
   >(null);
+  const [runtimeState, setRuntimeState] = useState<DictationStatsRuntimeState>(
+    DEFAULT_DICTATION_STATS_RUNTIME_STATE,
+  );
+  const [isEditing, setIsEditing] = useState(false);
+  const [savingEdit, setSavingEdit] = useState(false);
+  const [wordDraft, setWordDraft] = useState("");
+  const [characterDraft, setCharacterDraft] = useState("");
+  const [draftWasClamped, setDraftWasClamped] = useState(false);
+
+  const syncRuntimeState = useCallback(async () => {
+    try {
+      const nextState = await invoke<DictationStatsRuntimeState>(
+        "get_dictation_stats_runtime_state",
+      );
+      setRuntimeState(nextState);
+    } catch (error) {
+      console.error("Failed to load dictation stats runtime state:", error);
+    }
+  }, []);
 
   useEffect(() => {
     const unlisten = listen("dictation-stats-updated", () => {
@@ -124,17 +207,90 @@ const DictationStatsSection: React.FC = () => {
     };
   }, [refreshSettings]);
 
+  useEffect(() => {
+    void syncRuntimeState();
+
+    const unlisten = listen("dictation-stats-editing-changed", () => {
+      void syncRuntimeState();
+    });
+
+    return () => {
+      unlisten.then((cleanup) => cleanup());
+    };
+  }, [syncRuntimeState]);
+
+  useEffect(() => {
+    if (!isEditing) {
+      return;
+    }
+
+    void syncRuntimeState();
+    const timerId = window.setInterval(() => {
+      void syncRuntimeState();
+    }, 800);
+
+    return () => {
+      window.clearInterval(timerId);
+    };
+  }, [isEditing, syncRuntimeState]);
+
+  useEffect(() => {
+    return () => {
+      if (isEditing) {
+        void invoke("cancel_dictation_stats_edit_session");
+      }
+    };
+  }, [isEditing]);
+
   const statsEnabled = Boolean((settings as any)?.dictation_stats_enabled);
   const wordCount = normalizeCount((settings as any)?.dictation_word_count);
   const characterCount = normalizeCount(
     (settings as any)?.dictation_character_count,
   );
-  const wordCountSinceMs = Number((settings as any)?.dictation_word_count_since_ms || 0);
-  const charCountSinceMs = Number((settings as any)?.dictation_character_count_since_ms || 0);
+  const wordCountSinceMs = Number(
+    (settings as any)?.dictation_word_count_since_ms || 0,
+  );
+  const charCountSinceMs = Number(
+    (settings as any)?.dictation_character_count_since_ms || 0,
+  );
 
-  const wordSince = wordCountSinceMs ? formatDate(String(Math.floor(wordCountSinceMs / 1000)), i18n.language) : null;
-  const charSince = charCountSinceMs ? formatDate(String(Math.floor(charCountSinceMs / 1000)), i18n.language) : null;
+  const wordSince = wordCountSinceMs
+    ? formatDate(String(Math.floor(wordCountSinceMs / 1000)), i18n.language)
+    : null;
+  const charSince = charCountSinceMs
+    ? formatDate(String(Math.floor(charCountSinceMs / 1000)), i18n.language)
+    : null;
   const sameDate = wordSince === charSince;
+  const formattedMaxCount = formatCount(runtimeState.max_count);
+  const maxCountBigInt = BigInt(runtimeState.max_count);
+  const warningThresholdBigInt = BigInt(runtimeState.warning_threshold);
+  const parsedWordDraft = parseCountDraft(wordDraft);
+  const parsedCharacterDraft = parseCountDraft(characterDraft);
+  const isBusyDuringEdit =
+    runtimeState.is_recording || runtimeState.is_processing;
+  const canStartEditing =
+    resetting === null &&
+    !savingEdit &&
+    (runtimeState.can_start_edit || runtimeState.is_editing);
+  const canSaveEdit =
+    resetting === null &&
+    !savingEdit &&
+    runtimeState.can_apply_edit &&
+    parsedWordDraft !== null &&
+    parsedCharacterDraft !== null;
+  const currentAtLimit =
+    wordCount >= runtimeState.max_count ||
+    characterCount >= runtimeState.max_count;
+  const currentNearLimit =
+    wordCount >= runtimeState.warning_threshold ||
+    characterCount >= runtimeState.warning_threshold;
+  const draftAtLimit =
+    (parsedWordDraft !== null && parsedWordDraft >= maxCountBigInt) ||
+    (parsedCharacterDraft !== null && parsedCharacterDraft >= maxCountBigInt);
+  const draftNearLimit =
+    (parsedWordDraft !== null && parsedWordDraft >= warningThresholdBigInt) ||
+    (parsedCharacterDraft !== null &&
+      parsedCharacterDraft >= warningThresholdBigInt);
 
   const resetStats = async (
     kind: "words" | "characters" | "both",
@@ -152,6 +308,84 @@ const DictationStatsSection: React.FC = () => {
     }
   };
 
+  const startEditing = async () => {
+    try {
+      await invoke("begin_dictation_stats_edit_session");
+      setWordDraft(String(wordCount));
+      setCharacterDraft(String(characterCount));
+      setDraftWasClamped(false);
+      setIsEditing(true);
+      await syncRuntimeState();
+    } catch (error) {
+      console.error("Failed to start dictation stats editing:", error);
+      toast.error(
+        t("settings.history.dictationStats.edit.startError", {
+          defaultValue:
+            "Failed to start dictation stats editing. Please try again.",
+        }),
+      );
+    }
+  };
+
+  const cancelEditing = async () => {
+    try {
+      await invoke("cancel_dictation_stats_edit_session");
+    } catch (error) {
+      console.error("Failed to cancel dictation stats editing:", error);
+    } finally {
+      setIsEditing(false);
+      setDraftWasClamped(false);
+      await syncRuntimeState();
+    }
+  };
+
+  const handleDraftChange = (
+    value: string,
+    setter: React.Dispatch<React.SetStateAction<string>>,
+  ) => {
+    const nextDraft = clampCountDraft(value, runtimeState.max_count);
+    setter(nextDraft.value);
+    if (nextDraft.clamped) {
+      setDraftWasClamped(true);
+    }
+  };
+
+  const saveEditedCounts = async () => {
+    if (
+      !canSaveEdit ||
+      parsedWordDraft === null ||
+      parsedCharacterDraft === null
+    ) {
+      toast.error(
+        t("settings.history.dictationStats.edit.invalid", {
+          defaultValue: "Enter a valid whole number for both counters.",
+        }),
+      );
+      return;
+    }
+
+    setSavingEdit(true);
+    try {
+      await invoke("update_dictation_stats_counts", {
+        wordCount: Number(parsedWordDraft),
+        characterCount: Number(parsedCharacterDraft),
+      });
+      await refreshSettings();
+      setIsEditing(false);
+      setDraftWasClamped(false);
+    } catch (error) {
+      console.error("Failed to update dictation stats:", error);
+      toast.error(
+        t("settings.history.dictationStats.edit.saveError", {
+          defaultValue: "Failed to update dictation stats. Please try again.",
+        }),
+      );
+    } finally {
+      setSavingEdit(false);
+      await syncRuntimeState();
+    }
+  };
+
   return (
     <SettingsGroup title={t("settings.history.dictationStats.title")}>
       <ToggleSwitch
@@ -160,6 +394,7 @@ const DictationStatsSection: React.FC = () => {
           await updateSetting("dictation_stats_enabled" as any, enabled as any);
           await refreshSettings();
         }}
+        disabled={isEditing || savingEdit}
         isUpdating={isUpdating("dictation_stats_enabled")}
         label={t("settings.history.dictationStats.enable.title")}
         description={t("settings.history.dictationStats.enable.description")}
@@ -194,12 +429,38 @@ const DictationStatsSection: React.FC = () => {
           )}
           {!sameDate && (wordSince || charSince) && (
             <div className="text-[10px] text-text/40">
-              {wordSince && `Words since ${wordSince}`}
+              {wordSince &&
+                t("settings.history.dictationStats.sinceWords", {
+                  defaultValue: "Words since {{date}}",
+                  date: wordSince,
+                })}
               {wordSince && charSince && " • "}
-              {charSince && `Characters since ${charSince}`}
+              {charSince &&
+                t("settings.history.dictationStats.sinceCharacters", {
+                  defaultValue: "Characters since {{date}}",
+                  date: charSince,
+                })}
             </div>
           )}
         </div>
+        {!isEditing && currentAtLimit && (
+          <Alert variant="warning" contained={true} className="mt-3">
+            {t("settings.history.dictationStats.edit.limitReached", {
+              defaultValue:
+                "This counter is at the safety limit. Further dictation will not increase it until you lower or reset it.",
+              formattedMax: formattedMaxCount,
+            })}
+          </Alert>
+        )}
+        {!isEditing && !currentAtLimit && currentNearLimit && (
+          <Alert variant="warning" contained={true} className="mt-3">
+            {t("settings.history.dictationStats.edit.nearLimit", {
+              defaultValue:
+                "This counter is near the safety limit. Once it reaches {{formattedMax}}, further dictation stops increasing it until you lower or reset it.",
+              formattedMax: formattedMaxCount,
+            })}
+          </Alert>
+        )}
       </SettingContainer>
       <SettingContainer
         title={t("settings.history.dictationStats.reset.title")}
@@ -207,40 +468,164 @@ const DictationStatsSection: React.FC = () => {
         descriptionMode="tooltip"
         grouped={true}
       >
-        <div className="flex flex-wrap items-center justify-end gap-2">
-          <Button
-            variant="secondary"
-            size="sm"
-            disabled={resetting !== null}
-            onClick={() => resetStats("words", "reset_dictation_word_count")}
-          >
-            {resetting === "words"
-              ? t("settings.history.dictationStats.resetting")
-              : t("settings.history.dictationStats.reset.words")}
-          </Button>
-          <Button
-            variant="secondary"
-            size="sm"
-            disabled={resetting !== null}
-            onClick={() =>
-              resetStats("characters", "reset_dictation_character_count")
-            }
-          >
-            {resetting === "characters"
-              ? t("settings.history.dictationStats.resetting")
-              : t("settings.history.dictationStats.reset.characters")}
-          </Button>
-          <Button
-            variant="secondary"
-            size="sm"
-            disabled={resetting !== null}
-            onClick={() => resetStats("both", "reset_dictation_stats")}
-          >
-            {resetting === "both"
-              ? t("settings.history.dictationStats.resetting")
-              : t("settings.history.dictationStats.reset.both")}
-          </Button>
-        </div>
+        {isEditing ? (
+          <div className="flex flex-col gap-3">
+            <Alert variant="info" contained={true}>
+              {t("settings.history.dictationStats.edit.paused", {
+                defaultValue:
+                  "Counting pauses while you are editing these values.",
+              })}
+            </Alert>
+            {isBusyDuringEdit && (
+              <Alert variant="warning" contained={true}>
+                {t("settings.history.dictationStats.edit.busy", {
+                  defaultValue:
+                    "Finish the current recording or processing task before saving changes.",
+                })}
+              </Alert>
+            )}
+            {draftWasClamped && (
+              <Alert variant="warning" contained={true}>
+                {t("settings.history.dictationStats.edit.clamped", {
+                  defaultValue:
+                    "Very large values are automatically capped at {{formattedMax}}.",
+                  formattedMax: formattedMaxCount,
+                })}
+              </Alert>
+            )}
+            {draftAtLimit && (
+              <Alert variant="warning" contained={true}>
+                {t("settings.history.dictationStats.edit.limitReached", {
+                  defaultValue:
+                    "This counter is at the safety limit. Further dictation will not increase it until you lower or reset it.",
+                  formattedMax: formattedMaxCount,
+                })}
+              </Alert>
+            )}
+            {!draftAtLimit && draftNearLimit && (
+              <Alert variant="warning" contained={true}>
+                {t("settings.history.dictationStats.edit.nearLimit", {
+                  defaultValue:
+                    "This counter is near the safety limit. Once it reaches {{formattedMax}}, further dictation stops increasing it until you lower or reset it.",
+                  formattedMax: formattedMaxCount,
+                })}
+              </Alert>
+            )}
+            <div className="grid gap-3 sm:grid-cols-2">
+              <label className="flex flex-col gap-2 text-xs font-medium uppercase tracking-[0.12em] text-text/50">
+                <span>
+                  {t("settings.history.dictationStats.edit.wordsLabel", {
+                    defaultValue: "Words",
+                  })}
+                </span>
+                <Input
+                  value={wordDraft}
+                  onChange={(event) =>
+                    handleDraftChange(event.target.value, setWordDraft)
+                  }
+                  inputMode="numeric"
+                  pattern="[0-9]*"
+                  placeholder="0"
+                  disabled={savingEdit}
+                />
+              </label>
+              <label className="flex flex-col gap-2 text-xs font-medium uppercase tracking-[0.12em] text-text/50">
+                <span>
+                  {t("settings.history.dictationStats.edit.charactersLabel", {
+                    defaultValue: "Characters",
+                  })}
+                </span>
+                <Input
+                  value={characterDraft}
+                  onChange={(event) =>
+                    handleDraftChange(event.target.value, setCharacterDraft)
+                  }
+                  inputMode="numeric"
+                  pattern="[0-9]*"
+                  placeholder="0"
+                  disabled={savingEdit}
+                />
+              </label>
+            </div>
+            <div className="text-xs text-text/50">
+              {t("settings.history.dictationStats.edit.hint", {
+                defaultValue:
+                  "Only digits are allowed. Values are capped at {{formattedMax}} to avoid overflow and precision issues.",
+                formattedMax: formattedMaxCount,
+              })}
+            </div>
+            <div className="flex flex-wrap items-center justify-end gap-2">
+              <Button
+                variant="ghost"
+                size="sm"
+                disabled={savingEdit}
+                onClick={() => void cancelEditing()}
+              >
+                {t("settings.history.dictationStats.edit.cancel", {
+                  defaultValue: "Cancel",
+                })}
+              </Button>
+              <Button
+                size="sm"
+                disabled={!canSaveEdit}
+                onClick={() => void saveEditedCounts()}
+              >
+                {savingEdit
+                  ? t("settings.history.dictationStats.edit.saving", {
+                      defaultValue: "Saving...",
+                    })
+                  : t("settings.history.dictationStats.edit.save", {
+                      defaultValue: "Save",
+                    })}
+              </Button>
+            </div>
+          </div>
+        ) : (
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            <Button
+              variant="secondary"
+              size="sm"
+              disabled={!canStartEditing}
+              onClick={() => void startEditing()}
+            >
+              {t("settings.history.dictationStats.edit.button", {
+                defaultValue: "Edit",
+              })}
+            </Button>
+            <Button
+              variant="secondary"
+              size="sm"
+              disabled={resetting !== null}
+              onClick={() => resetStats("words", "reset_dictation_word_count")}
+            >
+              {resetting === "words"
+                ? t("settings.history.dictationStats.resetting")
+                : t("settings.history.dictationStats.reset.words")}
+            </Button>
+            <Button
+              variant="secondary"
+              size="sm"
+              disabled={resetting !== null}
+              onClick={() =>
+                resetStats("characters", "reset_dictation_character_count")
+              }
+            >
+              {resetting === "characters"
+                ? t("settings.history.dictationStats.resetting")
+                : t("settings.history.dictationStats.reset.characters")}
+            </Button>
+            <Button
+              variant="secondary"
+              size="sm"
+              disabled={resetting !== null}
+              onClick={() => resetStats("both", "reset_dictation_stats")}
+            >
+              {resetting === "both"
+                ? t("settings.history.dictationStats.resetting")
+                : t("settings.history.dictationStats.reset.both")}
+            </Button>
+          </div>
+        )}
       </SettingContainer>
     </SettingsGroup>
   );
@@ -277,7 +662,9 @@ const RepasteShortcutSection: React.FC = () => {
   );
 };
 
-const HistoryPageLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+const HistoryPageLayout: React.FC<{ children: React.ReactNode }> = ({
+  children,
+}) => {
   return (
     <div className="max-w-3xl w-full mx-auto space-y-6">
       <HistoryConfigurationSection />

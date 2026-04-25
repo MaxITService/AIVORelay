@@ -656,12 +656,6 @@ fn show_error_overlay_internal(
     overlay::set_recording_overlay_error_layout(app);
 
     if let Some(overlay_window) = app.get_webview_window("recording_overlay") {
-        let _ = overlay_window.show();
-
-        // On Windows, aggressively re-assert "topmost" in the native Z-order after showing
-        #[cfg(target_os = "windows")]
-        overlay::force_overlay_topmost(&overlay_window);
-
         let resolved_error_message =
             error_message.unwrap_or_else(|| category.display_text().to_string());
         let resolved_error_envelope = error_envelope.unwrap_or_else(|| {
@@ -674,6 +668,7 @@ fn show_error_overlay_internal(
             error_envelope: Some(resolved_error_envelope),
         };
         let _ = overlay_window.emit("show-overlay", payload);
+        overlay::show_positioned_recording_overlay_window(app);
 
         // Generation counter to prevent hiding overlay of new session
         let current_gen = OVERLAY_GENERATION.fetch_add(1, Ordering::SeqCst) + 1;

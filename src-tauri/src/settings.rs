@@ -5,7 +5,8 @@ use serde_json::Value;
 use specta::Type;
 use std::collections::HashMap;
 use std::fmt;
-use tauri::{AppHandle, Emitter};
+use std::sync::atomic::{AtomicBool, Ordering};
+use tauri::{AppHandle, Emitter, Manager};
 use tauri_plugin_store::StoreExt;
 
 use crate::url_security::{
@@ -18,7 +19,18 @@ use crate::url_security::{
 pub const APPLE_INTELLIGENCE_PROVIDER_ID: &str = "apple_intelligence";
 pub const APPLE_INTELLIGENCE_DEFAULT_MODEL_ID: &str = "Apple Intelligence";
 pub const MAX_HISTORY_LIMIT: usize = 1000;
+pub const MAX_DICTATION_STATS_COUNT: u64 = 9_007_199_254_740_991;
+pub const DICTATION_STATS_WARNING_THRESHOLD: u64 =
+    MAX_DICTATION_STATS_COUNT - (MAX_DICTATION_STATS_COUNT / 20);
 pub const DEFAULT_MICROPHONE_INPUT_BOOST_DEVICE_KEY: &str = "__default__";
+
+pub struct DictationStatsEditState(pub AtomicBool);
+
+impl Default for DictationStatsEditState {
+    fn default() -> Self {
+        Self(AtomicBool::new(false))
+    }
+}
 
 #[derive(Serialize, Debug, Clone, Copy, PartialEq, Eq, Type)]
 #[serde(rename_all = "lowercase")]
@@ -4077,8 +4089,24 @@ pub fn count_dictation_characters(text: &str) -> u64 {
     text.chars().count() as u64
 }
 
+pub fn clamp_dictation_stats_count(value: u64) -> u64 {
+    value.min(MAX_DICTATION_STATS_COUNT)
+}
+
+pub fn add_dictation_stats_count(current: u64, delta: u64) -> u64 {
+    clamp_dictation_stats_count(current.saturating_add(delta))
+}
+
 pub fn record_dictation_stats_for_text(app: &AppHandle, text: &str) {
     if text.trim().is_empty() {
+        return;
+    }
+
+    if app
+        .state::<DictationStatsEditState>()
+        .0
+        .load(Ordering::SeqCst)
+    {
         return;
     }
 
@@ -4090,10 +4118,9 @@ pub fn record_dictation_stats_for_text(app: &AppHandle, text: &str) {
     let words = count_dictation_words(text);
     let characters = count_dictation_characters(text);
 
-    settings.dictation_word_count = settings.dictation_word_count.saturating_add(words);
-    settings.dictation_character_count = settings
-        .dictation_character_count
-        .saturating_add(characters);
+    settings.dictation_word_count = add_dictation_stats_count(settings.dictation_word_count, words);
+    settings.dictation_character_count =
+        add_dictation_stats_count(settings.dictation_character_count, characters);
 
     write_settings(app, settings);
     let _ = app.emit("dictation-stats-updated", ());
@@ -4194,5 +4221,17 @@ mod tests {
     fn dictation_character_counter_counts_unicode_scalars() {
         assert_eq!(count_dictation_characters("abc"), 3);
         assert_eq!(count_dictation_characters("åβ🙂"), 3);
+    }
+
+    #[test]
+    fn dictation_stats_are_clamped_to_safe_javascript_limit() {
+        assert_eq!(
+            clamp_dictation_stats_count(u64::MAX),
+            MAX_DICTATION_STATS_COUNT
+        );
+        assert_eq!(
+            add_dictation_stats_count(MAX_DICTATION_STATS_COUNT - 10, 50),
+            MAX_DICTATION_STATS_COUNT
+        );
     }
 }
