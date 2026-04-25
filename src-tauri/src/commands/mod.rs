@@ -12,10 +12,54 @@ pub mod transcription;
 pub mod voice_activation_button;
 pub mod voice_command;
 
-use crate::settings::{get_settings, write_settings, AppSettings, LlmFeature, LogLevel};
+use crate::settings::{
+    clamp_dictation_stats_count, get_settings, write_settings, AppSettings,
+    DictationStatsEditState, LlmFeature, LogLevel, DICTATION_STATS_WARNING_THRESHOLD,
+    MAX_DICTATION_STATS_COUNT,
+};
 use crate::utils::cancel_current_operation;
-use tauri::{AppHandle, Emitter};
+use serde::Serialize;
+use specta::Type;
+use std::sync::atomic::Ordering;
+use tauri::{AppHandle, Emitter, Manager};
 use tauri_plugin_opener::OpenerExt;
+
+#[derive(Serialize, Type)]
+pub struct DictationStatsRuntimeState {
+    pub is_editing: bool,
+    pub is_recording: bool,
+    pub is_processing: bool,
+    pub can_start_edit: bool,
+    pub can_apply_edit: bool,
+    pub max_count: u64,
+    pub warning_threshold: u64,
+}
+
+fn dictation_stats_runtime_state(app: &AppHandle) -> DictationStatsRuntimeState {
+    let session_state = app.state::<crate::session_manager::ManagedSessionState>();
+    let state_guard = session_state.lock().expect("Failed to lock session state");
+    let (is_recording, is_processing) = match &*state_guard {
+        crate::session_manager::SessionState::Idle => (false, false),
+        crate::session_manager::SessionState::Recording { .. } => (true, false),
+        crate::session_manager::SessionState::Processing { .. } => (false, true),
+    };
+    drop(state_guard);
+
+    let is_editing = app
+        .state::<DictationStatsEditState>()
+        .0
+        .load(Ordering::SeqCst);
+
+    DictationStatsRuntimeState {
+        is_editing,
+        is_recording,
+        is_processing,
+        can_start_edit: !is_editing && !is_recording && !is_processing,
+        can_apply_edit: is_editing && !is_recording && !is_processing,
+        max_count: MAX_DICTATION_STATS_COUNT,
+        warning_threshold: DICTATION_STATS_WARNING_THRESHOLD,
+    }
+}
 
 #[tauri::command]
 #[specta::specta]
@@ -77,14 +121,14 @@ pub fn set_log_level(app: AppHandle, level: LogLevel) -> Result<(), String> {
 
 #[specta::specta]
 #[tauri::command]
-pub fn change_dictation_stats_enabled_setting(
-    app: AppHandle,
-    enabled: bool,
-) -> Result<(), String> {
+pub fn change_dictation_stats_enabled_setting(app: AppHandle, enabled: bool) -> Result<(), String> {
     let mut settings = get_settings(&app);
     settings.dictation_stats_enabled = enabled;
     if enabled {
-        let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_millis() as i64;
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis() as i64;
         if settings.dictation_word_count_since_ms.is_none() {
             settings.dictation_word_count_since_ms = Some(now);
         }
@@ -99,9 +143,91 @@ pub fn change_dictation_stats_enabled_setting(
 
 #[specta::specta]
 #[tauri::command]
+pub fn get_dictation_stats_runtime_state(app: AppHandle) -> DictationStatsRuntimeState {
+    dictation_stats_runtime_state(&app)
+}
+
+#[specta::specta]
+#[tauri::command]
+pub fn begin_dictation_stats_edit_session(app: AppHandle) -> Result<(), String> {
+    let runtime = dictation_stats_runtime_state(&app);
+    if runtime.is_recording || runtime.is_processing {
+        return Err(
+            "Dictation stats cannot be edited while recording or processing is active.".to_string(),
+        );
+    }
+
+    app.state::<DictationStatsEditState>()
+        .0
+        .store(true, Ordering::SeqCst);
+    let _ = app.emit("dictation-stats-editing-changed", ());
+    Ok(())
+}
+
+#[specta::specta]
+#[tauri::command]
+pub fn cancel_dictation_stats_edit_session(app: AppHandle) -> Result<(), String> {
+    app.state::<DictationStatsEditState>()
+        .0
+        .store(false, Ordering::SeqCst);
+    let _ = app.emit("dictation-stats-editing-changed", ());
+    Ok(())
+}
+
+#[specta::specta]
+#[tauri::command]
+pub fn update_dictation_stats_counts(
+    app: AppHandle,
+    word_count: u64,
+    character_count: u64,
+) -> Result<(), String> {
+    let runtime = dictation_stats_runtime_state(&app);
+    if !runtime.is_editing {
+        return Err("Start an edit session before applying dictation stats changes.".to_string());
+    }
+    if !runtime.can_apply_edit {
+        return Err(
+            "Finish the current recording or processing task before saving dictation stats."
+                .to_string(),
+        );
+    }
+
+    let mut settings = get_settings(&app);
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as i64;
+
+    let next_word_count = clamp_dictation_stats_count(word_count);
+    let next_character_count = clamp_dictation_stats_count(character_count);
+
+    if settings.dictation_word_count != next_word_count {
+        settings.dictation_word_count = next_word_count;
+        settings.dictation_word_count_since_ms = Some(now);
+    }
+
+    if settings.dictation_character_count != next_character_count {
+        settings.dictation_character_count = next_character_count;
+        settings.dictation_character_count_since_ms = Some(now);
+    }
+
+    write_settings(&app, settings);
+    app.state::<DictationStatsEditState>()
+        .0
+        .store(false, Ordering::SeqCst);
+    let _ = app.emit("dictation-stats-updated", ());
+    let _ = app.emit("dictation-stats-editing-changed", ());
+    Ok(())
+}
+
+#[specta::specta]
+#[tauri::command]
 pub fn reset_dictation_word_count(app: AppHandle) -> Result<(), String> {
     let mut settings = get_settings(&app);
-    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_millis() as i64;
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as i64;
     settings.dictation_word_count = 0;
     settings.dictation_word_count_since_ms = Some(now);
     write_settings(&app, settings);
@@ -113,10 +239,14 @@ pub fn reset_dictation_word_count(app: AppHandle) -> Result<(), String> {
 #[tauri::command]
 pub fn reset_dictation_character_count(app: AppHandle) -> Result<(), String> {
     let mut settings = get_settings(&app);
-    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_millis() as i64;
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as i64;
     settings.dictation_character_count = 0;
     settings.dictation_character_count_since_ms = Some(now);
     write_settings(&app, settings);
+    let _ = app.emit("dictation-stats-updated", ());
     Ok(())
 }
 
@@ -124,12 +254,16 @@ pub fn reset_dictation_character_count(app: AppHandle) -> Result<(), String> {
 #[tauri::command]
 pub fn reset_dictation_stats(app: AppHandle) -> Result<(), String> {
     let mut settings = get_settings(&app);
-    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_millis() as i64;
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as i64;
     settings.dictation_word_count = 0;
     settings.dictation_word_count_since_ms = Some(now);
     settings.dictation_character_count = 0;
     settings.dictation_character_count_since_ms = Some(now);
     write_settings(&app, settings);
+    let _ = app.emit("dictation-stats-updated", ());
     Ok(())
 }
 

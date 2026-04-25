@@ -27,8 +27,8 @@ mod shortcut_handy_keys;
 mod signal_handle;
 mod soniox_stream_processor;
 pub mod subtitle;
-mod text_replacement_decapitalize;
 mod text_output_hooks;
+mod text_replacement_decapitalize;
 mod transcript_context;
 mod tray;
 mod tray_i18n;
@@ -323,6 +323,7 @@ fn initialize_core_logic(app_handle: &AppHandle) {
     app_handle.manage(history_manager.clone());
     app_handle.manage(connector_manager.clone());
     app_handle.manage(key_listener_state);
+    app_handle.manage(settings::DictationStatsEditState::default());
 
     // Initialize region capture state (Windows only)
     #[cfg(target_os = "windows")]
@@ -812,6 +813,10 @@ pub fn run() {
         commands::asset_preview::delete_transcribe_file_asset,
         commands::set_log_level,
         commands::change_dictation_stats_enabled_setting,
+        commands::get_dictation_stats_runtime_state,
+        commands::begin_dictation_stats_edit_session,
+        commands::cancel_dictation_stats_edit_session,
+        commands::update_dictation_stats_counts,
         commands::reset_dictation_word_count,
         commands::reset_dictation_character_count,
         commands::reset_dictation_stats,
