@@ -48,6 +48,7 @@ const OVERLAY_HEIGHT: f64 = 36.0;
 const ERROR_OVERLAY_WIDTH: f64 = 340.0;
 const ERROR_OVERLAY_HEIGHT: f64 = 82.0;
 const RECORDING_OVERLAY_BAR_GAP: f64 = 3.0;
+const RECORDING_OVERLAY_EDGE_MARGIN: f64 = 4.0;
 
 // Command Confirmation Overlay dimensions
 const COMMAND_CONFIRM_WIDTH: f64 = 520.0;
@@ -180,6 +181,7 @@ static SONIOX_LIVE_PREVIEW_RUNTIME_STATE: LazyLock<Mutex<SonioxLivePreviewRuntim
 
 #[derive(Clone, Copy)]
 struct RecordingOverlayWindowMetrics {
+    layout: RecordingOverlayLayout,
     frame_width: f64,
     frame_height: f64,
     padding: f64,
@@ -342,6 +344,47 @@ fn get_monitor_logical_bounds(monitor: &tauri::Monitor) -> LogicalBounds {
         width: monitor.size().width as f64 / scale,
         height: monitor.size().height as f64 / scale,
     }
+}
+
+fn get_monitor_for_logical_point(app_handle: &AppHandle, x: f64, y: f64) -> Option<tauri::Monitor> {
+    let monitors = app_handle.available_monitors().ok()?;
+    let mut nearest: Option<(f64, tauri::Monitor)> = None;
+
+    for monitor in monitors {
+        let bounds = get_monitor_logical_bounds(&monitor);
+        let right = bounds.x + bounds.width;
+        let bottom = bounds.y + bounds.height;
+
+        if x >= bounds.x && x < right && y >= bounds.y && y < bottom {
+            return Some(monitor);
+        }
+
+        let dx = if x < bounds.x {
+            bounds.x - x
+        } else if x > right {
+            x - right
+        } else {
+            0.0
+        };
+        let dy = if y < bounds.y {
+            bounds.y - y
+        } else if y > bottom {
+            y - bottom
+        } else {
+            0.0
+        };
+        let distance = (dx * dx) + (dy * dy);
+
+        if nearest
+            .as_ref()
+            .map(|(best_distance, _)| distance < *best_distance)
+            .unwrap_or(true)
+        {
+            nearest = Some((distance, monitor));
+        }
+    }
+
+    nearest.map(|(_, monitor)| monitor)
 }
 
 #[cfg(target_os = "windows")]
@@ -586,23 +629,87 @@ fn calculate_overlay_position_for_window(
         .map(|geometry| (geometry.x, geometry.y))
 }
 
+fn clamp_recording_overlay_window_origin(
+    bounds: LogicalBounds,
+    metrics: RecordingOverlayWindowMetrics,
+    x: f64,
+    y: f64,
+) -> (f64, f64) {
+    let x_margin = if bounds.width > metrics.window_width + (RECORDING_OVERLAY_EDGE_MARGIN * 2.0) {
+        RECORDING_OVERLAY_EDGE_MARGIN
+    } else {
+        0.0
+    };
+    let y_margin = if bounds.height > metrics.window_height + (RECORDING_OVERLAY_EDGE_MARGIN * 2.0)
+    {
+        RECORDING_OVERLAY_EDGE_MARGIN
+    } else {
+        0.0
+    };
+
+    let min_x = bounds.x + x_margin;
+    let max_x = bounds.x + bounds.width - metrics.window_width - x_margin;
+    let min_y = bounds.y + y_margin;
+    let max_y = bounds.y + bounds.height - metrics.window_height - y_margin;
+
+    (clamp_f64(x, min_x, max_x), clamp_f64(y, min_y, max_y))
+}
+
+fn recording_overlay_manual_anchor_point(app_handle: &AppHandle) -> (f64, f64) {
+    let settings = settings::get_settings(app_handle);
+    let default_metrics =
+        recording_overlay_window_metrics(app_handle, RecordingOverlayLayout::Default);
+
+    (
+        settings.recording_overlay_custom_x_px as f64 + (default_metrics.frame_width / 2.0),
+        settings.recording_overlay_custom_y_px as f64 + (default_metrics.frame_height / 2.0),
+    )
+}
+
+fn recording_overlay_manual_window_origin(
+    app_handle: &AppHandle,
+    metrics: RecordingOverlayWindowMetrics,
+    settings: &settings::AppSettings,
+) -> (f64, f64) {
+    let (frame_x, frame_y) = match metrics.layout {
+        RecordingOverlayLayout::Error => {
+            let default_metrics =
+                recording_overlay_window_metrics(app_handle, RecordingOverlayLayout::Default);
+            (
+                settings.recording_overlay_custom_x_px as f64
+                    + ((default_metrics.frame_width - metrics.frame_width) / 2.0),
+                settings.recording_overlay_custom_y_px as f64
+                    + ((default_metrics.frame_height - metrics.frame_height) / 2.0),
+            )
+        }
+        RecordingOverlayLayout::Default => (
+            settings.recording_overlay_custom_x_px as f64,
+            settings.recording_overlay_custom_y_px as f64,
+        ),
+    };
+
+    (frame_x - metrics.padding, frame_y - metrics.padding)
+}
+
 fn calculate_recording_overlay_window_geometry(
     app_handle: &AppHandle,
     metrics: RecordingOverlayWindowMetrics,
 ) -> Option<RecordingOverlayWindowGeometry> {
-    let monitor = get_monitor_with_cursor(app_handle)?;
     let settings = settings::get_settings(app_handle);
-    let bounds = get_monitor_logical_auto_position_bounds(
-        &monitor,
-        settings.auto_position_allow_reserved_areas,
-    );
 
-    let (window_x, window_y) = if settings.recording_overlay_use_manual_position {
-        (
-            settings.recording_overlay_custom_x_px as f64 - metrics.padding,
-            settings.recording_overlay_custom_y_px as f64 - metrics.padding,
-        )
+    let (monitor, window_x, window_y) = if settings.recording_overlay_use_manual_position {
+        let (anchor_x, anchor_y) = recording_overlay_manual_anchor_point(app_handle);
+        let monitor = get_monitor_for_logical_point(app_handle, anchor_x, anchor_y)
+            .or_else(|| get_monitor_with_cursor(app_handle))?;
+        let (window_x, window_y) =
+            recording_overlay_manual_window_origin(app_handle, metrics, &settings);
+        (monitor, window_x, window_y)
     } else {
+        let monitor = get_monitor_with_cursor(app_handle)?;
+        let bounds = get_monitor_logical_auto_position_bounds(
+            &monitor,
+            settings.auto_position_allow_reserved_areas,
+        );
         let window_x = bounds.x + (bounds.width - metrics.window_width) / 2.0;
         let window_y = match settings.overlay_position {
             OverlayPosition::Top => bounds.y + OVERLAY_TOP_OFFSET,
@@ -610,8 +717,15 @@ fn calculate_recording_overlay_window_geometry(
                 bounds.y + bounds.height - metrics.window_height - OVERLAY_BOTTOM_OFFSET
             }
         };
-        (window_x, window_y)
+        (monitor, window_x, window_y)
     };
+
+    let bounds = get_monitor_logical_auto_position_bounds(
+        &monitor,
+        settings.auto_position_allow_reserved_areas,
+    );
+    let (window_x, window_y) =
+        clamp_recording_overlay_window_origin(bounds, metrics, window_x, window_y);
 
     Some(RecordingOverlayWindowGeometry {
         x: window_x,
@@ -854,6 +968,7 @@ fn recording_overlay_window_metrics(
     let padding = recording_overlay_window_padding(app_handle, layout, frame_width, frame_height);
 
     RecordingOverlayWindowMetrics {
+        layout,
         frame_width,
         frame_height,
         padding,
