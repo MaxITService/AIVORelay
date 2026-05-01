@@ -854,6 +854,10 @@ fn start_recording_with_feedback(app: &AppHandle, binding_id: &str) -> bool {
         captured_profile_id, binding_id
     );
 
+    let should_latch_decapitalize_for_standard_output = is_transcribe_binding_id(binding_id)
+        && settings.text_replacement_decapitalize_after_edit_key_enabled
+        && !should_use_live_streaming(&settings);
+
     *state_guard = session_manager::SessionState::Recording {
         session: Arc::clone(&session),
         binding_id: binding_id.to_string(),
@@ -943,6 +947,10 @@ fn start_recording_with_feedback(app: &AppHandle, binding_id: &str) -> bool {
     let recording_started = recording_error.is_none();
 
     if recording_started {
+        if should_latch_decapitalize_for_standard_output {
+            crate::text_replacement_decapitalize::promote_pending_realtime_trigger_to_standard_output();
+        }
+
         // Register cancel shortcut now that recording is confirmed
         session.register_cancel_shortcut();
         crate::recording_auto_stop::start_auto_stop_timer(app, binding_id);
