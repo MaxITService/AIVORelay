@@ -41,6 +41,15 @@ impl DecapitalizeState {
         };
     }
 
+    fn promote_realtime_trigger_to_standard_output(&mut self, now: Instant) -> bool {
+        if self.cleanup_expired_realtime_trigger(now) {
+            self.standard_output_armed = true;
+            true
+        } else {
+            false
+        }
+    }
+
     fn cleanup_expired_realtime_trigger(&mut self, now: Instant) -> bool {
         match self.realtime_trigger_until {
             Some(deadline) if now <= deadline => true,
@@ -104,6 +113,18 @@ pub fn begin_standard_post_recording_monitor(window_ms: u32) {
     if let Ok(mut state) = DECAPITALIZE_STATE.lock() {
         state.begin_standard_monitor(window_ms, Instant::now());
     }
+}
+
+/// Standard STT records first and emits text later. If the user pressed the
+/// edit key shortly before starting the recording, latch that pending trigger
+/// so it stays visible and applies to the eventual final output.
+pub fn promote_pending_realtime_trigger_to_standard_output() -> bool {
+    let now = Instant::now();
+    let Ok(mut state) = DECAPITALIZE_STATE.lock() else {
+        return false;
+    };
+
+    state.promote_realtime_trigger_to_standard_output(now)
 }
 
 /// Realtime/chunk mode: only uses the immediate timeout-based trigger.
@@ -319,6 +340,34 @@ mod tests {
         assert!(!is_any_trigger_armed_now());
 
         reset_global_state();
+    }
+
+    #[test]
+    fn standard_recording_start_latches_pending_realtime_trigger() {
+        let _guard = TEST_MUTEX.lock().unwrap();
+        reset_global_state();
+
+        mark_edit_key_pressed(500, false);
+
+        assert!(promote_pending_realtime_trigger_to_standard_output());
+        assert!(is_any_trigger_armed_now());
+        assert_eq!(maybe_decapitalize_next_chunk_standard(" Hello"), " hello");
+        assert!(!is_any_trigger_armed_now());
+
+        reset_global_state();
+    }
+
+    #[test]
+    fn standard_recording_start_does_not_latch_expired_realtime_trigger() {
+        let now = Instant::now();
+        let mut state = DecapitalizeState {
+            realtime_trigger_until: Some(now - Duration::from_millis(1)),
+            ..Default::default()
+        };
+
+        assert!(!state.promote_realtime_trigger_to_standard_output(now));
+        assert!(!state.standard_output_armed);
+        assert_eq!(state.realtime_trigger_until, None);
     }
 
     #[test]
