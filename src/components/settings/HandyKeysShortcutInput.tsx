@@ -3,14 +3,12 @@ import { listen } from "@tauri-apps/api/event";
 import { invoke } from "@tauri-apps/api/core";
 import { type } from "@tauri-apps/plugin-os";
 import { useTranslation } from "react-i18next";
-import {
-  formatKeyCombination,
-  type OSType,
-} from "../../lib/utils/keyboard";
+import { formatKeyCombination, type OSType } from "../../lib/utils/keyboard";
 import { useSettings } from "../../hooks/useSettings";
 import { ResetButton } from "../ui/ResetButton";
 import { SettingContainer } from "../ui/SettingContainer";
 import { toast } from "sonner";
+import { showShortcutSetErrorToast } from "../../lib/utils/shortcutEngineErrorToast";
 
 interface HandyKeysShortcutInputProps {
   descriptionMode?: "inline" | "tooltip";
@@ -26,9 +24,7 @@ interface HandyKeysEvent {
   hotkey_string: string;
 }
 
-export const HandyKeysShortcutInput: React.FC<
-  HandyKeysShortcutInputProps
-> = ({
+export const HandyKeysShortcutInput: React.FC<HandyKeysShortcutInputProps> = ({
   descriptionMode = "tooltip",
   grouped = false,
   shortcutId,
@@ -46,12 +42,16 @@ export const HandyKeysShortcutInput: React.FC<
   const currentKeysRef = useRef("");
 
   const bindings = getSetting("bindings") || {};
+  const configuredShortcutEngine =
+    (getSetting("shortcut_engine") as string | undefined) ?? "handy_keys";
 
   useEffect(() => {
     try {
       const detectedType = type();
       setOsType(
-        detectedType === "macos" || detectedType === "windows" || detectedType === "linux"
+        detectedType === "macos" ||
+          detectedType === "windows" ||
+          detectedType === "linux"
           ? detectedType
           : "unknown",
       );
@@ -125,11 +125,7 @@ export const HandyKeysShortcutInput: React.FC<
             try {
               await updateBinding(shortcutId, nextShortcut);
             } catch (error) {
-              toast.error(
-                t("settings.general.shortcut.errors.set", {
-                  error: String(error),
-                }),
-              );
+              showShortcutSetErrorToast(error, configuredShortcutEngine, t);
 
               if (originalBinding) {
                 try {
@@ -185,7 +181,10 @@ export const HandyKeysShortcutInput: React.FC<
     if (!isRecording) return;
 
     const handleClickOutside = (event: MouseEvent) => {
-      if (shortcutRef.current && !shortcutRef.current.contains(event.target as Node)) {
+      if (
+        shortcutRef.current &&
+        !shortcutRef.current.contains(event.target as Node)
+      ) {
         cancelRecording().catch(console.error);
       }
     };
@@ -207,11 +206,7 @@ export const HandyKeysShortcutInput: React.FC<
     } catch (error) {
       await invoke("resume_binding", { id: shortcutId }).catch(console.error);
       setOriginalBinding("");
-      toast.error(
-        t("settings.general.shortcut.errors.set", {
-          error: String(error),
-        }),
-      );
+      showShortcutSetErrorToast(error, configuredShortcutEngine, t);
     }
   };
 

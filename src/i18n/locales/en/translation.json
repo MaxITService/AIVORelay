@@ -708,7 +708,8 @@
         "errors": {
           "restore": "Failed to restore original shortcut: {{error}}",
           "set": "Failed to set shortcut: {{error}}",
-          "reset": "Failed to reset shortcut to original value: {{error}}"
+          "reset": "Failed to reset shortcut to original value: {{error}}",
+          "unsupportedByEngine": "This shortcut is not supported by {{engine}}. Change engine in Debug → Experimental Features → Shortcut Engine."
         },
         "warnings": {
           "modifierOnly": "Modifier-only shortcuts (like Ctrl+Alt) will trigger even when pressing Ctrl+Alt+Delete or other combinations. Consider adding a main key."
@@ -1902,6 +1903,11 @@
           "handyKeys": "HandyKeys (Upstream Backend)",
           "tauri": "Tauri (High Performance)"
         },
+        "shortNames": {
+          "rdev": "rdev",
+          "handyKeys": "HandyKeys",
+          "tauri": "Tauri"
+        },
         "activeEngine": "Currently active",
         "restartRequired": {
           "title": "Restart Required",
@@ -1971,7 +1977,7 @@
           },
           "verdict": {
             "title": "Recommendation:",
-            "text": "Use Native Engine (Tauri) by default for best performance and security. Switch to Hook Engine (rdev) only if you need a specific shortcut that Tauri doesn't support. Tip: Your mouse or keyboard software can likely remap additional buttons to complex combinations that are inconvenient to use manually, allowing you to use them with the Native Engine."
+            "text": "HandyKeys is the default because it supports backend-side shortcut recording and broader key coverage than Tauri. Use Native Engine (Tauri) if you want the lowest overhead and only need standard shortcuts. Choose rdev only when you need combinations that the other engines do not support."
           }
         },
         "confirmRestart": {

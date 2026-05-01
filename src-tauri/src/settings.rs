@@ -838,10 +838,12 @@ pub enum ShortcutEngine {
 
 impl Default for ShortcutEngine {
     fn default() -> Self {
-        // Default to Tauri for all platforms (better performance)
-        // Users who need Caps Lock, Num Lock, or modifier-only shortcuts
-        // can switch to rdev in Settings → Debug → Experimental Features
-        ShortcutEngine::Tauri
+        // Default to HandyKeys on Windows to match upstream behavior and
+        // support backend-side shortcut recording out of the box.
+        #[cfg(target_os = "windows")]
+        return ShortcutEngine::HandyKeys;
+        #[cfg(not(target_os = "windows"))]
+        return ShortcutEngine::Tauri;
     }
 }
 
@@ -1978,6 +1980,7 @@ pub struct AppSettings {
     // ==================== Shortcut Engine (Windows only) ====================
     /// Which shortcut engine to use for global hotkeys (Windows only)
     /// - "tauri": High performance, but doesn't support Caps Lock, Num Lock, modifier-only shortcuts
+    /// - "handy_keys": Upstream backend with backend-side shortcut recording
     /// - "rdev": Supports all keys, but uses more CPU (processes every keystroke)
     #[serde(default)]
     pub shortcut_engine: ShortcutEngine,
