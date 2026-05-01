@@ -27,7 +27,7 @@ export const ShortcutEngineSelector: React.FC = () => {
   const [pendingEngine, setPendingEngine] = useState<string | null>(null);
 
   // Configured engine from settings (may differ from active if restart needed)
-  const configuredEngine = (settings as any)?.shortcut_engine ?? "tauri";
+  const configuredEngine = (settings as any)?.shortcut_engine ?? "handy_keys";
 
   // Check if restart is required
   const needsRestart = activeEngine !== configuredEngine;
