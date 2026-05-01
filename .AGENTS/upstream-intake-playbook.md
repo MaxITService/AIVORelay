@@ -68,7 +68,8 @@ Skip:
 5. If conflicts are many/high-risk, run `git cherry-pick --abort` and switch to diff-path using `.AGENTS/.UNTRACKED/<sha>.diff.txt`.
 6. Record the integrated upstream commit SHA and the intended `main` commit message for each taken item.
 7. Update [[.AGENTS/upstream-sync-log|upstream-sync-log.md]].
-8. If the user later wants `main -> release/microsoft-store` or `main -> integration/cuda`, stop using this playbook and switch to the branch propagation playbook.
+8. At the end of intake, show the remaining working tree status and propose a commit plan that leaves the worktree clean after the work. Call out any pre-existing unrelated changes before including them in that plan.
+9. If the user later wants `main -> release/microsoft-store` or `main -> integration/cuda`, stop using this playbook and switch to the branch propagation playbook.
 
 ## Cargo.lock
 
