@@ -13,7 +13,8 @@ interface HandyShortcutProps {
 
 export const HandyShortcut: React.FC<HandyShortcutProps> = (props) => {
   const { getSetting } = useSettings();
-  const configuredEngine = (getSetting("shortcut_engine") as string) ?? "tauri";
+  const configuredEngine =
+    (getSetting("shortcut_engine") as string) ?? "handy_keys";
   const [activeEngine, setActiveEngine] = useState(configuredEngine);
 
   useEffect(() => {
