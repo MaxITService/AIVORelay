@@ -88,7 +88,7 @@ export const TextReplacementSettings: React.FC = () => {
     settings?.text_replacement_decapitalize_timeout_ms ?? 5000;
   const decapitalizeStandardPostRecordingMonitorMs =
     settings?.text_replacement_decapitalize_standard_post_recording_monitor_ms ?? 5000;
-  const configuredShortcutEngine = (settings as any)?.shortcut_engine ?? "tauri";
+  const configuredShortcutEngine = (settings as any)?.shortcut_engine ?? "handy_keys";
   const leadingWhitespaceMode =
     (settings?.output_whitespace_leading_mode ?? "remove_if_present") as OutputWhitespaceMode;
   const trailingWhitespaceMode =

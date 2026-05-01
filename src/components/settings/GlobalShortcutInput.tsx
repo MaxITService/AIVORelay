@@ -12,6 +12,7 @@ import { SettingContainer } from "../ui/SettingContainer";
 import { useSettings } from "../../hooks/useSettings";
 import { commands } from "@/bindings";
 import { toast } from "sonner";
+import { showShortcutSetErrorToast } from "../../lib/utils/shortcutEngineErrorToast";
 
 interface GlobalShortcutInputProps {
   descriptionMode?: "inline" | "tooltip";
@@ -39,6 +40,8 @@ export const GlobalShortcutInput: React.FC<GlobalShortcutInputProps> = ({
   const shortcutRefs = useRef<Map<string, HTMLDivElement | null>>(new Map());
 
   const bindings = getSetting("bindings") || {};
+  const configuredShortcutEngine =
+    (getSetting("shortcut_engine") as string | undefined) ?? "handy_keys";
 
   useEffect(() => {
     const detectOsType = async () => {
@@ -161,11 +164,7 @@ export const GlobalShortcutInput: React.FC<GlobalShortcutInputProps> = ({
             }
           } catch (error) {
             console.error("Failed to change binding:", error);
-            toast.error(
-              t("settings.general.shortcut.errors.set", {
-                error: String(error),
-              }),
-            );
+            showShortcutSetErrorToast(error, configuredShortcutEngine, t);
 
             if (originalBinding) {
               try {
