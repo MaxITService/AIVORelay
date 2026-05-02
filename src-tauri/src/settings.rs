@@ -1354,6 +1354,8 @@ pub struct AppSettings {
     pub show_tray_icon: bool,
     #[serde(default = "default_true")]
     pub show_tray_shortcut_guide: bool,
+    #[serde(default)]
+    pub show_tray_shortcut_guide_in_main_menu: bool,
     #[serde(default = "default_update_checks_enabled")]
     pub update_checks_enabled: bool,
     #[serde(default = "default_model")]
@@ -3024,6 +3026,7 @@ pub fn get_default_settings() -> AppSettings {
         autostart_enabled: default_autostart_enabled(),
         show_tray_icon: default_show_tray_icon(),
         show_tray_shortcut_guide: default_true(),
+        show_tray_shortcut_guide_in_main_menu: false,
         update_checks_enabled: default_update_checks_enabled(),
         selected_model: "".to_string(),
         transcription_provider: default_transcription_provider(),
