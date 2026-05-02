@@ -364,7 +364,7 @@ export const RecordingOverlaySettings: React.FC = () => {
     "#101216",
   );
   const showDragGrip = Boolean(
-    (settings as any)?.recording_overlay_show_drag_grip ?? false,
+    (settings as any)?.recording_overlay_show_drag_grip ?? true,
   );
   const audioReactiveScale = Boolean(
     (settings as any)?.recording_overlay_audio_reactive_scale ?? false,
@@ -888,7 +888,11 @@ export const RecordingOverlaySettings: React.FC = () => {
           sliderDrafts.recording_overlay_silence_opacity_percent
         }
         decapIndicatorMode={
-          showDecapIndicatorInPreview ? decapIndicatorMode : "hidden"
+          showDecapIndicatorInPreview
+            ? decapIndicatorMode === "hidden"
+              ? "text"
+              : decapIndicatorMode
+            : "hidden"
         }
         decapIndicatorCustomText={decapIndicatorCustomText}
         decapIndicatorFontFamily={decapIndicatorFontFamily}

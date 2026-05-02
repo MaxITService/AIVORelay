@@ -1479,6 +1479,8 @@ pub struct AppSettings {
     pub auto_position_allow_reserved_areas: bool,
     #[serde(default)]
     pub recording_overlay_use_manual_position: bool,
+    #[serde(default)]
+    pub recording_overlay_manual_position_uses_physical_px: bool,
     #[serde(default = "default_recording_overlay_custom_x_px")]
     pub recording_overlay_custom_x_px: i32,
     #[serde(default = "default_recording_overlay_custom_y_px")]
@@ -2210,7 +2212,7 @@ fn default_overlay_position() -> OverlayPosition {
 }
 
 fn default_error_overlay_auto_hide_ms() -> u64 {
-    2000
+    3500
 }
 
 fn default_recording_overlay_custom_x_px() -> i32 {
@@ -3103,6 +3105,7 @@ pub fn get_default_settings() -> AppSettings {
         overlay_position: default_overlay_position(),
         auto_position_allow_reserved_areas: false,
         recording_overlay_use_manual_position: false,
+        recording_overlay_manual_position_uses_physical_px: false,
         recording_overlay_custom_x_px: default_recording_overlay_custom_x_px(),
         recording_overlay_custom_y_px: default_recording_overlay_custom_y_px(),
         error_overlay_auto_hide_ms: default_error_overlay_auto_hide_ms(),

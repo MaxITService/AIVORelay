@@ -34,7 +34,7 @@ export const ShowOverlay: React.FC<ShowOverlayProps> = React.memo(
     const { t } = useTranslation();
     const { getSetting, updateSetting, isUpdating, settings } = useSettings();
     const [errorOverlayAutoHideInput, setErrorOverlayAutoHideInput] =
-      useState("2000");
+      useState("3500");
     const [selectedErrorCategory, setSelectedErrorCategory] = useState("Auth");
 
     const overlayOptions = [
@@ -50,10 +50,10 @@ export const ShowOverlay: React.FC<ShowOverlayProps> = React.memo(
     const errorFeedbackEnabled =
       (getSetting("error_feedback_enabled" as any) ?? true) === true;
     const recordingOverlayShowDragGrip = Boolean(
-      (settings as any)?.recording_overlay_show_drag_grip ?? false,
+      (settings as any)?.recording_overlay_show_drag_grip ?? true,
     );
     const errorOverlayAutoHideMs = Number(
-      settings?.error_overlay_auto_hide_ms ?? 2000,
+      settings?.error_overlay_auto_hide_ms ?? 3500,
     );
     const isErrorOverlayAutoHideUpdating = isUpdating("error_overlay_auto_hide_ms");
 
