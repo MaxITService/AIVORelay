@@ -1,6 +1,6 @@
 use crate::managers::model::{ModelInfo, ModelManager};
 use crate::managers::transcription::{ModelStateEvent, TranscriptionManager};
-use crate::settings::{get_settings, write_settings, ModelUnloadTimeout};
+use crate::settings::{get_settings, write_settings, ModelUnloadTimeout, TranscriptionProvider};
 use crate::tray;
 use serde::Serialize;
 use specta::Type;
@@ -96,6 +96,7 @@ pub fn switch_active_model(app: &AppHandle, model_id: &str) -> Result<(), String
 
     let mut updated_settings = settings;
     updated_settings.selected_model = model_id.to_string();
+    updated_settings.transcription_provider = TranscriptionProvider::Local;
 
     // Reset unsupported language selections so backend engines like Canary
     // never receive stale language codes from the previously active model.

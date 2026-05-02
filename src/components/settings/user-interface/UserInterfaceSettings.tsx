@@ -13,6 +13,7 @@ import { TellMeMore } from "../../ui/TellMeMore";
 import { useTranslation } from "react-i18next";
 import { useSettings } from "../../../hooks/useSettings";
 import { ShowTrayIcon } from "../ShowTrayIcon";
+import { ShowTrayShortcutGuide } from "../ShowTrayShortcutGuide";
 import { RecordingOverlaySettings } from "./RecordingOverlaySettings";
 import type { OSType } from "../../../lib/utils/keyboard";
 import {
@@ -247,6 +248,7 @@ export const UserInterfaceSettings: React.FC = () => {
 
       <SettingsGroup title={t("settings.userInterface.title")}>
         <ShowTrayIcon descriptionMode="tooltip" grouped={true} />
+        <ShowTrayShortcutGuide descriptionMode="tooltip" grouped={true} />
       </SettingsGroup>
 
       <RecordingOverlaySettings />

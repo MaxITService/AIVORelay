@@ -1,0 +1,44 @@
+{
+  "version": 1,
+  "featureGates": {
+    "voice_command": "voice_command_enabled",
+    "send_to_extension": "send_to_extension_enabled",
+    "send_to_extension_with_selection": "send_to_extension_with_selection_enabled",
+    "send_screenshot_to_extension": "send_screenshot_to_extension_enabled"
+  },
+  "categories": [
+    {
+      "id": "recording",
+      "title": "Recording",
+      "titleKey": "hotkeySidebar.categories.recording",
+      "bindingIds": [
+        "transcribe",
+        "transcribe_default",
+        "cancel",
+        "repaste_last",
+        "cycle_profile"
+      ],
+      "dynamicPrefixes": []
+    },
+    {
+      "id": "actions",
+      "title": "Actions",
+      "titleKey": "hotkeySidebar.categories.actions",
+      "bindingIds": [
+        "ai_replace_selection",
+        "send_to_extension",
+        "send_to_extension_with_selection",
+        "send_screenshot_to_extension",
+        "voice_command"
+      ],
+      "dynamicPrefixes": []
+    },
+    {
+      "id": "profiles",
+      "title": "Profiles",
+      "titleKey": "hotkeySidebar.categories.profiles",
+      "bindingIds": [],
+      "dynamicPrefixes": ["transcribe_"]
+    }
+  ]
+}
