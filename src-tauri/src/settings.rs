@@ -3105,7 +3105,7 @@ pub fn get_default_settings() -> AppSettings {
         error_overlay_auto_hide_ms: default_error_overlay_auto_hide_ms(),
         error_feedback_enabled: default_true(),
         recording_overlay_custom_enabled: false,
-        recording_overlay_show_drag_grip: false,
+        recording_overlay_show_drag_grip: true,
         recording_overlay_theme: default_recording_overlay_theme(),
         recording_overlay_background_mode: default_recording_overlay_background_mode(),
         recording_overlay_material_mode: default_recording_overlay_material_mode(),
