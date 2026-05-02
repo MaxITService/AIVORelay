@@ -51,11 +51,11 @@ const TRAY_MODEL_DEEPGRAM_LABEL: &str = "Deepgram";
 const TRAY_MODEL_NO_LOCAL_MODELS_LABEL: &str = "No downloaded local models";
 const TRAY_UNLOAD_LOCAL_MODEL_LABEL: &str = "Unload Local Model";
 const TRAY_NO_LOCAL_MODEL_LOADED_LABEL: &str = "No Local Model Loaded";
-const TRAY_SHORTCUT_GUIDE_LABEL: &str = "Shortcut Guide";
+const TRAY_SHORTCUT_GUIDE_LABEL: &str = "Here are the keys you set in program:";
 pub const TRAY_SHORTCUT_GUIDE_SHOW_IN_MAIN_ID: &str = "tray_shortcut_guide_show_in_main";
 pub const TRAY_SHORTCUT_GUIDE_HIDE_FROM_MAIN_ID: &str = "tray_shortcut_guide_hide_from_main";
 const TRAY_SHORTCUT_GUIDE_SHOW_IN_MAIN_LABEL: &str = "Show in Main Tray Menu";
-const TRAY_SHORTCUT_GUIDE_HIDE_FROM_MAIN_LABEL: &str = "Hide shortcut guide from here";
+const TRAY_SHORTCUT_GUIDE_HIDE_FROM_MAIN_LABEL: &str = "Hide shortcut guide ⇧ from here";
 const TRAY_SHORTCUT_GUIDE_ITEM_ICON: &str = "⌨️";
 const TRAY_MODEL_CUSTOM_SUFFIX: &str = "Custom";
 const TRAY_MODEL_PREFIX_LOCAL: &str = "local";
@@ -744,6 +744,8 @@ fn append_shortcut_guide_main_menu_items(
     if sections.is_empty() {
         return Ok(());
     }
+
+    menu.append(&PredefinedMenuItem::separator(app)?)?;
 
     let title = MenuItem::with_id(
         app,
