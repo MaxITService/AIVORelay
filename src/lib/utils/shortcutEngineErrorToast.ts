@@ -5,6 +5,7 @@ const SHORTCUT_ENGINE_COMPATIBILITY_PATTERNS = [
   /not compatible with (?:the )?tauri engine/i,
   /invalid shortcut for handykeys/i,
 ];
+const SHORTCUT_ENGINE_TOAST_DURATION_MS = 8000;
 
 type ShortcutEngine = "tauri" | "handy_keys" | "rdev" | string;
 
@@ -37,6 +38,7 @@ export const showShortcutSetErrorToast = (
       t("settings.general.shortcut.errors.unsupportedByEngine", {
         engine: getShortcutEngineName(engine, t),
       }),
+      { duration: SHORTCUT_ENGINE_TOAST_DURATION_MS },
     );
     return;
   }
