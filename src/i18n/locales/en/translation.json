@@ -1108,6 +1108,10 @@
         "label": "Show Tray Icon",
         "description": "Display the AivoRelay icon in the system tray."
       },
+      "showTrayShortcutGuide": {
+        "label": "Show Shortcut Guide in Tray",
+        "description": "Show assigned app buttons and their shortcuts as a read-only guide in the tray menu."
+      },
       "overlay": {
         "title": "Overlay Position",
         "description": "Display visual feedback overlay during recording and transcription. On Linux 'None' is recommended.",

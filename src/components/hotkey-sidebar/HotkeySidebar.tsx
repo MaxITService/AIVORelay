@@ -3,114 +3,12 @@ import { useTranslation } from "react-i18next";
 import { ChevronLeft, ChevronRight, Pin, PinOff, Keyboard } from "lucide-react";
 import { useSettings } from "@/hooks/useSettings";
 import { HotkeyGroup } from "./HotkeyGroup";
-import type {
-  ShortcutBinding,
-  TranscriptionProfile,
-  AppSettings,
-} from "@/bindings";
+import type { ShortcutBinding, TranscriptionProfile } from "@/bindings";
+import { buildHotkeyGuideCategories } from "@/lib/hotkeyGuide";
 
 const DEFAULT_WIDTH = 350;
 const MIN_WIDTH = 250;
 const MAX_WIDTH = 600;
-
-interface HotkeyCategory {
-  id: string;
-  titleKey: string;
-  hotkeys: ShortcutBinding[];
-}
-
-/** Maps shortcut IDs to their feature enable setting key */
-const featureEnabledMap: Record<string, keyof AppSettings> = {
-  voice_command: "voice_command_enabled",
-  send_to_extension: "send_to_extension_enabled",
-  send_to_extension_with_selection: "send_to_extension_with_selection_enabled",
-  send_screenshot_to_extension: "send_screenshot_to_extension_enabled",
-};
-
-/** Checks if a hotkey's feature is enabled (or has no toggle) */
-const isFeatureEnabled = (
-  hotkeyId: string,
-  settings: AppSettings | null,
-): boolean => {
-  const settingKey = featureEnabledMap[hotkeyId];
-  if (!settingKey || !settings) return true; // No toggle = always enabled
-  return settings[settingKey] as boolean;
-};
-
-/** Categorizes hotkeys based on their ID, filtering out disabled features */
-const categorizeHotkeys = (
-  bindings: Record<string, ShortcutBinding>,
-  profiles: TranscriptionProfile[],
-  settings: AppSettings | null,
-): HotkeyCategory[] => {
-  const assigned = Object.values(bindings).filter(
-    (b) =>
-      b.current_binding &&
-      b.current_binding.trim() !== "" &&
-      isFeatureEnabled(b.id, settings),
-  );
-
-  // Define category mappings
-  const categoryMap: Record<string, string[]> = {
-    recording: [
-      "transcribe",
-      "transcribe_default",
-      "cancel",
-      "repaste_last",
-      "cycle_profile",
-    ],
-    actions: [
-      "ai_replace_selection",
-      "send_to_extension",
-      "send_to_extension_with_selection",
-      "send_screenshot_to_extension",
-      "voice_command",
-    ],
-  };
-
-  // Profile IDs (dynamic)
-  const profileBindingIds = profiles.map((p) => `transcribe_${p.id}`);
-
-  const categories: HotkeyCategory[] = [];
-
-  // Recording category
-  const recordingHotkeys = assigned.filter((h) =>
-    categoryMap.recording.includes(h.id),
-  );
-  if (recordingHotkeys.length > 0) {
-    categories.push({
-      id: "recording",
-      titleKey: "hotkeySidebar.categories.recording",
-      hotkeys: recordingHotkeys,
-    });
-  }
-
-  // Actions category
-  const actionsHotkeys = assigned.filter((h) =>
-    categoryMap.actions.includes(h.id),
-  );
-  if (actionsHotkeys.length > 0) {
-    categories.push({
-      id: "actions",
-      titleKey: "hotkeySidebar.categories.actions",
-      hotkeys: actionsHotkeys,
-    });
-  }
-
-  // Profiles category
-  const profileHotkeys = assigned.filter((h) =>
-    profileBindingIds.includes(h.id),
-  );
-  if (profileHotkeys.length > 0) {
-    categories.push({
-      id: "profiles",
-      titleKey: "hotkeySidebar.categories.profiles",
-      hotkeys: profileHotkeys,
-    });
-  }
-
-  return categories;
-};
 
 export const HotkeySidebar: React.FC = () => {
   const { t } = useTranslation();
@@ -149,7 +47,7 @@ export const HotkeySidebar: React.FC = () => {
   }, [savedWidth]);
 
   const categories = useMemo(
-    () => categorizeHotkeys(bindings, profiles, settings),
+    () => buildHotkeyGuideCategories(bindings, profiles, settings),
     [bindings, profiles, settings],
   );
 
