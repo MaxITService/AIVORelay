@@ -17,6 +17,7 @@ use crate::utils::hide_recording_overlay;
 use log::debug;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
+use std::time::Instant;
 use tauri::{AppHandle, Manager};
 
 /// Represents the current state of the recording system.
@@ -29,6 +30,7 @@ pub enum SessionState {
     Recording {
         session: Arc<RecordingSession>,
         binding_id: String,
+        started_at: Instant,
         /// The profile ID that was active when recording started.
         /// This is used to ensure transcription uses the correct profile
         /// even if the user switches profiles mid-recording.
@@ -175,6 +177,7 @@ pub fn take_session(app: &AppHandle) -> Option<(Arc<RecordingSession>, String)> 
         SessionState::Recording {
             session,
             binding_id,
+            started_at: _,
             captured_profile_id: _,
             captured_settings: _,
         } => {
