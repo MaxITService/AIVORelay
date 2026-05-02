@@ -55,7 +55,8 @@ const TRAY_SHORTCUT_GUIDE_LABEL: &str = "Shortcut Guide";
 pub const TRAY_SHORTCUT_GUIDE_SHOW_IN_MAIN_ID: &str = "tray_shortcut_guide_show_in_main";
 pub const TRAY_SHORTCUT_GUIDE_HIDE_FROM_MAIN_ID: &str = "tray_shortcut_guide_hide_from_main";
 const TRAY_SHORTCUT_GUIDE_SHOW_IN_MAIN_LABEL: &str = "Show in Main Tray Menu";
-const TRAY_SHORTCUT_GUIDE_HIDE_FROM_MAIN_LABEL: &str = "Hide From Main Menu";
+const TRAY_SHORTCUT_GUIDE_HIDE_FROM_MAIN_LABEL: &str = "Hide shortcut guide from here";
+const TRAY_SHORTCUT_GUIDE_ITEM_ICON: &str = "⌨️";
 const TRAY_MODEL_CUSTOM_SUFFIX: &str = "Custom";
 const TRAY_MODEL_PREFIX_LOCAL: &str = "local";
 const TRAY_MODEL_PREFIX_REMOTE: &str = "remote_openai_compatible";
@@ -709,32 +710,12 @@ fn build_shortcut_guide_submenu(
 
     let submenu = Submenu::with_id(app, "tray_shortcut_guide", TRAY_SHORTCUT_GUIDE_LABEL, true)?;
 
-    for (index, section) in sections.into_iter().enumerate() {
-        if index > 0 {
-            submenu.append(&PredefinedMenuItem::separator(app)?)?;
-        }
-
-        let header = MenuItem::with_id(
-            app,
-            format!(
-                "tray_shortcut_guide_header::{}",
-                section.title.to_lowercase()
-            ),
-            &section.title,
-            false,
-            None::<&str>,
-        )?;
-        submenu.append(&header)?;
-
+    for section in sections {
         for binding in section.bindings {
             let item = MenuItem::with_id(
                 app,
                 format!("tray_shortcut_guide_item::{}", binding.id),
-                format!(
-                    "{} - {}",
-                    binding.name,
-                    format_shortcut_for_tray(&binding.current_binding)
-                ),
+                shortcut_guide_item_label(&binding.name, &binding.current_binding),
                 false,
                 None::<&str>,
             )?;
@@ -742,7 +723,6 @@ fn build_shortcut_guide_submenu(
         }
     }
 
-    submenu.append(&PredefinedMenuItem::separator(app)?)?;
     let show_in_main = MenuItem::with_id(
         app,
         TRAY_SHORTCUT_GUIDE_SHOW_IN_MAIN_ID,
@@ -765,8 +745,6 @@ fn append_shortcut_guide_main_menu_items(
         return Ok(());
     }
 
-    menu.append(&PredefinedMenuItem::separator(app)?)?;
-
     let title = MenuItem::with_id(
         app,
         "tray_shortcut_guide_main_header",
@@ -776,32 +754,12 @@ fn append_shortcut_guide_main_menu_items(
     )?;
     menu.append(&title)?;
 
-    for (section_index, section) in sections.into_iter().enumerate() {
-        if section_index > 0 {
-            menu.append(&PredefinedMenuItem::separator(app)?)?;
-        }
-
-        let header = MenuItem::with_id(
-            app,
-            format!(
-                "tray_shortcut_guide_main_section::{}",
-                section.title.to_lowercase()
-            ),
-            &section.title,
-            false,
-            None::<&str>,
-        )?;
-        menu.append(&header)?;
-
+    for section in sections {
         for binding in section.bindings {
             let item = MenuItem::with_id(
                 app,
                 format!("tray_shortcut_guide_main_item::{}", binding.id),
-                format!(
-                    "{} - {}",
-                    binding.name,
-                    format_shortcut_for_tray(&binding.current_binding)
-                ),
+                shortcut_guide_item_label(&binding.name, &binding.current_binding),
                 false,
                 None::<&str>,
             )?;
@@ -809,7 +767,6 @@ fn append_shortcut_guide_main_menu_items(
         }
     }
 
-    menu.append(&PredefinedMenuItem::separator(app)?)?;
     let hide_from_main = MenuItem::with_id(
         app,
         TRAY_SHORTCUT_GUIDE_HIDE_FROM_MAIN_ID,
@@ -820,6 +777,13 @@ fn append_shortcut_guide_main_menu_items(
     menu.append(&hide_from_main)?;
 
     Ok(())
+}
+
+fn shortcut_guide_item_label(name: &str, binding: &str) -> String {
+    format!(
+        "{TRAY_SHORTCUT_GUIDE_ITEM_ICON} {name} - {}",
+        format_shortcut_for_tray(binding)
+    )
 }
 
 fn format_shortcut_for_tray(binding: &str) -> String {
