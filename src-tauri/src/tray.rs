@@ -52,6 +52,10 @@ const TRAY_MODEL_NO_LOCAL_MODELS_LABEL: &str = "No downloaded local models";
 const TRAY_UNLOAD_LOCAL_MODEL_LABEL: &str = "Unload Local Model";
 const TRAY_NO_LOCAL_MODEL_LOADED_LABEL: &str = "No Local Model Loaded";
 const TRAY_SHORTCUT_GUIDE_LABEL: &str = "Shortcut Guide";
+pub const TRAY_SHORTCUT_GUIDE_SHOW_IN_MAIN_ID: &str = "tray_shortcut_guide_show_in_main";
+pub const TRAY_SHORTCUT_GUIDE_HIDE_FROM_MAIN_ID: &str = "tray_shortcut_guide_hide_from_main";
+const TRAY_SHORTCUT_GUIDE_SHOW_IN_MAIN_LABEL: &str = "Show in Main Tray Menu";
+const TRAY_SHORTCUT_GUIDE_HIDE_FROM_MAIN_LABEL: &str = "Hide From Main Menu";
 const TRAY_MODEL_CUSTOM_SUFFIX: &str = "Custom";
 const TRAY_MODEL_PREFIX_LOCAL: &str = "local";
 const TRAY_MODEL_PREFIX_REMOTE: &str = "remote_openai_compatible";
@@ -283,7 +287,9 @@ fn try_update_tray_menu(
         menu.append(&model_submenu)?;
         menu.append(&unload_model_i)?;
         if settings.show_tray_shortcut_guide {
-            if let Some(guide_submenu) = build_shortcut_guide_submenu(app, &settings)? {
+            if settings.show_tray_shortcut_guide_in_main_menu {
+                append_shortcut_guide_main_menu_items(&menu, app, &settings)?;
+            } else if let Some(guide_submenu) = build_shortcut_guide_submenu(app, &settings)? {
                 menu.append(&separator()?)?;
                 menu.append(&guide_submenu)?;
             }
@@ -736,7 +742,84 @@ fn build_shortcut_guide_submenu(
         }
     }
 
+    submenu.append(&PredefinedMenuItem::separator(app)?)?;
+    let show_in_main = MenuItem::with_id(
+        app,
+        TRAY_SHORTCUT_GUIDE_SHOW_IN_MAIN_ID,
+        TRAY_SHORTCUT_GUIDE_SHOW_IN_MAIN_LABEL,
+        true,
+        None::<&str>,
+    )?;
+    submenu.append(&show_in_main)?;
+
     Ok(Some(submenu))
+}
+
+fn append_shortcut_guide_main_menu_items(
+    menu: &Menu<tauri::Wry>,
+    app: &AppHandle,
+    settings: &settings::AppSettings,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let sections = crate::hotkey_guide::build_hotkey_guide_sections(settings);
+    if sections.is_empty() {
+        return Ok(());
+    }
+
+    menu.append(&PredefinedMenuItem::separator(app)?)?;
+
+    let title = MenuItem::with_id(
+        app,
+        "tray_shortcut_guide_main_header",
+        TRAY_SHORTCUT_GUIDE_LABEL,
+        false,
+        None::<&str>,
+    )?;
+    menu.append(&title)?;
+
+    for (section_index, section) in sections.into_iter().enumerate() {
+        if section_index > 0 {
+            menu.append(&PredefinedMenuItem::separator(app)?)?;
+        }
+
+        let header = MenuItem::with_id(
+            app,
+            format!(
+                "tray_shortcut_guide_main_section::{}",
+                section.title.to_lowercase()
+            ),
+            &section.title,
+            false,
+            None::<&str>,
+        )?;
+        menu.append(&header)?;
+
+        for binding in section.bindings {
+            let item = MenuItem::with_id(
+                app,
+                format!("tray_shortcut_guide_main_item::{}", binding.id),
+                format!(
+                    "{} - {}",
+                    binding.name,
+                    format_shortcut_for_tray(&binding.current_binding)
+                ),
+                false,
+                None::<&str>,
+            )?;
+            menu.append(&item)?;
+        }
+    }
+
+    menu.append(&PredefinedMenuItem::separator(app)?)?;
+    let hide_from_main = MenuItem::with_id(
+        app,
+        TRAY_SHORTCUT_GUIDE_HIDE_FROM_MAIN_ID,
+        TRAY_SHORTCUT_GUIDE_HIDE_FROM_MAIN_LABEL,
+        true,
+        None::<&str>,
+    )?;
+    menu.append(&hide_from_main)?;
+
+    Ok(())
 }
 
 fn format_shortcut_for_tray(binding: &str) -> String {

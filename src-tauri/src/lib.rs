@@ -524,6 +524,18 @@ fn initialize_core_logic(app_handle: &AppHandle) {
                 "settings" => {
                     show_main_window(app);
                 }
+                tray::TRAY_SHORTCUT_GUIDE_SHOW_IN_MAIN_ID => {
+                    let mut settings = settings::get_settings(app);
+                    settings.show_tray_shortcut_guide_in_main_menu = true;
+                    settings::write_settings(app, settings);
+                    tray::refresh_tray_menu(app, None);
+                }
+                tray::TRAY_SHORTCUT_GUIDE_HIDE_FROM_MAIN_ID => {
+                    let mut settings = settings::get_settings(app);
+                    settings.show_tray_shortcut_guide_in_main_menu = false;
+                    settings::write_settings(app, settings);
+                    tray::refresh_tray_menu(app, None);
+                }
                 "check_updates" => {
                     let settings = settings::get_settings(app);
                     if settings.update_checks_enabled {
