@@ -123,6 +123,11 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
   const isDeepgramProvider = provider === "remote_deepgram";
   const isCloudProvider =
     isRemoteOpenAiProvider || isSonioxProvider || isDeepgramProvider;
+  const isKnownSonioxPreset =
+    sonioxModel.trim() === "stt-rt-v4" || sonioxModel.trim() === "stt-async-v4";
+  const derivedSonioxModelMode = isKnownSonioxPreset
+    ? sonioxModel.trim()
+    : "custom";
   const isSonioxRealtimeModel = sonioxModel.trim().startsWith("stt-rt");
   const isSonioxAsyncModel = sonioxModel.trim().startsWith("stt-async");
   const effectiveRemoteBaseUrl =
@@ -141,7 +146,10 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
   const [customModelId, setCustomModelId] = useState(
     remotePreset === "custom" ? (remoteSettings?.model_id ?? "") : "",
   );
-  const [sonioxModelInput, setSonioxModelInput] = useState(sonioxModel);
+  const [sonioxModelMode, setSonioxModelMode] = useState(derivedSonioxModelMode);
+  const [customSonioxModelInput, setCustomSonioxModelInput] = useState(
+    isKnownSonioxPreset ? "" : sonioxModel,
+  );
   const [sonioxTimeoutInput, setSonioxTimeoutInput] = useState(
     String(sonioxTimeout),
   );
@@ -171,6 +179,8 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
   const [apiKeyLoading, setApiKeyLoading] = useState(false);
   const [isEditingKey, setIsEditingKey] = useState(false);
   const [hasKeyStatusLoaded, setHasKeyStatusLoaded] = useState(false);
+  const sonioxRealtimeControlsEnabled =
+    sonioxModelMode === "custom" || isSonioxRealtimeModel;
 
   const [debugLines, setDebugLines] = useState<string[]>([]);
   const [connectionStatus, setConnectionStatus] = useState<
@@ -199,8 +209,11 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
   }, [remotePreset, remoteSettings?.model_id]);
 
   useEffect(() => {
-    setSonioxModelInput(sonioxModel);
-  }, [sonioxModel]);
+    setSonioxModelMode(derivedSonioxModelMode);
+    if (!isKnownSonioxPreset) {
+      setCustomSonioxModelInput(sonioxModel);
+    }
+  }, [sonioxModel, isKnownSonioxPreset, derivedSonioxModelMode]);
 
   useEffect(() => {
     setSonioxTimeoutInput(String(sonioxTimeout));
@@ -400,6 +413,10 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
           "stt-async-v4 - Async",
         ),
       },
+      {
+        value: "custom",
+        label: t("settings.advanced.soniox.model.options.custom", "Custom"),
+      },
     ],
     [t],
   );
@@ -483,10 +500,27 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
   };
 
   const handleSonioxModelChange = (value: string | null) => {
-    const nextModel = value || "stt-rt-v4";
-    setSonioxModelInput(nextModel);
+    const nextMode = value || "stt-rt-v4";
+    setSonioxModelMode(nextMode);
+    if (nextMode === "custom") {
+      setCustomSonioxModelInput((current) => current || sonioxModel);
+      return;
+    }
+
+    const nextModel = nextMode;
     if (nextModel !== sonioxModel) {
       void updateSetting("soniox_model" as any, nextModel as any);
+    }
+  };
+
+  const handleCustomSonioxModelBlur = () => {
+    const trimmed = customSonioxModelInput.trim();
+    if (!trimmed) {
+      setCustomSonioxModelInput(sonioxModelMode === "custom" ? sonioxModel : "");
+      return;
+    }
+    if (trimmed !== sonioxModel) {
+      void updateSetting("soniox_model" as any, trimmed as any);
     }
   };
 
@@ -933,7 +967,7 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
                 layout="stacked"
               >
                 <Select
-                  value={sonioxModelInput}
+                  value={sonioxModelMode}
                   options={sonioxModelOptions}
                   onChange={handleSonioxModelChange}
                   placeholder={t("settings.advanced.soniox.model.placeholder")}
@@ -942,11 +976,38 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
                 />
               </SettingContainer>
 
-              {isSonioxAsyncModel && (
+              {sonioxModelMode === "custom" && (
+                <SettingContainer
+                  title={t(
+                    "settings.advanced.soniox.model.customTitle",
+                    "Custom model id",
+                  )}
+                  description={t(
+                    "settings.advanced.soniox.model.customDescription",
+                    "Enter the exact Soniox model id. Models starting with stt-rt use the real-time path; models starting with stt-async use the async file/job path.",
+                  )}
+                  descriptionMode={descriptionMode}
+                  grouped={grouped}
+                  layout="stacked"
+                >
+                  <Input
+                    type="text"
+                    value={customSonioxModelInput}
+                    onChange={(event) =>
+                      setCustomSonioxModelInput(event.target.value)
+                    }
+                    onBlur={handleCustomSonioxModelBlur}
+                    placeholder="stt-rt-v5"
+                    className="w-full"
+                  />
+                </SettingContainer>
+              )}
+
+              {isSonioxAsyncModel && sonioxModelMode !== "custom" && (
                 <div className="mx-4 rounded border border-cyan-500/30 bg-cyan-500/10 p-3 text-sm text-cyan-200">
                   {t(
                     "settings.advanced.soniox.model.asyncNotice",
-                    "Async mode uploads the finished recording to Soniox and waits for the completed transcript. Live-only controls below are disabled for this model.",
+                    "Soniox async models upload the finished recording as a file, create a transcription job, poll until it completes, then fetch the transcript. That makes them naturally slower for short dictation than one-request providers such as Groq Whisper Turbo. AivoRelay can reduce polling overhead, but it cannot turn the Soniox async file/job pipeline into an instant request.",
                   )}
                 </div>
               )}
@@ -998,7 +1059,7 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
                   void updateSetting("soniox_live_enabled" as any, enabled as any)
                 }
                 isUpdating={isUpdating("soniox_live_enabled")}
-                disabled={!isSonioxRealtimeModel}
+                disabled={!sonioxRealtimeControlsEnabled}
                 descriptionMode={descriptionMode}
                 grouped={grouped}
               />
@@ -1040,7 +1101,7 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
                 </TellMeMore>
               </div>
 
-              {!isSonioxRealtimeModel && (
+              {!sonioxRealtimeControlsEnabled && (
                 <p className="text-xs text-text/60">
                   {t("settings.advanced.soniox.live.realtimeOnly")}
                 </p>
@@ -1153,7 +1214,7 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
                   )
                 }
                 isUpdating={isUpdating("soniox_enable_endpoint_detection")}
-                disabled={!isSonioxRealtimeModel}
+                disabled={!sonioxRealtimeControlsEnabled}
                 descriptionMode={descriptionMode}
                 grouped={grouped}
               />
@@ -1208,7 +1269,7 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
                 descriptionMode={descriptionMode}
                 grouped={grouped}
                 layout="stacked"
-                disabled={!isSonioxRealtimeModel}
+                disabled={!sonioxRealtimeControlsEnabled}
               >
                 <Input
                   type="number"
@@ -1220,7 +1281,7 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
                   min={500}
                   max={3000}
                   className="w-full"
-                  disabled={!isSonioxRealtimeModel}
+                  disabled={!sonioxRealtimeControlsEnabled}
                 />
               </SettingContainer>
 
@@ -1230,7 +1291,7 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
                 descriptionMode={descriptionMode}
                 grouped={grouped}
                 layout="stacked"
-                disabled={!isSonioxRealtimeModel}
+                disabled={!sonioxRealtimeControlsEnabled}
               >
                 <Input
                   type="number"
@@ -1242,7 +1303,7 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
                   min={5}
                   max={20}
                   className="w-full"
-                  disabled={!isSonioxRealtimeModel}
+                  disabled={!sonioxRealtimeControlsEnabled}
                 />
               </SettingContainer>
 
@@ -1252,7 +1313,7 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
                 descriptionMode={descriptionMode}
                 grouped={grouped}
                 layout="stacked"
-                disabled={!isSonioxRealtimeModel}
+                disabled={!sonioxRealtimeControlsEnabled}
               >
                 <Input
                   type="number"
@@ -1264,7 +1325,7 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
                   min={100}
                   max={20000}
                   className="w-full"
-                  disabled={!isSonioxRealtimeModel}
+                  disabled={!sonioxRealtimeControlsEnabled}
                 />
               </SettingContainer>
 
@@ -1276,7 +1337,7 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
                   void updateSetting("soniox_live_instant_stop" as any, enabled as any)
                 }
                 isUpdating={isUpdating("soniox_live_instant_stop")}
-                disabled={!isSonioxRealtimeModel}
+                disabled={!sonioxRealtimeControlsEnabled}
                 descriptionMode={descriptionMode}
                 grouped={grouped}
               />

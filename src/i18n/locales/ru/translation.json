@@ -951,7 +951,15 @@
         "model": {
           "title": "Модель Soniox",
           "description": "Идентификатор модели, который AivoRelay отправляет в Soniox при каждом запросе. В AivoRelay модели stt-rt-* при Live=ON используют live WebSocket-путь с появлением текста во время речи; stt-async-* (или Live=OFF) используют не-live путь, где итог появляется после обработки. Если поведение кажется неожиданным, сначала проверьте семейство модели и переключатель Live.",
-          "placeholder": "stt-rt-v4"
+          "placeholder": "stt-rt-v4",
+          "asyncNotice": "Async-модели Soniox загружают завершённую запись как файл, создают job транскрибации, опрашивают статус до завершения, а потом отдельно забирают transcript. Поэтому для короткой диктовки они по природе медленнее, чем провайдеры с одним запросом вроде Groq Whisper Turbo. AivoRelay может уменьшить накладные расходы polling, но не может превратить async file/job pipeline Soniox в мгновенный запрос.",
+          "customTitle": "Custom model id",
+          "customDescription": "Введите точный id модели Soniox. Модели, начинающиеся с stt-rt, используют real-time путь; модели, начинающиеся с stt-async, используют async file/job путь.",
+          "options": {
+            "realtime": "stt-rt-v4 - Real-time",
+            "async": "stt-async-v4 - Async",
+            "custom": "Custom"
+          }
         },
         "timeout": {
           "title": "Таймаут Soniox (секунды)",
@@ -959,7 +967,7 @@
         },
         "live": {
           "title": "Live real-time стриминг",
-          "description": "При включении и выборе stt-rt модели AivoRelay передаёт звук напрямую в Soniox по WebSocket, а подтверждённый текст появляется во время речи. Это даёт максимально быстрый интерактивный опыт, но сильнее зависит от стабильности соединения.",
+          "description": "При включении и выборе stt-rt модели AivoRelay передаёт звук напрямую в Soniox по WebSocket, а подтверждённый текст появляется во время речи. Выключите Live, чтобы использовать real-time модель в режиме record-then-transcribe: AivoRelay записывает всю фразу, отправляет её после остановки и вставляет один финальный результат. Это полезно, когда паузы на обдумывание дробят предложение через endpoint detection. Это не то же самое, что Soniox stt-async, и обычно быстрее, чем async file/job pipeline.",
           "realtimeOnly": "Live-стриминг доступен только для real-time моделей Soniox (stt-rt-*)."
         },
         "languageHints": {
