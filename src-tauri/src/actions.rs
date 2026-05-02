@@ -1211,6 +1211,7 @@ pub(crate) async fn perform_transcription_for_profile(
             SonioxRealtimeManager::is_realtime_model(&settings.soniox_model);
         let soniox_context = crate::settings::resolve_soniox_context(profile, &settings);
         let should_stream_insert = !preview_output_only_enabled
+            && settings.soniox_live_enabled
             && is_soniox_realtime_model
             && binding_id
                 .map(|id| id == "transcribe" || id.starts_with("transcribe_profile_"))
@@ -3839,6 +3840,7 @@ impl ShortcutAction for TranscribeAction {
             let _guard = FinishGuard::new(ah.clone(), binding_id.clone());
             let is_soniox_streaming_insert = recording_settings.transcription_provider
                 == TranscriptionProvider::RemoteSoniox
+                && recording_settings.soniox_live_enabled
                 && SonioxRealtimeManager::is_realtime_model(&recording_settings.soniox_model);
             if is_soniox_streaming_insert && !preview_output_only_enabled {
                 if let Err(e) = crate::clipboard::begin_streaming_paste_session(&ah) {

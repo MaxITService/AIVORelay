@@ -505,9 +505,13 @@ impl SonioxSttManager {
                         return Err(anyhow!("Soniox WebSocket error {}: {}", code, message));
                     }
 
+                    let mut finalization_complete = false;
                     for token in payload.tokens.into_iter().filter(|token| token.is_final) {
-                        if !token.text.is_empty() && token.text != "<fin>" && token.text != "<end>"
-                        {
+                        if token.text == "<fin>" {
+                            finalization_complete = true;
+                            continue;
+                        }
+                        if !token.text.is_empty() && token.text != "<end>" {
                             final_tokens.push(token.text);
                         }
                     }
@@ -519,6 +523,12 @@ impl SonioxSttManager {
                         if let Some(ms) = payload.audio_total_proc_ms {
                             debug!("Soniox total audio processing: {}ms", ms);
                         }
+                        finished = true;
+                        break;
+                    }
+
+                    if finalization_complete {
+                        debug!("Soniox manual finalization completed");
                         finished = true;
                         break;
                     }
@@ -664,8 +674,13 @@ impl SonioxSttManager {
                     }
 
                     let mut chunk_text = String::new();
+                    let mut finalization_complete = false;
                     for token in payload.tokens.into_iter().filter(|token| token.is_final) {
-                        if token.text.is_empty() || token.text == "<fin>" || token.text == "<end>" {
+                        if token.text == "<fin>" {
+                            finalization_complete = true;
+                            continue;
+                        }
+                        if token.text.is_empty() || token.text == "<end>" {
                             continue;
                         }
                         chunk_text.push_str(&token.text);
@@ -683,6 +698,12 @@ impl SonioxSttManager {
                         if let Some(ms) = payload.audio_total_proc_ms {
                             debug!("Soniox total audio processing: {}ms", ms);
                         }
+                        finished = true;
+                        break;
+                    }
+
+                    if finalization_complete {
+                        debug!("Soniox manual finalization completed");
                         finished = true;
                         break;
                     }
