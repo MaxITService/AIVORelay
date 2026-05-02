@@ -18,6 +18,8 @@ const SONIOX_WS_URL: &str = "wss://stt-rt.soniox.com/transcribe-websocket";
 const MAX_RETRIES: u32 = 3;
 const INITIAL_RETRY_DELAY_MS: u64 = 500;
 const MAX_RETRY_DELAY_MS: u64 = 5000;
+const ASYNC_STATUS_POLL_INTERVAL_MS: u64 = 500;
+const ASYNC_STATUS_MAX_POLL_INTERVAL_MS: u64 = 1000;
 const DEFAULT_CONNECT_TIMEOUT_SECS: u64 = 10;
 const DEFAULT_REQUEST_TIMEOUT_SECS: u64 = 60;
 const AUDIO_CHUNK_SIZE_BYTES: usize = 32 * 1024;
@@ -783,11 +785,13 @@ impl SonioxSttManager {
     ) -> Result<()> {
         let start = Instant::now();
         let timeout = Duration::from_secs(timeout_seconds.max(MIN_TIMEOUT_SECONDS) as u64);
-        let mut poll_interval = Duration::from_millis(500);
-        let max_poll_interval = Duration::from_secs(5);
+        let mut poll_count = 0u32;
+        let mut poll_interval = Duration::from_millis(ASYNC_STATUS_POLL_INTERVAL_MS);
+        let max_poll_interval = Duration::from_millis(ASYNC_STATUS_MAX_POLL_INTERVAL_MS);
 
         while start.elapsed() < timeout {
             self.ensure_not_cancelled(operation_id)?;
+            poll_count += 1;
 
             let response = self
                 .http_client
@@ -806,7 +810,14 @@ impl SonioxSttManager {
 
             let payload: TranscriptionStatusResponse = response.json().await?;
             match payload.status.as_str() {
-                "completed" => return Ok(()),
+                "completed" => {
+                    debug!(
+                        "Soniox async transcription completed after {}ms ({} polls)",
+                        start.elapsed().as_millis(),
+                        poll_count
+                    );
+                    return Ok(());
+                }
                 "error" => return Err(anyhow!("Transcription failed")),
                 _ => {
                     tokio::time::sleep(poll_interval).await;
