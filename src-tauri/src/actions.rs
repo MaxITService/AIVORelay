@@ -102,6 +102,7 @@ struct StopRecordingContext {
     captured_profile_id: Option<String>,
     current_app: String,
     recording_settings: AppSettings,
+    recording_elapsed: Duration,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -124,9 +125,12 @@ static RECORDING_APP_CONTEXT: Lazy<Mutex<HashMap<String, String>>> =
 type SharedSonioxStreamProcessor = Arc<Mutex<SonioxStreamProcessor>>;
 static SONIOX_STREAM_PROCESSORS: Lazy<Mutex<HashMap<String, SharedSonioxStreamProcessor>>> =
     Lazy::new(|| Mutex::new(HashMap::new()));
+static SONIOX_STREAM_EMITTED: Lazy<Mutex<HashMap<String, bool>>> =
+    Lazy::new(|| Mutex::new(HashMap::new()));
 static DEEPGRAM_STREAM_EMITTED: Lazy<Mutex<HashMap<String, bool>>> =
     Lazy::new(|| Mutex::new(HashMap::new()));
 const RECORDING_SAMPLE_RATE_HZ: f32 = 16_000.0;
+const LIVE_QUICK_CANCEL_THRESHOLD_MS: u64 = 500;
 
 fn capture_recording_app_context(binding_id: &str) {
     #[cfg(target_os = "windows")]
@@ -204,6 +208,24 @@ fn take_soniox_stream_processor(binding_id: &str) -> Option<SharedSonioxStreamPr
         .lock()
         .ok()
         .and_then(|mut processors| processors.remove(binding_id))
+}
+
+fn set_soniox_stream_emitted(binding_id: &str, emitted: bool) {
+    if let Ok(mut map) = SONIOX_STREAM_EMITTED.lock() {
+        map.insert(binding_id.to_string(), emitted);
+    }
+}
+
+fn mark_soniox_stream_emitted(binding_id: &str) {
+    set_soniox_stream_emitted(binding_id, true);
+}
+
+fn take_soniox_stream_emitted(binding_id: &str) -> bool {
+    SONIOX_STREAM_EMITTED
+        .lock()
+        .ok()
+        .and_then(|mut map| map.remove(binding_id))
+        .unwrap_or(false)
 }
 
 fn set_deepgram_stream_emitted(binding_id: &str, emitted: bool) {
@@ -861,6 +883,7 @@ fn start_recording_with_feedback(app: &AppHandle, binding_id: &str) -> bool {
     *state_guard = session_manager::SessionState::Recording {
         session: Arc::clone(&session),
         binding_id: binding_id.to_string(),
+        started_at: Instant::now(),
         captured_profile_id,
         captured_settings: settings.clone(),
     };
@@ -1500,17 +1523,19 @@ fn prepare_stop_recording_with_options(
         session_manager::SessionState::Recording {
             binding_id: current_binding_id,
             session,
+            started_at,
             captured_profile_id,
             captured_settings,
         } if current_binding_id == binding_id => {
             let session = Arc::clone(session);
+            let recording_elapsed = started_at.elapsed();
             let captured = captured_profile_id.clone();
             let recording_settings = captured_settings.clone();
             // Transition to Processing state
             *state_guard = session_manager::SessionState::Processing {
                 binding_id: binding_id.to_string(),
             };
-            Some((session, captured, recording_settings))
+            Some((session, captured, recording_settings, recording_elapsed))
         }
         session_manager::SessionState::Recording {
             binding_id: current_binding_id,
@@ -1540,7 +1565,7 @@ fn prepare_stop_recording_with_options(
 
     crate::recording_auto_stop::cancel_auto_stop_timer(app);
 
-    if let Some((session, captured_profile_id, recording_settings)) = result {
+    if let Some((session, captured_profile_id, recording_settings, recording_elapsed)) = result {
         let current_app = take_recording_app_context(binding_id);
 
         // Explicitly finish the session to trigger cleanup
@@ -1565,6 +1590,7 @@ fn prepare_stop_recording_with_options(
             captured_profile_id,
             current_app,
             recording_settings,
+            recording_elapsed,
         })
     } else {
         None
@@ -2093,6 +2119,27 @@ fn should_suppress_preview_timeout_error(err: &str) -> bool {
         == crate::managers::preview_output_mode::recording_prefix_text().trim()
 }
 
+fn preview_has_new_output() -> bool {
+    current_preview_buffer_text().trim()
+        != crate::managers::preview_output_mode::recording_prefix_text().trim()
+}
+
+fn should_cancel_live_quick_stop_without_finalize(
+    recording_elapsed: Duration,
+    preview_output_only_enabled: bool,
+    had_stream_output: bool,
+) -> bool {
+    if recording_elapsed >= Duration::from_millis(LIVE_QUICK_CANCEL_THRESHOLD_MS) {
+        return false;
+    }
+
+    if had_stream_output {
+        return false;
+    }
+
+    !preview_output_only_enabled || !preview_has_new_output()
+}
+
 fn drop_preview_recording_without_finalize(
     app: &AppHandle,
     binding_id: &str,
@@ -2111,6 +2158,7 @@ fn drop_preview_recording_without_finalize(
     rm.clear_stream_frame_callback();
 
     let _ = take_soniox_stream_processor(binding_id);
+    let _ = take_soniox_stream_emitted(binding_id);
     let _ = take_deepgram_stream_emitted(binding_id);
 
     app.state::<Arc<SonioxRealtimeManager>>().cancel();
@@ -3153,9 +3201,11 @@ impl ShortcutAction for TranscribeAction {
             let binding_id = binding_id.to_string();
             let app_handle = app.clone();
             let _ = take_soniox_stream_processor(&binding_id);
+            let _ = take_soniox_stream_emitted(&binding_id);
             let stream_processor = if preview_output_only_enabled {
                 None
             } else {
+                set_soniox_stream_emitted(&binding_id, false);
                 Some(register_soniox_stream_processor(&binding_id, &settings))
             };
 
@@ -3169,6 +3219,7 @@ impl ShortcutAction for TranscribeAction {
                     let api_key = String::new();
 
                     let chunk_callback = stream_processor.clone().map(|stream_processor| {
+                        let binding_id_for_cb = binding_id.clone();
                         Arc::new({
                             let ah_for_cb = app_handle.clone();
                             move |chunk: String| {
@@ -3185,6 +3236,7 @@ impl ShortcutAction for TranscribeAction {
                                 if delta.is_empty() {
                                     return;
                                 }
+                                mark_soniox_stream_emitted(&binding_id_for_cb);
                                 let ah_for_call = ah_for_cb.clone();
                                 let ah_for_clip = ah_for_call.clone();
                                 let _ = ah_for_call.run_on_main_thread(move || {
@@ -3207,6 +3259,7 @@ impl ShortcutAction for TranscribeAction {
 
                     if let Err(err) = start_result {
                         let _ = take_soniox_stream_processor(&binding_id);
+                        let _ = take_soniox_stream_emitted(&binding_id);
                         let err_str = format!("{}", err);
                         if !preview_output_only_enabled {
                             let _ = crate::clipboard::end_streaming_paste_session(&app_handle);
@@ -3326,6 +3379,7 @@ impl ShortcutAction for TranscribeAction {
                 Some(context) => context,
                 None => {
                     let _ = take_soniox_stream_processor(binding_id);
+                    let _ = take_soniox_stream_emitted(binding_id);
                     let _ = take_deepgram_stream_emitted(binding_id);
                     return; // No active session - nothing to do
                 }
@@ -3368,6 +3422,11 @@ impl ShortcutAction for TranscribeAction {
             tauri::async_runtime::spawn(async move {
                 let _guard = FinishGuard::new(ah.clone(), binding_id.clone());
                 let stream_processor = take_soniox_stream_processor(&binding_id);
+                let had_soniox_stream_output = if is_deepgram_live_provider {
+                    false
+                } else {
+                    take_soniox_stream_emitted(&binding_id)
+                };
                 let mut had_deepgram_stream_output = if is_deepgram_live_provider {
                     take_deepgram_stream_emitted(&binding_id)
                 } else {
@@ -3410,6 +3469,46 @@ impl ShortcutAction for TranscribeAction {
                     }
                 };
                 rm.clear_stream_frame_callback();
+
+                let had_stream_output = if is_deepgram_live_provider {
+                    had_deepgram_stream_output
+                } else {
+                    had_soniox_stream_output
+                };
+                if should_cancel_live_quick_stop_without_finalize(
+                    stop_context.recording_elapsed,
+                    preview_output_only_enabled,
+                    had_stream_output,
+                ) {
+                    debug!(
+                        "Quick live stop detected for {} after {:?}; cancelling without finalization",
+                        binding_id,
+                        stop_context.recording_elapsed
+                    );
+                    if is_deepgram_live_provider {
+                        deepgram_live_manager.cancel();
+                    } else {
+                        soniox_live_manager.cancel();
+                    }
+                    if !preview_output_only_enabled {
+                        let _ = crate::clipboard::end_streaming_paste_session(&ah);
+                    } else if !invoked_from_preview_action {
+                        let text_to_insert =
+                            crate::managers::preview_output_mode::recording_prefix_text();
+                        if let Err(err) =
+                            finalize_preview_workflow_after_stop(&ah, text_to_insert).await
+                        {
+                            crate::managers::preview_output_mode::set_error(&ah, Some(err));
+                        }
+                    }
+                    utils::hide_recording_overlay(&ah);
+                    change_tray_icon(&ah, TrayIconState::Idle);
+                    if binding_id == LIVE_SOUND_TRANSCRIPTION_BINDING_ID {
+                        crate::managers::live_sound_transcription::finish_session(&ah);
+                    }
+                    session_manager::exit_processing(&ah);
+                    return;
+                }
 
                 if live_instant_stop && !preview_output_only_enabled {
                     if is_deepgram_live_provider {
