@@ -4776,6 +4776,21 @@ pub fn change_show_tray_icon_setting(app: AppHandle, enabled: bool) -> Result<()
     Ok(())
 }
 
+#[tauri::command]
+#[specta::specta]
+pub fn change_show_tray_shortcut_guide_setting(
+    app: AppHandle,
+    enabled: bool,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.show_tray_shortcut_guide = enabled;
+    settings::write_settings(&app, settings);
+
+    tray::refresh_tray_menu(&app, None);
+
+    Ok(())
+}
+
 // ============================================================================
 // Shortcut Engine Settings
 // ============================================================================
