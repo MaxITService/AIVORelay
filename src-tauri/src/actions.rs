@@ -131,6 +131,20 @@ static DEEPGRAM_STREAM_EMITTED: Lazy<Mutex<HashMap<String, bool>>> =
     Lazy::new(|| Mutex::new(HashMap::new()));
 const RECORDING_SAMPLE_RATE_HZ: f32 = 16_000.0;
 const LIVE_QUICK_CANCEL_THRESHOLD_MS: u64 = 500;
+const LOCAL_PREVIEW_AUTO_FLUSH_INTERVAL_MS: u64 = 8_000;
+const LOCAL_PREVIEW_OVERLAP_SAMPLES: usize = 12_000;
+const LOCAL_PREVIEW_AUTO_MIN_SAMPLES: usize = 16_000;
+const LOCAL_PREVIEW_MANUAL_MIN_SAMPLES: usize = 1;
+
+#[derive(Debug, Default)]
+struct LocalPreviewAutoFlushRuntime {
+    next_generation: u64,
+    active_generations: HashMap<String, u64>,
+    in_flight: HashSet<String>,
+}
+
+static LOCAL_PREVIEW_AUTO_FLUSH: Lazy<Mutex<LocalPreviewAutoFlushRuntime>> =
+    Lazy::new(|| Mutex::new(LocalPreviewAutoFlushRuntime::default()));
 
 fn capture_recording_app_context(binding_id: &str) {
     #[cfg(target_os = "windows")]
@@ -1945,9 +1959,282 @@ fn should_route_output_to_preview_for_captured_profile(
     should_route_live_output_to_preview(settings)
 }
 
+fn active_recording_settings_for_binding(
+    app: &AppHandle,
+    expected_binding_id: &str,
+) -> Option<(Option<String>, AppSettings)> {
+    let state = app.state::<ManagedSessionState>();
+    let guard = state.lock().ok()?;
+    match &*guard {
+        session_manager::SessionState::Recording {
+            binding_id,
+            captured_profile_id,
+            captured_settings,
+            ..
+        } if binding_id == expected_binding_id => {
+            Some((captured_profile_id.clone(), captured_settings.clone()))
+        }
+        _ => None,
+    }
+}
+
+fn should_use_local_preview_auto_flush(
+    settings: &AppSettings,
+    profile: Option<&TranscriptionProfile>,
+    binding_id: &str,
+) -> bool {
+    binding_id != LIVE_SOUND_TRANSCRIPTION_BINDING_ID
+        && settings.transcription_provider == TranscriptionProvider::Local
+        && should_route_output_to_preview(settings, profile)
+}
+
+fn is_local_preview_auto_flush_current(binding_id: &str, generation: u64) -> bool {
+    LOCAL_PREVIEW_AUTO_FLUSH
+        .lock()
+        .map(|runtime| {
+            runtime
+                .active_generations
+                .get(binding_id)
+                .copied()
+                .map(|active| active == generation)
+                .unwrap_or(false)
+        })
+        .unwrap_or(false)
+}
+
+fn start_local_preview_auto_flush(app: &AppHandle, binding_id: String) {
+    let generation = {
+        let mut runtime = match LOCAL_PREVIEW_AUTO_FLUSH.lock() {
+            Ok(runtime) => runtime,
+            Err(_) => return,
+        };
+        runtime.next_generation = runtime.next_generation.saturating_add(1);
+        let generation = runtime.next_generation;
+        runtime
+            .active_generations
+            .insert(binding_id.clone(), generation);
+        generation
+    };
+
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        loop {
+            tokio::time::sleep(Duration::from_millis(
+                LOCAL_PREVIEW_AUTO_FLUSH_INTERVAL_MS,
+            ))
+            .await;
+
+            if !is_local_preview_auto_flush_current(&binding_id, generation) {
+                return;
+            }
+            if !is_recording_for_binding(&app, &binding_id) {
+                stop_local_preview_auto_flush(&binding_id);
+                return;
+            }
+
+            let _ = run_local_preview_flush(
+                app.clone(),
+                binding_id.clone(),
+                LOCAL_PREVIEW_AUTO_MIN_SAMPLES,
+            )
+            .await;
+        }
+    });
+}
+
+fn stop_local_preview_auto_flush(binding_id: &str) {
+    if let Ok(mut runtime) = LOCAL_PREVIEW_AUTO_FLUSH.lock() {
+        runtime.active_generations.remove(binding_id);
+    }
+}
+
+fn try_mark_local_preview_flush_in_flight(binding_id: &str) -> bool {
+    LOCAL_PREVIEW_AUTO_FLUSH
+        .lock()
+        .map(|mut runtime| {
+            if runtime.in_flight.contains(binding_id) {
+                false
+            } else {
+                runtime.in_flight.insert(binding_id.to_string());
+                true
+            }
+        })
+        .unwrap_or(false)
+}
+
+fn clear_local_preview_flush_in_flight(binding_id: &str) {
+    if let Ok(mut runtime) = LOCAL_PREVIEW_AUTO_FLUSH.lock() {
+        runtime.in_flight.remove(binding_id);
+    }
+}
+
+async fn wait_for_local_preview_flush_idle(binding_id: &str, timeout: Duration) -> bool {
+    let start = Instant::now();
+    loop {
+        let is_idle = LOCAL_PREVIEW_AUTO_FLUSH
+            .lock()
+            .map(|runtime| !runtime.in_flight.contains(binding_id))
+            .unwrap_or(true);
+        if is_idle {
+            return true;
+        }
+        if start.elapsed() >= timeout {
+            return false;
+        }
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    }
+}
+
+async fn run_local_preview_flush(
+    app: AppHandle,
+    binding_id: String,
+    min_samples: usize,
+) -> Result<bool, String> {
+    if !try_mark_local_preview_flush_in_flight(&binding_id) {
+        return Ok(false);
+    }
+
+    let result = async {
+        let (captured_profile_id, recording_settings) =
+            active_recording_settings_for_binding(&app, &binding_id).ok_or_else(|| {
+                "No active local preview recording session to flush.".to_string()
+            })?;
+
+        if recording_settings.transcription_provider != TranscriptionProvider::Local {
+            return Ok(false);
+        }
+
+        let rm = Arc::clone(&app.state::<Arc<AudioRecordingManager>>());
+        let samples = rm
+            .flush_recording(&binding_id, LOCAL_PREVIEW_OVERLAP_SAMPLES, min_samples)
+            .unwrap_or_default();
+        if samples.is_empty() {
+            return Ok(false);
+        }
+
+        match perform_transcription_for_profile(
+            &app,
+            samples,
+            Some(&binding_id),
+            captured_profile_id,
+            &recording_settings,
+        )
+        .await
+        {
+            TranscriptionOutcome::Success(text) => {
+                if crate::managers::preview_output_mode::is_active_for_binding(&binding_id) {
+                    update_preview_text_for_output_mode(&app, &text);
+                }
+                Ok(true)
+            }
+            TranscriptionOutcome::Cancelled => Ok(false),
+            TranscriptionOutcome::Error { message, .. } => {
+                crate::managers::preview_output_mode::set_error(&app, Some(message.clone()));
+                Err(message)
+            }
+        }
+    }
+    .await;
+
+    clear_local_preview_flush_in_flight(&binding_id);
+    result
+}
+
+fn normalized_preview_word(word: &str) -> String {
+    word.chars()
+        .filter(|ch| ch.is_alphanumeric())
+        .flat_map(char::to_lowercase)
+        .collect()
+}
+
+fn preview_overlap_words(text: &str) -> Vec<String> {
+    text.split_whitespace()
+        .map(normalized_preview_word)
+        .filter(|word| !word.is_empty())
+        .collect()
+}
+
+fn drop_preview_words(text: &str, words_to_drop: usize) -> &str {
+    if words_to_drop == 0 {
+        return text;
+    }
+
+    let mut in_word = false;
+    let mut dropped = 0usize;
+    for (idx, ch) in text.char_indices() {
+        if ch.is_whitespace() {
+            if in_word {
+                in_word = false;
+                dropped += 1;
+                if dropped == words_to_drop {
+                    return text[idx..].trim_start();
+                }
+            }
+        } else if !in_word {
+            in_word = true;
+        }
+    }
+
+    if in_word {
+        dropped += 1;
+    }
+
+    if dropped >= words_to_drop {
+        ""
+    } else {
+        text
+    }
+}
+
+fn append_preview_text_with_overlap(existing: &str, incoming: &str) -> String {
+    let incoming = incoming.trim();
+    if incoming.is_empty() {
+        return existing.to_string();
+    }
+    if existing.trim().is_empty() {
+        return incoming.to_string();
+    }
+
+    let existing_words = preview_overlap_words(existing);
+    let incoming_words = preview_overlap_words(incoming);
+    let max_overlap = existing_words.len().min(incoming_words.len()).min(16);
+    let mut duplicate_words = 0usize;
+    for overlap in (1..=max_overlap).rev() {
+        if existing_words[existing_words.len() - overlap..] == incoming_words[..overlap] {
+            duplicate_words = overlap;
+            break;
+        }
+    }
+
+    let delta = drop_preview_words(incoming, duplicate_words).trim_start();
+    if delta.is_empty() {
+        return existing.to_string();
+    }
+
+    let mut merged = existing.trim_end().to_string();
+    let needs_space = merged
+        .chars()
+        .last()
+        .map(|ch| !ch.is_whitespace())
+        .unwrap_or(false)
+        && delta
+            .chars()
+            .next()
+            .map(|ch| !ch.is_whitespace() && !matches!(ch, '.' | ',' | '!' | '?' | ';' | ':'))
+            .unwrap_or(false);
+    if needs_space {
+        merged.push(' ');
+    }
+    merged.push_str(delta);
+    merged
+}
+
 fn update_preview_text_for_output_mode(app: &AppHandle, text: &str) {
-    let mut next_final = crate::managers::preview_output_mode::recording_prefix_text();
-    next_final.push_str(text);
+    let next_final = append_preview_text_with_overlap(
+        &crate::managers::preview_output_mode::recording_prefix_text(),
+        text,
+    );
+    crate::managers::preview_output_mode::set_recording_prefix_text(app, next_final.clone());
     crate::overlay::emit_soniox_live_preview_update(app, &next_final, "");
 }
 
@@ -2485,6 +2772,9 @@ async fn wait_for_session_idle(app: &AppHandle, timeout: Duration) -> bool {
 }
 
 fn close_preview_output_mode_workflow(app: &AppHandle, clear_text: bool) {
+    if let Some(binding_id) = crate::managers::preview_output_mode::get_state_payload().binding_id {
+        stop_local_preview_auto_flush(&binding_id);
+    }
     crate::managers::preview_output_mode::deactivate_session(app);
     crate::overlay::end_soniox_live_preview_session();
     if clear_text {
@@ -3250,6 +3540,9 @@ impl ShortcutAction for TranscribeAction {
                 recording_prefix,
             );
             crate::overlay::show_soniox_live_preview_window(app);
+            if should_use_local_preview_auto_flush(&settings, profile, binding_id) {
+                start_local_preview_auto_flush(app, binding_id.to_string());
+            }
         }
 
         if use_soniox_live {
@@ -3739,10 +4032,10 @@ impl ShortcutAction for TranscribeAction {
                 let final_text_for_ui = final_text.clone();
                 let final_text_for_insert =
                     if preview_output_only_enabled && !invoked_from_preview_action {
-                        let mut combined_text =
-                            crate::managers::preview_output_mode::recording_prefix_text();
-                        combined_text.push_str(&final_text);
-                        Some(combined_text)
+                        Some(append_preview_text_with_overlap(
+                            &crate::managers::preview_output_mode::recording_prefix_text(),
+                            &final_text,
+                        ))
                     } else {
                         None
                     };
@@ -3842,6 +4135,18 @@ impl ShortcutAction for TranscribeAction {
                 == TranscriptionProvider::RemoteSoniox
                 && recording_settings.soniox_live_enabled
                 && SonioxRealtimeManager::is_realtime_model(&recording_settings.soniox_model);
+            if preview_output_only_enabled
+                && recording_settings.transcription_provider == TranscriptionProvider::Local
+            {
+                stop_local_preview_auto_flush(&binding_id);
+                if !wait_for_local_preview_flush_idle(&binding_id, Duration::from_secs(20)).await {
+                    crate::managers::preview_output_mode::set_error(
+                        &ah,
+                        Some("Timed out while waiting for local preview flush.".to_string()),
+                    );
+                    return;
+                }
+            }
             if is_soniox_streaming_insert && !preview_output_only_enabled {
                 if let Err(e) = crate::clipboard::begin_streaming_paste_session(&ah) {
                     warn!("Failed to begin streaming clipboard session: {}", e);
@@ -3929,10 +4234,10 @@ impl ShortcutAction for TranscribeAction {
             let final_text_for_ui = final_text.clone();
             let final_text_for_insert =
                 if preview_output_only_enabled && !invoked_from_preview_action {
-                    let mut combined_text =
-                        crate::managers::preview_output_mode::recording_prefix_text();
-                    combined_text.push_str(&final_text);
-                    Some(combined_text)
+                    Some(append_preview_text_with_overlap(
+                        &crate::managers::preview_output_mode::recording_prefix_text(),
+                        &final_text,
+                    ))
                 } else {
                     None
                 };
@@ -5955,6 +6260,20 @@ pub async fn preview_flush_action(app: AppHandle) -> Result<(), String> {
 
     let was_recording = is_recording_for_binding(&app, &binding_id);
     if was_recording {
+        if active_recording_settings_for_binding(&app, &binding_id)
+            .map(|(_, settings)| settings.transcription_provider == TranscriptionProvider::Local)
+            .unwrap_or(false)
+        {
+            run_local_preview_flush(
+                app.clone(),
+                binding_id.clone(),
+                LOCAL_PREVIEW_MANUAL_MIN_SAMPLES,
+            )
+            .await?;
+            crate::managers::preview_output_mode::set_error(&app, None);
+            return Ok(());
+        }
+
         crate::managers::preview_output_mode::set_recording(&app, false);
         stop_transcribe_binding_from_preview(&app, &binding_id)?;
 

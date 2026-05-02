@@ -1012,6 +1012,41 @@ impl AudioRecordingManager {
             _ => None,
         }
     }
+
+    pub fn flush_recording(
+        &self,
+        binding_id: &str,
+        keep_samples: usize,
+        min_samples: usize,
+    ) -> Option<Vec<f32>> {
+        let is_matching_recording = {
+            let state = self.state.lock().unwrap();
+            matches!(
+                &*state,
+                RecordingState::Recording { binding_id: active } if active == binding_id
+            )
+        };
+
+        if !is_matching_recording {
+            return None;
+        }
+
+        let samples = if let Some(rec) = self.recorder.lock().unwrap().as_ref() {
+            match rec.flush(keep_samples, min_samples) {
+                Ok(buf) => buf,
+                Err(e) => {
+                    error!("flush() failed: {e}");
+                    Vec::new()
+                }
+            }
+        } else {
+            error!("Recorder not available");
+            Vec::new()
+        };
+
+        Some(samples)
+    }
+
     pub fn is_recording(&self) -> bool {
         matches!(
             *self.state.lock().unwrap(),

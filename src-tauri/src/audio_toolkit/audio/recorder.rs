@@ -22,6 +22,11 @@ use crate::audio_toolkit::{
 
 enum Cmd {
     Start,
+    Flush {
+        keep_samples: usize,
+        min_samples: usize,
+        reply_tx: mpsc::Sender<Vec<f32>>,
+    },
     Stop(mpsc::Sender<Vec<f32>>),
     Shutdown,
 }
@@ -255,6 +260,22 @@ impl AudioRecorder {
         let (resp_tx, resp_rx) = mpsc::channel();
         if let Some(tx) = &self.cmd_tx {
             tx.send(Cmd::Stop(resp_tx))?;
+        }
+        Ok(resp_rx.recv()?)
+    }
+
+    pub fn flush(
+        &self,
+        keep_samples: usize,
+        min_samples: usize,
+    ) -> Result<Vec<f32>, Box<dyn std::error::Error>> {
+        let (resp_tx, resp_rx) = mpsc::channel();
+        if let Some(tx) = &self.cmd_tx {
+            tx.send(Cmd::Flush {
+                keep_samples,
+                min_samples,
+                reply_tx: resp_tx,
+            })?;
         }
         Ok(resp_rx.recv()?)
     }
@@ -594,6 +615,26 @@ fn process_consumer_cmd(
             if let Some(v) = vad {
                 v.lock().unwrap().reset();
             }
+            false
+        }
+        Cmd::Flush {
+            keep_samples,
+            min_samples,
+            reply_tx,
+        } => {
+            if !*recording {
+                let _ = reply_tx.send(Vec::new());
+                return false;
+            }
+
+            let flushable_len = processed_samples.len().saturating_sub(keep_samples);
+            if flushable_len < min_samples {
+                let _ = reply_tx.send(Vec::new());
+                return false;
+            }
+
+            let flushed: Vec<f32> = processed_samples.drain(..flushable_len).collect();
+            let _ = reply_tx.send(flushed);
             false
         }
         Cmd::Stop(reply_tx) => {
