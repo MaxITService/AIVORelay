@@ -124,6 +124,7 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
   const isCloudProvider =
     isRemoteOpenAiProvider || isSonioxProvider || isDeepgramProvider;
   const isSonioxRealtimeModel = sonioxModel.trim().startsWith("stt-rt");
+  const isSonioxAsyncModel = sonioxModel.trim().startsWith("stt-async");
   const effectiveRemoteBaseUrl =
     remotePreset === "custom"
       ? remoteSettings?.base_url ?? ""
@@ -383,6 +384,26 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
     return options;
   }, [deepgramModelInput]);
 
+  const sonioxModelOptions = useMemo<SelectOption[]>(
+    () => [
+      {
+        value: "stt-rt-v4",
+        label: t(
+          "settings.advanced.soniox.model.options.realtime",
+          "stt-rt-v4 - Real-time",
+        ),
+      },
+      {
+        value: "stt-async-v4",
+        label: t(
+          "settings.advanced.soniox.model.options.async",
+          "stt-async-v4 - Async",
+        ),
+      },
+    ],
+    [t],
+  );
+
   const remotePresetOptions = useMemo<SelectOption[]>(
     () => [
       {
@@ -461,10 +482,11 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
     }
   };
 
-  const handleSonioxModelBlur = () => {
-    const trimmed = sonioxModelInput.trim();
-    if (trimmed !== sonioxModel) {
-      void updateSetting("soniox_model" as any, trimmed || "stt-rt-v4");
+  const handleSonioxModelChange = (value: string | null) => {
+    const nextModel = value || "stt-rt-v4";
+    setSonioxModelInput(nextModel);
+    if (nextModel !== sonioxModel) {
+      void updateSetting("soniox_model" as any, nextModel as any);
     }
   };
 
@@ -910,15 +932,24 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
                 grouped={grouped}
                 layout="stacked"
               >
-                <Input
-                  type="text"
+                <Select
                   value={sonioxModelInput}
-                  onChange={(event) => setSonioxModelInput(event.target.value)}
-                  onBlur={handleSonioxModelBlur}
+                  options={sonioxModelOptions}
+                  onChange={handleSonioxModelChange}
                   placeholder={t("settings.advanced.soniox.model.placeholder")}
+                  isClearable={false}
                   className="w-full"
                 />
               </SettingContainer>
+
+              {isSonioxAsyncModel && (
+                <div className="mx-4 rounded border border-cyan-500/30 bg-cyan-500/10 p-3 text-sm text-cyan-200">
+                  {t(
+                    "settings.advanced.soniox.model.asyncNotice",
+                    "Async mode uploads the finished recording to Soniox and waits for the completed transcript. Live-only controls below are disabled for this model.",
+                  )}
+                </div>
+              )}
 
               <SettingContainer
                 title={t("settings.advanced.soniox.timeout.title")}
@@ -1122,6 +1153,7 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
                   )
                 }
                 isUpdating={isUpdating("soniox_enable_endpoint_detection")}
+                disabled={!isSonioxRealtimeModel}
                 descriptionMode={descriptionMode}
                 grouped={grouped}
               />
@@ -1176,6 +1208,7 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
                 descriptionMode={descriptionMode}
                 grouped={grouped}
                 layout="stacked"
+                disabled={!isSonioxRealtimeModel}
               >
                 <Input
                   type="number"
@@ -1187,6 +1220,7 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
                   min={500}
                   max={3000}
                   className="w-full"
+                  disabled={!isSonioxRealtimeModel}
                 />
               </SettingContainer>
 
@@ -1196,6 +1230,7 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
                 descriptionMode={descriptionMode}
                 grouped={grouped}
                 layout="stacked"
+                disabled={!isSonioxRealtimeModel}
               >
                 <Input
                   type="number"
@@ -1207,6 +1242,7 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
                   min={5}
                   max={20}
                   className="w-full"
+                  disabled={!isSonioxRealtimeModel}
                 />
               </SettingContainer>
 
@@ -1216,6 +1252,7 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
                 descriptionMode={descriptionMode}
                 grouped={grouped}
                 layout="stacked"
+                disabled={!isSonioxRealtimeModel}
               >
                 <Input
                   type="number"
@@ -1227,6 +1264,7 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
                   min={100}
                   max={20000}
                   className="w-full"
+                  disabled={!isSonioxRealtimeModel}
                 />
               </SettingContainer>
 
@@ -1238,6 +1276,7 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
                   void updateSetting("soniox_live_instant_stop" as any, enabled as any)
                 }
                 isUpdating={isUpdating("soniox_live_instant_stop")}
+                disabled={!isSonioxRealtimeModel}
                 descriptionMode={descriptionMode}
                 grouped={grouped}
               />

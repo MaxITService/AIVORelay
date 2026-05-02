@@ -18,7 +18,7 @@ use crate::managers::remote_stt::RemoteSttManager;
 use crate::managers::soniox_realtime::{
     FinalChunkCallback, SonioxRealtimeManager, SonioxRealtimeOptions,
 };
-use crate::managers::soniox_stt::SonioxSttManager;
+use crate::managers::soniox_stt::{SonioxAsyncTranscriptionOptions, SonioxSttManager};
 use crate::managers::transcription::TranscriptionManager;
 use crate::session_manager::{self, ManagedSessionState};
 use crate::settings::{
@@ -1207,8 +1207,11 @@ pub(crate) async fn perform_transcription_for_profile(
 
         let soniox_manager = app.state::<Arc<SonioxSttManager>>();
         let operation_id = soniox_manager.start_operation();
+        let is_soniox_realtime_model =
+            SonioxRealtimeManager::is_realtime_model(&settings.soniox_model);
         let soniox_context = crate::settings::resolve_soniox_context(profile, &settings);
         let should_stream_insert = !preview_output_only_enabled
+            && is_soniox_realtime_model
             && binding_id
                 .map(|id| id == "transcribe" || id.starts_with("transcribe_profile_"))
                 .unwrap_or(false);
@@ -1287,7 +1290,7 @@ pub(crate) async fn perform_transcription_for_profile(
                 },
                 Err(err) => Err(err),
             }
-        } else {
+        } else if is_soniox_realtime_model {
             soniox_manager
                 .transcribe(
                     Some(operation_id),
@@ -1299,6 +1302,21 @@ pub(crate) async fn perform_transcription_for_profile(
                     soniox_context,
                 )
                 .await
+        } else {
+            let soniox_options =
+                build_soniox_async_options_for_shortcut(&settings, language.as_str(), profile);
+            soniox_manager
+                .transcribe_file_async(
+                    Some(operation_id),
+                    &api_key,
+                    &settings.soniox_model,
+                    settings.soniox_timeout_seconds,
+                    &samples,
+                    Some(language.as_str()),
+                    soniox_options,
+                )
+                .await
+                .map(|transcript| transcript.text)
         };
 
         let result = result.map(|text| {
@@ -2706,6 +2724,52 @@ fn build_soniox_realtime_options(
     }
 }
 
+fn resolve_soniox_language_hints_for_settings(
+    settings: &AppSettings,
+    language: &str,
+) -> Vec<String> {
+    let mut language_hints = if settings.soniox_use_profile_language_hint_only {
+        Vec::new()
+    } else {
+        let normalized_hints = crate::language_resolver::normalize_soniox_hint_list(
+            settings.soniox_language_hints.clone(),
+        );
+        if !normalized_hints.rejected.is_empty() {
+            warn!(
+                "Ignoring unsupported Soniox language hints: {}",
+                normalized_hints.rejected.join(", ")
+            );
+        }
+        normalized_hints.normalized
+    };
+
+    if settings.soniox_use_profile_language_hint_only || language_hints.is_empty() {
+        if let Some(profile_hint) = resolve_soniox_hint_from_language(language) {
+            language_hints.push(profile_hint);
+        }
+    }
+
+    language_hints
+}
+
+fn build_soniox_async_options_for_shortcut(
+    settings: &AppSettings,
+    language: &str,
+    profile: Option<&TranscriptionProfile>,
+) -> SonioxAsyncTranscriptionOptions {
+    let language_hints = resolve_soniox_language_hints_for_settings(settings, language);
+    SonioxAsyncTranscriptionOptions {
+        language_hints: if language_hints.is_empty() {
+            None
+        } else {
+            Some(language_hints)
+        },
+        context: crate::settings::resolve_soniox_context(profile, settings),
+        enable_speaker_diarization: Some(settings.soniox_enable_speaker_diarization),
+        enable_language_identification: Some(settings.soniox_enable_language_identification),
+    }
+}
+
 fn build_deepgram_realtime_options(
     settings: &AppSettings,
     language: &str,
@@ -3773,9 +3837,10 @@ impl ShortcutAction for TranscribeAction {
 
         tauri::async_runtime::spawn(async move {
             let _guard = FinishGuard::new(ah.clone(), binding_id.clone());
-            let is_soniox_provider =
-                recording_settings.transcription_provider == TranscriptionProvider::RemoteSoniox;
-            if is_soniox_provider && !preview_output_only_enabled {
+            let is_soniox_streaming_insert = recording_settings.transcription_provider
+                == TranscriptionProvider::RemoteSoniox
+                && SonioxRealtimeManager::is_realtime_model(&recording_settings.soniox_model);
+            if is_soniox_streaming_insert && !preview_output_only_enabled {
                 if let Err(e) = crate::clipboard::begin_streaming_paste_session(&ah) {
                     warn!("Failed to begin streaming clipboard session: {}", e);
                 }
@@ -3792,7 +3857,7 @@ impl ShortcutAction for TranscribeAction {
                 {
                     Some(res) => res,
                     None => {
-                        if is_soniox_provider && !preview_output_only_enabled {
+                        if is_soniox_streaming_insert && !preview_output_only_enabled {
                             let _ = crate::clipboard::end_streaming_paste_session(&ah);
                         } else if preview_output_only_enabled && !invoked_from_preview_action {
                             close_preview_output_mode_workflow(&ah, true);
@@ -3803,7 +3868,7 @@ impl ShortcutAction for TranscribeAction {
                 };
 
             if transcription.is_empty() {
-                if is_soniox_provider && !preview_output_only_enabled {
+                if is_soniox_streaming_insert && !preview_output_only_enabled {
                     let _ = crate::clipboard::end_streaming_paste_session(&ah);
                 } else if preview_output_only_enabled && !invoked_from_preview_action {
                     let text_to_insert =
@@ -3823,12 +3888,12 @@ impl ShortcutAction for TranscribeAction {
                 return;
             }
 
-            let stream_trailing_adjustment = if is_soniox_provider {
+            let stream_trailing_adjustment = if is_soniox_streaming_insert {
                 resolve_stream_trailing_adjustment(&recording_settings, &transcription)
             } else {
                 StreamTrailingAdjustment::None
             };
-            let copy_to_clipboard = if is_soniox_provider {
+            let copy_to_clipboard = if is_soniox_streaming_insert {
                 recording_settings.clipboard_handling
                     == crate::settings::ClipboardHandling::CopyToClipboard
             } else {
@@ -3848,7 +3913,7 @@ impl ShortcutAction for TranscribeAction {
             {
                 Some(text) => text,
                 None => {
-                    if is_soniox_provider && !preview_output_only_enabled {
+                    if is_soniox_streaming_insert && !preview_output_only_enabled {
                         let _ = crate::clipboard::end_streaming_paste_session(&ah);
                     } else if preview_output_only_enabled && !invoked_from_preview_action {
                         close_preview_output_mode_workflow(&ah, true);
@@ -3873,7 +3938,7 @@ impl ShortcutAction for TranscribeAction {
                 before_dictation_final_output(&ah, &final_text);
             }
             ah.run_on_main_thread(move || {
-                if is_soniox_provider && !preview_output_only_enabled {
+                if is_soniox_streaming_insert && !preview_output_only_enabled {
                     // Soniox path already inserted text incrementally while chunks arrived.
                     // Apply only boundary-level trailing adjustment at finalization.
                     apply_stream_trailing_adjustment(&ah_clone, stream_trailing_adjustment);
@@ -3903,7 +3968,7 @@ impl ShortcutAction for TranscribeAction {
                 }
             }
 
-            if is_soniox_provider && !preview_output_only_enabled {
+            if is_soniox_streaming_insert && !preview_output_only_enabled {
                 if let Err(e) = crate::clipboard::end_streaming_paste_session(&ah) {
                     warn!("Failed to end streaming clipboard session: {}", e);
                 }
