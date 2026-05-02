@@ -116,7 +116,7 @@ const DEFAULT_OVERLAY_APPEARANCE: RecordingOverlayAppearanceState = {
   bar_count: 9,
   bar_width_px: 6,
   bar_style: "solid",
-  show_drag_grip: false,
+  show_drag_grip: true,
   audio_reactive_scale: false,
   audio_reactive_scale_max_percent: 12,
   voice_sensitivity_percent: 50,
@@ -133,6 +133,20 @@ const DEFAULT_OVERLAY_APPEARANCE: RecordingOverlayAppearanceState = {
   frame_width_px: 172,
   frame_height_px: 36,
 };
+
+type OverlayPhysicalPosition = {
+  x: number;
+  y: number;
+};
+
+async function rememberOverlayPhysicalPosition(
+  position: OverlayPhysicalPosition,
+) {
+  await invoke("remember_recording_overlay_window_position", {
+    xPx: Math.round(position.x),
+    yPx: Math.round(position.y),
+  });
+}
 
 function getOverlayErrorCopy(
   t: TFunction,
@@ -296,10 +310,12 @@ const RecordingOverlay: React.FC = () => {
   const dragGripStateRef = useRef<{
     armed: boolean;
     sawMove: boolean;
+    lastPosition: OverlayPhysicalPosition | null;
     saveTimer: number | null;
   }>({
     armed: false,
     sawMove: false,
+    lastPosition: null,
     saveTimer: null,
   });
 
@@ -479,25 +495,26 @@ const RecordingOverlay: React.FC = () => {
           }
 
           dragState.sawMove = true;
+          dragState.lastPosition = {
+            x: payload.x,
+            y: payload.y,
+          };
           if (dragState.saveTimer !== null) {
             window.clearTimeout(dragState.saveTimer);
           }
 
           dragState.saveTimer = window.setTimeout(async () => {
+            const positionToSave = dragState.lastPosition;
+            dragState.saveTimer = null;
+
+            if (!positionToSave) {
+              return;
+            }
+
             try {
-              const scaleFactor = await windowRef.scaleFactor();
-              const logicalX = Math.round(payload.x / scaleFactor);
-              const logicalY = Math.round(payload.y / scaleFactor);
-              await invoke("remember_recording_overlay_window_position", {
-                xPx: logicalX,
-                yPx: logicalY,
-              });
+              await rememberOverlayPhysicalPosition(positionToSave);
             } catch (error) {
               console.error("Failed to remember recording overlay position:", error);
-            } finally {
-              dragState.armed = false;
-              dragState.sawMove = false;
-              dragState.saveTimer = null;
             }
           }, 180);
         });
@@ -522,6 +539,9 @@ const RecordingOverlay: React.FC = () => {
         window.clearTimeout(dragState.saveTimer);
         dragState.saveTimer = null;
       }
+      dragState.armed = false;
+      dragState.sawMove = false;
+      dragState.lastPosition = null;
     };
   }, []);
 
@@ -806,6 +826,7 @@ const RecordingOverlay: React.FC = () => {
     const dragState = dragGripStateRef.current;
     dragState.armed = true;
     dragState.sawMove = false;
+    dragState.lastPosition = null;
     if (dragState.saveTimer !== null) {
       window.clearTimeout(dragState.saveTimer);
       dragState.saveTimer = null;
@@ -814,14 +835,28 @@ const RecordingOverlay: React.FC = () => {
     void windowRef.startDragging().catch((error) => {
       dragState.armed = false;
       dragState.sawMove = false;
+      dragState.lastPosition = null;
       console.error("Failed to start recording overlay dragging:", error);
     });
   };
 
   const handleDragGripPointerEnd = () => {
     const dragState = dragGripStateRef.current;
-    if (!dragState.sawMove) {
-      dragState.armed = false;
+    const positionToSave = dragState.sawMove ? dragState.lastPosition : null;
+
+    if (dragState.saveTimer !== null) {
+      window.clearTimeout(dragState.saveTimer);
+      dragState.saveTimer = null;
+    }
+
+    dragState.armed = false;
+    dragState.sawMove = false;
+    dragState.lastPosition = null;
+
+    if (positionToSave) {
+      void rememberOverlayPhysicalPosition(positionToSave).catch((error) => {
+        console.error("Failed to remember recording overlay position:", error);
+      });
     }
   };
 
