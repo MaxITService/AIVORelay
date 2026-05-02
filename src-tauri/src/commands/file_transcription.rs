@@ -893,12 +893,30 @@ fn decode_audio_file(path: &PathBuf) -> Result<Vec<f32>, String> {
         return decode_wav_file(path);
     }
 
-    // For other formats, use rodio's decoder
+    // For other formats, use rodio's Symphonia-backed decoder. MP4/M4A files
+    // often keep the metadata atom after the media data, so the decoder needs
+    // a seekable source with a known byte length.
     let file = File::open(path).map_err(|e| format!("Failed to open file: {}", e))?;
+    let byte_len = file
+        .metadata()
+        .map_err(|e| format!("Failed to read file metadata: {}", e))?
+        .len();
     let reader = BufReader::new(file);
 
-    let source =
-        rodio::Decoder::new(reader).map_err(|e| format!("Failed to decode audio: {}", e))?;
+    let mut decoder_builder = rodio::Decoder::builder()
+        .with_data(reader)
+        .with_byte_len(byte_len)
+        .with_seekable(true);
+    if !extension.is_empty() {
+        decoder_builder = decoder_builder.with_hint(&extension);
+    }
+    if let Some(mime_type) = audio_mime_type_for_extension(&extension) {
+        decoder_builder = decoder_builder.with_mime_type(mime_type);
+    }
+
+    let source = decoder_builder
+        .build()
+        .map_err(|e| format!("Failed to decode audio: {}", e))?;
 
     // Get source sample rate and channels
     let sample_rate = source.sample_rate();
@@ -928,6 +946,17 @@ fn decode_audio_file(path: &PathBuf) -> Result<Vec<f32>, String> {
     };
 
     Ok(resampled)
+}
+
+fn audio_mime_type_for_extension(extension: &str) -> Option<&'static str> {
+    match extension {
+        "m4a" => Some("audio/mp4"),
+        "mp3" => Some("audio/mpeg"),
+        "ogg" => Some("audio/ogg"),
+        "flac" => Some("audio/flac"),
+        "webm" => Some("audio/webm"),
+        _ => None,
+    }
 }
 
 /// Decode a WAV file directly using hound

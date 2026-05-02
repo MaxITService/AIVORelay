@@ -77,6 +77,14 @@ async changeAutostartSetting(enabled: boolean) : Promise<Result<null, string>> {
     else return { status: "error", error: e  as any };
 }
 },
+async changeShowTrayShortcutGuideSetting(enabled: boolean) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("change_show_tray_shortcut_guide_setting", { enabled }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async changeTranslateToEnglishSetting(enabled: boolean) : Promise<Result<null, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("change_translate_to_english_setting", { enabled }) };
@@ -2179,6 +2187,33 @@ async changeDictationStatsEnabledSetting(enabled: boolean) : Promise<Result<null
     else return { status: "error", error: e  as any };
 }
 },
+async getDictationStatsRuntimeState() : Promise<DictationStatsRuntimeState> {
+    return await TAURI_INVOKE("get_dictation_stats_runtime_state");
+},
+async beginDictationStatsEditSession() : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("begin_dictation_stats_edit_session") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async cancelDictationStatsEditSession() : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("cancel_dictation_stats_edit_session") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async updateDictationStatsCounts(wordCount: number, characterCount: number) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("update_dictation_stats_counts", { wordCount, characterCount }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async resetDictationWordCount() : Promise<Result<null, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("reset_dictation_word_count") };
@@ -3138,7 +3173,7 @@ async isLaptop() : Promise<Result<boolean, string>> {
 /** user-defined types **/
 
 export type AddTranscriptionProfilePayload = { name: string; language: string; translateToEnglish: boolean; systemPrompt: string; sttPromptOverrideEnabled?: boolean; pushToTalk: boolean; previewOutputOnlyEnabled?: boolean; sonioxLanguageHintsStrict?: boolean | null; includeInCycle: boolean | null; llmSettings: ProfileLlmSettings | null; sonioxContextGeneralJson: string | null; sonioxContextText: string | null; sonioxContextTerms: string[] | null }
-export type AppSettings = { bindings: Partial<{ [key in string]: ShortcutBinding }>; push_to_talk: boolean; preview_output_only_enabled?: boolean; audio_feedback: boolean; audio_feedback_volume?: number; sound_theme?: SoundTheme; start_hidden?: boolean; autostart_enabled?: boolean; show_tray_icon?: boolean; update_checks_enabled?: boolean; selected_model?: string; transcription_provider?: TranscriptionProvider; remote_stt?: RemoteSttSettings; soniox_model?: string; soniox_timeout_seconds?: number; soniox_live_enabled?: boolean; soniox_language_hints?: string[]; soniox_context_general_json?: string; soniox_context_text?: string; soniox_context_terms?: string[]; soniox_use_profile_language_hint_only?: boolean; soniox_language_hints_strict?: boolean; soniox_enable_endpoint_detection?: boolean; soniox_max_endpoint_delay_ms?: number; soniox_enable_language_identification?: boolean; soniox_enable_speaker_diarization?: boolean; soniox_keepalive_interval_seconds?: number; soniox_live_finalize_timeout_ms?: number; soniox_live_instant_stop?: boolean; soniox_realtime_fuzzy_correction_enabled?: boolean; soniox_realtime_keep_safety_buffer_enabled?: boolean; deepgram_model?: string; deepgram_timeout_seconds?: number; deepgram_live_enabled?: boolean; deepgram_keepalive_interval_seconds?: number; deepgram_live_finalize_timeout_ms?: number; deepgram_live_instant_stop?: boolean; deepgram_interim_results?: boolean; deepgram_smart_format?: boolean; deepgram_diarize?: boolean; live_sound_enable_speaker_diarization?: boolean; deepgram_endpointing_enabled?: boolean; deepgram_endpointing_ms?: number; always_on_microphone?: boolean; selected_microphone?: string | null; last_manual_microphone?: string | null; selected_microphone_auto_switch_enabled?: boolean; selected_microphone_name_pattern?: string; clamshell_microphone?: string | null; 
+export type AppSettings = { bindings: Partial<{ [key in string]: ShortcutBinding }>; push_to_talk: boolean; preview_output_only_enabled?: boolean; audio_feedback: boolean; audio_feedback_volume?: number; sound_theme?: SoundTheme; start_hidden?: boolean; autostart_enabled?: boolean; show_tray_icon?: boolean; show_tray_shortcut_guide?: boolean; show_tray_shortcut_guide_in_main_menu?: boolean; update_checks_enabled?: boolean; selected_model?: string; transcription_provider?: TranscriptionProvider; remote_stt?: RemoteSttSettings; soniox_model?: string; soniox_timeout_seconds?: number; soniox_live_enabled?: boolean; soniox_language_hints?: string[]; soniox_context_general_json?: string; soniox_context_text?: string; soniox_context_terms?: string[]; soniox_use_profile_language_hint_only?: boolean; soniox_language_hints_strict?: boolean; soniox_enable_endpoint_detection?: boolean; soniox_max_endpoint_delay_ms?: number; soniox_enable_language_identification?: boolean; soniox_enable_speaker_diarization?: boolean; soniox_keepalive_interval_seconds?: number; soniox_live_finalize_timeout_ms?: number; soniox_live_instant_stop?: boolean; soniox_realtime_fuzzy_correction_enabled?: boolean; soniox_realtime_keep_safety_buffer_enabled?: boolean; deepgram_model?: string; deepgram_timeout_seconds?: number; deepgram_live_enabled?: boolean; deepgram_keepalive_interval_seconds?: number; deepgram_live_finalize_timeout_ms?: number; deepgram_live_instant_stop?: boolean; deepgram_interim_results?: boolean; deepgram_smart_format?: boolean; deepgram_diarize?: boolean; live_sound_enable_speaker_diarization?: boolean; deepgram_endpointing_enabled?: boolean; deepgram_endpointing_ms?: number; always_on_microphone?: boolean; selected_microphone?: string | null; last_manual_microphone?: string | null; selected_microphone_auto_switch_enabled?: boolean; selected_microphone_name_pattern?: string; clamshell_microphone?: string | null; 
 /**
  * Microphone used exclusively by the Live Sound pipeline.
  * `None` means fall back to `selected_microphone` (global default).
@@ -3147,7 +3182,7 @@ live_sound_microphone?: string | null; selected_output_device?: string | null; l
 /**
  * Overrides for Live Monitor sessions — None means inherit global provider setting.
  */
-live_sound_soniox_endpoint_detection?: boolean | null; live_sound_soniox_max_endpoint_delay_ms?: number | null; live_sound_deepgram_endpointing_enabled?: boolean | null; live_sound_deepgram_endpointing_ms?: number | null; translate_to_english?: boolean; selected_language?: string; overlay_position?: OverlayPosition; auto_position_allow_reserved_areas?: boolean; recording_overlay_use_manual_position?: boolean; recording_overlay_custom_x_px?: number; recording_overlay_custom_y_px?: number; 
+live_sound_soniox_endpoint_detection?: boolean | null; live_sound_soniox_max_endpoint_delay_ms?: number | null; live_sound_deepgram_endpointing_enabled?: boolean | null; live_sound_deepgram_endpointing_ms?: number | null; translate_to_english?: boolean; selected_language?: string; overlay_position?: OverlayPosition; auto_position_allow_reserved_areas?: boolean; recording_overlay_use_manual_position?: boolean; recording_overlay_manual_position_uses_physical_px?: boolean; recording_overlay_custom_x_px?: number; recording_overlay_custom_y_px?: number; 
 /**
  * Auto-hide duration for error overlay in milliseconds.
  */
@@ -3430,6 +3465,7 @@ vad_threshold?: number;
 /**
  * Which shortcut engine to use for global hotkeys (Windows only)
  * - "tauri": High performance, but doesn't support Caps Lock, Num Lock, modifier-only shortcuts
+ * - "handy_keys": Upstream backend with backend-side shortcut recording
  * - "rdev": Supports all keys, but uses more CPU (processes every keystroke)
  */
 shortcut_engine?: ShortcutEngine; 
@@ -3520,6 +3556,7 @@ export type DecapitalizeOverlayStateResponse = { decapitalizeEligible: boolean; 
 export type DeepgramFileTranscriptionOptions = { diarize: boolean | null; multichannel: boolean | null }
 export type DiarizationSpeakerNameProfile = { id: string; name: string; speaker_names?: string[] }
 export type DiarizedTranscriptProvider = "deepgram" | "soniox"
+export type DictationStatsRuntimeState = { is_editing: boolean; is_recording: boolean; is_processing: boolean; can_start_edit: boolean; can_apply_edit: boolean; max_count: number; warning_threshold: number }
 export type EngineType = "Whisper" | "Parakeet" | "Moonshine" | "MoonshineStreaming" | "SenseVoice" | "GigaAM" | "Canary" | "Cohere"
 /**
  * PowerShell execution policy for voice commands.
