@@ -8,6 +8,7 @@ mod clipboard;
 mod commands;
 mod file_transcription_diarization;
 mod helpers;
+mod hotkey_guide;
 mod input;
 mod input_source;
 mod language_resolver;
@@ -428,24 +429,94 @@ fn initialize_core_logic(app_handle: &AppHandle) {
                 return;
             }
 
-            if let Some(model_id) = event.id.as_ref().strip_prefix(tray::TRAY_MODEL_MENU_PREFIX) {
-                if model_id == settings::get_settings(app).selected_model {
-                    return;
-                }
+            if let Some(selection) = tray::parse_model_menu_selection(event.id.as_ref()) {
+                let current_settings = settings::get_settings(app);
+                match selection {
+                    tray::TrayModelSelection::Local(model_id) => {
+                        if current_settings.transcription_provider
+                            == settings::TranscriptionProvider::Local
+                            && model_id == current_settings.selected_model
+                        {
+                            return;
+                        }
 
-                let app_clone = app.clone();
-                let model_id = model_id.to_string();
-                std::thread::spawn(move || {
-                    match commands::models::switch_active_model(&app_clone, &model_id) {
-                        Ok(()) => {
-                            log::info!("Model switched to {} via tray.", model_id);
-                        }
-                        Err(err) => {
-                            log::error!("Failed to switch model via tray: {}", err);
-                            tray::refresh_tray_menu(&app_clone, None);
-                        }
+                        let app_clone = app.clone();
+                        std::thread::spawn(move || {
+                            match commands::models::switch_active_model(&app_clone, &model_id) {
+                                Ok(()) => {
+                                    log::info!("Model switched to {} via tray.", model_id);
+                                }
+                                Err(err) => {
+                                    log::error!("Failed to switch model via tray: {}", err);
+                                    tray::refresh_tray_menu(&app_clone, None);
+                                }
+                            }
+                        });
                     }
-                });
+                    tray::TrayModelSelection::RemoteOpenAiCompatible {
+                        provider_preset,
+                        model_id,
+                    } => {
+                        if current_settings.transcription_provider
+                            == settings::TranscriptionProvider::RemoteOpenAiCompatible
+                            && provider_preset == current_settings.remote_stt.provider_preset
+                            && model_id == current_settings.remote_stt.model_id
+                        {
+                            return;
+                        }
+
+                        let mut updated_settings = current_settings;
+                        updated_settings.transcription_provider =
+                            settings::TranscriptionProvider::RemoteOpenAiCompatible;
+                        updated_settings.remote_stt.provider_preset = provider_preset.clone();
+                        if let Some(base_url) =
+                            crate::url_security::remote_stt_base_url_for_preset(&provider_preset)
+                        {
+                            updated_settings.remote_stt.base_url = base_url.to_string();
+                            updated_settings.remote_stt.allow_insecure_http = false;
+                        }
+                        updated_settings.remote_stt.model_id = model_id.clone();
+                        settings::write_settings(app, updated_settings);
+                        log::info!(
+                            "Remote STT model switched to {}/{} via tray.",
+                            provider_preset,
+                            model_id
+                        );
+                        tray::refresh_tray_menu(app, None);
+                    }
+                    tray::TrayModelSelection::RemoteSoniox(model) => {
+                        if current_settings.transcription_provider
+                            == settings::TranscriptionProvider::RemoteSoniox
+                            && model == current_settings.soniox_model
+                        {
+                            return;
+                        }
+
+                        let mut updated_settings = current_settings;
+                        updated_settings.transcription_provider =
+                            settings::TranscriptionProvider::RemoteSoniox;
+                        updated_settings.soniox_model = model.clone();
+                        settings::write_settings(app, updated_settings);
+                        log::info!("Soniox model switched to {} via tray.", model);
+                        tray::refresh_tray_menu(app, None);
+                    }
+                    tray::TrayModelSelection::RemoteDeepgram(model) => {
+                        if current_settings.transcription_provider
+                            == settings::TranscriptionProvider::RemoteDeepgram
+                            && model == current_settings.deepgram_model
+                        {
+                            return;
+                        }
+
+                        let mut updated_settings = current_settings;
+                        updated_settings.transcription_provider =
+                            settings::TranscriptionProvider::RemoteDeepgram;
+                        updated_settings.deepgram_model = model.clone();
+                        settings::write_settings(app, updated_settings);
+                        log::info!("Deepgram model switched to {} via tray.", model);
+                        tray::refresh_tray_menu(app, None);
+                    }
+                }
                 return;
             }
 
@@ -553,6 +624,7 @@ pub fn run() {
         shortcut::change_sound_theme_setting,
         shortcut::change_start_hidden_setting,
         shortcut::change_autostart_setting,
+        shortcut::change_show_tray_shortcut_guide_setting,
         shortcut::change_translate_to_english_setting,
         shortcut::change_selected_language_setting,
         shortcut::change_transcription_provider_setting,
