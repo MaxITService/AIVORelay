@@ -10,7 +10,7 @@ use serde::Serialize;
 use std::sync::atomic::{AtomicU64, Ordering};
 use tauri::{AppHandle, Emitter, Manager};
 
-const DEFAULT_ERROR_OVERLAY_AUTO_HIDE_MS: u64 = 2000;
+const DEFAULT_ERROR_OVERLAY_AUTO_HIDE_MS: u64 = 3500;
 
 static OVERLAY_GENERATION: AtomicU64 = AtomicU64::new(0);
 static ERROR_OVERLAY_AUTO_HIDE_MS: AtomicU64 = AtomicU64::new(DEFAULT_ERROR_OVERLAY_AUTO_HIDE_MS);
