@@ -13,6 +13,7 @@ Rules:
 
 | Propagation Date | Target Branch | Main SHA | Main Message | Branch SHA | Branch Message | Issues |
 | --- | --- | --- | --- | --- | --- | --- |
+| 2026-05-03 | `release/microsoft-store` | `b476149b` | chore: bump version to 1.0.15 | `1a303b50` | chore: bump version to 1.0.15 | resolved bindings conflict; main release notes excluded |
 | 2026-04-25 | `release/microsoft-store` | `4b6adfa5` | fix(overlay): keep error layout onscreen | `f8131ee0` | fix(overlay): keep error layout onscreen | clean cherry-pick |
 | 2026-04-25 | `release/microsoft-store` | `1036ed36` | chore: bump version to 1.0.14 | `222b079f` | chore: bump version to 1.0.14 | store release notes only |
 | 2026-04-25 | `release/microsoft-store` | `70200fd6` | feat(history): allow editing dictation stats | `77eb7680` | feat(history): allow editing dictation stats | clean cherry-pick |
@@ -22,7 +23,6 @@ Rules:
 | 2026-04-18 | `integration/cuda` | `f36a1cdc` | chore(bindings): commit pending generated update | `143aa0d0` | chore(bindings): commit pending generated update | clean cherry-pick |
 | 2026-04-18 | `release/microsoft-store` | `f36a1cdc` | chore(bindings): commit pending generated update | `a4363740` | chore(bindings): commit pending generated update | clean cherry-pick |
 | 2026-04-18 | `integration/combined` | `7cf850fd` | fix(overlay): stabilize first paint and placement | `35e44f0d` | fix(overlay): stabilize first paint and placement | clean cherry-pick |
-| 2026-04-18 | `integration/cuda` | `7cf850fd` | fix(overlay): stabilize first paint and placement | `d6b45f25` | fix(overlay): stabilize first paint and placement | clean cherry-pick |
 
 Entry template:
 
