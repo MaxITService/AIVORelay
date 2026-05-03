@@ -189,6 +189,13 @@ body {
   color: var(--slp-final-color);
 }
 
+.soniox-live-preview-change {
+  padding: 0 2px;
+  border-radius: 4px;
+  background: rgba(62, 214, 111, 0.34);
+  color: inherit;
+}
+
 .soniox-live-preview-interim {
   color: var(--slp-interim-color);
 }

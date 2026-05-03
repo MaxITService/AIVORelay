@@ -131,8 +131,6 @@ static DEEPGRAM_STREAM_EMITTED: Lazy<Mutex<HashMap<String, bool>>> =
     Lazy::new(|| Mutex::new(HashMap::new()));
 const RECORDING_SAMPLE_RATE_HZ: f32 = 16_000.0;
 const LIVE_QUICK_CANCEL_THRESHOLD_MS: u64 = 500;
-const LOCAL_PREVIEW_AUTO_FLUSH_INTERVAL_MS: u64 = 8_000;
-const LOCAL_PREVIEW_OVERLAP_SAMPLES: usize = 12_000;
 const LOCAL_PREVIEW_AUTO_MIN_SAMPLES: usize = 16_000;
 const LOCAL_PREVIEW_MANUAL_MIN_SAMPLES: usize = 1;
 
@@ -141,10 +139,50 @@ struct LocalPreviewAutoFlushRuntime {
     next_generation: u64,
     active_generations: HashMap<String, u64>,
     in_flight: HashSet<String>,
+    sliding_lm_in_flight: HashSet<String>,
+    sliding_lm_dirty: HashSet<String>,
+    sliding_lm_states: HashMap<String, SlidingLmWindowState>,
 }
 
 static LOCAL_PREVIEW_AUTO_FLUSH: Lazy<Mutex<LocalPreviewAutoFlushRuntime>> =
     Lazy::new(|| Mutex::new(LocalPreviewAutoFlushRuntime::default()));
+
+#[derive(Clone, Debug, Default)]
+struct SlidingLmWindowState {
+    stable_context: String,
+    editable_tail: String,
+    current_preview: String,
+    editable_start_byte: usize,
+    editable_start_char: usize,
+}
+
+#[derive(Clone, Debug)]
+struct SlidingLmPromptContext {
+    stable_context: String,
+    editable_tail: String,
+    new_chunk: String,
+    current_preview: String,
+    deterministic_notes: String,
+    language: String,
+    profile_name: String,
+    current_app: String,
+}
+
+#[derive(Clone, Debug)]
+struct SlidingLmRequest {
+    binding_id: String,
+    generation: u64,
+    settings: AppSettings,
+    profile_id: Option<String>,
+    stable_context: String,
+    editable_tail: String,
+    current_preview: String,
+    editable_start_byte: usize,
+    editable_start_char: usize,
+    new_chunk: String,
+    deterministic_notes: String,
+    current_app: String,
+}
 
 fn capture_recording_app_context(binding_id: &str) {
     #[cfg(target_os = "windows")]
@@ -161,6 +199,13 @@ fn capture_recording_app_context(binding_id: &str) {
 fn take_recording_app_context(binding_id: &str) -> String {
     if let Ok(mut context) = RECORDING_APP_CONTEXT.lock() {
         return context.remove(binding_id).unwrap_or_default();
+    }
+    String::new()
+}
+
+fn peek_recording_app_context(binding_id: &str) -> String {
+    if let Ok(context) = RECORDING_APP_CONTEXT.lock() {
+        return context.get(binding_id).cloned().unwrap_or_default();
     }
     String::new()
 }
@@ -2195,7 +2240,25 @@ fn should_use_local_preview_auto_flush(
 ) -> bool {
     binding_id != LIVE_SOUND_TRANSCRIPTION_BINDING_ID
         && settings.transcription_provider == TranscriptionProvider::Local
+        && settings.soniox_live_preview_local_auto_flush_enabled
         && should_route_output_to_preview(settings, profile)
+}
+
+fn local_preview_auto_flush_interval(settings: &AppSettings) -> Duration {
+    Duration::from_millis(
+        settings
+            .soniox_live_preview_local_auto_flush_interval_ms
+            .clamp(1_000, 30_000),
+    )
+}
+
+fn local_preview_auto_flush_overlap_samples(settings: &AppSettings) -> usize {
+    let overlap_ms = u64::from(
+        settings
+            .soniox_live_preview_local_auto_flush_overlap_ms
+            .clamp(0, 2_000),
+    );
+    ((overlap_ms * 16_000) / 1_000) as usize
 }
 
 fn is_local_preview_auto_flush_current(binding_id: &str, generation: u64) -> bool {
@@ -2212,7 +2275,7 @@ fn is_local_preview_auto_flush_current(binding_id: &str, generation: u64) -> boo
         .unwrap_or(false)
 }
 
-fn start_local_preview_auto_flush(app: &AppHandle, binding_id: String) {
+fn start_local_preview_auto_flush(app: &AppHandle, binding_id: String, interval: Duration) {
     let generation = {
         let mut runtime = match LOCAL_PREVIEW_AUTO_FLUSH.lock() {
             Ok(runtime) => runtime,
@@ -2229,10 +2292,7 @@ fn start_local_preview_auto_flush(app: &AppHandle, binding_id: String) {
     let app = app.clone();
     tauri::async_runtime::spawn(async move {
         loop {
-            tokio::time::sleep(Duration::from_millis(
-                LOCAL_PREVIEW_AUTO_FLUSH_INTERVAL_MS,
-            ))
-            .await;
+            tokio::time::sleep(interval).await;
 
             if !is_local_preview_auto_flush_current(&binding_id, generation) {
                 return;
@@ -2255,6 +2315,10 @@ fn start_local_preview_auto_flush(app: &AppHandle, binding_id: String) {
 fn stop_local_preview_auto_flush(binding_id: &str) {
     if let Ok(mut runtime) = LOCAL_PREVIEW_AUTO_FLUSH.lock() {
         runtime.active_generations.remove(binding_id);
+        runtime.in_flight.remove(binding_id);
+        runtime.sliding_lm_in_flight.remove(binding_id);
+        runtime.sliding_lm_dirty.remove(binding_id);
+        runtime.sliding_lm_states.remove(binding_id);
     }
 }
 
@@ -2316,7 +2380,11 @@ async fn run_local_preview_flush(
 
         let rm = Arc::clone(&app.state::<Arc<AudioRecordingManager>>());
         let samples = rm
-            .flush_recording(&binding_id, LOCAL_PREVIEW_OVERLAP_SAMPLES, min_samples)
+            .flush_recording(
+                &binding_id,
+                local_preview_auto_flush_overlap_samples(&recording_settings),
+                min_samples,
+            )
             .unwrap_or_default();
         if samples.is_empty() {
             return Ok(false);
@@ -2326,14 +2394,33 @@ async fn run_local_preview_flush(
             &app,
             samples,
             Some(&binding_id),
-            captured_profile_id,
+            captured_profile_id.clone(),
             &recording_settings,
         )
         .await
         {
             TranscriptionOutcome::Success(text) => {
                 if crate::managers::preview_output_mode::is_active_for_binding(&binding_id) {
-                    update_preview_text_for_output_mode(&app, &text);
+                    let existing =
+                        crate::managers::preview_output_mode::recording_prefix_text();
+                    let text = filter_local_preview_flush_text(&existing, &text);
+                    if text.trim().is_empty() {
+                        return Ok(false);
+                    }
+                    let next_final = append_preview_text_with_overlap(&existing, &text);
+                    crate::managers::preview_output_mode::set_recording_prefix_text(
+                        &app,
+                        next_final.clone(),
+                    );
+                    crate::overlay::emit_soniox_live_preview_update(&app, &next_final, "");
+                    maybe_schedule_sliding_lm_window(
+                        &app,
+                        binding_id.clone(),
+                        recording_settings.clone(),
+                        captured_profile_id,
+                        next_final,
+                        text,
+                    );
                 }
                 Ok(true)
             }
@@ -2354,14 +2441,50 @@ fn normalized_preview_word(word: &str) -> String {
     word.chars()
         .filter(|ch| ch.is_alphanumeric())
         .flat_map(char::to_lowercase)
+        .map(|ch| if ch == 'ё' { 'е' } else { ch })
         .collect()
 }
 
-fn preview_overlap_words(text: &str) -> Vec<String> {
-    text.split_whitespace()
-        .map(normalized_preview_word)
-        .filter(|word| !word.is_empty())
-        .collect()
+#[derive(Clone, Debug)]
+struct PreviewWord {
+    normalized: String,
+    start: usize,
+    end: usize,
+}
+
+fn preview_words(text: &str) -> Vec<PreviewWord> {
+    let mut words = Vec::new();
+    let mut word_start: Option<usize> = None;
+
+    for (idx, ch) in text.char_indices() {
+        if ch.is_whitespace() {
+            if let Some(start) = word_start.take() {
+                let normalized = normalized_preview_word(&text[start..idx]);
+                if !normalized.is_empty() {
+                    words.push(PreviewWord {
+                        normalized,
+                        start,
+                        end: idx,
+                    });
+                }
+            }
+        } else if word_start.is_none() {
+            word_start = Some(idx);
+        }
+    }
+
+    if let Some(start) = word_start {
+        let normalized = normalized_preview_word(&text[start..]);
+        if !normalized.is_empty() {
+            words.push(PreviewWord {
+                normalized,
+                start,
+                end: text.len(),
+            });
+        }
+    }
+
+    words
 }
 
 fn drop_preview_words(text: &str, words_to_drop: usize) -> &str {
@@ -2369,30 +2492,117 @@ fn drop_preview_words(text: &str, words_to_drop: usize) -> &str {
         return text;
     }
 
-    let mut in_word = false;
-    let mut dropped = 0usize;
-    for (idx, ch) in text.char_indices() {
-        if ch.is_whitespace() {
-            if in_word {
-                in_word = false;
-                dropped += 1;
-                if dropped == words_to_drop {
-                    return text[idx..].trim_start();
-                }
+    match preview_words(text).get(words_to_drop.saturating_sub(1)) {
+        Some(word) => text[word.end..].trim_start(),
+        None => "",
+    }
+}
+
+fn preview_word_similarity(a: &str, b: &str) -> f64 {
+    if a == b {
+        return 1.0;
+    }
+
+    let min_chars = a.chars().count().min(b.chars().count());
+    if min_chars < 4 {
+        return 0.0;
+    }
+
+    normalized_levenshtein(a, b)
+}
+
+fn fuzzy_preview_overlap_word_count(
+    existing_words: &[PreviewWord],
+    incoming_words: &[PreviewWord],
+) -> usize {
+    let max_overlap = existing_words.len().min(incoming_words.len()).min(24);
+    for overlap in (1..=max_overlap).rev() {
+        let existing_tail = &existing_words[existing_words.len() - overlap..];
+        let incoming_head = &incoming_words[..overlap];
+
+        if existing_tail
+            .iter()
+            .zip(incoming_head)
+            .all(|(a, b)| a.normalized == b.normalized)
+        {
+            return overlap;
+        }
+
+        if overlap < 3 {
+            continue;
+        }
+
+        let mut total_score = 0.0;
+        let mut weak_matches = 0usize;
+        for (a, b) in existing_tail.iter().zip(incoming_head) {
+            let score = preview_word_similarity(&a.normalized, &b.normalized);
+            if score < 0.82 {
+                weak_matches += 1;
             }
-        } else if !in_word {
-            in_word = true;
+            total_score += score;
+        }
+
+        let average_score = total_score / overlap as f64;
+        if weak_matches <= 1 && average_score >= 0.90 {
+            return overlap;
         }
     }
 
-    if in_word {
-        dropped += 1;
+    0
+}
+
+fn preview_text_ends_with_sentence_boundary(text: &str) -> bool {
+    for ch in text.trim_end().chars().rev() {
+        if is_preview_sentence_boundary_char(ch) {
+            return true;
+        }
+        if matches!(ch, '"' | '\'' | ')' | ']' | '}' | '”' | '’') {
+            continue;
+        }
+        return false;
     }
 
-    if dropped >= words_to_drop {
-        ""
+    false
+}
+
+fn uppercase_first_preview_letter(text: &str) -> String {
+    for (idx, ch) in text.char_indices() {
+        if matches!(ch, '"' | '\'' | '(' | '[' | '{' | '“' | '‘') {
+            continue;
+        }
+        if !ch.is_alphabetic() {
+            return text.to_string();
+        }
+        if !ch.is_lowercase() {
+            return text.to_string();
+        }
+
+        let token_end = text[idx..]
+            .char_indices()
+            .find_map(|(offset, token_ch)| token_ch.is_whitespace().then_some(idx + offset))
+            .unwrap_or(text.len());
+        if text[idx + ch.len_utf8()..token_end]
+            .chars()
+            .any(char::is_uppercase)
+        {
+            return text.to_string();
+        }
+
+        let mut repaired = String::with_capacity(text.len());
+        repaired.push_str(&text[..idx]);
+        repaired.extend(ch.to_uppercase());
+        repaired.push_str(&text[idx + ch.len_utf8()..]);
+        return repaired;
+    }
+
+    text.to_string()
+}
+
+fn repair_preview_delta_capitalization(existing: &str, delta: &str) -> String {
+    if preview_text_ends_with_sentence_boundary(existing) {
+        uppercase_first_preview_letter(delta)
     } else {
-        text
+        delta.to_string()
     }
 }
 
@@ -2405,21 +2615,15 @@ fn append_preview_text_with_overlap(existing: &str, incoming: &str) -> String {
         return incoming.to_string();
     }
 
-    let existing_words = preview_overlap_words(existing);
-    let incoming_words = preview_overlap_words(incoming);
-    let max_overlap = existing_words.len().min(incoming_words.len()).min(16);
-    let mut duplicate_words = 0usize;
-    for overlap in (1..=max_overlap).rev() {
-        if existing_words[existing_words.len() - overlap..] == incoming_words[..overlap] {
-            duplicate_words = overlap;
-            break;
-        }
-    }
+    let existing_words = preview_words(existing);
+    let incoming_words = preview_words(incoming);
+    let duplicate_words = fuzzy_preview_overlap_word_count(&existing_words, &incoming_words);
 
     let delta = drop_preview_words(incoming, duplicate_words).trim_start();
     if delta.is_empty() {
         return existing.to_string();
     }
+    let delta = repair_preview_delta_capitalization(existing, delta);
 
     let mut merged = existing.trim_end().to_string();
     let needs_space = merged
@@ -2435,8 +2639,706 @@ fn append_preview_text_with_overlap(existing: &str, incoming: &str) -> String {
     if needs_space {
         merged.push(' ');
     }
-    merged.push_str(delta);
+    merged.push_str(&delta);
     merged
+}
+
+struct LocalPreviewHallucinationTail {
+    words: &'static [&'static str],
+    require_context: bool,
+}
+
+const LOCAL_PREVIEW_HALLUCINATION_TAILS: &[LocalPreviewHallucinationTail] = &[
+    LocalPreviewHallucinationTail {
+        words: &["thank", "you"],
+        require_context: true,
+    },
+    LocalPreviewHallucinationTail {
+        words: &["thank", "you", "very", "much"],
+        require_context: true,
+    },
+    LocalPreviewHallucinationTail {
+        words: &["thanks", "for", "watching"],
+        require_context: false,
+    },
+    LocalPreviewHallucinationTail {
+        words: &["thank", "you", "for", "watching"],
+        require_context: false,
+    },
+    LocalPreviewHallucinationTail {
+        words: &["please", "subscribe"],
+        require_context: false,
+    },
+    LocalPreviewHallucinationTail {
+        words: &["like", "and", "subscribe"],
+        require_context: false,
+    },
+    LocalPreviewHallucinationTail {
+        words: &["dont", "forget", "to", "subscribe"],
+        require_context: false,
+    },
+];
+
+fn strip_local_preview_hallucination_tail_once(existing: &str, text: &str) -> Option<String> {
+    let words = preview_words(text);
+    for tail in LOCAL_PREVIEW_HALLUCINATION_TAILS {
+        let tail_len = tail.words.len();
+        if words.len() < tail_len {
+            continue;
+        }
+
+        let tail_words = &words[words.len() - tail_len..];
+        if tail_words
+            .iter()
+            .zip(tail.words)
+            .any(|(word, expected)| word.normalized != *expected)
+        {
+            continue;
+        }
+
+        let tail_start = tail_words[0].start;
+        let before_tail = text[..tail_start].trim_end();
+        let has_context = !existing.trim().is_empty() || !before_tail.is_empty();
+        if tail.require_context && !has_context {
+            continue;
+        }
+        if !before_tail.is_empty() && !preview_text_ends_with_sentence_boundary(before_tail) {
+            continue;
+        }
+
+        return Some(before_tail.to_string());
+    }
+
+    None
+}
+
+fn filter_local_preview_flush_text(existing: &str, incoming: &str) -> String {
+    let mut filtered = incoming.trim().to_string();
+    while let Some(next) = strip_local_preview_hallucination_tail_once(existing, &filtered) {
+        if next == filtered {
+            break;
+        }
+        filtered = next.trim().to_string();
+    }
+
+    filtered
+}
+
+fn apply_sliding_lm_template_vars(template: &str, context: &SlidingLmPromptContext) -> String {
+    template
+        .replace("${stable_context}", &context.stable_context)
+        .replace("${editable_tail}", &context.editable_tail)
+        .replace("${new_chunk}", &context.new_chunk)
+        .replace("${current_preview}", &context.current_preview)
+        .replace("${deterministic_notes}", &context.deterministic_notes)
+        .replace("${language}", &context.language)
+        .replace("${profile_name}", &context.profile_name)
+        .replace("${current_app}", &context.current_app)
+}
+
+fn split_preview_for_sliding_lm_window(
+    text: &str,
+    editable_tail_words: u16,
+) -> SlidingLmWindowState {
+    let words = preview_words(text);
+    let editable_word_count = usize::from(editable_tail_words.clamp(20, 240));
+    let editable_start_byte = if words.len() <= editable_word_count {
+        0
+    } else {
+        words[words.len() - editable_word_count].start
+    };
+    let editable_start_char = text[..editable_start_byte].chars().count();
+
+    let stable_context_full = text[..editable_start_byte].trim_end();
+    let stable_context = trim_sliding_lm_stable_context(stable_context_full, 1_600);
+    let editable_tail = text[editable_start_byte..].trim_start().to_string();
+
+    SlidingLmWindowState {
+        stable_context,
+        editable_tail,
+        current_preview: text.to_string(),
+        editable_start_byte,
+        editable_start_char,
+    }
+}
+
+fn trim_sliding_lm_stable_context(text: &str, max_chars: usize) -> String {
+    let chars: Vec<char> = text.chars().collect();
+    if chars.len() <= max_chars {
+        return text.to_string();
+    }
+
+    let start = chars.len().saturating_sub(max_chars);
+    chars[start..].iter().collect::<String>().trim_start().to_string()
+}
+
+fn changed_ranges_for_replacement(
+    old_text: &str,
+    new_text: &str,
+    base_char_start: usize,
+) -> Vec<crate::overlay::SonioxLivePreviewChangedRange> {
+    let old_chars: Vec<char> = old_text.chars().collect();
+    let new_chars: Vec<char> = new_text.chars().collect();
+    if old_chars == new_chars || new_chars.is_empty() {
+        return Vec::new();
+    }
+
+    if old_chars.len().saturating_mul(new_chars.len()) > 1_000_000 {
+        return changed_ranges_by_common_edges(&old_chars, &new_chars, base_char_start);
+    }
+
+    let n = old_chars.len();
+    let m = new_chars.len();
+    let mut dp = vec![vec![0usize; m + 1]; n + 1];
+    for i in (0..n).rev() {
+        for j in (0..m).rev() {
+            dp[i][j] = if old_chars[i] == new_chars[j] {
+                dp[i + 1][j + 1] + 1
+            } else {
+                dp[i + 1][j].max(dp[i][j + 1])
+            };
+        }
+    }
+
+    let mut unchanged = vec![false; m];
+    let (mut i, mut j) = (0usize, 0usize);
+    while i < n && j < m {
+        if old_chars[i] == new_chars[j] {
+            unchanged[j] = true;
+            i += 1;
+            j += 1;
+        } else if dp[i + 1][j] >= dp[i][j + 1] {
+            i += 1;
+        } else {
+            j += 1;
+        }
+    }
+
+    let mut ranges = Vec::new();
+    let mut range_start: Option<usize> = None;
+    for (idx, is_unchanged) in unchanged.iter().copied().enumerate() {
+        if !is_unchanged && range_start.is_none() {
+            range_start = Some(idx);
+        } else if is_unchanged {
+            if let Some(start) = range_start.take() {
+                ranges.push(crate::overlay::SonioxLivePreviewChangedRange {
+                    start: base_char_start + start,
+                    end: base_char_start + idx,
+                });
+            }
+        }
+    }
+    if let Some(start) = range_start {
+        ranges.push(crate::overlay::SonioxLivePreviewChangedRange {
+            start: base_char_start + start,
+            end: base_char_start + new_chars.len(),
+        });
+    }
+
+    if ranges.is_empty() {
+        let nearby = common_prefix_char_count(&old_chars, &new_chars)
+            .min(new_chars.len().saturating_sub(1));
+        ranges.push(crate::overlay::SonioxLivePreviewChangedRange {
+            start: base_char_start + nearby,
+            end: base_char_start + nearby + 1,
+        });
+    }
+
+    ranges
+}
+
+fn changed_ranges_by_common_edges(
+    old_chars: &[char],
+    new_chars: &[char],
+    base_char_start: usize,
+) -> Vec<crate::overlay::SonioxLivePreviewChangedRange> {
+    if new_chars.is_empty() {
+        return Vec::new();
+    }
+
+    let prefix = common_prefix_char_count(old_chars, new_chars);
+    let mut suffix = 0usize;
+    while suffix + prefix < old_chars.len()
+        && suffix + prefix < new_chars.len()
+        && old_chars[old_chars.len() - 1 - suffix] == new_chars[new_chars.len() - 1 - suffix]
+    {
+        suffix += 1;
+    }
+
+    let start = prefix.min(new_chars.len().saturating_sub(1));
+    let end = new_chars.len().saturating_sub(suffix).max(start + 1);
+    vec![crate::overlay::SonioxLivePreviewChangedRange {
+        start: base_char_start + start,
+        end: base_char_start + end,
+    }]
+}
+
+fn common_prefix_char_count(a: &[char], b: &[char]) -> usize {
+    a.iter().zip(b).take_while(|(left, right)| left == right).count()
+}
+
+fn sanitize_sliding_lm_response(response: String, request: &SlidingLmRequest) -> Option<String> {
+    let mut text = response
+        .replace('\u{200B}', "")
+        .replace('\u{200C}', "")
+        .replace('\u{200D}', "")
+        .replace('\u{FEFF}', "")
+        .trim()
+        .to_string();
+
+    if text.starts_with("```") {
+        let without_opening = text
+            .lines()
+            .skip(1)
+            .collect::<Vec<_>>()
+            .join("\n")
+            .trim()
+            .to_string();
+        text = without_opening
+            .strip_suffix("```")
+            .unwrap_or(&without_opening)
+            .trim()
+            .to_string();
+    }
+
+    let stable_prefix = request.stable_context.trim();
+    if !stable_prefix.is_empty() {
+        if let Some(stripped) = text.strip_prefix(stable_prefix) {
+            text = stripped.trim_start().to_string();
+        }
+    }
+
+    if text.trim().is_empty() {
+        return None;
+    }
+
+    let response_chars = text.chars().count();
+    let max_chars = request
+        .editable_tail
+        .chars()
+        .count()
+        .max(200)
+        .saturating_mul(4)
+        .saturating_add(1_000);
+    if response_chars > max_chars {
+        warn!(
+            "Sliding LM Window response rejected: {} chars exceeds limit {}",
+            response_chars, max_chars
+        );
+        return None;
+    }
+
+    Some(text)
+}
+
+fn active_local_preview_auto_flush_generation(binding_id: &str) -> Option<u64> {
+    LOCAL_PREVIEW_AUTO_FLUSH
+        .lock()
+        .ok()
+        .and_then(|runtime| runtime.active_generations.get(binding_id).copied())
+}
+
+fn update_sliding_lm_window_state(
+    binding_id: &str,
+    current_preview: &str,
+    editable_tail_words: u16,
+) -> Option<SlidingLmWindowState> {
+    let state = split_preview_for_sliding_lm_window(current_preview, editable_tail_words);
+    if state.editable_tail.trim().is_empty() {
+        return None;
+    }
+
+    if let Ok(mut runtime) = LOCAL_PREVIEW_AUTO_FLUSH.lock() {
+        runtime
+            .sliding_lm_states
+            .insert(binding_id.to_string(), state.clone());
+    }
+    Some(state)
+}
+
+fn try_mark_sliding_lm_in_flight(binding_id: &str) -> bool {
+    LOCAL_PREVIEW_AUTO_FLUSH
+        .lock()
+        .map(|mut runtime| {
+            if runtime.sliding_lm_in_flight.contains(binding_id) {
+                runtime.sliding_lm_dirty.insert(binding_id.to_string());
+                false
+            } else {
+                runtime.sliding_lm_in_flight.insert(binding_id.to_string());
+                runtime.sliding_lm_dirty.remove(binding_id);
+                true
+            }
+        })
+        .unwrap_or(false)
+}
+
+fn finish_sliding_lm_request(binding_id: &str) -> bool {
+    LOCAL_PREVIEW_AUTO_FLUSH
+        .lock()
+        .map(|mut runtime| {
+            runtime.sliding_lm_in_flight.remove(binding_id);
+            runtime.sliding_lm_dirty.remove(binding_id)
+        })
+        .unwrap_or(false)
+}
+
+fn mark_sliding_lm_dirty(binding_id: &str) {
+    if let Ok(mut runtime) = LOCAL_PREVIEW_AUTO_FLUSH.lock() {
+        runtime.sliding_lm_dirty.insert(binding_id.to_string());
+    }
+}
+
+fn build_sliding_lm_request_from_state(
+    binding_id: String,
+    generation: u64,
+    settings: AppSettings,
+    profile_id: Option<String>,
+    state: SlidingLmWindowState,
+    new_chunk: String,
+    deterministic_notes: String,
+) -> SlidingLmRequest {
+    let current_app = {
+        let captured = peek_recording_app_context(&binding_id);
+        if captured.trim().is_empty() {
+            resolve_preview_current_app_name()
+        } else {
+            captured
+        }
+    };
+
+    SlidingLmRequest {
+        binding_id,
+        generation,
+        settings,
+        profile_id,
+        stable_context: state.stable_context,
+        editable_tail: state.editable_tail,
+        current_preview: state.current_preview,
+        editable_start_byte: state.editable_start_byte,
+        editable_start_char: state.editable_start_char,
+        new_chunk,
+        deterministic_notes,
+        current_app,
+    }
+}
+
+fn maybe_schedule_sliding_lm_window(
+    app: &AppHandle,
+    binding_id: String,
+    settings: AppSettings,
+    profile_id: Option<String>,
+    current_preview: String,
+    new_chunk: String,
+) {
+    if !settings.soniox_live_preview_sliding_lm_window_enabled {
+        return;
+    }
+    if settings
+        .soniox_live_preview_sliding_lm_window_prompt
+        .trim()
+        .is_empty()
+    {
+        return;
+    }
+
+    let Some(generation) = active_local_preview_auto_flush_generation(&binding_id) else {
+        return;
+    };
+    let Some(state) = update_sliding_lm_window_state(
+        &binding_id,
+        &current_preview,
+        settings.soniox_live_preview_sliding_lm_window_tail_words,
+    ) else {
+        return;
+    };
+
+    if !try_mark_sliding_lm_in_flight(&binding_id) {
+        return;
+    }
+
+    let notes = "Deterministic local auto-flush appended this chunk after fuzzy overlap merging, capitalization repair, and local hallucination-tail filtering. Rewrite only the editable tail."
+        .to_string();
+    let request = build_sliding_lm_request_from_state(
+        binding_id,
+        generation,
+        settings,
+        profile_id,
+        state,
+        new_chunk,
+        notes,
+    );
+    spawn_sliding_lm_request(app.clone(), request);
+}
+
+fn maybe_schedule_dirty_sliding_lm_window(app: AppHandle, binding_id: String, generation: u64) {
+    if !is_local_preview_auto_flush_current(&binding_id, generation)
+        || !is_recording_for_binding(&app, &binding_id)
+    {
+        return;
+    }
+
+    let Some((profile_id, settings)) = active_recording_settings_for_binding(&app, &binding_id)
+    else {
+        return;
+    };
+    if !settings.soniox_live_preview_sliding_lm_window_enabled {
+        return;
+    }
+
+    let state = LOCAL_PREVIEW_AUTO_FLUSH
+        .lock()
+        .ok()
+        .and_then(|runtime| runtime.sliding_lm_states.get(&binding_id).cloned());
+    let Some(state) = state else {
+        return;
+    };
+    if !try_mark_sliding_lm_in_flight(&binding_id) {
+        return;
+    }
+
+    let request = build_sliding_lm_request_from_state(
+        binding_id,
+        generation,
+        settings,
+        profile_id,
+        state,
+        String::new(),
+        "A newer deterministic local auto-flush arrived while the previous Sliding LM Window request was running. Use the latest editable tail."
+            .to_string(),
+    );
+    spawn_sliding_lm_request(app, request);
+}
+
+fn spawn_sliding_lm_request(app: AppHandle, request: SlidingLmRequest) {
+    tauri::async_runtime::spawn(async move {
+        let binding_id = request.binding_id.clone();
+        let generation = request.generation;
+        if let Err(err) = run_sliding_lm_request(app.clone(), request).await {
+            debug!("Sliding LM Window pass skipped/failed: {}", err);
+        }
+        let dirty = finish_sliding_lm_request(&binding_id);
+        if dirty {
+            maybe_schedule_dirty_sliding_lm_window(app, binding_id, generation);
+        }
+    });
+}
+
+async fn run_sliding_lm_request(
+    app: AppHandle,
+    request: SlidingLmRequest,
+) -> Result<(), String> {
+    if !is_local_preview_auto_flush_current(&request.binding_id, request.generation) {
+        return Ok(());
+    }
+
+    let settings = &request.settings;
+    let provider = settings
+        .active_post_process_provider()
+        .cloned()
+        .ok_or_else(|| "No post-processing provider selected.".to_string())?;
+
+    if provider.id == APPLE_INTELLIGENCE_PROVIDER_ID {
+        return Err("Apple Intelligence is not available for background Sliding LM Window passes.".to_string());
+    }
+
+    let profile = request
+        .profile_id
+        .as_ref()
+        .filter(|id| id.as_str() != "default")
+        .and_then(|profile_id| settings.transcription_profile(profile_id));
+    let global_model = settings
+        .post_process_models
+        .get(&provider.id)
+        .cloned()
+        .unwrap_or_default();
+    let model = profile
+        .and_then(|p| {
+            p.llm_model_override
+                .as_ref()
+                .filter(|model| !model.trim().is_empty())
+        })
+        .cloned()
+        .unwrap_or(global_model);
+    if model.trim().is_empty() {
+        return Err(format!(
+            "Provider '{}' has no model configured.",
+            provider.id
+        ));
+    }
+
+    let context = SlidingLmPromptContext {
+        stable_context: request.stable_context.clone(),
+        editable_tail: request.editable_tail.clone(),
+        new_chunk: request.new_chunk.clone(),
+        current_preview: request.current_preview.clone(),
+        deterministic_notes: request.deterministic_notes.clone(),
+        language: resolve_effective_language(&app, settings, profile),
+        profile_name: resolve_profile_name(profile),
+        current_app: request.current_app.clone(),
+    };
+    let prompt = apply_sliding_lm_template_vars(
+        &settings.soniox_live_preview_sliding_lm_window_prompt,
+        &context,
+    );
+
+    #[cfg(target_os = "windows")]
+    let api_key = crate::secure_keys::get_post_process_api_key(&provider.id);
+
+    #[cfg(not(target_os = "windows"))]
+    let api_key = settings
+        .post_process_api_keys
+        .get(&provider.id)
+        .cloned()
+        .unwrap_or_default();
+
+    let reasoning_config = crate::llm_client::ReasoningConfig::new(
+        settings.post_process_reasoning_enabled,
+        settings.post_process_reasoning_budget,
+    )
+    .with_disable_by_default_on_compatible_providers(true);
+
+    let response = crate::llm_client::send_chat_completion_with_reasoning(
+        &provider,
+        api_key,
+        &model,
+        prompt,
+        reasoning_config,
+    )
+    .await?
+    .ok_or_else(|| "LLM response had no content.".to_string())?;
+
+    let corrected_tail = sanitize_sliding_lm_response(response, &request)
+        .ok_or_else(|| "LLM response was empty or too large.".to_string())?;
+    apply_sliding_lm_result(&app, &request, corrected_tail);
+    Ok(())
+}
+
+fn apply_sliding_lm_result(app: &AppHandle, request: &SlidingLmRequest, corrected_tail: String) {
+    if !is_local_preview_auto_flush_current(&request.binding_id, request.generation) {
+        return;
+    }
+
+    let current_preview = crate::managers::preview_output_mode::recording_prefix_text();
+    let appended_suffix = if current_preview == request.current_preview {
+        ""
+    } else if let Some(suffix) = current_preview.strip_prefix(&request.current_preview) {
+        suffix
+    } else {
+        mark_sliding_lm_dirty(&request.binding_id);
+        return;
+    };
+
+    let prefix = &request.current_preview[..request.editable_start_byte];
+    let final_text = format!("{}{}{}", prefix, corrected_tail, appended_suffix);
+    let old_tail = &request.current_preview[request.editable_start_byte..];
+    let changed_ranges =
+        changed_ranges_for_replacement(old_tail, &corrected_tail, request.editable_start_char);
+    if changed_ranges.is_empty() && corrected_tail == old_tail {
+        return;
+    }
+
+    crate::managers::preview_output_mode::set_recording_prefix_text(app, final_text.clone());
+    crate::overlay::emit_soniox_live_preview_update_with_changed_ranges(
+        app,
+        &final_text,
+        "",
+        request.editable_start_char,
+        changed_ranges,
+    );
+    let _ = update_sliding_lm_window_state(
+        &request.binding_id,
+        &final_text,
+        request
+            .settings
+            .soniox_live_preview_sliding_lm_window_tail_words,
+    );
+}
+
+#[cfg(test)]
+mod local_preview_text_tests {
+    use super::*;
+
+    #[test]
+    fn filters_common_short_tail_and_repairs_cyrillic_capitalization() {
+        let existing = "Это приводит к тому, что государство берет эти деньги и тратит.";
+        let incoming = "это максимально неэффективно. Thank you.";
+
+        let filtered = filter_local_preview_flush_text(existing, incoming);
+        assert_eq!(filtered, "это максимально неэффективно.");
+        assert_eq!(
+            append_preview_text_with_overlap(existing, &filtered),
+            "Это приводит к тому, что государство берет эти деньги и тратит. Это максимально неэффективно."
+        );
+    }
+
+    #[test]
+    fn fuzzy_overlap_drops_near_duplicate_boundary_text() {
+        let existing = "государство берет эти деньги и тратит.";
+        let incoming = "государство берёт эти деньги и тратит. Это максимально неэффективно.";
+
+        assert_eq!(
+            append_preview_text_with_overlap(existing, incoming),
+            "государство берет эти деньги и тратит. Это максимально неэффективно."
+        );
+    }
+
+    #[test]
+    fn keeps_standalone_thank_you_without_existing_context() {
+        assert_eq!(filter_local_preview_flush_text("", "Thank you."), "Thank you.");
+    }
+
+    #[test]
+    fn removes_watching_tail_even_without_existing_context() {
+        assert_eq!(
+            filter_local_preview_flush_text("", "Thanks for watching."),
+            ""
+        );
+    }
+
+    #[test]
+    fn sliding_lm_prompt_replaces_focused_variables() {
+        let context = SlidingLmPromptContext {
+            stable_context: "Stable sentence.".to_string(),
+            editable_tail: "tail text".to_string(),
+            new_chunk: "new chunk".to_string(),
+            current_preview: "Stable sentence tail text".to_string(),
+            deterministic_notes: "merged with overlap".to_string(),
+            language: "en".to_string(),
+            profile_name: "Default".to_string(),
+            current_app: "Editor".to_string(),
+        };
+
+        let rendered = apply_sliding_lm_template_vars(
+            "${stable_context}|${editable_tail}|${new_chunk}|${current_preview}|${deterministic_notes}|${language}|${profile_name}|${current_app}",
+            &context,
+        );
+
+        assert_eq!(
+            rendered,
+            "Stable sentence.|tail text|new chunk|Stable sentence tail text|merged with overlap|en|Default|Editor"
+        );
+    }
+
+    #[test]
+    fn sliding_lm_diff_highlights_inserted_and_replaced_text() {
+        let ranges = changed_ranges_for_replacement(
+            "hello world",
+            "Hello, world!",
+            3,
+        );
+
+        assert!(ranges.iter().any(|range| range.start <= 3 && range.end > 3));
+        assert!(ranges.iter().any(|range| range.start <= 8 && range.end > 8));
+        assert!(ranges.iter().any(|range| range.start <= 15 && range.end >= 16));
+    }
+
+    #[test]
+    fn sliding_lm_diff_marks_nearby_text_for_deletion_only_change() {
+        let ranges = changed_ranges_for_replacement("hello, world", "hello world", 0);
+
+        assert_eq!(ranges.len(), 1);
+        assert!(ranges[0].start < ranges[0].end);
+    }
 }
 
 fn update_preview_text_for_output_mode(app: &AppHandle, text: &str) {
@@ -3751,7 +4653,11 @@ impl ShortcutAction for TranscribeAction {
             );
             crate::overlay::show_soniox_live_preview_window(app);
             if should_use_local_preview_auto_flush(&settings, profile, binding_id) {
-                start_local_preview_auto_flush(app, binding_id.to_string());
+                start_local_preview_auto_flush(
+                    app,
+                    binding_id.to_string(),
+                    local_preview_auto_flush_interval(&settings),
+                );
             }
         }
 
@@ -6471,7 +7377,10 @@ pub async fn preview_flush_action(app: AppHandle) -> Result<(), String> {
     let was_recording = is_recording_for_binding(&app, &binding_id);
     if was_recording {
         if active_recording_settings_for_binding(&app, &binding_id)
-            .map(|(_, settings)| settings.transcription_provider == TranscriptionProvider::Local)
+            .map(|(_, settings)| {
+                settings.transcription_provider == TranscriptionProvider::Local
+                    && settings.soniox_live_preview_local_auto_flush_enabled
+            })
             .unwrap_or(false)
         {
             run_local_preview_flush(

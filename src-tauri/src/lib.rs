@@ -677,6 +677,12 @@ pub fn run() {
         shortcut::change_recording_overlay_decapitalize_indicator_font_size_setting,
         shortcut::change_recording_overlay_decapitalize_indicator_color_setting,
         shortcut::change_soniox_live_preview_enabled_setting,
+        shortcut::change_soniox_live_preview_local_auto_flush_enabled_setting,
+        shortcut::change_soniox_live_preview_local_auto_flush_interval_setting,
+        shortcut::change_soniox_live_preview_local_auto_flush_overlap_setting,
+        shortcut::change_soniox_live_preview_sliding_lm_window_enabled_setting,
+        shortcut::change_soniox_live_preview_sliding_lm_window_prompt_setting,
+        shortcut::change_soniox_live_preview_sliding_lm_window_tail_words_setting,
         shortcut::change_soniox_live_preview_position_setting,
         shortcut::change_soniox_live_preview_custom_x_setting,
         shortcut::change_soniox_live_preview_custom_y_setting,
@@ -1027,6 +1033,7 @@ pub fn run() {
         overlay::get_soniox_live_preview_appearance,
         overlay::get_preview_output_mode_state,
         overlay::preview_soniox_live_preview_window,
+        overlay::close_soniox_live_preview_demo_window,
         helpers::clamshell::is_laptop,
     ]);
 

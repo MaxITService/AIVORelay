@@ -58,6 +58,9 @@ const RESET_RECORDING_OVERLAY_STYLE_CONFIG: RecordingOverlayStyleConfig = {
   ...DEFAULT_RECORDING_OVERLAY_STYLE_CONFIG,
 };
 
+const RECORDING_OVERLAY_SETTINGS_COLLAPSED_KEY =
+  "aivorelay.userInterface.recordingOverlay.collapsed";
+
 const THEME_OPTIONS: Array<{
   value: RecordingOverlayTheme;
   label: string;
@@ -298,8 +301,32 @@ export const RecordingOverlaySettings: React.FC = () => {
   const [isApplyingPreset, setIsApplyingPreset] = React.useState(false);
   const [isApplyingStyleCode, setIsApplyingStyleCode] = React.useState(false);
   const [arePresetsExpanded, setArePresetsExpanded] = React.useState(true);
+  const [isRecordingOverlayCollapsed, setIsRecordingOverlayCollapsed] =
+    React.useState(false);
   const [styleCodeDraft, setStyleCodeDraft] = React.useState("");
   const [styleToolsStatus, setStyleToolsStatus] = React.useState<string | null>(null);
+
+  React.useEffect(() => {
+    try {
+      if (window.localStorage.getItem(RECORDING_OVERLAY_SETTINGS_COLLAPSED_KEY) === "true") {
+        setIsRecordingOverlayCollapsed(true);
+      }
+    } catch {
+      // Keep the section expanded when localStorage is unavailable.
+    }
+  }, []);
+
+  const updateRecordingOverlayCollapsed = React.useCallback((collapsed: boolean) => {
+    setIsRecordingOverlayCollapsed(collapsed);
+    try {
+      window.localStorage.setItem(
+        RECORDING_OVERLAY_SETTINGS_COLLAPSED_KEY,
+        collapsed ? "true" : "false",
+      );
+    } catch {
+      // UI preference only; ignoring storage errors preserves the toggle behavior.
+    }
+  }, []);
 
   const overlayTheme =
     ((settings as any)?.recording_overlay_theme ?? "classic") as RecordingOverlayTheme;
@@ -975,6 +1002,17 @@ export const RecordingOverlaySettings: React.FC = () => {
         "settings.userInterface.recordingOverlay.title",
         "Recording Overlay",
       )}
+      collapsible={true}
+      collapsed={isRecordingOverlayCollapsed}
+      collapseLabel={t(
+        "settings.userInterface.recordingOverlay.collapse",
+        "Collapse",
+      )}
+      expandLabel={t(
+        "settings.userInterface.recordingOverlay.expand",
+        "Expand",
+      )}
+      onCollapsedChange={updateRecordingOverlayCollapsed}
     >
       <div className="flex flex-col divide-y divide-white/[0.05]">
         <div className="order-1">

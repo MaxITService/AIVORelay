@@ -1635,6 +1635,18 @@ pub struct AppSettings {
     pub soniox_live_preview_backspace_delete_last_char: bool,
     #[serde(default = "default_true")]
     pub soniox_live_preview_show_drag_grip: bool,
+    #[serde(default = "default_soniox_live_preview_local_auto_flush_enabled")]
+    pub soniox_live_preview_local_auto_flush_enabled: bool,
+    #[serde(default = "default_soniox_live_preview_local_auto_flush_interval_ms")]
+    pub soniox_live_preview_local_auto_flush_interval_ms: u64,
+    #[serde(default = "default_soniox_live_preview_local_auto_flush_overlap_ms")]
+    pub soniox_live_preview_local_auto_flush_overlap_ms: u16,
+    #[serde(default)]
+    pub soniox_live_preview_sliding_lm_window_enabled: bool,
+    #[serde(default = "default_soniox_live_preview_sliding_lm_window_prompt")]
+    pub soniox_live_preview_sliding_lm_window_prompt: String,
+    #[serde(default = "default_soniox_live_preview_sliding_lm_window_tail_words")]
+    pub soniox_live_preview_sliding_lm_window_tail_words: u16,
     #[serde(default = "default_debug_mode")]
     pub debug_mode: bool,
     #[serde(default = "default_log_level")]
@@ -2404,6 +2416,40 @@ fn default_soniox_live_preview_accent_color() -> String {
 
 fn default_soniox_live_preview_interim_opacity_percent() -> u8 {
     58
+}
+
+fn default_soniox_live_preview_local_auto_flush_enabled() -> bool {
+    true
+}
+
+fn default_soniox_live_preview_local_auto_flush_interval_ms() -> u64 {
+    8_000
+}
+
+fn default_soniox_live_preview_local_auto_flush_overlap_ms() -> u16 {
+    750
+}
+
+fn default_soniox_live_preview_sliding_lm_window_prompt() -> String {
+    concat!(
+        "You are inside a speech recognition live preview system.\n",
+        "Rewrite ONLY the editable tail so it fits naturally after the stable context.\n",
+        "Stitch chunk boundaries, fix punctuation and capitalization, remove repeated boundary artifacts and hallucinated tails, and preserve the original meaning and language.\n",
+        "Return ONLY the corrected final text for the editable tail. Do not explain, quote, or use JSON.\n\n",
+        "Language: ${language}\n",
+        "Profile: ${profile_name}\n",
+        "Current app: ${current_app}\n\n",
+        "Stable context before editable tail:\n${stable_context}\n\n",
+        "Current full preview:\n${current_preview}\n\n",
+        "Editable tail to return corrected:\n${editable_tail}\n\n",
+        "Newest deterministic chunk:\n${new_chunk}\n\n",
+        "Deterministic notes:\n${deterministic_notes}"
+    )
+    .to_string()
+}
+
+fn default_soniox_live_preview_sliding_lm_window_tail_words() -> u16 {
+    80
 }
 
 fn default_debug_mode() -> bool {
@@ -3236,6 +3282,17 @@ pub fn get_default_settings() -> AppSettings {
         soniox_live_preview_ctrl_backspace_delete_last_word: default_true(),
         soniox_live_preview_backspace_delete_last_char: default_true(),
         soniox_live_preview_show_drag_grip: default_true(),
+        soniox_live_preview_local_auto_flush_enabled:
+            default_soniox_live_preview_local_auto_flush_enabled(),
+        soniox_live_preview_local_auto_flush_interval_ms:
+            default_soniox_live_preview_local_auto_flush_interval_ms(),
+        soniox_live_preview_local_auto_flush_overlap_ms:
+            default_soniox_live_preview_local_auto_flush_overlap_ms(),
+        soniox_live_preview_sliding_lm_window_enabled: false,
+        soniox_live_preview_sliding_lm_window_prompt:
+            default_soniox_live_preview_sliding_lm_window_prompt(),
+        soniox_live_preview_sliding_lm_window_tail_words:
+            default_soniox_live_preview_sliding_lm_window_tail_words(),
         debug_mode: false,
         log_level: default_log_level(),
         custom_words: Vec::new(),

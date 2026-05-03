@@ -84,9 +84,16 @@ struct TransientMessageOverlayPayload {
 }
 
 #[derive(Serialize, Clone, Default, Type)]
+pub struct SonioxLivePreviewChangedRange {
+    pub start: usize,
+    pub end: usize,
+}
+
+#[derive(Serialize, Clone, Default, Type)]
 pub struct SonioxLivePreviewPayload {
     pub final_text: String,
     pub interim_text: String,
+    pub changed_ranges: Vec<SonioxLivePreviewChangedRange>,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -1743,6 +1750,7 @@ pub fn reset_soniox_live_preview(app_handle: &AppHandle) {
     if let Ok(mut state) = SONIOX_LIVE_PREVIEW_STATE.lock() {
         state.final_text.clear();
         state.interim_text.clear();
+        state.changed_ranges.clear();
     }
     let _ = app_handle.emit("soniox-live-preview-reset", ());
     let _ = app_handle.emit("soniox_live_preview_reset", ());
@@ -1761,16 +1769,25 @@ fn emit_soniox_live_preview_update_internal(
     final_text: &str,
     interim_text: &str,
 ) {
-    if let Ok(mut state) = SONIOX_LIVE_PREVIEW_STATE.lock() {
+    let changed_ranges = if let Ok(mut state) = SONIOX_LIVE_PREVIEW_STATE.lock() {
+        let preserve_highlights = final_text == state.final_text
+            || final_text.starts_with(&state.final_text);
+        if !preserve_highlights {
+            state.changed_ranges.clear();
+        }
         state.final_text.clear();
         state.final_text.push_str(final_text);
         state.interim_text.clear();
         state.interim_text.push_str(interim_text);
-    }
+        state.changed_ranges.clone()
+    } else {
+        Vec::new()
+    };
 
     let payload = SonioxLivePreviewPayload {
         final_text: final_text.to_string(),
         interim_text: interim_text.to_string(),
+        changed_ranges,
     };
 
     let _ = app_handle.emit("soniox-live-preview-update", payload.clone());
@@ -1792,6 +1809,63 @@ pub fn emit_soniox_live_preview_update(
         return;
     }
     emit_soniox_live_preview_update_internal(app_handle, final_text, interim_text);
+}
+
+#[cfg(target_os = "windows")]
+pub fn emit_soniox_live_preview_update_with_changed_ranges(
+    app_handle: &AppHandle,
+    final_text: &str,
+    interim_text: &str,
+    preserve_before_char: usize,
+    mut new_ranges: Vec<SonioxLivePreviewChangedRange>,
+) {
+    if !is_soniox_live_preview_session_active() {
+        return;
+    }
+
+    let final_char_len = final_text.chars().count();
+    new_ranges.retain(|range| range.start < range.end && range.end <= final_char_len);
+
+    let changed_ranges = if let Ok(mut state) = SONIOX_LIVE_PREVIEW_STATE.lock() {
+        state.final_text.clear();
+        state.final_text.push_str(final_text);
+        state.interim_text.clear();
+        state.interim_text.push_str(interim_text);
+        state
+            .changed_ranges
+            .retain(|range| range.end <= preserve_before_char && range.end <= final_char_len);
+        state.changed_ranges.extend(new_ranges);
+        state.changed_ranges.sort_by_key(|range| (range.start, range.end));
+
+        let mut merged: Vec<SonioxLivePreviewChangedRange> = Vec::new();
+        for range in state.changed_ranges.drain(..) {
+            if let Some(last) = merged.last_mut() {
+                if range.start <= last.end {
+                    last.end = last.end.max(range.end);
+                    continue;
+                }
+            }
+            merged.push(range);
+        }
+        state.changed_ranges = merged;
+        state.changed_ranges.clone()
+    } else {
+        Vec::new()
+    };
+
+    let payload = SonioxLivePreviewPayload {
+        final_text: final_text.to_string(),
+        interim_text: interim_text.to_string(),
+        changed_ranges,
+    };
+
+    let _ = app_handle.emit("soniox-live-preview-update", payload.clone());
+    let _ = app_handle.emit("soniox_live_preview_update", payload.clone());
+
+    if let Some(window) = app_handle.get_webview_window(SONIOX_LIVE_PREVIEW_WINDOW_LABEL) {
+        let _ = window.emit("soniox-live-preview-update", payload.clone());
+        let _ = window.emit("soniox_live_preview_update", payload.clone());
+    }
 }
 
 #[cfg(target_os = "windows")]
@@ -1924,11 +1998,42 @@ pub fn preview_soniox_live_preview_window(app_handle: AppHandle) -> Result<(), S
     }
 }
 
+#[tauri::command]
+#[specta::specta]
+pub fn close_soniox_live_preview_demo_window(app_handle: AppHandle) -> Result<(), String> {
+    #[cfg(target_os = "windows")]
+    {
+        if is_soniox_live_preview_session_active() {
+            // The settings demo must never close an active dictation preview.
+            return Ok(());
+        }
+
+        hide_soniox_live_preview_window(&app_handle);
+        reset_soniox_live_preview(&app_handle);
+        return Ok(());
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        Err("Live preview is available on Windows only.".to_string())
+    }
+}
+
 #[cfg(not(target_os = "windows"))]
 pub fn emit_soniox_live_preview_update(
     _app_handle: &AppHandle,
     _final_text: &str,
     _interim_text: &str,
+) {
+}
+
+#[cfg(not(target_os = "windows"))]
+pub fn emit_soniox_live_preview_update_with_changed_ranges(
+    _app_handle: &AppHandle,
+    _final_text: &str,
+    _interim_text: &str,
+    _preserve_before_char: usize,
+    _new_ranges: Vec<SonioxLivePreviewChangedRange>,
 ) {
 }
 
