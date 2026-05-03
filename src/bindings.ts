@@ -405,6 +405,54 @@ async changeSonioxLivePreviewEnabledSetting(enabled: boolean) : Promise<Result<n
     else return { status: "error", error: e  as any };
 }
 },
+async changeSonioxLivePreviewLocalAutoFlushEnabledSetting(enabled: boolean) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("change_soniox_live_preview_local_auto_flush_enabled_setting", { enabled }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async changeSonioxLivePreviewLocalAutoFlushIntervalSetting(intervalMs: number) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("change_soniox_live_preview_local_auto_flush_interval_setting", { intervalMs }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async changeSonioxLivePreviewLocalAutoFlushOverlapSetting(overlapMs: number) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("change_soniox_live_preview_local_auto_flush_overlap_setting", { overlapMs }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async changeSonioxLivePreviewSlidingLmWindowEnabledSetting(enabled: boolean) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("change_soniox_live_preview_sliding_lm_window_enabled_setting", { enabled }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async changeSonioxLivePreviewSlidingLmWindowPromptSetting(prompt: string) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("change_soniox_live_preview_sliding_lm_window_prompt_setting", { prompt }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async changeSonioxLivePreviewSlidingLmWindowTailWordsSetting(tailWords: number) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("change_soniox_live_preview_sliding_lm_window_tail_words_setting", { tailWords }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async changeSonioxLivePreviewPositionSetting(position: string) : Promise<Result<null, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("change_soniox_live_preview_position_setting", { position }) };
@@ -3196,6 +3244,14 @@ async previewSonioxLivePreviewWindow() : Promise<Result<null, string>> {
     else return { status: "error", error: e  as any };
 }
 },
+async closeSonioxLivePreviewDemoWindow() : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("close_soniox_live_preview_demo_window") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 /**
  * Stub implementation for non-macOS platforms
  * Always returns false since laptop detection is macOS-specific
@@ -3238,7 +3294,7 @@ error_overlay_auto_hide_ms?: number;
 /**
  * Show runtime errors in the recording overlay.
  */
-error_feedback_enabled?: boolean; recording_overlay_custom_enabled?: boolean; recording_overlay_show_drag_grip?: boolean; recording_overlay_theme?: RecordingOverlayTheme; recording_overlay_background_mode?: RecordingOverlayBackgroundMode; recording_overlay_material_mode?: RecordingOverlayMaterialMode; recording_overlay_centerpiece_mode?: RecordingOverlayCenterpieceMode; recording_overlay_animated_border_mode?: RecordingOverlayAnimatedBorderMode; recording_overlay_show_status_icon?: boolean; recording_overlay_show_cancel_button?: boolean; recording_overlay_bar_count?: number; recording_overlay_width_px?: number; recording_overlay_bar_width_px?: number; recording_overlay_bar_style?: RecordingOverlayBarStyle; recording_overlay_accent_color?: string; recording_overlay_status_icon_color?: string; recording_overlay_cancel_icon_color?: string; recording_overlay_surface_base_color?: string; recording_overlay_body_background_color?: string; recording_overlay_audio_reactive_scale?: boolean; recording_overlay_audio_reactive_scale_max_percent?: number; recording_overlay_voice_sensitivity_percent?: number; recording_overlay_animation_softness_percent?: number; recording_overlay_depth_parallax_percent?: number; recording_overlay_opacity_percent?: number; recording_overlay_silence_fade?: boolean; recording_overlay_silence_opacity_percent?: number; recording_overlay_decapitalize_indicator_mode?: RecordingOverlayDecapitalizeIndicatorMode; recording_overlay_decapitalize_indicator_custom_text?: string; recording_overlay_decapitalize_indicator_font_family?: string; recording_overlay_decapitalize_indicator_font_size_px?: number; recording_overlay_decapitalize_indicator_color?: string; soniox_live_preview_enabled?: boolean; soniox_live_preview_position?: SonioxLivePreviewPosition; soniox_live_preview_cursor_offset_px?: number; soniox_live_preview_custom_x_px?: number; soniox_live_preview_custom_y_px?: number; soniox_live_preview_size?: SonioxLivePreviewSize; soniox_live_preview_custom_width_px?: number; soniox_live_preview_custom_height_px?: number; soniox_live_preview_theme?: SonioxLivePreviewTheme; soniox_live_preview_opacity_percent?: number; soniox_live_preview_font_color?: string; soniox_live_preview_interim_font_color?: string; soniox_live_preview_accent_color?: string; soniox_live_preview_interim_opacity_percent?: number; soniox_live_preview_close_hotkey?: string; soniox_live_preview_clear_hotkey?: string; soniox_live_preview_flush_hotkey?: string; soniox_live_preview_process_hotkey?: string; soniox_live_preview_insert_hotkey?: string; soniox_live_preview_delete_until_dot_or_comma_hotkey?: string; soniox_live_preview_delete_until_dot_hotkey?: string; soniox_live_preview_delete_last_word_hotkey?: string; soniox_live_preview_show_clear_button?: boolean; soniox_live_preview_show_flush_button?: boolean; soniox_live_preview_show_process_button?: boolean; soniox_live_preview_show_insert_button?: boolean; soniox_live_preview_show_delete_until_dot_or_comma_button?: boolean; soniox_live_preview_show_delete_until_dot_button?: boolean; soniox_live_preview_show_delete_last_word_button?: boolean; soniox_live_preview_ctrl_backspace_delete_last_word?: boolean; soniox_live_preview_backspace_delete_last_char?: boolean; soniox_live_preview_show_drag_grip?: boolean; debug_mode?: boolean; log_level?: LogLevel; custom_words?: string[]; custom_words_enabled?: boolean; custom_words_ngram_enabled?: boolean; model_unload_timeout?: ModelUnloadTimeout; word_correction_threshold?: number; history_limit?: number; recording_retention_period?: RecordingRetentionPeriod; dictation_stats_enabled?: boolean; dictation_word_count?: number; dictation_word_count_since_ms?: number | null; dictation_character_count?: number; dictation_character_count_since_ms?: number | null; paste_method?: PasteMethod; paste_delay_ms?: number;
+error_feedback_enabled?: boolean; recording_overlay_custom_enabled?: boolean; recording_overlay_show_drag_grip?: boolean; recording_overlay_theme?: RecordingOverlayTheme; recording_overlay_background_mode?: RecordingOverlayBackgroundMode; recording_overlay_material_mode?: RecordingOverlayMaterialMode; recording_overlay_centerpiece_mode?: RecordingOverlayCenterpieceMode; recording_overlay_animated_border_mode?: RecordingOverlayAnimatedBorderMode; recording_overlay_show_status_icon?: boolean; recording_overlay_show_cancel_button?: boolean; recording_overlay_bar_count?: number; recording_overlay_width_px?: number; recording_overlay_bar_width_px?: number; recording_overlay_bar_style?: RecordingOverlayBarStyle; recording_overlay_accent_color?: string; recording_overlay_status_icon_color?: string; recording_overlay_cancel_icon_color?: string; recording_overlay_surface_base_color?: string; recording_overlay_body_background_color?: string; recording_overlay_audio_reactive_scale?: boolean; recording_overlay_audio_reactive_scale_max_percent?: number; recording_overlay_voice_sensitivity_percent?: number; recording_overlay_animation_softness_percent?: number; recording_overlay_depth_parallax_percent?: number; recording_overlay_opacity_percent?: number; recording_overlay_silence_fade?: boolean; recording_overlay_silence_opacity_percent?: number; recording_overlay_decapitalize_indicator_mode?: RecordingOverlayDecapitalizeIndicatorMode; recording_overlay_decapitalize_indicator_custom_text?: string; recording_overlay_decapitalize_indicator_font_family?: string; recording_overlay_decapitalize_indicator_font_size_px?: number; recording_overlay_decapitalize_indicator_color?: string; soniox_live_preview_enabled?: boolean; soniox_live_preview_position?: SonioxLivePreviewPosition; soniox_live_preview_cursor_offset_px?: number; soniox_live_preview_custom_x_px?: number; soniox_live_preview_custom_y_px?: number; soniox_live_preview_size?: SonioxLivePreviewSize; soniox_live_preview_custom_width_px?: number; soniox_live_preview_custom_height_px?: number; soniox_live_preview_theme?: SonioxLivePreviewTheme; soniox_live_preview_opacity_percent?: number; soniox_live_preview_font_color?: string; soniox_live_preview_interim_font_color?: string; soniox_live_preview_accent_color?: string; soniox_live_preview_interim_opacity_percent?: number; soniox_live_preview_close_hotkey?: string; soniox_live_preview_clear_hotkey?: string; soniox_live_preview_flush_hotkey?: string; soniox_live_preview_process_hotkey?: string; soniox_live_preview_insert_hotkey?: string; soniox_live_preview_delete_until_dot_or_comma_hotkey?: string; soniox_live_preview_delete_until_dot_hotkey?: string; soniox_live_preview_delete_last_word_hotkey?: string; soniox_live_preview_show_clear_button?: boolean; soniox_live_preview_show_flush_button?: boolean; soniox_live_preview_show_process_button?: boolean; soniox_live_preview_show_insert_button?: boolean; soniox_live_preview_show_delete_until_dot_or_comma_button?: boolean; soniox_live_preview_show_delete_until_dot_button?: boolean; soniox_live_preview_show_delete_last_word_button?: boolean; soniox_live_preview_ctrl_backspace_delete_last_word?: boolean; soniox_live_preview_backspace_delete_last_char?: boolean; soniox_live_preview_show_drag_grip?: boolean; soniox_live_preview_local_auto_flush_enabled?: boolean; soniox_live_preview_local_auto_flush_interval_ms?: number; soniox_live_preview_local_auto_flush_overlap_ms?: number; soniox_live_preview_sliding_lm_window_enabled?: boolean; soniox_live_preview_sliding_lm_window_prompt?: string; soniox_live_preview_sliding_lm_window_tail_words?: number; debug_mode?: boolean; log_level?: LogLevel; custom_words?: string[]; custom_words_enabled?: boolean; custom_words_ngram_enabled?: boolean; model_unload_timeout?: ModelUnloadTimeout; word_correction_threshold?: number; history_limit?: number; recording_retention_period?: RecordingRetentionPeriod; dictation_stats_enabled?: boolean; dictation_word_count?: number; dictation_word_count_since_ms?: number | null; dictation_character_count?: number; dictation_character_count_since_ms?: number | null; paste_method?: PasteMethod; paste_delay_ms?: number;
 /**
  * Convert LF to CRLF before clipboard paste (fixes newlines on Windows)
  */
@@ -3823,7 +3879,8 @@ export type ShortcutEngine =
 "rdev"
 export type SonioxFileTranscriptionOptions = { languageHints: string[] | null; enableSpeakerDiarization: boolean | null; enableLanguageIdentification: boolean | null }
 export type SonioxLivePreviewAppearancePayload = { theme: string; opacity_percent: number; font_color: string; interim_font_color: string; accent_color: string; interim_opacity_percent: number; close_hotkey: string; clear_hotkey: string; flush_hotkey: string; process_hotkey: string; insert_hotkey: string; delete_until_dot_or_comma_hotkey: string; delete_until_dot_hotkey: string; delete_last_word_hotkey: string; show_clear_button: boolean; show_flush_button: boolean; show_process_button: boolean; show_insert_button: boolean; show_delete_until_dot_or_comma_button: boolean; show_delete_until_dot_button: boolean; show_delete_last_word_button: boolean; ctrl_backspace_delete_last_word: boolean; backspace_delete_last_char: boolean; show_drag_grip: boolean }
-export type SonioxLivePreviewPayload = { final_text: string; interim_text: string }
+export type SonioxLivePreviewChangedRange = { start: number; end: number }
+export type SonioxLivePreviewPayload = { final_text: string; interim_text: string; changed_ranges: SonioxLivePreviewChangedRange[] }
 export type SonioxLivePreviewPosition = "top" | "bottom" | "near_cursor" | "custom_xy"
 export type SonioxLivePreviewSize = "small" | "medium" | "large" | "custom"
 export type SonioxLivePreviewTheme = "main_dark" | "ocean" | "light"
