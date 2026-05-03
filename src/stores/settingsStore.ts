@@ -191,6 +191,16 @@ const settingUpdaters: {
     commands.changePostProcessEnabledSetting(value as boolean),
   post_process_selected_prompt_id: (value) =>
     commands.setPostProcessSelectedPrompt(value as string),
+  post_process_benchmark_collapsed: (value) =>
+    commands.changePostProcessBenchmarkCollapsedSetting(value as boolean),
+  post_process_benchmark_system_prompt: (value) =>
+    commands.changePostProcessBenchmarkSystemPromptSetting(value as string),
+  post_process_benchmark_user_message: (value) =>
+    commands.changePostProcessBenchmarkUserMessageSetting(value as string),
+  post_process_benchmark_log: (value) =>
+    commands.changePostProcessBenchmarkLogSetting(value as any),
+  post_process_benchmark_use_selected_prompt: (value) =>
+    commands.changePostProcessBenchmarkUseSelectedPromptSetting(value as boolean),
   ai_replace_system_prompt: (value) =>
     commands.changeAiReplaceSystemPromptSetting(value as string),
   ai_replace_user_prompt: (value) =>

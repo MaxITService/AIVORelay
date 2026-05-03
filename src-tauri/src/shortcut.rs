@@ -3409,6 +3409,69 @@ pub fn delete_post_process_prompt(app: AppHandle, id: String) -> Result<(), Stri
     Ok(())
 }
 
+#[tauri::command]
+#[specta::specta]
+pub fn change_post_process_benchmark_collapsed_setting(
+    app: AppHandle,
+    collapsed: bool,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.post_process_benchmark_collapsed = collapsed;
+    settings::write_settings(&app, settings);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_post_process_benchmark_system_prompt_setting(
+    app: AppHandle,
+    prompt: String,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.post_process_benchmark_system_prompt = prompt;
+    settings::write_settings(&app, settings);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_post_process_benchmark_user_message_setting(
+    app: AppHandle,
+    message: String,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.post_process_benchmark_user_message = message;
+    settings::write_settings(&app, settings);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_post_process_benchmark_log_setting(
+    app: AppHandle,
+    log: Vec<settings::LlmPostProcessBenchmarkResult>,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.post_process_benchmark_log = log
+        .into_iter()
+        .take(settings::MAX_LLM_POST_PROCESS_BENCHMARK_LOG_ITEMS)
+        .collect();
+    settings::write_settings(&app, settings);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_post_process_benchmark_use_selected_prompt_setting(
+    app: AppHandle,
+    use_selected_prompt: bool,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.post_process_benchmark_use_selected_prompt = use_selected_prompt;
+    settings::write_settings(&app, settings);
+    Ok(())
+}
+
 // ============================================================================
 // Transcription Profile Management
 // ============================================================================
