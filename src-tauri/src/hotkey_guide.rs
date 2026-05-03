@@ -17,14 +17,12 @@ struct HotkeyGuideManifest {
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct HotkeyGuideCategory {
-    title: String,
     binding_ids: Vec<String>,
     dynamic_prefixes: Vec<String>,
 }
 
 #[derive(Debug, Clone)]
 pub struct HotkeyGuideSection {
-    pub title: String,
     pub bindings: Vec<ShortcutBinding>,
 }
 
@@ -69,10 +67,7 @@ pub fn build_hotkey_guide_sections(settings: &AppSettings) -> Vec<HotkeyGuideSec
             if bindings.is_empty() {
                 None
             } else {
-                Some(HotkeyGuideSection {
-                    title: category.title,
-                    bindings,
-                })
+                Some(HotkeyGuideSection { bindings })
             }
         })
         .collect()
