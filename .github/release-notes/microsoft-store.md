@@ -5,9 +5,10 @@ GitHub Actions prepends this Markdown above GitHub-generated release notes.
 
 ## Highlights
 
-- Dictation word and character counters can now be edited safely from History settings.
-- Dictation stats now pause while editing and cap very large values to avoid precision issues.
-- Recording overlay placement is reasserted natively on Windows to prevent rare starts above the saved manual position.
+- Live Preview output now flushes more reliably during local preview workflows.
+- LLM post-processing has a new benchmark view with clearer log handling.
+- Soniox realtime and async transcription flows handle finalization and custom models more consistently.
+- Recording overlay placement and shortcut/tray guidance received usability refinements.
 
 ---
 
