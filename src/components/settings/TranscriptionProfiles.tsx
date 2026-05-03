@@ -42,6 +42,17 @@ import { useModels } from "../../hooks/useModels";
 import { LANGUAGES, type Language } from "../../lib/constants/languages";
 import { isLanguageSupportedBySoniox } from "../../lib/constants/sonioxLanguages";
 import { getModelPromptInfo } from "./TranscriptionSystemPrompt";
+import { useNavigationStore } from "../../stores/navigationStore";
+
+/** Navigate to the User Interface section and scroll to the Live Preview settings anchor. */
+const openLivePreviewSettings = () => {
+  useNavigationStore.getState().setSection("userInterface");
+  setTimeout(() => {
+    document
+      .getElementById("live-preview-settings")
+      ?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, 120);
+};
 
 const APPLE_PROVIDER_ID = "apple_intelligence";
 
@@ -574,7 +585,14 @@ const ProfileCard: React.FC<ProfileCardProps> = ({
                 {t(
                   "settings.transcriptionProfiles.previewOutputOnly.title",
                   "Output to Preview",
-                )}
+                )}{" "}
+                <button
+                  type="button"
+                  onClick={openLivePreviewSettings}
+                  className="text-[#ff4d8d] underline underline-offset-2 font-normal hover:opacity-75 transition-opacity"
+                >
+                  (open settings)
+                </button>
               </label>
               <div className="flex items-center gap-2">
                 <ToggleSwitch
@@ -1706,7 +1724,14 @@ export const TranscriptionProfiles: React.FC = () => {
                       {t(
                         "settings.transcriptionProfiles.previewOutputOnly.title",
                         "Output to Preview",
-                      )}
+                      )}{" "}
+                      <button
+                        type="button"
+                        onClick={openLivePreviewSettings}
+                        className="text-[#ff4d8d] underline underline-offset-2 font-normal hover:opacity-75 transition-opacity"
+                      >
+                        (open settings)
+                      </button>
                     </label>
                     <div className="flex items-center gap-2">
                       <ToggleSwitch
@@ -2034,7 +2059,14 @@ export const TranscriptionProfiles: React.FC = () => {
                 {t(
                   "settings.transcriptionProfiles.previewOutputOnly.title",
                   "Output to Preview",
-                )}
+                )}{" "}
+                <button
+                  type="button"
+                  onClick={openLivePreviewSettings}
+                  className="text-[#ff4d8d] underline underline-offset-2 font-normal hover:opacity-75 transition-opacity"
+                >
+                  (open settings)
+                </button>
               </label>
               <div className="flex items-center gap-2">
                 <ToggleSwitch
