@@ -13,6 +13,7 @@ Rules:
 
 | Propagation Date | Target Branch | Main SHA | Main Message | Branch SHA | Branch Message | Issues |
 | --- | --- | --- | --- | --- | --- | --- |
+| 2026-05-03 | `integration/cuda` | `b476149b` | chore: bump version to 1.0.15 | `69bc618b` | chore: bump version to 1.0.15 | minimal docs; CUDA polish deferred |
 | 2026-04-25 | `integration/cuda` | `4b6adfa5` | fix(overlay): keep error layout onscreen | `ff2e581c` | fix(overlay): keep error layout onscreen | resolved old geometry helper conflict |
 | 2026-04-18 | `integration/combined` | `f36a1cdc` | chore(bindings): commit pending generated update | `0b555fcc` | chore(bindings): commit pending generated update | clean cherry-pick |
 | 2026-04-18 | `integration/cuda` | `f36a1cdc` | chore(bindings): commit pending generated update | `143aa0d0` | chore(bindings): commit pending generated update | clean cherry-pick |
@@ -22,7 +23,6 @@ Rules:
 | 2026-04-18 | `release/microsoft-store` | `7cf850fd` | fix(overlay): stabilize first paint and placement | `38b4c934` | fix(overlay): stabilize first paint and placement | clean cherry-pick |
 | 2026-04-18 | `integration/combined` | `268ffdf9` | feat(about): add Reddit community link | `188b60cf` | feat(about): add Reddit community link | clean cherry-pick |
 | 2026-04-18 | `integration/cuda` | `268ffdf9` | feat(about): add Reddit community link | `933d3c34` | feat(about): add Reddit community link | clean cherry-pick |
-| 2026-04-18 | `release/microsoft-store` | `268ffdf9` | feat(about): add Reddit community link | `03dbcf52` | feat(about): add Reddit community link | clean cherry-pick |
 
 Entry template:
 
