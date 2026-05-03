@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { Trans, useTranslation } from "react-i18next";
-import { RefreshCcw } from "lucide-react";
-import { commands } from "@/bindings";
+import { ChevronDown, Loader2, RefreshCcw, Trash2 } from "lucide-react";
+import { commands, type LlmPostProcessBenchmarkResult } from "@/bindings";
 
 import { SettingsGroup } from "../../ui/SettingsGroup";
 import { TellMeMore } from "../../ui/TellMeMore";
@@ -37,6 +37,395 @@ const PostProcessingSettingsApiComponent: React.FC = () => {
         reasoningSettingPrefix="post_process"
       />
     </div>
+  );
+};
+
+const formatBenchmarkTimestamp = (timestampMs: number) =>
+  new Date(timestampMs).toLocaleString();
+
+const formatBenchmarkDuration = (durationMs: number) =>
+  durationMs > 0 ? `${durationMs.toLocaleString()} ms` : "0 ms";
+
+const formatBenchmarkRate = (charsPerSecond: number) =>
+  `${charsPerSecond.toFixed(charsPerSecond >= 100 ? 0 : 1)} chars/sec`;
+
+const PostProcessingBenchmarkComponent: React.FC = () => {
+  const { t } = useTranslation();
+  const { getSetting, updateSetting, isUpdating } = useSettings();
+  const [isRunning, setIsRunning] = useState(false);
+  const [expandedItems, setExpandedItems] = useState<Set<string>>(new Set());
+
+  const collapsed = getSetting("post_process_benchmark_collapsed") ?? true;
+  const customSystemPrompt = getSetting("post_process_benchmark_system_prompt") ?? "";
+  const userMessage = getSetting("post_process_benchmark_user_message") ?? "";
+  const log = getSetting("post_process_benchmark_log") ?? [];
+  // When true (default), benchmark uses the currently selected post-processing prompt.
+  // When false, user can type a custom system prompt.
+  const useSelectedPrompt = getSetting("post_process_benchmark_use_selected_prompt") ?? true;
+
+  // Resolve the active post-processing prompt text for display and benchmark use.
+  const prompts = getSetting("post_process_prompts") ?? [];
+  const selectedPromptId = getSetting("post_process_selected_prompt_id") ?? "";
+  const activePrompt = prompts.find((p) => p.id === selectedPromptId) ?? null;
+  const activePromptText = activePrompt?.prompt ?? "";
+  const activePromptName = activePrompt?.name ?? null;
+
+  // The prompt actually sent to the LLM when running the benchmark.
+  const effectiveSystemPrompt = useSelectedPrompt ? activePromptText : customSystemPrompt;
+
+  const updateCollapsed = (nextCollapsed: boolean) => {
+    updateSetting("post_process_benchmark_collapsed", nextCollapsed);
+  };
+
+  const toggleItem = (itemKey: string) => {
+    setExpandedItems((current) => {
+      const next = new Set(current);
+      if (next.has(itemKey)) {
+        next.delete(itemKey);
+      } else {
+        next.add(itemKey);
+      }
+      return next;
+    });
+  };
+
+  const runBenchmark = async () => {
+    if (isRunning) return;
+
+    setIsRunning(true);
+    try {
+      const result = await commands.runLlmPostProcessBenchmark(
+        effectiveSystemPrompt,
+        userMessage,
+      );
+      if (result.status === "ok") {
+        const nextLog = [result.data, ...log].slice(0, 100);
+        await updateSetting("post_process_benchmark_log", nextLog);
+      } else {
+        console.error("Failed to run LLM post-processing benchmark:", result.error);
+      }
+    } catch (error) {
+      console.error("Failed to run LLM post-processing benchmark:", error);
+    } finally {
+      setIsRunning(false);
+    }
+  };
+
+  const clearLog = async () => {
+    setExpandedItems(new Set());
+    await updateSetting("post_process_benchmark_log", []);
+  };
+
+  const removeLogItem = async (index: number) => {
+    const nextLog = [...log];
+    nextLog.splice(index, 1);
+    await updateSetting("post_process_benchmark_log", nextLog);
+  };
+
+  const renderLogDetails = (item: LlmPostProcessBenchmarkResult) => (
+    <div className="space-y-3 border-t border-white/[0.05] px-4 py-3 text-xs text-[#d8d8d8]">
+      <div className="grid gap-2 sm:grid-cols-2">
+        <div>
+          <span className="text-[#a0a0a0]">Provider:</span>{" "}
+          {item.provider_label || item.provider_id || "Unknown"}
+        </div>
+        <div>
+          <span className="text-[#a0a0a0]">Model:</span>{" "}
+          {item.model || "Not configured"}
+        </div>
+        <div>
+          <span className="text-[#a0a0a0]">Duration:</span>{" "}
+          {formatBenchmarkDuration(item.duration_ms)}
+        </div>
+        <div>
+          <span className="text-[#a0a0a0]">Input / output:</span>{" "}
+          {item.input_chars.toLocaleString()} /{" "}
+          {item.output_chars.toLocaleString()} chars
+        </div>
+      </div>
+
+      <div className="space-y-1.5">
+        <div className="font-semibold text-[#f5f5f5]">System Prompt</div>
+        <pre className="max-h-48 overflow-auto whitespace-pre-wrap rounded-md border border-white/[0.06] bg-[#101010]/80 p-3 text-[#d8d8d8]">
+          {item.system_prompt || "(empty)"}
+        </pre>
+      </div>
+
+      <div className="space-y-1.5">
+        <div className="font-semibold text-[#f5f5f5]">User Message</div>
+        <pre className="max-h-48 overflow-auto whitespace-pre-wrap rounded-md border border-white/[0.06] bg-[#101010]/80 p-3 text-[#d8d8d8]">
+          {item.user_message || "(empty)"}
+        </pre>
+      </div>
+
+      {item.response_text && (
+        <div className="space-y-1.5">
+          <div className="font-semibold text-[#f5f5f5]">Response</div>
+          <pre className="max-h-64 overflow-auto whitespace-pre-wrap rounded-md border border-white/[0.06] bg-[#101010]/80 p-3 text-[#d8d8d8]">
+            {item.response_text}
+          </pre>
+        </div>
+      )}
+
+      {item.error && (
+        <div className="space-y-1.5">
+          <div className="font-semibold text-red-300">Error Details</div>
+          <pre className="max-h-48 overflow-auto whitespace-pre-wrap rounded-md border border-red-500/20 bg-red-500/10 p-3 text-red-200">
+            {item.error}
+          </pre>
+        </div>
+      )}
+    </div>
+  );
+
+  return (
+    <SettingsGroup
+      title={t("settings.postProcessing.benchmark.title", "Benchmark")}
+      description={t(
+        "settings.postProcessing.benchmark.description",
+        "Want to see how fast your model processes your own correction example? Add typical recognition mistakes here, run the benchmark, and compare latency and output quality across models.",
+      )}
+      collapsible={true}
+      collapsed={collapsed}
+      collapseLabel={t("settings.postProcessing.benchmark.collapse", "Collapse")}
+      expandLabel={t("settings.postProcessing.benchmark.expand", "Expand")}
+      onCollapsedChange={updateCollapsed}
+    >
+      <SettingContainer
+        title={t(
+          "settings.postProcessing.benchmark.systemPrompt.title",
+          "System Prompt",
+        )}
+        description={t(
+          "settings.postProcessing.benchmark.systemPrompt.description",
+          "The correction instructions sent as the system message for this benchmark.",
+        )}
+        descriptionMode="inline"
+        layout="stacked"
+        grouped={true}
+      >
+        {useSelectedPrompt ? (
+          // "Use Active Prompt" mode: show read-only info about the active prompt.
+          <div className="space-y-2">
+            <div className="flex items-start gap-3 rounded-md border border-white/[0.07] bg-[#101010]/60 px-4 py-3">
+              <div className="flex-1 min-w-0">
+                {activePrompt ? (
+                  <>
+                    <p className="text-xs text-mid-gray/70">
+                      {t(
+                        "settings.postProcessing.benchmark.systemPrompt.usingActive",
+                        "Using your currently selected post-processing prompt:",
+                      )}
+                    </p>
+                    <p className="mt-0.5 truncate text-sm font-semibold text-[#f5f5f5]">
+                      {activePromptName}
+                    </p>
+                    <pre className="mt-2 max-h-24 overflow-auto whitespace-pre-wrap text-xs text-mid-gray/80 leading-relaxed">
+                      {activePromptText}
+                    </pre>
+                  </>
+                ) : (
+                  <p className="text-xs text-yellow-400/80">
+                    {t(
+                      "settings.postProcessing.benchmark.systemPrompt.noActivePrompt",
+                      "No post-processing prompt is selected. Select one above or switch to Custom.",
+                    )}
+                  </p>
+                )}
+              </div>
+            </div>
+            <div className="flex justify-end">
+              <Button
+                onClick={() => updateSetting("post_process_benchmark_use_selected_prompt", false)}
+                variant="secondary"
+                size="md"
+              >
+                {t("settings.postProcessing.benchmark.systemPrompt.customize", "Customize")}
+              </Button>
+            </div>
+          </div>
+        ) : (
+          // "Custom" mode: editable textarea + button to revert to active prompt.
+          <div className="space-y-2">
+            <Textarea
+              value={customSystemPrompt}
+              onChange={(event) =>
+                updateSetting(
+                  "post_process_benchmark_system_prompt",
+                  event.target.value,
+                )
+              }
+              disabled={isUpdating("post_process_benchmark_system_prompt")}
+              className="w-full"
+            />
+            <div className="flex justify-end">
+              <Button
+                onClick={() => updateSetting("post_process_benchmark_use_selected_prompt", true)}
+                variant="secondary"
+                size="md"
+              >
+                {t(
+                  "settings.postProcessing.benchmark.systemPrompt.useActive",
+                  "Use Active Prompt",
+                )}
+              </Button>
+            </div>
+          </div>
+        )}
+      </SettingContainer>
+
+      <SettingContainer
+        title={t(
+          "settings.postProcessing.benchmark.userMessage.title",
+          "User Message",
+        )}
+        description={t(
+          "settings.postProcessing.benchmark.userMessage.description",
+          "Add recognition mistakes, bad punctuation, repeated words, casing problems, spoken punctuation, or other examples that match your real dictation.",
+        )}
+        descriptionMode="inline"
+        layout="stacked"
+        grouped={true}
+      >
+        <Textarea
+          value={userMessage}
+          onChange={(event) =>
+            updateSetting(
+              "post_process_benchmark_user_message",
+              event.target.value,
+            )
+          }
+          disabled={isUpdating("post_process_benchmark_user_message")}
+          className="w-full"
+        />
+        <p className="mt-2 text-xs text-mid-gray/70">
+          Add typical recognition mistakes, bad punctuation, repeated words,
+          casing problems, and spoken punctuation to compare models fairly.
+        </p>
+      </SettingContainer>
+
+      <SettingContainer
+        title={t("settings.postProcessing.benchmark.actions.title", "Run")}
+        description={t(
+          "settings.postProcessing.benchmark.actions.description",
+          "Send the current prompts to the configured post-processing provider and save the measured result.",
+        )}
+        descriptionMode="inline"
+        grouped={true}
+      >
+        <div className="flex flex-wrap justify-end gap-2">
+          <Button
+            onClick={runBenchmark}
+            variant="primary"
+            size="md"
+            disabled={isRunning || !userMessage.trim()}
+            className="inline-flex items-center gap-2"
+          >
+            {isRunning ? (
+              <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+            ) : (
+              <RefreshCcw className="h-4 w-4" aria-hidden="true" />
+            )}
+            {isRunning
+              ? t("settings.postProcessing.benchmark.running", "Running...")
+              : t("settings.postProcessing.benchmark.run", "Run Benchmark")}
+          </Button>
+          <Button
+            onClick={clearLog}
+            variant="secondary"
+            size="md"
+            disabled={log.length === 0 || isUpdating("post_process_benchmark_log")}
+            className="inline-flex items-center gap-2"
+          >
+            <Trash2 className="h-4 w-4" aria-hidden="true" />
+            {t("settings.postProcessing.benchmark.clearLog", "Clear Log")}
+          </Button>
+        </div>
+      </SettingContainer>
+
+      <SettingContainer
+        title={t("settings.postProcessing.benchmark.log.title", "Log")}
+        description={t(
+          "settings.postProcessing.benchmark.log.description",
+          "Newest benchmark results are kept first and persisted with settings. Maximum of 100 entries, then they will be overwritten.",
+        )}
+        descriptionMode="inline"
+        layout="stacked"
+        grouped={true}
+      >
+        {log.length === 0 ? (
+          <div className="rounded-md border border-white/[0.06] bg-[#101010]/50 p-3 text-sm text-mid-gray">
+            {t(
+              "settings.postProcessing.benchmark.log.empty",
+              "No benchmark runs yet.",
+            )}
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {log.map((item, index) => {
+              const itemKey = `${item.timestamp_ms}-${index}`;
+              const expanded = expandedItems.has(itemKey);
+              const statusClass = item.success ? "text-emerald-300" : "text-red-300";
+              return (
+                <div
+                  key={itemKey}
+                  className="overflow-hidden rounded-md border border-white/[0.06] bg-[#101010]/50"
+                >
+                  <button
+                    type="button"
+                    onClick={() => toggleItem(itemKey)}
+                    className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left transition-colors hover:bg-white/[0.03] focus:outline-none focus:ring-2 focus:ring-[#ff4d8d]/35"
+                    aria-expanded={expanded}
+                  >
+                    <span className="grid min-w-0 flex-1 gap-1 text-xs sm:grid-cols-[1.2fr_1fr_0.8fr_0.8fr_0.7fr] sm:items-center">
+                      <span className="truncate font-semibold text-[#f5f5f5]">
+                        {item.model || "No model"}
+                      </span>
+                      <span className="truncate text-[#d8d8d8]">
+                        {item.provider_label || item.provider_id || "Unknown"}
+                      </span>
+                      <span className="text-[#d8d8d8]">
+                        {formatBenchmarkDuration(item.duration_ms)}
+                      </span>
+                      <span className="text-[#d8d8d8]">
+                        {formatBenchmarkRate(item.chars_per_second)}
+                      </span>
+                      <span className={statusClass}>
+                        {item.success ? "Success" : "Error"}
+                      </span>
+                      <span className="text-[#a0a0a0] sm:col-span-5">
+                        {formatBenchmarkTimestamp(item.timestamp_ms)}
+                      </span>
+                    </span>
+                    <div className="flex items-center gap-1">
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          void removeLogItem(index);
+                        }}
+                        className="p-1 text-[#a0a0a0] hover:text-red-400 transition-colors"
+                        title="Delete entry"
+                        aria-label="Delete entry"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </button>
+                      <ChevronDown
+                        className={`h-4 w-4 shrink-0 text-[#a0a0a0] transition-transform ${
+                          expanded ? "rotate-180" : "rotate-0"
+                        }`}
+                        aria-hidden="true"
+                      />
+                    </div>
+                  </button>
+                  {expanded && renderLogDetails(item)}
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </SettingContainer>
+    </SettingsGroup>
   );
 };
 
@@ -405,6 +794,8 @@ export const PostProcessingSettings: React.FC = () => {
       <SettingsGroup title={t("settings.postProcessing.api.title")}>
         <PostProcessingSettingsApi />
       </SettingsGroup>
+
+      <PostProcessingBenchmarkComponent />
     </div>
   );
 };
