@@ -9,6 +9,7 @@ import { ToggleSwitch } from "../../ui/ToggleSwitch";
 import { Dropdown } from "../../ui/Dropdown";
 import { Slider } from "../../ui/Slider";
 import { Input } from "../../ui/Input";
+import { Textarea } from "../../ui/Textarea";
 import { TellMeMore } from "../../ui/TellMeMore";
 import { useTranslation } from "react-i18next";
 import { useSettings } from "../../../hooks/useSettings";
@@ -31,6 +32,25 @@ const SONIOX_LIVE_PREVIEW_CUSTOM_WIDTH_MIN = 320;
 const SONIOX_LIVE_PREVIEW_CUSTOM_WIDTH_MAX = 2200;
 const SONIOX_LIVE_PREVIEW_CUSTOM_HEIGHT_MIN = 100;
 const SONIOX_LIVE_PREVIEW_CUSTOM_HEIGHT_MAX = 1400;
+const LOCAL_PREVIEW_AUTO_FLUSH_INTERVAL_MIN_MS = 1000;
+const LOCAL_PREVIEW_AUTO_FLUSH_INTERVAL_MAX_MS = 30000;
+const LOCAL_PREVIEW_AUTO_FLUSH_OVERLAP_MIN_MS = 0;
+const LOCAL_PREVIEW_AUTO_FLUSH_OVERLAP_MAX_MS = 2000;
+const SLIDING_LM_WINDOW_TAIL_WORDS_MIN = 20;
+const SLIDING_LM_WINDOW_TAIL_WORDS_MAX = 240;
+const DEFAULT_SLIDING_LM_WINDOW_PROMPT =
+  "You are inside a speech recognition live preview system.\n" +
+  "Rewrite ONLY the editable tail so it fits naturally after the stable context.\n" +
+  "Stitch chunk boundaries, fix punctuation and capitalization, remove repeated boundary artifacts and hallucinated tails, and preserve the original meaning and language.\n" +
+  "Return ONLY the corrected final text for the editable tail. Do not explain, quote, or use JSON.\n\n" +
+  "Language: ${language}\n" +
+  "Profile: ${profile_name}\n" +
+  "Current app: ${current_app}\n\n" +
+  "Stable context before editable tail:\n${stable_context}\n\n" +
+  "Current full preview:\n${current_preview}\n\n" +
+  "Editable tail to return corrected:\n${editable_tail}\n\n" +
+  "Newest deterministic chunk:\n${new_chunk}\n\n" +
+  "Deterministic notes:\n${deterministic_notes}";
 
 type PreviewActionButtonConfig = {
   id:
@@ -113,6 +133,36 @@ function clampToRange(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, Math.round(value)));
 }
 
+interface LivePreviewSubsectionProps {
+  title: string;
+  description?: string;
+  disabled?: boolean;
+  children: React.ReactNode;
+}
+
+const LivePreviewSubsection: React.FC<LivePreviewSubsectionProps> = ({
+  title,
+  description,
+  disabled = false,
+  children,
+}) => (
+  <section
+    className={`px-6 py-4 ${disabled ? "opacity-50 pointer-events-none" : ""}`}
+  >
+    <div className="mb-3">
+      <h3 className="text-xs font-bold uppercase tracking-widest text-[#ff8ebb]">
+        {title}
+      </h3>
+      {description && (
+        <p className="mt-1 text-xs leading-relaxed text-[#a0a0a0]">
+          {description}
+        </p>
+      )}
+    </div>
+    <div className="-mx-6 space-y-1">{children}</div>
+  </section>
+);
+
 export const UserInterfaceSettings: React.FC = () => {
   const { t } = useTranslation();
   const { settings, updateSetting, isUpdating, getSetting, refreshSettings } = useSettings();
@@ -126,6 +176,10 @@ export const UserInterfaceSettings: React.FC = () => {
     string | null
   >(null);
   const [previewActionsExpanded, setPreviewActionsExpanded] = React.useState(false);
+  const [isPreviewDemoOpen, setIsPreviewDemoOpen] = React.useState(false);
+  const [slidingLmPromptDraft, setSlidingLmPromptDraft] = React.useState(
+    DEFAULT_SLIDING_LM_WINDOW_PROMPT,
+  );
 
   const voiceButtonShowAotToggle =
     (settings as any)?.voice_button_show_aot_toggle ?? false;
@@ -169,6 +223,25 @@ export const UserInterfaceSettings: React.FC = () => {
   const sonioxLivePreviewShowDragGrip = Boolean(
     (settings as any)?.soniox_live_preview_show_drag_grip ?? true,
   );
+  const localPreviewAutoFlushEnabled = Boolean(
+    (settings as any)?.soniox_live_preview_local_auto_flush_enabled ?? true,
+  );
+  const localPreviewAutoFlushIntervalMs = Number(
+    (settings as any)?.soniox_live_preview_local_auto_flush_interval_ms ?? 8000,
+  );
+  const localPreviewAutoFlushOverlapMs = Number(
+    (settings as any)?.soniox_live_preview_local_auto_flush_overlap_ms ?? 750,
+  );
+  const slidingLmWindowEnabled = Boolean(
+    (settings as any)?.soniox_live_preview_sliding_lm_window_enabled ?? false,
+  );
+  const slidingLmWindowPrompt = String(
+    (settings as any)?.soniox_live_preview_sliding_lm_window_prompt ??
+      DEFAULT_SLIDING_LM_WINDOW_PROMPT,
+  );
+  const slidingLmWindowTailWords = Number(
+    (settings as any)?.soniox_live_preview_sliding_lm_window_tail_words ?? 80,
+  );
   const sonioxLivePreviewCtrlBackspaceDeleteLastWord = Boolean(
     (settings as any)?.soniox_live_preview_ctrl_backspace_delete_last_word ?? true,
   );
@@ -188,6 +261,10 @@ export const UserInterfaceSettings: React.FC = () => {
     }
     return parts.length > 0 ? parts.join(";  ") : "None set";
   }, [settings, hotkeyOsType]);
+
+  React.useEffect(() => {
+    setSlidingLmPromptDraft(slidingLmWindowPrompt);
+  }, [slidingLmWindowPrompt]);
 
   const clearPreviewHotkey = (settingKey: string) => {
     void updateSetting(settingKey as any, "" as any);
@@ -214,17 +291,31 @@ export const UserInterfaceSettings: React.FC = () => {
     void updateSetting(key as any, clampToRange(value, min, max) as any);
   };
 
-  const handleOpenPreviewWindow = async () => {
+  React.useEffect(() => {
+    if (!sonioxLivePreviewEnabled) {
+      setIsPreviewDemoOpen(false);
+    }
+  }, [sonioxLivePreviewEnabled]);
+
+  const handleTogglePreviewWindow = async () => {
     try {
-      await invoke("preview_soniox_live_preview_window");
+      if (isPreviewDemoOpen) {
+        await invoke("close_soniox_live_preview_demo_window");
+        setIsPreviewDemoOpen(false);
+      } else {
+        await invoke("preview_soniox_live_preview_window");
+        setIsPreviewDemoOpen(true);
+      }
     } catch (error) {
-      console.error("Failed to open live preview demo window:", error);
+      console.error("Failed to toggle live preview demo window:", error);
       const message =
         error instanceof Error
           ? error.message
           : typeof error === "string"
             ? error
-            : "Failed to open preview window.";
+            : isPreviewDemoOpen
+              ? "Failed to close preview window."
+              : "Failed to open preview window.";
       toast.error(message);
     }
   };
@@ -254,8 +345,9 @@ export const UserInterfaceSettings: React.FC = () => {
       <RecordingOverlaySettings />
 
       {isWindows && (
-        <SettingsGroup title="Live Preview">
-          <div className="px-6 py-4">
+        <SettingsGroup id="live-preview-settings" title="Live Preview">
+          <LivePreviewSubsection title="Overview">
+            <div className="px-6">
             <TellMeMore title="Tell me more: Live Preview">
               <div className="space-y-3">
                 <p>
@@ -288,9 +380,21 @@ export const UserInterfaceSettings: React.FC = () => {
                     Non-active profiles can have their own Output to Preview value that takes effect when activated.
                   </p>
                 </div>
+
+                <div className="p-3 bg-[#1a1a1a] border border-[#333333] rounded-md space-y-2">
+                  <p>
+                    <strong>Local model auto flush:</strong>
+                  </p>
+                  <p>
+                    When enabled, Local transcription can update Preview while recording continues.
+                    Turn it off to return Local Preview to the older behavior: text appears after recording is stopped or manually finalized.
+                  </p>
+                </div>
               </div>
             </TellMeMore>
-          </div>
+            </div>
+          </LivePreviewSubsection>
+          <LivePreviewSubsection title="Workflow">
           <SettingContainer
             title="Live Preview Window"
             description="Warning: this changes how app inserts text! Preview window appears, then, text is first displayed here, only at the end of recording it is inserted into target application. This setting is synchronized with the active profile's Output to Preview toggle."
@@ -340,6 +444,11 @@ export const UserInterfaceSettings: React.FC = () => {
               disabled={isUpdating("soniox_live_preview_enabled")}
             />
           </SettingContainer>
+          </LivePreviewSubsection>
+          <LivePreviewSubsection
+            title="Preview Controls"
+            disabled={!sonioxLivePreviewEnabled}
+          >
           <SettingContainer
             title="Preview of the Preview Window"
             description="I heard you like previews? This application has a preview for the preview window, so you can open a resizable preview window that will help you adjust the looks."
@@ -348,15 +457,13 @@ export const UserInterfaceSettings: React.FC = () => {
           >
             <button
               type="button"
-              onClick={handleOpenPreviewWindow}
+              onClick={handleTogglePreviewWindow}
               className="px-3 py-1.5 bg-[#2b2b2b] hover:bg-[#3c3c3c] border border-[#3c3c3c] rounded-lg text-xs text-gray-200 font-medium transition-colors"
             >
-              Open Preview To See How it Looks
+              {isPreviewDemoOpen ? "Close Preview" : "Open Preview To See How it Looks"}
             </button>
           </SettingContainer>
-          <div
-            className={`px-6 py-4 ${!sonioxLivePreviewEnabled ? "opacity-50 pointer-events-none" : ""}`}
-          >
+            <div className="px-6">
             <button
               type="button"
               onClick={() => setPreviewActionsExpanded((prev) => !prev)}
@@ -455,7 +562,7 @@ export const UserInterfaceSettings: React.FC = () => {
               })}
             </div>
             )}
-          </div>
+            </div>
           <SettingContainer
             title="Ctrl+Backspace Deletes Last Word"
             description="When the preview window itself is focused, Ctrl+Backspace deletes the last word from preview text. This does not work from other windows."
@@ -498,6 +605,11 @@ export const UserInterfaceSettings: React.FC = () => {
               }
             />
           </SettingContainer>
+          </LivePreviewSubsection>
+          <LivePreviewSubsection
+            title="Window Position & Behavior"
+            disabled={!sonioxLivePreviewEnabled}
+          >
           <SettingContainer
             title="Show Drag Grip"
             description="Show a dotted grip strip at the top of the preview window so you can drag it. Dragging remembers the new window position."
@@ -519,7 +631,7 @@ export const UserInterfaceSettings: React.FC = () => {
               }
             />
           </SettingContainer>
-          <div className="px-6 pt-4">
+            <div className="px-6">
             <TellMeMore title="Tell me more: Positioning">
               <div className="space-y-2">
                 <p>
@@ -537,7 +649,7 @@ export const UserInterfaceSettings: React.FC = () => {
                 </p>
               </div>
             </TellMeMore>
-          </div>
+            </div>
           <SettingContainer
             title="Live Preview Position"
             description="Choose where to place the live preview window."
@@ -821,6 +933,8 @@ export const UserInterfaceSettings: React.FC = () => {
               </SettingContainer>
             </>
           )}
+          </LivePreviewSubsection>
+          <LivePreviewSubsection title="Size" disabled={!sonioxLivePreviewEnabled}>
           <SettingContainer
             title="Live Preview Size"
             description="Set the size of the live preview window."
@@ -1018,7 +1132,9 @@ export const UserInterfaceSettings: React.FC = () => {
               </SettingContainer>
             </>
           )}
-          <div className="px-6 pt-4">
+          </LivePreviewSubsection>
+          <LivePreviewSubsection title="Appearance" disabled={!sonioxLivePreviewEnabled}>
+            <div className="px-6">
             <TellMeMore title="Tell me more: Appearance">
               <div className="space-y-2">
                 <p>
@@ -1041,7 +1157,7 @@ export const UserInterfaceSettings: React.FC = () => {
                 </p>
               </div>
             </TellMeMore>
-          </div>
+            </div>
           <SettingContainer
             title="Live Preview Theme"
             description="Use the app-matching theme by default, or switch to alternate palettes."
@@ -1191,6 +1307,244 @@ export const UserInterfaceSettings: React.FC = () => {
               isUpdating("soniox_live_preview_interim_opacity_percent")
             }
           />
+          </LivePreviewSubsection>
+          <LivePreviewSubsection
+            title="Local Auto Flush (Beta)"
+            description="Beta feature. Use at your own risk. This local preview mode is not fully designed yet, and it may change or be removed in a future version."
+            disabled={!sonioxLivePreviewEnabled}
+          >
+          <SettingContainer
+            title="Local Model Auto Flush"
+            description="For Local transcription with Output to Preview, periodically transcribe recorded audio into the preview window while recording continues. Turn this off to restore the older Local Preview behavior."
+            descriptionMode="inline"
+            grouped={true}
+            disabled={!sonioxLivePreviewEnabled}
+          >
+            <ToggleSwitch
+              checked={localPreviewAutoFlushEnabled}
+              onChange={(enabled) =>
+                void updateSetting(
+                  "soniox_live_preview_local_auto_flush_enabled" as any,
+                  enabled as any,
+                )
+              }
+              disabled={
+                !sonioxLivePreviewEnabled ||
+                isUpdating("soniox_live_preview_local_auto_flush_enabled")
+              }
+            />
+          </SettingContainer>
+          <Slider
+            label="Local Auto Flush Period"
+            description="How often Local Preview tries to process a new audio chunk while recording. Shorter values update the preview sooner but may make chunk boundaries more visible."
+            descriptionMode="inline"
+            grouped={true}
+            min={LOCAL_PREVIEW_AUTO_FLUSH_INTERVAL_MIN_MS}
+            max={LOCAL_PREVIEW_AUTO_FLUSH_INTERVAL_MAX_MS}
+            step={500}
+            value={clampToRange(
+              localPreviewAutoFlushIntervalMs,
+              LOCAL_PREVIEW_AUTO_FLUSH_INTERVAL_MIN_MS,
+              LOCAL_PREVIEW_AUTO_FLUSH_INTERVAL_MAX_MS,
+            )}
+            formatValue={(value) => `${(value / 1000).toFixed(1)} s`}
+            onChange={() => {}}
+            onChangeComplete={(value) =>
+              void updateSetting(
+                "soniox_live_preview_local_auto_flush_interval_ms" as any,
+                clampToRange(
+                  value,
+                  LOCAL_PREVIEW_AUTO_FLUSH_INTERVAL_MIN_MS,
+                  LOCAL_PREVIEW_AUTO_FLUSH_INTERVAL_MAX_MS,
+                ) as any,
+              )
+            }
+            disabled={
+              !sonioxLivePreviewEnabled ||
+              !localPreviewAutoFlushEnabled ||
+              isUpdating("soniox_live_preview_local_auto_flush_interval_ms")
+            }
+          />
+          <Slider
+            label="Local Auto Flush Overlap"
+            description="Audio kept as context across Local Preview chunks. Higher overlap can reduce missed words at boundaries, but may increase repeated text."
+            descriptionMode="inline"
+            grouped={true}
+            min={LOCAL_PREVIEW_AUTO_FLUSH_OVERLAP_MIN_MS}
+            max={LOCAL_PREVIEW_AUTO_FLUSH_OVERLAP_MAX_MS}
+            step={100}
+            value={clampToRange(
+              localPreviewAutoFlushOverlapMs,
+              LOCAL_PREVIEW_AUTO_FLUSH_OVERLAP_MIN_MS,
+              LOCAL_PREVIEW_AUTO_FLUSH_OVERLAP_MAX_MS,
+            )}
+            formatValue={(value) => `${Math.round(value)} ms`}
+            onChange={() => {}}
+            onChangeComplete={(value) =>
+              void updateSetting(
+                "soniox_live_preview_local_auto_flush_overlap_ms" as any,
+                clampToRange(
+                  value,
+                  LOCAL_PREVIEW_AUTO_FLUSH_OVERLAP_MIN_MS,
+                  LOCAL_PREVIEW_AUTO_FLUSH_OVERLAP_MAX_MS,
+                ) as any,
+              )
+            }
+            disabled={
+              !sonioxLivePreviewEnabled ||
+              !localPreviewAutoFlushEnabled ||
+              isUpdating("soniox_live_preview_local_auto_flush_overlap_ms")
+            }
+          />
+          <SettingContainer
+            title="Sliding LM Window"
+            description="After deterministic auto-flush updates the preview, send the recent editable tail to the configured post-processing LLM provider for stitching, punctuation, and cleanup. Changed text is highlighted in green until the preview resets."
+            descriptionMode="inline"
+            grouped={true}
+            disabled={!sonioxLivePreviewEnabled || !localPreviewAutoFlushEnabled}
+          >
+            <ToggleSwitch
+              checked={slidingLmWindowEnabled}
+              onChange={(enabled) =>
+                void updateSetting(
+                  "soniox_live_preview_sliding_lm_window_enabled" as any,
+                  enabled as any,
+                )
+              }
+              disabled={
+                !sonioxLivePreviewEnabled ||
+                !localPreviewAutoFlushEnabled ||
+                isUpdating("soniox_live_preview_sliding_lm_window_enabled")
+              }
+            />
+          </SettingContainer>
+          <Slider
+            label="Sliding LM Editable Tail"
+            description="How many recent words the LLM may rewrite. Older text is sent only as stable context and is not replaced."
+            descriptionMode="inline"
+            grouped={true}
+            min={SLIDING_LM_WINDOW_TAIL_WORDS_MIN}
+            max={SLIDING_LM_WINDOW_TAIL_WORDS_MAX}
+            step={10}
+            value={clampToRange(
+              slidingLmWindowTailWords,
+              SLIDING_LM_WINDOW_TAIL_WORDS_MIN,
+              SLIDING_LM_WINDOW_TAIL_WORDS_MAX,
+            )}
+            formatValue={(value) => `${Math.round(value)} words`}
+            onChange={() => {}}
+            onChangeComplete={(value) =>
+              void updateSetting(
+                "soniox_live_preview_sliding_lm_window_tail_words" as any,
+                clampToRange(
+                  value,
+                  SLIDING_LM_WINDOW_TAIL_WORDS_MIN,
+                  SLIDING_LM_WINDOW_TAIL_WORDS_MAX,
+                ) as any,
+              )
+            }
+            disabled={
+              !sonioxLivePreviewEnabled ||
+              !localPreviewAutoFlushEnabled ||
+              !slidingLmWindowEnabled ||
+              isUpdating("soniox_live_preview_sliding_lm_window_tail_words")
+            }
+          />
+          <SettingContainer
+            title="Sliding LM Prompt"
+            description="Available variables: ${stable_context}, ${editable_tail}, ${new_chunk}, ${current_preview}, ${deterministic_notes}, ${language}, ${profile_name}, ${current_app}."
+            descriptionMode="inline"
+            grouped={true}
+            disabled={
+              !sonioxLivePreviewEnabled ||
+              !localPreviewAutoFlushEnabled ||
+              !slidingLmWindowEnabled
+            }
+          >
+            <div className="w-full max-w-[520px] space-y-2">
+              <Textarea
+                value={slidingLmPromptDraft}
+                onChange={(event) => setSlidingLmPromptDraft(event.target.value)}
+                onBlur={() => {
+                  if (slidingLmPromptDraft !== slidingLmWindowPrompt) {
+                    void updateSetting(
+                      "soniox_live_preview_sliding_lm_window_prompt" as any,
+                      slidingLmPromptDraft as any,
+                    );
+                  }
+                }}
+                disabled={
+                  !sonioxLivePreviewEnabled ||
+                  !localPreviewAutoFlushEnabled ||
+                  !slidingLmWindowEnabled ||
+                  isUpdating("soniox_live_preview_sliding_lm_window_prompt")
+                }
+                className="w-full min-h-[220px] font-mono text-xs"
+              />
+              <button
+                type="button"
+                onClick={() => {
+                  setSlidingLmPromptDraft(DEFAULT_SLIDING_LM_WINDOW_PROMPT);
+                  void updateSetting(
+                    "soniox_live_preview_sliding_lm_window_prompt" as any,
+                    DEFAULT_SLIDING_LM_WINDOW_PROMPT as any,
+                  );
+                }}
+                disabled={
+                  !sonioxLivePreviewEnabled ||
+                  !localPreviewAutoFlushEnabled ||
+                  !slidingLmWindowEnabled ||
+                  isUpdating("soniox_live_preview_sliding_lm_window_prompt")
+                }
+                className="px-3 py-1.5 bg-[#2b2b2b] hover:bg-[#3c3c3c] disabled:opacity-50 border border-[#3c3c3c] rounded-lg text-xs text-gray-200 font-medium transition-colors"
+              >
+                Reset prompt
+              </button>
+            </div>
+          </SettingContainer>
+          <div className="px-6 pt-2 text-xs leading-relaxed text-[#8f8f8f]">
+            <p className="font-semibold text-[#b8b8b8]">
+              What to expect when this is enabled
+            </p>
+            <p className="mt-1">
+              While you keep recording, local audio is periodically sent to the
+              local model and appended to the preview window. You should see text
+              arrive in small batches instead of waiting until recording stops.
+            </p>
+            <p className="mt-2">
+              This is a sliding-window experiment: each flush keeps a short audio
+              overlap for the next chunk and then tries to merge repeated words.
+              That helps avoid missing words at chunk boundaries, but short
+              periods can make punctuation, capitalization, repeated fragments,
+              or silence hallucinations more noticeable.
+            </p>
+            <p className="mt-2 font-semibold text-[#b8b8b8]">
+              Recommended starting points
+            </p>
+            <ul className="mt-1 list-disc space-y-1 pl-5">
+              <li>
+                Balanced: 6-8 s period, 700-1000 ms overlap. This usually keeps
+                preview updates useful without cutting too much sentence context.
+              </li>
+              <li>
+                Faster feedback: 2.5-4 s period, 900-1200 ms overlap. Use this
+                when latency matters more than perfect punctuation.
+              </li>
+              <li>
+                Safer long dictation: 10-12 s period, 500-800 ms overlap. This
+                gives the model more context and usually behaves closer to the
+                older stop-to-finalize flow.
+              </li>
+            </ul>
+            <p className="mt-2">
+              Example: if you speak continuously for a paragraph, a 3 s period may
+              show text quickly but split clauses awkwardly. A 7 s period is slower
+              but usually gives the model enough context for better commas and
+              sentence endings. If repeated words appear, lower the overlap; if
+              words disappear at boundaries, raise it.
+            </p>
+          </div>
+          </LivePreviewSubsection>
         </SettingsGroup>
       )}
 
