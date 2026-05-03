@@ -22,8 +22,8 @@ use crate::managers::soniox_stt::{SonioxAsyncTranscriptionOptions, SonioxSttMana
 use crate::managers::transcription::TranscriptionManager;
 use crate::session_manager::{self, ManagedSessionState};
 use crate::settings::{
-    apply_output_whitespace_policy_for_settings, get_settings, AppSettings, TranscriptionProvider,
-    APPLE_INTELLIGENCE_PROVIDER_ID,
+    apply_output_whitespace_policy_for_settings, get_settings, AppSettings, LlmFeature,
+    LlmPostProcessBenchmarkResult, TranscriptionProvider, APPLE_INTELLIGENCE_PROVIDER_ID,
 };
 use crate::soniox_stream_processor::SonioxStreamProcessor;
 use crate::tray::{change_tray_icon, TrayIconState};
@@ -667,6 +667,216 @@ async fn maybe_post_process_transcription(
             PostProcessTranscriptionOutcome::Skipped
         }
     }
+}
+
+fn build_llm_post_process_benchmark_result(
+    timestamp_ms: i64,
+    provider_id: String,
+    provider_label: String,
+    model: String,
+    duration_ms: u64,
+    system_prompt: String,
+    user_message: String,
+    response_text: String,
+    error: Option<String>,
+) -> LlmPostProcessBenchmarkResult {
+    let input_chars = system_prompt.chars().count() + user_message.chars().count();
+    let output_chars = response_text.chars().count();
+    let chars_per_second = if duration_ms > 0 {
+        (output_chars as f64 * 1000.0) / duration_ms as f64
+    } else {
+        0.0
+    };
+    let success = error.is_none();
+
+    LlmPostProcessBenchmarkResult {
+        timestamp_ms,
+        provider_id,
+        provider_label,
+        model,
+        duration_ms,
+        chars_per_second,
+        input_chars,
+        output_chars,
+        success,
+        system_prompt,
+        user_message,
+        response_text,
+        error,
+    }
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn run_llm_post_process_benchmark(
+    app: AppHandle,
+    system_prompt: String,
+    user_message: String,
+) -> Result<LlmPostProcessBenchmarkResult, String> {
+    let settings = get_settings(&app);
+    let timestamp_ms = chrono::Utc::now().timestamp_millis();
+    let provider = match settings.active_post_process_provider().cloned() {
+        Some(provider) => provider,
+        None => {
+            return Ok(build_llm_post_process_benchmark_result(
+                timestamp_ms,
+                String::new(),
+                "No provider".to_string(),
+                String::new(),
+                0,
+                system_prompt,
+                user_message,
+                String::new(),
+                Some("No post-processing provider selected.".to_string()),
+            ));
+        }
+    };
+
+    let config = match settings.llm_config_for(LlmFeature::PostProcessing) {
+        Some(config) => config,
+        None => {
+            return Ok(build_llm_post_process_benchmark_result(
+                timestamp_ms,
+                provider.id,
+                provider.label,
+                String::new(),
+                0,
+                system_prompt,
+                user_message,
+                String::new(),
+                Some("No post-processing provider selected.".to_string()),
+            ));
+        }
+    };
+
+    if config.model.trim().is_empty() {
+        return Ok(build_llm_post_process_benchmark_result(
+            timestamp_ms,
+            provider.id,
+            provider.label,
+            config.model,
+            0,
+            system_prompt,
+            user_message,
+            String::new(),
+            Some("The selected post-processing provider has no model configured.".to_string()),
+        ));
+    }
+
+    if provider.id == APPLE_INTELLIGENCE_PROVIDER_ID {
+        #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+        let prompt = if system_prompt.trim().is_empty() {
+            user_message.clone()
+        } else {
+            format!("{}\n\n{}", system_prompt, user_message)
+        };
+        let started = Instant::now();
+
+        #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+        let benchmark_response = {
+            if !apple_intelligence::check_apple_intelligence_availability() {
+                Err("Apple Intelligence is not currently available on this device.".to_string())
+            } else {
+                let token_limit = config.model.trim().parse::<i32>().unwrap_or(0);
+                apple_intelligence::process_text(&prompt, token_limit)
+            }
+        };
+
+        #[cfg(not(all(target_os = "macos", target_arch = "aarch64")))]
+        let benchmark_response: Result<String, String> =
+            Err("Apple Intelligence is not available on this platform.".to_string());
+
+        let duration_ms = started.elapsed().as_millis() as u64;
+        return Ok(match benchmark_response {
+            Ok(response_text) => build_llm_post_process_benchmark_result(
+                timestamp_ms,
+                provider.id,
+                provider.label,
+                config.model,
+                duration_ms,
+                system_prompt,
+                user_message,
+                response_text,
+                None,
+            ),
+            Err(error) => build_llm_post_process_benchmark_result(
+                timestamp_ms,
+                provider.id,
+                provider.label,
+                config.model,
+                duration_ms,
+                system_prompt,
+                user_message,
+                String::new(),
+                Some(error),
+            ),
+        });
+    }
+
+    let reasoning_config = crate::llm_client::ReasoningConfig::new(
+        settings.post_process_reasoning_enabled,
+        settings.post_process_reasoning_budget,
+    )
+    .with_disable_by_default_on_compatible_providers(true);
+
+    let started = Instant::now();
+    let benchmark_response = crate::llm_client::send_chat_completion_with_system_and_reasoning(
+        &provider,
+        config.api_key,
+        &config.model,
+        system_prompt.clone(),
+        user_message.clone(),
+        reasoning_config,
+    )
+    .await;
+    let duration_ms = started.elapsed().as_millis() as u64;
+
+    Ok(match benchmark_response {
+        Ok(Some(response_text)) => {
+            let response_text = if settings.zero_width_filter_enabled {
+                response_text
+                    .replace('\u{200B}', "")
+                    .replace('\u{200C}', "")
+                    .replace('\u{200D}', "")
+                    .replace('\u{FEFF}', "")
+            } else {
+                response_text
+            };
+            build_llm_post_process_benchmark_result(
+                timestamp_ms,
+                provider.id,
+                provider.label,
+                config.model,
+                duration_ms,
+                system_prompt,
+                user_message,
+                response_text,
+                None,
+            )
+        }
+        Ok(None) => build_llm_post_process_benchmark_result(
+            timestamp_ms,
+            provider.id,
+            provider.label,
+            config.model,
+            duration_ms,
+            system_prompt,
+            user_message,
+            String::new(),
+            Some("LLM response had no content.".to_string()),
+        ),
+        Err(error) => build_llm_post_process_benchmark_result(
+            timestamp_ms,
+            provider.id,
+            provider.label,
+            config.model,
+            duration_ms,
+            system_prompt,
+            user_message,
+            String::new(),
+            Some(error),
+        ),
+    })
 }
 
 async fn maybe_convert_chinese_variant(
