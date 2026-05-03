@@ -147,7 +147,7 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
     remotePreset === "custom" ? (remoteSettings?.model_id ?? "") : "",
   );
   const [sonioxModelMode, setSonioxModelMode] = useState(derivedSonioxModelMode);
-  const [customSonioxModelInput, setCustomSonioxModelInput] = useState(
+  const [customSonioxModelInput, setCustomSonioxModelInput] = useState<string>(
     isKnownSonioxPreset ? "" : sonioxModel,
   );
   const [sonioxTimeoutInput, setSonioxTimeoutInput] = useState(

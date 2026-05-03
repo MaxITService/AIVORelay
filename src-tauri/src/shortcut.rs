@@ -58,6 +58,12 @@ const SONIOX_LIVE_PREVIEW_MIN_CUSTOM_HEIGHT_PX: u16 = 100;
 const SONIOX_LIVE_PREVIEW_MAX_CUSTOM_HEIGHT_PX: u16 = 1400;
 const SONIOX_LIVE_PREVIEW_MIN_CUSTOM_COORD_PX: i32 = -10_000;
 const SONIOX_LIVE_PREVIEW_MAX_CUSTOM_COORD_PX: i32 = 10_000;
+const SONIOX_LIVE_PREVIEW_LOCAL_AUTO_FLUSH_MIN_INTERVAL_MS: u64 = 1_000;
+const SONIOX_LIVE_PREVIEW_LOCAL_AUTO_FLUSH_MAX_INTERVAL_MS: u64 = 30_000;
+const SONIOX_LIVE_PREVIEW_LOCAL_AUTO_FLUSH_MIN_OVERLAP_MS: u16 = 0;
+const SONIOX_LIVE_PREVIEW_LOCAL_AUTO_FLUSH_MAX_OVERLAP_MS: u16 = 2_000;
+const SONIOX_LIVE_PREVIEW_SLIDING_LM_MIN_TAIL_WORDS: u16 = 20;
+const SONIOX_LIVE_PREVIEW_SLIDING_LM_MAX_TAIL_WORDS: u16 = 240;
 const MIN_CONNECTOR_PASSWORD_LEN: usize = 64;
 const CONNECTOR_PASSWORD_ROTATION_WAIT_MS: u64 = 15_000;
 const CONNECTOR_PASSWORD_ROTATION_POLL_MS: u64 = 250;
@@ -187,6 +193,27 @@ fn clamp_soniox_live_preview_custom_coord_px(value: i32) -> i32 {
     value.clamp(
         SONIOX_LIVE_PREVIEW_MIN_CUSTOM_COORD_PX,
         SONIOX_LIVE_PREVIEW_MAX_CUSTOM_COORD_PX,
+    )
+}
+
+fn clamp_soniox_live_preview_local_auto_flush_interval_ms(value: u64) -> u64 {
+    value.clamp(
+        SONIOX_LIVE_PREVIEW_LOCAL_AUTO_FLUSH_MIN_INTERVAL_MS,
+        SONIOX_LIVE_PREVIEW_LOCAL_AUTO_FLUSH_MAX_INTERVAL_MS,
+    )
+}
+
+fn clamp_soniox_live_preview_local_auto_flush_overlap_ms(value: u16) -> u16 {
+    value.clamp(
+        SONIOX_LIVE_PREVIEW_LOCAL_AUTO_FLUSH_MIN_OVERLAP_MS,
+        SONIOX_LIVE_PREVIEW_LOCAL_AUTO_FLUSH_MAX_OVERLAP_MS,
+    )
+}
+
+fn clamp_soniox_live_preview_sliding_lm_tail_words(value: u16) -> u16 {
+    value.clamp(
+        SONIOX_LIVE_PREVIEW_SLIDING_LM_MIN_TAIL_WORDS,
+        SONIOX_LIVE_PREVIEW_SLIDING_LM_MAX_TAIL_WORDS,
     )
 }
 
@@ -1530,6 +1557,87 @@ pub fn change_soniox_live_preview_enabled_setting(
     settings::write_settings(&app, settings);
     refresh_soniox_live_preview_window(&app);
 
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_soniox_live_preview_local_auto_flush_enabled_setting(
+    app: AppHandle,
+    enabled: bool,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.soniox_live_preview_local_auto_flush_enabled = enabled;
+    settings::write_settings(&app, settings);
+    refresh_soniox_live_preview_window(&app);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_soniox_live_preview_local_auto_flush_interval_setting(
+    app: AppHandle,
+    interval_ms: u64,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.soniox_live_preview_local_auto_flush_interval_ms =
+        clamp_soniox_live_preview_local_auto_flush_interval_ms(interval_ms);
+    settings::write_settings(&app, settings);
+    refresh_soniox_live_preview_window(&app);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_soniox_live_preview_local_auto_flush_overlap_setting(
+    app: AppHandle,
+    overlap_ms: u16,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.soniox_live_preview_local_auto_flush_overlap_ms =
+        clamp_soniox_live_preview_local_auto_flush_overlap_ms(overlap_ms);
+    settings::write_settings(&app, settings);
+    refresh_soniox_live_preview_window(&app);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_soniox_live_preview_sliding_lm_window_enabled_setting(
+    app: AppHandle,
+    enabled: bool,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.soniox_live_preview_sliding_lm_window_enabled = enabled;
+    settings::write_settings(&app, settings);
+    refresh_soniox_live_preview_window(&app);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_soniox_live_preview_sliding_lm_window_prompt_setting(
+    app: AppHandle,
+    prompt: String,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.soniox_live_preview_sliding_lm_window_prompt = prompt;
+    settings::write_settings(&app, settings);
+    refresh_soniox_live_preview_window(&app);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_soniox_live_preview_sliding_lm_window_tail_words_setting(
+    app: AppHandle,
+    tail_words: u16,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.soniox_live_preview_sliding_lm_window_tail_words =
+        clamp_soniox_live_preview_sliding_lm_tail_words(tail_words);
+    settings::write_settings(&app, settings);
+    refresh_soniox_live_preview_window(&app);
     Ok(())
 }
 
