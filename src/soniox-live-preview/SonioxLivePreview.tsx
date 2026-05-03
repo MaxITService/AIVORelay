@@ -6,6 +6,7 @@ import {
   useRef,
   useState,
   type CSSProperties,
+  type ReactNode,
 } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
@@ -23,6 +24,13 @@ type SonioxLivePreviewPayload = {
   interim_text?: string;
   finalText?: string;
   interimText?: string;
+  changed_ranges?: PreviewChangedRange[];
+  changedRanges?: PreviewChangedRange[];
+};
+
+type PreviewChangedRange = {
+  start?: number;
+  end?: number;
 };
 
 type SonioxLivePreviewAppearancePayload = {
@@ -273,6 +281,53 @@ function ensureReadableTextColor(text: RgbTuple, bg: RgbTuple): RgbTuple {
   return contrastRatio(dark, bg) >= contrastRatio(light, bg) ? dark : light;
 }
 
+function renderTextWithHighlights(
+  text: string,
+  ranges: PreviewChangedRange[],
+): ReactNode {
+  if (ranges.length === 0 || text.length === 0) {
+    return text;
+  }
+
+  const chars = Array.from(text);
+  const normalizedRanges = ranges
+    .map((range) => ({
+      start: Math.max(0, Math.min(chars.length, Math.floor(range.start ?? 0))),
+      end: Math.max(0, Math.min(chars.length, Math.floor(range.end ?? 0))),
+    }))
+    .filter((range) => range.start < range.end)
+    .sort((a, b) => a.start - b.start || a.end - b.end);
+
+  if (normalizedRanges.length === 0) {
+    return text;
+  }
+
+  const nodes: ReactNode[] = [];
+  let cursor = 0;
+  let key = 0;
+
+  for (const range of normalizedRanges) {
+    if (range.start > cursor) {
+      nodes.push(chars.slice(cursor, range.start).join(""));
+    }
+    const end = Math.max(range.end, cursor);
+    if (end > cursor) {
+      nodes.push(
+        <mark className="soniox-live-preview-change" key={`change-${key++}`}>
+          {chars.slice(Math.max(range.start, cursor), end).join("")}
+        </mark>,
+      );
+      cursor = end;
+    }
+  }
+
+  if (cursor < chars.length) {
+    nodes.push(chars.slice(cursor).join(""));
+  }
+
+  return nodes;
+}
+
 export default function SonioxLivePreview() {
   const osKind = getOsType();
   const osType: OSType =
@@ -281,6 +336,7 @@ export default function SonioxLivePreview() {
       : "unknown";
   const [finalText, setFinalText] = useState("");
   const [interimText, setInterimText] = useState("");
+  const [changedRanges, setChangedRanges] = useState<PreviewChangedRange[]>([]);
   const [appearance, setAppearance] =
     useState<SonioxLivePreviewAppearance>(DEFAULT_APPEARANCE);
   const [workflowState, setWorkflowState] =
@@ -344,9 +400,15 @@ export default function SonioxLivePreview() {
           : typeof data.interimText === "string"
             ? data.interimText
             : "";
+      const nextChangedRanges = Array.isArray(data.changed_ranges)
+        ? data.changed_ranges
+        : Array.isArray(data.changedRanges)
+          ? data.changedRanges
+          : [];
 
       setFinalText(nextFinal);
       setInterimText(nextInterim);
+      setChangedRanges(nextChangedRanges);
     };
 
     const applyAppearancePayload = (raw: unknown) => {
@@ -663,6 +725,7 @@ export default function SonioxLivePreview() {
           }
           setFinalText("");
           setInterimText("");
+          setChangedRanges([]);
         };
 
         const unlistenApp = await listen(eventName, resetHandler);
@@ -1216,7 +1279,9 @@ export default function SonioxLivePreview() {
           <span className="soniox-live-preview-empty">{emptyStateMessage}</span>
         ) : (
           <>
-            <span className="soniox-live-preview-final">{finalText}</span>
+            <span className="soniox-live-preview-final">
+              {renderTextWithHighlights(finalText, changedRanges)}
+            </span>
             <span className="soniox-live-preview-interim">{interimText}</span>
           </>
         )}

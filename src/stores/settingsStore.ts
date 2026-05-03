@@ -451,6 +451,42 @@ settingUpdaters.error_overlay_auto_hide_ms = (value) =>
   invoke("change_voice_button_single_click_close_setting", { enabled: value });
 (settingUpdaters as any).soniox_live_preview_enabled = (value: any) =>
   invoke("change_soniox_live_preview_enabled_setting", { enabled: value });
+(settingUpdaters as any).soniox_live_preview_local_auto_flush_enabled = (
+  value: any,
+) =>
+  invoke("change_soniox_live_preview_local_auto_flush_enabled_setting", {
+    enabled: value,
+  });
+(settingUpdaters as any).soniox_live_preview_local_auto_flush_interval_ms = (
+  value: any,
+) =>
+  invoke("change_soniox_live_preview_local_auto_flush_interval_setting", {
+    intervalMs: value,
+  });
+(settingUpdaters as any).soniox_live_preview_local_auto_flush_overlap_ms = (
+  value: any,
+) =>
+  invoke("change_soniox_live_preview_local_auto_flush_overlap_setting", {
+    overlapMs: value,
+  });
+(settingUpdaters as any).soniox_live_preview_sliding_lm_window_enabled = (
+  value: any,
+) =>
+  invoke("change_soniox_live_preview_sliding_lm_window_enabled_setting", {
+    enabled: value,
+  });
+(settingUpdaters as any).soniox_live_preview_sliding_lm_window_prompt = (
+  value: any,
+) =>
+  invoke("change_soniox_live_preview_sliding_lm_window_prompt_setting", {
+    prompt: value,
+  });
+(settingUpdaters as any).soniox_live_preview_sliding_lm_window_tail_words = (
+  value: any,
+) =>
+  invoke("change_soniox_live_preview_sliding_lm_window_tail_words_setting", {
+    tailWords: value,
+  });
 (settingUpdaters as any).soniox_live_preview_position = (value: any) =>
   invoke("change_soniox_live_preview_position_setting", { position: value });
 (settingUpdaters as any).soniox_live_preview_custom_x_px = (value: any) =>
