@@ -19,6 +19,7 @@ use crate::url_security::{
 pub const APPLE_INTELLIGENCE_PROVIDER_ID: &str = "apple_intelligence";
 pub const APPLE_INTELLIGENCE_DEFAULT_MODEL_ID: &str = "Apple Intelligence";
 pub const MAX_HISTORY_LIMIT: usize = 1000;
+pub const MAX_LLM_POST_PROCESS_BENCHMARK_LOG_ITEMS: usize = 50;
 pub const MAX_DICTATION_STATS_COUNT: u64 = 9_007_199_254_740_991;
 pub const DICTATION_STATS_WARNING_THRESHOLD: u64 =
     MAX_DICTATION_STATS_COUNT - (MAX_DICTATION_STATS_COUNT / 20);
@@ -762,6 +763,23 @@ pub struct PostProcessProvider {
     pub allow_insecure_http: bool,
     #[serde(default)]
     pub models_endpoint: Option<String>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, Type)]
+pub struct LlmPostProcessBenchmarkResult {
+    pub timestamp_ms: i64,
+    pub provider_id: String,
+    pub provider_label: String,
+    pub model: String,
+    pub duration_ms: u64,
+    pub chars_per_second: f64,
+    pub input_chars: usize,
+    pub output_chars: usize,
+    pub success: bool,
+    pub system_prompt: String,
+    pub user_message: String,
+    pub response_text: String,
+    pub error: Option<String>,
 }
 
 /// Which feature is requesting LLM access.
@@ -1672,6 +1690,18 @@ pub struct AppSettings {
     pub post_process_prompts: Vec<LLMPrompt>,
     #[serde(default)]
     pub post_process_selected_prompt_id: Option<String>,
+    #[serde(default = "default_post_process_benchmark_collapsed")]
+    pub post_process_benchmark_collapsed: bool,
+    #[serde(default = "default_post_process_benchmark_system_prompt")]
+    pub post_process_benchmark_system_prompt: String,
+    #[serde(default = "default_post_process_benchmark_user_message")]
+    pub post_process_benchmark_user_message: String,
+    #[serde(default)]
+    pub post_process_benchmark_log: Vec<LlmPostProcessBenchmarkResult>,
+    /// When true, the benchmark uses the currently selected post-processing prompt as the system
+    /// prompt instead of the separate custom benchmark system prompt field.
+    #[serde(default = "default_true")]
+    pub post_process_benchmark_use_selected_prompt: bool,
     /// Whether ${short_prev_transcript} is enabled in LLM prompt templates.
     #[serde(default = "default_true")]
     pub llm_context_prev_transcript_enabled: bool,
@@ -2424,6 +2454,18 @@ fn default_post_process_enabled() -> bool {
     false
 }
 
+fn default_post_process_benchmark_collapsed() -> bool {
+    true
+}
+
+fn default_post_process_benchmark_system_prompt() -> String {
+    "You are a speech recognition post-processing engine.\nFix recognition mistakes, punctuation, capitalization, repeated words, and obvious casing problems while preserving the original meaning and language.\nReturn only the corrected text with no explanations.".to_string()
+}
+
+fn default_post_process_benchmark_user_message() -> String {
+    "okay so lets test this this model can you fix punctuation and casing for me period also remove repeated words".to_string()
+}
+
 fn default_llm_context_prev_transcript_max_words() -> usize {
     200
 }
@@ -2845,6 +2887,17 @@ fn ensure_post_process_defaults(settings: &mut AppSettings) -> bool {
     changed
 }
 
+fn normalize_post_process_benchmark_log(settings: &mut AppSettings) -> bool {
+    if settings.post_process_benchmark_log.len() <= MAX_LLM_POST_PROCESS_BENCHMARK_LOG_ITEMS {
+        return false;
+    }
+
+    settings
+        .post_process_benchmark_log
+        .truncate(MAX_LLM_POST_PROCESS_BENCHMARK_LOG_ITEMS);
+    true
+}
+
 fn ensure_remote_stt_defaults(settings: &mut AppSettings) -> bool {
     let mut changed = false;
 
@@ -3210,6 +3263,11 @@ pub fn get_default_settings() -> AppSettings {
         post_process_models: default_post_process_models(),
         post_process_prompts: default_post_process_prompts(),
         post_process_selected_prompt_id: None,
+        post_process_benchmark_collapsed: default_post_process_benchmark_collapsed(),
+        post_process_benchmark_system_prompt: default_post_process_benchmark_system_prompt(),
+        post_process_benchmark_user_message: default_post_process_benchmark_user_message(),
+        post_process_benchmark_log: Vec::new(),
+        post_process_benchmark_use_selected_prompt: true,
         llm_context_prev_transcript_enabled: true,
         llm_context_prev_transcript_max_words: default_llm_context_prev_transcript_max_words(),
         llm_context_prev_transcript_expiry_seconds:
@@ -3727,6 +3785,7 @@ fn repair_runtime_settings(settings: &mut AppSettings) -> bool {
     changed |= ensure_preview_delete_last_word_binding(settings);
     changed |= migrate_legacy_settings_fields(settings);
     changed |= ensure_post_process_defaults(settings);
+    changed |= normalize_post_process_benchmark_log(settings);
     changed |= ensure_remote_stt_defaults(settings);
     changed |= ensure_active_profile_exists(settings);
     changed |= ensure_valid_soniox_contexts(settings);
