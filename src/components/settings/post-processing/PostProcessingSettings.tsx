@@ -207,40 +207,57 @@ const PostProcessingBenchmarkComponent: React.FC = () => {
         {useSelectedPrompt ? (
           // "Use Active Prompt" mode: show read-only info about the active prompt.
           <div className="space-y-2">
-            <div className="flex items-start gap-3 rounded-md border border-white/[0.07] bg-[#101010]/60 px-4 py-3">
-              <div className="flex-1 min-w-0">
-                {activePrompt ? (
-                  <>
-                    <p className="text-xs text-mid-gray/70">
-                      {t(
-                        "settings.postProcessing.benchmark.systemPrompt.usingActive",
-                        "Using your currently selected post-processing prompt:",
-                      )}
-                    </p>
-                    <p className="mt-0.5 truncate text-sm font-semibold text-[#f5f5f5]">
-                      {activePromptName}
-                    </p>
-                    <pre className="mt-2 max-h-24 overflow-auto whitespace-pre-wrap text-xs text-mid-gray/80 leading-relaxed">
-                      {activePromptText}
-                    </pre>
-                  </>
-                ) : (
-                  <p className="text-xs text-yellow-400/80">
+            {activePrompt ? (
+              <>
+                <p className="text-sm text-[#a0a0a0]">
+                  {t(
+                    "settings.postProcessing.benchmark.systemPrompt.usingActive",
+                    "Using your currently selected post-processing prompt:",
+                  )}
+                </p>
+                <div className="flex items-center gap-2">
+                  <span className="text-sm text-[#a0a0a0]">
                     {t(
-                      "settings.postProcessing.benchmark.systemPrompt.noActivePrompt",
-                      "No post-processing prompt is selected. Select one above or switch to Custom.",
+                      "settings.postProcessing.benchmark.systemPrompt.promptName",
+                      "Prompt name:",
                     )}
-                  </p>
+                  </span>
+                  <span className="truncate text-sm font-semibold text-accent">
+                    {activePromptName}
+                  </span>
+                </div>
+                <div className="mt-1 rounded-md border border-white/[0.07] bg-[#101010]/60 px-4 py-3">
+                  <pre className="max-h-24 overflow-auto whitespace-pre-wrap text-sm text-[#d8d8d8] leading-relaxed">
+                    {activePromptText}
+                  </pre>
+                </div>
+              </>
+            ) : (
+              <p className="text-xs text-yellow-400/80">
+                {t(
+                  "settings.postProcessing.benchmark.systemPrompt.noActivePrompt",
+                  "No post-processing prompt is selected. Select one above or switch to Custom.",
                 )}
-              </div>
-            </div>
+              </p>
+            )}
             <div className="flex justify-end">
               <Button
-                onClick={() => updateSetting("post_process_benchmark_use_selected_prompt", false)}
+                onClick={async () => {
+                  if (activePromptText) {
+                    await updateSetting(
+                      "post_process_benchmark_system_prompt",
+                      activePromptText,
+                    );
+                  }
+                  await updateSetting(
+                    "post_process_benchmark_use_selected_prompt",
+                    false,
+                  );
+                }}
                 variant="secondary"
                 size="md"
               >
-                {t("settings.postProcessing.benchmark.systemPrompt.customize", "Customize")}
+                {t("settings.postProcessing.benchmark.systemPrompt.customize", "No I want to test using different prompt!")}
               </Button>
             </div>
           </div>
@@ -277,7 +294,7 @@ const PostProcessingBenchmarkComponent: React.FC = () => {
       <SettingContainer
         title={t(
           "settings.postProcessing.benchmark.userMessage.title",
-          "User Message",
+          "User Message (This is the text that benchmark will use as if you would have spoken it and it is sent to be post processed by AI)",
         )}
         description={t(
           "settings.postProcessing.benchmark.userMessage.description",
@@ -298,10 +315,6 @@ const PostProcessingBenchmarkComponent: React.FC = () => {
           disabled={isUpdating("post_process_benchmark_user_message")}
           className="w-full"
         />
-        <p className="mt-2 text-xs text-mid-gray/70">
-          Add typical recognition mistakes, bad punctuation, repeated words,
-          casing problems, and spoken punctuation to compare models fairly.
-        </p>
       </SettingContainer>
 
       <SettingContainer
