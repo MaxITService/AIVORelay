@@ -398,6 +398,14 @@
         "title": "Sidebar Customization",
         "description": "You can customize your navigation! Reorder the sections in the sidebar on the left by clicking and dragging them to your preferred position. Your custom layout is automatically saved and persists between app restarts."
       },
+      "showTrayIcon": {
+        "label": "Show Tray Icon",
+        "description": "Show the AivoRelay icon in the system tray."
+      },
+      "showTrayShortcutGuide": {
+        "label": "Show Shortcut Guide in Tray",
+        "description": "Show assigned application buttons and their hotkeys in the tray as a reference section."
+      },
       "recordingOverlay": {
         "title": "Recording Overlay",
         "preview": {
@@ -1103,14 +1111,6 @@
       "autostart": {
         "label": "Launch on Startup",
         "description": "Automatically start AivoRelay when you log in to your computer."
-      },
-      "showTrayIcon": {
-        "label": "Show Tray Icon",
-        "description": "Display the AivoRelay icon in the system tray."
-      },
-      "showTrayShortcutGuide": {
-        "label": "Show Shortcut Guide in Tray",
-        "description": "Show assigned app buttons and their shortcuts as a read-only guide in the tray menu."
       },
       "overlay": {
         "title": "Overlay Position",
