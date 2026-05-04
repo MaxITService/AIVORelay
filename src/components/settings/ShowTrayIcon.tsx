@@ -20,8 +20,8 @@ export const ShowTrayIcon: React.FC<ShowTrayIconProps> = React.memo(
         checked={showTrayIcon}
         onChange={(enabled) => updateSetting("show_tray_icon", enabled)}
         isUpdating={isUpdating("show_tray_icon")}
-        label={t("settings.advanced.showTrayIcon.label")}
-        description={t("settings.advanced.showTrayIcon.description")}
+        label={t("settings.userInterface.showTrayIcon.label")}
+        description={t("settings.userInterface.showTrayIcon.description")}
         descriptionMode={descriptionMode}
         grouped={grouped}
         tooltipPosition="bottom"
