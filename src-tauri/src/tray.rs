@@ -243,7 +243,10 @@ fn try_update_tray_menu(
         None::<&str>,
     )?;
     let model_loaded = app.state::<Arc<TranscriptionManager>>().is_model_loaded();
-    let unload_model_label = if model_loaded {
+    let local_model_selected = settings.transcription_provider == TranscriptionProvider::Local
+        && !settings.selected_model.trim().is_empty();
+    let can_unload_model = model_loaded || local_model_selected;
+    let unload_model_label = if can_unload_model {
         TRAY_UNLOAD_LOCAL_MODEL_LABEL
     } else if settings.transcription_provider != TranscriptionProvider::Local {
         TRAY_NO_LOCAL_MODEL_LOADED_LABEL
@@ -256,7 +259,7 @@ fn try_update_tray_menu(
         app,
         "unload_model",
         unload_model_label,
-        model_loaded,
+        can_unload_model,
         None::<&str>,
     )?;
     let model_menu_label = build_model_menu_label(app, &settings, &strings.model);

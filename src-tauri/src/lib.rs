@@ -548,7 +548,10 @@ fn initialize_core_logic(app_handle: &AppHandle) {
                 }
                 "unload_model" => {
                     let transcription_manager = app.state::<Arc<TranscriptionManager>>();
-                    if !transcription_manager.is_model_loaded() {
+                    let settings = settings::get_settings(app);
+                    if settings.transcription_provider != settings::TranscriptionProvider::Local
+                        && !transcription_manager.is_model_loaded()
+                    {
                         log::warn!("No model is currently loaded.");
                         return;
                     }
