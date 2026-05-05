@@ -196,6 +196,14 @@ body {
   color: inherit;
 }
 
+.soniox-live-preview-deletion {
+  display: inline-block;
+  margin: 0 1px;
+  color: #ff4d6d;
+  font-weight: 800;
+  text-shadow: 0 0 8px rgba(255, 77, 109, 0.55);
+}
+
 .soniox-live-preview-interim {
   color: var(--slp-interim-color);
 }
