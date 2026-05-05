@@ -2770,8 +2770,15 @@ fn changed_ranges_for_replacement(
 ) -> Vec<crate::overlay::SonioxLivePreviewChangedRange> {
     let old_chars: Vec<char> = old_text.chars().collect();
     let new_chars: Vec<char> = new_text.chars().collect();
-    if old_chars == new_chars || new_chars.is_empty() {
+    if old_chars == new_chars {
         return Vec::new();
+    }
+    if new_chars.is_empty() {
+        return vec![crate::overlay::SonioxLivePreviewChangedRange {
+            start: base_char_start,
+            end: base_char_start,
+            deleted: true,
+        }];
     }
 
     if old_chars.len().saturating_mul(new_chars.len()) > 1_000_000 {
@@ -2792,6 +2799,7 @@ fn changed_ranges_for_replacement(
     }
 
     let mut unchanged = vec![false; m];
+    let mut deletion_marker_starts = Vec::new();
     let (mut i, mut j) = (0usize, 0usize);
     while i < n && j < m {
         if old_chars[i] == new_chars[j] {
@@ -2799,10 +2807,14 @@ fn changed_ranges_for_replacement(
             i += 1;
             j += 1;
         } else if dp[i + 1][j] >= dp[i][j + 1] {
+            deletion_marker_starts.push(j);
             i += 1;
         } else {
             j += 1;
         }
+    }
+    if i < n {
+        deletion_marker_starts.push(m);
     }
 
     let mut ranges = Vec::new();
@@ -2815,6 +2827,7 @@ fn changed_ranges_for_replacement(
                 ranges.push(crate::overlay::SonioxLivePreviewChangedRange {
                     start: base_char_start + start,
                     end: base_char_start + idx,
+                    deleted: false,
                 });
             }
         }
@@ -2823,16 +2836,31 @@ fn changed_ranges_for_replacement(
         ranges.push(crate::overlay::SonioxLivePreviewChangedRange {
             start: base_char_start + start,
             end: base_char_start + new_chars.len(),
+            deleted: false,
         });
     }
 
     if ranges.is_empty() {
-        let nearby = common_prefix_char_count(&old_chars, &new_chars)
-            .min(new_chars.len().saturating_sub(1));
-        ranges.push(crate::overlay::SonioxLivePreviewChangedRange {
-            start: base_char_start + nearby,
-            end: base_char_start + nearby + 1,
-        });
+        deletion_marker_starts.sort_unstable();
+        deletion_marker_starts.dedup();
+        for start in deletion_marker_starts {
+            ranges.push(crate::overlay::SonioxLivePreviewChangedRange {
+                start: base_char_start + start.min(new_chars.len()),
+                end: base_char_start + start.min(new_chars.len()),
+                deleted: true,
+            });
+        }
+    } else {
+        deletion_marker_starts.sort_unstable();
+        deletion_marker_starts.dedup();
+        ranges.extend(deletion_marker_starts.into_iter().map(|start| {
+            let start = base_char_start + start.min(new_chars.len());
+            crate::overlay::SonioxLivePreviewChangedRange {
+                start,
+                end: start,
+                deleted: true,
+            }
+        }));
     }
 
     ranges
@@ -2861,6 +2889,7 @@ fn changed_ranges_by_common_edges(
     vec![crate::overlay::SonioxLivePreviewChangedRange {
         start: base_char_start + start,
         end: base_char_start + end,
+        deleted: false,
     }]
 }
 
@@ -3328,7 +3357,9 @@ mod local_preview_text_tests {
         let ranges = changed_ranges_for_replacement("hello, world", "hello world", 0);
 
         assert_eq!(ranges.len(), 1);
-        assert!(ranges[0].start < ranges[0].end);
+        assert!(ranges[0].deleted);
+        assert_eq!(ranges[0].start, 5);
+        assert_eq!(ranges[0].end, 5);
     }
 }
 

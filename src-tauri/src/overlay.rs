@@ -87,6 +87,8 @@ struct TransientMessageOverlayPayload {
 pub struct SonioxLivePreviewChangedRange {
     pub start: usize,
     pub end: usize,
+    #[serde(default)]
+    pub deleted: bool,
 }
 
 #[derive(Serialize, Clone, Default, Type)]
@@ -1824,7 +1826,14 @@ pub fn emit_soniox_live_preview_update_with_changed_ranges(
     }
 
     let final_char_len = final_text.chars().count();
-    new_ranges.retain(|range| range.start < range.end && range.end <= final_char_len);
+    new_ranges.retain(|range| {
+        range.end <= final_char_len
+            && if range.deleted {
+                range.start <= final_char_len
+            } else {
+                range.start < range.end
+            }
+    });
 
     let changed_ranges = if let Ok(mut state) = SONIOX_LIVE_PREVIEW_STATE.lock() {
         state.final_text.clear();
@@ -1839,8 +1848,18 @@ pub fn emit_soniox_live_preview_update_with_changed_ranges(
 
         let mut merged: Vec<SonioxLivePreviewChangedRange> = Vec::new();
         for range in state.changed_ranges.drain(..) {
+            if range.deleted {
+                if !merged
+                    .iter()
+                    .any(|existing| existing.deleted && existing.start == range.start)
+                {
+                    merged.push(range);
+                }
+                continue;
+            }
+
             if let Some(last) = merged.last_mut() {
-                if range.start <= last.end {
+                if !last.deleted && range.start <= last.end {
                     last.end = last.end.max(range.end);
                     continue;
                 }

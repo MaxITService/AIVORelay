@@ -31,6 +31,7 @@ type SonioxLivePreviewPayload = {
 type PreviewChangedRange = {
   start?: number;
   end?: number;
+  deleted?: boolean;
 };
 
 type SonioxLivePreviewAppearancePayload = {
@@ -285,7 +286,7 @@ function renderTextWithHighlights(
   text: string,
   ranges: PreviewChangedRange[],
 ): ReactNode {
-  if (ranges.length === 0 || text.length === 0) {
+  if (ranges.length === 0) {
     return text;
   }
 
@@ -294,9 +295,15 @@ function renderTextWithHighlights(
     .map((range) => ({
       start: Math.max(0, Math.min(chars.length, Math.floor(range.start ?? 0))),
       end: Math.max(0, Math.min(chars.length, Math.floor(range.end ?? 0))),
+      deleted: Boolean(range.deleted),
     }))
-    .filter((range) => range.start < range.end)
-    .sort((a, b) => a.start - b.start || a.end - b.end);
+    .filter((range) => (range.deleted ? range.start <= chars.length : range.start < range.end))
+    .sort(
+      (a, b) =>
+        a.start - b.start ||
+        Number(b.deleted) - Number(a.deleted) ||
+        a.end - b.end,
+    );
 
   if (normalizedRanges.length === 0) {
     return text;
@@ -307,6 +314,24 @@ function renderTextWithHighlights(
   let key = 0;
 
   for (const range of normalizedRanges) {
+    if (range.deleted) {
+      if (range.start > cursor) {
+        nodes.push(chars.slice(cursor, range.start).join(""));
+        cursor = range.start;
+      }
+      nodes.push(
+        <span
+          aria-label="Deleted text"
+          className="soniox-live-preview-deletion"
+          key={`delete-${key++}`}
+          title="Deleted text"
+        >
+          |
+        </span>,
+      );
+      continue;
+    }
+
     if (range.start > cursor) {
       nodes.push(chars.slice(cursor, range.start).join(""));
     }
