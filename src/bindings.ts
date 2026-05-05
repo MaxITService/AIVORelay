@@ -3879,7 +3879,7 @@ export type ShortcutEngine =
 "rdev"
 export type SonioxFileTranscriptionOptions = { languageHints: string[] | null; enableSpeakerDiarization: boolean | null; enableLanguageIdentification: boolean | null }
 export type SonioxLivePreviewAppearancePayload = { theme: string; opacity_percent: number; font_color: string; interim_font_color: string; accent_color: string; interim_opacity_percent: number; close_hotkey: string; clear_hotkey: string; flush_hotkey: string; process_hotkey: string; insert_hotkey: string; delete_until_dot_or_comma_hotkey: string; delete_until_dot_hotkey: string; delete_last_word_hotkey: string; show_clear_button: boolean; show_flush_button: boolean; show_process_button: boolean; show_insert_button: boolean; show_delete_until_dot_or_comma_button: boolean; show_delete_until_dot_button: boolean; show_delete_last_word_button: boolean; ctrl_backspace_delete_last_word: boolean; backspace_delete_last_char: boolean; show_drag_grip: boolean }
-export type SonioxLivePreviewChangedRange = { start: number; end: number }
+export type SonioxLivePreviewChangedRange = { start: number; end: number; deleted?: boolean }
 export type SonioxLivePreviewPayload = { final_text: string; interim_text: string; changed_ranges: SonioxLivePreviewChangedRange[] }
 export type SonioxLivePreviewPosition = "top" | "bottom" | "near_cursor" | "custom_xy"
 export type SonioxLivePreviewSize = "small" | "medium" | "large" | "custom"
