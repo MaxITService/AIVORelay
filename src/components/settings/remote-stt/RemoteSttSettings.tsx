@@ -4,12 +4,17 @@ import { listen } from "@tauri-apps/api/event";
 import { invoke } from "@tauri-apps/api/core";
 import { type } from "@tauri-apps/plugin-os";
 import { toast } from "sonner";
-import { commands } from "@/bindings";
+import {
+  commands,
+  type TranscriptionProfile,
+  type UpdateTranscriptionProfilePayload,
+} from "@/bindings";
 import { useSettings } from "../../../hooks/useSettings";
 import {
   REMOTE_STT_PRESETS,
   type RemoteSttPreset,
 } from "../../../lib/constants/remoteSttProviders";
+import { LANGUAGES } from "../../../lib/constants/languages";
 import { parseAndNormalizeSonioxLanguageHints } from "../../../lib/constants/sonioxLanguages";
 import { Button } from "../../ui/Button";
 import { Input } from "../../ui/Input";
@@ -23,12 +28,73 @@ interface RemoteSttSettingsProps {
   descriptionMode?: "inline" | "tooltip";
   grouped?: boolean;
   hideProviderSelector?: boolean;
+  hideRemoteInterfaceSelector?: boolean;
 }
+
+type RemoteSttInterfaceId =
+  | "groq"
+  | "openai_realtime_agent"
+  | "openai_realtime_translate"
+  | "custom";
+
+const REALTIME_AGENT_PROMPT_TEMPLATE =
+  "Additional context for speech-to-text transcription. Current language setting: ${language}. Translate to English: ${translate_to_english}. Preserve the speaker's language unless translation is enabled. Use context to create proper punctuation and fix recognition errors only when the intended words are recoverable from audio and context. If speech is not recoverable because of microphone noise, speech defects, or background noise, use [⚠️inaudible⚠️] instead of guessing. The user may provide custom words that are rare in the language; try to recognize them properly. Make sure to properly recognize names, product names, and vocabulary exactly when recognizable.";
+
+const resolveRealtimeAgentPrompt = (prompt?: string | null) =>
+  prompt?.trim() ? prompt : REALTIME_AGENT_PROMPT_TEMPLATE;
+
+const applyRealtimeAgentPromptVars = (
+  template: string,
+  language: string,
+  translateToEnglish: boolean,
+) =>
+  template
+    .split("${language}")
+    .join(language || "auto")
+    .split("${translate_to_english}")
+    .join(String(translateToEnglish));
+
+const getLanguageLabel = (value: string) => {
+  const normalized = value || "auto";
+  const option = LANGUAGES.find((language) => language.value === normalized);
+  return option ? `${option.label} (${normalized})` : normalized;
+};
+
+const buildProfileUpdatePayload = (
+  profile: TranscriptionProfile,
+  overrides: Partial<{
+    systemPrompt: string;
+    sttPromptOverrideEnabled: boolean;
+  }>,
+): UpdateTranscriptionProfilePayload => ({
+  id: profile.id,
+  name: profile.name,
+  language: profile.language,
+  translateToEnglish: profile.translate_to_english,
+  systemPrompt: overrides.systemPrompt ?? profile.system_prompt ?? "",
+  sttPromptOverrideEnabled:
+    overrides.sttPromptOverrideEnabled ??
+    profile.stt_prompt_override_enabled ??
+    false,
+  includeInCycle: profile.include_in_cycle ?? true,
+  pushToTalk: profile.push_to_talk ?? true,
+  previewOutputOnlyEnabled: profile.preview_output_only_enabled ?? false,
+  sonioxLanguageHintsStrict: profile.soniox_language_hints_strict ?? null,
+  llmSettings: {
+    enabled: profile.llm_post_process_enabled ?? false,
+    promptOverride: profile.llm_prompt_override ?? null,
+    modelOverride: profile.llm_model_override ?? null,
+  },
+  sonioxContextGeneralJson: profile.soniox_context_general_json ?? "",
+  sonioxContextText: profile.soniox_context_text ?? "",
+  sonioxContextTerms: profile.soniox_context_terms ?? [],
+});
 
 export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
   descriptionMode = "tooltip",
   grouped = false,
   hideProviderSelector = false,
+  hideRemoteInterfaceSelector = false,
 }) => {
   const { t } = useTranslation();
   const isWindows = type() === "windows";
@@ -136,6 +202,115 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
       : (REMOTE_STT_PRESETS[remotePreset]?.baseUrl ??
           remoteSettings?.base_url ??
           "");
+  const currentRemoteInterface: RemoteSttInterfaceId =
+    remotePreset === "groq"
+      ? "groq"
+      : remotePreset === "custom"
+        ? "custom"
+        : (remoteSettings?.model_id ?? "") === "gpt-realtime-translate"
+          ? "openai_realtime_translate"
+          : "openai_realtime_agent";
+  const remoteApiKeyTitle =
+    currentRemoteInterface === "groq"
+      ? "Groq API Key"
+      : currentRemoteInterface === "custom"
+        ? "Custom Remote API Key"
+        : "OpenAI API Key";
+  const remoteApiKeyDescription =
+    currentRemoteInterface === "groq"
+      ? "Stored separately for Groq in Windows Credential Manager."
+      : currentRemoteInterface === "custom"
+        ? "Stored separately for the Custom remote endpoint in Windows Credential Manager."
+        : "Stored separately for OpenAI in Windows Credential Manager.";
+  const activeProfileId = settings?.active_profile_id ?? "default";
+  const activeProfile = useMemo<TranscriptionProfile | null>(() => {
+    if (activeProfileId === "default") {
+      return null;
+    }
+    return (
+      (settings?.transcription_profiles ?? []).find(
+        (profile) => profile.id === activeProfileId,
+      ) ?? null
+    );
+  }, [activeProfileId, settings?.transcription_profiles]);
+  const activeProfileUsesSttPrompt = Boolean(
+    activeProfile?.stt_prompt_override_enabled,
+  );
+  const effectiveRealtimePromptModelId =
+    remoteSettings?.model_id?.trim() || "gpt-realtime-2";
+  const globalRealtimeAgentPrompt =
+    settings?.transcription_prompts?.[effectiveRealtimePromptModelId] ?? "";
+  const storedRealtimeAgentPrompt = activeProfileUsesSttPrompt
+    ? activeProfile?.system_prompt ?? ""
+    : globalRealtimeAgentPrompt;
+  const effectiveRealtimeAgentPrompt = resolveRealtimeAgentPrompt(
+    storedRealtimeAgentPrompt,
+  );
+  const realtimeAgentPromptSource = activeProfileUsesSttPrompt
+    ? `Profile: ${activeProfile?.name ?? activeProfileId}`
+    : "Global model prompt";
+  const [realtimeAgentPromptDraft, setRealtimeAgentPromptDraft] = useState(
+    effectiveRealtimeAgentPrompt,
+  );
+  const [isSavingRealtimeAgentPrompt, setIsSavingRealtimeAgentPrompt] =
+    useState(false);
+  const realtimeAgentPromptDirty =
+    realtimeAgentPromptDraft !== effectiveRealtimeAgentPrompt;
+  const effectiveRealtimeAgentLanguage =
+    activeProfile?.language ?? settings?.selected_language ?? "auto";
+  const effectiveRealtimeAgentTranslateToEnglish =
+    activeProfile?.translate_to_english ?? Boolean(settings?.translate_to_english);
+  const realtimeLanguageSettingSource = activeProfile
+    ? `Active profile: ${activeProfile.name}`
+    : "Global language settings";
+  const realtimeTranslateOutputTarget = effectiveRealtimeAgentTranslateToEnglish
+    ? "English (en)"
+    : effectiveRealtimeAgentLanguage === "auto"
+      ? "OS input language at recording time (Auto)"
+      : effectiveRealtimeAgentLanguage === "os_input"
+        ? "OS input language at recording time"
+        : getLanguageLabel(effectiveRealtimeAgentLanguage);
+  const realtimeAgentLanguageForPreview =
+    effectiveRealtimeAgentLanguage === "os_input"
+      ? "OS input language at recording time"
+      : effectiveRealtimeAgentLanguage;
+  const resolvedRealtimeAgentPromptPreview = useMemo(
+    () =>
+      applyRealtimeAgentPromptVars(
+        realtimeAgentPromptDraft,
+        realtimeAgentLanguageForPreview,
+        effectiveRealtimeAgentTranslateToEnglish,
+      ),
+    [
+      realtimeAgentPromptDraft,
+      realtimeAgentLanguageForPreview,
+      effectiveRealtimeAgentTranslateToEnglish,
+    ],
+  );
+  const realtimeAgentInstructionPreview = useMemo(() => {
+    const task = effectiveRealtimeAgentTranslateToEnglish
+      ? "Translate the user's spoken audio into English."
+      : "Transcribe the user's spoken audio in the original language.";
+    const languageHint =
+      realtimeAgentLanguageForPreview.trim() &&
+      realtimeAgentLanguageForPreview !== "auto"
+        ? `\nLanguage hint: ${realtimeAgentLanguageForPreview}.`
+        : "";
+    const promptHint = resolvedRealtimeAgentPromptPreview.trim()
+      ? `\nAdditional STT instructions/context: ${resolvedRealtimeAgentPromptPreview.trim()}`
+      : "";
+
+    return (
+      "You are being used as a speech-to-text engine inside AivoRelay STT application. " +
+      `${task} Output ONLY the final transcript text. Do not answer the speaker, ` +
+      "summarize, explain, add labels, add Markdown, or mention that you are an AI. " +
+      `If a word is unclear, use [⚠️inaudible⚠️].${languageHint}${promptHint}`
+    );
+  }, [
+    effectiveRealtimeAgentTranslateToEnglish,
+    realtimeAgentLanguageForPreview,
+    resolvedRealtimeAgentPromptPreview,
+  ]);
 
   const [baseUrlInput, setBaseUrlInput] = useState(
     effectiveRemoteBaseUrl,
@@ -199,6 +374,10 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
   }, [effectiveRemoteBaseUrl]);
 
   useEffect(() => {
+    setRealtimeAgentPromptDraft(effectiveRealtimeAgentPrompt);
+  }, [effectiveRealtimeAgentPrompt]);
+
+  useEffect(() => {
     setModelIdInput(remoteSettings?.model_id ?? "");
   }, [remoteSettings?.model_id]);
 
@@ -256,6 +435,7 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
   }, [deepgramEndpointingMs]);
 
   useEffect(() => {
+    setHasKeyStatusLoaded(false);
     if (!isWindows) {
       setHasApiKey(false);
       setHasKeyStatusLoaded(true);
@@ -283,7 +463,7 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
     };
 
     loadApiKeyStatus();
-  }, [isWindows, provider, isSonioxProvider, isDeepgramProvider]);
+  }, [isWindows, provider, remotePreset, isSonioxProvider, isDeepgramProvider]);
 
   useEffect(() => {
     if (!hasKeyStatusLoaded) {
@@ -291,13 +471,15 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
     }
     if (!hasApiKey) {
       setIsEditingKey(true);
+    } else {
+      setIsEditingKey(false);
     }
   }, [hasApiKey, hasKeyStatusLoaded]);
 
   useEffect(() => {
     setConnectionStatus("idle");
     setConnectionMessage(null);
-  }, [baseUrlInput, hasApiKey, provider]);
+  }, [baseUrlInput, hasApiKey, provider, remotePreset, remoteSettings?.model_id]);
 
   useEffect(() => {
     if (!isWindows || !isRemoteOpenAiProvider) {
@@ -421,45 +603,101 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
     [t],
   );
 
-  const remotePresetOptions = useMemo<SelectOption[]>(
-    () => [
-      {
-        value: "groq",
-        label: t("settings.advanced.remoteStt.providerPreset.options.groq"),
-      },
-      {
-        value: "openai",
-        label: t("settings.advanced.remoteStt.providerPreset.options.openai"),
-      },
-      {
-        value: "custom",
-        label: t("settings.advanced.remoteStt.providerPreset.options.custom"),
-      },
-    ],
-    [t],
+  const remoteInterfaceOptions = useMemo<SelectOption[]>(
+    () =>
+      [
+        {
+          value: "groq",
+          label: "Groq",
+        },
+        {
+          value: "openai_realtime_agent",
+          label: "OpenAI Realtime 2 STT Hack",
+        },
+        {
+          value: "openai_realtime_translate",
+          label: "OpenAI Translate",
+        },
+        {
+          value: "custom",
+          label: "Custom",
+        },
+      ],
+    [],
   );
+
+  const remoteInterfaceHint = useMemo(() => {
+    const hints: Record<RemoteSttInterfaceId, string> = {
+      groq: "Classic OpenAI-compatible /audio/transcriptions endpoint.",
+      openai_realtime_agent:
+        "Voice-agent model coerced into transcript-only output. Uses global/profile STT prompts.",
+      openai_realtime_translate:
+        "Translation session used as STT by targeting the same language.",
+      custom: "Self-hosted or non-standard OpenAI-compatible endpoint.",
+    };
+    return hints[currentRemoteInterface];
+  }, [currentRemoteInterface]);
+
+  const showOpenAiRealtimeNotes =
+    currentRemoteInterface === "openai_realtime_agent" ||
+    currentRemoteInterface === "openai_realtime_translate";
+
+  const groqModelOptions = useMemo<SelectOption[]>(() => {
+    const options: SelectOption[] = [
+      {
+        value: "whisper-large-v3-turbo",
+        label: "whisper-large-v3-turbo",
+      },
+      {
+        value: "whisper-large-v3",
+        label: "whisper-large-v3",
+      },
+    ];
+    const current = modelIdInput.trim();
+    if (current && !options.some((option) => option.value === current)) {
+      options.push({
+        value: current,
+        label: current,
+      });
+    }
+    return options;
+  }, [modelIdInput]);
 
   const handleProviderChange = (value: string | null) => {
     if (!value) return;
     void setTranscriptionProvider(value);
   };
 
-  const handleRemotePresetChange = async (value: string | null) => {
-    if (!value) return;
-    const nextPreset = value as RemoteSttPreset;
-    const savedCustomModelId =
-      remotePreset === "custom" ? modelIdInput.trim() : customModelId.trim();
+  const handleRemoteInterfaceSelect = async (interfaceId: RemoteSttInterfaceId) => {
+    const nextPreset: RemoteSttPreset =
+      interfaceId === "groq"
+        ? "groq"
+        : interfaceId === "custom"
+          ? "custom"
+          : "openai";
+    const nextModel =
+      interfaceId === "groq"
+        ? REMOTE_STT_PRESETS.groq.defaultModel
+        : interfaceId === "openai_realtime_translate"
+          ? "gpt-realtime-translate"
+          : interfaceId === "openai_realtime_agent"
+            ? "gpt-realtime-2"
+            : customModelId.trim() || modelIdInput.trim();
+
     try {
       if (remotePreset === "custom") {
         setCustomModelId(modelIdInput.trim());
       }
 
-      await invoke("change_remote_stt_provider_preset_setting", {
-        preset: nextPreset,
-      });
+      if (nextPreset !== remotePreset) {
+        await invoke("change_remote_stt_provider_preset_setting", {
+          preset: nextPreset,
+        });
+      }
 
-      if (nextPreset === "custom" && savedCustomModelId.length > 0) {
-        await updateRemoteSttModelId(savedCustomModelId);
+      if (nextModel && nextModel !== (remoteSettings?.model_id ?? "")) {
+        await updateRemoteSttModelId(nextModel);
+        setModelIdInput(nextModel);
       }
 
       await refreshSettings();
@@ -496,6 +734,91 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
     }
     if (trimmed !== (remoteSettings?.model_id ?? "")) {
       void updateRemoteSttModelId(trimmed);
+    }
+  };
+
+  const handleGroqModelChange = (value: string | null) => {
+    if (!value) return;
+    setModelIdInput(value);
+    if (value !== (remoteSettings?.model_id ?? "")) {
+      void updateRemoteSttModelId(value);
+    }
+  };
+
+  const handleSaveRealtimeAgentPrompt = async () => {
+    setIsSavingRealtimeAgentPrompt(true);
+    try {
+      if (activeProfileUsesSttPrompt && activeProfile) {
+        const result = await commands.updateTranscriptionProfile(
+          buildProfileUpdatePayload(activeProfile, {
+            systemPrompt: realtimeAgentPromptDraft,
+            sttPromptOverrideEnabled: true,
+          }),
+        );
+        if (result.status === "error") throw new Error(result.error);
+      } else {
+        const result = await commands.changeTranscriptionPromptSetting(
+          effectiveRealtimePromptModelId,
+          realtimeAgentPromptDraft,
+        );
+        if (result.status === "error") throw new Error(result.error);
+      }
+      await refreshSettings();
+      toast.success("Realtime 2 STT prompt saved.");
+    } catch (error) {
+      toast.error(String(error));
+    } finally {
+      setIsSavingRealtimeAgentPrompt(false);
+    }
+  };
+
+  const handleUseProfileRealtimeAgentPrompt = async () => {
+    if (!activeProfile) return;
+    setIsSavingRealtimeAgentPrompt(true);
+    try {
+      const result = await commands.updateTranscriptionProfile(
+        buildProfileUpdatePayload(activeProfile, {
+          systemPrompt: realtimeAgentPromptDraft,
+          sttPromptOverrideEnabled: true,
+        }),
+      );
+      if (result.status === "error") throw new Error(result.error);
+      await refreshSettings();
+      toast.success("Active profile now overrides the Realtime 2 STT prompt.");
+    } catch (error) {
+      toast.error(String(error));
+    } finally {
+      setIsSavingRealtimeAgentPrompt(false);
+    }
+  };
+
+  const handleResetRealtimeAgentPrompt = async () => {
+    setIsSavingRealtimeAgentPrompt(true);
+    try {
+      if (activeProfileUsesSttPrompt && activeProfile) {
+        const result = await commands.updateTranscriptionProfile(
+          buildProfileUpdatePayload(activeProfile, {
+            systemPrompt: REALTIME_AGENT_PROMPT_TEMPLATE,
+            sttPromptOverrideEnabled: true,
+          }),
+        );
+        if (result.status === "error") throw new Error(result.error);
+        setRealtimeAgentPromptDraft(REALTIME_AGENT_PROMPT_TEMPLATE);
+        toast.success("Profile Realtime 2 STT prompt reset to default.");
+      } else {
+        const result = await commands.changeTranscriptionPromptSetting(
+          effectiveRealtimePromptModelId,
+          REALTIME_AGENT_PROMPT_TEMPLATE,
+        );
+        if (result.status === "error") throw new Error(result.error);
+        setRealtimeAgentPromptDraft(REALTIME_AGENT_PROMPT_TEMPLATE);
+        toast.success("Global Realtime 2 STT prompt reset to default.");
+      }
+      await refreshSettings();
+    } catch (error) {
+      toast.error(String(error));
+    } finally {
+      setIsSavingRealtimeAgentPrompt(false);
     }
   };
 
@@ -821,21 +1144,33 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
         <>
           {showOpenAiFields && (
             <>
-              <SettingContainer
-                title={t("settings.advanced.remoteStt.providerPreset.title")}
-                description={t(
-                  "settings.advanced.remoteStt.providerPreset.description",
-                )}
-                descriptionMode={descriptionMode}
-                grouped={grouped}
-              >
-                <Select
-                  value={remotePreset}
-                  options={remotePresetOptions}
-                  onChange={handleRemotePresetChange}
-                  isClearable={false}
-                />
-              </SettingContainer>
+              {!hideRemoteInterfaceSelector && (
+                <SettingContainer
+                  title="Remote STT Interface"
+                  description="Choose the exact cloud interface AivoRelay should use for this remote provider."
+                  descriptionMode={descriptionMode}
+                  grouped={grouped}
+                  layout="stacked"
+                >
+                  <div className="flex flex-col gap-2">
+                    <Select
+                      value={currentRemoteInterface}
+                      options={remoteInterfaceOptions}
+                      onChange={(value) =>
+                        value &&
+                        void handleRemoteInterfaceSelect(
+                          value as RemoteSttInterfaceId,
+                        )
+                      }
+                      isClearable={false}
+                      className="w-full"
+                    />
+                    <p className="text-xs text-text/60">
+                      {remoteInterfaceHint}
+                    </p>
+                  </div>
+                </SettingContainer>
+              )}
 
               <SettingContainer
                 title={t("settings.advanced.remoteStt.baseUrl.title")}
@@ -854,6 +1189,246 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
                   disabled={remotePreset !== "custom"}
                 />
               </SettingContainer>
+
+              {showOpenAiRealtimeNotes && (
+                <div className="mx-4 rounded-lg border border-blue-400/20 bg-blue-400/5 p-3 text-xs text-text/80">
+                  {currentRemoteInterface === "openai_realtime_agent" ? (
+                    <>
+                      <p className="font-medium text-text">
+                        How to configure: OpenAI key here, language/prompt in
+                        profiles.
+                      </p>
+                      <p className="mt-1">
+                        This mode uses the active transcription profile's
+                        language, Translate to English setting, and STT prompt.
+                        If no profile is active, it uses the global language,
+                        global Translate to English toggle, and global/model STT
+                        prompt.
+                      </p>
+                      <p className="mt-1">
+                        The prompt is meaningful here: AivoRelay sends it as
+                        Realtime instructions, so use it for vocabulary,
+                        spelling, punctuation, and "output transcript only"
+                        behavior.
+                      </p>
+                      <div className="mt-3 rounded-lg border border-blue-400/20 bg-black/20 p-3">
+                        <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                          <div>
+                            <p className="font-medium text-text">
+                              Realtime 2 STT prompt
+                            </p>
+                            <p className="mt-0.5 text-[11px] text-text/60">
+                              Source: {realtimeAgentPromptSource} | Language:{" "}
+                              {getLanguageLabel(effectiveRealtimeAgentLanguage)}
+                            </p>
+                          </div>
+                          <div className="flex flex-wrap gap-2">
+                            {activeProfile && !activeProfileUsesSttPrompt && (
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                disabled={isSavingRealtimeAgentPrompt}
+                                onClick={() =>
+                                  void handleUseProfileRealtimeAgentPrompt()
+                                }
+                              >
+                                Use Profile
+                              </Button>
+                            )}
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              disabled={isSavingRealtimeAgentPrompt}
+                              onClick={() =>
+                                setRealtimeAgentPromptDraft(
+                                  REALTIME_AGENT_PROMPT_TEMPLATE,
+                                )
+                              }
+                            >
+                              Starter
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              disabled={isSavingRealtimeAgentPrompt}
+                              onClick={() => void handleResetRealtimeAgentPrompt()}
+                            >
+                              Reset
+                            </Button>
+                            <Button
+                              variant="secondary"
+                              size="sm"
+                              disabled={
+                                isSavingRealtimeAgentPrompt ||
+                                !realtimeAgentPromptDirty
+                              }
+                              onClick={() => void handleSaveRealtimeAgentPrompt()}
+                            >
+                              Save
+                            </Button>
+                          </div>
+                        </div>
+                        <Textarea
+                          value={realtimeAgentPromptDraft}
+                          onChange={(event) =>
+                            setRealtimeAgentPromptDraft(event.target.value)
+                          }
+                          placeholder="Add names, vocabulary, formatting rules, or output-language instructions. Variables: ${language}, ${translate_to_english}."
+                          className="min-h-[120px] w-full resize-y border-blue-400/20 bg-[#151515] text-sm"
+                        />
+                        {!realtimeAgentPromptDraft.trim() && (
+                          <div className="mt-2 rounded-md border border-amber-400/40 bg-amber-400/10 p-2 text-[11px] text-amber-100">
+                            Empty prompt means "use the built-in default".
+                            AivoRelay will still send the fixed transcript-only
+                            guardrails plus the default Realtime 2 STT prompt,
+                            profile/global language, and Translate to English
+                            settings.
+                          </div>
+                        )}
+                        <p className="mt-2 text-[11px] text-text/60">
+                          Variables supported here:{" "}
+                          <span className="font-mono">${"{language}"}</span>{" "}
+                          and{" "}
+                          <span className="font-mono">
+                            ${"{translate_to_english}"}
+                          </span>
+                          . For Follow OS Input Language, AivoRelay resolves the
+                          real language when recording starts. The base
+                          instruction still forces transcript-only output.
+                        </p>
+                        <details className="mt-3">
+                          <summary className="cursor-pointer text-blue-300">
+                            Full instruction preview
+                          </summary>
+                          <Textarea
+                            value={realtimeAgentInstructionPreview}
+                            readOnly
+                            className="mt-2 min-h-[150px] w-full resize-y border-blue-400/20 bg-[#101010] text-xs font-mono text-text/80"
+                          />
+                        </details>
+                      </div>
+                      <details className="mt-2">
+                        <summary className="cursor-pointer text-blue-300">
+                          What this mode actually does
+                        </summary>
+                        <ul className="mt-2 list-disc space-y-1 pl-5">
+                          <li>
+                            This is not the normal OpenAI transcription
+                            endpoint. It is a voice-agent Realtime model used as
+                            STT.
+                          </li>
+                          <li>
+                            AivoRelay opens a Realtime WebSocket for
+                            <span className="font-mono"> gpt-realtime-2</span>,
+                            sends 24 kHz PCM audio, asks for text-only output,
+                            and collects text deltas as the transcript.
+                          </li>
+                          <li>
+                            Translation to English is prompt-driven through the
+                            same Realtime agent path.
+                          </li>
+                          <li>
+                            Base URL must stay as OpenAI. Custom URLs still use
+                            the classic OpenAI-compatible path instead.
+                          </li>
+                        </ul>
+                      </details>
+                    </>
+                  ) : (
+                    <>
+                      <div className="mb-3 rounded-lg border border-red-500/50 bg-red-500/15 p-3 text-red-100">
+                        <p className="font-semibold uppercase tracking-wide">
+                          Important output language warning
+                        </p>
+                        <p className="mt-1">
+                          This model can listen to multilingual speech, but the
+                          translation endpoint still needs an output language
+                          target. For same-language STT, that target must match
+                          what you are speaking.
+                        </p>
+                        <p className="mt-1">
+                          If you leave language on Auto, AivoRelay does not use
+                          speech auto-detection to pick the output target.
+                          Auto follows the current OS keyboard/input language
+                          because OpenAI requires a target language for this
+                          endpoint.
+                        </p>
+                      </div>
+                      <p className="font-medium text-text">
+                        How to configure: OpenAI key here, language in
+                        profiles.
+                      </p>
+                      <div className="mt-3 rounded-lg border border-violet-300/25 bg-black/20 p-3">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <div>
+                            <p className="font-medium text-text">
+                              Output target
+                            </p>
+                            <p className="mt-0.5 text-[11px] text-text/60">
+                              Source: {realtimeLanguageSettingSource}
+                            </p>
+                          </div>
+                          <span className="rounded-md border border-violet-300/25 bg-violet-300/10 px-2 py-1 text-xs font-medium text-violet-100">
+                            {realtimeTranslateOutputTarget}
+                          </span>
+                        </div>
+                        <p className="mt-2 text-[11px] text-text/65">
+                          Change this in the active transcription profile. If
+                          the Default profile is active, change the global
+                          language and Translate to English settings. This model
+                          card only selects the OpenAI Translate interface and
+                          stores the OpenAI key.
+                        </p>
+                      </div>
+                      <p className="mt-1">
+                        This mode uses the active transcription profile's
+                        language as the output target and its Translate to
+                        English setting. If no profile is active, it uses the
+                        global language and global Translate to English toggle.
+                      </p>
+                      <p className="mt-1">
+                        For same-language STT, set Translate to English OFF and
+                        choose the spoken language in the profile/global
+                        language setting. Auto follows the current OS input
+                        language for this model only.
+                      </p>
+                      <details className="mt-2">
+                        <summary className="cursor-pointer text-blue-300">
+                          What this mode actually does
+                        </summary>
+                        <ul className="mt-2 list-disc space-y-1 pl-5">
+                          <li>
+                            AivoRelay opens the Realtime translation endpoint
+                            with
+                            <span className="font-mono">
+                              {" "}
+                              gpt-realtime-translate
+                            </span>.
+                          </li>
+                          <li>
+                            With Translate to English OFF, AivoRelay sets the
+                            output target to the language you selected in the
+                            profile/global language setting. The incoming speech
+                            can still be multilingual; the selected language is
+                            the text/audio output target. If that language is
+                            Auto, AivoRelay resolves it from the current OS
+                            input language and reads transcript events.
+                          </li>
+                          <li>
+                            With Translate to English ON, AivoRelay targets
+                            English instead.
+                          </li>
+                          <li>
+                            OpenAI exposes target-language configuration here,
+                            not free-form prompt instructions, so profile/global
+                            STT prompts do not apply to this mode.
+                          </li>
+                        </ul>
+                      </details>
+                    </>
+                  )}
+                </div>
+              )}
 
               {remotePreset === "custom" ? (
                 <>
@@ -879,28 +1454,46 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
                 </>
               ) : null}
 
-              <SettingContainer
-                title={t("settings.advanced.remoteStt.modelId.title")}
-                description={t("settings.advanced.remoteStt.modelId.description")}
-                descriptionMode={descriptionMode}
-                grouped={grouped}
-                layout="stacked"
-              >
-                <Input
-                  type="text"
-                  value={modelIdInput}
-                  onChange={(event) => {
-                    const nextValue = event.target.value;
-                    setModelIdInput(nextValue);
-                    if (remotePreset === "custom") {
+              {currentRemoteInterface === "groq" && (
+                <SettingContainer
+                  title="Groq Model"
+                  description="Choose the Groq OpenAI-compatible transcription model."
+                  descriptionMode={descriptionMode}
+                  grouped={grouped}
+                  layout="stacked"
+                >
+                  <Select
+                    value={modelIdInput}
+                    options={groqModelOptions}
+                    onChange={handleGroqModelChange}
+                    isClearable={false}
+                    className="w-full"
+                  />
+                </SettingContainer>
+              )}
+
+              {currentRemoteInterface === "custom" && (
+                <SettingContainer
+                  title={t("settings.advanced.remoteStt.modelId.title")}
+                  description={t("settings.advanced.remoteStt.modelId.description")}
+                  descriptionMode={descriptionMode}
+                  grouped={grouped}
+                  layout="stacked"
+                >
+                  <Input
+                    type="text"
+                    value={modelIdInput}
+                    onChange={(event) => {
+                      const nextValue = event.target.value;
+                      setModelIdInput(nextValue);
                       setCustomModelId(nextValue);
-                    }
-                  }}
-                  onBlur={handleModelIdBlur}
-                  placeholder={t("settings.advanced.remoteStt.modelId.placeholder")}
-                  className="w-full"
-                />
-              </SettingContainer>
+                    }}
+                    onBlur={handleModelIdBlur}
+                    placeholder={t("settings.advanced.remoteStt.modelId.placeholder")}
+                    className="w-full"
+                  />
+                </SettingContainer>
+              )}
             </>
           )}
 
@@ -1798,14 +2391,14 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
                 ? t("settings.advanced.soniox.apiKey.title")
                 : isDeepgramProvider
                   ? t("settings.advanced.deepgram.apiKey.title")
-                : t("settings.advanced.remoteStt.apiKey.title")
+                : remoteApiKeyTitle
             }
             description={
               isSonioxProvider
                 ? t("settings.advanced.soniox.apiKey.description")
                 : isDeepgramProvider
                   ? t("settings.advanced.deepgram.apiKey.description")
-                : t("settings.advanced.remoteStt.apiKey.description")
+                : remoteApiKeyDescription
             }
             descriptionMode={descriptionMode}
             grouped={grouped}

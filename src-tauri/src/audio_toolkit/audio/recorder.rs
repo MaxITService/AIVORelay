@@ -544,8 +544,8 @@ mod tests {
 
     #[test]
     fn microphone_input_boost_clamps_to_supported_range() {
-        let gain = super::microphone_input_gain_from_db(30.0);
-        let expected = 10f32.powf(12.0 / 20.0);
+        let gain = super::microphone_input_gain_from_db(60.0);
+        let expected = 10f32.powf(constants::MAX_MICROPHONE_INPUT_BOOST_DB / 20.0);
         assert!((gain - expected).abs() < 0.0001);
     }
 }
@@ -573,7 +573,7 @@ fn handle_frame(
 
 fn microphone_input_gain_from_db(db: f32) -> f32 {
     let sanitized = if db.is_finite() {
-        db.clamp(0.0, 12.0)
+        db.clamp(0.0, constants::MAX_MICROPHONE_INPUT_BOOST_DB)
     } else {
         0.0
     };

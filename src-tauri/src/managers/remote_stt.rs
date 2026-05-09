@@ -1,13 +1,22 @@
 use crate::audio_toolkit::encode_wav_bytes;
 use crate::settings::{RemoteSttDebugMode, RemoteSttSettings};
-use crate::url_security::validate_remote_stt_base_url;
+use crate::url_security::{
+    infer_remote_stt_preset, validate_remote_stt_base_url, REMOTE_STT_OPENAI_BASE_URL,
+    REMOTE_STT_PRESET_CUSTOM, REMOTE_STT_PRESET_GROQ, REMOTE_STT_PRESET_OPENAI,
+};
 use anyhow::{anyhow, Result};
+use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine as _};
+use futures_util::{SinkExt, Stream, StreamExt};
 use serde::Deserialize;
+use serde_json::Value;
 use std::collections::VecDeque;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter};
+use tokio::time::timeout;
+use tokio_tungstenite::tungstenite::client::IntoClientRequest;
+use tokio_tungstenite::{connect_async, tungstenite::Message};
 
 /// Default timeout for Remote STT requests (60 seconds)
 const DEFAULT_REQUEST_TIMEOUT_SECS: u64 = 60;
@@ -15,7 +24,21 @@ const DEFAULT_REQUEST_TIMEOUT_SECS: u64 = 60;
 const DEFAULT_CONNECT_TIMEOUT_SECS: u64 = 10;
 
 const REMOTE_STT_SERVICE: &str = "fi.maxits.aivorelay";
-const REMOTE_STT_USER: &str = "remote_stt_api_key";
+const REMOTE_STT_USER_PREFIX: &str = "remote_stt_api_key";
+const OPENAI_REALTIME_MODEL: &str = "gpt-realtime-2";
+const OPENAI_REALTIME_TRANSLATE_MODEL: &str = "gpt-realtime-translate";
+const OPENAI_REALTIME_WS_URL: &str = "wss://api.openai.com/v1/realtime?model=gpt-realtime-2";
+const OPENAI_REALTIME_TRANSLATE_WS_URL: &str =
+    "wss://api.openai.com/v1/realtime/translations?model=gpt-realtime-translate";
+const OPENAI_REALTIME_AUDIO_CHUNK_BYTES: usize = 48_000;
+const OPENAI_REALTIME_AGENT_DEFAULT_PROMPT: &str =
+    "Additional context for speech-to-text transcription. \
+     Current language setting: ${language}. Translate to English: ${translate_to_english}. \
+     Preserve the speaker's language unless translation is enabled. \
+     Use context to create proper punctuation and fix recognition errors only when the intended words are recoverable from audio and context. \
+     If speech is not recoverable because of microphone noise, speech defects, or background noise, use [⚠️inaudible⚠️] instead of guessing. \
+     The user may provide custom words that are rare in the language; try to recognize them properly. \
+     Make sure to properly recognize names, product names, and vocabulary exactly when recognizable.";
 
 /// Languages supported by Whisper models (ISO 639-1 codes)
 /// Based on OpenAI Whisper documentation and Groq's supported languages list
@@ -164,7 +187,7 @@ pub fn get_model_prompt_limit(model_id: &str) -> Option<usize> {
 ///
 /// Known model support:
 /// - Groq: whisper-large-v3 supports translation, whisper-large-v3-turbo does NOT
-/// - OpenAI: whisper-1 supports translation
+/// - OpenAI: whisper-1, gpt-realtime-2, and gpt-realtime-translate support translation
 /// - Unknown models default to false (safe fallback)
 pub fn supports_translation(model_id: &str) -> bool {
     let lower = model_id.to_lowercase();
@@ -180,8 +203,8 @@ pub fn supports_translation(model_id: &str) -> bool {
         return true;
     }
 
-    // OpenAI whisper-1 supports translation
-    if lower == "whisper-1" {
+    // OpenAI whisper-1 and GPT Realtime 2 support /audio/translations.
+    if lower == "whisper-1" || lower == "gpt-realtime-2" || lower == "gpt-realtime-translate" {
         return true;
     }
 
@@ -192,6 +215,109 @@ pub fn supports_translation(model_id: &str) -> bool {
 
     // Deepgram, Parakeet, and other non-Whisper models don't use OpenAI translation endpoint
     false
+}
+
+fn is_openai_realtime_model(model_id: &str) -> bool {
+    model_id.trim().eq_ignore_ascii_case(OPENAI_REALTIME_MODEL)
+}
+
+fn is_openai_realtime_translate_model(model_id: &str) -> bool {
+    model_id
+        .trim()
+        .eq_ignore_ascii_case(OPENAI_REALTIME_TRANSLATE_MODEL)
+}
+
+fn resample_16khz_f32_to_24khz_pcm16(samples: &[f32]) -> Vec<u8> {
+    if samples.is_empty() {
+        return Vec::new();
+    }
+
+    let output_len = samples.len().saturating_mul(3) / 2;
+    let mut out = Vec::with_capacity(output_len.saturating_mul(2));
+    for out_index in 0..output_len {
+        let src_numerator = out_index.saturating_mul(2);
+        let src_index = src_numerator / 3;
+        let frac = (src_numerator % 3) as f32 / 3.0;
+        let left = samples.get(src_index).copied().unwrap_or(0.0);
+        let right = samples.get(src_index + 1).copied().unwrap_or(left);
+        let sample = left + (right - left) * frac;
+        let pcm = (sample.clamp(-1.0, 1.0) * i16::MAX as f32) as i16;
+        out.extend_from_slice(&pcm.to_le_bytes());
+    }
+    out
+}
+
+fn build_openai_realtime_agent_transcription_prompt(
+    prompt: Option<String>,
+    language: Option<String>,
+    translate_to_english: bool,
+) -> String {
+    let task = if translate_to_english {
+        "Translate the user's spoken audio into English."
+    } else {
+        "Transcribe the user's spoken audio in the original language."
+    };
+    let language_for_template = resolve_realtime_agent_language_for_prompt(language.as_deref());
+    let language_hint = language_for_template
+        .clone()
+        .filter(|lang| !lang.trim().is_empty() && !lang.eq_ignore_ascii_case("auto"))
+        .map(|lang| format!("\nLanguage hint: {}.", lang))
+        .unwrap_or_default();
+    let prompt_text = prompt
+        .filter(|text| !text.trim().is_empty())
+        .unwrap_or_else(|| OPENAI_REALTIME_AGENT_DEFAULT_PROMPT.to_string());
+    let prompt_hint = format!(
+        "\nAdditional STT instructions/context: {}",
+        apply_realtime_agent_prompt_vars(
+            prompt_text.trim(),
+            language_for_template.as_deref(),
+            translate_to_english,
+        )
+    );
+
+    format!(
+        "You are being used as a speech-to-text engine inside AivoRelay STT application. \
+         {} Output ONLY the final transcript text. Do not answer the speaker, \
+         summarize, explain, add labels, add Markdown, or mention that you are an AI. \
+         If a word is unclear, use [⚠️inaudible⚠️].{}{}",
+        task, language_hint, prompt_hint
+    )
+}
+
+fn resolve_realtime_agent_language_for_prompt(language: Option<&str>) -> Option<String> {
+    let requested = language?.trim();
+    if requested.is_empty() {
+        return None;
+    }
+    if requested.eq_ignore_ascii_case("os_input") {
+        return crate::input_source::get_language_from_input_source()
+            .or_else(|| Some("os_input".to_string()));
+    }
+    Some(requested.to_string())
+}
+
+fn apply_realtime_agent_prompt_vars(
+    template: &str,
+    language: Option<&str>,
+    translate_to_english: bool,
+) -> String {
+    template
+        .replace("${language}", language.unwrap_or("auto"))
+        .replace("${translate_to_english}", &translate_to_english.to_string())
+}
+
+fn resolve_explicit_realtime_language(language: Option<String>) -> Option<String> {
+    let mut lang = language?;
+    if lang == "os_input" || lang == "auto" {
+        lang = crate::input_source::get_language_from_input_source()?;
+    }
+    if lang.trim().is_empty() {
+        return None;
+    }
+    if lang == "zh-Hans" || lang == "zh-Hant" {
+        return Some("zh".to_string());
+    }
+    Some(lang)
 }
 
 #[derive(Default)]
@@ -330,11 +456,55 @@ impl RemoteSttManager {
             return Err(anyhow!(message));
         }
 
-        let api_key = get_remote_stt_api_key().map_err(|e| {
+        let api_key = get_remote_stt_api_key(settings).map_err(|e| {
             let message = format!("Remote STT API key unavailable: {}", e);
             self.record_error(settings, message.clone());
             anyhow!(message)
         })?;
+
+        if is_openai_realtime_model(&settings.model_id) {
+            if base_url != REMOTE_STT_OPENAI_BASE_URL {
+                let message = format!(
+                    "{} requires the OpenAI Remote STT preset at {}.",
+                    settings.model_id, REMOTE_STT_OPENAI_BASE_URL
+                );
+                self.record_error(settings, message.clone());
+                return Err(anyhow!(message));
+            }
+
+            return self
+                .transcribe_openai_realtime_agent(
+                    settings,
+                    audio_samples,
+                    prompt,
+                    language,
+                    translate_to_english,
+                    &api_key,
+                )
+                .await;
+        }
+
+        if is_openai_realtime_translate_model(&settings.model_id) {
+            if base_url != REMOTE_STT_OPENAI_BASE_URL {
+                let message = format!(
+                    "{} requires the OpenAI Remote STT preset at {}.",
+                    settings.model_id, REMOTE_STT_OPENAI_BASE_URL
+                );
+                self.record_error(settings, message.clone());
+                return Err(anyhow!(message));
+            }
+
+            return self
+                .transcribe_openai_realtime_translate(
+                    settings,
+                    audio_samples,
+                    prompt,
+                    language,
+                    translate_to_english,
+                    &api_key,
+                )
+                .await;
+        }
 
         let wav_bytes = encode_wav_bytes(audio_samples).map_err(|e| {
             let message = format!("Failed to encode WAV: {}", e);
@@ -494,6 +664,477 @@ impl RemoteSttManager {
         Ok(parsed.text)
     }
 
+    async fn transcribe_openai_realtime_agent(
+        &self,
+        settings: &RemoteSttSettings,
+        audio_samples: &[f32],
+        prompt: Option<String>,
+        language: Option<String>,
+        translate_to_english: bool,
+        api_key: &str,
+    ) -> Result<String> {
+        let started = Instant::now();
+        let pcm_bytes = resample_16khz_f32_to_24khz_pcm16(audio_samples);
+        let instructions = build_openai_realtime_agent_transcription_prompt(
+            prompt,
+            language,
+            translate_to_english,
+        );
+
+        if settings.debug_mode == RemoteSttDebugMode::Verbose {
+            self.record_info(
+                settings,
+                format!(
+                    "OpenAI Realtime STT request model={} pcm_bytes={}",
+                    settings.model_id,
+                    pcm_bytes.len()
+                ),
+            );
+        }
+
+        let mut request = OPENAI_REALTIME_WS_URL
+            .into_client_request()
+            .map_err(|e| anyhow!("Failed to create OpenAI Realtime request: {}", e))?;
+        request.headers_mut().insert(
+            "Authorization",
+            format!("Bearer {}", api_key.trim())
+                .parse()
+                .map_err(|e| anyhow!("Invalid OpenAI auth header: {}", e))?,
+        );
+        request.headers_mut().insert(
+            "OpenAI-Safety-Identifier",
+            "aivorelay-remote-stt"
+                .parse()
+                .map_err(|e| anyhow!("Invalid OpenAI safety identifier header: {}", e))?,
+        );
+
+        let (stream, _) = timeout(
+            Duration::from_secs(DEFAULT_CONNECT_TIMEOUT_SECS),
+            connect_async(request),
+        )
+        .await
+        .map_err(|_| anyhow!("Timed out while connecting to OpenAI Realtime WebSocket"))?
+        .map_err(|e| anyhow!("Failed to connect to OpenAI Realtime WebSocket: {}", e))?;
+        let (mut write, mut read) = stream.split();
+
+        let session_update = serde_json::json!({
+            "type": "session.update",
+            "session": {
+                "type": "realtime",
+                "model": OPENAI_REALTIME_MODEL,
+                "output_modalities": ["text"],
+                "instructions": instructions,
+                "audio": {
+                    "input": {
+                        "format": {
+                            "type": "audio/pcm",
+                            "rate": 24000
+                        },
+                        "turn_detection": null
+                    }
+                }
+            }
+        });
+        write
+            .send(Message::Text(session_update.to_string().into()))
+            .await
+            .map_err(|e| anyhow!("Failed to send OpenAI Realtime session update: {}", e))?;
+        self.wait_for_openai_realtime_event(
+            settings,
+            &mut read,
+            "session.updated",
+            "session update",
+            started,
+        )
+        .await?;
+
+        for chunk in pcm_bytes.chunks(OPENAI_REALTIME_AUDIO_CHUNK_BYTES) {
+            let append = serde_json::json!({
+                "type": "input_audio_buffer.append",
+                "audio": BASE64_STANDARD.encode(chunk)
+            });
+            write
+                .send(Message::Text(append.to_string().into()))
+                .await
+                .map_err(|e| anyhow!("Failed to send OpenAI Realtime audio chunk: {}", e))?;
+        }
+
+        write
+            .send(Message::Text(
+                serde_json::json!({ "type": "input_audio_buffer.commit" })
+                    .to_string()
+                    .into(),
+            ))
+            .await
+            .map_err(|e| anyhow!("Failed to commit OpenAI Realtime audio buffer: {}", e))?;
+        self.wait_for_openai_realtime_event(
+            settings,
+            &mut read,
+            "input_audio_buffer.committed",
+            "audio commit",
+            started,
+        )
+        .await?;
+
+        let response_create = serde_json::json!({
+            "type": "response.create",
+            "response": {
+                "output_modalities": ["text"],
+                "instructions": instructions
+            }
+        });
+        write
+            .send(Message::Text(response_create.to_string().into()))
+            .await
+            .map_err(|e| anyhow!("Failed to create OpenAI Realtime response: {}", e))?;
+        write
+            .flush()
+            .await
+            .map_err(|e| anyhow!("Failed to flush OpenAI Realtime stream: {}", e))?;
+
+        let mut deltas = String::new();
+        let mut final_text: Option<String> = None;
+
+        loop {
+            let frame = timeout(
+                Duration::from_secs(DEFAULT_REQUEST_TIMEOUT_SECS),
+                read.next(),
+            )
+            .await
+            .map_err(|_| anyhow!("OpenAI Realtime WebSocket read timed out"))?;
+            let Some(frame) = frame else {
+                break;
+            };
+            let frame =
+                frame.map_err(|e| anyhow!("OpenAI Realtime WebSocket read failed: {}", e))?;
+
+            let Message::Text(text) = frame else {
+                continue;
+            };
+            let payload: Value = serde_json::from_str(text.as_ref()).map_err(|e| {
+                let preview: String = text.chars().take(200).collect();
+                anyhow!(
+                    "Invalid OpenAI Realtime WebSocket payload: {} (body: {})",
+                    e,
+                    preview
+                )
+            })?;
+            let msg_type = payload
+                .get("type")
+                .and_then(|v| v.as_str())
+                .unwrap_or_default();
+
+            if msg_type == "error" {
+                let message = payload
+                    .get("error")
+                    .and_then(|error| error.get("message"))
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("OpenAI Realtime returned an error");
+                self.record_error(settings, message.to_string());
+                return Err(anyhow!("{}", message));
+            }
+
+            if msg_type == "response.output_text.delta" {
+                if let Some(delta) = payload.get("delta").and_then(|v| v.as_str()) {
+                    deltas.push_str(delta);
+                }
+            } else if msg_type == "response.output_text.done" {
+                if let Some(text) = payload.get("text").and_then(|v| v.as_str()) {
+                    final_text = Some(text.to_string());
+                }
+            } else if msg_type == "response.done" {
+                break;
+            }
+        }
+
+        let text = final_text.unwrap_or(deltas).trim().to_string();
+        if settings.debug_mode == RemoteSttDebugMode::Verbose {
+            self.record_info(
+                settings,
+                format!("OpenAI Realtime STT success output_len={}", text.len()),
+            );
+        }
+        Ok(text)
+    }
+
+    async fn transcribe_openai_realtime_translate(
+        &self,
+        settings: &RemoteSttSettings,
+        audio_samples: &[f32],
+        prompt: Option<String>,
+        language: Option<String>,
+        translate_to_english: bool,
+        api_key: &str,
+    ) -> Result<String> {
+        let target_language = if translate_to_english {
+            "en".to_string()
+        } else {
+            resolve_explicit_realtime_language(language).ok_or_else(|| {
+                anyhow!(
+                    "{} requires an output target language or a detectable OS input language. Input speech can be multilingual, but same-language STT still needs AivoRelay to choose the output language. Auto is resolved from the current OS input language for this model; select the spoken language manually if OS input detection fails.",
+                    OPENAI_REALTIME_TRANSLATE_MODEL
+                )
+            })?
+        };
+        let pcm_bytes = resample_16khz_f32_to_24khz_pcm16(audio_samples);
+
+        if settings.debug_mode == RemoteSttDebugMode::Verbose {
+            self.record_info(
+                settings,
+                format!(
+                    "OpenAI Realtime Translate request model={} target_language={} pcm_bytes={}",
+                    settings.model_id,
+                    target_language,
+                    pcm_bytes.len()
+                ),
+            );
+        }
+
+        let mut request = OPENAI_REALTIME_TRANSLATE_WS_URL
+            .into_client_request()
+            .map_err(|e| anyhow!("Failed to create OpenAI Realtime Translate request: {}", e))?;
+        request.headers_mut().insert(
+            "Authorization",
+            format!("Bearer {}", api_key.trim())
+                .parse()
+                .map_err(|e| anyhow!("Invalid OpenAI auth header: {}", e))?,
+        );
+        request.headers_mut().insert(
+            "OpenAI-Safety-Identifier",
+            "aivorelay-remote-stt"
+                .parse()
+                .map_err(|e| anyhow!("Invalid OpenAI safety identifier header: {}", e))?,
+        );
+
+        let (stream, _) = timeout(
+            Duration::from_secs(DEFAULT_CONNECT_TIMEOUT_SECS),
+            connect_async(request),
+        )
+        .await
+        .map_err(|_| anyhow!("Timed out while connecting to OpenAI Realtime Translate WebSocket"))?
+        .map_err(|e| {
+            anyhow!(
+                "Failed to connect to OpenAI Realtime Translate WebSocket: {}",
+                e
+            )
+        })?;
+        let (mut write, mut read) = stream.split();
+
+        let session_update = serde_json::json!({
+            "type": "session.update",
+            "session": {
+                "audio": {
+                    "output": {
+                        "language": target_language
+                    }
+                }
+            }
+        });
+        write
+            .send(Message::Text(session_update.to_string().into()))
+            .await
+            .map_err(|e| {
+                anyhow!(
+                    "Failed to send OpenAI Realtime Translate session update: {}",
+                    e
+                )
+            })?;
+
+        let prompt_text = prompt
+            .as_deref()
+            .map(str::trim)
+            .filter(|text| !text.is_empty())
+            .unwrap_or("");
+        if !prompt_text.is_empty() && settings.debug_mode == RemoteSttDebugMode::Verbose {
+            self.record_info(
+                settings,
+                "OpenAI Realtime Translate does not expose prompt instructions; using language-only session configuration.".to_string(),
+            );
+        }
+
+        for chunk in pcm_bytes.chunks(OPENAI_REALTIME_AUDIO_CHUNK_BYTES) {
+            let append = serde_json::json!({
+                "type": "session.input_audio_buffer.append",
+                "audio": BASE64_STANDARD.encode(chunk)
+            });
+            write
+                .send(Message::Text(append.to_string().into()))
+                .await
+                .map_err(|e| {
+                    anyhow!(
+                        "Failed to send OpenAI Realtime Translate audio chunk: {}",
+                        e
+                    )
+                })?;
+        }
+
+        let silence = vec![0_u8; OPENAI_REALTIME_AUDIO_CHUNK_BYTES * 2];
+        write
+            .send(Message::Text(
+                serde_json::json!({
+                    "type": "session.input_audio_buffer.append",
+                    "audio": BASE64_STANDARD.encode(silence)
+                })
+                .to_string()
+                .into(),
+            ))
+            .await
+            .map_err(|e| {
+                anyhow!(
+                    "Failed to send OpenAI Realtime Translate trailing silence: {}",
+                    e
+                )
+            })?;
+        write
+            .flush()
+            .await
+            .map_err(|e| anyhow!("Failed to flush OpenAI Realtime Translate stream: {}", e))?;
+
+        let mut output_text = String::new();
+        let mut input_text = String::new();
+        let mut saw_transcript = false;
+        let idle_timeout = Duration::from_secs(3);
+        let max_wait = Instant::now() + Duration::from_secs(DEFAULT_REQUEST_TIMEOUT_SECS);
+
+        loop {
+            let now = Instant::now();
+            if now >= max_wait {
+                break;
+            }
+            let wait = if saw_transcript {
+                idle_timeout.min(max_wait.saturating_duration_since(now))
+            } else {
+                Duration::from_secs(DEFAULT_REQUEST_TIMEOUT_SECS)
+                    .min(max_wait.saturating_duration_since(now))
+            };
+            let frame = match timeout(wait, read.next()).await {
+                Ok(Some(frame)) => frame,
+                Ok(None) => break,
+                Err(_) if saw_transcript => break,
+                Err(_) => {
+                    return Err(anyhow!(
+                        "OpenAI Realtime Translate WebSocket read timed out"
+                    ))
+                }
+            };
+            let frame = frame
+                .map_err(|e| anyhow!("OpenAI Realtime Translate WebSocket read failed: {}", e))?;
+
+            let Message::Text(text) = frame else {
+                continue;
+            };
+            let payload: Value = serde_json::from_str(text.as_ref()).map_err(|e| {
+                let preview: String = text.chars().take(200).collect();
+                anyhow!(
+                    "Invalid OpenAI Realtime Translate WebSocket payload: {} (body: {})",
+                    e,
+                    preview
+                )
+            })?;
+            let msg_type = payload
+                .get("type")
+                .and_then(|v| v.as_str())
+                .unwrap_or_default();
+
+            if msg_type == "error" {
+                let message = payload
+                    .get("error")
+                    .and_then(|error| error.get("message"))
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("OpenAI Realtime Translate returned an error");
+                self.record_error(settings, message.to_string());
+                return Err(anyhow!("{}", message));
+            }
+
+            if msg_type == "session.output_transcript.delta" {
+                if let Some(delta) = payload.get("delta").and_then(|v| v.as_str()) {
+                    output_text.push_str(delta);
+                    saw_transcript = true;
+                }
+            } else if msg_type == "session.input_transcript.delta" {
+                if let Some(delta) = payload.get("delta").and_then(|v| v.as_str()) {
+                    input_text.push_str(delta);
+                    saw_transcript = true;
+                }
+            }
+        }
+
+        let text = if output_text.trim().is_empty() {
+            input_text
+        } else {
+            output_text
+        }
+        .trim()
+        .to_string();
+
+        if settings.debug_mode == RemoteSttDebugMode::Verbose {
+            self.record_info(
+                settings,
+                format!(
+                    "OpenAI Realtime Translate success output_len={}",
+                    text.len()
+                ),
+            );
+        }
+        Ok(text)
+    }
+
+    async fn wait_for_openai_realtime_event<R>(
+        &self,
+        settings: &RemoteSttSettings,
+        read: &mut R,
+        expected_type: &str,
+        action: &str,
+        _started: Instant,
+    ) -> Result<()>
+    where
+        R: Stream<Item = Result<Message, tokio_tungstenite::tungstenite::Error>> + Unpin,
+    {
+        loop {
+            let frame = timeout(
+                Duration::from_secs(DEFAULT_REQUEST_TIMEOUT_SECS),
+                read.next(),
+            )
+            .await
+            .map_err(|_| anyhow!("OpenAI Realtime {} timed out", action))?;
+            let Some(frame) = frame else {
+                return Err(anyhow!(
+                    "OpenAI Realtime WebSocket closed during {}",
+                    action
+                ));
+            };
+            let frame =
+                frame.map_err(|e| anyhow!("OpenAI Realtime WebSocket read failed: {}", e))?;
+            let Message::Text(text) = frame else {
+                continue;
+            };
+            let payload: Value = serde_json::from_str(text.as_ref()).map_err(|e| {
+                let preview: String = text.chars().take(200).collect();
+                anyhow!(
+                    "Invalid OpenAI Realtime WebSocket payload: {} (body: {})",
+                    e,
+                    preview
+                )
+            })?;
+            let msg_type = payload
+                .get("type")
+                .and_then(|v| v.as_str())
+                .unwrap_or_default();
+            if msg_type == expected_type {
+                return Ok(());
+            }
+            if msg_type == "error" {
+                let message = payload
+                    .get("error")
+                    .and_then(|error| error.get("message"))
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("OpenAI Realtime returned an error");
+                self.record_error(settings, message.to_string());
+                return Err(anyhow!("{}", message));
+            }
+        }
+    }
+
     pub async fn test_connection(
         &self,
         settings: &RemoteSttSettings,
@@ -506,7 +1147,7 @@ impl RemoteSttManager {
                 anyhow!(message)
             })?;
 
-        let api_key = get_remote_stt_api_key().map_err(|e| {
+        let api_key = get_remote_stt_api_key(settings).map_err(|e| {
             let message = format!("Remote STT API key unavailable: {}", e);
             self.record_error(settings, message.clone());
             anyhow!(message)
@@ -564,52 +1205,94 @@ impl RemoteSttManager {
 }
 
 #[cfg(target_os = "windows")]
-pub fn set_remote_stt_api_key(key: &str) -> Result<()> {
-    let entry = keyring::Entry::new(REMOTE_STT_SERVICE, REMOTE_STT_USER)?;
+fn remote_stt_api_key_scope(settings: &RemoteSttSettings) -> &'static str {
+    match settings.provider_preset.as_str() {
+        REMOTE_STT_PRESET_GROQ => REMOTE_STT_PRESET_GROQ,
+        REMOTE_STT_PRESET_OPENAI => REMOTE_STT_PRESET_OPENAI,
+        REMOTE_STT_PRESET_CUSTOM => REMOTE_STT_PRESET_CUSTOM,
+        _ => infer_remote_stt_preset(&settings.base_url),
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn remote_stt_api_key_user(settings: &RemoteSttSettings) -> String {
+    format!(
+        "{}_{}",
+        REMOTE_STT_USER_PREFIX,
+        remote_stt_api_key_scope(settings)
+    )
+}
+
+#[cfg(target_os = "windows")]
+pub fn set_remote_stt_api_key(settings: &RemoteSttSettings, key: &str) -> Result<()> {
+    let user = remote_stt_api_key_user(settings);
+    let entry = keyring::Entry::new(REMOTE_STT_SERVICE, &user)?;
     entry
         .set_password(key)
         .map_err(|e| anyhow!("Failed to store API key: {}", e))
 }
 
 #[cfg(target_os = "windows")]
-pub fn get_remote_stt_api_key() -> Result<String> {
-    let entry = keyring::Entry::new(REMOTE_STT_SERVICE, REMOTE_STT_USER)?;
+pub fn get_remote_stt_api_key(settings: &RemoteSttSettings) -> Result<String> {
+    let user = remote_stt_api_key_user(settings);
+    let entry = keyring::Entry::new(REMOTE_STT_SERVICE, &user)?;
     entry
         .get_password()
         .map_err(|e| anyhow!("Failed to read API key: {}", e))
 }
 
 #[cfg(target_os = "windows")]
-pub fn clear_remote_stt_api_key() -> Result<()> {
-    let entry = keyring::Entry::new(REMOTE_STT_SERVICE, REMOTE_STT_USER)?;
+pub fn clear_remote_stt_api_key(settings: &RemoteSttSettings) -> Result<()> {
+    let user = remote_stt_api_key_user(settings);
+    let entry = keyring::Entry::new(REMOTE_STT_SERVICE, &user)?;
     entry
         .delete_password()
         .map_err(|e| anyhow!("Failed to delete API key: {}", e))
 }
 
 #[cfg(target_os = "windows")]
-pub fn has_remote_stt_api_key() -> bool {
-    get_remote_stt_api_key()
+pub fn has_remote_stt_api_key(settings: &RemoteSttSettings) -> bool {
+    get_remote_stt_api_key(settings)
         .map(|key| !key.trim().is_empty())
         .unwrap_or(false)
 }
 
 #[cfg(not(target_os = "windows"))]
-pub fn set_remote_stt_api_key(_key: &str) -> Result<()> {
+pub fn set_remote_stt_api_key(_settings: &RemoteSttSettings, _key: &str) -> Result<()> {
     Err(anyhow!("Remote STT is only available on Windows"))
 }
 
 #[cfg(not(target_os = "windows"))]
-pub fn get_remote_stt_api_key() -> Result<String> {
+pub fn get_remote_stt_api_key(_settings: &RemoteSttSettings) -> Result<String> {
     Err(anyhow!("Remote STT is only available on Windows"))
 }
 
 #[cfg(not(target_os = "windows"))]
-pub fn clear_remote_stt_api_key() -> Result<()> {
+pub fn clear_remote_stt_api_key(_settings: &RemoteSttSettings) -> Result<()> {
     Err(anyhow!("Remote STT is only available on Windows"))
 }
 
 #[cfg(not(target_os = "windows"))]
-pub fn has_remote_stt_api_key() -> bool {
+pub fn has_remote_stt_api_key(_settings: &RemoteSttSettings) -> bool {
     false
+}
+
+#[cfg(test)]
+mod tests {
+    use super::supports_translation;
+
+    #[test]
+    fn gpt_realtime_2_supports_remote_stt_translation() {
+        assert!(supports_translation("gpt-realtime-2"));
+    }
+
+    #[test]
+    fn gpt_realtime_translate_supports_remote_stt_translation() {
+        assert!(supports_translation("gpt-realtime-translate"));
+    }
+
+    #[test]
+    fn whisper_turbo_still_does_not_support_remote_stt_translation() {
+        assert!(!supports_translation("whisper-large-v3-turbo"));
+    }
 }

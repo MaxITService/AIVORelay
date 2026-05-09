@@ -122,7 +122,11 @@ export const AboutSettings: React.FC = () => {
           description={t("settings.about.contactAuthor.description")}
           grouped={true}
         >
-          <Button variant="secondary" size="md" onClick={handleContactAuthorClick}>
+          <Button
+            variant="secondary"
+            size="md"
+            onClick={handleContactAuthorClick}
+          >
             {t("settings.about.contactAuthor.button")}
           </Button>
         </SettingContainer>
@@ -132,7 +136,11 @@ export const AboutSettings: React.FC = () => {
           description={t("settings.about.reportIssues.description")}
           grouped={true}
         >
-          <Button variant="secondary" size="md" onClick={handleReportIssuesClick}>
+          <Button
+            variant="secondary"
+            size="md"
+            onClick={handleReportIssuesClick}
+          >
             {t("settings.about.reportIssues.button")}
           </Button>
         </SettingContainer>
@@ -171,7 +179,9 @@ export const AboutSettings: React.FC = () => {
           <Button
             variant="secondary"
             size="md"
-            onClick={() => openUrl("https://github.com/cjpais/Handy/blob/main/LICENSE")}
+            onClick={() =>
+              openUrl("https://github.com/cjpais/Handy/blob/main/LICENSE")
+            }
           >
             {t("settings.about.license.viewUpstream")}
           </Button>
@@ -227,7 +237,9 @@ export const AboutSettings: React.FC = () => {
         {/* OneClickPrompts - featured with screenshot */}
         <div className="p-4 space-y-3">
           <button
-            onClick={() => openUrl("https://github.com/MaxITService/OneClickPrompts")}
+            onClick={() =>
+              openUrl("https://github.com/MaxITService/OneClickPrompts")
+            }
             className="group cursor-pointer text-left w-full"
           >
             <div className="flex items-center gap-2 mb-2">
@@ -252,7 +264,9 @@ export const AboutSettings: React.FC = () => {
         {/* Other projects as links */}
         <div className="divide-y divide-white/[0.05]">
           <button
-            onClick={() => openUrl("https://github.com/MaxITService/Console2Ai")}
+            onClick={() =>
+              openUrl("https://github.com/MaxITService/Console2Ai")
+            }
             className="group w-full flex items-center justify-between px-4 py-3 cursor-pointer hover:bg-white/[0.02] transition-colors"
           >
             <div className="text-left">
@@ -267,7 +281,9 @@ export const AboutSettings: React.FC = () => {
           </button>
 
           <button
-            onClick={() => openUrl("https://github.com/MaxITService/Ping-Plotter-PS51")}
+            onClick={() =>
+              openUrl("https://github.com/MaxITService/Ping-Plotter-PS51")
+            }
             className="group w-full flex items-center justify-between px-4 py-3 cursor-pointer hover:bg-white/[0.02] transition-colors"
           >
             <div className="text-left">
@@ -282,7 +298,11 @@ export const AboutSettings: React.FC = () => {
           </button>
 
           <button
-            onClick={() => openUrl("https://medium.com/@maxim.fomins/ai-for-complete-beginners-guide-llms-f19c4b8a8a79")}
+            onClick={() =>
+              openUrl(
+                "https://medium.com/@maxim.fomins/ai-for-complete-beginners-guide-llms-f19c4b8a8a79",
+              )
+            }
             className="group w-full flex items-center justify-between px-4 py-3 cursor-pointer hover:bg-white/[0.02] transition-colors"
           >
             <div className="text-left">
