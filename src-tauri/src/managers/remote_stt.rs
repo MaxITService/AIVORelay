@@ -40,6 +40,18 @@ const OPENAI_REALTIME_AGENT_DEFAULT_PROMPT: &str =
      The user may provide custom words that are rare in the language; try to recognize them properly. \
      Make sure to properly recognize names, product names, and vocabulary exactly when recognizable.";
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RemoteSttApiKeySource {
+    Scoped,
+    Legacy,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct RemoteSttApiKey {
+    value: String,
+    source: RemoteSttApiKeySource,
+}
+
 /// Languages supported by Whisper models (ISO 639-1 codes)
 /// Based on OpenAI Whisper documentation and Groq's supported languages list
 /// https://github.com/openai/whisper/blob/main/whisper/tokenizer.py
@@ -456,7 +468,7 @@ impl RemoteSttManager {
             return Err(anyhow!(message));
         }
 
-        let api_key = get_remote_stt_api_key(settings).map_err(|e| {
+        let api_key = get_remote_stt_api_key_for_request(settings).map_err(|e| {
             let message = format!("Remote STT API key unavailable: {}", e);
             self.record_error(settings, message.clone());
             anyhow!(message)
@@ -472,16 +484,17 @@ impl RemoteSttManager {
                 return Err(anyhow!(message));
             }
 
-            return self
+            let result = self
                 .transcribe_openai_realtime_agent(
                     settings,
                     audio_samples,
                     prompt,
                     language,
                     translate_to_english,
-                    &api_key,
+                    &api_key.value,
                 )
                 .await;
+            return self.migrate_legacy_api_key_after_success(settings, &api_key, result);
         }
 
         if is_openai_realtime_translate_model(&settings.model_id) {
@@ -494,16 +507,17 @@ impl RemoteSttManager {
                 return Err(anyhow!(message));
             }
 
-            return self
+            let result = self
                 .transcribe_openai_realtime_translate(
                     settings,
                     audio_samples,
                     prompt,
                     language,
                     translate_to_english,
-                    &api_key,
+                    &api_key.value,
                 )
                 .await;
+            return self.migrate_legacy_api_key_after_success(settings, &api_key, result);
         }
 
         let wav_bytes = encode_wav_bytes(audio_samples).map_err(|e| {
@@ -609,7 +623,7 @@ impl RemoteSttManager {
         let response = self
             .client
             .post(url)
-            .bearer_auth(api_key)
+            .bearer_auth(&api_key.value)
             .multipart(form)
             .send()
             .await
@@ -661,7 +675,24 @@ impl RemoteSttManager {
             );
         }
 
+        self.migrate_legacy_api_key_after_success(settings, &api_key, Ok(()))?;
         Ok(parsed.text)
+    }
+
+    fn migrate_legacy_api_key_after_success<T>(
+        &self,
+        settings: &RemoteSttSettings,
+        api_key: &RemoteSttApiKey,
+        result: Result<T>,
+    ) -> Result<T> {
+        let outcome = result?;
+        if let Err(e) = migrate_remote_stt_legacy_api_key_after_success(settings, api_key) {
+            log::warn!(
+                "Failed to migrate legacy Remote STT API key after success: {}",
+                e
+            );
+        }
+        Ok(outcome)
     }
 
     async fn transcribe_openai_realtime_agent(
@@ -1147,7 +1178,7 @@ impl RemoteSttManager {
                 anyhow!(message)
             })?;
 
-        let api_key = get_remote_stt_api_key(settings).map_err(|e| {
+        let api_key = get_remote_stt_api_key_for_request(settings).map_err(|e| {
             let message = format!("Remote STT API key unavailable: {}", e);
             self.record_error(settings, message.clone());
             anyhow!(message)
@@ -1166,7 +1197,7 @@ impl RemoteSttManager {
         let response = self
             .client
             .get(url)
-            .bearer_auth(api_key)
+            .bearer_auth(&api_key.value)
             .send()
             .await
             .map_err(|e| {
@@ -1200,11 +1231,11 @@ impl RemoteSttManager {
             return Err(anyhow!(message));
         }
 
+        self.migrate_legacy_api_key_after_success(settings, &api_key, Ok(()))?;
         Ok(())
     }
 }
 
-#[cfg(target_os = "windows")]
 fn remote_stt_api_key_scope(settings: &RemoteSttSettings) -> &'static str {
     match settings.provider_preset.as_str() {
         REMOTE_STT_PRESET_GROQ => REMOTE_STT_PRESET_GROQ,
@@ -1214,13 +1245,59 @@ fn remote_stt_api_key_scope(settings: &RemoteSttSettings) -> &'static str {
     }
 }
 
-#[cfg(target_os = "windows")]
 fn remote_stt_api_key_user(settings: &RemoteSttSettings) -> String {
     format!(
         "{}_{}",
         REMOTE_STT_USER_PREFIX,
         remote_stt_api_key_scope(settings)
     )
+}
+
+fn legacy_remote_stt_api_key_user() -> &'static str {
+    REMOTE_STT_USER_PREFIX
+}
+
+fn non_empty_remote_stt_api_key(
+    key: Option<String>,
+    source: RemoteSttApiKeySource,
+) -> Option<RemoteSttApiKey> {
+    let key = key?;
+    let trimmed = key.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    Some(RemoteSttApiKey {
+        value: trimmed.to_string(),
+        source,
+    })
+}
+
+fn select_remote_stt_api_key(
+    scoped_key: Option<String>,
+    legacy_key: Option<String>,
+) -> Option<RemoteSttApiKey> {
+    non_empty_remote_stt_api_key(scoped_key, RemoteSttApiKeySource::Scoped)
+        .or_else(|| non_empty_remote_stt_api_key(legacy_key, RemoteSttApiKeySource::Legacy))
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct RemoteSttApiKeyClearTargets {
+    scoped: bool,
+    legacy: bool,
+}
+
+fn remote_stt_api_key_clear_targets(
+    scoped_key: Option<&str>,
+    legacy_key: Option<&str>,
+) -> RemoteSttApiKeyClearTargets {
+    RemoteSttApiKeyClearTargets {
+        scoped: scoped_key
+            .map(|key| !key.trim().is_empty())
+            .unwrap_or(false),
+        legacy: legacy_key
+            .map(|key| !key.trim().is_empty())
+            .unwrap_or(false),
+    }
 }
 
 #[cfg(target_os = "windows")]
@@ -1233,21 +1310,74 @@ pub fn set_remote_stt_api_key(settings: &RemoteSttSettings, key: &str) -> Result
 }
 
 #[cfg(target_os = "windows")]
+fn read_remote_stt_api_key_user(user: &str) -> Result<String> {
+    let entry = keyring::Entry::new(REMOTE_STT_SERVICE, user)?;
+    match entry.get_password() {
+        Ok(key) => Ok(key),
+        Err(keyring::Error::NoEntry) => Ok(String::new()),
+        Err(e) => Err(anyhow!("Failed to read API key: {}", e)),
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn delete_remote_stt_api_key_user(user: &str) -> Result<()> {
+    let entry = keyring::Entry::new(REMOTE_STT_SERVICE, user)?;
+    match entry.delete_password() {
+        Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
+        Err(e) => Err(anyhow!("Failed to delete API key: {}", e)),
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn get_remote_stt_api_key_for_request(settings: &RemoteSttSettings) -> Result<RemoteSttApiKey> {
+    let scoped_user = remote_stt_api_key_user(settings);
+    let scoped_key = read_remote_stt_api_key_user(&scoped_user)?;
+    let legacy_key = if scoped_key.trim().is_empty() {
+        Some(read_remote_stt_api_key_user(
+            legacy_remote_stt_api_key_user(),
+        )?)
+    } else {
+        None
+    };
+
+    select_remote_stt_api_key(Some(scoped_key), legacy_key)
+        .ok_or_else(|| anyhow!("No Remote STT API key is stored"))
+}
+
+#[cfg(target_os = "windows")]
+fn migrate_remote_stt_legacy_api_key_after_success(
+    settings: &RemoteSttSettings,
+    api_key: &RemoteSttApiKey,
+) -> Result<()> {
+    if api_key.source != RemoteSttApiKeySource::Legacy {
+        return Ok(());
+    }
+
+    set_remote_stt_api_key(settings, &api_key.value)?;
+    delete_remote_stt_api_key_user(legacy_remote_stt_api_key_user())
+}
+
+#[cfg(target_os = "windows")]
 pub fn get_remote_stt_api_key(settings: &RemoteSttSettings) -> Result<String> {
-    let user = remote_stt_api_key_user(settings);
-    let entry = keyring::Entry::new(REMOTE_STT_SERVICE, &user)?;
-    entry
-        .get_password()
-        .map_err(|e| anyhow!("Failed to read API key: {}", e))
+    get_remote_stt_api_key_for_request(settings).map(|api_key| api_key.value)
 }
 
 #[cfg(target_os = "windows")]
 pub fn clear_remote_stt_api_key(settings: &RemoteSttSettings) -> Result<()> {
-    let user = remote_stt_api_key_user(settings);
-    let entry = keyring::Entry::new(REMOTE_STT_SERVICE, &user)?;
-    entry
-        .delete_password()
-        .map_err(|e| anyhow!("Failed to delete API key: {}", e))
+    let scoped_user = remote_stt_api_key_user(settings);
+    let legacy_user = legacy_remote_stt_api_key_user();
+    let scoped_key = read_remote_stt_api_key_user(&scoped_user)?;
+    let legacy_key = read_remote_stt_api_key_user(legacy_user)?;
+    let clear_targets = remote_stt_api_key_clear_targets(Some(&scoped_key), Some(&legacy_key));
+
+    if clear_targets.scoped {
+        delete_remote_stt_api_key_user(&scoped_user)?;
+    }
+    if clear_targets.legacy {
+        delete_remote_stt_api_key_user(legacy_user)?;
+    }
+
+    Ok(())
 }
 
 #[cfg(target_os = "windows")]
@@ -1268,6 +1398,19 @@ pub fn get_remote_stt_api_key(_settings: &RemoteSttSettings) -> Result<String> {
 }
 
 #[cfg(not(target_os = "windows"))]
+fn get_remote_stt_api_key_for_request(_settings: &RemoteSttSettings) -> Result<RemoteSttApiKey> {
+    Err(anyhow!("Remote STT is only available on Windows"))
+}
+
+#[cfg(not(target_os = "windows"))]
+fn migrate_remote_stt_legacy_api_key_after_success(
+    _settings: &RemoteSttSettings,
+    _api_key: &RemoteSttApiKey,
+) -> Result<()> {
+    Ok(())
+}
+
+#[cfg(not(target_os = "windows"))]
 pub fn clear_remote_stt_api_key(_settings: &RemoteSttSettings) -> Result<()> {
     Err(anyhow!("Remote STT is only available on Windows"))
 }
@@ -1279,7 +1422,10 @@ pub fn has_remote_stt_api_key(_settings: &RemoteSttSettings) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::supports_translation;
+    use super::{
+        remote_stt_api_key_clear_targets, select_remote_stt_api_key, supports_translation,
+        RemoteSttApiKeySource,
+    };
 
     #[test]
     fn gpt_realtime_2_supports_remote_stt_translation() {
@@ -1294,5 +1440,50 @@ mod tests {
     #[test]
     fn whisper_turbo_still_does_not_support_remote_stt_translation() {
         assert!(!supports_translation("whisper-large-v3-turbo"));
+    }
+
+    #[test]
+    fn remote_stt_api_key_prefers_scoped_key() {
+        let key = select_remote_stt_api_key(
+            Some("scoped-key".to_string()),
+            Some("legacy-key".to_string()),
+        )
+        .unwrap();
+
+        assert_eq!(key.value, "scoped-key");
+        assert_eq!(key.source, RemoteSttApiKeySource::Scoped);
+    }
+
+    #[test]
+    fn remote_stt_api_key_falls_back_to_legacy_when_scoped_missing() {
+        let key =
+            select_remote_stt_api_key(Some("  ".to_string()), Some(" legacy-key ".to_string()))
+                .unwrap();
+
+        assert_eq!(key.value, "legacy-key");
+        assert_eq!(key.source, RemoteSttApiKeySource::Legacy);
+    }
+
+    #[test]
+    fn remote_stt_api_key_treats_blank_keys_as_absent() {
+        assert!(
+            select_remote_stt_api_key(Some(" \t ".to_string()), Some("\n".to_string())).is_none()
+        );
+    }
+
+    #[test]
+    fn remote_stt_clear_targets_include_legacy_fallback() {
+        let targets = remote_stt_api_key_clear_targets(None, Some("legacy-key"));
+
+        assert!(!targets.scoped);
+        assert!(targets.legacy);
+    }
+
+    #[test]
+    fn remote_stt_clear_targets_remove_legacy_that_would_reappear_after_scoped_clear() {
+        let targets = remote_stt_api_key_clear_targets(Some("scoped-key"), Some("legacy-key"));
+
+        assert!(targets.scoped);
+        assert!(targets.legacy);
     }
 }
