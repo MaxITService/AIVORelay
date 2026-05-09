@@ -2,7 +2,11 @@ import React, { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { ask } from "@tauri-apps/plugin-dialog";
 import { Cloud, Cpu, FolderOpen, Radio, ShieldAlert } from "lucide-react";
-import { commands, type ModelInfo } from "@/bindings";
+import {
+  commands,
+  type ModelInfo,
+  type RemoteSttSettings as RemoteSttSettingsConfig,
+} from "@/bindings";
 import { useModels } from "../../../hooks/useModels";
 import { useSettings } from "../../../hooks/useSettings";
 import { getTranslatedModelDescription, getTranslatedModelName } from "../../../lib/utils/modelTranslation";
@@ -24,6 +28,21 @@ type ExternalDownloadInfo = {
   files: string[];
 };
 
+type RemoteApiRowId =
+  | "groq"
+  | "openai_realtime2"
+  | "openai_translate"
+  | "custom";
+
+type RemoteApiRow = {
+  id: RemoteApiRowId;
+  title: string;
+  description: string;
+  preset: "groq" | "openai" | "custom";
+  modelId?: string;
+  iconClassName: string;
+};
+
 export const ModelsSettings: React.FC = () => {
   const { t } = useTranslation();
   const {
@@ -39,20 +58,73 @@ export const ModelsSettings: React.FC = () => {
     cancelDownload,
     deleteModel,
   } = useModels();
-  const { getSetting, setTranscriptionProvider } = useSettings();
+  const {
+    getSetting,
+    setTranscriptionProvider,
+    updateRemoteSttModelId,
+    refreshSettings,
+  } = useSettings();
   const [switchingModelId, setSwitchingModelId] = useState<string | null>(null);
   const [externalDownloadModel, setExternalDownloadModel] = useState<ModelInfo | null>(null);
   const [externalDownloadInfo, setExternalDownloadInfo] = useState<ExternalDownloadInfo | null>(
     null,
   );
+  const [switchingRemoteApiId, setSwitchingRemoteApiId] =
+    useState<RemoteApiRowId | null>(null);
 
   const transcriptionProvider = String(
     getSetting("transcription_provider") || "local",
   );
+  const remoteStt = (getSetting("remote_stt") || {}) as RemoteSttSettingsConfig;
+  const remotePreset = remoteStt.provider_preset ?? "groq";
+  const remoteModelId = remoteStt.model_id ?? "";
   const isRemoteProvider =
     transcriptionProvider === "remote_openai_compatible" ||
     transcriptionProvider === "remote_soniox" ||
     transcriptionProvider === "remote_deepgram";
+  const activeRemoteApiId: RemoteApiRowId | null =
+    transcriptionProvider !== "remote_openai_compatible"
+      ? null
+      : remotePreset === "groq"
+        ? "groq"
+        : remotePreset === "custom"
+          ? "custom"
+          : remoteModelId === "gpt-realtime-translate"
+            ? "openai_translate"
+            : "openai_realtime2";
+  const remoteApiRows: RemoteApiRow[] = [
+    {
+      id: "groq",
+      title: "Remote via Groq",
+      description: "Groq OpenAI-compatible transcription",
+      preset: "groq",
+      modelId: "whisper-large-v3-turbo",
+      iconClassName: "text-sky-400",
+    },
+    {
+      id: "openai_realtime2",
+      title: "Remote via OpenAI Realtime 2 STT Hack",
+      description: "Voice-agent model coerced into transcript-only output",
+      preset: "openai",
+      modelId: "gpt-realtime-2",
+      iconClassName: "text-blue-400",
+    },
+    {
+      id: "openai_translate",
+      title: "Remote via OpenAI Translate",
+      description: "Realtime translation endpoint with matching input/output language",
+      preset: "openai",
+      modelId: "gpt-realtime-translate",
+      iconClassName: "text-violet-400",
+    },
+    {
+      id: "custom",
+      title: "Remote via Custom API",
+      description: "Custom OpenAI-compatible transcription endpoint",
+      preset: "custom",
+      iconClassName: "text-slate-300",
+    },
+  ];
 
   const downloadedModels = useMemo(
     () =>
@@ -114,6 +186,25 @@ export const ModelsSettings: React.FC = () => {
     await downloadModel(modelId);
   };
 
+  const handleRemoteApiSelect = async (row: RemoteApiRow) => {
+    setSwitchingRemoteApiId(row.id);
+    try {
+      const presetResult = await commands.changeRemoteSttProviderPresetSetting(
+        row.preset,
+      );
+      if (presetResult.status === "error") {
+        throw new Error(presetResult.error);
+      }
+      if (row.modelId) {
+        await updateRemoteSttModelId(row.modelId);
+      }
+      await setTranscriptionProvider("remote_openai_compatible");
+      await refreshSettings();
+    } finally {
+      setSwitchingRemoteApiId(null);
+    }
+  };
+
   const handleDeleteModel = async (model: ModelInfo) => {
     const modelName = getTranslatedModelName(model, t);
     const confirmed = await ask(
@@ -169,49 +260,60 @@ export const ModelsSettings: React.FC = () => {
 
       {/* Remote Providers */}
       <SettingsGroup title={t("modelSelector.remoteMode")}>
-        {/* Remote via API */}
-        <div
-          className={`px-6 py-4 flex flex-col gap-3 transition-colors ${
-            transcriptionProvider === "remote_openai_compatible" ? "bg-green-500/5" : ""
-          }`}
-        >
-          <div className="flex items-center justify-between">
-            <div className="min-w-0">
-              <div className="flex items-center gap-2">
-                <Cloud className="w-4 h-4 text-blue-400" />
-                <p className="text-sm font-medium text-[#f5f5f5]">
-                  {t("modelSelector.remoteApiMode")}
-                </p>
-                {transcriptionProvider === "remote_openai_compatible" && (
-                  <span className="text-xs text-blue-400">
-                    {t("modelSelector.active")}
-                  </span>
+        {remoteApiRows.map((row) => {
+          const isActive = activeRemoteApiId === row.id;
+          return (
+            <React.Fragment key={row.id}>
+              <div
+                className={`px-6 py-4 flex flex-col gap-3 transition-colors ${
+                  isActive ? "bg-green-500/5" : ""
+                }`}
+              >
+                <div className="flex items-center justify-between gap-4">
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2">
+                      <Cloud className={`w-4 h-4 ${row.iconClassName}`} />
+                      <p className="text-sm font-medium text-[#f5f5f5]">
+                        {row.title}
+                      </p>
+                      {isActive && (
+                        <span className={`text-xs ${row.iconClassName}`}>
+                          {t("modelSelector.active")}
+                        </span>
+                      )}
+                    </div>
+                    {isActive && (
+                      <p className="text-xs text-[#a0a0a0] mt-1">
+                        {row.description}
+                      </p>
+                    )}
+                  </div>
+                  {!isActive && (
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      disabled={switchingRemoteApiId === row.id}
+                      onClick={() => void handleRemoteApiSelect(row)}
+                    >
+                      {t("modelSelector.chooseModel")}
+                    </Button>
+                  )}
+                </div>
+                {isActive && (
+                  <div className="border-t border-[#3d3d3d] pt-3">
+                    <RemoteSttSettings
+                      descriptionMode="tooltip"
+                      grouped={true}
+                      hideProviderSelector
+                      hideRemoteInterfaceSelector
+                    />
+                  </div>
                 )}
               </div>
-              {transcriptionProvider === "remote_openai_compatible" && (
-                <p className="text-xs text-[#a0a0a0] mt-1">
-                  {t("modelSelector.remoteApiModeDescription")}
-                </p>
-              )}
-            </div>
-            {transcriptionProvider !== "remote_openai_compatible" && (
-              <Button
-                variant="secondary"
-                size="sm"
-                onClick={() => setTranscriptionProvider("remote_openai_compatible")}
-              >
-                {t("modelSelector.chooseModel")}
-              </Button>
-            )}
-          </div>
-          {transcriptionProvider === "remote_openai_compatible" && (
-            <div className="border-t border-[#3d3d3d] pt-3">
-              <RemoteSttSettings descriptionMode="tooltip" grouped={true} hideProviderSelector />
-            </div>
-          )}
-        </div>
-
-        <div className="border-t border-[#3d3d3d]" />
+              <div className="border-t border-[#3d3d3d]" />
+            </React.Fragment>
+          );
+        })}
 
         {/* Remote via Soniox */}
         <div

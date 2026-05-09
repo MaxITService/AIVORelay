@@ -8,23 +8,26 @@ use tauri::{AppHandle, State};
 
 #[tauri::command]
 #[specta::specta]
-pub fn remote_stt_has_api_key() -> Result<bool, String> {
-    Ok(has_remote_stt_api_key())
+pub fn remote_stt_has_api_key(app: AppHandle) -> Result<bool, String> {
+    let settings = get_settings(&app);
+    Ok(has_remote_stt_api_key(&settings.remote_stt))
 }
 
 #[tauri::command]
 #[specta::specta]
-pub fn remote_stt_set_api_key(api_key: String) -> Result<(), String> {
+pub fn remote_stt_set_api_key(app: AppHandle, api_key: String) -> Result<(), String> {
     if api_key.trim().is_empty() {
         return Err("API key cannot be empty".to_string());
     }
-    set_remote_stt_api_key(&api_key).map_err(|e| e.to_string())
+    let settings = get_settings(&app);
+    set_remote_stt_api_key(&settings.remote_stt, api_key.trim()).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 #[specta::specta]
-pub fn remote_stt_clear_api_key() -> Result<(), String> {
-    clear_remote_stt_api_key().map_err(|e| e.to_string())
+pub fn remote_stt_clear_api_key(app: AppHandle) -> Result<(), String> {
+    let settings = get_settings(&app);
+    clear_remote_stt_api_key(&settings.remote_stt).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -102,7 +105,8 @@ pub async fn remote_stt_test_connection(
 
 /// Returns whether the currently selected Remote STT model supports translation to English.
 /// Uses the OpenAI-compatible /audio/translations endpoint.
-/// Known support: Groq whisper-large-v3, OpenAI whisper-1. NOT supported: whisper-large-v3-turbo.
+/// Known support: Groq whisper-large-v3, OpenAI whisper-1/gpt-realtime-2/gpt-realtime-translate.
+/// NOT supported: whisper-large-v3-turbo.
 #[tauri::command]
 #[specta::specta]
 pub fn remote_stt_supports_translation(app: AppHandle) -> bool {
