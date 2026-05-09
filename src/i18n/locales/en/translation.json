@@ -993,6 +993,10 @@
           "off": "Off",
           "max": "+12 dB"
         },
+        "noiseCancellation": {
+          "title": "Noise Cancellation",
+          "description": "Uses RNNoise to reduce steady background noise from microphone input before voice detection and speech-to-text. Leave it off if your voice becomes metallic or clipped."
+        },
         "autoSelect": {
           "label": "Auto-select by microphone name mask",
           "description": "Checked only right before recording starts. If auto-select is enabled and the mask is not empty, AivoRelay first tries the first microphone whose name matches the mask. If nothing matches, it falls back to your previous manual microphone if available, otherwise Default. No background polling or watcher is used."
@@ -2065,6 +2069,11 @@
           "title": "CPAL",
           "description": "Low-level Rust audio I/O used for live capture and device routing",
           "details": "AivoRelay uses the CPAL audio library for microphone capture, device selection, audio feedback routing, and Windows loopback capture for Live Sound Transcription. Licensed under Apache 2.0 by the RustAudio Project Developers. License file is provided in THIRD_PARTY_LICENSES.md"
+        },
+        "nnnoiseless": {
+          "title": "nnnoiseless / RNNoise",
+          "description": "Optional microphone noise cancellation before speech-to-text",
+          "details": "AivoRelay uses nnnoiseless, a pure-Rust RNNoise implementation, for optional microphone noise cancellation. Licensed under BSD-3-Clause; license notice is provided in THIRD_PARTY_LICENSES.md."
         },
         "vulkan": {
           "title": "Vulkan Loader",

@@ -778,6 +778,10 @@ impl AudioRecordingManager {
             rec.set_microphone_input_boost_db(
                 settings.microphone_input_boost_db_for_device(selection.device_name.as_deref()),
             );
+            rec.set_microphone_noise_cancellation_enabled(
+                selection.source == AudioCaptureSource::Microphone
+                    && settings.microphone_noise_cancellation_enabled,
+            );
             rec.open_with_source(selected_device, selection.source)
                 .map_err(|e| anyhow::anyhow!("Failed to open recorder: {}", e))?;
         }
@@ -1097,6 +1101,22 @@ impl AudioRecordingManager {
                 })
                 .unwrap_or(0.0);
             rec.set_microphone_input_boost_db(boost_db);
+        }
+    }
+
+    pub fn refresh_microphone_noise_cancellation_from_settings(&self) {
+        let selection = self.active_selection.lock().unwrap().clone();
+        let settings = get_settings(&self.app_handle);
+
+        if let Some(rec) = self.recorder.lock().unwrap().as_ref() {
+            let enabled = selection
+                .as_ref()
+                .map(|selection| {
+                    selection.source == AudioCaptureSource::Microphone
+                        && settings.microphone_noise_cancellation_enabled
+                })
+                .unwrap_or(false);
+            rec.set_microphone_noise_cancellation_enabled(enabled);
         }
     }
 
