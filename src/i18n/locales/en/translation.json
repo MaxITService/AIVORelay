@@ -77,9 +77,9 @@
     "zeroWidthIssues": "These invisible characters can cause unexpected behavior: broken text searches, incorrect string lengths, copy-paste issues, and invisible formatting problems in documents.",
     "zeroWidthNote": "This filter applies to all LLM output — both post-processing and AI Replace. It's safe to leave enabled for all providers.",
     "microphoneInputBoost": "Microphone Input Boost",
-    "microphoneInputBoostWarning": "Boosts microphone input before processing. This can help a quiet mic, but it can also amplify room noise, breathing, keyboard sounds, and clipping.",
+    "microphoneInputBoostWarning": "Boosts microphone input before processing. This can help a quiet mic, but it can also amplify room noise, breathing, keyboard sounds, and clipping. It may make recognition worse than leaving boost off, because results depend on the microphone, room noise, and transcription model.",
     "boostOff": "Off",
-    "boostMax": "+12 dB",
+    "boostMax": "+17 dB",
     "vadThreshold": "Voice Detection Sensitivity",
     "moreSensitive": "More sensitive",
     "lessSensitive": "Less sensitive",
@@ -299,8 +299,8 @@
       "headline": "AivoRelay supports multiple transcription methods.",
       "intro": "You can use a local on-device model or a remote cloud API. Only one method can be active at a time — switching to a remote provider deactivates the local model, and selecting a local model deactivates the remote provider.",
       "remoteApi": {
-        "title": "Remote via API",
-        "description": "Connects to any OpenAI-compatible speech-to-text endpoint (Groq, OpenAI, etc.). Requires an API key and base URL."
+        "title": "Remote API Interfaces",
+        "description": "Choose between Groq classic transcription, OpenAI Realtime agent transcription, OpenAI Realtime Translate, or a custom OpenAI-compatible endpoint."
       },
       "remoteSoniox": {
         "title": "Remote via Soniox",
@@ -338,13 +338,13 @@
     "noModelDownloadRequired": "No Model - Download Required",
     "remoteMode": "Remote STT",
     "remoteModeDescription": "Uses cloud API for transcription",
-    "remoteApiMode": "Remote via API",
-    "remoteApiModeDescription": "OpenAI-compatible cloud API (Groq, OpenAI, etc.)",
+    "remoteApiMode": "Remote API Interfaces",
+    "remoteApiModeDescription": "Groq, OpenAI Realtime, or custom endpoint",
     "remoteSonioxMode": "Remote via Soniox",
     "remoteSonioxModeDescription": "Soniox realtime streaming service",
     "remoteDeepgramMode": "Remote via Deepgram",
     "remoteDeepgramModeDescription": "Deepgram Nova streaming service",
-    "remoteApiActive": "Remote API",
+    "remoteApiActive": "Remote API Interfaces",
     "remoteSonioxActive": "Remote Soniox",
     "remoteDeepgramActive": "Remote Deepgram",
     "deleteModel": "Delete {{modelName}}",
@@ -989,9 +989,9 @@
           "title": "Microphone Input Boost",
           "description": "Saved separately for each microphone device.",
           "appliesTo": "Applies to: {{name}}",
-          "warning": "May help a quiet mic, but it can also amplify room noise, breathing, keyboard sounds, and clipping.",
+          "warning": "May help a quiet mic, but it can also amplify room noise, breathing, keyboard sounds, and clipping. It may make recognition worse than leaving boost off, because results depend on the microphone, room noise, and transcription model.",
           "off": "Off",
-          "max": "+12 dB"
+          "max": "+17 dB"
         },
         "noiseCancellation": {
           "title": "Noise Cancellation",
@@ -1282,7 +1282,7 @@
         "modelId": {
           "title": "Remote Model ID",
           "description": "Model identifier to send in the transcription request.",
-          "placeholder": "whisper-large-v3-turbo"
+          "placeholder": "gpt-realtime-2"
         },
         "apiKey": {
           "title": "Remote API Key",

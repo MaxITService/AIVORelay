@@ -115,6 +115,7 @@ const normalizeModelUnloadTimeout = (
 };
 
 const DEFAULT_MICROPHONE_INPUT_BOOST_DEVICE_KEY = "__default__";
+const MAX_MICROPHONE_INPUT_BOOST_DB = 17;
 
 const microphoneInputBoostDeviceKey = (deviceName: string) => {
   const normalized = deviceName.trim();
@@ -200,7 +201,9 @@ const settingUpdaters: {
   post_process_benchmark_log: (value) =>
     commands.changePostProcessBenchmarkLogSetting(value as any),
   post_process_benchmark_use_selected_prompt: (value) =>
-    commands.changePostProcessBenchmarkUseSelectedPromptSetting(value as boolean),
+    commands.changePostProcessBenchmarkUseSelectedPromptSetting(
+      value as boolean,
+    ),
   ai_replace_system_prompt: (value) =>
     commands.changeAiReplaceSystemPromptSetting(value as string),
   ai_replace_user_prompt: (value) =>
@@ -1000,7 +1003,9 @@ export const useSettingsStore = create<SettingsStore>()(
       const { setUpdating } = get();
       const deviceKey = microphoneInputBoostDeviceKey(deviceName);
       const updateKey = `microphone_input_boost_db_by_device:${deviceKey}`;
-      const sanitized = Number.isFinite(db) ? Math.max(0, Math.min(12, db)) : 0;
+      const sanitized = Number.isFinite(db)
+        ? Math.max(0, Math.min(MAX_MICROPHONE_INPUT_BOOST_DB, db))
+        : 0;
       const originalSettings = get().settings;
       const originalLegacyBoost = Number(
         ((originalSettings as any)?.microphone_input_boost_db ?? 0) as number,
