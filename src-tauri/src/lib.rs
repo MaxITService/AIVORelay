@@ -965,6 +965,7 @@ pub fn run() {
         commands::audio::change_vad_threshold_setting,
         commands::audio::change_microphone_input_boost_db_setting,
         commands::audio::change_microphone_input_boost_for_device_setting,
+        commands::audio::change_microphone_noise_cancellation_enabled_setting,
         commands::live_sound_transcription::live_sound_transcription_start,
         commands::live_sound_transcription::live_sound_transcription_stop,
         commands::live_sound_transcription::live_sound_transcription_clear,

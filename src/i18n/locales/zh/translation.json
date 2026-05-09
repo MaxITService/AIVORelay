@@ -146,7 +146,11 @@
         "title": "麦克风",
         "description": "选择您偏好的麦克风设备",
         "placeholder": "选择麦克风...",
-        "loading": "加载中..."
+        "loading": "加载中...",
+        "noiseCancellation": {
+          "title": "Noise Cancellation",
+          "description": "Uses RNNoise to reduce steady background noise from microphone input before voice detection and speech-to-text. Leave it off if your voice becomes metallic or clipped."
+        }
       },
       "audioFeedback": {
         "label": "音频反馈",
@@ -421,6 +425,16 @@
           "title": "Whisper.cpp",
           "description": "OpenAI Whisper 自动语音识别模型的高性能推理",
           "details": "AivoRelay 使用 Whisper.cpp 进行快速的本地语音转文字处理。感谢 Georgi Gerganov 和贡献者们的出色工作。"
+        },
+        "cpal": {
+          "title": "CPAL",
+          "description": "Low-level Rust audio I/O used for live capture and device routing",
+          "details": "AivoRelay uses the CPAL audio library for microphone capture, device selection, audio feedback routing, and Windows loopback capture for Live Sound Transcription. Licensed under Apache 2.0 by the RustAudio Project Developers. License file is provided in THIRD_PARTY_LICENSES.md"
+        },
+        "nnnoiseless": {
+          "title": "nnnoiseless / RNNoise",
+          "description": "Optional microphone noise cancellation before speech-to-text",
+          "details": "AivoRelay uses nnnoiseless, a pure-Rust RNNoise implementation, for optional microphone noise cancellation. Licensed under BSD-3-Clause; license notice is provided in THIRD_PARTY_LICENSES.md."
         }
       }
     }

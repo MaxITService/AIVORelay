@@ -14,7 +14,7 @@ use cpal::{
 };
 
 use crate::audio_toolkit::{
-    audio::{AudioVisualiser, FrameResampler},
+    audio::{AudioVisualiser, FrameResampler, NoiseSuppressor},
     constants,
     vad::{self, VadFrame},
     VoiceActivityDetector,
@@ -52,6 +52,7 @@ pub struct AudioRecorder {
     level_cb: Option<Arc<dyn Fn(Vec<f32>) + Send + Sync + 'static>>,
     stream_frame_cb: Arc<Mutex<Option<StreamFrameCallback>>>,
     microphone_input_gain: Arc<Mutex<f32>>,
+    microphone_noise_cancellation_enabled: Arc<AtomicBool>,
 }
 
 impl AudioRecorder {
@@ -64,6 +65,7 @@ impl AudioRecorder {
             level_cb: None,
             stream_frame_cb: Arc::new(Mutex::new(None)),
             microphone_input_gain: Arc::new(Mutex::new(1.0)),
+            microphone_noise_cancellation_enabled: Arc::new(AtomicBool::new(false)),
         })
     }
 
@@ -82,6 +84,11 @@ impl AudioRecorder {
 
     pub fn with_microphone_input_boost_db(self, db: f32) -> Self {
         self.set_microphone_input_boost_db(db);
+        self
+    }
+
+    pub fn with_microphone_noise_cancellation_enabled(self, enabled: bool) -> Self {
+        self.set_microphone_noise_cancellation_enabled(enabled);
         self
     }
 
@@ -128,6 +135,8 @@ impl AudioRecorder {
         let level_cb = self.level_cb.clone();
         let stream_frame_cb = Arc::clone(&self.stream_frame_cb);
         let microphone_input_gain = Arc::clone(&self.microphone_input_gain);
+        let microphone_noise_cancellation_enabled =
+            Arc::clone(&self.microphone_noise_cancellation_enabled);
 
         let worker = std::thread::spawn(move || {
             let stop_flag = Arc::new(AtomicBool::new(false));
@@ -212,6 +221,7 @@ impl AudioRecorder {
                         stream_frame_cb,
                         source,
                         microphone_input_gain,
+                        microphone_noise_cancellation_enabled,
                         stop_flag,
                     );
                     drop(stream);
@@ -301,6 +311,11 @@ impl AudioRecorder {
         if let Ok(mut gain) = self.microphone_input_gain.lock() {
             *gain = microphone_input_gain_from_db(db);
         }
+    }
+
+    pub fn set_microphone_noise_cancellation_enabled(&self, enabled: bool) {
+        self.microphone_noise_cancellation_enabled
+            .store(enabled, Ordering::Relaxed);
     }
 
     fn build_stream<T>(
@@ -594,6 +609,34 @@ fn apply_input_gain_if_needed<'a>(
     )
 }
 
+fn apply_noise_cancellation_if_needed<'a>(
+    samples: Cow<'a, [f32]>,
+    source: AudioCaptureSource,
+    microphone_noise_cancellation_enabled: &Arc<AtomicBool>,
+    noise_suppressor: &mut Option<NoiseSuppressor>,
+) -> Cow<'a, [f32]> {
+    if source != AudioCaptureSource::Microphone
+        || !microphone_noise_cancellation_enabled.load(Ordering::Relaxed)
+    {
+        return samples;
+    }
+
+    if noise_suppressor.is_none() {
+        match NoiseSuppressor::new_16khz() {
+            Ok(suppressor) => *noise_suppressor = Some(suppressor),
+            Err(err) => {
+                log::warn!("Failed to initialize RNNoise noise cancellation: {err}");
+                return samples;
+            }
+        }
+    }
+
+    match noise_suppressor.as_mut() {
+        Some(suppressor) => Cow::Owned(suppressor.process_16khz_frame(samples.as_ref())),
+        None => samples,
+    }
+}
+
 fn process_consumer_cmd(
     cmd: Cmd,
     recording: &mut bool,
@@ -604,12 +647,15 @@ fn process_consumer_cmd(
     visualizer: &mut AudioVisualiser,
     source: AudioCaptureSource,
     microphone_input_gain: &Arc<Mutex<f32>>,
+    microphone_noise_cancellation_enabled: &Arc<AtomicBool>,
+    noise_suppressor: &mut Option<NoiseSuppressor>,
     stop_flag: &Arc<AtomicBool>,
 ) -> bool {
     match cmd {
         Cmd::Start => {
             stop_flag.store(false, Ordering::Relaxed);
             processed_samples.clear();
+            *noise_suppressor = None;
             *recording = true;
             visualizer.reset();
             if let Some(v) = vad {
@@ -647,7 +693,13 @@ fn process_consumer_cmd(
                         frame_resampler.push(&remaining, &mut |frame: &[f32]| {
                             let adjusted =
                                 apply_input_gain_if_needed(frame, source, microphone_input_gain);
-                            handle_frame(adjusted.as_ref(), true, vad, processed_samples)
+                            let enhanced = apply_noise_cancellation_if_needed(
+                                adjusted,
+                                source,
+                                microphone_noise_cancellation_enabled,
+                                noise_suppressor,
+                            );
+                            handle_frame(enhanced.as_ref(), true, vad, processed_samples)
                         });
                     }
                     Ok(AudioChunk::EndOfStream) => break,
@@ -660,10 +712,17 @@ fn process_consumer_cmd(
 
             frame_resampler.finish(&mut |frame: &[f32]| {
                 let adjusted = apply_input_gain_if_needed(frame, source, microphone_input_gain);
-                handle_frame(adjusted.as_ref(), true, vad, processed_samples)
+                let enhanced = apply_noise_cancellation_if_needed(
+                    adjusted,
+                    source,
+                    microphone_noise_cancellation_enabled,
+                    noise_suppressor,
+                );
+                handle_frame(enhanced.as_ref(), true, vad, processed_samples)
             });
 
             let _ = reply_tx.send(std::mem::take(processed_samples));
+            *noise_suppressor = None;
 
             stop_flag.store(false, Ordering::Relaxed);
             false
@@ -684,6 +743,7 @@ fn run_consumer(
     stream_frame_cb: Arc<Mutex<Option<StreamFrameCallback>>>,
     source: AudioCaptureSource,
     microphone_input_gain: Arc<Mutex<f32>>,
+    microphone_noise_cancellation_enabled: Arc<AtomicBool>,
     stop_flag: Arc<AtomicBool>,
 ) {
     let mut frame_resampler = FrameResampler::new(
@@ -694,6 +754,7 @@ fn run_consumer(
 
     let mut processed_samples = Vec::<f32>::new();
     let mut recording = false;
+    let mut noise_suppressor: Option<NoiseSuppressor> = None;
 
     const BUCKETS: usize = 16;
     const WINDOW_SIZE: usize = 512;
@@ -711,6 +772,8 @@ fn run_consumer(
                 &mut visualizer,
                 source,
                 &microphone_input_gain,
+                &microphone_noise_cancellation_enabled,
+                &mut noise_suppressor,
                 &stop_flag,
             ) {
                 return;
@@ -737,12 +800,20 @@ fn run_consumer(
         frame_resampler.push(&raw, &mut |frame: &[f32]| {
             let adjusted = apply_input_gain_if_needed(frame, source, &microphone_input_gain);
             if recording {
+                let enhanced = apply_noise_cancellation_if_needed(
+                    adjusted,
+                    source,
+                    &microphone_noise_cancellation_enabled,
+                    &mut noise_suppressor,
+                );
                 let callback = stream_frame_cb.lock().ok().and_then(|guard| guard.clone());
                 if let Some(cb) = callback {
-                    cb(adjusted.to_vec());
+                    cb(enhanced.to_vec());
                 }
+                handle_frame(enhanced.as_ref(), true, &vad, &mut processed_samples)
+            } else {
+                handle_frame(adjusted.as_ref(), false, &vad, &mut processed_samples)
             }
-            handle_frame(adjusted.as_ref(), recording, &vad, &mut processed_samples)
         });
 
         while let Ok(cmd) = cmd_rx.try_recv() {
@@ -756,6 +827,8 @@ fn run_consumer(
                 &mut visualizer,
                 source,
                 &microphone_input_gain,
+                &microphone_noise_cancellation_enabled,
+                &mut noise_suppressor,
                 &stop_flag,
             ) {
                 return;
