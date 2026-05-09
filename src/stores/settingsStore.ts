@@ -423,6 +423,10 @@ settingUpdaters.error_overlay_auto_hide_ms = (value) =>
   invoke("change_microphone_input_boost_db_setting", {
     db: Number(value),
   });
+(settingUpdaters as any).microphone_noise_cancellation_enabled = (value: any) =>
+  invoke("change_microphone_noise_cancellation_enabled_setting", {
+    enabled: Boolean(value),
+  });
 (settingUpdaters as any).recording_auto_stop_timeout_seconds = (value: any) =>
   invoke("change_recording_auto_stop_timeout_seconds_setting", {
     seconds: value,

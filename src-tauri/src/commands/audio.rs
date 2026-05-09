@@ -421,3 +421,20 @@ pub fn change_microphone_input_boost_for_device_setting(
 
     Ok(())
 }
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_microphone_noise_cancellation_enabled_setting(
+    app: AppHandle,
+    enabled: bool,
+) -> Result<(), String> {
+    let mut settings = get_settings(&app);
+    settings.microphone_noise_cancellation_enabled = enabled;
+    write_settings(&app, settings);
+
+    let rm = app.state::<Arc<AudioRecordingManager>>();
+    rm.refresh_microphone_noise_cancellation_from_settings();
+    crate::managers::live_sound_audio::refresh_microphone_noise_cancellation_from_settings(&app);
+
+    Ok(())
+}

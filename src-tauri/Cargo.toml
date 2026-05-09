@@ -72,6 +72,7 @@ natural = "0.5.0"
 regex = "1"
 chrono = "0.4"
 rusqlite = { version = "0.37", features = ["bundled"] }
+nnnoiseless = { version = "0.5.2", default-features = false }
 tar = "0.4.44"
 flate2 = "1.0"
 transcribe-rs = { version = "0.3.8", features = ["whisper-cpp", "onnx", "vad-silero"] }

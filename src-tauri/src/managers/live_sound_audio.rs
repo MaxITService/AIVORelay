@@ -222,7 +222,8 @@ fn open_mic_recorder_for_both(
         .map_err(|e| format!("Failed to create mic recorder: {}", e))?
         .with_microphone_input_boost_db(
             settings.microphone_input_boost_db_for_device(mic_device_name),
-        );
+        )
+        .with_microphone_noise_cancellation_enabled(settings.microphone_noise_cancellation_enabled);
 
     let mic_device = resolve_device(&AudioCaptureSource::Microphone, mic_device_name);
     mic_rec
@@ -275,7 +276,11 @@ pub fn start(app: &AppHandle) -> Result<(), String> {
             settings.microphone_input_boost_db_for_device(device_name.as_deref())
         } else {
             0.0
-        });
+        })
+        .with_microphone_noise_cancellation_enabled(
+            source == AudioCaptureSource::Microphone
+                && settings.microphone_noise_cancellation_enabled,
+        );
 
     let device = resolve_device(&source, device_name.as_deref());
 
@@ -434,6 +439,23 @@ pub fn refresh_microphone_input_boost_from_settings(app: &AppHandle) {
                 mic_recorder.set_microphone_input_boost_db(
                     settings
                         .microphone_input_boost_db_for_device(session.mic_device_name.as_deref()),
+                );
+            }
+        }
+    }
+}
+
+pub fn refresh_microphone_noise_cancellation_from_settings(app: &AppHandle) {
+    if let Ok(mut guard) = SESSION.lock() {
+        if let Some(session) = guard.as_mut() {
+            let settings = get_settings(app);
+            session.recorder.set_microphone_noise_cancellation_enabled(
+                session.primary_source == AudioCaptureSource::Microphone
+                    && settings.microphone_noise_cancellation_enabled,
+            );
+            if let Some(mic_recorder) = session.mic_recorder.as_ref() {
+                mic_recorder.set_microphone_noise_cancellation_enabled(
+                    settings.microphone_noise_cancellation_enabled,
                 );
             }
         }

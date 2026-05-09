@@ -1792,6 +1792,9 @@ pub struct AppSettings {
     /// Optional microphone-only preamp in dB (0.0-12.0). Zero keeps the capture path vanilla.
     #[serde(default = "default_microphone_input_boost_db")]
     pub microphone_input_boost_db: f32,
+    /// Microphone-only RNNoise suppression before VAD/STT. Loopback capture is left untouched.
+    #[serde(default = "default_false")]
+    pub microphone_noise_cancellation_enabled: bool,
     #[serde(default = "default_connector_port")]
     pub connector_port: u16,
     #[serde(default = "default_connector_enabled")]
@@ -3362,6 +3365,7 @@ pub fn get_default_settings() -> AppSettings {
         file_transcription_chunking_max_minutes: default_file_transcription_chunking_max_minutes(),
         microphone_input_boost_db_by_device: default_microphone_input_boost_db_by_device(),
         microphone_input_boost_db: default_microphone_input_boost_db(),
+        microphone_noise_cancellation_enabled: false,
         connector_port: default_connector_port(),
         connector_enabled: default_connector_enabled(),
         connector_encryption_enabled: default_connector_encryption_enabled(),
