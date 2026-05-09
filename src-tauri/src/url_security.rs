@@ -10,7 +10,7 @@ pub const REMOTE_STT_GROQ_BASE_URL: &str = "https://api.groq.com/openai/v1";
 pub const REMOTE_STT_OPENAI_BASE_URL: &str = "https://api.openai.com/v1";
 
 pub const REMOTE_STT_GROQ_DEFAULT_MODEL: &str = "whisper-large-v3-turbo";
-pub const REMOTE_STT_OPENAI_DEFAULT_MODEL: &str = "whisper-1";
+pub const REMOTE_STT_OPENAI_DEFAULT_MODEL: &str = "gpt-realtime-2";
 
 pub const LLM_OPENAI_BASE_URL: &str = "https://api.openai.com/v1";
 pub const LLM_ZAI_BASE_URL: &str = "https://api.z.ai/api/paas/v4";

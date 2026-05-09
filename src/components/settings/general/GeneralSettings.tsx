@@ -24,23 +24,29 @@ export const GeneralSettings: React.FC = () => {
   const profilesRef = useRef<HTMLDivElement | null>(null);
   const soundRef = useRef<HTMLDivElement | null>(null);
 
-  const transcriptionProvider = String(settings?.transcription_provider || "local");
+  const transcriptionProvider = String(
+    settings?.transcription_provider || "local",
+  );
   const profiles = settings?.transcription_profiles || [];
   const activeProfileId = settings?.active_profile_id || "default";
   const activeProfile =
     activeProfileId === "default"
       ? null
       : profiles.find((profile) => profile.id === activeProfileId) || null;
-  const transcribeShortcut = settings?.bindings?.transcribe?.current_binding?.trim() || "";
+  const transcribeShortcut =
+    settings?.bindings?.transcribe?.current_binding?.trim() || "";
   const defaultProfileShortcut =
     settings?.bindings?.transcribe_default?.current_binding?.trim() || "";
   const activeProfileBindingId =
     activeProfileId !== "default" ? `transcribe_${activeProfileId}` : null;
   const activeProfileSpecificShortcut = activeProfileBindingId
-    ? settings?.bindings?.[activeProfileBindingId]?.current_binding?.trim() || ""
+    ? settings?.bindings?.[activeProfileBindingId]?.current_binding?.trim() ||
+      ""
     : "";
   const mainRecordingShortcut =
-    transcribeShortcut || activeProfileSpecificShortcut || defaultProfileShortcut;
+    transcribeShortcut ||
+    activeProfileSpecificShortcut ||
+    defaultProfileShortcut;
   const localModelReady = Boolean(settings?.selected_model);
   const remoteModelReady =
     transcriptionProvider === "remote_openai_compatible"
@@ -138,7 +144,9 @@ export const GeneralSettings: React.FC = () => {
     },
   ];
 
-  const getReadinessStatus = (item: (typeof readinessItems)[number]): ReadinessStatus => {
+  const getReadinessStatus = (
+    item: (typeof readinessItems)[number],
+  ): ReadinessStatus => {
     if (item.done) return "ready";
     if (item.optional) return "optional";
     return "todo";
@@ -218,7 +226,9 @@ export const GeneralSettings: React.FC = () => {
                       >
                         {getReadinessStatusLabel(status)}
                       </span>
-                      <span className="text-sm font-medium text-text">{item.title}</span>
+                      <span className="text-sm font-medium text-text">
+                        {item.title}
+                      </span>
                     </div>
                     <p className="mt-1 text-xs text-text/70">{item.detail}</p>
                   </div>

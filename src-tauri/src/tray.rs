@@ -564,7 +564,12 @@ fn append_remote_openai_model_items(
         (
             REMOTE_STT_PRESET_OPENAI.to_string(),
             REMOTE_STT_OPENAI_DEFAULT_MODEL.to_string(),
-            "OpenAI: whisper-1".to_string(),
+            "OpenAI: gpt-realtime-2".to_string(),
+        ),
+        (
+            REMOTE_STT_PRESET_OPENAI.to_string(),
+            "gpt-realtime-translate".to_string(),
+            "OpenAI: gpt-realtime-translate".to_string(),
         ),
     ];
 
@@ -978,11 +983,11 @@ mod tests {
         );
         assert_eq!(
             parse_model_menu_selection(&format!(
-                "{TRAY_MODEL_MENU_PREFIX}remote_openai_compatible::openai::whisper-1"
+                "{TRAY_MODEL_MENU_PREFIX}remote_openai_compatible::openai::gpt-realtime-2"
             )),
             Some(TrayModelSelection::RemoteOpenAiCompatible {
                 provider_preset: "openai".to_string(),
-                model_id: "whisper-1".to_string(),
+                model_id: "gpt-realtime-2".to_string(),
             })
         );
         assert_eq!(

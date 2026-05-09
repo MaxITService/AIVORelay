@@ -2449,7 +2449,8 @@ async remoteSttTestConnection(baseUrl: string) : Promise<Result<null, string>> {
 /**
  * Returns whether the currently selected Remote STT model supports translation to English.
  * Uses the OpenAI-compatible /audio/translations endpoint.
- * Known support: Groq whisper-large-v3, OpenAI whisper-1. NOT supported: whisper-large-v3-turbo.
+ * Known support: Groq whisper-large-v3, OpenAI whisper-1/gpt-realtime-2/gpt-realtime-translate.
+ * NOT supported: whisper-large-v3-turbo.
  */
 async remoteSttSupportsTranslation() : Promise<boolean> {
     return await TAURI_INVOKE("remote_stt_supports_translation");
@@ -3347,7 +3348,7 @@ send_to_extension_with_selection_enabled?: boolean; send_to_extension_with_selec
 /**
  * Optional microphone-only preamp in dB, saved per microphone device name.
  */
-microphone_input_boost_db_by_device?: Partial<{ [key in string]: number }>; 
+microphone_input_boost_db_by_device?: Partial<{ [key in string]: number }>;
 /**
  * Optional microphone-only preamp in dB (0.0-12.0). Zero keeps the capture path vanilla.
  */

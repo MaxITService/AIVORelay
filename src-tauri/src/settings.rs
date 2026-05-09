@@ -2181,7 +2181,10 @@ fn default_microphone_input_boost_db_by_device() -> HashMap<String, f32> {
 
 pub fn sanitize_microphone_input_boost_db(db: f32) -> f32 {
     if db.is_finite() {
-        db.clamp(0.0, 12.0)
+        db.clamp(
+            0.0,
+            crate::audio_toolkit::constants::MAX_MICROPHONE_INPUT_BOOST_DB,
+        )
     } else {
         0.0
     }
