@@ -713,7 +713,7 @@ export default function VoiceCommandSettings() {
                               </div>
                             ) : null}
 
-                            <div className="setting-row llm-api-row">
+                            <div className="setting-row llm-api-row llm-api-row-api-key">
                               <div className="setting-label">
                                 <span>
                                   {t("settings.postProcessing.api.apiKey.title")}

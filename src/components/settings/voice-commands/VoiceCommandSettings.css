@@ -105,6 +105,15 @@
   position: relative;
   z-index: 1;
 }
+.llm-api-row-api-key {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 10px;
+}
+.llm-api-row-api-key .llm-api-control {
+  width: 100%;
+  min-width: 0;
+}
 .llm-api-row-provider {
   z-index: 20;
 }

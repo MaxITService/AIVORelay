@@ -3,8 +3,7 @@ import { useTranslation } from "react-i18next";
 import { invoke } from "@tauri-apps/api/core";
 import { type } from "@tauri-apps/plugin-os";
 
-import { Input } from "../../ui/Input";
-import { Button } from "../../ui/Button";
+import { ApiKeyEditor, StoredApiKeyDisplay } from "../ApiKeyControls";
 
 type LlmApiKeyFeature = "post_processing" | "ai_replace" | "voice_command";
 
@@ -117,6 +116,16 @@ export const ApiKeyField: React.FC<ApiKeyFieldProps> = React.memo(
       await loadSecureStatus();
     };
 
+    const handleSaveLocalValue = async () => {
+      if (disabled || localValue === value) return;
+
+      await Promise.resolve(onBlur(localValue));
+      if (shouldCheckSecureStorage) {
+        setLocalValue("");
+        await loadSecureStatus();
+      }
+    };
+
     const showStoredKeyState =
       shouldCheckSecureStorage &&
       hasSecureStatusLoaded &&
@@ -126,37 +135,12 @@ export const ApiKeyField: React.FC<ApiKeyFieldProps> = React.memo(
     if (showStoredKeyState) {
       return (
         <div className={`flex flex-col gap-2 ${containerClassName}`}>
-          <Input
-            type="text"
-            value="************************************************"
-            readOnly
-            className="w-full text-green-400"
+          <StoredApiKeyDisplay
+            disabled={disabled}
+            loading={isCheckingSecureStatus}
+            onDelete={handleClearStoredKey}
+            onReplace={handleStartReplace}
           />
-          <div className="flex items-center gap-2 text-sm text-green-400">
-            <span className="inline-flex h-2 w-2 rounded-full bg-green-400" />
-            <span>{t("settings.advanced.remoteStt.apiKey.statusStored")}</span>
-          </div>
-          <p className="text-xs text-text/60">
-            {t("settings.advanced.remoteStt.apiKey.statusStoredHint")}
-          </p>
-          <div className="flex items-center gap-2">
-            <Button
-              variant="secondary"
-              size="sm"
-              onClick={handleStartReplace}
-              disabled={disabled || isCheckingSecureStatus}
-            >
-              {t("settings.advanced.remoteStt.apiKey.replace")}
-            </Button>
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={handleClearStoredKey}
-              disabled={disabled || isCheckingSecureStatus}
-            >
-              {t("settings.advanced.remoteStt.apiKey.clear")}
-            </Button>
-          </div>
         </div>
       );
     }
@@ -167,62 +151,39 @@ export const ApiKeyField: React.FC<ApiKeyFieldProps> = React.memo(
     if (showReplaceEditor) {
       return (
         <div className={`flex flex-col gap-2 ${containerClassName}`}>
-          <div className="flex items-center gap-2">
-            <Input
-              type="password"
-              value={localValue}
-              onChange={(event) => setLocalValue(event.target.value)}
-              placeholder={placeholder}
-              variant="compact"
-              disabled={disabled || isCheckingSecureStatus}
-              className="flex-1 min-w-[220px]"
-            />
-            <Button
-              variant="secondary"
-              size="sm"
-              onClick={handleSaveReplace}
-              disabled={
-                disabled || isCheckingSecureStatus || localValue.trim().length === 0
-              }
-            >
-              {t("settings.advanced.remoteStt.apiKey.save")}
-            </Button>
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={handleCancelReplace}
-              disabled={disabled || isCheckingSecureStatus}
-            >
-              {t("settings.advanced.remoteStt.apiKey.cancel")}
-            </Button>
-          </div>
-          <p className="text-xs text-text/60">
-            {t("settings.advanced.remoteStt.apiKey.replaceHint")}
-          </p>
+          <ApiKeyEditor
+            disabled={disabled}
+            loading={isCheckingSecureStatus}
+            value={localValue}
+            onChange={setLocalValue}
+            onSave={handleSaveReplace}
+            onCancel={handleCancelReplace}
+            placeholder={placeholder}
+            showCancel
+            hint={t("settings.advanced.remoteStt.apiKey.replaceHint")}
+          />
         </div>
       );
     }
 
     return (
-      <div className={containerClassName}>
-        <Input
-          type="password"
-          value={localValue}
-          onChange={(event) => setLocalValue(event.target.value)}
-          onBlur={() => {
-            if (localValue === value) return;
-            void (async () => {
-              await Promise.resolve(onBlur(localValue));
-              if (shouldCheckSecureStorage) {
-                setLocalValue("");
-                await loadSecureStatus();
-              }
-            })();
-          }}
-          placeholder={placeholder}
-          variant="compact"
+      <div className={`flex flex-col gap-2 ${containerClassName}`}>
+        <ApiKeyEditor
           disabled={disabled}
-          className="w-full"
+          loading={isCheckingSecureStatus}
+          value={localValue}
+          onBlur={() => {
+            void handleSaveLocalValue();
+          }}
+          onChange={setLocalValue}
+          onSave={handleSaveLocalValue}
+          placeholder={placeholder}
+          saveDisabled={localValue === value}
+          hint={
+            shouldCheckSecureStorage && hasSecureStatusLoaded && !hasSecureKey
+              ? t("settings.advanced.remoteStt.apiKey.statusMissing")
+              : undefined
+          }
         />
       </div>
     );
