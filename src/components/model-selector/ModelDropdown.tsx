@@ -26,6 +26,7 @@ interface ModelDropdownProps {
   onModelDelete: (modelId: string) => Promise<void>;
   onError?: (error: string) => void;
   currentProvider?: string;
+  remoteApiLabel?: string;
   onRemoteProviderSelect?: (provider: string) => void;
 }
 
@@ -39,6 +40,7 @@ const ModelDropdown: React.FC<ModelDropdownProps> = ({
   onModelDelete,
   onError,
   currentProvider = "local",
+  remoteApiLabel = "Remote API Interfaces",
   onRemoteProviderSelect,
 }) => {
   const isRemoteProvider =
@@ -123,7 +125,11 @@ const ModelDropdown: React.FC<ModelDropdownProps> = ({
                   />
                 </svg>
                 <div>
-                  <div className="text-sm">{t("modelSelector.remoteApiMode")}</div>
+                  <div className="text-sm">
+                    {currentProvider === "remote_openai_compatible"
+                      ? remoteApiLabel
+                      : t("modelSelector.remoteApiMode")}
+                  </div>
                   <div className="text-xs text-text/40 italic">
                     {t("modelSelector.remoteApiModeDescription")}
                   </div>

@@ -1772,8 +1772,8 @@ fn emit_soniox_live_preview_update_internal(
     interim_text: &str,
 ) {
     let changed_ranges = if let Ok(mut state) = SONIOX_LIVE_PREVIEW_STATE.lock() {
-        let preserve_highlights = final_text == state.final_text
-            || final_text.starts_with(&state.final_text);
+        let preserve_highlights =
+            final_text == state.final_text || final_text.starts_with(&state.final_text);
         if !preserve_highlights {
             state.changed_ranges.clear();
         }
@@ -1844,7 +1844,9 @@ pub fn emit_soniox_live_preview_update_with_changed_ranges(
             .changed_ranges
             .retain(|range| range.end <= preserve_before_char && range.end <= final_char_len);
         state.changed_ranges.extend(new_ranges);
-        state.changed_ranges.sort_by_key(|range| (range.start, range.end));
+        state
+            .changed_ranges
+            .sort_by_key(|range| (range.start, range.end));
 
         let mut merged: Vec<SonioxLivePreviewChangedRange> = Vec::new();
         for range in state.changed_ranges.drain(..) {
