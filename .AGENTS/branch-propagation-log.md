@@ -13,6 +13,7 @@ Rules:
 
 | Propagation Date | Target Branch | Main SHA | Main Message | Branch SHA | Branch Message | Issues |
 | --- | --- | --- | --- | --- | --- | --- |
+| 2026-05-11 | `integration/combined` | `bf6cae7d` | chore: bump version to 1.0.17 | `304bdf24` | chore: bump version to 1.0.17 | resolved settings import conflict; combined release notes excluded |
 | 2026-05-10 | `integration/combined` | `a2e3a115` | fix(settings): unify API key controls | `644f7ed7` | fix(settings): unify API key controls | clean cherry-pick |
 | 2026-05-03 | `integration/combined` | `b476149b` | chore: bump version to 1.0.15 | `ecbfe423` | chore: bump version to 1.0.15 | resolved tray import, overlay, bindings/settings conflicts |
 | 2026-04-25 | `integration/combined` | `4b6adfa5` | fix(overlay): keep error layout onscreen | `d2f38a73` | fix(overlay): keep error layout onscreen | resolved old geometry helper conflict |
@@ -22,7 +23,6 @@ Rules:
 | 2026-04-18 | `integration/combined` | `7cf850fd` | fix(overlay): stabilize first paint and placement | `35e44f0d` | fix(overlay): stabilize first paint and placement | clean cherry-pick |
 | 2026-04-18 | `integration/cuda` | `7cf850fd` | fix(overlay): stabilize first paint and placement | `d6b45f25` | fix(overlay): stabilize first paint and placement | clean cherry-pick |
 | 2026-04-18 | `release/microsoft-store` | `7cf850fd` | fix(overlay): stabilize first paint and placement | `38b4c934` | fix(overlay): stabilize first paint and placement | clean cherry-pick |
-| 2026-04-18 | `integration/combined` | `268ffdf9` | feat(about): add Reddit community link | `188b60cf` | feat(about): add Reddit community link | clean cherry-pick |
 
 Entry template:
 
