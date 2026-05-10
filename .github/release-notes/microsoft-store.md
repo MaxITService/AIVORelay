@@ -5,12 +5,11 @@ GitHub Actions prepends this Markdown above GitHub-generated release notes.
 
 ## Highlights
 
-- Live Preview output now flushes more reliably during local preview workflows.
-- OpenAI transcription now includes realtime modes.
-- Microphone noise cancellation is available as an optional audio setting.
-- Live Preview now marks deleted text more clearly.
-- Tray and taskbar behavior is more reliable, including unloading the selected local model.
-- API key fields are more consistent and legacy remote STT keys migrate automatically.
+- Remote STT now explains missing Custom API keys clearly in transcription and test-connection flows.
+- Remote API labels now distinguish Groq, GPT Realtime, translate mode, and custom endpoint hosts.
+- Custom Remote API defaults are OpenAI-compatible without rewriting existing custom endpoints.
+- Preview insert with post-processing now shows a clear processing state and keeps the preview open on failure.
+- Settings repair is safer for renamed preview options and backs up the settings store before automatic repair.
 
 ---
 
