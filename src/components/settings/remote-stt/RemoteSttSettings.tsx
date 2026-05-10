@@ -16,6 +16,7 @@ import {
 } from "../../../lib/constants/remoteSttProviders";
 import { LANGUAGES } from "../../../lib/constants/languages";
 import { parseAndNormalizeSonioxLanguageHints } from "../../../lib/constants/sonioxLanguages";
+import { ApiKeyEditor, StoredApiKeyDisplay } from "../ApiKeyControls";
 import { Button } from "../../ui/Button";
 import { Input } from "../../ui/Input";
 import { Select, type SelectOption } from "../../ui/Select";
@@ -2406,82 +2407,32 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
           >
             <div className="flex flex-col gap-3 rounded-lg border border-mid-gray/30 bg-mid-gray/5 p-3">
               {hasApiKey && !isEditingKey ? (
-                <div className="flex flex-col gap-2">
-                  <Input
-                    type="text"
-                    value="************************************************"
-                    readOnly
-                    className="text-green-400"
-                  />
-                  <div className="flex items-center gap-2 text-sm text-green-400">
-                    <span className="inline-flex h-2 w-2 rounded-full bg-green-400" />
-                    <span className="text-green-400">
-                      {t("settings.advanced.remoteStt.apiKey.statusStored")}
-                    </span>
-                  </div>
-                  <p className="text-xs text-text/60">
-                    {t("settings.advanced.remoteStt.apiKey.statusStoredHint")}
-                  </p>
-                  <div className="flex items-center gap-2">
-                    <Button
-                      variant="secondary"
-                      size="sm"
-                      onClick={handleStartReplaceKey}
-                      disabled={apiKeyLoading}
-                    >
-                      {t("settings.advanced.remoteStt.apiKey.replace")}
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={handleClearApiKey}
-                      disabled={apiKeyLoading}
-                    >
-                      {t("settings.advanced.remoteStt.apiKey.clear")}
-                    </Button>
-                  </div>
-                </div>
+                <StoredApiKeyDisplay
+                  loading={apiKeyLoading}
+                  onDelete={handleClearApiKey}
+                  onReplace={handleStartReplaceKey}
+                />
               ) : (
-                <div className="flex flex-col gap-2">
-                  <div className="flex items-center gap-2">
-                    <Input
-                      type="password"
-                      value={apiKeyInput}
-                      onChange={(event) => setApiKeyInput(event.target.value)}
-                      placeholder={
-                        isSonioxProvider
-                          ? t("settings.advanced.soniox.apiKey.placeholder")
-                          : isDeepgramProvider
-                            ? t("settings.advanced.deepgram.apiKey.placeholder")
-                          : t("settings.advanced.remoteStt.apiKey.placeholder")
-                      }
-                      disabled={apiKeyLoading}
-                    />
-                    <Button
-                      variant="secondary"
-                      size="sm"
-                      onClick={handleSaveApiKey}
-                      disabled={apiKeyLoading || !apiKeyInput.trim()}
-                    >
-                      {t("settings.advanced.remoteStt.apiKey.save")}
-                    </Button>
-                    {hasApiKey && (
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={handleCancelReplaceKey}
-                        disabled={apiKeyLoading}
-                      >
-                        {t("settings.advanced.remoteStt.apiKey.cancel")}
-                      </Button>
-                    )}
-                  </div>
-                  <p className="text-xs text-text/60">
-                    {hasApiKey
+                <ApiKeyEditor
+                  loading={apiKeyLoading}
+                  value={apiKeyInput}
+                  onChange={setApiKeyInput}
+                  onSave={handleSaveApiKey}
+                  onCancel={handleCancelReplaceKey}
+                  placeholder={
+                    isSonioxProvider
+                      ? t("settings.advanced.soniox.apiKey.placeholder")
+                      : isDeepgramProvider
+                        ? t("settings.advanced.deepgram.apiKey.placeholder")
+                        : t("settings.advanced.remoteStt.apiKey.placeholder")
+                  }
+                  showCancel={hasApiKey}
+                  hint={
+                    hasApiKey
                       ? t("settings.advanced.remoteStt.apiKey.replaceHint")
-                      : t("settings.advanced.remoteStt.apiKey.statusMissing")}
-                  </p>
-                </div>
+                      : t("settings.advanced.remoteStt.apiKey.statusMissing")
+                  }
+                />
               )}
 
               <div className="flex flex-col gap-2">
