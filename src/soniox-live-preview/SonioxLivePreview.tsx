@@ -847,6 +847,10 @@ export default function SonioxLivePreview() {
     workflowState.isRealtime,
     workflowState.recording,
   ]);
+  const processingStatusText =
+    workflowState.processingLlm && !isActionBusy
+      ? "Processing before insert..."
+      : null;
 
   const rootStyle = useMemo(() => {
     const preset = THEME_PRESETS[appearance.theme] ?? THEME_PRESETS.main_dark;
@@ -1314,6 +1318,11 @@ export default function SonioxLivePreview() {
       {workflowState.errorMessage && (
         <div className="soniox-live-preview-error">{workflowState.errorMessage}</div>
       )}
+      {processingStatusText && (
+        <div className="soniox-live-preview-processing">
+          {processingStatusText}
+        </div>
+      )}
       {workflowState.active && (
         <div className="soniox-live-preview-actions">
           {appearance.showClearButton && (
@@ -1374,7 +1383,11 @@ export default function SonioxLivePreview() {
               disabled={!canProcess}
             >
               {labelWithHotkey(
-                workflowState.processingLlm ? "Processing..." : "Processing via LLM",
+                workflowState.processingLlm
+                  ? isActionBusy
+                    ? "Processing..."
+                    : "Processing before insert..."
+                  : "Processing via LLM",
                 processHotkeyLabel,
               )}
             </button>
