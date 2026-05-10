@@ -683,7 +683,9 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
           ? "gpt-realtime-translate"
           : interfaceId === "openai_realtime_agent"
             ? "gpt-realtime-2"
-            : customModelId.trim() || modelIdInput.trim();
+            : remotePreset === "custom"
+              ? customModelId.trim() || modelIdInput.trim()
+              : REMOTE_STT_PRESETS.custom.defaultModel;
 
     try {
       if (remotePreset === "custom") {
@@ -1111,7 +1113,6 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
   const showDeepgramFields = isWindows && isDeepgramProvider;
   const canTestConnection =
     isRemoteOpenAiProvider &&
-    hasApiKey &&
     baseUrlInput.trim().length > 0 &&
     !apiKeyLoading;
 

@@ -4,6 +4,7 @@ import { listen } from "@tauri-apps/api/event";
 import { commands, type ModelInfo } from "@/bindings";
 import type { ModelStateEvent } from "@/lib/types/events";
 import { getTranslatedModelName } from "../../lib/utils/modelTranslation";
+import { getRemoteApiDisplayLabel } from "../../lib/utils/remoteSttDisplay";
 import ModelStatusButton from "./ModelStatusButton";
 import ModelDropdown from "./ModelDropdown";
 import DownloadProgressDisplay from "./DownloadProgressDisplay";
@@ -65,6 +66,9 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({
 
   const transcriptionProvider = String(
     getSetting("transcription_provider") || "local",
+  );
+  const remoteApiDisplayLabel = getRemoteApiDisplayLabel(
+    getSetting("remote_stt") as any,
   );
   const isRemoteProvider =
     transcriptionProvider === "remote_openai_compatible" ||
@@ -410,7 +414,7 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({
 
   const getModelDisplayText = (): string => {
     if (transcriptionProvider === "remote_openai_compatible") {
-      return t("modelSelector.remoteApiActive");
+      return remoteApiDisplayLabel;
     }
     if (transcriptionProvider === "remote_soniox") {
       return t("modelSelector.remoteSonioxActive");
@@ -539,6 +543,7 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({
             onModelDelete={handleModelDelete}
             onError={onError}
             currentProvider={transcriptionProvider}
+            remoteApiLabel={remoteApiDisplayLabel}
             onRemoteProviderSelect={handleRemoteProviderSelect}
           />
         )}
