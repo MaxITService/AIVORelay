@@ -5,10 +5,11 @@ GitHub Actions prepends this Markdown above GitHub-generated release notes.
 
 ## Highlights
 
-- File transcription can now run while recording is in progress.
-- Added a setup checklist and setup health check to make setup easier.
-- Improved smart chunking for long local-model file transcription jobs, including Parakeet.
-- Added Cohere local transcription support and richer model metadata details.
+- Remote STT now explains missing Custom API keys clearly in transcription and test-connection flows.
+- Remote API labels now distinguish Groq, GPT Realtime, translate mode, and custom endpoint hosts.
+- Custom Remote API defaults are OpenAI-compatible without rewriting existing custom endpoints.
+- Preview insert with post-processing now shows a clear processing state and keeps the preview open on failure.
+- Settings repair is safer for renamed preview options and backs up the settings store before automatic repair.
 - Default CUDA-oriented accelerator behavior remains tuned for NVIDIA systems.
 
 ---
