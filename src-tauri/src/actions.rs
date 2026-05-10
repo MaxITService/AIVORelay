@@ -2232,14 +2232,14 @@ fn should_use_local_preview_auto_flush(
 ) -> bool {
     binding_id != LIVE_SOUND_TRANSCRIPTION_BINDING_ID
         && settings.transcription_provider == TranscriptionProvider::Local
-        && settings.soniox_live_preview_local_auto_flush_enabled
+        && settings.local_preview_auto_flush_enabled
         && should_route_output_to_preview(settings, profile)
 }
 
 fn local_preview_auto_flush_interval(settings: &AppSettings) -> Duration {
     Duration::from_millis(
         settings
-            .soniox_live_preview_local_auto_flush_interval_ms
+            .local_preview_auto_flush_interval_ms
             .clamp(1_000, 30_000),
     )
 }
@@ -2247,7 +2247,7 @@ fn local_preview_auto_flush_interval(settings: &AppSettings) -> Duration {
 fn local_preview_auto_flush_overlap_samples(settings: &AppSettings) -> usize {
     let overlap_ms = u64::from(
         settings
-            .soniox_live_preview_local_auto_flush_overlap_ms
+            .local_preview_auto_flush_overlap_ms
             .clamp(0, 2_000),
     );
     ((overlap_ms * 16_000) / 1_000) as usize
@@ -7384,7 +7384,7 @@ pub async fn preview_flush_action(app: AppHandle) -> Result<(), String> {
         if active_recording_settings_for_binding(&app, &binding_id)
             .map(|(_, settings)| {
                 settings.transcription_provider == TranscriptionProvider::Local
-                    && settings.soniox_live_preview_local_auto_flush_enabled
+                    && settings.local_preview_auto_flush_enabled
             })
             .unwrap_or(false)
         {

@@ -1626,12 +1626,21 @@ pub struct AppSettings {
     pub soniox_live_preview_backspace_delete_last_char: bool,
     #[serde(default = "default_true")]
     pub soniox_live_preview_show_drag_grip: bool,
-    #[serde(default = "default_soniox_live_preview_local_auto_flush_enabled")]
-    pub soniox_live_preview_local_auto_flush_enabled: bool,
-    #[serde(default = "default_soniox_live_preview_local_auto_flush_interval_ms")]
-    pub soniox_live_preview_local_auto_flush_interval_ms: u64,
-    #[serde(default = "default_soniox_live_preview_local_auto_flush_overlap_ms")]
-    pub soniox_live_preview_local_auto_flush_overlap_ms: u16,
+    #[serde(
+        default = "default_local_preview_auto_flush_enabled",
+        alias = "soniox_live_preview_local_auto_flush_enabled"
+    )]
+    pub local_preview_auto_flush_enabled: bool,
+    #[serde(
+        default = "default_local_preview_auto_flush_interval_ms",
+        alias = "soniox_live_preview_local_auto_flush_interval_ms"
+    )]
+    pub local_preview_auto_flush_interval_ms: u64,
+    #[serde(
+        default = "default_local_preview_auto_flush_overlap_ms",
+        alias = "soniox_live_preview_local_auto_flush_overlap_ms"
+    )]
+    pub local_preview_auto_flush_overlap_ms: u16,
     #[serde(default)]
     pub soniox_live_preview_sliding_lm_window_enabled: bool,
     #[serde(default = "default_soniox_live_preview_sliding_lm_window_prompt")]
@@ -2405,15 +2414,15 @@ fn default_soniox_live_preview_interim_opacity_percent() -> u8 {
     58
 }
 
-fn default_soniox_live_preview_local_auto_flush_enabled() -> bool {
+fn default_local_preview_auto_flush_enabled() -> bool {
     true
 }
 
-fn default_soniox_live_preview_local_auto_flush_interval_ms() -> u64 {
+fn default_local_preview_auto_flush_interval_ms() -> u64 {
     8_000
 }
 
-fn default_soniox_live_preview_local_auto_flush_overlap_ms() -> u16 {
+fn default_local_preview_auto_flush_overlap_ms() -> u16 {
     750
 }
 
@@ -3269,12 +3278,12 @@ pub fn get_default_settings() -> AppSettings {
         soniox_live_preview_ctrl_backspace_delete_last_word: default_true(),
         soniox_live_preview_backspace_delete_last_char: default_true(),
         soniox_live_preview_show_drag_grip: default_true(),
-        soniox_live_preview_local_auto_flush_enabled:
-            default_soniox_live_preview_local_auto_flush_enabled(),
-        soniox_live_preview_local_auto_flush_interval_ms:
-            default_soniox_live_preview_local_auto_flush_interval_ms(),
-        soniox_live_preview_local_auto_flush_overlap_ms:
-            default_soniox_live_preview_local_auto_flush_overlap_ms(),
+        local_preview_auto_flush_enabled:
+            default_local_preview_auto_flush_enabled(),
+        local_preview_auto_flush_interval_ms:
+            default_local_preview_auto_flush_interval_ms(),
+        local_preview_auto_flush_overlap_ms:
+            default_local_preview_auto_flush_overlap_ms(),
         soniox_live_preview_sliding_lm_window_enabled: false,
         soniox_live_preview_sliding_lm_window_prompt:
             default_soniox_live_preview_sliding_lm_window_prompt(),
