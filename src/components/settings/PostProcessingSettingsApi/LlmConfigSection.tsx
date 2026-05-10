@@ -187,28 +187,26 @@ export const LlmConfigSection: React.FC<LlmConfigSectionProps> = ({
                   "settings.postProcessing.api.apiKey.description",
                 )}
                 descriptionMode="tooltip"
-                layout="horizontal"
+                layout="stacked"
                 grouped={true}
               >
-                <div className="flex items-center gap-2">
-                  <ApiKeyField
-                    value={state.apiKey}
-                    onBlur={state.handleApiKeyChange}
-                    placeholder={t(
-                      "settings.postProcessing.api.apiKey.placeholder",
-                    )}
-                    disabled={state.isApiKeyUpdating}
-                    className="min-w-[320px]"
-                    secureStorage={
-                      state.selectedProvider?.id
-                        ? {
-                            feature: apiKeyFeature,
-                            providerId: state.selectedProvider.id,
-                          }
-                        : undefined
-                    }
-                  />
-                </div>
+                <ApiKeyField
+                  value={state.apiKey}
+                  onBlur={state.handleApiKeyChange}
+                  placeholder={t(
+                    "settings.postProcessing.api.apiKey.placeholder",
+                  )}
+                  disabled={state.isApiKeyUpdating}
+                  className="w-full min-w-0"
+                  secureStorage={
+                    state.selectedProvider?.id
+                      ? {
+                          feature: apiKeyFeature,
+                          providerId: state.selectedProvider.id,
+                        }
+                      : undefined
+                  }
+                />
               </SettingContainer>
             </>
           )}
