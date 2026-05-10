@@ -456,22 +456,22 @@ settingUpdaters.error_overlay_auto_hide_ms = (value) =>
   invoke("change_voice_button_single_click_close_setting", { enabled: value });
 (settingUpdaters as any).soniox_live_preview_enabled = (value: any) =>
   invoke("change_soniox_live_preview_enabled_setting", { enabled: value });
-(settingUpdaters as any).soniox_live_preview_local_auto_flush_enabled = (
+(settingUpdaters as any).local_preview_auto_flush_enabled = (
   value: any,
 ) =>
-  invoke("change_soniox_live_preview_local_auto_flush_enabled_setting", {
+  invoke("change_local_preview_auto_flush_enabled_setting", {
     enabled: value,
   });
-(settingUpdaters as any).soniox_live_preview_local_auto_flush_interval_ms = (
+(settingUpdaters as any).local_preview_auto_flush_interval_ms = (
   value: any,
 ) =>
-  invoke("change_soniox_live_preview_local_auto_flush_interval_setting", {
+  invoke("change_local_preview_auto_flush_interval_setting", {
     intervalMs: value,
   });
-(settingUpdaters as any).soniox_live_preview_local_auto_flush_overlap_ms = (
+(settingUpdaters as any).local_preview_auto_flush_overlap_ms = (
   value: any,
 ) =>
-  invoke("change_soniox_live_preview_local_auto_flush_overlap_setting", {
+  invoke("change_local_preview_auto_flush_overlap_setting", {
     overlapMs: value,
   });
 (settingUpdaters as any).soniox_live_preview_sliding_lm_window_enabled = (
