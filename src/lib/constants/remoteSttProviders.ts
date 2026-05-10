@@ -14,8 +14,8 @@ export const REMOTE_STT_PRESETS = {
   custom: {
     id: "custom",
     label: "Custom",
-    baseUrl: "",
-    defaultModel: "",
+    baseUrl: "https://api.openai.com/v1",
+    defaultModel: "gpt-realtime-2",
   },
 } as const;
 

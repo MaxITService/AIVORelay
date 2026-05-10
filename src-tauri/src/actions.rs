@@ -2253,11 +2253,7 @@ fn local_preview_auto_flush_interval(settings: &AppSettings) -> Duration {
 }
 
 fn local_preview_auto_flush_overlap_samples(settings: &AppSettings) -> usize {
-    let overlap_ms = u64::from(
-        settings
-            .local_preview_auto_flush_overlap_ms
-            .clamp(0, 2_000),
-    );
+    let overlap_ms = u64::from(settings.local_preview_auto_flush_overlap_ms.clamp(0, 2_000));
     ((overlap_ms * 16_000) / 1_000) as usize
 }
 
@@ -2370,9 +2366,8 @@ async fn run_local_preview_flush(
 
     let result = async {
         let (captured_profile_id, recording_settings) =
-            active_recording_settings_for_binding(&app, &binding_id).ok_or_else(|| {
-                "No active local preview recording session to flush.".to_string()
-            })?;
+            active_recording_settings_for_binding(&app, &binding_id)
+                .ok_or_else(|| "No active local preview recording session to flush.".to_string())?;
 
         if recording_settings.transcription_provider != TranscriptionProvider::Local {
             return Ok(false);
@@ -2401,8 +2396,7 @@ async fn run_local_preview_flush(
         {
             TranscriptionOutcome::Success(text) => {
                 if crate::managers::preview_output_mode::is_active_for_binding(&binding_id) {
-                    let existing =
-                        crate::managers::preview_output_mode::recording_prefix_text();
+                    let existing = crate::managers::preview_output_mode::recording_prefix_text();
                     let text = filter_local_preview_flush_text(&existing, &text);
                     if text.trim().is_empty() {
                         return Ok(false);
@@ -2769,7 +2763,11 @@ fn trim_sliding_lm_stable_context(text: &str, max_chars: usize) -> String {
     }
 
     let start = chars.len().saturating_sub(max_chars);
-    chars[start..].iter().collect::<String>().trim_start().to_string()
+    chars[start..]
+        .iter()
+        .collect::<String>()
+        .trim_start()
+        .to_string()
 }
 
 fn changed_ranges_for_replacement(
@@ -2903,7 +2901,10 @@ fn changed_ranges_by_common_edges(
 }
 
 fn common_prefix_char_count(a: &[char], b: &[char]) -> usize {
-    a.iter().zip(b).take_while(|(left, right)| left == right).count()
+    a.iter()
+        .zip(b)
+        .take_while(|(left, right)| left == right)
+        .count()
 }
 
 fn sanitize_sliding_lm_response(response: String, request: &SlidingLmRequest) -> Option<String> {
@@ -3088,13 +3089,7 @@ fn maybe_schedule_sliding_lm_window(
     let notes = "Deterministic local auto-flush appended this chunk after fuzzy overlap merging, capitalization repair, and local hallucination-tail filtering. Rewrite only the editable tail."
         .to_string();
     let request = build_sliding_lm_request_from_state(
-        binding_id,
-        generation,
-        settings,
-        profile_id,
-        state,
-        new_chunk,
-        notes,
+        binding_id, generation, settings, profile_id, state, new_chunk, notes,
     );
     spawn_sliding_lm_request(app.clone(), request);
 }
@@ -3152,10 +3147,7 @@ fn spawn_sliding_lm_request(app: AppHandle, request: SlidingLmRequest) {
     });
 }
 
-async fn run_sliding_lm_request(
-    app: AppHandle,
-    request: SlidingLmRequest,
-) -> Result<(), String> {
+async fn run_sliding_lm_request(app: AppHandle, request: SlidingLmRequest) -> Result<(), String> {
     if !is_local_preview_auto_flush_current(&request.binding_id, request.generation) {
         return Ok(());
     }
@@ -3167,7 +3159,10 @@ async fn run_sliding_lm_request(
         .ok_or_else(|| "No post-processing provider selected.".to_string())?;
 
     if provider.id == APPLE_INTELLIGENCE_PROVIDER_ID {
-        return Err("Apple Intelligence is not available for background Sliding LM Window passes.".to_string());
+        return Err(
+            "Apple Intelligence is not available for background Sliding LM Window passes."
+                .to_string(),
+        );
     }
 
     let profile = request
@@ -3313,7 +3308,10 @@ mod local_preview_text_tests {
 
     #[test]
     fn keeps_standalone_thank_you_without_existing_context() {
-        assert_eq!(filter_local_preview_flush_text("", "Thank you."), "Thank you.");
+        assert_eq!(
+            filter_local_preview_flush_text("", "Thank you."),
+            "Thank you."
+        );
     }
 
     #[test]
@@ -3350,15 +3348,13 @@ mod local_preview_text_tests {
 
     #[test]
     fn sliding_lm_diff_highlights_inserted_and_replaced_text() {
-        let ranges = changed_ranges_for_replacement(
-            "hello world",
-            "Hello, world!",
-            3,
-        );
+        let ranges = changed_ranges_for_replacement("hello world", "Hello, world!", 3);
 
         assert!(ranges.iter().any(|range| range.start <= 3 && range.end > 3));
         assert!(ranges.iter().any(|range| range.start <= 8 && range.end > 8));
-        assert!(ranges.iter().any(|range| range.start <= 15 && range.end >= 16));
+        assert!(ranges
+            .iter()
+            .any(|range| range.start <= 15 && range.end >= 16));
     }
 
     #[test]
@@ -3720,6 +3716,36 @@ async fn finalize_preview_workflow_after_stop(app: &AppHandle, text: String) -> 
     }
     close_preview_output_mode_workflow(app, true);
     Ok(())
+}
+
+fn should_show_preview_processing_before_insert(
+    settings: &AppSettings,
+    profile_id: Option<&str>,
+    preview_output_only_enabled: bool,
+    invoked_from_preview_action: bool,
+) -> bool {
+    if !preview_output_only_enabled || invoked_from_preview_action {
+        return false;
+    }
+
+    let profile = profile_id
+        .filter(|id| *id != "default")
+        .and_then(|id| settings.transcription_profile(id));
+    resolve_history_post_process_requested(settings, profile)
+}
+
+fn start_preview_processing_before_insert(app: &AppHandle) {
+    crate::managers::preview_output_mode::set_error(app, None);
+    crate::managers::preview_output_mode::set_processing_llm(app, true);
+}
+
+fn stop_preview_processing_before_insert(app: &AppHandle) {
+    crate::managers::preview_output_mode::set_processing_llm(app, false);
+}
+
+fn fail_preview_processing_before_insert(app: &AppHandle, message: String) {
+    stop_preview_processing_before_insert(app);
+    crate::managers::preview_output_mode::set_error(app, Some(message));
 }
 
 fn run_on_main_thread_sync<F>(app: &AppHandle, timeout_ms: u64, f: F) -> Result<(), String>
@@ -5148,6 +5174,15 @@ impl ShortcutAction for TranscribeAction {
                 let copy_to_clipboard = recording_settings.clipboard_handling
                     == crate::settings::ClipboardHandling::CopyToClipboard;
                 let transcription_before_post_process = transcription.clone();
+                let preview_processing_before_insert = should_show_preview_processing_before_insert(
+                    &recording_settings,
+                    profile_id_for_postprocess.as_deref(),
+                    preview_output_only_enabled,
+                    invoked_from_preview_action,
+                );
+                if preview_processing_before_insert {
+                    start_preview_processing_before_insert(&ah);
+                }
 
                 let final_text = match apply_post_processing_and_history(
                     &ah,
@@ -5164,6 +5199,11 @@ impl ShortcutAction for TranscribeAction {
                     None => {
                         if !preview_output_only_enabled {
                             let _ = crate::clipboard::end_streaming_paste_session(&ah);
+                        } else if preview_processing_before_insert {
+                            fail_preview_processing_before_insert(
+                                &ah,
+                                "Processing before insert was cancelled.".to_string(),
+                            );
                         } else if !invoked_from_preview_action {
                             close_preview_output_mode_workflow(&ah, true);
                         }
@@ -5227,6 +5267,9 @@ impl ShortcutAction for TranscribeAction {
                         if let Err(err) =
                             finalize_preview_workflow_after_stop(&ah, text_to_insert).await
                         {
+                            if preview_processing_before_insert {
+                                stop_preview_processing_before_insert(&ah);
+                            }
                             crate::managers::preview_output_mode::set_error(&ah, Some(err));
                         }
                     } else if invoked_from_preview_action {
@@ -5353,6 +5396,15 @@ impl ShortcutAction for TranscribeAction {
             } else {
                 false
             };
+            let preview_processing_before_insert = should_show_preview_processing_before_insert(
+                &recording_settings,
+                profile_id_for_postprocess.as_deref(),
+                preview_output_only_enabled,
+                invoked_from_preview_action,
+            );
+            if preview_processing_before_insert {
+                start_preview_processing_before_insert(&ah);
+            }
 
             let final_text = match apply_post_processing_and_history(
                 &ah,
@@ -5369,6 +5421,11 @@ impl ShortcutAction for TranscribeAction {
                 None => {
                     if is_soniox_streaming_insert && !preview_output_only_enabled {
                         let _ = crate::clipboard::end_streaming_paste_session(&ah);
+                    } else if preview_processing_before_insert {
+                        fail_preview_processing_before_insert(
+                            &ah,
+                            "Processing before insert was cancelled.".to_string(),
+                        );
                     } else if preview_output_only_enabled && !invoked_from_preview_action {
                         close_preview_output_mode_workflow(&ah, true);
                     }
@@ -5415,6 +5472,9 @@ impl ShortcutAction for TranscribeAction {
                     if let Err(err) =
                         finalize_preview_workflow_after_stop(&ah, text_to_insert).await
                     {
+                        if preview_processing_before_insert {
+                            stop_preview_processing_before_insert(&ah);
+                        }
                         crate::managers::preview_output_mode::set_error(&ah, Some(err));
                     }
                 } else if invoked_from_preview_action {

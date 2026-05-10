@@ -29,7 +29,8 @@ use crate::shortcut_handy_keys;
 use crate::tray;
 use crate::url_security::{
     canonical_llm_provider_base_url, remote_stt_base_url_for_preset,
-    remote_stt_default_model_for_preset, validate_remote_stt_base_url, REMOTE_STT_PRESET_CUSTOM,
+    remote_stt_default_model_for_preset, validate_remote_stt_base_url,
+    REMOTE_STT_CUSTOM_DEFAULT_BASE_URL, REMOTE_STT_CUSTOM_DEFAULT_MODEL, REMOTE_STT_PRESET_CUSTOM,
 };
 use crate::ManagedToggleState;
 
@@ -2499,6 +2500,10 @@ pub fn change_remote_stt_provider_preset_setting(
             settings.remote_stt.model_id = default_model.to_string();
         }
         settings.remote_stt.base_url = base_url.to_string();
+    } else if preset == REMOTE_STT_PRESET_CUSTOM {
+        settings.remote_stt.allow_insecure_http = false;
+        settings.remote_stt.base_url = REMOTE_STT_CUSTOM_DEFAULT_BASE_URL.to_string();
+        settings.remote_stt.model_id = REMOTE_STT_CUSTOM_DEFAULT_MODEL.to_string();
     }
 
     settings::write_settings(&app, settings);
@@ -5165,6 +5170,9 @@ pub fn register_cancel_shortcut(app: &AppHandle) {
         let app_clone = app.clone();
         tauri::async_runtime::spawn(async move {
             if let Some(cancel_binding) = get_settings(&app_clone).bindings.get("cancel").cloned() {
+                if shortcut_handy_keys::is_registered(&app_clone, &cancel_binding.id) {
+                    return;
+                }
                 if let Err(e) = register_shortcut(&app_clone, cancel_binding) {
                     eprintln!("Failed to register cancel shortcut: {}", e);
                 }
@@ -5452,6 +5460,13 @@ pub fn unregister_shortcut(app: &AppHandle, binding: ShortcutBinding) -> Result<
         if rdev_shortcuts.contains(&binding.id) {
             // Unregister from rdev
             return unregister_shortcut_via_rdev(app, &binding.id, &mut rdev_shortcuts);
+        }
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        if settings::get_settings(app).shortcut_engine == ShortcutEngine::HandyKeys {
+            return shortcut_handy_keys::unregister_shortcut(app, binding);
         }
     }
 

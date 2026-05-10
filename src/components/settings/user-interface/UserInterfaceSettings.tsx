@@ -351,9 +351,8 @@ export const UserInterfaceSettings: React.FC = () => {
             <TellMeMore title="Tell me more: Live Preview">
               <div className="space-y-3">
                 <p>
-                  <strong>Live Preview is a staging window for dictated text before final insertion.</strong>
-                  Instead of pasting text into the target app immediately, you can review text in the preview window
-                  first and decide when to insert it.
+                  <strong>Output to Preview is the staging workflow for dictated text before insertion.</strong>
+                  The preview window holds that buffer so you can review it before sending it to the target app.
                 </p>
 
                 <p>
@@ -372,7 +371,8 @@ export const UserInterfaceSettings: React.FC = () => {
                     <strong>Synchronized with active profile:</strong>
                   </p>
                   <p>
-                    This toggle and the active profile's <strong>Output to Preview</strong> are kept in sync.
+                    <strong>Live Preview Window</strong> controls the active profile's preview window behavior.
+                    It is kept in sync with that profile's <strong>Output to Preview</strong> toggle.
                     Changing either one updates the other immediately.
                   </p>
                   <p>
@@ -386,8 +386,8 @@ export const UserInterfaceSettings: React.FC = () => {
                     <strong>Local model auto flush:</strong>
                   </p>
                   <p>
-                    When enabled, Local transcription can update Preview while recording continues.
-                    Turn it off to return Local Preview to the older behavior: text appears after recording is stopped or manually finalized.
+                    When enabled, Local transcription can update the Output-to-Preview buffer while recording continues.
+                    Turn it off to keep Local output appearing only after stop or manual flush.
                   </p>
                 </div>
               </div>
@@ -397,7 +397,7 @@ export const UserInterfaceSettings: React.FC = () => {
           <LivePreviewSubsection title="Workflow">
           <SettingContainer
             title="Live Preview Window"
-            description="Warning: this changes how app inserts text! Preview window appears, then, text is first displayed here, only at the end of recording it is inserted into target application. This setting is synchronized with the active profile's Output to Preview toggle."
+            description="Shows the preview window for the active Output-to-Preview workflow. Text stays in the buffer until you insert it."
             descriptionMode="inline"
             grouped={true}
           >
@@ -1315,7 +1315,7 @@ export const UserInterfaceSettings: React.FC = () => {
           >
           <SettingContainer
             title="Local Model Auto Flush"
-            description="For Local transcription with Output to Preview, periodically transcribe recorded audio into the preview window while recording continues. Turn this off to restore the older Local Preview behavior."
+            description="Local-only chunk updates inside the Output-to-Preview workflow while recording continues."
             descriptionMode="inline"
             grouped={true}
             disabled={!sonioxLivePreviewEnabled}

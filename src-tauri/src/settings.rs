@@ -5,7 +5,9 @@ use serde_json::Value;
 use specta::Type;
 use std::collections::HashMap;
 use std::fmt;
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::{SystemTime, UNIX_EPOCH};
 use tauri::{AppHandle, Emitter, Manager};
 use tauri_plugin_store::StoreExt;
 
@@ -2984,17 +2986,54 @@ fn ensure_remote_stt_defaults(settings: &mut AppSettings) -> bool {
             settings.remote_stt.allow_insecure_http = false;
             changed = true;
         }
-    } else if is_plain_http_url(&settings.remote_stt.base_url)
-        && !settings.remote_stt.allow_insecure_http
-    {
-        settings.remote_stt.allow_insecure_http = true;
-        changed = true;
+    } else {
+        if is_plain_http_url(&settings.remote_stt.base_url)
+            && !settings.remote_stt.allow_insecure_http
+        {
+            settings.remote_stt.allow_insecure_http = true;
+            changed = true;
+        }
     }
 
     changed
 }
 
 pub const SETTINGS_STORE_PATH: &str = "settings_store.json";
+
+fn settings_store_disk_path(app: &AppHandle) -> Option<PathBuf> {
+    crate::portable::resolve_app_data(app, SETTINGS_STORE_PATH).ok()
+}
+
+fn backup_settings_store_before_repair(app: &AppHandle, reason: &str) {
+    let Some(path) = settings_store_disk_path(app) else {
+        return;
+    };
+    if !path.exists() {
+        return;
+    }
+
+    let timestamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_secs())
+        .unwrap_or_default();
+    let backup_path = path.with_file_name(format!(
+        "{}.{}.{}.bak",
+        SETTINGS_STORE_PATH, timestamp, reason
+    ));
+
+    if let Err(err) = std::fs::copy(&path, &backup_path) {
+        warn!(
+            "Failed to back up settings store before {}: {}",
+            reason, err
+        );
+    } else {
+        warn!(
+            "Backed up settings store before {} to {}",
+            reason,
+            backup_path.display()
+        );
+    }
+}
 
 pub fn get_default_settings() -> AppSettings {
     #[cfg(target_os = "windows")]
@@ -3297,12 +3336,9 @@ pub fn get_default_settings() -> AppSettings {
         soniox_live_preview_ctrl_backspace_delete_last_word: default_true(),
         soniox_live_preview_backspace_delete_last_char: default_true(),
         soniox_live_preview_show_drag_grip: default_true(),
-        local_preview_auto_flush_enabled:
-            default_local_preview_auto_flush_enabled(),
-        local_preview_auto_flush_interval_ms:
-            default_local_preview_auto_flush_interval_ms(),
-        local_preview_auto_flush_overlap_ms:
-            default_local_preview_auto_flush_overlap_ms(),
+        local_preview_auto_flush_enabled: default_local_preview_auto_flush_enabled(),
+        local_preview_auto_flush_interval_ms: default_local_preview_auto_flush_interval_ms(),
+        local_preview_auto_flush_overlap_ms: default_local_preview_auto_flush_overlap_ms(),
         soniox_live_preview_sliding_lm_window_enabled: false,
         soniox_live_preview_sliding_lm_window_prompt:
             default_soniox_live_preview_sliding_lm_window_prompt(),
@@ -3704,11 +3740,46 @@ fn repair_settings_value_at_path(candidate: &mut Value, default_value: &Value, p
     false
 }
 
+fn normalize_legacy_alias(candidate: &mut Value, canonical_key: &str, legacy_alias: &str) -> bool {
+    let Some(object) = candidate.as_object_mut() else {
+        return false;
+    };
+
+    let Some(alias_value) = object.remove(legacy_alias) else {
+        return false;
+    };
+
+    object.entry(canonical_key).or_insert(alias_value);
+    true
+}
+
+fn normalize_legacy_aliases(candidate: &mut Value) -> bool {
+    let mut changed = false;
+    changed |= normalize_legacy_alias(
+        candidate,
+        "local_preview_auto_flush_enabled",
+        "soniox_live_preview_local_auto_flush_enabled",
+    );
+    changed |= normalize_legacy_alias(
+        candidate,
+        "local_preview_auto_flush_interval_ms",
+        "soniox_live_preview_local_auto_flush_interval_ms",
+    );
+    changed |= normalize_legacy_alias(
+        candidate,
+        "local_preview_auto_flush_overlap_ms",
+        "soniox_live_preview_local_auto_flush_overlap_ms",
+    );
+    changed
+}
+
 fn deserialize_settings_value_with_repair(settings_value: &Value) -> (AppSettings, bool) {
     let default_settings = get_default_settings();
     let default_value = serde_json::to_value(&default_settings).unwrap();
-    let mut candidate = merge_json_with_defaults(&default_value, settings_value);
-    let mut repaired = candidate != *settings_value;
+    let mut normalized_value = settings_value.clone();
+    let mut repaired = normalize_legacy_aliases(&mut normalized_value);
+    let mut candidate = merge_json_with_defaults(&default_value, &normalized_value);
+    repaired |= candidate != *settings_value;
 
     for _ in 0..64 {
         let serialized = candidate.to_string();
@@ -4138,6 +4209,7 @@ pub fn load_or_create_app_settings(app: &AppHandle) -> AppSettings {
 
         if updated {
             debug!("Settings updated while loading");
+            backup_settings_store_before_repair(app, "load-repair");
             store.set("settings", serde_json::to_value(&settings).unwrap());
             if let Err(e) = store.save() {
                 warn!("Failed to flush repaired settings to disk: {}", e);
@@ -4166,6 +4238,7 @@ pub fn get_settings(app: &AppHandle) -> AppSettings {
         let (mut settings, mut repaired) = deserialize_settings_value_with_repair(&settings_value);
         repaired |= repair_runtime_settings(&mut settings);
         if repaired {
+            backup_settings_store_before_repair(app, "get-repair");
             store.set("settings", serde_json::to_value(&settings).unwrap());
             if let Err(e) = store.save() {
                 warn!("Failed to flush repaired settings to disk: {}", e);
@@ -4286,6 +4359,55 @@ mod tests {
         assert!(repaired);
         assert_eq!(settings.selected_model, "keep-me");
         assert_eq!(settings.remote_stt.debug_mode, RemoteSttDebugMode::Normal);
+    }
+
+    #[test]
+    fn repairs_legacy_preview_auto_flush_alias_duplicates_without_resetting_settings() {
+        let mut value = serde_json::to_value(get_default_settings()).unwrap();
+        value["selected_model"] = json!("keep-me");
+        value["local_preview_auto_flush_enabled"] = json!(false);
+        value["soniox_live_preview_local_auto_flush_enabled"] = json!(true);
+        value["local_preview_auto_flush_interval_ms"] = json!(1234);
+        value["soniox_live_preview_local_auto_flush_interval_ms"] = json!(5678);
+        value["local_preview_auto_flush_overlap_ms"] = json!(123);
+        value["soniox_live_preview_local_auto_flush_overlap_ms"] = json!(456);
+
+        let (settings, repaired) = deserialize_settings_value_with_repair(&value);
+
+        assert!(repaired);
+        assert_eq!(settings.selected_model, "keep-me");
+        assert!(!settings.local_preview_auto_flush_enabled);
+        assert_eq!(settings.local_preview_auto_flush_interval_ms, 1234);
+        assert_eq!(settings.local_preview_auto_flush_overlap_ms, 123);
+    }
+
+    #[test]
+    fn repairs_legacy_preview_auto_flush_aliases_without_losing_values() {
+        let mut value = serde_json::to_value(get_default_settings()).unwrap();
+        value["selected_model"] = json!("keep-me");
+        value
+            .as_object_mut()
+            .unwrap()
+            .remove("local_preview_auto_flush_enabled");
+        value
+            .as_object_mut()
+            .unwrap()
+            .remove("local_preview_auto_flush_interval_ms");
+        value
+            .as_object_mut()
+            .unwrap()
+            .remove("local_preview_auto_flush_overlap_ms");
+        value["soniox_live_preview_local_auto_flush_enabled"] = json!(false);
+        value["soniox_live_preview_local_auto_flush_interval_ms"] = json!(2345);
+        value["soniox_live_preview_local_auto_flush_overlap_ms"] = json!(321);
+
+        let (settings, repaired) = deserialize_settings_value_with_repair(&value);
+
+        assert!(repaired);
+        assert_eq!(settings.selected_model, "keep-me");
+        assert!(!settings.local_preview_auto_flush_enabled);
+        assert_eq!(settings.local_preview_auto_flush_interval_ms, 2345);
+        assert_eq!(settings.local_preview_auto_flush_overlap_ms, 321);
     }
 
     #[test]

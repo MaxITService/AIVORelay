@@ -469,7 +469,7 @@ impl RemoteSttManager {
         }
 
         let api_key = get_remote_stt_api_key_for_request(settings).map_err(|e| {
-            let message = format!("Remote STT API key unavailable: {}", e);
+            let message = e.to_string();
             self.record_error(settings, message.clone());
             anyhow!(message)
         })?;
@@ -1179,7 +1179,7 @@ impl RemoteSttManager {
             })?;
 
         let api_key = get_remote_stt_api_key_for_request(settings).map_err(|e| {
-            let message = format!("Remote STT API key unavailable: {}", e);
+            let message = e.to_string();
             self.record_error(settings, message.clone());
             anyhow!(message)
         })?;
@@ -1243,6 +1243,23 @@ fn remote_stt_api_key_scope(settings: &RemoteSttSettings) -> &'static str {
         REMOTE_STT_PRESET_CUSTOM => REMOTE_STT_PRESET_CUSTOM,
         _ => infer_remote_stt_preset(&settings.base_url),
     }
+}
+
+fn remote_stt_api_key_provider_label(settings: &RemoteSttSettings) -> &'static str {
+    match remote_stt_api_key_scope(settings) {
+        REMOTE_STT_PRESET_GROQ => "Groq",
+        REMOTE_STT_PRESET_OPENAI => "GPT Realtime",
+        REMOTE_STT_PRESET_CUSTOM => "Custom API",
+        _ => "Remote API",
+    }
+}
+
+fn missing_remote_stt_api_key_message(settings: &RemoteSttSettings) -> String {
+    format!(
+        "Remote API key is missing for {}. Add it in Settings -> Models -> Remote via {}.",
+        remote_stt_api_key_provider_label(settings),
+        remote_stt_api_key_provider_label(settings)
+    )
 }
 
 fn remote_stt_api_key_user(settings: &RemoteSttSettings) -> String {
@@ -1341,7 +1358,7 @@ fn get_remote_stt_api_key_for_request(settings: &RemoteSttSettings) -> Result<Re
     };
 
     select_remote_stt_api_key(Some(scoped_key), legacy_key)
-        .ok_or_else(|| anyhow!("No Remote STT API key is stored"))
+        .ok_or_else(|| anyhow!(missing_remote_stt_api_key_message(settings)))
 }
 
 #[cfg(target_os = "windows")]

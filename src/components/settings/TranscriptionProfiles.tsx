@@ -603,7 +603,7 @@ const ProfileCard: React.FC<ProfileCardProps> = ({
                 <span className="text-xs text-mid-gray leading-snug">
                   {t(
                     "settings.transcriptionProfiles.previewOutputOnly.description",
-                    "Do not auto-insert text. Keep output in Preview until you insert it manually.",
+                    "Keep this profile's output in the preview buffer before insertion.",
                   )}
                 </span>
               </div>
@@ -1755,7 +1755,7 @@ export const TranscriptionProfiles: React.FC = () => {
                       <span className="text-xs text-mid-gray leading-snug">
                         {t(
                           "settings.transcriptionProfiles.previewOutputOnly.description",
-                          "Do not auto-insert text. Keep output in Preview until you insert it manually.",
+                          "Keep this profile's output in the preview buffer before insertion.",
                         )}
                       </span>
                     </div>
@@ -2077,7 +2077,7 @@ export const TranscriptionProfiles: React.FC = () => {
                 <span className="text-xs text-mid-gray leading-snug">
                   {t(
                     "settings.transcriptionProfiles.previewOutputOnly.description",
-                    "Do not auto-insert text. Keep output in Preview until you insert it manually.",
+                    "Keep this profile's output in the preview buffer before insertion.",
                   )}
                 </span>
               </div>

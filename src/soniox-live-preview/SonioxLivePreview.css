@@ -222,6 +222,16 @@ body {
   padding: 6px 8px;
 }
 
+.soniox-live-preview-processing {
+  font-size: 12px;
+  line-height: 1.35;
+  color: #d7f7ff;
+  border: 1px solid rgba(80, 220, 255, 0.32);
+  border-radius: 8px;
+  background: rgba(12, 48, 80, 0.32);
+  padding: 6px 8px;
+}
+
 .soniox-live-preview-actions {
   display: flex;
   align-items: center;
@@ -237,6 +247,7 @@ body {
   height: 28px;
   padding: 0 10px;
   font-size: 12px;
+  white-space: nowrap;
   cursor: pointer;
   transition:
     background-color 120ms ease,
