@@ -224,13 +224,13 @@ export const UserInterfaceSettings: React.FC = () => {
     (settings as any)?.soniox_live_preview_show_drag_grip ?? true,
   );
   const localPreviewAutoFlushEnabled = Boolean(
-    (settings as any)?.soniox_live_preview_local_auto_flush_enabled ?? true,
+    (settings as any)?.local_preview_auto_flush_enabled ?? true,
   );
   const localPreviewAutoFlushIntervalMs = Number(
-    (settings as any)?.soniox_live_preview_local_auto_flush_interval_ms ?? 8000,
+    (settings as any)?.local_preview_auto_flush_interval_ms ?? 8000,
   );
   const localPreviewAutoFlushOverlapMs = Number(
-    (settings as any)?.soniox_live_preview_local_auto_flush_overlap_ms ?? 750,
+    (settings as any)?.local_preview_auto_flush_overlap_ms ?? 750,
   );
   const slidingLmWindowEnabled = Boolean(
     (settings as any)?.soniox_live_preview_sliding_lm_window_enabled ?? false,
@@ -1324,13 +1324,13 @@ export const UserInterfaceSettings: React.FC = () => {
               checked={localPreviewAutoFlushEnabled}
               onChange={(enabled) =>
                 void updateSetting(
-                  "soniox_live_preview_local_auto_flush_enabled" as any,
+                  "local_preview_auto_flush_enabled" as any,
                   enabled as any,
                 )
               }
               disabled={
                 !sonioxLivePreviewEnabled ||
-                isUpdating("soniox_live_preview_local_auto_flush_enabled")
+                isUpdating("local_preview_auto_flush_enabled")
               }
             />
           </SettingContainer>
@@ -1351,7 +1351,7 @@ export const UserInterfaceSettings: React.FC = () => {
             onChange={() => {}}
             onChangeComplete={(value) =>
               void updateSetting(
-                "soniox_live_preview_local_auto_flush_interval_ms" as any,
+                "local_preview_auto_flush_interval_ms" as any,
                 clampToRange(
                   value,
                   LOCAL_PREVIEW_AUTO_FLUSH_INTERVAL_MIN_MS,
@@ -1362,7 +1362,7 @@ export const UserInterfaceSettings: React.FC = () => {
             disabled={
               !sonioxLivePreviewEnabled ||
               !localPreviewAutoFlushEnabled ||
-              isUpdating("soniox_live_preview_local_auto_flush_interval_ms")
+              isUpdating("local_preview_auto_flush_interval_ms")
             }
           />
           <Slider
@@ -1382,7 +1382,7 @@ export const UserInterfaceSettings: React.FC = () => {
             onChange={() => {}}
             onChangeComplete={(value) =>
               void updateSetting(
-                "soniox_live_preview_local_auto_flush_overlap_ms" as any,
+                "local_preview_auto_flush_overlap_ms" as any,
                 clampToRange(
                   value,
                   LOCAL_PREVIEW_AUTO_FLUSH_OVERLAP_MIN_MS,
@@ -1393,7 +1393,7 @@ export const UserInterfaceSettings: React.FC = () => {
             disabled={
               !sonioxLivePreviewEnabled ||
               !localPreviewAutoFlushEnabled ||
-              isUpdating("soniox_live_preview_local_auto_flush_overlap_ms")
+              isUpdating("local_preview_auto_flush_overlap_ms")
             }
           />
           <SettingContainer
