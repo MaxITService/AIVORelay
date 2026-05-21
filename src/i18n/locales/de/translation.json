@@ -4,6 +4,7 @@
     "checkUpdates": "Nach Updates suchen...",
     "copyLastTranscript": "Letzte Transkription kopieren",
     "unloadModel": "Unload Model",
+    "restartTroubleshoot": "Restart (troubleshoot)",
     "quit": "Beenden",
     "cancel": "Abbrechen"
   },

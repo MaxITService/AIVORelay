@@ -5,6 +5,7 @@
     "copyLastTranscript": "Скопировать последнюю транскрипцию",
     "model": "Модель",
     "unloadModel": "Unload Model",
+    "restartTroubleshoot": "Restart (troubleshoot)",
     "quit": "Выход",
     "cancel": "Отмена"
   },
