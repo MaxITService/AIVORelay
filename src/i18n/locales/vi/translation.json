@@ -5,6 +5,7 @@
     "checkUpdates": "Kiểm tra cập nhật...",
     "copyLastTranscript": "Sao chép bản chép lời mới nhất",
     "unloadModel": "Unload Model",
+    "restartTroubleshoot": "Restart (troubleshoot)",
     "quit": "Thoát",
     "cancel": "Hủy"
   },

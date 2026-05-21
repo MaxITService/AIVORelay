@@ -5,6 +5,7 @@
     "copyLastTranscript": "Copy Last Transcript",
     "model": "Model",
     "unloadModel": "Unload Model",
+    "restartTroubleshoot": "Restart (troubleshoot)",
     "quit": "Quit",
     "cancel": "Cancel"
   },
