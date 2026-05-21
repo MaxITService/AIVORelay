@@ -77,6 +77,11 @@ export interface OverlayErrorEnvelope {
   display_code: string;
 }
 
+export interface OverlayRetryAction {
+  command: string;
+  label: string;
+}
+
 /**
  * Extended overlay payload with error information
  */
@@ -85,6 +90,7 @@ export interface OverlayPayload {
   error_category?: OverlayErrorCategory;
   error_message?: string;
   error_envelope?: OverlayErrorEnvelope;
+  retry_action?: OverlayRetryAction;
   decapitalize_eligible?: boolean;
   decapitalize_armed?: boolean;
 }
