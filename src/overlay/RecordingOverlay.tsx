@@ -200,7 +200,10 @@ function getOverlayErrorCopy(
       return {
         title:
           phase === "connect"
-            ? t("overlay.errors.tlsHandshake.connectTitle", "Secure connection failed")
+            ? t(
+                "overlay.errors.tlsHandshake.connectTitle",
+                "Secure connection failed",
+              )
             : t("overlay.errors.tlsHandshake.title", "Connection lost"),
         hint:
           phase === "connect"
@@ -302,6 +305,7 @@ const RecordingOverlay: React.FC = () => {
   const [errorHint, setErrorHint] = useState<string | null>(null);
   const [errorCode, setErrorCode] = useState<string | null>(null);
   const [errorTechnical, setErrorTechnical] = useState<string | null>(null);
+  const [errorRetryAvailable, setErrorRetryAvailable] = useState(false);
   const [levels, setLevels] = useState<number[]>(Array(20).fill(0));
   const [appearance, setAppearance] = useState<RecordingOverlayAppearanceState>(
     DEFAULT_OVERLAY_APPEARANCE,
@@ -345,7 +349,9 @@ const RecordingOverlay: React.FC = () => {
         showDragGrip?: boolean;
       };
       const theme =
-        data.theme === "minimal" || data.theme === "glass" ? data.theme : "classic";
+        data.theme === "minimal" || data.theme === "glass"
+          ? data.theme
+          : "classic";
 
       setAppearance({
         custom_enabled:
@@ -356,7 +362,9 @@ const RecordingOverlay: React.FC = () => {
         background_mode: normalizeRecordingOverlayBackgroundMode(
           data.background_mode,
         ),
-        material_mode: normalizeRecordingOverlayMaterialMode(data.material_mode),
+        material_mode: normalizeRecordingOverlayMaterialMode(
+          data.material_mode,
+        ),
         centerpiece_mode: normalizeRecordingOverlayCenterpieceMode(
           data.centerpiece_mode,
         ),
@@ -409,19 +417,31 @@ const RecordingOverlay: React.FC = () => {
             : DEFAULT_OVERLAY_APPEARANCE.audio_reactive_scale,
         audio_reactive_scale_max_percent:
           typeof data.audio_reactive_scale_max_percent === "number"
-            ? Math.max(0, Math.min(24, Math.round(data.audio_reactive_scale_max_percent)))
+            ? Math.max(
+                0,
+                Math.min(24, Math.round(data.audio_reactive_scale_max_percent)),
+              )
             : DEFAULT_OVERLAY_APPEARANCE.audio_reactive_scale_max_percent,
         voice_sensitivity_percent:
           typeof data.voice_sensitivity_percent === "number"
-            ? Math.max(0, Math.min(100, Math.round(data.voice_sensitivity_percent)))
+            ? Math.max(
+                0,
+                Math.min(100, Math.round(data.voice_sensitivity_percent)),
+              )
             : DEFAULT_OVERLAY_APPEARANCE.voice_sensitivity_percent,
         animation_softness_percent:
           typeof data.animation_softness_percent === "number"
-            ? Math.max(0, Math.min(100, Math.round(data.animation_softness_percent)))
+            ? Math.max(
+                0,
+                Math.min(100, Math.round(data.animation_softness_percent)),
+              )
             : DEFAULT_OVERLAY_APPEARANCE.animation_softness_percent,
         depth_parallax_percent:
           typeof data.depth_parallax_percent === "number"
-            ? Math.max(0, Math.min(100, Math.round(data.depth_parallax_percent)))
+            ? Math.max(
+                0,
+                Math.min(100, Math.round(data.depth_parallax_percent)),
+              )
             : DEFAULT_OVERLAY_APPEARANCE.depth_parallax_percent,
         opacity_percent:
           typeof data.opacity_percent === "number"
@@ -433,7 +453,10 @@ const RecordingOverlay: React.FC = () => {
             : DEFAULT_OVERLAY_APPEARANCE.silence_fade,
         silence_opacity_percent:
           typeof data.silence_opacity_percent === "number"
-            ? Math.max(20, Math.min(100, Math.round(data.silence_opacity_percent)))
+            ? Math.max(
+                20,
+                Math.min(100, Math.round(data.silence_opacity_percent)),
+              )
             : DEFAULT_OVERLAY_APPEARANCE.silence_opacity_percent,
         decapitalize_indicator_mode:
           data.decapitalize_indicator_mode === "hidden" ||
@@ -451,7 +474,13 @@ const RecordingOverlay: React.FC = () => {
             : DEFAULT_OVERLAY_APPEARANCE.decapitalize_indicator_font_family,
         decapitalize_indicator_font_size_px:
           typeof data.decapitalize_indicator_font_size_px === "number"
-            ? Math.max(10, Math.min(32, Math.round(data.decapitalize_indicator_font_size_px)))
+            ? Math.max(
+                10,
+                Math.min(
+                  32,
+                  Math.round(data.decapitalize_indicator_font_size_px),
+                ),
+              )
             : DEFAULT_OVERLAY_APPEARANCE.decapitalize_indicator_font_size_px,
         decapitalize_indicator_color: normalizeRecordingOverlayColor(
           data.decapitalize_indicator_color,
@@ -514,12 +543,18 @@ const RecordingOverlay: React.FC = () => {
             try {
               await rememberOverlayPhysicalPosition(positionToSave);
             } catch (error) {
-              console.error("Failed to remember recording overlay position:", error);
+              console.error(
+                "Failed to remember recording overlay position:",
+                error,
+              );
             }
           }, 180);
         });
       } catch (error) {
-        console.error("Failed to subscribe to recording overlay move events:", error);
+        console.error(
+          "Failed to subscribe to recording overlay move events:",
+          error,
+        );
       }
     };
 
@@ -574,11 +609,13 @@ const RecordingOverlay: React.FC = () => {
             setErrorHint(copy.hint);
             setErrorCode(compactOverlayErrorCode(rawCode));
             setErrorTechnical(envelope?.technical_message || null);
+            setErrorRetryAvailable(Boolean(payload.retry_action));
           } else {
             setErrorMessage(null);
             setErrorHint(null);
             setErrorCode(null);
             setErrorTechnical(null);
+            setErrorRetryAvailable(false);
           }
         } else {
           // Legacy string payload (e.g., "recording" or "transcribing")
@@ -589,6 +626,7 @@ const RecordingOverlay: React.FC = () => {
           setErrorHint(null);
           setErrorCode(null);
           setErrorTechnical(null);
+          setErrorRetryAvailable(false);
         }
         setIsVisible(true);
       });
@@ -607,6 +645,7 @@ const RecordingOverlay: React.FC = () => {
         setErrorHint(null);
         setErrorCode(null);
         setErrorTechnical(null);
+        setErrorRetryAvailable(false);
         setIsVisible(true);
       });
 
@@ -615,6 +654,7 @@ const RecordingOverlay: React.FC = () => {
         setIsVisible(false);
         setDecapIndicatorEligible(false);
         setDecapIndicatorArmed(false);
+        setErrorRetryAvailable(false);
       });
 
       // Listen for mic-level updates
@@ -698,8 +738,7 @@ const RecordingOverlay: React.FC = () => {
   const overlayTheme = appearance.theme as RecordingOverlayTheme;
   const backgroundMode =
     appearance.background_mode as RecordingOverlayBackgroundMode;
-  const materialMode =
-    appearance.material_mode as RecordingOverlayMaterialMode;
+  const materialMode = appearance.material_mode as RecordingOverlayMaterialMode;
   const centerpieceMode =
     appearance.centerpiece_mode as RecordingOverlayCenterpieceMode;
   const animatedBorderMode =
@@ -737,7 +776,8 @@ const RecordingOverlay: React.FC = () => {
         backdropFilter: "none",
         WebkitBackdropFilter: "none",
         ["--recording-overlay-accent-glow" as string]: "rgba(0, 0, 0, 0)",
-        ["--recording-overlay-accent-glow-strong" as string]: "rgba(0, 0, 0, 0)",
+        ["--recording-overlay-accent-glow-strong" as string]:
+          "rgba(0, 0, 0, 0)",
         ["--recording-overlay-sheen" as string]: "rgba(0, 0, 0, 0)",
       };
   const motionStyle = getRecordingOverlayMotionStyle({
@@ -785,7 +825,10 @@ const RecordingOverlay: React.FC = () => {
         return <TranscriptionIcon color={statusIconColor} />;
       case "error":
         return (
-          <span className="overlay-icon-emoji" style={{ color: statusIconColor }}>
+          <span
+            className="overlay-icon-emoji"
+            style={{ color: statusIconColor }}
+          >
             ❌
           </span>
         );
@@ -796,7 +839,7 @@ const RecordingOverlay: React.FC = () => {
       case "transcribing":
       default:
         return <TranscriptionIcon color={statusIconColor} />;
-      }
+    }
   };
 
   const iconStateClass =
@@ -815,7 +858,9 @@ const RecordingOverlay: React.FC = () => {
         : state === "error"
           ? "overlay-state-error"
           : "overlay-state-idle";
-  const handleDragGripPointerDown = (event: React.PointerEvent<HTMLButtonElement>) => {
+  const handleDragGripPointerDown = (
+    event: React.PointerEvent<HTMLButtonElement>,
+  ) => {
     if (event.button !== 0) {
       return;
     }
@@ -858,6 +903,12 @@ const RecordingOverlay: React.FC = () => {
         console.error("Failed to remember recording overlay position:", error);
       });
     }
+  };
+
+  const handleRetryRemoteTranscription = () => {
+    void invoke("retry_last_remote_transcription").catch((error) => {
+      console.error("Failed to retry Remote API transcription:", error);
+    });
   };
 
   return (
@@ -927,26 +978,28 @@ const RecordingOverlay: React.FC = () => {
         state !== "profile_switch" &&
         state !== "microphone_switch" &&
         state !== "error" && (
-        <div
-          className="overlay-decapitalize-indicator"
-          style={{
-            color: appearance.decapitalize_indicator_color,
-            fontFamily: `${appearance.decapitalize_indicator_font_family}, "Segoe UI Emoji", sans-serif`,
-            fontSize: `${appearance.decapitalize_indicator_font_size_px}px`,
-            textAlign: "center",
-          }}
-        >
-          {decapIndicatorText}
-        </div>
-      )}
+          <div
+            className="overlay-decapitalize-indicator"
+            style={{
+              color: appearance.decapitalize_indicator_color,
+              fontFamily: `${appearance.decapitalize_indicator_font_family}, "Segoe UI Emoji", sans-serif`,
+              fontSize: `${appearance.decapitalize_indicator_font_size_px}px`,
+              textAlign: "center",
+            }}
+          >
+            {decapIndicatorText}
+          </div>
+        )}
 
       <div className="overlay-left">
-        {showStatusIcon ? !customOverlayEnabled ? (
-          getIcon()
-        ) : (
-          <div className={`overlay-icon-wrap ${iconStateClass}`}>
-            {getIcon()}
-          </div>
+        {showStatusIcon ? (
+          !customOverlayEnabled ? (
+            getIcon()
+          ) : (
+            <div className={`overlay-icon-wrap ${iconStateClass}`}>
+              {getIcon()}
+            </div>
+          )
         ) : null}
       </div>
 
@@ -982,13 +1035,19 @@ const RecordingOverlay: React.FC = () => {
           />
         )}
         {state === "sending" && (
-          <div className="sending-text">{t("overlay.sending", "Sending...")}</div>
+          <div className="sending-text">
+            {t("overlay.sending", "Sending...")}
+          </div>
         )}
         {state === "thinking" && (
-          <div className="thinking-text">{t("overlay.thinking", "Thinking...")}</div>
+          <div className="thinking-text">
+            {t("overlay.thinking", "Thinking...")}
+          </div>
         )}
         {state === "finalizing" && (
-          <div className="transcribing-text">{t("overlay.finalizing", "Finalizing...")}</div>
+          <div className="transcribing-text">
+            {t("overlay.finalizing", "Finalizing...")}
+          </div>
         )}
         {state === "transcribing" && (
           <div className="transcribing-text">{t("overlay.transcribing")}</div>
@@ -996,10 +1055,15 @@ const RecordingOverlay: React.FC = () => {
         {state === "error" && (
           <div className="error-copy">
             <span className="error-title">
-              {errorMessage || t("overlay.errors.unknown.title", "Transcription failed")}
+              {errorMessage ||
+                t("overlay.errors.unknown.title", "Transcription failed")}
             </span>
             <span className="error-hint">
-              {errorHint || t("overlay.errors.unknown.hint", "Try again and check the logs if needed.")}
+              {errorHint ||
+                t(
+                  "overlay.errors.unknown.hint",
+                  "Try again and check the logs if needed.",
+                )}
             </span>
           </div>
         )}
@@ -1023,23 +1087,34 @@ const RecordingOverlay: React.FC = () => {
           state === "thinking" ||
           state === "finalizing") &&
           appearance.show_cancel_button && (
+            <button
+              type="button"
+              className={`cancel-button ${customOverlayEnabled ? "" : "cancel-button-legacy"}`}
+              onClick={() => {
+                commands.cancelOperation();
+              }}
+            >
+              <CancelIcon color={cancelIconColor} />
+            </button>
+          )}
+        {state === "error" && errorRetryAvailable ? (
           <button
             type="button"
-            className={`cancel-button ${customOverlayEnabled ? "" : "cancel-button-legacy"}`}
-            onClick={() => {
-              commands.cancelOperation();
-            }}
-          >
-            <CancelIcon color={cancelIconColor} />
-          </button>
-        )}
-        {state === "error" && (
-          <span
-            className="error-code-chip"
+            className="error-retry-button"
             title={errorTechnical || undefined}
+            onClick={handleRetryRemoteTranscription}
           >
-            {errorCode || "E_UNKNOWN"}
-          </span>
+            {t("common.retry", "Retry")}
+          </button>
+        ) : (
+          state === "error" && (
+            <span
+              className="error-code-chip"
+              title={errorTechnical || undefined}
+            >
+              {errorCode || "E_UNKNOWN"}
+            </span>
+          )
         )}
       </div>
     </div>

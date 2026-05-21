@@ -24,6 +24,7 @@ import {
   DeepgramFileTranscriptionOptions,
   FileTranscriptionChunkTraceEntry as BindingChunkingTraceEntry,
   ModelInfo,
+  OutputFormat,
   SonioxFileTranscriptionOptions,
 } from "@/bindings";
 import { useSettings } from "@/hooks/useSettings";
@@ -69,6 +70,18 @@ type FileTranscriptionRecordingState = {
   recordingUsesLocalModel: boolean;
   fileTranscriptionUsesLocalModel: boolean;
   blocksFileTranscription: boolean;
+};
+
+type FileTranscriptionRequest = {
+  filePath: string;
+  profileId: string | null;
+  saveToFile: boolean;
+  outputFormat: OutputFormat;
+  modelOverride: string | null;
+  customWordsEnabledOverride: boolean | null;
+  sonioxOptionsOverride: SonioxFileTranscriptionOptions | null;
+  deepgramOptionsOverride: DeepgramFileTranscriptionOptions | null;
+  retryableRemoteApi: boolean;
 };
 
 const formatAudioDurationClock = (
@@ -333,6 +346,8 @@ export const TranscribeFileSettings: React.FC = () => {
     recordingBlocksFileTranscription,
     setRecordingBlocksFileTranscription,
   ] = useState(false);
+  const [fileRetryRequest, setFileRetryRequest] =
+    useState<FileTranscriptionRequest | null>(null);
 
   const dropZoneRef = useRef<HTMLDivElement>(null);
   const selectedFileRef = useRef<SelectedFile | null>(selectedFile);
@@ -411,6 +426,7 @@ export const TranscribeFileSettings: React.FC = () => {
     setChunkingTrace([]);
     setShowDurationLimitWarningDialog(false);
     setError(null);
+    setFileRetryRequest(null);
     clearSpeakerSession();
   }, [
     clearSpeakerSession,
@@ -523,6 +539,7 @@ export const TranscribeFileSettings: React.FC = () => {
           setChunkingTrace([]);
           setShowDurationLimitWarningDialog(false);
           setError(null);
+          setFileRetryRequest(null);
           clearSpeakerSession();
         }
       }
@@ -881,6 +898,7 @@ export const TranscribeFileSettings: React.FC = () => {
         setChunkingTrace([]);
         setShowDurationLimitWarningDialog(false);
         setError(null);
+        setFileRetryRequest(null);
         clearSpeakerSession();
       }
     } catch (err) {
@@ -900,8 +918,61 @@ export const TranscribeFileSettings: React.FC = () => {
     await runTranscription();
   };
 
-  const runTranscription = async () => {
-    if (!selectedFile) return;
+  const buildFileTranscriptionRequest = (): FileTranscriptionRequest | null => {
+    if (!selectedFile) return null;
+
+    let sonioxOptionsOverride: SonioxFileTranscriptionOptions | null = null;
+    if (showSonioxFileOptions) {
+      const parsedHints = parseAndNormalizeSonioxLanguageHints(
+        sonioxLanguageHintsInput,
+      );
+      if (parsedHints.rejected.length > 0) {
+        setError(
+          t("transcribeFile.soniox.invalidHints", {
+            hints: parsedHints.rejected.join(", "),
+          }),
+        );
+        return null;
+      }
+
+      sonioxOptionsOverride = {
+        languageHints:
+          parsedHints.normalized.length > 0 ? parsedHints.normalized : null,
+        enableSpeakerDiarization: sonioxEnableSpeakerDiarization,
+        enableLanguageIdentification: sonioxEnableLanguageIdentification,
+      };
+    }
+
+    let deepgramOptionsOverride: DeepgramFileTranscriptionOptions | null = null;
+    if (showDeepgramFileOptions) {
+      deepgramOptionsOverride = {
+        diarize: deepgramFileDiarize,
+        multichannel: deepgramFileMultichannel,
+      };
+    }
+
+    return {
+      filePath: selectedFile.path,
+      profileId: effectiveProfileId === "default" ? null : effectiveProfileId,
+      saveToFile: outputMode === "file",
+      outputFormat,
+      modelOverride: overrideModelId,
+      customWordsEnabledOverride,
+      sonioxOptionsOverride,
+      deepgramOptionsOverride,
+      retryableRemoteApi:
+        transcriptionProvider === "remote_openai_compatible" &&
+        !overrideModelId,
+    };
+  };
+
+  const runTranscription = async (
+    request = buildFileTranscriptionRequest(),
+  ) => {
+    if (!request) {
+      setIsTranscribing(false);
+      return;
+    }
 
     const runId = transcriptionRunIdRef.current + 1;
     transcriptionRunIdRef.current = runId;
@@ -913,6 +984,7 @@ export const TranscribeFileSettings: React.FC = () => {
     setCancelRequestedAt(null);
     setCancelElapsedSeconds(0);
     setError(null);
+    setFileRetryRequest(null);
     setTranscriptionResult("");
     setSavedFilePath(null);
     setInfoMessage(null);
@@ -920,46 +992,15 @@ export const TranscribeFileSettings: React.FC = () => {
     clearSpeakerSession();
 
     try {
-      let sonioxOptionsOverride: SonioxFileTranscriptionOptions | null = null;
-      if (showSonioxFileOptions) {
-        const parsedHints = parseAndNormalizeSonioxLanguageHints(
-          sonioxLanguageHintsInput,
-        );
-        if (parsedHints.rejected.length > 0) {
-          setError(
-            t("transcribeFile.soniox.invalidHints", {
-              hints: parsedHints.rejected.join(", "),
-            }),
-          );
-          setIsTranscribing(false);
-          return;
-        }
-
-        sonioxOptionsOverride = {
-          languageHints:
-            parsedHints.normalized.length > 0 ? parsedHints.normalized : null,
-          enableSpeakerDiarization: sonioxEnableSpeakerDiarization,
-          enableLanguageIdentification: sonioxEnableLanguageIdentification,
-        };
-      }
-      let deepgramOptionsOverride: DeepgramFileTranscriptionOptions | null =
-        null;
-      if (showDeepgramFileOptions) {
-        deepgramOptionsOverride = {
-          diarize: deepgramFileDiarize,
-          multichannel: deepgramFileMultichannel,
-        };
-      }
-
       const result = await commands.transcribeAudioFile(
-        selectedFile.path,
-        effectiveProfileId === "default" ? null : effectiveProfileId,
-        outputMode === "file",
-        outputFormat,
-        overrideModelId,
-        customWordsEnabledOverride,
-        sonioxOptionsOverride,
-        deepgramOptionsOverride,
+        request.filePath,
+        request.profileId,
+        request.saveToFile,
+        request.outputFormat,
+        request.modelOverride,
+        request.customWordsEnabledOverride,
+        request.sonioxOptionsOverride,
+        request.deepgramOptionsOverride,
       );
 
       if (!isCurrentRun()) {
@@ -973,6 +1014,7 @@ export const TranscribeFileSettings: React.FC = () => {
         setTranscriptionResult(data.text);
         setInfoMessage(data.info_message ?? null);
         setChunkingTrace(normalizeChunkingTrace(data.chunking_trace));
+        setFileRetryRequest(null);
         setSpeakerSession(data.speaker_session ?? null);
         if (data.saved_file_path) {
           setSavedFilePath(data.saved_file_path);
@@ -980,11 +1022,13 @@ export const TranscribeFileSettings: React.FC = () => {
       } else if (isCancellationMessage(result.error)) {
         clearSpeakerSession();
         setError(null);
+        setFileRetryRequest(null);
         setInfoMessage(t("transcribeFile.cancelled"));
         setChunkingTrace([]);
       } else {
         clearSpeakerSession();
         setChunkingTrace([]);
+        setFileRetryRequest(request.retryableRemoteApi ? request : null);
         setError(result.error);
       }
     } catch (err) {
@@ -995,10 +1039,12 @@ export const TranscribeFileSettings: React.FC = () => {
       clearSpeakerSession();
       if (isCancellationMessage(err)) {
         setError(null);
+        setFileRetryRequest(null);
         setInfoMessage(t("transcribeFile.cancelled"));
         setChunkingTrace([]);
       } else {
         setChunkingTrace([]);
+        setFileRetryRequest(request.retryableRemoteApi ? request : null);
         setError(String(err));
       }
     } finally {
@@ -1024,6 +1070,7 @@ export const TranscribeFileSettings: React.FC = () => {
     transcriptionRunIdRef.current += 1;
     setTranscriptionResult("");
     setSavedFilePath(null);
+    setFileRetryRequest(null);
     clearSpeakerSession();
     setChunkingTrace([]);
     setInfoMessage(null);
@@ -1636,6 +1683,17 @@ export const TranscribeFileSettings: React.FC = () => {
           <div className="px-4 py-3 border-t border-white/[0.05]">
             <div className="p-3 bg-red-500/10 border border-red-500/30 rounded-lg">
               <p className="text-sm text-red-400">{error}</p>
+              {fileRetryRequest && (
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => void runTranscription(fileRetryRequest)}
+                  disabled={!canTranscribe}
+                  className="mt-3"
+                >
+                  {t("common.retry", "Retry")}
+                </Button>
+              )}
             </div>
           </div>
         )}

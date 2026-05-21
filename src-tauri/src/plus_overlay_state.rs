@@ -190,6 +190,12 @@ pub struct OverlayErrorEnvelope {
     pub display_code: String,
 }
 
+#[derive(Clone, Debug, Serialize)]
+pub struct OverlayRetryAction {
+    pub command: &'static str,
+    pub label: &'static str,
+}
+
 /// Extended overlay payload with error information
 #[derive(Clone, Debug, Serialize)]
 pub struct OverlayPayload {
@@ -200,6 +206,8 @@ pub struct OverlayPayload {
     pub error_message: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error_envelope: Option<OverlayErrorEnvelope>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub retry_action: Option<OverlayRetryAction>,
 }
 
 fn detect_provider(err_lower: &str) -> OverlayErrorProvider {
@@ -643,6 +651,7 @@ fn show_error_overlay_internal(
     category: OverlayErrorCategory,
     error_message: Option<String>,
     error_envelope: Option<OverlayErrorEnvelope>,
+    retry_action: Option<OverlayRetryAction>,
 ) {
     let settings = crate::settings::get_settings(app);
     if !settings.error_feedback_enabled
@@ -672,6 +681,7 @@ fn show_error_overlay_internal(
             error_category: Some(category),
             error_message: Some(resolved_error_message),
             error_envelope: Some(resolved_error_envelope),
+            retry_action,
         };
         let _ = overlay_window.emit("show-overlay", payload);
 
@@ -701,7 +711,7 @@ fn show_error_overlay_internal(
 /// Show the error overlay state with category and auto-hide after configured duration.
 /// Uses the category display text as overlay message.
 pub fn show_error_overlay(app: &AppHandle, category: OverlayErrorCategory) {
-    show_error_overlay_internal(app, category, None, None);
+    show_error_overlay_internal(app, category, None, None, None);
 }
 
 /// Show the error overlay with a specific message and auto-hide after configured duration.
@@ -710,7 +720,7 @@ pub fn show_error_overlay_with_message(
     category: OverlayErrorCategory,
     message: impl Into<String>,
 ) {
-    show_error_overlay_internal(app, category, Some(message.into()), None);
+    show_error_overlay_internal(app, category, Some(message.into()), None, None);
 }
 
 /// Main hook function: handle transcription errors with categorized overlay
@@ -722,6 +732,25 @@ pub fn show_error_overlay_with_message(
 ///
 /// Note: The existing toast (remote-stt-error event) should still be emitted separately
 pub fn handle_transcription_error(app: &AppHandle, err_string: &str) {
+    handle_transcription_error_internal(app, err_string, None);
+}
+
+pub fn handle_transcription_error_with_retry(app: &AppHandle, err_string: &str) {
+    handle_transcription_error_internal(
+        app,
+        err_string,
+        Some(OverlayRetryAction {
+            command: "retry_last_remote_transcription",
+            label: "Retry",
+        }),
+    );
+}
+
+fn handle_transcription_error_internal(
+    app: &AppHandle,
+    err_string: &str,
+    retry_action: Option<OverlayRetryAction>,
+) {
     let mut envelope = build_error_envelope_from_string(err_string);
     let err_lower = err_string.to_lowercase();
     let category = detect_specific_category(&err_lower, &envelope.canonical_code);
@@ -736,6 +765,7 @@ pub fn handle_transcription_error(app: &AppHandle, err_string: &str) {
         category,
         Some(envelope.user_message.clone()),
         Some(envelope),
+        retry_action,
     );
 }
 
