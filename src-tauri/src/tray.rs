@@ -235,6 +235,13 @@ fn try_update_tray_menu(
         settings.update_checks_enabled,
         None::<&str>,
     )?;
+    let restart_troubleshoot_i = MenuItem::with_id(
+        app,
+        "restart_troubleshoot",
+        &strings.restart_troubleshoot,
+        true,
+        None::<&str>,
+    )?;
     let copy_last_transcript_i = MenuItem::with_id(
         app,
         "copy_last_transcript",
@@ -303,6 +310,7 @@ fn try_update_tray_menu(
     menu.append(&separator()?)?;
     menu.append(&settings_i)?;
     menu.append(&check_updates_i)?;
+    menu.append(&restart_troubleshoot_i)?;
     menu.append(&separator()?)?;
     menu.append(&quit_i)?;
 
