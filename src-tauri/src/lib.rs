@@ -541,6 +541,10 @@ fn initialize_core_logic(app_handle: &AppHandle) {
                         let _ = app.emit("check-for-updates", ());
                     }
                 }
+                "restart_troubleshoot" => {
+                    log::info!("Restart requested from tray troubleshooting item.");
+                    app.request_restart();
+                }
                 "copy_last_transcript" => {
                     tray::copy_last_transcript(app);
                 }
