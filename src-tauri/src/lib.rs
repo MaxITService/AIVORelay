@@ -1030,6 +1030,7 @@ pub fn run() {
         actions::preview_delete_until_dot_action,
         actions::preview_delete_last_word_action,
         actions::preview_delete_last_char_action,
+        actions::retry_last_remote_transcription,
         overlay::remember_recording_overlay_window_position,
         overlay::reset_recording_overlay_manual_position,
         overlay::get_recording_overlay_appearance,

@@ -22,6 +22,16 @@ type RecordingErrorPayload = {
   detail: string;
 };
 
+type RemoteSttErrorPayload =
+  | string
+  | {
+      message?: string;
+      retryAction?: {
+        command?: string;
+        label?: string;
+      };
+    };
+
 const renderSettingsContent = (section: SidebarSection) => {
   const ActiveComponent =
     SECTIONS_CONFIG[section]?.component || SECTIONS_CONFIG.general.component;
@@ -68,9 +78,34 @@ function App() {
   useEffect(() => {
     const ERROR_TOAST_DURATION_MS = 8000;
 
-    const unlistenRemote = listen<string>("remote-stt-error", (event) => {
-      toast.error(event.payload, { duration: ERROR_TOAST_DURATION_MS });
-    });
+    const unlistenRemote = listen<RemoteSttErrorPayload>(
+      "remote-stt-error",
+      (event) => {
+        const message =
+          typeof event.payload === "string"
+            ? event.payload
+            : event.payload.message ||
+              t("overlay.errors.unknown.title", "Transcription failed");
+        const retryAction =
+          typeof event.payload === "object" && event.payload?.retryAction
+            ? event.payload.retryAction
+            : null;
+
+        toast.error(message, {
+          duration: ERROR_TOAST_DURATION_MS,
+          action: retryAction
+            ? {
+                label: t("common.retry", "Retry"),
+                onClick: () => {
+                  void invoke(
+                    retryAction.command || "retry_last_remote_transcription",
+                  );
+                },
+              }
+            : undefined,
+        });
+      },
+    );
     const unlistenScreenshot = listen<string>("screenshot-error", (event) => {
       toast.error(event.payload, { duration: ERROR_TOAST_DURATION_MS });
     });
@@ -112,8 +147,7 @@ function App() {
         toast.error(
           t("errors.modelLoadFailed", {
             model:
-              event.payload.model_name ||
-              t("errors.modelLoadFailedUnknown"),
+              event.payload.model_name || t("errors.modelLoadFailedUnknown"),
           }),
           {
             duration: ERROR_TOAST_DURATION_MS,
@@ -129,8 +163,7 @@ function App() {
       toast.error(
         t("errors.modelDownloadFailed", {
           model:
-            event.payload.model_id ||
-            t("errors.modelDownloadFailedUnknown"),
+            event.payload.model_id || t("errors.modelDownloadFailedUnknown"),
         }),
         {
           duration: ERROR_TOAST_DURATION_MS,
@@ -139,9 +172,15 @@ function App() {
       );
     });
 
-    const unlistenAuthFailed = listen<{ message: string }>("connector-auth-failed", (event) => {
-      toast.warning(event.payload.message || "Connector authentication failed", { duration: 5000 });
-    });
+    const unlistenAuthFailed = listen<{ message: string }>(
+      "connector-auth-failed",
+      (event) => {
+        toast.warning(
+          event.payload.message || "Connector authentication failed",
+          { duration: 5000 },
+        );
+      },
+    );
 
     return () => {
       unlistenRemote.then((unlisten) => unlisten());
@@ -163,12 +202,14 @@ function App() {
         if (result.status === "ok") {
           const s = result.data as any;
           const id = s?.active_profile_id ?? "default";
-          const previewEnabled = id === "default"
-            ? Boolean(s?.preview_output_only_enabled ?? false)
-            : Boolean(
-                (s?.transcription_profiles ?? []).find((p: any) => p.id === id)
-                  ?.preview_output_only_enabled ?? false,
-              );
+          const previewEnabled =
+            id === "default"
+              ? Boolean(s?.preview_output_only_enabled ?? false)
+              : Boolean(
+                  (s?.transcription_profiles ?? []).find(
+                    (p: any) => p.id === id,
+                  )?.preview_output_only_enabled ?? false,
+                );
           await commands.changeSonioxLivePreviewEnabledSetting(previewEnabled);
         }
       } catch (e) {
