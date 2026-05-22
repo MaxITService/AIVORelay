@@ -11,6 +11,13 @@ Set-StrictMode -Version Latest
 $RuleGroup = "AIVORelay Network Block Test"
 $RuleNamePrefix = "AIVORelay Test Block"
 
+function Wait-BeforeContinue {
+    if (-not $NoPause) {
+        Write-Host ""
+        Read-Host "Press Enter to continue" | Out-Null
+    }
+}
+
 function Test-IsAdmin {
     $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
     $principal = [Security.Principal.WindowsPrincipal]::new($identity)
@@ -136,7 +143,7 @@ function Remove-TestRules {
         return
     }
 
-    $rules | Remove-NetFirewallRule
+    $rules | Remove-NetFirewallRule -ErrorAction Stop
     Write-Host "Removed $($rules.Count) firewall rule(s)." -ForegroundColor Green
 }
 
@@ -159,10 +166,27 @@ function Add-BlockRules {
             -Action Block `
             -Program $path `
             -Profile Any `
-            -Enabled True | Out-Null
+            -Enabled True `
+            -ErrorAction Stop | Out-Null
     }
 
     Write-Host "Blocked outbound network for $($paths.Count) AivoRelay executable path(s)." -ForegroundColor Red
+}
+
+function Invoke-MenuAction {
+    param([scriptblock]$Action)
+
+    try {
+        & $Action
+    } catch {
+        Write-Host ""
+        Write-Host "Action failed:" -ForegroundColor Red
+        Write-Host $_.Exception.Message -ForegroundColor Red
+        if ($_.ScriptStackTrace) {
+            Write-Host ""
+            Write-Host $_.ScriptStackTrace -ForegroundColor DarkGray
+        }
+    }
 }
 
 function Show-Status {
@@ -185,11 +209,11 @@ function Show-Status {
     Write-Host ""
 }
 
-if (-not (Test-IsAdmin)) {
-    Restart-Elevated
-}
-
 try {
+    if (-not (Test-IsAdmin)) {
+        Restart-Elevated
+    }
+
     :menu while ($true) {
         Show-Status
         Write-Host "[B] Block AivoRelay outbound"
@@ -200,13 +224,13 @@ try {
         $choice = Read-Host "Choose"
         switch -Regex ($choice) {
             "^[bB]$" {
-                Add-BlockRules
+                Invoke-MenuAction { Add-BlockRules }
             }
             "^[rR]$" {
-                Remove-TestRules
+                Invoke-MenuAction { Remove-TestRules }
             }
             "^[qQ]$" {
-                Remove-TestRules
+                Invoke-MenuAction { Remove-TestRules }
                 break menu
             }
             default {
@@ -214,12 +238,18 @@ try {
             }
         }
 
-        if (-not $NoPause) {
-            Write-Host ""
-            Read-Host "Press Enter to continue" | Out-Null
-        }
+        Wait-BeforeContinue
         Clear-Host
     }
+} catch {
+    Write-Host ""
+    Write-Host "Script failed:" -ForegroundColor Red
+    Write-Host $_.Exception.Message -ForegroundColor Red
+    if ($_.ScriptStackTrace) {
+        Write-Host ""
+        Write-Host $_.ScriptStackTrace -ForegroundColor DarkGray
+    }
+    Wait-BeforeContinue
 } finally {
     Write-Host "Done." -ForegroundColor Cyan
 }
