@@ -29,6 +29,7 @@ dist-ssr
 /target/
 recording_*
 .crush/
+.antigravitycli/
 WARP.MD
 ~
 
@@ -38,4 +39,3 @@ plans/
 desktop.ini
 Desktop.ini
 .AGENTS/.UNTRACKED/
-
