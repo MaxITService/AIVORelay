@@ -244,6 +244,30 @@
   border-color: var(--color-border);
 }
 
+.shortcut-settings-anchor {
+  scroll-margin: 24px;
+  border-radius: 10px;
+}
+
+.shortcut-settings-anchor--flash {
+  animation: shortcut-anchor-flash 1.8s ease-out;
+}
+
+@keyframes shortcut-anchor-flash {
+  0%,
+  55% {
+    outline: 2px solid rgba(255, 77, 141, 0.9);
+    outline-offset: 3px;
+    box-shadow: 0 0 0 6px rgba(255, 77, 141, 0.18);
+  }
+
+  100% {
+    outline: 2px solid rgba(255, 77, 141, 0);
+    outline-offset: 6px;
+    box-shadow: 0 0 0 10px rgba(255, 77, 141, 0);
+  }
+}
+
 .settings-group {
   background: rgba(37, 37, 37, 0.6);
   border: 1px solid var(--color-border-subtle);
