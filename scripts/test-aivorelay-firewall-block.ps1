@@ -133,7 +133,7 @@ function Get-AivoRelayProgramPaths {
 }
 
 function Get-TestRules {
-    Get-NetFirewallRule -DisplayGroup $RuleGroup -ErrorAction SilentlyContinue
+    Get-NetFirewallRule -Group $RuleGroup -ErrorAction SilentlyContinue
 }
 
 function Remove-TestRules {
@@ -161,7 +161,7 @@ function Add-BlockRules {
         $safeName = Split-Path -Leaf $path
         New-NetFirewallRule `
             -DisplayName "$RuleNamePrefix - Outbound - $safeName" `
-            -DisplayGroup $RuleGroup `
+            -Group $RuleGroup `
             -Direction Outbound `
             -Action Block `
             -Program $path `
