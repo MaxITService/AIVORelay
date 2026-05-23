@@ -544,8 +544,15 @@ fn initialize_core_logic(app_handle: &AppHandle) {
                     }
                 }
                 "restart_troubleshoot" => {
-                    log::info!("Restart requested from tray troubleshooting item.");
-                    app.request_restart();
+                    #[cfg(debug_assertions)]
+                    {
+                        log::warn!("Ignoring tray restart request in dev mode; restart Dev-AivoRelay from the launching shell instead.");
+                    }
+                    #[cfg(not(debug_assertions))]
+                    {
+                        log::info!("Restart requested from tray troubleshooting item.");
+                        app.request_restart();
+                    }
                 }
                 "copy_last_transcript" => {
                     tray::copy_last_transcript(app);
