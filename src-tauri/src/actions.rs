@@ -279,6 +279,19 @@ fn clear_last_remote_recording_retry() {
     }
 }
 
+fn has_last_remote_recording_retry() -> bool {
+    match LAST_REMOTE_RECORDING_RETRY.lock() {
+        Ok(slot) => slot.is_some(),
+        Err(err) => {
+            warn!(
+                "Failed to check remote transcription retry request: {}",
+                err
+            );
+            false
+        }
+    }
+}
+
 fn take_last_remote_recording_retry() -> Option<RemoteRecordingRetryRequest> {
     match LAST_REMOTE_RECORDING_RETRY.lock() {
         Ok(slot) => slot.clone(),
@@ -2152,6 +2165,7 @@ async fn get_transcription_for_transcribe_action(
     binding_id: &str,
     captured_profile_id: Option<String>,
     recording_settings: AppSettings,
+    current_app: String,
 ) -> Option<(String, Vec<f32>, Option<String>, bool)> {
     clear_last_remote_recording_retry();
     let rm = Arc::clone(&app.state::<Arc<AudioRecordingManager>>());
@@ -2203,7 +2217,7 @@ async fn get_transcription_for_transcribe_action(
             binding_id: binding_id.to_string(),
             captured_profile_id: captured_profile_id.clone(),
             recording_settings: recording_settings.clone(),
-            current_app: peek_recording_app_context(binding_id),
+            current_app: current_app.clone(),
             pre_saved_file_name: pre_saved_file_name.clone(),
         });
     }
@@ -5514,6 +5528,7 @@ impl ShortcutAction for TranscribeAction {
                     &binding_id,
                     captured_profile_id,
                     recording_settings.clone(),
+                    current_app.clone(),
                 )
                 .await
                 {
@@ -6737,6 +6752,18 @@ impl ShortcutAction for RepastLastAction {
         let ah = app.clone();
 
         tauri::async_runtime::spawn(async move {
+            if has_last_remote_recording_retry() {
+                debug!("Repaste action rerouted to pending Remote API transcription retry");
+                if let Err(err) = retry_last_remote_transcription(ah.clone()).await {
+                    error!(
+                        "Failed to retry Remote API transcription from repaste action: {}",
+                        err
+                    );
+                    let _ = ah.emit("repaste-error", err);
+                }
+                return;
+            }
+
             let hm = Arc::clone(&ah.state::<Arc<HistoryManager>>());
 
             match hm.get_latest_entry() {
