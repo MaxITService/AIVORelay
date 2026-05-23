@@ -211,6 +211,8 @@ fn try_update_tray_menu(
 
     let locale = locale.unwrap_or(&settings.app_language);
     let strings = get_tray_translations(Some(locale.to_string()));
+    #[cfg(debug_assertions)]
+    let _ = &strings.restart_troubleshoot;
 
     // Platform-specific accelerators
     #[cfg(target_os = "macos")]
@@ -229,6 +231,7 @@ fn try_update_tray_menu(
         settings_accelerator,
     )?;
     let self_update_supported = runtime_info::self_update_supported(app);
+    #[cfg(not(debug_assertions))]
     let restart_troubleshoot_i = MenuItem::with_id(
         app,
         "restart_troubleshoot",
@@ -313,6 +316,7 @@ fn try_update_tray_menu(
         )?;
         menu.append(&check_updates_i)?;
     }
+    #[cfg(not(debug_assertions))]
     menu.append(&restart_troubleshoot_i)?;
     menu.append(&separator()?)?;
     menu.append(&quit_i)?;
