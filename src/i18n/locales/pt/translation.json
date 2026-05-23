@@ -452,7 +452,10 @@
     "downloading": "Baixando... {{progress}}%",
     "installing": "Instalando...",
     "preparing": "Preparando...",
-    "checkForUpdates": "Verificar atualizações"
+    "checkForUpdates": "Verificar atualizações",
+    "portableUpdateTitle": "Atualização manual necessária",
+    "portableUpdateMessage": "Instalações portáteis não podem ser atualizadas automaticamente. Para atualizar: baixe o instalador NSIS mais recente do GitHub Releases, instale-o na mesma pasta e, em seguida, copie sua pasta Data/ (configurações, modelos, gravações) da versão antiga para a nova.",
+    "portableUpdateButton": "Abrir GitHub Releases"
   },
   "common": {
     "loading": "Carregando...",
