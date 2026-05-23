@@ -5,6 +5,11 @@ import { useSettings } from "@/hooks/useSettings";
 import { HotkeyGroup } from "./HotkeyGroup";
 import type { ShortcutBinding, TranscriptionProfile } from "@/bindings";
 import { buildHotkeyGuideCategories } from "@/lib/hotkeyGuide";
+import {
+  getShortcutAnchorId,
+  getShortcutSettingsSection,
+} from "@/lib/shortcutAnchors";
+import { useNavigationStore } from "@/stores/navigationStore";
 
 const DEFAULT_WIDTH = 350;
 const MIN_WIDTH = 250;
@@ -13,6 +18,7 @@ const MAX_WIDTH = 600;
 export const HotkeySidebar: React.FC = () => {
   const { t } = useTranslation();
   const { settings, updateSetting } = useSettings();
+  const { setSection } = useNavigationStore();
   const [isOpen, setIsOpen] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   const [isResizing, setIsResizing] = useState(false);
@@ -61,6 +67,37 @@ export const HotkeySidebar: React.FC = () => {
   const handleToggleOpen = useCallback(() => {
     setIsOpen((prev) => !prev);
   }, []);
+
+  const handleHotkeyClick = useCallback(
+    (shortcutId: string) => {
+      const anchorId = getShortcutAnchorId(shortcutId);
+      setSection(getShortcutSettingsSection(shortcutId));
+
+      window.history.replaceState(null, "", `#${anchorId}`);
+
+      let attempts = 0;
+      const scrollToAnchor = () => {
+        const anchor = document.getElementById(anchorId);
+
+        if (anchor) {
+          anchor.scrollIntoView({ behavior: "smooth", block: "center" });
+          anchor.classList.add("shortcut-settings-anchor--flash");
+          window.setTimeout(() => {
+            anchor.classList.remove("shortcut-settings-anchor--flash");
+          }, 1800);
+          return;
+        }
+
+        attempts += 1;
+        if (attempts <= 20) {
+          window.setTimeout(scrollToAnchor, 50);
+        }
+      };
+
+      window.setTimeout(scrollToAnchor, 0);
+    },
+    [setSection],
+  );
 
   // Drag handling for the edge handle (works regardless of pin state)
   const handleMouseDown = useCallback((e: React.MouseEvent) => {
@@ -232,6 +269,7 @@ export const HotkeySidebar: React.FC = () => {
                 key={category.id}
                 title={t(category.titleKey)}
                 hotkeys={category.hotkeys}
+                onHotkeyClick={handleHotkeyClick}
               />
             ))}
           </div>

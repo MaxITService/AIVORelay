@@ -41,6 +41,9 @@
       "recording": "Recording",
       "actions": "Actions",
       "profiles": "Profiles"
+    },
+    "visibleHints": {
+      "repasteLastNetworkRetry": "Network error: retries send while the error overlay is visible"
     }
   },
   "audioProcessing": {
@@ -735,7 +738,7 @@
           },
           "repaste_last": {
             "name": "Repaste Last",
-            "description": "Paste the most recent transcription or AI response again."
+            "description": "Paste the most recent transcription or AI response again. On network errors, retry the send while the error overlay is visible."
           },
           "spawn_button": {
             "name": "Spawn Voice Activation Button",
