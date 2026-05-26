@@ -213,6 +213,14 @@ impl HistoryManager {
         Ok(Connection::open(&self.db_path)?)
     }
 
+    fn has_file_reference(conn: &Connection, file_name: &str) -> Result<bool> {
+        Ok(conn.query_row(
+            "SELECT COUNT(*) > 0 FROM transcription_history WHERE file_name = ?1",
+            params![file_name],
+            |row| row.get(0),
+        )?)
+    }
+
     pub fn recordings_dir(&self) -> &std::path::Path {
         &self.recordings_dir
     }
@@ -387,14 +395,28 @@ impl HistoryManager {
             )?;
             self.emit_history_deleted(*id);
 
-            // Delete WAV file
-            let file_path = self.recordings_dir.join(file_name);
-            if file_path.exists() {
-                if let Err(e) = fs::remove_file(&file_path) {
-                    error!("Failed to delete WAV file {}: {}", file_name, e);
-                } else {
-                    debug!("Deleted old WAV file: {}", file_name);
-                    deleted_count += 1;
+            // Delete WAV file only if no other entries refer to it. If the
+            // lookup fails, preserve the file rather than risking data loss.
+            let has_other = match Self::has_file_reference(&conn, file_name) {
+                Ok(has_other) => has_other,
+                Err(err) => {
+                    error!(
+                        "Failed to check remaining history references for {}: {}",
+                        file_name, err
+                    );
+                    true
+                }
+            };
+
+            if !has_other {
+                let file_path = self.recordings_dir.join(file_name);
+                if file_path.exists() {
+                    if let Err(e) = fs::remove_file(&file_path) {
+                        error!("Failed to delete WAV file {}: {}", file_name, e);
+                    } else {
+                        debug!("Deleted old WAV file: {}", file_name);
+                        deleted_count += 1;
+                    }
                 }
             }
         }
@@ -681,43 +703,56 @@ impl HistoryManager {
         let conn = self.get_connection()?;
 
         // Get the entry to find the file name
-        if let Some(entry) = self.get_entry_by_id(id).await? {
-            // Delete the audio file first
-            let file_path = self.get_audio_file_path(&entry.file_name);
-            if file_path.exists() {
-                if let Err(e) = fs::remove_file(&file_path) {
-                    error!("Failed to delete audio file {}: {}", entry.file_name, e);
-                    // Continue with database deletion even if file deletion fails
-                }
-            }
-        }
+        let entry_opt = self.get_entry_by_id(id).await?;
 
-        // Delete from database
+        // Delete from database first
         conn.execute(
             "DELETE FROM transcription_history WHERE id = ?1",
             params![id],
         )?;
 
         debug!("Deleted history entry with id: {}", id);
-
         self.emit_history_deleted(id);
+
+        if let Some(entry) = entry_opt {
+            // Check if another entry uses the same file_name
+            let has_other = match Self::has_file_reference(&conn, &entry.file_name) {
+                Ok(has_other) => has_other,
+                Err(err) => {
+                    error!(
+                        "Failed to check remaining history references for {}: {}",
+                        entry.file_name, err
+                    );
+                    true
+                }
+            };
+
+            if !has_other {
+                let file_path = self.get_audio_file_path(&entry.file_name);
+                if file_path.exists() {
+                    if let Err(e) = fs::remove_file(&file_path) {
+                        error!("Failed to delete audio file {}: {}", entry.file_name, e);
+                    }
+                }
+            }
+        }
 
         Ok(())
     }
 
     pub async fn delete_all_entries(&self) -> Result<usize> {
         let conn = self.get_connection()?;
-        let mut stmt = conn.prepare("SELECT id, file_name FROM transcription_history")?;
-        let rows = stmt.query_map([], |row| {
-            Ok((row.get::<_, i64>("id")?, row.get::<_, String>("file_name")?))
-        })?;
+        let mut stmt = conn.prepare("SELECT DISTINCT file_name FROM transcription_history")?;
+        let rows = stmt.query_map([], |row| row.get::<_, String>("file_name"))?;
 
-        let mut entries: Vec<(i64, String)> = Vec::new();
+        let mut file_names: Vec<String> = Vec::new();
         for row in rows {
-            entries.push(row?);
+            file_names.push(row?);
         }
 
-        for (_, file_name) in &entries {
+        let deleted_count = conn.execute("DELETE FROM transcription_history", [])?;
+
+        for file_name in &file_names {
             let file_path = self.recordings_dir.join(file_name);
             if file_path.exists() {
                 if let Err(e) = fs::remove_file(&file_path) {
@@ -725,8 +760,6 @@ impl HistoryManager {
                 }
             }
         }
-
-        let deleted_count = conn.execute("DELETE FROM transcription_history", [])?;
 
         debug!("Deleted all history entries: {}", deleted_count);
         self.emit_history_cleared();
@@ -839,6 +872,44 @@ mod tests {
             ],
         )
         .expect("insert history entry");
+    }
+
+    fn insert_entry_with_file(
+        conn: &Connection,
+        file_name: &str,
+        timestamp: i64,
+        text: &str,
+    ) -> i64 {
+        conn.execute(
+            "INSERT INTO transcription_history (
+                file_name,
+                timestamp,
+                saved,
+                title,
+                transcription_text,
+                post_processed_text,
+                post_process_prompt,
+                post_process_requested,
+                action_type,
+                original_selection,
+                ai_response
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+            params![
+                file_name,
+                timestamp,
+                false,
+                format!("Recording {}", timestamp),
+                text,
+                Option::<String>::None,
+                Option::<String>::None,
+                false,
+                "transcribe",
+                Option::<String>::None,
+                Option::<String>::None
+            ],
+        )
+        .expect("insert history entry");
+        conn.last_insert_rowid()
     }
 
     fn insert_ai_replace_entry(
@@ -980,5 +1051,45 @@ mod tests {
         let entry = HistoryManager::get_latest_entry_with_conn(&conn).expect("fetch latest entry");
 
         assert!(entry.is_none());
+    }
+
+    #[test]
+    fn has_file_reference_tracks_duplicate_file_rows() {
+        let conn = setup_conn();
+        let file_name = "shared.wav";
+        let first_id = insert_entry_with_file(&conn, file_name, 100, "");
+        let _second_id = insert_entry_with_file(&conn, file_name, 200, "retry success");
+
+        conn.execute(
+            "DELETE FROM transcription_history WHERE id = ?1",
+            params![first_id],
+        )
+        .expect("delete first row");
+
+        assert!(
+            HistoryManager::has_file_reference(&conn, file_name).expect("check references"),
+            "audio must be preserved while another row still references it"
+        );
+
+        conn.execute(
+            "DELETE FROM transcription_history WHERE file_name = ?1",
+            params![file_name],
+        )
+        .expect("delete remaining rows");
+
+        assert!(
+            !HistoryManager::has_file_reference(&conn, file_name).expect("check no references"),
+            "audio may be deleted only after no DB rows reference it"
+        );
+    }
+
+    #[test]
+    fn has_file_reference_fails_closed_when_query_fails() {
+        let conn = Connection::open_in_memory().expect("open in-memory db");
+
+        assert!(
+            HistoryManager::has_file_reference(&conn, "missing.wav").is_err(),
+            "callers must treat query failures as referenced and preserve audio"
+        );
     }
 }
