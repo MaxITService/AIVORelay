@@ -20,6 +20,7 @@ static ERROR_OVERLAY_AUTO_HIDE_MS: AtomicU64 = AtomicU64::new(DEFAULT_ERROR_OVER
 /// Call this when showing any non-error overlay state.
 pub fn invalidate_error_overlay_auto_hide() {
     OVERLAY_GENERATION.fetch_add(1, Ordering::SeqCst);
+    crate::actions::clear_any_ready_remote_recording_retry();
 }
 
 pub fn get_error_overlay_auto_hide_ms() -> u64 {
@@ -654,14 +655,18 @@ fn show_error_overlay_internal(
     error_message: Option<String>,
     error_envelope: Option<OverlayErrorEnvelope>,
     retry_action: Option<OverlayRetryAction>,
-) {
+    retry_session_id: Option<u64>,
+) -> bool {
     let settings = crate::settings::get_settings(app);
     if !settings.error_feedback_enabled
         || settings.overlay_position == crate::settings::OverlayPosition::None
     {
         // Still need to reset tray icon even if overlay is disabled
         change_tray_icon(app, TrayIconState::Idle);
-        return;
+        if let Some(retry_session_id) = retry_session_id {
+            crate::actions::clear_ready_remote_recording_retry_by_id(retry_session_id);
+        }
+        return false;
     }
 
     overlay::set_recording_overlay_error_layout(app);
@@ -697,18 +702,26 @@ fn show_error_overlay_internal(
                 std::thread::sleep(std::time::Duration::from_millis(300));
                 let _ = window_clone.hide();
                 change_tray_icon(&app_clone, TrayIconState::Idle);
+                if let Some(retry_session_id) = retry_session_id {
+                    crate::actions::clear_ready_remote_recording_retry_by_id(retry_session_id);
+                }
             }
         });
+        true
     } else {
         // If no overlay window, just reset tray icon
         change_tray_icon(app, TrayIconState::Idle);
+        if let Some(retry_session_id) = retry_session_id {
+            crate::actions::clear_ready_remote_recording_retry_by_id(retry_session_id);
+        }
+        false
     }
 }
 
 /// Show the error overlay state with category and auto-hide after configured duration.
 /// Uses the category display text as overlay message.
 pub fn show_error_overlay(app: &AppHandle, category: OverlayErrorCategory) {
-    show_error_overlay_internal(app, category, None, None, None);
+    show_error_overlay_internal(app, category, None, None, None, None);
 }
 
 /// Show the error overlay with a specific message and auto-hide after configured duration.
@@ -717,7 +730,7 @@ pub fn show_error_overlay_with_message(
     category: OverlayErrorCategory,
     message: impl Into<String>,
 ) {
-    show_error_overlay_internal(app, category, Some(message.into()), None, None);
+    show_error_overlay_internal(app, category, Some(message.into()), None, None, None);
 }
 
 /// Main hook function: handle transcription errors with categorized overlay
@@ -729,10 +742,14 @@ pub fn show_error_overlay_with_message(
 ///
 /// Note: The existing toast (remote-stt-error event) should still be emitted separately
 pub fn handle_transcription_error(app: &AppHandle, err_string: &str) {
-    handle_transcription_error_internal(app, err_string, None);
+    handle_transcription_error_internal(app, err_string, None, None);
 }
 
-pub fn handle_transcription_error_with_retry(app: &AppHandle, err_string: &str) {
+pub fn handle_transcription_error_with_retry(
+    app: &AppHandle,
+    err_string: &str,
+    retry_session_id: Option<u64>,
+) -> bool {
     handle_transcription_error_internal(
         app,
         err_string,
@@ -740,14 +757,16 @@ pub fn handle_transcription_error_with_retry(app: &AppHandle, err_string: &str) 
             command: "retry_last_remote_transcription",
             label: "Retry",
         }),
-    );
+        retry_session_id,
+    )
 }
 
 fn handle_transcription_error_internal(
     app: &AppHandle,
     err_string: &str,
     retry_action: Option<OverlayRetryAction>,
-) {
+    retry_session_id: Option<u64>,
+) -> bool {
     let mut envelope = build_error_envelope_from_string(err_string);
     let err_lower = err_string.to_lowercase();
     let category = detect_specific_category(&err_lower, &envelope.canonical_code);
@@ -763,7 +782,8 @@ fn handle_transcription_error_internal(
         Some(envelope.user_message.clone()),
         Some(envelope),
         retry_action,
-    );
+        retry_session_id,
+    )
 }
 
 /// Show error overlay for microphone unavailability.

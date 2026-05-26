@@ -251,16 +251,18 @@ fn should_skip_transcription_for_quick_tap(
     false
 }
 
-fn set_last_remote_recording_retry(request: RemoteRecordingRetryRequest) {
+fn set_last_remote_recording_retry(request: RemoteRecordingRetryRequest) -> bool {
     match LAST_REMOTE_RECORDING_RETRY.lock() {
         Ok(mut slot) => {
-            *slot = Some(request);
+            *slot = Some(RemoteRecordingRetryState::Ready(request));
+            true
         }
         Err(err) => {
             warn!(
                 "Failed to store remote transcription retry request: {}",
                 err
             );
+            false
         }
     }
 }
@@ -281,7 +283,7 @@ fn clear_last_remote_recording_retry() {
 
 fn has_last_remote_recording_retry() -> bool {
     match LAST_REMOTE_RECORDING_RETRY.lock() {
-        Ok(slot) => slot.is_some(),
+        Ok(slot) => matches!(&*slot, Some(RemoteRecordingRetryState::Ready(_))),
         Err(err) => {
             warn!(
                 "Failed to check remote transcription retry request: {}",
@@ -292,12 +294,67 @@ fn has_last_remote_recording_retry() -> bool {
     }
 }
 
-fn take_last_remote_recording_retry() -> Option<RemoteRecordingRetryRequest> {
+fn begin_last_remote_recording_retry() -> Result<RemoteRecordingRetryRequest, String> {
     match LAST_REMOTE_RECORDING_RETRY.lock() {
-        Ok(slot) => slot.clone(),
-        Err(err) => {
-            warn!("Failed to read remote transcription retry request: {}", err);
-            None
+        Ok(mut slot) => match &*slot {
+            Some(RemoteRecordingRetryState::Ready(req)) => {
+                let req_clone = req.clone();
+                *slot = Some(RemoteRecordingRetryState::InFlight(req.retry_id));
+                Ok(req_clone)
+            }
+            Some(RemoteRecordingRetryState::InFlight(_)) => {
+                Err("A transcription retry is already in progress.".to_string())
+            }
+            None => Err("No failed Remote STT transcription is available to retry.".to_string()),
+        },
+        Err(err) => Err(format!("Failed to lock retry slot: {}", err)),
+    }
+}
+
+fn restore_last_remote_recording_retry(
+    retry_id: u64,
+    request: RemoteRecordingRetryRequest,
+) -> bool {
+    if let Ok(mut slot) = LAST_REMOTE_RECORDING_RETRY.lock() {
+        if let Some(RemoteRecordingRetryState::InFlight(id)) = &*slot {
+            if *id == retry_id {
+                *slot = Some(RemoteRecordingRetryState::Ready(request));
+                return true;
+            }
+        }
+    }
+    false
+}
+
+fn clear_last_remote_recording_retry_by_id(retry_id: u64) {
+    if let Ok(mut slot) = LAST_REMOTE_RECORDING_RETRY.lock() {
+        if let Some(state) = &*slot {
+            let matches = match state {
+                RemoteRecordingRetryState::Ready(req) => req.retry_id == retry_id,
+                RemoteRecordingRetryState::InFlight(id) => *id == retry_id,
+            };
+            if matches {
+                *slot = None;
+            }
+        }
+    }
+}
+
+pub fn clear_ready_remote_recording_retry_by_id(retry_id: u64) {
+    if let Ok(mut slot) = LAST_REMOTE_RECORDING_RETRY.lock() {
+        if let Some(RemoteRecordingRetryState::Ready(req)) = &*slot {
+            if req.retry_id != retry_id {
+                return;
+            }
+            *slot = None;
+        }
+    }
+}
+
+pub fn clear_any_ready_remote_recording_retry() {
+    if let Ok(mut slot) = LAST_REMOTE_RECORDING_RETRY.lock() {
+        if matches!(&*slot, Some(RemoteRecordingRetryState::Ready(_))) {
+            *slot = None;
         }
     }
 }
@@ -322,10 +379,24 @@ fn emit_remote_stt_error(app: &AppHandle, err_str: &str, include_retry_action: b
 fn handle_remote_transcription_error(app: &AppHandle, err_str: &str, include_retry_action: bool) {
     emit_remote_stt_error(app, err_str, include_retry_action);
     if include_retry_action {
-        crate::plus_overlay_state::handle_transcription_error_with_retry(app, err_str);
+        crate::plus_overlay_state::handle_transcription_error_with_retry(app, err_str, None);
     } else {
         crate::plus_overlay_state::handle_transcription_error(app, err_str);
     }
+}
+
+fn handle_remote_transcription_error_with_retry_session(
+    app: &AppHandle,
+    err_str: &str,
+    retry_id: u64,
+) -> bool {
+    let retry_visible = crate::plus_overlay_state::handle_transcription_error_with_retry(
+        app,
+        err_str,
+        Some(retry_id),
+    );
+    emit_remote_stt_error(app, err_str, retry_visible);
+    retry_visible
 }
 
 fn register_soniox_stream_processor(
@@ -1416,6 +1487,7 @@ pub(crate) async fn perform_transcription_for_profile(
         captured_profile_id,
         settings,
         false,
+        true,
     )
     .await
 }
@@ -1427,6 +1499,7 @@ async fn perform_transcription_for_profile_with_retry_action(
     captured_profile_id: Option<String>,
     settings: &AppSettings,
     include_retry_action: bool,
+    show_remote_error: bool,
 ) -> TranscriptionOutcome {
     // Use the captured profile ID from recording start, not the current active_profile_id.
     // This ensures that if the user switches profiles mid-recording, we still use
@@ -1534,10 +1607,12 @@ async fn perform_transcription_for_profile_with_retry_action(
             Ok(text) => TranscriptionOutcome::Success(text),
             Err(err) => {
                 let err_str = format!("{}", err);
-                handle_remote_transcription_error(app, &err_str, include_retry_action);
+                if show_remote_error {
+                    handle_remote_transcription_error(app, &err_str, include_retry_action);
+                }
                 TranscriptionOutcome::Error {
                     message: err_str,
-                    shown_in_overlay: true,
+                    shown_in_overlay: show_remote_error,
                 }
             }
         }
@@ -2162,10 +2237,14 @@ fn save_failed_transcription_entry(
     app: &AppHandle,
     file_name: String,
     post_process_requested: bool,
-) {
+) -> Option<i64> {
     let hm = Arc::clone(&app.state::<Arc<HistoryManager>>());
-    if let Err(err) = hm.save_entry(file_name, String::new(), post_process_requested, None, None) {
-        error!("Failed to save failed history entry: {}", err);
+    match hm.save_entry(file_name, String::new(), post_process_requested, None, None) {
+        Ok(entry) => Some(entry.id),
+        Err(err) => {
+            error!("Failed to save failed history entry: {}", err);
+            None
+        }
     }
 }
 
@@ -2220,24 +2299,15 @@ async fn get_transcription_for_transcribe_action(
         == TranscriptionProvider::RemoteOpenAiCompatible
         && is_transcribe_binding_id(binding_id)
         && !preview_output_only_enabled;
-    if remote_retry_enabled {
-        set_last_remote_recording_retry(RemoteRecordingRetryRequest {
-            samples: samples.clone(),
-            binding_id: binding_id.to_string(),
-            captured_profile_id: captured_profile_id.clone(),
-            recording_settings: recording_settings.clone(),
-            current_app: current_app.clone(),
-            pre_saved_file_name: pre_saved_file_name.clone(),
-        });
-    }
 
     match perform_transcription_for_profile_with_retry_action(
         app,
         samples.clone(),
         Some(binding_id),
-        captured_profile_id,
+        captured_profile_id.clone(),
         &recording_settings,
-        remote_retry_enabled,
+        false,
+        !remote_retry_enabled,
     )
     .await
     {
@@ -2254,12 +2324,50 @@ async fn get_transcription_for_transcribe_action(
             None
         }
         TranscriptionOutcome::Error {
-            shown_in_overlay, ..
+            message,
+            shown_in_overlay,
         } => {
-            if let Some(file_name) = pre_saved_file_name {
-                save_failed_transcription_entry(app, file_name, post_process_requested);
+            let mut retry_error_shown = false;
+            if remote_retry_enabled {
+                if let Some(file_name) = pre_saved_file_name.clone() {
+                    let failed_id =
+                        save_failed_transcription_entry(app, file_name, post_process_requested);
+                    if let Some(failed_history_entry_id) = failed_id {
+                        let retry_id = RETRY_ID_COUNTER.fetch_add(1, AtomicOrdering::SeqCst);
+                        let request = RemoteRecordingRetryRequest {
+                            retry_id,
+                            samples: samples.clone(),
+                            binding_id: binding_id.to_string(),
+                            captured_profile_id: captured_profile_id.clone(),
+                            recording_settings: recording_settings.clone(),
+                            current_app: current_app.clone(),
+                            pre_saved_file_name: pre_saved_file_name.clone(),
+                            failed_history_entry_id,
+                        };
+
+                        if set_last_remote_recording_retry(request) {
+                            retry_error_shown =
+                                handle_remote_transcription_error_with_retry_session(
+                                    app, &message, retry_id,
+                                );
+                        } else {
+                            handle_remote_transcription_error(app, &message, false);
+                            retry_error_shown = true;
+                        }
+                    } else {
+                        handle_remote_transcription_error(app, &message, false);
+                        retry_error_shown = true;
+                    }
+                } else {
+                    handle_remote_transcription_error(app, &message, false);
+                    retry_error_shown = true;
+                }
+            } else if let Some(file_name) = pre_saved_file_name {
+                let failed_id =
+                    save_failed_transcription_entry(app, file_name, post_process_requested);
+                drop(failed_id);
             }
-            if !shown_in_overlay {
+            if !shown_in_overlay && !retry_error_shown {
                 utils::hide_recording_overlay(app);
                 change_tray_icon(app, TrayIconState::Idle);
             }
@@ -2271,8 +2379,7 @@ async fn get_transcription_for_transcribe_action(
 #[tauri::command]
 #[specta::specta]
 pub async fn retry_last_remote_transcription(app: AppHandle) -> Result<(), String> {
-    let request = take_last_remote_recording_retry()
-        .ok_or_else(|| "No failed Remote API transcription is available to retry.".to_string())?;
+    let request = begin_last_remote_recording_retry()?;
 
     tauri::async_runtime::spawn(async move {
         debug!(
@@ -2287,25 +2394,30 @@ pub async fn retry_last_remote_transcription(app: AppHandle) -> Result<(), Strin
             Some(&request.binding_id),
             request.captured_profile_id.clone(),
             &request.recording_settings,
-            true,
+            false,
+            false,
         )
         .await;
 
         let transcription = match outcome {
             TranscriptionOutcome::Success(text) => text,
             TranscriptionOutcome::Cancelled => {
-                clear_last_remote_recording_retry();
+                clear_last_remote_recording_retry_by_id(request.retry_id);
                 utils::hide_recording_overlay(&app);
                 change_tray_icon(&app, TrayIconState::Idle);
                 return;
             }
-            TranscriptionOutcome::Error { .. } => {
+            TranscriptionOutcome::Error { message, .. } => {
+                let retry_id = request.retry_id;
+                if restore_last_remote_recording_retry(retry_id, request) {
+                    handle_remote_transcription_error_with_retry_session(&app, &message, retry_id);
+                }
                 return;
             }
         };
 
         if transcription.trim().is_empty() {
-            clear_last_remote_recording_retry();
+            clear_last_remote_recording_retry_by_id(request.retry_id);
             utils::hide_recording_overlay(&app);
             change_tray_icon(&app, TrayIconState::Idle);
             return;
@@ -2319,18 +2431,20 @@ pub async fn retry_last_remote_transcription(app: AppHandle) -> Result<(), Strin
             request.captured_profile_id,
             &request.current_app,
             request.pre_saved_file_name,
+            Some(request.failed_history_entry_id),
         )
         .await
         {
             Some(text) => text,
             None => {
+                clear_last_remote_recording_retry_by_id(request.retry_id);
                 utils::hide_recording_overlay(&app);
                 change_tray_icon(&app, TrayIconState::Idle);
                 return;
             }
         };
 
-        clear_last_remote_recording_retry();
+        clear_last_remote_recording_retry_by_id(request.retry_id);
         before_dictation_final_output(&app, &final_text);
         let app_for_main_thread = app.clone();
         app.run_on_main_thread(move || {
@@ -4654,6 +4768,7 @@ async fn apply_post_processing_and_history(
     profile_id: Option<String>,
     current_app: &str,
     pre_saved_file_name: Option<String>,
+    failed_history_entry_id: Option<i64>,
 ) -> Option<String> {
     let processed = process_transcription_output(
         app,
@@ -4666,7 +4781,15 @@ async fn apply_post_processing_and_history(
 
     let hm = Arc::clone(&app.state::<Arc<HistoryManager>>());
     tauri::async_runtime::spawn(async move {
-        let save_result = if let Some(file_name) = pre_saved_file_name {
+        let save_result = if let Some(id) = failed_history_entry_id {
+            hm.update_transcription(
+                id,
+                transcription,
+                processed.post_processed_text.clone(),
+                processed.post_process_prompt.clone(),
+            )
+            .map(|_| ())
+        } else if let Some(file_name) = pre_saved_file_name {
             hm.save_entry(
                 file_name,
                 transcription,
@@ -5395,6 +5518,7 @@ impl ShortcutAction for TranscribeAction {
                     profile_id_for_postprocess,
                     &current_app,
                     None,
+                    None,
                 )
                 .await
                 {
@@ -5618,6 +5742,7 @@ impl ShortcutAction for TranscribeAction {
                 profile_id_for_postprocess,
                 &current_app,
                 pre_saved_file_name,
+                None,
             )
             .await
             {
@@ -5796,6 +5921,7 @@ impl ShortcutAction for SendToExtensionAction {
                 None,
                 &current_app,
                 None,
+                None,
             )
             .await
             {
@@ -5937,6 +6063,7 @@ impl ShortcutAction for SendToExtensionWithSelectionAction {
                     samples,
                     None,
                     &current_app,
+                    None,
                     None,
                 )
                 .await
@@ -6950,13 +7077,27 @@ struct VoiceCommandAction;
 
 #[derive(Clone)]
 struct RemoteRecordingRetryRequest {
+    retry_id: u64,
     samples: Vec<f32>,
     binding_id: String,
     captured_profile_id: Option<String>,
     recording_settings: AppSettings,
     current_app: String,
     pre_saved_file_name: Option<String>,
+    failed_history_entry_id: i64,
 }
+
+#[derive(Clone)]
+enum RemoteRecordingRetryState {
+    Ready(RemoteRecordingRetryRequest),
+    InFlight(u64),
+}
+
+static LAST_REMOTE_RECORDING_RETRY: Lazy<Mutex<Option<RemoteRecordingRetryState>>> =
+    Lazy::new(|| Mutex::new(None));
+
+use std::sync::atomic::{AtomicU64, Ordering as AtomicOrdering};
+static RETRY_ID_COUNTER: AtomicU64 = AtomicU64::new(1);
 
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -6971,9 +7112,6 @@ struct RemoteSttErrorEvent {
     message: String,
     retry_action: Option<RemoteSttRetryActionEvent>,
 }
-
-static LAST_REMOTE_RECORDING_RETRY: Lazy<Mutex<Option<RemoteRecordingRetryRequest>>> =
-    Lazy::new(|| Mutex::new(None));
 
 /// Event payload for showing the command confirmation overlay
 #[derive(Clone, serde::Serialize, specta::Type)]
