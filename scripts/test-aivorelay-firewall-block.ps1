@@ -11,10 +11,35 @@ Set-StrictMode -Version Latest
 $RuleGroup = "AIVORelay Network Block Test"
 $RuleNamePrefix = "AIVORelay Test Block"
 
-function Wait-BeforeContinue {
+function Wait-AfterMenuAction {
     if (-not $NoPause) {
         Write-Host ""
-        Read-Host "Press Enter to continue" | Out-Null
+    }
+}
+
+function Read-MenuChoice {
+    Write-Host "Choose [B/R/Q]: " -NoNewline
+
+    while ($true) {
+        $key = [Console]::ReadKey($true)
+
+        if ($key.Key -eq [ConsoleKey]::Enter) {
+            continue
+        }
+
+        if ($key.Key -eq [ConsoleKey]::Escape) {
+            Write-Host "Q"
+            return "Q"
+        }
+
+        $keyChar = $key.KeyChar
+        if ([char]::IsControl($keyChar)) {
+            continue
+        }
+
+        $choice = ([string]$keyChar).ToUpperInvariant()
+        Write-Host $choice
+        return $choice
     }
 }
 
@@ -137,14 +162,23 @@ function Get-TestRules {
 }
 
 function Remove-TestRules {
+    param(
+        [string]$WhenNoneMessage = "No $RuleGroup rules to remove.",
+        [string]$WhenRemovedMessage = "Removed {0} firewall rule(s)."
+    )
+
     $rules = @(Get-TestRules)
     if ($rules.Count -eq 0) {
-        Write-Host "No $RuleGroup rules to remove." -ForegroundColor DarkGray
+        if (-not [string]::IsNullOrWhiteSpace($WhenNoneMessage)) {
+            Write-Host $WhenNoneMessage -ForegroundColor DarkGray
+        }
         return
     }
 
     $rules | Remove-NetFirewallRule -ErrorAction Stop
-    Write-Host "Removed $($rules.Count) firewall rule(s)." -ForegroundColor Green
+    if (-not [string]::IsNullOrWhiteSpace($WhenRemovedMessage)) {
+        Write-Host ($WhenRemovedMessage -f $rules.Count) -ForegroundColor Green
+    }
 }
 
 function Add-BlockRules {
@@ -155,7 +189,10 @@ function Add-BlockRules {
         return
     }
 
-    Remove-TestRules
+    Write-Host "Preparing clean block rules: removing old $RuleGroup rules first, if any." -ForegroundColor DarkGray
+    Remove-TestRules `
+        -WhenNoneMessage "No old $RuleGroup rules found; creating fresh block rules." `
+        -WhenRemovedMessage "Removed {0} old test rule(s); creating fresh block rules."
 
     foreach ($path in $paths) {
         $safeName = Split-Path -Leaf $path
@@ -221,25 +258,26 @@ try {
         Write-Host "[Q] Restore and quit"
         Write-Host ""
 
-        $choice = Read-Host "Choose"
-        switch -Regex ($choice) {
-            "^[bB]$" {
+        $choice = Read-MenuChoice
+        switch ($choice) {
+            "B" {
                 Invoke-MenuAction { Add-BlockRules }
+                Wait-AfterMenuAction
             }
-            "^[rR]$" {
+            "R" {
                 Invoke-MenuAction { Remove-TestRules }
+                Wait-AfterMenuAction
             }
-            "^[qQ]$" {
+            "Q" {
                 Invoke-MenuAction { Remove-TestRules }
+                Wait-AfterMenuAction
                 break menu
             }
             default {
                 Write-Host "Unknown choice: $choice" -ForegroundColor Yellow
+                Wait-AfterMenuAction
             }
         }
-
-        Wait-BeforeContinue
-        Clear-Host
     }
 } catch {
     Write-Host ""
@@ -249,7 +287,7 @@ try {
         Write-Host ""
         Write-Host $_.ScriptStackTrace -ForegroundColor DarkGray
     }
-    Wait-BeforeContinue
+    Wait-AfterMenuAction
 } finally {
     Write-Host "Done." -ForegroundColor Cyan
 }
