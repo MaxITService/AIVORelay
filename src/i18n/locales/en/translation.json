@@ -43,7 +43,7 @@
       "profiles": "Profiles"
     },
     "visibleHints": {
-      "repasteLastNetworkRetry": "Network error: retries send while the error overlay is visible"
+      "repasteLastNetworkRetry": "Repastes latest text. Or, in case of network error, resends the recording and tries again."
     }
   },
   "audioProcessing": {
@@ -710,7 +710,7 @@
           },
           "repaste_last": {
             "name": "Repaste Last",
-            "description": "Paste the most recent transcription or AI response again. On network errors, retry the send while the error overlay is visible."
+            "description": "Repastes latest text. Or, in case of network error, resends the recording and tries again."
           },
           "spawn_button": {
             "name": "Spawn Voice Activation Button",
@@ -1130,7 +1130,7 @@
         },
         "errorDuration": {
           "title": "Error Overlay Duration",
-          "description": "How long error overlays stay visible before auto-hide.",
+          "description": "How long error overlays stay visible before auto-hide. Maximum: 100 seconds.",
           "apply": "Apply",
           "unitMs": "ms"
         },
@@ -2611,6 +2611,9 @@
     "finalizing": "Finalizing...",
     "microphoneChanged": "Microphone: {{name}}",
     "decapitalizationIndicator": "Decapitalization",
+    "retryWithShortcut": "Retry with {{shortcut}}",
+    "retryShortcutTooltip": "Press {{shortcut}} to retry without moving focus.",
+    "retryShortcutUnavailableTooltip": "Use the Repaste Last shortcut to retry without moving focus.",
     "errors": {
       "auth": {
         "title": "Check API key",

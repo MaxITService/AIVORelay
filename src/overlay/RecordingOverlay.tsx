@@ -1,5 +1,6 @@
 import { listen } from "@tauri-apps/api/event";
 import { invoke } from "@tauri-apps/api/core";
+import { type as getOsType } from "@tauri-apps/plugin-os";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import React, { useEffect, useRef, useState } from "react";
 import type { TFunction } from "i18next";
@@ -47,6 +48,10 @@ import type {
   OverlayErrorEnvelope,
   OverlayErrorPhase,
 } from "./plus_overlay_states";
+import {
+  formatKeyCombination,
+  type OSType,
+} from "../lib/utils/keyboard";
 
 type RecordingOverlayAppearanceState = RecordingOverlayAppearancePayload & {
   status_icon_color: string;
@@ -138,6 +143,31 @@ type OverlayPhysicalPosition = {
   x: number;
   y: number;
 };
+
+function normalizeOsType(osType: string): OSType {
+  return osType === "macos" || osType === "windows" || osType === "linux"
+    ? osType
+    : "unknown";
+}
+
+async function resolveRepasteShortcutLabel(): Promise<string | null> {
+  const result = await commands.getAppSettings();
+  if (result.status === "error") {
+    return null;
+  }
+
+  const binding = result.data.bindings?.repaste_last?.current_binding;
+  if (!binding?.trim()) {
+    return null;
+  }
+
+  try {
+    return formatKeyCombination(binding, normalizeOsType(getOsType()));
+  } catch (error) {
+    console.error("Failed to format repaste shortcut:", error);
+    return binding;
+  }
+}
 
 async function rememberOverlayPhysicalPosition(
   position: OverlayPhysicalPosition,
@@ -306,6 +336,9 @@ const RecordingOverlay: React.FC = () => {
   const [errorCode, setErrorCode] = useState<string | null>(null);
   const [errorTechnical, setErrorTechnical] = useState<string | null>(null);
   const [errorRetryAvailable, setErrorRetryAvailable] = useState(false);
+  const [repasteShortcutLabel, setRepasteShortcutLabel] = useState<
+    string | null
+  >(null);
   const [levels, setLevels] = useState<number[]>(Array(20).fill(0));
   const [appearance, setAppearance] = useState<RecordingOverlayAppearanceState>(
     DEFAULT_OVERLAY_APPEARANCE,
@@ -610,12 +643,18 @@ const RecordingOverlay: React.FC = () => {
             setErrorCode(compactOverlayErrorCode(rawCode));
             setErrorTechnical(envelope?.technical_message || null);
             setErrorRetryAvailable(Boolean(payload.retry_action));
+            if (payload.retry_action) {
+              void resolveRepasteShortcutLabel().then(setRepasteShortcutLabel);
+            } else {
+              setRepasteShortcutLabel(null);
+            }
           } else {
             setErrorMessage(null);
             setErrorHint(null);
             setErrorCode(null);
             setErrorTechnical(null);
             setErrorRetryAvailable(false);
+            setRepasteShortcutLabel(null);
           }
         } else {
           // Legacy string payload (e.g., "recording" or "transcribing")
@@ -627,6 +666,7 @@ const RecordingOverlay: React.FC = () => {
           setErrorCode(null);
           setErrorTechnical(null);
           setErrorRetryAvailable(false);
+          setRepasteShortcutLabel(null);
         }
         setIsVisible(true);
       });
@@ -646,6 +686,7 @@ const RecordingOverlay: React.FC = () => {
         setErrorCode(null);
         setErrorTechnical(null);
         setErrorRetryAvailable(false);
+        setRepasteShortcutLabel(null);
         setIsVisible(true);
       });
 
@@ -655,6 +696,7 @@ const RecordingOverlay: React.FC = () => {
         setDecapIndicatorEligible(false);
         setDecapIndicatorArmed(false);
         setErrorRetryAvailable(false);
+        setRepasteShortcutLabel(null);
       });
 
       // Listen for mic-level updates
@@ -911,6 +953,30 @@ const RecordingOverlay: React.FC = () => {
     });
   };
 
+  const retryButtonTitle = errorRetryAvailable
+    ? [
+        repasteShortcutLabel
+          ? t("overlay.retryShortcutTooltip", {
+              shortcut: repasteShortcutLabel,
+              defaultValue: "Press {{shortcut}} to retry without moving focus.",
+            })
+          : t("overlay.retryShortcutUnavailableTooltip", {
+              defaultValue:
+                "Use the Repaste Last shortcut to retry without moving focus.",
+            }),
+        errorTechnical,
+      ]
+        .filter(Boolean)
+        .join("\n")
+    : errorTechnical || undefined;
+  const retryShortcutText =
+    errorRetryAvailable && repasteShortcutLabel
+      ? t("overlay.retryWithShortcut", {
+          shortcut: repasteShortcutLabel,
+          defaultValue: "Retry with {{shortcut}}",
+        })
+      : null;
+
   return (
     <div
       className={`recording-overlay ${customOverlayEnabled ? "recording-overlay-custom" : "recording-overlay-legacy"} ${overlayStateClass} ${isVisible ? "fade-in" : ""} ${state === "error" ? "overlay-error" : ""} ${state === "microphone_switch" ? "overlay-microphone-switch" : ""}`}
@@ -1065,6 +1131,11 @@ const RecordingOverlay: React.FC = () => {
                   "Try again and check the logs if needed.",
                 )}
             </span>
+            {retryShortcutText && (
+              <span className="error-retry-shortcut">
+                {retryShortcutText}
+              </span>
+            )}
           </div>
         )}
         {state === "profile_switch" && (
@@ -1101,7 +1172,7 @@ const RecordingOverlay: React.FC = () => {
           <button
             type="button"
             className="error-retry-button"
-            title={errorTechnical || undefined}
+            title={retryButtonTitle}
             onClick={handleRetryRemoteTranscription}
           >
             {t("common.retry", "Retry")}
