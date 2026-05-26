@@ -3117,7 +3117,7 @@ pub fn get_default_settings() -> AppSettings {
         ShortcutBinding {
             id: "repaste_last".to_string(),
             name: "Repaste Last".to_string(),
-            description: "Paste the most recent transcription or AI response again. On network errors, retry the send while the error overlay is visible.".to_string(),
+            description: "Repastes latest text. Or, in case of network error, resends the recording and tries again.".to_string(),
             default_binding: "ctrl+shift+z".to_string(),
             current_binding: "ctrl+shift+z".to_string(),
         },

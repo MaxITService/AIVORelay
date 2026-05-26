@@ -11,6 +11,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use tauri::{AppHandle, Emitter, Manager};
 
 const DEFAULT_ERROR_OVERLAY_AUTO_HIDE_MS: u64 = 3500;
+const MAX_ERROR_OVERLAY_AUTO_HIDE_MS: u64 = 100_000;
 
 static OVERLAY_GENERATION: AtomicU64 = AtomicU64::new(0);
 static ERROR_OVERLAY_AUTO_HIDE_MS: AtomicU64 = AtomicU64::new(DEFAULT_ERROR_OVERLAY_AUTO_HIDE_MS);
@@ -26,8 +27,9 @@ pub fn get_error_overlay_auto_hide_ms() -> u64 {
 }
 
 pub fn set_error_overlay_auto_hide_ms(ms: u64) -> u64 {
-    ERROR_OVERLAY_AUTO_HIDE_MS.store(ms, Ordering::SeqCst);
-    ms
+    let normalized = ms.min(MAX_ERROR_OVERLAY_AUTO_HIDE_MS);
+    ERROR_OVERLAY_AUTO_HIDE_MS.store(normalized, Ordering::SeqCst);
+    normalized
 }
 
 /// Error categories for overlay display

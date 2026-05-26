@@ -112,6 +112,33 @@ const IconButton: React.FC<{
   </button>
 );
 
+const RepasteShortcutSection: React.FC = () => {
+  const { t } = useTranslation();
+
+  return (
+    <SettingsGroup title={t("settings.history.shortcut.title")}>
+      <HandyShortcut
+        shortcutId="repaste_last"
+        grouped={true}
+        descriptionMode="inline"
+      />
+    </SettingsGroup>
+  );
+};
+
+const HistoryPageLayout: React.FC<{ children: React.ReactNode }> = ({
+  children,
+}) => {
+  return (
+    <div className="max-w-3xl w-full mx-auto space-y-6">
+      <HistoryConfigurationSection />
+      <DictationStatsSection />
+      <RepasteShortcutSection />
+      {children}
+    </div>
+  );
+};
+
 export const HistorySettings: React.FC = () => {
   const { t } = useTranslation();
   const [historyEntries, setHistoryEntries] = useState<HistoryEntry[]>([]);
