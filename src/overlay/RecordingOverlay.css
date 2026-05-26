@@ -50,7 +50,8 @@ body,
 .recording-overlay.recording-overlay-legacy .microphone-switch-label,
 .recording-overlay.recording-overlay-legacy .microphone-switch-name,
 .recording-overlay.recording-overlay-legacy .error-title,
-.recording-overlay.recording-overlay-legacy .error-hint {
+.recording-overlay.recording-overlay-legacy .error-hint,
+.recording-overlay.recording-overlay-legacy .error-retry-shortcut {
   text-shadow: none;
 }
 
@@ -666,6 +667,23 @@ body,
 
 .recording-overlay.recording-overlay-custom .error-hint {
   text-shadow: 0 0 10px rgba(255, 120, 120, 0.12);
+}
+
+.recording-overlay.recording-overlay-custom .error-retry-shortcut,
+.recording-overlay.recording-overlay-legacy .error-retry-shortcut {
+  color: #ffe7a3;
+  font-size: 10px;
+  font-family:
+    -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  font-weight: 700;
+  line-height: 1.05;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.recording-overlay.recording-overlay-custom .error-retry-shortcut {
+  text-shadow: 0 0 10px rgba(255, 190, 120, 0.18);
 }
 
 .recording-overlay.recording-overlay-custom .error-code-chip,

@@ -24,6 +24,26 @@
     "browserConnector": "Коннектор браузера",
     "audioProcessing": "Обработка речи"
   },
+  "hotkeySidebar": {
+    "title": "Горячие клавиши",
+    "pinSidebar": "Закрепить панель",
+    "unpinSidebar": "Открепить панель",
+    "openSidebar": "Открыть панель горячих клавиш",
+    "closeSidebar": "Закрыть панель",
+    "configureHint": "Настроить в параметрах",
+    "newcomer": {
+      "title": "Впервые здесь?",
+      "message": "Откройте меню всех горячих клавиш, чтобы быстро увидеть возможности AivoRelay."
+    },
+    "categories": {
+      "recording": "Запись",
+      "actions": "Действия",
+      "profiles": "Профили"
+    },
+    "visibleHints": {
+      "repasteLastNetworkRetry": "Снова вставляет последний текст. При сетевой ошибке заново отправляет запись и пробует ещё раз."
+    }
+  },
   "transcribeFile": {
     "cancelling": "Отмена...",
     "cancelled": "Транскрипция файла отменена.",
@@ -656,6 +676,10 @@
           "cancel": {
             "name": "Отмена",
             "description": "Отменяет текущую запись."
+          },
+          "repaste_last": {
+            "name": "Вставить последний текст снова",
+            "description": "Снова вставляет последний текст. При сетевой ошибке заново отправляет запись и пробует ещё раз."
           }
         },
         "errors": {
@@ -803,7 +827,7 @@
         },
         "errorDuration": {
           "title": "Длительность оверлея ошибки",
-          "description": "Сколько показывать оверлей ошибки до автоскрытия.",
+          "description": "Сколько показывать оверлей ошибки до автоскрытия. Максимум: 100 секунд.",
           "apply": "Применить",
           "unitMs": "мс"
         },
@@ -1989,6 +2013,9 @@
     "finalizing": "Финализация...",
     "microphoneChanged": "Микрофон: {{name}}",
     "decapitalizationIndicator": "Декапитализация",
+    "retryWithShortcut": "Повторить через {{shortcut}}",
+    "retryShortcutTooltip": "Нажмите {{shortcut}}, чтобы повторить без переноса фокуса.",
+    "retryShortcutUnavailableTooltip": "Используйте горячую клавишу «Вставить последний текст снова», чтобы повторить без переноса фокуса.",
     "errors": {
       "auth": {
         "title": "Проверьте API key",

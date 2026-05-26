@@ -8,6 +8,8 @@ import { ToggleSwitch } from "../ui/ToggleSwitch";
 import { useSettings } from "../../hooks/useSettings";
 import type { OverlayPosition } from "@/bindings";
 
+const MAX_ERROR_OVERLAY_AUTO_HIDE_MS = 100_000;
+
 interface ShowOverlayProps {
   descriptionMode?: "inline" | "tooltip";
   grouped?: boolean;
@@ -64,7 +66,7 @@ export const ShowOverlay: React.FC<ShowOverlayProps> = React.memo(
     const parsedInputMs = Number.parseInt(errorOverlayAutoHideInput, 10);
     const hasValidInput = Number.isFinite(parsedInputMs) && parsedInputMs >= 0;
     const normalizedInputMs = hasValidInput
-      ? Math.round(parsedInputMs)
+      ? Math.min(Math.round(parsedInputMs), MAX_ERROR_OVERLAY_AUTO_HIDE_MS)
       : errorOverlayAutoHideMs;
     const hasPendingErrorOverlayAutoHideChange =
       normalizedInputMs !== errorOverlayAutoHideMs;
@@ -180,6 +182,8 @@ export const ShowOverlay: React.FC<ShowOverlayProps> = React.memo(
               type="number"
               variant="compact"
               step={50}
+              min={0}
+              max={MAX_ERROR_OVERLAY_AUTO_HIDE_MS}
               value={errorOverlayAutoHideInput}
               onChange={(event) => setErrorOverlayAutoHideInput(event.target.value)}
               className="w-28 text-right"
