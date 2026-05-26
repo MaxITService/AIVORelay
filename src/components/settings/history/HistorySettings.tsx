@@ -657,7 +657,11 @@ const RepasteShortcutSection: React.FC = () => {
 
   return (
     <SettingsGroup title={t("settings.history.shortcut.title")}>
-      <HandyShortcut shortcutId="repaste_last" grouped={true} />
+      <HandyShortcut
+        shortcutId="repaste_last"
+        grouped={true}
+        descriptionMode="inline"
+      />
     </SettingsGroup>
   );
 };
