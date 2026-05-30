@@ -28,9 +28,16 @@ export const getRemoteApiDisplayLabel = (
   }
 
   if (preset === "openai") {
-    return modelId === "gpt-realtime-translate"
-      ? "GPT Realtime Translate"
-      : "GPT Realtime";
+    if (modelId === "gpt-realtime-whisper") {
+      return "OpenAI gpt-realtime-whisper";
+    }
+    if (modelId === "gpt-realtime-translate") {
+      return "OpenAI gpt-realtime-translate";
+    }
+    if (modelId === "gpt-realtime-2") {
+      return "OpenAI gpt-realtime-2 STT Hack - Not actually realtime";
+    }
+    return modelId ? `OpenAI ${modelId}` : "OpenAI Realtime";
   }
 
   if (preset === "custom") {
