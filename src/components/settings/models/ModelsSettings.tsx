@@ -39,6 +39,7 @@ type RemoteApiRow = {
   id: RemoteApiRowId;
   title: string;
   description: string;
+  notRecommended?: boolean;
   preset: "groq" | "openai" | "custom";
   modelId?: string;
   iconClassName: string;
@@ -105,17 +106,26 @@ export const ModelsSettings: React.FC = () => {
       iconClassName: "text-sky-400",
     },
     {
+      id: "custom",
+      title: "Remote via Custom API",
+      description: "Custom OpenAI-compatible transcription endpoint",
+      preset: "custom",
+      iconClassName: "text-slate-300",
+    },
+    {
       id: "openai_realtime_whisper",
       title: "Remote via OpenAI gpt-realtime-whisper",
       description: "Native Realtime transcription model with optional flattened STT mode",
+      notRecommended: true,
       preset: "openai",
       modelId: "gpt-realtime-whisper",
       iconClassName: "text-emerald-400",
     },
     {
       id: "openai_realtime2",
-      title: "Remote via OpenAI gpt-realtime-2 STT Hack - Not actually realtime",
-      description: "(Not recommended) Voice-agent model coerced into transcript-only output",
+      title: "Remote via OpenAI gpt-realtime-2 STT Hack",
+      description: "Voice-agent model coerced into transcript-only output",
+      notRecommended: true,
       preset: "openai",
       modelId: "gpt-realtime-2",
       iconClassName: "text-blue-400",
@@ -124,18 +134,18 @@ export const ModelsSettings: React.FC = () => {
       id: "openai_translate",
       title: "Remote via OpenAI gpt-realtime-translate",
       description: "Dedicated Realtime translation model with matching input/output language",
+      notRecommended: true,
       preset: "openai",
       modelId: "gpt-realtime-translate",
       iconClassName: "text-violet-400",
     },
-    {
-      id: "custom",
-      title: "Remote via Custom API",
-      description: "Custom OpenAI-compatible transcription endpoint",
-      preset: "custom",
-      iconClassName: "text-slate-300",
-    },
   ];
+  const primaryRemoteApiRows = remoteApiRows.filter(
+    (row) => !row.notRecommended,
+  );
+  const discouragedRemoteApiRows = remoteApiRows.filter(
+    (row) => row.notRecommended,
+  );
 
   const downloadedModels = useMemo(
     () =>
@@ -229,6 +239,69 @@ export const ModelsSettings: React.FC = () => {
     await deleteModel(model.id);
   };
 
+  const renderRemoteApiRows = (rows: RemoteApiRow[]) =>
+    rows.map((row) => {
+      const isActive = activeRemoteApiId === row.id;
+      return (
+        <React.Fragment key={row.id}>
+          <div
+            className={`px-6 py-4 flex flex-col gap-3 transition-colors ${
+              isActive ? "bg-green-500/5" : ""
+            }`}
+          >
+            <div className="flex items-center justify-between gap-4">
+              <div className="min-w-0">
+                <div className="flex items-center gap-2">
+                  <Cloud className={`w-4 h-4 ${row.iconClassName}`} />
+                  <p className="text-sm font-medium text-[#f5f5f5]">
+                    {row.title}
+                  </p>
+                  {isActive && (
+                    <span className={`text-xs ${row.iconClassName}`}>
+                      {t("modelSelector.active")}
+                    </span>
+                  )}
+                </div>
+                {(isActive || row.notRecommended) && (
+                  <p className="text-xs text-[#a0a0a0] mt-1">
+                    {row.notRecommended && (
+                      <>
+                        <span className="font-medium text-red-400">
+                          (Not recommended)
+                        </span>{" "}
+                      </>
+                    )}
+                    {row.description}
+                  </p>
+                )}
+              </div>
+              {!isActive && (
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  disabled={switchingRemoteApiId === row.id}
+                  onClick={() => void handleRemoteApiSelect(row)}
+                >
+                  {t("modelSelector.chooseModel")}
+                </Button>
+              )}
+            </div>
+            {isActive && (
+              <div className="border-t border-[#3d3d3d] pt-3">
+                <RemoteSttSettings
+                  descriptionMode="tooltip"
+                  grouped={true}
+                  hideProviderSelector
+                  hideRemoteInterfaceSelector
+                />
+              </div>
+            )}
+          </div>
+          <div className="border-t border-[#3d3d3d]" />
+        </React.Fragment>
+      );
+    });
+
   return (
     <div className="max-w-3xl w-full mx-auto space-y-8 pb-12">
       {/* Help Section */}
@@ -271,60 +344,7 @@ export const ModelsSettings: React.FC = () => {
 
       {/* Remote Providers */}
       <SettingsGroup title={t("modelSelector.remoteMode")}>
-        {remoteApiRows.map((row) => {
-          const isActive = activeRemoteApiId === row.id;
-          return (
-            <React.Fragment key={row.id}>
-              <div
-                className={`px-6 py-4 flex flex-col gap-3 transition-colors ${
-                  isActive ? "bg-green-500/5" : ""
-                }`}
-              >
-                <div className="flex items-center justify-between gap-4">
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-2">
-                      <Cloud className={`w-4 h-4 ${row.iconClassName}`} />
-                      <p className="text-sm font-medium text-[#f5f5f5]">
-                        {row.title}
-                      </p>
-                      {isActive && (
-                        <span className={`text-xs ${row.iconClassName}`}>
-                          {t("modelSelector.active")}
-                        </span>
-                      )}
-                    </div>
-                    {isActive && (
-                      <p className="text-xs text-[#a0a0a0] mt-1">
-                        {row.description}
-                      </p>
-                    )}
-                  </div>
-                  {!isActive && (
-                    <Button
-                      variant="secondary"
-                      size="sm"
-                      disabled={switchingRemoteApiId === row.id}
-                      onClick={() => void handleRemoteApiSelect(row)}
-                    >
-                      {t("modelSelector.chooseModel")}
-                    </Button>
-                  )}
-                </div>
-                {isActive && (
-                  <div className="border-t border-[#3d3d3d] pt-3">
-                    <RemoteSttSettings
-                      descriptionMode="tooltip"
-                      grouped={true}
-                      hideProviderSelector
-                      hideRemoteInterfaceSelector
-                    />
-                  </div>
-                )}
-              </div>
-              <div className="border-t border-[#3d3d3d]" />
-            </React.Fragment>
-          );
-        })}
+        {renderRemoteApiRows(primaryRemoteApiRows)}
 
         {/* Remote via Soniox */}
         <div
@@ -414,6 +434,10 @@ export const ModelsSettings: React.FC = () => {
             </div>
           )}
         </div>
+
+        <div className="border-t border-[#3d3d3d]" />
+
+        {renderRemoteApiRows(discouragedRemoteApiRows)}
       </SettingsGroup>
       <ExternalModelDownloadModal
         isOpen={Boolean(externalDownloadModel && externalDownloadInfo)}
