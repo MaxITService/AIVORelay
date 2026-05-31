@@ -1,3 +1,42 @@
+const DEFAULT_HOUR12 = false;
+const TWELVE_HOUR_CYCLES = new Set(["h11", "h12"]);
+const TWENTY_FOUR_HOUR_CYCLES = new Set(["h23", "h24"]);
+
+const shouldUseSystem12HourClock = (): boolean => {
+  try {
+    if (
+      typeof Intl === "undefined" ||
+      typeof Intl.DateTimeFormat !== "function"
+    ) {
+      return DEFAULT_HOUR12;
+    }
+
+    const resolvedOptions = new Intl.DateTimeFormat(undefined, {
+      hour: "numeric",
+    }).resolvedOptions() as Intl.ResolvedDateTimeFormatOptions & {
+      hourCycle?: string;
+      hour12?: boolean;
+    };
+    const { hour12, hourCycle } = resolvedOptions;
+
+    if (hourCycle && TWELVE_HOUR_CYCLES.has(hourCycle)) {
+      return true;
+    }
+
+    if (hourCycle && TWENTY_FOUR_HOUR_CYCLES.has(hourCycle)) {
+      return false;
+    }
+
+    if (typeof hour12 === "boolean") {
+      return hour12;
+    }
+
+    return DEFAULT_HOUR12;
+  } catch {
+    return DEFAULT_HOUR12;
+  }
+};
+
 /**
  * Format a date string or timestamp to a localized date and time string
  * @param timestamp - Unix timestamp in seconds (as string)
@@ -21,6 +60,7 @@ export const formatDateTime = (timestamp: string, locale: string): string => {
       day: "numeric",
       hour: "2-digit",
       minute: "2-digit",
+      hour12: shouldUseSystem12HourClock(),
     }).format(date);
   } catch (error) {
     console.error("Failed to format date:", error);

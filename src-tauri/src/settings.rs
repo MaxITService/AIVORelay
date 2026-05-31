@@ -840,6 +840,34 @@ pub const DEEPGRAM_DEFAULT_MODEL: &str = "nova-3";
 pub const DEEPGRAM_DEFAULT_ENDPOINTING_MS: u32 = 400;
 pub const DEEPGRAM_DEFAULT_LIVE_FINALIZE_TIMEOUT_MS: u32 = 1200;
 
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Type)]
+#[serde(rename_all = "lowercase")]
+pub enum OpenAiRealtimeWhisperDelay {
+    Minimal,
+    Low,
+    Medium,
+    High,
+    XHigh,
+}
+
+impl OpenAiRealtimeWhisperDelay {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Minimal => "minimal",
+            Self::Low => "low",
+            Self::Medium => "medium",
+            Self::High => "high",
+            Self::XHigh => "xhigh",
+        }
+    }
+}
+
+impl Default for OpenAiRealtimeWhisperDelay {
+    fn default() -> Self {
+        Self::Low
+    }
+}
+
 /// Shortcut engine selection for Windows.
 /// Controls which mechanism is used to listen for global hotkeys.
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Type)]
@@ -1396,6 +1424,10 @@ pub struct AppSettings {
     pub transcription_provider: TranscriptionProvider,
     #[serde(default = "default_remote_stt_settings")]
     pub remote_stt: RemoteSttSettings,
+    #[serde(default)]
+    pub openai_realtime_whisper_delay: OpenAiRealtimeWhisperDelay,
+    #[serde(default)]
+    pub openai_realtime_whisper_flatten_enabled: bool,
     #[serde(default = "default_soniox_model")]
     pub soniox_model: String,
     #[serde(default = "default_soniox_timeout_seconds")]
@@ -3208,6 +3240,8 @@ pub fn get_default_settings() -> AppSettings {
         selected_model: "".to_string(),
         transcription_provider: default_transcription_provider(),
         remote_stt: default_remote_stt_settings(),
+        openai_realtime_whisper_delay: OpenAiRealtimeWhisperDelay::default(),
+        openai_realtime_whisper_flatten_enabled: false,
         soniox_model: default_soniox_model(),
         soniox_timeout_seconds: default_soniox_timeout_seconds(),
         soniox_live_enabled: default_soniox_live_enabled(),

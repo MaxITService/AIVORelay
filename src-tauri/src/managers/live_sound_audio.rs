@@ -9,6 +9,7 @@ use crate::audio_toolkit::{
     list_input_devices, list_output_devices, AudioCaptureSource, AudioRecorder,
 };
 use crate::managers::deepgram_realtime::DeepgramRealtimeManager;
+use crate::managers::openai_realtime_whisper::OpenAiRealtimeWhisperManager;
 use crate::managers::soniox_realtime::SonioxRealtimeManager;
 use crate::settings::{get_settings, AppSettings, LiveSoundCaptureSource, TranscriptionProvider};
 use log::{info, warn};
@@ -20,6 +21,7 @@ use tauri::AppHandle;
 enum ActiveRealtimeManager {
     Soniox(Arc<SonioxRealtimeManager>),
     Deepgram(Arc<DeepgramRealtimeManager>),
+    OpenAiRealtimeWhisper(Arc<OpenAiRealtimeWhisperManager>),
 }
 
 struct LiveSoundAudioSession {
@@ -68,6 +70,13 @@ fn wire_mic_clock_callback(
             })));
         }
         ActiveRealtimeManager::Deepgram(m) => {
+            let m = Arc::clone(m);
+            mic_recorder.set_stream_frame_callback(Some(Arc::new(move |frame| {
+                let mixed = mix_with_secondary_buf(&frame, &loopback_buf);
+                m.push_audio_frame(mixed);
+            })));
+        }
+        ActiveRealtimeManager::OpenAiRealtimeWhisper(m) => {
             let m = Arc::clone(m);
             mic_recorder.set_stream_frame_callback(Some(Arc::new(move |frame| {
                 let mixed = mix_with_secondary_buf(&frame, &loopback_buf);
@@ -171,7 +180,43 @@ fn start_live_session(
             Ok(ActiveRealtimeManager::Deepgram(manager))
         }
 
-        _ => Err("Live streaming requires Soniox or Deepgram provider".to_string()),
+        TranscriptionProvider::RemoteOpenAiCompatible
+            if crate::actions::live_sound_use_live_streaming(settings) =>
+        {
+            let manager =
+                Arc::new(OpenAiRealtimeWhisperManager::new(app).map_err(|e| {
+                    format!("Failed to create OpenAI Realtime Whisper manager: {}", e)
+                })?);
+
+            let manager_cb = Arc::clone(&manager);
+            recorder.set_stream_frame_callback(Some(Arc::new(move |frame| {
+                manager_cb.push_audio_frame(frame);
+            })));
+
+            let api_key = crate::managers::remote_stt::get_remote_stt_api_key(&settings.remote_stt)
+                .map_err(|e| format!("Failed to get OpenAI API key: {}", e))?;
+            let options = crate::actions::build_openai_options_for_live_sound(settings);
+            manager
+                .start_session(
+                    crate::actions::LIVE_SOUND_TRANSCRIPTION_BINDING_ID,
+                    &api_key,
+                    options,
+                    None,
+                )
+                .map_err(|e| {
+                    format!(
+                        "Failed to start OpenAI Realtime Whisper live session: {}",
+                        e
+                    )
+                })?;
+
+            Ok(ActiveRealtimeManager::OpenAiRealtimeWhisper(manager))
+        }
+
+        _ => Err(
+            "Live streaming requires Soniox, Deepgram, or OpenAI Realtime Whisper provider"
+                .to_string(),
+        ),
     }
 }
 
@@ -398,6 +443,26 @@ pub fn stop(app: &AppHandle, session_id: u64) {
             tauri::async_runtime::spawn(async move {
                 if let Err(e) = manager.finish_session(timeout_ms).await {
                     warn!("Live sound Deepgram finalization error: {}", e);
+                }
+                crate::managers::live_sound_transcription::set_recording_if_session_matches(
+                    &app, session_id, false,
+                );
+            });
+        }
+
+        Some(ActiveRealtimeManager::OpenAiRealtimeWhisper(manager)) => {
+            let app = app.clone();
+            tauri::async_runtime::spawn(async move {
+                if let Err(e) = manager
+                    .finish_session(
+                        crate::actions::OPENAI_REALTIME_WHISPER_LIVE_FINALIZE_TIMEOUT_MS,
+                    )
+                    .await
+                {
+                    warn!(
+                        "Live sound OpenAI Realtime Whisper finalization error: {}",
+                        e
+                    );
                 }
                 crate::managers::live_sound_transcription::set_recording_if_session_matches(
                     &app, session_id, false,

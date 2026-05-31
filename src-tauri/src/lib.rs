@@ -48,6 +48,7 @@ use managers::history::HistoryManager;
 use managers::key_listener::KeyListenerState;
 use managers::llm_operation::LlmOperationTracker;
 use managers::model::ModelManager;
+use managers::openai_realtime_whisper::OpenAiRealtimeWhisperManager;
 use managers::remote_stt::RemoteSttManager;
 use managers::soniox_realtime::SonioxRealtimeManager;
 use managers::soniox_stt::SonioxSttManager;
@@ -290,6 +291,10 @@ fn initialize_core_logic(app_handle: &AppHandle) {
     );
     let remote_stt_manager =
         Arc::new(RemoteSttManager::new(app_handle).expect("Failed to initialize remote STT"));
+    let openai_realtime_whisper_manager = Arc::new(
+        OpenAiRealtimeWhisperManager::new(app_handle)
+            .expect("Failed to initialize OpenAI realtime Whisper STT"),
+    );
     let soniox_realtime_manager = Arc::new(
         SonioxRealtimeManager::new(app_handle).expect("Failed to initialize Soniox realtime STT"),
     );
@@ -316,6 +321,7 @@ fn initialize_core_logic(app_handle: &AppHandle) {
     app_handle.manage(model_manager.clone());
     app_handle.manage(transcription_manager.clone());
     app_handle.manage(remote_stt_manager.clone());
+    app_handle.manage(openai_realtime_whisper_manager.clone());
     app_handle.manage(soniox_realtime_manager.clone());
     app_handle.manage(soniox_stt_manager.clone());
     app_handle.manage(deepgram_realtime_manager.clone());
@@ -742,6 +748,8 @@ pub fn run() {
         shortcut::change_remote_stt_provider_preset_setting,
         shortcut::change_remote_stt_allow_insecure_http_setting,
         shortcut::change_remote_stt_model_id_setting,
+        shortcut::change_openai_realtime_whisper_delay_setting,
+        shortcut::change_openai_realtime_whisper_flatten_enabled_setting,
         shortcut::change_soniox_model_setting,
         shortcut::change_soniox_timeout_setting,
         shortcut::change_soniox_live_enabled_setting,
