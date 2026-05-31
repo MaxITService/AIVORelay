@@ -1,4 +1,4 @@
-#[cfg(target_os = "windows")]
+#[cfg(all(target_os = "windows", not(debug_assertions)))]
 pub fn disable_browser_accelerator_keys(window: &tauri::WebviewWindow) {
     let label = window.label().to_string();
     if let Err(err) = window.with_webview(move |webview| unsafe {
@@ -28,5 +28,5 @@ pub fn disable_browser_accelerator_keys(window: &tauri::WebviewWindow) {
     }
 }
 
-#[cfg(not(target_os = "windows"))]
+#[cfg(any(not(target_os = "windows"), debug_assertions))]
 pub fn disable_browser_accelerator_keys(_window: &tauri::WebviewWindow) {}
