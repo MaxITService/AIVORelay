@@ -9,7 +9,7 @@ export const REMOTE_STT_PRESETS = {
     id: "openai",
     label: "OpenAI",
     baseUrl: "https://api.openai.com/v1",
-    defaultModel: "gpt-realtime-2",
+    defaultModel: "whisper-1",
   },
   custom: {
     id: "custom",
