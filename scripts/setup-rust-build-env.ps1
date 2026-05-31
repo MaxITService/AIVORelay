@@ -153,15 +153,19 @@ function Initialize-RustBuildEnvironment {
         $currentProcess = Get-CimInstance Win32_Process -Filter "ProcessId = $currentProcessId" -ErrorAction SilentlyContinue
         $parentProcessId = if ($currentProcess) { [int]$currentProcess.ParentProcessId } else { -1 }
 
-        $runningProcs = Get-Process -ErrorAction SilentlyContinue |
+        $runningProcs = Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
             Where-Object {
-                $_.Name -match "cargo|tauri|rustc|bun" -and
-                $_.Id -ne $currentProcessId -and
-                $_.Id -ne $parentProcessId
+                $_.Name -match "^(cargo|tauri|rustc|bun|MSBuild|cmake|cl|link)(\.exe)?$" -and
+                $_.ProcessId -ne $currentProcessId -and
+                $_.ProcessId -ne $parentProcessId -and
+                -not ($_.Name -match "^MSBuild(\.exe)?$" -and $_.CommandLine -match "/nodemode:1")
             }
         if ($runningProcs) {
-            $details = ($runningProcs | Select-Object Name, Id | Format-Table -HideTableHeaders | Out-String).Trim()
-            throw "Found running cargo/tauri/rustc/bun processes. Stop them before running tests.`n$details"
+            $details = ($runningProcs |
+                Select-Object @{Name = "Name"; Expression = { $_.Name } }, @{Name = "Id"; Expression = { $_.ProcessId } }, CommandLine |
+                Format-Table -HideTableHeaders |
+                Out-String).Trim()
+            throw "Found running cargo/tauri/rustc/bun/MSBuild/cmake/cl/link processes. Stop them before running tests.`n$details"
         }
     }
 

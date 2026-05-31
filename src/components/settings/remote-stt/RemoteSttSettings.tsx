@@ -34,6 +34,7 @@ interface RemoteSttSettingsProps {
 
 type RemoteSttInterfaceId =
   | "groq"
+  | "openai_realtime_whisper"
   | "openai_realtime_agent"
   | "openai_realtime_translate"
   | "custom";
@@ -185,6 +186,12 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
   const deepgramEndpointingMs = Number(
     (settings as any)?.deepgram_endpointing_ms ?? 400,
   );
+  const openAiRealtimeWhisperDelay = String(
+    (settings as any)?.openai_realtime_whisper_delay ?? "low",
+  );
+  const openAiRealtimeWhisperFlattenEnabled = Boolean(
+    (settings as any)?.openai_realtime_whisper_flatten_enabled ?? false,
+  );
   const isRemoteOpenAiProvider = provider === "remote_openai_compatible";
   const isSonioxProvider = provider === "remote_soniox";
   const isDeepgramProvider = provider === "remote_deepgram";
@@ -208,6 +215,8 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
       ? "groq"
       : remotePreset === "custom"
         ? "custom"
+        : (remoteSettings?.model_id ?? "") === "gpt-realtime-whisper"
+          ? "openai_realtime_whisper"
         : (remoteSettings?.model_id ?? "") === "gpt-realtime-translate"
           ? "openai_realtime_translate"
           : "openai_realtime_agent";
@@ -612,12 +621,16 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
           label: "Groq",
         },
         {
+          value: "openai_realtime_whisper",
+          label: "OpenAI gpt-realtime-whisper",
+        },
+        {
           value: "openai_realtime_agent",
-          label: "OpenAI Realtime 2 STT Hack",
+          label: "OpenAI gpt-realtime-2 STT Hack - Not actually realtime",
         },
         {
           value: "openai_realtime_translate",
-          label: "OpenAI Translate",
+          label: "OpenAI gpt-realtime-translate",
         },
         {
           value: "custom",
@@ -630,6 +643,8 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
   const remoteInterfaceHint = useMemo(() => {
     const hints: Record<RemoteSttInterfaceId, string> = {
       groq: "Classic OpenAI-compatible /audio/transcriptions endpoint.",
+      openai_realtime_whisper:
+        "Native Realtime transcription model. Can stream live deltas, or flatten into post-recording STT.",
       openai_realtime_agent:
         "Voice-agent model coerced into transcript-only output. Uses global/profile STT prompts.",
       openai_realtime_translate:
@@ -642,6 +657,17 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
   const showOpenAiRealtimeNotes =
     currentRemoteInterface === "openai_realtime_agent" ||
     currentRemoteInterface === "openai_realtime_translate";
+
+  const openAiRealtimeWhisperDelayOptions = useMemo<SelectOption[]>(
+    () => [
+      { value: "minimal", label: "minimal - fastest, ~1.5s chunks" },
+      { value: "low", label: "low - quick, ~3s chunks" },
+      { value: "medium", label: "medium - balanced, ~5s chunks" },
+      { value: "high", label: "high - more context, ~7s chunks" },
+      { value: "xhigh", label: "xhigh - most context, ~10s chunks" },
+    ],
+    [],
+  );
 
   const groqModelOptions = useMemo<SelectOption[]>(() => {
     const options: SelectOption[] = [
@@ -679,6 +705,8 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
     const nextModel =
       interfaceId === "groq"
         ? REMOTE_STT_PRESETS.groq.defaultModel
+        : interfaceId === "openai_realtime_whisper"
+          ? "gpt-realtime-whisper"
         : interfaceId === "openai_realtime_translate"
           ? "gpt-realtime-translate"
           : interfaceId === "openai_realtime_agent"
@@ -746,6 +774,11 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
     if (value !== (remoteSettings?.model_id ?? "")) {
       void updateRemoteSttModelId(value);
     }
+  };
+
+  const handleOpenAiRealtimeWhisperDelayChange = (value: string | null) => {
+    if (!value) return;
+    void updateSetting("openai_realtime_whisper_delay" as any, value as any);
   };
 
   const handleSaveRealtimeAgentPrompt = async () => {
@@ -1192,6 +1225,66 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
                 />
               </SettingContainer>
 
+              {currentRemoteInterface === "openai_realtime_whisper" && (
+                <>
+                  <SettingContainer
+                    title="Realtime Whisper Delay"
+                    description="Controls how much audio context gpt-realtime-whisper gets before AivoRelay asks for a transcript chunk. Faster settings show text sooner; slower settings cut speech less often."
+                    descriptionMode={descriptionMode}
+                    grouped={grouped}
+                    layout="stacked"
+                  >
+                    <Select
+                      value={openAiRealtimeWhisperDelay}
+                      options={openAiRealtimeWhisperDelayOptions}
+                      onChange={handleOpenAiRealtimeWhisperDelayChange}
+                      isClearable={false}
+                      className="w-full"
+                    />
+                  </SettingContainer>
+
+                  <ToggleSwitch
+                    checked={openAiRealtimeWhisperFlattenEnabled}
+                    onChange={(enabled) =>
+                      void updateSetting(
+                        "openai_realtime_whisper_flatten_enabled" as any,
+                        enabled as any,
+                      )
+                    }
+                    isUpdating={isUpdating(
+                      "openai_realtime_whisper_flatten_enabled" as any,
+                    )}
+                    label="Flatten realtime Whisper"
+                    description="Record the whole utterance first, then send it to gpt-realtime-whisper for a final transcript instead of showing live deltas."
+                    descriptionMode={descriptionMode}
+                    grouped={grouped}
+                  />
+
+                  <div className="mx-4 rounded-lg border border-emerald-400/20 bg-emerald-400/5 p-3 text-xs text-text/80">
+                    <p className="font-medium text-text">
+                      Uses OpenAI Realtime transcription sessions.
+                    </p>
+                    <p className="mt-1">
+                      Live mode sends audio continuously, then commits the buffer
+                      in small chunks so text can appear before recording stops.
+                      OpenAI accepts delay as named values, not exact seconds; the
+                      seconds shown above are AivoRelay's approximate chunk timing.
+                      Use higher delay if words are being split or corrected too
+                      aggressively.
+                    </p>
+                    <p className="mt-1">
+                      Flatten mode keeps the same model, but behaves like
+                      post-recording STT: record everything first, commit once,
+                      then wait for the final transcript.
+                    </p>
+                    <p className="mt-1">
+                      STT prompts are not sent for this model; use language and
+                      delay here, then evaluate vocabulary against real audio.
+                    </p>
+                  </div>
+                </>
+              )}
+
               {showOpenAiRealtimeNotes && (
                 <div className="mx-4 rounded-lg border border-blue-400/20 bg-blue-400/5 p-3 text-xs text-text/80">
                   {currentRemoteInterface === "openai_realtime_agent" ? (
@@ -1378,8 +1471,8 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
                           Change this in the active transcription profile. If
                           the Default profile is active, change the global
                           language and Translate to English settings. This model
-                          card only selects the OpenAI Translate interface and
-                          stores the OpenAI key.
+                          card only selects the OpenAI gpt-realtime-translate
+                          interface and stores the OpenAI key.
                         </p>
                       </div>
                       <p className="mt-1">
