@@ -2438,9 +2438,7 @@ async fn get_transcription_for_transcribe_action(
                     retry_error_shown = true;
                 }
             } else if let Some(file_name) = pre_saved_file_name {
-                let failed_id =
-                    save_failed_transcription_entry(app, file_name, post_process_requested);
-                drop(failed_id);
+                let _ = save_failed_transcription_entry(app, file_name, post_process_requested);
             }
             if !shown_in_overlay && !retry_error_shown {
                 utils::hide_recording_overlay(app);
