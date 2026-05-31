@@ -289,6 +289,9 @@ export const RemoteSttWizard: React.FC<RemoteSttWizardProps> = ({
               }}
               isClearable={false}
             />
+            <p className="rounded-lg border border-cyan-500/30 bg-cyan-500/10 px-3 py-2 text-xs text-cyan-100">
+              {t("onboarding.remoteSttWizard.whisperFamilyRecommendation")}
+            </p>
           </div>
 
           {/* Info box */}

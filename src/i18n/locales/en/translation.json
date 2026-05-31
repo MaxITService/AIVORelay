@@ -248,6 +248,7 @@
         "soniox": "Soniox",
         "deepgram": "Deepgram"
       },
+      "whisperFamilyRecommendation": "Regardless of which provider you prefer, I recommend using the Whisper family of models.",
       "recommendation": "Any OpenAI-compatible speech-to-text API will work. I tested the app with Groq and it worked well, so the fields below are pre-filled with Groq defaults. The Groq website is linked below because it's easy to register a free account there, but you are free to use any provider you prefer.",
       "sonioxRecommendation": "For the best transcription quality, I recommend Soniox (no free tier). You can switch providers anytime in the Models section.",
       "freeTier": "Create an API key on your provider's website and enter it below.",
