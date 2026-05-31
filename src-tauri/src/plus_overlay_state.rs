@@ -776,7 +776,7 @@ fn handle_transcription_error_internal(
     let err_lower = err_string.to_lowercase();
     let category = detect_specific_category(&err_lower, &envelope.canonical_code);
     envelope.user_message = category.display_text().to_string();
-    log::debug!(
+    log::error!(
         "Transcription error categorized as {:?}: {}",
         category,
         err_string

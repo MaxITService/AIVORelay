@@ -22,6 +22,7 @@ import {
 
 type RemoteApiRowId =
   | "groq"
+  | "openai_realtime_whisper"
   | "openai_realtime2"
   | "openai_translate"
   | "custom";
@@ -76,6 +77,8 @@ export const ModelsSettings: React.FC = () => {
         ? "groq"
         : remotePreset === "custom"
           ? "custom"
+          : remoteModelId === "gpt-realtime-whisper"
+            ? "openai_realtime_whisper"
           : remoteModelId === "gpt-realtime-translate"
             ? "openai_translate"
             : "openai_realtime2";
@@ -89,17 +92,25 @@ export const ModelsSettings: React.FC = () => {
       iconClassName: "text-sky-400",
     },
     {
+      id: "openai_realtime_whisper",
+      title: "Remote via OpenAI gpt-realtime-whisper",
+      description: "Native Realtime transcription model with optional flattened STT mode",
+      preset: "openai",
+      modelId: "gpt-realtime-whisper",
+      iconClassName: "text-emerald-400",
+    },
+    {
       id: "openai_realtime2",
-      title: "Remote via OpenAI Realtime 2 STT Hack",
-      description: "Voice-agent model coerced into transcript-only output",
+      title: "Remote via OpenAI gpt-realtime-2 STT Hack - Not actually realtime",
+      description: "(Not recommended) Voice-agent model coerced into transcript-only output",
       preset: "openai",
       modelId: "gpt-realtime-2",
       iconClassName: "text-blue-400",
     },
     {
       id: "openai_translate",
-      title: "Remote via OpenAI Translate",
-      description: "Realtime translation endpoint with matching input/output language",
+      title: "Remote via OpenAI gpt-realtime-translate",
+      description: "Dedicated Realtime translation model with matching input/output language",
       preset: "openai",
       modelId: "gpt-realtime-translate",
       iconClassName: "text-violet-400",

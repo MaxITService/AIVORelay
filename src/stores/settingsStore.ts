@@ -392,6 +392,14 @@ settingUpdaters.error_overlay_auto_hide_ms = (value) =>
   invoke("change_deepgram_endpointing_enabled_setting", { enabled: value });
 (settingUpdaters as any).deepgram_endpointing_ms = (value: any) =>
   invoke("change_deepgram_endpointing_ms_setting", { valueMs: value });
+(settingUpdaters as any).openai_realtime_whisper_delay = (value: any) =>
+  invoke("change_openai_realtime_whisper_delay_setting", { delay: value });
+(settingUpdaters as any).openai_realtime_whisper_flatten_enabled = (
+  value: any,
+) =>
+  invoke("change_openai_realtime_whisper_flatten_enabled_setting", {
+    enabled: Boolean(value),
+  });
 (settingUpdaters as any).soniox_realtime_fuzzy_correction_enabled = (
   value: any,
 ) =>

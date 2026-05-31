@@ -14,6 +14,10 @@ use crate::managers::deepgram_stt::{DeepgramSttManager, DeepgramTranscriptionOpt
 use crate::managers::history::HistoryManager;
 use crate::managers::llm_operation::LlmOperationTracker;
 use crate::managers::model::{EngineType, ModelManager};
+use crate::managers::openai_realtime_whisper::{
+    FinalChunkCallback as OpenAiRealtimeWhisperFinalChunkCallback, OpenAiRealtimeWhisperManager,
+    OpenAiRealtimeWhisperOptions,
+};
 use crate::managers::remote_stt::RemoteSttManager;
 use crate::managers::soniox_realtime::{
     FinalChunkCallback, SonioxRealtimeManager, SonioxRealtimeOptions,
@@ -27,6 +31,7 @@ use crate::settings::{
 };
 use crate::soniox_stream_processor::SonioxStreamProcessor;
 use crate::tray::{change_tray_icon, TrayIconState};
+use crate::url_security::REMOTE_STT_PRESET_OPENAI;
 use crate::utils::{
     self, show_finalizing_overlay, show_recording_overlay, show_sending_overlay,
     show_thinking_overlay, show_transcribing_overlay,
@@ -129,8 +134,11 @@ static SONIOX_STREAM_EMITTED: Lazy<Mutex<HashMap<String, bool>>> =
     Lazy::new(|| Mutex::new(HashMap::new()));
 static DEEPGRAM_STREAM_EMITTED: Lazy<Mutex<HashMap<String, bool>>> =
     Lazy::new(|| Mutex::new(HashMap::new()));
+static OPENAI_REALTIME_WHISPER_STREAM_EMITTED: Lazy<Mutex<HashMap<String, bool>>> =
+    Lazy::new(|| Mutex::new(HashMap::new()));
 const RECORDING_SAMPLE_RATE_HZ: f32 = 16_000.0;
 const LIVE_QUICK_CANCEL_THRESHOLD_MS: u64 = 500;
+pub(crate) const OPENAI_REALTIME_WHISPER_LIVE_FINALIZE_TIMEOUT_MS: u32 = 5_000;
 const LOCAL_PREVIEW_AUTO_MIN_SAMPLES: usize = 16_000;
 const LOCAL_PREVIEW_MANUAL_MIN_SAMPLES: usize = 1;
 
@@ -447,6 +455,24 @@ fn mark_deepgram_stream_emitted(binding_id: &str) {
 
 fn take_deepgram_stream_emitted(binding_id: &str) -> bool {
     DEEPGRAM_STREAM_EMITTED
+        .lock()
+        .ok()
+        .and_then(|mut map| map.remove(binding_id))
+        .unwrap_or(false)
+}
+
+fn set_openai_realtime_whisper_stream_emitted(binding_id: &str, emitted: bool) {
+    if let Ok(mut map) = OPENAI_REALTIME_WHISPER_STREAM_EMITTED.lock() {
+        map.insert(binding_id.to_string(), emitted);
+    }
+}
+
+fn mark_openai_realtime_whisper_stream_emitted(binding_id: &str) {
+    set_openai_realtime_whisper_stream_emitted(binding_id, true);
+}
+
+fn take_openai_realtime_whisper_stream_emitted(binding_id: &str) -> bool {
+    OPENAI_REALTIME_WHISPER_STREAM_EMITTED
         .lock()
         .ok()
         .and_then(|mut map| map.remove(binding_id))
@@ -1167,7 +1193,9 @@ impl Drop for FinishGuard {
 }
 
 fn emit_ai_replace_error(app: &AppHandle, message: impl Into<String>) {
-    let _ = app.emit("ai-replace-error", message.into());
+    let message = message.into();
+    error!("AI Replace error: {}", message);
+    let _ = app.emit("ai-replace-error", message);
 }
 
 fn show_ai_replace_error_overlay(app: &AppHandle, message: impl Into<String>) {
@@ -1186,6 +1214,7 @@ fn show_recording_start_error_overlay(app: &AppHandle, error: &StartRecordingErr
     } else {
         crate::plus_overlay_state::OverlayErrorCategory::Unknown
     };
+    error!("Recording start error: {}", error);
 
     crate::plus_overlay_state::show_error_overlay_with_message(app, category, error.to_string());
 }
@@ -1333,6 +1362,16 @@ fn start_recording_with_feedback(app: &AppHandle, binding_id: &str) -> bool {
                     deepgram_live_manager.push_audio_frame(frame);
                 }));
             }
+            TranscriptionProvider::RemoteOpenAiCompatible
+                if should_use_openai_realtime_whisper_live(&settings) =>
+            {
+                let openai_realtime_whisper_manager =
+                    Arc::clone(&app.state::<Arc<OpenAiRealtimeWhisperManager>>());
+                openai_realtime_whisper_manager.cancel();
+                rm.set_stream_frame_callback(Arc::new(move |frame| {
+                    openai_realtime_whisper_manager.push_audio_frame(frame);
+                }));
+            }
             _ => {}
         }
     }
@@ -1402,6 +1441,7 @@ fn start_recording_with_feedback(app: &AppHandle, binding_id: &str) -> bool {
             rm.clear_stream_frame_callback();
             app.state::<Arc<SonioxRealtimeManager>>().cancel();
             app.state::<Arc<DeepgramRealtimeManager>>().cancel();
+            app.state::<Arc<OpenAiRealtimeWhisperManager>>().cancel();
         }
 
         // Recording failed - clean up
@@ -1554,45 +1594,61 @@ async fn perform_transcription_for_profile_with_retry_action(
         let remote_manager = app.state::<Arc<RemoteSttManager>>();
         let operation_id = remote_manager.start_operation();
 
-        let prompt = crate::settings::resolve_stt_prompt(
-            profile,
-            &settings.transcription_prompts,
-            &settings.remote_stt.model_id,
-        );
-
-        let result = remote_manager
-            .transcribe(
-                &settings.remote_stt,
-                &samples,
-                prompt,
-                Some(language.clone()),
-                translate_to_english,
-            )
-            .await
-            .map(|text| {
-                // Apply custom word corrections
-                let corrected =
-                    if settings.custom_words_enabled && !settings.custom_words.is_empty() {
-                        apply_custom_words(
-                            &text,
-                            &settings.custom_words,
-                            settings.word_correction_threshold,
-                            settings.custom_words_ngram_enabled,
+        let result = if is_openai_realtime_whisper_selected(settings) {
+            match crate::managers::remote_stt::get_remote_stt_api_key(&settings.remote_stt) {
+                Ok(api_key) => {
+                    let openai_realtime_whisper_manager =
+                        app.state::<Arc<OpenAiRealtimeWhisperManager>>();
+                    openai_realtime_whisper_manager
+                        .transcribe_flattened(
+                            &samples,
+                            &api_key,
+                            build_openai_realtime_whisper_options(settings, &language),
                         )
-                    } else {
-                        text
-                    };
-                // Apply filler word filter (if enabled)
-                if settings.filler_word_filter_enabled {
-                    crate::audio_toolkit::filter_transcription_output(
-                        &corrected,
-                        language.as_str(),
-                        &settings.custom_filler_words,
-                    )
-                } else {
-                    corrected
+                        .await
                 }
-            });
+                Err(err) => Err(err),
+            }
+        } else {
+            let prompt = crate::settings::resolve_stt_prompt(
+                profile,
+                &settings.transcription_prompts,
+                &settings.remote_stt.model_id,
+            );
+
+            remote_manager
+                .transcribe(
+                    &settings.remote_stt,
+                    &samples,
+                    prompt,
+                    Some(language.clone()),
+                    translate_to_english,
+                )
+                .await
+        }
+        .map(|text| {
+            // Apply custom word corrections
+            let corrected = if settings.custom_words_enabled && !settings.custom_words.is_empty() {
+                apply_custom_words(
+                    &text,
+                    &settings.custom_words,
+                    settings.word_correction_threshold,
+                    settings.custom_words_ngram_enabled,
+                )
+            } else {
+                text
+            };
+            // Apply filler word filter (if enabled)
+            if settings.filler_word_filter_enabled {
+                crate::audio_toolkit::filter_transcription_output(
+                    &corrected,
+                    language.as_str(),
+                    &settings.custom_filler_words,
+                )
+            } else {
+                corrected
+            }
+        });
 
         // Check if operation was cancelled while we were waiting
         if remote_manager.is_cancelled(operation_id) {
@@ -2085,9 +2141,13 @@ async fn get_transcription_or_cleanup_detailed(
     let rm = Arc::clone(&app.state::<Arc<AudioRecordingManager>>());
     let soniox_live_manager = Arc::clone(&app.state::<Arc<SonioxRealtimeManager>>());
     let deepgram_live_manager = Arc::clone(&app.state::<Arc<DeepgramRealtimeManager>>());
+    let openai_realtime_whisper_manager =
+        Arc::clone(&app.state::<Arc<OpenAiRealtimeWhisperManager>>());
     let has_soniox_live_session = soniox_live_manager.has_active_session();
     let has_deepgram_live_session = deepgram_live_manager.has_active_session();
-    let has_live_session = has_soniox_live_session || has_deepgram_live_session;
+    let has_openai_realtime_whisper_session = openai_realtime_whisper_manager.has_active_session();
+    let has_live_session =
+        has_soniox_live_session || has_deepgram_live_session || has_openai_realtime_whisper_session;
 
     if let Some(samples) = rm.stop_recording(binding_id) {
         if has_live_session {
@@ -2105,6 +2165,9 @@ async fn get_transcription_or_cleanup_detailed(
             }
             if has_deepgram_live_session {
                 deepgram_live_manager.cancel();
+            }
+            if has_openai_realtime_whisper_session {
+                openai_realtime_whisper_manager.cancel();
             }
             return TranscriptionFetchOutcome::Success((String::new(), samples));
         }
@@ -2134,6 +2197,26 @@ async fn get_transcription_or_cleanup_detailed(
         {
             match deepgram_live_manager
                 .finish_session(recording_settings.deepgram_live_finalize_timeout_ms)
+                .await
+            {
+                Ok(text) => {
+                    let filtered = apply_soniox_output_filters(&recording_settings, text);
+                    return TranscriptionFetchOutcome::Success((filtered, samples));
+                }
+                Err(err) => {
+                    let err_str = format!("{}", err);
+                    let _ = app.emit("remote-stt-error", err_str.clone());
+                    crate::plus_overlay_state::handle_transcription_error(app, &err_str);
+                    return TranscriptionFetchOutcome::ErrorOverlayShown;
+                }
+            }
+        }
+
+        if has_openai_realtime_whisper_session
+            && should_use_openai_realtime_whisper_live(&recording_settings)
+        {
+            match openai_realtime_whisper_manager
+                .finish_session(OPENAI_REALTIME_WHISPER_LIVE_FINALIZE_TIMEOUT_MS)
                 .await
             {
                 Ok(text) => {
@@ -2186,6 +2269,7 @@ async fn get_transcription_or_cleanup_detailed(
             rm.clear_stream_frame_callback();
             soniox_live_manager.cancel();
             deepgram_live_manager.cancel();
+            openai_realtime_whisper_manager.cancel();
         }
         debug!("No samples retrieved from recording stop");
         utils::hide_recording_overlay(app);
@@ -2471,6 +2555,17 @@ fn resolve_profile_for_binding<'a>(
     None
 }
 
+fn is_openai_realtime_whisper_selected(settings: &AppSettings) -> bool {
+    settings.transcription_provider == TranscriptionProvider::RemoteOpenAiCompatible
+        && settings.remote_stt.provider_preset == REMOTE_STT_PRESET_OPENAI
+        && OpenAiRealtimeWhisperManager::is_realtime_model(&settings.remote_stt.model_id)
+}
+
+fn should_use_openai_realtime_whisper_live(settings: &AppSettings) -> bool {
+    is_openai_realtime_whisper_selected(settings)
+        && !settings.openai_realtime_whisper_flatten_enabled
+}
+
 fn should_route_live_output_to_preview(settings: &AppSettings) -> bool {
     if !settings.soniox_live_preview_enabled {
         return false;
@@ -2484,6 +2579,9 @@ fn should_route_live_output_to_preview(settings: &AppSettings) -> bool {
         TranscriptionProvider::RemoteDeepgram => {
             settings.deepgram_live_enabled
                 && DeepgramRealtimeManager::is_realtime_model(&settings.deepgram_model)
+        }
+        TranscriptionProvider::RemoteOpenAiCompatible => {
+            should_use_openai_realtime_whisper_live(settings)
         }
         _ => false,
     }
@@ -3913,9 +4011,11 @@ fn drop_preview_recording_without_finalize(
     let _ = take_soniox_stream_processor(binding_id);
     let _ = take_soniox_stream_emitted(binding_id);
     let _ = take_deepgram_stream_emitted(binding_id);
+    let _ = take_openai_realtime_whisper_stream_emitted(binding_id);
 
     app.state::<Arc<SonioxRealtimeManager>>().cancel();
     app.state::<Arc<DeepgramRealtimeManager>>().cancel();
+    app.state::<Arc<OpenAiRealtimeWhisperManager>>().cancel();
 
     utils::hide_recording_overlay(app);
     change_tray_icon(app, TrayIconState::Idle);
@@ -4263,6 +4363,9 @@ pub(crate) fn live_sound_use_live_streaming(settings: &AppSettings) -> bool {
             settings.deepgram_live_enabled
                 && DeepgramRealtimeManager::is_realtime_model(&settings.deepgram_model)
         }
+        TranscriptionProvider::RemoteOpenAiCompatible => {
+            should_use_openai_realtime_whisper_live(settings)
+        }
         _ => false,
     }
 }
@@ -4294,6 +4397,17 @@ pub(crate) fn build_deepgram_options_for_live_sound(
     build_deepgram_realtime_options(settings, &language, LIVE_SOUND_TRANSCRIPTION_BINDING_ID)
 }
 
+pub(crate) fn build_openai_options_for_live_sound(
+    settings: &AppSettings,
+) -> OpenAiRealtimeWhisperOptions {
+    let profile = resolve_profile_for_binding(settings, LIVE_SOUND_TRANSCRIPTION_BINDING_ID);
+    let language = profile
+        .as_ref()
+        .map(|p| p.language.clone())
+        .unwrap_or_else(|| settings.selected_language.clone());
+    build_openai_realtime_whisper_options(settings, &language)
+}
+
 fn should_use_live_streaming(settings: &AppSettings) -> bool {
     match settings.transcription_provider {
         TranscriptionProvider::RemoteSoniox => {
@@ -4303,6 +4417,9 @@ fn should_use_live_streaming(settings: &AppSettings) -> bool {
         TranscriptionProvider::RemoteDeepgram => {
             settings.deepgram_live_enabled
                 && DeepgramRealtimeManager::is_realtime_model(&settings.deepgram_model)
+        }
+        TranscriptionProvider::RemoteOpenAiCompatible => {
+            should_use_openai_realtime_whisper_live(settings)
         }
         _ => false,
     }
@@ -4326,6 +4443,12 @@ fn should_use_live_for_recording(app: &AppHandle, binding_id: &str) -> bool {
                 let deepgram_live_manager =
                     Arc::clone(&app.state::<Arc<DeepgramRealtimeManager>>());
                 deepgram_live_manager.has_active_session()
+                    && should_use_live_streaming(captured_settings)
+            }
+            TranscriptionProvider::RemoteOpenAiCompatible => {
+                let openai_realtime_whisper_manager =
+                    Arc::clone(&app.state::<Arc<OpenAiRealtimeWhisperManager>>());
+                openai_realtime_whisper_manager.has_active_session()
                     && should_use_live_streaming(captured_settings)
             }
             _ => false,
@@ -4379,6 +4502,22 @@ fn setup_and_start_live(
                     options,
                     None,
                 )
+                .map_err(|e| {
+                    app.state::<Arc<AudioRecordingManager>>()
+                        .clear_stream_frame_callback();
+                    format!("{}", e)
+                })
+        }
+        TranscriptionProvider::RemoteOpenAiCompatible
+            if should_use_openai_realtime_whisper_live(settings) =>
+        {
+            let options = build_openai_realtime_whisper_options(settings, &language);
+            let openai_realtime_whisper_manager =
+                Arc::clone(&app.state::<Arc<OpenAiRealtimeWhisperManager>>());
+            let api_key = crate::managers::remote_stt::get_remote_stt_api_key(&settings.remote_stt)
+                .map_err(|e| format!("{}", e))?;
+            openai_realtime_whisper_manager
+                .start_session(binding_id, &api_key, options, None)
                 .map_err(|e| {
                     app.state::<Arc<AudioRecordingManager>>()
                         .clear_stream_frame_callback();
@@ -4555,6 +4694,16 @@ fn build_deepgram_realtime_options(
             settings.deepgram_endpointing_ms
         },
         keepalive_interval_seconds: settings.deepgram_keepalive_interval_seconds,
+    }
+}
+
+fn build_openai_realtime_whisper_options(
+    settings: &AppSettings,
+    language: &str,
+) -> OpenAiRealtimeWhisperOptions {
+    OpenAiRealtimeWhisperOptions {
+        language: Some(language.to_string()),
+        delay: settings.openai_realtime_whisper_delay,
     }
 }
 fn apply_soniox_output_filters(settings: &AppSettings, text: String) -> String {
@@ -4985,7 +5134,7 @@ impl ShortcutAction for TranscribeAction {
         debug!("TranscribeAction::start called for binding: {}", binding_id);
 
         let settings = get_settings(app);
-        let use_soniox_live = should_use_live_streaming(&settings);
+        let use_live_streaming = should_use_live_streaming(&settings);
         let profile = resolve_profile_for_binding(&settings, binding_id);
         let preview_output_only_enabled = binding_id == LIVE_SOUND_TRANSCRIPTION_BINDING_ID
             || should_route_output_to_preview(&settings, profile);
@@ -5010,7 +5159,7 @@ impl ShortcutAction for TranscribeAction {
                 app,
                 binding_id.to_string(),
                 profile.map(|p| p.id.clone()),
-                use_soniox_live,
+                use_live_streaming,
                 recording_prefix,
             );
             crate::overlay::show_soniox_live_preview_window(app);
@@ -5023,7 +5172,7 @@ impl ShortcutAction for TranscribeAction {
             }
         }
 
-        if use_soniox_live {
+        if use_live_streaming {
             if !preview_output_only_enabled {
                 if let Err(e) = crate::clipboard::begin_streaming_paste_session(app) {
                     warn!("Failed to begin streaming clipboard session: {}", e);
@@ -5038,6 +5187,8 @@ impl ShortcutAction for TranscribeAction {
             let app_handle = app.clone();
             let _ = take_soniox_stream_processor(&binding_id);
             let _ = take_soniox_stream_emitted(&binding_id);
+            let _ = take_deepgram_stream_emitted(&binding_id);
+            let _ = take_openai_realtime_whisper_stream_emitted(&binding_id);
             let stream_processor = if preview_output_only_enabled {
                 None
             } else {
@@ -5193,6 +5344,111 @@ impl ShortcutAction for TranscribeAction {
                         debug!("Deepgram live session started for binding '{}'", binding_id);
                     }
                 }
+                TranscriptionProvider::RemoteOpenAiCompatible
+                    if should_use_openai_realtime_whisper_live(&settings) =>
+                {
+                    let openai_realtime_whisper_manager =
+                        Arc::clone(&app.state::<Arc<OpenAiRealtimeWhisperManager>>());
+                    let api_key = match crate::managers::remote_stt::get_remote_stt_api_key(
+                        &settings.remote_stt,
+                    ) {
+                        Ok(api_key) => api_key,
+                        Err(err) => {
+                            let _ = take_soniox_stream_processor(&binding_id);
+                            let _ = take_openai_realtime_whisper_stream_emitted(&binding_id);
+                            let err_str = format!("{}", err);
+                            if !preview_output_only_enabled {
+                                let _ = crate::clipboard::end_streaming_paste_session(&app_handle);
+                            }
+                            app_handle
+                                .state::<Arc<AudioRecordingManager>>()
+                                .clear_stream_frame_callback();
+                            if preview_output_only_enabled {
+                                crate::managers::preview_output_mode::deactivate_session(
+                                    &app_handle,
+                                );
+                                crate::overlay::end_soniox_live_preview_session();
+                                crate::overlay::hide_soniox_live_preview_window(&app_handle);
+                                crate::overlay::reset_soniox_live_preview(&app_handle);
+                            }
+                            crate::utils::cancel_current_operation(&app_handle);
+                            let _ = app_handle.emit("remote-stt-error", err_str.clone());
+                            crate::plus_overlay_state::handle_transcription_error(
+                                &app_handle,
+                                &err_str,
+                            );
+                            return;
+                        }
+                    };
+
+                    set_openai_realtime_whisper_stream_emitted(&binding_id, false);
+                    let chunk_callback = stream_processor.map(|stream_processor| {
+                        Arc::new({
+                            let ah_for_cb = app_handle.clone();
+                            let binding_id_for_cb = binding_id.clone();
+                            move |chunk: String| {
+                                if chunk.is_empty() {
+                                    return;
+                                }
+                                let delta = match stream_processor.lock() {
+                                    Ok(mut processor) => processor.push_chunk(&chunk),
+                                    Err(_) => {
+                                        warn!("Failed to lock OpenAI Realtime Whisper stream processor");
+                                        String::new()
+                                    }
+                                };
+                                if delta.is_empty() {
+                                    return;
+                                }
+                                mark_openai_realtime_whisper_stream_emitted(&binding_id_for_cb);
+                                let ah_for_call = ah_for_cb.clone();
+                                let ah_for_clip = ah_for_call.clone();
+                                let _ = ah_for_call.run_on_main_thread(move || {
+                                    let _ = crate::clipboard::paste_stream_chunk(
+                                        delta,
+                                        ah_for_clip.clone(),
+                                    );
+                                });
+                            }
+                        }) as OpenAiRealtimeWhisperFinalChunkCallback
+                    });
+
+                    let start_result = openai_realtime_whisper_manager.start_session(
+                        &binding_id,
+                        &api_key,
+                        build_openai_realtime_whisper_options(&settings, &language),
+                        chunk_callback,
+                    );
+
+                    if let Err(err) = start_result {
+                        let _ = take_soniox_stream_processor(&binding_id);
+                        let _ = take_openai_realtime_whisper_stream_emitted(&binding_id);
+                        let err_str = format!("{}", err);
+                        if !preview_output_only_enabled {
+                            let _ = crate::clipboard::end_streaming_paste_session(&app_handle);
+                        }
+                        app_handle
+                            .state::<Arc<AudioRecordingManager>>()
+                            .clear_stream_frame_callback();
+                        if preview_output_only_enabled {
+                            crate::managers::preview_output_mode::deactivate_session(&app_handle);
+                            crate::overlay::end_soniox_live_preview_session();
+                            crate::overlay::hide_soniox_live_preview_window(&app_handle);
+                            crate::overlay::reset_soniox_live_preview(&app_handle);
+                        }
+                        crate::utils::cancel_current_operation(&app_handle);
+                        let _ = app_handle.emit("remote-stt-error", err_str.clone());
+                        crate::plus_overlay_state::handle_transcription_error(
+                            &app_handle,
+                            &err_str,
+                        );
+                    } else {
+                        debug!(
+                            "OpenAI Realtime Whisper live session started for binding '{}'",
+                            binding_id
+                        );
+                    }
+                }
                 _ => {}
             }
         }
@@ -5206,17 +5462,20 @@ impl ShortcutAction for TranscribeAction {
     fn stop(&self, app: &AppHandle, binding_id: &str, shortcut_str: &str) {
         let soniox_live_manager = Arc::clone(&app.state::<Arc<SonioxRealtimeManager>>());
         let deepgram_live_manager = Arc::clone(&app.state::<Arc<DeepgramRealtimeManager>>());
-        let use_soniox_live = should_use_live_for_recording(app, binding_id);
+        let openai_realtime_whisper_manager =
+            Arc::clone(&app.state::<Arc<OpenAiRealtimeWhisperManager>>());
+        let use_live_streaming = should_use_live_for_recording(app, binding_id);
         let invoked_from_preview_action = shortcut_str == "preview_output_mode"
             || binding_id == LIVE_SOUND_TRANSCRIPTION_BINDING_ID;
 
-        if use_soniox_live {
+        if use_live_streaming {
             let stop_context = match prepare_stop_recording_with_options(app, binding_id, false) {
                 Some(context) => context,
                 None => {
                     let _ = take_soniox_stream_processor(binding_id);
                     let _ = take_soniox_stream_emitted(binding_id);
                     let _ = take_deepgram_stream_emitted(binding_id);
+                    let _ = take_openai_realtime_whisper_stream_emitted(binding_id);
                     return; // No active session - nothing to do
                 }
             };
@@ -5231,13 +5490,19 @@ impl ShortcutAction for TranscribeAction {
             }
             let is_deepgram_live_provider =
                 recording_settings.transcription_provider == TranscriptionProvider::RemoteDeepgram;
+            let is_openai_realtime_whisper_live_provider =
+                should_use_openai_realtime_whisper_live(&recording_settings);
             let live_instant_stop = if is_deepgram_live_provider {
                 recording_settings.deepgram_live_instant_stop
+            } else if is_openai_realtime_whisper_live_provider {
+                false
             } else {
                 recording_settings.soniox_live_instant_stop
             };
             let live_finalize_timeout_ms = if is_deepgram_live_provider {
                 recording_settings.deepgram_live_finalize_timeout_ms
+            } else if is_openai_realtime_whisper_live_provider {
+                OPENAI_REALTIME_WHISPER_LIVE_FINALIZE_TIMEOUT_MS
             } else {
                 recording_settings.soniox_live_finalize_timeout_ms
             };
@@ -5258,16 +5523,23 @@ impl ShortcutAction for TranscribeAction {
             tauri::async_runtime::spawn(async move {
                 let _guard = FinishGuard::new(ah.clone(), binding_id.clone());
                 let stream_processor = take_soniox_stream_processor(&binding_id);
-                let had_soniox_stream_output = if is_deepgram_live_provider {
-                    false
-                } else {
-                    take_soniox_stream_emitted(&binding_id)
-                };
+                let had_soniox_stream_output =
+                    if is_deepgram_live_provider || is_openai_realtime_whisper_live_provider {
+                        false
+                    } else {
+                        take_soniox_stream_emitted(&binding_id)
+                    };
                 let mut had_deepgram_stream_output = if is_deepgram_live_provider {
                     take_deepgram_stream_emitted(&binding_id)
                 } else {
                     false
                 };
+                let mut had_openai_realtime_whisper_stream_output =
+                    if is_openai_realtime_whisper_live_provider {
+                        take_openai_realtime_whisper_stream_emitted(&binding_id)
+                    } else {
+                        false
+                    };
                 let rm = Arc::clone(&ah.state::<Arc<AudioRecordingManager>>());
                 let samples = match rm.stop_recording(&binding_id) {
                     Some(samples) => samples,
@@ -5275,12 +5547,18 @@ impl ShortcutAction for TranscribeAction {
                         if live_instant_stop {
                             if is_deepgram_live_provider {
                                 deepgram_live_manager.cancel();
+                            } else if is_openai_realtime_whisper_live_provider {
+                                openai_realtime_whisper_manager.cancel();
                             } else {
                                 soniox_live_manager.cancel();
                             }
                         } else {
                             let _ = if is_deepgram_live_provider {
                                 deepgram_live_manager
+                                    .finish_session(live_finalize_timeout_ms)
+                                    .await
+                            } else if is_openai_realtime_whisper_live_provider {
+                                openai_realtime_whisper_manager
                                     .finish_session(live_finalize_timeout_ms)
                                     .await
                             } else {
@@ -5308,6 +5586,8 @@ impl ShortcutAction for TranscribeAction {
 
                 let had_stream_output = if is_deepgram_live_provider {
                     had_deepgram_stream_output
+                } else if is_openai_realtime_whisper_live_provider {
+                    had_openai_realtime_whisper_stream_output
                 } else {
                     had_soniox_stream_output
                 };
@@ -5323,6 +5603,8 @@ impl ShortcutAction for TranscribeAction {
                     );
                     if is_deepgram_live_provider {
                         deepgram_live_manager.cancel();
+                    } else if is_openai_realtime_whisper_live_provider {
+                        openai_realtime_whisper_manager.cancel();
                     } else {
                         soniox_live_manager.cancel();
                     }
@@ -5349,6 +5631,8 @@ impl ShortcutAction for TranscribeAction {
                 if live_instant_stop && !preview_output_only_enabled {
                     if is_deepgram_live_provider {
                         deepgram_live_manager.cancel();
+                    } else if is_openai_realtime_whisper_live_provider {
+                        openai_realtime_whisper_manager.cancel();
                     } else {
                         soniox_live_manager.cancel();
                     }
@@ -5372,6 +5656,10 @@ impl ShortcutAction for TranscribeAction {
 
                 let transcription_result = if is_deepgram_live_provider {
                     deepgram_live_manager
+                        .finish_session(live_finalize_timeout_ms)
+                        .await
+                } else if is_openai_realtime_whisper_live_provider {
+                    openai_realtime_whisper_manager
                         .finish_session(live_finalize_timeout_ms)
                         .await
                 } else {
@@ -5427,6 +5715,10 @@ impl ShortcutAction for TranscribeAction {
                     // Re-check after finalization so we do not also run the full-text fallback.
                     had_deepgram_stream_output |= take_deepgram_stream_emitted(&binding_id);
                 }
+                if is_openai_realtime_whisper_live_provider {
+                    had_openai_realtime_whisper_stream_output |=
+                        take_openai_realtime_whisper_stream_emitted(&binding_id);
+                }
 
                 if let Some(processor) = stream_processor.as_ref() {
                     let tail_delta = match processor.lock() {
@@ -5439,6 +5731,8 @@ impl ShortcutAction for TranscribeAction {
                     if !tail_delta.is_empty() {
                         if is_deepgram_live_provider {
                             had_deepgram_stream_output = true;
+                        } else if is_openai_realtime_whisper_live_provider {
+                            had_openai_realtime_whisper_stream_output = true;
                         }
                         let ah_for_call = ah.clone();
                         let ah_for_clip = ah_for_call.clone();
@@ -5535,13 +5829,18 @@ impl ShortcutAction for TranscribeAction {
                 let main_thread_timeout_ms = recording_settings.paste_delay_ms.saturating_add(1500);
                 if let Err(err) = run_on_main_thread_sync(&ah, main_thread_timeout_ms, move || {
                     if !preview_output_only_enabled {
-                        if is_deepgram_live_provider {
-                            // Deepgram may return all text only at finalization; if no stream
-                            // chunks were actually inserted, paste the final text now.
+                        if is_deepgram_live_provider || is_openai_realtime_whisper_live_provider {
+                            // Some live providers may return all stable text only at finalization;
+                            // if no stream chunks were actually inserted, paste the final text now.
                             //
                             // Use stream-session paste (no immediate restore) to match Soniox
                             // behavior and avoid restoring clipboard before target app consumes paste.
-                            if !had_deepgram_stream_output {
+                            let had_provider_stream_output = if is_deepgram_live_provider {
+                                had_deepgram_stream_output
+                            } else {
+                                had_openai_realtime_whisper_stream_output
+                            };
+                            if !had_provider_stream_output {
                                 let _ = crate::clipboard::paste_stream_chunk(
                                     final_text_for_ui.clone(),
                                     ah_clone.clone(),
@@ -6075,7 +6374,9 @@ impl ShortcutAction for SendToExtensionWithSelectionAction {
 }
 
 fn emit_screenshot_error(app: &AppHandle, message: impl Into<String>) {
-    let _ = app.emit("screenshot-error", message.into());
+    let message = message.into();
+    error!("Screenshot action error: {}", message);
+    let _ = app.emit("screenshot-error", message);
 }
 
 /// Expands Windows-style environment variables like %USERPROFILE% in a path string.
@@ -7398,7 +7699,9 @@ pub async fn generate_command_with_llm(
 }
 
 fn emit_voice_command_error(app: &AppHandle, message: impl Into<String>) {
-    let _ = app.emit("voice-command-error", message.into());
+    let message = message.into();
+    warn!("Voice Command error: {}", message);
+    let _ = app.emit("voice-command-error", message);
 }
 
 #[cfg(target_os = "windows")]
@@ -7644,6 +7947,12 @@ pub fn preview_clear_action(app: AppHandle) -> Result<(), String> {
         .restart_session()
     {
         warn!("Failed to restart Deepgram Realtime Session: {}", e);
+    }
+    if let Err(e) = app
+        .state::<Arc<OpenAiRealtimeWhisperManager>>()
+        .restart_session()
+    {
+        warn!("Failed to restart OpenAI Realtime Whisper Session: {}", e);
     }
     if crate::managers::preview_output_mode::is_active() {
         crate::managers::preview_output_mode::set_recording_prefix_text(&app, String::new());
