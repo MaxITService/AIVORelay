@@ -35,6 +35,7 @@ mod tray;
 mod tray_i18n;
 mod url_security;
 mod utils;
+mod webview_hardening;
 #[cfg(debug_assertions)]
 use specta_typescript::{BigIntExportBehavior, Typescript};
 use tauri_specta::{collect_commands, Builder};
@@ -1145,6 +1146,7 @@ pub fn run() {
             }
 
             let main_window = window_builder.build()?;
+            webview_hardening::disable_browser_accelerator_keys(&main_window);
             let settings = get_settings(&app.handle());
             let tauri_log_level: tauri_plugin_log::LogLevel = settings.log_level.into();
             let file_log_level: log::Level = tauri_log_level.into();

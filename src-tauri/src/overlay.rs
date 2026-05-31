@@ -1444,7 +1444,8 @@ pub fn create_recording_overlay(app_handle: &AppHandle) {
     }
 
     match builder.build() {
-        Ok(_window) => {
+        Ok(window) => {
+            crate::webview_hardening::disable_browser_accelerator_keys(&window);
             debug!("Recording overlay window created successfully (hidden)");
         }
         Err(e) => {
@@ -1496,7 +1497,8 @@ pub fn create_soniox_live_preview_window(app_handle: &AppHandle) {
         }
 
         match builder.build() {
-            Ok(_window) => {
+            Ok(window) => {
+                crate::webview_hardening::disable_browser_accelerator_keys(&window);
                 debug!("Live preview window created successfully (hidden)");
             }
             Err(e) => {
@@ -2164,7 +2166,10 @@ pub fn show_voice_activation_button_window(app_handle: &AppHandle) -> Result<(),
         }
 
         match builder.build() {
-            Ok(window) => window,
+            Ok(window) => {
+                crate::webview_hardening::disable_browser_accelerator_keys(&window);
+                window
+            }
             Err(e) => {
                 let msg = format!("Failed to create voice activation button window: {}", e);
                 log::error!("{}", msg);
@@ -2199,7 +2204,10 @@ pub fn show_voice_activation_button_window(app_handle: &AppHandle) -> Result<(),
         }
 
         match builder.build() {
-            Ok(window) => window,
+            Ok(window) => {
+                crate::webview_hardening::disable_browser_accelerator_keys(&window);
+                window
+            }
             Err(e) => {
                 let msg = format!(
                     "Could not calculate position and fallback window creation failed: {}",
@@ -2287,6 +2295,7 @@ pub fn show_command_confirm_overlay(
 
             match builder.build() {
                 Ok(window) => {
+                    crate::webview_hardening::disable_browser_accelerator_keys(&window);
                     debug!("Command confirm overlay window created successfully");
                     window
                 }

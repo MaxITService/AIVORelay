@@ -356,6 +356,7 @@ pub async fn open_region_picker(
 
     match window_result {
         Ok(window) => {
+            crate::webview_hardening::disable_browser_accelerator_keys(&window);
             debug!("Region capture overlay window created");
 
             // Show the window - frontend will fetch data via command when ready
