@@ -14,6 +14,7 @@ This is the entry file for AI/code agents working with this fork.
 - rg, sg, Python and lots of dev tools are installed on this Windows machine.
 - something isane in user's request? Ask user first!
 - When interrupted wiht off topic request, this doed not mean that previous request is cancelled! Ask user.
+- Before build or test ask user if this is needed. User usually builds themselves.
 
 ## Active Branches
 
