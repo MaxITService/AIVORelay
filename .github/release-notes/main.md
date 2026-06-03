@@ -6,6 +6,7 @@ GitHub Actions prepends this Markdown above GitHub-generated release notes.
 ## Highlights
 
 - The log directory setting now sits with the log level setting, keeping related diagnostics controls together.
+- Windows installer shortcuts now use the executable icon consistently.
 
 ---
 
