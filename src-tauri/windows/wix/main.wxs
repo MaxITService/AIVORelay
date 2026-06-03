@@ -60,7 +60,6 @@
         {{/if}}
 
         <Icon Id="ProductIcon" SourceFile="{{icon_path}}"/>
-        <Icon Id="ShortcutIcon.exe" SourceFile="{{icon_path}}"/>
         <Property Id="ARPPRODUCTICON" Value="ProductIcon" />
         <Property Id="ARPNOREPAIR" Value="yes" Secure="yes" />      <!-- Remove repair -->
         <SetProperty Id="ARPNOMODIFY" Value="1" After="InstallValidate" Sequence="execute"/>
@@ -165,7 +164,6 @@
                         Name="{{product_name}}"
                         Description="Runs {{product_name}}"
                         Target="[!Path]"
-                        Icon="ShortcutIcon.exe"
                         WorkingDirectory="INSTALLDIR">
                         <ShortcutProperty Key="System.AppUserModel.ID" Value="{{bundle_id}}"/>
                     </Shortcut>
@@ -255,7 +253,6 @@
                     Name="{{product_name}}"
                     Description="Runs {{product_name}}"
                     Target="[!Path]"
-                    Icon="ShortcutIcon.exe"
                     WorkingDirectory="INSTALLDIR">
                     <ShortcutProperty Key="System.AppUserModel.ID" Value="{{bundle_id}}"/>
                 </Shortcut>
