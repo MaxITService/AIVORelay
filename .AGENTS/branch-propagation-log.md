@@ -13,6 +13,7 @@ Rules:
 
 | Propagation Date | Target Branch | Main SHA | Main Message | Branch SHA | Branch Message | Issues |
 | --- | --- | --- | --- | --- | --- | --- |
+| 2026-06-03 | `integration/cuda` | `9c9bc15b` | fix(installer): use executable icon for app shortcuts | `506b2a0f` | chore: bump version to 1.0.19 | installer icon already matched |
 | 2026-06-01 | `integration/cuda` | `8ef91425` | chore: bump version to 1.0.18 | `5dcdb396` | chore: bump version to 1.0.18 | resolved history layout, branch docs/deps |
 | 2026-05-11 | `integration/cuda` | `bf6cae7d` | chore: bump version to 1.0.17 | `9c14061d` | chore: bump version to 1.0.17 | resolved settings import conflict; cuda notes updated |
 | 2026-05-10 | `integration/cuda` | `a2e3a115` | fix(settings): unify API key controls | `225b6268` | fix(settings): unify API key controls | resolved model card conflict |
@@ -22,7 +23,6 @@ Rules:
 | 2026-04-18 | `integration/cuda` | `f36a1cdc` | chore(bindings): commit pending generated update | `143aa0d0` | chore(bindings): commit pending generated update | clean cherry-pick |
 | 2026-04-18 | `release/microsoft-store` | `f36a1cdc` | chore(bindings): commit pending generated update | `a4363740` | chore(bindings): commit pending generated update | clean cherry-pick |
 | 2026-04-18 | `integration/combined` | `7cf850fd` | fix(overlay): stabilize first paint and placement | `35e44f0d` | fix(overlay): stabilize first paint and placement | clean cherry-pick |
-| 2026-04-18 | `integration/cuda` | `7cf850fd` | fix(overlay): stabilize first paint and placement | `d6b45f25` | fix(overlay): stabilize first paint and placement | clean cherry-pick |
 
 Entry template:
 
