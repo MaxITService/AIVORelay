@@ -13,6 +13,9 @@ Rules:
 
 | Propagation Date | Target Branch | Main SHA | Main Message | Branch SHA | Branch Message | Issues |
 | --- | --- | --- | --- | --- | --- | --- |
+| 2026-06-03 | `integration/combined` | `9c9bc15b` | fix(installer): use executable icon for app shortcuts | `bf18a8c0` | chore: bump version to 1.0.19 | installer icon already matched |
+| 2026-06-03 | `integration/cuda` | `9c9bc15b` | fix(installer): use executable icon for app shortcuts | `506b2a0f` | chore: bump version to 1.0.19 | installer icon already matched |
+| 2026-06-03 | `release/microsoft-store` | `9c9bc15b` | fix(installer): use executable icon for app shortcuts | `89d8fbf5` | fix(installer): use executable icon for app shortcuts | main notes excluded; store notes updated |
 | 2026-06-01 | `integration/combined` | `8ef91425` | chore: bump version to 1.0.18 | `43cff58e` | chore: bump version to 1.0.18 | resolved tray, history layout, branch docs/deps |
 | 2026-06-01 | `integration/cuda` | `8ef91425` | chore: bump version to 1.0.18 | `5dcdb396` | chore: bump version to 1.0.18 | resolved history layout, branch docs/deps |
 | 2026-06-01 | `release/microsoft-store` | `8ef91425` | chore: bump version to 1.0.18 | `8705dae4` | chore: bump version to 1.0.18 | runtime-only doc exclusion; lock patched |
@@ -20,9 +23,6 @@ Rules:
 | 2026-05-11 | `integration/cuda` | `bf6cae7d` | chore: bump version to 1.0.17 | `9c14061d` | chore: bump version to 1.0.17 | resolved settings import conflict; cuda notes updated |
 | 2026-05-11 | `release/microsoft-store` | `bf6cae7d` | chore: bump version to 1.0.17 | `c91d72d0` | chore: bump version to 1.0.17 | clean cherry-pick; store notes updated |
 | 2026-05-10 | `integration/combined` | `a2e3a115` | fix(settings): unify API key controls | `644f7ed7` | fix(settings): unify API key controls | clean cherry-pick |
-| 2026-05-10 | `integration/cuda` | `a2e3a115` | fix(settings): unify API key controls | `225b6268` | fix(settings): unify API key controls | resolved model card conflict |
-| 2026-05-10 | `release/microsoft-store` | `a2e3a115` | fix(settings): unify API key controls | `0710a8e3` | fix(settings): unify API key controls | clean cherry-pick |
-| 2026-05-03 | `integration/combined` | `b476149b` | chore: bump version to 1.0.15 | `ecbfe423` | chore: bump version to 1.0.15 | resolved tray import, overlay, bindings/settings conflicts |
 
 Entry template:
 
