@@ -49,11 +49,14 @@ pub fn cancel_current_operation(app: &AppHandle) {
     // Reset all shortcut toggle states.
     // This is critical for non-push-to-talk mode where shortcuts toggle on/off
     let toggle_state_manager = app.state::<ManagedToggleState>();
-    if let Ok(mut states) = toggle_state_manager.lock() {
-        states.active_toggles.values_mut().for_each(|v| *v = false);
-    } else {
-        warn!("Failed to lock toggle state manager during cancellation");
-    }
+    let mut states = match toggle_state_manager.lock() {
+        Ok(states) => states,
+        Err(poisoned) => {
+            warn!("Toggle state lock poisoned during cancellation; recovering");
+            poisoned.into_inner()
+        }
+    };
+    states.active_toggles.values_mut().for_each(|v| *v = false);
 
     // Cancel any ongoing recording (belt-and-suspenders, session should have done this)
     let audio_manager = app.state::<Arc<AudioRecordingManager>>();
