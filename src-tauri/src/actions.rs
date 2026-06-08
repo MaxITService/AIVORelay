@@ -1165,10 +1165,20 @@ pub(crate) struct ProcessedTranscription {
 }
 
 pub(crate) fn reset_toggle_state(app: &AppHandle, binding_id: &str) {
-    if let Ok(mut states) = app.state::<ManagedToggleState>().lock() {
-        if let Some(state) = states.active_toggles.get_mut(binding_id) {
-            *state = false;
+    let toggle_state_manager = app.state::<ManagedToggleState>();
+    let mut states = match toggle_state_manager.lock() {
+        Ok(states) => states,
+        Err(poisoned) => {
+            warn!(
+                "Toggle state lock poisoned while resetting shortcut '{}'; recovering",
+                binding_id
+            );
+            poisoned.into_inner()
         }
+    };
+
+    if let Some(state) = states.active_toggles.get_mut(binding_id) {
+        *state = false;
     }
 }
 
@@ -1188,6 +1198,10 @@ impl FinishGuard {
 
 impl Drop for FinishGuard {
     fn drop(&mut self) {
+        debug!(
+            "FinishGuard: returning shortcut '{}' to idle state",
+            self.binding_id
+        );
         session_manager::exit_processing(&self.app);
         reset_toggle_state(&self.app, &self.binding_id);
     }
@@ -1284,13 +1298,32 @@ fn start_recording_with_feedback(app: &AppHandle, binding_id: &str) -> bool {
 
     // Hold the lock for the entire operation to prevent race conditions
     let state = app.state::<ManagedSessionState>();
-    let mut state_guard = state.lock().expect("Failed to lock session state");
+    let mut state_guard =
+        session_manager::lock_session_state(&state, "start_recording_with_feedback");
 
     // Check if we're already recording or processing
     // During processing, we block new recordings to prevent overlapping operations
-    if !matches!(*state_guard, session_manager::SessionState::Idle) {
-        debug!("start_recording_with_feedback: System busy (recording or processing), ignoring");
-        return false;
+    match &*state_guard {
+        session_manager::SessionState::Idle => {}
+        session_manager::SessionState::Recording {
+            binding_id: active_binding_id,
+            ..
+        } => {
+            warn!(
+                "Shortcut '{}' ignored because Recording is active for '{}'",
+                binding_id, active_binding_id
+            );
+            return false;
+        }
+        session_manager::SessionState::Processing {
+            binding_id: active_binding_id,
+        } => {
+            warn!(
+                "Shortcut '{}' ignored because Processing is active for '{}'",
+                binding_id, active_binding_id
+            );
+            return false;
+        }
     }
 
     // Mark as recording immediately to prevent concurrent starts
@@ -1448,7 +1481,8 @@ fn start_recording_with_feedback(app: &AppHandle, binding_id: &str) -> bool {
         // Recording failed - clean up
         // Take the session back and let it drop (which will clean up)
         let state = app.state::<ManagedSessionState>();
-        let mut state_guard = state.lock().expect("Failed to lock session state");
+        let mut state_guard =
+            session_manager::lock_session_state(&state, "start_recording_with_feedback cleanup");
         *state_guard = session_manager::SessionState::Idle;
         drop(state_guard);
 
@@ -2023,7 +2057,8 @@ fn prepare_stop_recording_with_options(
 ) -> Option<StopRecordingContext> {
     // Take the session and transition to Processing state
     let state = app.state::<ManagedSessionState>();
-    let mut state_guard = state.lock().expect("Failed to lock session state");
+    let mut state_guard =
+        session_manager::lock_session_state(&state, "prepare_stop_recording_with_options");
 
     let result = match &*state_guard {
         session_manager::SessionState::Recording {
@@ -4074,9 +4109,18 @@ async fn preview_delete_action(app: AppHandle, mode: PreviewDeleteMode) -> Resul
             return Err(err);
         }
         if !use_push_to_talk {
-            if let Ok(mut states) = app.state::<ManagedToggleState>().lock() {
-                states.active_toggles.insert(binding_id, true);
-            }
+            let toggle_state_manager = app.state::<ManagedToggleState>();
+            let mut states = match toggle_state_manager.lock() {
+                Ok(states) => states,
+                Err(poisoned) => {
+                    warn!(
+                        "Toggle state lock poisoned while resuming preview binding '{}'; recovering",
+                        binding_id
+                    );
+                    poisoned.into_inner()
+                }
+            };
+            states.active_toggles.insert(binding_id, true);
         }
     }
 
@@ -4426,7 +4470,7 @@ fn should_use_live_streaming(settings: &AppSettings) -> bool {
 
 fn should_use_live_for_recording(app: &AppHandle, binding_id: &str) -> bool {
     let state = app.state::<ManagedSessionState>();
-    let state_guard = state.lock().expect("Failed to lock session state");
+    let state_guard = session_manager::lock_session_state(&state, "should_use_live_for_recording");
     match &*state_guard {
         session_manager::SessionState::Recording {
             binding_id: current_binding_id,
@@ -7271,7 +7315,8 @@ impl ShortcutAction for CycleProfileAction {
         // to avoid overlay conflicts and user confusion
         {
             let state = app.state::<ManagedSessionState>();
-            let state_guard = state.lock().expect("Failed to lock session state");
+            let state_guard =
+                session_manager::lock_session_state(&state, "CycleProfileAction::start");
 
             if !matches!(*state_guard, session_manager::SessionState::Idle) {
                 debug!("CycleProfileAction: System busy (recording or processing), ignoring");
@@ -8078,9 +8123,18 @@ pub async fn preview_llm_process_action(app: AppHandle) -> Result<(), String> {
             Ok(()) => {
                 resumed_recording = true;
                 if !use_push_to_talk {
-                    if let Ok(mut states) = app.state::<ManagedToggleState>().lock() {
-                        states.active_toggles.insert(binding_id.clone(), true);
-                    }
+                    let toggle_state_manager = app.state::<ManagedToggleState>();
+                    let mut states = match toggle_state_manager.lock() {
+                        Ok(states) => states,
+                        Err(poisoned) => {
+                            warn!(
+                                "Toggle state lock poisoned while resuming preview binding '{}'; recovering",
+                                binding_id
+                            );
+                            poisoned.into_inner()
+                        }
+                    };
+                    states.active_toggles.insert(binding_id.clone(), true);
                 }
             }
             Err(start_err) => {
@@ -8158,9 +8212,18 @@ pub async fn preview_flush_action(app: AppHandle) -> Result<(), String> {
         let use_push_to_talk = use_push_to_talk_for_transcribe_binding(&settings, &binding_id);
         start_transcribe_binding_from_preview(&app, &binding_id)?;
         if !use_push_to_talk {
-            if let Ok(mut states) = app.state::<ManagedToggleState>().lock() {
-                states.active_toggles.insert(binding_id, true);
-            }
+            let toggle_state_manager = app.state::<ManagedToggleState>();
+            let mut states = match toggle_state_manager.lock() {
+                Ok(states) => states,
+                Err(poisoned) => {
+                    warn!(
+                        "Toggle state lock poisoned while resuming preview binding '{}'; recovering",
+                        binding_id
+                    );
+                    poisoned.into_inner()
+                }
+            };
+            states.active_toggles.insert(binding_id, true);
         }
     }
 
