@@ -657,6 +657,13 @@ pub(crate) fn handle_shortcut_event(
     shortcut_string: &str,
     pressed: bool,
 ) {
+    log::debug!(
+        "Shortcut event received: binding='{}', shortcut='{}', pressed={}",
+        binding_id,
+        shortcut_string,
+        pressed
+    );
+
     let settings = get_settings(app);
 
     if is_decapitalize_monitor_shortcut_id(binding_id) {
@@ -689,11 +696,20 @@ pub(crate) fn handle_shortcut_event(
         let audio_manager = app.state::<Arc<AudioRecordingManager>>();
         if audio_manager.is_recording() && pressed {
             action.start(app, binding_id, shortcut_string);
+        } else {
+            log::debug!(
+                "Cancel shortcut '{}' ignored because no recording is active",
+                binding_id
+            );
         }
         return;
     }
 
     if !is_binding_enabled_for_settings(&settings, binding_id) {
+        log::debug!(
+            "Shortcut '{}' ignored because its feature is disabled",
+            binding_id
+        );
         return;
     }
 
@@ -745,9 +761,16 @@ pub(crate) fn handle_shortcut_event(
         let should_start: bool;
         {
             let toggle_state_manager = app.state::<ManagedToggleState>();
-            let mut states = toggle_state_manager
-                .lock()
-                .expect("Failed to lock toggle state manager");
+            let mut states = match toggle_state_manager.lock() {
+                Ok(states) => states,
+                Err(poisoned) => {
+                    warn!(
+                        "Toggle state lock poisoned during shortcut '{}'; recovering",
+                        binding_id
+                    );
+                    poisoned.into_inner()
+                }
+            };
 
             let is_currently_active = states
                 .active_toggles
@@ -3892,7 +3915,8 @@ pub fn delete_transcription_profile(app: AppHandle, id: String) -> Result<(), St
     // This includes both the globally active profile AND any profile captured
     // for the current recording session (e.g., via a profile-specific shortcut)
     let state = app.state::<crate::session_manager::ManagedSessionState>();
-    let session_state = state.lock().expect("Failed to lock session state");
+    let session_state =
+        crate::session_manager::lock_session_state(&state, "delete_transcription_profile");
     let profile_in_use = match &*session_state {
         crate::session_manager::SessionState::Recording {
             captured_profile_id,
@@ -3968,7 +3992,8 @@ pub fn set_active_profile(app: AppHandle, id: String) -> Result<(), String> {
     if settings.profile_switch_overlay_enabled {
         let show_overlay = {
             let state = app.state::<crate::session_manager::ManagedSessionState>();
-            let state_guard = state.lock().expect("Failed to lock session state");
+            let state_guard =
+                crate::session_manager::lock_session_state(&state, "set_active_profile");
             matches!(*state_guard, crate::session_manager::SessionState::Idle)
         };
 
@@ -5447,9 +5472,16 @@ fn register_shortcut_tauri(app: &AppHandle, binding: ShortcutBinding) -> Result<
                             let should_start: bool;
                             {
                                 let toggle_state_manager = ah.state::<ManagedToggleState>();
-                                let mut states = toggle_state_manager
-                                    .lock()
-                                    .expect("Failed to lock toggle state manager");
+                                let mut states = match toggle_state_manager.lock() {
+                                    Ok(states) => states,
+                                    Err(poisoned) => {
+                                        warn!(
+                                            "Toggle state lock poisoned during shortcut '{}'; recovering",
+                                            binding_id_for_closure
+                                        );
+                                        poisoned.into_inner()
+                                    }
+                                };
 
                                 let is_currently_active = states
                                     .active_toggles

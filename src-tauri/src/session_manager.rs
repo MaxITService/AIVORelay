@@ -14,9 +14,9 @@ use crate::settings::AppSettings;
 use crate::shortcut;
 use crate::tray::{change_tray_icon, TrayIconState};
 use crate::utils::hide_recording_overlay;
-use log::debug;
+use log::{debug, warn};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Instant;
 use tauri::{AppHandle, Manager};
 
@@ -53,6 +53,22 @@ impl Default for SessionState {
 
 /// Managed state type for the session
 pub type ManagedSessionState = Mutex<SessionState>;
+
+pub(crate) fn lock_session_state<'a>(
+    state: &'a ManagedSessionState,
+    context: &str,
+) -> MutexGuard<'a, SessionState> {
+    match state.lock() {
+        Ok(guard) => guard,
+        Err(poisoned) => {
+            warn!(
+                "Session state lock poisoned in {}; recovering from last known state",
+                context
+            );
+            poisoned.into_inner()
+        }
+    }
+}
 
 /// A recording session guard that ensures proper cleanup via RAII.
 ///
@@ -171,7 +187,7 @@ impl Drop for RecordingSession {
 /// The returned session's Drop will handle cleanup if not explicitly finish()'d.
 pub fn take_session(app: &AppHandle) -> Option<(Arc<RecordingSession>, String)> {
     let state = app.state::<ManagedSessionState>();
-    let mut state_guard = state.lock().expect("Failed to lock session state");
+    let mut state_guard = lock_session_state(&state, "take_session");
 
     match std::mem::replace(&mut *state_guard, SessionState::Idle) {
         SessionState::Recording {
@@ -206,7 +222,7 @@ pub fn take_session_if_matches(
     expected_binding_id: &str,
 ) -> Option<Arc<RecordingSession>> {
     let state = app.state::<ManagedSessionState>();
-    let mut state_guard = state.lock().expect("Failed to lock session state");
+    let mut state_guard = lock_session_state(&state, "take_session_if_matches");
 
     match &*state_guard {
         SessionState::Recording { binding_id, .. } if binding_id == expected_binding_id => {
@@ -244,7 +260,7 @@ pub fn take_session_if_matches(
 /// Call this when async processing completes (success or error).
 pub fn exit_processing(app: &AppHandle) {
     let state = app.state::<ManagedSessionState>();
-    let mut state_guard = state.lock().expect("Failed to lock session state");
+    let mut state_guard = lock_session_state(&state, "exit_processing");
 
     if let SessionState::Processing { binding_id } = &*state_guard {
         debug!("exit_processing: Exiting Processing for {}", binding_id);

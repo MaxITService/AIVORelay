@@ -1,8 +1,9 @@
 use handy_keys::{Hotkey, HotkeyId, HotkeyManager, HotkeyState, KeyboardListener};
-use log::{debug, error, info};
+use log::{debug, error, info, warn};
 use serde::Serialize;
 use specta::Type;
 use std::collections::{HashMap, HashSet};
+use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::{Arc, Mutex};
@@ -46,7 +47,17 @@ impl HandyKeysState {
         let (cmd_tx, cmd_rx) = mpsc::channel::<ManagerCommand>();
         let app_clone = app.clone();
         let thread_handle = thread::spawn(move || {
-            Self::manager_thread(cmd_rx, app_clone);
+            let result = catch_unwind(AssertUnwindSafe(|| {
+                Self::manager_thread(cmd_rx, app_clone);
+            }));
+
+            if let Err(panic) = result {
+                error!(
+                    "handy-keys manager thread panicked: {}",
+                    panic_payload_message(panic.as_ref())
+                );
+                error!("handy-keys manager thread stopped after panic");
+            }
         });
 
         Ok(Self {
@@ -77,12 +88,30 @@ impl HandyKeysState {
             while let Some(event) = manager.try_recv() {
                 if let Some((binding_id, hotkey_string)) = hotkey_to_binding.get(&event.id) {
                     let is_pressed = event.state == HotkeyState::Pressed;
-                    crate::shortcut::handle_shortcut_event(
-                        &app,
-                        binding_id,
-                        hotkey_string,
-                        is_pressed,
+                    debug!(
+                        "HandyKeys event received: binding='{}', hotkey='{}', pressed={}",
+                        binding_id, hotkey_string, is_pressed
                     );
+
+                    let dispatch_result = catch_unwind(AssertUnwindSafe(|| {
+                        crate::shortcut::handle_shortcut_event(
+                            &app,
+                            binding_id,
+                            hotkey_string,
+                            is_pressed,
+                        );
+                    }));
+
+                    if let Err(panic) = dispatch_result {
+                        error!(
+                            "HandyKeys event dispatch panicked for binding '{}' (hotkey '{}'); keeping manager thread alive: {}",
+                            binding_id,
+                            hotkey_string,
+                            panic_payload_message(panic.as_ref())
+                        );
+                    }
+                } else {
+                    warn!("HandyKeys event received for unknown hotkey id");
                 }
             }
 
@@ -324,6 +353,18 @@ impl Drop for HandyKeysState {
             }
         }
     }
+}
+
+fn panic_payload_message(payload: &(dyn std::any::Any + Send)) -> String {
+    if let Some(message) = payload.downcast_ref::<&str>() {
+        return (*message).to_string();
+    }
+
+    if let Some(message) = payload.downcast_ref::<String>() {
+        return message.clone();
+    }
+
+    "unknown panic payload".to_string()
 }
 
 fn modifiers_to_strings(modifiers: handy_keys::Modifiers) -> Vec<String> {
