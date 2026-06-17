@@ -22,8 +22,9 @@ use crate::settings::{
     RemoteSttDebugMode, ShortcutEngine, SonioxLivePreviewPosition, SonioxLivePreviewSize,
     SonioxLivePreviewTheme, SoundTheme, TranscriptionProvider, APPLE_INTELLIGENCE_PROVIDER_ID,
     DEEPGRAM_DEFAULT_ENDPOINTING_MS, DEEPGRAM_DEFAULT_LIVE_FINALIZE_TIMEOUT_MS,
-    DEEPGRAM_DEFAULT_MODEL, SONIOX_DEFAULT_LIVE_FINALIZE_TIMEOUT_MS,
-    SONIOX_DEFAULT_MAX_ENDPOINT_DELAY_MS, SONIOX_DEFAULT_MODEL,
+    DEEPGRAM_DEFAULT_MODEL, SONIOX_DEFAULT_ENDPOINT_SENSITIVITY,
+    SONIOX_DEFAULT_LIVE_FINALIZE_TIMEOUT_MS, SONIOX_DEFAULT_MAX_ENDPOINT_DELAY_MS,
+    SONIOX_DEFAULT_MODEL,
 };
 use crate::shortcut_handy_keys;
 use crate::tray;
@@ -2757,6 +2758,22 @@ pub fn change_soniox_max_endpoint_delay_ms_setting(
 
 #[tauri::command]
 #[specta::specta]
+pub fn change_soniox_endpoint_sensitivity_setting(
+    app: AppHandle,
+    sensitivity: f32,
+) -> Result<(), String> {
+    if !sensitivity.is_finite() || !(-1.0..=1.0).contains(&sensitivity) {
+        return Err("Soniox endpoint sensitivity must be between -1.0 and 1.0".to_string());
+    }
+
+    let mut settings = settings::get_settings(&app);
+    settings.soniox_endpoint_sensitivity = sensitivity;
+    settings::write_settings(&app, settings);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
 pub fn change_soniox_language_identification_setting(
     app: AppHandle,
     enabled: bool,
@@ -2864,6 +2881,7 @@ pub fn reset_soniox_settings_to_defaults(app: AppHandle) -> Result<(), String> {
     settings.soniox_language_hints_strict = false;
     settings.soniox_enable_endpoint_detection = true;
     settings.soniox_max_endpoint_delay_ms = SONIOX_DEFAULT_MAX_ENDPOINT_DELAY_MS;
+    settings.soniox_endpoint_sensitivity = SONIOX_DEFAULT_ENDPOINT_SENSITIVITY;
     settings.soniox_enable_language_identification = true;
     settings.soniox_enable_speaker_diarization = true;
     settings.soniox_keepalive_interval_seconds = 10;

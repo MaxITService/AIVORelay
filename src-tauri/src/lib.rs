@@ -761,6 +761,7 @@ pub fn run() {
         shortcut::change_soniox_language_hints_strict_setting,
         shortcut::change_soniox_endpoint_detection_setting,
         shortcut::change_soniox_max_endpoint_delay_ms_setting,
+        shortcut::change_soniox_endpoint_sensitivity_setting,
         shortcut::change_soniox_language_identification_setting,
         shortcut::change_soniox_speaker_diarization_setting,
         shortcut::change_soniox_keepalive_interval_seconds_setting,
