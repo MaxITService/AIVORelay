@@ -1435,22 +1435,23 @@
             "profileLanguageHintOnly": "Use Current Profile Language As Hint: ignores manual Language Hints and sends exactly one hint derived from the active profile language (or global language if no profile is active).",
             "strict": "Soniox strict Language Restriction: strongly constrains output to language hints.",
             "endpoint": "Endpoint Detection: Soniox semantic end-of-utterance detection.",
+            "endpointSensitivity": "Endpoint Sensitivity: v5-only tuning from -1.0 to 1.0. Higher values make Soniox endpoint more readily; lower values wait for stronger evidence.",
             "keepalive": "Keepalive Interval: ping period during silence to keep WebSocket alive (recommended 5-10s, should never exceed 20s idle).",
             "languageIdentification": "Language Identification: includes per-token detected language metadata.",
             "speakerDiarization": "Speaker Diarization: includes per-token speaker label metadata."
           },
-          "tip": "Recommended baseline: stt-rt-v4, Live ON, endpoint detection ON, keepalive 10s, finalize timeout 500ms (increase only if needed). Default settings are good. Just try to input your API key and try them out."
+          "tip": "Recommended baseline: stt-rt-v5, Live ON, endpoint detection ON, endpoint sensitivity 0.0, keepalive 10s, finalize timeout 500ms (increase only if needed). Default settings are good. Just try to input your API key and try them out."
         },
         "model": {
           "title": "Soniox Model",
           "description": "Model identifier sent to Soniox on each request. In AivoRelay, stt-rt-* with Live ON uses the live WebSocket path where text appears while you speak; stt-async-* (or Live OFF) uses non-live processing where text appears after processing finishes. If behavior feels wrong, model family and Live toggle are the first things to verify.",
-          "placeholder": "stt-rt-v4",
+          "placeholder": "stt-rt-v5",
           "asyncNotice": "Soniox async models upload the finished recording as a file, create a transcription job, poll until it completes, then fetch the transcript. That makes them naturally slower for short dictation than one-request providers such as Groq Whisper Turbo. AivoRelay can reduce polling overhead, but it cannot turn the Soniox async file/job pipeline into an instant request.",
           "customTitle": "Custom model id",
           "customDescription": "Enter the exact Soniox model id. Models starting with stt-rt use the real-time path; models starting with stt-async use the async file/job path.",
           "options": {
-            "realtime": "stt-rt-v4 - Real-time",
-            "async": "stt-async-v4 - Async",
+            "realtime": "stt-rt-v5 - Real-time",
+            "async": "stt-async-v5 - Async",
             "custom": "Custom"
           }
         },
@@ -1486,6 +1487,11 @@
         "maxEndpointDelay": {
           "title": "Max Endpoint Delay (ms)",
           "description": "Upper bound for endpoint latency after speech stops (500-3000, default 2000). Lower values feel snappier in AivoRelay but may finalize slightly earlier; higher values wait longer, which can preserve accuracy when speech cadence is irregular. Mode scope: Live mode only; not applied in non-live shortcut fallback or Soniox async file transcription."
+        },
+        "endpointSensitivity": {
+          "title": "Endpoint Sensitivity",
+          "description": "Soniox v5-only endpoint tuning (-1.0 to 1.0, default 0.0). Higher values make Soniox emit endpoints more aggressively after pauses; lower values make it wait longer. AivoRelay only sends this with stt-rt-v5 so older/custom models do not fail.",
+          "outOfRange": "Soniox endpoint sensitivity must be between -1.0 and 1.0."
         },
         "keepalive": {
           "title": "Keepalive Interval (seconds)",

@@ -144,7 +144,7 @@ export const LiveSoundTranscriptionSettings: React.FC = () => {
 
   const modelLabel =
     provider === "remote_soniox"
-      ? String((settings as any)?.soniox_model ?? "stt-rt-v4")
+      ? String((settings as any)?.soniox_model ?? "stt-rt-v5")
       : provider === "remote_deepgram"
         ? String((settings as any)?.deepgram_model ?? "nova-3")
         : String(

@@ -352,7 +352,7 @@ export const TranscribeFileSettings: React.FC = () => {
   const dropZoneRef = useRef<HTMLDivElement>(null);
   const selectedFileRef = useRef<SelectedFile | null>(selectedFile);
   const transcriptionRunIdRef = useRef(0);
-  const sonioxModel = (settings as any)?.soniox_model ?? "stt-rt-v4";
+  const sonioxModel = (settings as any)?.soniox_model ?? "stt-rt-v5";
   const transcriptionProvider = String(
     settings?.transcription_provider ?? "local",
   );
@@ -1335,12 +1335,12 @@ export const TranscribeFileSettings: React.FC = () => {
                     )}
             </p>
             {showSonioxFileOptions &&
-              sonioxModel.trim() !== "stt-async-v4" &&
+              sonioxModel.trim() !== "stt-async-v5" &&
               !infoMessage && (
                 <div className="mt-3 rounded-lg border border-[#9b5de5]/40 bg-[#9b5de5]/10 p-3">
                   <p className="text-xs text-[#d7b9ff]">
                     {t("transcribeFile.soniox.autoSwitchNotice", {
-                      targetModel: "stt-async-v4",
+                      targetModel: "stt-async-v5",
                       selectedModel: sonioxModel.trim() || "(empty)",
                     })}
                   </p>

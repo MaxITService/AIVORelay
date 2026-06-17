@@ -824,8 +824,9 @@ impl Default for FileTranscriptionChunkingMode {
     }
 }
 
-pub const SONIOX_DEFAULT_MODEL: &str = "stt-rt-v4";
+pub const SONIOX_DEFAULT_MODEL: &str = "stt-rt-v5";
 pub const SONIOX_DEFAULT_MAX_ENDPOINT_DELAY_MS: u32 = 2000;
+pub const SONIOX_DEFAULT_ENDPOINT_SENSITIVITY: f32 = 0.0;
 pub const SONIOX_DEFAULT_LIVE_FINALIZE_TIMEOUT_MS: u32 = 500;
 pub const DEEPGRAM_DEFAULT_MODEL: &str = "nova-3";
 pub const DEEPGRAM_DEFAULT_ENDPOINTING_MS: u32 = 400;
@@ -1441,6 +1442,8 @@ pub struct AppSettings {
     pub soniox_enable_endpoint_detection: bool,
     #[serde(default = "default_soniox_max_endpoint_delay_ms")]
     pub soniox_max_endpoint_delay_ms: u32,
+    #[serde(default = "default_soniox_endpoint_sensitivity")]
+    pub soniox_endpoint_sensitivity: f32,
     #[serde(default = "default_true")]
     pub soniox_enable_language_identification: bool,
     #[serde(default = "default_true")]
@@ -2168,6 +2171,10 @@ fn default_soniox_language_hints() -> Vec<String> {
 
 fn default_soniox_max_endpoint_delay_ms() -> u32 {
     SONIOX_DEFAULT_MAX_ENDPOINT_DELAY_MS
+}
+
+fn default_soniox_endpoint_sensitivity() -> f32 {
+    SONIOX_DEFAULT_ENDPOINT_SENSITIVITY
 }
 
 fn default_soniox_keepalive_interval_seconds() -> u32 {
@@ -3234,6 +3241,7 @@ pub fn get_default_settings() -> AppSettings {
         soniox_language_hints_strict: default_false(),
         soniox_enable_endpoint_detection: default_true(),
         soniox_max_endpoint_delay_ms: default_soniox_max_endpoint_delay_ms(),
+        soniox_endpoint_sensitivity: default_soniox_endpoint_sensitivity(),
         soniox_enable_language_identification: default_true(),
         soniox_enable_speaker_diarization: default_true(),
         soniox_keepalive_interval_seconds: default_soniox_keepalive_interval_seconds(),
@@ -3947,6 +3955,21 @@ fn ensure_valid_soniox_contexts(settings: &mut AppSettings) -> bool {
     changed
 }
 
+fn ensure_soniox_v5_model_defaults(settings: &mut AppSettings) -> bool {
+    let current_model = settings.soniox_model.trim().to_string();
+    match current_model.as_str() {
+        "stt-rt-v4" => {
+            settings.soniox_model = "stt-rt-v5".to_string();
+            true
+        }
+        "stt-async-v4" => {
+            settings.soniox_model = "stt-async-v5".to_string();
+            true
+        }
+        _ => false,
+    }
+}
+
 fn repair_runtime_settings(settings: &mut AppSettings) -> bool {
     let mut changed = false;
     changed |= ensure_default_bindings(settings);
@@ -3957,6 +3980,7 @@ fn repair_runtime_settings(settings: &mut AppSettings) -> bool {
     changed |= ensure_remote_stt_defaults(settings);
     changed |= ensure_active_profile_exists(settings);
     changed |= ensure_valid_soniox_contexts(settings);
+    changed |= ensure_soniox_v5_model_defaults(settings);
     changed
 }
 

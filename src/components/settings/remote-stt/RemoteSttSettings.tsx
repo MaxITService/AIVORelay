@@ -42,6 +42,40 @@ type RemoteSttInterfaceId =
 const REALTIME_AGENT_PROMPT_TEMPLATE =
   "Additional context for speech-to-text transcription. Current language setting: ${language}. Translate to English: ${translate_to_english}. Preserve the speaker's language unless translation is enabled. Use context to create proper punctuation and fix recognition errors only when the intended words are recoverable from audio and context. If speech is not recoverable because of microphone noise, speech defects, or background noise, use [⚠️inaudible⚠️] instead of guessing. The user may provide custom words that are rare in the language; try to recognize them properly. Make sure to properly recognize names, product names, and vocabulary exactly when recognizable.";
 
+const SONIOX_DEFAULT_REALTIME_MODEL = "stt-rt-v5";
+const SONIOX_DEFAULT_ASYNC_MODEL = "stt-async-v5";
+
+type PersistentHintInputProps = React.ComponentProps<typeof Input> & {
+  hint: React.ReactNode;
+  hintClassName?: string;
+  inputPaddingClassName?: string;
+};
+
+const PersistentHintInput: React.FC<PersistentHintInputProps> = ({
+  className = "",
+  disabled,
+  hint,
+  hintClassName = "",
+  inputPaddingClassName = "pr-28",
+  ...props
+}) => (
+  <div className="relative">
+    <Input
+      {...props}
+      disabled={disabled}
+      className={`w-full ${inputPaddingClassName} ${className}`}
+    />
+    <span
+      aria-hidden="true"
+      className={`pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 select-none text-xs font-medium ${
+        disabled ? "text-mid-gray/25" : "text-mid-gray/45"
+      } ${hintClassName}`}
+    >
+      {hint}
+    </span>
+  </div>
+);
+
 const resolveRealtimeAgentPrompt = (prompt?: string | null) =>
   prompt?.trim() ? prompt : REALTIME_AGENT_PROMPT_TEMPLATE;
 
@@ -124,7 +158,7 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
   const remoteAllowInsecureHttp = Boolean(
     (remoteSettings as any)?.allow_insecure_http ?? false,
   );
-  const sonioxModel = (settings as any)?.soniox_model ?? "stt-rt-v4";
+  const sonioxModel = (settings as any)?.soniox_model ?? SONIOX_DEFAULT_REALTIME_MODEL;
   const sonioxTimeout = Number((settings as any)?.soniox_timeout_seconds ?? 30);
   const sonioxLiveEnabled = Boolean(
     (settings as any)?.soniox_live_enabled ?? true,
@@ -142,6 +176,9 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
   );
   const sonioxMaxEndpointDelayMs = Number(
     (settings as any)?.soniox_max_endpoint_delay_ms ?? 2000,
+  );
+  const sonioxEndpointSensitivity = Number(
+    (settings as any)?.soniox_endpoint_sensitivity ?? 0,
   );
   const sonioxEnableLanguageIdentification = Boolean(
     (settings as any)?.soniox_enable_language_identification ?? true,
@@ -198,11 +235,14 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
   const isCloudProvider =
     isRemoteOpenAiProvider || isSonioxProvider || isDeepgramProvider;
   const isKnownSonioxPreset =
-    sonioxModel.trim() === "stt-rt-v4" || sonioxModel.trim() === "stt-async-v4";
+    sonioxModel.trim() === SONIOX_DEFAULT_REALTIME_MODEL ||
+    sonioxModel.trim() === SONIOX_DEFAULT_ASYNC_MODEL;
   const derivedSonioxModelMode = isKnownSonioxPreset
     ? sonioxModel.trim()
     : "custom";
   const isSonioxRealtimeModel = sonioxModel.trim().startsWith("stt-rt");
+  const isSonioxRealtimeV5Model =
+    sonioxModel.trim() === SONIOX_DEFAULT_REALTIME_MODEL;
   const isSonioxAsyncModel = sonioxModel.trim().startsWith("stt-async");
   const effectiveRemoteBaseUrl =
     remotePreset === "custom"
@@ -343,6 +383,8 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
   );
   const [sonioxMaxEndpointDelayMsInput, setSonioxMaxEndpointDelayMsInput] =
     useState(String(sonioxMaxEndpointDelayMs));
+  const [sonioxEndpointSensitivityInput, setSonioxEndpointSensitivityInput] =
+    useState(String(sonioxEndpointSensitivity));
   const [sonioxKeepaliveSecondsInput, setSonioxKeepaliveSecondsInput] =
     useState(String(sonioxKeepaliveSeconds));
   const [sonioxLiveFinalizeTimeoutInput, setSonioxLiveFinalizeTimeoutInput] =
@@ -366,6 +408,8 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
   const [hasKeyStatusLoaded, setHasKeyStatusLoaded] = useState(false);
   const sonioxRealtimeControlsEnabled =
     sonioxModelMode === "custom" || isSonioxRealtimeModel;
+  const sonioxEndpointSensitivityEnabled =
+    sonioxRealtimeControlsEnabled && isSonioxRealtimeV5Model;
 
   const [debugLines, setDebugLines] = useState<string[]>([]);
   const [connectionStatus, setConnectionStatus] = useState<
@@ -415,6 +459,10 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
   useEffect(() => {
     setSonioxMaxEndpointDelayMsInput(String(sonioxMaxEndpointDelayMs));
   }, [sonioxMaxEndpointDelayMs]);
+
+  useEffect(() => {
+    setSonioxEndpointSensitivityInput(String(sonioxEndpointSensitivity));
+  }, [sonioxEndpointSensitivity]);
 
   useEffect(() => {
     setSonioxKeepaliveSecondsInput(String(sonioxKeepaliveSeconds));
@@ -592,17 +640,17 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
   const sonioxModelOptions = useMemo<SelectOption[]>(
     () => [
       {
-        value: "stt-rt-v4",
+        value: SONIOX_DEFAULT_REALTIME_MODEL,
         label: t(
           "settings.advanced.soniox.model.options.realtime",
-          "stt-rt-v4 - Real-time",
+          "stt-rt-v5 - Real-time",
         ),
       },
       {
-        value: "stt-async-v4",
+        value: SONIOX_DEFAULT_ASYNC_MODEL,
         label: t(
           "settings.advanced.soniox.model.options.async",
-          "stt-async-v4 - Async",
+          "stt-async-v5 - Async",
         ),
       },
       {
@@ -859,7 +907,7 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
   };
 
   const handleSonioxModelChange = (value: string | null) => {
-    const nextMode = value || "stt-rt-v4";
+    const nextMode = value || SONIOX_DEFAULT_REALTIME_MODEL;
     setSonioxModelMode(nextMode);
     if (nextMode === "custom") {
       setCustomSonioxModelInput((current) => current || sonioxModel);
@@ -926,6 +974,29 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
     }
     if (parsed !== sonioxMaxEndpointDelayMs) {
       void updateSetting("soniox_max_endpoint_delay_ms" as any, parsed as any);
+    }
+  };
+
+  const handleSonioxEndpointSensitivityBlur = () => {
+    const parsed = Number.parseFloat(sonioxEndpointSensitivityInput);
+    if (!Number.isFinite(parsed)) {
+      setSonioxEndpointSensitivityInput(String(sonioxEndpointSensitivity));
+      return;
+    }
+
+    if (parsed < -1 || parsed > 1) {
+      toast.warning(
+        t(
+          "settings.advanced.soniox.endpointSensitivity.outOfRange",
+          "Soniox endpoint sensitivity must be between -1.0 and 1.0.",
+        ),
+      );
+      setSonioxEndpointSensitivityInput(String(sonioxEndpointSensitivity));
+      return;
+    }
+
+    if (parsed !== sonioxEndpointSensitivity) {
+      void updateSetting("soniox_endpoint_sensitivity" as any, parsed as any);
     }
   };
 
@@ -1678,7 +1749,7 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
                   grouped={grouped}
                   layout="stacked"
                 >
-                  <Input
+                  <PersistentHintInput
                     type="text"
                     value={customSonioxModelInput}
                     onChange={(event) =>
@@ -1686,7 +1757,7 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
                     }
                     onBlur={handleCustomSonioxModelBlur}
                     placeholder="stt-rt-v5"
-                    className="w-full"
+                    hint="stt-rt-v5"
                   />
                 </SettingContainer>
               )}
@@ -1707,14 +1778,16 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
                 grouped={grouped}
                 layout="stacked"
               >
-                <Input
+                <PersistentHintInput
                   type="number"
                   value={sonioxTimeoutInput}
                   onChange={(event) => setSonioxTimeoutInput(event.target.value)}
                   onBlur={handleSonioxTimeoutBlur}
                   min={10}
                   max={300}
-                  className="w-full"
+                  hint="30"
+                  hintClassName="right-8"
+                  inputPaddingClassName="pr-20"
                 />
               </SettingContainer>
 
@@ -1859,7 +1932,7 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
                     {t("settings.advanced.soniox.languageHints.languageHintsDocsLink", "Language hints docs")}
                   </a>
                 </div>
-                <Input
+                <PersistentHintInput
                   type="text"
                   value={sonioxLanguageHintsInput}
                   onChange={(event) =>
@@ -1867,8 +1940,8 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
                   }
                   onBlur={handleSonioxLanguageHintsBlur}
                   placeholder={t("settings.advanced.soniox.languageHints.placeholder")}
-                  className="w-full"
                   disabled={sonioxUseProfileLanguageHintOnly}
+                  hint="e.g. en, fr"
                 />
               </SettingContainer>
 
@@ -1942,7 +2015,13 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
                     ))}
                   </div>
                   <ul className="list-disc space-y-1 pl-5 mt-3 text-sm text-text/90">
-                    {["endpoint", "keepalive", "finalizeTimeout", "instantStop"].map((id) => (
+                    {[
+                      "endpoint",
+                      "endpointSensitivity",
+                      "keepalive",
+                      "finalizeTimeout",
+                      "instantStop",
+                    ].map((id) => (
                       <li key={id}>
                         {t(`settings.advanced.soniox.tellMeMore.parameters.${id}`)}
                       </li>
@@ -1959,7 +2038,7 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
                 layout="stacked"
                 disabled={!sonioxRealtimeControlsEnabled}
               >
-                <Input
+                <PersistentHintInput
                   type="number"
                   value={sonioxMaxEndpointDelayMsInput}
                   onChange={(event) =>
@@ -1968,8 +2047,37 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
                   onBlur={handleSonioxMaxEndpointDelayBlur}
                   min={500}
                   max={3000}
-                  className="w-full"
                   disabled={!sonioxRealtimeControlsEnabled}
+                  hint="2000"
+                  hintClassName="right-8"
+                  inputPaddingClassName="pr-20"
+                />
+              </SettingContainer>
+
+              <SettingContainer
+                title={t("settings.advanced.soniox.endpointSensitivity.title")}
+                description={t(
+                  "settings.advanced.soniox.endpointSensitivity.description",
+                )}
+                descriptionMode={descriptionMode}
+                grouped={grouped}
+                layout="stacked"
+                disabled={!sonioxEndpointSensitivityEnabled}
+              >
+                <PersistentHintInput
+                  type="number"
+                  value={sonioxEndpointSensitivityInput}
+                  onChange={(event) =>
+                    setSonioxEndpointSensitivityInput(event.target.value)
+                  }
+                  onBlur={handleSonioxEndpointSensitivityBlur}
+                  min={-1}
+                  max={1}
+                  step={0.1}
+                  disabled={!sonioxEndpointSensitivityEnabled}
+                  hint="0.0"
+                  hintClassName="right-8"
+                  inputPaddingClassName="pr-20"
                 />
               </SettingContainer>
 
@@ -1981,7 +2089,7 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
                 layout="stacked"
                 disabled={!sonioxRealtimeControlsEnabled}
               >
-                <Input
+                <PersistentHintInput
                   type="number"
                   value={sonioxKeepaliveSecondsInput}
                   onChange={(event) =>
@@ -1990,8 +2098,10 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
                   onBlur={handleSonioxKeepaliveBlur}
                   min={5}
                   max={20}
-                  className="w-full"
                   disabled={!sonioxRealtimeControlsEnabled}
+                  hint="10"
+                  hintClassName="right-8"
+                  inputPaddingClassName="pr-20"
                 />
               </SettingContainer>
 
@@ -2003,7 +2113,7 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
                 layout="stacked"
                 disabled={!sonioxRealtimeControlsEnabled}
               >
-                <Input
+                <PersistentHintInput
                   type="number"
                   value={sonioxLiveFinalizeTimeoutInput}
                   onChange={(event) =>
@@ -2012,8 +2122,10 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
                   onBlur={handleSonioxLiveFinalizeTimeoutBlur}
                   min={100}
                   max={20000}
-                  className="w-full"
                   disabled={!sonioxRealtimeControlsEnabled}
+                  hint="500"
+                  hintClassName="right-8"
+                  inputPaddingClassName="pr-20"
                 />
               </SettingContainer>
 
