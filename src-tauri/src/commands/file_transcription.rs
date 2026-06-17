@@ -130,7 +130,7 @@ pub fn get_file_transcription_recording_state(
 
 /// Supported audio file extensions
 const SUPPORTED_EXTENSIONS: &[&str] = &["wav", "mp3", "m4a", "ogg", "flac", "webm"];
-const SONIOX_LATEST_ASYNC_MODEL: &str = "stt-async-v4";
+const SONIOX_LATEST_ASYNC_MODEL: &str = "stt-async-v5";
 const FILE_TRANSCRIPTION_CANCELLED_MESSAGE: &str = "File transcription was cancelled";
 
 fn file_transcription_uses_local_model(

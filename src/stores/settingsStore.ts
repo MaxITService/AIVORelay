@@ -350,6 +350,8 @@ settingUpdaters.error_overlay_auto_hide_ms = (value) =>
   invoke("change_soniox_endpoint_detection_setting", { enabled: value });
 (settingUpdaters as any).soniox_max_endpoint_delay_ms = (value: any) =>
   invoke("change_soniox_max_endpoint_delay_ms_setting", { delayMs: value });
+(settingUpdaters as any).soniox_endpoint_sensitivity = (value: any) =>
+  invoke("change_soniox_endpoint_sensitivity_setting", { sensitivity: value });
 (settingUpdaters as any).soniox_enable_language_identification = (value: any) =>
   invoke("change_soniox_language_identification_setting", { enabled: value });
 (settingUpdaters as any).soniox_enable_speaker_diarization = (value: any) =>
