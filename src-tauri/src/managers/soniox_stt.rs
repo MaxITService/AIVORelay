@@ -265,7 +265,7 @@ impl SonioxSttManager {
     fn normalize_model_for_realtime(model: &str) -> String {
         let trimmed = model.trim();
         if trimmed.is_empty() {
-            return "stt-rt-v4".to_string();
+            return "stt-rt-v5".to_string();
         }
 
         if let Some(version) = trimmed.strip_prefix("stt-async-v") {
@@ -278,7 +278,7 @@ impl SonioxSttManager {
     fn normalize_model_for_async(model: &str) -> String {
         let trimmed = model.trim();
         if trimmed.is_empty() {
-            return "stt-async-v4".to_string();
+            return "stt-async-v5".to_string();
         }
 
         if let Some(version) = trimmed.strip_prefix("stt-rt-v") {

@@ -4677,6 +4677,7 @@ fn build_soniox_realtime_options(
         } else {
             settings.soniox_max_endpoint_delay_ms
         },
+        endpoint_sensitivity: settings.soniox_endpoint_sensitivity,
         keepalive_interval_seconds: settings.soniox_keepalive_interval_seconds,
         context: crate::settings::resolve_soniox_context(profile, settings),
     }

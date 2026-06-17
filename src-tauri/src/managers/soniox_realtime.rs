@@ -31,6 +31,7 @@ pub struct SonioxRealtimeOptions {
     pub enable_language_identification: bool,
     pub enable_endpoint_detection: bool,
     pub max_endpoint_delay_ms: u32,
+    pub endpoint_sensitivity: f32,
     pub keepalive_interval_seconds: u32,
     pub context: Option<SonioxContext>,
 }
@@ -44,6 +45,7 @@ impl Default for SonioxRealtimeOptions {
             enable_language_identification: true,
             enable_endpoint_detection: true,
             max_endpoint_delay_ms: 2000,
+            endpoint_sensitivity: 0.0,
             keepalive_interval_seconds: DEFAULT_KEEPALIVE_INTERVAL_SECONDS,
             context: None,
         }
@@ -66,6 +68,8 @@ struct SonioxStartRequest {
     enable_language_identification: bool,
     enable_endpoint_detection: bool,
     max_endpoint_delay_ms: u32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    endpoint_sensitivity: Option<f32>,
 }
 
 #[derive(Clone, Deserialize, Debug, Default)]
@@ -247,12 +251,16 @@ impl SonioxRealtimeManager {
     fn normalize_model_for_realtime(model: &str) -> String {
         let trimmed = model.trim();
         if trimmed.is_empty() {
-            return "stt-rt-v4".to_string();
+            return "stt-rt-v5".to_string();
         }
         if let Some(version) = trimmed.strip_prefix("stt-async-v") {
             return format!("stt-rt-v{}", version);
         }
         trimmed.to_string()
+    }
+
+    fn model_supports_endpoint_sensitivity(model: &str) -> bool {
+        model.trim() == "stt-rt-v5"
     }
 
     fn normalize_language_hints(language_hints: Vec<String>) -> Option<Vec<String>> {
@@ -315,6 +323,7 @@ impl SonioxRealtimeManager {
             enable_language_identification,
             enable_endpoint_detection,
             max_endpoint_delay_ms,
+            endpoint_sensitivity,
             keepalive_interval_seconds,
             context,
         } = options;
@@ -324,6 +333,12 @@ impl SonioxRealtimeManager {
             MIN_KEEPALIVE_INTERVAL_SECONDS,
             MAX_KEEPALIVE_INTERVAL_SECONDS,
         );
+
+        let endpoint_sensitivity = if Self::model_supports_endpoint_sensitivity(&model) {
+            Some(endpoint_sensitivity.clamp(-1.0, 1.0))
+        } else {
+            None
+        };
 
         let start_request = SonioxStartRequest {
             api_key: api_key.to_string(),
@@ -338,6 +353,7 @@ impl SonioxRealtimeManager {
             enable_language_identification,
             enable_endpoint_detection,
             max_endpoint_delay_ms: max_endpoint_delay_ms.clamp(500, 3000),
+            endpoint_sensitivity,
         };
 
         let start_payload = serde_json::to_string(&start_request)
