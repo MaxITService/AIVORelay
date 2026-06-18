@@ -494,6 +494,14 @@ fn normalize_capture_open_error(source: AudioCaptureSource, error_message: Strin
     error_message
 }
 
+fn visualizer_window_size(sample_rate: u32) -> usize {
+    let target_window = (f64::from(sample_rate) / 30.0).round() as usize;
+    [256usize, 512, 1024, 2048]
+        .into_iter()
+        .min_by_key(|window| window.abs_diff(target_window))
+        .unwrap_or(512)
+}
+
 #[cfg(test)]
 mod tests {
     use super::{is_microphone_access_denied, is_no_input_device_error};
@@ -548,6 +556,13 @@ mod tests {
         let gain = super::microphone_input_gain_from_db(60.0);
         let expected = 10f32.powf(constants::MAX_MICROPHONE_INPUT_BOOST_DB / 20.0);
         assert!((gain - expected).abs() < 0.0001);
+    }
+
+    #[test]
+    fn visualizer_window_scales_to_sample_rate() {
+        assert_eq!(super::visualizer_window_size(8_000), 256);
+        assert_eq!(super::visualizer_window_size(16_000), 512);
+        assert_eq!(super::visualizer_window_size(48_000), 2048);
     }
 }
 
@@ -758,8 +773,8 @@ fn run_consumer(
     let mut noise_suppressor: Option<NoiseSuppressor> = None;
 
     const BUCKETS: usize = 16;
-    const WINDOW_SIZE: usize = 512;
-    let mut visualizer = AudioVisualiser::new(in_sample_rate, WINDOW_SIZE, BUCKETS, 400.0, 4000.0);
+    let window_size = visualizer_window_size(in_sample_rate);
+    let mut visualizer = AudioVisualiser::new(in_sample_rate, window_size, BUCKETS, 400.0, 4000.0);
 
     loop {
         while let Ok(cmd) = cmd_rx.try_recv() {
