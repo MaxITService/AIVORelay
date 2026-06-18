@@ -13,6 +13,7 @@ Rules:
 
 | Propagation Date | Target Branch | Main SHA | Main Message | Branch SHA | Branch Message | Issues |
 | --- | --- | --- | --- | --- | --- | --- |
+| 2026-06-18 | `release/microsoft-store` | `aed4b537` | chore: bump version to 1.0.20 | `7a2c8dfb` | chore: bump version to 1.0.20 | store notes updated |
 | 2026-06-03 | `release/microsoft-store` | `9c9bc15b` | fix(installer): use executable icon for app shortcuts | `89d8fbf5` | fix(installer): use executable icon for app shortcuts | main notes excluded; store notes updated |
 | 2026-06-01 | `release/microsoft-store` | `8ef91425` | chore: bump version to 1.0.18 | `8705dae4` | chore: bump version to 1.0.18 | runtime-only doc exclusion; lock patched |
 | 2026-05-11 | `release/microsoft-store` | `bf6cae7d` | chore: bump version to 1.0.17 | `c91d72d0` | chore: bump version to 1.0.17 | clean cherry-pick; store notes updated |
@@ -22,7 +23,6 @@ Rules:
 | 2026-04-25 | `release/microsoft-store` | `1036ed36` | chore: bump version to 1.0.14 | `222b079f` | chore: bump version to 1.0.14 | store release notes only |
 | 2026-04-25 | `release/microsoft-store` | `70200fd6` | feat(history): allow editing dictation stats | `77eb7680` | feat(history): allow editing dictation stats | clean cherry-pick |
 | 2026-04-21 | `release/microsoft-store` | `05e365c9` | fix(transcription): ensure local model loads before transcription | `1f058a22` | fix(transcription): ensure local model loads before transcription | clean cherry-pick |
-| 2026-04-21 | `release/microsoft-store` | `72663503` | Counter for words and characters. | `30d789a5` | Counter for words and characters. | clean cherry-pick |
 
 Entry template:
 
