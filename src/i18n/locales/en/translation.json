@@ -1443,7 +1443,7 @@
         },
         "optimizeDeliveryPreconnect": {
           "title": "Optimize Delivery: Preconnect",
-          "description": "When Live streaming is OFF, open and prepare a Soniox WebSocket during recording, then send the finished audio only after you stop. This preserves record-then-transcribe behavior and mainly saves connection setup time."
+          "description": "When Live streaming is OFF, open and prepare a Soniox WebSocket during recording, then send the finished audio only after you stop. This preserves record-then-transcribe behavior and mainly saves connection setup time. It can use slightly more Soniox resources/cost because a session is opened earlier, but the effect should usually be minor."
         },
         "languageHints": {
           "title": "Language Hints",
