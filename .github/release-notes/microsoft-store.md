@@ -5,8 +5,10 @@ GitHub Actions prepends this Markdown above GitHub-generated release notes.
 
 ## Highlights
 
-- The log directory setting now sits with the log level setting, keeping related diagnostics controls together.
-- Windows installer shortcuts now use the executable icon consistently.
+- Global shortcuts recover more reliably if recording state handling is interrupted.
+- Soniox defaults now target the v5 real-time model, with sturdier fallback delivery for live dictation.
+- The audio visualizer responds better across microphones with different sample rates.
+- Installed model lists now show model sizes, and long post-processing prompt names no longer overflow dropdowns.
 
 ---
 
