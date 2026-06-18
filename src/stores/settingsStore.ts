@@ -366,6 +366,12 @@ settingUpdaters.error_overlay_auto_hide_ms = (value) =>
   });
 (settingUpdaters as any).soniox_live_instant_stop = (value: any) =>
   invoke("change_soniox_live_instant_stop_setting", { enabled: value });
+(settingUpdaters as any).soniox_optimize_delivery_preconnect_enabled = (
+  value: any,
+) =>
+  invoke("change_soniox_optimize_delivery_preconnect_enabled_setting", {
+    enabled: value,
+  });
 (settingUpdaters as any).deepgram_model = (value: any) =>
   invoke("change_deepgram_model_setting", { model: value });
 (settingUpdaters as any).deepgram_timeout_seconds = (value: any) =>

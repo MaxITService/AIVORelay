@@ -34,6 +34,7 @@ pub struct SonioxRealtimeOptions {
     pub endpoint_sensitivity: f32,
     pub keepalive_interval_seconds: u32,
     pub context: Option<SonioxContext>,
+    pub show_preview: bool,
 }
 
 impl Default for SonioxRealtimeOptions {
@@ -48,6 +49,7 @@ impl Default for SonioxRealtimeOptions {
             endpoint_sensitivity: 0.0,
             keepalive_interval_seconds: DEFAULT_KEEPALIVE_INTERVAL_SECONDS,
             context: None,
+            show_preview: true,
         }
     }
 }
@@ -181,6 +183,7 @@ fn build_soniox_raw_speaker_blocks(tokens: &[SonioxToken], is_final: bool) -> Ve
 
 #[derive(Debug)]
 enum ControlMessage {
+    Audio(Vec<u8>),
     Finalize,
     Finish,
     Cancel,
@@ -326,6 +329,7 @@ impl SonioxRealtimeManager {
             endpoint_sensitivity,
             keepalive_interval_seconds,
             context,
+            show_preview,
         } = options;
 
         let mut keepalive_interval_seconds = keepalive_interval_seconds;
@@ -393,6 +397,7 @@ impl SonioxRealtimeManager {
                     keepalive_interval_seconds,
                     app_handle_for_task.clone(),
                     binding_id_for_task.clone(),
+                    show_preview,
                     on_final_chunk,
                 )
                 .await
@@ -405,28 +410,34 @@ impl SonioxRealtimeManager {
                     "Soniox live session runtime error (binding='{}'): {}",
                     binding_id_for_task, err_str
                 );
-                let _ = app_handle_for_task.emit("remote-stt-error", err_str.clone());
-                crate::plus_overlay_state::handle_transcription_error(
-                    &app_handle_for_task,
-                    &err_str,
-                );
+                let report_runtime_error = show_preview
+                    || binding_id_for_task == crate::actions::LIVE_SOUND_TRANSCRIPTION_BINDING_ID;
 
-                if crate::managers::preview_output_mode::is_active_for_binding(&binding_id_for_task)
-                {
-                    crate::managers::preview_output_mode::set_error(
+                if report_runtime_error {
+                    let _ = app_handle_for_task.emit("remote-stt-error", err_str.clone());
+                    crate::plus_overlay_state::handle_transcription_error(
                         &app_handle_for_task,
-                        Some(err_str.clone()),
+                        &err_str,
                     );
-                }
-                if binding_id_for_task == crate::actions::LIVE_SOUND_TRANSCRIPTION_BINDING_ID {
-                    crate::managers::live_sound_transcription::set_recording(
-                        &app_handle_for_task,
-                        false,
-                    );
-                    crate::managers::live_sound_transcription::set_error(
-                        &app_handle_for_task,
-                        Some(err_str.clone()),
-                    );
+
+                    if crate::managers::preview_output_mode::is_active_for_binding(
+                        &binding_id_for_task,
+                    ) {
+                        crate::managers::preview_output_mode::set_error(
+                            &app_handle_for_task,
+                            Some(err_str.clone()),
+                        );
+                    }
+                    if binding_id_for_task == crate::actions::LIVE_SOUND_TRANSCRIPTION_BINDING_ID {
+                        crate::managers::live_sound_transcription::set_recording(
+                            &app_handle_for_task,
+                            false,
+                        );
+                        crate::managers::live_sound_transcription::set_error(
+                            &app_handle_for_task,
+                            Some(err_str.clone()),
+                        );
+                    }
                 }
             }
 
@@ -456,7 +467,7 @@ impl SonioxRealtimeManager {
 
         // Live Sound has its own UI — skip shared overlay preview state entirely
         // to avoid interfering with regular transcription's preview.
-        if binding_id != crate::actions::LIVE_SOUND_TRANSCRIPTION_BINDING_ID {
+        if show_preview && binding_id != crate::actions::LIVE_SOUND_TRANSCRIPTION_BINDING_ID {
             let preserve_existing_preview =
                 crate::managers::preview_output_mode::is_active_for_binding(binding_id);
             crate::overlay::begin_soniox_live_preview_session();
@@ -474,6 +485,24 @@ impl SonioxRealtimeManager {
         self.active_session.lock().is_some()
     }
 
+    async fn drain_audio_queue<S>(
+        write: &mut S,
+        audio_rx: &mut mpsc::Receiver<Vec<u8>>,
+        last_audio_or_control: &mut Instant,
+    ) -> Result<()>
+    where
+        S: Sink<Message, Error = tokio_tungstenite::tungstenite::Error> + Unpin,
+    {
+        while let Ok(audio_chunk) = audio_rx.try_recv() {
+            write
+                .send(Message::Binary(audio_chunk.into()))
+                .await
+                .map_err(|e| anyhow!("Failed to send queued audio chunk to Soniox: {}", e))?;
+            *last_audio_or_control = Instant::now();
+        }
+        Ok(())
+    }
+
     #[allow(clippy::too_many_arguments)]
     async fn run_session_loop<S, R>(
         write: &mut S,
@@ -484,6 +513,7 @@ impl SonioxRealtimeManager {
         keepalive_interval_seconds: u32,
         app_handle: AppHandle,
         binding_id: String,
+        show_preview: bool,
         on_final_chunk: Option<FinalChunkCallback>,
     ) -> Result<()>
     where
@@ -502,12 +532,19 @@ impl SonioxRealtimeManager {
             tokio::select! {
                 Some(control) = control_rx.recv() => {
                     match control {
+                        ControlMessage::Audio(bytes) => {
+                            write.send(Message::Binary(bytes.into())).await
+                                .map_err(|e| anyhow!("Failed to send Soniox queued audio chunk: {}", e))?;
+                            last_audio_or_control = Instant::now();
+                        }
                         ControlMessage::Finalize => {
+                            Self::drain_audio_queue(write, &mut audio_rx, &mut last_audio_or_control).await?;
                             write.send(finalize_payload.clone()).await
                                 .map_err(|e| anyhow!("Failed to send Soniox finalize control message: {}", e))?;
                             last_audio_or_control = Instant::now();
                         }
                         ControlMessage::Finish => {
+                            Self::drain_audio_queue(write, &mut audio_rx, &mut last_audio_or_control).await?;
                             // Empty frame gracefully closes the stream.
                             write.send(Message::Binary(Vec::new().into())).await
                                 .map_err(|e| anyhow!("Failed to finalize Soniox audio stream: {}", e))?;
@@ -553,11 +590,13 @@ impl SonioxRealtimeManager {
                             let mut interim_text = String::new();
                             let mut final_token_count = 0usize;
                             let mut non_final_token_count = 0usize;
+                            let mut finalization_complete = false;
                             for token in &payload.tokens {
-                                if token.text.is_empty()
-                                    || token.text == "<fin>"
-                                    || token.text == "<end>"
-                                {
+                                if token.text == "<fin>" {
+                                    finalization_complete = true;
+                                    continue;
+                                }
+                                if token.text.is_empty() || token.text == "<end>" {
                                     continue;
                                 }
                                 if token.is_final {
@@ -583,7 +622,7 @@ impl SonioxRealtimeManager {
                                 }
                             }
 
-                            if is_finished_payload {
+                            if is_finished_payload || finalization_complete {
                                 interim_text.clear();
                             }
 
@@ -591,7 +630,11 @@ impl SonioxRealtimeManager {
                                 interim_text = crate::text_replacement_decapitalize::preview_decapitalize_next_chunk_realtime(&interim_text);
                             }
 
-                            if !chunk_text.is_empty() || !interim_text.is_empty() || is_finished_payload {
+                            if !chunk_text.is_empty()
+                                || !interim_text.is_empty()
+                                || is_finished_payload
+                                || finalization_complete
+                            {
                                 if binding_id == crate::actions::LIVE_SOUND_TRANSCRIPTION_BINDING_ID {
                                     let final_blocks = if chunk_text.is_empty() {
                                         Vec::new()
@@ -619,18 +662,21 @@ impl SonioxRealtimeManager {
                                     );
                                 }
 
-                                if binding_id != crate::actions::LIVE_SOUND_TRANSCRIPTION_BINDING_ID {
+                                if show_preview
+                                    && binding_id != crate::actions::LIVE_SOUND_TRANSCRIPTION_BINDING_ID
+                                {
                                     let mut preview_final_text = crate::overlay::get_soniox_live_preview_state().final_text;
                                     if !chunk_text.is_empty() {
                                         preview_final_text.push_str(&chunk_text);
                                     }
                                     debug!(
-                                        "Live preview update: final_tokens={}, non_final_tokens={}, final_chars={}, interim_chars={}, finished={}",
+                                        "Live preview update: final_tokens={}, non_final_tokens={}, final_chars={}, interim_chars={}, finished={}, finalization_complete={}",
                                         final_token_count,
                                         non_final_token_count,
                                         chunk_text.len(),
                                         interim_text.len(),
-                                        is_finished_payload
+                                        is_finished_payload,
+                                        finalization_complete
                                     );
                                     crate::overlay::emit_soniox_live_preview_update(
                                         &app_handle,
@@ -640,7 +686,10 @@ impl SonioxRealtimeManager {
                                 }
                             }
 
-                            if is_finished_payload {
+                            if is_finished_payload || finalization_complete {
+                                if finalization_complete && !is_finished_payload {
+                                    debug!("Soniox live session completed via <fin> token");
+                                }
                                 finished = true;
                                 break;
                             }
@@ -704,7 +753,43 @@ impl SonioxRealtimeManager {
         }
     }
 
+    pub fn queue_recorded_audio_for_active_session(
+        &self,
+        samples_16khz_mono: &[f32],
+    ) -> Result<()> {
+        const PRECONNECTED_CHUNK_SAMPLES: usize = 3_200;
+
+        let control_tx = self
+            .active_session
+            .lock()
+            .as_ref()
+            .map(|session| session.control_tx.clone())
+            .ok_or_else(|| anyhow!("No active Soniox optimized delivery session"))?;
+
+        for chunk in samples_16khz_mono.chunks(PRECONNECTED_CHUNK_SAMPLES) {
+            control_tx
+                .send(ControlMessage::Audio(frame_16khz_mono_to_pcm_s16le_bytes(
+                    chunk,
+                )))
+                .map_err(|_| anyhow!("Soniox optimized delivery session is closed"))?;
+        }
+
+        Ok(())
+    }
+
     pub async fn finish_session(&self, timeout_ms: u32) -> Result<String> {
+        self.finish_session_inner(timeout_ms, true).await
+    }
+
+    pub async fn finish_session_strict(&self, timeout_ms: u32) -> Result<String> {
+        self.finish_session_inner(timeout_ms, false).await
+    }
+
+    async fn finish_session_inner(
+        &self,
+        timeout_ms: u32,
+        return_partial_on_timeout_or_error: bool,
+    ) -> Result<String> {
         let hide_preview = |binding_id: Option<&str>| {
             if binding_id == Some(crate::actions::LIVE_SOUND_TRANSCRIPTION_BINDING_ID) {
                 return;
@@ -750,7 +835,10 @@ impl SonioxRealtimeManager {
                         binding_id, e
                     );
                     hide_preview(Some(&binding_id));
-                    return Ok(partial);
+                    if return_partial_on_timeout_or_error {
+                        return Ok(partial);
+                    }
+                    return Err(e);
                 }
                 hide_preview(Some(&binding_id));
                 return Err(e);
@@ -763,7 +851,10 @@ impl SonioxRealtimeManager {
                         binding_id, e
                     );
                     hide_preview(Some(&binding_id));
-                    return Ok(partial);
+                    if return_partial_on_timeout_or_error {
+                        return Ok(partial);
+                    }
+                    return Err(anyhow!("Soniox live session join failed: {}", e));
                 }
                 hide_preview(Some(&binding_id));
                 return Err(anyhow!("Soniox live session join failed: {}", e));
@@ -777,7 +868,12 @@ impl SonioxRealtimeManager {
                         binding_id, wait_ms
                     );
                     hide_preview(Some(&binding_id));
-                    return Ok(partial);
+                    if return_partial_on_timeout_or_error {
+                        return Ok(partial);
+                    }
+                    return Err(anyhow!(
+                        "Timed out while waiting for Soniox live session completion after partial output"
+                    ));
                 }
                 hide_preview(Some(&binding_id));
                 return Err(anyhow!(

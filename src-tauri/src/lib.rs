@@ -767,6 +767,7 @@ pub fn run() {
         shortcut::change_soniox_keepalive_interval_seconds_setting,
         shortcut::change_soniox_live_finalize_timeout_ms_setting,
         shortcut::change_soniox_live_instant_stop_setting,
+        shortcut::change_soniox_optimize_delivery_preconnect_enabled_setting,
         shortcut::change_soniox_realtime_fuzzy_correction_enabled_setting,
         shortcut::change_soniox_realtime_keep_safety_buffer_enabled_setting,
         shortcut::reset_soniox_settings_to_defaults,

@@ -994,6 +994,11 @@
           "description": "Идентификатор модели, который AivoRelay отправляет в Soniox при каждом запросе. В AivoRelay модели stt-rt-* при Live=ON используют live WebSocket-путь с появлением текста во время речи; stt-async-* (или Live=OFF) используют не-live путь, где итог появляется после обработки. Если поведение кажется неожиданным, сначала проверьте семейство модели и переключатель Live.",
           "placeholder": "stt-rt-v5",
           "asyncNotice": "Async-модели Soniox загружают завершённую запись как файл, создают job транскрибации, опрашивают статус до завершения, а потом отдельно забирают transcript. Поэтому для короткой диктовки они по природе медленнее, чем провайдеры с одним запросом вроде Groq Whisper Turbo. AivoRelay может уменьшить накладные расходы polling, но не может превратить async file/job pipeline Soniox в мгновенный запрос.",
+          "upgradeTitle": "Доступна Soniox real-time v5",
+          "upgradeDescription": "Сейчас используется {{currentModel}}. Нажмите, чтобы заменить это поле на {{targetModel}} и применить настройку.",
+          "upgradeButton": "Обновить до stt-rt-v5",
+          "upgradeSuccess": "Realtime-модель Soniox обновлена до stt-rt-v5.",
+          "upgradeFailed": "Не удалось обновить realtime-модель Soniox: {{error}}",
           "customTitle": "Custom model id",
           "customDescription": "Введите точный id модели Soniox. Модели, начинающиеся с stt-rt, используют real-time путь; модели, начинающиеся с stt-async, используют async file/job путь.",
           "options": {
@@ -1010,6 +1015,10 @@
           "title": "Live real-time стриминг",
           "description": "При включении и выборе stt-rt модели AivoRelay передаёт звук напрямую в Soniox по WebSocket, а подтверждённый текст появляется во время речи. Выключите Live, чтобы использовать real-time модель в режиме record-then-transcribe: AivoRelay записывает всю фразу, отправляет её после остановки и вставляет один финальный результат. Это полезно, когда паузы на обдумывание дробят предложение через endpoint detection. Это не то же самое, что Soniox stt-async, и обычно быстрее, чем async file/job pipeline.",
           "realtimeOnly": "Live-стриминг доступен только для real-time моделей Soniox (stt-rt-*)."
+        },
+        "optimizeDeliveryPreconnect": {
+          "title": "Оптимизация доставки: preconnect",
+          "description": "Когда Live-стриминг выключен, заранее открыть и подготовить Soniox WebSocket во время записи, а готовое аудио отправить только после остановки. Поведение record-then-transcribe сохраняется; выигрыш в основном на открытии соединения."
         },
         "languageHints": {
           "title": "Language hints",
@@ -1971,7 +1980,7 @@
     "description": "Изменить языка интерфейса Handy"
   },
   "overlay": {
-    "sending": "Отправка...",
+    "sending": "Обработка речи...",
     "thinking": "Размышление...",
     "transcribing": "Расшифровка...",
     "finalizing": "Финализация...",

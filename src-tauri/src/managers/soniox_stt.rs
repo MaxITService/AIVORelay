@@ -24,12 +24,18 @@ const DEFAULT_CONNECT_TIMEOUT_SECS: u64 = 10;
 const DEFAULT_REQUEST_TIMEOUT_SECS: u64 = 60;
 const AUDIO_CHUNK_SIZE_BYTES: usize = 32 * 1024;
 const MIN_TIMEOUT_SECONDS: u32 = 5;
+const SONIOX_FALLBACK_SAMPLE_RATE: u32 = 16_000;
+const SONIOX_FALLBACK_CHANNELS: u8 = 1;
 
 #[derive(Serialize)]
 struct SonioxStartRequest {
     api_key: String,
     model: String,
     audio_format: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    sample_rate: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    num_channels: Option<u8>,
     #[serde(skip_serializing_if = "Option::is_none")]
     language_hints: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -174,6 +180,15 @@ impl SonioxSttManager {
         Ok(())
     }
 
+    fn encode_pcm_s16le_bytes(samples: &[f32]) -> Vec<u8> {
+        let mut bytes = Vec::with_capacity(samples.len() * std::mem::size_of::<i16>());
+        for sample in samples {
+            let sample_i16 = (sample.clamp(-1.0, 1.0) * i16::MAX as f32).round() as i16;
+            bytes.extend_from_slice(&sample_i16.to_le_bytes());
+        }
+        bytes
+    }
+
     async fn with_retry<F, Fut, T>(
         &self,
         operation_name: &str,
@@ -206,10 +221,12 @@ impl SonioxSttManager {
                     delay = std::cmp::min(delay * 2, Duration::from_millis(MAX_RETRY_DELAY_MS));
                 }
                 Err(err) => {
+                    let attempts = attempt + 1;
                     return Err(anyhow!(
-                        "{} failed after {} attempts: {}",
+                        "{} failed after {} attempt{}: {}",
                         operation_name,
-                        MAX_RETRIES,
+                        attempts,
+                        if attempts == 1 { "" } else { "s" },
                         err
                     ));
                 }
@@ -224,8 +241,11 @@ impl SonioxSttManager {
         // the request already timed out in a non-recoverable way for this clip.
         // Retrying the same payload tends to extend "sending" UX without benefit.
         if operation_name == "Soniox WebSocket transcription" {
-            let message = err.to_string();
-            if message.contains("Soniox WebSocket error 408") {
+            let message = err.to_string().to_lowercase();
+            if message.contains("soniox websocket error 408")
+                || message.contains("soniox websocket read timed out")
+                || message.contains("transcription timed out")
+            {
                 return false;
             }
         }
@@ -402,7 +422,7 @@ impl SonioxSttManager {
         api_key: &str,
         model: &str,
         timeout_seconds: u32,
-        wav_data: &[u8],
+        audio_data: &[u8],
         language_hints: Option<Vec<String>>,
         context: Option<SonioxContext>,
     ) -> Result<String> {
@@ -410,6 +430,7 @@ impl SonioxSttManager {
         self.ensure_not_cancelled(operation_id)?;
         Self::ensure_within_timeout(started, timeout_seconds)?;
 
+        let connect_started_at = Instant::now();
         let (stream, _) = timeout(
             Duration::from_secs(DEFAULT_CONNECT_TIMEOUT_SECS),
             connect_async(SONIOX_WS_URL),
@@ -417,13 +438,17 @@ impl SonioxSttManager {
         .await
         .map_err(|_| anyhow!("Timed out while connecting to Soniox WebSocket"))?
         .map_err(|e| anyhow!("Failed to connect to Soniox WebSocket: {}", e))?;
+        let connect_ms = connect_started_at.elapsed().as_millis();
 
         let (mut write, mut read) = stream.split();
 
+        let build_start_payload_started_at = Instant::now();
         let start_request = SonioxStartRequest {
             api_key: api_key.to_string(),
             model: model.to_string(),
-            audio_format: "auto".to_string(),
+            audio_format: "pcm_s16le".to_string(),
+            sample_rate: Some(SONIOX_FALLBACK_SAMPLE_RATE),
+            num_channels: Some(SONIOX_FALLBACK_CHANNELS),
             language_hints,
             context,
             // This manager's WS mode is a non-live full-clip upload fallback.
@@ -434,44 +459,78 @@ impl SonioxSttManager {
 
         let start_payload = serde_json::to_string(&start_request)
             .map_err(|e| anyhow!("Failed to build Soniox start payload: {}", e))?;
+        let build_start_payload_ms = build_start_payload_started_at.elapsed().as_millis();
 
+        let send_start_started_at = Instant::now();
         write
             .send(Message::Text(start_payload.into()))
             .await
             .map_err(|e| anyhow!("Failed to send Soniox start request: {}", e))?;
+        let send_start_ms = send_start_started_at.elapsed().as_millis();
 
-        for chunk in wav_data.chunks(AUDIO_CHUNK_SIZE_BYTES) {
+        let upload_started_at = Instant::now();
+        let mut audio_chunk_count = 0usize;
+        for chunk in audio_data.chunks(AUDIO_CHUNK_SIZE_BYTES) {
             self.ensure_not_cancelled(operation_id)?;
             Self::ensure_within_timeout(started, timeout_seconds)?;
 
+            audio_chunk_count += 1;
             write
                 .send(Message::Binary(chunk.to_vec().into()))
                 .await
                 .map_err(|e| anyhow!("Failed to send audio chunk to Soniox: {}", e))?;
         }
+        let upload_ms = upload_started_at.elapsed().as_millis();
 
         // Ask Soniox to finalize any pending tail audio before stream close.
         // This improves end-of-utterance completeness for non-live fallback flows
         // (AI Replace / Connector / Screenshot voice text), which do not use the
         // dedicated live session manager.
+        let send_finalize_started_at = Instant::now();
         write
             .send(Message::Text(r#"{"type":"finalize"}"#.to_string().into()))
             .await
             .map_err(|e| anyhow!("Failed to send Soniox finalize control message: {}", e))?;
+        let send_finalize_ms = send_finalize_started_at.elapsed().as_millis();
 
         // Empty binary message signals end-of-audio for Soniox WebSocket API.
+        let send_end_marker_started_at = Instant::now();
         write
             .send(Message::Binary(Vec::new().into()))
             .await
             .map_err(|e| anyhow!("Failed to finalize Soniox audio stream: {}", e))?;
+        let send_end_marker_ms = send_end_marker_started_at.elapsed().as_millis();
 
+        let flush_started_at = Instant::now();
         write
             .flush()
             .await
             .map_err(|e| anyhow!("Failed to flush Soniox WebSocket stream: {}", e))?;
+        let flush_ms = flush_started_at.elapsed().as_millis();
 
+        info!(
+            "Soniox WebSocket fallback upload complete: connect_ms={}, build_start_payload_ms={}, send_start_ms={}, upload_ms={}, audio_format=pcm_s16le, audio_bytes={}, audio_chunks={}, send_finalize_ms={}, send_end_marker_ms={}, flush_ms={}; waiting for final tokens",
+            connect_ms,
+            build_start_payload_ms,
+            send_start_ms,
+            upload_ms,
+            audio_data.len(),
+            audio_chunk_count,
+            send_finalize_ms,
+            send_end_marker_ms,
+            flush_ms
+        );
+
+        let read_started_at = Instant::now();
         let mut final_tokens: Vec<String> = Vec::new();
         let mut finished = false;
+        let mut text_frame_count = 0usize;
+        let mut final_token_count = 0usize;
+        let mut non_final_token_count = 0usize;
+        let mut first_response_wait_ms: Option<u128> = None;
+        let mut first_final_token_wait_ms: Option<u128> = None;
+        let mut soniox_audio_final_proc_ms: Option<u64> = None;
+        let mut soniox_audio_total_proc_ms: Option<u64> = None;
 
         loop {
             self.ensure_not_cancelled(operation_id)?;
@@ -488,6 +547,9 @@ impl SonioxSttManager {
 
             match frame {
                 Message::Text(text) => {
+                    text_frame_count += 1;
+                    first_response_wait_ms
+                        .get_or_insert_with(|| read_started_at.elapsed().as_millis());
                     let payload: SonioxResponse =
                         serde_json::from_str(text.as_ref()).map_err(|e| {
                             let preview: String = text.chars().take(200).collect();
@@ -506,7 +568,14 @@ impl SonioxSttManager {
                     }
 
                     let mut finalization_complete = false;
-                    for token in payload.tokens.into_iter().filter(|token| token.is_final) {
+                    for token in payload.tokens {
+                        if !token.is_final {
+                            non_final_token_count += 1;
+                            continue;
+                        }
+                        first_final_token_wait_ms
+                            .get_or_insert_with(|| read_started_at.elapsed().as_millis());
+                        final_token_count += 1;
                         if token.text == "<fin>" {
                             finalization_complete = true;
                             continue;
@@ -518,9 +587,11 @@ impl SonioxSttManager {
 
                     if payload.finished {
                         if let Some(ms) = payload.audio_final_proc_ms {
+                            soniox_audio_final_proc_ms = Some(ms);
                             debug!("Soniox final audio processing: {}ms", ms);
                         }
                         if let Some(ms) = payload.audio_total_proc_ms {
+                            soniox_audio_total_proc_ms = Some(ms);
                             debug!("Soniox total audio processing: {}ms", ms);
                         }
                         finished = true;
@@ -564,7 +635,31 @@ impl SonioxSttManager {
             ));
         }
 
-        Ok(final_tokens.concat())
+        let final_text = final_tokens.concat();
+        info!(
+            "Soniox WebSocket fallback timings: total_ms={}, connect_ms={}, build_start_payload_ms={}, send_start_ms={}, upload_ms={}, send_finalize_ms={}, send_end_marker_ms={}, flush_ms={}, wait_finished_ms={}, first_response_wait_ms={:?}, first_final_token_wait_ms={:?}, audio_format=pcm_s16le, audio_bytes={}, audio_chunks={}, text_frames={}, final_tokens={}, non_final_tokens={}, output_len={}, soniox_audio_final_proc_ms={:?}, soniox_audio_total_proc_ms={:?}",
+            started.elapsed().as_millis(),
+            connect_ms,
+            build_start_payload_ms,
+            send_start_ms,
+            upload_ms,
+            send_finalize_ms,
+            send_end_marker_ms,
+            flush_ms,
+            read_started_at.elapsed().as_millis(),
+            first_response_wait_ms,
+            first_final_token_wait_ms,
+            audio_data.len(),
+            audio_chunk_count,
+            text_frame_count,
+            final_token_count,
+            non_final_token_count,
+            final_text.len(),
+            soniox_audio_final_proc_ms,
+            soniox_audio_total_proc_ms
+        );
+
+        Ok(final_text)
     }
 
     async fn transcribe_once_ws_with_callback<F>(
@@ -573,7 +668,7 @@ impl SonioxSttManager {
         api_key: &str,
         model: &str,
         timeout_seconds: u32,
-        wav_data: &[u8],
+        audio_data: &[u8],
         language_hints: Option<Vec<String>>,
         context: Option<SonioxContext>,
         on_final_chunk: &mut F,
@@ -598,7 +693,9 @@ impl SonioxSttManager {
         let start_request = SonioxStartRequest {
             api_key: api_key.to_string(),
             model: model.to_string(),
-            audio_format: "auto".to_string(),
+            audio_format: "pcm_s16le".to_string(),
+            sample_rate: Some(SONIOX_FALLBACK_SAMPLE_RATE),
+            num_channels: Some(SONIOX_FALLBACK_CHANNELS),
             language_hints,
             context,
             enable_endpoint_detection: true,
@@ -612,7 +709,7 @@ impl SonioxSttManager {
             .await
             .map_err(|e| anyhow!("Failed to send Soniox start request: {}", e))?;
 
-        for chunk in wav_data.chunks(AUDIO_CHUNK_SIZE_BYTES) {
+        for chunk in audio_data.chunks(AUDIO_CHUNK_SIZE_BYTES) {
             self.ensure_not_cancelled(operation_id)?;
             Self::ensure_within_timeout(started, timeout_seconds)?;
 
@@ -954,10 +1051,22 @@ impl SonioxSttManager {
 
         self.ensure_not_cancelled(operation_id)?;
 
-        let model = Self::normalize_model_for_realtime(model);
-        let wav_data = encode_wav_bytes(audio_samples)?;
-        let language_hints = Self::normalized_language_hints(language);
         let started_at = Instant::now();
+        let model = Self::normalize_model_for_realtime(model);
+        let encode_started_at = Instant::now();
+        let audio_data = Self::encode_pcm_s16le_bytes(audio_samples);
+        let encode_ms = encode_started_at.elapsed().as_millis();
+        let language_hints = Self::normalized_language_hints(language);
+
+        info!(
+            "Soniox WebSocket fallback prepared audio: model={}, samples={}, audio_format=pcm_s16le, audio_bytes={}, sample_rate={}, channels={}, encode_ms={}",
+            model,
+            audio_samples.len(),
+            audio_data.len(),
+            SONIOX_FALLBACK_SAMPLE_RATE,
+            SONIOX_FALLBACK_CHANNELS,
+            encode_ms
+        );
 
         let text = self
             .with_retry("Soniox WebSocket transcription", operation_id, || async {
@@ -966,7 +1075,7 @@ impl SonioxSttManager {
                     api_key,
                     &model,
                     timeout_seconds,
-                    &wav_data,
+                    &audio_data,
                     language_hints.clone(),
                     context.clone(),
                 )
@@ -974,8 +1083,9 @@ impl SonioxSttManager {
             })
             .await?;
         info!(
-            "Soniox WebSocket transcription completed in {}ms, output_len={}",
+            "Soniox WebSocket transcription completed in {}ms, encode_ms={}, output_len={}",
             started_at.elapsed().as_millis(),
+            encode_ms,
             text.len()
         );
 
@@ -1007,10 +1117,22 @@ impl SonioxSttManager {
 
         self.ensure_not_cancelled(operation_id)?;
 
-        let model = Self::normalize_model_for_realtime(model);
-        let wav_data = encode_wav_bytes(audio_samples)?;
-        let language_hints = Self::normalized_language_hints(language);
         let started_at = Instant::now();
+        let model = Self::normalize_model_for_realtime(model);
+        let encode_started_at = Instant::now();
+        let audio_data = Self::encode_pcm_s16le_bytes(audio_samples);
+        let encode_ms = encode_started_at.elapsed().as_millis();
+        let language_hints = Self::normalized_language_hints(language);
+
+        info!(
+            "Soniox WebSocket streaming fallback prepared audio: model={}, samples={}, audio_format=pcm_s16le, audio_bytes={}, sample_rate={}, channels={}, encode_ms={}",
+            model,
+            audio_samples.len(),
+            audio_data.len(),
+            SONIOX_FALLBACK_SAMPLE_RATE,
+            SONIOX_FALLBACK_CHANNELS,
+            encode_ms
+        );
 
         let text = self
             .transcribe_once_ws_with_callback(
@@ -1018,15 +1140,16 @@ impl SonioxSttManager {
                 api_key,
                 &model,
                 timeout_seconds,
-                &wav_data,
+                &audio_data,
                 language_hints,
                 context,
                 &mut on_final_chunk,
             )
             .await?;
         info!(
-            "Soniox WebSocket streaming transcription completed in {}ms, output_len={}",
+            "Soniox WebSocket streaming transcription completed in {}ms, encode_ms={}, output_len={}",
             started_at.elapsed().as_millis(),
+            encode_ms,
             text.len()
         );
 
@@ -1111,5 +1234,37 @@ impl SonioxSttManager {
         }
 
         result
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn websocket_read_timeout_is_not_retried() {
+        let err = anyhow!("Soniox WebSocket read timed out");
+
+        assert!(!SonioxSttManager::should_retry(
+            "Soniox WebSocket transcription",
+            &err
+        ));
+    }
+
+    #[test]
+    fn websocket_total_timeout_is_not_retried() {
+        let err = anyhow!("Transcription timed out after 30 seconds");
+
+        assert!(!SonioxSttManager::should_retry(
+            "Soniox WebSocket transcription",
+            &err
+        ));
+    }
+
+    #[test]
+    fn non_websocket_operations_keep_retry_policy() {
+        let err = anyhow!("temporary network hiccup");
+
+        assert!(SonioxSttManager::should_retry("Soniox file upload", &err));
     }
 }
