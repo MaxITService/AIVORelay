@@ -166,7 +166,7 @@ export const Dropdown: React.FC<DropdownProps> = ({
     >
       <button
         type="button"
-        className={`px-3 py-2 text-sm font-medium bg-[#1e1e1e]/80 border border-[#3c3c3c] rounded-md min-w-[200px] text-left flex items-center justify-between transition-all duration-200 ${
+        className={`px-3 py-2 text-sm font-medium bg-[#1e1e1e]/80 border border-[#3c3c3c] rounded-md min-w-[200px] w-full text-left grid grid-cols-[minmax(0,1fr)_auto] gap-2 items-center transition-all duration-200 ${
           disabled
             ? "opacity-40 cursor-not-allowed"
             : "hover:bg-[#252525]/80 hover:border-[#4a4a4a] cursor-pointer"
@@ -175,9 +175,11 @@ export const Dropdown: React.FC<DropdownProps> = ({
         onKeyDown={handleKeyDown}
         disabled={disabled}
       >
-        <span className="truncate">{selectedOption?.label || placeholder}</span>
+        <span className="min-w-0 truncate">
+          {selectedOption?.label || placeholder}
+        </span>
         <svg
-          className={`w-4 h-4 ml-2 transition-transform duration-200 text-[#6b6b6b] ${isOpen ? "transform rotate-180" : ""}`}
+          className={`w-4 h-4 transition-transform duration-200 text-[#6b6b6b] ${isOpen ? "transform rotate-180" : ""}`}
           fill="none"
           stroke="currentColor"
           viewBox="0 0 24 24"
@@ -216,7 +218,9 @@ export const Dropdown: React.FC<DropdownProps> = ({
                 disabled={option.disabled}
                 onMouseEnter={() => setHighlightedIndex(index)}
               >
-                <span className="truncate">{option.label}</span>
+                <span className="block whitespace-normal break-words">
+                  {option.label}
+                </span>
               </button>
             ))
           )}
