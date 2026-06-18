@@ -1102,7 +1102,7 @@ const RecordingOverlay: React.FC = () => {
         )}
         {state === "sending" && (
           <div className="sending-text">
-            {t("overlay.sending", "Sending...")}
+            {t("overlay.sending", "Processing speech...")}
           </div>
         )}
         {state === "thinking" && (

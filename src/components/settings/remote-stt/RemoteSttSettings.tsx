@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import { listen } from "@tauri-apps/api/event";
 import { invoke } from "@tauri-apps/api/core";
 import { type } from "@tauri-apps/plugin-os";
+import { RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 import {
   commands,
@@ -163,6 +164,9 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
   const sonioxLiveEnabled = Boolean(
     (settings as any)?.soniox_live_enabled ?? true,
   );
+  const sonioxOptimizeDeliveryPreconnectEnabled = Boolean(
+    (settings as any)?.soniox_optimize_delivery_preconnect_enabled ?? false,
+  );
   const sonioxLanguageHints = ((settings as any)?.soniox_language_hints ??
     ["en"]) as string[];
   const sonioxUseProfileLanguageHintOnly = Boolean(
@@ -234,16 +238,19 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
   const isDeepgramProvider = provider === "remote_deepgram";
   const isCloudProvider =
     isRemoteOpenAiProvider || isSonioxProvider || isDeepgramProvider;
+  const trimmedSonioxModel = sonioxModel.trim();
   const isKnownSonioxPreset =
-    sonioxModel.trim() === SONIOX_DEFAULT_REALTIME_MODEL ||
-    sonioxModel.trim() === SONIOX_DEFAULT_ASYNC_MODEL;
+    trimmedSonioxModel === SONIOX_DEFAULT_REALTIME_MODEL ||
+    trimmedSonioxModel === SONIOX_DEFAULT_ASYNC_MODEL;
   const derivedSonioxModelMode = isKnownSonioxPreset
-    ? sonioxModel.trim()
+    ? trimmedSonioxModel
     : "custom";
-  const isSonioxRealtimeModel = sonioxModel.trim().startsWith("stt-rt");
+  const isSonioxRealtimeModel = trimmedSonioxModel.startsWith("stt-rt");
   const isSonioxRealtimeV5Model =
-    sonioxModel.trim() === SONIOX_DEFAULT_REALTIME_MODEL;
-  const isSonioxAsyncModel = sonioxModel.trim().startsWith("stt-async");
+    trimmedSonioxModel === SONIOX_DEFAULT_REALTIME_MODEL;
+  const showSonioxRealtimeV5Upgrade =
+    isSonioxRealtimeModel && !isSonioxRealtimeV5Model;
+  const isSonioxAsyncModel = trimmedSonioxModel.startsWith("stt-async");
   const effectiveRemoteBaseUrl =
     remotePreset === "custom"
       ? remoteSettings?.base_url ?? ""
@@ -406,6 +413,7 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
   const [apiKeyLoading, setApiKeyLoading] = useState(false);
   const [isEditingKey, setIsEditingKey] = useState(false);
   const [hasKeyStatusLoaded, setHasKeyStatusLoaded] = useState(false);
+  const [isUpgradingSonioxModel, setIsUpgradingSonioxModel] = useState(false);
   const sonioxRealtimeControlsEnabled =
     sonioxModelMode === "custom" || isSonioxRealtimeModel;
   const sonioxEndpointSensitivityEnabled =
@@ -928,6 +936,42 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
     }
     if (trimmed !== sonioxModel) {
       void updateSetting("soniox_model" as any, trimmed as any);
+    }
+  };
+
+  const handleUpgradeSonioxRealtimeModel = async () => {
+    setIsUpgradingSonioxModel(true);
+    setSonioxModelMode(SONIOX_DEFAULT_REALTIME_MODEL);
+    setCustomSonioxModelInput("");
+
+    try {
+      const result = await commands.changeSonioxModelSetting(
+        SONIOX_DEFAULT_REALTIME_MODEL,
+      );
+      if (result.status === "error") {
+        throw new Error(result.error);
+      }
+      await refreshSettings();
+      toast.success(
+        t(
+          "settings.advanced.soniox.model.upgradeSuccess",
+          "Soniox realtime model updated to stt-rt-v5.",
+        ),
+      );
+    } catch (error) {
+      setSonioxModelMode(derivedSonioxModelMode);
+      if (!isKnownSonioxPreset) {
+        setCustomSonioxModelInput(sonioxModel);
+      }
+      const message = error instanceof Error ? error.message : String(error);
+      toast.error(
+        t("settings.advanced.soniox.model.upgradeFailed", {
+          error: message,
+          defaultValue: "Failed to update Soniox realtime model: {{error}}",
+        }),
+      );
+    } finally {
+      setIsUpgradingSonioxModel(false);
     }
   };
 
@@ -1735,6 +1779,48 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
                 />
               </SettingContainer>
 
+              {showSonioxRealtimeV5Upgrade && (
+                <div className="mx-4 rounded border border-cyan-500/30 bg-cyan-500/10 p-3 text-sm text-cyan-100">
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                    <div className="min-w-0">
+                      <p className="font-medium">
+                        {t(
+                          "settings.advanced.soniox.model.upgradeTitle",
+                          "Soniox real-time v5 is available",
+                        )}
+                      </p>
+                      <p className="mt-1 text-cyan-200/90">
+                        {t("settings.advanced.soniox.model.upgradeDescription", {
+                          currentModel: trimmedSonioxModel || sonioxModel,
+                          targetModel: SONIOX_DEFAULT_REALTIME_MODEL,
+                          defaultValue:
+                            "You are using {{currentModel}}. Click here to switch this field to {{targetModel}} and apply it.",
+                        })}
+                      </p>
+                    </div>
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      onClick={handleUpgradeSonioxRealtimeModel}
+                      disabled={
+                        isUpgradingSonioxModel || isUpdating("soniox_model")
+                      }
+                      className="inline-flex shrink-0 items-center justify-center gap-2 whitespace-nowrap"
+                    >
+                      <RefreshCw
+                        className={`h-3.5 w-3.5 ${
+                          isUpgradingSonioxModel ? "animate-spin" : ""
+                        }`}
+                      />
+                      {t(
+                        "settings.advanced.soniox.model.upgradeButton",
+                        "Update to stt-rt-v5",
+                      )}
+                    </Button>
+                  </div>
+                </div>
+              )}
+
               {sonioxModelMode === "custom" && (
                 <SettingContainer
                   title={t(
@@ -1821,6 +1907,26 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
                 }
                 isUpdating={isUpdating("soniox_live_enabled")}
                 disabled={!sonioxRealtimeControlsEnabled}
+                descriptionMode={descriptionMode}
+                grouped={grouped}
+              />
+
+              <ToggleSwitch
+                label={t("settings.advanced.soniox.optimizeDeliveryPreconnect.title")}
+                description={t(
+                  "settings.advanced.soniox.optimizeDeliveryPreconnect.description",
+                )}
+                checked={sonioxOptimizeDeliveryPreconnectEnabled}
+                onChange={(enabled) =>
+                  void updateSetting(
+                    "soniox_optimize_delivery_preconnect_enabled" as any,
+                    enabled as any,
+                  )
+                }
+                isUpdating={isUpdating(
+                  "soniox_optimize_delivery_preconnect_enabled",
+                )}
+                disabled={!sonioxRealtimeControlsEnabled || sonioxLiveEnabled}
                 descriptionMode={descriptionMode}
                 grouped={grouped}
               />

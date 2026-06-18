@@ -38,7 +38,7 @@ use crate::utils::{
 };
 use crate::ManagedToggleState;
 use ferrous_opencc::{config::BuiltinConfig, OpenCC};
-use log::{debug, error, warn};
+use log::{debug, error, info, warn};
 use natural::phonetics::soundex;
 use once_cell::sync::Lazy;
 use serde::Serialize;
@@ -137,6 +137,10 @@ static DEEPGRAM_STREAM_EMITTED: Lazy<Mutex<HashMap<String, bool>>> =
 static OPENAI_REALTIME_WHISPER_STREAM_EMITTED: Lazy<Mutex<HashMap<String, bool>>> =
     Lazy::new(|| Mutex::new(HashMap::new()));
 const RECORDING_SAMPLE_RATE_HZ: f32 = 16_000.0;
+const SONIOX_REALTIME_FALLBACK_ASYNC_THRESHOLD_SECS: f32 = 20.0;
+const SONIOX_LONG_AUDIO_TIMEOUT_MULTIPLIER: f32 = 2.0;
+const SONIOX_LONG_AUDIO_TIMEOUT_PADDING_SECS: f32 = 30.0;
+const SONIOX_LONG_AUDIO_MAX_TIMEOUT_SECS: u32 = 600;
 const LIVE_QUICK_CANCEL_THRESHOLD_MS: u64 = 500;
 pub(crate) const OPENAI_REALTIME_WHISPER_LIVE_FINALIZE_TIMEOUT_MS: u32 = 5_000;
 const LOCAL_PREVIEW_AUTO_MIN_SAMPLES: usize = 16_000;
@@ -220,6 +224,29 @@ fn peek_recording_app_context(binding_id: &str) -> String {
 
 fn quick_tap_threshold_samples(threshold_ms: u32) -> usize {
     ((threshold_ms.max(1) as f32 / 1000.0) * RECORDING_SAMPLE_RATE_HZ) as usize
+}
+
+fn recording_duration_secs(sample_count: usize) -> f32 {
+    sample_count as f32 / RECORDING_SAMPLE_RATE_HZ
+}
+
+fn should_use_soniox_async_file_for_realtime_fallback(sample_count: usize) -> bool {
+    recording_duration_secs(sample_count) >= SONIOX_REALTIME_FALLBACK_ASYNC_THRESHOLD_SECS
+}
+
+fn effective_soniox_timeout_seconds(configured_timeout_seconds: u32, sample_count: usize) -> u32 {
+    if !should_use_soniox_async_file_for_realtime_fallback(sample_count) {
+        return configured_timeout_seconds;
+    }
+
+    let duration_secs = recording_duration_secs(sample_count);
+    let duration_based_timeout = (duration_secs * SONIOX_LONG_AUDIO_TIMEOUT_MULTIPLIER
+        + SONIOX_LONG_AUDIO_TIMEOUT_PADDING_SECS)
+        .ceil() as u32;
+
+    configured_timeout_seconds
+        .max(duration_based_timeout)
+        .min(SONIOX_LONG_AUDIO_MAX_TIMEOUT_SECS)
 }
 
 fn should_skip_transcription_for_quick_tap(
@@ -1373,9 +1400,6 @@ fn start_recording_with_feedback(app: &AppHandle, binding_id: &str) -> bool {
     // Now release the lock before doing I/O operations
     drop(state_guard);
 
-    change_tray_icon(app, TrayIconState::Recording);
-    show_recording_overlay(app);
-
     let rm = app.state::<Arc<AudioRecordingManager>>();
     let use_live_streaming = should_use_live_streaming(&settings);
     if use_live_streaming {
@@ -1412,20 +1436,21 @@ fn start_recording_with_feedback(app: &AppHandle, binding_id: &str) -> bool {
     debug!("Microphone mode - always_on: {}", is_always_on);
 
     let mut recording_error: Option<StartRecordingError> = None;
+    let mut recording_started_at: Option<Instant> = None;
     if is_always_on {
-        // Always-on mode: Play audio feedback immediately, then apply mute after sound finishes
-        debug!("Always-on mode: Playing audio feedback immediately");
-        let rm_clone = Arc::clone(&rm);
-        let app_clone = app.clone();
-        std::thread::spawn(move || {
-            play_feedback_sound_blocking(&app_clone, SoundType::Start);
-            rm_clone.apply_mute();
-        });
-
+        // Always-on mode: the stream is already open, but still arm recording before UI/audio feedback.
+        debug!("Always-on mode: Starting recording before audio feedback");
         match rm.try_start_recording_detailed(binding_id) {
             Ok(()) => {
+                recording_started_at = Some(Instant::now());
                 rm.apply_media_pause();
                 debug!("Recording started");
+                let rm_clone = Arc::clone(&rm);
+                let app_clone = app.clone();
+                std::thread::spawn(move || {
+                    play_feedback_sound_blocking(&app_clone, SoundType::Start);
+                    rm_clone.apply_mute();
+                });
             }
             Err(err) => {
                 debug!("Failed to start recording: {}", err);
@@ -1438,6 +1463,7 @@ fn start_recording_with_feedback(app: &AppHandle, binding_id: &str) -> bool {
         let recording_start_time = Instant::now();
         match rm.try_start_recording_detailed(binding_id) {
             Ok(()) => {
+                recording_started_at = Some(Instant::now());
                 rm.apply_media_pause();
                 debug!("Recording started in {:?}", recording_start_time.elapsed());
                 let app_clone = app.clone();
@@ -1459,6 +1485,42 @@ fn start_recording_with_feedback(app: &AppHandle, binding_id: &str) -> bool {
     let recording_started = recording_error.is_none();
 
     if recording_started {
+        let mut session_still_recording = false;
+        if let Some(started_at) = recording_started_at {
+            let state = app.state::<ManagedSessionState>();
+            let mut state_guard = session_manager::lock_session_state(
+                &state,
+                "start_recording_with_feedback confirm started_at",
+            );
+            if let session_manager::SessionState::Recording {
+                binding_id: active_binding_id,
+                started_at: active_started_at,
+                ..
+            } = &mut *state_guard
+            {
+                if active_binding_id.as_str() == binding_id {
+                    *active_started_at = started_at;
+                    session_still_recording = true;
+                }
+            }
+        }
+
+        if !session_still_recording {
+            debug!(
+                "Recording for '{}' started after session state changed; cancelling stale recorder",
+                binding_id
+            );
+            rm.cancel_recording();
+            if use_live_streaming {
+                rm.clear_stream_frame_callback();
+                app.state::<Arc<SonioxRealtimeManager>>().cancel();
+                app.state::<Arc<DeepgramRealtimeManager>>().cancel();
+                app.state::<Arc<OpenAiRealtimeWhisperManager>>().cancel();
+            }
+            let _ = take_recording_app_context(binding_id);
+            return false;
+        }
+
         if should_latch_decapitalize_for_standard_output {
             crate::text_replacement_decapitalize::promote_pending_realtime_trigger_to_standard_output();
         }
@@ -1466,6 +1528,8 @@ fn start_recording_with_feedback(app: &AppHandle, binding_id: &str) -> bool {
         // Register cancel shortcut now that recording is confirmed
         session.register_cancel_shortcut();
         crate::recording_auto_stop::start_auto_stop_timer(app, binding_id);
+        change_tray_icon(app, TrayIconState::Recording);
+        show_recording_overlay(app);
     } else {
         // Drop captured app context for failed recordings.
         let _ = take_recording_app_context(binding_id);
@@ -1739,6 +1803,11 @@ async fn perform_transcription_for_profile_with_retry_action(
         let is_soniox_realtime_model =
             SonioxRealtimeManager::is_realtime_model(&settings.soniox_model);
         let soniox_context = crate::settings::resolve_soniox_context(profile, &settings);
+        let soniox_timeout_seconds =
+            effective_soniox_timeout_seconds(settings.soniox_timeout_seconds, samples.len());
+        let optimized_delivery_enabled = binding_id
+            .map(|id| should_use_soniox_optimized_delivery(&settings, id, profile.map(|p| &p.id)))
+            .unwrap_or(false);
         let should_stream_insert = !preview_output_only_enabled
             && settings.soniox_live_enabled
             && is_soniox_realtime_model
@@ -1821,17 +1890,98 @@ async fn perform_transcription_for_profile_with_retry_action(
                 Err(err) => Err(err),
             }
         } else if is_soniox_realtime_model {
-            soniox_manager
-                .transcribe(
-                    Some(operation_id),
-                    &api_key,
-                    &settings.soniox_model,
-                    settings.soniox_timeout_seconds,
-                    &samples,
-                    Some(language.as_str()),
-                    soniox_context,
-                )
-                .await
+            let soniox_live_manager = Arc::clone(&app.state::<Arc<SonioxRealtimeManager>>());
+            if should_use_soniox_async_file_for_realtime_fallback(samples.len()) {
+                if optimized_delivery_enabled && soniox_live_manager.has_active_session() {
+                    soniox_live_manager.cancel();
+                }
+                let duration_secs = recording_duration_secs(samples.len());
+                info!(
+                    "Soniox realtime fallback using async REST for long clip: duration_secs={:.1}, timeout_seconds={}",
+                    duration_secs,
+                    soniox_timeout_seconds
+                );
+                let soniox_options =
+                    build_soniox_async_options_for_shortcut(&settings, language.as_str(), profile);
+                soniox_manager
+                    .transcribe_file_async(
+                        Some(operation_id),
+                        &api_key,
+                        &settings.soniox_model,
+                        soniox_timeout_seconds,
+                        &samples,
+                        Some(language.as_str()),
+                        soniox_options,
+                    )
+                    .await
+                    .map(|transcript| transcript.text)
+            } else if optimized_delivery_enabled && soniox_live_manager.has_active_session() {
+                let fallback_transcribe = || async {
+                    soniox_manager
+                        .transcribe(
+                            Some(operation_id),
+                            &api_key,
+                            &settings.soniox_model,
+                            soniox_timeout_seconds,
+                            &samples,
+                            Some(language.as_str()),
+                            soniox_context.clone(),
+                        )
+                        .await
+                };
+                let optimized_mode = "preconnect";
+                let optimized_started_at = Instant::now();
+                let optimized_result: anyhow::Result<String> = async {
+                    soniox_live_manager.queue_recorded_audio_for_active_session(&samples)?;
+                    soniox_live_manager
+                        .finish_session_strict(settings.soniox_live_finalize_timeout_ms)
+                        .await
+                }
+                .await;
+                let optimized_ms = optimized_started_at.elapsed().as_millis();
+
+                match optimized_result {
+                    Ok(text) if !text.trim().is_empty() => {
+                        info!(
+                            "Soniox optimized delivery completed: mode={}, total_ms={}, output_len={}",
+                            optimized_mode,
+                            optimized_ms,
+                            text.len()
+                        );
+                        Ok(text)
+                    }
+                    Ok(_) => {
+                        warn!(
+                            "Soniox optimized delivery returned empty text after {}ms (mode={}); falling back to post-stop PCM path",
+                            optimized_ms,
+                            optimized_mode
+                        );
+                        fallback_transcribe().await
+                    }
+                    Err(err) => {
+                        warn!(
+                            "Soniox optimized delivery failed after {}ms (mode={}); falling back to post-stop PCM path: {}",
+                            optimized_ms,
+                            optimized_mode,
+                            err
+                        );
+                        soniox_live_manager.cancel();
+                        fallback_transcribe().await
+                    }
+                }
+            } else {
+                soniox_manager
+                    .transcribe(
+                        Some(operation_id),
+                        &api_key,
+                        &settings.soniox_model,
+                        soniox_timeout_seconds,
+                        &samples,
+                        Some(language.as_str()),
+                        soniox_context.clone(),
+                    )
+                    .await
+            }
         } else {
             let soniox_options =
                 build_soniox_async_options_for_shortcut(&settings, language.as_str(), profile);
@@ -1840,7 +1990,7 @@ async fn perform_transcription_for_profile_with_retry_action(
                     Some(operation_id),
                     &api_key,
                     &settings.soniox_model,
-                    settings.soniox_timeout_seconds,
+                    soniox_timeout_seconds,
                     &samples,
                     Some(language.as_str()),
                     soniox_options,
@@ -2376,10 +2526,24 @@ async fn get_transcription_for_transcribe_action(
 ) -> Option<(String, Vec<f32>, Option<String>, bool)> {
     clear_last_remote_recording_retry();
     let rm = Arc::clone(&app.state::<Arc<AudioRecordingManager>>());
+    let is_soniox_optimized_delivery = should_use_soniox_optimized_delivery(
+        &recording_settings,
+        binding_id,
+        captured_profile_id.as_ref(),
+    );
 
     let samples = match rm.stop_recording(binding_id) {
-        Some(samples) => samples,
+        Some(samples) => {
+            if is_soniox_optimized_delivery {
+                rm.clear_stream_frame_callback();
+            }
+            samples
+        }
         None => {
+            if is_soniox_optimized_delivery {
+                rm.clear_stream_frame_callback();
+                app.state::<Arc<SonioxRealtimeManager>>().cancel();
+            }
             debug!("No samples retrieved from recording stop");
             utils::hide_recording_overlay(app);
             change_tray_icon(app, TrayIconState::Idle);
@@ -3730,6 +3894,44 @@ fn apply_sliding_lm_result(app: &AppHandle, request: &SlidingLmRequest, correcte
 mod local_preview_text_tests {
     use super::*;
 
+    fn samples_for_secs(seconds: usize) -> usize {
+        seconds * RECORDING_SAMPLE_RATE_HZ as usize
+    }
+
+    #[test]
+    fn soniox_realtime_fallback_keeps_short_clips_on_websocket() {
+        assert!(!should_use_soniox_async_file_for_realtime_fallback(
+            samples_for_secs(19)
+        ));
+    }
+
+    #[test]
+    fn soniox_realtime_fallback_routes_long_clips_to_async_file_mode() {
+        assert!(should_use_soniox_async_file_for_realtime_fallback(
+            samples_for_secs(30)
+        ));
+    }
+
+    #[test]
+    fn soniox_long_audio_timeout_scales_from_duration() {
+        assert_eq!(
+            effective_soniox_timeout_seconds(30, samples_for_secs(19)),
+            30
+        );
+        assert_eq!(
+            effective_soniox_timeout_seconds(30, samples_for_secs(30)),
+            90
+        );
+        assert_eq!(
+            effective_soniox_timeout_seconds(30, samples_for_secs(60)),
+            150
+        );
+        assert_eq!(
+            effective_soniox_timeout_seconds(200, samples_for_secs(30)),
+            200
+        );
+    }
+
     #[test]
     fn filters_common_short_tail_and_repairs_cyrillic_capitalization() {
         let existing = "Это приводит к тому, что государство берет эти деньги и тратит.";
@@ -4488,6 +4690,19 @@ fn should_use_live_streaming(settings: &AppSettings) -> bool {
     }
 }
 
+fn should_use_soniox_optimized_delivery(
+    settings: &AppSettings,
+    binding_id: &str,
+    captured_profile_id: Option<&String>,
+) -> bool {
+    settings.transcription_provider == TranscriptionProvider::RemoteSoniox
+        && !settings.soniox_live_enabled
+        && SonioxRealtimeManager::is_realtime_model(&settings.soniox_model)
+        && is_transcribe_binding_id(binding_id)
+        && settings.soniox_optimize_delivery_preconnect_enabled
+        && !should_route_output_to_preview_for_captured_profile(settings, captured_profile_id)
+}
+
 fn should_use_live_for_recording(app: &AppHandle, binding_id: &str) -> bool {
     let state = app.state::<ManagedSessionState>();
     let state_guard = session_manager::lock_session_state(&state, "should_use_live_for_recording");
@@ -4680,6 +4895,7 @@ fn build_soniox_realtime_options(
         endpoint_sensitivity: settings.soniox_endpoint_sensitivity,
         keepalive_interval_seconds: settings.soniox_keepalive_interval_seconds,
         context: crate::settings::resolve_soniox_context(profile, settings),
+        show_preview: true,
     }
 }
 
@@ -5200,6 +5416,12 @@ impl ShortcutAction for TranscribeAction {
         let settings = get_settings(app);
         let use_live_streaming = should_use_live_streaming(&settings);
         let profile = resolve_profile_for_binding(&settings, binding_id);
+        let optimized_delivery_profile_id = profile.map(|p| p.id.clone());
+        let use_soniox_optimized_delivery = should_use_soniox_optimized_delivery(
+            &settings,
+            binding_id,
+            optimized_delivery_profile_id.as_ref(),
+        );
         let preview_output_only_enabled = binding_id == LIVE_SOUND_TRANSCRIPTION_BINDING_ID
             || should_route_output_to_preview(&settings, profile);
 
@@ -5233,6 +5455,42 @@ impl ShortcutAction for TranscribeAction {
                     binding_id.to_string(),
                     local_preview_auto_flush_interval(&settings),
                 );
+            }
+        }
+
+        if use_soniox_optimized_delivery && !use_live_streaming {
+            let language = profile
+                .as_ref()
+                .map(|p| p.language.clone())
+                .unwrap_or_else(|| settings.selected_language.clone());
+            let binding_id = binding_id.to_string();
+            let app_handle = app.clone();
+            let soniox_live_manager = Arc::clone(&app.state::<Arc<SonioxRealtimeManager>>());
+            #[cfg(target_os = "windows")]
+            let api_key = crate::secure_keys::get_soniox_api_key();
+            #[cfg(not(target_os = "windows"))]
+            let api_key = String::new();
+
+            soniox_live_manager.cancel();
+            let mut options =
+                build_soniox_realtime_options(&settings, &language, profile, &binding_id);
+            options.show_preview = false;
+
+            if let Err(err) = soniox_live_manager.start_session(
+                &binding_id,
+                &api_key,
+                &settings.soniox_model,
+                options,
+                None,
+            ) {
+                warn!(
+                    "Soniox optimized delivery session failed to start for '{}'; falling back to post-stop PCM path: {}",
+                    binding_id, err
+                );
+                app_handle
+                    .state::<Arc<AudioRecordingManager>>()
+                    .clear_stream_frame_callback();
+                soniox_live_manager.cancel();
             }
         }
 
@@ -5994,6 +6252,11 @@ impl ShortcutAction for TranscribeAction {
                 == TranscriptionProvider::RemoteSoniox
                 && recording_settings.soniox_live_enabled
                 && SonioxRealtimeManager::is_realtime_model(&recording_settings.soniox_model);
+            let is_soniox_optimized_delivery = should_use_soniox_optimized_delivery(
+                &recording_settings,
+                &binding_id,
+                captured_profile_id.as_ref(),
+            );
             if preview_output_only_enabled
                 && recording_settings.transcription_provider == TranscriptionProvider::Local
             {
@@ -6024,6 +6287,9 @@ impl ShortcutAction for TranscribeAction {
                 {
                     Some(res) => res,
                     None => {
+                        if is_soniox_optimized_delivery {
+                            ah.state::<Arc<SonioxRealtimeManager>>().cancel();
+                        }
                         if is_soniox_streaming_insert && !preview_output_only_enabled {
                             let _ = crate::clipboard::end_streaming_paste_session(&ah);
                         } else if preview_output_only_enabled && !invoked_from_preview_action {
@@ -6035,6 +6301,9 @@ impl ShortcutAction for TranscribeAction {
                 };
 
             if transcription.is_empty() {
+                if is_soniox_optimized_delivery {
+                    ah.state::<Arc<SonioxRealtimeManager>>().cancel();
+                }
                 if is_soniox_streaming_insert && !preview_output_only_enabled {
                     let _ = crate::clipboard::end_streaming_paste_session(&ah);
                 } else if preview_output_only_enabled && !invoked_from_preview_action {

@@ -497,6 +497,7 @@ fn normalize_capture_open_error(source: AudioCaptureSource, error_message: Strin
 #[cfg(test)]
 mod tests {
     use super::{is_microphone_access_denied, is_no_input_device_error};
+    use crate::audio_toolkit::constants;
 
     #[test]
     fn detects_access_is_denied() {
