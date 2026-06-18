@@ -1455,6 +1455,8 @@ pub struct AppSettings {
     #[serde(default = "default_false")]
     pub soniox_live_instant_stop: bool,
     #[serde(default = "default_false")]
+    pub soniox_optimize_delivery_preconnect_enabled: bool,
+    #[serde(default = "default_false")]
     pub soniox_realtime_fuzzy_correction_enabled: bool,
     #[serde(default = "default_false")]
     pub soniox_realtime_keep_safety_buffer_enabled: bool,
@@ -3247,6 +3249,7 @@ pub fn get_default_settings() -> AppSettings {
         soniox_keepalive_interval_seconds: default_soniox_keepalive_interval_seconds(),
         soniox_live_finalize_timeout_ms: default_soniox_live_finalize_timeout_ms(),
         soniox_live_instant_stop: default_false(),
+        soniox_optimize_delivery_preconnect_enabled: default_false(),
         soniox_realtime_fuzzy_correction_enabled: default_false(),
         soniox_realtime_keep_safety_buffer_enabled: default_false(),
         deepgram_model: default_deepgram_model(),

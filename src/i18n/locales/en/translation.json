@@ -1447,6 +1447,11 @@
           "description": "Model identifier sent to Soniox on each request. In AivoRelay, stt-rt-* with Live ON uses the live WebSocket path where text appears while you speak; stt-async-* (or Live OFF) uses non-live processing where text appears after processing finishes. If behavior feels wrong, model family and Live toggle are the first things to verify.",
           "placeholder": "stt-rt-v5",
           "asyncNotice": "Soniox async models upload the finished recording as a file, create a transcription job, poll until it completes, then fetch the transcript. That makes them naturally slower for short dictation than one-request providers such as Groq Whisper Turbo. AivoRelay can reduce polling overhead, but it cannot turn the Soniox async file/job pipeline into an instant request.",
+          "upgradeTitle": "Soniox real-time v5 is available",
+          "upgradeDescription": "You are using {{currentModel}}. Click here to switch this field to {{targetModel}} and apply it.",
+          "upgradeButton": "Update to stt-rt-v5",
+          "upgradeSuccess": "Soniox realtime model updated to stt-rt-v5.",
+          "upgradeFailed": "Failed to update Soniox realtime model: {{error}}",
           "customTitle": "Custom model id",
           "customDescription": "Enter the exact Soniox model id. Models starting with stt-rt use the real-time path; models starting with stt-async use the async file/job path.",
           "options": {
@@ -1463,6 +1468,10 @@
           "title": "Live Real-time Streaming",
           "description": "When enabled with stt-rt models, AivoRelay streams microphone audio directly to Soniox over WebSocket and inserts confirmed tokens while you are speaking. Turn it OFF to use a real-time model in record-then-transcribe mode: AivoRelay records the full utterance, sends it after you stop, and inserts one final result. This is useful when endpoint pauses split your sentence while you are thinking. It is not the same as Soniox stt-async, and is usually faster than the async file/job pipeline.",
           "realtimeOnly": "Live streaming is only available for real-time Soniox models (stt-rt-*)."
+        },
+        "optimizeDeliveryPreconnect": {
+          "title": "Optimize Delivery: Preconnect",
+          "description": "When Live streaming is OFF, open and prepare a Soniox WebSocket during recording, then send the finished audio only after you stop. This preserves record-then-transcribe behavior and mainly saves connection setup time."
         },
         "languageHints": {
           "title": "Language Hints",
@@ -2640,7 +2649,7 @@
     "englishOnlyNote": "Sorry, I mostly only made english version of this application."
   },
   "overlay": {
-    "sending": "Sending...",
+    "sending": "Processing speech...",
     "thinking": "Thinking...",
     "transcribing": "Transcribing...",
     "finalizing": "Finalizing...",
