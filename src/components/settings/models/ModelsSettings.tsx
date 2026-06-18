@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { ask } from "@tauri-apps/plugin-dialog";
-import { Cloud, Cpu, FolderOpen, Radio, ShieldAlert } from "lucide-react";
+import { Cloud, Cpu, FolderOpen, HardDrive, Radio, ShieldAlert } from "lucide-react";
 import {
   commands,
   type ModelInfo,
@@ -545,6 +545,13 @@ export const ModelsSettings: React.FC = () => {
                   </div>
                   <p className="text-xs text-[#a0a0a0] mt-1">
                     {getTranslatedModelDescription(model, t)}
+                  </p>
+                  <p className="mt-1 flex items-center gap-1.5 text-xs text-[#8a8a8a]">
+                    <HardDrive className="h-3.5 w-3.5" />
+                    <span>
+                      {t("modelSelector.downloadSize")} ·{" "}
+                      {formatModelSize(Number(model.size_mb))}
+                    </span>
                   </p>
                   <ModelMetadataPanel model={model} />
                 </div>

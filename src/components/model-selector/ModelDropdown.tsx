@@ -295,6 +295,10 @@ const ModelDropdown: React.FC<ModelDropdownProps> = ({
                   <div className="text-xs text-text/40 italic pr-4">
                     {getTranslatedModelDescription(model, t)}
                   </div>
+                  <div className="mt-1 text-xs text-text/50 tabular-nums">
+                    {t("modelSelector.downloadSize")} ·{" "}
+                    {formatModelSize(Number(model.size_mb))}
+                  </div>
                 </div>
                 <div className="flex items-center gap-2">
                   {currentModelId === model.id && !isRemoteProvider && (
