@@ -1123,11 +1123,35 @@
       },
       "overlay": {
         "title": "Overlay Position",
-        "description": "Display visual feedback overlay during recording and transcription. On Linux 'None' is recommended.",
+        "description": "Choose where the recording overlay appears. Corner presets keep the visible frame inside the usable work area.",
+        "positionDescription": "Choose where the recording overlay appears. Corner presets keep the visible frame inside the usable work area.",
+        "visibility": {
+          "label": "Show Recording Overlay",
+          "description": "Show recording, processing, error, and switch-status feedback without affecting transcription."
+        },
         "options": {
           "none": "None",
           "bottom": "Bottom",
-          "top": "Top"
+          "bottomLeft": "Bottom Left",
+          "bottomRight": "Bottom Right",
+          "top": "Top",
+          "topLeft": "Top Left",
+          "topRight": "Top Right",
+          "custom": "Custom"
+        },
+        "customPosition": {
+          "title": "Custom Position",
+          "description": "Global physical pixel coordinates for the visible overlay frame. Negative values are valid on monitors left of or above the primary display. Apply keeps the frame inside the nearest monitor's usable work area.",
+          "xLabel": "X",
+          "yLabel": "Y",
+          "xAriaLabel": "Custom overlay X coordinate",
+          "yAriaLabel": "Custom overlay Y coordinate",
+          "edit": "Edit Position",
+          "apply": "Apply",
+          "cancel": "Cancel",
+          "integerError": "Enter a whole number for both X and Y.",
+          "rangeError": "X and Y must be between -100000 and 100000.",
+          "applyError": "Could not apply this position. Check that a monitor is connected and try again."
         },
         "errorDuration": {
           "title": "Error Overlay Duration",
@@ -1142,7 +1166,8 @@
         },
         "allowReservedAreas": {
           "label": "Allow Auto-Positioning in Reserved Areas",
-          "description": "Let auto-placed overlay, preview, confirmation, and voice button windows use taskbar or docked-bar space. Manual dragging can still place them anywhere."
+          "description": "Let centered overlay, preview, confirmation, and voice button windows use taskbar or docked-bar space. Recording overlay corner presets always stay in the safe work area.",
+          "descriptionWithSafeCorners": "Let centered overlay, preview, confirmation, and voice button windows use taskbar or docked-bar space. Recording overlay corner presets always stay in the safe work area."
         },
         "dragGrip": {
           "label": "Show Recording Overlay Drag Grip",

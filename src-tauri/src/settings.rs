@@ -909,11 +909,15 @@ pub struct RemoteSttSettings {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Type)]
-#[serde(rename_all = "lowercase")]
+#[serde(rename_all = "snake_case")]
 pub enum OverlayPosition {
     None,
     Top,
+    TopLeft,
+    TopRight,
     Bottom,
+    BottomLeft,
+    BottomRight,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Type)]
@@ -1523,10 +1527,16 @@ pub struct AppSettings {
     pub selected_language: String,
     #[serde(default = "default_overlay_position")]
     pub overlay_position: OverlayPosition,
+    // The JSON normalization step derives this from legacy `overlay_position`
+    // before defaults are merged, so an old explicit `none` remains disabled.
+    #[serde(default = "default_recording_overlay_enabled")]
+    pub recording_overlay_enabled: bool,
     #[serde(default)]
     pub auto_position_allow_reserved_areas: bool,
     #[serde(default)]
     pub recording_overlay_use_manual_position: bool,
+    #[serde(default)]
+    pub recording_overlay_has_saved_custom_position: bool,
     #[serde(default)]
     pub recording_overlay_manual_position_uses_physical_px: bool,
     #[serde(default = "default_recording_overlay_custom_x_px")]
@@ -2286,10 +2296,14 @@ fn default_selected_language() -> String {
 }
 
 fn default_overlay_position() -> OverlayPosition {
+    OverlayPosition::Bottom
+}
+
+fn default_recording_overlay_enabled() -> bool {
     #[cfg(target_os = "linux")]
-    return OverlayPosition::None;
+    return false;
     #[cfg(not(target_os = "linux"))]
-    return OverlayPosition::Bottom;
+    return true;
 }
 
 fn default_error_overlay_auto_hide_ms() -> u64 {
@@ -3282,8 +3296,10 @@ pub fn get_default_settings() -> AppSettings {
         translate_to_english: false,
         selected_language: "auto".to_string(),
         overlay_position: default_overlay_position(),
+        recording_overlay_enabled: default_recording_overlay_enabled(),
         auto_position_allow_reserved_areas: false,
         recording_overlay_use_manual_position: false,
+        recording_overlay_has_saved_custom_position: false,
         recording_overlay_manual_position_uses_physical_px: false,
         recording_overlay_custom_x_px: default_recording_overlay_custom_x_px(),
         recording_overlay_custom_y_px: default_recording_overlay_custom_y_px(),
@@ -3791,6 +3807,63 @@ fn normalize_legacy_aliases(candidate: &mut Value) -> bool {
         "local_preview_auto_flush_overlap_ms",
         "soniox_live_preview_local_auto_flush_overlap_ms",
     );
+    changed |= normalize_legacy_recording_overlay_settings(candidate);
+    changed
+}
+
+fn normalize_legacy_recording_overlay_settings(candidate: &mut Value) -> bool {
+    let Some(object) = candidate.as_object_mut() else {
+        return false;
+    };
+
+    let legacy_position = object
+        .get("overlay_position")
+        .and_then(Value::as_str)
+        .map(str::to_string);
+    let mut changed = false;
+
+    if !object.contains_key("recording_overlay_enabled") {
+        let enabled = match legacy_position.as_deref() {
+            Some("none") => false,
+            Some(_) => true,
+            None => default_recording_overlay_enabled(),
+        };
+        object.insert(
+            "recording_overlay_enabled".to_string(),
+            Value::Bool(enabled),
+        );
+        changed = true;
+    }
+
+    // `None` used to carry visibility. Keep accepting it from old JSON, but
+    // retain a useful automatic position now that visibility has its own field.
+    if legacy_position.as_deref() == Some("none") {
+        object.insert(
+            "overlay_position".to_string(),
+            Value::String("bottom".to_string()),
+        );
+        changed = true;
+    }
+
+    if !object.contains_key("recording_overlay_has_saved_custom_position") {
+        // The physical-pixel marker was set by the existing drag path and was
+        // retained when an automatic preset was selected, so it is a safe
+        // legacy existence signal without treating (0, 0) as a sentinel.
+        let has_saved_custom = object
+            .get("recording_overlay_use_manual_position")
+            .and_then(Value::as_bool)
+            .unwrap_or(false)
+            || object
+                .get("recording_overlay_manual_position_uses_physical_px")
+                .and_then(Value::as_bool)
+                .unwrap_or(false);
+        object.insert(
+            "recording_overlay_has_saved_custom_position".to_string(),
+            Value::Bool(has_saved_custom),
+        );
+        changed = true;
+    }
+
     changed
 }
 
@@ -3866,14 +3939,28 @@ fn ensure_preview_delete_last_word_binding(settings: &mut AppSettings) -> bool {
 }
 
 fn migrate_legacy_settings_fields(settings: &mut AppSettings) -> bool {
+    let mut changed = false;
+
+    if settings.overlay_position == OverlayPosition::None {
+        settings.overlay_position = OverlayPosition::Bottom;
+        changed = true;
+    }
+
+    if settings.recording_overlay_use_manual_position
+        && !settings.recording_overlay_has_saved_custom_position
+    {
+        settings.recording_overlay_has_saved_custom_position = true;
+        changed = true;
+    }
+
     if settings.voice_command_keep_window_open {
         debug!("Migrating voice_command_keep_window_open to voice_command_defaults.silent");
         settings.voice_command_defaults.silent = false;
         settings.voice_command_keep_window_open = false;
-        return true;
+        changed = true;
     }
 
-    false
+    changed
 }
 
 fn ensure_active_profile_exists(settings: &mut AppSettings) -> bool {
@@ -3971,6 +4058,75 @@ fn repair_runtime_settings(settings: &mut AppSettings) -> bool {
     changed |= ensure_valid_soniox_contexts(settings);
     changed |= ensure_soniox_v5_model_defaults(settings);
     changed
+}
+
+fn migrate_legacy_recording_overlay_coordinates(
+    app: &AppHandle,
+    settings: &mut AppSettings,
+) -> bool {
+    if !settings.recording_overlay_use_manual_position
+        || settings.recording_overlay_manual_position_uses_physical_px
+    {
+        return false;
+    }
+
+    let Ok(monitors) = app.available_monitors() else {
+        return false;
+    };
+    let x = settings.recording_overlay_custom_x_px as f64;
+    let y = settings.recording_overlay_custom_y_px as f64;
+    let mut nearest_scale: Option<(f64, f64)> = None;
+
+    for monitor in monitors {
+        let scale = monitor.scale_factor();
+        let left = monitor.position().x as f64 / scale;
+        let top = monitor.position().y as f64 / scale;
+        let right = left + monitor.size().width as f64 / scale;
+        let bottom = top + monitor.size().height as f64 / scale;
+
+        if x >= left && x < right && y >= top && y < bottom {
+            nearest_scale = Some((0.0, scale));
+            break;
+        }
+
+        let dx = if x < left {
+            left - x
+        } else if x > right {
+            x - right
+        } else {
+            0.0
+        };
+        let dy = if y < top {
+            top - y
+        } else if y > bottom {
+            y - bottom
+        } else {
+            0.0
+        };
+        let distance = (dx * dx) + (dy * dy);
+        if nearest_scale
+            .as_ref()
+            .map(|(best_distance, _)| distance < *best_distance)
+            .unwrap_or(true)
+        {
+            nearest_scale = Some((distance, scale));
+        }
+    }
+
+    let Some((_, scale)) = nearest_scale else {
+        return false;
+    };
+
+    settings.recording_overlay_custom_x_px = (x * scale).round() as i32;
+    settings.recording_overlay_custom_y_px = (y * scale).round() as i32;
+    settings.recording_overlay_custom_x_px = settings
+        .recording_overlay_custom_x_px
+        .clamp(-100000, 100000);
+    settings.recording_overlay_custom_y_px = settings
+        .recording_overlay_custom_y_px
+        .clamp(-100000, 100000);
+    settings.recording_overlay_manual_position_uses_physical_px = true;
+    true
 }
 
 impl AppSettings {
@@ -4243,6 +4399,7 @@ pub fn load_or_create_app_settings(app: &AppHandle) -> AppSettings {
         }
 
         updated |= repair_runtime_settings(&mut settings);
+        updated |= migrate_legacy_recording_overlay_coordinates(app, &mut settings);
 
         if updated {
             debug!("Settings updated while loading");
@@ -4274,6 +4431,7 @@ pub fn get_settings(app: &AppHandle) -> AppSettings {
     let settings = if let Some(settings_value) = store.get("settings") {
         let (mut settings, mut repaired) = deserialize_settings_value_with_repair(&settings_value);
         repaired |= repair_runtime_settings(&mut settings);
+        repaired |= migrate_legacy_recording_overlay_coordinates(app, &mut settings);
         if repaired {
             backup_settings_store_before_repair(app, "get-repair");
             store.set("settings", serde_json::to_value(&settings).unwrap());

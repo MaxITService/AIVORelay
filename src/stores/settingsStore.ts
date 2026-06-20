@@ -332,6 +332,10 @@ settingUpdaters.error_overlay_auto_hide_ms = (value) =>
   });
 (settingUpdaters as any).error_feedback_enabled = (value: any) =>
   invoke("change_error_feedback_enabled_setting", { enabled: value });
+(settingUpdaters as any).recording_overlay_enabled = (value: any) =>
+  invoke("change_recording_overlay_enabled_setting", {
+    enabled: Boolean(value),
+  });
 (settingUpdaters as any).soniox_language_hints = (value: any) =>
   invoke("change_soniox_language_hints_setting", { hints: value });
 (settingUpdaters as any).soniox_context_general_json = (value: any) =>
