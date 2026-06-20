@@ -435,7 +435,11 @@ export const RecordingOverlaySettings: React.FC = () => {
     "#72f29a",
   );
   const hasManualPosition = Boolean(
-    (settings as any)?.recording_overlay_use_manual_position ?? false,
+    (settings as any)?.recording_overlay_has_saved_custom_position ??
+      (Boolean((settings as any)?.recording_overlay_use_manual_position) ||
+        Boolean(
+          (settings as any)?.recording_overlay_manual_position_uses_physical_px,
+        )),
   );
   const customOverlayDisabledReason = t(
     "settings.userInterface.recordingOverlay.customOverlay.disabledTooltip",

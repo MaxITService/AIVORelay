@@ -1027,21 +1027,69 @@ pub fn change_transcription_provider_setting(
 #[specta::specta]
 pub fn change_overlay_position_setting(app: AppHandle, position: String) -> Result<(), String> {
     let mut settings = settings::get_settings(&app);
-    let parsed = match position.as_str() {
-        "none" => OverlayPosition::None,
-        "top" => OverlayPosition::Top,
-        "bottom" => OverlayPosition::Bottom,
+    match position.as_str() {
+        // Retained for compatibility with older settings windows. Visibility
+        // no longer destroys or deactivates the selected position mode.
+        "none" => settings.recording_overlay_enabled = false,
+        "custom" => {
+            if !settings.recording_overlay_has_saved_custom_position {
+                return Err("No saved Custom recording overlay position exists".to_string());
+            }
+            settings.recording_overlay_use_manual_position = true;
+        }
+        "top" => {
+            settings.overlay_position = OverlayPosition::Top;
+            settings.recording_overlay_use_manual_position = false;
+        }
+        "top_left" => {
+            settings.overlay_position = OverlayPosition::TopLeft;
+            settings.recording_overlay_use_manual_position = false;
+        }
+        "top_right" => {
+            settings.overlay_position = OverlayPosition::TopRight;
+            settings.recording_overlay_use_manual_position = false;
+        }
+        "bottom" => {
+            settings.overlay_position = OverlayPosition::Bottom;
+            settings.recording_overlay_use_manual_position = false;
+        }
+        "bottom_left" => {
+            settings.overlay_position = OverlayPosition::BottomLeft;
+            settings.recording_overlay_use_manual_position = false;
+        }
+        "bottom_right" => {
+            settings.overlay_position = OverlayPosition::BottomRight;
+            settings.recording_overlay_use_manual_position = false;
+        }
         other => {
             warn!("Invalid overlay position '{}', defaulting to bottom", other);
-            OverlayPosition::Bottom
+            settings.overlay_position = OverlayPosition::Bottom;
+            settings.recording_overlay_use_manual_position = false;
         }
-    };
-    settings.overlay_position = parsed;
-    settings.recording_overlay_use_manual_position = false;
+    }
     settings::write_settings(&app, settings);
 
     // Update overlay position without recreating window
     refresh_recording_overlay_window(&app);
+    crate::overlay::emit_recording_overlay_position_settings_changed(&app);
+
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_recording_overlay_enabled_setting(
+    app: AppHandle,
+    enabled: bool,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.recording_overlay_enabled = enabled;
+    settings::write_settings(&app, settings);
+
+    if !enabled {
+        crate::overlay::hide_recording_overlay_immediately(&app);
+    }
+    crate::overlay::emit_recording_overlay_position_settings_changed(&app);
 
     Ok(())
 }

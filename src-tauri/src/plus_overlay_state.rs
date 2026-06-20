@@ -659,7 +659,7 @@ fn show_error_overlay_internal(
 ) -> bool {
     let settings = crate::settings::get_settings(app);
     if !settings.error_feedback_enabled
-        || settings.overlay_position == crate::settings::OverlayPosition::None
+        || !settings.recording_overlay_enabled
     {
         // Still need to reset tray icon even if overlay is disabled
         change_tray_icon(app, TrayIconState::Idle);
