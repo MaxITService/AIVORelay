@@ -3271,7 +3271,7 @@ live_sound_microphone?: string | null; selected_output_device?: string | null; l
 /**
  * Overrides for Live Monitor sessions — None means inherit global provider setting.
  */
-live_sound_soniox_endpoint_detection?: boolean | null; live_sound_soniox_max_endpoint_delay_ms?: number | null; live_sound_deepgram_endpointing_enabled?: boolean | null; live_sound_deepgram_endpointing_ms?: number | null; translate_to_english?: boolean; selected_language?: string; overlay_position?: OverlayPosition; auto_position_allow_reserved_areas?: boolean; recording_overlay_use_manual_position?: boolean; recording_overlay_manual_position_uses_physical_px?: boolean; recording_overlay_custom_x_px?: number; recording_overlay_custom_y_px?: number;
+live_sound_soniox_endpoint_detection?: boolean | null; live_sound_soniox_max_endpoint_delay_ms?: number | null; live_sound_deepgram_endpointing_enabled?: boolean | null; live_sound_deepgram_endpointing_ms?: number | null; translate_to_english?: boolean; selected_language?: string; overlay_position?: OverlayPosition; recording_overlay_enabled?: boolean; auto_position_allow_reserved_areas?: boolean; recording_overlay_use_manual_position?: boolean; recording_overlay_has_saved_custom_position?: boolean; recording_overlay_manual_position_uses_physical_px?: boolean; recording_overlay_custom_x_px?: number; recording_overlay_custom_y_px?: number;
 /**
  * Auto-hide duration for error overlay in milliseconds.
  */
@@ -3796,7 +3796,7 @@ export type OutputFormat =
  */
 "vtt"
 export type OutputWhitespaceMode = "preserve" | "remove_if_present" | "add_if_missing"
-export type OverlayPosition = "none" | "top" | "bottom"
+export type OverlayPosition = "none" | "top" | "top_left" | "top_right" | "bottom" | "bottom_left" | "bottom_right"
 export type PaginatedHistory = { entries: HistoryEntry[]; has_more: boolean }
 export type PasteMethod = "ctrl_v" | "direct" | "none" | "shift_insert" | "ctrl_shift_v"
 export type PermissionAccess = "allowed" | "denied" | "unknown"

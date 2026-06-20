@@ -49,6 +49,7 @@ const ERROR_OVERLAY_WIDTH: f64 = 340.0;
 const ERROR_OVERLAY_HEIGHT: f64 = 82.0;
 const RECORDING_OVERLAY_BAR_GAP: f64 = 3.0;
 const RECORDING_OVERLAY_EDGE_MARGIN: f64 = 4.0;
+const RECORDING_OVERLAY_CORNER_INSET: f64 = 5.0;
 
 // Command Confirmation Overlay dimensions
 const COMMAND_CONFIRM_WIDTH: f64 = 520.0;
@@ -181,6 +182,12 @@ pub struct RecordingOverlayAppearancePayload {
     decapitalize_indicator_color: String,
     frame_width_px: u16,
     frame_height_px: u16,
+}
+
+#[derive(Serialize, Clone, Type)]
+pub struct RecordingOverlayCustomPositionPayload {
+    pub x_px: i32,
+    pub y_px: i32,
 }
 
 static SONIOX_LIVE_PREVIEW_STATE: LazyLock<Mutex<SonioxLivePreviewPayload>> =
@@ -462,6 +469,14 @@ struct LogicalBounds {
     height: f64,
 }
 
+#[derive(Clone, Copy)]
+struct PhysicalBounds {
+    x: f64,
+    y: f64,
+    width: f64,
+    height: f64,
+}
+
 fn get_monitor_logical_bounds(monitor: &tauri::Monitor) -> LogicalBounds {
     let scale = monitor.scale_factor();
     LogicalBounds {
@@ -469,6 +484,15 @@ fn get_monitor_logical_bounds(monitor: &tauri::Monitor) -> LogicalBounds {
         y: monitor.position().y as f64 / scale,
         width: monitor.size().width as f64 / scale,
         height: monitor.size().height as f64 / scale,
+    }
+}
+
+fn get_monitor_physical_bounds(monitor: &tauri::Monitor) -> PhysicalBounds {
+    PhysicalBounds {
+        x: monitor.position().x as f64,
+        y: monitor.position().y as f64,
+        width: monitor.size().width as f64,
+        height: monitor.size().height as f64,
     }
 }
 
@@ -551,8 +575,66 @@ fn get_monitor_logical_work_area_bounds(monitor: &tauri::Monitor) -> Option<Logi
 }
 
 #[cfg(not(target_os = "windows"))]
-fn get_monitor_logical_work_area_bounds(_monitor: &tauri::Monitor) -> Option<LogicalBounds> {
-    None
+fn get_monitor_logical_work_area_bounds(monitor: &tauri::Monitor) -> Option<LogicalBounds> {
+    let work_area = monitor.work_area();
+    if work_area.size.width == 0 || work_area.size.height == 0 {
+        return None;
+    }
+    let scale = monitor.scale_factor();
+    Some(LogicalBounds {
+        x: work_area.position.x as f64 / scale,
+        y: work_area.position.y as f64 / scale,
+        width: work_area.size.width as f64 / scale,
+        height: work_area.size.height as f64 / scale,
+    })
+}
+
+#[cfg(target_os = "windows")]
+fn get_monitor_physical_work_area_bounds(monitor: &tauri::Monitor) -> Option<PhysicalBounds> {
+    use std::mem::size_of;
+    use windows::Win32::Foundation::RECT;
+    use windows::Win32::Graphics::Gdi::{
+        GetMonitorInfoW, MonitorFromRect, MONITORINFO, MONITOR_DEFAULTTONEAREST,
+    };
+
+    let monitor_rect = RECT {
+        left: monitor.position().x,
+        top: monitor.position().y,
+        right: monitor.position().x + monitor.size().width as i32,
+        bottom: monitor.position().y + monitor.size().height as i32,
+    };
+
+    unsafe {
+        let hmonitor = MonitorFromRect(&monitor_rect, MONITOR_DEFAULTTONEAREST);
+        let mut info = MONITORINFO {
+            cbSize: size_of::<MONITORINFO>() as u32,
+            ..Default::default()
+        };
+        if !GetMonitorInfoW(hmonitor, &mut info as *mut MONITORINFO).as_bool() {
+            return None;
+        }
+
+        Some(PhysicalBounds {
+            x: info.rcWork.left as f64,
+            y: info.rcWork.top as f64,
+            width: (info.rcWork.right - info.rcWork.left) as f64,
+            height: (info.rcWork.bottom - info.rcWork.top) as f64,
+        })
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
+fn get_monitor_physical_work_area_bounds(monitor: &tauri::Monitor) -> Option<PhysicalBounds> {
+    let work_area = monitor.work_area();
+    if work_area.size.width == 0 || work_area.size.height == 0 {
+        return None;
+    }
+    Some(PhysicalBounds {
+        x: work_area.position.x as f64,
+        y: work_area.position.y as f64,
+        width: work_area.size.width as f64,
+        height: work_area.size.height as f64,
+    })
 }
 
 fn get_monitor_logical_auto_position_bounds(
@@ -850,7 +932,9 @@ fn calculate_recording_overlay_window_geometry(
 ) -> Option<RecordingOverlayWindowGeometry> {
     let settings = settings::get_settings(app_handle);
 
-    let (monitor, window_x, window_y) = if settings.recording_overlay_use_manual_position {
+    let (monitor, window_x, window_y, frame_anchored) = if settings
+        .recording_overlay_use_manual_position
+    {
         let default_metrics =
             recording_overlay_window_metrics(app_handle, RecordingOverlayLayout::Default);
         let (monitor, saved_frame_x, saved_frame_y) =
@@ -891,24 +975,70 @@ fn calculate_recording_overlay_window_geometry(
         );
         let window_x = frame_x - metrics.padding;
         let window_y = frame_y - metrics.padding;
-        (monitor, window_x, window_y)
+        (monitor, window_x, window_y, true)
     } else {
         let monitor = get_monitor_with_cursor(app_handle)?;
-        let bounds = get_monitor_logical_auto_position_bounds(
-            &monitor,
-            settings.auto_position_allow_reserved_areas,
+        let is_corner = matches!(
+            settings.overlay_position,
+            OverlayPosition::TopLeft
+                | OverlayPosition::TopRight
+                | OverlayPosition::BottomLeft
+                | OverlayPosition::BottomRight
         );
-        let window_x = bounds.x + (bounds.width - metrics.window_width) / 2.0;
-        let window_y = match settings.overlay_position {
-            OverlayPosition::Top => bounds.y + OVERLAY_TOP_OFFSET,
-            OverlayPosition::Bottom | OverlayPosition::None => {
-                bounds.y + bounds.height - metrics.window_height - OVERLAY_BOTTOM_OFFSET
-            }
+        let bounds = if is_corner {
+            get_monitor_logical_work_area_bounds(&monitor)
+                .unwrap_or_else(|| get_monitor_logical_bounds(&monitor))
+        } else {
+            get_monitor_logical_auto_position_bounds(
+                &monitor,
+                settings.auto_position_allow_reserved_areas,
+            )
         };
-        (monitor, window_x, window_y)
+
+        if is_corner {
+            let frame_x = match settings.overlay_position {
+                OverlayPosition::TopLeft | OverlayPosition::BottomLeft => {
+                    bounds.x + RECORDING_OVERLAY_CORNER_INSET
+                }
+                OverlayPosition::TopRight | OverlayPosition::BottomRight => {
+                    bounds.x + bounds.width - metrics.frame_width
+                        - RECORDING_OVERLAY_CORNER_INSET
+                }
+                _ => unreachable!(),
+            };
+            let frame_y = match settings.overlay_position {
+                OverlayPosition::TopLeft | OverlayPosition::TopRight => {
+                    bounds.y + RECORDING_OVERLAY_CORNER_INSET
+                }
+                OverlayPosition::BottomLeft | OverlayPosition::BottomRight => {
+                    bounds.y + bounds.height - metrics.frame_height
+                        - RECORDING_OVERLAY_CORNER_INSET
+                }
+                _ => unreachable!(),
+            };
+            (
+                monitor,
+                frame_x - metrics.padding,
+                frame_y - metrics.padding,
+                true,
+            )
+        } else {
+            let window_x = bounds.x + (bounds.width - metrics.window_width) / 2.0;
+            let window_y = match settings.overlay_position {
+                OverlayPosition::Top => bounds.y + OVERLAY_TOP_OFFSET,
+                OverlayPosition::Bottom | OverlayPosition::None => {
+                    bounds.y + bounds.height - metrics.window_height - OVERLAY_BOTTOM_OFFSET
+                }
+                OverlayPosition::TopLeft
+                | OverlayPosition::TopRight
+                | OverlayPosition::BottomLeft
+                | OverlayPosition::BottomRight => unreachable!(),
+            };
+            (monitor, window_x, window_y, false)
+        }
     };
 
-    if !settings.recording_overlay_use_manual_position {
+    if !frame_anchored {
         let bounds = get_monitor_logical_auto_position_bounds(
             &monitor,
             settings.auto_position_allow_reserved_areas,
@@ -982,6 +1112,10 @@ fn reassert_recording_overlay_window_geometry(app_handle: &AppHandle) {
 }
 
 pub fn show_positioned_recording_overlay_window(app_handle: &AppHandle) {
+    if !settings::get_settings(app_handle).recording_overlay_enabled {
+        return;
+    }
+
     if let Some(overlay_window) = app_handle.get_webview_window("recording_overlay") {
         let metrics =
             recording_overlay_window_metrics(app_handle, current_recording_overlay_layout());
@@ -1558,9 +1692,9 @@ pub fn show_recording_overlay(app_handle: &AppHandle) {
     // by incrementing the generation counter
     TRANSIENT_OVERLAY_GENERATION.fetch_add(1, Ordering::SeqCst);
 
-    // Check if overlay should be shown based on position setting
+    // Visibility is independent from the selected automatic/manual position.
     let settings = settings::get_settings(app_handle);
-    if settings.overlay_position == OverlayPosition::None {
+    if !settings.recording_overlay_enabled {
         return;
     }
 
@@ -1578,9 +1712,8 @@ pub fn show_transcribing_overlay(app_handle: &AppHandle) {
     // Cancel pending error auto-hide timers so a new active overlay is not hidden.
     plus_overlay_state::invalidate_error_overlay_auto_hide();
 
-    // Check if overlay should be shown based on position setting
     let settings = settings::get_settings(app_handle);
-    if settings.overlay_position == OverlayPosition::None {
+    if !settings.recording_overlay_enabled {
         return;
     }
 
@@ -1598,9 +1731,8 @@ pub fn show_sending_overlay(app_handle: &AppHandle) {
     // Cancel pending error auto-hide timers so a new active overlay is not hidden.
     plus_overlay_state::invalidate_error_overlay_auto_hide();
 
-    // Check if overlay should be shown based on position setting
     let settings = settings::get_settings(app_handle);
-    if settings.overlay_position == OverlayPosition::None {
+    if !settings.recording_overlay_enabled {
         return;
     }
 
@@ -1618,9 +1750,8 @@ pub fn show_thinking_overlay(app_handle: &AppHandle) {
     // Cancel pending error auto-hide timers so a new active overlay is not hidden.
     plus_overlay_state::invalidate_error_overlay_auto_hide();
 
-    // Check if overlay should be shown based on position setting
     let settings = settings::get_settings(app_handle);
-    if settings.overlay_position == OverlayPosition::None {
+    if !settings.recording_overlay_enabled {
         return;
     }
 
@@ -1638,9 +1769,8 @@ pub fn show_finalizing_overlay(app_handle: &AppHandle) {
     // Cancel pending error auto-hide timers so a new active overlay is not hidden.
     plus_overlay_state::invalidate_error_overlay_auto_hide();
 
-    // Check if overlay should be shown based on position setting
     let settings = settings::get_settings(app_handle);
-    if settings.overlay_position == OverlayPosition::None {
+    if !settings.recording_overlay_enabled {
         return;
     }
 
@@ -2367,7 +2497,7 @@ fn show_transient_message_overlay(
     plus_overlay_state::invalidate_error_overlay_auto_hide();
 
     let settings = settings::get_settings(app_handle);
-    if settings.overlay_position == OverlayPosition::None {
+    if !settings.recording_overlay_enabled {
         return;
     }
 
@@ -2429,6 +2559,89 @@ pub fn show_microphone_switch_overlay(app_handle: &AppHandle, microphone_name: &
     show_transient_message_overlay(app_handle, "microphone_switch", microphone_name, 1500);
 }
 
+pub fn emit_recording_overlay_position_settings_changed(app_handle: &AppHandle) {
+    let _ = app_handle.emit("recording-overlay-position-settings-changed", ());
+}
+
+fn persist_recording_overlay_custom_position(
+    app_handle: &AppHandle,
+    x_px: i32,
+    y_px: i32,
+) {
+    let mut settings = settings::get_settings(app_handle);
+    settings.recording_overlay_use_manual_position = true;
+    settings.recording_overlay_has_saved_custom_position = true;
+    settings.recording_overlay_manual_position_uses_physical_px = true;
+    settings.recording_overlay_custom_x_px = x_px.clamp(-100000, 100000);
+    settings.recording_overlay_custom_y_px = y_px.clamp(-100000, 100000);
+    settings::write_settings(app_handle, settings);
+    emit_recording_overlay_position_settings_changed(app_handle);
+}
+
+fn clamp_custom_position_to_nearest_work_area(
+    app_handle: &AppHandle,
+    x_px: i32,
+    y_px: i32,
+) -> Result<RecordingOverlayCustomPositionPayload, String> {
+    if !(-100000..=100000).contains(&x_px) || !(-100000..=100000).contains(&y_px)
+    {
+        return Err("Custom coordinates must be between -100000 and 100000".to_string());
+    }
+
+    let metrics = recording_overlay_window_metrics(app_handle, RecordingOverlayLayout::Default);
+    let monitor = get_monitor_for_scaled_physical_rect(
+        app_handle,
+        x_px as f64,
+        y_px as f64,
+        metrics.frame_width,
+        metrics.frame_height,
+    )
+    .or_else(|| get_monitor_for_physical_point(app_handle, x_px as f64, y_px as f64))
+    .or_else(|| get_monitor_with_cursor(app_handle))
+    .ok_or_else(|| "No connected monitor is available".to_string())?;
+    let bounds = get_monitor_physical_work_area_bounds(&monitor)
+        .unwrap_or_else(|| get_monitor_physical_bounds(&monitor));
+    let scale = monitor.scale_factor();
+    let frame_width = metrics.frame_width * scale;
+    let frame_height = metrics.frame_height * scale;
+    let final_x = clamp_f64(
+        x_px as f64,
+        bounds.x,
+        bounds.x + bounds.width - frame_width,
+    )
+    .round() as i32;
+    let final_y = clamp_f64(
+        y_px as f64,
+        bounds.y,
+        bounds.y + bounds.height - frame_height,
+    )
+    .round() as i32;
+
+    if !(-100000..=100000).contains(&final_x)
+        || !(-100000..=100000).contains(&final_y)
+    {
+        return Err("The nearest monitor is outside the supported coordinate range".to_string());
+    }
+
+    Ok(RecordingOverlayCustomPositionPayload {
+        x_px: final_x,
+        y_px: final_y,
+    })
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn apply_recording_overlay_custom_position(
+    app_handle: AppHandle,
+    x_px: i32,
+    y_px: i32,
+) -> Result<RecordingOverlayCustomPositionPayload, String> {
+    let position = clamp_custom_position_to_nearest_work_area(&app_handle, x_px, y_px)?;
+    persist_recording_overlay_custom_position(&app_handle, position.x_px, position.y_px);
+    update_overlay_position(&app_handle);
+    Ok(position)
+}
+
 #[tauri::command]
 #[specta::specta]
 pub fn remember_recording_overlay_window_position(
@@ -2436,7 +2649,6 @@ pub fn remember_recording_overlay_window_position(
     x_px: i32,
     y_px: i32,
 ) -> Result<(), String> {
-    let mut settings = settings::get_settings(&app_handle);
     let metrics = recording_overlay_window_metrics(&app_handle, current_recording_overlay_layout());
     let monitor = get_monitor_for_scaled_physical_rect(
         &app_handle,
@@ -2465,17 +2677,9 @@ pub fn remember_recording_overlay_window_position(
         }
     };
 
-    settings.recording_overlay_use_manual_position = true;
-    settings.recording_overlay_manual_position_uses_physical_px = true;
-    settings.recording_overlay_custom_x_px = (default_frame_x * scale).round() as i32;
-    settings.recording_overlay_custom_y_px = (default_frame_y * scale).round() as i32;
-    settings.recording_overlay_custom_x_px = settings
-        .recording_overlay_custom_x_px
-        .clamp(-100000, 100000);
-    settings.recording_overlay_custom_y_px = settings
-        .recording_overlay_custom_y_px
-        .clamp(-100000, 100000);
-    settings::write_settings(&app_handle, settings);
+    let saved_x_px = ((default_frame_x * scale).round() as i32).clamp(-100000, 100000);
+    let saved_y_px = ((default_frame_y * scale).round() as i32).clamp(-100000, 100000);
+    persist_recording_overlay_custom_position(&app_handle, saved_x_px, saved_y_px);
     Ok(())
 }
 
@@ -2484,11 +2688,16 @@ pub fn remember_recording_overlay_window_position(
 pub fn reset_recording_overlay_manual_position(app_handle: AppHandle) -> Result<(), String> {
     let mut settings = settings::get_settings(&app_handle);
     settings.recording_overlay_use_manual_position = false;
+    settings.recording_overlay_has_saved_custom_position = false;
     settings.recording_overlay_manual_position_uses_physical_px = false;
     settings.recording_overlay_custom_x_px = 0;
     settings.recording_overlay_custom_y_px = 0;
+    if settings.overlay_position == OverlayPosition::None {
+        settings.overlay_position = OverlayPosition::Bottom;
+    }
     settings::write_settings(&app_handle, settings);
     update_overlay_position(&app_handle);
+    emit_recording_overlay_position_settings_changed(&app_handle);
     Ok(())
 }
 
