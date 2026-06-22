@@ -628,11 +628,18 @@ export default function VoiceCommandSettings() {
                   </div>
 
                   {voiceCommandProviderState.useSameAsPostProcess ? (
-                    <div className="llm-api-note">
-                      {t(
-                        "voiceCommands.llmApi.sameAsPostProcessing",
-                        "Using the same LLM settings as Transcription Post-Processing.",
-                      )}
+                    <div
+                      className={`llm-api-note ${
+                        voiceCommandProviderState.inheritedPostProcessStatus
+                          .isReady
+                          ? "llm-api-note-ready"
+                          : "llm-api-note-not-set"
+                      }`}
+                    >
+                      {
+                        voiceCommandProviderState.inheritedPostProcessStatus
+                          .label
+                      }
                     </div>
                   ) : (
                     <>

@@ -30,10 +30,6 @@ interface LlmConfigSectionProps {
   showBaseUrl?: boolean;
   /** Setting prefix for Extended Thinking: "post_process" or "ai_replace" */
   reasoningSettingPrefix?: "post_process" | "ai_replace";
-  /** Translation path for "Same as Post-Processing" notice */
-  sameAsNoticeKey?: string;
-  /** Optional summary badge content when using post-processing settings */
-  sameAsSummary?: string;
 }
 
 export const LlmConfigSection: React.FC<LlmConfigSectionProps> = ({
@@ -43,8 +39,6 @@ export const LlmConfigSection: React.FC<LlmConfigSectionProps> = ({
   apiKeyFeature,
   showBaseUrl = true,
   reasoningSettingPrefix,
-  sameAsNoticeKey,
-  sameAsSummary,
 }) => {
   const { t } = useTranslation();
   const { refreshSettings, isUpdating } = useSettings();
@@ -103,9 +97,17 @@ export const LlmConfigSection: React.FC<LlmConfigSectionProps> = ({
           layout="stacked"
           grouped={true}
         >
-          <div className="p-3 bg-purple-500/5 border border-purple-500/20 rounded-lg">
-            <p className="text-xs text-purple-400/80">
-              {sameAsSummary || (sameAsNoticeKey ? t(sameAsNoticeKey) : "")}
+          <div
+            className={`rounded-lg border p-3 ${
+              state.inheritedPostProcessStatus.isReady
+                ? "border-emerald-500/30 bg-emerald-500/10"
+                : "border-amber-500/30 bg-amber-500/10"
+            }`}
+          >
+            <p
+              className={`text-xs ${state.inheritedPostProcessStatus.className}`}
+            >
+              {state.inheritedPostProcessStatus.label}
             </p>
           </div>
         </SettingContainer>

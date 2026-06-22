@@ -43,10 +43,19 @@ export const AutomaticMicrophoneMask: React.FC<
   };
 
   return (
-    <>
-      <p className="px-6 pb-1 text-sm text-[#b8b8b8]">
-        {autoSelectDescription}
-      </p>
+    <section>
+      <div className="px-6 pb-2 pt-4">
+        <h3 className="text-sm font-semibold text-text">
+          {t(
+            "settings.sound.microphone.autoSelect.sectionTitle",
+            "Automatic Microphone Selection",
+          )}
+        </h3>
+        <p className="mt-1 text-sm leading-relaxed text-[#b8b8b8]">
+          {autoSelectDescription}
+        </p>
+      </div>
+
       <ToggleSwitch
         checked={enabled}
         onChange={(checked) =>
@@ -93,7 +102,7 @@ export const AutomaticMicrophoneMask: React.FC<
           />
         </div>
       </SettingContainer>
-    </>
+    </section>
   );
 });
 

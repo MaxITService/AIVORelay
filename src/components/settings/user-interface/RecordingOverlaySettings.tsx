@@ -1403,7 +1403,7 @@ export const RecordingOverlaySettings: React.FC = () => {
           </div>
         </div>
 
-        <div className="order-9">
+        <div className="order-0">
       <SettingContainer
         title={t(
           "settings.userInterface.recordingOverlay.reset.title",
