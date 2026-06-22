@@ -5,10 +5,10 @@ GitHub Actions prepends this Markdown above GitHub-generated release notes.
 
 ## Highlights
 
-- Global shortcuts recover more reliably if recording state handling is interrupted.
-- Soniox defaults now target the v5 real-time model, with sturdier fallback delivery for live dictation.
-- The audio visualizer responds better across microphones with different sample rates.
-- Installed model lists now show model sizes, and long post-processing prompt names no longer overflow dropdowns.
+- The recording overlay now supports every corner plus remembered custom drag positions, with Bottom Left as the default.
+- Bottom-left placement can use free taskbar space while keeping clear of the weather area, and overlay visibility is now a separate toggle.
+- AI Replace errors now identify LLM configuration problems clearly and show targeted setup guidance on hover.
+- Inherited post-processing provider status is shown directly in AI Replace and Voice Commands settings.
 
 ---
 
