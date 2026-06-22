@@ -388,6 +388,7 @@ fn detect_canonical_code(
         return OverlayCanonicalErrorCode::EMicUnavailable;
     }
     if err_lower.contains("invalid api key")
+        || err_lower.contains("no api key")
         || err_lower.contains("missing api key")
         || err_lower.contains("api key is missing")
         || err_lower.contains("unauthorized")
@@ -398,6 +399,9 @@ fn detect_canonical_code(
     if err_lower.contains("invalid request")
         || err_lower.contains("bad request")
         || err_lower.contains("invalid_request_error")
+        || err_lower.contains("no model configured")
+        || err_lower.contains("no llm provider configured")
+        || err_lower.contains("prompt template is empty")
     {
         return OverlayCanonicalErrorCode::EBadRequest;
     }
@@ -742,7 +746,12 @@ pub fn show_error_overlay_with_message(
 ///
 /// Note: The existing toast (remote-stt-error event) should still be emitted separately
 pub fn handle_transcription_error(app: &AppHandle, err_string: &str) {
-    handle_transcription_error_internal(app, err_string, None, None);
+    show_categorized_error_overlay(app, err_string);
+}
+
+/// Categorize an error message and show the matching error overlay.
+pub fn show_categorized_error_overlay(app: &AppHandle, err_string: &str) {
+    show_categorized_error_overlay_internal(app, err_string, None, None);
 }
 
 pub fn handle_transcription_error_with_retry(
@@ -750,7 +759,7 @@ pub fn handle_transcription_error_with_retry(
     err_string: &str,
     retry_session_id: Option<u64>,
 ) -> bool {
-    handle_transcription_error_internal(
+    show_categorized_error_overlay_internal(
         app,
         err_string,
         Some(OverlayRetryAction {
@@ -761,7 +770,7 @@ pub fn handle_transcription_error_with_retry(
     )
 }
 
-fn handle_transcription_error_internal(
+fn show_categorized_error_overlay_internal(
     app: &AppHandle,
     err_string: &str,
     retry_action: Option<OverlayRetryAction>,
@@ -772,7 +781,7 @@ fn handle_transcription_error_internal(
     let category = detect_specific_category(&err_lower, &envelope.canonical_code);
     envelope.user_message = category.display_text().to_string();
     log::error!(
-        "Transcription error categorized as {:?}: {}",
+        "Error categorized as {:?}: {}",
         category,
         err_string
     );
@@ -870,6 +879,26 @@ mod tests {
         assert!(matches!(
             categorize_error("Deepgram API key is missing"),
             OverlayErrorCategory::Auth
+        ));
+        assert!(matches!(
+            categorize_error("No API key configured for provider 'OpenAI'"),
+            OverlayErrorCategory::Auth
+        ));
+    }
+
+    #[test]
+    fn test_categorize_ai_replace_configuration() {
+        assert!(matches!(
+            categorize_error("No model configured for provider 'OpenAI'"),
+            OverlayErrorCategory::BadRequest
+        ));
+        assert!(matches!(
+            categorize_error("No LLM provider configured"),
+            OverlayErrorCategory::BadRequest
+        ));
+        assert!(matches!(
+            categorize_error("AI replace prompt template is empty"),
+            OverlayErrorCategory::BadRequest
         ));
     }
 
