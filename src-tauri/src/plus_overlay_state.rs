@@ -127,6 +127,19 @@ pub enum OverlayErrorPhase {
 }
 
 #[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum OverlayErrorContext {
+    AiReplace,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum OverlayConfigurationTarget {
+    PostProcessing,
+    AiReplace,
+}
+
+#[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum OverlayCanonicalErrorCode {
     EAuth,
@@ -186,6 +199,10 @@ pub struct OverlayErrorEnvelope {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub provider_code: Option<String>,
     pub phase: OverlayErrorPhase,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub context: Option<OverlayErrorContext>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub configuration_target: Option<OverlayConfigurationTarget>,
     pub user_message: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub technical_message: Option<String>,
@@ -601,6 +618,8 @@ fn build_error_envelope_from_string(err_string: &str) -> OverlayErrorEnvelope {
         status_code,
         provider_code,
         phase,
+        context: None,
+        configuration_target: None,
         user_message,
         technical_message: sanitize_technical_message(err_string),
         retryable: canonical_code.retryable(),
@@ -646,6 +665,8 @@ fn build_default_envelope_from_category(
         status_code: None,
         provider_code: None,
         phase: OverlayErrorPhase::Unknown,
+        context: None,
+        configuration_target: None,
         user_message: error_message.to_string(),
         technical_message: sanitize_technical_message(error_message),
         retryable: canonical_code.retryable(),
@@ -751,7 +772,27 @@ pub fn handle_transcription_error(app: &AppHandle, err_string: &str) {
 
 /// Categorize an error message and show the matching error overlay.
 pub fn show_categorized_error_overlay(app: &AppHandle, err_string: &str) {
-    show_categorized_error_overlay_internal(app, err_string, None, None);
+    show_categorized_error_overlay_internal(app, err_string, None, None, None, None);
+}
+
+pub fn show_categorized_ai_replace_error_overlay(
+    app: &AppHandle,
+    err_string: &str,
+    uses_post_process_settings: bool,
+) {
+    let configuration_target = if uses_post_process_settings {
+        OverlayConfigurationTarget::PostProcessing
+    } else {
+        OverlayConfigurationTarget::AiReplace
+    };
+    show_categorized_error_overlay_internal(
+        app,
+        err_string,
+        None,
+        None,
+        Some(OverlayErrorContext::AiReplace),
+        Some(configuration_target),
+    );
 }
 
 pub fn handle_transcription_error_with_retry(
@@ -767,6 +808,8 @@ pub fn handle_transcription_error_with_retry(
             label: "Retry",
         }),
         retry_session_id,
+        None,
+        None,
     )
 }
 
@@ -775,11 +818,15 @@ fn show_categorized_error_overlay_internal(
     err_string: &str,
     retry_action: Option<OverlayRetryAction>,
     retry_session_id: Option<u64>,
+    context: Option<OverlayErrorContext>,
+    configuration_target: Option<OverlayConfigurationTarget>,
 ) -> bool {
     let mut envelope = build_error_envelope_from_string(err_string);
     let err_lower = err_string.to_lowercase();
     let category = detect_specific_category(&err_lower, &envelope.canonical_code);
     envelope.user_message = category.display_text().to_string();
+    envelope.context = context;
+    envelope.configuration_target = configuration_target;
     log::error!(
         "Error categorized as {:?}: {}",
         category,

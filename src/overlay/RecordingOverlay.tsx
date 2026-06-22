@@ -184,6 +184,45 @@ function getOverlayErrorCopy(
   envelope?: OverlayErrorEnvelope,
 ): OverlayErrorCopy {
   const phase: OverlayErrorPhase = envelope?.phase ?? "unknown";
+  const isAiReplaceError = envelope?.context === "ai_replace";
+  const usesPostProcessingSettings =
+    envelope?.configuration_target === "post_processing";
+
+  if (isAiReplaceError && category === "Auth") {
+    return {
+      title: t(
+        "overlay.errors.aiReplace.authTitle",
+        "LLM API key required",
+      ),
+      hint: usesPostProcessingSettings
+        ? t(
+            "overlay.errors.aiReplace.inheritedAuthHint",
+            "Add the inherited API key in LLM Post Processing settings.",
+          )
+        : t(
+            "overlay.errors.aiReplace.separateAuthHint",
+            "Add the API key in AI Replace settings.",
+          ),
+    };
+  }
+
+  if (isAiReplaceError && category === "BadRequest") {
+    return {
+      title: t(
+        "overlay.errors.aiReplace.badRequestTitle",
+        "LLM request rejected",
+      ),
+      hint: usesPostProcessingSettings
+        ? t(
+            "overlay.errors.aiReplace.inheritedBadRequestHint",
+            "Check the inherited provider and model in LLM Post Processing settings.",
+          )
+        : t(
+            "overlay.errors.aiReplace.separateBadRequestHint",
+            "Check the provider and model in AI Replace settings.",
+          ),
+    };
+  }
 
   switch (category) {
     case "Auth":
@@ -322,6 +361,29 @@ function getOverlayErrorCopy(
         ),
       };
   }
+}
+
+function getOverlayErrorTooltip(
+  t: TFunction,
+  envelope?: OverlayErrorEnvelope,
+): string | null {
+  const technicalMessage = envelope?.technical_message?.trim() || null;
+  if (envelope?.context !== "ai_replace") {
+    return technicalMessage;
+  }
+
+  const configurationHint =
+    envelope.configuration_target === "post_processing"
+      ? t(
+          "overlay.errors.aiReplace.inheritedConfigurationTooltip",
+          "AI Replace uses Same as Post-Processing. Configure its LLM provider, model, and API key in Settings → LLM Post Processing → API Configuration.",
+        )
+      : t(
+          "overlay.errors.aiReplace.separateConfigurationTooltip",
+          "AI Replace uses separate LLM settings. Configure its provider, model, and API key in Settings → AI Replace → AI Replace (Text Selection).",
+        );
+
+  return [technicalMessage, configurationHint].filter(Boolean).join("\n\n");
 }
 
 const RecordingOverlay: React.FC = () => {
@@ -641,7 +703,7 @@ const RecordingOverlay: React.FC = () => {
             setErrorMessage(copy.title);
             setErrorHint(copy.hint);
             setErrorCode(compactOverlayErrorCode(rawCode));
-            setErrorTechnical(envelope?.technical_message || null);
+            setErrorTechnical(getOverlayErrorTooltip(t, envelope));
             setErrorRetryAvailable(Boolean(payload.retry_action));
             if (payload.retry_action) {
               void resolveRepasteShortcutLabel().then(setRepasteShortcutLabel);
@@ -1119,7 +1181,7 @@ const RecordingOverlay: React.FC = () => {
           <div className="transcribing-text">{t("overlay.transcribing")}</div>
         )}
         {state === "error" && (
-          <div className="error-copy">
+          <div className="error-copy" title={errorTechnical || undefined}>
             <span className="error-title">
               {errorMessage ||
                 t("overlay.errors.unknown.title", "Transcription failed")}
