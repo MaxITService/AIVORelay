@@ -12,7 +12,7 @@ jobs:
       version: ${{ steps.get-version.outputs.version }}
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Get version from tauri.conf.json
         id: get-version
@@ -24,7 +24,7 @@ jobs:
 
       - name: Create Draft Release
         id: create-release
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
         with:
           script: |
             const fs = require('fs');
@@ -53,10 +53,10 @@ jobs:
       CUDA_TOOLKIT_ROOT: C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.4
     steps:
       - name: Checkout AIVORelay
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: "Checkout CUDA dependency repo: transcribe-rs"
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           repository: MaxITService/AIVORelay-dep-transcribe-rs
           path: aivorelay-deps/AIVORelay-dep-transcribe-rs
@@ -64,7 +64,7 @@ jobs:
           token: ${{ secrets.CUDA_DEPENDENCY_REPO_TOKEN != '' && secrets.CUDA_DEPENDENCY_REPO_TOKEN || github.token }}
 
       - name: "Checkout CUDA dependency repo: whisper-rs"
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           repository: MaxITService/AIVORelay-dep-whisper-rs
           path: aivorelay-deps/AIVORelay-dep-whisper-rs
