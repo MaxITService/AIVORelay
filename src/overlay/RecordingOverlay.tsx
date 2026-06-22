@@ -720,7 +720,9 @@ const RecordingOverlay: React.FC = () => {
             setErrorMessage(copy.title);
             setErrorHint(copy.hint);
             setErrorCode(compactOverlayErrorCode(rawCode));
-            setErrorTechnical(getOverlayErrorTooltip(t, category, envelope));
+            setErrorTechnical(
+              getOverlayErrorTooltip(t, payload.error_category, envelope),
+            );
             setErrorRetryAvailable(Boolean(payload.retry_action));
             if (payload.retry_action) {
               void resolveRepasteShortcutLabel().then(setRepasteShortcutLabel);
