@@ -449,7 +449,7 @@ export const ShowOverlay: React.FC<ShowOverlayProps> = React.memo(
           )}
           description={t(
             "settings.advanced.overlay.allowReservedAreas.descriptionWithSafeCorners",
-            "Let centered overlay, preview, confirmation, and voice button windows use taskbar or docked-bar space. Recording overlay corner presets always stay in the safe work area.",
+            "Let overlay positions, preview, confirmation, and voice button windows use taskbar or docked-bar space. Bottom Left leaves room for the taskbar weather area.",
           )}
           descriptionMode={descriptionMode}
           grouped={grouped}

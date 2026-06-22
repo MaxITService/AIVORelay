@@ -1003,6 +1003,7 @@
           "description": "Uses RNNoise to reduce steady background noise from microphone input before voice detection and speech-to-text. Leave it off if your voice becomes metallic or clipped."
         },
         "autoSelect": {
+          "sectionTitle": "Automatic Microphone Selection",
           "label": "Auto-select by microphone name mask",
           "description": "Checked only right before recording starts. If auto-select is enabled and the mask is not empty, AivoRelay first tries the first microphone whose name matches the mask. If nothing matches, it falls back to your previous manual microphone if available, otherwise Default. No background polling or watcher is used."
         },
@@ -1166,8 +1167,8 @@
         },
         "allowReservedAreas": {
           "label": "Allow Auto-Positioning in Reserved Areas",
-          "description": "Let centered overlay, preview, confirmation, and voice button windows use taskbar or docked-bar space. Recording overlay corner presets always stay in the safe work area.",
-          "descriptionWithSafeCorners": "Let centered overlay, preview, confirmation, and voice button windows use taskbar or docked-bar space. Recording overlay corner presets always stay in the safe work area."
+          "description": "Let overlay positions, preview, confirmation, and voice button windows use taskbar or docked-bar space. Bottom Left leaves room for the taskbar weather area.",
+          "descriptionWithSafeCorners": "Let overlay positions, preview, confirmation, and voice button windows use taskbar or docked-bar space. Bottom Left leaves room for the taskbar weather area."
         },
         "dragGrip": {
           "label": "Show Recording Overlay Drag Grip",
@@ -1775,6 +1776,10 @@
         "provider": {
           "title": "Provider",
           "description": "Select an OpenAI-compatible provider."
+        },
+        "inherited": {
+          "option": "Same as Post-Processing",
+          "notSet": "Not set"
         },
         "appleIntelligence": {
           "title": "Apple Intelligence",

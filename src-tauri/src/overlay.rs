@@ -50,6 +50,8 @@ const ERROR_OVERLAY_HEIGHT: f64 = 82.0;
 const RECORDING_OVERLAY_BAR_GAP: f64 = 3.0;
 const RECORDING_OVERLAY_EDGE_MARGIN: f64 = 4.0;
 const RECORDING_OVERLAY_CORNER_INSET: f64 = 5.0;
+const RECORDING_OVERLAY_TASKBAR_WIDGET_GAP: f64 = 16.0;
+const RECORDING_OVERLAY_TASKBAR_VERTICAL_LIFT: f64 = 5.0;
 
 // Command Confirmation Overlay dimensions
 const COMMAND_CONFIRM_WIDTH: f64 = 520.0;
@@ -985,9 +987,15 @@ fn calculate_recording_overlay_window_geometry(
                 | OverlayPosition::BottomLeft
                 | OverlayPosition::BottomRight
         );
+        let full_bounds = get_monitor_logical_bounds(&monitor);
+        let work_area_bounds = get_monitor_logical_work_area_bounds(&monitor)
+            .unwrap_or(full_bounds);
         let bounds = if is_corner {
-            get_monitor_logical_work_area_bounds(&monitor)
-                .unwrap_or_else(|| get_monitor_logical_bounds(&monitor))
+            if settings.auto_position_allow_reserved_areas {
+                full_bounds
+            } else {
+                work_area_bounds
+            }
         } else {
             get_monitor_logical_auto_position_bounds(
                 &monitor,
@@ -996,9 +1004,23 @@ fn calculate_recording_overlay_window_geometry(
         };
 
         if is_corner {
+            let bottom_reserved_height =
+                (full_bounds.y + full_bounds.height
+                    - (work_area_bounds.y + work_area_bounds.height))
+                    .max(0.0);
             let frame_x = match settings.overlay_position {
-                OverlayPosition::TopLeft | OverlayPosition::BottomLeft => {
+                OverlayPosition::TopLeft => {
                     bounds.x + RECORDING_OVERLAY_CORNER_INSET
+                }
+                OverlayPosition::BottomLeft => {
+                    let left_inset = if settings.auto_position_allow_reserved_areas
+                        && bottom_reserved_height > 0.0
+                    {
+                        bottom_reserved_height + RECORDING_OVERLAY_TASKBAR_WIDGET_GAP
+                    } else {
+                        RECORDING_OVERLAY_CORNER_INSET
+                    };
+                    bounds.x + left_inset
                 }
                 OverlayPosition::TopRight | OverlayPosition::BottomRight => {
                     bounds.x + bounds.width - metrics.frame_width
@@ -1010,7 +1032,18 @@ fn calculate_recording_overlay_window_geometry(
                 OverlayPosition::TopLeft | OverlayPosition::TopRight => {
                     bounds.y + RECORDING_OVERLAY_CORNER_INSET
                 }
-                OverlayPosition::BottomLeft | OverlayPosition::BottomRight => {
+                OverlayPosition::BottomLeft => {
+                    let bottom_inset = if settings.auto_position_allow_reserved_areas
+                        && bottom_reserved_height > 0.0
+                    {
+                        RECORDING_OVERLAY_CORNER_INSET
+                            + RECORDING_OVERLAY_TASKBAR_VERTICAL_LIFT
+                    } else {
+                        RECORDING_OVERLAY_CORNER_INSET
+                    };
+                    bounds.y + bounds.height - metrics.frame_height - bottom_inset
+                }
+                OverlayPosition::BottomRight => {
                     bounds.y + bounds.height - metrics.frame_height
                         - RECORDING_OVERLAY_CORNER_INSET
                 }
