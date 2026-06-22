@@ -13,6 +13,7 @@ Rules:
 
 | Propagation Date | Target Branch | Main SHA | Main Message | Branch SHA | Branch Message | Issues |
 | --- | --- | --- | --- | --- | --- | --- |
+| 2026-06-22 | `release/microsoft-store` | `630abf2e` | fix: repair release build and update Node actions | `18f7cebb` | fix: repair release build and update Node actions | clean propagation |
 | 2026-06-22 | `release/microsoft-store` | `1e1f7379` | chore: bump version to 1.0.21 | `d2202bc4` | chore: bump version to 1.0.21 | store notes updated |
 | 2026-06-18 | `release/microsoft-store` | `aed4b537` | chore: bump version to 1.0.20 | `7a2c8dfb` | chore: bump version to 1.0.20 | store notes updated |
 | 2026-06-03 | `release/microsoft-store` | `9c9bc15b` | fix(installer): use executable icon for app shortcuts | `89d8fbf5` | fix(installer): use executable icon for app shortcuts | main notes excluded; store notes updated |
@@ -22,7 +23,6 @@ Rules:
 | 2026-05-03 | `release/microsoft-store` | `b476149b` | chore: bump version to 1.0.15 | `1a303b50` | chore: bump version to 1.0.15 | resolved bindings conflict; main release notes excluded |
 | 2026-04-25 | `release/microsoft-store` | `4b6adfa5` | fix(overlay): keep error layout onscreen | `f8131ee0` | fix(overlay): keep error layout onscreen | clean cherry-pick |
 | 2026-04-25 | `release/microsoft-store` | `1036ed36` | chore: bump version to 1.0.14 | `222b079f` | chore: bump version to 1.0.14 | store release notes only |
-| 2026-04-25 | `release/microsoft-store` | `70200fd6` | feat(history): allow editing dictation stats | `77eb7680` | feat(history): allow editing dictation stats | clean cherry-pick |
 
 Entry template:
 
