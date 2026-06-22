@@ -51,6 +51,10 @@ export type OverlayErrorPhase =
   | "process"
   | "unknown";
 
+export type OverlayErrorContext = "ai_replace";
+
+export type OverlayConfigurationTarget = "post_processing" | "ai_replace";
+
 export type OverlayCanonicalErrorCode =
   | "E_AUTH"
   | "E_BAD_REQUEST"
@@ -71,6 +75,8 @@ export interface OverlayErrorEnvelope {
   status_code?: number;
   provider_code?: string;
   phase: OverlayErrorPhase;
+  context?: OverlayErrorContext;
+  configuration_target?: OverlayConfigurationTarget;
   user_message: string;
   technical_message?: string;
   retryable: boolean;

@@ -2024,6 +2024,16 @@
         "title": "Проверьте API key",
         "hint": "Откройте настройки и проверьте API key для этого провайдера."
       },
+      "aiReplace": {
+        "authTitle": "Требуется API key для LLM",
+        "inheritedAuthHint": "Добавьте наследуемый API key в настройках постобработки LLM.",
+        "separateAuthHint": "Добавьте API key в настройках AI Replace.",
+        "badRequestTitle": "LLM-запрос отклонён",
+        "inheritedBadRequestHint": "Проверьте наследуемые provider и model в настройках постобработки LLM.",
+        "separateBadRequestHint": "Проверьте provider и model в настройках AI Replace.",
+        "inheritedConfigurationTooltip": "AI Replace использует Same as Post-Processing. Настройте LLM provider, model и API key в Settings → LLM Post Processing → API Configuration.",
+        "separateConfigurationTooltip": "AI Replace использует отдельные настройки LLM. Настройте provider, model и API key в Settings → AI Replace → AI Replace (Text Selection)."
+      },
       "rateLimited": {
         "title": "Лимит запросов",
         "hint": "Подождите немного и попробуйте снова."
