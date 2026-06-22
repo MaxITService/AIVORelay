@@ -2726,7 +2726,7 @@ pub fn reset_recording_overlay_manual_position(app_handle: AppHandle) -> Result<
     settings.recording_overlay_custom_x_px = 0;
     settings.recording_overlay_custom_y_px = 0;
     if settings.overlay_position == OverlayPosition::None {
-        settings.overlay_position = OverlayPosition::Bottom;
+        settings.overlay_position = settings::default_overlay_position();
     }
     settings::write_settings(&app_handle, settings);
     update_overlay_position(&app_handle);
