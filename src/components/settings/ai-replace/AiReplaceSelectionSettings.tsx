@@ -389,7 +389,6 @@ export const AiReplaceSelectionSettings: React.FC = () => {
           apiKeyFeature="ai_replace"
           showBaseUrl={true}
           reasoningSettingPrefix="ai_replace"
-          sameAsSummary={t("settings.aiReplace.api.usingPostProcessingModel", { model: aiReplaceState.model })}
         />
       </SettingsGroup>
     </div>

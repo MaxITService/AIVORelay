@@ -3,6 +3,7 @@ import { useSettings } from "../../../hooks/useSettings";
 import type { PostProcessProvider } from "@/bindings";
 import { toast } from "sonner";
 import type { DropdownOption } from "../../ui/Dropdown";
+import { useInheritedPostProcessStatus } from "../post-processing/useInheritedPostProcessStatus";
 
 export interface ModelOption {
   value: string;
@@ -12,6 +13,9 @@ export interface ModelOption {
 type VoiceCommandProviderState = {
   /** Whether "use same as post-processing" is selected */
   useSameAsPostProcess: boolean;
+  inheritedPostProcessStatus: ReturnType<
+    typeof useInheritedPostProcessStatus
+  >;
   providerOptions: DropdownOption[];
   selectedProviderId: string;
   selectedProvider: PostProcessProvider | undefined;
@@ -48,6 +52,7 @@ export const useVoiceCommandProviderState = (): VoiceCommandProviderState => {
     updateVoiceCommandApiKey,
     updateVoiceCommandModel,
   } = useSettings();
+  const inheritedPostProcessStatus = useInheritedPostProcessStatus();
 
   const providers = settings?.post_process_providers || [];
 
@@ -123,7 +128,8 @@ export const useVoiceCommandProviderState = (): VoiceCommandProviderState => {
     const options: DropdownOption[] = [
       {
         value: SAME_AS_POST_PROCESS_VALUE,
-        label: "Same as Post-Processing",
+        label: inheritedPostProcessStatus.label,
+        className: inheritedPostProcessStatus.className,
       },
     ];
     providers.forEach((provider) => {
@@ -133,7 +139,7 @@ export const useVoiceCommandProviderState = (): VoiceCommandProviderState => {
       });
     });
     return options;
-  }, [providers]);
+  }, [inheritedPostProcessStatus, providers]);
 
   const handleProviderSelect = useCallback(
     async (providerId: string | null) => {
@@ -235,6 +241,7 @@ export const useVoiceCommandProviderState = (): VoiceCommandProviderState => {
 
   return {
     useSameAsPostProcess,
+    inheritedPostProcessStatus,
     providerOptions,
     selectedProviderId,
     selectedProvider,
