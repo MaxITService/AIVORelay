@@ -64,9 +64,9 @@ export const ShowOverlay: React.FC<ShowOverlayProps> = React.memo(
     >(null);
 
     const storedPosition = (getSetting("overlay_position") ||
-      "bottom") as OverlayPosition;
+      "bottom_left") as OverlayPosition;
     const normalizedAutomaticPosition: OverlayPosition =
-      storedPosition === "none" ? "bottom" : storedPosition;
+      storedPosition === "none" ? "bottom_left" : storedPosition;
     const recordingOverlayEnabled = Boolean(
       (settings as any)?.recording_overlay_enabled ??
         storedPosition !== "none",

@@ -1062,8 +1062,11 @@ pub fn change_overlay_position_setting(app: AppHandle, position: String) -> Resu
             settings.recording_overlay_use_manual_position = false;
         }
         other => {
-            warn!("Invalid overlay position '{}', defaulting to bottom", other);
-            settings.overlay_position = OverlayPosition::Bottom;
+            warn!(
+                "Invalid overlay position '{}', defaulting to bottom left",
+                other
+            );
+            settings.overlay_position = settings::default_overlay_position();
             settings.recording_overlay_use_manual_position = false;
         }
     }
