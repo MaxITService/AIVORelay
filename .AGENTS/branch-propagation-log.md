@@ -13,6 +13,7 @@ Rules:
 
 | Propagation Date | Target Branch | Main SHA | Main Message | Branch SHA | Branch Message | Issues |
 | --- | --- | --- | --- | --- | --- | --- |
+| 2026-06-22 | `integration/combined` | `1e1f7379` | chore: bump version to 1.0.21 | `501d2108` | chore: bump version to 1.0.21 | clean propagation |
 | 2026-06-18 | `integration/combined` | `aed4b537` | chore: bump version to 1.0.20 | `c6b21c92` | chore: bump version to 1.0.20 | clean propagation |
 | 2026-06-03 | `integration/combined` | `9c9bc15b` | fix(installer): use executable icon for app shortcuts | `bf18a8c0` | chore: bump version to 1.0.19 | installer icon already matched |
 | 2026-06-01 | `integration/combined` | `8ef91425` | chore: bump version to 1.0.18 | `43cff58e` | chore: bump version to 1.0.18 | resolved tray, history layout, branch docs/deps |
@@ -22,7 +23,6 @@ Rules:
 | 2026-04-25 | `integration/combined` | `4b6adfa5` | fix(overlay): keep error layout onscreen | `d2f38a73` | fix(overlay): keep error layout onscreen | resolved old geometry helper conflict |
 | 2026-04-18 | `integration/combined` | `f36a1cdc` | chore(bindings): commit pending generated update | `0b555fcc` | chore(bindings): commit pending generated update | clean cherry-pick |
 | 2026-04-18 | `integration/cuda` | `f36a1cdc` | chore(bindings): commit pending generated update | `143aa0d0` | chore(bindings): commit pending generated update | clean cherry-pick |
-| 2026-04-18 | `release/microsoft-store` | `f36a1cdc` | chore(bindings): commit pending generated update | `a4363740` | chore(bindings): commit pending generated update | clean cherry-pick |
 
 Entry template:
 
