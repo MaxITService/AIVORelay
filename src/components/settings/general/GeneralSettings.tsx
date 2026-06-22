@@ -189,13 +189,15 @@ export const GeneralSettings: React.FC = () => {
             grouped={true}
           />
           <AutomaticMicrophoneMask descriptionMode="tooltip" grouped={true} />
-          <AudioFeedback descriptionMode="tooltip" grouped={true} />
-          <OutputDeviceSelector
-            descriptionMode="tooltip"
-            grouped={true}
-            disabled={!audioFeedbackEnabled}
-          />
-          <VolumeSlider disabled={!audioFeedbackEnabled} />
+          <div>
+            <AudioFeedback descriptionMode="tooltip" grouped={true} />
+            <OutputDeviceSelector
+              descriptionMode="tooltip"
+              grouped={true}
+              disabled={!audioFeedbackEnabled}
+            />
+            <VolumeSlider disabled={!audioFeedbackEnabled} />
+          </div>
         </SettingsGroup>
       </div>
 

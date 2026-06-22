@@ -126,12 +126,19 @@
   margin-top: 6px;
 }
 .llm-api-note {
-  background: rgba(138, 43, 226, 0.08);
-  border: 1px solid rgba(138, 43, 226, 0.25);
-  color: #b59cff;
   font-size: 12px;
   padding: 10px 12px;
   border-radius: 8px;
+}
+.llm-api-note-ready {
+  background: rgba(16, 185, 129, 0.1);
+  border: 1px solid rgba(16, 185, 129, 0.3);
+  color: #6ee7b7;
+}
+.llm-api-note-not-set {
+  background: rgba(245, 158, 11, 0.1);
+  border: 1px solid rgba(245, 158, 11, 0.3);
+  color: #fcd34d;
 }
 .llm-api-apple-note {
   background: rgba(255,255,255,0.04);
