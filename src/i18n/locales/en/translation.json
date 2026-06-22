@@ -2700,6 +2700,8 @@
         "badRequestTitle": "LLM request rejected",
         "inheritedBadRequestHint": "Check the inherited provider and model in LLM Post Processing settings.",
         "separateBadRequestHint": "Check the provider and model in AI Replace settings.",
+        "genericTitle": "AI Replace failed",
+        "genericHint": "Try again. Hover over this error for technical details.",
         "inheritedConfigurationTooltip": "AI Replace uses Same as Post-Processing. Configure its LLM provider, model, and API key in Settings → LLM Post Processing → API Configuration.",
         "separateConfigurationTooltip": "AI Replace uses separate LLM settings. Configure its provider, model, and API key in Settings → AI Replace → AI Replace (Text Selection)."
       },

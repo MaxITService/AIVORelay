@@ -224,6 +224,19 @@ function getOverlayErrorCopy(
     };
   }
 
+  if (isAiReplaceError && (!category || category === "Unknown")) {
+    return {
+      title: t(
+        "overlay.errors.aiReplace.genericTitle",
+        "AI Replace failed",
+      ),
+      hint: t(
+        "overlay.errors.aiReplace.genericHint",
+        "Try again. Hover over this error for technical details.",
+      ),
+    };
+  }
+
   switch (category) {
     case "Auth":
       return {
@@ -365,10 +378,14 @@ function getOverlayErrorCopy(
 
 function getOverlayErrorTooltip(
   t: TFunction,
+  category?: OverlayErrorCategory,
   envelope?: OverlayErrorEnvelope,
 ): string | null {
   const technicalMessage = envelope?.technical_message?.trim() || null;
-  if (envelope?.context !== "ai_replace") {
+  const shouldShowConfigurationHint =
+    envelope?.context === "ai_replace" &&
+    (category === "Auth" || category === "BadRequest");
+  if (!shouldShowConfigurationHint) {
     return technicalMessage;
   }
 
@@ -703,7 +720,7 @@ const RecordingOverlay: React.FC = () => {
             setErrorMessage(copy.title);
             setErrorHint(copy.hint);
             setErrorCode(compactOverlayErrorCode(rawCode));
-            setErrorTechnical(getOverlayErrorTooltip(t, envelope));
+            setErrorTechnical(getOverlayErrorTooltip(t, category, envelope));
             setErrorRetryAvailable(Boolean(payload.retry_action));
             if (payload.retry_action) {
               void resolveRepasteShortcutLabel().then(setRepasteShortcutLabel);

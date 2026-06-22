@@ -2059,6 +2059,8 @@
         "badRequestTitle": "LLM-запрос отклонён",
         "inheritedBadRequestHint": "Проверьте наследуемые provider и model в настройках постобработки LLM.",
         "separateBadRequestHint": "Проверьте provider и model в настройках AI Replace.",
+        "genericTitle": "Не удалось выполнить AI Replace",
+        "genericHint": "Попробуйте ещё раз. Наведите на эту ошибку, чтобы увидеть технические подробности.",
         "inheritedConfigurationTooltip": "AI Replace использует Same as Post-Processing. Настройте LLM provider, model и API key в Settings → LLM Post Processing → API Configuration.",
         "separateConfigurationTooltip": "AI Replace использует отдельные настройки LLM. Настройте provider, model и API key в Settings → AI Replace → AI Replace (Text Selection)."
       },
