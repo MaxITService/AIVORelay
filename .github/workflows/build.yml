@@ -237,7 +237,10 @@ jobs:
 
       - name: Install Vulkan SDK (Windows x64)
         if: contains(inputs.platform, 'windows') && !contains(inputs.target, 'aarch64')
-        uses: humbletim/install-vulkan-sdk@v1.2
+        # Reviewed upstream PR #24 upgrades the nested cache action to Node 24.
+        # Replace this immutable SHA with an official release commit after merge.
+        # https://github.com/humbletim/install-vulkan-sdk/pull/24
+        uses: humbletim/install-vulkan-sdk@abf95d9696226559c5024544c4a072d50eb007bd
         with:
           version: 1.4.309.0
           cache: true
@@ -267,7 +270,7 @@ jobs:
             }
           }
 
-      # humbletim/install-vulkan-sdk@v1.2 cannot target Windows ARM64 yet.
+      # The pinned install-vulkan-sdk revision cannot target Windows ARM64 yet.
       # Download prebuilt binaries (Bin) + build headers/libs from source.
       # See https://github.com/humbletim/install-vulkan-sdk/pull/22 for prebuilt ARM64 support progress.
       - name: Prepare Vulkan SDK env (Windows ARM64)
