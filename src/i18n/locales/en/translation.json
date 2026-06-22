@@ -2693,6 +2693,16 @@
         "title": "Check API key",
         "hint": "Open Settings and verify the API key for this provider."
       },
+      "aiReplace": {
+        "authTitle": "LLM API key required",
+        "inheritedAuthHint": "Add the inherited API key in LLM Post Processing settings.",
+        "separateAuthHint": "Add the API key in AI Replace settings.",
+        "badRequestTitle": "LLM request rejected",
+        "inheritedBadRequestHint": "Check the inherited provider and model in LLM Post Processing settings.",
+        "separateBadRequestHint": "Check the provider and model in AI Replace settings.",
+        "inheritedConfigurationTooltip": "AI Replace uses Same as Post-Processing. Configure its LLM provider, model, and API key in Settings → LLM Post Processing → API Configuration.",
+        "separateConfigurationTooltip": "AI Replace uses separate LLM settings. Configure its provider, model, and API key in Settings → AI Replace → AI Replace (Text Selection)."
+      },
       "rateLimited": {
         "title": "Rate limit reached",
         "hint": "Wait a moment and try again."

@@ -1243,7 +1243,12 @@ fn emit_ai_replace_error(app: &AppHandle, message: impl Into<String>) {
 fn show_ai_replace_error_overlay(app: &AppHandle, message: impl Into<String>) {
     let message = message.into();
     emit_ai_replace_error(app, message.clone());
-    crate::plus_overlay_state::show_categorized_error_overlay(app, &message);
+    let settings = get_settings(app);
+    crate::plus_overlay_state::show_categorized_ai_replace_error_overlay(
+        app,
+        &message,
+        settings.ai_replace_provider_id.is_none(),
+    );
 }
 
 fn show_recording_start_error_overlay(app: &AppHandle, error: &StartRecordingError) {
