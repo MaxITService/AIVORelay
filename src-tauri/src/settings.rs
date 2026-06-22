@@ -2295,8 +2295,8 @@ fn default_selected_language() -> String {
     "auto".to_string()
 }
 
-fn default_overlay_position() -> OverlayPosition {
-    OverlayPosition::Bottom
+pub(crate) fn default_overlay_position() -> OverlayPosition {
+    OverlayPosition::BottomLeft
 }
 
 fn default_recording_overlay_enabled() -> bool {
@@ -3840,7 +3840,7 @@ fn normalize_legacy_recording_overlay_settings(candidate: &mut Value) -> bool {
     if legacy_position.as_deref() == Some("none") {
         object.insert(
             "overlay_position".to_string(),
-            Value::String("bottom".to_string()),
+            Value::String("bottom_left".to_string()),
         );
         changed = true;
     }
@@ -3942,7 +3942,7 @@ fn migrate_legacy_settings_fields(settings: &mut AppSettings) -> bool {
     let mut changed = false;
 
     if settings.overlay_position == OverlayPosition::None {
-        settings.overlay_position = OverlayPosition::Bottom;
+        settings.overlay_position = default_overlay_position();
         changed = true;
     }
 
