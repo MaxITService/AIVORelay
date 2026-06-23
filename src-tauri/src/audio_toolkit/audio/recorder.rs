@@ -674,6 +674,7 @@ fn process_consumer_cmd(
             *noise_suppressor = None;
             *recording = true;
             visualizer.reset();
+            frame_resampler.reset();
             if let Some(v) = vad {
                 v.lock().unwrap().reset();
             }
