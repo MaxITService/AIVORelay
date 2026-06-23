@@ -16,7 +16,7 @@ import { ResetButton } from "../../ui/ResetButton";
 import { TellMeMore } from "../../ui/TellMeMore";
 import { ToggleSwitch } from "../../ui/ToggleSwitch";
 import { useVoiceCommandProviderState } from "./useVoiceCommandProviderState";
-import { toast } from "sonner";
+import { sessionToast as toast } from "@/lib/sessionToast";
 import "./VoiceCommandSettings.css";
 
 const DEFAULT_VOICE_COMMAND_SYSTEM_PROMPT = `You are a Windows command generator. The user will describe what they want to do, and you must generate a SINGLE PowerShell one-liner command that accomplishes it.

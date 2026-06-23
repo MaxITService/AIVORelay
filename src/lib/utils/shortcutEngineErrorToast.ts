@@ -1,5 +1,5 @@
 import type { TFunction } from "i18next";
-import { toast } from "sonner";
+import { sessionToast as toast } from "@/lib/sessionToast";
 
 const SHORTCUT_ENGINE_COMPATIBILITY_PATTERNS = [
   /not compatible with (?:the )?tauri engine/i,

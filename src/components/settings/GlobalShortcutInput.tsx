@@ -4,6 +4,7 @@ import { type } from "@tauri-apps/plugin-os";
 import {
   getKeyName,
   formatKeyCombination,
+  isModifierOnlyShortcut,
   normalizeKey,
   type OSType,
 } from "../../lib/utils/keyboard";
@@ -11,7 +12,7 @@ import { ResetButton } from "../ui/ResetButton";
 import { SettingContainer } from "../ui/SettingContainer";
 import { useSettings } from "../../hooks/useSettings";
 import { commands } from "@/bindings";
-import { toast } from "sonner";
+import { sessionToast as toast } from "@/lib/sessionToast";
 import { showShortcutSetErrorToast } from "../../lib/utils/shortcutEngineErrorToast";
 
 interface GlobalShortcutInputProps {
@@ -152,10 +153,7 @@ export const GlobalShortcutInput: React.FC<GlobalShortcutInputProps> = ({
             await updateBinding(editingShortcutId, newShortcut);
 
             if (osType === "windows") {
-              const isModifierOnly = sortedKeys.every((key) =>
-                modifiers.includes(key.toLowerCase()),
-              );
-              if (isModifierOnly) {
+              if (isModifierOnlyShortcut(newShortcut)) {
                 toast.warning(
                   t("settings.general.shortcut.warnings.modifierOnly"),
                   { duration: 6000 },

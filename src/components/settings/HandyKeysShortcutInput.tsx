@@ -3,11 +3,15 @@ import { listen } from "@tauri-apps/api/event";
 import { invoke } from "@tauri-apps/api/core";
 import { type } from "@tauri-apps/plugin-os";
 import { useTranslation } from "react-i18next";
-import { formatKeyCombination, type OSType } from "../../lib/utils/keyboard";
+import {
+  formatKeyCombination,
+  isModifierOnlyShortcut,
+  type OSType,
+} from "../../lib/utils/keyboard";
 import { useSettings } from "../../hooks/useSettings";
 import { ResetButton } from "../ui/ResetButton";
 import { SettingContainer } from "../ui/SettingContainer";
-import { toast } from "sonner";
+import { sessionToast as toast } from "@/lib/sessionToast";
 import { showShortcutSetErrorToast } from "../../lib/utils/shortcutEngineErrorToast";
 
 interface HandyKeysShortcutInputProps {
@@ -124,6 +128,16 @@ export const HandyKeysShortcutInput: React.FC<HandyKeysShortcutInputProps> = ({
 
             try {
               await updateBinding(shortcutId, nextShortcut);
+
+              if (
+                osType === "windows" &&
+                isModifierOnlyShortcut(nextShortcut)
+              ) {
+                toast.warning(
+                  t("settings.general.shortcut.warnings.modifierOnly"),
+                  { duration: 6000 },
+                );
+              }
             } catch (error) {
               showShortcutSetErrorToast(error, configuredShortcutEngine, t);
 
@@ -171,6 +185,7 @@ export const HandyKeysShortcutInput: React.FC<HandyKeysShortcutInputProps> = ({
     cancelRecording,
     isRecording,
     originalBinding,
+    osType,
     shortcutId,
     stopRecordingSession,
     t,
