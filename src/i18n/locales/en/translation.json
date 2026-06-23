@@ -1948,6 +1948,25 @@
     },
     "debug": {
       "title": "Debug",
+      "sessionToasts": {
+        "title": "Session toast history · {{count}}",
+        "description": "Error and warning toasts captured in memory during this app session. This history clears when AivoRelay restarts.",
+        "collapse": "Collapse",
+        "expand": "Expand",
+        "empty": "No error or warning toasts have been captured in this session.",
+        "filters": {
+          "errors": "Errors ({{count}})",
+          "errorsDescription": "Show error toasts in the session history.",
+          "warnings": "Warnings ({{count}})",
+          "warningsDescription": "Show warning toasts in the session history. Warnings are captured even while this filter is off."
+        },
+        "levels": {
+          "error": "Error",
+          "warning": "Warning"
+        },
+        "filteredEmpty": "No toasts match the selected filters. Captured this session: {{errorCount}} errors · {{warningCount}} warnings.",
+        "action": "Toast action: {{label}}"
+      },
       "tools": {
         "title": "Debug Tools"
       },

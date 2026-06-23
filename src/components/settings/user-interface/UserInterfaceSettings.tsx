@@ -1,7 +1,7 @@
 import React from "react";
 import { type } from "@tauri-apps/plugin-os";
 import { invoke } from "@tauri-apps/api/core";
-import { toast } from "sonner";
+import { sessionToast as toast } from "@/lib/sessionToast";
 import { SettingsGroup } from "../../ui/SettingsGroup";
 import { SettingContainer } from "../../ui/SettingContainer";
 import { HandyShortcut } from "../HandyShortcut";

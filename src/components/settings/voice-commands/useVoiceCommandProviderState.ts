@@ -1,7 +1,7 @@
 import { useCallback, useMemo } from "react";
 import { useSettings } from "../../../hooks/useSettings";
 import type { PostProcessProvider } from "@/bindings";
-import { toast } from "sonner";
+import { sessionToast as toast } from "@/lib/sessionToast";
 import type { DropdownOption } from "../../ui/Dropdown";
 import { useInheritedPostProcessStatus } from "../post-processing/useInheritedPostProcessStatus";
 

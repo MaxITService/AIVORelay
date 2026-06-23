@@ -19,6 +19,7 @@ import { ToggleSwitch } from "../../ui/ToggleSwitch";
 import { ConfirmationModal } from "../../ui/ConfirmationModal";
 import { useSettings } from "../../../hooks/useSettings";
 import { OPEN_FIRST_START_WIZARD_EVENT } from "../../../constants/appEvents";
+import { SessionToastHistory } from "./SessionToastHistory";
 
 export const DebugSettings: React.FC = () => {
   const { t } = useTranslation();
@@ -52,6 +53,8 @@ export const DebugSettings: React.FC = () => {
 
   return (
     <div className="max-w-3xl w-full mx-auto space-y-6">
+      <SessionToastHistory />
+
       <SettingsGroup title={t("settings.debug.title")}>
         <SettingsDirectory grouped={true} />
         <LogDirectory grouped={true} />

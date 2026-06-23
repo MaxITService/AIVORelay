@@ -2,7 +2,7 @@ import React, { useState, useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import { invoke } from "@tauri-apps/api/core";
 import { X, Cloud, ExternalLink } from "lucide-react";
-import { toast } from "sonner";
+import { sessionToast as toast } from "@/lib/sessionToast";
 import { commands } from "@/bindings";
 import { Button } from "../ui/Button";
 import { Input } from "../ui/Input";

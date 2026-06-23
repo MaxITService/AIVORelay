@@ -239,3 +239,39 @@ export const normalizeKey = (key: string): string => {
   }
   return key;
 };
+
+const MODIFIER_KEY_NAMES = new Set([
+  "alt",
+  "cmd",
+  "command",
+  "control",
+  "ctrl",
+  "fn",
+  "meta",
+  "option",
+  "opt",
+  "shift",
+  "super",
+  "win",
+  "windows",
+]);
+
+/**
+ * Check whether a shortcut contains modifiers only.
+ * Supports both browser names ("ctrl+alt") and HandyKeys side-specific names
+ * ("ctrl_left+alt_left").
+ */
+export const isModifierOnlyShortcut = (combination: string): boolean => {
+  const keys = combination
+    .split("+")
+    .map((key) =>
+      key
+        .trim()
+        .toLowerCase()
+        .replace(/^(left|right)[ _-]?/, "")
+        .replace(/[ _-]?(left|right)$/, ""),
+    )
+    .filter(Boolean);
+
+  return keys.length > 0 && keys.every((key) => MODIFIER_KEY_NAMES.has(key));
+};

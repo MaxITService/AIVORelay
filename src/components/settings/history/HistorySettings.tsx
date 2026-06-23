@@ -15,7 +15,7 @@ import {
 } from "lucide-react";
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import { toast } from "sonner";
+import { sessionToast as toast } from "@/lib/sessionToast";
 import { commands, type HistoryEntry } from "@/bindings";
 import { formatDateTime, formatDate } from "@/utils/dateFormat";
 import { HandyShortcut } from "../HandyShortcut";

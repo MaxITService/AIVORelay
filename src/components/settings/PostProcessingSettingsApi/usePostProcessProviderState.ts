@@ -1,7 +1,7 @@
 import { useCallback, useMemo, useState } from "react";
 import { useSettings } from "../../../hooks/useSettings";
 import { commands, type PostProcessProvider } from "@/bindings";
-import { toast } from "sonner";
+import { sessionToast as toast } from "@/lib/sessionToast";
 import type { ModelOption } from "./types";
 import type { DropdownOption } from "../../ui/Dropdown";
 

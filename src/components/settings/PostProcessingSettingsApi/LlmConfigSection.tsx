@@ -2,7 +2,7 @@ import React from "react";
 import { useTranslation } from "react-i18next";
 import { invoke } from "@tauri-apps/api/core";
 import { RefreshCcw } from "lucide-react";
-import { toast } from "sonner";
+import { sessionToast as toast } from "@/lib/sessionToast";
 
 import { useSettings } from "../../../hooks/useSettings";
 import { SettingContainer } from "../../ui/SettingContainer";

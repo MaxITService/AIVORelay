@@ -4,7 +4,7 @@ import { listen } from "@tauri-apps/api/event";
 import { invoke } from "@tauri-apps/api/core";
 import { type } from "@tauri-apps/plugin-os";
 import { RefreshCw } from "lucide-react";
-import { toast } from "sonner";
+import { sessionToast as toast } from "@/lib/sessionToast";
 import {
   commands,
   type TranscriptionProfile,

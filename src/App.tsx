@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Toaster, toast } from "sonner";
+import { Toaster } from "sonner";
+import { sessionToast as toast } from "@/lib/sessionToast";
 import "./App.css";
 import AccessibilityPermissions from "./components/AccessibilityPermissions";
 import Footer from "./components/footer";
