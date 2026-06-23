@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Toaster } from "sonner";
 import { sessionToast as toast } from "@/lib/sessionToast";
 import "./App.css";
 import AccessibilityPermissions from "./components/AccessibilityPermissions";
@@ -343,17 +342,6 @@ function App() {
 
   return (
     <div className="h-screen flex flex-col bg-[#121212]">
-      <Toaster
-        theme="dark"
-        toastOptions={{
-          style: {
-            background: "rgba(26, 26, 26, 0.98)",
-            border: "1px solid #333333",
-            color: "#f5f5f5",
-            backdropFilter: "blur(12px)",
-          },
-        }}
-      />
       {/* Main content area that takes remaining space */}
       <div className="flex-1 flex overflow-hidden">
         <Sidebar
