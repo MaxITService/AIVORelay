@@ -83,6 +83,15 @@ impl FrameResampler {
         }
     }
 
+    /// Clear all buffered audio and resampler history between recordings.
+    pub fn reset(&mut self) {
+        self.in_buf.clear();
+        self.pending.clear();
+        if let Some(ref mut resampler) = self.resampler {
+            resampler.reset();
+        }
+    }
+
     fn emit_frames(&mut self, mut data: &[f32], emit: &mut impl FnMut(&[f32])) {
         while !data.is_empty() {
             let space = self.frame_samples - self.pending.len();
@@ -95,5 +104,58 @@ impl FrameResampler {
                 self.pending.clear();
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn collect_recording(resampler: &mut FrameResampler, input: &[f32]) -> Vec<f32> {
+        let mut output = Vec::new();
+        resampler.push(input, |frame| output.extend_from_slice(frame));
+        resampler.finish(|frame| output.extend_from_slice(frame));
+        output
+    }
+
+    #[test]
+    fn reset_clears_wrapper_buffers() {
+        let mut resampling = FrameResampler::new(48_000, 16_000, Duration::from_millis(30));
+        resampling.push(&[1.0; 500], |_| panic!("partial chunk emitted"));
+        assert_eq!(resampling.in_buf.len(), 500);
+
+        resampling.reset();
+        assert!(resampling.in_buf.is_empty());
+
+        let mut passthrough = FrameResampler::new(16_000, 16_000, Duration::from_millis(30));
+        passthrough.push(&[1.0; 200], |_| panic!("partial frame emitted"));
+        assert_eq!(passthrough.pending.len(), 200);
+
+        passthrough.reset();
+        assert!(passthrough.pending.is_empty());
+    }
+
+    #[test]
+    fn reset_makes_reused_resampler_match_fresh_resampler() {
+        let mut reused = FrameResampler::new(48_000, 16_000, Duration::from_millis(30));
+        let previous_recording = vec![1.0; RESAMPLER_CHUNK_SIZE * 4];
+        assert!(!collect_recording(&mut reused, &previous_recording).is_empty());
+
+        reused.reset();
+
+        let next_recording = vec![0.0; RESAMPLER_CHUNK_SIZE * 4];
+        let reused_output = collect_recording(&mut reused, &next_recording);
+
+        let mut fresh = FrameResampler::new(48_000, 16_000, Duration::from_millis(30));
+        let fresh_output = collect_recording(&mut fresh, &next_recording);
+
+        assert_eq!(reused_output.len(), fresh_output.len());
+        assert!(
+            reused_output
+                .iter()
+                .zip(&fresh_output)
+                .all(|(reused, fresh)| (reused - fresh).abs() <= f32::EPSILON),
+            "reset resampler retained audio from the previous recording"
+        );
     }
 }
