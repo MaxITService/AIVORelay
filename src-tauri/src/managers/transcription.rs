@@ -56,7 +56,10 @@ pub struct LoadingGuard {
 
 impl Drop for LoadingGuard {
     fn drop(&mut self) {
-        let mut is_loading = self.is_loading.lock().unwrap();
+        let mut is_loading = match self.is_loading.lock() {
+            Ok(guard) => guard,
+            Err(poisoned) => poisoned.into_inner(),
+        };
         *is_loading = false;
         self.loading_condvar.notify_all();
     }
@@ -2267,6 +2270,31 @@ mod tests {
     use transcribe_rs::TranscriptionSegment;
 
     #[test]
+    fn loading_guard_drop_recovers_poisoned_mutex() {
+        let is_loading = Arc::new(Mutex::new(true));
+        let mutex_to_poison = is_loading.clone();
+
+        let poison_result = catch_unwind(AssertUnwindSafe(|| {
+            let _guard = mutex_to_poison.lock().unwrap();
+            panic!("poison loading mutex");
+        }));
+        assert!(poison_result.is_err());
+
+        let drop_result = catch_unwind(AssertUnwindSafe(|| {
+            drop(LoadingGuard {
+                is_loading: is_loading.clone(),
+                loading_condvar: Arc::new(Condvar::new()),
+            });
+        }));
+        assert!(drop_result.is_ok());
+
+        let is_loading = is_loading
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        assert!(!*is_loading);
+    }
+
+    #[test]
     fn merge_keeps_segments_none_when_chunks_have_no_segments() {
         let merged = merge_transcription_results(
             vec![
@@ -2407,7 +2435,11 @@ impl Drop for TranscriptionManager {
         self.shutdown_signal.store(true, Ordering::Relaxed);
 
         // Wait for the thread to finish gracefully
-        if let Some(handle) = self.watcher_handle.lock().unwrap().take() {
+        let mut watcher_handle = match self.watcher_handle.lock() {
+            Ok(guard) => guard,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        if let Some(handle) = watcher_handle.take() {
             if let Err(e) = handle.join() {
                 warn!("Failed to join idle watcher thread: {:?}", e);
             } else {
