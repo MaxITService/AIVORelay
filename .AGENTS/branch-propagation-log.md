@@ -13,6 +13,9 @@ Rules:
 
 | Propagation Date | Target Branch | Main SHA | Main Message | Branch SHA | Branch Message | Issues |
 | --- | --- | --- | --- | --- | --- | --- |
+| 2026-06-24 | `integration/combined` | `3b37e049` | chore: bump version to 1.0.22 | `a34f02af` | chore: bump version to 1.0.22 | runtime clean; lock patched |
+| 2026-06-24 | `integration/cuda` | `3b37e049` | chore: bump version to 1.0.22 | `4c8f9174` | chore: bump version to 1.0.22 | runtime clean; CUDA notes updated; lock patched |
+| 2026-06-24 | `release/microsoft-store` | `3b37e049` | chore: bump version to 1.0.22 | `a0121372` | chore: bump version to 1.0.22 | runtime clean; Store notes updated; lock patched |
 | 2026-06-22 | `integration/combined` | `00b053b9` | ci: pin Vulkan action to Node 24 cache fix | `645d8ac0` | ci: pin Vulkan action to Node 24 cache fix | clean propagation |
 | 2026-06-22 | `integration/cuda` | `00b053b9` | ci: pin Vulkan action to Node 24 cache fix | `0f538b69` | ci: pin Vulkan action to Node 24 cache fix | clean propagation |
 | 2026-06-22 | `release/microsoft-store` | `00b053b9` | ci: pin Vulkan action to Node 24 cache fix | `a18d5198` | ci: pin Vulkan action to Node 24 cache fix | clean propagation |
@@ -20,9 +23,6 @@ Rules:
 | 2026-06-22 | `integration/cuda` | `630abf2e` | fix: repair release build and update Node actions | `7db52d68` | fix: repair release build and update Node actions | clean propagation |
 | 2026-06-22 | `release/microsoft-store` | `630abf2e` | fix: repair release build and update Node actions | `18f7cebb` | fix: repair release build and update Node actions | clean propagation |
 | 2026-06-22 | `integration/combined` | `1e1f7379` | chore: bump version to 1.0.21 | `501d2108` | chore: bump version to 1.0.21 | clean propagation |
-| 2026-06-22 | `integration/cuda` | `1e1f7379` | chore: bump version to 1.0.21 | `35da4d00` | chore: bump version to 1.0.21 | preserved CUDA accelerator migration |
-| 2026-06-22 | `release/microsoft-store` | `1e1f7379` | chore: bump version to 1.0.21 | `d2202bc4` | chore: bump version to 1.0.21 | store notes updated |
-| 2026-06-18 | `integration/combined` | `aed4b537` | chore: bump version to 1.0.20 | `c6b21c92` | chore: bump version to 1.0.20 | clean propagation |
 
 Entry template:
 
