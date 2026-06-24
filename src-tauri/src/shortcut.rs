@@ -1070,7 +1070,9 @@ pub fn change_overlay_position_setting(app: AppHandle, position: String) -> Resu
             settings.recording_overlay_use_manual_position = false;
         }
     }
+    let recording_overlay_enabled = settings.recording_overlay_enabled;
     settings::write_settings(&app, settings);
+    crate::overlay::update_recording_overlay_enabled_cache(recording_overlay_enabled);
 
     // Update overlay position without recreating window
     refresh_recording_overlay_window(&app);
@@ -1088,6 +1090,7 @@ pub fn change_recording_overlay_enabled_setting(
     let mut settings = settings::get_settings(&app);
     settings.recording_overlay_enabled = enabled;
     settings::write_settings(&app, settings);
+    crate::overlay::update_recording_overlay_enabled_cache(enabled);
 
     if !enabled {
         crate::overlay::hide_recording_overlay_immediately(&app);
