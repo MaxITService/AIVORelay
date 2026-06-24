@@ -5,10 +5,11 @@ GitHub Actions prepends this Markdown above GitHub-generated release notes.
 
 ## Highlights
 
-- The recording overlay now supports every corner plus remembered custom drag positions, with Bottom Left as the default.
-- Bottom-left placement can use free taskbar space while keeping clear of the weather area, and overlay visibility is now a separate toggle.
-- AI Replace errors now identify LLM configuration problems clearly and show targeted setup guidance on hover.
-- Inherited post-processing provider status is shown directly in AI Replace and Voice Commands settings.
+- Each recording now starts with a clean resampler state, preventing audio samples from carrying over between sessions.
+- Debug settings now include an in-session notification history for easier troubleshooting.
+- Onboarding errors are now shown reliably instead of being silently missed.
+- Empty or whitespace-only transcriptions no longer trigger unnecessary LLM post-processing requests.
+- Improved transcription shutdown resilience and reduced recording-overlay background work when the overlay is disabled.
 
 ---
 
