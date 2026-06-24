@@ -5,9 +5,11 @@ GitHub Actions prepends this Markdown above GitHub-generated release notes.
 
 ## Highlights
 
-- Dictation word and character counters can now be edited safely from History settings.
-- Dictation stats now pause while editing and cap very large values to avoid precision issues.
-- Recording overlay placement is reasserted natively on Windows to prevent rare starts above the saved manual position.
+- Each recording now starts with a clean resampler state, preventing audio samples from carrying over between sessions.
+- Debug settings now include an in-session notification history for easier troubleshooting.
+- Onboarding errors are now shown reliably instead of being silently missed.
+- Empty or whitespace-only transcriptions no longer trigger unnecessary LLM post-processing requests.
+- Improved transcription shutdown resilience and reduced recording-overlay background work when the overlay is disabled.
 
 ---
 
