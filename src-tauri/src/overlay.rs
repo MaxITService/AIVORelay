@@ -10,7 +10,7 @@ use crate::settings::{
 };
 use serde::Serialize;
 use specta::Type;
-use std::sync::atomic::{AtomicU64, AtomicU8, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicU8, Ordering};
 use std::sync::{LazyLock, Mutex};
 use tauri::{AppHandle, Emitter, Manager, PhysicalPosition, PhysicalSize};
 
@@ -19,6 +19,13 @@ use tauri::{AppHandle, Emitter, Manager, PhysicalPosition, PhysicalSize};
 /// this is incremented so stale timers do not hide newer overlays.
 static TRANSIENT_OVERLAY_GENERATION: AtomicU64 = AtomicU64::new(0);
 static RECORDING_OVERLAY_LAYOUT: AtomicU8 = AtomicU8::new(0);
+// Kept in sync at startup and whenever the persisted enable setting changes.
+static RECORDING_OVERLAY_ENABLED: AtomicBool = AtomicBool::new(false);
+
+/// Updates the cached enable state used by the hot audio callback path.
+pub fn update_recording_overlay_enabled_cache(enabled: bool) {
+    RECORDING_OVERLAY_ENABLED.store(enabled, Ordering::Relaxed);
+}
 
 #[cfg(not(target_os = "macos"))]
 use log::debug;
@@ -2223,14 +2230,14 @@ pub fn emit_soniox_live_preview_update_with_changed_ranges(
 ) {
 }
 
-pub fn emit_levels(app_handle: &AppHandle, levels: &Vec<f32>) {
-    // emit levels to main app
-    let _ = app_handle.emit("mic-level", levels);
-
-    // also emit to the recording overlay if it's open
-    if let Some(overlay_window) = app_handle.get_webview_window("recording_overlay") {
-        let _ = overlay_window.emit("mic-level", levels);
+pub fn emit_levels(app_handle: &AppHandle, levels: &[f32]) {
+    // The overlay window exists while hidden, so disabled means no IPC at all.
+    if !RECORDING_OVERLAY_ENABLED.load(Ordering::Relaxed) {
+        return;
     }
+
+    // Only the recording overlay consumes these levels.
+    let _ = app_handle.emit_to("recording_overlay", "mic-level", levels);
 }
 
 // ============================================================================

@@ -267,6 +267,7 @@ fn initialize_core_logic(app_handle: &AppHandle) {
     app_handle.manage(tray::ManagedTrayState::default());
 
     let current_settings = settings::get_settings(app_handle);
+    overlay::update_recording_overlay_enabled_cache(current_settings.recording_overlay_enabled);
     managers::transcription::apply_accelerator_settings(app_handle);
     app_handle.manage(
         managers::microphone_auto_switch::ManagedManualMicrophoneSelection::new(
