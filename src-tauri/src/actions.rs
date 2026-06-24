@@ -5059,6 +5059,35 @@ fn apply_stream_trailing_adjustment(app: &AppHandle, adjustment: StreamTrailingA
     }
 }
 
+fn should_run_transcription_post_process(post_process_requested: bool, text: &str) -> bool {
+    post_process_requested && !text.trim().is_empty()
+}
+
+#[cfg(test)]
+mod transcription_post_process_tests {
+    use super::should_run_transcription_post_process;
+
+    #[test]
+    fn skips_post_process_for_empty_transcription() {
+        assert!(!should_run_transcription_post_process(true, ""));
+    }
+
+    #[test]
+    fn skips_post_process_for_whitespace_transcription() {
+        assert!(!should_run_transcription_post_process(true, " \n\t "));
+    }
+
+    #[test]
+    fn allows_post_process_for_non_empty_transcription() {
+        assert!(should_run_transcription_post_process(true, "hello"));
+    }
+
+    #[test]
+    fn skips_post_process_when_feature_is_disabled() {
+        assert!(!should_run_transcription_post_process(false, "hello"));
+    }
+}
+
 pub(crate) async fn process_transcription_output(
     app: &AppHandle,
     settings: &AppSettings,
@@ -5109,7 +5138,7 @@ pub(crate) async fn process_transcription_output(
         final_text = converted_text;
     }
 
-    if post_process_requested {
+    if should_run_transcription_post_process(post_process_requested, &final_text) {
         let template_context =
             build_llm_template_context(app, settings, profile, current_app, &final_text, "", "");
 
