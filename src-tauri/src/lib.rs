@@ -4,6 +4,8 @@ mod active_app;
 mod apple_intelligence;
 mod audio_feedback;
 pub mod audio_toolkit;
+mod catalog;
+pub mod cli;
 mod clipboard;
 mod commands;
 mod file_transcription_diarization;
@@ -40,6 +42,7 @@ mod webview_hardening;
 use specta_typescript::{BigIntExportBehavior, Typescript};
 use tauri_specta::{collect_commands, Builder};
 
+pub use cli::CliArgs;
 use env_filter::Builder as EnvFilterBuilder;
 use managers::audio::AudioRecordingManager;
 use managers::connector::ConnectorManager;
@@ -150,6 +153,48 @@ fn show_main_window(app: &AppHandle) {
         }
     } else {
         log::error!("Main window not found.");
+    }
+}
+
+fn send_transcription_input(app: &AppHandle, binding_id: &str, shortcut_string: &str) {
+    let Some(action) = actions::ACTION_MAP.get(binding_id) else {
+        log::warn!(
+            "No action defined in ACTION_MAP for binding ID '{}'",
+            binding_id
+        );
+        return;
+    };
+
+    if action.is_instant() {
+        action.start(app, binding_id, shortcut_string);
+        return;
+    }
+
+    let should_start = {
+        let toggle_state_manager = app.state::<ManagedToggleState>();
+        let mut states = match toggle_state_manager.lock() {
+            Ok(states) => states,
+            Err(error) => {
+                log::warn!("Failed to lock toggle state manager: {}", error);
+                return;
+            }
+        };
+
+        let is_currently_active = states
+            .active_toggles
+            .entry(binding_id.to_string())
+            .or_insert(false);
+        let should_start = !*is_currently_active;
+        if should_start {
+            *is_currently_active = true;
+        }
+        should_start
+    };
+
+    if should_start {
+        action.start(app, binding_id, shortcut_string);
+    } else {
+        action.stop(app, binding_id, shortcut_string);
     }
 }
 
@@ -282,6 +327,7 @@ fn initialize_core_logic(app_handle: &AppHandle) {
     );
 
     // Initialize the managers
+    managers::transcription::init_transcribe_backend();
     let recording_manager = Arc::new(
         AudioRecordingManager::new(app_handle).expect("Failed to initialize recording manager"),
     );
@@ -640,8 +686,158 @@ fn trigger_update_check(app: AppHandle) -> Result<(), String> {
     Ok(())
 }
 
+/// Headless one-shot transcription for `--transcribe-file` / `--list-devices`.
+/// Returns a process exit code: 0 ok, 1 runtime failure, 2 bad input/usage.
+fn run_headless_transcription(app: &AppHandle, args: &CliArgs) -> i32 {
+    use managers::model::EngineType;
+    use std::time::Instant;
+
+    if args.list_devices {
+        println!("whisper compute devices:");
+        for device in managers::transcription::describe_compute_devices() {
+            println!("  {}", device);
+        }
+        if args.transcribe_file.is_none() {
+            return 0;
+        }
+    }
+
+    let Some(wav) = args.transcribe_file.clone() else {
+        return 0;
+    };
+
+    match hound::WavReader::open(&wav) {
+        Ok(reader) => {
+            let spec = reader.spec();
+            if spec.sample_rate != 16_000
+                || spec.channels != 1
+                || spec.bits_per_sample != 16
+                || spec.sample_format != hound::SampleFormat::Int
+            {
+                eprintln!(
+                    "error: expected 16 kHz mono 16-bit PCM WAV, got {} Hz / {} ch / {}-bit {:?}",
+                    spec.sample_rate, spec.channels, spec.bits_per_sample, spec.sample_format
+                );
+                return 2;
+            }
+        }
+        Err(err) => {
+            eprintln!("error: cannot open {}: {}", wav.display(), err);
+            return 2;
+        }
+    }
+
+    let samples = match crate::audio_toolkit::read_wav_samples(&wav) {
+        Ok(samples) => samples,
+        Err(err) => {
+            eprintln!("error: failed to read {}: {}", wav.display(), err);
+            return 2;
+        }
+    };
+    let audio_secs = samples.len() as f64 / 16_000.0;
+
+    let tm = app.state::<Arc<TranscriptionManager>>();
+    let mm = app.state::<Arc<ModelManager>>();
+    let settings = get_settings(app);
+    let model_id = args
+        .model
+        .clone()
+        .unwrap_or_else(|| settings.selected_model.clone());
+    if model_id.trim().is_empty() {
+        eprintln!("error: no model selected (pass --model or pick one in the app)");
+        return 2;
+    }
+
+    let device_index = args.device_index;
+    let requested_device = match device_index {
+        Some(idx) => format!("index {}", idx),
+        None => "settings".to_string(),
+    };
+
+    let engine_type = mm.get_model_info(&model_id).map(|model| model.engine_type);
+    let supports_device_index = matches!(
+        &engine_type,
+        Some(EngineType::Whisper | EngineType::TranscribeCpp)
+    );
+    if device_index.is_some() && !supports_device_index {
+        eprintln!(
+            "warning: --device-index applies to local GGML/GGUF models only; ignored for '{}'",
+            model_id
+        );
+    }
+
+    let runs = args.repeat.unwrap_or(1).max(1);
+    let load_start = Instant::now();
+    if let Err(err) = tm.load_model_with_device(&model_id, device_index) {
+        eprintln!("error: load failed: {}", err);
+        return 1;
+    }
+    let load_ms = load_start.elapsed().as_millis() as u64;
+    let bound_backend = match engine_type {
+        Some(EngineType::Whisper) => {
+            managers::transcription::describe_effective_whisper_device(device_index)
+        }
+        Some(EngineType::TranscribeCpp) => "transcribe.cpp".to_string(),
+        _ => "onnx".to_string(),
+    };
+
+    let apply_custom_words_enabled = settings.custom_words_enabled;
+    let mut times_ms = Vec::new();
+    let mut text = String::new();
+    for index in 0..runs {
+        if !tm.is_model_loaded() {
+            if let Err(err) = tm.load_model_with_device(&model_id, device_index) {
+                eprintln!("error: reload before run {} failed: {}", index + 1, err);
+                return 1;
+            }
+        }
+
+        let started = Instant::now();
+        match tm.transcribe(samples.clone(), apply_custom_words_enabled) {
+            Ok(output) => text = output,
+            Err(err) => {
+                eprintln!("error: transcribe failed: {}", err);
+                return 1;
+            }
+        }
+        times_ms.push(started.elapsed().as_millis() as u64);
+    }
+
+    let best_ms = times_ms.iter().copied().min().unwrap_or(0);
+    let rtf = if best_ms > 0 {
+        audio_secs / (best_ms as f64 / 1000.0)
+    } else {
+        0.0
+    };
+
+    if args.json {
+        println!(
+            "{}",
+            serde_json::json!({
+                "model": model_id,
+                "requested_device": requested_device,
+                "bound_backend": bound_backend,
+                "audio_secs": audio_secs,
+                "load_ms": load_ms,
+                "transcribe_ms": times_ms,
+                "best_ms": best_ms,
+                "rtf": rtf,
+                "text": text,
+            })
+        );
+    } else {
+        println!(
+            "model={} device={} backend={} audio={:.2}s load={}ms best={}ms rtf={:.2}x",
+            model_id, requested_device, bound_backend, audio_secs, load_ms, best_ms, rtf,
+        );
+        println!("text: {}", text);
+    }
+
+    0
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
-pub fn run() {
+pub fn run(cli_args: CliArgs) {
     portable::init();
 
     // Parse console logging directives from RUST_LOG, falling back to info-level logging
@@ -962,6 +1158,7 @@ pub fn run() {
         commands::llm_has_stored_api_key,
         commands::debug_show_error_overlay,
         commands::models::get_available_models,
+        commands::models::rescan_local_models,
         commands::models::download_model,
         commands::models::delete_model,
         commands::models::cancel_download,
@@ -1076,6 +1273,8 @@ pub fn run() {
         .expect("Failed to export typescript bindings");
 
     // mut is required on macOS where we add the nspanel plugin
+    let headless_mode = cli_args.transcribe_file.is_some() || cli_args.list_devices;
+
     #[allow(unused_mut)]
     let mut builder = tauri::Builder::default()
         .device_event_filter(tauri::DeviceEventFilter::Always)
@@ -1087,8 +1286,14 @@ pub fn run() {
                 .rotation_strategy(RotationStrategy::KeepOne)
                 .clear_targets()
                 .targets([
-                    // Console output respects RUST_LOG environment variable
-                    Target::new(TargetKind::Stdout).filter({
+                    // Console output respects RUST_LOG. In headless mode stdout
+                    // carries the result, so logs go to stderr for easy parsing.
+                    Target::new(if headless_mode {
+                        TargetKind::Stderr
+                    } else {
+                        TargetKind::Stdout
+                    })
+                    .filter({
                         let console_filter = console_filter.clone();
                         move |metadata| console_filter.enabled(metadata)
                     }),
@@ -1116,10 +1321,22 @@ pub fn run() {
         builder = builder.plugin(tauri_nspanel::init());
     }
 
+    if !headless_mode {
+        builder = builder.plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
+            if args.iter().any(|arg| arg == "--toggle-transcription") {
+                send_transcription_input(app, "transcribe", "CLI");
+            } else if args.iter().any(|arg| arg == "--toggle-post-process") {
+                actions::force_post_process_for_next_transcription("transcribe");
+                send_transcription_input(app, "transcribe", "CLI");
+            } else if args.iter().any(|arg| arg == "--cancel") {
+                crate::utils::cancel_current_operation(app);
+            } else {
+                show_main_window(app);
+            }
+        }));
+    }
+
     builder
-        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
-            show_main_window(app);
-        }))
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_process::init())
@@ -1145,6 +1362,35 @@ pub fn run() {
         .manage(std::sync::Mutex::new(settings::ShortcutEngine::default())
             as shortcut::ActiveShortcutEngine)
         .setup(move |app| {
+            if headless_mode {
+                let app_handle = app.handle().clone();
+                managers::transcription::init_transcribe_backend();
+                let model_manager = Arc::new(
+                    ModelManager::new(&app_handle).expect("Failed to initialize model manager"),
+                );
+                let transcription_manager = Arc::new(
+                    TranscriptionManager::new(&app_handle, model_manager.clone())
+                        .expect("Failed to initialize transcription manager"),
+                );
+                app_handle.manage(model_manager);
+                app_handle.manage(transcription_manager);
+                managers::transcription::apply_accelerator_settings(&app_handle);
+
+                let handle = app_handle.clone();
+                let args = cli_args.clone();
+                std::thread::spawn(move || {
+                    let code = run_headless_transcription(&handle, &args);
+                    if let Some(tm) = handle.try_state::<Arc<TranscriptionManager>>() {
+                        let _ = tm.unload_model();
+                    }
+                    use std::io::Write;
+                    let _ = std::io::stdout().flush();
+                    let _ = std::io::stderr().flush();
+                    std::process::exit(code);
+                });
+                return Ok(());
+            }
+
             #[cfg(target_os = "windows")]
             let playwright_cdp_port = std::env::var("PLAYWRIGHT_TAURI_REMOTE_DEBUGGING_PORT")
                 .ok()

@@ -18,6 +18,18 @@ pub async fn get_available_models(
 
 #[tauri::command]
 #[specta::specta]
+pub async fn rescan_local_models(
+    model_manager: State<'_, Arc<ModelManager>>,
+) -> Result<(), String> {
+    let model_manager = model_manager.inner().clone();
+    tokio::task::spawn_blocking(move || model_manager.rescan_local_models())
+        .await
+        .map_err(|e| format!("rescan task panicked: {e}"))?
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+#[specta::specta]
 pub async fn download_model(
     app_handle: AppHandle,
     model_manager: State<'_, Arc<ModelManager>>,

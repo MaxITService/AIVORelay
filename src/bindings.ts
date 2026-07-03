@@ -2529,6 +2529,14 @@ async getAvailableModels() : Promise<Result<ModelInfo[], string>> {
     else return { status: "error", error: e  as any };
 }
 },
+async rescanLocalModels() : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("rescan_local_models") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async downloadModel(modelId: string) : Promise<Result<null, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("download_model", { modelId }) };
@@ -3735,7 +3743,7 @@ export type DeepgramFileTranscriptionOptions = { diarize: boolean | null; multic
 export type DiarizationSpeakerNameProfile = { id: string; name: string; speaker_names?: string[] }
 export type DiarizedTranscriptProvider = "deepgram" | "soniox"
 export type DictationStatsRuntimeState = { is_editing: boolean; is_recording: boolean; is_processing: boolean; can_start_edit: boolean; can_apply_edit: boolean; max_count: number; warning_threshold: number }
-export type EngineType = "Whisper" | "Parakeet" | "Moonshine" | "MoonshineStreaming" | "SenseVoice" | "GigaAM" | "Canary" | "Cohere"
+export type EngineType = "TranscribeCpp" | "Whisper" | "Parakeet" | "Moonshine" | "MoonshineStreaming" | "SenseVoice" | "GigaAM" | "Canary" | "Cohere"
 /**
  * PowerShell execution policy for voice commands.
  * Controls script execution permissions.
@@ -3846,7 +3854,7 @@ export type LlmFeature =
 "voice_command"
 export type LlmPostProcessBenchmarkResult = { timestamp_ms: number; provider_id: string; provider_label: string; model: string; duration_ms: number; chars_per_second: number; input_chars: number; output_chars: number; success: boolean; system_prompt: string; user_message: string; response_text: string; error: string | null }
 export type LogLevel = "trace" | "debug" | "info" | "warn" | "error"
-export type ModelInfo = { id: string; name: string; description: string; filename: string; url: string | null; sha256: string | null; size_mb: number; is_downloaded: boolean; is_downloading: boolean; partial_size: number; is_directory: boolean; engine_type: EngineType; accuracy_score: number; speed_score: number; supports_translation: boolean; is_recommended: boolean; supported_languages: string[]; is_custom: boolean }
+export type ModelInfo = { id: string; name: string; description: string; filename: string; url: string | null; sha256: string | null; size_mb: number; is_downloaded: boolean; is_downloading: boolean; partial_size: number; is_directory: boolean; engine_type: EngineType; accuracy_score: number; speed_score: number; supports_translation: boolean; supports_streaming: boolean; supports_language_detection: boolean; is_recommended: boolean; supported_languages: string[]; is_custom: boolean }
 export type ModelUnloadTimeout = "never" | "immediately" | "min_2" | "min_5" | "min_10" | "min_15" | "hour_1" | "sec_5"
 export type NativeRegionCaptureMode = 
 /**

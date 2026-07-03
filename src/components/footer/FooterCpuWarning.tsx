@@ -8,7 +8,10 @@ import {
 } from "@/bindings";
 import { useSettings } from "@/hooks/useSettings";
 
-const WHISPER_ENGINE_TYPES = new Set<ModelInfo["engine_type"]>(["Whisper"]);
+const WHISPER_ENGINE_TYPES = new Set<ModelInfo["engine_type"]>([
+  "TranscribeCpp",
+  "Whisper",
+]);
 
 const FooterCpuWarning: React.FC = () => {
   const { t } = useTranslation();

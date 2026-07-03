@@ -31,13 +31,16 @@ type ModelDetailsCopy = {
   badgeSingleFile: string;
   badgeTranslation: string;
   badgeAsrOnly: string;
+  badgeNativeStreaming: string;
   summary: string;
   runtime: string;
   runtimeWhisper: string;
+  runtimeTranscribeCpp: string;
   runtimeOnnx: string;
   runtimeOnnxStreaming: string;
   format: string;
   formatGgml: string;
+  formatGguf: string;
   formatOnnx: string;
   formatOnnxStreaming: string;
   formatCustomWhisper: string;
@@ -49,6 +52,9 @@ type ModelDetailsCopy = {
   translation: string;
   translationYes: string;
   translationNo: string;
+  streaming: string;
+  streamingNative: string;
+  streamingNo: string;
   languages: string;
   languageUnknown: string;
 };
@@ -67,13 +73,16 @@ function getModelDetailsCopy(locale: string): ModelDetailsCopy {
       badgeSingleFile: "Один файл",
       badgeTranslation: "Перевод в английский",
       badgeAsrOnly: "Только ASR",
+      badgeNativeStreaming: "Нативный поток",
       summary: "Технические детали и поддерживаемые языки",
       runtime: "Рантайм",
       runtimeWhisper: "whisper.cpp / GGML",
+      runtimeTranscribeCpp: "transcribe.cpp / GGUF",
       runtimeOnnx: "ONNX Runtime",
       runtimeOnnxStreaming: "ONNX Runtime (streaming)",
       format: "Формат",
       formatGgml: "GGML model file",
+      formatGguf: "GGUF model file",
       formatOnnx: "ONNX package",
       formatOnnxStreaming: "Streaming ONNX package",
       formatCustomWhisper: "Custom Whisper GGML .bin",
@@ -85,6 +94,9 @@ function getModelDetailsCopy(locale: string): ModelDetailsCopy {
       translation: "Перевод",
       translationYes: "Поддерживается в английский",
       translationNo: "Не поддерживается",
+      streaming: "Потоковый режим",
+      streamingNative: "Нативная обработка",
+      streamingNo: "Не поддерживается",
       languages: "Поддерживаемые языки",
       languageUnknown: "Не указано",
     };
@@ -98,13 +110,16 @@ function getModelDetailsCopy(locale: string): ModelDetailsCopy {
     badgeSingleFile: "Single file",
     badgeTranslation: "Translates to English",
     badgeAsrOnly: "ASR only",
+    badgeNativeStreaming: "Native streaming",
     summary: "Technical details & supported languages",
     runtime: "Runtime",
     runtimeWhisper: "whisper.cpp / GGML",
+    runtimeTranscribeCpp: "transcribe.cpp / GGUF",
     runtimeOnnx: "ONNX Runtime",
     runtimeOnnxStreaming: "ONNX Runtime (streaming)",
     format: "Format",
     formatGgml: "GGML model file",
+    formatGguf: "GGUF model file",
     formatOnnx: "ONNX package",
     formatOnnxStreaming: "Streaming ONNX package",
     formatCustomWhisper: "Custom Whisper GGML .bin",
@@ -116,6 +131,9 @@ function getModelDetailsCopy(locale: string): ModelDetailsCopy {
     translation: "Translation",
     translationYes: "Supported to English",
     translationNo: "Not supported",
+    streaming: "Streaming",
+    streamingNative: "Native realtime",
+    streamingNo: "Not supported",
     languages: "Supported languages",
     languageUnknown: "Not declared",
   };
@@ -134,14 +152,23 @@ function inferPrecision(model: ModelInfo): string | null {
 
   if (hint.includes("int8")) return "INT8";
   if (hint.includes("q4_1")) return "Q4_1";
+  if (hint.includes("q4_k_m")) return "Q4_K_M";
   if (hint.includes("q5_0")) return "Q5_0";
+  if (hint.includes("q5_k_m")) return "Q5_K_M";
   if (hint.includes("q5_k")) return "Q5_K";
+  if (hint.includes("q6_k")) return "Q6_K";
+  if (hint.includes("q8_0")) return "Q8_0";
+  if (hint.includes("bf16")) return "BF16";
+  if (hint.includes("f16")) return "F16";
+  if (hint.includes("f32")) return "F32";
 
   return null;
 }
 
 function getRuntimeLabel(model: ModelInfo, copy: ModelDetailsCopy): string {
   switch (model.engine_type) {
+    case "TranscribeCpp":
+      return copy.runtimeTranscribeCpp;
     case "Whisper":
       return copy.runtimeWhisper;
     case "MoonshineStreaming":
@@ -158,6 +185,10 @@ function getFormatLabel(model: ModelInfo, copy: ModelDetailsCopy): string {
 
   if (model.engine_type === "Whisper") {
     return copy.formatGgml;
+  }
+
+  if (model.engine_type === "TranscribeCpp") {
+    return copy.formatGguf;
   }
 
   if (model.engine_type === "MoonshineStreaming") {
@@ -241,12 +272,15 @@ function buildMetadataView(model: ModelInfo, locale: string): MetadataView {
   const badges = [
     model.engine_type === "Whisper"
       ? copy.badgeGgml
-      : model.engine_type === "MoonshineStreaming"
-        ? copy.badgeStreaming
-        : copy.badgeOnnx,
+      : model.engine_type === "TranscribeCpp"
+        ? "GGUF"
+        : model.engine_type === "MoonshineStreaming"
+          ? copy.badgeStreaming
+          : copy.badgeOnnx,
     ...(precision ? [precision] : []),
     model.is_directory ? copy.badgePackage : copy.badgeSingleFile,
     model.supports_translation ? copy.badgeTranslation : copy.badgeAsrOnly,
+    ...(model.supports_streaming ? [copy.badgeNativeStreaming] : []),
   ];
 
   if (languages.length > 0) {
@@ -271,6 +305,10 @@ function buildMetadataView(model: ModelInfo, locale: string): MetadataView {
       value: model.supports_translation
         ? copy.translationYes
         : copy.translationNo,
+    },
+    {
+      label: copy.streaming,
+      value: model.supports_streaming ? copy.streamingNative : copy.streamingNo,
     },
   ];
 
