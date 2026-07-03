@@ -362,6 +362,58 @@ jobs:
         if: ${{ inputs.target != '' && !contains(inputs.target, 'unknown-linux-gnu') && !contains(inputs.target, 'x86_64-pc-windows-msvc') }}
         run: rustup target add ${{ inputs.target }}
 
+      - name: Locate VC++ runtime redist for app-local bundling (Windows)
+        if: contains(inputs.platform, 'windows')
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          $vsRoot = & $vswhere -latest -products * -property installationPath
+          if (-not $vsRoot) { throw "vswhere found no Visual Studio installation" }
+          $versionFile = Join-Path $vsRoot "VC\Auxiliary\Build\Microsoft.VCRedistVersion.default.txt"
+          $redistVersion = (Get-Content $versionFile).Trim()
+          $arch = if ("${{ inputs.target }}" -like "aarch64*") { "arm64" } else { "x64" }
+          $archDir = Join-Path $vsRoot "VC\Redist\MSVC\$redistVersion\$arch"
+          if (-not (Test-Path $archDir)) { throw "VC++ redist arch dir not found: $archDir" }
+
+          $crt = Get-ChildItem $archDir -Directory -Filter "Microsoft.VC*.CRT" |
+            Sort-Object Name | Select-Object -Last 1
+          if (-not $crt -or -not (Test-Path (Join-Path $crt.FullName "msvcp140.dll"))) {
+            throw "VC++ CRT redist dir not found or incomplete under: $archDir"
+          }
+          $dirs = $crt.FullName
+
+          if ($arch -eq "x64") {
+            $omp = Get-ChildItem $archDir -Directory -Filter "Microsoft.VC*.OpenMP" |
+              Sort-Object Name | Select-Object -Last 1
+            if (-not $omp -or -not (Test-Path (Join-Path $omp.FullName "vcomp140.dll"))) {
+              throw "VC++ OpenMP redist dir not found or incomplete under: $archDir"
+            }
+            $dirs = "$($crt.FullName);$($omp.FullName)"
+          }
+
+          Write-Host "HANDY_VC_REDIST_DIRS=$dirs"
+          Add-Content -Path $env:GITHUB_ENV -Value "HANDY_VC_REDIST_DIRS=$dirs"
+
+      - name: Point tauri-bundler at signtool.exe (Windows ARM64)
+        if: contains(inputs.platform, 'windows') && contains(inputs.target, 'aarch64')
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $bin = "${env:ProgramFiles(x86)}\Windows Kits\10\bin"
+          $candidates = @(
+            Get-ChildItem "$bin\10.0.*\arm64\signtool.exe" -ErrorAction SilentlyContinue
+            Get-ChildItem "$bin\10.0.*\x64\signtool.exe" -ErrorAction SilentlyContinue
+          ) | Where-Object { $_ }
+          if (-not $candidates) {
+            throw "signtool.exe not found under $bin"
+          }
+          $signtool = $candidates |
+            Sort-Object { $_.FullName -match '\\arm64\\' }, FullName |
+            Select-Object -Last 1
+          Write-Host "TAURI_WINDOWS_SIGNTOOL_PATH=$($signtool.FullName)"
+          Add-Content -Path $env:GITHUB_ENV -Value "TAURI_WINDOWS_SIGNTOOL_PATH=$($signtool.FullName)"
+
       - name: import Apple Developer Certificate
         if: contains(inputs.platform, 'macos') && inputs.sign-binaries
         env:
@@ -531,6 +583,21 @@ jobs:
             exit 1
           }
           Copy-Item $exePath $stagingDir/
+
+          $runtimeDlls = Get-ChildItem "src-tauri/transcribe-libs" -Filter "*.dll" -ErrorAction SilentlyContinue
+          if (-not $runtimeDlls) {
+            Write-Error "src-tauri/transcribe-libs contains no DLLs; Windows builds must stage app-local runtime DLLs"
+            exit 1
+          }
+          foreach ($dll in $runtimeDlls) {
+            Copy-Item $dll.FullName $stagingDir/ -Force
+          }
+          foreach ($required in @("msvcp140.dll", "vcruntime140.dll")) {
+            if (-not (Test-Path (Join-Path $stagingDir $required))) {
+              Write-Error "Portable package is missing required runtime DLL $required"
+              exit 1
+            }
+          }
 
           # Copy the resources directory
           $resourcesPath = "$targetDir/resources"
