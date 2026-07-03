@@ -24,6 +24,7 @@ Primary reference:
 Optional context only:
 - [[.AGENTS/branching-status|branching-status.md]]
 - local machine path hints in [[.AGENTS/.UNTRACKED/local-paths|local-paths.md]] when available
+- `Q:\Handy-upstream` when present: local read-only checkout of `cjpais/Handy` for source comparison; refresh it before relying on current upstream code.
 
 Authoritative source:
 - [[.AGENTS/upstream-intake-playbook|upstream-intake-playbook.md]] is maintained from `main` only.
