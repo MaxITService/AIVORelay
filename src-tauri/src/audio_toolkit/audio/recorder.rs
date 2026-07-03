@@ -5,7 +5,7 @@ use std::{
         atomic::{AtomicBool, Ordering},
         mpsc, Arc, Mutex,
     },
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 use cpal::{
@@ -21,7 +21,7 @@ use crate::audio_toolkit::{
 };
 
 enum Cmd {
-    Start,
+    Start(Instant),
     Flush {
         keep_samples: usize,
         min_samples: usize,
@@ -53,6 +53,7 @@ pub struct AudioRecorder {
     stream_frame_cb: Arc<Mutex<Option<StreamFrameCallback>>>,
     microphone_input_gain: Arc<Mutex<f32>>,
     microphone_noise_cancellation_enabled: Arc<AtomicBool>,
+    config_cache: Arc<Mutex<Option<(AudioCaptureSource, String, cpal::SupportedStreamConfig)>>>,
 }
 
 impl AudioRecorder {
@@ -66,6 +67,7 @@ impl AudioRecorder {
             stream_frame_cb: Arc::new(Mutex::new(None)),
             microphone_input_gain: Arc::new(Mutex::new(1.0)),
             microphone_noise_cancellation_enabled: Arc::new(AtomicBool::new(false)),
+            config_cache: Arc::new(Mutex::new(None)),
         })
     }
 
@@ -137,14 +139,32 @@ impl AudioRecorder {
         let microphone_input_gain = Arc::clone(&self.microphone_input_gain);
         let microphone_noise_cancellation_enabled =
             Arc::clone(&self.microphone_noise_cancellation_enabled);
+        let config_cache = Arc::clone(&self.config_cache);
 
         let worker = std::thread::spawn(move || {
             let stop_flag = Arc::new(AtomicBool::new(false));
             let stop_flag_for_stream = Arc::clone(&stop_flag);
 
             let init_result = (|| -> Result<(cpal::Stream, u32), String> {
-                let config = AudioRecorder::get_preferred_config(&thread_device, source)
-                    .map_err(|e| format!("Failed to get audio config: {}", e))?;
+                let config_started = Instant::now();
+                let device_name = thread_device.name().unwrap_or_default();
+                let cached_config = config_cache
+                    .lock()
+                    .unwrap()
+                    .as_ref()
+                    .filter(|(cached_source, cached_name, _)| {
+                        *cached_source == source
+                            && !device_name.is_empty()
+                            && *cached_name == device_name
+                    })
+                    .map(|(_, _, config)| config.clone());
+                let config_was_cached = cached_config.is_some();
+                let config = match cached_config {
+                    Some(config) => config,
+                    None => AudioRecorder::get_preferred_config(&thread_device, source)
+                        .map_err(|e| format!("Failed to get audio config: {}", e))?,
+                };
+                let config_elapsed = config_started.elapsed();
 
                 let sample_rate = config.sample_rate().0;
                 let channels = config.channels() as usize;
@@ -158,6 +178,7 @@ impl AudioRecorder {
                     config.sample_format()
                 );
 
+                let build_started = Instant::now();
                 let stream = match config.sample_format() {
                     cpal::SampleFormat::U8 => AudioRecorder::build_stream::<u8>(
                         &thread_device,
@@ -201,10 +222,24 @@ impl AudioRecorder {
                     .map_err(|e| format!("Failed to build audio stream: {}", e))?,
                     other => return Err(format!("Unsupported sample format: {:?}", other)),
                 };
+                let build_elapsed = build_started.elapsed();
 
+                let play_started = Instant::now();
                 stream
                     .play()
                     .map_err(|e| format!("Failed to start audio stream: {}", e))?;
+                log::debug!(
+                    "audio worker init ({:?}): fetch_config={:?} (cached={}) build_stream={:?} play={:?}",
+                    source,
+                    config_elapsed,
+                    config_was_cached,
+                    build_elapsed,
+                    play_started.elapsed()
+                );
+
+                if !config_was_cached && !device_name.is_empty() {
+                    *config_cache.lock().unwrap() = Some((source, device_name, config));
+                }
 
                 Ok((stream, sample_rate))
             })();
@@ -227,6 +262,7 @@ impl AudioRecorder {
                     drop(stream);
                 }
                 Err(error_message) => {
+                    *config_cache.lock().unwrap() = None;
                     let normalized_error = normalize_capture_open_error(source, error_message);
                     log::error!("{}", normalized_error);
                     let _ = init_tx.send(Err(normalized_error));
@@ -261,7 +297,7 @@ impl AudioRecorder {
 
     pub fn start(&self) -> Result<(), Box<dyn std::error::Error>> {
         if let Some(tx) = &self.cmd_tx {
-            tx.send(Cmd::Start)?;
+            tx.send(Cmd::Start(Instant::now()))?;
         }
         Ok(())
     }
@@ -657,6 +693,7 @@ fn process_consumer_cmd(
     cmd: Cmd,
     recording: &mut bool,
     processed_samples: &mut Vec<f32>,
+    pending_chunk: Option<&mut Option<AudioChunk>>,
     sample_rx: &mpsc::Receiver<AudioChunk>,
     frame_resampler: &mut FrameResampler,
     vad: &Option<Arc<Mutex<Box<dyn vad::VoiceActivityDetector>>>>,
@@ -668,7 +705,11 @@ fn process_consumer_cmd(
     stop_flag: &Arc<AtomicBool>,
 ) -> bool {
     match cmd {
-        Cmd::Start => {
+        Cmd::Start(sent_at) => {
+            log::debug!(
+                "Cmd::Start processed {:?} after send; capture begins with the in-flight chunk",
+                sent_at.elapsed()
+            );
             stop_flag.store(false, Ordering::Relaxed);
             processed_samples.clear();
             *noise_suppressor = None;
@@ -703,6 +744,21 @@ fn process_consumer_cmd(
         Cmd::Stop(reply_tx) => {
             *recording = false;
             stop_flag.store(true, Ordering::Relaxed);
+
+            if let Some(Some(AudioChunk::Samples(remaining))) =
+                pending_chunk.map(|pending| pending.take())
+            {
+                frame_resampler.push(&remaining, &mut |frame: &[f32]| {
+                    let adjusted = apply_input_gain_if_needed(frame, source, microphone_input_gain);
+                    let enhanced = apply_noise_cancellation_if_needed(
+                        adjusted,
+                        source,
+                        microphone_noise_cancellation_enabled,
+                        noise_suppressor,
+                    );
+                    handle_frame(enhanced.as_ref(), true, vad, processed_samples)
+                });
+            }
 
             loop {
                 match sample_rx.recv_timeout(Duration::from_secs(2)) {
@@ -783,6 +839,7 @@ fn run_consumer(
                 cmd,
                 &mut recording,
                 &mut processed_samples,
+                None,
                 &sample_rx,
                 &mut frame_resampler,
                 &vad,
@@ -803,9 +860,31 @@ fn run_consumer(
             Err(_) => break,
         };
 
-        let raw = match chunk {
-            AudioChunk::Samples(samples) => samples,
-            AudioChunk::EndOfStream => continue,
+        let mut pending_chunk = Some(chunk);
+
+        while let Ok(cmd) = cmd_rx.try_recv() {
+            if process_consumer_cmd(
+                cmd,
+                &mut recording,
+                &mut processed_samples,
+                Some(&mut pending_chunk),
+                &sample_rx,
+                &mut frame_resampler,
+                &vad,
+                &mut visualizer,
+                source,
+                &microphone_input_gain,
+                &microphone_noise_cancellation_enabled,
+                &mut noise_suppressor,
+                &stop_flag,
+            ) {
+                return;
+            }
+        }
+
+        let raw = match pending_chunk.take() {
+            Some(AudioChunk::Samples(samples)) => samples,
+            _ => continue,
         };
 
         if let Some(buckets) = visualizer.feed(&raw) {
@@ -832,24 +911,5 @@ fn run_consumer(
                 handle_frame(adjusted.as_ref(), false, &vad, &mut processed_samples)
             }
         });
-
-        while let Ok(cmd) = cmd_rx.try_recv() {
-            if process_consumer_cmd(
-                cmd,
-                &mut recording,
-                &mut processed_samples,
-                &sample_rx,
-                &mut frame_resampler,
-                &vad,
-                &mut visualizer,
-                source,
-                &microphone_input_gain,
-                &microphone_noise_cancellation_enabled,
-                &mut noise_suppressor,
-                &stop_flag,
-            ) {
-                return;
-            }
-        }
     }
 }
