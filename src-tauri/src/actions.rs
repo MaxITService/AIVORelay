@@ -637,6 +637,10 @@ fn apply_llm_template_vars(template: &str, context: &LlmTemplateContext) -> Stri
         .replace("${translate_to_english}", &context.translate_to_english)
 }
 
+fn is_blank_transcription(transcription: &str) -> bool {
+    transcription.trim().is_empty()
+}
+
 /// Post-process transcription with LLM, optionally using profile-specific settings.
 ///
 /// If `profile` is Some, uses the profile's LLM settings:
@@ -653,6 +657,11 @@ async fn maybe_post_process_transcription(
     template_context: &LlmTemplateContext,
     force_manual: bool,
 ) -> PostProcessTranscriptionOutcome {
+    if is_blank_transcription(&template_context.output) {
+        debug!("Post-processing skipped because the transcription is empty");
+        return PostProcessTranscriptionOutcome::Skipped;
+    }
+
     if !force_manual {
         if settings.transcription_provider == TranscriptionProvider::RemoteSoniox {
             debug!("Skipping post-processing for Soniox streaming transcription");
@@ -5065,7 +5074,20 @@ fn should_run_transcription_post_process(post_process_requested: bool, text: &st
 
 #[cfg(test)]
 mod transcription_post_process_tests {
-    use super::should_run_transcription_post_process;
+    use super::{is_blank_transcription, should_run_transcription_post_process};
+
+    #[test]
+    fn blank_transcription_is_detected() {
+        assert!(is_blank_transcription(""));
+        assert!(is_blank_transcription("   "));
+        assert!(is_blank_transcription("\t\n  \r\n"));
+    }
+
+    #[test]
+    fn non_blank_transcription_is_kept() {
+        assert!(!is_blank_transcription("hello"));
+        assert!(!is_blank_transcription("  hello  "));
+    }
 
     #[test]
     fn skips_post_process_for_empty_transcription() {
