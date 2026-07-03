@@ -1,0 +1,9 @@
+{
+  "bundle": {
+    "resources": {
+      "resources": "resources",
+      "transcribe-libs": ".",
+      "vulkan-1.dll": "vulkan-1.dll"
+    }
+  }
+}
