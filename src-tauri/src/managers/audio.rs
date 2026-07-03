@@ -10,6 +10,7 @@ use crate::settings::{
 use crate::utils;
 use log::{debug, error, info, warn};
 use std::fmt;
+use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -416,7 +417,7 @@ impl fmt::Display for StartRecordingError {
 /* ──────────────────────────────────────────────────────────────── */
 
 fn create_audio_recorder(
-    vad_path: &str,
+    vad_path: &Path,
     app_handle: &tauri::AppHandle,
     vad_threshold: f32,
 ) -> Result<AudioRecorder, anyhow::Error> {
@@ -713,11 +714,8 @@ impl AudioRecordingManager {
         let mut recorder_opt = self.recorder.lock().unwrap();
 
         if recorder_opt.is_none() {
-            let recorder = create_audio_recorder(
-                vad_path.to_str().unwrap(),
-                &self.app_handle,
-                settings.vad_threshold,
-            )?;
+            let recorder =
+                create_audio_recorder(&vad_path, &self.app_handle, settings.vad_threshold)?;
             if let Some(cb) = self
                 .stream_frame_callback
                 .lock()
