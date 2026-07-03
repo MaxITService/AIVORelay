@@ -1,7 +1,12 @@
+use super::model_capabilities::{
+    CapabilityProbe, CapabilityProber, Compatibility, GgufHeaderProber,
+};
 use crate::settings::{get_settings, write_settings};
 use anyhow::Result;
 use flate2::read::GzDecoder;
 use futures_util::StreamExt;
+use hf_hub::api::tokio::{ApiBuilder, Progress};
+use hf_hub::{Cache, Repo, RepoType};
 use log::{debug, info, warn};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -11,13 +16,14 @@ use std::fs;
 use std::fs::File;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use tar::Archive;
 use tauri::{AppHandle, Emitter, Manager};
 use tokio_util::sync::CancellationToken;
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
 pub enum EngineType {
+    TranscribeCpp,
     Whisper,
     Parakeet,
     Moonshine,
@@ -26,6 +32,35 @@ pub enum EngineType {
     GigaAM,
     Canary,
     Cohere,
+}
+
+const HF_SOURCE_PREFIX: &str = "hf://";
+
+fn hf_source_url(repo_id: &str, revision: &str, filename: &str) -> String {
+    format!("{HF_SOURCE_PREFIX}{repo_id}|{revision}|{filename}")
+}
+
+fn parse_hf_source_url(url: &str) -> Option<(String, String, String)> {
+    let value = url.strip_prefix(HF_SOURCE_PREFIX)?;
+    let mut parts = value.splitn(3, '|');
+    let repo_id = parts.next()?.to_string();
+    let revision = parts.next()?.to_string();
+    let filename = parts.next()?.to_string();
+    Some((repo_id, revision, filename))
+}
+
+fn model_hf_source(model: &ModelInfo) -> Option<(String, String, String)> {
+    model.url.as_deref().and_then(parse_hf_source_url)
+}
+
+fn hf_cached_path(repo_id: &str, revision: &str, filename: &str) -> Option<PathBuf> {
+    Cache::from_env()
+        .repo(Repo::with_revision(
+            repo_id.to_string(),
+            RepoType::Model,
+            revision.to_string(),
+        ))
+        .get(filename)
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
@@ -45,9 +80,116 @@ pub struct ModelInfo {
     pub accuracy_score: f32,        // 0.0 to 1.0, higher is more accurate
     pub speed_score: f32,           // 0.0 to 1.0, higher is faster
     pub supports_translation: bool, // Whether the model supports translating to English
+    pub supports_streaming: bool,   // Whether the model supports native realtime streaming
+    pub supports_language_detection: bool, // Whether the model can auto-detect language
     pub is_recommended: bool,       // Whether this is the recommended model for new users
     pub supported_languages: Vec<String>, // Languages this model can transcribe
     pub is_custom: bool,            // Whether this is a user-provided custom model
+}
+
+const CHINESE_LANGUAGE_CODE: &str = "zh";
+
+fn recognition_language(language: &str) -> &str {
+    match language {
+        "zh-Hans" | "zh-Hant" => CHINESE_LANGUAGE_CODE,
+        other => other,
+    }
+}
+
+fn base_language(language: &str) -> &str {
+    match language.split_once('-') {
+        Some((base, _)) => base,
+        None => language,
+    }
+}
+
+fn canonicalize_supported_languages(languages: Vec<String>) -> Vec<String> {
+    let mut seen = HashSet::new();
+    let mut canonical = Vec::with_capacity(languages.len());
+
+    for language in languages {
+        let language = recognition_language(base_language(&language)).to_string();
+        if seen.insert(language.clone()) {
+            canonical.push(language);
+        }
+    }
+
+    if seen.contains(CHINESE_LANGUAGE_CODE) {
+        for language in ["zh-Hans", "zh-Hant"] {
+            if seen.insert(language.to_string()) {
+                canonical.push(language.to_string());
+            }
+        }
+    }
+
+    canonical
+}
+
+pub fn effective_language(
+    requested_language: &str,
+    supported_languages: &[String],
+    supports_language_detection: bool,
+) -> String {
+    let intent = requested_language.trim();
+    if intent.is_empty() {
+        return "auto".to_string();
+    }
+    if supported_languages.is_empty() {
+        return intent.to_string();
+    }
+
+    if intent != "auto" && intent != "os_input" {
+        if let Some(code) = supported_languages
+            .iter()
+            .find(|language| base_language(language) == base_language(intent))
+        {
+            if matches!(intent, "zh-Hans" | "zh-Hant") && base_language(code) == "zh" {
+                return intent.to_string();
+            }
+            return recognition_language(code).to_string();
+        }
+        return intent.to_string();
+    }
+
+    if supports_language_detection {
+        return "auto".to_string();
+    }
+
+    if let Some(en) = supported_languages
+        .iter()
+        .find(|language| base_language(language) == "en")
+    {
+        return recognition_language(en).to_string();
+    }
+
+    recognition_language(&supported_languages[0]).to_string()
+}
+
+struct LocalCaps {
+    supports_streaming: bool,
+    supports_translation: bool,
+    supports_language_detection: bool,
+    supported_languages: Vec<String>,
+}
+
+fn local_caps(probe: &CapabilityProbe) -> LocalCaps {
+    LocalCaps {
+        supports_streaming: probe.supports_streaming.unwrap_or(false),
+        supports_translation: probe.supports_translation.unwrap_or(false),
+        supports_language_detection: probe.supports_language_detect.unwrap_or(false),
+        supported_languages: canonicalize_supported_languages(
+            probe.languages.clone().unwrap_or_default(),
+        ),
+    }
+}
+
+fn probed_display_name(probe: &CapabilityProbe) -> Option<String> {
+    probe
+        .display_name
+        .as_ref()
+        .or(probe.variant.as_ref())
+        .filter(|name| !name.trim().is_empty())
+        .cloned()
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
@@ -56,6 +198,78 @@ pub struct DownloadProgress {
     pub downloaded: u64,
     pub total: u64,
     pub percentage: f64,
+}
+
+#[derive(Clone)]
+struct HfDownloadProgress {
+    app_handle: AppHandle,
+    model_id: String,
+    state: Arc<Mutex<HfDownloadProgressState>>,
+}
+
+struct HfDownloadProgressState {
+    downloaded: u64,
+    total: u64,
+}
+
+impl HfDownloadProgress {
+    fn new(app_handle: AppHandle, model_id: String, fallback_total: u64) -> Self {
+        Self {
+            app_handle,
+            model_id,
+            state: Arc::new(Mutex::new(HfDownloadProgressState {
+                downloaded: 0,
+                total: fallback_total,
+            })),
+        }
+    }
+
+    fn emit(&self, downloaded: u64, total: u64) {
+        let percentage = if total > 0 {
+            (downloaded as f64 / total as f64) * 100.0
+        } else {
+            0.0
+        };
+        let _ = self.app_handle.emit(
+            "model-download-progress",
+            &DownloadProgress {
+                model_id: self.model_id.clone(),
+                downloaded,
+                total,
+                percentage,
+            },
+        );
+    }
+}
+
+impl Progress for HfDownloadProgress {
+    async fn init(&mut self, size: usize, _filename: &str) {
+        let total = size as u64;
+        {
+            let mut state = self.state.lock().unwrap();
+            state.downloaded = 0;
+            state.total = total;
+        }
+        self.emit(0, total);
+    }
+
+    async fn update(&mut self, size: usize) {
+        let (downloaded, total) = {
+            let mut state = self.state.lock().unwrap();
+            state.downloaded = state.downloaded.saturating_add(size as u64);
+            (state.downloaded, state.total)
+        };
+        self.emit(downloaded, total);
+    }
+
+    async fn finish(&mut self) {
+        let total = {
+            let mut state = self.state.lock().unwrap();
+            state.downloaded = state.total;
+            state.total
+        };
+        self.emit(total, total);
+    }
 }
 
 pub struct ModelManager {
@@ -133,6 +347,8 @@ impl ModelManager {
                 accuracy_score: 0.60,
                 speed_score: 0.85,
                 supports_translation: true,
+                supports_streaming: false,
+                supports_language_detection: true,
                 is_recommended: false,
                 supported_languages: whisper_languages.clone(),
                 is_custom: false,
@@ -160,6 +376,8 @@ impl ModelManager {
                 accuracy_score: 0.75,
                 speed_score: 0.60,
                 supports_translation: true,
+                supports_streaming: false,
+                supports_language_detection: true,
                 is_recommended: false,
                 supported_languages: whisper_languages.clone(),
                 is_custom: false,
@@ -186,6 +404,8 @@ impl ModelManager {
                 accuracy_score: 0.80,
                 speed_score: 0.40,
                 supports_translation: false, // Turbo doesn't support translation
+                supports_streaming: false,
+                supports_language_detection: true,
                 is_recommended: false,
                 supported_languages: whisper_languages.clone(),
                 is_custom: false,
@@ -212,6 +432,8 @@ impl ModelManager {
                 accuracy_score: 0.85,
                 speed_score: 0.30,
                 supports_translation: true,
+                supports_streaming: false,
+                supports_language_detection: true,
                 is_recommended: false,
                 supported_languages: whisper_languages.clone(),
                 is_custom: false,
@@ -239,6 +461,8 @@ impl ModelManager {
                 accuracy_score: 0.85,
                 speed_score: 0.35,
                 supports_translation: false,
+                supports_streaming: false,
+                supports_language_detection: true,
                 is_recommended: false,
                 // Official model card positions Breeze ASR as optimized for
                 // Taiwanese Mandarin and Mandarin-English code-switching.
@@ -271,6 +495,8 @@ impl ModelManager {
                 accuracy_score: 0.85,
                 speed_score: 0.85,
                 supports_translation: false,
+                supports_streaming: false,
+                supports_language_detection: true,
                 is_recommended: false,
                 supported_languages: vec!["en".to_string()],
                 is_custom: false,
@@ -297,6 +523,8 @@ impl ModelManager {
                 accuracy_score: 0.80,
                 speed_score: 0.85,
                 supports_translation: false,
+                supports_streaming: false,
+                supports_language_detection: true,
                 is_recommended: true,
                 supported_languages: parakeet_v3_languages,
                 is_custom: false,
@@ -323,6 +551,8 @@ impl ModelManager {
                 accuracy_score: 0.70,
                 speed_score: 0.90,
                 supports_translation: false,
+                supports_streaming: false,
+                supports_language_detection: true,
                 is_recommended: false,
                 supported_languages: vec!["en".to_string()],
                 is_custom: false,
@@ -351,6 +581,8 @@ impl ModelManager {
                 accuracy_score: 0.55,
                 speed_score: 0.95,
                 supports_translation: false,
+                supports_streaming: false,
+                supports_language_detection: true,
                 is_recommended: false,
                 supported_languages: vec!["en".to_string()],
                 is_custom: false,
@@ -379,6 +611,8 @@ impl ModelManager {
                 accuracy_score: 0.65,
                 speed_score: 0.90,
                 supports_translation: false,
+                supports_streaming: false,
+                supports_language_detection: true,
                 is_recommended: false,
                 supported_languages: vec!["en".to_string()],
                 is_custom: false,
@@ -407,6 +641,8 @@ impl ModelManager {
                 accuracy_score: 0.75,
                 speed_score: 0.80,
                 supports_translation: false,
+                supports_streaming: false,
+                supports_language_detection: true,
                 is_recommended: false,
                 supported_languages: vec!["en".to_string()],
                 is_custom: false,
@@ -434,6 +670,8 @@ impl ModelManager {
                 accuracy_score: 0.65,
                 speed_score: 0.95,
                 supports_translation: false,
+                supports_streaming: false,
+                supports_language_detection: true,
                 is_recommended: false,
                 supported_languages: sense_voice_languages,
                 is_custom: false,
@@ -463,6 +701,8 @@ impl ModelManager {
                 accuracy_score: 0.85,
                 speed_score: 0.75,
                 supports_translation: false,
+                supports_streaming: false,
+                supports_language_detection: true,
                 is_recommended: false,
                 supported_languages: gigaam_languages,
                 is_custom: false,
@@ -495,6 +735,8 @@ impl ModelManager {
                 accuracy_score: 0.75,
                 speed_score: 0.85,
                 supports_translation: true,
+                supports_streaming: false,
+                supports_language_detection: false,
                 is_recommended: false,
                 supported_languages: canary_flash_languages,
                 is_custom: false,
@@ -530,6 +772,8 @@ impl ModelManager {
                 accuracy_score: 0.85,
                 speed_score: 0.70,
                 supports_translation: true,
+                supports_streaming: false,
+                supports_language_detection: false,
                 is_recommended: false,
                 supported_languages: canary_1b_languages,
                 is_custom: false,
@@ -564,16 +808,24 @@ impl ModelManager {
                 accuracy_score: 0.90,
                 speed_score: 0.60,
                 supports_translation: false,
+                supports_streaming: false,
+                supports_language_detection: true,
                 is_recommended: false,
                 supported_languages: cohere_languages,
                 is_custom: false,
             },
         );
 
-        // Auto-discover custom Whisper models (.bin files) in the models directory
-        if let Err(e) = Self::discover_custom_whisper_models(&models_dir, &mut available_models) {
+        Self::seed_catalog_models(&mut available_models);
+
+        // Auto-discover custom transcribe.cpp models (.bin / .gguf) in the models directory.
+        if let Err(e) = Self::discover_custom_transcribe_models(&models_dir, &mut available_models)
+        {
             warn!("Failed to discover custom models: {}", e);
         }
+
+        // Auto-discover transcribe.cpp GGUF models already in the shared HF cache.
+        Self::discover_hf_cache_models(&mut available_models);
 
         let manager = Self {
             app_handle: app_handle.clone(),
@@ -605,6 +857,108 @@ impl ModelManager {
     pub fn get_model_info(&self, model_id: &str) -> Option<ModelInfo> {
         let models = self.available_models.lock().unwrap();
         models.get(model_id).cloned()
+    }
+
+    pub fn set_runtime_capabilities(
+        &self,
+        model_id: &str,
+        supports_streaming: bool,
+        supports_translation: bool,
+        supports_language_detection: bool,
+        supported_languages: Vec<String>,
+    ) {
+        let supported_languages = canonicalize_supported_languages(supported_languages);
+        let mut models = self.available_models.lock().unwrap();
+        if let Some(model) = models.get_mut(model_id) {
+            model.supports_streaming = supports_streaming;
+            model.supports_translation = supports_translation;
+            model.supports_language_detection = supports_language_detection;
+            if !supported_languages.is_empty() {
+                model.supported_languages = supported_languages;
+            }
+        }
+    }
+
+    pub fn rescan_local_models(&self) -> Result<()> {
+        let mut snapshot = self.available_models.lock().unwrap().clone();
+        if let Err(e) = Self::discover_custom_transcribe_models(&self.models_dir, &mut snapshot) {
+            warn!("Rescan: failed to discover custom models: {}", e);
+        }
+        Self::discover_hf_cache_models(&mut snapshot);
+
+        let mut added = 0usize;
+        {
+            let mut live = self.available_models.lock().unwrap();
+            for (id, info) in snapshot {
+                if let std::collections::hash_map::Entry::Vacant(entry) = live.entry(id) {
+                    entry.insert(info);
+                    added += 1;
+                }
+            }
+        }
+
+        self.update_download_status()?;
+        self.auto_select_model_if_needed()?;
+        if added > 0 {
+            info!("Model rescan discovered {} new model(s)", added);
+        }
+        let _ = self.app_handle.emit("models-updated", ());
+        Ok(())
+    }
+
+    fn seed_catalog_models(available_models: &mut HashMap<String, ModelInfo>) {
+        for catalog_model in crate::catalog::CATALOG.iter() {
+            let Some(file) = catalog_model.default_file() else {
+                continue;
+            };
+
+            let model_id = format!("{}/{}", catalog_model.id, file.filename);
+            if available_models.contains_key(&model_id) {
+                continue;
+            }
+
+            let mut supported_languages = catalog_model.languages.clone();
+            if supported_languages.iter().any(|language| language == "zh") {
+                if !supported_languages
+                    .iter()
+                    .any(|language| language == "zh-Hans")
+                {
+                    supported_languages.push("zh-Hans".to_string());
+                }
+                if !supported_languages
+                    .iter()
+                    .any(|language| language == "zh-Hant")
+                {
+                    supported_languages.push("zh-Hant".to_string());
+                }
+            }
+
+            available_models.insert(
+                model_id.clone(),
+                ModelInfo {
+                    id: model_id,
+                    name: catalog_model.name.clone(),
+                    description: catalog_model.description.clone(),
+                    filename: file.filename.clone(),
+                    url: Some(hf_source_url(&catalog_model.id, "main", &file.filename)),
+                    sha256: None,
+                    size_mb: file.size_bytes / (1024 * 1024),
+                    is_downloaded: false,
+                    is_downloading: false,
+                    partial_size: 0,
+                    is_directory: false,
+                    engine_type: EngineType::TranscribeCpp,
+                    accuracy_score: catalog_model.accuracy_score.unwrap_or(0.0) / 100.0,
+                    speed_score: catalog_model.speed_score.unwrap_or(0.0) / 100.0,
+                    supports_translation: catalog_model.capabilities.translate,
+                    supports_streaming: catalog_model.capabilities.streaming,
+                    supports_language_detection: catalog_model.capabilities.lang_detect,
+                    is_recommended: catalog_model.recommended,
+                    supported_languages: canonicalize_supported_languages(supported_languages),
+                    is_custom: false,
+                },
+            );
+        }
     }
 
     fn clear_download_state(&self, model_id: &str, partial_path: &Path) {
@@ -738,6 +1092,13 @@ impl ModelManager {
         let mut models = self.available_models.lock().unwrap();
 
         for model in models.values_mut() {
+            if let Some((repo_id, revision, filename)) = model_hf_source(model) {
+                model.is_downloaded = hf_cached_path(&repo_id, &revision, &filename).is_some();
+                model.is_downloading = false;
+                model.partial_size = 0;
+                continue;
+            }
+
             if model.is_directory {
                 // For directory-based models, check if the directory exists
                 let model_path = self.models_dir.join(&model.filename);
@@ -836,9 +1197,9 @@ impl ModelManager {
         Ok(())
     }
 
-    /// Discover custom Whisper models (.bin files) in the models directory.
+    /// Discover custom transcribe.cpp models (.bin / .gguf files) in the models directory.
     /// Skips files that match predefined model filenames.
-    fn discover_custom_whisper_models(
+    fn discover_custom_transcribe_models(
         models_dir: &Path,
         available_models: &mut HashMap<String, ModelInfo>,
     ) -> Result<()> {
@@ -846,10 +1207,11 @@ impl ModelManager {
             return Ok(());
         }
 
-        // Collect predefined Whisper file model names to avoid duplicate entries.
+        // Collect predefined file model names to avoid duplicate entries. The fork still
+        // ships legacy Whisper `.bin` entries alongside transcribe.cpp catalog models.
         let predefined_filenames: HashSet<String> = available_models
             .values()
-            .filter(|m| matches!(m.engine_type, EngineType::Whisper) && !m.is_directory)
+            .filter(|m| !m.is_directory)
             .map(|m| m.filename.clone())
             .collect();
 
@@ -877,16 +1239,18 @@ impl ModelManager {
                 continue;
             }
 
-            // Custom discovery currently supports Whisper GGML .bin files only.
-            if !filename.ends_with(".bin") {
+            let (model_id, is_gguf) = if let Some(stem) = filename.strip_suffix(".bin") {
+                (stem.to_string(), false)
+            } else if let Some(stem) = filename.strip_suffix(".gguf") {
+                (stem.to_string(), true)
+            } else {
                 continue;
-            }
+            };
 
             if predefined_filenames.contains(&filename) {
                 continue;
             }
 
-            let model_id = filename.trim_end_matches(".bin").to_string();
             if available_models.contains_key(&model_id) {
                 continue;
             }
@@ -912,9 +1276,17 @@ impl ModelManager {
                 }
             };
 
+            let probe = if is_gguf {
+                GgufHeaderProber.probe_file(&path)
+            } else {
+                CapabilityProbe::default()
+            };
+            let caps = local_caps(&probe);
+            let display_name = probed_display_name(&probe).unwrap_or(display_name);
+
             info!(
-                "Discovered custom Whisper model: {} ({}, {} MB)",
-                model_id, filename, size_mb
+                "Discovered custom transcribe.cpp model: {} ({}, {} MB, streaming={})",
+                model_id, filename, size_mb, caps.supports_streaming
             );
 
             available_models.insert(
@@ -931,18 +1303,197 @@ impl ModelManager {
                     is_downloading: false,
                     partial_size: 0,
                     is_directory: false,
-                    engine_type: EngineType::Whisper,
+                    engine_type: EngineType::TranscribeCpp,
                     accuracy_score: 0.0,
                     speed_score: 0.0,
-                    supports_translation: false,
+                    supports_translation: caps.supports_translation,
+                    supports_streaming: caps.supports_streaming,
+                    supports_language_detection: caps.supports_language_detection,
                     is_recommended: false,
-                    supported_languages: vec![],
+                    supported_languages: caps.supported_languages,
                     is_custom: true,
                 },
             );
         }
 
         Ok(())
+    }
+
+    fn discover_hf_cache_models(available_models: &mut HashMap<String, ModelInfo>) {
+        Self::discover_hf_cache_models_in(Cache::from_env().path(), available_models);
+    }
+
+    fn discover_hf_cache_models_in(
+        cache_root: &Path,
+        available_models: &mut HashMap<String, ModelInfo>,
+    ) {
+        if !cache_root.is_dir() {
+            return;
+        }
+
+        let known_hf: HashSet<(String, String)> = available_models
+            .values()
+            .filter_map(model_hf_source)
+            .map(|(repo_id, _revision, filename)| (repo_id, filename))
+            .collect();
+        let prober = GgufHeaderProber;
+
+        let entries = match fs::read_dir(cache_root) {
+            Ok(entries) => entries,
+            Err(_) => return,
+        };
+
+        for entry in entries.flatten() {
+            let folder = entry.file_name();
+            let folder = folder.to_string_lossy();
+            let Some(rest) = folder.strip_prefix("models--") else {
+                continue;
+            };
+            let repo_id = rest.replace("--", "/");
+
+            let refs_dir = entry.path().join("refs");
+            let Some(revision) = Self::pick_hf_revision(&refs_dir) else {
+                continue;
+            };
+            let Ok(commit) = fs::read_to_string(refs_dir.join(&revision)) else {
+                continue;
+            };
+            let snapshot = entry.path().join("snapshots").join(commit.trim());
+            let Ok(files) = fs::read_dir(&snapshot) else {
+                continue;
+            };
+
+            for file in files.flatten() {
+                let fname = file.file_name().to_string_lossy().to_string();
+                if !fname.ends_with(".gguf") {
+                    continue;
+                }
+                if known_hf.contains(&(repo_id.clone(), fname.clone())) {
+                    continue;
+                }
+
+                let model_id = format!("{}/{}", repo_id, fname);
+                if available_models.contains_key(&model_id) {
+                    continue;
+                }
+
+                let path = snapshot.join(&fname);
+                let probe = prober.probe_file(&path);
+                if probe.verdict != Compatibility::Compatible {
+                    continue;
+                }
+                let caps = local_caps(&probe);
+                let size_mb = path
+                    .metadata()
+                    .map(|metadata| metadata.len() / (1024 * 1024))
+                    .unwrap_or(0);
+                let display_name = probed_display_name(&probe)
+                    .unwrap_or_else(|| fname.trim_end_matches(".gguf").to_string());
+
+                info!("Discovered HF cache model: {} ({})", model_id, repo_id);
+                available_models.insert(
+                    model_id.clone(),
+                    ModelInfo {
+                        id: model_id,
+                        name: display_name,
+                        description: format!("From Hugging Face cache: {}", repo_id),
+                        filename: fname.clone(),
+                        url: Some(hf_source_url(&repo_id, &revision, &fname)),
+                        sha256: None,
+                        size_mb,
+                        is_downloaded: true,
+                        is_downloading: false,
+                        partial_size: 0,
+                        is_directory: false,
+                        engine_type: EngineType::TranscribeCpp,
+                        accuracy_score: 0.0,
+                        speed_score: 0.0,
+                        supports_translation: caps.supports_translation,
+                        supports_streaming: caps.supports_streaming,
+                        supports_language_detection: caps.supports_language_detection,
+                        is_recommended: false,
+                        supported_languages: caps.supported_languages,
+                        is_custom: false,
+                    },
+                );
+            }
+        }
+    }
+
+    fn pick_hf_revision(refs_dir: &Path) -> Option<String> {
+        if refs_dir.join("main").is_file() {
+            return Some("main".to_string());
+        }
+        fs::read_dir(refs_dir).ok()?.flatten().find_map(|entry| {
+            if entry.path().is_file() {
+                entry.file_name().to_str().map(str::to_string)
+            } else {
+                None
+            }
+        })
+    }
+
+    async fn download_hf_model(
+        &self,
+        model_info: &ModelInfo,
+        repo_id: String,
+        revision: String,
+        filename: String,
+    ) -> Result<()> {
+        if hf_cached_path(&repo_id, &revision, &filename).is_some() {
+            self.update_download_status()?;
+            let _ = self
+                .app_handle
+                .emit("model-download-complete", &model_info.id);
+            return Ok(());
+        }
+
+        {
+            let mut models = self.available_models.lock().unwrap();
+            if let Some(model) = models.get_mut(&model_info.id) {
+                model.is_downloading = true;
+                model.partial_size = 0;
+            }
+        }
+
+        let result: Result<()> = async {
+            let _ = self.app_handle.emit(
+                "model-download-progress",
+                &DownloadProgress {
+                    model_id: model_info.id.clone(),
+                    downloaded: 0,
+                    total: model_info.size_mb.saturating_mul(1024 * 1024),
+                    percentage: 0.0,
+                },
+            );
+
+            let api = ApiBuilder::new().build()?;
+            let repo = api.repo(Repo::with_revision(repo_id, RepoType::Model, revision));
+            let progress = HfDownloadProgress::new(
+                self.app_handle.clone(),
+                model_info.id.clone(),
+                model_info.size_mb.saturating_mul(1024 * 1024),
+            );
+            repo.download_with_progress(&filename, progress).await?;
+
+            self.update_download_status()?;
+            let _ = self
+                .app_handle
+                .emit("model-download-complete", &model_info.id);
+            info!("Successfully downloaded HF model {}", model_info.id);
+            Ok(())
+        }
+        .await;
+
+        if result.is_err() {
+            let mut models = self.available_models.lock().unwrap();
+            if let Some(model) = models.get_mut(&model_info.id) {
+                model.is_downloading = false;
+                model.partial_size = 0;
+            }
+        }
+
+        result
     }
 
     pub async fn download_model(&self, model_id: &str) -> Result<()> {
@@ -953,6 +1504,12 @@ impl ModelManager {
 
         let model_info =
             model_info.ok_or_else(|| anyhow::anyhow!("Model not found: {}", model_id))?;
+
+        if let Some((repo_id, revision, filename)) = model_hf_source(&model_info) {
+            return self
+                .download_hf_model(&model_info, repo_id, revision, filename)
+                .await;
+        }
 
         let url = model_info
             .url
@@ -1222,6 +1779,32 @@ impl ModelManager {
 
         debug!("ModelManager: Found model info: {:?}", model_info);
 
+        if let Some((repo_id, revision, filename)) = model_hf_source(&model_info) {
+            let mut deleted_something = false;
+            if let Some(model_path) = hf_cached_path(&repo_id, &revision, &filename) {
+                if let Some(repo_dir) = model_path.ancestors().nth(3) {
+                    if repo_dir.exists() {
+                        info!("Deleting HF cached model repo at: {:?}", repo_dir);
+                        fs::remove_dir_all(repo_dir)?;
+                        deleted_something = true;
+                    }
+                }
+                if !deleted_something && model_path.exists() {
+                    info!("Deleting HF cached model file at: {:?}", model_path);
+                    fs::remove_file(model_path)?;
+                    deleted_something = true;
+                }
+            }
+
+            if !deleted_something {
+                return Err(anyhow::anyhow!("No model files found to delete"));
+            }
+
+            self.update_download_status()?;
+            let _ = self.app_handle.emit("model-deleted", model_id);
+            return Ok(());
+        }
+
         let model_path = self.models_dir.join(&model_info.filename);
         let partial_path = self
             .models_dir
@@ -1292,6 +1875,12 @@ impl ModelManager {
                 "Model is currently downloading: {}",
                 model_id
             ));
+        }
+
+        if let Some((repo_id, revision, filename)) = model_hf_source(&model_info) {
+            return hf_cached_path(&repo_id, &revision, &filename).ok_or_else(|| {
+                anyhow::anyhow!("Complete model file not found in HF cache: {}", model_id)
+            });
         }
 
         let model_path = self.models_dir.join(&model_info.filename);
@@ -1378,7 +1967,7 @@ impl ModelManager {
 
 #[cfg(test)]
 mod tests {
-    use super::ModelManager;
+    use super::{effective_language, ModelManager};
     use std::fs;
     use std::path::PathBuf;
     use std::time::{SystemTime, UNIX_EPOCH};
@@ -1389,6 +1978,21 @@ mod tests {
             .unwrap()
             .as_nanos();
         std::env::temp_dir().join(format!("aivorelay-{name}-{unique}.partial"))
+    }
+
+    #[test]
+    fn effective_language_falls_back_when_auto_detect_is_missing() {
+        let languages = vec!["de".to_string(), "en".to_string()];
+
+        assert_eq!(effective_language("auto", &languages, false), "en");
+    }
+
+    #[test]
+    fn effective_language_preserves_chinese_script_intent() {
+        let languages = vec!["zh".to_string()];
+
+        assert_eq!(effective_language("zh-Hans", &languages, false), "zh-Hans");
+        assert_eq!(effective_language("zh-Hant", &languages, false), "zh-Hant");
     }
 
     #[test]

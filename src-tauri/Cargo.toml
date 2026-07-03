@@ -76,8 +76,11 @@ nnnoiseless = { version = "0.5.2", default-features = false }
 tar = "0.4.44"
 flate2 = "1.0"
 transcribe-rs = { version = "0.3.8", features = ["whisper-cpp", "onnx", "vad-silero"] }
+transcribe-cpp = { version = "0.1.1", default-features = false }
+hf-hub = { version = "0.4", features = ["tokio"] }
 handy-keys = "0.2.4"
 ferrous-opencc = "0.2.3"
+clap = { version = "4", features = ["derive"] }
 keyring = "2.3.3"
 axum = "0.8"
 tower-http = { version = "0.6", features = ["cors"] }
@@ -109,6 +112,10 @@ tauri-plugin-updater = "2.10.0"
 
 [target.'cfg(windows)'.dependencies]
 transcribe-rs = { version = "0.3.8", features = ["whisper-vulkan", "ort-directml", "vad-silero"] }
+transcribe-cpp = { version = "0.1.1", default-features = false, features = [
+  "dynamic-backends",
+  "vulkan",
+] }
 webview2-com = "0.38.2"
 windows = { version = "0.61.3", features = [
   "Win32_Media_Audio_Endpoints",
@@ -131,6 +138,13 @@ winreg = "0.55"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 tauri-nspanel = { git = "https://github.com/ahkohd/tauri-nspanel", branch = "v2.1" }
+transcribe-cpp = { version = "0.1.1", default-features = false, features = ["metal"] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+transcribe-cpp = { version = "0.1.1", default-features = false, features = [
+  "dynamic-backends",
+  "vulkan",
+] }
 
 [profile.release]
 lto = true

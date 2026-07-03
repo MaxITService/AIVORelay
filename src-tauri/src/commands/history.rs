@@ -115,10 +115,16 @@ pub async fn retry_history_entry_transcription(
         return Err("Recording contains no speech".to_string());
     }
 
-    let processed =
-        process_transcription_output(&app, &settings, &transcription, None, "History retry")
-            .await
-            .ok_or_else(|| "Re-transcription post-processing was cancelled".to_string())?;
+    let processed = process_transcription_output(
+        &app,
+        &settings,
+        &transcription,
+        None,
+        "History retry",
+        false,
+    )
+    .await
+    .ok_or_else(|| "Re-transcription post-processing was cancelled".to_string())?;
 
     history_manager
         .update_transcription(

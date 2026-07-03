@@ -1,6 +1,6 @@
 use crate::audio_toolkit::{apply_custom_words, filter_transcription_output};
 use crate::managers::audio::AudioRecordingManager;
-use crate::managers::model::{EngineType, ModelManager};
+use crate::managers::model::{self, EngineType, ModelManager};
 use crate::settings::{
     get_settings, AppSettings, FileTranscriptionChunkingMode, ModelUnloadTimeout,
     OrtAcceleratorSetting, WhisperAcceleratorSetting,
@@ -11,10 +11,13 @@ use serde::Serialize;
 use specta::Type;
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::{Arc, Condvar, Mutex, MutexGuard, OnceLock, TryLockError};
+use std::sync::{mpsc, Arc, Condvar, Mutex, MutexGuard, OnceLock, TryLockError};
 use std::thread;
-use std::time::{Duration, SystemTime};
+use std::time::{Duration, Instant, SystemTime};
 use tauri::{AppHandle, Emitter, Manager};
+use transcribe_cpp::{
+    Backend, Model, ModelOptions, RunOptions, Session, StreamOptions, Task, TimestampKind,
+};
 use transcribe_rs::{
     onnx::{
         canary::CanaryModel,
@@ -39,6 +42,7 @@ pub struct ModelStateEvent {
 }
 
 enum LoadedEngine {
+    TranscribeCpp(Session),
     Whisper(WhisperEngine),
     Parakeet(ParakeetModel),
     Moonshine(MoonshineModel),
@@ -47,6 +51,236 @@ enum LoadedEngine {
     GigaAM(GigaAMModel),
     Canary(CanaryModel),
     Cohere(CohereModel),
+}
+
+const STREAM_FINALIZE_REPLY_TIMEOUT: Duration = Duration::from_secs(30);
+const STREAM_PERF_LOG_INTERVAL: Duration = Duration::from_secs(5);
+
+enum StreamCmd {
+    Feed(Vec<f32>),
+    Finalize(mpsc::Sender<Option<(String, String)>>),
+    Cancel,
+}
+
+pub struct StreamRouter {
+    tx: Mutex<Option<mpsc::Sender<StreamCmd>>>,
+    open: AtomicBool,
+}
+
+impl StreamRouter {
+    fn new() -> Self {
+        Self {
+            tx: Mutex::new(None),
+            open: AtomicBool::new(false),
+        }
+    }
+
+    fn open(&self) -> mpsc::Receiver<StreamCmd> {
+        let (tx, rx) = mpsc::channel::<StreamCmd>();
+        *self.tx.lock().unwrap() = Some(tx);
+        self.open.store(true, Ordering::Relaxed);
+        rx
+    }
+
+    fn take(&self) -> Option<mpsc::Sender<StreamCmd>> {
+        self.open.store(false, Ordering::Relaxed);
+        self.tx.lock().unwrap().take()
+    }
+
+    fn clear(&self) {
+        self.open.store(false, Ordering::Relaxed);
+        *self.tx.lock().unwrap() = None;
+    }
+
+    pub fn feed(&self, frame: &[f32]) {
+        if !self.open.load(Ordering::Relaxed) {
+            return;
+        }
+        if let Some(tx) = self.tx.lock().unwrap().as_ref() {
+            let _ = tx.send(StreamCmd::Feed(frame.to_vec()));
+        }
+    }
+
+    pub fn is_open(&self) -> bool {
+        self.open.load(Ordering::Relaxed)
+    }
+}
+
+struct StreamWorkerGuard {
+    worker_id: u64,
+    active_stream_worker: Arc<AtomicU64>,
+    active_engine_lease: Arc<AtomicU64>,
+    stream_active: Arc<AtomicBool>,
+}
+
+impl Drop for StreamWorkerGuard {
+    fn drop(&mut self) {
+        let _ = self.active_engine_lease.compare_exchange(
+            self.worker_id,
+            0,
+            Ordering::AcqRel,
+            Ordering::Acquire,
+        );
+        let _ = self.active_stream_worker.compare_exchange(
+            self.worker_id,
+            0,
+            Ordering::AcqRel,
+            Ordering::Acquire,
+        );
+        self.stream_active.store(false, Ordering::Release);
+    }
+}
+
+fn transcribe_cpp_transcription(
+    session: &mut Session,
+    audio: &[f32],
+    effective_language: &str,
+    translate_to_english: bool,
+) -> Result<TranscriptionResult> {
+    let options = transcribe_cpp_run_options(
+        session,
+        effective_language,
+        translate_to_english,
+        TimestampKind::Segment,
+    );
+
+    session
+        .run(audio, &options)
+        .map(|result| TranscriptionResult {
+            text: result.text,
+            segments: None,
+        })
+        .map_err(|error| anyhow::anyhow!("transcribe.cpp transcription failed: {}", error))
+}
+
+fn transcribe_cpp_run_options(
+    session: &Session,
+    effective_language: &str,
+    translate_to_english: bool,
+    timestamps: TimestampKind,
+) -> RunOptions {
+    let model = session.model();
+    let caps = model.capabilities();
+    let run_plan = transcribe_cpp_run_plan(
+        translate_to_english,
+        effective_language,
+        &caps.languages,
+        caps.supports_translate,
+    );
+
+    RunOptions {
+        task: run_plan.task,
+        language: run_plan.language,
+        target_language: run_plan.target_language,
+        timestamps: transcribe_cpp_supported_timestamp_kind(timestamps, caps.max_timestamp_kind),
+        ..Default::default()
+    }
+}
+
+struct TranscribeCppRunPlan {
+    task: Task,
+    language: Option<String>,
+    target_language: Option<String>,
+}
+
+fn transcribe_cpp_run_plan(
+    translate_to_english: bool,
+    effective_language: &str,
+    model_languages: &[String],
+    model_supports_translate: bool,
+) -> TranscribeCppRunPlan {
+    let language = normalize_transcribe_cpp_language(effective_language)
+        .and_then(|language| transcribe_cpp_supported_language(language, model_languages));
+    let (task, target_language) = cpp_translation_task(
+        translate_to_english,
+        model_supports_translate,
+        language.as_deref(),
+    );
+
+    TranscribeCppRunPlan {
+        task,
+        language,
+        target_language,
+    }
+}
+
+fn normalize_transcribe_cpp_language(language: &str) -> Option<String> {
+    match language {
+        "auto" | "os_input" => None,
+        "zh-Hans" | "zh-Hant" => Some("zh".to_string()),
+        other => Some(other.to_string()),
+    }
+}
+
+fn transcribe_cpp_supported_language(
+    language: String,
+    model_languages: &[String],
+) -> Option<String> {
+    if model_languages.is_empty() {
+        return Some(language);
+    }
+    if model_languages
+        .iter()
+        .any(|supported| supported == &language)
+    {
+        return Some(language);
+    }
+    model_languages
+        .iter()
+        .find(|supported| supported.split(['-', '_']).next() == Some(language.as_str()))
+        .cloned()
+}
+
+fn cpp_translation_task(
+    translate_to_english: bool,
+    model_supports_translate: bool,
+    source_language: Option<&str>,
+) -> (Task, Option<String>) {
+    let translate_to_english =
+        translate_to_english && model_supports_translate && source_language != Some("en");
+    if translate_to_english {
+        (Task::Translate, Some("en".to_string()))
+    } else {
+        (Task::Transcribe, None)
+    }
+}
+
+fn transcribe_cpp_supported_timestamp_kind(
+    requested: TimestampKind,
+    model_max: TimestampKind,
+) -> TimestampKind {
+    match requested {
+        TimestampKind::None => TimestampKind::None,
+        TimestampKind::Auto => TimestampKind::Auto,
+        _ if model_max == TimestampKind::None => TimestampKind::None,
+        _ if timestamp_kind_rank(requested) <= timestamp_kind_rank(model_max) => requested,
+        _ => model_max,
+    }
+}
+
+fn timestamp_kind_rank(kind: TimestampKind) -> u8 {
+    match kind {
+        TimestampKind::None => 0,
+        TimestampKind::Segment => 1,
+        TimestampKind::Word => 2,
+        TimestampKind::Token => 3,
+        TimestampKind::Auto => 4,
+    }
+}
+
+fn effective_language_for_model(
+    model_manager: &ModelManager,
+    model_id: &str,
+    selected_language: &str,
+) -> String {
+    match model_manager.get_model_info(model_id) {
+        Some(info) => model::effective_language(
+            selected_language,
+            &info.supported_languages,
+            info.supports_language_detection,
+        ),
+        None => selected_language.to_string(),
+    }
 }
 
 pub struct LoadingGuard {
@@ -231,6 +465,11 @@ pub struct TranscriptionManager {
     app_handle: AppHandle,
     current_model_id: Arc<Mutex<Option<String>>>,
     last_activity: Arc<AtomicU64>,
+    stream_router: Arc<StreamRouter>,
+    active_stream_worker: Arc<AtomicU64>,
+    active_engine_lease: Arc<AtomicU64>,
+    stream_active: Arc<AtomicBool>,
+    next_stream_worker_id: Arc<AtomicU64>,
     file_transcription_cancel_requested: Arc<AtomicBool>,
     shutdown_signal: Arc<AtomicBool>,
     watcher_handle: Arc<Mutex<Option<thread::JoinHandle<()>>>>,
@@ -246,6 +485,11 @@ impl TranscriptionManager {
             app_handle: app_handle.clone(),
             current_model_id: Arc::new(Mutex::new(None)),
             last_activity: Arc::new(AtomicU64::new(Self::now_ms())),
+            stream_router: Arc::new(StreamRouter::new()),
+            active_stream_worker: Arc::new(AtomicU64::new(0)),
+            active_engine_lease: Arc::new(AtomicU64::new(0)),
+            stream_active: Arc::new(AtomicBool::new(false)),
+            next_stream_worker_id: Arc::new(AtomicU64::new(1)),
             file_transcription_cancel_requested: Arc::new(AtomicBool::new(false)),
             shutdown_signal: Arc::new(AtomicBool::new(false)),
             watcher_handle: Arc::new(Mutex::new(None)),
@@ -342,6 +586,287 @@ impl TranscriptionManager {
 
     fn touch_activity(&self) {
         self.last_activity.store(Self::now_ms(), Ordering::Relaxed);
+    }
+
+    pub fn stream_router(&self) -> Arc<StreamRouter> {
+        Arc::clone(&self.stream_router)
+    }
+
+    pub fn is_streaming(&self) -> bool {
+        self.stream_router.is_open() || self.stream_active.load(Ordering::Acquire)
+    }
+
+    pub fn start_stream(&self, selected_language: String, translate_to_english: bool) {
+        if self.stream_router.is_open() || self.active_stream_worker.load(Ordering::Acquire) != 0 {
+            warn!("start_stream called while a stream worker is already active");
+            return;
+        }
+
+        let worker_id = self.next_stream_worker_id.fetch_add(1, Ordering::Relaxed);
+        if self
+            .active_stream_worker
+            .compare_exchange(0, worker_id, Ordering::AcqRel, Ordering::Acquire)
+            .is_err()
+        {
+            warn!("start_stream lost a race with another stream worker");
+            return;
+        }
+
+        let rx = self.stream_router.open();
+        self.stream_active.store(false, Ordering::Release);
+        let manager = self.clone();
+        thread::spawn(move || {
+            manager.run_stream_worker(rx, worker_id, selected_language, translate_to_english)
+        });
+    }
+
+    fn run_stream_worker(
+        &self,
+        rx: mpsc::Receiver<StreamCmd>,
+        worker_id: u64,
+        selected_language: String,
+        translate_to_english: bool,
+    ) {
+        let _worker = StreamWorkerGuard {
+            worker_id,
+            active_stream_worker: Arc::clone(&self.active_stream_worker),
+            active_engine_lease: Arc::clone(&self.active_engine_lease),
+            stream_active: Arc::clone(&self.stream_active),
+        };
+
+        {
+            let mut is_loading = self.is_loading.lock().unwrap();
+            while *is_loading {
+                is_loading = self.loading_condvar.wait(is_loading).unwrap();
+            }
+        }
+
+        let model_id = self.get_current_model().unwrap_or_default();
+        let effective_language =
+            effective_language_for_model(&self.model_manager, &model_id, &selected_language);
+        if self
+            .active_engine_lease
+            .compare_exchange(0, worker_id, Ordering::AcqRel, Ordering::Acquire)
+            .is_err()
+        {
+            warn!("Native stream: another worker already holds the transcription engine");
+            self.stream_router.clear();
+            drain_until_finalize(rx);
+            return;
+        }
+
+        let mut engine = match self.lock_engine().take() {
+            Some(engine) => engine,
+            None => {
+                info!(
+                    "Native stream: model '{}' was unavailable before stream start; falling back to batch",
+                    model_id
+                );
+                let _ = self.active_engine_lease.compare_exchange(
+                    worker_id,
+                    0,
+                    Ordering::AcqRel,
+                    Ordering::Acquire,
+                );
+                self.stream_router.clear();
+                drain_until_finalize(rx);
+                return;
+            }
+        };
+
+        let supports_streaming = match &engine {
+            LoadedEngine::TranscribeCpp(session) => {
+                let caps = session.model().capabilities();
+                info!(
+                    "Native stream: model '{}' supports_streaming={} supports_translate={} languages={:?}",
+                    model_id,
+                    caps.supports_streaming,
+                    caps.supports_translate,
+                    caps.languages,
+                );
+                caps.supports_streaming
+            }
+            _ => {
+                info!(
+                    "Native stream: model '{}' is not a transcribe.cpp model; falling back to batch",
+                    model_id
+                );
+                false
+            }
+        };
+
+        if !supports_streaming {
+            self.return_engine(engine, &model_id);
+            self.stream_router.clear();
+            drain_until_finalize(rx);
+            return;
+        }
+
+        let mut finalize_reply: Option<mpsc::Sender<Option<(String, String)>>> = None;
+        let mut finalize_result: Option<Option<(String, String)>> = None;
+        let stream_started = 'stream: {
+            let session = match &mut engine {
+                LoadedEngine::TranscribeCpp(session) => session,
+                _ => break 'stream false,
+            };
+            let backend = session.model().backend();
+            let run_options = transcribe_cpp_run_options(
+                session,
+                &effective_language,
+                translate_to_english,
+                TimestampKind::None,
+            );
+            let mut stream = match session.stream(&run_options, &StreamOptions::default()) {
+                Ok(stream) => stream,
+                Err(error) => {
+                    error!("Failed to begin native transcribe.cpp stream: {}", error);
+                    break 'stream false;
+                }
+            };
+
+            self.stream_active.store(true, Ordering::Release);
+            self.touch_activity();
+            info!(
+                "Native transcribe.cpp stream started for model '{}' on backend '{}'",
+                model_id, backend
+            );
+
+            let mut perf = StreamPerf::new();
+            while let Ok(cmd) = rx.recv() {
+                match cmd {
+                    StreamCmd::Feed(pcm) => {
+                        self.touch_activity();
+                        perf.record_feed(pcm.len());
+                        let feed_start = Instant::now();
+                        match stream.feed(&pcm) {
+                            Ok(update) => {
+                                perf.record_compute(feed_start.elapsed());
+                                perf.record_update(
+                                    update.revision,
+                                    update.input_received_ms,
+                                    update.audio_committed_ms,
+                                    update.buffered_ms,
+                                );
+                                if update.committed_changed || update.tentative_changed {
+                                    let text = stream.text();
+                                    perf.record_emit();
+                                    crate::overlay::emit_live_preview_update(
+                                        &self.app_handle,
+                                        &text.committed,
+                                        &text.tentative,
+                                    );
+                                }
+                                perf.maybe_log();
+                            }
+                            Err(error) => {
+                                perf.record_compute(feed_start.elapsed());
+                                warn!("Native stream feed failed: {}", error);
+                            }
+                        }
+                    }
+                    StreamCmd::Finalize(reply) => {
+                        let finalize_start = Instant::now();
+                        let result = match stream.finalize() {
+                            Ok(update) => {
+                                perf.record_compute(finalize_start.elapsed());
+                                perf.record_update(
+                                    update.revision,
+                                    update.input_received_ms,
+                                    update.audio_committed_ms,
+                                    update.buffered_ms,
+                                );
+                                let text = stream.text();
+                                crate::overlay::emit_live_preview_update(
+                                    &self.app_handle,
+                                    &text.committed,
+                                    &text.tentative,
+                                );
+                                Some(text.display())
+                            }
+                            Err(error) => {
+                                perf.record_compute(finalize_start.elapsed());
+                                error!(
+                                    "Native stream finalize failed; falling back to batch: {}",
+                                    error
+                                );
+                                None
+                            }
+                        };
+                        perf.log_finalized(result.as_ref().map(|text| text.len()).unwrap_or(0));
+                        finalize_reply = Some(reply);
+                        finalize_result =
+                            Some(result.map(|text| (text, effective_language.clone())));
+                        break;
+                    }
+                    StreamCmd::Cancel => {
+                        stream.reset();
+                        break;
+                    }
+                }
+            }
+
+            true
+        };
+
+        if !stream_started {
+            self.return_engine(engine, &model_id);
+            drain_until_finalize(rx);
+            return;
+        }
+
+        self.return_engine(engine, &model_id);
+        if let (Some(reply), Some(result)) = (finalize_reply, finalize_result) {
+            let _ = reply.send(result);
+        }
+    }
+
+    fn return_engine(&self, engine: LoadedEngine, expected_model_id: &str) {
+        let still_current =
+            self.current_model_id.lock().unwrap().as_deref() == Some(expected_model_id);
+        if still_current {
+            *self.lock_engine() = Some(engine);
+        } else {
+            info!(
+                "Model changed/unloaded during native stream; dropping stale engine '{}'",
+                expected_model_id
+            );
+        }
+    }
+
+    pub fn finalize_stream(&self) -> Result<Option<String>> {
+        let Some(tx) = self.stream_router.take() else {
+            return Ok(None);
+        };
+
+        let (reply_tx, reply_rx) = mpsc::channel();
+        if tx.send(StreamCmd::Finalize(reply_tx)).is_err() {
+            return Ok(None);
+        }
+
+        let (raw, selected_language) = match reply_rx.recv_timeout(STREAM_FINALIZE_REPLY_TIMEOUT) {
+            Ok(Some(result)) => result,
+            Ok(None) => return Ok(None),
+            Err(mpsc::RecvTimeoutError::Disconnected) => return Ok(None),
+            Err(mpsc::RecvTimeoutError::Timeout) => {
+                self.stream_active.store(false, Ordering::Release);
+                anyhow::bail!(
+                    "Timed out waiting {:?} for native stream finalization",
+                    STREAM_FINALIZE_REPLY_TIMEOUT
+                );
+            }
+        };
+
+        let settings = get_settings(&self.app_handle);
+        let final_text = post_process_stream_text(raw, &settings, &selected_language);
+        self.maybe_unload_immediately("streaming transcription");
+        Ok(Some(final_text))
+    }
+
+    pub fn cancel_stream(&self) {
+        if let Some(tx) = self.stream_router.take() {
+            let _ = tx.send(StreamCmd::Cancel);
+        }
+        self.stream_active.store(false, Ordering::Release);
     }
 
     pub fn cancel_file_transcription(&self) {
@@ -479,6 +1004,45 @@ impl TranscriptionManager {
     }
 
     pub fn load_model(&self, model_id: &str) -> Result<()> {
+        self.load_model_inner(model_id, None)
+    }
+
+    /// Load a model, optionally overriding the whisper.cpp compute device for this load only.
+    pub fn load_model_with_device(
+        &self,
+        model_id: &str,
+        device_index: Option<usize>,
+    ) -> Result<()> {
+        if device_index.is_none() {
+            return self.load_model_inner(model_id, None);
+        }
+
+        let model_info = self
+            .model_manager
+            .get_model_info(model_id)
+            .ok_or_else(|| anyhow::anyhow!("Model not found: {}", model_id))?;
+        if !matches!(model_info.engine_type, EngineType::Whisper) {
+            return self.load_model_inner(model_id, device_index);
+        }
+
+        use transcribe_rs::accel;
+
+        let previous_accelerator = accel::get_whisper_accelerator();
+        let previous_gpu_device = accel::get_whisper_gpu_device();
+
+        let (accelerator, gpu_device) = resolve_device_index(device_index.unwrap())?;
+        accel::set_whisper_accelerator(accelerator);
+        accel::set_whisper_gpu_device(gpu_device);
+
+        let result = self.load_model_inner(model_id, None);
+
+        accel::set_whisper_accelerator(previous_accelerator);
+        accel::set_whisper_gpu_device(previous_gpu_device);
+
+        result
+    }
+
+    fn load_model_inner(&self, model_id: &str, device_index: Option<usize>) -> Result<()> {
         let load_start = std::time::Instant::now();
         debug!("Starting to load model: {}", model_id);
 
@@ -521,6 +1085,57 @@ impl TranscriptionManager {
         // Create appropriate engine based on model type
 
         let loaded_engine = match model_info.engine_type {
+            EngineType::TranscribeCpp => {
+                let (backend, gpu_device) = match device_index {
+                    Some(index) => resolve_transcribe_cpp_device_index(index)
+                        .inspect_err(|err| emit_loading_failed(&err.to_string()))?,
+                    None => {
+                        let settings = get_settings(&self.app_handle);
+                        (
+                            select_transcribe_cpp_backend(settings.whisper_accelerator),
+                            resolve_transcribe_cpp_gpu_device(
+                                settings.whisper_accelerator,
+                                settings.whisper_gpu_device,
+                            ),
+                        )
+                    }
+                };
+                let options = ModelOptions {
+                    backend,
+                    gpu_device,
+                };
+                let model = Model::load_with(&model_path, &options).map_err(|e| {
+                    let error_msg =
+                        format!("Failed to load transcribe.cpp model {}: {}", model_id, e);
+                    emit_loading_failed(&error_msg);
+                    anyhow::anyhow!(error_msg)
+                })?;
+                let session = model.session().map_err(|e| {
+                    let error_msg = format!(
+                        "Failed to create transcribe.cpp session for {}: {}",
+                        model_id, e
+                    );
+                    emit_loading_failed(&error_msg);
+                    anyhow::anyhow!(error_msg)
+                })?;
+                let caps = session.model().capabilities();
+                self.model_manager.set_runtime_capabilities(
+                    model_id,
+                    caps.supports_streaming,
+                    caps.supports_translate,
+                    caps.supports_language_detect,
+                    caps.languages.clone(),
+                );
+                info!(
+                    "Loaded transcribe.cpp model '{}' on backend '{}' (supports_streaming={}, supports_translate={}, supports_language_detect={})",
+                    model_id,
+                    session.model().backend(),
+                    caps.supports_streaming,
+                    caps.supports_translate,
+                    caps.supports_language_detect
+                );
+                LoadedEngine::TranscribeCpp(session)
+            }
             EngineType::Whisper => {
                 let engine = WhisperEngine::load(&model_path).map_err(|e| {
                     let error_msg = format!("Failed to load whisper model {}: {}", model_id, e);
@@ -730,6 +1345,14 @@ impl TranscriptionManager {
 
         // Get current settings for configuration
         let settings = get_settings(&self.app_handle);
+        let active_model = self
+            .get_current_model()
+            .unwrap_or_else(|| settings.selected_model.clone());
+        let effective_language = effective_language_for_model(
+            &self.model_manager,
+            &active_model,
+            &settings.selected_language,
+        );
 
         // Perform transcription with the appropriate engine.
         // We use catch_unwind to prevent engine panics from poisoning the mutex,
@@ -755,6 +1378,12 @@ impl TranscriptionManager {
             let transcribe_result = catch_unwind(AssertUnwindSafe(
                 || -> Result<transcribe_rs::TranscriptionResult> {
                     match &mut engine {
+                        LoadedEngine::TranscribeCpp(session) => transcribe_cpp_transcription(
+                            session,
+                            &audio,
+                            &effective_language,
+                            settings.translate_to_english,
+                        ),
                         LoadedEngine::Whisper(whisper_engine) => {
                             let whisper_language = if settings.selected_language == "auto" {
                                 None
@@ -941,7 +1570,7 @@ impl TranscriptionManager {
         let filtered_result = if settings.filler_word_filter_enabled {
             filter_transcription_output(
                 &corrected_result,
-                &settings.selected_language,
+                &effective_language,
                 &settings.custom_filler_words,
             )
         } else {
@@ -1015,6 +1644,11 @@ impl TranscriptionManager {
             .map(|s| s.to_string())
             .unwrap_or_else(|| settings.selected_language.clone());
         let translate_to_english = translate_override.unwrap_or(settings.translate_to_english);
+        let active_model = self
+            .get_current_model()
+            .unwrap_or_else(|| settings.selected_model.clone());
+        let effective_language =
+            effective_language_for_model(&self.model_manager, &active_model, &selected_language);
 
         let result = {
             let mut engine_guard = self.engine.lock().unwrap();
@@ -1023,6 +1657,12 @@ impl TranscriptionManager {
             })?;
 
             match engine {
+                LoadedEngine::TranscribeCpp(session) => transcribe_cpp_transcription(
+                    session,
+                    &audio,
+                    &effective_language,
+                    translate_to_english,
+                )?,
                 LoadedEngine::Whisper(whisper_engine) => {
                     let whisper_language = if selected_language == "auto" {
                         None
@@ -1154,7 +1794,7 @@ impl TranscriptionManager {
         let filtered_result = if settings.filler_word_filter_enabled {
             filter_transcription_output(
                 &corrected_result,
-                &selected_language,
+                &effective_language,
                 &settings.custom_filler_words,
             )
         } else {
@@ -1380,6 +2020,11 @@ impl TranscriptionManager {
             .map(|value| value.to_string())
             .unwrap_or_else(|| settings.selected_language.clone());
         let translate_to_english = translate_override.unwrap_or(settings.translate_to_english);
+        let active_model = self
+            .get_current_model()
+            .unwrap_or_else(|| settings.selected_model.clone());
+        let effective_language =
+            effective_language_for_model(&self.model_manager, &active_model, &selected_language);
         let merge_separator = merge_separator_for_language(&selected_language);
 
         let (result, meta) = {
@@ -1398,6 +2043,17 @@ impl TranscriptionManager {
             };
 
             match engine {
+                LoadedEngine::TranscribeCpp(session) => (
+                    self.run_cancelable_file_transcription(|| {
+                        transcribe_cpp_transcription(
+                            session,
+                            &audio,
+                            &effective_language,
+                            translate_to_english,
+                        )
+                    })?,
+                    FileTranscriptionExecutionMeta::default(),
+                ),
                 LoadedEngine::Parakeet(parakeet_engine) => {
                     let (use_chunking, max_chunk_secs) =
                         chunking_for(FileTranscriptionChunkProfile::Default);
@@ -1688,7 +2344,7 @@ impl TranscriptionManager {
         Ok((
             result,
             meta,
-            selected_language,
+            effective_language,
             settings,
             translate_to_english,
         ))
@@ -2216,6 +2872,301 @@ fn cached_gpu_devices() -> &'static [GpuDeviceOption] {
     })
 }
 
+fn resolve_device_index(index: usize) -> Result<(transcribe_rs::accel::WhisperAccelerator, i32)> {
+    use transcribe_rs::accel;
+
+    if index == 0 {
+        return Ok((accel::WhisperAccelerator::CpuOnly, accel::GPU_DEVICE_AUTO));
+    }
+
+    let gpu = cached_gpu_devices()
+        .get(index - 1)
+        .ok_or_else(|| anyhow::anyhow!("Unknown whisper compute device index: {}", index))?;
+    Ok((accel::WhisperAccelerator::Gpu, gpu.id))
+}
+
+fn resolve_transcribe_cpp_device_index(index: usize) -> Result<(Backend, i32)> {
+    let device = transcribe_cpp::devices()
+        .into_iter()
+        .find(|device| device.index == Some(index))
+        .ok_or_else(|| anyhow::anyhow!("No transcribe.cpp compute device with index {}", index))?;
+
+    let backend = match device.kind.as_str() {
+        "cpu" => Backend::Cpu,
+        "metal" => Backend::Metal,
+        "cuda" => Backend::Cuda,
+        "vulkan" => Backend::Vulkan,
+        other => {
+            return Err(anyhow::anyhow!(
+                "Device index {} has unsupported kind '{}'",
+                index,
+                other
+            ))
+        }
+    };
+
+    let gpu_device = if matches!(backend, Backend::Cpu) {
+        0
+    } else {
+        index as i32
+    };
+    Ok((backend, gpu_device))
+}
+
+fn select_transcribe_cpp_backend(setting: WhisperAcceleratorSetting) -> Backend {
+    match setting {
+        WhisperAcceleratorSetting::Cpu => Backend::Cpu,
+        WhisperAcceleratorSetting::Auto => Backend::Auto,
+        WhisperAcceleratorSetting::Gpu => {
+            #[cfg(target_os = "macos")]
+            let candidates = [Backend::Metal];
+            #[cfg(not(target_os = "macos"))]
+            let candidates = [Backend::Cuda, Backend::Vulkan];
+
+            candidates
+                .into_iter()
+                .find(|backend| transcribe_cpp::backend_available(*backend))
+                .unwrap_or(Backend::Auto)
+        }
+    }
+}
+
+fn resolve_transcribe_cpp_gpu_device(setting: WhisperAcceleratorSetting, gpu_device: i32) -> i32 {
+    if setting != WhisperAcceleratorSetting::Gpu || gpu_device <= 0 {
+        return 0;
+    }
+
+    let still_valid = transcribe_cpp::devices()
+        .iter()
+        .any(|device| device.index == Some(gpu_device as usize) && device.kind != "cpu");
+    if still_valid {
+        gpu_device
+    } else {
+        0
+    }
+}
+
+pub fn describe_compute_devices() -> Vec<String> {
+    let cpp_devices = transcribe_cpp::devices();
+    if !cpp_devices.is_empty() {
+        return cpp_devices
+            .into_iter()
+            .map(|device| {
+                let index = device
+                    .index
+                    .map(|value| value.to_string())
+                    .unwrap_or_else(|| "-".to_string());
+                let name = if device.description.is_empty() {
+                    device.name
+                } else {
+                    device.description
+                };
+                format!(
+                    "index={} kind={} name={} vram={}MB",
+                    index,
+                    device.kind,
+                    name,
+                    device.memory_total / (1024 * 1024)
+                )
+            })
+            .collect();
+    }
+
+    vec!["index=0 kind=cpu name=CPU".to_string()]
+}
+
+pub fn describe_effective_whisper_device(device_index: Option<usize>) -> String {
+    use transcribe_rs::accel;
+
+    match device_index {
+        Some(0) => "cpu".to_string(),
+        Some(index) => match cached_gpu_devices().get(index.saturating_sub(1)) {
+            Some(gpu) => format!("gpu:{}:{}", gpu.id, gpu.name),
+            None => format!("gpu:index:{}:unknown", index),
+        },
+        None => {
+            let accelerator = accel::get_whisper_accelerator();
+            let gpu_device = accel::get_whisper_gpu_device();
+            if !accelerator.use_gpu() {
+                "cpu".to_string()
+            } else if gpu_device == accel::GPU_DEVICE_AUTO {
+                format!("{}:auto", accelerator)
+            } else {
+                format!("{}:{}", accelerator, gpu_device)
+            }
+        }
+    }
+}
+
+struct StreamPerf {
+    feed_count: u64,
+    emit_count: u64,
+    streamed_samples: u64,
+    stream_compute_elapsed: Duration,
+    last_log: Instant,
+    latest_revision: i32,
+    latest_input_received_ms: i64,
+    latest_audio_committed_ms: i64,
+    latest_buffered_ms: i64,
+}
+
+impl StreamPerf {
+    fn new() -> Self {
+        Self {
+            feed_count: 0,
+            emit_count: 0,
+            streamed_samples: 0,
+            stream_compute_elapsed: Duration::ZERO,
+            last_log: Instant::now(),
+            latest_revision: 0,
+            latest_input_received_ms: 0,
+            latest_audio_committed_ms: 0,
+            latest_buffered_ms: 0,
+        }
+    }
+
+    fn record_feed(&mut self, samples: usize) {
+        self.feed_count += 1;
+        self.streamed_samples += samples as u64;
+    }
+
+    fn record_compute(&mut self, elapsed: Duration) {
+        self.stream_compute_elapsed += elapsed;
+    }
+
+    fn record_update(
+        &mut self,
+        revision: i32,
+        input_received_ms: i64,
+        audio_committed_ms: i64,
+        buffered_ms: i64,
+    ) {
+        self.latest_revision = revision;
+        self.latest_input_received_ms = input_received_ms;
+        self.latest_audio_committed_ms = audio_committed_ms;
+        self.latest_buffered_ms = buffered_ms;
+    }
+
+    fn record_emit(&mut self) {
+        self.emit_count += 1;
+    }
+
+    fn maybe_log(&mut self) {
+        if self.last_log.elapsed() < STREAM_PERF_LOG_INTERVAL {
+            return;
+        }
+
+        let audio_secs = self.audio_secs();
+        let compute_secs = self.compute_secs();
+        debug!(
+            "Native stream perf: {:.2}s audio, {:.2}s compute ({:.2}x), \
+             input_received={:.2}s, committed_audio={:.2}s, buffered={}ms, revision={}, \
+             {} frames fed, {} updates emitted",
+            audio_secs,
+            compute_secs,
+            stream_real_time_factor(audio_secs, compute_secs),
+            self.latest_input_received_ms as f64 / 1000.0,
+            self.latest_audio_committed_ms as f64 / 1000.0,
+            self.latest_buffered_ms,
+            self.latest_revision,
+            self.feed_count,
+            self.emit_count,
+        );
+        self.last_log = Instant::now();
+    }
+
+    fn log_finalized(&self, chars: usize) {
+        let audio_secs = self.audio_secs();
+        let compute_secs = self.compute_secs();
+        info!(
+            "Native stream finalized: {:.2}s audio, {:.2}s compute ({:.2}x), \
+             input_received={:.2}s, committed_audio={:.2}s, buffered={}ms, revision={}, \
+             {} frames fed, {} updates emitted, {} chars",
+            audio_secs,
+            compute_secs,
+            stream_real_time_factor(audio_secs, compute_secs),
+            self.latest_input_received_ms as f64 / 1000.0,
+            self.latest_audio_committed_ms as f64 / 1000.0,
+            self.latest_buffered_ms,
+            self.latest_revision,
+            self.feed_count,
+            self.emit_count,
+            chars
+        );
+    }
+
+    fn audio_secs(&self) -> f64 {
+        self.streamed_samples as f64 / 16_000.0
+    }
+
+    fn compute_secs(&self) -> f64 {
+        self.stream_compute_elapsed.as_secs_f64()
+    }
+}
+
+fn stream_real_time_factor(audio_secs: f64, compute_secs: f64) -> f64 {
+    if compute_secs > 0.0 {
+        audio_secs / compute_secs
+    } else {
+        0.0
+    }
+}
+
+fn post_process_stream_text(
+    raw: String,
+    settings: &AppSettings,
+    selected_language: &str,
+) -> String {
+    let corrected = if settings.custom_words_enabled && !settings.custom_words.is_empty() {
+        apply_custom_words(
+            &raw,
+            &settings.custom_words,
+            settings.word_correction_threshold,
+            settings.custom_words_ngram_enabled,
+        )
+    } else {
+        raw
+    };
+
+    if settings.filler_word_filter_enabled {
+        filter_transcription_output(&corrected, selected_language, &settings.custom_filler_words)
+    } else {
+        corrected
+    }
+}
+
+fn drain_until_finalize(rx: mpsc::Receiver<StreamCmd>) {
+    while let Ok(cmd) = rx.recv() {
+        match cmd {
+            StreamCmd::Feed(_) => {}
+            StreamCmd::Finalize(reply) => {
+                let _ = reply.send(None);
+                break;
+            }
+            StreamCmd::Cancel => break,
+        }
+    }
+}
+
+pub fn init_transcribe_backend() {
+    transcribe_cpp::init_logging();
+    match transcribe_cpp::init_backends_default() {
+        Ok(()) => {
+            let devices = transcribe_cpp::devices();
+            info!(
+                "transcribe.cpp initialized with {} compute device(s): [{}]",
+                devices.len(),
+                devices
+                    .iter()
+                    .map(|device| format!("{} ({})", device.name, device.kind))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            );
+        }
+        Err(err) => warn!("Failed to initialize transcribe.cpp backends: {}", err),
+    }
+}
+
 pub fn apply_accelerator_settings(app: &tauri::AppHandle) {
     use transcribe_rs::accel;
 
@@ -2268,6 +3219,211 @@ pub fn get_available_accelerators() -> AvailableAccelerators {
 mod tests {
     use super::*;
     use transcribe_rs::TranscriptionSegment;
+
+    fn languages(codes: &[&str]) -> Vec<String> {
+        codes.iter().map(|code| (*code).to_string()).collect()
+    }
+
+    #[test]
+    fn transcribe_cpp_run_plan_maps_chinese_variants() {
+        let plan = transcribe_cpp_run_plan(false, "zh-Hant", &languages(&["zh"]), true);
+
+        assert!(matches!(plan.task, Task::Transcribe));
+        assert_eq!(plan.language.as_deref(), Some("zh"));
+        assert_eq!(plan.target_language, None);
+    }
+
+    #[test]
+    fn transcribe_cpp_run_plan_matches_base_language_locale() {
+        let plan = transcribe_cpp_run_plan(false, "es", &languages(&["en-US", "es-ES"]), true);
+
+        assert!(matches!(plan.task, Task::Transcribe));
+        assert_eq!(plan.language.as_deref(), Some("es-ES"));
+        assert_eq!(plan.target_language, None);
+    }
+
+    #[test]
+    fn transcribe_cpp_run_plan_skips_english_translation() {
+        let plan = transcribe_cpp_run_plan(true, "en", &languages(&["en", "es"]), true);
+
+        assert!(matches!(plan.task, Task::Transcribe));
+        assert_eq!(plan.language.as_deref(), Some("en"));
+        assert_eq!(plan.target_language, None);
+    }
+
+    #[test]
+    fn transcribe_cpp_run_plan_translates_supported_non_english() {
+        let plan = transcribe_cpp_run_plan(true, "es", &languages(&["en", "es"]), true);
+
+        assert!(matches!(plan.task, Task::Translate));
+        assert_eq!(plan.language.as_deref(), Some("es"));
+        assert_eq!(plan.target_language.as_deref(), Some("en"));
+    }
+
+    #[test]
+    fn transcribe_cpp_run_plan_requires_model_translation_support() {
+        let plan = transcribe_cpp_run_plan(true, "es", &languages(&["en", "es"]), false);
+
+        assert!(matches!(plan.task, Task::Transcribe));
+        assert_eq!(plan.language.as_deref(), Some("es"));
+        assert_eq!(plan.target_language, None);
+    }
+
+    #[test]
+    fn transcribe_cpp_run_plan_keeps_language_when_model_languages_are_unknown() {
+        let plan = transcribe_cpp_run_plan(false, "fi", &[], true);
+
+        assert!(matches!(plan.task, Task::Transcribe));
+        assert_eq!(plan.language.as_deref(), Some("fi"));
+        assert_eq!(plan.target_language, None);
+    }
+
+    #[test]
+    fn transcribe_cpp_run_plan_skips_english_translation_with_unknown_languages() {
+        let plan = transcribe_cpp_run_plan(true, "en", &[], true);
+
+        assert!(matches!(plan.task, Task::Transcribe));
+        assert_eq!(plan.language.as_deref(), Some("en"));
+        assert_eq!(plan.target_language, None);
+    }
+
+    #[test]
+    fn transcribe_cpp_timestamps_drop_to_none_when_model_has_no_timestamps() {
+        assert_eq!(
+            transcribe_cpp_supported_timestamp_kind(TimestampKind::Segment, TimestampKind::None),
+            TimestampKind::None
+        );
+    }
+
+    #[test]
+    fn transcribe_cpp_timestamps_preserve_supported_segment_request() {
+        assert_eq!(
+            transcribe_cpp_supported_timestamp_kind(TimestampKind::Segment, TimestampKind::Segment),
+            TimestampKind::Segment
+        );
+    }
+
+    #[test]
+    fn transcribe_cpp_timestamps_clamp_to_model_maximum() {
+        assert_eq!(
+            transcribe_cpp_supported_timestamp_kind(TimestampKind::Token, TimestampKind::Word),
+            TimestampKind::Word
+        );
+    }
+
+    fn kennedy_fixture_path() -> std::path::PathBuf {
+        std::env::var_os("AIVORELAY_KENNEDY_WAV")
+            .map(std::path::PathBuf::from)
+            .unwrap_or_else(|| std::path::PathBuf::from("../.AGENTS/UNTRACKED/kennedy-30s-16k.wav"))
+    }
+
+    fn moonshine_base_model_path() -> std::path::PathBuf {
+        std::env::var_os("AIVORELAY_MOONSHINE_BASE_DIR")
+            .map(std::path::PathBuf::from)
+            .or_else(|| {
+                std::env::var_os("APPDATA").map(|appdata| {
+                    std::path::PathBuf::from(appdata)
+                        .join("fi.maxits.aivorelay")
+                        .join("models")
+                        .join("moonshine-base")
+                })
+            })
+            .unwrap_or_else(|| std::path::PathBuf::from("moonshine-base"))
+    }
+
+    fn moonshine_streaming_small_gguf_path() -> std::path::PathBuf {
+        if let Some(path) = std::env::var_os("AIVORELAY_MOONSHINE_STREAMING_SMALL_GGUF") {
+            return std::path::PathBuf::from(path);
+        }
+
+        let Some(home) = std::env::var_os("USERPROFILE") else {
+            return std::path::PathBuf::from("moonshine-streaming-small-Q8_0.gguf");
+        };
+        let repo = std::path::PathBuf::from(home)
+            .join(".cache")
+            .join("huggingface")
+            .join("hub")
+            .join("models--handy-computer--moonshine-streaming-small-gguf");
+        let revision = std::fs::read_to_string(repo.join("refs").join("main"))
+            .unwrap_or_else(|_| "41444173ed8210852a883e046fadcfba3e7bfbae".to_string());
+        repo.join("snapshots")
+            .join(revision.trim())
+            .join("moonshine-streaming-small-Q8_0.gguf")
+    }
+
+    fn read_kennedy_fixture() -> Result<Vec<f32>> {
+        let path = kennedy_fixture_path();
+        anyhow::ensure!(
+            path.exists(),
+            "Kennedy fixture is missing at {}. Set AIVORELAY_KENNEDY_WAV to a 16 kHz mono WAV.",
+            path.display()
+        );
+        crate::audio_toolkit::read_wav_samples(&path)
+    }
+
+    fn assert_kennedy_transcription(text: &str) {
+        let trimmed = text.trim();
+        assert!(
+            trimmed.len() > 20,
+            "expected non-empty Kennedy transcription, got {trimmed:?}"
+        );
+        let lower = trimmed.to_lowercase();
+        assert!(
+            lower.contains("houses")
+                || lower.contains("churchill")
+                || lower.contains("president")
+                || lower.contains("historic"),
+            "transcription did not look like the Kennedy fixture: {trimmed:?}"
+        );
+    }
+
+    #[test]
+    #[ignore = "requires local Kennedy WAV fixture and downloaded Moonshine Base model"]
+    fn moonshine_base_transcribes_kennedy_fixture() -> Result<()> {
+        let audio = read_kennedy_fixture()?;
+        let model_path = moonshine_base_model_path();
+        anyhow::ensure!(
+            model_path.exists(),
+            "Moonshine Base model is missing at {}. Set AIVORELAY_MOONSHINE_BASE_DIR.",
+            model_path.display()
+        );
+
+        let mut model = MoonshineModel::load(
+            &model_path,
+            MoonshineVariant::Base,
+            &Quantization::default(),
+        )?;
+        let result = model.transcribe(&audio, &TranscribeOptions::default())?;
+        println!("Moonshine Base smoke text: {}", result.text);
+        assert_kennedy_transcription(&result.text);
+        Ok(())
+    }
+
+    #[test]
+    #[ignore = "requires local Kennedy WAV fixture and downloaded Moonshine Streaming Small GGUF"]
+    fn transcribe_cpp_moonshine_streaming_small_transcribes_kennedy_fixture() -> Result<()> {
+        init_transcribe_backend();
+        let audio = read_kennedy_fixture()?;
+        let model_path = moonshine_streaming_small_gguf_path();
+        anyhow::ensure!(
+            model_path.exists(),
+            "Moonshine Streaming Small GGUF is missing at {}. Set AIVORELAY_MOONSHINE_STREAMING_SMALL_GGUF.",
+            model_path.display()
+        );
+
+        let model = Model::load_with(
+            &model_path,
+            &ModelOptions {
+                backend: Backend::Cpu,
+                gpu_device: 0,
+            },
+        )?;
+        let mut session = model.session()?;
+        let result = transcribe_cpp_transcription(&mut session, &audio, "en", false)?;
+        println!("transcribe.cpp Moonshine smoke text: {}", result.text);
+        assert_kennedy_transcription(&result.text);
+        Ok(())
+    }
 
     #[test]
     fn loading_guard_drop_recovers_poisoned_mutex() {
