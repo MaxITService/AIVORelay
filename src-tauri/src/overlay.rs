@@ -2230,6 +2230,50 @@ pub fn emit_soniox_live_preview_update_with_changed_ranges(
 ) {
 }
 
+pub fn begin_live_preview_session() {
+    begin_soniox_live_preview_session();
+}
+
+pub fn end_live_preview_session() {
+    end_soniox_live_preview_session();
+}
+
+pub fn show_live_preview_window(app_handle: &AppHandle) {
+    show_soniox_live_preview_window(app_handle);
+}
+
+pub fn hide_live_preview_window(app_handle: &AppHandle) {
+    hide_soniox_live_preview_window(app_handle);
+}
+
+pub fn reset_live_preview(app_handle: &AppHandle) {
+    reset_soniox_live_preview(app_handle);
+}
+
+pub fn get_live_preview_state() -> SonioxLivePreviewPayload {
+    get_soniox_live_preview_state()
+}
+
+pub fn emit_live_preview_update(app_handle: &AppHandle, final_text: &str, interim_text: &str) {
+    emit_soniox_live_preview_update(app_handle, final_text, interim_text);
+}
+
+pub fn emit_live_preview_update_with_changed_ranges(
+    app_handle: &AppHandle,
+    final_text: &str,
+    interim_text: &str,
+    preserve_before_char: usize,
+    new_ranges: Vec<SonioxLivePreviewChangedRange>,
+) {
+    emit_soniox_live_preview_update_with_changed_ranges(
+        app_handle,
+        final_text,
+        interim_text,
+        preserve_before_char,
+        new_ranges,
+    );
+}
+
 pub fn emit_levels(app_handle: &AppHandle, levels: &[f32]) {
     // The overlay window exists while hidden, so disabled means no IPC at all.
     if !RECORDING_OVERLAY_ENABLED.load(Ordering::Relaxed) {

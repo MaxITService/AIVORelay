@@ -383,11 +383,11 @@ export const UserInterfaceSettings: React.FC = () => {
 
                 <div className="p-3 bg-[#1a1a1a] border border-[#333333] rounded-md space-y-2">
                   <p>
-                    <strong>Local model auto flush:</strong>
+                    <strong>Legacy local streaming preview:</strong>
                   </p>
                   <p>
-                    When enabled, Local transcription can update the Output-to-Preview buffer while recording continues.
-                    Turn it off to keep Local output appearing only after stop or manual flush.
+                    This is the old chunk-based local preview path. It is kept for compatibility,
+                    but it is not recommended when native streaming support is available.
                   </p>
                 </div>
               </div>
@@ -1309,13 +1309,13 @@ export const UserInterfaceSettings: React.FC = () => {
           />
           </LivePreviewSubsection>
           <LivePreviewSubsection
-            title="Local Auto Flush (Beta)"
-            description="Beta feature. Use at your own risk. This local preview mode is not fully designed yet, and it may change or be removed in a future version."
+            title="Legacy Local Streaming Preview"
+            description="Old chunk-based local preview mode kept for compatibility. Not recommended when native streaming or provider live preview is available."
             disabled={!sonioxLivePreviewEnabled}
           >
           <SettingContainer
-            title="Local Model Auto Flush"
-            description="Local-only chunk updates inside the Output-to-Preview workflow while recording continues."
+            title="Enable Legacy Local Preview Updates"
+            description="Use the old local auto-flush path to process repeated audio chunks while recording continues. Prefer native streaming models/providers when possible."
             descriptionMode="inline"
             grouped={true}
             disabled={!sonioxLivePreviewEnabled}
@@ -1335,8 +1335,8 @@ export const UserInterfaceSettings: React.FC = () => {
             />
           </SettingContainer>
           <Slider
-            label="Local Auto Flush Period"
-            description="How often Local Preview tries to process a new audio chunk while recording. Shorter values update the preview sooner but may make chunk boundaries more visible."
+            label="Legacy Update Period"
+            description="How often the legacy local preview path tries to process a new audio chunk while recording. Shorter values update the preview sooner but may make chunk boundaries more visible."
             descriptionMode="inline"
             grouped={true}
             min={LOCAL_PREVIEW_AUTO_FLUSH_INTERVAL_MIN_MS}
@@ -1366,8 +1366,8 @@ export const UserInterfaceSettings: React.FC = () => {
             }
           />
           <Slider
-            label="Local Auto Flush Overlap"
-            description="Audio kept as context across Local Preview chunks. Higher overlap can reduce missed words at boundaries, but may increase repeated text."
+            label="Legacy Chunk Overlap"
+            description="Audio kept as context across legacy local preview chunks. Higher overlap can reduce missed words at boundaries, but may increase repeated text."
             descriptionMode="inline"
             grouped={true}
             min={LOCAL_PREVIEW_AUTO_FLUSH_OVERLAP_MIN_MS}

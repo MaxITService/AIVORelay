@@ -3028,7 +3028,7 @@ async fn run_local_preview_flush(
                         &app,
                         next_final.clone(),
                     );
-                    crate::overlay::emit_soniox_live_preview_update(&app, &next_final, "");
+                    crate::overlay::emit_live_preview_update(&app, &next_final, "");
                     maybe_schedule_sliding_lm_window(
                         &app,
                         binding_id.clone(),
@@ -3884,7 +3884,7 @@ fn apply_sliding_lm_result(app: &AppHandle, request: &SlidingLmRequest, correcte
     }
 
     crate::managers::preview_output_mode::set_recording_prefix_text(app, final_text.clone());
-    crate::overlay::emit_soniox_live_preview_update_with_changed_ranges(
+    crate::overlay::emit_live_preview_update_with_changed_ranges(
         app,
         &final_text,
         "",
@@ -4034,7 +4034,7 @@ fn update_preview_text_for_output_mode(app: &AppHandle, text: &str) {
         text,
     );
     crate::managers::preview_output_mode::set_recording_prefix_text(app, next_final.clone());
-    crate::overlay::emit_soniox_live_preview_update(app, &next_final, "");
+    crate::overlay::emit_live_preview_update(app, &next_final, "");
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -4194,20 +4194,20 @@ fn maybe_arm_decapitalize_after_preview_delete(
 
 fn replace_preview_text_for_output_mode(app: &AppHandle, text: &str) {
     crate::managers::preview_output_mode::set_recording_prefix_text(app, text.to_string());
-    crate::overlay::emit_soniox_live_preview_update(app, text, "");
+    crate::overlay::emit_live_preview_update(app, text, "");
 }
 
 fn current_preview_buffer_text() -> String {
-    let state = crate::overlay::get_soniox_live_preview_state();
+    let state = crate::overlay::get_live_preview_state();
     format!("{}{}", state.final_text, state.interim_text)
 }
 
 fn current_preview_final_text() -> String {
-    crate::overlay::get_soniox_live_preview_state().final_text
+    crate::overlay::get_live_preview_state().final_text
 }
 
 fn current_preview_interim_text() -> String {
-    crate::overlay::get_soniox_live_preview_state().interim_text
+    crate::overlay::get_live_preview_state().interim_text
 }
 
 fn is_timeout_error_message(err: &str) -> bool {
@@ -4365,7 +4365,7 @@ async fn paste_preview_buffer_to_target(app: &AppHandle, text: String) -> Result
     before_dictation_final_output(app, &text);
 
     // Avoid pasting back into the preview window itself after an action click.
-    crate::overlay::hide_soniox_live_preview_window(app);
+    crate::overlay::hide_live_preview_window(app);
     tokio::time::sleep(Duration::from_millis(90)).await;
 
     let ah_for_call = app.clone();
@@ -4616,11 +4616,11 @@ fn close_preview_output_mode_workflow(app: &AppHandle, clear_text: bool) {
         stop_local_preview_auto_flush(&binding_id);
     }
     crate::managers::preview_output_mode::deactivate_session(app);
-    crate::overlay::end_soniox_live_preview_session();
+    crate::overlay::end_live_preview_session();
     if clear_text {
-        crate::overlay::reset_soniox_live_preview(app);
+        crate::overlay::reset_live_preview(app);
     }
-    crate::overlay::hide_soniox_live_preview_window(app);
+    crate::overlay::hide_live_preview_window(app);
 }
 
 fn is_transcribe_binding_id(binding_id: &str) -> bool {
@@ -5476,6 +5476,8 @@ impl ShortcutAction for TranscribeAction {
         );
         let preview_output_only_enabled = binding_id == LIVE_SOUND_TRANSCRIPTION_BINDING_ID
             || should_route_output_to_preview(&settings, profile);
+        let use_local_preview_streaming =
+            should_use_local_preview_auto_flush(&settings, profile, binding_id);
 
         if !start_recording_with_feedback(app, binding_id) {
             // Recording failed to start (e.g., system busy) - reset toggle state
@@ -5487,21 +5489,21 @@ impl ShortcutAction for TranscribeAction {
         if preview_output_only_enabled && binding_id != LIVE_SOUND_TRANSCRIPTION_BINDING_ID {
             let was_active_for_binding =
                 crate::managers::preview_output_mode::is_active_for_binding(binding_id);
-            let mut recording_prefix = crate::overlay::get_soniox_live_preview_state().final_text;
+            let mut recording_prefix = crate::overlay::get_live_preview_state().final_text;
             if !was_active_for_binding {
-                crate::overlay::begin_soniox_live_preview_session();
-                crate::overlay::reset_soniox_live_preview(app);
+                crate::overlay::begin_live_preview_session();
+                crate::overlay::reset_live_preview(app);
                 recording_prefix.clear();
             }
             crate::managers::preview_output_mode::activate_session(
                 app,
                 binding_id.to_string(),
                 profile.map(|p| p.id.clone()),
-                use_live_streaming,
+                use_live_streaming || use_local_preview_streaming,
                 recording_prefix,
             );
-            crate::overlay::show_soniox_live_preview_window(app);
-            if should_use_local_preview_auto_flush(&settings, profile, binding_id) {
+            crate::overlay::show_live_preview_window(app);
+            if use_local_preview_streaming {
                 start_local_preview_auto_flush(
                     app,
                     binding_id.to_string(),
@@ -8311,7 +8313,7 @@ pub fn preview_close_action(app: AppHandle) -> Result<(), String> {
         return Ok(());
     }
 
-    crate::overlay::hide_soniox_live_preview_window(&app);
+    crate::overlay::hide_live_preview_window(&app);
     Ok(())
 }
 
@@ -8330,7 +8332,7 @@ pub fn preview_clear_action(app: AppHandle) -> Result<(), String> {
         }
     }
 
-    crate::overlay::reset_soniox_live_preview(&app);
+    crate::overlay::reset_live_preview(&app);
     if let Err(e) = app.state::<Arc<SonioxRealtimeManager>>().restart_session() {
         warn!("Failed to restart Soniox Realtime Session: {}", e);
     }
