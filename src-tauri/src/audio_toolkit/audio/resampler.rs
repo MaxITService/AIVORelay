@@ -72,6 +72,7 @@ impl FrameResampler {
                 if let Ok(out) = resampler.process(&[&self.in_buf[..]], None) {
                     self.emit_frames(&out[0], &mut emit);
                 }
+                self.in_buf.clear();
             }
         }
 
@@ -156,6 +157,24 @@ mod tests {
                 .zip(&fresh_output)
                 .all(|(reused, fresh)| (reused - fresh).abs() <= f32::EPSILON),
             "reset resampler retained audio from the previous recording"
+        );
+    }
+
+    #[test]
+    fn finish_does_not_leak_tail_into_next_session() {
+        let mut resampler = FrameResampler::new(48_000, 16_000, Duration::from_millis(30));
+
+        resampler.push(&[0.5; 100], |_| {});
+        resampler.finish(|_| {});
+
+        let mut emitted = 0usize;
+        resampler.push(&[0.25; RESAMPLER_CHUNK_SIZE], |frame| {
+            emitted += frame.len()
+        });
+
+        assert_eq!(
+            emitted, 0,
+            "stale resampler tail from finish() leaked into the next session"
         );
     }
 }

@@ -474,6 +474,7 @@ pub struct AudioRecordingManager {
     close_generation: Arc<AtomicU64>,
     active_selection: Arc<Mutex<Option<ActiveRecorderSelection>>>,
     stream_frame_callback: Arc<Mutex<Option<StreamFrameCallback>>>,
+    cached_device: Arc<Mutex<Option<(ActiveRecorderSelection, cpal::Device)>>>,
 }
 
 impl AudioRecordingManager {
@@ -500,6 +501,7 @@ impl AudioRecordingManager {
             close_generation: Arc::new(AtomicU64::new(0)),
             active_selection: Arc::new(Mutex::new(None)),
             stream_frame_callback: Arc::new(Mutex::new(None)),
+            cached_device: Arc::new(Mutex::new(None)),
         };
 
         // Always-on?  Open immediately.
@@ -513,18 +515,24 @@ impl AudioRecordingManager {
     /* ---------- helper methods --------------------------------------------- */
 
     fn get_effective_microphone_name(&self, settings: &AppSettings) -> Option<String> {
-        // Check if we're in clamshell mode and have a clamshell microphone configured
-        let use_clamshell_mic = if let Ok(is_clamshell) = clamshell::is_clamshell() {
-            is_clamshell && settings.clamshell_microphone.is_some()
-        } else {
-            false
-        };
-
-        if use_clamshell_mic {
-            settings.clamshell_microphone.clone()
-        } else {
-            settings.selected_microphone.clone()
+        if settings.clamshell_microphone.is_some() {
+            let clamshell_started = Instant::now();
+            let is_clamshell = clamshell::is_clamshell().unwrap_or(false);
+            debug!(
+                "device resolve: clamshell_check={:?} (clamshell={})",
+                clamshell_started.elapsed(),
+                is_clamshell
+            );
+            if is_clamshell {
+                return settings.clamshell_microphone.clone();
+            }
         }
+
+        settings.selected_microphone.clone()
+    }
+
+    pub fn invalidate_device_cache(&self) {
+        *self.cached_device.lock().unwrap() = None;
     }
 
     fn resolve_selection_for_binding(
@@ -557,12 +565,20 @@ impl AudioRecordingManager {
             return None;
         };
 
+        if let Some((cached_selection, device)) = self.cached_device.lock().unwrap().as_ref() {
+            if cached_selection == selection {
+                debug!("device resolve: cache hit for '{}'", device_name);
+                return Some(device.clone());
+            }
+        }
+
+        let enumerate_started = Instant::now();
         let listed_devices = match selection.source {
             AudioCaptureSource::Microphone => list_input_devices(),
             AudioCaptureSource::SystemOutputLoopback => list_output_devices(),
         };
 
-        match listed_devices {
+        let device = match listed_devices {
             Ok(devices) => devices
                 .into_iter()
                 .find(|d| d.name == *device_name)
@@ -571,7 +587,16 @@ impl AudioRecordingManager {
                 debug!("Failed to list devices, using default: {}", e);
                 None
             }
+        };
+        debug!(
+            "device resolve: enumerate={:?} (found={})",
+            enumerate_started.elapsed(),
+            device.is_some()
+        );
+        if let Some(device) = &device {
+            *self.cached_device.lock().unwrap() = Some((selection.clone(), device.clone()));
         }
+        device
     }
 
     fn should_use_lazy_stream_close(&self) -> bool {
@@ -761,16 +786,11 @@ impl AudioRecordingManager {
 
         self.ensure_recorder(settings)?;
 
+        let resolve_started = Instant::now();
         let selected_device = self.resolve_device_for_selection(&selection);
-        if selection.source == AudioCaptureSource::Microphone && selected_device.is_none() {
-            let has_any_input_device = list_input_devices()
-                .map(|devices| !devices.is_empty())
-                .unwrap_or(false);
-            if !has_any_input_device {
-                return Err(anyhow::anyhow!("No input device found"));
-            }
-        }
+        let resolve_elapsed = resolve_started.elapsed();
 
+        let open_started = Instant::now();
         let mut recorder_opt = self.recorder.lock().unwrap();
         if let Some(rec) = recorder_opt.as_mut() {
             rec.set_microphone_input_boost_db(
@@ -780,8 +800,14 @@ impl AudioRecordingManager {
                 selection.source == AudioCaptureSource::Microphone
                     && settings.microphone_noise_cancellation_enabled,
             );
-            rec.open_with_source(selected_device, selection.source)
-                .map_err(|e| anyhow::anyhow!("Failed to open recorder: {}", e))?;
+            if let Err(first_err) = rec.open_with_source(selected_device.clone(), selection.source)
+            {
+                warn!("Recorder open failed ({first_err}); re-resolving device and retrying once");
+                self.invalidate_device_cache();
+                let fresh_device = self.resolve_device_for_selection(&selection);
+                rec.open_with_source(fresh_device, selection.source)
+                    .map_err(|e| anyhow::anyhow!("Failed to open recorder: {}", e))?;
+            }
         }
 
         *self.is_open.lock().unwrap() = true;
@@ -791,6 +817,11 @@ impl AudioRecordingManager {
             "Audio capture stream initialized for {:?} in {:?}",
             selection.source,
             start_time.elapsed()
+        );
+        debug!(
+            "audio stream breakdown: device_resolve={:?} open={:?}",
+            resolve_elapsed,
+            open_started.elapsed()
         );
         Ok(())
     }
@@ -909,6 +940,7 @@ impl AudioRecordingManager {
     }
 
     pub fn update_selected_device(&self) -> Result<(), anyhow::Error> {
+        self.invalidate_device_cache();
         let current_selection = self.active_selection.lock().unwrap().clone();
         if *self.is_open.lock().unwrap()
             && current_selection
