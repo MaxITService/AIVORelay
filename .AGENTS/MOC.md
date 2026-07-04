@@ -15,6 +15,7 @@ Map of tracked agent documentation.
 
 - [[.AGENTS/upstream-intake-playbook|upstream-intake-playbook.md]]
 - [[.AGENTS/upstream-sync-log|upstream-sync-log.md]]
+- [[.AGENTS/transcribe-cpp-streaming-end-state|transcribe-cpp-streaming-end-state.md]]
 
 ## Branch Propagation
 
