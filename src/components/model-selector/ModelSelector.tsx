@@ -412,6 +412,25 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({
     return models.find((m) => m.id === currentModelId);
   };
 
+  const currentModel = getCurrentModel();
+  const currentModelSupportsNativeStreaming =
+    !isRemoteProvider && Boolean(currentModel?.supports_streaming);
+  const livePreviewEnabled = Boolean(
+    getSetting("soniox_live_preview_enabled") ||
+      getSetting("preview_output_only_enabled"),
+  );
+  const nativeStreamingTitle = currentModelSupportsNativeStreaming
+    ? livePreviewEnabled
+      ? t(
+          "modelSelector.nativeStreamingActiveTooltip",
+          "Native streaming available. Live Preview Window is enabled.",
+        )
+      : t(
+          "modelSelector.nativeStreamingTooltip",
+          "Native streaming model. Enable Live Preview Window to use it.",
+        )
+    : undefined;
+
   const getModelDisplayText = (): string => {
     if (transcriptionProvider === "remote_openai_compatible") {
       return remoteApiDisplayLabel;
@@ -452,8 +471,6 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({
         });
       }
     }
-
-    const currentModel = getCurrentModel();
 
     switch (modelStatus) {
       case "ready":
@@ -515,6 +532,8 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({
         <ModelStatusButton
           status={isRemoteProvider ? "ready" : modelStatus}
           displayText={getModelDisplayText()}
+          nativeStreaming={currentModelSupportsNativeStreaming}
+          nativeStreamingTitle={nativeStreamingTitle}
           isDropdownOpen={showModelDropdown}
           onClick={() => {
             onInteraction?.();

@@ -26,7 +26,7 @@ type MetadataView = {
 type ModelDetailsCopy = {
   badgeGgml: string;
   badgeOnnx: string;
-  badgeStreaming: string;
+  badgeMoonshineV2: string;
   badgePackage: string;
   badgeSingleFile: string;
   badgeTranslation: string;
@@ -37,12 +37,12 @@ type ModelDetailsCopy = {
   runtimeWhisper: string;
   runtimeTranscribeCpp: string;
   runtimeOnnx: string;
-  runtimeOnnxStreaming: string;
+  runtimeMoonshineV2: string;
   format: string;
   formatGgml: string;
   formatGguf: string;
   formatOnnx: string;
-  formatOnnxStreaming: string;
+  formatMoonshineV2: string;
   formatCustomWhisper: string;
   precision: string;
   downloadContents: string;
@@ -52,9 +52,9 @@ type ModelDetailsCopy = {
   translation: string;
   translationYes: string;
   translationNo: string;
-  streaming: string;
-  streamingNative: string;
-  streamingNo: string;
+  nativeStreaming: string;
+  nativeStreamingYes: string;
+  nativeStreamingNo: string;
   languages: string;
   languageUnknown: string;
 };
@@ -68,23 +68,23 @@ function getModelDetailsCopy(locale: string): ModelDetailsCopy {
     return {
       badgeGgml: "GGML",
       badgeOnnx: "ONNX",
-      badgeStreaming: "Streaming",
+      badgeMoonshineV2: "Moonshine V2",
       badgePackage: "Пакет",
       badgeSingleFile: "Один файл",
       badgeTranslation: "Перевод в английский",
       badgeAsrOnly: "Только ASR",
-      badgeNativeStreaming: "Нативный поток",
+      badgeNativeStreaming: "⚡ Нативный стриминг",
       summary: "Технические детали и поддерживаемые языки",
       runtime: "Рантайм",
       runtimeWhisper: "whisper.cpp / GGML",
       runtimeTranscribeCpp: "transcribe.cpp / GGUF",
       runtimeOnnx: "ONNX Runtime",
-      runtimeOnnxStreaming: "ONNX Runtime (streaming)",
+      runtimeMoonshineV2: "Moonshine V2 / ONNX Runtime",
       format: "Формат",
       formatGgml: "GGML model file",
       formatGguf: "GGUF model file",
       formatOnnx: "ONNX package",
-      formatOnnxStreaming: "Streaming ONNX package",
+      formatMoonshineV2: "Moonshine V2 ONNX package",
       formatCustomWhisper: "Custom Whisper GGML .bin",
       precision: "Точность / квантование",
       downloadContents: "Что скачивается",
@@ -94,9 +94,9 @@ function getModelDetailsCopy(locale: string): ModelDetailsCopy {
       translation: "Перевод",
       translationYes: "Поддерживается в английский",
       translationNo: "Не поддерживается",
-      streaming: "Потоковый режим",
-      streamingNative: "Нативная обработка",
-      streamingNo: "Не поддерживается",
+      nativeStreaming: "⚡ Нативный стриминг",
+      nativeStreamingYes: "Поддерживается",
+      nativeStreamingNo: "Не поддерживается",
       languages: "Поддерживаемые языки",
       languageUnknown: "Не указано",
     };
@@ -105,23 +105,23 @@ function getModelDetailsCopy(locale: string): ModelDetailsCopy {
   return {
     badgeGgml: "GGML",
     badgeOnnx: "ONNX",
-    badgeStreaming: "Streaming",
+    badgeMoonshineV2: "Moonshine V2",
     badgePackage: "Package",
     badgeSingleFile: "Single file",
     badgeTranslation: "Translates to English",
     badgeAsrOnly: "ASR only",
-    badgeNativeStreaming: "Native streaming",
+    badgeNativeStreaming: "⚡ Native streaming",
     summary: "Technical details & supported languages",
     runtime: "Runtime",
     runtimeWhisper: "whisper.cpp / GGML",
     runtimeTranscribeCpp: "transcribe.cpp / GGUF",
     runtimeOnnx: "ONNX Runtime",
-    runtimeOnnxStreaming: "ONNX Runtime (streaming)",
+    runtimeMoonshineV2: "Moonshine V2 / ONNX Runtime",
     format: "Format",
     formatGgml: "GGML model file",
     formatGguf: "GGUF model file",
     formatOnnx: "ONNX package",
-    formatOnnxStreaming: "Streaming ONNX package",
+    formatMoonshineV2: "Moonshine V2 ONNX package",
     formatCustomWhisper: "Custom Whisper GGML .bin",
     precision: "Precision / quantization",
     downloadContents: "Download contents",
@@ -131,9 +131,9 @@ function getModelDetailsCopy(locale: string): ModelDetailsCopy {
     translation: "Translation",
     translationYes: "Supported to English",
     translationNo: "Not supported",
-    streaming: "Streaming",
-    streamingNative: "Native realtime",
-    streamingNo: "Not supported",
+    nativeStreaming: "⚡ Native streaming",
+    nativeStreamingYes: "Supported",
+    nativeStreamingNo: "Not supported",
     languages: "Supported languages",
     languageUnknown: "Not declared",
   };
@@ -172,7 +172,7 @@ function getRuntimeLabel(model: ModelInfo, copy: ModelDetailsCopy): string {
     case "Whisper":
       return copy.runtimeWhisper;
     case "MoonshineStreaming":
-      return copy.runtimeOnnxStreaming;
+      return copy.runtimeMoonshineV2;
     default:
       return copy.runtimeOnnx;
   }
@@ -192,7 +192,7 @@ function getFormatLabel(model: ModelInfo, copy: ModelDetailsCopy): string {
   }
 
   if (model.engine_type === "MoonshineStreaming") {
-    return copy.formatOnnxStreaming;
+    return copy.formatMoonshineV2;
   }
 
   return copy.formatOnnx;
@@ -275,7 +275,7 @@ function buildMetadataView(model: ModelInfo, locale: string): MetadataView {
       : model.engine_type === "TranscribeCpp"
         ? "GGUF"
         : model.engine_type === "MoonshineStreaming"
-          ? copy.badgeStreaming
+          ? copy.badgeMoonshineV2
           : copy.badgeOnnx,
     ...(precision ? [precision] : []),
     model.is_directory ? copy.badgePackage : copy.badgeSingleFile,
@@ -307,8 +307,10 @@ function buildMetadataView(model: ModelInfo, locale: string): MetadataView {
         : copy.translationNo,
     },
     {
-      label: copy.streaming,
-      value: model.supports_streaming ? copy.streamingNative : copy.streamingNo,
+      label: copy.nativeStreaming,
+      value: model.supports_streaming
+        ? copy.nativeStreamingYes
+        : copy.nativeStreamingNo,
     },
   ];
 

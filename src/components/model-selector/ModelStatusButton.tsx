@@ -12,6 +12,8 @@ type ModelStatus =
 interface ModelStatusButtonProps {
   status: ModelStatus;
   displayText: string;
+  nativeStreaming?: boolean;
+  nativeStreamingTitle?: string;
   isDropdownOpen: boolean;
   onClick: () => void;
   disabled?: boolean;
@@ -23,6 +25,8 @@ interface ModelStatusButtonProps {
 const ModelStatusButton: React.FC<ModelStatusButtonProps> = ({
   status,
   displayText,
+  nativeStreaming = false,
+  nativeStreamingTitle = "Native streaming",
   isDropdownOpen,
   onClick,
   disabled = false,
@@ -69,6 +73,15 @@ const ModelStatusButton: React.FC<ModelStatusButtonProps> = ({
     >
       <div className={`w-2 h-2 rounded-full ${getStatusColor(status, isRemote)}`} />
       <span className="max-w-28 truncate">{displayText}</span>
+      {nativeStreaming && (
+        <span
+          className="shrink-0 text-[11px] leading-none text-yellow-300 drop-shadow-[0_0_4px_rgba(250,204,21,0.35)]"
+          title={nativeStreamingTitle}
+          aria-label={nativeStreamingTitle}
+        >
+          ⚡
+        </span>
+      )}
       <svg
         className={`w-3 h-3 transition-transform ${isDropdownOpen ? "rotate-180" : ""}`}
         fill="none"
