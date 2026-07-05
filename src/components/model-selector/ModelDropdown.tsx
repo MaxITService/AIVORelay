@@ -50,6 +50,21 @@ const ModelDropdown: React.FC<ModelDropdownProps> = ({
   const availableModels = models.filter((m) => m.is_downloaded);
   const downloadableModels = models.filter((m) => !m.is_downloaded);
   const isFirstRun = availableModels.length === 0 && models.length > 0;
+  const nativeStreamingTitle = t(
+    "modelSelector.nativeStreamingTooltip",
+    "Native streaming model. Enable Live Preview Window to use it.",
+  );
+
+  const renderNativeStreamingIcon = (model: ModelInfo) =>
+    model.supports_streaming ? (
+      <span
+        className="ml-1.5 inline-flex align-middle text-[11px] leading-none text-yellow-300 drop-shadow-[0_0_4px_rgba(250,204,21,0.35)]"
+        title={nativeStreamingTitle}
+        aria-label={nativeStreamingTitle}
+      >
+        ⚡
+      </span>
+    ) : null;
 
   const handleDeleteClick = async (e: React.MouseEvent, modelId: string) => {
     e.preventDefault();
@@ -283,6 +298,7 @@ const ModelDropdown: React.FC<ModelDropdownProps> = ({
                 <div>
                   <div className="text-sm">
                     {getTranslatedModelName(model, t)}
+                    {renderNativeStreamingIcon(model)}
                     {model.is_custom && (
                       <span className="ml-1.5 text-[10px] font-medium text-text/40 uppercase">
                         {t("modelSelector.custom")}
@@ -359,6 +375,7 @@ const ModelDropdown: React.FC<ModelDropdownProps> = ({
               <div>
                 <div className="text-sm">
                   {getTranslatedModelName(model, t)}
+                  {renderNativeStreamingIcon(model)}
                   {model.is_recommended && isFirstRun && (
                     <span className="ml-2 text-xs bg-logo-primary/20 text-logo-primary px-1.5 py-0.5 rounded">
                       {t("onboarding.recommended")}
