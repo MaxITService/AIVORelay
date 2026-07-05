@@ -4,6 +4,7 @@ import { ask } from "@tauri-apps/plugin-dialog";
 import { Cloud, Cpu, HardDrive, Radio } from "lucide-react";
 import { useModels } from "../../../hooks/useModels";
 import { useSettings } from "../../../hooks/useSettings";
+import { useModelFilters } from "../../../hooks/useModelFilters";
 import {
   getTranslatedModelDescription,
   getTranslatedModelName,
@@ -14,6 +15,7 @@ import { SettingsGroup } from "../../ui/SettingsGroup";
 import { TellMeMore } from "../../ui/TellMeMore";
 import { RemoteSttSettings } from "../remote-stt/RemoteSttSettings";
 import { ModelMetadataPanel } from "./ModelMetadataPanel";
+import { ModelFilterBar } from "./ModelFilterBar";
 import {
   commands,
   type ModelInfo,
@@ -60,6 +62,16 @@ export const ModelsSettings: React.FC = () => {
   const [switchingModelId, setSwitchingModelId] = useState<string | null>(null);
   const [switchingRemoteApiId, setSwitchingRemoteApiId] =
     useState<RemoteApiRowId | null>(null);
+  const {
+    filters,
+    isAnyFilterActive,
+    applyFilters,
+    resetFilters,
+    setSearch,
+    toggleSetValue,
+    toggleBoolean,
+    toggleRecommended,
+  } = useModelFilters();
 
   const transcriptionProvider = String(
     getSetting("transcription_provider") || "local",
@@ -147,6 +159,18 @@ export const ModelsSettings: React.FC = () => {
   const downloadableModels = useMemo(
     () => models.filter((model: ModelInfo) => !model.is_downloaded),
     [models],
+  );
+  const allLocalModels = useMemo(
+    () => [...downloadedModels, ...downloadableModels],
+    [downloadedModels, downloadableModels],
+  );
+  const filteredDownloaded = useMemo(
+    () => applyFilters(downloadedModels),
+    [downloadedModels, applyFilters],
+  );
+  const filteredDownloadable = useMemo(
+    () => applyFilters(downloadableModels),
+    [downloadableModels, applyFilters],
   );
   const customModelsCount = useMemo(
     () => downloadedModels.filter((model) => model.is_custom).length,
@@ -434,6 +458,17 @@ export const ModelsSettings: React.FC = () => {
         </p>
       </div>
 
+      <ModelFilterBar
+        allLocalModels={allLocalModels}
+        filters={filters}
+        isAnyFilterActive={isAnyFilterActive}
+        onSearch={setSearch}
+        onToggleSet={toggleSetValue}
+        onToggleBoolean={toggleBoolean}
+        onToggleRecommended={toggleRecommended}
+        onReset={resetFilters}
+      />
+
       <SettingsGroup title={t("modelSelector.availableModels")}>
         {loading && (
           <div className="px-6 py-4 text-sm text-[#a0a0a0]">
@@ -447,8 +482,14 @@ export const ModelsSettings: React.FC = () => {
           </div>
         )}
 
+        {!loading && downloadedModels.length > 0 && filteredDownloaded.length === 0 && (
+          <div className="px-6 py-4 text-sm text-[#a0a0a0]">
+            {t("modelSelector.filter.noResults", "No models match the current filters")}
+          </div>
+        )}
+
         {!loading &&
-          downloadedModels.map((model) => {
+          filteredDownloaded.map((model) => {
             const modelName = getTranslatedModelName(model, t);
             const isActive = model.id === currentModel && !isRemoteProvider;
             const isSwitching = switchingModelId === model.id;
@@ -523,7 +564,13 @@ export const ModelsSettings: React.FC = () => {
           </div>
         )}
 
-        {downloadableModels.map((model) => {
+        {downloadableModels.length > 0 && filteredDownloadable.length === 0 && (
+          <div className="px-6 py-4 text-sm text-[#a0a0a0]">
+            {t("modelSelector.filter.noResults", "No models match the current filters")}
+          </div>
+        )}
+
+        {filteredDownloadable.map((model) => {
           const isDownloading = downloadingModels.has(model.id);
           const isExtracting = extractingModels.has(model.id);
           const progress = downloadProgress.get(model.id);
