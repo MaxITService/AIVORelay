@@ -227,7 +227,7 @@ function normalizeLanguageCode(
   return code;
 }
 
-function getLocalizedLanguageLabel(code: string, locale: string): string {
+export function getLocalizedLanguageLabel(code: string, locale: string): string {
   if (code === "zh") {
     return locale.startsWith("ru")
       ? "Китайский (мандарин)"
