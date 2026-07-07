@@ -42,6 +42,7 @@ interface ModelFilterBarProps {
   onToggleBoolean: (key: "supportsTranslation" | "supportsStreaming") => void;
   onToggleRecommended: () => void;
   onReset: () => void;
+  filterBarRef?: React.Ref<HTMLDivElement>;
 }
 
 // Debounce helper
@@ -219,6 +220,7 @@ export const ModelFilterBar: React.FC<ModelFilterBarProps> = ({
   onToggleBoolean,
   onToggleRecommended,
   onReset,
+  filterBarRef,
 }) => {
   const { t, i18n } = useTranslation();
   const [localSearch, setLocalSearch] = useState(filters.search);
@@ -295,7 +297,14 @@ export const ModelFilterBar: React.FC<ModelFilterBarProps> = ({
   };
 
   return (
-    <div className="glass-panel-subtle border border-[#3d3d3d] rounded-xl p-4 space-y-3">
+    <div
+      ref={filterBarRef}
+      className={`glass-panel-subtle border rounded-xl p-4 space-y-3 transition-all duration-500 ${
+        isAnyFilterActive
+          ? "model-filter-panel-active border-emerald-500/60"
+          : "border-[#3d3d3d]"
+      }`}
+    >
       {/* Search */}
       <div className="relative">
         <Search className="absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-[#6b6b6b] pointer-events-none" />

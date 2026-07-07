@@ -1,7 +1,7 @@
-import React, { useMemo, useState } from "react";
+import React, { useMemo, useState, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { ask } from "@tauri-apps/plugin-dialog";
-import { Cloud, Cpu, HardDrive, Radio } from "lucide-react";
+import { Cloud, Cpu, Filter, HardDrive, Radio, RotateCcw } from "lucide-react";
 import { useModels } from "../../../hooks/useModels";
 import { useSettings } from "../../../hooks/useSettings";
 import { useModelFilters } from "../../../hooks/useModelFilters";
@@ -39,6 +39,82 @@ type RemoteApiRow = {
   iconClassName: string;
 };
 
+type ModelFilterSummaryBarProps = {
+  activeFilterCount: number;
+  shownCount: number;
+  totalCount: number;
+  onEdit: () => void;
+  onClear: () => void;
+};
+
+const ModelFilterSummaryBar: React.FC<ModelFilterSummaryBarProps> = ({
+  activeFilterCount,
+  shownCount,
+  totalCount,
+  onEdit,
+  onClear,
+}) => {
+  const { t } = useTranslation();
+  const activeFilterLabel =
+    activeFilterCount === 1
+      ? t("modelSelector.filter.activeSummaryOne", "1 filter active")
+      : t("modelSelector.filter.activeSummary", {
+          count: activeFilterCount,
+          defaultValue: "{{count}} filters active",
+        });
+
+  return (
+    <div className="sticky top-3 z-30">
+      <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-emerald-500/45 bg-[#121f1a]/90 px-3 py-2 text-xs text-emerald-100 shadow-[0_10px_30px_rgba(0,0,0,0.28),0_0_24px_rgba(52,211,153,0.18)] backdrop-blur-md">
+        <button
+          type="button"
+          onClick={onEdit}
+          className="flex min-w-0 flex-1 items-center gap-2 text-left transition-colors hover:text-white"
+          title={t("modelSelector.filter.scrollToFilter", "Filter is active - click to scroll to filter")}
+        >
+          <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-emerald-400/40 bg-emerald-400/10">
+            <Filter className="h-3 w-3 text-emerald-300" />
+          </span>
+          <span className="min-w-0 truncate">
+            <span className="font-medium">
+              {activeFilterLabel}
+            </span>
+            <span className="mx-1.5 text-emerald-500/70">·</span>
+            <span className="text-emerald-200/80">
+              {t("modelSelector.filter.modelsShown", {
+                shown: shownCount,
+                total: totalCount,
+                defaultValue: "{{shown}} / {{total}} models shown",
+              })}
+            </span>
+          </span>
+        </button>
+        <div className="flex shrink-0 items-center gap-1.5">
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            onClick={onEdit}
+            className="!px-2.5 !py-1 !text-[11px] !text-emerald-100 hover:!border-emerald-500/35 hover:!bg-emerald-500/10"
+          >
+            {t("common.edit", "Edit")}
+          </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            onClick={onClear}
+            className="flex items-center gap-1.5 !px-2.5 !py-1 !text-[11px] !text-emerald-100 hover:!border-emerald-500/35 hover:!bg-emerald-500/10"
+          >
+            <RotateCcw className="h-3 w-3" />
+            {t("modelSelector.filter.reset", "Reset")}
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 export const ModelsSettings: React.FC = () => {
   const { t } = useTranslation();
   const {
@@ -72,6 +148,12 @@ export const ModelsSettings: React.FC = () => {
     toggleBoolean,
     toggleRecommended,
   } = useModelFilters();
+
+  const filterBarRef = useRef<HTMLDivElement>(null);
+
+  const scrollToFilter = () => {
+    filterBarRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+  };
 
   const transcriptionProvider = String(
     getSetting("transcription_provider") || "local",
@@ -172,6 +254,18 @@ export const ModelsSettings: React.FC = () => {
     () => applyFilters(downloadableModels),
     [downloadableModels, applyFilters],
   );
+  const activeFilterCount = useMemo(() => {
+    return (
+      (filters.search !== "" ? 1 : 0) +
+      filters.engines.size +
+      filters.sizeRanges.size +
+      filters.languages.size +
+      (filters.supportsTranslation !== null ? 1 : 0) +
+      (filters.supportsStreaming !== null ? 1 : 0) +
+      (filters.recommendedOnly ? 1 : 0)
+    );
+  }, [filters]);
+  const shownLocalModelsCount = filteredDownloaded.length + filteredDownloadable.length;
   const customModelsCount = useMemo(
     () => downloadedModels.filter((model) => model.is_custom).length,
     [downloadedModels],
@@ -459,6 +553,7 @@ export const ModelsSettings: React.FC = () => {
       </div>
 
       <ModelFilterBar
+        filterBarRef={filterBarRef}
         allLocalModels={allLocalModels}
         filters={filters}
         isAnyFilterActive={isAnyFilterActive}
@@ -468,6 +563,16 @@ export const ModelsSettings: React.FC = () => {
         onToggleRecommended={toggleRecommended}
         onReset={resetFilters}
       />
+
+      {isAnyFilterActive && (
+        <ModelFilterSummaryBar
+          activeFilterCount={activeFilterCount}
+          shownCount={shownLocalModelsCount}
+          totalCount={allLocalModels.length}
+          onEdit={scrollToFilter}
+          onClear={resetFilters}
+        />
+      )}
 
       <SettingsGroup title={t("modelSelector.availableModels")}>
         {loading && (
