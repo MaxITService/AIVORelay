@@ -357,7 +357,20 @@
     "customModelsHelpTitle": "Custom Whisper Models",
     "customModelsHelpDescription": "Place Whisper GGML .bin files into the app models folder. They are detected on startup and shown here as custom models.",
     "customModelsHelpHint": "After adding files, restart AivoRelay to refresh the model list.",
-    "customModelsDetected": "Detected custom models: {{count}}"
+    "customModelsDetected": "Detected custom models: {{count}}",
+    "filter": {
+      "searchPlaceholder": "Search models...",
+      "languages": "Languages",
+      "searchLanguages": "Search languages...",
+      "noLanguagesFound": "No languages found",
+      "translation": "Translation",
+      "nativeStreaming": "⚡ Native streaming",
+      "recommended": "Recommended",
+      "reset": "Reset",
+      "noResults": "No models match the current filters",
+      "activeIndicator": "Filter Enabled",
+      "scrollToFilter": "Filter is active — click to scroll to filter"
+    }
   },
   "settings": {
     "generalReadiness": {

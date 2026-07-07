@@ -3,8 +3,7 @@
 @import "tailwindcss";
 
 /* ============================================
-   AivoRelay - Adobe Photoshop Style Dark Theme
-   with Apple Liquid Glass Effects
+   AivoRelay -  Dark Theme
    ============================================ */
 
 @theme {
@@ -107,6 +106,20 @@
   box-shadow:
     0 4px 16px rgba(0, 0, 0, 0.3),
     inset 0 1px 0 rgba(255, 255, 255, 0.03);
+}
+
+.model-filter-panel-active {
+  background: linear-gradient(
+    180deg,
+    rgba(16, 185, 129, 0.12),
+    rgba(43, 43, 43, 0.64)
+  );
+  border-color: rgba(52, 211, 153, 0.65);
+  box-shadow:
+    0 0 0 1px rgba(52, 211, 153, 0.22),
+    0 0 28px rgba(52, 211, 153, 0.28),
+    0 4px 16px rgba(0, 0, 0, 0.3),
+    inset 0 1px 0 rgba(255, 255, 255, 0.05);
 }
 
 .glass-panel-interactive {
@@ -632,4 +645,13 @@
 .auto-run-seconds-label {
   color: var(--color-text-secondary);
   font-size: 12px;
+}
+
+@keyframes floatBadge {
+  0%, 100% {
+    transform: translateY(-50%) translateX(0);
+  }
+  50% {
+    transform: translateY(-50%) translateX(4px);
+  }
 }
