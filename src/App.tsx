@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { sessionToast as toast } from "@/lib/sessionToast";
 import "./App.css";
@@ -32,6 +32,10 @@ type RemoteSttErrorPayload =
       };
     };
 
+type ModelDownloadProgressPayload = {
+  model_id: string;
+};
+
 const renderSettingsContent = (section: SidebarSection) => {
   const ActiveComponent =
     SECTIONS_CONFIG[section]?.component || SECTIONS_CONFIG.general.component;
@@ -49,6 +53,7 @@ function App() {
   const { currentSection, setSection: setCurrentSection } =
     useNavigationStore();
   const { refreshSettings, refreshAudioDevices } = useSettings();
+  const notifiedModelDownloadStarts = useRef(new Set<string>());
 
   useEffect(() => {
     checkOnboardingStatus();
@@ -160,6 +165,7 @@ function App() {
       model_id: string;
       error: string;
     }>("model-download-failed", (event) => {
+      notifiedModelDownloadStarts.current.delete(event.payload.model_id);
       toast.error(
         t("errors.modelDownloadFailed", {
           model:
@@ -171,6 +177,27 @@ function App() {
         },
       );
     });
+    const unlistenModelDownloadProgress = listen<ModelDownloadProgressPayload>(
+      "model-download-progress",
+      (event) => {
+        const modelId = event.payload.model_id;
+        if (!modelId || notifiedModelDownloadStarts.current.has(modelId)) {
+          return;
+        }
+
+        notifiedModelDownloadStarts.current.add(modelId);
+        toast(t("modelSelector.downloadActivationNoticeTitle"), {
+          duration: 6000,
+          description: t("modelSelector.downloadActivationNoticeDescription"),
+        });
+      },
+    );
+    const unlistenModelDownloadCancelled = listen<string>(
+      "model-download-cancelled",
+      (event) => {
+        notifiedModelDownloadStarts.current.delete(event.payload);
+      },
+    );
 
     const unlistenAuthFailed = listen<{ message: string }>(
       "connector-auth-failed",
@@ -190,6 +217,8 @@ function App() {
       unlistenPaste.then((unlisten) => unlisten());
       unlistenModelState.then((unlisten) => unlisten());
       unlistenModelDownloadFailed.then((unlisten) => unlisten());
+      unlistenModelDownloadProgress.then((unlisten) => unlisten());
+      unlistenModelDownloadCancelled.then((unlisten) => unlisten());
       unlistenAuthFailed.then((unlisten) => unlisten());
     };
   }, [t]);
