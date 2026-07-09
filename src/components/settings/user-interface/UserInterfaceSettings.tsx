@@ -13,6 +13,7 @@ import { Textarea } from "../../ui/Textarea";
 import { TellMeMore } from "../../ui/TellMeMore";
 import { useTranslation } from "react-i18next";
 import { useSettings } from "../../../hooks/useSettings";
+import { useModels } from "../../../hooks/useModels";
 import { ShowTrayIcon } from "../ShowTrayIcon";
 import { ShowTrayShortcutGuide } from "../ShowTrayShortcutGuide";
 import { RecordingOverlaySettings } from "./RecordingOverlaySettings";
@@ -166,6 +167,7 @@ const LivePreviewSubsection: React.FC<LivePreviewSubsectionProps> = ({
 export const UserInterfaceSettings: React.FC = () => {
   const { t } = useTranslation();
   const { settings, updateSetting, isUpdating, getSetting, refreshSettings } = useSettings();
+  const { models, currentModel } = useModels();
   const osKind = type();
   const isWindows = osKind === "windows";
   const hotkeyOsType: OSType =
@@ -232,6 +234,15 @@ export const UserInterfaceSettings: React.FC = () => {
   const localPreviewAutoFlushOverlapMs = Number(
     (settings as any)?.local_preview_auto_flush_overlap_ms ?? 750,
   );
+  const selectedLocalModelId =
+    currentModel || String((settings as any)?.selected_model ?? "");
+  const selectedLocalModel = React.useMemo(
+    () => models.find((model) => model.id === selectedLocalModelId),
+    [models, selectedLocalModelId],
+  );
+  const usesHandyNativeLocalStreaming =
+    (settings as any)?.transcription_provider === "local" &&
+    Boolean(selectedLocalModel?.supports_streaming);
   const slidingLmWindowEnabled = Boolean(
     (settings as any)?.soniox_live_preview_sliding_lm_window_enabled ?? false,
   );
@@ -1308,6 +1319,33 @@ export const UserInterfaceSettings: React.FC = () => {
             }
           />
           </LivePreviewSubsection>
+          {usesHandyNativeLocalStreaming ? (
+          <LivePreviewSubsection
+            title="Handy Native Local Streaming"
+            description="The selected local model uses Handy's native streaming path instead of the legacy chunk-based auto-flush mode."
+            disabled={!sonioxLivePreviewEnabled}
+          >
+          <SettingContainer
+            title="Native streaming model selected"
+            description={`${selectedLocalModel?.name ?? "This model"} sends audio directly to Handy streaming while the Live Preview workflow is active. Legacy Auto Flush is not used for this model.`}
+            descriptionMode="inline"
+            grouped={true}
+            disabled={!sonioxLivePreviewEnabled}
+          >
+            <span
+              className="inline-flex items-center gap-1.5 rounded-full border border-yellow-300/30 bg-yellow-300/10 px-2.5 py-1 text-xs font-semibold text-yellow-200"
+              title="Handy native streaming"
+            >
+              <span aria-hidden="true">⚡</span>
+              Handy streaming
+            </span>
+          </SettingContainer>
+          <div className="px-6 pt-2 text-xs leading-relaxed text-[#8f8f8f]">
+            Legacy Auto Flush settings are kept for non-streaming local models and
+            will become available again when you select one.
+          </div>
+          </LivePreviewSubsection>
+          ) : (
           <LivePreviewSubsection
             title="Legacy Local Streaming Preview"
             description="Old chunk-based local preview mode kept for compatibility. Not recommended when native streaming or provider live preview is available."
@@ -1545,6 +1583,7 @@ export const UserInterfaceSettings: React.FC = () => {
             </p>
           </div>
           </LivePreviewSubsection>
+          )}
         </SettingsGroup>
       )}
 
