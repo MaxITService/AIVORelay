@@ -5,6 +5,7 @@ use serde_json::Value;
 use specta::Type;
 use std::collections::HashMap;
 use std::fmt;
+use std::fs;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -28,6 +29,14 @@ pub const DICTATION_STATS_WARNING_THRESHOLD: u64 =
 pub const DEFAULT_MICROPHONE_INPUT_BOOST_DEVICE_KEY: &str = "__default__";
 
 pub struct DictationStatsEditState(pub AtomicBool);
+
+static SETTINGS_STORE_RESET_NOTICE_PENDING: AtomicBool = AtomicBool::new(false);
+
+/// Returns and clears the one-shot notice set when a malformed settings store
+/// was replaced with defaults during this app session.
+pub fn take_settings_store_reset_notice() -> bool {
+    SETTINGS_STORE_RESET_NOTICE_PENDING.swap(false, Ordering::SeqCst)
+}
 
 impl Default for DictationStatsEditState {
     fn default() -> Self {
@@ -3059,6 +3068,37 @@ fn settings_store_disk_path(app: &AppHandle) -> Option<PathBuf> {
     crate::portable::resolve_app_data(app, SETTINGS_STORE_PATH).ok()
 }
 
+fn parse_settings_store_document(bytes: &[u8]) -> Result<HashMap<String, Value>, serde_json::Error> {
+    serde_json::from_slice(bytes)
+}
+
+fn settings_store_file_is_corrupted(app: &AppHandle) -> bool {
+    let Some(path) = settings_store_disk_path(app) else {
+        return false;
+    };
+
+    let bytes = match fs::read(&path) {
+        Ok(bytes) => bytes,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return false,
+        Err(error) => {
+            warn!("Could not read settings store '{}': {}", path.display(), error);
+            return false;
+        }
+    };
+
+    match parse_settings_store_document(&bytes) {
+        Ok(_) => false,
+        Err(error) => {
+            warn!(
+                "Settings store '{}' is malformed and will be replaced with defaults: {}",
+                path.display(),
+                error
+            );
+            true
+        }
+    }
+}
+
 fn backup_settings_store_before_repair(app: &AppHandle, reason: &str) {
     let Some(path) = settings_store_disk_path(app) else {
         return;
@@ -4383,6 +4423,8 @@ impl AppSettings {
 }
 
 pub fn load_or_create_app_settings(app: &AppHandle) -> AppSettings {
+    let settings_store_was_corrupted = settings_store_file_is_corrupted(app);
+
     // Initialize store
     let store = app
         .store(crate::portable::store_path(SETTINGS_STORE_PATH))
@@ -4440,6 +4482,9 @@ pub fn load_or_create_app_settings(app: &AppHandle) -> AppSettings {
         store.set("settings", serde_json::to_value(&default_settings).unwrap());
         if let Err(e) = store.save() {
             warn!("Failed to flush default settings to disk: {}", e);
+        } else if settings_store_was_corrupted {
+            SETTINGS_STORE_RESET_NOTICE_PENDING.store(true, Ordering::SeqCst);
+            warn!("Replaced malformed settings store with default settings");
         }
         default_settings
     };
@@ -4448,6 +4493,8 @@ pub fn load_or_create_app_settings(app: &AppHandle) -> AppSettings {
 }
 
 pub fn get_settings(app: &AppHandle) -> AppSettings {
+    let settings_store_was_corrupted = settings_store_file_is_corrupted(app);
+
     let store = app
         .store(crate::portable::store_path(SETTINGS_STORE_PATH))
         .expect("Failed to initialize store");
@@ -4469,6 +4516,9 @@ pub fn get_settings(app: &AppHandle) -> AppSettings {
         store.set("settings", serde_json::to_value(&default_settings).unwrap());
         if let Err(e) = store.save() {
             warn!("Failed to flush default settings to disk: {}", e);
+        } else if settings_store_was_corrupted {
+            SETTINGS_STORE_RESET_NOTICE_PENDING.store(true, Ordering::SeqCst);
+            warn!("Replaced malformed settings store with default settings");
         }
         default_settings
     };
@@ -4566,6 +4616,13 @@ pub fn record_dictation_stats_for_text(app: &AppHandle, text: &str) {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn recognizes_malformed_settings_store_documents() {
+        assert!(parse_settings_store_document(br#"{"#).is_err());
+        assert!(parse_settings_store_document(br#"[]"#).is_err());
+        assert!(parse_settings_store_document(br#"{"settings": {}}"#).is_ok());
+    }
 
     #[test]
     fn repairs_only_invalid_deserialized_portion() {

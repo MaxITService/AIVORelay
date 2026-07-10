@@ -11,6 +11,7 @@ Audit note (2026-07-10):
 - Safe review cursor for the next `upstream -> main` intake: `0a59e1f3`.
 - The table below logs integrated upstream commits only; the review cursor may be newer because it also accounts for explicitly skipped commits.
 - Reviewed corridor from `dad37baa` to `0a59e1f3`: manually adapted `0a59e1f3` (custom words with ampersands); skipped `45e3eed8` (Italian locale plus formatting-only Rust diff) and `cdb46339` (does not fit the fork preview-output architecture).
+- Separately manually adapted `a201be91` (Handy Keys 0.3.0), `e2c72a25` (mic-level IPC throttling), and the remaining tray package portions from `2dd35bbb`/`bf258d10`; `5464bfaa` tray-state tracking was already covered by the fork. The review cursor remains unchanged because the preceding `66e57ca8` through `58760b22` decisions still need to be recorded.
 - Re-triaged corridor up to `fdc8cb71`: taken/logged `84d88f91`, `30b57c42`, `b123c1e`, `4609db7f`, `d1d33932`, `557d274d`, `17277cf6`, `58cda3f3`, `e35f0a71`, `cb32d35b`; already covered `095f4ac4`; skipped `fdc8cb71`, `c1697b2a`, `39e855de`, `743d8a54`, `8836d455`, `1a95c9c4`, `cd3ec3ab`, `c5ec92b3`, `e3c9f581`, `075a5887`, `012e0666`, `d33535cf`; treated `a3015026` as separate research / split adaptation, not a normal intake row.
 - Re-triaged corridor from `fdc8cb71` to `564fbc84`: already covered `966ff997` by `cfb7a916`; skipped `f26fe0dc`, `0392b7b6`, `11311bee`, `564fbc84`.
 - Re-triaged corridor from `564fbc84` to `af6ec6c9`: already covered `aee682f6` by `d225e59f`; skipped `a4d671a6`, `c1e11faa`, `af6ec6c9`.
@@ -28,16 +29,16 @@ Rules:
 
 | Merge Date | Upstream Date | Upstream SHA | Upstream Message | Main Message | Issues |
 | --- | --- | --- | --- | --- | --- |
+| 2026-07-10 | 2026-07-09 | `bf258d10` | fix: tray icon invisible on Windows with dark taskbar + light apps (#1423) (#1636) | fix(tray): preserve status and contrast on Windows | manual combined tray port; `5464bfaa` state tracking already covered; review cursor retained |
+| 2026-07-10 | 2026-07-09 | `2dd35bbb` | fix(tray): log tray icon failures instead of panicking (#1355) | fix(tray): preserve status and contrast on Windows | manual combined tray port; added `set_icon` failure logging; review cursor retained |
+| 2026-07-10 | 2026-07-08 | `e2c72a25` | fix: throttle mic-level IPC to mitigate WebKitWebProcess memory leak (#1444) | fix(overlay): throttle mic-level IPC | manual port; retained fork recording-overlay cache and single `emit_to` target; review cursor retained |
+| 2026-07-10 | 2026-07-08 | `a201be91` | handy keys 0.3.0 (#1623) | chore(deps): update handy-keys to 0.3.0 | manual manifest port; `Cargo.lock` resolved locally with Cargo; review cursor retained |
 | 2026-07-10 | 2026-07-07 | `0a59e1f3` | fix: preserve ampersands in custom words (#1569) | fix(custom-words): preserve ampersands | manual port; retained fork enabled/n-gram controls |
 | 2026-07-07 | 2026-07-06 | `dad37baa` | Fix GigaAM v3 description. (#1613) | fix(models): correct GigaAM v3 catalog description | manual metadata port; no cherry-pick |
 | 2026-07-01 | 2026-07-01 | `9b0d8a11` | edit model recs | feat(models): port upstream GGUF catalog | adapted via fork ModelInfo selector contract |
 | 2026-07-01 | 2026-07-01 | `dc01346d` | update language selector | feat(models): expose catalog languages in selector | adapted to fork language constants/filtering |
 | 2026-07-01 | 2026-06-25 | `bff4db7e` | debug + perf transcribe cli (#1541) | feat(cli): add headless transcription benchmark mode | adapted to fork CLI/startup flow |
 | 2026-07-01 | 2026-06-30 | `31d8fc24` | feat: introduce transcribe.cpp / streaming (#1534) | feat(models): adapt transcribe.cpp and streaming preview | manual port; preserved fork preview pipeline |
-| 2026-07-01 | 2026-06-24 | `c8eb33bc` | fix: skip post-processing when transcription is empty (#1537) | fix(post-processing): skip empty transcription LLM calls | manual port to shared fork LLM helper |
-| 2026-06-18 | 2026-06-18 | `bc6a41e4` | fix: dropdown overflow in post-processing settings (#1402) | fix(ui): prevent post-processing dropdown overflow | manual port to fork dropdown styles |
-| 2026-06-18 | 2026-06-11 | `cfab1dda` | fix(models): show size for downloaded models (#1484) | fix(models): show size for downloaded models | adapted to fork settings/dropdown UI |
-| 2026-06-18 | 2026-06-10 | `dd6cc676` | fix(visualizer): scale FFT window to device sample rate (#1491) | fix(visualizer): scale FFT window to device sample rate | manual port; preserved fork audio pipeline |
 
 Entry template:
 

@@ -1125,6 +1125,7 @@ pub fn run(cli_args: CliArgs) {
         commands::cancel_operation,
         commands::get_app_dir_path,
         commands::get_app_settings,
+        commands::take_settings_store_reset_notice,
         commands::get_default_settings,
         commands::get_log_dir_path,
         commands::asset_preview::prepare_transcribe_file_asset,
@@ -1532,8 +1533,9 @@ pub fn run(cli_args: CliArgs) {
             }
             tauri::WindowEvent::ThemeChanged(theme) => {
                 log::info!("Theme changed to: {:?}", theme);
-                // Update tray icon to match new theme, maintaining idle state
-                utils::change_tray_icon(&window.app_handle(), utils::TrayIconState::Idle);
+                // Refresh the icon for the new appearance without losing an
+                // active Recording or Transcribing tray state.
+                tray::refresh_tray_icon(&window.app_handle());
             }
             _ => {}
         })

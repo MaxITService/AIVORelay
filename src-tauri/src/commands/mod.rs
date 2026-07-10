@@ -13,7 +13,9 @@ pub mod voice_activation_button;
 pub mod voice_command;
 
 use crate::settings::{
-    clamp_dictation_stats_count, get_settings, write_settings, AppSettings,
+    clamp_dictation_stats_count, get_settings,
+    take_settings_store_reset_notice as take_settings_store_reset_notice_flag, write_settings,
+    AppSettings,
     DictationStatsEditState, LlmFeature, LogLevel, DICTATION_STATS_WARNING_THRESHOLD,
     MAX_DICTATION_STATS_COUNT,
 };
@@ -84,6 +86,12 @@ pub fn get_app_dir_path(app: AppHandle) -> Result<String, String> {
 #[specta::specta]
 pub fn get_app_settings(app: AppHandle) -> Result<AppSettings, String> {
     Ok(get_settings(&app))
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn take_settings_store_reset_notice() -> bool {
+    take_settings_store_reset_notice_flag()
 }
 
 #[tauri::command]

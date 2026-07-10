@@ -12,6 +12,7 @@ use serde::Serialize;
 use specta::Type;
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicU8, Ordering};
 use std::sync::{LazyLock, Mutex};
+use std::time::{SystemTime, UNIX_EPOCH};
 use tauri::{AppHandle, Emitter, Manager, PhysicalPosition, PhysicalSize};
 
 /// Counter used to cancel pending transient message overlay auto-hide timers.
@@ -21,6 +22,8 @@ static TRANSIENT_OVERLAY_GENERATION: AtomicU64 = AtomicU64::new(0);
 static RECORDING_OVERLAY_LAYOUT: AtomicU8 = AtomicU8::new(0);
 // Kept in sync at startup and whenever the persisted enable setting changes.
 static RECORDING_OVERLAY_ENABLED: AtomicBool = AtomicBool::new(false);
+static LAST_MIC_LEVEL_EMIT: AtomicU64 = AtomicU64::new(0);
+const MIC_LEVEL_EMIT_THROTTLE_MS: u64 = 33; // ~30 FPS
 
 /// Updates the cached enable state used by the hot audio callback path.
 pub fn update_recording_overlay_enabled_cache(enabled: bool) {
@@ -2279,6 +2282,18 @@ pub fn emit_levels(app_handle: &AppHandle, levels: &[f32]) {
     if !RECORDING_OVERLAY_ENABLED.load(Ordering::Relaxed) {
         return;
     }
+
+    // The audio callback runs much faster than the UI can render. Limit this
+    // IPC path to roughly 30 FPS to avoid unbounded WebKit event allocations.
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as u64;
+    let last = LAST_MIC_LEVEL_EMIT.load(Ordering::Relaxed);
+    if now.saturating_sub(last) < MIC_LEVEL_EMIT_THROTTLE_MS {
+        return;
+    }
+    LAST_MIC_LEVEL_EMIT.store(now, Ordering::Relaxed);
 
     // Only the recording overlay consumes these levels.
     let _ = app_handle.emit_to("recording_overlay", "mic-level", levels);
