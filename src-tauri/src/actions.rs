@@ -104,6 +104,7 @@ enum PostProcessTranscriptionOutcome {
 
 #[derive(Clone, Debug)]
 struct StopRecordingContext {
+    operation_id: u64,
     captured_profile_id: Option<String>,
     current_app: String,
     recording_settings: AppSettings,
@@ -1238,28 +1239,50 @@ pub(crate) fn reset_toggle_state(app: &AppHandle, binding_id: &str) {
     }
 }
 
-/// Drop guard that ensures `exit_processing` and toggle-state reset run on
-/// every exit path of an async transcription task — including panics and
-/// early returns that previously missed the toggle reset.
+/// Drop guard that releases Processing state and toggle ownership on every exit
+/// path of an async transcription task. Cleanup is generation-checked so a late
+/// task cannot reset a newer recording/processing operation.
 struct FinishGuard {
     app: AppHandle,
     binding_id: String,
+    operation_id: u64,
+    finished: bool,
 }
 
 impl FinishGuard {
-    fn new(app: AppHandle, binding_id: String) -> Self {
-        Self { app, binding_id }
+    fn new(app: AppHandle, binding_id: String, operation_id: u64) -> Self {
+        Self {
+            app,
+            binding_id,
+            operation_id,
+            finished: false,
+        }
+    }
+
+    fn finish(&mut self) {
+        if self.finished {
+            return;
+        }
+        self.finished = true;
+
+        debug!(
+            "FinishGuard: finishing shortcut '{}' operation {}",
+            self.binding_id, self.operation_id
+        );
+        if session_manager::exit_processing_if_matches(&self.app, self.operation_id) {
+            reset_toggle_state(&self.app, &self.binding_id);
+        } else {
+            debug!(
+                "FinishGuard: skipped stale cleanup for shortcut '{}' operation {}",
+                self.binding_id, self.operation_id
+            );
+        }
     }
 }
 
 impl Drop for FinishGuard {
     fn drop(&mut self) {
-        debug!(
-            "FinishGuard: returning shortcut '{}' to idle state",
-            self.binding_id
-        );
-        session_manager::exit_processing(&self.app);
-        reset_toggle_state(&self.app, &self.binding_id);
+        self.finish();
     }
 }
 
@@ -1374,6 +1397,7 @@ fn start_recording_with_feedback(app: &AppHandle, binding_id: &str) -> bool {
         }
         session_manager::SessionState::Processing {
             binding_id: active_binding_id,
+            ..
         } => {
             warn!(
                 "Shortcut '{}' ignored because Processing is active for '{}'",
@@ -1428,9 +1452,11 @@ fn start_recording_with_feedback(app: &AppHandle, binding_id: &str) -> bool {
         .map(|profile| profile.translate_to_english)
         .unwrap_or(settings.translate_to_english);
 
+    let operation_id = session_manager::next_operation_id();
     *state_guard = session_manager::SessionState::Recording {
         session: Arc::clone(&session),
         binding_id: binding_id.to_string(),
+        operation_id,
         started_at: Instant::now(),
         captured_profile_id,
         captured_settings: settings.clone(),
@@ -2269,8 +2295,8 @@ async fn perform_transcription_for_profile_with_retry_action(
 ///
 /// Returns context captured at recording start on success, None if no active session.
 ///
-/// IMPORTANT: After calling this, the caller MUST call exit_processing() when
-/// the async work is complete (success or error).
+/// IMPORTANT: The spawned async task must create a FinishGuard with the returned
+/// operation_id so every completion path releases only the state it owns.
 fn prepare_stop_recording_with_options(
     app: &AppHandle,
     binding_id: &str,
@@ -2285,6 +2311,7 @@ fn prepare_stop_recording_with_options(
         session_manager::SessionState::Recording {
             binding_id: current_binding_id,
             session,
+            operation_id,
             started_at,
             captured_profile_id,
             captured_settings,
@@ -2293,11 +2320,19 @@ fn prepare_stop_recording_with_options(
             let recording_elapsed = started_at.elapsed();
             let captured = captured_profile_id.clone();
             let recording_settings = captured_settings.clone();
+            let operation_id = *operation_id;
             // Transition to Processing state
             *state_guard = session_manager::SessionState::Processing {
                 binding_id: binding_id.to_string(),
+                operation_id,
             };
-            Some((session, captured, recording_settings, recording_elapsed))
+            Some((
+                session,
+                operation_id,
+                captured,
+                recording_settings,
+                recording_elapsed,
+            ))
         }
         session_manager::SessionState::Recording {
             binding_id: current_binding_id,
@@ -2327,7 +2362,14 @@ fn prepare_stop_recording_with_options(
 
     crate::recording_auto_stop::cancel_auto_stop_timer(app);
 
-    if let Some((session, captured_profile_id, recording_settings, recording_elapsed)) = result {
+    if let Some((
+        session,
+        operation_id,
+        captured_profile_id,
+        recording_settings,
+        recording_elapsed,
+    )) = result
+    {
         let current_app = take_recording_app_context(binding_id);
 
         // Explicitly finish the session to trigger cleanup
@@ -2349,6 +2391,7 @@ fn prepare_stop_recording_with_options(
 
         play_feedback_sound(app, SoundType::Stop);
         Some(StopRecordingContext {
+            operation_id,
             captured_profile_id,
             current_app,
             recording_settings,
@@ -6020,6 +6063,7 @@ impl ShortcutAction for TranscribeAction {
             }
             let profile_id_for_postprocess = stop_context.captured_profile_id.clone();
             let current_app = stop_context.current_app.clone();
+            let recording_operation_id = stop_context.operation_id;
 
             let ah = app.clone();
             let binding_id = binding_id.to_string();
@@ -6027,7 +6071,8 @@ impl ShortcutAction for TranscribeAction {
             let preview_output_only_enabled = preview_output_only_enabled;
             let invoked_from_preview_action = invoked_from_preview_action;
             tauri::async_runtime::spawn(async move {
-                let _guard = FinishGuard::new(ah.clone(), binding_id.clone());
+                let mut finish_guard =
+                    FinishGuard::new(ah.clone(), binding_id.clone(), recording_operation_id);
                 let stream_processor = take_soniox_stream_processor(&binding_id);
                 let had_soniox_stream_output =
                     if is_deepgram_live_provider || is_openai_realtime_whisper_live_provider {
@@ -6084,7 +6129,7 @@ impl ShortcutAction for TranscribeAction {
                         if binding_id == LIVE_SOUND_TRANSCRIPTION_BINDING_ID {
                             crate::managers::live_sound_transcription::finish_session(&ah);
                         }
-                        session_manager::exit_processing(&ah);
+                        finish_guard.finish();
                         return;
                     }
                 };
@@ -6130,7 +6175,7 @@ impl ShortcutAction for TranscribeAction {
                     if binding_id == LIVE_SOUND_TRANSCRIPTION_BINDING_ID {
                         crate::managers::live_sound_transcription::finish_session(&ah);
                     }
-                    session_manager::exit_processing(&ah);
+                    finish_guard.finish();
                     return;
                 }
 
@@ -6156,7 +6201,7 @@ impl ShortcutAction for TranscribeAction {
                     if binding_id == LIVE_SOUND_TRANSCRIPTION_BINDING_ID {
                         crate::managers::live_sound_transcription::finish_session(&ah);
                     }
-                    session_manager::exit_processing(&ah);
+                    finish_guard.finish();
                     return;
                 }
 
@@ -6193,7 +6238,7 @@ impl ShortcutAction for TranscribeAction {
                             if binding_id == LIVE_SOUND_TRANSCRIPTION_BINDING_ID {
                                 crate::managers::live_sound_transcription::finish_session(&ah);
                             }
-                            session_manager::exit_processing(&ah);
+                            finish_guard.finish();
                             return;
                         }
                         let _ = ah.emit("remote-stt-error", err_str.clone());
@@ -6211,7 +6256,7 @@ impl ShortcutAction for TranscribeAction {
                             );
                             crate::managers::live_sound_transcription::finish_session(&ah);
                         }
-                        session_manager::exit_processing(&ah);
+                        finish_guard.finish();
                         return;
                     }
                 };
@@ -6270,7 +6315,7 @@ impl ShortcutAction for TranscribeAction {
                     if binding_id == LIVE_SOUND_TRANSCRIPTION_BINDING_ID {
                         crate::managers::live_sound_transcription::finish_session(&ah);
                     }
-                    session_manager::exit_processing(&ah);
+                    finish_guard.finish();
                     return;
                 }
 
@@ -6317,7 +6362,7 @@ impl ShortcutAction for TranscribeAction {
                         if binding_id == LIVE_SOUND_TRANSCRIPTION_BINDING_ID {
                             crate::managers::live_sound_transcription::finish_session(&ah);
                         }
-                        session_manager::exit_processing(&ah);
+                        finish_guard.finish();
                         return;
                     }
                 };
@@ -6405,7 +6450,7 @@ impl ShortcutAction for TranscribeAction {
                     }
                 }
 
-                session_manager::exit_processing(&ah);
+                finish_guard.finish();
             });
             return;
         }
@@ -6417,6 +6462,7 @@ impl ShortcutAction for TranscribeAction {
         let captured_profile_id = stop_context.captured_profile_id.clone();
         let current_app = stop_context.current_app.clone();
         let recording_settings = stop_context.recording_settings.clone();
+        let recording_operation_id = stop_context.operation_id;
         let preview_output_only_enabled = should_route_output_to_preview_for_captured_profile(
             &recording_settings,
             captured_profile_id.as_ref(),
@@ -6433,7 +6479,8 @@ impl ShortcutAction for TranscribeAction {
         let invoked_from_preview_action = invoked_from_preview_action;
 
         tauri::async_runtime::spawn(async move {
-            let _guard = FinishGuard::new(ah.clone(), binding_id.clone());
+            let mut finish_guard =
+                FinishGuard::new(ah.clone(), binding_id.clone(), recording_operation_id);
             let is_soniox_streaming_insert = recording_settings.transcription_provider
                 == TranscriptionProvider::RemoteSoniox
                 && recording_settings.soniox_live_enabled
@@ -6480,7 +6527,7 @@ impl ShortcutAction for TranscribeAction {
                     } else if preview_output_only_enabled && !invoked_from_preview_action {
                         close_preview_output_mode_workflow(&ah, true);
                     }
-                    session_manager::exit_processing(&ah);
+                    finish_guard.finish();
                     return;
                 }
             };
@@ -6503,7 +6550,7 @@ impl ShortcutAction for TranscribeAction {
                             } else if preview_output_only_enabled && !invoked_from_preview_action {
                                 close_preview_output_mode_workflow(&ah, true);
                             }
-                            session_manager::exit_processing(&ah);
+                            finish_guard.finish();
                             return;
                         }
                     }
@@ -6550,7 +6597,7 @@ impl ShortcutAction for TranscribeAction {
                             } else if preview_output_only_enabled && !invoked_from_preview_action {
                                 close_preview_output_mode_workflow(&ah, true);
                             }
-                            session_manager::exit_processing(&ah);
+                            finish_guard.finish();
                             return;
                         }
                     }
@@ -6576,7 +6623,7 @@ impl ShortcutAction for TranscribeAction {
                 }
                 utils::hide_recording_overlay(&ah);
                 change_tray_icon(&ah, TrayIconState::Idle);
-                session_manager::exit_processing(&ah);
+                finish_guard.finish();
                 return;
             }
 
@@ -6626,7 +6673,7 @@ impl ShortcutAction for TranscribeAction {
                     } else if preview_output_only_enabled && !invoked_from_preview_action {
                         close_preview_output_mode_workflow(&ah, true);
                     }
-                    session_manager::exit_processing(&ah);
+                    finish_guard.finish();
                     return;
                 }
             };
@@ -6685,7 +6732,7 @@ impl ShortcutAction for TranscribeAction {
                 }
             }
 
-            session_manager::exit_processing(&ah);
+            finish_guard.finish();
         });
     }
 }
@@ -6746,6 +6793,7 @@ impl ShortcutAction for SendToExtensionAction {
             None => return, // No active session - nothing to do
         };
         let StopRecordingContext {
+            operation_id: recording_operation_id,
             current_app,
             recording_settings,
             ..
@@ -6756,7 +6804,8 @@ impl ShortcutAction for SendToExtensionAction {
         let binding_id = binding_id.to_string();
 
         tauri::async_runtime::spawn(async move {
-            let _guard = FinishGuard::new(ah.clone(), binding_id.clone());
+            let mut finish_guard =
+                FinishGuard::new(ah.clone(), binding_id.clone(), recording_operation_id);
 
             let (transcription, samples) = match get_transcription_or_cleanup(
                 &ah,
@@ -6768,7 +6817,7 @@ impl ShortcutAction for SendToExtensionAction {
             {
                 Some(res) => res,
                 None => {
-                    session_manager::exit_processing(&ah);
+                    finish_guard.finish();
                     return;
                 }
             };
@@ -6776,7 +6825,7 @@ impl ShortcutAction for SendToExtensionAction {
             if transcription.is_empty() {
                 utils::hide_recording_overlay(&ah);
                 change_tray_icon(&ah, TrayIconState::Idle);
-                session_manager::exit_processing(&ah);
+                finish_guard.finish();
                 return;
             }
 
@@ -6796,7 +6845,7 @@ impl ShortcutAction for SendToExtensionAction {
             {
                 Some(text) => text,
                 None => {
-                    session_manager::exit_processing(&ah);
+                    finish_guard.finish();
                     return;
                 }
             };
@@ -6813,7 +6862,7 @@ impl ShortcutAction for SendToExtensionAction {
             })
             .ok();
 
-            session_manager::exit_processing(&ah);
+            finish_guard.finish();
         });
     }
 }
@@ -6874,6 +6923,7 @@ impl ShortcutAction for SendToExtensionWithSelectionAction {
             None => return, // No active session - nothing to do
         };
         let StopRecordingContext {
+            operation_id: recording_operation_id,
             current_app,
             recording_settings,
             ..
@@ -6884,7 +6934,8 @@ impl ShortcutAction for SendToExtensionWithSelectionAction {
         let binding_id = binding_id.to_string();
 
         tauri::async_runtime::spawn(async move {
-            let _guard = FinishGuard::new(ah.clone(), binding_id.clone());
+            let mut finish_guard =
+                FinishGuard::new(ah.clone(), binding_id.clone(), recording_operation_id);
 
             let (transcription, samples) = match get_transcription_or_cleanup(
                 &ah,
@@ -6896,7 +6947,7 @@ impl ShortcutAction for SendToExtensionWithSelectionAction {
             {
                 Some(res) => res,
                 None => {
-                    session_manager::exit_processing(&ah);
+                    finish_guard.finish();
                     return;
                 }
             };
@@ -6905,7 +6956,7 @@ impl ShortcutAction for SendToExtensionWithSelectionAction {
                 if !recording_settings.send_to_extension_with_selection_allow_no_voice {
                     utils::hide_recording_overlay(&ah);
                     change_tray_icon(&ah, TrayIconState::Idle);
-                    session_manager::exit_processing(&ah);
+                    finish_guard.finish();
                     return;
                 }
                 let quick_tap_threshold_samples = quick_tap_threshold_samples(
@@ -6919,7 +6970,7 @@ impl ShortcutAction for SendToExtensionWithSelectionAction {
                     );
                     utils::hide_recording_overlay(&ah);
                     change_tray_icon(&ah, TrayIconState::Idle);
-                    session_manager::exit_processing(&ah);
+                    finish_guard.finish();
                     return;
                 }
                 String::new()
@@ -6940,7 +6991,7 @@ impl ShortcutAction for SendToExtensionWithSelectionAction {
                 {
                     Some(text) => text,
                     None => {
-                        session_manager::exit_processing(&ah);
+                        finish_guard.finish();
                         return;
                     }
                 }
@@ -6966,7 +7017,7 @@ impl ShortcutAction for SendToExtensionWithSelectionAction {
             })
             .ok();
 
-            session_manager::exit_processing(&ah);
+            finish_guard.finish();
         });
     }
 }
@@ -7277,6 +7328,7 @@ impl ShortcutAction for SendScreenshotToExtensionAction {
             Some(context) => context,
             None => return, // No active session - nothing to do
         };
+        let recording_operation_id = stop_context.operation_id;
         let recording_settings = stop_context.recording_settings;
 
         let ah = app.clone();
@@ -7284,7 +7336,8 @@ impl ShortcutAction for SendScreenshotToExtensionAction {
         let binding_id = binding_id.to_string();
 
         tauri::async_runtime::spawn(async move {
-            let _guard = FinishGuard::new(ah.clone(), binding_id.clone());
+            let mut finish_guard =
+                FinishGuard::new(ah.clone(), binding_id.clone(), recording_operation_id);
 
             let (voice_text, samples) = match get_transcription_or_cleanup(
                 &ah,
@@ -7296,7 +7349,7 @@ impl ShortcutAction for SendScreenshotToExtensionAction {
             {
                 Some(res) => res,
                 None => {
-                    session_manager::exit_processing(&ah);
+                    finish_guard.finish();
                     return;
                 }
             };
@@ -7309,7 +7362,7 @@ impl ShortcutAction for SendScreenshotToExtensionAction {
                     );
                     utils::hide_recording_overlay(&ah);
                     change_tray_icon(&ah, TrayIconState::Idle);
-                    session_manager::exit_processing(&ah);
+                    finish_guard.finish();
                     return;
                 }
 
@@ -7328,7 +7381,7 @@ impl ShortcutAction for SendScreenshotToExtensionAction {
                     );
                     utils::hide_recording_overlay(&ah);
                     change_tray_icon(&ah, TrayIconState::Idle);
-                    session_manager::exit_processing(&ah);
+                    finish_guard.finish();
                     return;
                 }
 
@@ -7380,7 +7433,7 @@ impl ShortcutAction for SendScreenshotToExtensionAction {
                         "Native screenshot capture is only supported on Windows.",
                     );
                 }
-                session_manager::exit_processing(&ah);
+                finish_guard.finish();
                 return;
             }
 
@@ -7395,7 +7448,7 @@ impl ShortcutAction for SendScreenshotToExtensionAction {
                         screenshot_folder.display()
                     ),
                 );
-                session_manager::exit_processing(&ah);
+                finish_guard.finish();
                 return;
             }
             if !screenshot_folder.is_dir() {
@@ -7406,7 +7459,7 @@ impl ShortcutAction for SendScreenshotToExtensionAction {
                         screenshot_folder.display()
                     ),
                 );
-                session_manager::exit_processing(&ah);
+                finish_guard.finish();
                 return;
             }
 
@@ -7446,7 +7499,7 @@ impl ShortcutAction for SendScreenshotToExtensionAction {
                 }
             }
 
-            session_manager::exit_processing(&ah);
+            finish_guard.finish();
         });
     }
 }
@@ -7494,6 +7547,7 @@ impl ShortcutAction for AiReplaceSelectionAction {
             None => return,
         };
         let StopRecordingContext {
+            operation_id: recording_operation_id,
             current_app,
             recording_settings,
             ..
@@ -7503,7 +7557,8 @@ impl ShortcutAction for AiReplaceSelectionAction {
         let binding_id = binding_id.to_string();
 
         tauri::async_runtime::spawn(async move {
-            let _guard = FinishGuard::new(ah.clone(), binding_id.clone());
+            let mut finish_guard =
+                FinishGuard::new(ah.clone(), binding_id.clone(), recording_operation_id);
 
             // Register LLM operation tracking before selection capture so cancel
             // cannot be missed between destructive cut and LLM request start.
@@ -7521,13 +7576,13 @@ impl ShortcutAction for AiReplaceSelectionAction {
                 TranscriptionFetchOutcome::Success(res) => res,
                 TranscriptionFetchOutcome::Cancelled
                 | TranscriptionFetchOutcome::ErrorOverlayShown => {
-                    session_manager::exit_processing(&ah);
+                    finish_guard.finish();
                     return;
                 }
                 TranscriptionFetchOutcome::ErrorNoOverlay => {
                     utils::hide_recording_overlay(&ah);
                     change_tray_icon(&ah, TrayIconState::Idle);
-                    session_manager::exit_processing(&ah);
+                    finish_guard.finish();
                     return;
                 }
             };
@@ -7535,7 +7590,7 @@ impl ShortcutAction for AiReplaceSelectionAction {
             if transcription.trim().is_empty() {
                 if !recording_settings.ai_replace_allow_quick_tap {
                     show_ai_replace_error_overlay(&ah, "No instruction captured.");
-                    session_manager::exit_processing(&ah);
+                    finish_guard.finish();
                     return;
                 }
                 // proceeding with empty transcription
@@ -7557,7 +7612,7 @@ impl ShortcutAction for AiReplaceSelectionAction {
                         String::new()
                     } else {
                         show_ai_replace_error_overlay(&ah, "Could not capture selection.");
-                        session_manager::exit_processing(&ah);
+                        finish_guard.finish();
                         return;
                     }
                 }
@@ -7566,7 +7621,7 @@ impl ShortcutAction for AiReplaceSelectionAction {
             if selected_text.trim().is_empty() && !recording_settings.ai_replace_allow_no_selection
             {
                 show_ai_replace_error_overlay(&ah, "Could not capture selection.");
-                session_manager::exit_processing(&ah);
+                finish_guard.finish();
                 return;
             }
 
@@ -7725,7 +7780,7 @@ impl ShortcutAction for AiReplaceSelectionAction {
                 }
             }
 
-            session_manager::exit_processing(&ah);
+            finish_guard.finish();
         });
     }
 }
@@ -8340,13 +8395,15 @@ impl ShortcutAction for VoiceCommandAction {
             Some(context) => context,
             None => return,
         };
+        let recording_operation_id = stop_context.operation_id;
         let recording_settings = stop_context.recording_settings;
 
         let ah = app.clone();
         let binding_id = binding_id.to_string();
 
         tauri::async_runtime::spawn(async move {
-            let _guard = FinishGuard::new(ah.clone(), binding_id.clone());
+            let mut finish_guard =
+                FinishGuard::new(ah.clone(), binding_id.clone(), recording_operation_id);
 
             let (transcription, _) = match get_transcription_or_cleanup(
                 &ah,
@@ -8358,7 +8415,7 @@ impl ShortcutAction for VoiceCommandAction {
             {
                 Some(res) => res,
                 None => {
-                    session_manager::exit_processing(&ah);
+                    finish_guard.finish();
                     return;
                 }
             };
@@ -8367,7 +8424,7 @@ impl ShortcutAction for VoiceCommandAction {
                 emit_voice_command_error(&ah, "No command detected");
                 utils::hide_recording_overlay(&ah);
                 change_tray_icon(&ah, TrayIconState::Idle);
-                session_manager::exit_processing(&ah);
+                finish_guard.finish();
                 return;
             }
 
@@ -8408,7 +8465,7 @@ impl ShortcutAction for VoiceCommandAction {
 
                 utils::hide_recording_overlay(&ah);
                 change_tray_icon(&ah, TrayIconState::Idle);
-                session_manager::exit_processing(&ah);
+                finish_guard.finish();
                 return;
             }
 
@@ -8468,7 +8525,7 @@ impl ShortcutAction for VoiceCommandAction {
 
             utils::hide_recording_overlay(&ah);
             change_tray_icon(&ah, TrayIconState::Idle);
-            session_manager::exit_processing(&ah);
+            finish_guard.finish();
         });
     }
 }

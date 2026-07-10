@@ -15,7 +15,7 @@ use crate::shortcut;
 use crate::tray::{change_tray_icon, TrayIconState};
 use crate::utils::hide_recording_overlay;
 use log::{debug, warn};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Instant;
 use tauri::{AppHandle, Manager};
@@ -30,6 +30,7 @@ pub enum SessionState {
     Recording {
         session: Arc<RecordingSession>,
         binding_id: String,
+        operation_id: u64,
         started_at: Instant,
         /// The profile ID that was active when recording started.
         /// This is used to ensure transcription uses the correct profile
@@ -42,7 +43,10 @@ pub enum SessionState {
     },
     /// Recording finished, now processing (transcription, LLM, etc.)
     /// New recordings are blocked during this state, only cancellation is allowed.
-    Processing { binding_id: String },
+    Processing {
+        binding_id: String,
+        operation_id: u64,
+    },
 }
 
 impl Default for SessionState {
@@ -53,6 +57,14 @@ impl Default for SessionState {
 
 /// Managed state type for the session
 pub type ManagedSessionState = Mutex<SessionState>;
+
+static NEXT_OPERATION_ID: AtomicU64 = AtomicU64::new(1);
+
+/// Returns a process-local generation ID for a recording/processing lifecycle.
+/// The ID is created when recording starts and remains unchanged through Processing.
+pub fn next_operation_id() -> u64 {
+    NEXT_OPERATION_ID.fetch_add(1, Ordering::Relaxed)
+}
 
 pub(crate) fn lock_session_state<'a>(
     state: &'a ManagedSessionState,
@@ -193,9 +205,7 @@ pub fn take_session(app: &AppHandle) -> Option<(Arc<RecordingSession>, String)> 
         SessionState::Recording {
             session,
             binding_id,
-            started_at: _,
-            captured_profile_id: _,
-            captured_settings: _,
+            ..
         } => {
             debug!("take_session: Took session for {}", binding_id);
             Some((session, binding_id))
@@ -204,7 +214,7 @@ pub fn take_session(app: &AppHandle) -> Option<(Arc<RecordingSession>, String)> 
             debug!("take_session: No active session to take");
             None
         }
-        SessionState::Processing { binding_id } => {
+        SessionState::Processing { binding_id, .. } => {
             debug!(
                 "take_session: Was in Processing state for {}, returning to Idle",
                 binding_id
@@ -243,7 +253,7 @@ pub fn take_session_if_matches(
                 expected_binding_id, binding_id
             );
         }
-        SessionState::Processing { binding_id } => {
+        SessionState::Processing { binding_id, .. } => {
             debug!(
                 "take_session_if_matches: In Processing state for {}",
                 binding_id
@@ -262,10 +272,85 @@ pub fn exit_processing(app: &AppHandle) {
     let state = app.state::<ManagedSessionState>();
     let mut state_guard = lock_session_state(&state, "exit_processing");
 
-    if let SessionState::Processing { binding_id } = &*state_guard {
+    if let SessionState::Processing { binding_id, .. } = &*state_guard {
         debug!("exit_processing: Exiting Processing for {}", binding_id);
         *state_guard = SessionState::Idle;
     } else {
         debug!("exit_processing: Not in Processing state, ignoring");
+    }
+}
+
+/// Exits Processing only when it still belongs to the expected operation.
+/// Returns true when this caller owned and cleared the current Processing state.
+pub fn exit_processing_if_matches(app: &AppHandle, expected_operation_id: u64) -> bool {
+    let state = app.state::<ManagedSessionState>();
+    let mut state_guard = lock_session_state(&state, "exit_processing_if_matches");
+
+    exit_processing_state_if_matches(&mut state_guard, expected_operation_id)
+}
+
+fn exit_processing_state_if_matches(state: &mut SessionState, expected_operation_id: u64) -> bool {
+    match state {
+        SessionState::Processing {
+            binding_id,
+            operation_id,
+        } if *operation_id == expected_operation_id => {
+            debug!(
+                "exit_processing_if_matches: Exiting Processing for {} (operation {})",
+                binding_id, operation_id
+            );
+            *state = SessionState::Idle;
+            true
+        }
+        SessionState::Processing {
+            binding_id,
+            operation_id,
+        } => {
+            debug!(
+                "exit_processing_if_matches: Ignoring stale operation {} because {} owns Processing for {}",
+                expected_operation_id, operation_id, binding_id
+            );
+            false
+        }
+        _ => {
+            debug!(
+                "exit_processing_if_matches: Operation {} no longer owns Processing",
+                expected_operation_id
+            );
+            false
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{exit_processing_state_if_matches, SessionState};
+
+    #[test]
+    fn matching_operation_can_exit_processing() {
+        let mut state = SessionState::Processing {
+            binding_id: "transcribe".to_string(),
+            operation_id: 7,
+        };
+
+        assert!(exit_processing_state_if_matches(&mut state, 7));
+        assert!(matches!(state, SessionState::Idle));
+    }
+
+    #[test]
+    fn stale_operation_cannot_exit_newer_processing() {
+        let mut state = SessionState::Processing {
+            binding_id: "transcribe".to_string(),
+            operation_id: 8,
+        };
+
+        assert!(!exit_processing_state_if_matches(&mut state, 7));
+        assert!(matches!(
+            state,
+            SessionState::Processing {
+                operation_id: 8,
+                ..
+            }
+        ));
     }
 }
