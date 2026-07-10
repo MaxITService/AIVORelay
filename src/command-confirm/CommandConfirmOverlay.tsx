@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef } from "react";
+import { useCallback, useEffect, useState, useRef } from "react";
 import { listen, emit } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { LogicalSize } from "@tauri-apps/api/dpi";
@@ -264,11 +264,11 @@ export default function CommandConfirmOverlay() {
     }
   };
 
-  const handleCancel = () => {
+  const handleCancel = useCallback(() => {
     setIsPaused(true);
     setPayload(null);
     hideWindow();
-  };
+  }, []);
 
   const handleCopyOutput = async () => {
     if (status?.message) {
@@ -287,13 +287,13 @@ export default function CommandConfirmOverlay() {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
         e.preventDefault();
-        hideWindow();
+        handleCancel();
       }
     };
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, []);
+  }, [handleCancel]);
 
   // Handle Enter (double-press) and Ctrl+Enter to run command
   useEffect(() => {
