@@ -6,10 +6,11 @@ Small rolling log of upstream commits integrated into `main`.
 This file is maintained from `main` only.
 Non-`main` branches must not carry or update independent copies.
 
-Audit note (2026-07-07):
-- Current fetched `upstream/main` head checked locally: `dad37baa`.
-- Safe review cursor for the next `upstream -> main` intake: `dad37baa`.
+Audit note (2026-07-10):
+- Current fetched `upstream/main` head checked locally: `bf258d10`.
+- Safe review cursor for the next `upstream -> main` intake: `0a59e1f3`.
 - The table below logs integrated upstream commits only; the review cursor may be newer because it also accounts for explicitly skipped commits.
+- Reviewed corridor from `dad37baa` to `0a59e1f3`: manually adapted `0a59e1f3` (custom words with ampersands); skipped `45e3eed8` (Italian locale plus formatting-only Rust diff) and `cdb46339` (does not fit the fork preview-output architecture).
 - Re-triaged corridor up to `fdc8cb71`: taken/logged `84d88f91`, `30b57c42`, `b123c1e`, `4609db7f`, `d1d33932`, `557d274d`, `17277cf6`, `58cda3f3`, `e35f0a71`, `cb32d35b`; already covered `095f4ac4`; skipped `fdc8cb71`, `c1697b2a`, `39e855de`, `743d8a54`, `8836d455`, `1a95c9c4`, `cd3ec3ab`, `c5ec92b3`, `e3c9f581`, `075a5887`, `012e0666`, `d33535cf`; treated `a3015026` as separate research / split adaptation, not a normal intake row.
 - Re-triaged corridor from `fdc8cb71` to `564fbc84`: already covered `966ff997` by `cfb7a916`; skipped `f26fe0dc`, `0392b7b6`, `11311bee`, `564fbc84`.
 - Re-triaged corridor from `564fbc84` to `af6ec6c9`: already covered `aee682f6` by `d225e59f`; skipped `a4d671a6`, `c1e11faa`, `af6ec6c9`.
@@ -27,6 +28,7 @@ Rules:
 
 | Merge Date | Upstream Date | Upstream SHA | Upstream Message | Main Message | Issues |
 | --- | --- | --- | --- | --- | --- |
+| 2026-07-10 | 2026-07-07 | `0a59e1f3` | fix: preserve ampersands in custom words (#1569) | fix(custom-words): preserve ampersands | manual port; retained fork enabled/n-gram controls |
 | 2026-07-07 | 2026-07-06 | `dad37baa` | Fix GigaAM v3 description. (#1613) | fix(models): correct GigaAM v3 catalog description | manual metadata port; no cherry-pick |
 | 2026-07-01 | 2026-07-01 | `9b0d8a11` | edit model recs | feat(models): port upstream GGUF catalog | adapted via fork ModelInfo selector contract |
 | 2026-07-01 | 2026-07-01 | `dc01346d` | update language selector | feat(models): expose catalog languages in selector | adapted to fork language constants/filtering |
@@ -36,7 +38,6 @@ Rules:
 | 2026-06-18 | 2026-06-18 | `bc6a41e4` | fix: dropdown overflow in post-processing settings (#1402) | fix(ui): prevent post-processing dropdown overflow | manual port to fork dropdown styles |
 | 2026-06-18 | 2026-06-11 | `cfab1dda` | fix(models): show size for downloaded models (#1484) | fix(models): show size for downloaded models | adapted to fork settings/dropdown UI |
 | 2026-06-18 | 2026-06-10 | `dd6cc676` | fix(visualizer): scale FFT window to device sample rate (#1491) | fix(visualizer): scale FFT window to device sample rate | manual port; preserved fork audio pipeline |
-| 2026-05-23 | 2026-05-23 | `10a4c31b` | docs: complete Portuguese translation for portable updates (#1422) | docs: complete Portuguese translation for portable updates (#1422) | clean cherry-pick after locale conflict |
 
 Entry template:
 
