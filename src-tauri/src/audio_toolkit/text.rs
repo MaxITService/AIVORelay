@@ -10,12 +10,45 @@ use strsim::levenshtein;
 fn build_ngram(words: &[&str]) -> String {
     words
         .iter()
-        .map(|w| {
-            w.trim_matches(|c: char| !c.is_alphanumeric())
-                .to_lowercase()
-        })
+        .map(|word| build_match_key(word))
         .collect::<Vec<_>>()
         .concat()
+}
+
+fn build_match_key(word: &str) -> String {
+    word.chars()
+        .filter(|character| character.is_alphanumeric())
+        .flat_map(char::to_lowercase)
+        .collect()
+}
+
+struct CustomWordMatchKey {
+    word_index: usize,
+    key: String,
+}
+
+fn build_custom_word_match_keys(word: &str, word_index: usize) -> Vec<CustomWordMatchKey> {
+    let primary_key = build_match_key(word);
+    let mut keys = Vec::with_capacity(2);
+
+    if !primary_key.is_empty() {
+        keys.push(CustomWordMatchKey {
+            word_index,
+            key: primary_key.clone(),
+        });
+    }
+
+    if word.contains('&') {
+        let spoken_ampersand_key = build_match_key(&word.replace('&', " and "));
+        if !spoken_ampersand_key.is_empty() && spoken_ampersand_key != primary_key {
+            keys.push(CustomWordMatchKey {
+                word_index,
+                key: spoken_ampersand_key,
+            });
+        }
+    }
+
+    keys
 }
 
 /// Finds the best matching custom word for a normalized candidate string.
@@ -25,7 +58,7 @@ fn build_ngram(words: &[&str]) -> String {
 fn find_best_match<'a>(
     candidate: &str,
     custom_words: &'a [String],
-    custom_words_nospace: &[String],
+    custom_word_match_keys: &[CustomWordMatchKey],
     threshold: f64,
 ) -> Option<(&'a String, f64)> {
     if candidate.is_empty() || candidate.len() > 50 {
@@ -35,23 +68,24 @@ fn find_best_match<'a>(
     let mut best_match: Option<&String> = None;
     let mut best_score = f64::MAX;
 
-    for (idx, custom_word_nospace) in custom_words_nospace.iter().enumerate() {
+    for custom_word_match_key in custom_word_match_keys {
         // Guard against over-matching very different lengths.
-        let len_diff = (candidate.len() as i32 - custom_word_nospace.len() as i32).abs() as f64;
-        let max_len = candidate.len().max(custom_word_nospace.len()) as f64;
+        let len_diff = (candidate.len() as i32 - custom_word_match_key.key.len() as i32).abs()
+            as f64;
+        let max_len = candidate.len().max(custom_word_match_key.key.len()) as f64;
         let max_allowed_diff = (max_len * 0.25).max(2.0);
         if len_diff > max_allowed_diff {
             continue;
         }
 
-        let levenshtein_dist = levenshtein(candidate, custom_word_nospace);
+        let levenshtein_dist = levenshtein(candidate, &custom_word_match_key.key);
         let levenshtein_score = if max_len > 0.0 {
             levenshtein_dist as f64 / max_len
         } else {
             1.0
         };
 
-        let phonetic_match = soundex(candidate, custom_word_nospace);
+        let phonetic_match = soundex(candidate, &custom_word_match_key.key);
         let combined_score = if phonetic_match {
             levenshtein_score * 0.3
         } else {
@@ -59,7 +93,7 @@ fn find_best_match<'a>(
         };
 
         if combined_score < threshold && combined_score < best_score {
-            best_match = Some(&custom_words[idx]);
+            best_match = Some(&custom_words[custom_word_match_key.word_index]);
             best_score = combined_score;
         }
     }
@@ -93,12 +127,11 @@ pub fn apply_custom_words(
         return text.to_string();
     }
 
-    // Pre-compute lowercase versions to avoid repeated allocations
-    let custom_words_lower: Vec<String> = custom_words.iter().map(|w| w.to_lowercase()).collect();
-    // Remove spaces for robust matching against split terms
-    let custom_words_nospace: Vec<String> = custom_words_lower
+    // Pre-compute normalized comparison keys, including spoken forms of '&'.
+    let custom_word_match_keys: Vec<CustomWordMatchKey> = custom_words
         .iter()
-        .map(|w| w.replace(' ', ""))
+        .enumerate()
+        .flat_map(|(index, word)| build_custom_word_match_keys(word, index))
         .collect();
 
     let words: Vec<&str> = text.split_whitespace().collect();
@@ -122,7 +155,7 @@ pub fn apply_custom_words(
             }
 
             if let Some((replacement, _score)) =
-                find_best_match(&ngram, custom_words, &custom_words_nospace, threshold)
+                find_best_match(&ngram, custom_words, &custom_word_match_keys, threshold)
             {
                 let (prefix, _) = extract_punctuation(ngram_words[0]);
                 let (_, suffix) = extract_punctuation(ngram_words[n - 1]);
@@ -412,6 +445,30 @@ mod tests {
             "got double-counted result: {}",
             result
         );
+    }
+
+    #[test]
+    fn test_apply_custom_words_preserves_ampersand_term() {
+        let text = "send it to R&D for review";
+        let custom_words = vec!["R&D".to_string()];
+        let result = apply_custom_words(text, &custom_words, 0.18, true);
+        assert_eq!(result, "send it to R&D for review");
+    }
+
+    #[test]
+    fn test_apply_custom_words_matches_split_ampersand_term() {
+        let text = "send it to R D for review";
+        let custom_words = vec!["R&D".to_string()];
+        let result = apply_custom_words(text, &custom_words, 0.18, true);
+        assert_eq!(result, "send it to R&D for review");
+    }
+
+    #[test]
+    fn test_apply_custom_words_matches_spoken_ampersand_term() {
+        let text = "send it to R and D for review";
+        let custom_words = vec!["R&D".to_string()];
+        let result = apply_custom_words(text, &custom_words, 0.18, true);
+        assert_eq!(result, "send it to R&D for review");
     }
 
     #[test]
