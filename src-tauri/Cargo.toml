@@ -78,7 +78,7 @@ flate2 = "1.0"
 transcribe-rs = { version = "0.3.8", features = ["whisper-cpp", "onnx", "vad-silero"] }
 transcribe-cpp = { version = "0.1.1", default-features = false }
 hf-hub = { version = "0.4", features = ["tokio"] }
-handy-keys = "0.2.4"
+handy-keys = "0.3.0"
 ferrous-opencc = "0.2.3"
 clap = { version = "4", features = ["derive"] }
 keyring = "2.3.3"

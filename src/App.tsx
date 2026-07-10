@@ -60,6 +60,27 @@ function App() {
   }, []);
 
   useEffect(() => {
+    let disposed = false;
+
+    void invoke<boolean>("take_settings_store_reset_notice")
+      .then((settingsWereReset) => {
+        if (!disposed && settingsWereReset) {
+          toast.error(t("errors.settingsResetTitle"), {
+            duration: 10000,
+            description: t("errors.settingsResetDescription"),
+          });
+        }
+      })
+      .catch((error) => {
+        console.error("Failed to check settings recovery notice:", error);
+      });
+
+    return () => {
+      disposed = true;
+    };
+  }, [t]);
+
+  useEffect(() => {
     const handleOpenFirstStartWizard = () => {
       setOnboardingFromDebug(true);
       setOnboardingStartsWithPermissions(false);

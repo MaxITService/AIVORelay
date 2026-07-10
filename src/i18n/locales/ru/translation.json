@@ -2079,6 +2079,8 @@
     "loadDirectory": "Ошибка загрузки каталога: {{error}}.",
     "modelLoadFailed": "Не удалось загрузить модель: {{model}}",
     "modelLoadFailedUnknown": "Неизвестная модель",
+    "settingsResetTitle": "Настройки сброшены",
+    "settingsResetDescription": "Файл настроек был повреждён и не подлежал восстановлению. Были восстановлены и сохранены настройки по умолчанию.",
     "pasteFailedTitle": "Не удалось вставить текст",
     "pasteFailed": "Не удалось вставить текст в активное приложение.",
     "noInputDeviceTitle": "Микрофон не найден",

@@ -76,6 +76,14 @@ pub fn get_current_theme(app: &AppHandle) -> AppTheme {
         // On Linux, always use the colored theme
         AppTheme::Colored
     } else {
+        // On Windows, tray icons sit on the taskbar. In Windows' Custom
+        // personalization mode the taskbar theme can differ from the app
+        // theme, so the window theme alone may select an invisible icon.
+        #[cfg(target_os = "windows")]
+        if let Some(theme) = windows_taskbar_theme() {
+            return theme;
+        }
+
         // On other platforms, map system theme to our app theme
         if let Some(main_window) = app.get_webview_window("main") {
             match main_window.theme().unwrap_or(Theme::Dark) {
@@ -87,6 +95,23 @@ pub fn get_current_theme(app: &AppHandle) -> AppTheme {
             AppTheme::Dark
         }
     }
+}
+
+#[cfg(target_os = "windows")]
+fn windows_taskbar_theme() -> Option<AppTheme> {
+    use winreg::enums::HKEY_CURRENT_USER;
+    use winreg::RegKey;
+
+    let personalize = RegKey::predef(HKEY_CURRENT_USER)
+        .open_subkey("Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize")
+        .ok()?;
+    let system_uses_light: u32 = personalize.get_value("SystemUsesLightTheme").ok()?;
+
+    Some(if system_uses_light == 1 {
+        AppTheme::Light
+    } else {
+        AppTheme::Dark
+    })
 }
 
 /// Gets the appropriate icon path for the given theme and state
@@ -120,7 +145,9 @@ pub fn change_tray_icon(app: &AppHandle, icon: TrayIconState) {
         .and_then(|p| Image::from_path(p).map_err(|e| e.to_string()))
     {
         Ok(image) => {
-            let _ = tray.set_icon(Some(image));
+            if let Err(err) = tray.set_icon(Some(image)) {
+                error!("Failed to apply tray icon '{}': {}", icon_path, err);
+            }
         }
         Err(e) => {
             warn!("Failed to update tray icon '{}': {}", icon_path, e);
@@ -129,6 +156,12 @@ pub fn change_tray_icon(app: &AppHandle, icon: TrayIconState) {
 
     // Update menu based on state
     update_tray_menu(app, &icon, None);
+}
+
+/// Re-applies the current state when the appearance changed without changing
+/// whether the app is idle, recording, or transcribing.
+pub fn refresh_tray_icon(app: &AppHandle) {
+    change_tray_icon(app, current_tray_state(app));
 }
 
 pub fn tray_tooltip() -> String {

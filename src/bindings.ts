@@ -2267,6 +2267,9 @@ async getAppSettings() : Promise<Result<AppSettings, string>> {
     else return { status: "error", error: e  as any };
 }
 },
+async takeSettingsStoreResetNotice() : Promise<boolean> {
+    return await TAURI_INVOKE("take_settings_store_reset_notice");
+},
 async getDefaultSettings() : Promise<Result<AppSettings, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("get_default_settings") };
