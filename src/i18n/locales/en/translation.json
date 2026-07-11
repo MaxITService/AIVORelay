@@ -354,6 +354,11 @@
     "remoteApiActive": "Remote API",
     "remoteSonioxActive": "Remote Soniox",
     "remoteDeepgramActive": "Remote Deepgram",
+    "nativeLiveOutput": {
+      "title": "Live final output",
+      "finalOnly": "Final chunks only",
+      "description": "Type confirmed chunks into the active field while recording. Tentative text is never inserted. This takes priority over Output to Preview for this model."
+    },
     "deleteModel": "Delete {{modelName}}",
     "custom": "Custom",
     "customModelsHelpTitle": "Custom Whisper Models",
@@ -2097,6 +2102,11 @@
       "logLevel": {
         "title": "Log Level",
         "description": "Set the verbosity of logging"
+      },
+      "devConsoleLogLevel": {
+        "title": "Dev Console Log Level",
+        "debugOnly": "Debug builds only — unavailable in release builds.",
+        "description": "Controls terminal output only for this Dev Mode session. It overrides RUST_LOG, is not saved, and is unavailable in release builds."
       },
       "updateChecks": {
         "label": "Check for Updates",

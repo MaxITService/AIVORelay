@@ -43,6 +43,7 @@ use specta_typescript::{BigIntExportBehavior, Typescript};
 use tauri_specta::{collect_commands, Builder};
 
 pub use cli::CliArgs;
+#[cfg(not(debug_assertions))]
 use env_filter::Builder as EnvFilterBuilder;
 use managers::audio::AudioRecordingManager;
 use managers::connector::ConnectorManager;
@@ -76,9 +77,16 @@ use tauri_plugin_log::{
 
 use crate::settings::get_settings;
 
-// Global atomic to store the file log level filter
-// We use u8 to store the log::LevelFilter as a number
+// Global atomic to store the file log level filter.
+// We use u8 to store the log::LevelFilter as a number.
 pub static FILE_LOG_LEVEL: AtomicU8 = AtomicU8::new(log::LevelFilter::Debug as u8);
+
+// Dev-console verbosity is intentionally process-local: it is neither written
+// to AppSettings nor compiled into release builds. The frontend exposes it only
+// when Vite is running in the same Dev Mode that renders the Dev Mode badge.
+#[cfg(debug_assertions)]
+pub static DEV_CONSOLE_LOG_LEVEL: AtomicU8 = AtomicU8::new(log::LevelFilter::Info as u8);
+
 static APP_QUIT_REQUESTED: AtomicBool = AtomicBool::new(false);
 
 fn level_filter_from_u8(value: u8) -> log::LevelFilter {
@@ -93,6 +101,25 @@ fn level_filter_from_u8(value: u8) -> log::LevelFilter {
     }
 }
 
+#[cfg(debug_assertions)]
+pub(crate) fn dev_console_log_level() -> settings::LogLevel {
+    match level_filter_from_u8(DEV_CONSOLE_LOG_LEVEL.load(Ordering::Relaxed)) {
+        log::LevelFilter::Trace => settings::LogLevel::Trace,
+        log::LevelFilter::Debug => settings::LogLevel::Debug,
+        log::LevelFilter::Info => settings::LogLevel::Info,
+        log::LevelFilter::Warn => settings::LogLevel::Warn,
+        log::LevelFilter::Error | log::LevelFilter::Off => settings::LogLevel::Error,
+    }
+}
+
+#[cfg(debug_assertions)]
+pub(crate) fn set_dev_console_log_level(level: settings::LogLevel) {
+    let tauri_log_level: tauri_plugin_log::LogLevel = level.into();
+    let log_level: log::Level = tauri_log_level.into();
+    DEV_CONSOLE_LOG_LEVEL.store(log_level.to_level_filter() as u8, Ordering::Relaxed);
+}
+
+#[cfg(not(debug_assertions))]
 fn build_console_filter() -> env_filter::Filter {
     let mut builder = EnvFilterBuilder::new();
 
@@ -101,8 +128,7 @@ fn build_console_filter() -> env_filter::Filter {
             if let Err(err) = builder.try_parse(&spec) {
                 log::warn!(
                     "Ignoring invalid RUST_LOG value '{}': {}. Falling back to info-level console logging",
-                    spec,
-                    err
+                    spec, err
                 );
                 builder.filter_level(log::LevelFilter::Info);
             }
@@ -840,11 +866,17 @@ fn run_headless_transcription(app: &AppHandle, args: &CliArgs) -> i32 {
 pub fn run(cli_args: CliArgs) {
     portable::init();
 
-    // Parse console logging directives from RUST_LOG, falling back to info-level logging
-    // when the variable is unset
+    // Release keeps the existing RUST_LOG filter. Dev builds instead use the
+    // process-local Dev Console Log Level selector below, so it can reliably
+    // raise verbosity even when the launching shell has RUST_LOG=warn/error.
+    #[cfg(not(debug_assertions))]
     let console_filter = build_console_filter();
 
-    let specta_builder = Builder::<tauri::Wry>::new().commands(collect_commands![
+    // `collect_commands!` accepts only command paths, not `#[cfg]` entries.
+    // Keep the dev-only pair optional without duplicating the full handler list.
+    macro_rules! app_commands {
+        ($($dev_commands:tt)*) => {
+            collect_commands![
         shortcut::change_binding,
         shortcut::reset_binding,
         shortcut::change_ptt_setting,
@@ -896,6 +928,8 @@ pub fn run(cli_args: CliArgs) {
         shortcut::change_recording_overlay_decapitalize_indicator_font_size_setting,
         shortcut::change_recording_overlay_decapitalize_indicator_color_setting,
         shortcut::change_soniox_live_preview_enabled_setting,
+        shortcut::change_native_streaming_live_output_model_setting,
+        shortcut::change_native_streaming_show_interim_longer_setting,
         shortcut::change_local_preview_auto_flush_enabled_setting,
         shortcut::change_local_preview_auto_flush_interval_setting,
         shortcut::change_local_preview_auto_flush_overlap_setting,
@@ -1131,6 +1165,7 @@ pub fn run(cli_args: CliArgs) {
         commands::asset_preview::prepare_transcribe_file_asset,
         commands::asset_preview::delete_transcribe_file_asset,
         commands::set_log_level,
+        $($dev_commands)*
         commands::change_dictation_stats_enabled_setting,
         commands::get_dictation_stats_runtime_state,
         commands::begin_dictation_stats_edit_session,
@@ -1263,7 +1298,18 @@ pub fn run(cli_args: CliArgs) {
         overlay::preview_soniox_live_preview_window,
         overlay::close_soniox_live_preview_demo_window,
         helpers::clamshell::is_laptop,
-    ]);
+            ]
+        };
+    }
+
+    #[cfg(debug_assertions)]
+    let specta_builder = Builder::<tauri::Wry>::new().commands(app_commands!(
+        commands::get_dev_console_log_level,
+        commands::set_dev_console_log_level,
+    ));
+
+    #[cfg(not(debug_assertions))]
+    let specta_builder = Builder::<tauri::Wry>::new().commands(app_commands!());
 
     #[cfg(debug_assertions)] // <- Only export on non-release builds
     specta_builder
@@ -1287,16 +1333,28 @@ pub fn run(cli_args: CliArgs) {
                 .rotation_strategy(RotationStrategy::KeepOne)
                 .clear_targets()
                 .targets([
-                    // Console output respects RUST_LOG. In headless mode stdout
-                    // carries the result, so logs go to stderr for easy parsing.
+                    // In a release build this respects RUST_LOG. In Dev Mode
+                    // the visible, process-local selector controls terminal
+                    // verbosity instead. In headless mode stdout carries the
+                    // result, so logs go to stderr for easy parsing.
                     Target::new(if headless_mode {
                         TargetKind::Stderr
                     } else {
                         TargetKind::Stdout
                     })
-                    .filter({
-                        let console_filter = console_filter.clone();
-                        move |metadata| console_filter.enabled(metadata)
+                    .filter(move |metadata| {
+                        #[cfg(debug_assertions)]
+                        {
+                            metadata.level()
+                                <= level_filter_from_u8(
+                                    DEV_CONSOLE_LOG_LEVEL.load(Ordering::Relaxed),
+                                )
+                        }
+
+                        #[cfg(not(debug_assertions))]
+                        {
+                            console_filter.enabled(metadata)
+                        }
                     }),
                     // File logs respect the user's settings (stored in FILE_LOG_LEVEL atomic)
                     Target::new(if let Some(data_dir) = portable::data_dir() {

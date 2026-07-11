@@ -55,11 +55,35 @@ enum LoadedEngine {
 
 const STREAM_FINALIZE_REPLY_TIMEOUT: Duration = Duration::from_secs(30);
 const STREAM_PERF_LOG_INTERVAL: Duration = Duration::from_secs(5);
+// transcribe.cpp's generic policy counts identical hypotheses on every 30 ms
+// audio feed. Voxtral decodes roughly once per second, so its default agreement
+// of three feeds commits a tentative tail in about 60 ms—too brief to render.
+const VOXTRAL_REALTIME_STABLE_PREFIX_AGREEMENT_N: u32 = 32;
 
 enum StreamCmd {
     Feed(Vec<f32>),
     Finalize(mpsc::Sender<Option<(String, String)>>),
     Cancel,
+}
+
+/// Receives only newly committed native-stream text. Tentative text never
+/// crosses this boundary, so callers can safely insert the chunks elsewhere.
+pub type NativeStreamCommittedCallback = Arc<dyn Fn(String) + Send + Sync>;
+
+fn native_stream_committed_delta(previous: &mut String, current: &str) -> Option<String> {
+    let Some(delta) = current.strip_prefix(previous.as_str()) else {
+        warn!(
+            "Native stream committed text changed non-monotonically; refusing to rewrite already inserted text"
+        );
+        return None;
+    };
+
+    if delta.is_empty() {
+        return None;
+    }
+
+    previous.push_str(delta);
+    Some(delta.to_string())
 }
 
 pub struct StreamRouter {
@@ -174,6 +198,17 @@ fn transcribe_cpp_run_options(
         target_language: run_plan.target_language,
         timestamps: transcribe_cpp_supported_timestamp_kind(timestamps, caps.max_timestamp_kind),
         ..Default::default()
+    }
+}
+
+fn native_stream_options(architecture: &str, show_interim_longer: bool) -> StreamOptions {
+    if architecture == "voxtral_realtime" && show_interim_longer {
+        StreamOptions {
+            stable_prefix_agreement_n: VOXTRAL_REALTIME_STABLE_PREFIX_AGREEMENT_N,
+            ..Default::default()
+        }
+    } else {
+        StreamOptions::default()
     }
 }
 
@@ -596,7 +631,12 @@ impl TranscriptionManager {
         self.stream_router.is_open() || self.stream_active.load(Ordering::Acquire)
     }
 
-    pub fn start_stream(&self, selected_language: String, translate_to_english: bool) {
+    pub fn start_stream(
+        &self,
+        selected_language: String,
+        translate_to_english: bool,
+        on_committed_text: Option<NativeStreamCommittedCallback>,
+    ) {
         if self.stream_router.is_open() || self.active_stream_worker.load(Ordering::Acquire) != 0 {
             warn!("start_stream called while a stream worker is already active");
             return;
@@ -616,7 +656,13 @@ impl TranscriptionManager {
         self.stream_active.store(false, Ordering::Release);
         let manager = self.clone();
         thread::spawn(move || {
-            manager.run_stream_worker(rx, worker_id, selected_language, translate_to_english)
+            manager.run_stream_worker(
+                rx,
+                worker_id,
+                selected_language,
+                translate_to_english,
+                on_committed_text,
+            )
         });
     }
 
@@ -626,6 +672,7 @@ impl TranscriptionManager {
         worker_id: u64,
         selected_language: String,
         translate_to_english: bool,
+        on_committed_text: Option<NativeStreamCommittedCallback>,
     ) {
         let _worker = StreamWorkerGuard {
             worker_id,
@@ -709,14 +756,21 @@ impl TranscriptionManager {
                 LoadedEngine::TranscribeCpp(session) => session,
                 _ => break 'stream false,
             };
-            let backend = session.model().backend();
+            let model = session.model();
+            let backend = model.backend();
+            let architecture = model.arch();
+            let variant = model.variant();
             let run_options = transcribe_cpp_run_options(
                 session,
                 &effective_language,
                 translate_to_english,
                 TimestampKind::None,
             );
-            let mut stream = match session.stream(&run_options, &StreamOptions::default()) {
+            let stream_options = native_stream_options(
+                &architecture,
+                get_settings(&self.app_handle).native_streaming_show_interim_longer,
+            );
+            let mut stream = match session.stream(&run_options, &stream_options) {
                 Ok(stream) => stream,
                 Err(error) => {
                     error!("Failed to begin native transcribe.cpp stream: {}", error);
@@ -727,11 +781,12 @@ impl TranscriptionManager {
             self.stream_active.store(true, Ordering::Release);
             self.touch_activity();
             info!(
-                "Native transcribe.cpp stream started for model '{}' on backend '{}'",
-                model_id, backend
+                "Native transcribe.cpp stream started for model '{}' arch='{}' variant='{}' on backend '{}'",
+                model_id, architecture, variant, backend
             );
 
             let mut perf = StreamPerf::new();
+            let mut delivered_committed_text = String::new();
             while let Ok(cmd) = rx.recv() {
                 match cmd {
                     StreamCmd::Feed(pcm) => {
@@ -749,7 +804,30 @@ impl TranscriptionManager {
                                 );
                                 if update.committed_changed || update.tentative_changed {
                                     let text = stream.text();
+                                    debug!(
+                                        "Native stream text update model='{}' arch='{}' revision={} result_changed={} committed_changed={} tentative_changed={} full_chars={} committed_chars={} tentative_chars={}",
+                                        model_id,
+                                        architecture,
+                                        update.revision,
+                                        update.result_changed,
+                                        update.committed_changed,
+                                        update.tentative_changed,
+                                        text.full.chars().count(),
+                                        text.committed.chars().count(),
+                                        text.tentative.chars().count(),
+                                    );
                                     perf.record_emit();
+                                    if update.committed_changed {
+                                        if let (Some(callback), Some(delta)) = (
+                                            on_committed_text.as_ref(),
+                                            native_stream_committed_delta(
+                                                &mut delivered_committed_text,
+                                                &text.committed,
+                                            ),
+                                        ) {
+                                            callback(delta);
+                                        }
+                                    }
                                     crate::overlay::emit_live_preview_update(
                                         &self.app_handle,
                                         &text.committed,
@@ -776,6 +854,27 @@ impl TranscriptionManager {
                                     update.buffered_ms,
                                 );
                                 let text = stream.text();
+                                debug!(
+                                    "Native stream final text model='{}' arch='{}' revision={} full_chars={} committed_chars={} tentative_chars={}",
+                                    model_id,
+                                    architecture,
+                                    update.revision,
+                                    text.full.chars().count(),
+                                    text.committed.chars().count(),
+                                    text.tentative.chars().count(),
+                                );
+                                if let (Some(callback), Some(delta)) = (
+                                    on_committed_text.as_ref(),
+                                    native_stream_committed_delta(
+                                        &mut delivered_committed_text,
+                                        // Finalization makes the complete display text safe to
+                                        // insert even if the backend still labels its last tail
+                                        // as tentative in the final snapshot.
+                                        &text.display(),
+                                    ),
+                                ) {
+                                    callback(delta);
+                                }
                                 crate::overlay::emit_live_preview_update(
                                     &self.app_handle,
                                     &text.committed,

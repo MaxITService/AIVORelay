@@ -11,6 +11,7 @@ import { computeTooltipLayout, TooltipLayout } from "./tooltipPositioning";
 interface InfoTooltipProps {
   content: React.ReactNode;
   position?: "top" | "bottom";
+  wide?: boolean;
 }
 
 /**
@@ -20,6 +21,7 @@ interface InfoTooltipProps {
 export const InfoTooltip: React.FC<InfoTooltipProps> = ({
   content,
   position = "top",
+  wide = false,
 }) => {
   const [showTooltip, setShowTooltip] = useState(false);
   const tooltipRef = useRef<HTMLDivElement>(null);
@@ -103,7 +105,9 @@ export const InfoTooltip: React.FC<InfoTooltipProps> = ({
       >
         <div
           ref={tooltipContentRef}
-          className="relative px-4 py-2.5 bg-[#323232]/98 backdrop-blur-xl border border-[#4a4a4a] rounded-lg shadow-[0_8px_24px_rgba(0,0,0,0.5)] max-w-xs min-w-[200px] whitespace-normal animate-in fade-in-0 zoom-in-95 duration-200"
+          className={`relative px-4 py-2.5 bg-[#323232]/98 backdrop-blur-xl border border-[#4a4a4a] rounded-lg shadow-[0_8px_24px_rgba(0,0,0,0.5)] whitespace-normal animate-in fade-in-0 zoom-in-95 duration-200 ${
+            wide ? "max-w-xl min-w-[320px]" : "max-w-xs min-w-[200px]"
+          }`}
         >
           <p className="text-sm text-[#e8e8e8] text-center leading-relaxed">
             {content}

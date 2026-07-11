@@ -1,8 +1,11 @@
-import React, { useMemo } from "react";
+import React, { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { ChevronDown } from "lucide-react";
 import type { ModelInfo } from "@/bindings";
+import { commands } from "@/bindings";
 import { LANGUAGES } from "@/lib/constants/languages";
+import { useSettings } from "../../../hooks/useSettings";
+import { ToggleSwitch } from "../../ui/ToggleSwitch";
 
 const FALLBACK_LANGUAGE_LABELS = new Map(
   LANGUAGES.map((language) => [language.value, language.label] as const),
@@ -344,7 +347,9 @@ function buildMetadataView(model: ModelInfo, locale: string): MetadataView {
 export const ModelMetadataPanel: React.FC<{ model: ModelInfo }> = ({
   model,
 }) => {
-  const { i18n } = useTranslation();
+  const { i18n, t } = useTranslation();
+  const { getSetting, refreshSettings } = useSettings();
+  const [isUpdatingLiveOutput, setIsUpdatingLiveOutput] = useState(false);
   const copy = useMemo(
     () => getModelDetailsCopy(i18n.language),
     [i18n.language],
@@ -354,6 +359,23 @@ export const ModelMetadataPanel: React.FC<{ model: ModelInfo }> = ({
     () => buildMetadataView(model, i18n.language),
     [i18n.language, model],
   );
+  const supportsNativeLiveOutput =
+    model.engine_type === "TranscribeCpp" && model.supports_streaming;
+  const liveOutputModels = getSetting("native_streaming_live_output_models") ?? [];
+  const liveOutputEnabled = liveOutputModels.includes(model.id);
+
+  const handleLiveOutputChange = async (enabled: boolean) => {
+    setIsUpdatingLiveOutput(true);
+    try {
+      await commands.changeNativeStreamingLiveOutputModelSetting(
+        model.id,
+        enabled,
+      );
+      await refreshSettings();
+    } finally {
+      setIsUpdatingLiveOutput(false);
+    }
+  };
 
   return (
     <div className="mt-3 space-y-3">
@@ -367,6 +389,32 @@ export const ModelMetadataPanel: React.FC<{ model: ModelInfo }> = ({
           </span>
         ))}
       </div>
+
+      {supportsNativeLiveOutput && (
+        <div className="rounded-lg border border-yellow-400/25 bg-yellow-400/[0.06] px-3 py-2.5">
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-center gap-1.5 text-xs font-semibold text-yellow-100">
+                <span aria-hidden="true">⚡</span>
+                <span>{t("modelSelector.nativeLiveOutput.title")}</span>
+                <span className="rounded-full border border-yellow-300/25 bg-yellow-300/10 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-yellow-200">
+                  {t("modelSelector.nativeLiveOutput.finalOnly")}
+                </span>
+              </div>
+              <p className="mt-1 text-[11px] leading-snug text-[#a0a0a0]">
+                {t("modelSelector.nativeLiveOutput.description")}
+              </p>
+            </div>
+            <div className="shrink-0 pt-0.5">
+              <ToggleSwitch
+                checked={liveOutputEnabled}
+                onChange={(enabled) => void handleLiveOutputChange(enabled)}
+                disabled={isUpdatingLiveOutput}
+              />
+            </div>
+          </div>
+        </div>
+      )}
 
       <details className="group rounded-lg border border-[#3d3d3d] bg-[#141414] overflow-hidden">
         <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-3 py-2.5 text-xs text-[#d6d6d6] hover:bg-white/5 [&::-webkit-details-marker]:hidden">

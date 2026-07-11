@@ -422,6 +422,11 @@
     "remoteApiActive": "Remote API",
     "remoteSonioxActive": "Remote Soniox",
     "remoteDeepgramActive": "Remote Deepgram",
+    "nativeLiveOutput": {
+      "title": "Живой ввод финального текста",
+      "finalOnly": "Только финальные чанки",
+      "description": "Вставляет подтверждённые чанки в активное поле во время записи. Промежуточный текст никогда не вставляется. Для этой модели режим имеет приоритет над Output to Preview."
+    },
     "deleteModel": "Удалить {{modelName}}",
     "custom": "Custom",
     "customModelsHelpTitle": "Custom Whisper Models",
@@ -1831,6 +1836,11 @@
       "logLevel": {
         "title": "Уровень журнала",
         "description": "Установите уровень детализации журнала"
+      },
+      "devConsoleLogLevel": {
+        "title": "Уровень лога Dev Console",
+        "debugOnly": "Только для debug-сборок — в release недоступно.",
+        "description": "Управляет только выводом в терминал в этой Dev Mode-сессии, перекрывая RUST_LOG. Не сохраняется и отсутствует в release-сборках."
       },
       "updateChecks": {
         "label": "Проверьте наличие обновлений",

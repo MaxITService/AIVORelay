@@ -5,6 +5,7 @@ import { AlertTriangle } from "lucide-react";
 import { LogDirectory } from "./LogDirectory";
 import { SettingsDirectory } from "./SettingsDirectory";
 import { LogLevelSelector } from "./LogLevelSelector";
+import { DevConsoleLogLevelSelector } from "./DevConsoleLogLevelSelector";
 import { ShortcutEngineSelector } from "./ShortcutEngineSelector";
 import { SettingsGroup } from "../../ui/SettingsGroup";
 import { SettingContainer } from "../../ui/SettingContainer";
@@ -59,6 +60,7 @@ export const DebugSettings: React.FC = () => {
         <SettingsDirectory grouped={true} />
         <LogDirectory grouped={true} />
         <LogLevelSelector grouped={true} />
+        {import.meta.env.DEV && <DevConsoleLogLevelSelector grouped={true} />}
         <UpdateChecksToggle descriptionMode="tooltip" grouped={true} />
         <SoundPicker
           label={t("settings.debug.soundTheme.label")}

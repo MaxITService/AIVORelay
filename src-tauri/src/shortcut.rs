@@ -141,6 +141,10 @@ fn uses_live_streaming_for_settings(settings: &settings::AppSettings) -> bool {
                     &settings.remote_stt.model_id,
                 )
         }
+        TranscriptionProvider::Local => settings
+            .native_streaming_live_output_models
+            .iter()
+            .any(|model_id| model_id == &settings.selected_model),
         _ => false,
     }
 }
@@ -1644,6 +1648,43 @@ pub fn change_soniox_live_preview_enabled_setting(
     settings::write_settings(&app, settings);
     refresh_soniox_live_preview_window(&app);
 
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_native_streaming_live_output_model_setting(
+    app: AppHandle,
+    model_id: String,
+    enabled: bool,
+) -> Result<(), String> {
+    let model_id = model_id.trim();
+    if model_id.is_empty() {
+        return Err("A model ID is required for native streaming live output".to_string());
+    }
+
+    let mut settings = settings::get_settings(&app);
+    settings
+        .native_streaming_live_output_models
+        .retain(|configured_model_id| configured_model_id != model_id);
+    if enabled {
+        settings
+            .native_streaming_live_output_models
+            .push(model_id.to_string());
+    }
+    settings::write_settings(&app, settings);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_native_streaming_show_interim_longer_setting(
+    app: AppHandle,
+    enabled: bool,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.native_streaming_show_interim_longer = enabled;
+    settings::write_settings(&app, settings);
     Ok(())
 }
 

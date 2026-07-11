@@ -24,6 +24,7 @@ import {
 } from "../../../lib/utils/previewHotkeys";
 import { Info } from "lucide-react";
 import { HotkeyCapture } from "../../ui/HotkeyCapture";
+import { InfoTooltip } from "../../ui/InfoTooltip";
 
 const SONIOX_LIVE_PREVIEW_CURSOR_OFFSET_MIN = 24;
 const SONIOX_LIVE_PREVIEW_CURSOR_OFFSET_MAX = 320;
@@ -242,7 +243,11 @@ export const UserInterfaceSettings: React.FC = () => {
   );
   const usesHandyNativeLocalStreaming =
     (settings as any)?.transcription_provider === "local" &&
+    selectedLocalModel?.engine_type === "TranscribeCpp" &&
     Boolean(selectedLocalModel?.supports_streaming);
+  const nativeStreamingShowInterimLonger = Boolean(
+    (settings as any)?.native_streaming_show_interim_longer ?? true,
+  );
   const slidingLmWindowEnabled = Boolean(
     (settings as any)?.soniox_live_preview_sliding_lm_window_enabled ?? false,
   );
@@ -1339,6 +1344,54 @@ export const UserInterfaceSettings: React.FC = () => {
               <span aria-hidden="true">⚡</span>
               Handy streaming
             </span>
+          </SettingContainer>
+          <SettingContainer
+            title={
+              <div className="flex items-center gap-1">
+                <span>Show interim chunks longer (gray text)</span>
+                <InfoTooltip
+                  wide={true}
+                  content={
+                    <>
+                      <strong>What this changes</strong>
+                      <br />
+                      Some native streaming models first publish a tentative prediction. The Preview window renders that draft in gray, then turns it white after the engine considers it stable.
+                      <br />
+                      <br />
+                      <strong>When enabled</strong>
+                      <br />
+                      Voxtral keeps its tentative tail for roughly one second instead of confirming it in about 60 ms. This makes the gray text visible and lets you see the model's live prediction.
+                      <br />
+                      <br />
+                      <strong>Safety</strong>
+                      <br />
+                      This affects Preview only. Gray text is never inserted into another app. If the prediction changes, only the gray tail updates; final text still appears immediately when recording stops.
+                      <br />
+                      <br />
+                      Models that publish final chunks only, such as Parakeet and Nemotron, are unaffected. Moonshine has its own token-agreement behavior.
+                    </>
+                  }
+                />
+              </div>
+            }
+            description="Keep the model's tentative prediction visible in Preview before it becomes confirmed."
+            descriptionMode="inline"
+            grouped={true}
+            disabled={!sonioxLivePreviewEnabled}
+          >
+            <ToggleSwitch
+              checked={nativeStreamingShowInterimLonger}
+              onChange={(enabled) =>
+                void updateSetting(
+                  "native_streaming_show_interim_longer" as any,
+                  enabled as any,
+                )
+              }
+              disabled={
+                !sonioxLivePreviewEnabled ||
+                isUpdating("native_streaming_show_interim_longer")
+              }
+            />
           </SettingContainer>
           <div className="px-6 pt-2 text-xs leading-relaxed text-[#8f8f8f]">
             Legacy Auto Flush settings are kept for non-streaming local models and

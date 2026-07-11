@@ -127,6 +127,24 @@ pub fn set_log_level(app: AppHandle, level: LogLevel) -> Result<(), String> {
     Ok(())
 }
 
+/// Debug-build-only, process-local console filter. This deliberately does not
+/// alter the persistent file-log setting or write anything to AppSettings.
+#[cfg(debug_assertions)]
+#[specta::specta]
+#[tauri::command]
+pub fn get_dev_console_log_level() -> LogLevel {
+    crate::dev_console_log_level()
+}
+
+/// Debug-build-only, process-local console filter. It resets to Info when the
+/// debug process restarts.
+#[cfg(debug_assertions)]
+#[specta::specta]
+#[tauri::command]
+pub fn set_dev_console_log_level(level: LogLevel) {
+    crate::set_dev_console_log_level(level);
+}
+
 #[specta::specta]
 #[tauri::command]
 pub fn change_dictation_stats_enabled_setting(app: AppHandle, enabled: bool) -> Result<(), String> {
