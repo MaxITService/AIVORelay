@@ -6,12 +6,13 @@ Small rolling log of upstream commits integrated into `main`.
 This file is maintained from `main` only.
 Non-`main` branches must not carry or update independent copies.
 
-Audit note (2026-07-10):
-- Current fetched `upstream/main` head checked locally: `bf258d10`.
-- Safe review cursor for the next `upstream -> main` intake: `0a59e1f3`.
+Audit note (2026-07-12):
+- Current fetched `upstream/main` head checked locally: `38825767`.
+- Safe review cursor for the next `upstream -> main` intake: `38825767`.
 - The table below logs integrated upstream commits only; the review cursor may be newer because it also accounts for explicitly skipped commits.
 - Reviewed corridor from `dad37baa` to `0a59e1f3`: manually adapted `0a59e1f3` (custom words with ampersands); skipped `45e3eed8` (Italian locale plus formatting-only Rust diff) and `cdb46339` (does not fit the fork preview-output architecture).
-- Separately manually adapted `a201be91` (Handy Keys 0.3.0), `e2c72a25` (mic-level IPC throttling), and the remaining tray package portions from `2dd35bbb`/`bf258d10`; `5464bfaa` tray-state tracking was already covered by the fork. The review cursor remains unchanged because the preceding `66e57ca8` through `58760b22` decisions still need to be recorded.
+- Reviewed corridor from `0a59e1f3` to `bf258d10`: manually adapted `a201be91` (Handy Keys 0.3.0), `e2c72a25` (mic-level IPC throttling), and the remaining tray package portions from `2dd35bbb`/`bf258d10`; already covered `eb9301e0` (resampler reset), `a6df7428` (poisoned-mutex recovery), `5464bfaa` (tray-state tracking), and `f79a907f` (fork session-generation/stale-result cancellation); treated `cd040d93` as superseded by the fork's backup/reset/user-notice recovery policy; skipped `66e57ca8` (Linux packaging), `485f4ade` (macOS build fallback), `58760b22` (optional translation), `11c2bb1e` (not needed with fork settings contract), `07637ea9` (logging-only), `f0f7e7ff` (optional split paste-delay UX), and `87c45f81` (version bump).
+- Reviewed corridor from `bf258d10` to `38825767`: adapted `8c46721a` (Moonshine language descriptions) and `38825767` (onboarding download cancellation); already covered `1fd3f912` by the fork's global root Toaster; skipped `438582fc` (X11-only), `15816898` (upstream build documentation), `d1bc82a0` (merge commit), `d929a946` (appearance selector not needed for the fork's fixed dark UI), and `1c4f21ac` (release bump).
 - Explicitly skipped `fc465b49` (default LLM prompt injection defense) by product decision; no code port was made.
 - Re-triaged corridor up to `fdc8cb71`: taken/logged `84d88f91`, `30b57c42`, `b123c1e`, `4609db7f`, `d1d33932`, `557d274d`, `17277cf6`, `58cda3f3`, `e35f0a71`, `cb32d35b`; already covered `095f4ac4`; skipped `fdc8cb71`, `c1697b2a`, `39e855de`, `743d8a54`, `8836d455`, `1a95c9c4`, `cd3ec3ab`, `c5ec92b3`, `e3c9f581`, `075a5887`, `012e0666`, `d33535cf`; treated `a3015026` as separate research / split adaptation, not a normal intake row.
 - Re-triaged corridor from `fdc8cb71` to `564fbc84`: already covered `966ff997` by `cfb7a916`; skipped `f26fe0dc`, `0392b7b6`, `11311bee`, `564fbc84`.
@@ -30,6 +31,8 @@ Rules:
 
 | Merge Date | Upstream Date | Upstream SHA | Upstream Message | Main Message | Issues |
 | --- | --- | --- | --- | --- | --- |
+| 2026-07-12 | 2026-07-11 | `38825767` | Add cancel download functionality to Onboarding component (#1653) | fix(onboarding): allow cancelling model downloads | adapted to fork welcome-step onboarding flow |
+| 2026-07-12 | 2026-07-11 | `8c46721a` | Update descriptions for Moonshine models (#1648) | fix(models): correct Moonshine language descriptions | direct catalog metadata port |
 | 2026-07-10 | 2026-07-09 | `bf258d10` | fix: tray icon invisible on Windows with dark taskbar + light apps (#1423) (#1636) | fix(tray): preserve status and contrast on Windows | manual combined tray port; `5464bfaa` state tracking already covered; review cursor retained |
 | 2026-07-10 | 2026-07-09 | `2dd35bbb` | fix(tray): log tray icon failures instead of panicking (#1355) | fix(tray): preserve status and contrast on Windows | manual combined tray port; added `set_icon` failure logging; review cursor retained |
 | 2026-07-10 | 2026-07-08 | `e2c72a25` | fix: throttle mic-level IPC to mitigate WebKitWebProcess memory leak (#1444) | fix(overlay): throttle mic-level IPC | manual port; retained fork recording-overlay cache and single `emit_to` target; review cursor retained |
@@ -38,8 +41,6 @@ Rules:
 | 2026-07-07 | 2026-07-06 | `dad37baa` | Fix GigaAM v3 description. (#1613) | fix(models): correct GigaAM v3 catalog description | manual metadata port; no cherry-pick |
 | 2026-07-01 | 2026-07-01 | `9b0d8a11` | edit model recs | feat(models): port upstream GGUF catalog | adapted via fork ModelInfo selector contract |
 | 2026-07-01 | 2026-07-01 | `dc01346d` | update language selector | feat(models): expose catalog languages in selector | adapted to fork language constants/filtering |
-| 2026-07-01 | 2026-06-25 | `bff4db7e` | debug + perf transcribe cli (#1541) | feat(cli): add headless transcription benchmark mode | adapted to fork CLI/startup flow |
-| 2026-07-01 | 2026-06-30 | `31d8fc24` | feat: introduce transcribe.cpp / streaming (#1534) | feat(models): adapt transcribe.cpp and streaming preview | manual port; preserved fork preview pipeline |
 
 Entry template:
 
