@@ -7,6 +7,7 @@ import {
   getTranslatedModelName,
   getTranslatedModelDescription,
 } from "../../lib/utils/modelTranslation";
+import { getModelReleaseDate } from "../../lib/utils/modelReleaseDate";
 import Badge from "../ui/Badge";
 
 interface ModelCardProps {
@@ -49,6 +50,11 @@ const ModelCard: React.FC<ModelCardProps> = ({
     >
       <div className="flex flex-col">
         <div className="flex items-center gap-3">
+          {getModelReleaseDate(model.id) && (
+            <span className="text-[10px] tabular-nums text-[#6b6b6b]">
+              {getModelReleaseDate(model.id)}
+            </span>
+          )}
           <h3 className="text-lg font-semibold text-[#f5f5f5] group-hover:text-[#ff4d8d] transition-colors">
             {displayName}
           </h3>
