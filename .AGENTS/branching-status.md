@@ -1,5 +1,5 @@
 # Branching Status
-Branch tags: #branch/main #branch/release-microsoft-store #branch/integration-cuda #branch/integration-combined
+Branch tags: #branch/main #branch/release-microsoft-store #branch/integration-combined
 
 Operational note: this file is a quick reference, not the sole source of truth for the next propagation start point.
 Before starting a new `main` -> branch sync, verify the target branch directly with git history (`git log`, `git cherry`, and if needed `git reflog`).
@@ -13,14 +13,10 @@ Alignment note: `release/microsoft-store` now matches `main` for all non-Store-s
 Sync rule: for this branch, source commits come from `main` only.
 Propagation scope rule: for Microsoft Store Edition propagation, bring over the intended `main` commit set in order unless a commit is store-incompatible. Default exclusions are self-update/auto-update changes and AVX512-only changes; AVX2 is allowed.
 
-## integration/cuda
+## integration/cuda (frozen)
 
-Last synced commit from `main`: `3b37e049` — chore: bump version to 1.0.22.
-Maintenance rule: after a successful `main` -> `integration/cuda` propagation, update this main-copy cursor and the `integration/cuda` worktree copy together.
-Note: the cursor always points to the last propagated commit from `main`, not to CUDA-only commits that were created on top of it.
-Sync rule: for this branch, source commits come from `main` only.
-Propagation scope rule: for CUDA Edition propagation, bring over the intended `main` commit set in order unless a commit is CUDA-incompatible. Default exclusions are Microsoft Store-specific changes and branch-local CUDA dependency/release wiring that only exists on `integration/cuda`.
-Operational note (2026-03-23): for content documentation, treat the branch as reset to the `8c52c9f0` baseline and describe only the remaining CUDA/build/docs layer listed in the `integration/cuda` worktree copy of `[[.AGENTS/cuda-branch-notes|cuda-branch-notes.md]]`.
+Frozen branch head: `ac2ee48a` — docs(sync): record 1.0.22 CUDA propagation.
+Keep its existing build documentation and release infrastructure intact, but do not propagate `main` updates into this branch unless the user explicitly unfreezes it.
 
 ## integration/combined
 

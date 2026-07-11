@@ -3,10 +3,9 @@ Branch tags: #branch/main
 
 This playbook is only for `upstream -> main`.
 
-Do not use this file for `main -> release/microsoft-store` or `main -> integration/cuda` propagation.
+Do not use this file for `main -> release/microsoft-store` propagation.
 That is a separate workflow described in:
 - [[.AGENTS/main-to-microsoft-store-propagation-playbook|main-to-microsoft-store-propagation-playbook.md]]
-- [[.AGENTS/main-to-cuda-propagation-playbook|main-to-cuda-propagation-playbook.md]]
 
 ## Scope
 
@@ -70,7 +69,7 @@ Skip:
 6. Record the integrated upstream commit SHA and the intended `main` commit message for each taken item.
 7. Update [[.AGENTS/upstream-sync-log|upstream-sync-log.md]].
 8. At the end of intake, show the remaining working tree status and propose a commit plan that leaves the worktree clean after the work. Call out any pre-existing unrelated changes before including them in that plan.
-9. If the user later wants `main -> release/microsoft-store` or `main -> integration/cuda`, stop using this playbook and switch to the branch propagation playbook.
+9. If the user later wants `main -> release/microsoft-store`, stop using this playbook and switch to the branch propagation playbook.
 
 ## Cargo.lock
 

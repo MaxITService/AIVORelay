@@ -1,4 +1,4 @@
-Branch tags: #branch/main #branch/release-microsoft-store #branch/integration-cuda #branch/integration-combined
+Branch tags: #branch/main #branch/release-microsoft-store #branch/integration-combined
 
 # All Branches Release Playbook
 
@@ -9,7 +9,6 @@ Use this playbook only when the user asks to prepare or publish releases on more
 Each branch has its own release contract:
 - `main` -> tag `vx.y.z`
 - `release/microsoft-store` -> tag `vx.y.z-store`, GitHub release must be published as a pre-release
-- `integration/cuda` -> tag `vx.y.z-cuda`
 - `integration/combined` -> follow its branch-specific release instructions if the user asks
 
 Never assume that a rule from one branch automatically applies to another branch.
