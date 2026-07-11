@@ -9,6 +9,7 @@ import {
   getTranslatedModelDescription,
   getTranslatedModelName,
 } from "../../../lib/utils/modelTranslation";
+import { getModelReleaseDate } from "../../../lib/utils/modelReleaseDate";
 import { formatModelSize } from "../../../lib/utils/format";
 import { sessionToast as toast } from "../../../lib/sessionToast";
 import { Button } from "../../ui/Button";
@@ -641,6 +642,11 @@ export const ModelsSettings: React.FC = () => {
                   <div className="flex items-center gap-2">
                     <Cpu className="w-4 h-4 text-[#a0a0a0]" />
                     <p className="text-sm font-medium text-[#f5f5f5]">
+                      {getModelReleaseDate(model.id) && (
+                        <span className="mr-2 text-[10px] font-normal tabular-nums text-[#777]">
+                          {getModelReleaseDate(model.id)}
+                        </span>
+                      )}
                       {modelName}
                     </p>
                     {model.is_custom && (
@@ -721,6 +727,11 @@ export const ModelsSettings: React.FC = () => {
             >
               <div className="min-w-0">
                 <p className="text-sm font-medium text-[#f5f5f5]">
+                  {getModelReleaseDate(model.id) && (
+                    <span className="mr-2 text-[10px] font-normal tabular-nums text-[#777]">
+                      {getModelReleaseDate(model.id)}
+                    </span>
+                  )}
                   {getTranslatedModelName(model, t)}
                 </p>
                 <p className="text-xs text-[#a0a0a0] mt-1">
