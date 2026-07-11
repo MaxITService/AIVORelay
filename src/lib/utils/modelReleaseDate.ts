@@ -84,3 +84,16 @@ export function getModelReleaseDate(modelId: string): string | undefined {
 
   return undefined;
 }
+
+export function formatModelReleaseDate(
+  isoDate: string,
+  locale: string,
+): string {
+  const date = new Date(`${isoDate}T00:00:00Z`);
+  const month = new Intl.DateTimeFormat(locale, {
+    month: "long",
+    timeZone: "UTC",
+  }).format(date);
+
+  return `${date.getUTCDate()} ${month} ${date.getUTCFullYear()}`;
+}
