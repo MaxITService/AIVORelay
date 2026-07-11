@@ -10,6 +10,7 @@ import {
   getTranslatedModelName,
 } from "../../../lib/utils/modelTranslation";
 import { formatModelSize } from "../../../lib/utils/format";
+import { sessionToast as toast } from "../../../lib/sessionToast";
 import { Button } from "../../ui/Button";
 import { SettingsGroup } from "../../ui/SettingsGroup";
 import { TellMeMore } from "../../ui/TellMeMore";
@@ -281,7 +282,37 @@ export const ModelsSettings: React.FC = () => {
     setSwitchingModelId(modelId);
     try {
       await ensureLocalProvider();
-      await selectModel(modelId);
+      const selected = await selectModel(modelId);
+      if (!selected) return;
+
+      // A model can have direct final output enabled before it becomes active.
+      // Re-apply the setting after selection so enabling that model cannot
+      // leave the persisted Preview toggle in a conflicting state.
+      const directOutputModels = (getSetting(
+        "native_streaming_live_output_models",
+      ) || []) as string[];
+      const selectedModel = allLocalModels.find((model) => model.id === modelId);
+      if (
+        directOutputModels.includes(modelId) &&
+        selectedModel?.engine_type === "TranscribeCpp" &&
+        selectedModel.supports_streaming
+      ) {
+        const result =
+          await commands.changeNativeStreamingLiveOutputModelSetting(
+            modelId,
+            true,
+          );
+        if (result.status === "error") throw new Error(result.error);
+        if (result.status === "ok" && result.data) {
+          await refreshSettings();
+          toast.info(t("modelSelector.nativeLiveOutput.previewDisabledTitle"), {
+            description: t(
+              "modelSelector.nativeLiveOutput.previewDisabledDescription",
+              { model: selectedModel.name || modelId },
+            ),
+          });
+        }
+      }
     } finally {
       setSwitchingModelId(null);
     }

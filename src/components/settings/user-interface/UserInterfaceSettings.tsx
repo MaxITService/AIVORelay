@@ -25,6 +25,7 @@ import {
 import { Info } from "lucide-react";
 import { HotkeyCapture } from "../../ui/HotkeyCapture";
 import { InfoTooltip } from "../../ui/InfoTooltip";
+import { commands } from "@/bindings";
 
 const SONIOX_LIVE_PREVIEW_CURSOR_OFFSET_MIN = 24;
 const SONIOX_LIVE_PREVIEW_CURSOR_OFFSET_MAX = 320;
@@ -248,6 +249,13 @@ export const UserInterfaceSettings: React.FC = () => {
   const nativeStreamingShowInterimLonger = Boolean(
     (settings as any)?.native_streaming_show_interim_longer ?? true,
   );
+  const nativeLiveOutputEnabledForSelectedModel =
+    (settings as any)?.transcription_provider === "local" &&
+    selectedLocalModel?.engine_type === "TranscribeCpp" &&
+    Boolean(selectedLocalModel?.supports_streaming) &&
+    ((settings as any)?.native_streaming_live_output_models ?? []).includes(
+      selectedLocalModelId,
+    );
   const slidingLmWindowEnabled = Boolean(
     (settings as any)?.soniox_live_preview_sliding_lm_window_enabled ?? false,
   );
@@ -420,6 +428,30 @@ export const UserInterfaceSettings: React.FC = () => {
             <ToggleSwitch
               checked={sonioxLivePreviewEnabled}
               onChange={async (enabled) => {
+                if (enabled && nativeLiveOutputEnabledForSelectedModel) {
+                  const result =
+                    await commands.changeNativeStreamingLiveOutputModelSetting(
+                      selectedLocalModelId,
+                      false,
+                    );
+                  if (result.status === "error") {
+                    throw new Error(result.error);
+                  }
+                  toast.info(
+                    t(
+                      "modelSelector.nativeLiveOutput.directDisabledTitle",
+                    ),
+                    {
+                      description: t(
+                        "modelSelector.nativeLiveOutput.directDisabledDescription",
+                        {
+                          model:
+                            selectedLocalModel?.name || selectedLocalModelId,
+                        },
+                      ),
+                    },
+                  );
+                }
                 await updateSetting(
                   "soniox_live_preview_enabled" as any,
                   enabled as any,

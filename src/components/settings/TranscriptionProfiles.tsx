@@ -19,6 +19,7 @@ import {
   Pencil,
 } from "lucide-react";
 import { commands, TranscriptionProfile } from "@/bindings";
+import { sessionToast as toast } from "@/lib/sessionToast";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 
@@ -1228,6 +1229,22 @@ export const TranscriptionProfiles: React.FC = () => {
     ? settings?.transcription_prompts?.[activeModelId] || ""
     : "";
   const activeProvider = String(settings?.transcription_provider || "local");
+  const nativeLiveOutputEnabledForActiveModel = useMemo(() => {
+    if (activeProvider !== "local" || !activeModelId) return false;
+    const localModelInfo = getModelInfo(activeModelId);
+    return (
+      localModelInfo?.engine_type === "TranscribeCpp" &&
+      localModelInfo?.supports_streaming === true &&
+      ((settings as any)?.native_streaming_live_output_models ?? []).includes(
+        activeModelId,
+      )
+    );
+  }, [
+    activeModelId,
+    activeProvider,
+    getModelInfo,
+    settings,
+  ]);
   const supportsTranslation =
     activeProvider !== "remote_soniox" && activeProvider !== "remote_deepgram";
   const isSonioxProvider = activeProvider === "remote_soniox";
@@ -1418,6 +1435,25 @@ export const TranscriptionProfiles: React.FC = () => {
 
   const handleUpdate = async (profile: ExtendedTranscriptionProfile) => {
     try {
+      const enablingPreviewForActiveProfile =
+        profile.id === activeProfileId &&
+        (profile.preview_output_only_enabled ?? false) &&
+        nativeLiveOutputEnabledForActiveModel;
+      if (enablingPreviewForActiveProfile) {
+        const result = await commands.changeNativeStreamingLiveOutputModelSetting(
+          activeModelId,
+          false,
+        );
+        if (result.status === "error") throw new Error(result.error);
+        toast.info(t("modelSelector.nativeLiveOutput.directDisabledTitle"), {
+          description: t(
+            "modelSelector.nativeLiveOutput.directDisabledDescription",
+            {
+              model: getModelInfo(activeModelId)?.name || activeModelId,
+            },
+          ),
+        });
+      }
       await invoke("update_transcription_profile", {
         payload: {
           id: profile.id,
@@ -1477,6 +1513,21 @@ export const TranscriptionProfiles: React.FC = () => {
       } else {
         const targetProfile = profiles.find((p) => p.id === id);
         previewEnabled = targetProfile?.preview_output_only_enabled ?? false;
+      }
+      if (previewEnabled && nativeLiveOutputEnabledForActiveModel) {
+        const result = await commands.changeNativeStreamingLiveOutputModelSetting(
+          activeModelId,
+          false,
+        );
+        if (result.status === "error") throw new Error(result.error);
+        toast.info(t("modelSelector.nativeLiveOutput.directDisabledTitle"), {
+          description: t(
+            "modelSelector.nativeLiveOutput.directDisabledDescription",
+            {
+              model: getModelInfo(activeModelId)?.name || activeModelId,
+            },
+          ),
+        });
       }
       await invoke("set_active_profile", { id });
       await invoke("change_soniox_live_preview_enabled_setting", { enabled: previewEnabled });

@@ -413,7 +413,7 @@ async changeSonioxLivePreviewEnabledSetting(enabled: boolean) : Promise<Result<n
     else return { status: "error", error: e  as any };
 }
 },
-async changeNativeStreamingLiveOutputModelSetting(modelId: string, enabled: boolean) : Promise<Result<null, string>> {
+async changeNativeStreamingLiveOutputModelSetting(modelId: string, enabled: boolean) : Promise<Result<boolean, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("change_native_streaming_live_output_model_setting", { modelId, enabled }) };
 } catch (e) {

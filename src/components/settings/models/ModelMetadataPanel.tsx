@@ -6,6 +6,7 @@ import { commands } from "@/bindings";
 import { LANGUAGES } from "@/lib/constants/languages";
 import { useSettings } from "../../../hooks/useSettings";
 import { ToggleSwitch } from "../../ui/ToggleSwitch";
+import { sessionToast as toast } from "../../../lib/sessionToast";
 
 const FALLBACK_LANGUAGE_LABELS = new Map(
   LANGUAGES.map((language) => [language.value, language.label] as const),
@@ -367,11 +368,24 @@ export const ModelMetadataPanel: React.FC<{ model: ModelInfo }> = ({
   const handleLiveOutputChange = async (enabled: boolean) => {
     setIsUpdatingLiveOutput(true);
     try {
-      await commands.changeNativeStreamingLiveOutputModelSetting(
+      const result = await commands.changeNativeStreamingLiveOutputModelSetting(
         model.id,
         enabled,
       );
+      if (result.status === "error") {
+        throw new Error(result.error);
+      }
       await refreshSettings();
+      if (result.status === "ok" && result.data) {
+        toast.info(t("modelSelector.nativeLiveOutput.previewDisabledTitle"), {
+          description: t(
+            "modelSelector.nativeLiveOutput.previewDisabledDescription",
+            { model: model.name || model.id },
+          ),
+        });
+      }
+    } catch (error) {
+      toast.error(String(error));
     } finally {
       setIsUpdatingLiveOutput(false);
     }
