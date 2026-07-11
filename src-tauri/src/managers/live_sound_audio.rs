@@ -25,6 +25,7 @@ enum ActiveRealtimeManager {
 }
 
 struct LiveSoundAudioSession {
+    session_id: u64,
     primary_source: AudioCaptureSource,
     primary_device_name: Option<String>,
     mic_device_name: Option<String>,
@@ -287,7 +288,7 @@ fn open_mic_recorder_for_both(
 /// Opens the audio stream (loopback or mic according to settings), creates
 /// a private realtime-manager instance if live-streaming is enabled, wires
 /// the frame callback, and starts recording.
-pub fn start(app: &AppHandle) -> Result<(), String> {
+pub fn start(app: &AppHandle, session_id: u64) -> Result<(), String> {
     let mut guard = SESSION
         .lock()
         .map_err(|_| "Failed to lock live sound audio session".to_string())?;
@@ -374,6 +375,7 @@ pub fn start(app: &AppHandle) -> Result<(), String> {
     }
 
     *guard = Some(LiveSoundAudioSession {
+        session_id,
         primary_source: source,
         primary_device_name: device_name,
         mic_device_name: settings
@@ -398,7 +400,7 @@ pub fn start(app: &AppHandle) -> Result<(), String> {
 ///
 /// For batch mode: stops the recorder; transcription of the captured samples
 /// is a future concern (currently no-op beyond clearing recording state).
-pub fn stop(app: &AppHandle, session_id: u64) {
+pub fn stop(app: &AppHandle) {
     let session = {
         let mut guard = match SESSION.lock() {
             Ok(g) => g,
@@ -410,6 +412,11 @@ pub fn stop(app: &AppHandle, session_id: u64) {
     let Some(mut session) = session else {
         return;
     };
+    let session_id = session.session_id;
+
+    crate::managers::live_sound_transcription::set_recording_if_session_matches(
+        app, session_id, false,
+    );
 
     // Stop both recorders (discard samples — live mode uses WebSocket stream).
     if let Err(e) = session.recorder.stop() {

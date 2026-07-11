@@ -311,6 +311,9 @@ impl DeepgramRealtimeManager {
         let final_text_for_task = Arc::clone(&final_text);
         let app_handle_for_task = self.app_handle.clone();
         let binding_id_for_task = binding_id.to_string();
+        let live_sound_session_id = (binding_id
+            == crate::actions::LIVE_SOUND_TRANSCRIPTION_BINDING_ID)
+            .then(crate::managers::live_sound_transcription::current_session_id);
         let api_key_for_task = api_key.trim().to_string();
         let session_audio_tx = audio_tx.clone();
 
@@ -344,6 +347,7 @@ impl DeepgramRealtimeManager {
                     keepalive_interval_seconds,
                     app_handle_for_task.clone(),
                     binding_id_for_task.clone(),
+                    live_sound_session_id,
                     options.diarize,
                     on_final_chunk,
                 )
@@ -357,11 +361,16 @@ impl DeepgramRealtimeManager {
                     "Deepgram live session runtime error (binding='{}'): {}",
                     binding_id_for_task, err_str
                 );
-                let _ = app_handle_for_task.emit("remote-stt-error", err_str.clone());
-                crate::plus_overlay_state::handle_transcription_error(
-                    &app_handle_for_task,
-                    &err_str,
-                );
+                let callback_is_current = live_sound_session_id
+                    .map(crate::managers::live_sound_transcription::is_session_current)
+                    .unwrap_or(true);
+                if callback_is_current {
+                    let _ = app_handle_for_task.emit("remote-stt-error", err_str.clone());
+                    crate::plus_overlay_state::handle_transcription_error(
+                        &app_handle_for_task,
+                        &err_str,
+                    );
+                }
 
                 if crate::managers::preview_output_mode::is_active_for_binding(&binding_id_for_task)
                 {
@@ -370,13 +379,15 @@ impl DeepgramRealtimeManager {
                         Some(err_str.clone()),
                     );
                 }
-                if binding_id_for_task == crate::actions::LIVE_SOUND_TRANSCRIPTION_BINDING_ID {
-                    crate::managers::live_sound_transcription::set_recording(
+                if let Some(session_id) = live_sound_session_id {
+                    crate::managers::live_sound_transcription::set_recording_if_session_matches(
                         &app_handle_for_task,
+                        session_id,
                         false,
                     );
-                    crate::managers::live_sound_transcription::set_error(
+                    crate::managers::live_sound_transcription::set_error_if_session_matches(
                         &app_handle_for_task,
+                        session_id,
                         Some(err_str.clone()),
                     );
                 }
@@ -435,6 +446,7 @@ impl DeepgramRealtimeManager {
         keepalive_interval_seconds: u32,
         app_handle: AppHandle,
         binding_id: String,
+        live_sound_session_id: Option<u64>,
         diarize: bool,
         on_final_chunk: Option<FinalChunkCallback>,
     ) -> Result<()>
@@ -593,7 +605,7 @@ impl DeepgramRealtimeManager {
                                 interim_text = crate::text_replacement_decapitalize::preview_decapitalize_next_chunk_realtime(&interim_text);
                             }
                             if !chunk_text.is_empty() || !interim_text.is_empty() || from_finalize {
-                                if binding_id == crate::actions::LIVE_SOUND_TRANSCRIPTION_BINDING_ID {
+                                if let Some(session_id) = live_sound_session_id {
                                     let final_blocks = if diarize && is_final {
                                         build_deepgram_raw_speaker_blocks(alternative)
                                     } else {
@@ -606,15 +618,17 @@ impl DeepgramRealtimeManager {
                                     };
 
                                     if !chunk_text.is_empty() {
-                                        crate::managers::live_sound_transcription::append_final_result(
+                                        crate::managers::live_sound_transcription::append_final_result_if_session_matches(
                                             &app_handle,
+                                            session_id,
                                             &chunk_text,
                                             final_blocks,
                                             true,
                                         );
                                     }
-                                    crate::managers::live_sound_transcription::set_interim_result(
+                                    crate::managers::live_sound_transcription::set_interim_result_if_session_matches(
                                         &app_handle,
+                                        session_id,
                                         interim_text.clone(),
                                         interim_blocks,
                                     );

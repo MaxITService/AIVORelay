@@ -221,6 +221,25 @@ where
     emit_state_update(app, &payload);
 }
 
+fn update_state_if_session_matches<F>(app: &AppHandle, session_id: u64, updater: F) -> bool
+where
+    F: FnOnce(&mut LiveSoundTranscriptionRuntime),
+{
+    let payload = {
+        let mut guard = match LIVE_SOUND_TRANSCRIPTION_STATE.lock() {
+            Ok(guard) => guard,
+            Err(_) => return false,
+        };
+        if session_id == 0 || guard.session_id != session_id {
+            return false;
+        }
+        updater(&mut guard);
+        guard.to_payload()
+    };
+    emit_state_update(app, &payload);
+    true
+}
+
 pub fn get_state_payload() -> LiveSoundTranscriptionStatePayload {
     LIVE_SOUND_TRANSCRIPTION_STATE
         .lock()
@@ -235,7 +254,15 @@ pub fn current_session_id() -> u64 {
         .unwrap_or_default()
 }
 
-pub fn activate_session(app: &AppHandle, binding_id: String, auto_stop_minutes: u32) {
+pub fn is_session_current(session_id: u64) -> bool {
+    session_id != 0
+        && LIVE_SOUND_TRANSCRIPTION_STATE
+            .lock()
+            .map(|state| state.session_id == session_id)
+            .unwrap_or(false)
+}
+
+pub fn activate_session(app: &AppHandle, binding_id: String, auto_stop_minutes: u32) -> u64 {
     cancel_auto_stop_task();
 
     let session_id = NEXT_LIVE_SOUND_SESSION_ID.fetch_add(1, Ordering::Relaxed);
@@ -261,6 +288,8 @@ pub fn activate_session(app: &AppHandle, binding_id: String, auto_stop_minutes: 
     if should_start_auto_stop {
         spawn_auto_stop_task(app, session_id);
     }
+
+    session_id
 }
 
 pub fn finish_session(app: &AppHandle) {
@@ -272,6 +301,7 @@ pub fn finish_session(app: &AppHandle) {
         state.binding_id = None;
         state.interim_text.clear();
         state.interim_raw_blocks.clear();
+        state.session_id = 0;
         state.auto_stop_deadline = None;
     });
 }
@@ -292,14 +322,18 @@ pub fn set_recording(app: &AppHandle, recording: bool) {
 }
 
 pub fn set_recording_if_session_matches(app: &AppHandle, session_id: u64, recording: bool) {
-    let matches_session = LIVE_SOUND_TRANSCRIPTION_STATE
-        .lock()
-        .map(|state| state.session_id == session_id)
-        .unwrap_or(false);
-
-    if matches_session {
-        set_recording(app, recording);
+    if !recording && is_session_current(session_id) {
+        cancel_auto_stop_task();
     }
+
+    update_state_if_session_matches(app, session_id, move |state| {
+        state.recording = recording;
+        if recording {
+            state.active = true;
+        } else {
+            state.auto_stop_deadline = None;
+        }
+    });
 }
 
 pub fn set_processing_llm(app: &AppHandle, processing_llm: bool) {
@@ -310,6 +344,16 @@ pub fn set_processing_llm(app: &AppHandle, processing_llm: bool) {
 
 pub fn set_error(app: &AppHandle, error_message: Option<String>) {
     update_state(app, move |state| {
+        state.error_message = error_message;
+    });
+}
+
+pub fn set_error_if_session_matches(
+    app: &AppHandle,
+    session_id: u64,
+    error_message: Option<String>,
+) {
+    update_state_if_session_matches(app, session_id, move |state| {
         state.error_message = error_message;
     });
 }
@@ -356,8 +400,35 @@ pub fn append_final_result(
     });
 }
 
+pub fn append_final_result_if_session_matches(
+    app: &AppHandle,
+    session_id: u64,
+    final_text: &str,
+    raw_blocks: Vec<RawSpeakerBlock>,
+    add_separator: bool,
+) {
+    update_state_if_session_matches(app, session_id, move |state| {
+        state.push_final_text(final_text, add_separator);
+        if !raw_blocks.is_empty() {
+            state.final_raw_blocks.extend(raw_blocks);
+        }
+    });
+}
+
 pub fn set_interim_result(app: &AppHandle, interim_text: String, raw_blocks: Vec<RawSpeakerBlock>) {
     update_state(app, move |state| {
+        state.interim_text = interim_text.trim().to_string();
+        state.interim_raw_blocks = raw_blocks;
+    });
+}
+
+pub fn set_interim_result_if_session_matches(
+    app: &AppHandle,
+    session_id: u64,
+    interim_text: String,
+    raw_blocks: Vec<RawSpeakerBlock>,
+) {
+    update_state_if_session_matches(app, session_id, move |state| {
         state.interim_text = interim_text.trim().to_string();
         state.interim_raw_blocks = raw_blocks;
     });
