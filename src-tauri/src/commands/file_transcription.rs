@@ -594,6 +594,9 @@ pub async fn transcribe_audio_file(
             tm.initiate_model_load();
         }
 
+        let transcription_model_id = model_override
+            .as_deref()
+            .unwrap_or(&settings.selected_model);
         let result = if needs_segments {
             if let Some(p) = &profile {
                 tm.transcribe_file_with_segments(
@@ -603,7 +606,7 @@ pub async fn transcribe_audio_file(
                     crate::settings::resolve_stt_prompt(
                         Some(p),
                         &settings.transcription_prompts,
-                        &settings.selected_model,
+                        transcription_model_id,
                     ),
                     apply_custom_words_enabled,
                 )
@@ -627,7 +630,7 @@ pub async fn transcribe_audio_file(
                     crate::settings::resolve_stt_prompt(
                         Some(p),
                         &settings.transcription_prompts,
-                        &settings.selected_model,
+                        transcription_model_id,
                     ),
                     apply_custom_words_enabled,
                 )
