@@ -357,7 +357,11 @@
     "nativeLiveOutput": {
       "title": "Live final output",
       "finalOnly": "Final chunks only",
-      "description": "Type confirmed chunks into the active field while recording. Tentative text is never inserted. This takes priority over Output to Preview for this model."
+      "description": "Type confirmed chunks into the active field while recording. Tentative text is never inserted. This takes priority over Output to Preview for this model.",
+      "previewDisabledTitle": "Live Preview disabled",
+      "previewDisabledDescription": "Live final output and Live Preview cannot run together for {{model}}. It will now insert only confirmed final chunks directly into the active field. Turn Live Preview back on to return to the preview workflow.",
+      "directDisabledTitle": "Live final output disabled",
+      "directDisabledDescription": "Live Preview and direct final-chunk insertion cannot run together for {{model}}. It will now keep text in the Preview window until you insert it."
     },
     "deleteModel": "Delete {{modelName}}",
     "custom": "Custom",

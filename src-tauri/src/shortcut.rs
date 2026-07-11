@@ -145,7 +145,6 @@ fn uses_live_streaming_for_settings(settings: &settings::AppSettings) -> bool {
             .native_streaming_live_output_models
             .iter()
             .any(|model_id| model_id == &settings.selected_model),
-        _ => false,
     }
 }
 
@@ -1657,13 +1656,43 @@ pub fn change_native_streaming_live_output_model_setting(
     app: AppHandle,
     model_id: String,
     enabled: bool,
-) -> Result<(), String> {
+) -> Result<bool, String> {
     let model_id = model_id.trim();
     if model_id.is_empty() {
         return Err("A model ID is required for native streaming live output".to_string());
     }
 
     let mut settings = settings::get_settings(&app);
+    let mut preview_was_disabled = false;
+    let active_profile_id = settings.active_profile_id.clone();
+
+    // Direct final-chunk insertion and Output to Preview are mutually
+    // exclusive for the active model. Disable the active profile's preview
+    // route atomically with enabling direct output so the UI and runtime agree.
+    if enabled
+        && settings.transcription_provider == settings::TranscriptionProvider::Local
+        && settings.selected_model == model_id
+    {
+        preview_was_disabled = settings.soniox_live_preview_enabled
+            || if active_profile_id == "default" {
+                settings.preview_output_only_enabled
+            } else {
+                settings
+                    .transcription_profile(&active_profile_id)
+                    .map(|profile| profile.preview_output_only_enabled)
+                    .unwrap_or(false)
+            };
+        settings.soniox_live_preview_enabled = false;
+        if active_profile_id == "default" {
+            settings.preview_output_only_enabled = false;
+        } else if let Some(profile) = settings
+            .transcription_profiles
+            .iter_mut()
+            .find(|profile| profile.id == active_profile_id)
+        {
+            profile.preview_output_only_enabled = false;
+        }
+    }
     settings
         .native_streaming_live_output_models
         .retain(|configured_model_id| configured_model_id != model_id);
@@ -1673,7 +1702,10 @@ pub fn change_native_streaming_live_output_model_setting(
             .push(model_id.to_string());
     }
     settings::write_settings(&app, settings);
-    Ok(())
+    if preview_was_disabled {
+        refresh_soniox_live_preview_window(&app);
+    }
+    Ok(preview_was_disabled)
 }
 
 #[tauri::command]
