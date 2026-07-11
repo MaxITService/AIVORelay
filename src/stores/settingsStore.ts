@@ -478,6 +478,10 @@ settingUpdaters.error_overlay_auto_hide_ms = (value) =>
   invoke("change_voice_button_single_click_close_setting", { enabled: value });
 (settingUpdaters as any).soniox_live_preview_enabled = (value: any) =>
   invoke("change_soniox_live_preview_enabled_setting", { enabled: value });
+(settingUpdaters as any).native_streaming_show_interim_longer = (value: any) =>
+  invoke("change_native_streaming_show_interim_longer_setting", {
+    enabled: value,
+  });
 (settingUpdaters as any).local_preview_auto_flush_enabled = (
   value: any,
 ) =>

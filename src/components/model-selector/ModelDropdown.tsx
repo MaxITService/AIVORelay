@@ -277,8 +277,8 @@ const ModelDropdown: React.FC<ModelDropdownProps> = ({
             {t("modelSelector.availableModels")}
           </div>
           {availableModels.map((model) => (
+            <React.Fragment key={model.id}>
             <div
-              key={model.id}
               onClick={() => handleModelClick(model.id)}
               onKeyDown={(e) => {
                 if (e.key === "Enter" || e.key === " ") {
@@ -343,6 +343,7 @@ const ModelDropdown: React.FC<ModelDropdownProps> = ({
                 </div>
               </div>
             </div>
+            </React.Fragment>
           ))}
         </div>
       )}

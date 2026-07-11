@@ -414,7 +414,9 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({
 
   const currentModel = getCurrentModel();
   const currentModelSupportsNativeStreaming =
-    !isRemoteProvider && Boolean(currentModel?.supports_streaming);
+    !isRemoteProvider &&
+    currentModel?.engine_type === "TranscribeCpp" &&
+    Boolean(currentModel.supports_streaming);
   const livePreviewEnabled = Boolean(
     getSetting("soniox_live_preview_enabled") ||
       getSetting("preview_output_only_enabled"),

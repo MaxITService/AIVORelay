@@ -1657,6 +1657,13 @@ pub struct AppSettings {
     pub soniox_live_preview_accent_color: String,
     #[serde(default = "default_soniox_live_preview_interim_opacity_percent")]
     pub soniox_live_preview_interim_opacity_percent: u8,
+    /// Model IDs whose native streaming output is pasted incrementally while recording.
+    /// Only committed chunks are ever sent to the active application.
+    #[serde(default)]
+    pub native_streaming_live_output_models: Vec<String>,
+    /// Keep Voxtral's tentative tail visible long enough to read in Live Preview.
+    #[serde(default = "default_native_streaming_show_interim_longer")]
+    pub native_streaming_show_interim_longer: bool,
     #[serde(default)]
     pub soniox_live_preview_close_hotkey: String,
     #[serde(default)]
@@ -2497,6 +2504,10 @@ fn default_soniox_live_preview_accent_color() -> String {
 
 fn default_soniox_live_preview_interim_opacity_percent() -> u8 {
     58
+}
+
+fn default_native_streaming_show_interim_longer() -> bool {
+    true
 }
 
 fn default_local_preview_auto_flush_enabled() -> bool {
@@ -3419,6 +3430,8 @@ pub fn get_default_settings() -> AppSettings {
         soniox_live_preview_accent_color: default_soniox_live_preview_accent_color(),
         soniox_live_preview_interim_opacity_percent:
             default_soniox_live_preview_interim_opacity_percent(),
+        native_streaming_live_output_models: Vec::new(),
+        native_streaming_show_interim_longer: default_native_streaming_show_interim_longer(),
         soniox_live_preview_close_hotkey: String::new(),
         soniox_live_preview_clear_hotkey: String::new(),
         soniox_live_preview_flush_hotkey: String::new(),

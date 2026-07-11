@@ -413,6 +413,22 @@ async changeSonioxLivePreviewEnabledSetting(enabled: boolean) : Promise<Result<n
     else return { status: "error", error: e  as any };
 }
 },
+async changeNativeStreamingLiveOutputModelSetting(modelId: string, enabled: boolean) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("change_native_streaming_live_output_model_setting", { modelId, enabled }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async changeNativeStreamingShowInterimLongerSetting(enabled: boolean) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("change_native_streaming_show_interim_longer_setting", { enabled }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async changeLocalPreviewAutoFlushEnabledSetting(enabled: boolean) : Promise<Result<null, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("change_local_preview_auto_flush_enabled_setting", { enabled }) };
@@ -2310,6 +2326,20 @@ async setLogLevel(level: LogLevel) : Promise<Result<null, string>> {
     else return { status: "error", error: e  as any };
 }
 },
+/**
+ * Debug-build-only, process-local console filter. This deliberately does not
+ * alter the persistent file-log setting or write anything to AppSettings.
+ */
+async getDevConsoleLogLevel() : Promise<LogLevel> {
+    return await TAURI_INVOKE("get_dev_console_log_level");
+},
+/**
+ * Debug-build-only, process-local console filter. It resets to Info when the
+ * debug process restarts.
+ */
+async setDevConsoleLogLevel(level: LogLevel) : Promise<void> {
+    await TAURI_INVOKE("set_dev_console_log_level", { level });
+},
 async changeDictationStatsEnabledSetting(enabled: boolean) : Promise<Result<null, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("change_dictation_stats_enabled_setting", { enabled }) };
@@ -3370,7 +3400,16 @@ error_overlay_auto_hide_ms?: number;
 /**
  * Show runtime errors in the recording overlay.
  */
-error_feedback_enabled?: boolean; recording_overlay_custom_enabled?: boolean; recording_overlay_show_drag_grip?: boolean; recording_overlay_theme?: RecordingOverlayTheme; recording_overlay_background_mode?: RecordingOverlayBackgroundMode; recording_overlay_material_mode?: RecordingOverlayMaterialMode; recording_overlay_centerpiece_mode?: RecordingOverlayCenterpieceMode; recording_overlay_animated_border_mode?: RecordingOverlayAnimatedBorderMode; recording_overlay_show_status_icon?: boolean; recording_overlay_show_cancel_button?: boolean; recording_overlay_bar_count?: number; recording_overlay_width_px?: number; recording_overlay_bar_width_px?: number; recording_overlay_bar_style?: RecordingOverlayBarStyle; recording_overlay_accent_color?: string; recording_overlay_status_icon_color?: string; recording_overlay_cancel_icon_color?: string; recording_overlay_surface_base_color?: string; recording_overlay_body_background_color?: string; recording_overlay_audio_reactive_scale?: boolean; recording_overlay_audio_reactive_scale_max_percent?: number; recording_overlay_voice_sensitivity_percent?: number; recording_overlay_animation_softness_percent?: number; recording_overlay_depth_parallax_percent?: number; recording_overlay_opacity_percent?: number; recording_overlay_silence_fade?: boolean; recording_overlay_silence_opacity_percent?: number; recording_overlay_decapitalize_indicator_mode?: RecordingOverlayDecapitalizeIndicatorMode; recording_overlay_decapitalize_indicator_custom_text?: string; recording_overlay_decapitalize_indicator_font_family?: string; recording_overlay_decapitalize_indicator_font_size_px?: number; recording_overlay_decapitalize_indicator_color?: string; soniox_live_preview_enabled?: boolean; soniox_live_preview_position?: SonioxLivePreviewPosition; soniox_live_preview_cursor_offset_px?: number; soniox_live_preview_custom_x_px?: number; soniox_live_preview_custom_y_px?: number; soniox_live_preview_size?: SonioxLivePreviewSize; soniox_live_preview_custom_width_px?: number; soniox_live_preview_custom_height_px?: number; soniox_live_preview_theme?: SonioxLivePreviewTheme; soniox_live_preview_opacity_percent?: number; soniox_live_preview_font_color?: string; soniox_live_preview_interim_font_color?: string; soniox_live_preview_accent_color?: string; soniox_live_preview_interim_opacity_percent?: number; soniox_live_preview_close_hotkey?: string; soniox_live_preview_clear_hotkey?: string; soniox_live_preview_flush_hotkey?: string; soniox_live_preview_process_hotkey?: string; soniox_live_preview_insert_hotkey?: string; soniox_live_preview_delete_until_dot_or_comma_hotkey?: string; soniox_live_preview_delete_until_dot_hotkey?: string; soniox_live_preview_delete_last_word_hotkey?: string; soniox_live_preview_show_clear_button?: boolean; soniox_live_preview_show_flush_button?: boolean; soniox_live_preview_show_process_button?: boolean; soniox_live_preview_show_insert_button?: boolean; soniox_live_preview_show_delete_until_dot_or_comma_button?: boolean; soniox_live_preview_show_delete_until_dot_button?: boolean; soniox_live_preview_show_delete_last_word_button?: boolean; soniox_live_preview_ctrl_backspace_delete_last_word?: boolean; soniox_live_preview_backspace_delete_last_char?: boolean; soniox_live_preview_show_drag_grip?: boolean; local_preview_auto_flush_enabled?: boolean; local_preview_auto_flush_interval_ms?: number; local_preview_auto_flush_overlap_ms?: number; soniox_live_preview_sliding_lm_window_enabled?: boolean; soniox_live_preview_sliding_lm_window_prompt?: string; soniox_live_preview_sliding_lm_window_tail_words?: number; debug_mode?: boolean; log_level?: LogLevel; custom_words?: string[]; custom_words_enabled?: boolean; custom_words_ngram_enabled?: boolean; model_unload_timeout?: ModelUnloadTimeout; word_correction_threshold?: number; history_limit?: number; recording_retention_period?: RecordingRetentionPeriod; dictation_stats_enabled?: boolean; dictation_word_count?: number; dictation_word_count_since_ms?: number | null; dictation_character_count?: number; dictation_character_count_since_ms?: number | null; paste_method?: PasteMethod; paste_delay_ms?: number; 
+error_feedback_enabled?: boolean; recording_overlay_custom_enabled?: boolean; recording_overlay_show_drag_grip?: boolean; recording_overlay_theme?: RecordingOverlayTheme; recording_overlay_background_mode?: RecordingOverlayBackgroundMode; recording_overlay_material_mode?: RecordingOverlayMaterialMode; recording_overlay_centerpiece_mode?: RecordingOverlayCenterpieceMode; recording_overlay_animated_border_mode?: RecordingOverlayAnimatedBorderMode; recording_overlay_show_status_icon?: boolean; recording_overlay_show_cancel_button?: boolean; recording_overlay_bar_count?: number; recording_overlay_width_px?: number; recording_overlay_bar_width_px?: number; recording_overlay_bar_style?: RecordingOverlayBarStyle; recording_overlay_accent_color?: string; recording_overlay_status_icon_color?: string; recording_overlay_cancel_icon_color?: string; recording_overlay_surface_base_color?: string; recording_overlay_body_background_color?: string; recording_overlay_audio_reactive_scale?: boolean; recording_overlay_audio_reactive_scale_max_percent?: number; recording_overlay_voice_sensitivity_percent?: number; recording_overlay_animation_softness_percent?: number; recording_overlay_depth_parallax_percent?: number; recording_overlay_opacity_percent?: number; recording_overlay_silence_fade?: boolean; recording_overlay_silence_opacity_percent?: number; recording_overlay_decapitalize_indicator_mode?: RecordingOverlayDecapitalizeIndicatorMode; recording_overlay_decapitalize_indicator_custom_text?: string; recording_overlay_decapitalize_indicator_font_family?: string; recording_overlay_decapitalize_indicator_font_size_px?: number; recording_overlay_decapitalize_indicator_color?: string; soniox_live_preview_enabled?: boolean; soniox_live_preview_position?: SonioxLivePreviewPosition; soniox_live_preview_cursor_offset_px?: number; soniox_live_preview_custom_x_px?: number; soniox_live_preview_custom_y_px?: number; soniox_live_preview_size?: SonioxLivePreviewSize; soniox_live_preview_custom_width_px?: number; soniox_live_preview_custom_height_px?: number; soniox_live_preview_theme?: SonioxLivePreviewTheme; soniox_live_preview_opacity_percent?: number; soniox_live_preview_font_color?: string; soniox_live_preview_interim_font_color?: string; soniox_live_preview_accent_color?: string; soniox_live_preview_interim_opacity_percent?: number;
+/**
+ * Model IDs whose native streaming output is pasted incrementally while recording.
+ * Only committed chunks are ever sent to the active application.
+ */
+native_streaming_live_output_models?: string[];
+/**
+ * Keep Voxtral's tentative tail visible long enough to read in Live Preview.
+ */
+native_streaming_show_interim_longer?: boolean; soniox_live_preview_close_hotkey?: string; soniox_live_preview_clear_hotkey?: string; soniox_live_preview_flush_hotkey?: string; soniox_live_preview_process_hotkey?: string; soniox_live_preview_insert_hotkey?: string; soniox_live_preview_delete_until_dot_or_comma_hotkey?: string; soniox_live_preview_delete_until_dot_hotkey?: string; soniox_live_preview_delete_last_word_hotkey?: string; soniox_live_preview_show_clear_button?: boolean; soniox_live_preview_show_flush_button?: boolean; soniox_live_preview_show_process_button?: boolean; soniox_live_preview_show_insert_button?: boolean; soniox_live_preview_show_delete_until_dot_or_comma_button?: boolean; soniox_live_preview_show_delete_until_dot_button?: boolean; soniox_live_preview_show_delete_last_word_button?: boolean; soniox_live_preview_ctrl_backspace_delete_last_word?: boolean; soniox_live_preview_backspace_delete_last_char?: boolean; soniox_live_preview_show_drag_grip?: boolean; local_preview_auto_flush_enabled?: boolean; local_preview_auto_flush_interval_ms?: number; local_preview_auto_flush_overlap_ms?: number; soniox_live_preview_sliding_lm_window_enabled?: boolean; soniox_live_preview_sliding_lm_window_prompt?: string; soniox_live_preview_sliding_lm_window_tail_words?: number; debug_mode?: boolean; log_level?: LogLevel; custom_words?: string[]; custom_words_enabled?: boolean; custom_words_ngram_enabled?: boolean; model_unload_timeout?: ModelUnloadTimeout; word_correction_threshold?: number; history_limit?: number; recording_retention_period?: RecordingRetentionPeriod; dictation_stats_enabled?: boolean; dictation_word_count?: number; dictation_word_count_since_ms?: number | null; dictation_character_count?: number; dictation_character_count_since_ms?: number | null; paste_method?: PasteMethod; paste_delay_ms?: number;
 /**
  * Convert LF to CRLF before clipboard paste (fixes newlines on Windows)
  */

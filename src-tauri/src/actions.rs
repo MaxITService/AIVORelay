@@ -1439,12 +1439,15 @@ fn start_recording_with_feedback(app: &AppHandle, binding_id: &str) -> bool {
 
     let should_latch_decapitalize_for_standard_output = is_transcribe_binding_id(binding_id)
         && settings.text_replacement_decapitalize_after_edit_key_enabled
-        && !should_use_live_streaming(&settings);
+        && !should_use_live_streaming(&settings)
+        && !native_streaming_live_output_enabled(&settings);
     let captured_profile = captured_profile_id
         .as_ref()
         .and_then(|profile_id| settings.transcription_profile(profile_id));
     let use_native_local_streaming =
         should_use_native_local_streaming(app, &settings, captured_profile, binding_id);
+    let native_stream_direct_output =
+        use_native_local_streaming && native_streaming_live_output_enabled(&settings);
     let native_stream_language = captured_profile
         .map(|profile| profile.language.clone())
         .unwrap_or_else(|| settings.selected_language.clone());
@@ -1502,7 +1505,25 @@ fn start_recording_with_feedback(app: &AppHandle, binding_id: &str) -> bool {
     }
     if use_native_local_streaming {
         tm.cancel_stream();
-        tm.start_stream(native_stream_language, native_stream_translate);
+        let on_committed_text = native_stream_direct_output.then(|| {
+            let app_handle = app.clone();
+            Arc::new(move |chunk: String| {
+                let app_for_main_thread = app_handle.clone();
+                let app_for_paste = app_for_main_thread.clone();
+                if let Err(error) = app_for_main_thread.run_on_main_thread(move || {
+                    if let Err(error) = crate::clipboard::paste_stream_chunk(chunk, app_for_paste) {
+                        warn!("Failed to insert native streaming chunk: {}", error);
+                    }
+                }) {
+                    warn!("Failed to queue native streaming chunk insert: {}", error);
+                }
+            }) as crate::managers::transcription::NativeStreamCommittedCallback
+        });
+        tm.start_stream(
+            native_stream_language,
+            native_stream_translate,
+            on_committed_text,
+        );
         let stream_router = tm.stream_router();
         rm.set_stream_frame_callback(Arc::new(move |frame| {
             stream_router.feed(&frame);
@@ -2682,6 +2703,7 @@ async fn stop_recording_for_transcribe_action(
 
     if is_transcribe_binding_id(binding_id)
         && recording_settings.text_replacement_decapitalize_after_edit_key_enabled
+        && !native_streaming_live_output_enabled(recording_settings)
     {
         crate::text_replacement_decapitalize::begin_standard_post_recording_monitor(
             recording_settings.text_replacement_decapitalize_standard_post_recording_monitor_ms,
@@ -2979,6 +3001,14 @@ fn local_model_supports_native_streaming(app: &AppHandle, settings: &AppSettings
         .unwrap_or(false)
 }
 
+fn native_streaming_live_output_enabled(settings: &AppSettings) -> bool {
+    settings.transcription_provider == TranscriptionProvider::Local
+        && settings
+            .native_streaming_live_output_models
+            .iter()
+            .any(|model_id| model_id == &settings.selected_model)
+}
+
 fn should_use_native_local_streaming(
     app: &AppHandle,
     settings: &AppSettings,
@@ -2986,8 +3016,9 @@ fn should_use_native_local_streaming(
     binding_id: &str,
 ) -> bool {
     binding_id != LIVE_SOUND_TRANSCRIPTION_BINDING_ID
-        && should_route_output_to_preview(settings, profile)
         && local_model_supports_native_streaming(app, settings)
+        && (should_route_output_to_preview(settings, profile)
+            || native_streaming_live_output_enabled(settings))
 }
 
 fn active_recording_settings_for_binding(
@@ -5643,8 +5674,11 @@ impl ShortcutAction for TranscribeAction {
             binding_id,
             optimized_delivery_profile_id.as_ref(),
         );
-        let preview_output_only_enabled = binding_id == LIVE_SOUND_TRANSCRIPTION_BINDING_ID
-            || should_route_output_to_preview(&settings, profile);
+        let native_streaming_live_output = native_streaming_live_output_enabled(&settings)
+            && local_model_supports_native_streaming(app, &settings);
+        let preview_output_only_enabled = (binding_id == LIVE_SOUND_TRANSCRIPTION_BINDING_ID
+            || should_route_output_to_preview(&settings, profile))
+            && !native_streaming_live_output;
         let use_native_local_streaming =
             should_use_native_local_streaming(app, &settings, profile, binding_id);
         let use_local_preview_streaming =
@@ -5656,6 +5690,12 @@ impl ShortcutAction for TranscribeAction {
             let _ = take_force_post_process_for_binding(binding_id);
             reset_toggle_state(app, binding_id);
             return;
+        }
+
+        if native_streaming_live_output {
+            if let Err(error) = crate::clipboard::begin_streaming_paste_session(app) {
+                warn!("Failed to begin native streaming clipboard session: {}", error);
+            }
         }
 
         if preview_output_only_enabled && binding_id != LIVE_SOUND_TRANSCRIPTION_BINDING_ID {
@@ -6463,10 +6503,12 @@ impl ShortcutAction for TranscribeAction {
         let current_app = stop_context.current_app.clone();
         let recording_settings = stop_context.recording_settings.clone();
         let recording_operation_id = stop_context.operation_id;
+        let native_streaming_live_output = native_streaming_live_output_enabled(&recording_settings)
+            && local_model_supports_native_streaming(app, &recording_settings);
         let preview_output_only_enabled = should_route_output_to_preview_for_captured_profile(
             &recording_settings,
             captured_profile_id.as_ref(),
-        );
+        ) && !native_streaming_live_output;
         if preview_output_only_enabled {
             crate::managers::preview_output_mode::set_recording(app, false);
             crate::managers::preview_output_mode::set_error(app, None);
@@ -6485,6 +6527,9 @@ impl ShortcutAction for TranscribeAction {
                 == TranscriptionProvider::RemoteSoniox
                 && recording_settings.soniox_live_enabled
                 && SonioxRealtimeManager::is_realtime_model(&recording_settings.soniox_model);
+            let is_native_streaming_insert = native_streaming_live_output;
+            let uses_streaming_insert =
+                is_soniox_streaming_insert || is_native_streaming_insert;
             let is_soniox_optimized_delivery = should_use_soniox_optimized_delivery(
                 &recording_settings,
                 &binding_id,
@@ -6522,7 +6567,7 @@ impl ShortcutAction for TranscribeAction {
                     if is_soniox_optimized_delivery {
                         ah.state::<Arc<SonioxRealtimeManager>>().cancel();
                     }
-                    if is_soniox_streaming_insert && !preview_output_only_enabled {
+                    if uses_streaming_insert && !preview_output_only_enabled {
                         let _ = crate::clipboard::end_streaming_paste_session(&ah);
                     } else if preview_output_only_enabled && !invoked_from_preview_action {
                         close_preview_output_mode_workflow(&ah, true);
@@ -6532,8 +6577,8 @@ impl ShortcutAction for TranscribeAction {
                 }
             };
 
-            let native_stream_text = if preview_output_only_enabled
-                && recording_settings.transcription_provider == TranscriptionProvider::Local
+            let native_stream_text = if recording_settings.transcription_provider == TranscriptionProvider::Local
+                && (preview_output_only_enabled || is_native_streaming_insert)
                 && !stopped.quick_tap_skipped
             {
                 let tm = Arc::clone(&ah.state::<Arc<TranscriptionManager>>());
@@ -6545,7 +6590,7 @@ impl ShortcutAction for TranscribeAction {
                             let message =
                                 format!("Native local streaming finalization failed: {}", err);
                             crate::managers::preview_output_mode::set_error(&ah, Some(message));
-                            if is_soniox_streaming_insert && !preview_output_only_enabled {
+                            if uses_streaming_insert && !preview_output_only_enabled {
                                 let _ = crate::clipboard::end_streaming_paste_session(&ah);
                             } else if preview_output_only_enabled && !invoked_from_preview_action {
                                 close_preview_output_mode_workflow(&ah, true);
@@ -6592,7 +6637,7 @@ impl ShortcutAction for TranscribeAction {
                             if is_soniox_optimized_delivery {
                                 ah.state::<Arc<SonioxRealtimeManager>>().cancel();
                             }
-                            if is_soniox_streaming_insert && !preview_output_only_enabled {
+                            if uses_streaming_insert && !preview_output_only_enabled {
                                 let _ = crate::clipboard::end_streaming_paste_session(&ah);
                             } else if preview_output_only_enabled && !invoked_from_preview_action {
                                 close_preview_output_mode_workflow(&ah, true);
@@ -6607,7 +6652,7 @@ impl ShortcutAction for TranscribeAction {
                 if is_soniox_optimized_delivery {
                     ah.state::<Arc<SonioxRealtimeManager>>().cancel();
                 }
-                if is_soniox_streaming_insert && !preview_output_only_enabled {
+                if uses_streaming_insert && !preview_output_only_enabled {
                     let _ = crate::clipboard::end_streaming_paste_session(&ah);
                 } else if preview_output_only_enabled && !invoked_from_preview_action {
                     let text_to_insert =
@@ -6663,7 +6708,7 @@ impl ShortcutAction for TranscribeAction {
             {
                 Some(text) => text,
                 None => {
-                    if is_soniox_streaming_insert && !preview_output_only_enabled {
+                    if uses_streaming_insert && !preview_output_only_enabled {
                         let _ = crate::clipboard::end_streaming_paste_session(&ah);
                     } else if preview_processing_before_insert {
                         fail_preview_processing_before_insert(
@@ -6693,8 +6738,8 @@ impl ShortcutAction for TranscribeAction {
                 before_dictation_final_output(&ah, &final_text);
             }
             ah.run_on_main_thread(move || {
-                if is_soniox_streaming_insert && !preview_output_only_enabled {
-                    // Soniox path already inserted text incrementally while chunks arrived.
+                if uses_streaming_insert && !preview_output_only_enabled {
+                    // Streaming paths already inserted only committed text incrementally.
                     // Apply only boundary-level trailing adjustment at finalization.
                     apply_stream_trailing_adjustment(&ah_clone, stream_trailing_adjustment);
                     if copy_to_clipboard {
@@ -6726,7 +6771,7 @@ impl ShortcutAction for TranscribeAction {
                 }
             }
 
-            if is_soniox_streaming_insert && !preview_output_only_enabled {
+            if uses_streaming_insert && !preview_output_only_enabled {
                 if let Err(e) = crate::clipboard::end_streaming_paste_session(&ah) {
                     warn!("Failed to end streaming clipboard session: {}", e);
                 }
