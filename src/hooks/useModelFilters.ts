@@ -1,5 +1,6 @@
 import { useCallback, useMemo, useState } from "react";
 import type { ModelInfo } from "@/bindings";
+import { getModelReleaseDate } from "@/lib/utils/modelReleaseDate";
 
 // Size range presets (in MB)
 const SIZE_RANGES = {
@@ -22,6 +23,7 @@ export type ModelFilters = {
   supportsStreaming: boolean | null;
   recommendedOnly: boolean;
   languages: Set<string>; // ISO codes
+  releasedAfter: string; // ISO date, exclusive
 };
 
 const DEFAULT_FILTERS: ModelFilters = {
@@ -32,6 +34,7 @@ const DEFAULT_FILTERS: ModelFilters = {
   supportsStreaming: null,
   recommendedOnly: false,
   languages: new Set(),
+  releasedAfter: "",
 };
 
 // Map ModelInfo.engine_type to our canonical filter keys
@@ -102,6 +105,12 @@ function matchesFilters(model: ModelInfo, filters: ModelFilters, searchLower: st
     if (!matchesAny) return false;
   }
 
+  // Models without a verified date cannot be proven to satisfy this filter.
+  if (filters.releasedAfter) {
+    const releaseDate = getModelReleaseDate(model.id);
+    if (!releaseDate || releaseDate <= filters.releasedAfter) return false;
+  }
+
   return true;
 }
 
@@ -116,7 +125,8 @@ export function useModelFilters() {
       filters.supportsTranslation !== null ||
       filters.supportsStreaming !== null ||
       filters.recommendedOnly ||
-      filters.languages.size > 0
+      filters.languages.size > 0 ||
+      filters.releasedAfter !== ""
     );
   }, [filters]);
 
@@ -179,6 +189,10 @@ export function useModelFilters() {
     setFilters((prev) => ({ ...prev, recommendedOnly: !prev.recommendedOnly }));
   }, []);
 
+  const setReleasedAfter = useCallback((releasedAfter: string) => {
+    setFilters((prev) => ({ ...prev, releasedAfter }));
+  }, []);
+
   return {
     filters,
     isAnyFilterActive,
@@ -188,6 +202,7 @@ export function useModelFilters() {
     toggleSetValue,
     toggleBoolean,
     toggleRecommended,
+    setReleasedAfter,
   };
 }
 

@@ -6,8 +6,8 @@ import {
   getTranslatedModelName,
   getTranslatedModelDescription,
 } from "../../lib/utils/modelTranslation";
-import { getModelReleaseDate } from "../../lib/utils/modelReleaseDate";
 import { ProgressBar } from "../shared";
+import { ModelReleaseDate } from "../shared/ModelReleaseDate";
 
 interface DownloadProgress {
   model_id: string;
@@ -298,11 +298,10 @@ const ModelDropdown: React.FC<ModelDropdownProps> = ({
               <div className="flex items-center justify-between">
                 <div>
                   <div className="text-sm">
-                    {getModelReleaseDate(model.id) && (
-                      <span className="mr-1.5 text-[10px] tabular-nums text-text/35">
-                        {getModelReleaseDate(model.id)}
-                      </span>
-                    )}
+                    <ModelReleaseDate
+                      modelId={model.id}
+                      className="mr-1.5 text-[10px] text-text/35"
+                    />
                     {getTranslatedModelName(model, t)}
                     {renderNativeStreamingIcon(model)}
                     {model.is_custom && (
@@ -381,11 +380,10 @@ const ModelDropdown: React.FC<ModelDropdownProps> = ({
             <div className="flex items-center justify-between">
               <div>
                 <div className="text-sm">
-                  {getModelReleaseDate(model.id) && (
-                    <span className="mr-1.5 text-[10px] tabular-nums text-text/35">
-                      {getModelReleaseDate(model.id)}
-                    </span>
-                  )}
+                  <ModelReleaseDate
+                    modelId={model.id}
+                    className="mr-1.5 text-[10px] text-text/35"
+                  />
                   {getTranslatedModelName(model, t)}
                   {renderNativeStreamingIcon(model)}
                   {model.is_recommended && isFirstRun && (

@@ -41,6 +41,7 @@ interface ModelFilterBarProps {
   ) => void;
   onToggleBoolean: (key: "supportsTranslation" | "supportsStreaming") => void;
   onToggleRecommended: () => void;
+  onReleasedAfterChange: (value: string) => void;
   onReset: () => void;
   filterBarRef?: React.Ref<HTMLDivElement>;
 }
@@ -219,6 +220,7 @@ export const ModelFilterBar: React.FC<ModelFilterBarProps> = ({
   onToggleSet,
   onToggleBoolean,
   onToggleRecommended,
+  onReleasedAfterChange,
   onReset,
   filterBarRef,
 }) => {
@@ -395,6 +397,40 @@ export const ModelFilterBar: React.FC<ModelFilterBarProps> = ({
           selected={filters.languages}
           onToggle={(code) => onToggleSet("languages", code)}
         />
+
+        {/* Separator */}
+        <span className="mx-0.5 h-4 w-px bg-[#3d3d3d]" />
+
+        {/* Release date */}
+        <div
+          className={`flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] transition-colors ${
+            filters.releasedAfter
+              ? "border-[#ff4d8d]/50 bg-[#ff4d8d]/15 text-[#ff8ebb]"
+              : "border-[#3d3d3d] bg-[#1b1b1b] text-[#9a9a9a]"
+          }`}
+        >
+          <span>{t("modelSelector.filter.releasedAfter", "Released after")}</span>
+          <input
+            type="date"
+            value={filters.releasedAfter}
+            onChange={(event) => onReleasedAfterChange(event.target.value)}
+            aria-label={t(
+              "modelSelector.filter.releasedAfter",
+              "Released after",
+            )}
+            className="w-[7.4rem] bg-transparent text-[10px] text-current outline-none [color-scheme:dark]"
+          />
+          {filters.releasedAfter && (
+            <button
+              type="button"
+              onClick={() => onReleasedAfterChange("")}
+              aria-label={t("common.clear", "Clear")}
+              className="rounded-full p-0.5 hover:bg-white/10"
+            >
+              <X className="h-3 w-3" />
+            </button>
+          )}
+        </div>
 
         {/* Reset */}
         {isAnyFilterActive && (
