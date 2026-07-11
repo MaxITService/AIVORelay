@@ -1,7 +1,7 @@
 import React, { useMemo, useState, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { ask } from "@tauri-apps/plugin-dialog";
-import { Cloud, Cpu, Filter, HardDrive, Radio, RotateCcw } from "lucide-react";
+import { Cloud, Download, Filter, HardDrive, Radio, RotateCcw } from "lucide-react";
 import { useModels } from "../../../hooks/useModels";
 import { useSettings } from "../../../hooks/useSettings";
 import { useModelFilters } from "../../../hooks/useModelFilters";
@@ -643,7 +643,18 @@ export const ModelsSettings: React.FC = () => {
               >
                 <div className="min-w-0">
                   <div className="flex items-center gap-2">
-                    <Cpu className="w-4 h-4 text-[#a0a0a0]" />
+                    <span
+                      title={t("modelSelector.localModelTooltip", "Local model")}
+                      aria-label={t(
+                        "modelSelector.localModelTooltip",
+                        "Local model",
+                      )}
+                    >
+                      <HardDrive
+                        aria-hidden="true"
+                        className="h-4 w-4 text-[#a0a0a0]"
+                      />
+                    </span>
                     <p className="text-sm font-medium text-[#f5f5f5]">
                       <ModelReleaseDate
                         modelId={model.id}
@@ -666,7 +677,7 @@ export const ModelsSettings: React.FC = () => {
                     {getTranslatedModelDescription(model, t)}
                   </p>
                   <p className="mt-1 flex items-center gap-1.5 text-xs text-[#8a8a8a]">
-                    <HardDrive className="h-3.5 w-3.5" />
+                    <Download aria-hidden="true" className="h-3.5 w-3.5" />
                     <span>
                       {t("modelSelector.downloadSize")} ·{" "}
                       {formatModelSize(Number(model.size_mb))}
