@@ -1478,11 +1478,6 @@ export const TranscriptionProfiles: React.FC = () => {
           sonioxLanguageHintsStrict: profile.soniox_language_hints_strict ?? null,
         },
       });
-      if (profile.id === activeProfileId) {
-        await invoke("change_soniox_live_preview_enabled_setting", {
-          enabled: profile.preview_output_only_enabled ?? false,
-        });
-      }
       await refreshSettings();
     } catch (error) {
       console.error("Failed to update profile:", error);
@@ -1530,7 +1525,6 @@ export const TranscriptionProfiles: React.FC = () => {
         });
       }
       await invoke("set_active_profile", { id });
-      await invoke("change_soniox_live_preview_enabled_setting", { enabled: previewEnabled });
       await refreshSettings();
     } catch (e) {
       console.error("Failed to set active profile", e);
