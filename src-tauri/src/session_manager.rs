@@ -66,6 +66,49 @@ pub fn next_operation_id() -> u64 {
     NEXT_OPERATION_ID.fetch_add(1, Ordering::Relaxed)
 }
 
+/// Returns true while the recording/processing lifecycle still belongs to the
+/// expected operation. Cancel moves the state away from that operation, so
+/// async work can use this as a final ownership check before side effects.
+pub fn is_operation_current(app: &AppHandle, expected_operation_id: u64) -> bool {
+    let state = app.state::<ManagedSessionState>();
+    let state_guard = lock_session_state(&state, "is_operation_current");
+    is_operation_current_state(&state_guard, expected_operation_id)
+}
+
+/// Returns the active operation for a binding while it is still recording.
+pub fn recording_operation_id(app: &AppHandle, expected_binding_id: &str) -> Option<u64> {
+    let state = app.state::<ManagedSessionState>();
+    let state_guard = lock_session_state(&state, "recording_operation_id");
+    match &*state_guard {
+        SessionState::Recording {
+            binding_id,
+            operation_id,
+            ..
+        } if binding_id == expected_binding_id => Some(*operation_id),
+        _ => None,
+    }
+}
+
+pub fn has_current_operation_for_binding(app: &AppHandle, expected_binding_id: &str) -> bool {
+    let state = app.state::<ManagedSessionState>();
+    let state_guard = lock_session_state(&state, "has_current_operation_for_binding");
+    matches!(
+        &*state_guard,
+        SessionState::Recording { binding_id, .. }
+            | SessionState::Processing { binding_id, .. }
+            if binding_id == expected_binding_id
+    )
+}
+
+fn is_operation_current_state(state: &SessionState, expected_operation_id: u64) -> bool {
+    matches!(
+        state,
+        SessionState::Recording { operation_id, .. }
+            | SessionState::Processing { operation_id, .. }
+            if *operation_id == expected_operation_id
+    )
+}
+
 pub(crate) fn lock_session_state<'a>(
     state: &'a ManagedSessionState,
     context: &str,
@@ -324,7 +367,19 @@ fn exit_processing_state_if_matches(state: &mut SessionState, expected_operation
 
 #[cfg(test)]
 mod tests {
-    use super::{exit_processing_state_if_matches, SessionState};
+    use super::{exit_processing_state_if_matches, is_operation_current_state, SessionState};
+
+    #[test]
+    fn operation_ownership_matches_generation() {
+        let processing = SessionState::Processing {
+            binding_id: "transcribe".to_string(),
+            operation_id: 7,
+        };
+
+        assert!(is_operation_current_state(&processing, 7));
+        assert!(!is_operation_current_state(&processing, 8));
+        assert!(!is_operation_current_state(&SessionState::Idle, 7));
+    }
 
     #[test]
     fn matching_operation_can_exit_processing() {

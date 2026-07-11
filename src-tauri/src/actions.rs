@@ -105,10 +105,37 @@ enum PostProcessTranscriptionOutcome {
 #[derive(Clone, Debug)]
 struct StopRecordingContext {
     operation_id: u64,
+    audio_cancel_generation: u64,
     captured_profile_id: Option<String>,
     current_app: String,
     recording_settings: AppSettings,
     recording_elapsed: Duration,
+}
+
+impl StopRecordingContext {
+    fn operation_stamp(&self) -> OperationStamp {
+        OperationStamp {
+            operation_id: self.operation_id,
+            audio_cancel_generation: self.audio_cancel_generation,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+struct OperationStamp {
+    operation_id: u64,
+    audio_cancel_generation: u64,
+}
+
+impl OperationStamp {
+    fn is_current(self, app: &AppHandle) -> bool {
+        session_manager::is_operation_current(app, self.operation_id)
+    }
+
+    fn was_cancelled(self, app: &AppHandle) -> bool {
+        app.state::<Arc<AudioRecordingManager>>()
+            .was_cancelled_since(self.audio_cancel_generation)
+    }
 }
 
 #[derive(Clone, Debug, Default)]
@@ -1278,6 +1305,10 @@ impl FinishGuard {
             );
         }
     }
+
+    fn is_current(&self) -> bool {
+        session_manager::is_operation_current(&self.app, self.operation_id)
+    }
 }
 
 impl Drop for FinishGuard {
@@ -1472,6 +1503,10 @@ fn start_recording_with_feedback(app: &AppHandle, binding_id: &str) -> bool {
     drop(state_guard);
 
     let rm = app.state::<Arc<AudioRecordingManager>>();
+    let operation_stamp = OperationStamp {
+        operation_id,
+        audio_cancel_generation: rm.cancel_generation(),
+    };
     let use_live_streaming = should_use_live_streaming(&settings);
     if use_live_streaming {
         match settings.transcription_provider {
@@ -1511,6 +1546,13 @@ fn start_recording_with_feedback(app: &AppHandle, binding_id: &str) -> bool {
                 let app_for_main_thread = app_handle.clone();
                 let app_for_paste = app_for_main_thread.clone();
                 if let Err(error) = app_for_main_thread.run_on_main_thread(move || {
+                    if operation_stamp.was_cancelled(&app_for_paste) {
+                        debug!(
+                            "Skipping queued native streaming chunk for cancelled operation {}",
+                            operation_stamp.operation_id
+                        );
+                        return;
+                    }
                     if let Err(error) = crate::clipboard::paste_stream_chunk(chunk, app_for_paste) {
                         warn!("Failed to insert native streaming chunk: {}", error);
                     }
@@ -1930,6 +1972,7 @@ async fn perform_transcription_for_profile_with_retry_action(
             let stream_processor =
                 Arc::new(Mutex::new(SonioxStreamProcessor::from_settings(&settings)));
             let stream_processor_for_callback = Arc::clone(&stream_processor);
+            let soniox_manager_for_callback = Arc::clone(&soniox_manager);
             let streamed_result = soniox_manager
                 .transcribe_with_streaming_callback(
                     Some(operation_id),
@@ -1956,8 +1999,17 @@ async fn perform_transcription_for_profile_with_retry_action(
                         }
                         let ah_for_call = app_handle.clone();
                         let ah_for_closure = ah_for_call.clone();
+                        let soniox_manager_for_closure =
+                            Arc::clone(&soniox_manager_for_callback);
                         ah_for_call
                             .run_on_main_thread(move || {
+                                if soniox_manager_for_closure.is_cancelled(operation_id) {
+                                    debug!(
+                                        "Skipping queued Soniox streaming insert for cancelled operation {}",
+                                        operation_id
+                                    );
+                                    return;
+                                }
                                 let _ = crate::clipboard::paste_stream_chunk(
                                     delta,
                                     ah_for_closure.clone(),
@@ -1981,7 +2033,15 @@ async fn perform_transcription_for_profile_with_retry_action(
                         } else {
                             let ah_for_call = app.clone();
                             let ah_for_closure = ah_for_call.clone();
+                            let soniox_manager_for_closure = Arc::clone(&soniox_manager);
                             match ah_for_call.run_on_main_thread(move || {
+                                if soniox_manager_for_closure.is_cancelled(operation_id) {
+                                    debug!(
+                                        "Skipping queued Soniox stream tail for cancelled operation {}",
+                                        operation_id
+                                    );
+                                    return;
+                                }
                                 let _ = crate::clipboard::paste_stream_chunk(
                                     tail_delta,
                                     ah_for_closure.clone(),
@@ -2323,6 +2383,9 @@ fn prepare_stop_recording_with_options(
     binding_id: &str,
     show_processing_overlay: bool,
 ) -> Option<StopRecordingContext> {
+    let audio_cancel_generation = app
+        .state::<Arc<AudioRecordingManager>>()
+        .cancel_generation();
     // Take the session and transition to Processing state
     let state = app.state::<ManagedSessionState>();
     let mut state_guard =
@@ -2413,6 +2476,7 @@ fn prepare_stop_recording_with_options(
         play_feedback_sound(app, SoundType::Stop);
         Some(StopRecordingContext {
             operation_id,
+            audio_cancel_generation,
             captured_profile_id,
             current_app,
             recording_settings,
@@ -2875,6 +2939,7 @@ pub async fn retry_last_remote_transcription(app: AppHandle) -> Result<(), Strin
             request.pre_saved_file_name,
             Some(request.failed_history_entry_id),
             false,
+            None,
         )
         .await
         {
@@ -4544,9 +4609,16 @@ fn before_dictation_final_output(app: &AppHandle, text: &str) {
     );
 }
 
-async fn paste_preview_buffer_to_target(app: &AppHandle, text: String) -> Result<(), String> {
+async fn paste_preview_buffer_to_target(
+    app: &AppHandle,
+    text: String,
+    operation_stamp: Option<OperationStamp>,
+) -> Result<bool, String> {
     if text.trim().is_empty() {
-        return Ok(());
+        return Ok(true);
+    }
+    if operation_stamp.is_some_and(|stamp| !stamp.is_current(app) || stamp.was_cancelled(app)) {
+        return Ok(false);
     }
 
     before_dictation_final_output(app, &text);
@@ -4554,23 +4626,38 @@ async fn paste_preview_buffer_to_target(app: &AppHandle, text: String) -> Result
     // Avoid pasting back into the preview window itself after an action click.
     crate::overlay::hide_live_preview_window(app);
     tokio::time::sleep(Duration::from_millis(90)).await;
+    if operation_stamp.is_some_and(|stamp| !stamp.is_current(app) || stamp.was_cancelled(app)) {
+        return Ok(false);
+    }
 
     let ah_for_call = app.clone();
     let ah_for_paste = app.clone();
     ah_for_call
         .run_on_main_thread(move || {
+            if operation_stamp.is_some_and(|stamp| stamp.was_cancelled(&ah_for_paste)) {
+                return;
+            }
             if let Err(err) = utils::paste(text, ah_for_paste.clone()) {
                 warn!("Preview paste failed: {}", err);
             }
         })
         .map_err(|err| format!("Failed to dispatch paste operation: {}", err))?;
 
-    Ok(())
+    Ok(true)
 }
 
-async fn finalize_preview_workflow_after_stop(app: &AppHandle, text: String) -> Result<(), String> {
+async fn finalize_preview_workflow_after_stop(
+    app: &AppHandle,
+    text: String,
+    operation_stamp: OperationStamp,
+) -> Result<(), String> {
     if !text.trim().is_empty() {
-        paste_preview_buffer_to_target(app, text).await?;
+        if !paste_preview_buffer_to_target(app, text, Some(operation_stamp)).await? {
+            return Ok(());
+        }
+    }
+    if !operation_stamp.is_current(app) || operation_stamp.was_cancelled(app) {
+        return Ok(());
     }
     close_preview_output_mode_workflow(app, true);
     Ok(())
@@ -4634,13 +4721,16 @@ pub(crate) fn transcribe_action_for_binding(binding_id: &str) -> Option<Arc<dyn 
 }
 
 pub(crate) fn start_live_sound_transcription_session(app: &AppHandle) -> Result<(), String> {
-    crate::managers::live_sound_audio::start(app)?;
     let auto_stop_minutes = crate::settings::get_settings(app).live_sound_auto_stop_minutes;
-    crate::managers::live_sound_transcription::activate_session(
+    let session_id = crate::managers::live_sound_transcription::activate_session(
         app,
         LIVE_SOUND_TRANSCRIPTION_BINDING_ID.to_string(),
         auto_stop_minutes,
     );
+    if let Err(err) = crate::managers::live_sound_audio::start(app, session_id) {
+        crate::managers::live_sound_transcription::finish_session(app);
+        return Err(err);
+    }
     Ok(())
 }
 
@@ -4649,14 +4739,8 @@ pub(crate) fn is_live_sound_recording(_app: &AppHandle) -> bool {
 }
 
 pub(crate) fn stop_live_sound_transcription_session(app: &AppHandle) -> Result<(), String> {
-    let session_id = crate::managers::live_sound_transcription::current_session_id();
-    // Immediately reflect stop in the UI.
-    crate::managers::live_sound_transcription::set_recording_if_session_matches(
-        app, session_id, false,
-    );
-    // The pipeline finalizes the WebSocket session asynchronously and calls
-    // set_recording(false) again once done (harmless duplicate).
-    crate::managers::live_sound_audio::stop(app, session_id);
+    // The independent pipeline owns the session ID used by finalization callbacks.
+    crate::managers::live_sound_audio::stop(app);
     Ok(())
 }
 
@@ -5428,6 +5512,7 @@ async fn apply_post_processing_and_history(
     pre_saved_file_name: Option<String>,
     failed_history_entry_id: Option<i64>,
     force_post_process: bool,
+    operation_stamp: Option<OperationStamp>,
 ) -> Option<String> {
     let processed = process_transcription_output(
         app,
@@ -5439,8 +5524,28 @@ async fn apply_post_processing_and_history(
     )
     .await?;
 
+    if let Some(stamp) = operation_stamp {
+        if !stamp.is_current(app) || stamp.was_cancelled(app) {
+            debug!(
+                "Discarding processed output for stale operation {} before history/output side effects",
+                stamp.operation_id
+            );
+            return None;
+        }
+    }
+
     let hm = Arc::clone(&app.state::<Arc<HistoryManager>>());
+    let history_app = app.clone();
     tauri::async_runtime::spawn(async move {
+        if let Some(stamp) = operation_stamp {
+            if stamp.was_cancelled(&history_app) {
+                debug!(
+                    "Skipping queued history write for cancelled operation {}",
+                    stamp.operation_id
+                );
+                return;
+            }
+        }
         let save_result = if let Some(id) = failed_history_entry_id {
             hm.update_transcription(
                 id,
@@ -5691,10 +5796,28 @@ impl ShortcutAction for TranscribeAction {
             reset_toggle_state(app, binding_id);
             return;
         }
+        let Some(recording_operation_id) = session_manager::recording_operation_id(app, binding_id)
+        else {
+            warn!(
+                "Recording operation disappeared immediately after start for '{}'",
+                binding_id
+            );
+            crate::utils::cancel_current_operation(app);
+            return;
+        };
+        let operation_stamp = OperationStamp {
+            operation_id: recording_operation_id,
+            audio_cancel_generation: app
+                .state::<Arc<AudioRecordingManager>>()
+                .cancel_generation(),
+        };
 
         if native_streaming_live_output {
             if let Err(error) = crate::clipboard::begin_streaming_paste_session(app) {
-                warn!("Failed to begin native streaming clipboard session: {}", error);
+                warn!(
+                    "Failed to begin native streaming clipboard session: {}",
+                    error
+                );
             }
         }
 
@@ -5815,6 +5938,13 @@ impl ShortcutAction for TranscribeAction {
                                 let ah_for_call = ah_for_cb.clone();
                                 let ah_for_clip = ah_for_call.clone();
                                 let _ = ah_for_call.run_on_main_thread(move || {
+                                    if operation_stamp.was_cancelled(&ah_for_clip) {
+                                        debug!(
+                                            "Skipping queued Soniox chunk for cancelled operation {}",
+                                            operation_stamp.operation_id
+                                        );
+                                        return;
+                                    }
                                     let _ = crate::clipboard::paste_stream_chunk(
                                         delta,
                                         ah_for_clip.clone(),
@@ -5889,6 +6019,13 @@ impl ShortcutAction for TranscribeAction {
                                 let ah_for_call = ah_for_cb.clone();
                                 let ah_for_clip = ah_for_call.clone();
                                 let _ = ah_for_call.run_on_main_thread(move || {
+                                    if operation_stamp.was_cancelled(&ah_for_clip) {
+                                        debug!(
+                                            "Skipping queued Deepgram chunk for cancelled operation {}",
+                                            operation_stamp.operation_id
+                                        );
+                                        return;
+                                    }
                                     let _ = crate::clipboard::paste_stream_chunk(
                                         delta,
                                         ah_for_clip.clone(),
@@ -5992,6 +6129,13 @@ impl ShortcutAction for TranscribeAction {
                                 let ah_for_call = ah_for_cb.clone();
                                 let ah_for_clip = ah_for_call.clone();
                                 let _ = ah_for_call.run_on_main_thread(move || {
+                                    if operation_stamp.was_cancelled(&ah_for_clip) {
+                                        debug!(
+                                            "Skipping queued OpenAI realtime chunk for cancelled operation {}",
+                                            operation_stamp.operation_id
+                                        );
+                                        return;
+                                    }
                                     let _ = crate::clipboard::paste_stream_chunk(
                                         delta,
                                         ah_for_clip.clone(),
@@ -6103,6 +6247,7 @@ impl ShortcutAction for TranscribeAction {
             }
             let profile_id_for_postprocess = stop_context.captured_profile_id.clone();
             let current_app = stop_context.current_app.clone();
+            let operation_stamp = stop_context.operation_stamp();
             let recording_operation_id = stop_context.operation_id;
 
             let ah = app.clone();
@@ -6204,8 +6349,12 @@ impl ShortcutAction for TranscribeAction {
                     } else if !invoked_from_preview_action {
                         let text_to_insert =
                             crate::managers::preview_output_mode::recording_prefix_text();
-                        if let Err(err) =
-                            finalize_preview_workflow_after_stop(&ah, text_to_insert).await
+                        if let Err(err) = finalize_preview_workflow_after_stop(
+                            &ah,
+                            text_to_insert,
+                            operation_stamp,
+                        )
+                        .await
                         {
                             crate::managers::preview_output_mode::set_error(&ah, Some(err));
                         }
@@ -6258,6 +6407,14 @@ impl ShortcutAction for TranscribeAction {
                         .finish_session(live_finalize_timeout_ms)
                         .await
                 };
+                if !finish_guard.is_current() {
+                    debug!(
+                        "Discarding finalized live output for stale operation {}",
+                        recording_operation_id
+                    );
+                    finish_guard.finish();
+                    return;
+                }
                 let transcription = match transcription_result {
                     Ok(text) => apply_soniox_output_filters(&recording_settings, text),
                     Err(err) => {
@@ -6269,8 +6426,12 @@ impl ShortcutAction for TranscribeAction {
                             change_tray_icon(&ah, TrayIconState::Idle);
                             if !invoked_from_preview_action {
                                 let text_to_insert = current_preview_buffer_text();
-                                if let Err(err) =
-                                    finalize_preview_workflow_after_stop(&ah, text_to_insert).await
+                                if let Err(err) = finalize_preview_workflow_after_stop(
+                                    &ah,
+                                    text_to_insert,
+                                    operation_stamp,
+                                )
+                                .await
                                 {
                                     crate::managers::preview_output_mode::set_error(&ah, Some(err));
                                 }
@@ -6328,6 +6489,13 @@ impl ShortcutAction for TranscribeAction {
                         let ah_for_call = ah.clone();
                         let ah_for_clip = ah_for_call.clone();
                         if let Err(err) = ah_for_call.run_on_main_thread(move || {
+                            if operation_stamp.was_cancelled(&ah_for_clip) {
+                                debug!(
+                                    "Skipping queued live stream tail for cancelled operation {}",
+                                    operation_stamp.operation_id
+                                );
+                                return;
+                            }
                             let _ = crate::clipboard::paste_stream_chunk(
                                 tail_delta,
                                 ah_for_clip.clone(),
@@ -6344,8 +6512,12 @@ impl ShortcutAction for TranscribeAction {
                     } else if !invoked_from_preview_action {
                         let text_to_insert =
                             crate::managers::preview_output_mode::recording_prefix_text();
-                        if let Err(err) =
-                            finalize_preview_workflow_after_stop(&ah, text_to_insert).await
+                        if let Err(err) = finalize_preview_workflow_after_stop(
+                            &ah,
+                            text_to_insert,
+                            operation_stamp,
+                        )
+                        .await
                         {
                             crate::managers::preview_output_mode::set_error(&ah, Some(err));
                         }
@@ -6384,6 +6556,7 @@ impl ShortcutAction for TranscribeAction {
                     None,
                     None,
                     force_post_process,
+                    Some(operation_stamp),
                 )
                 .await
                 {
@@ -6407,6 +6580,15 @@ impl ShortcutAction for TranscribeAction {
                     }
                 };
 
+                if !finish_guard.is_current() {
+                    debug!(
+                        "Discarding processed live output for stale operation {}",
+                        recording_operation_id
+                    );
+                    finish_guard.finish();
+                    return;
+                }
+
                 let ah_clone = ah.clone();
                 let final_text_for_ui = final_text.clone();
                 let final_text_for_insert =
@@ -6423,6 +6605,13 @@ impl ShortcutAction for TranscribeAction {
                 }
                 let main_thread_timeout_ms = recording_settings.paste_delay_ms.saturating_add(1500);
                 if let Err(err) = run_on_main_thread_sync(&ah, main_thread_timeout_ms, move || {
+                    if operation_stamp.was_cancelled(&ah_clone) {
+                        debug!(
+                            "Skipping queued live output for cancelled operation {}",
+                            operation_stamp.operation_id
+                        );
+                        return;
+                    }
                     if !preview_output_only_enabled {
                         if is_deepgram_live_provider || is_openai_realtime_whisper_live_provider {
                             // Some live providers may return all stable text only at finalization;
@@ -6459,10 +6648,19 @@ impl ShortcutAction for TranscribeAction {
                     warn!("{}", err);
                 }
 
+                if !finish_guard.is_current() {
+                    finish_guard.finish();
+                    return;
+                }
+
                 if preview_output_only_enabled {
                     if let Some(text_to_insert) = final_text_for_insert {
-                        if let Err(err) =
-                            finalize_preview_workflow_after_stop(&ah, text_to_insert).await
+                        if let Err(err) = finalize_preview_workflow_after_stop(
+                            &ah,
+                            text_to_insert,
+                            operation_stamp,
+                        )
+                        .await
                         {
                             if preview_processing_before_insert {
                                 stop_preview_processing_before_insert(&ah);
@@ -6502,9 +6700,11 @@ impl ShortcutAction for TranscribeAction {
         let captured_profile_id = stop_context.captured_profile_id.clone();
         let current_app = stop_context.current_app.clone();
         let recording_settings = stop_context.recording_settings.clone();
+        let operation_stamp = stop_context.operation_stamp();
         let recording_operation_id = stop_context.operation_id;
-        let native_streaming_live_output = native_streaming_live_output_enabled(&recording_settings)
-            && local_model_supports_native_streaming(app, &recording_settings);
+        let native_streaming_live_output =
+            native_streaming_live_output_enabled(&recording_settings)
+                && local_model_supports_native_streaming(app, &recording_settings);
         let preview_output_only_enabled = should_route_output_to_preview_for_captured_profile(
             &recording_settings,
             captured_profile_id.as_ref(),
@@ -6528,8 +6728,7 @@ impl ShortcutAction for TranscribeAction {
                 && recording_settings.soniox_live_enabled
                 && SonioxRealtimeManager::is_realtime_model(&recording_settings.soniox_model);
             let is_native_streaming_insert = native_streaming_live_output;
-            let uses_streaming_insert =
-                is_soniox_streaming_insert || is_native_streaming_insert;
+            let uses_streaming_insert = is_soniox_streaming_insert || is_native_streaming_insert;
             let is_soniox_optimized_delivery = should_use_soniox_optimized_delivery(
                 &recording_settings,
                 &binding_id,
@@ -6577,7 +6776,8 @@ impl ShortcutAction for TranscribeAction {
                 }
             };
 
-            let native_stream_text = if recording_settings.transcription_provider == TranscriptionProvider::Local
+            let native_stream_text = if recording_settings.transcription_provider
+                == TranscriptionProvider::Local
                 && (preview_output_only_enabled || is_native_streaming_insert)
                 && !stopped.quick_tap_skipped
             {
@@ -6648,6 +6848,15 @@ impl ShortcutAction for TranscribeAction {
                     }
                 };
 
+            if !finish_guard.is_current() {
+                debug!(
+                    "Discarding transcription result for stale operation {}",
+                    recording_operation_id
+                );
+                finish_guard.finish();
+                return;
+            }
+
             if transcription.is_empty() {
                 if is_soniox_optimized_delivery {
                     ah.state::<Arc<SonioxRealtimeManager>>().cancel();
@@ -6658,7 +6867,8 @@ impl ShortcutAction for TranscribeAction {
                     let text_to_insert =
                         crate::managers::preview_output_mode::recording_prefix_text();
                     if let Err(err) =
-                        finalize_preview_workflow_after_stop(&ah, text_to_insert).await
+                        finalize_preview_workflow_after_stop(&ah, text_to_insert, operation_stamp)
+                            .await
                     {
                         crate::managers::preview_output_mode::set_error(&ah, Some(err));
                     }
@@ -6703,6 +6913,7 @@ impl ShortcutAction for TranscribeAction {
                 pre_saved_file_name,
                 None,
                 force_post_process,
+                Some(operation_stamp),
             )
             .await
             {
@@ -6723,6 +6934,15 @@ impl ShortcutAction for TranscribeAction {
                 }
             };
 
+            if !finish_guard.is_current() {
+                debug!(
+                    "Discarding processed output for stale operation {}",
+                    recording_operation_id
+                );
+                finish_guard.finish();
+                return;
+            }
+
             let ah_clone = ah.clone();
             let final_text_for_ui = final_text.clone();
             let final_text_for_insert =
@@ -6738,6 +6958,13 @@ impl ShortcutAction for TranscribeAction {
                 before_dictation_final_output(&ah, &final_text);
             }
             ah.run_on_main_thread(move || {
+                if operation_stamp.was_cancelled(&ah_clone) {
+                    debug!(
+                        "Skipping queued dictation output for cancelled operation {}",
+                        operation_stamp.operation_id
+                    );
+                    return;
+                }
                 if uses_streaming_insert && !preview_output_only_enabled {
                     // Streaming paths already inserted only committed text incrementally.
                     // Apply only boundary-level trailing adjustment at finalization.
@@ -6756,10 +6983,16 @@ impl ShortcutAction for TranscribeAction {
             })
             .ok();
 
+            if !finish_guard.is_current() {
+                finish_guard.finish();
+                return;
+            }
+
             if preview_output_only_enabled {
                 if let Some(text_to_insert) = final_text_for_insert {
                     if let Err(err) =
-                        finalize_preview_workflow_after_stop(&ah, text_to_insert).await
+                        finalize_preview_workflow_after_stop(&ah, text_to_insert, operation_stamp)
+                            .await
                     {
                         if preview_processing_before_insert {
                             stop_preview_processing_before_insert(&ah);
@@ -6837,6 +7070,7 @@ impl ShortcutAction for SendToExtensionAction {
             Some(context) => context,
             None => return, // No active session - nothing to do
         };
+        let operation_stamp = stop_context.operation_stamp();
         let StopRecordingContext {
             operation_id: recording_operation_id,
             current_app,
@@ -6885,6 +7119,7 @@ impl ShortcutAction for SendToExtensionAction {
                 None,
                 None,
                 false,
+                Some(operation_stamp),
             )
             .await
             {
@@ -6894,6 +7129,11 @@ impl ShortcutAction for SendToExtensionAction {
                     return;
                 }
             };
+
+            if !finish_guard.is_current() {
+                finish_guard.finish();
+                return;
+            }
 
             match cm.queue_message(&final_text) {
                 Ok(id) => debug!("Connector message queued with id: {}", id),
@@ -6967,6 +7207,7 @@ impl ShortcutAction for SendToExtensionWithSelectionAction {
             Some(context) => context,
             None => return, // No active session - nothing to do
         };
+        let operation_stamp = stop_context.operation_stamp();
         let StopRecordingContext {
             operation_id: recording_operation_id,
             current_app,
@@ -7031,6 +7272,7 @@ impl ShortcutAction for SendToExtensionWithSelectionAction {
                     None,
                     None,
                     false,
+                    Some(operation_stamp),
                 )
                 .await
                 {
@@ -7041,6 +7283,11 @@ impl ShortcutAction for SendToExtensionWithSelectionAction {
                     }
                 }
             };
+
+            if !finish_guard.is_current() {
+                finish_guard.finish();
+                return;
+            }
 
             let selected_text = utils::capture_selection_text_copy(&ah).unwrap_or_default();
             let message = build_extension_message(
@@ -7399,6 +7646,11 @@ impl ShortcutAction for SendScreenshotToExtensionAction {
                 }
             };
 
+            if !finish_guard.is_current() {
+                finish_guard.finish();
+                return;
+            }
+
             let final_voice_text = if voice_text.trim().is_empty() {
                 if !recording_settings.screenshot_allow_no_voice {
                     emit_screenshot_error(
@@ -7449,9 +7701,14 @@ impl ShortcutAction for SendScreenshotToExtensionAction {
                 {
                     use crate::region_capture::{open_region_picker, RegionCaptureResult};
 
-                    match open_region_picker(&ah, recording_settings.native_region_capture_mode)
-                        .await
-                    {
+                    let capture_result =
+                        open_region_picker(&ah, recording_settings.native_region_capture_mode)
+                            .await;
+                    if !finish_guard.is_current() {
+                        finish_guard.finish();
+                        return;
+                    }
+                    match capture_result {
                         RegionCaptureResult::Selected { region, image_data } => {
                             debug!("Screenshot captured for region: {:?}", region);
                             // Send screenshot bytes directly to connector
@@ -7526,7 +7783,7 @@ impl ShortcutAction for SendScreenshotToExtensionAction {
 
             // Wait for screenshot
             let timeout = recording_settings.screenshot_timeout_seconds as u64;
-            match watch_for_new_image(
+            let screenshot_result = watch_for_new_image(
                 screenshot_folder,
                 timeout,
                 recording_settings.screenshot_include_subfolders,
@@ -7534,8 +7791,12 @@ impl ShortcutAction for SendScreenshotToExtensionAction {
                 start_time,
                 !recording_settings.screenshot_require_recent, // Fallback if requirement is disabled
             )
-            .await
-            {
+            .await;
+            if !finish_guard.is_current() {
+                finish_guard.finish();
+                return;
+            }
+            match screenshot_result {
                 Ok(path) => {
                     let _ = cm.queue_bundle_message(&final_voice_text, &path);
                 }
@@ -7632,6 +7893,11 @@ impl ShortcutAction for AiReplaceSelectionAction {
                 }
             };
 
+            if !finish_guard.is_current() {
+                finish_guard.finish();
+                return;
+            }
+
             if transcription.trim().is_empty() {
                 if !recording_settings.ai_replace_allow_quick_tap {
                     show_ai_replace_error_overlay(&ah, "No instruction captured.");
@@ -7702,7 +7968,7 @@ impl ShortcutAction for AiReplaceSelectionAction {
             {
                 Ok(output) => {
                     // Check if operation was cancelled while we were waiting
-                    if llm_tracker.is_cancelled(operation_id) {
+                    if llm_tracker.is_cancelled(operation_id) || !finish_guard.is_current() {
                         debug!(
                             "LLM operation {} was cancelled, discarding result",
                             operation_id
@@ -8465,6 +8731,11 @@ impl ShortcutAction for VoiceCommandAction {
                 }
             };
 
+            if !finish_guard.is_current() {
+                finish_guard.finish();
+                return;
+            }
+
             if transcription.trim().is_empty() {
                 emit_voice_command_error(&ah, "No command detected");
                 utils::hide_recording_overlay(&ah);
@@ -8523,13 +8794,17 @@ impl ShortcutAction for VoiceCommandAction {
 
                 show_thinking_overlay(&ah);
 
-                match generate_command_with_llm_with_settings(
+                let generated_command = generate_command_with_llm_with_settings(
                     &ah,
                     &recording_settings,
                     &transcription,
                 )
-                .await
-                {
+                .await;
+                if !finish_guard.is_current() {
+                    finish_guard.finish();
+                    return;
+                }
+                match generated_command {
                     Ok(suggested_command) => {
                         debug!("LLM suggested command: '{}'", suggested_command);
 
@@ -8608,12 +8883,12 @@ pub fn preview_close_action(app: AppHandle) -> Result<(), String> {
             || state
                 .binding_id
                 .as_deref()
-                .map(|binding_id| is_recording_for_binding(&app, binding_id))
+                .map(|binding_id| {
+                    session_manager::has_current_operation_for_binding(&app, binding_id)
+                })
                 .unwrap_or(false)
         {
             utils::cancel_current_operation(&app);
-        } else {
-            session_manager::exit_processing(&app);
         }
 
         close_preview_output_mode_workflow(&app, true);
@@ -8684,7 +8959,7 @@ pub async fn preview_insert_action(app: AppHandle) -> Result<(), String> {
     }
 
     let full_text = current_preview_buffer_text();
-    paste_preview_buffer_to_target(&app, full_text).await?;
+    paste_preview_buffer_to_target(&app, full_text, None).await?;
 
     close_preview_output_mode_workflow(&app, true);
     Ok(())
