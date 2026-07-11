@@ -94,7 +94,7 @@ const ModelDropdown: React.FC<ModelDropdownProps> = ({
 
   const handleDownloadClick = (modelId: string) => {
     if (downloadProgress.has(modelId)) {
-      return; 
+      return;
     }
     onModelDownload(modelId);
   };
@@ -190,7 +190,9 @@ const ModelDropdown: React.FC<ModelDropdownProps> = ({
                   />
                 </svg>
                 <div>
-                  <div className="text-sm">{t("modelSelector.remoteSonioxMode")}</div>
+                  <div className="text-sm">
+                    {t("modelSelector.remoteSonioxMode")}
+                  </div>
                   <div className="text-xs text-text/40 italic">
                     {t("modelSelector.remoteSonioxModeDescription")}
                   </div>
@@ -238,7 +240,10 @@ const ModelDropdown: React.FC<ModelDropdownProps> = ({
                 </svg>
                 <div>
                   <div className="text-sm">
-                    {t("modelSelector.remoteDeepgramMode", "Remote via Deepgram")}
+                    {t(
+                      "modelSelector.remoteDeepgramMode",
+                      "Remote via Deepgram",
+                    )}
                   </div>
                   <div className="text-xs text-text/40 italic">
                     {t(
@@ -277,79 +282,85 @@ const ModelDropdown: React.FC<ModelDropdownProps> = ({
           <div className="px-3 py-1 text-xs font-medium text-text/80 border-b border-mid-gray/10">
             {t("modelSelector.availableModels")}
           </div>
-          {availableModels.map((model) => (
-            <React.Fragment key={model.id}>
-            <div
-              onClick={() => handleModelClick(model.id)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" || e.key === " ") {
-                  e.preventDefault();
-                  handleModelClick(model.id);
-                }
-              }}
-              tabIndex={0}
-              role="button"
-              className={`w-full px-3 py-2 text-left hover:bg-mid-gray/10 transition-colors cursor-pointer focus:outline-none ${
-                currentModelId === model.id && !isRemoteProvider
-                  ? "bg-logo-primary/10 text-logo-primary"
-                  : ""
-              }`}
-            >
-              <div className="flex items-center justify-between">
-                <div>
-                  <div className="text-sm">
-                    <ModelReleaseDate
-                      modelId={model.id}
-                      className="mr-1.5 text-[10px] text-text/35"
-                    />
-                    {getTranslatedModelName(model, t)}
-                    {renderNativeStreamingIcon(model)}
-                    {model.is_custom && (
-                      <span className="ml-1.5 text-[10px] font-medium text-text/40 uppercase">
-                        {t("modelSelector.custom")}
-                      </span>
-                    )}
-                  </div>
-                  <div className="text-xs text-text/40 italic pr-4">
-                    {getTranslatedModelDescription(model, t)}
-                  </div>
-                  <div className="mt-1 text-xs text-text/50 tabular-nums">
-                    {t("modelSelector.downloadSize")} ·{" "}
-                    {formatModelSize(Number(model.size_mb))}
-                  </div>
-                </div>
-                <div className="flex items-center gap-2">
-                  {currentModelId === model.id && !isRemoteProvider && (
-                    <div className="text-xs text-logo-primary">
-                      {t("modelSelector.active")}
-                    </div>
-                  )}
-                  {currentModelId !== model.id && (
-                    <button
-                      onClick={(e) => handleDeleteClick(e, model.id)}
-                      className="text-red-400 hover:text-red-300 p-1 hover:bg-red-500/10 rounded transition-colors"
-                      title={t("modelSelector.deleteModel", {
-                        modelName: getTranslatedModelName(model, t),
-                      })}
-                    >
-                      <svg
-                        className="w-3 h-3"
-                        fill="currentColor"
-                        viewBox="0 0 20 20"
-                      >
-                        <path
-                          fillRule="evenodd"
-                          d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z"
-                          clipRule="evenodd"
+          {availableModels.map((model) => {
+            const isActive = currentModelId === model.id && !isRemoteProvider;
+
+            return (
+              <React.Fragment key={model.id}>
+                <div
+                  onClick={
+                    isActive ? undefined : () => handleModelClick(model.id)
+                  }
+                  onKeyDown={(e) => {
+                    if (!isActive && (e.key === "Enter" || e.key === " ")) {
+                      e.preventDefault();
+                      handleModelClick(model.id);
+                    }
+                  }}
+                  tabIndex={isActive ? undefined : 0}
+                  role={isActive ? undefined : "button"}
+                  className={`w-full px-3 py-2 text-left transition-colors focus:outline-none ${
+                    isActive
+                      ? "bg-logo-primary/10 text-logo-primary cursor-default"
+                      : "hover:bg-mid-gray/10 cursor-pointer"
+                  }`}
+                >
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <div className="text-sm">
+                        <ModelReleaseDate
+                          modelId={model.id}
+                          className="mr-1.5 text-[10px] text-text/35"
                         />
-                      </svg>
-                    </button>
-                  )}
+                        {getTranslatedModelName(model, t)}
+                        {renderNativeStreamingIcon(model)}
+                        {model.is_custom && (
+                          <span className="ml-1.5 text-[10px] font-medium text-text/40 uppercase">
+                            {t("modelSelector.custom")}
+                          </span>
+                        )}
+                      </div>
+                      <div className="text-xs text-text/40 italic pr-4">
+                        {getTranslatedModelDescription(model, t)}
+                      </div>
+                      <div className="mt-1 text-xs text-text/50 tabular-nums">
+                        {t("modelSelector.downloadSize")} ·{" "}
+                        {formatModelSize(Number(model.size_mb))}
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      {currentModelId === model.id && !isRemoteProvider && (
+                        <div className="text-xs text-logo-primary">
+                          {t("modelSelector.active")}
+                        </div>
+                      )}
+                      {currentModelId !== model.id && (
+                        <button
+                          onClick={(e) => handleDeleteClick(e, model.id)}
+                          className="text-red-400 hover:text-red-300 p-1 hover:bg-red-500/10 rounded transition-colors"
+                          title={t("modelSelector.deleteModel", {
+                            modelName: getTranslatedModelName(model, t),
+                          })}
+                        >
+                          <svg
+                            className="w-3 h-3"
+                            fill="currentColor"
+                            viewBox="0 0 20 20"
+                          >
+                            <path
+                              fillRule="evenodd"
+                              d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z"
+                              clipRule="evenodd"
+                            />
+                          </svg>
+                        </button>
+                      )}
+                    </div>
+                  </div>
                 </div>
-              </div>
-            </div>
-            </React.Fragment>
-          ))}
+              </React.Fragment>
+            );
+          })}
         </div>
       )}
 

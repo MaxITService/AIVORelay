@@ -314,19 +314,29 @@ fn get_monitor_with_cursor(app_handle: &AppHandle) -> Option<tauri::Monitor> {
     if let Some(mouse_location) = input::get_cursor_position(app_handle) {
         if let Ok(monitors) = app_handle.available_monitors() {
             for monitor in monitors {
-                // Tauri monitor coordinates are physical pixels, while cursor coordinates
-                // may be logical depending on DPI-awareness. Normalize monitors to logical.
-                let scale = monitor.scale_factor();
-                let position = PhysicalPosition::new(
-                    (monitor.position().x as f64 / scale) as i32,
-                    (monitor.position().y as f64 / scale) as i32,
-                );
-                let size = PhysicalSize::new(
-                    (monitor.size().width as f64 / scale) as u32,
-                    (monitor.size().height as f64 / scale) as u32,
-                );
-                if is_mouse_within_monitor(mouse_location, &position, &size) {
+                // Windows cursor and Tauri monitor bounds are both physical pixels.
+                // Comparing them directly avoids selecting the wrong monitor on a
+                // mixed-DPI desktop.
+                #[cfg(target_os = "windows")]
+                if is_mouse_within_monitor(mouse_location, monitor.position(), monitor.size()) {
                     return Some(monitor);
+                }
+
+                // Enigo reports logical cursor coordinates on macOS and Linux.
+                #[cfg(not(target_os = "windows"))]
+                {
+                    let scale = monitor.scale_factor();
+                    let position = PhysicalPosition::new(
+                        (monitor.position().x as f64 / scale) as i32,
+                        (monitor.position().y as f64 / scale) as i32,
+                    );
+                    let size = PhysicalSize::new(
+                        (monitor.size().width as f64 / scale) as u32,
+                        (monitor.size().height as f64 / scale) as u32,
+                    );
+                    if is_mouse_within_monitor(mouse_location, &position, &size) {
+                        return Some(monitor);
+                    }
                 }
             }
         }
