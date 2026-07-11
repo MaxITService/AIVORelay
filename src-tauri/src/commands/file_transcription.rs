@@ -296,6 +296,7 @@ pub async fn transcribe_audio_file(
     let (transcription_text, segments) = if use_remote {
         // Remote STT - currently doesn't support segments
         let remote_manager = app.state::<Arc<RemoteSttManager>>();
+        let operation_id = remote_manager.start_operation();
 
         // Determine translate_to_english: use profile setting if available, otherwise global setting
         let translate_to_english = profile
@@ -316,7 +317,8 @@ pub async fn transcribe_audio_file(
         );
 
         let text = remote_manager
-            .transcribe(
+            .transcribe_with_operation(
+                operation_id,
                 &settings.remote_stt,
                 &samples,
                 prompt,
