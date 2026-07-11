@@ -9,7 +9,7 @@ use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine as _};
 use futures_util::{SinkExt, Stream, StreamExt};
 use serde::Deserialize;
 use serde_json::Value;
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
@@ -17,6 +17,7 @@ use tauri::{AppHandle, Emitter};
 use tokio::time::timeout;
 use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 use tokio_tungstenite::{connect_async, tungstenite::Message};
+use tokio_util::sync::CancellationToken;
 
 /// Default timeout for Remote STT requests (60 seconds)
 const DEFAULT_REQUEST_TIMEOUT_SECS: u64 = 60;
@@ -370,6 +371,8 @@ pub struct RemoteSttManager {
     current_operation_id: AtomicU64,
     /// The operation ID at the time cancel() was last called.
     cancelled_before_id: AtomicU64,
+    /// Cancellation tokens for requests that are currently awaiting remote I/O.
+    active_requests: Mutex<HashMap<u64, CancellationToken>>,
 }
 
 impl RemoteSttManager {
@@ -386,6 +389,7 @@ impl RemoteSttManager {
             app_handle: app_handle.clone(),
             current_operation_id: AtomicU64::new(0),
             cancelled_before_id: AtomicU64::new(0),
+            active_requests: Mutex::new(HashMap::new()),
         })
     }
 
@@ -397,8 +401,14 @@ impl RemoteSttManager {
     /// Marks all operations started before now as cancelled.
     pub fn cancel(&self) {
         let current = self.current_operation_id.load(Ordering::SeqCst);
+        let cancelled_before_id = current + 1;
         self.cancelled_before_id
-            .store(current + 1, Ordering::SeqCst);
+            .store(cancelled_before_id, Ordering::SeqCst);
+        for (operation_id, token) in self.active_requests.lock().unwrap().iter() {
+            if *operation_id < cancelled_before_id {
+                token.cancel();
+            }
+        }
         log::info!(
             "RemoteSttManager: cancelled all operations up to id {}",
             current + 1
@@ -446,6 +456,60 @@ impl RemoteSttManager {
     }
 
     pub async fn transcribe(
+        &self,
+        settings: &RemoteSttSettings,
+        audio_samples: &[f32],
+        prompt: Option<String>,
+        language: Option<String>,
+        translate_to_english: bool,
+    ) -> Result<String> {
+        let operation_id = self.start_operation();
+        self.transcribe_with_operation(
+            operation_id,
+            settings,
+            audio_samples,
+            prompt,
+            language,
+            translate_to_english,
+        )
+        .await
+    }
+
+    pub async fn transcribe_with_operation(
+        &self,
+        operation_id: u64,
+        settings: &RemoteSttSettings,
+        audio_samples: &[f32],
+        prompt: Option<String>,
+        language: Option<String>,
+        translate_to_english: bool,
+    ) -> Result<String> {
+        let cancel_token = CancellationToken::new();
+        self.active_requests
+            .lock()
+            .unwrap()
+            .insert(operation_id, cancel_token.clone());
+        if self.is_cancelled(operation_id) {
+            cancel_token.cancel();
+        }
+
+        let result = tokio::select! {
+            biased;
+            _ = cancel_token.cancelled() => Err(anyhow!("Remote STT operation was cancelled")),
+            result = self.transcribe_inner(
+                settings,
+                audio_samples,
+                prompt,
+                language,
+                translate_to_english,
+            ) => result,
+        };
+
+        self.active_requests.lock().unwrap().remove(&operation_id);
+        result
+    }
+
+    async fn transcribe_inner(
         &self,
         settings: &RemoteSttSettings,
         audio_samples: &[f32],
