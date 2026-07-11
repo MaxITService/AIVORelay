@@ -253,6 +253,25 @@ fn refresh_soniox_live_preview_window(app: &AppHandle) {
     crate::overlay::update_soniox_live_preview_window(app);
 }
 
+fn synchronize_active_profile_preview(settings: &mut settings::AppSettings) {
+    let preview_enabled = if settings.active_profile_id == "default" {
+        settings.preview_output_only_enabled
+    } else {
+        settings
+            .transcription_profile(&settings.active_profile_id)
+            .map(|profile| profile.preview_output_only_enabled)
+            .unwrap_or(false)
+    };
+
+    settings.soniox_live_preview_enabled = preview_enabled;
+    if preview_enabled && settings.transcription_provider == settings::TranscriptionProvider::Local
+    {
+        settings
+            .native_streaming_live_output_models
+            .retain(|model_id| model_id != &settings.selected_model);
+    }
+}
+
 fn refresh_recording_overlay_window(app: &AppHandle) {
     crate::overlay::update_overlay_position(app);
 }
@@ -4059,7 +4078,9 @@ pub fn update_transcription_profile(
         binding.description = description;
     }
 
+    synchronize_active_profile_preview(&mut settings);
     settings::write_settings(&app, settings);
+    refresh_soniox_live_preview_window(&app);
     Ok(())
 }
 
@@ -4107,6 +4128,7 @@ pub fn delete_transcription_profile(app: AppHandle, id: String) -> Result<(), St
     // If the deleted profile was valid, check if it was active
     if settings.active_profile_id == id {
         settings.active_profile_id = "default".to_string();
+        synchronize_active_profile_preview(&mut settings);
     }
 
     // Unregister and remove the shortcut binding
@@ -4119,6 +4141,7 @@ pub fn delete_transcription_profile(app: AppHandle, id: String) -> Result<(), St
     }
 
     settings::write_settings(&app, settings);
+    refresh_soniox_live_preview_window(&app);
     Ok(())
 }
 
@@ -4143,7 +4166,9 @@ pub fn set_active_profile(app: AppHandle, id: String) -> Result<(), String> {
     }
 
     settings.active_profile_id = id.clone();
+    synchronize_active_profile_preview(&mut settings);
     settings::write_settings(&app, settings.clone());
+    refresh_soniox_live_preview_window(&app);
 
     // Show overlay notification if enabled
     // Skip overlay if recording/processing is active to avoid hiding the recording overlay
