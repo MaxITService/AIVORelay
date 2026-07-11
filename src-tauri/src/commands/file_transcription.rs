@@ -229,9 +229,6 @@ pub async fn transcribe_audio_file(
     let settings = get_settings(&app);
     let profile_id = profile_id.unwrap_or_else(|| settings.active_profile_id.clone());
     let profile = settings.transcription_profile(&profile_id);
-    let should_unload_override_model =
-        model_override.is_some() && settings.transcription_provider == TranscriptionProvider::Local;
-
     let apply_custom_words_enabled =
         custom_words_enabled_override.unwrap_or(settings.custom_words_enabled);
     let should_apply_custom_words = apply_custom_words_enabled && !settings.custom_words.is_empty();
@@ -549,6 +546,28 @@ pub async fn transcribe_audio_file(
     } else {
         // Local transcription with segment support
         let tm = app.state::<Arc<TranscriptionManager>>();
+        let loaded_model_before_override = tm.get_current_model();
+        let override_changed_loaded_model = model_override
+            .as_ref()
+            .is_some_and(|model_id| loaded_model_before_override.as_deref() != Some(model_id));
+
+        let restore_loaded_model = || -> Result<(), String> {
+            if !override_changed_loaded_model {
+                return Ok(());
+            }
+
+            match loaded_model_before_override.as_deref() {
+                Some(previous_model_id) => tm.load_model(previous_model_id).map_err(|e| {
+                    format!(
+                        "Failed to restore previously loaded model '{}': {}",
+                        previous_model_id, e
+                    )
+                }),
+                None => tm
+                    .unload_model()
+                    .map_err(|e| format!("Failed to unload temporary override model: {}", e)),
+            }
+        };
 
         // If override is provided, load that model first
         if let Some(model_id) = &model_override {
@@ -561,10 +580,14 @@ pub async fn transcribe_audio_file(
             // We need it loaded NOW.
 
             // First check if it's already the current one
-            let current = tm.get_current_model();
-            if current.as_deref() != Some(model_id) {
-                tm.load_model(model_id)
-                    .map_err(|e| format!("Failed to load override model: {}", e))?;
+            if override_changed_loaded_model {
+                if let Err(load_error) = tm.load_model(model_id) {
+                    let load_error = format!("Failed to load override model: {}", load_error);
+                    return match restore_loaded_model() {
+                        Ok(()) => Err(load_error),
+                        Err(restore_error) => Err(format!("{}; {}", load_error, restore_error)),
+                    };
+                }
             }
         } else {
             // Ensure default model is loaded before transcription
@@ -616,12 +639,7 @@ pub async fn transcribe_audio_file(
             text_result.map(|(text, meta)| (text, None, meta))
         };
 
-        if should_unload_override_model {
-            info!("Unloading override model after file transcription");
-            if let Err(e) = tm.unload_model() {
-                error!("Failed to unload override model: {}", e);
-            }
-        }
+        restore_loaded_model()?;
 
         let (text, segs, meta) = result?;
         local_execution_meta = Some(meta);
