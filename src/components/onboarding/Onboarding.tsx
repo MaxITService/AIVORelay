@@ -32,6 +32,9 @@ const Onboarding: React.FC<OnboardingProps> = ({
   const isWindows = type() === "windows";
   const [availableModels, setAvailableModels] = useState<ModelInfo[]>([]);
   const [downloading, setDownloading] = useState(false);
+  const [downloadingModelId, setDownloadingModelId] = useState<string | null>(
+    null,
+  );
   const [error, setError] = useState<string | null>(null);
   const [mode, setMode] = useState<OnboardingMode>(
     startWithPermissionStep && isWindows ? "permissions" : "select",
@@ -88,6 +91,7 @@ const Onboarding: React.FC<OnboardingProps> = ({
     }
 
     setDownloading(true);
+    setDownloadingModelId(model.id);
     setError(null);
 
     // Start download in background, show welcome screen
@@ -98,10 +102,30 @@ const Onboarding: React.FC<OnboardingProps> = ({
       const result = await commands.downloadModel(model.id);
       if (result.status === "error") {
         console.error("Download failed:", result.error);
+        setDownloading(false);
+        setDownloadingModelId(null);
+        setMode("local");
       }
     } catch (err) {
       console.error("Download failed:", err);
+      setDownloading(false);
+      setDownloadingModelId(null);
+      setMode("local");
     }
+  };
+
+  const handleCancelDownload = async () => {
+    if (!downloadingModelId) return;
+
+    const result = await commands.cancelDownload(downloadingModelId);
+    if (result.status === "error") {
+      setError(result.error);
+      return;
+    }
+
+    setDownloading(false);
+    setDownloadingModelId(null);
+    setMode("local");
   };
 
   const getRecommendedBadge = (model: ModelInfo): boolean => {
@@ -207,6 +231,16 @@ const Onboarding: React.FC<OnboardingProps> = ({
                   ? t("onboarding.welcome.modelDownloading")
                   : t("onboarding.welcome.providerReady")}
               </p>
+
+              {welcomeVariant === "local" && downloadingModelId && (
+                <button
+                  className="px-5 py-2 rounded-lg border border-[#4a4a4a] text-[#d0d0d0] text-sm hover:border-[#ff4d8d] hover:text-white transition-colors"
+                  onClick={() => void handleCancelDownload()}
+                  type="button"
+                >
+                  {t("common.cancel")}
+                </button>
+              )}
 
               {/* Shortcut selector */}
               <div className="w-full text-left space-y-2">
