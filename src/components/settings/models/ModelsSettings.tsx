@@ -1,16 +1,7 @@
-import React, { useEffect, useMemo, useState, useRef } from "react";
+import React, { useMemo, useState, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { ask } from "@tauri-apps/plugin-dialog";
-import {
-  CircuitBoard,
-  Cloud,
-  Cpu,
-  Download,
-  Filter,
-  HardDrive,
-  Radio,
-  RotateCcw,
-} from "lucide-react";
+import { Cloud, Download, Filter, HardDrive, Radio, RotateCcw } from "lucide-react";
 import { useModels } from "../../../hooks/useModels";
 import { useSettings } from "../../../hooks/useSettings";
 import { useModelFilters } from "../../../hooks/useModelFilters";
@@ -29,7 +20,6 @@ import { ModelFilterBar } from "./ModelFilterBar";
 import { ModelReleaseDate } from "../../shared/ModelReleaseDate";
 import {
   commands,
-  type AvailableAccelerators,
   type ModelInfo,
   type RemoteSttSettings as RemoteSttSettingsConfig,
 } from "@/bindings";
@@ -40,51 +30,6 @@ type RemoteApiRowId =
   | "openai_realtime2"
   | "openai_translate"
   | "custom";
-
-const WHISPER_ENGINE_TYPES = new Set<ModelInfo["engine_type"]>([
-  "TranscribeCpp",
-  "Whisper",
-]);
-
-const ModelAccelerationIcons: React.FC<{ supportsGpu: boolean }> = ({
-  supportsGpu,
-}) => {
-  const { t } = useTranslation();
-
-  return (
-    <span className="ml-2 inline-flex items-center gap-1 align-middle text-[#777]">
-      <span
-        title={t("modelSelector.cpuSupportedTooltip", "CPU supported")}
-        aria-label={t("modelSelector.cpuSupportedTooltip", "CPU supported")}
-      >
-        <Cpu aria-hidden="true" className="h-3.5 w-3.5" />
-      </span>
-      {supportsGpu && (
-        <span
-          title={t("modelSelector.gpuSupportedTooltip", "GPU supported")}
-          aria-label={t("modelSelector.gpuSupportedTooltip", "GPU supported")}
-        >
-          <CircuitBoard aria-hidden="true" className="h-3.5 w-3.5" />
-        </span>
-      )}
-    </span>
-  );
-};
-
-function modelSupportsGpu(
-  model: ModelInfo,
-  accelerators: AvailableAccelerators | null,
-): boolean {
-  if (!accelerators || accelerators.gpu_devices.length === 0) return false;
-
-  if (WHISPER_ENGINE_TYPES.has(model.engine_type)) {
-    return accelerators.whisper.includes("gpu");
-  }
-
-  return accelerators.ort.some(
-    (accelerator) => accelerator !== "auto" && accelerator !== "cpu",
-  );
-}
 
 type RemoteApiRow = {
   id: RemoteApiRowId;
@@ -195,24 +140,6 @@ export const ModelsSettings: React.FC = () => {
   const [switchingModelId, setSwitchingModelId] = useState<string | null>(null);
   const [switchingRemoteApiId, setSwitchingRemoteApiId] =
     useState<RemoteApiRowId | null>(null);
-  const [availableAccelerators, setAvailableAccelerators] =
-    useState<AvailableAccelerators | null>(null);
-
-  useEffect(() => {
-    let active = true;
-    commands
-      .getAvailableAccelerators()
-      .then((accelerators) => {
-        if (active) setAvailableAccelerators(accelerators);
-      })
-      .catch((error) => {
-        console.error("Failed to load model acceleration capabilities:", error);
-      });
-
-    return () => {
-      active = false;
-    };
-  }, []);
   const {
     filters,
     isAnyFilterActive,
@@ -717,10 +644,10 @@ export const ModelsSettings: React.FC = () => {
                 <div className="min-w-0">
                   <div className="flex items-center gap-2">
                     <span
-                      title={t("modelSelector.localModelTooltip", "Local model")}
+                      title={t("modelSelector.downloadedTooltip", "Downloaded")}
                       aria-label={t(
-                        "modelSelector.localModelTooltip",
-                        "Local model",
+                        "modelSelector.downloadedTooltip",
+                        "Downloaded",
                       )}
                     >
                       <HardDrive
@@ -734,12 +661,6 @@ export const ModelsSettings: React.FC = () => {
                         className="mr-2 text-[10px] font-normal text-[#777]"
                       />
                       {modelName}
-                      <ModelAccelerationIcons
-                        supportsGpu={modelSupportsGpu(
-                          model,
-                          availableAccelerators,
-                        )}
-                      />
                     </p>
                     {model.is_custom && (
                       <span className="text-[10px] tracking-wide uppercase text-[#a0a0a0]">
@@ -824,12 +745,6 @@ export const ModelsSettings: React.FC = () => {
                     className="mr-2 text-[10px] font-normal text-[#777]"
                   />
                   {getTranslatedModelName(model, t)}
-                  <ModelAccelerationIcons
-                    supportsGpu={modelSupportsGpu(
-                      model,
-                      availableAccelerators,
-                    )}
-                  />
                 </p>
                 <p className="text-xs text-[#a0a0a0] mt-1">
                   {getTranslatedModelDescription(model, t)}
