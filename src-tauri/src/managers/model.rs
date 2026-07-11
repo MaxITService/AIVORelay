@@ -1456,6 +1456,12 @@ impl ModelManager {
             }
         }
 
+        let cancel_token = CancellationToken::new();
+        self.cancellation_tokens
+            .lock()
+            .unwrap()
+            .insert(model_info.id.clone(), cancel_token.clone());
+
         let result: Result<()> = async {
             let _ = self.app_handle.emit(
                 "model-download-progress",
@@ -1474,7 +1480,16 @@ impl ModelManager {
                 model_info.id.clone(),
                 model_info.size_mb.saturating_mul(1024 * 1024),
             );
-            repo.download_with_progress(&filename, progress).await?;
+            tokio::select! {
+                result = repo.download_with_progress(&filename, progress) => result?,
+                _ = cancel_token.cancelled() => {
+                    return Err(anyhow::anyhow!("Download cancelled"));
+                }
+            }
+
+            if cancel_token.is_cancelled() {
+                return Err(anyhow::anyhow!("Download cancelled"));
+            }
 
             self.update_download_status()?;
             let _ = self
@@ -1484,6 +1499,11 @@ impl ModelManager {
             Ok(())
         }
         .await;
+
+        self.cancellation_tokens
+            .lock()
+            .unwrap()
+            .remove(&model_info.id);
 
         if result.is_err() {
             let mut models = self.available_models.lock().unwrap();
