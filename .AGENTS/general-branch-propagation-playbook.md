@@ -1,12 +1,11 @@
 # General Branch Propagation Workflow
-Branch tags: #branch/main #branch/release-microsoft-store #branch/integration-combined
+Branch tags: #branch/main #branch/release-microsoft-store
 
 This playbook contains the common rules for propagating commits from `main` to any of the release branches. 
 For branch-specific exclusions and allowed commit types, see their respective playbooks:
 - [[.AGENTS/main-to-microsoft-store-propagation-playbook|main-to-microsoft-store-propagation-playbook.md]]
-- [[.AGENTS/main-to-combined-propagation-playbook|main-to-combined-propagation-playbook.md]]
 
-`integration/cuda` is frozen and is not a propagation target.
+`integration/cuda` and `integration/combined` are frozen and are not propagation targets.
 
 Do not use upstream-intake filtering here. That is a separate workflow described in and is for upstream only:
 - [[.AGENTS/upstream-intake-playbook|upstream-intake-playbook.md]]

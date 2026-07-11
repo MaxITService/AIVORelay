@@ -1,5 +1,5 @@
 # Branching Status
-Branch tags: #branch/main #branch/release-microsoft-store #branch/integration-combined
+Branch tags: #branch/main #branch/release-microsoft-store
 
 Operational note: this file is a quick reference, not the sole source of truth for the next propagation start point.
 Before starting a new `main` -> branch sync, verify the target branch directly with git history (`git log`, `git cherry`, and if needed `git reflog`).
@@ -18,10 +18,7 @@ Propagation scope rule: for Microsoft Store Edition propagation, bring over the 
 Frozen branch head: `ac2ee48a` — docs(sync): record 1.0.22 CUDA propagation.
 Keep its existing build documentation and release infrastructure intact, but do not propagate `main` updates into this branch unless the user explicitly unfreezes it.
 
-## integration/combined
+## integration/combined (frozen)
 
-Last synced commit from `main`: `3b37e049` — chore: bump version to 1.0.22.
-Maintenance rule: after a successful `main` -> `integration/combined` propagation, update this main-copy cursor and the `integration/combined` worktree copy together.
-Note: the cursor always points to the last propagated commit from `main`, not to combined-only commits created on top of it.
-Sync rule: for this branch, source commits come from `main` only.
-Propagation scope rule: for Combined Edition propagation, bring over intended `main` runtime fixes in order unless a commit conflicts with combined packaging or variant-launcher wiring.
+Frozen branch head: `10d35c4f` — docs(sync): record 1.0.22 combined propagation.
+Keep its existing build documentation and release infrastructure intact, but do not propagate `main` updates into this branch unless the user explicitly unfreezes it.

@@ -21,20 +21,19 @@ This is the entry file for AI/code agents working with this fork.
 
 - `main`
 - `release/microsoft-store`
-- `integration/combined`
 
 Relative worktree paths:
 
 - `main` -> `.`
 - `release/microsoft-store` -> `../AIVORelay-store`
-- `integration/combined` -> `../AIVORelay-combined`
 
-When the user says "all branches", they currently mean these three branches.
+When the user says "all branches", they currently mean these two branches.
 
 Frozen branch:
 
 - `integration/cuda` -> `../AIVORelay-cuda`
-- Keep it buildable at its current frozen state, but do not propagate `main` updates into it unless the user explicitly unfreezes it.
+- `integration/combined` -> `../AIVORelay-combined`
+- Keep them buildable at their current frozen states, but do not propagate `main` updates into either branch unless the user explicitly unfreezes it.
 
 ## Read Extra Docs Only When Needed
 
@@ -44,7 +43,6 @@ Frozen branch:
 - If you propagate `main` into a release branch, read the general playbook and the matching specific one:
   - [[.AGENTS/general-branch-propagation-playbook|general-branch-propagation-playbook.md]]
   - [[.AGENTS/main-to-microsoft-store-propagation-playbook|main-to-microsoft-store-propagation-playbook.md]]
-  - [[.AGENTS/main-to-combined-propagation-playbook|main-to-combined-propagation-playbook.md]]
 - If you work on release or version preparation, read [[.AGENTS/Release|Release.md]].
 - If you need branch state context, read [[.AGENTS/branching-status|branching-status.md]].
 - If you need tracked docs navigation, read [[.AGENTS/MOC|.AGENTS/MOC.md]].

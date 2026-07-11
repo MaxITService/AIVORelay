@@ -1,5 +1,5 @@
 # .AGENTS MOC
-Branch tags: #branch/main #branch/release-microsoft-store #branch/integration-combined
+Branch tags: #branch/main #branch/release-microsoft-store
 
 Map of tracked agent documentation.
 
@@ -20,7 +20,6 @@ Map of tracked agent documentation.
 ## Branch Propagation
 
 - [[.AGENTS/main-to-microsoft-store-propagation-playbook|main-to-microsoft-store-propagation-playbook.md]]
-- [[.AGENTS/main-to-combined-propagation-playbook|main-to-combined-propagation-playbook.md]]
 - [[.AGENTS/branch-propagation-log|branch-propagation-log.md]]
 - [[.AGENTS/branching-status|branching-status.md]]
 

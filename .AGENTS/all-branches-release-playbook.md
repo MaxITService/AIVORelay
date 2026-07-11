@@ -1,4 +1,4 @@
-Branch tags: #branch/main #branch/release-microsoft-store #branch/integration-combined
+Branch tags: #branch/main #branch/release-microsoft-store
 
 # All Branches Release Playbook
 
@@ -9,7 +9,6 @@ Use this playbook only when the user asks to prepare or publish releases on more
 Each branch has its own release contract:
 - `main` -> tag `vx.y.z`
 - `release/microsoft-store` -> tag `vx.y.z-store`, GitHub release must be published as a pre-release
-- `integration/combined` -> follow its branch-specific release instructions if the user asks
 
 Never assume that a rule from one branch automatically applies to another branch.
 
@@ -36,4 +35,3 @@ When the user asks for release work on multiple branches:
 3. Prepare branch-specific release bodies separately.
 4. Keep tag names, release titles, and release assets branch-specific.
 5. Ask before pushing or publishing anything if the user has not explicitly requested that step.
-
