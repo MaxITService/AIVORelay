@@ -1481,7 +1481,9 @@ impl ModelManager {
                 model_info.size_mb.saturating_mul(1024 * 1024),
             );
             tokio::select! {
-                result = repo.download_with_progress(&filename, progress) => result?,
+                result = repo.download_with_progress(&filename, progress) => {
+                    result?;
+                }
                 _ = cancel_token.cancelled() => {
                     return Err(anyhow::anyhow!("Download cancelled"));
                 }
