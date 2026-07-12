@@ -447,6 +447,21 @@ jobs:
           fi
           echo "platform=${patched_platform}" >> $GITHUB_OUTPUT
 
+      # ggml-vulkan (built by transcribe-cpp-sys when the Vulkan backend is on)
+      # requires a findable SPIRV-HeadersConfig.cmake. The CI Vulkan SDK does not
+      # expose one, so provide the header-only package via vcpkg and add its
+      # prefix to CMAKE_PREFIX_PATH. Windows ARM64 is CPU-only.
+      - name: Install SPIRV-Headers for transcribe-cpp Vulkan build (Windows x64)
+        if: contains(inputs.platform, 'windows') && !contains(inputs.target, 'aarch64')
+        shell: pwsh
+        run: |
+          vcpkg install spirv-headers:x64-windows
+          if ($LASTEXITCODE -ne 0) { throw "vcpkg install spirv-headers failed" }
+          $prefix = "$env:VCPKG_INSTALLATION_ROOT/installed/x64-windows" -replace '\\','/'
+          $combined = if ($env:CMAKE_PREFIX_PATH) { "$prefix;$env:CMAKE_PREFIX_PATH" } else { $prefix }
+          Add-Content $env:GITHUB_ENV "CMAKE_PREFIX_PATH=$combined"
+          Write-Host "CMAKE_PREFIX_PATH=$combined"
+
       - name: Build with Tauri
         uses: tauri-apps/tauri-action@v0
         env:
