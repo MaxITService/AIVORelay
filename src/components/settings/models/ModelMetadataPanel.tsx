@@ -1,12 +1,26 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { ChevronDown } from "lucide-react";
-import type { ModelInfo } from "@/bindings";
+import type { ModelInfo, NativeStreamingLatencyPreset } from "@/bindings";
 import { commands } from "@/bindings";
 import { LANGUAGES } from "@/lib/constants/languages";
 import { useSettings } from "../../../hooks/useSettings";
 import { ToggleSwitch } from "../../ui/ToggleSwitch";
+import { Slider } from "../../ui/Slider";
 import { sessionToast as toast } from "../../../lib/sessionToast";
+
+const NATIVE_STREAMING_LATENCY_PRESETS: NativeStreamingLatencyPreset[] = [
+  "fastest",
+  "fast",
+  "balanced",
+  "accurate",
+];
+
+function latencyPresetPosition(
+  preset: NativeStreamingLatencyPreset,
+): number {
+  return Math.max(0, NATIVE_STREAMING_LATENCY_PRESETS.indexOf(preset));
+}
 
 const FALLBACK_LANGUAGE_LABELS = new Map(
   LANGUAGES.map((language) => [language.value, language.label] as const),
@@ -351,6 +365,13 @@ export const ModelMetadataPanel: React.FC<{ model: ModelInfo }> = ({
   const { i18n, t } = useTranslation();
   const { getSetting, refreshSettings } = useSettings();
   const [isUpdatingLiveOutput, setIsUpdatingLiveOutput] = useState(false);
+  const latencyPresets =
+    getSetting("native_streaming_latency_presets") ?? {};
+  const savedLatencyPreset = latencyPresets[model.id] ?? "accurate";
+  const [latencyPosition, setLatencyPosition] = useState(() =>
+    latencyPresetPosition(savedLatencyPreset),
+  );
+  const [isUpdatingLatency, setIsUpdatingLatency] = useState(false);
   const copy = useMemo(
     () => getModelDetailsCopy(i18n.language),
     [i18n.language],
@@ -362,6 +383,11 @@ export const ModelMetadataPanel: React.FC<{ model: ModelInfo }> = ({
   );
   const supportsNativeLiveOutput =
     model.engine_type === "TranscribeCpp" && model.supports_streaming;
+  const supportsConfigurableLatency = Boolean(
+    model.is_downloaded &&
+      supportsNativeLiveOutput &&
+      model.native_streaming_latency_kind,
+  );
   const liveOutputModels = getSetting("native_streaming_live_output_models") ?? [];
   const liveOutputEnabled = liveOutputModels.includes(model.id);
   const livePreviewEnabled = Boolean(
@@ -370,6 +396,10 @@ export const ModelMetadataPanel: React.FC<{ model: ModelInfo }> = ({
   );
   const nativeStreamingCurrentlyOff =
     supportsNativeLiveOutput && !livePreviewEnabled && !liveOutputEnabled;
+
+  useEffect(() => {
+    setLatencyPosition(latencyPresetPosition(savedLatencyPreset));
+  }, [model.id, savedLatencyPreset]);
 
   const handleLiveOutputChange = async (enabled: boolean) => {
     setIsUpdatingLiveOutput(true);
@@ -395,6 +425,50 @@ export const ModelMetadataPanel: React.FC<{ model: ModelInfo }> = ({
     } finally {
       setIsUpdatingLiveOutput(false);
     }
+  };
+
+  const handleLatencyChangeComplete = async (position: number) => {
+    const preset =
+      NATIVE_STREAMING_LATENCY_PRESETS[Math.round(position)] ?? "accurate";
+    if (preset === savedLatencyPreset) {
+      return;
+    }
+
+    setIsUpdatingLatency(true);
+    try {
+      const result =
+        await commands.changeNativeStreamingLatencyPresetSetting(
+          model.id,
+          preset,
+        );
+      if (result.status === "error") {
+        throw new Error(result.error);
+      }
+      await refreshSettings();
+    } catch (error) {
+      setLatencyPosition(latencyPresetPosition(savedLatencyPreset));
+      toast.error(String(error));
+    } finally {
+      setIsUpdatingLatency(false);
+    }
+  };
+
+  const latencyLabel = (position: number): string => {
+    const preset =
+      NATIVE_STREAMING_LATENCY_PRESETS[Math.round(position)] ?? "accurate";
+    const labels: Record<NativeStreamingLatencyPreset, string> = {
+      fastest: t("modelSelector.nativeStreamingLatency.fastest", "Fastest"),
+      fast: t("modelSelector.nativeStreamingLatency.fast", "Fast"),
+      balanced: t(
+        "modelSelector.nativeStreamingLatency.balanced",
+        "Balanced",
+      ),
+      accurate: t(
+        "modelSelector.nativeStreamingLatency.accurate",
+        "Accurate",
+      ),
+    };
+    return labels[preset];
   };
 
   return (
@@ -440,6 +514,48 @@ export const ModelMetadataPanel: React.FC<{ model: ModelInfo }> = ({
                 disabled={isUpdatingLiveOutput}
               />
             </div>
+          </div>
+        </div>
+      )}
+
+      {supportsConfigurableLatency && (
+        <div className="overflow-hidden rounded-lg border border-[#3d3d3d] bg-[#141414]">
+          <Slider
+            label={t(
+              "modelSelector.nativeStreamingLatency.title",
+              "Streaming latency",
+            )}
+            description={t(
+              "modelSelector.nativeStreamingLatency.description",
+              "Choose how quickly this model responds. Faster modes can reduce accuracy and may fall behind on slower CPUs.",
+            )}
+            descriptionMode="tooltip"
+            grouped
+            min={0}
+            max={3}
+            step={1}
+            value={latencyPosition}
+            onChange={setLatencyPosition}
+            onChangeComplete={(position) =>
+              void handleLatencyChangeComplete(position)
+            }
+            disabled={isUpdatingLatency}
+            formatValue={latencyLabel}
+          />
+          <div className="-mt-2 px-6 pb-4 text-[11px] leading-snug text-[#8f8f8f]">
+            {t(
+              "modelSelector.nativeStreamingLatency.appliesNextRecording",
+              "Applies from the next recording.",
+            )}
+            {model.native_streaming_latency_kind === "parakeet_buffered" &&
+              latencyPosition <= 1 && (
+                <span className="ml-1 text-amber-300">
+                  {t(
+                    "modelSelector.nativeStreamingLatency.cpuWarning",
+                    "This mode can lag on CPU.",
+                  )}
+                </span>
+              )}
           </div>
         </div>
       )}

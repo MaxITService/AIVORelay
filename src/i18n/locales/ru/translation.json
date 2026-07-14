@@ -431,6 +431,16 @@
       "directDisabledTitle": "Живой ввод финального текста отключён",
       "directDisabledDescription": "Live Preview и прямой ввод финальных чанков несовместимы для модели «{{model}}». Теперь текст будет оставаться в окне Preview до нажатия Insert."
     },
+    "nativeStreamingLatency": {
+      "title": "Задержка стриминга",
+      "description": "Выберите скорость отклика этой модели. Более быстрые режимы могут снизить точность и отставать на менее производительных процессорах.",
+      "fastest": "Максимальная скорость",
+      "fast": "Быстро",
+      "balanced": "Баланс",
+      "accurate": "Точно",
+      "appliesNextRecording": "Применится со следующей записи.",
+      "cpuWarning": "На CPU этот режим может отставать."
+    },
     "deleteModel": "Удалить {{modelName}}",
     "custom": "Custom",
     "customModelsHelpTitle": "Custom Whisper Models",
