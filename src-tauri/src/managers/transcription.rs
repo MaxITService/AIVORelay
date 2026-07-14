@@ -1,6 +1,7 @@
 use crate::audio_toolkit::{apply_custom_words, filter_transcription_output};
 use crate::managers::audio::AudioRecordingManager;
 use crate::managers::model::{self, EngineType, ModelManager};
+use crate::managers::moonshine_streaming_shim::{self, CommittedTextSink};
 use crate::settings::{
     get_settings, AppSettings, FileTranscriptionChunkingMode, ModelUnloadTimeout,
     OrtAcceleratorSetting, WhisperAcceleratorSetting,
@@ -201,15 +202,21 @@ fn transcribe_cpp_run_options(
     }
 }
 
-fn native_stream_options(architecture: &str, show_interim_longer: bool) -> StreamOptions {
-    if architecture == "voxtral_realtime" && show_interim_longer {
+fn native_stream_options(
+    architecture: &str,
+    show_interim_longer: bool,
+    committed_text_sink: CommittedTextSink,
+) -> StreamOptions {
+    let options = if architecture == "voxtral_realtime" && show_interim_longer {
         StreamOptions {
             stable_prefix_agreement_n: VOXTRAL_REALTIME_STABLE_PREFIX_AGREEMENT_N,
             ..Default::default()
         }
     } else {
         StreamOptions::default()
-    }
+    };
+
+    moonshine_streaming_shim::configure_stream_options(architecture, committed_text_sink, options)
 }
 
 struct TranscribeCppRunPlan {
@@ -766,9 +773,15 @@ impl TranscriptionManager {
                 translate_to_english,
                 TimestampKind::None,
             );
+            let committed_text_sink = if on_committed_text.is_some() {
+                CommittedTextSink::IrreversibleAppendOnly
+            } else {
+                CommittedTextSink::ReplaceablePreview
+            };
             let stream_options = native_stream_options(
                 &architecture,
                 get_settings(&self.app_handle).native_streaming_show_interim_longer,
+                committed_text_sink,
             );
             let mut stream = match session.stream(&run_options, &stream_options) {
                 Ok(stream) => stream,
@@ -781,8 +794,13 @@ impl TranscriptionManager {
             self.stream_active.store(true, Ordering::Release);
             self.touch_activity();
             info!(
-                "Native transcribe.cpp stream started for model '{}' arch='{}' variant='{}' on backend '{}'",
-                model_id, architecture, variant, backend
+                "Native transcribe.cpp stream started for model '{}' arch='{}' variant='{}' on backend '{}' with commit_policy={:?} sink={:?}",
+                model_id,
+                architecture,
+                variant,
+                backend,
+                stream_options.commit_policy,
+                committed_text_sink,
             );
 
             let mut perf = StreamPerf::new();
@@ -863,24 +881,24 @@ impl TranscriptionManager {
                                     text.committed.chars().count(),
                                     text.tentative.chars().count(),
                                 );
+                                let final_text = text.full.clone();
                                 if let (Some(callback), Some(delta)) = (
                                     on_committed_text.as_ref(),
                                     native_stream_committed_delta(
                                         &mut delivered_committed_text,
-                                        // Finalization makes the complete display text safe to
-                                        // insert even if the backend still labels its last tail
-                                        // as tentative in the final snapshot.
-                                        &text.display(),
+                                        // Terminal delivery must use the model's authoritative
+                                        // final hypothesis, not the append-only display snapshot.
+                                        &final_text,
                                     ),
                                 ) {
                                     callback(delta);
                                 }
                                 crate::overlay::emit_live_preview_update(
                                     &self.app_handle,
-                                    &text.committed,
-                                    &text.tentative,
+                                    &final_text,
+                                    "",
                                 );
-                                Some(text.display())
+                                Some(final_text)
                             }
                             Err(error) => {
                                 perf.record_compute(finalize_start.elapsed());

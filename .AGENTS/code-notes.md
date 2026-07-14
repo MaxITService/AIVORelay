@@ -22,6 +22,7 @@ Files that are added by this fork rather than upstream files that were modified.
 | `src-tauri/src/commands/region_capture.rs` | Commands for region capture. |
 | `src-tauri/src/commands/voice_command.rs` | Voice Command Center. |
 | `src-tauri/src/commands/live_sound_transcription.rs` | Live Sound Transcription page command surface. |
+| `src-tauri/src/managers/moonshine_streaming_shim.rs` | Moonshine streaming commit-policy shim for replaceable preview versus irreversible append-only output. |
 | `src-tauri/src/file_transcription_diarization.rs` | Shared diarized file-transcription temp session + speaker re-apply helpers. |
 | `src-tauri/src/subtitle.rs` | Subtitle formatting (SRT/VTT). |
 | `src-tauri/src/audio_toolkit/text.rs` | Text Post-Processing (stutter/filler removal). |
