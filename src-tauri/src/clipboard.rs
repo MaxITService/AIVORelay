@@ -14,11 +14,14 @@ use crate::utils::is_wayland;
 use std::process::Command;
 
 struct StreamingPasteSession {
+    operation_id: u64,
     paste_method: PasteMethod,
     clipboard_handling: ClipboardHandling,
     paste_delay_ms: u64,
     convert_lf_to_crlf: bool,
     text_backup: String,
+    #[cfg(target_os = "windows")]
+    advanced_backup: Option<win_clipboard::ClipboardBackup>,
 }
 
 static STREAMING_PASTE_SESSION: Lazy<Mutex<Option<StreamingPasteSession>>> =
@@ -58,9 +61,20 @@ mod win_clipboard {
         entries: Vec<ClipboardEntry>,
     }
 
+    // SAFETY: The backup exclusively owns duplicated, process-wide GDI
+    // handles. It is moved between threads but never accessed concurrently;
+    // restoration or cleanup consumes each handle exactly once.
+    unsafe impl Send for ClipboardBackup {}
+
     impl ClipboardBackup {
         pub fn len(&self) -> usize {
             self.entries.len()
+        }
+    }
+
+    impl Drop for ClipboardBackup {
+        fn drop(&mut self) {
+            cleanup_entries(std::mem::take(&mut self.entries));
         }
     }
 
@@ -240,7 +254,7 @@ mod win_clipboard {
     }
 
     /// Restore all backed-up clipboard formats
-    pub fn restore_all_formats(backup: ClipboardBackup) -> Result<RestoreStats, String> {
+    pub fn restore_all_formats(mut backup: ClipboardBackup) -> Result<RestoreStats, String> {
         if backup.entries.is_empty() {
             debug!("No clipboard entries to restore");
             return Ok(RestoreStats {
@@ -249,7 +263,9 @@ mod win_clipboard {
             });
         }
 
-        let entries = backup.entries;
+        // Take ownership away from Drop. Every entry is now either transferred
+        // to the system clipboard or explicitly cleaned up below.
+        let entries = std::mem::take(&mut backup.entries);
 
         unsafe {
             // Open clipboard (None = current task)
@@ -411,6 +427,47 @@ mod win_clipboard {
     }
 }
 
+#[cfg(target_os = "windows")]
+fn restore_advanced_clipboard_with_text_fallback(
+    app_handle: &AppHandle,
+    backup: win_clipboard::ClipboardBackup,
+    text_backup: &str,
+) -> Result<(), String> {
+    let clipboard = app_handle.clipboard();
+    let needs_text_fallback = match win_clipboard::restore_all_formats(backup) {
+        Ok(stats) if stats.failed_formats == 0 && stats.restored_formats > 0 => {
+            info!(
+                "Advanced clipboard restore completed successfully ({} formats)",
+                stats.restored_formats
+            );
+            false
+        }
+        Ok(stats) => {
+            warn!(
+                "Advanced clipboard restore incomplete: restored={}, failed={}. Falling back to text restore.",
+                stats.restored_formats, stats.failed_formats
+            );
+            true
+        }
+        Err(e) => {
+            warn!(
+                "Advanced clipboard restore failed: {}. Falling back to text restore.",
+                e
+            );
+            true
+        }
+    };
+
+    if needs_text_fallback {
+        clipboard
+            .write_text(text_backup)
+            .map_err(|e| format!("Fallback text clipboard restore failed: {}", e))?;
+        info!("Fallback text clipboard restore completed");
+    }
+
+    Ok(())
+}
+
 fn convert_text_for_clipboard(text: &str, convert_lf_to_crlf: bool) -> String {
     #[cfg(target_os = "windows")]
     {
@@ -469,6 +526,17 @@ fn restore_streaming_session(
 ) -> Result<(), String> {
     let clipboard = app_handle.clipboard();
 
+    if session.clipboard_handling == ClipboardHandling::RestoreAdvanced {
+        #[cfg(target_os = "windows")]
+        if let Some(backup) = session.advanced_backup {
+            return restore_advanced_clipboard_with_text_fallback(
+                app_handle,
+                backup,
+                &session.text_backup,
+            );
+        }
+    }
+
     if matches!(
         session.clipboard_handling,
         ClipboardHandling::DontModify | ClipboardHandling::RestoreAdvanced
@@ -481,7 +549,10 @@ fn restore_streaming_session(
     Ok(())
 }
 
-pub fn begin_streaming_paste_session(app_handle: &AppHandle) -> Result<(), String> {
+pub fn begin_streaming_paste_session(
+    app_handle: &AppHandle,
+    operation_id: u64,
+) -> Result<(), String> {
     let settings = get_settings(app_handle);
     if !matches!(
         settings.paste_method,
@@ -490,13 +561,20 @@ pub fn begin_streaming_paste_session(app_handle: &AppHandle) -> Result<(), Strin
         return Ok(());
     }
 
-    let clipboard = app_handle.clipboard();
-
-    if settings.clipboard_handling == ClipboardHandling::RestoreAdvanced {
-        warn!(
-            "Streaming clipboard session: RestoreAdvanced is downgraded to text-only restore for stream performance"
-        );
+    // Serialize session replacement with chunk insertion. Restoring a stale
+    // session before taking the next backup prevents the new session from
+    // accidentally snapshotting transient transcription text.
+    let mut session_guard = STREAMING_PASTE_SESSION
+        .lock()
+        .map_err(|_| "Streaming clipboard session lock poisoned".to_string())?;
+    if let Some(previous) = session_guard.take() {
+        warn!("Replacing stale streaming clipboard session; restoring previous backup");
+        if let Err(error) = restore_streaming_session(previous, app_handle) {
+            warn!("Failed to restore stale streaming clipboard session: {}", error);
+        }
     }
+
+    let clipboard = app_handle.clipboard();
 
     let text_backup = if matches!(
         settings.clipboard_handling,
@@ -507,28 +585,40 @@ pub fn begin_streaming_paste_session(app_handle: &AppHandle) -> Result<(), Strin
         String::new()
     };
 
+    #[cfg(target_os = "windows")]
+    let advanced_backup = if settings.clipboard_handling == ClipboardHandling::RestoreAdvanced {
+        match win_clipboard::backup_all_formats() {
+            Ok(backup) => {
+                info!(
+                    "Advanced streaming clipboard backup: {} formats saved",
+                    backup.len()
+                );
+                Some(backup)
+            }
+            Err(e) => {
+                warn!(
+                    "Advanced streaming clipboard backup failed: {}. Falling back to text-only restore.",
+                    e
+                );
+                None
+            }
+        }
+    } else {
+        None
+    };
+
     let new_session = StreamingPasteSession {
+        operation_id,
         paste_method: settings.paste_method,
         clipboard_handling: settings.clipboard_handling,
         paste_delay_ms: settings.paste_delay_ms,
         convert_lf_to_crlf: settings.convert_lf_to_crlf,
         text_backup,
+        #[cfg(target_os = "windows")]
+        advanced_backup,
     };
 
-    // Replace any stale session safely by restoring it first.
-    let previous = {
-        let mut guard = STREAMING_PASTE_SESSION
-            .lock()
-            .map_err(|_| "Streaming clipboard session lock poisoned".to_string())?;
-        let previous = guard.take();
-        *guard = Some(new_session);
-        previous
-    };
-
-    if let Some(previous) = previous {
-        warn!("Replacing stale streaming clipboard session; restoring previous backup");
-        let _ = restore_streaming_session(previous, app_handle);
-    }
+    *session_guard = Some(new_session);
 
     Ok(())
 }
@@ -546,6 +636,32 @@ pub fn end_streaming_paste_session(app_handle: &AppHandle) -> Result<(), String>
     }
 
     Ok(())
+}
+
+pub fn end_streaming_paste_session_if_matches(
+    app_handle: &AppHandle,
+    operation_id: u64,
+) -> Result<bool, String> {
+    let session = {
+        let mut guard = STREAMING_PASTE_SESSION
+            .lock()
+            .map_err(|_| "Streaming clipboard session lock poisoned".to_string())?;
+        if guard
+            .as_ref()
+            .is_some_and(|session| session.operation_id == operation_id)
+        {
+            guard.take()
+        } else {
+            None
+        }
+    };
+
+    if let Some(session) = session {
+        restore_streaming_session(session, app_handle)?;
+        return Ok(true);
+    }
+
+    Ok(false)
 }
 
 /// Pastes text using the clipboard: saves current content, writes text, sends paste keystroke, restores clipboard.
@@ -604,43 +720,19 @@ fn paste_via_clipboard(
     // Restore clipboard based on handling mode.
     #[cfg(target_os = "windows")]
     if let Some(backup) = advanced_backup {
-        let mut needs_text_fallback = true;
-
-        match win_clipboard::restore_all_formats(backup) {
-            Ok(stats) if stats.failed_formats == 0 && stats.restored_formats > 0 => {
-                info!(
-                    "Advanced clipboard restore completed successfully ({} formats)",
-                    stats.restored_formats
-                );
-                needs_text_fallback = false;
-            }
-            Ok(stats) => {
-                warn!(
-                    "Advanced clipboard restore incomplete: restored={}, failed={}. Falling back to text restore.",
-                    stats.restored_formats, stats.failed_formats
-                );
-            }
-            Err(e) => {
-                warn!(
-                    "Advanced clipboard restore failed: {}. Falling back to text restore.",
-                    e
-                );
-            }
-        }
-
-        if needs_text_fallback {
-            if let Err(e) = clipboard.write_text(&text_backup) {
-                warn!("Fallback text clipboard restore failed: {}", e);
-            } else {
-                info!("Fallback text clipboard restore completed");
-            }
-        }
-
-        return Ok(());
+        return restore_advanced_clipboard_with_text_fallback(
+            app_handle,
+            backup,
+            &text_backup,
+        );
     }
 
-    // Text-only restore for DontModify mode.
-    if clipboard_handling == ClipboardHandling::DontModify {
+    // Text-only restore for DontModify and as the fallback when an advanced
+    // backup could not be created (including non-Windows platforms).
+    if matches!(
+        clipboard_handling,
+        ClipboardHandling::DontModify | ClipboardHandling::RestoreAdvanced
+    ) {
         clipboard
             .write_text(&text_backup)
             .map_err(|e| format!("Failed to restore clipboard: {}", e))?;
@@ -1068,18 +1160,19 @@ pub fn paste_stream_chunk(text: String, app_handle: AppHandle) -> Result<(), Str
         return Ok(());
     }
 
-    let active_stream_config = {
-        let guard = STREAMING_PASTE_SESSION
-            .lock()
-            .map_err(|_| "Streaming clipboard session lock poisoned".to_string())?;
-        guard.as_ref().map(|session| {
-            (
-                session.paste_method,
-                session.paste_delay_ms,
-                session.convert_lf_to_crlf,
-            )
-        })
-    };
+    // Keep the session locked until the target application has received the
+    // paste shortcut. This prevents a concurrent stop/error path from
+    // restoring the previous clipboard during paste_delay_ms.
+    let stream_session_guard = STREAMING_PASTE_SESSION
+        .lock()
+        .map_err(|_| "Streaming clipboard session lock poisoned".to_string())?;
+    let active_stream_config = stream_session_guard.as_ref().map(|session| {
+        (
+            session.paste_method,
+            session.paste_delay_ms,
+            session.convert_lf_to_crlf,
+        )
+    });
 
     let enigo_state = app_handle
         .try_state::<EnigoState>()
@@ -1131,6 +1224,8 @@ pub fn paste_stream_chunk(text: String, app_handle: AppHandle) -> Result<(), Str
             }
         }
     }
+
+    drop(stream_session_guard);
 
     Ok(())
 }

@@ -4710,6 +4710,34 @@ where
     Ok(())
 }
 
+/// Queue clipboard restoration behind every previously dispatched main-thread
+/// paste and wait for it to run. Even if the wait times out, the restoration
+/// closure remains queued after those pastes, so it cannot race ahead of a
+/// delayed Ctrl+V and make it insert the user's old clipboard contents.
+fn end_streaming_paste_session_after_main_thread_queue(
+    app: &AppHandle,
+    operation_id: u64,
+    timeout_ms: u64,
+) {
+    let app_for_restore = app.clone();
+    if let Err(err) = run_on_main_thread_sync(app, timeout_ms, move || {
+        if let Err(restore_err) = crate::clipboard::end_streaming_paste_session_if_matches(
+            &app_for_restore,
+            operation_id,
+        ) {
+            warn!(
+                "Failed to restore clipboard after streaming paste session: {}",
+                restore_err
+            );
+        }
+    }) {
+        warn!(
+            "{}; clipboard restoration remains queued behind pending streaming pastes",
+            err
+        );
+    }
+}
+
 pub(crate) fn transcribe_action_for_binding(binding_id: &str) -> Option<Arc<dyn ShortcutAction>> {
     ACTION_MAP.get(binding_id).cloned().or_else(|| {
         if binding_id.starts_with("transcribe_") {
@@ -5813,7 +5841,9 @@ impl ShortcutAction for TranscribeAction {
         };
 
         if native_streaming_live_output {
-            if let Err(error) = crate::clipboard::begin_streaming_paste_session(app) {
+            if let Err(error) =
+                crate::clipboard::begin_streaming_paste_session(app, recording_operation_id)
+            {
                 warn!(
                     "Failed to begin native streaming clipboard session: {}",
                     error
@@ -5885,7 +5915,9 @@ impl ShortcutAction for TranscribeAction {
 
         if use_live_streaming {
             if !preview_output_only_enabled {
-                if let Err(e) = crate::clipboard::begin_streaming_paste_session(app) {
+                if let Err(e) =
+                    crate::clipboard::begin_streaming_paste_session(app, recording_operation_id)
+                {
                     warn!("Failed to begin streaming clipboard session: {}", e);
                 }
             }
@@ -5967,7 +5999,10 @@ impl ShortcutAction for TranscribeAction {
                         let _ = take_soniox_stream_emitted(&binding_id);
                         let err_str = format!("{}", err);
                         if !preview_output_only_enabled {
-                            let _ = crate::clipboard::end_streaming_paste_session(&app_handle);
+                            let _ = crate::clipboard::end_streaming_paste_session_if_matches(
+                                &app_handle,
+                                recording_operation_id,
+                            );
                         }
                         app_handle
                             .state::<Arc<AudioRecordingManager>>()
@@ -6048,7 +6083,10 @@ impl ShortcutAction for TranscribeAction {
                         let _ = take_deepgram_stream_emitted(&binding_id);
                         let err_str = format!("{}", err);
                         if !preview_output_only_enabled {
-                            let _ = crate::clipboard::end_streaming_paste_session(&app_handle);
+                            let _ = crate::clipboard::end_streaming_paste_session_if_matches(
+                                &app_handle,
+                                recording_operation_id,
+                            );
                         }
                         app_handle
                             .state::<Arc<AudioRecordingManager>>()
@@ -6083,7 +6121,10 @@ impl ShortcutAction for TranscribeAction {
                             let _ = take_openai_realtime_whisper_stream_emitted(&binding_id);
                             let err_str = format!("{}", err);
                             if !preview_output_only_enabled {
-                                let _ = crate::clipboard::end_streaming_paste_session(&app_handle);
+                                let _ = crate::clipboard::end_streaming_paste_session_if_matches(
+                                    &app_handle,
+                                    recording_operation_id,
+                                );
                             }
                             app_handle
                                 .state::<Arc<AudioRecordingManager>>()
@@ -6157,7 +6198,10 @@ impl ShortcutAction for TranscribeAction {
                         let _ = take_openai_realtime_whisper_stream_emitted(&binding_id);
                         let err_str = format!("{}", err);
                         if !preview_output_only_enabled {
-                            let _ = crate::clipboard::end_streaming_paste_session(&app_handle);
+                            let _ = crate::clipboard::end_streaming_paste_session_if_matches(
+                                &app_handle,
+                                recording_operation_id,
+                            );
                         }
                         app_handle
                             .state::<Arc<AudioRecordingManager>>()
@@ -6212,6 +6256,8 @@ impl ShortcutAction for TranscribeAction {
                 }
             };
             let recording_settings = stop_context.recording_settings.clone();
+            let streaming_clipboard_timeout_ms =
+                recording_settings.paste_delay_ms.saturating_add(5000);
             let preview_output_only_enabled = should_route_output_to_preview_for_captured_profile(
                 &recording_settings,
                 stop_context.captured_profile_id.as_ref(),
@@ -6305,7 +6351,11 @@ impl ShortcutAction for TranscribeAction {
                         }
                         rm.clear_stream_frame_callback();
                         if !preview_output_only_enabled {
-                            let _ = crate::clipboard::end_streaming_paste_session(&ah);
+                            end_streaming_paste_session_after_main_thread_queue(
+                                &ah,
+                                recording_operation_id,
+                                streaming_clipboard_timeout_ms,
+                            );
                         } else if !invoked_from_preview_action {
                             close_preview_output_mode_workflow(&ah, true);
                         }
@@ -6345,7 +6395,11 @@ impl ShortcutAction for TranscribeAction {
                         soniox_live_manager.cancel();
                     }
                     if !preview_output_only_enabled {
-                        let _ = crate::clipboard::end_streaming_paste_session(&ah);
+                        end_streaming_paste_session_after_main_thread_queue(
+                            &ah,
+                            recording_operation_id,
+                            streaming_clipboard_timeout_ms,
+                        );
                     } else if !invoked_from_preview_action {
                         let text_to_insert =
                             crate::managers::preview_output_mode::recording_prefix_text();
@@ -6377,7 +6431,11 @@ impl ShortcutAction for TranscribeAction {
                         soniox_live_manager.cancel();
                     }
                     if !preview_output_only_enabled {
-                        let _ = crate::clipboard::end_streaming_paste_session(&ah);
+                        end_streaming_paste_session_after_main_thread_queue(
+                            &ah,
+                            recording_operation_id,
+                            streaming_clipboard_timeout_ms,
+                        );
                     }
 
                     let ah_clone = ah.clone();
@@ -6445,7 +6503,11 @@ impl ShortcutAction for TranscribeAction {
                         let _ = ah.emit("remote-stt-error", err_str.clone());
                         crate::plus_overlay_state::handle_transcription_error(&ah, &err_str);
                         if !preview_output_only_enabled {
-                            let _ = crate::clipboard::end_streaming_paste_session(&ah);
+                            end_streaming_paste_session_after_main_thread_queue(
+                                &ah,
+                                recording_operation_id,
+                                streaming_clipboard_timeout_ms,
+                            );
                         }
                         if preview_output_only_enabled {
                             close_preview_output_mode_workflow(&ah, true);
@@ -6508,7 +6570,11 @@ impl ShortcutAction for TranscribeAction {
 
                 if transcription.is_empty() {
                     if !preview_output_only_enabled {
-                        let _ = crate::clipboard::end_streaming_paste_session(&ah);
+                        end_streaming_paste_session_after_main_thread_queue(
+                            &ah,
+                            recording_operation_id,
+                            streaming_clipboard_timeout_ms,
+                        );
                     } else if !invoked_from_preview_action {
                         let text_to_insert =
                             crate::managers::preview_output_mode::recording_prefix_text();
@@ -6563,7 +6629,11 @@ impl ShortcutAction for TranscribeAction {
                     Some(text) => text,
                     None => {
                         if !preview_output_only_enabled {
-                            let _ = crate::clipboard::end_streaming_paste_session(&ah);
+                            end_streaming_paste_session_after_main_thread_queue(
+                                &ah,
+                                recording_operation_id,
+                                streaming_clipboard_timeout_ms,
+                            );
                         } else if preview_processing_before_insert {
                             fail_preview_processing_before_insert(
                                 &ah,
@@ -6683,9 +6753,11 @@ impl ShortcutAction for TranscribeAction {
                 }
 
                 if !preview_output_only_enabled {
-                    if let Err(e) = crate::clipboard::end_streaming_paste_session(&ah) {
-                        warn!("Failed to end streaming clipboard session: {}", e);
-                    }
+                    end_streaming_paste_session_after_main_thread_queue(
+                        &ah,
+                        recording_operation_id,
+                        streaming_clipboard_timeout_ms,
+                    );
                 }
 
                 finish_guard.finish();
@@ -6702,6 +6774,8 @@ impl ShortcutAction for TranscribeAction {
         let recording_settings = stop_context.recording_settings.clone();
         let operation_stamp = stop_context.operation_stamp();
         let recording_operation_id = stop_context.operation_id;
+        let streaming_clipboard_timeout_ms =
+            recording_settings.paste_delay_ms.saturating_add(5000);
         let native_streaming_live_output =
             native_streaming_live_output_enabled(&recording_settings)
                 && local_model_supports_native_streaming(app, &recording_settings);
@@ -6747,7 +6821,10 @@ impl ShortcutAction for TranscribeAction {
                 }
             }
             if is_soniox_streaming_insert && !preview_output_only_enabled {
-                if let Err(e) = crate::clipboard::begin_streaming_paste_session(&ah) {
+                if let Err(e) = crate::clipboard::begin_streaming_paste_session(
+                    &ah,
+                    recording_operation_id,
+                ) {
                     warn!("Failed to begin streaming clipboard session: {}", e);
                 }
             }
@@ -6767,7 +6844,11 @@ impl ShortcutAction for TranscribeAction {
                         ah.state::<Arc<SonioxRealtimeManager>>().cancel();
                     }
                     if uses_streaming_insert && !preview_output_only_enabled {
-                        let _ = crate::clipboard::end_streaming_paste_session(&ah);
+                        end_streaming_paste_session_after_main_thread_queue(
+                            &ah,
+                            recording_operation_id,
+                            streaming_clipboard_timeout_ms,
+                        );
                     } else if preview_output_only_enabled && !invoked_from_preview_action {
                         close_preview_output_mode_workflow(&ah, true);
                     }
@@ -6791,7 +6872,11 @@ impl ShortcutAction for TranscribeAction {
                                 format!("Native local streaming finalization failed: {}", err);
                             crate::managers::preview_output_mode::set_error(&ah, Some(message));
                             if uses_streaming_insert && !preview_output_only_enabled {
-                                let _ = crate::clipboard::end_streaming_paste_session(&ah);
+                                end_streaming_paste_session_after_main_thread_queue(
+                                    &ah,
+                                    recording_operation_id,
+                                    streaming_clipboard_timeout_ms,
+                                );
                             } else if preview_output_only_enabled && !invoked_from_preview_action {
                                 close_preview_output_mode_workflow(&ah, true);
                             }
@@ -6838,7 +6923,11 @@ impl ShortcutAction for TranscribeAction {
                                 ah.state::<Arc<SonioxRealtimeManager>>().cancel();
                             }
                             if uses_streaming_insert && !preview_output_only_enabled {
-                                let _ = crate::clipboard::end_streaming_paste_session(&ah);
+                                end_streaming_paste_session_after_main_thread_queue(
+                                    &ah,
+                                    recording_operation_id,
+                                    streaming_clipboard_timeout_ms,
+                                );
                             } else if preview_output_only_enabled && !invoked_from_preview_action {
                                 close_preview_output_mode_workflow(&ah, true);
                             }
@@ -6862,7 +6951,11 @@ impl ShortcutAction for TranscribeAction {
                     ah.state::<Arc<SonioxRealtimeManager>>().cancel();
                 }
                 if uses_streaming_insert && !preview_output_only_enabled {
-                    let _ = crate::clipboard::end_streaming_paste_session(&ah);
+                    end_streaming_paste_session_after_main_thread_queue(
+                        &ah,
+                        recording_operation_id,
+                        streaming_clipboard_timeout_ms,
+                    );
                 } else if preview_output_only_enabled && !invoked_from_preview_action {
                     let text_to_insert =
                         crate::managers::preview_output_mode::recording_prefix_text();
@@ -6920,7 +7013,11 @@ impl ShortcutAction for TranscribeAction {
                 Some(text) => text,
                 None => {
                     if uses_streaming_insert && !preview_output_only_enabled {
-                        let _ = crate::clipboard::end_streaming_paste_session(&ah);
+                        end_streaming_paste_session_after_main_thread_queue(
+                            &ah,
+                            recording_operation_id,
+                            streaming_clipboard_timeout_ms,
+                        );
                     } else if preview_processing_before_insert {
                         fail_preview_processing_before_insert(
                             &ah,
@@ -7005,9 +7102,11 @@ impl ShortcutAction for TranscribeAction {
             }
 
             if uses_streaming_insert && !preview_output_only_enabled {
-                if let Err(e) = crate::clipboard::end_streaming_paste_session(&ah) {
-                    warn!("Failed to end streaming clipboard session: {}", e);
-                }
+                end_streaming_paste_session_after_main_thread_queue(
+                    &ah,
+                    recording_operation_id,
+                    streaming_clipboard_timeout_ms,
+                );
             }
 
             finish_guard.finish();
