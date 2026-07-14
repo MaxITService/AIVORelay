@@ -9,6 +9,13 @@ import ModelStatusButton from "./ModelStatusButton";
 import ModelDropdown from "./ModelDropdown";
 import DownloadProgressDisplay from "./DownloadProgressDisplay";
 import { useSettings } from "../../hooks/useSettings";
+import {
+  beginModelDownloadActivationIntent,
+  cancelModelDownloadActivationIntent,
+  consumeModelDownloadAutoActivation,
+  invalidateModelDownloadActivationIntent,
+  prepareModelDownloadAutoActivation,
+} from "@/lib/modelDownloadActivation";
 
 interface DownloadProgress {
   model_id: string;
@@ -186,14 +193,34 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({
         });
         loadModels(); // Refresh models list
 
-        // Auto-select the newly downloaded model (skip if recording in progress)
+        // Only the latest requested download may auto-select, and only while
+        // the user's model/provider selection remains unchanged.
         setTimeout(async () => {
+          const activationGeneration =
+            await prepareModelDownloadAutoActivation(modelId);
+          if (activationGeneration === null) {
+            return;
+          }
+
           const isRecording = await commands.isRecording();
           if (isRecording) {
+            cancelModelDownloadActivationIntent(modelId);
             return; // Skip auto-switch if recording in progress
           }
-          loadCurrentModel();
-          handleModelSelect(modelId);
+          if (
+            !consumeModelDownloadAutoActivation(modelId, activationGeneration)
+          ) {
+            return;
+          }
+          setCurrentModelId(modelId);
+          setModelError(null);
+          setShowModelDropdown(false);
+          const result = await commands.setActiveModel(modelId);
+          if (result.status === "error") {
+            setModelError(result.error);
+            setModelStatus("error");
+            onError?.(result.error);
+          }
         }, 500);
       },
     );
@@ -203,6 +230,7 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({
       "model-download-cancelled",
       (event) => {
         const modelId = event.payload;
+        cancelModelDownloadActivationIntent(modelId);
         setModelDownloadProgress((prev) => {
           const newMap = new Map(prev);
           newMap.delete(modelId);
@@ -237,17 +265,7 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({
           next.delete(modelId);
           return next;
         });
-        loadModels(); // Refresh models list
-
-        // Auto-select the newly extracted model (skip if recording in progress)
-        setTimeout(async () => {
-          const isRecording = await commands.isRecording();
-          if (isRecording) {
-            return; // Skip auto-switch if recording in progress
-          }
-          loadCurrentModel();
-          handleModelSelect(modelId);
-        }, 500);
+        loadModels(); // Completion event performs the single auto-activation.
       },
     );
 
@@ -269,6 +287,7 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({
       "model-download-failed",
       (event) => {
         const { model_id, error } = event.payload;
+        cancelModelDownloadActivationIntent(model_id);
         setModelDownloadProgress((prev) => {
           const newMap = new Map(prev);
           newMap.delete(model_id);
@@ -364,6 +383,7 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({
 
   const handleModelSelect = async (modelId: string) => {
     try {
+      invalidateModelDownloadActivationIntent();
       // If we're in remote mode and selecting a local model, switch to local provider first
       if (isRemoteProvider) {
         await setTranscriptionProvider("local");
@@ -393,14 +413,17 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({
         await setTranscriptionProvider("local");
       }
       setModelError(null);
+      await beginModelDownloadActivationIntent(modelId);
       const result = await commands.downloadModel(modelId);
       if (result.status === "error") {
+        cancelModelDownloadActivationIntent(modelId);
         const errorMsg = result.error;
         setModelError(errorMsg);
         setModelStatus("error");
         onError?.(errorMsg);
       }
     } catch (err) {
+      cancelModelDownloadActivationIntent(modelId);
       const errorMsg = `${err}`;
       setModelError(errorMsg);
       setModelStatus("error");
@@ -523,6 +546,7 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({
   const handleRemoteProviderSelect = useCallback(
     async (provider: string) => {
       try {
+        invalidateModelDownloadActivationIntent();
         setShowModelDropdown(false);
         await setTranscriptionProvider(provider);
       } catch (err) {

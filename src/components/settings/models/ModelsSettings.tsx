@@ -18,6 +18,7 @@ import { RemoteSttSettings } from "../remote-stt/RemoteSttSettings";
 import { ModelMetadataPanel } from "./ModelMetadataPanel";
 import { ModelFilterBar } from "./ModelFilterBar";
 import { ModelReleaseDate } from "../../shared/ModelReleaseDate";
+import { invalidateModelDownloadActivationIntent } from "@/lib/modelDownloadActivation";
 import {
   commands,
   type ModelInfo,
@@ -327,6 +328,7 @@ export const ModelsSettings: React.FC = () => {
   };
 
   const handleRemoteApiSelect = async (row: RemoteApiRow) => {
+    invalidateModelDownloadActivationIntent();
     setSwitchingRemoteApiId(row.id);
     try {
       const presetResult = await commands.changeRemoteSttProviderPresetSetting(
@@ -497,7 +499,10 @@ export const ModelsSettings: React.FC = () => {
               <Button
                 variant="secondary"
                 size="sm"
-                onClick={() => setTranscriptionProvider("remote_soniox")}
+                onClick={() => {
+                  invalidateModelDownloadActivationIntent();
+                  void setTranscriptionProvider("remote_soniox");
+                }}
               >
                 {t("modelSelector.chooseModel")}
               </Button>
@@ -548,7 +553,10 @@ export const ModelsSettings: React.FC = () => {
               <Button
                 variant="secondary"
                 size="sm"
-                onClick={() => setTranscriptionProvider("remote_deepgram")}
+                onClick={() => {
+                  invalidateModelDownloadActivationIntent();
+                  void setTranscriptionProvider("remote_deepgram");
+                }}
               >
                 {t("modelSelector.chooseModel")}
               </Button>

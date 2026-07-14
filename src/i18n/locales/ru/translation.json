@@ -404,7 +404,7 @@
     "downloading": "Загрузка {{percentage}} %",
     "downloadingMultiple": "Загрузка моделей {{count}}...",
     "downloadActivationNoticeTitle": "Загрузка модели началась",
-    "downloadActivationNoticeDescription": "Новая модель станет активной только после полного скачивания. Текущие записи продолжат использовать активную модель.",
+    "downloadActivationNoticeDescription": "После завершения активируется последняя запущенная загрузка модели. Более поздний ручной выбор модели или провайдера сохранится.",
     "modelReady": "Модель готова",
     "loading": "Загрузка {{modelName}}...",
     "loadingGeneric": "Загрузка...",
