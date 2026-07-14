@@ -5,7 +5,7 @@ use crate::settings::{get_settings, write_settings};
 use anyhow::Result;
 use flate2::read::GzDecoder;
 use futures_util::StreamExt;
-use hf_hub::api::tokio::{ApiBuilder, Progress};
+use hf_hub::api::tokio::{ApiBuilder, ApiError, Progress};
 use hf_hub::{Cache, Repo, RepoType};
 use log::{debug, info, warn};
 use serde::{Deserialize, Serialize};
@@ -1462,7 +1462,10 @@ impl ModelManager {
             .unwrap()
             .insert(model_info.id.clone(), cancel_token.clone());
 
-        let result: Result<()> = async {
+        // `true` means the download completed; `false` is a user cancellation.
+        // Keeping cancellation distinct lets cleanup run without turning it
+        // into a model-download-failed event in the command wrapper.
+        let result: Result<bool> = async {
             let _ = self.app_handle.emit(
                 "model-download-progress",
                 &DownloadProgress {
@@ -1480,17 +1483,21 @@ impl ModelManager {
                 model_info.id.clone(),
                 model_info.size_mb.saturating_mul(1024 * 1024),
             );
-            tokio::select! {
-                result = repo.download_with_progress(&filename, progress) => {
-                    result?;
+            match repo
+                .download_with_progress_cancellable(&filename, progress, cancel_token)
+                .await
+            {
+                Ok(_) => {}
+                Err(ApiError::Cancelled) => {
+                    // hf-hub has stopped and joined every chunk task. Its
+                    // `.sync.part` cache file stays in place for resume, and
+                    // cancel_download already emitted the cancellation event.
+                    info!("HF download cancelled for: {}", model_info.id);
+                    return Ok(false);
                 }
-                _ = cancel_token.cancelled() => {
-                    return Err(anyhow::anyhow!("Download cancelled"));
+                Err(error) => {
+                    return Err(anyhow::anyhow!("Hugging Face download failed: {}", error));
                 }
-            }
-
-            if cancel_token.is_cancelled() {
-                return Err(anyhow::anyhow!("Download cancelled"));
             }
 
             self.update_download_status()?;
@@ -1498,16 +1505,18 @@ impl ModelManager {
                 .app_handle
                 .emit("model-download-complete", &model_info.id);
             info!("Successfully downloaded HF model {}", model_info.id);
-            Ok(())
+            Ok(true)
         }
         .await;
+
+        let completed = matches!(&result, Ok(true));
 
         self.cancellation_tokens
             .lock()
             .unwrap()
             .remove(&model_info.id);
 
-        if result.is_err() {
+        if !completed {
             let mut models = self.available_models.lock().unwrap();
             if let Some(model) = models.get_mut(&model_info.id) {
                 model.is_downloading = false;
@@ -1515,7 +1524,7 @@ impl ModelManager {
             }
         }
 
-        result
+        result.map(|_| ())
     }
 
     pub async fn download_model(&self, model_id: &str) -> Result<()> {
@@ -1944,16 +1953,18 @@ impl ModelManager {
         let model_info =
             model_info.ok_or_else(|| anyhow::anyhow!("Model not found: {}", model_id))?;
 
-        // Cancel the download task via cancellation token
-        {
+        // Cancel the download task via cancellation token.
+        let cancellation_sent = {
             let tokens = self.cancellation_tokens.lock().unwrap();
             if let Some(token) = tokens.get(model_id) {
                 token.cancel();
                 info!("Cancellation signal sent for model: {}", model_id);
+                true
             } else {
                 debug!("No active download found for model: {}", model_id);
+                false
             }
-        }
+        };
 
         // Mark as not downloading
         {
@@ -1981,6 +1992,13 @@ impl ModelManager {
 
         // Update download status to reflect current state
         self.update_download_status()?;
+
+        // Direct-URL downloads emit this from their existing stream loop.
+        // HF downloads return ApiError::Cancelled instead, so emit exactly
+        // once here and let the async path treat it as successful cancellation.
+        if cancellation_sent && model_hf_source(&model_info).is_some() {
+            let _ = self.app_handle.emit("model-download-cancelled", model_id);
+        }
 
         info!("Download cancelled for: {}", model_id);
         Ok(())
