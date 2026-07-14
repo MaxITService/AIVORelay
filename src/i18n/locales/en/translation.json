@@ -363,6 +363,16 @@
       "directDisabledTitle": "Live final output disabled",
       "directDisabledDescription": "Live Preview and direct final-chunk insertion cannot run together for {{model}}. It will now keep text in the Preview window until you insert it."
     },
+    "nativeStreamingLatency": {
+      "title": "Streaming latency",
+      "description": "Choose how quickly this model responds. Faster modes can reduce accuracy and may fall behind on slower CPUs.",
+      "fastest": "Fastest",
+      "fast": "Fast",
+      "balanced": "Balanced",
+      "accurate": "Accurate",
+      "appliesNextRecording": "Applies from the next recording.",
+      "cpuWarning": "This mode can lag on CPU."
+    },
     "deleteModel": "Delete {{modelName}}",
     "custom": "Custom",
     "customModelsHelpTitle": "Custom Whisper Models",

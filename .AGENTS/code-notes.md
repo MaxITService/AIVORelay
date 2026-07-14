@@ -23,6 +23,7 @@ Files that are added by this fork rather than upstream files that were modified.
 | `src-tauri/src/commands/voice_command.rs` | Voice Command Center. |
 | `src-tauri/src/commands/live_sound_transcription.rs` | Live Sound Transcription page command surface. |
 | `src-tauri/src/managers/moonshine_streaming_shim.rs` | Moonshine streaming commit-policy shim for replaceable preview versus irreversible append-only output. |
+| `src-tauri/src/managers/native_streaming_latency.rs` | Safe per-model native-streaming latency presets for supported Parakeet Unified and Nemotron families. |
 | `src-tauri/src/file_transcription_diarization.rs` | Shared diarized file-transcription temp session + speaker re-apply helpers. |
 | `src-tauri/src/subtitle.rs` | Subtitle formatting (SRT/VTT). |
 | `src-tauri/src/audio_toolkit/text.rs` | Text Post-Processing (stutter/filler removal). |
@@ -105,7 +106,7 @@ Files that are added by this fork rather than upstream files that were modified.
 | `src-tauri/src/audio_toolkit/audio/utils.rs` | WAV encoding utils. |
 | `src-tauri/src/audio_toolkit/audio/recorder.rs` | Audio capture stream logic, including Windows output loopback support. |
 | `src-tauri/src/managers/audio.rs` | Routes recordings between mic capture and Windows output loopback for live sound, plus local-only release-tail buffering. |
-| `src-tauri/src/managers/transcription.rs` | Local STT runtime, including transcribe.cpp batch/native streaming, transcribe-rs backend updates, Canary support, Whisper/ORT accelerator selection wiring, and GigaAM v3 on the non-legacy API. |
+| `src-tauri/src/managers/transcription.rs` | Local STT runtime, including transcribe.cpp batch/native streaming and per-model latency presets, transcribe-rs backend updates, Canary support, Whisper/ORT accelerator selection wiring, and GigaAM v3 on the non-legacy API. |
 | `src-tauri/src/commands/file_transcription.rs` | Soniox async integration overrides and diarized speaker-session handling. |
 | `src-tauri/src/settings.rs` | Also stores saved diarization speaker-name set profiles for file transcription. |
 | `src-tauri/src/shortcut.rs` | Includes persisted setting update commands for diarization speaker-name sets. |
@@ -132,6 +133,9 @@ Files that are added by this fork rather than upstream files that were modified.
 | `src/components/settings/transcribe-file/TranscribeFileSettings.tsx` | File transcription UI, including diarization speaker-name set profiles. |
 | `src/components/settings/TranscriptionSystemPrompt.tsx` | Prompt limits handling. |
 | `src/components/settings/TranslateToEnglish.tsx` | Soniox/Deepgram-aware UI state. |
+| `src/components/settings/models/ModelMetadataPanel.tsx` | Downloaded-model metadata plus native live-output and per-model streaming-latency controls. |
+| `src/components/settings/history/HistorySettings.tsx` | History list with grouped audio playback so only one recording can play at a time. |
+| `src/components/ui/AudioPlayer.tsx` | Reusable audio player with optional group-level exclusive playback coordination. |
 | `src/lib/constants/languages.ts` | Custom profile languages. |
 | `src/stores/settingsStore.ts` | Store for fork settings, including invoke-based handlers for fork-only settings before bindings regeneration. |
 | `src/stores/transcribeFileStore.ts` | Holds editable diarization speaker cards and bulk profile-apply helpers. |
@@ -156,7 +160,7 @@ Files that are added by this fork rather than upstream files that were modified.
 | --- | --- |
 | `TESTING.md` | Windows backend testing commands, harness notes, and documented test areas. |
 | `src-tauri/src/llm_client.rs` | LLM API client. |
-| `src-tauri/src/managers/model.rs` | Local model definitions (`EngineType`), including transcribe.cpp catalog/capability metadata, custom GGUF discovery, Canary metadata, and GigaAM v3 directory-format migration. |
+| `src-tauri/src/managers/model.rs` | Local model definitions (`EngineType`), including transcribe.cpp catalog/capability metadata, latency-tuning family classification, custom GGUF discovery, Canary metadata, and GigaAM v3 directory-format migration. |
 | `src-tauri/src/managers/gguf_meta.rs` | GGUF metadata parser used to infer local transcribe.cpp model compatibility and capabilities. |
 | `src-tauri/src/managers/model_capabilities.rs` | Capability probe layer for catalog/custom transcribe.cpp models. |
 | `src-tauri/src/commands/models.rs` | Model command surface, including available models, downloads, local model rescan, and `get_active_gpu_vram_status`. |

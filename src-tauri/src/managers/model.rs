@@ -34,6 +34,28 @@ pub enum EngineType {
     Cohere,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "snake_case")]
+pub enum NativeStreamingLatencyKind {
+    ParakeetBuffered,
+    #[serde(rename = "nemotron_3_5_cache_aware")]
+    Nemotron35CacheAware,
+    NemotronSpeechCacheAware,
+}
+
+pub fn native_streaming_latency_kind(hint: &str) -> Option<NativeStreamingLatencyKind> {
+    let hint = hint.to_ascii_lowercase();
+    if hint.contains("parakeet-unified") {
+        Some(NativeStreamingLatencyKind::ParakeetBuffered)
+    } else if hint.contains("nemotron-3.5-asr-streaming") {
+        Some(NativeStreamingLatencyKind::Nemotron35CacheAware)
+    } else if hint.contains("nemotron-speech-streaming") {
+        Some(NativeStreamingLatencyKind::NemotronSpeechCacheAware)
+    } else {
+        None
+    }
+}
+
 const HF_SOURCE_PREFIX: &str = "hf://";
 
 fn hf_source_url(repo_id: &str, revision: &str, filename: &str) -> String {
@@ -81,10 +103,11 @@ pub struct ModelInfo {
     pub speed_score: f32,           // 0.0 to 1.0, higher is faster
     pub supports_translation: bool, // Whether the model supports translating to English
     pub supports_streaming: bool,   // Whether the model supports native realtime streaming
+    pub native_streaming_latency_kind: Option<NativeStreamingLatencyKind>,
     pub supports_language_detection: bool, // Whether the model can auto-detect language
-    pub is_recommended: bool,       // Whether this is the recommended model for new users
-    pub supported_languages: Vec<String>, // Languages this model can transcribe
-    pub is_custom: bool,            // Whether this is a user-provided custom model
+    pub is_recommended: bool,              // Whether this is the recommended model for new users
+    pub supported_languages: Vec<String>,  // Languages this model can transcribe
+    pub is_custom: bool,                   // Whether this is a user-provided custom model
 }
 
 const CHINESE_LANGUAGE_CODE: &str = "zh";
@@ -348,6 +371,7 @@ impl ModelManager {
                 speed_score: 0.85,
                 supports_translation: true,
                 supports_streaming: false,
+                native_streaming_latency_kind: None,
                 supports_language_detection: true,
                 is_recommended: false,
                 supported_languages: whisper_languages.clone(),
@@ -377,6 +401,7 @@ impl ModelManager {
                 speed_score: 0.60,
                 supports_translation: true,
                 supports_streaming: false,
+                native_streaming_latency_kind: None,
                 supports_language_detection: true,
                 is_recommended: false,
                 supported_languages: whisper_languages.clone(),
@@ -405,6 +430,7 @@ impl ModelManager {
                 speed_score: 0.40,
                 supports_translation: false, // Turbo doesn't support translation
                 supports_streaming: false,
+                native_streaming_latency_kind: None,
                 supports_language_detection: true,
                 is_recommended: false,
                 supported_languages: whisper_languages.clone(),
@@ -433,6 +459,7 @@ impl ModelManager {
                 speed_score: 0.30,
                 supports_translation: true,
                 supports_streaming: false,
+                native_streaming_latency_kind: None,
                 supports_language_detection: true,
                 is_recommended: false,
                 supported_languages: whisper_languages.clone(),
@@ -462,6 +489,7 @@ impl ModelManager {
                 speed_score: 0.35,
                 supports_translation: false,
                 supports_streaming: false,
+                native_streaming_latency_kind: None,
                 supports_language_detection: true,
                 is_recommended: false,
                 // Official model card positions Breeze ASR as optimized for
@@ -496,6 +524,7 @@ impl ModelManager {
                 speed_score: 0.85,
                 supports_translation: false,
                 supports_streaming: false,
+                native_streaming_latency_kind: None,
                 supports_language_detection: true,
                 is_recommended: false,
                 supported_languages: vec!["en".to_string()],
@@ -524,6 +553,7 @@ impl ModelManager {
                 speed_score: 0.85,
                 supports_translation: false,
                 supports_streaming: false,
+                native_streaming_latency_kind: None,
                 supports_language_detection: true,
                 is_recommended: true,
                 supported_languages: parakeet_v3_languages,
@@ -552,6 +582,7 @@ impl ModelManager {
                 speed_score: 0.90,
                 supports_translation: false,
                 supports_streaming: false,
+                native_streaming_latency_kind: None,
                 supports_language_detection: true,
                 is_recommended: false,
                 supported_languages: vec!["en".to_string()],
@@ -582,6 +613,7 @@ impl ModelManager {
                 speed_score: 0.95,
                 supports_translation: false,
                 supports_streaming: false,
+                native_streaming_latency_kind: None,
                 supports_language_detection: true,
                 is_recommended: false,
                 supported_languages: vec!["en".to_string()],
@@ -612,6 +644,7 @@ impl ModelManager {
                 speed_score: 0.90,
                 supports_translation: false,
                 supports_streaming: false,
+                native_streaming_latency_kind: None,
                 supports_language_detection: true,
                 is_recommended: false,
                 supported_languages: vec!["en".to_string()],
@@ -642,6 +675,7 @@ impl ModelManager {
                 speed_score: 0.80,
                 supports_translation: false,
                 supports_streaming: false,
+                native_streaming_latency_kind: None,
                 supports_language_detection: true,
                 is_recommended: false,
                 supported_languages: vec!["en".to_string()],
@@ -671,6 +705,7 @@ impl ModelManager {
                 speed_score: 0.95,
                 supports_translation: false,
                 supports_streaming: false,
+                native_streaming_latency_kind: None,
                 supports_language_detection: true,
                 is_recommended: false,
                 supported_languages: sense_voice_languages,
@@ -702,6 +737,7 @@ impl ModelManager {
                 speed_score: 0.75,
                 supports_translation: false,
                 supports_streaming: false,
+                native_streaming_latency_kind: None,
                 supports_language_detection: true,
                 is_recommended: false,
                 supported_languages: gigaam_languages,
@@ -736,6 +772,7 @@ impl ModelManager {
                 speed_score: 0.85,
                 supports_translation: true,
                 supports_streaming: false,
+                native_streaming_latency_kind: None,
                 supports_language_detection: false,
                 is_recommended: false,
                 supported_languages: canary_flash_languages,
@@ -773,6 +810,7 @@ impl ModelManager {
                 speed_score: 0.70,
                 supports_translation: true,
                 supports_streaming: false,
+                native_streaming_latency_kind: None,
                 supports_language_detection: false,
                 is_recommended: false,
                 supported_languages: canary_1b_languages,
@@ -809,6 +847,7 @@ impl ModelManager {
                 speed_score: 0.60,
                 supports_translation: false,
                 supports_streaming: false,
+                native_streaming_latency_kind: None,
                 supports_language_detection: true,
                 is_recommended: false,
                 supported_languages: cohere_languages,
@@ -952,6 +991,7 @@ impl ModelManager {
                     speed_score: catalog_model.speed_score.unwrap_or(0.0) / 100.0,
                     supports_translation: catalog_model.capabilities.translate,
                     supports_streaming: catalog_model.capabilities.streaming,
+                    native_streaming_latency_kind: native_streaming_latency_kind(&catalog_model.id),
                     supports_language_detection: catalog_model.capabilities.lang_detect,
                     is_recommended: catalog_model.recommended,
                     supported_languages: canonicalize_supported_languages(supported_languages),
@@ -1283,6 +1323,7 @@ impl ModelManager {
             };
             let caps = local_caps(&probe);
             let display_name = probed_display_name(&probe).unwrap_or(display_name);
+            let latency_kind = native_streaming_latency_kind(&model_id);
 
             info!(
                 "Discovered custom transcribe.cpp model: {} ({}, {} MB, streaming={})",
@@ -1308,6 +1349,7 @@ impl ModelManager {
                     speed_score: 0.0,
                     supports_translation: caps.supports_translation,
                     supports_streaming: caps.supports_streaming,
+                    native_streaming_latency_kind: latency_kind,
                     supports_language_detection: caps.supports_language_detection,
                     is_recommended: false,
                     supported_languages: caps.supported_languages,
@@ -1389,6 +1431,7 @@ impl ModelManager {
                     .unwrap_or(0);
                 let display_name = probed_display_name(&probe)
                     .unwrap_or_else(|| fname.trim_end_matches(".gguf").to_string());
+                let latency_kind = native_streaming_latency_kind(&model_id);
 
                 info!("Discovered HF cache model: {} ({})", model_id, repo_id);
                 available_models.insert(
@@ -1410,6 +1453,7 @@ impl ModelManager {
                         speed_score: 0.0,
                         supports_translation: caps.supports_translation,
                         supports_streaming: caps.supports_streaming,
+                        native_streaming_latency_kind: latency_kind,
                         supports_language_detection: caps.supports_language_detection,
                         is_recommended: false,
                         supported_languages: caps.supported_languages,

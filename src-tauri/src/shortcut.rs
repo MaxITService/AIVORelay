@@ -10,13 +10,14 @@ use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
 use crate::actions::ACTION_MAP;
 use crate::managers::audio::AudioRecordingManager;
 use crate::managers::key_listener::{KeyListenerState, ShortcutEvent};
+use crate::managers::model::ModelManager;
 use crate::managers::remote_stt::RemoteSttManager;
 use crate::settings::ShortcutBinding;
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 use crate::settings::APPLE_INTELLIGENCE_DEFAULT_MODEL_ID;
 use crate::settings::{
-    self, get_settings, AutoSubmitKey, ClipboardHandling, LLMPrompt, OutputWhitespaceMode,
-    OverlayPosition, PasteMethod, RecordingOverlayAnimatedBorderMode,
+    self, get_settings, AutoSubmitKey, ClipboardHandling, LLMPrompt, NativeStreamingLatencyPreset,
+    OutputWhitespaceMode, OverlayPosition, PasteMethod, RecordingOverlayAnimatedBorderMode,
     RecordingOverlayBackgroundMode, RecordingOverlayBarStyle, RecordingOverlayCenterpieceMode,
     RecordingOverlayDecapitalizeIndicatorMode, RecordingOverlayMaterialMode, RecordingOverlayTheme,
     RemoteSttDebugMode, ShortcutEngine, SonioxLivePreviewPosition, SonioxLivePreviewSize,
@@ -1735,6 +1736,40 @@ pub fn change_native_streaming_show_interim_longer_setting(
 ) -> Result<(), String> {
     let mut settings = settings::get_settings(&app);
     settings.native_streaming_show_interim_longer = enabled;
+    settings::write_settings(&app, settings);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_native_streaming_latency_preset_setting(
+    app: AppHandle,
+    model_id: String,
+    preset: NativeStreamingLatencyPreset,
+) -> Result<(), String> {
+    let model_id = model_id.trim();
+    if model_id.is_empty() {
+        return Err("A model ID is required for native streaming latency".to_string());
+    }
+
+    let model_manager = app.state::<Arc<ModelManager>>();
+    let model = model_manager
+        .get_model_info(model_id)
+        .ok_or_else(|| format!("Unknown model ID: {model_id}"))?;
+    if model.native_streaming_latency_kind.is_none() {
+        return Err(format!(
+            "Model '{model_id}' does not support configurable native streaming latency"
+        ));
+    }
+
+    let mut settings = settings::get_settings(&app);
+    if preset == NativeStreamingLatencyPreset::Accurate {
+        settings.native_streaming_latency_presets.remove(model_id);
+    } else {
+        settings
+            .native_streaming_latency_presets
+            .insert(model_id.to_string(), preset);
+    }
     settings::write_settings(&app, settings);
     Ok(())
 }

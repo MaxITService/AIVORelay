@@ -1117,6 +1117,16 @@ pub enum OrtAcceleratorSetting {
     Rocm,
 }
 
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Type, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum NativeStreamingLatencyPreset {
+    Fastest,
+    Fast,
+    Balanced,
+    #[default]
+    Accurate,
+}
+
 impl Default for OrtAcceleratorSetting {
     fn default() -> Self {
         OrtAcceleratorSetting::Auto
@@ -1664,6 +1674,10 @@ pub struct AppSettings {
     /// Keep Voxtral's tentative tail visible long enough to read in Live Preview.
     #[serde(default = "default_native_streaming_show_interim_longer")]
     pub native_streaming_show_interim_longer: bool,
+    /// Per-model latency presets for native transcribe.cpp streaming.
+    /// Missing entries intentionally preserve the runtime's accurate defaults.
+    #[serde(default)]
+    pub native_streaming_latency_presets: HashMap<String, NativeStreamingLatencyPreset>,
     #[serde(default)]
     pub soniox_live_preview_close_hotkey: String,
     #[serde(default)]
@@ -3432,6 +3446,7 @@ pub fn get_default_settings() -> AppSettings {
             default_soniox_live_preview_interim_opacity_percent(),
         native_streaming_live_output_models: Vec::new(),
         native_streaming_show_interim_longer: default_native_streaming_show_interim_longer(),
+        native_streaming_latency_presets: HashMap::new(),
         soniox_live_preview_close_hotkey: String::new(),
         soniox_live_preview_clear_hotkey: String::new(),
         soniox_live_preview_flush_hotkey: String::new(),

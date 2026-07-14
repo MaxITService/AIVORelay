@@ -1,10 +1,11 @@
 use crate::audio_toolkit::{apply_custom_words, filter_transcription_output};
 use crate::managers::audio::AudioRecordingManager;
-use crate::managers::model::{self, EngineType, ModelManager};
+use crate::managers::model::{self, EngineType, ModelManager, NativeStreamingLatencyKind};
 use crate::managers::moonshine_streaming_shim::{self, CommittedTextSink};
+use crate::managers::native_streaming_latency;
 use crate::settings::{
     get_settings, AppSettings, FileTranscriptionChunkingMode, ModelUnloadTimeout,
-    OrtAcceleratorSetting, WhisperAcceleratorSetting,
+    NativeStreamingLatencyPreset, OrtAcceleratorSetting, WhisperAcceleratorSetting,
 };
 use anyhow::Result;
 use log::{debug, error, info, warn};
@@ -203,11 +204,15 @@ fn transcribe_cpp_run_options(
 }
 
 fn native_stream_options(
+    model: &Model,
+    model_id: &str,
     architecture: &str,
+    latency_kind: Option<NativeStreamingLatencyKind>,
+    latency_preset: NativeStreamingLatencyPreset,
     show_interim_longer: bool,
     committed_text_sink: CommittedTextSink,
 ) -> StreamOptions {
-    let options = if architecture == "voxtral_realtime" && show_interim_longer {
+    let mut options = if architecture == "voxtral_realtime" && show_interim_longer {
         StreamOptions {
             stable_prefix_agreement_n: VOXTRAL_REALTIME_STABLE_PREFIX_AGREEMENT_N,
             ..Default::default()
@@ -215,6 +220,8 @@ fn native_stream_options(
     } else {
         StreamOptions::default()
     };
+    options.family =
+        native_streaming_latency::stream_extension(model, model_id, latency_kind, latency_preset);
 
     moonshine_streaming_shim::configure_stream_options(architecture, committed_text_sink, options)
 }
@@ -778,11 +785,26 @@ impl TranscriptionManager {
             } else {
                 CommittedTextSink::ReplaceablePreview
             };
+            let stream_settings = get_settings(&self.app_handle);
+            let latency_kind = self
+                .model_manager
+                .get_model_info(&model_id)
+                .and_then(|info| info.native_streaming_latency_kind);
+            let latency_preset = stream_settings
+                .native_streaming_latency_presets
+                .get(&model_id)
+                .copied()
+                .unwrap_or_default();
             let stream_options = native_stream_options(
+                &model,
+                &model_id,
                 &architecture,
-                get_settings(&self.app_handle).native_streaming_show_interim_longer,
+                latency_kind,
+                latency_preset,
+                stream_settings.native_streaming_show_interim_longer,
                 committed_text_sink,
             );
+            let latency_extension_active = stream_options.family.is_some();
             let mut stream = match session.stream(&run_options, &stream_options) {
                 Ok(stream) => stream,
                 Err(error) => {
@@ -794,13 +816,15 @@ impl TranscriptionManager {
             self.stream_active.store(true, Ordering::Release);
             self.touch_activity();
             info!(
-                "Native transcribe.cpp stream started for model '{}' arch='{}' variant='{}' on backend '{}' with commit_policy={:?} sink={:?}",
+                "Native transcribe.cpp stream started for model '{}' arch='{}' variant='{}' on backend '{}' with commit_policy={:?} sink={:?} latency_preset={:?} latency_extension_active={}",
                 model_id,
                 architecture,
                 variant,
                 backend,
                 stream_options.commit_policy,
                 committed_text_sink,
+                latency_preset,
+                latency_extension_active,
             );
 
             let mut perf = StreamPerf::new();

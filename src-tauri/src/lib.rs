@@ -930,6 +930,7 @@ pub fn run(cli_args: CliArgs) {
         shortcut::change_soniox_live_preview_enabled_setting,
         shortcut::change_native_streaming_live_output_model_setting,
         shortcut::change_native_streaming_show_interim_longer_setting,
+        shortcut::change_native_streaming_latency_preset_setting,
         shortcut::change_local_preview_auto_flush_enabled_setting,
         shortcut::change_local_preview_auto_flush_interval_setting,
         shortcut::change_local_preview_auto_flush_overlap_setting,
