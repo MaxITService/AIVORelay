@@ -6,9 +6,9 @@ Small rolling log of upstream commits integrated into `main`.
 This file is maintained from `main` only.
 Non-`main` branches must not carry or update independent copies.
 
-Audit note (2026-07-12):
-- Current fetched `upstream/main` head checked locally: `38825767`.
-- Safe review cursor for the next `upstream -> main` intake: `38825767`.
+Audit note (2026-07-13):
+- Current fetched `upstream/main` head checked locally: `ea10f74`.
+- Safe review cursor for the next `upstream -> main` intake: `ea10f74`.
 - The table below logs integrated upstream commits only; the review cursor may be newer because it also accounts for explicitly skipped commits.
 - Reviewed corridor from `dad37baa` to `0a59e1f3`: manually adapted `0a59e1f3` (custom words with ampersands); skipped `45e3eed8` (Italian locale plus formatting-only Rust diff) and `cdb46339` (does not fit the fork preview-output architecture).
 - Reviewed corridor from `0a59e1f3` to `bf258d10`: manually adapted `a201be91` (Handy Keys 0.3.0), `e2c72a25` (mic-level IPC throttling), `87c45f81` (transcribe.cpp 0.1.2), and the remaining tray package portions from `2dd35bbb`/`bf258d10`; already covered `eb9301e0` (resampler reset), `a6df7428` (poisoned-mutex recovery), `5464bfaa` (tray-state tracking), and `f79a907f` (fork session-generation/stale-result cancellation); treated `cd040d93` as superseded by the fork's backup/reset/user-notice recovery policy; skipped `66e57ca8` (Linux packaging), `485f4ade` (macOS build fallback), `58760b22` (optional translation), `11c2bb1e` (not needed with fork settings contract), `07637ea9` (logging-only), and `f0f7e7ff` (optional split paste-delay UX).
@@ -23,6 +23,7 @@ Audit note (2026-07-12):
 - Reviewed corridor from `10a4c31b` to `bc6a41e4`: took `dd6cc676`, `cfab1dda`, `bc6a41e4`; skipped `7901ef71` (Intel Mac build docs, missing fork `BUILD.md`).
 - Reviewed corridor from `bc6a41e4` to `9b0d8a11`: took `c8eb33bc`; manually adapted `31d8fc24`, `bff4db7e`, `dc01346d`, `9b0d8a11`; already covered `a92a4d5e` by fork recording-overlay cache; skipped `e526733f` (debug log viewer feature), `8f722668` (upstream branding docs).
 - Reviewed corridor from `9b0d8a11` to `dad37baa`: manually adapted `dad37baa` (GigaAM v3 catalog description).
+- Reviewed corridor from `38825767` to `ea10f74`: took `c912c6b` (`transcribe-cpp` 0.1.3 discrete-GPU priority and Windows build-path hardening); skipped `ea10f74` (release bump).
 
 Rules:
 - Keep newest entries first.
@@ -32,6 +33,7 @@ Rules:
 
 | Merge Date | Upstream Date | Upstream SHA | Upstream Message | Main Message | Issues |
 | --- | --- | --- | --- | --- | --- |
+| 2026-07-13 | 2026-07-12 | `c912c6b` | transcribe 0.1.3 (#1664) | chore(deps): update transcribe-cpp to 0.1.3 | manifest port; Cargo lock resolved locally; retained fork CI path workaround |
 | 2026-07-12 | 2026-07-08 | `87c45f81` | bump version (#1634) | chore(deps): update transcribe-cpp to 0.1.2 | corrected earlier version-bump classification; Cargo lock resolved locally |
 | 2026-07-12 | 2026-07-11 | `38825767` | Add cancel download functionality to Onboarding component (#1653) | fix(onboarding): allow cancelling model downloads | adapted to fork welcome-step onboarding flow |
 | 2026-07-12 | 2026-07-11 | `8c46721a` | Update descriptions for Moonshine models (#1648) | fix(models): correct Moonshine language descriptions | direct catalog metadata port |
@@ -41,7 +43,6 @@ Rules:
 | 2026-07-10 | 2026-07-08 | `a201be91` | handy keys 0.3.0 (#1623) | chore(deps): update handy-keys to 0.3.0 | manual manifest port; `Cargo.lock` resolved locally with Cargo; review cursor retained |
 | 2026-07-10 | 2026-07-07 | `0a59e1f3` | fix: preserve ampersands in custom words (#1569) | fix(custom-words): preserve ampersands | manual port; retained fork enabled/n-gram controls |
 | 2026-07-07 | 2026-07-06 | `dad37baa` | Fix GigaAM v3 description. (#1613) | fix(models): correct GigaAM v3 catalog description | manual metadata port; no cherry-pick |
-| 2026-07-01 | 2026-07-01 | `9b0d8a11` | edit model recs | feat(models): port upstream GGUF catalog | adapted via fork ModelInfo selector contract |
 
 Entry template:
 
