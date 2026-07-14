@@ -623,6 +623,13 @@ fn handle_frame(
     }
 }
 
+fn emit_stream_frame(stream_frame_cb: &Arc<Mutex<Option<StreamFrameCallback>>>, samples: &[f32]) {
+    let callback = stream_frame_cb.lock().ok().and_then(|guard| guard.clone());
+    if let Some(callback) = callback {
+        callback(samples.to_vec());
+    }
+}
+
 fn microphone_input_gain_from_db(db: f32) -> f32 {
     let sanitized = if db.is_finite() {
         db.clamp(0.0, constants::MAX_MICROPHONE_INPUT_BOOST_DB)
@@ -697,6 +704,7 @@ fn process_consumer_cmd(
     sample_rx: &mpsc::Receiver<AudioChunk>,
     frame_resampler: &mut FrameResampler,
     vad: &Option<Arc<Mutex<Box<dyn vad::VoiceActivityDetector>>>>,
+    stream_frame_cb: &Arc<Mutex<Option<StreamFrameCallback>>>,
     visualizer: &mut AudioVisualiser,
     source: AudioCaptureSource,
     microphone_input_gain: &Arc<Mutex<f32>>,
@@ -756,6 +764,7 @@ fn process_consumer_cmd(
                         microphone_noise_cancellation_enabled,
                         noise_suppressor,
                     );
+                    emit_stream_frame(stream_frame_cb, enhanced.as_ref());
                     handle_frame(enhanced.as_ref(), true, vad, processed_samples)
                 });
             }
@@ -772,6 +781,7 @@ fn process_consumer_cmd(
                                 microphone_noise_cancellation_enabled,
                                 noise_suppressor,
                             );
+                            emit_stream_frame(stream_frame_cb, enhanced.as_ref());
                             handle_frame(enhanced.as_ref(), true, vad, processed_samples)
                         });
                     }
@@ -791,6 +801,7 @@ fn process_consumer_cmd(
                     microphone_noise_cancellation_enabled,
                     noise_suppressor,
                 );
+                emit_stream_frame(stream_frame_cb, enhanced.as_ref());
                 handle_frame(enhanced.as_ref(), true, vad, processed_samples)
             });
 
@@ -843,6 +854,7 @@ fn run_consumer(
                 &sample_rx,
                 &mut frame_resampler,
                 &vad,
+                &stream_frame_cb,
                 &mut visualizer,
                 source,
                 &microphone_input_gain,
@@ -871,6 +883,7 @@ fn run_consumer(
                 &sample_rx,
                 &mut frame_resampler,
                 &vad,
+                &stream_frame_cb,
                 &mut visualizer,
                 source,
                 &microphone_input_gain,
@@ -902,10 +915,7 @@ fn run_consumer(
                     &microphone_noise_cancellation_enabled,
                     &mut noise_suppressor,
                 );
-                let callback = stream_frame_cb.lock().ok().and_then(|guard| guard.clone());
-                if let Some(cb) = callback {
-                    cb(enhanced.to_vec());
-                }
+                emit_stream_frame(&stream_frame_cb, enhanced.as_ref());
                 handle_frame(enhanced.as_ref(), true, &vad, &mut processed_samples)
             } else {
                 handle_frame(adjusted.as_ref(), false, &vad, &mut processed_samples)
