@@ -421,17 +421,31 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({
     getSetting("soniox_live_preview_enabled") ||
       getSetting("preview_output_only_enabled"),
   );
-  const nativeStreamingTitle = currentModelSupportsNativeStreaming
-    ? livePreviewEnabled
-      ? t(
-          "modelSelector.nativeStreamingActiveTooltip",
-          "Native streaming available. Live Preview Window is enabled.",
-        )
-      : t(
-          "modelSelector.nativeStreamingTooltip",
-          "Native streaming model. Enable Live Preview Window to use it.",
-        )
-    : undefined;
+  const nativeLiveOutputEnabled = Boolean(
+    currentModel?.id &&
+      (
+        (getSetting("native_streaming_live_output_models") ?? []) as string[]
+      ).includes(currentModel.id),
+  );
+  let nativeStreamingTitle: string | undefined;
+  if (currentModelSupportsNativeStreaming) {
+    if (livePreviewEnabled) {
+      nativeStreamingTitle = t(
+        "modelSelector.nativeStreamingActiveTooltip",
+        "Native streaming available. Live Preview Window is enabled.",
+      );
+    } else if (nativeLiveOutputEnabled) {
+      nativeStreamingTitle = t(
+        "modelSelector.nativeStreamingLiveOutputActiveTooltip",
+        "Native streaming active. Live final output is enabled.",
+      );
+    } else {
+      nativeStreamingTitle = t(
+        "modelSelector.nativeStreamingCurrentlyOff",
+        "Streaming available · Currently off (either enable Live Preview or Live final output)",
+      );
+    }
+  }
 
   const getModelDisplayText = (): string => {
     if (transcriptionProvider === "remote_openai_compatible") {

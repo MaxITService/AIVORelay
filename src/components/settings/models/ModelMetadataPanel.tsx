@@ -364,6 +364,12 @@ export const ModelMetadataPanel: React.FC<{ model: ModelInfo }> = ({
     model.engine_type === "TranscribeCpp" && model.supports_streaming;
   const liveOutputModels = getSetting("native_streaming_live_output_models") ?? [];
   const liveOutputEnabled = liveOutputModels.includes(model.id);
+  const livePreviewEnabled = Boolean(
+    getSetting("soniox_live_preview_enabled") ||
+      getSetting("preview_output_only_enabled"),
+  );
+  const nativeStreamingCurrentlyOff =
+    supportsNativeLiveOutput && !livePreviewEnabled && !liveOutputEnabled;
 
   const handleLiveOutputChange = async (enabled: boolean) => {
     setIsUpdatingLiveOutput(true);
@@ -418,6 +424,14 @@ export const ModelMetadataPanel: React.FC<{ model: ModelInfo }> = ({
               <p className="mt-1 text-[11px] leading-snug text-[#a0a0a0]">
                 {t("modelSelector.nativeLiveOutput.description")}
               </p>
+              {nativeStreamingCurrentlyOff && (
+                <p className="mt-1.5 text-[11px] font-medium leading-snug text-amber-300">
+                  {t(
+                    "modelSelector.nativeStreamingCurrentlyOff",
+                    "Streaming available · Currently off (either enable Live Preview or Live final output)",
+                  )}
+                </p>
+              )}
             </div>
             <div className="shrink-0 pt-0.5">
               <ToggleSwitch
