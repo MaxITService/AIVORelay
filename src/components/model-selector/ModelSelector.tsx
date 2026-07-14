@@ -8,6 +8,7 @@ import { getRemoteApiDisplayLabel } from "../../lib/utils/remoteSttDisplay";
 import ModelStatusButton from "./ModelStatusButton";
 import ModelDropdown from "./ModelDropdown";
 import DownloadProgressDisplay from "./DownloadProgressDisplay";
+import { isMoonshineStreamingModel } from "./nativeStreamingModel";
 import { useSettings } from "../../hooks/useSettings";
 import {
   beginModelDownloadActivationIntent,
@@ -440,12 +441,15 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({
     !isRemoteProvider &&
     currentModel?.engine_type === "TranscribeCpp" &&
     Boolean(currentModel.supports_streaming);
+  const currentModelIsMoonshineStreaming =
+    isMoonshineStreamingModel(currentModel);
   const livePreviewEnabled = Boolean(
     getSetting("soniox_live_preview_enabled") ||
       getSetting("preview_output_only_enabled"),
   );
   const nativeLiveOutputEnabled = Boolean(
-    currentModel?.id &&
+    !currentModelIsMoonshineStreaming &&
+      currentModel?.id &&
       (
         (getSetting("native_streaming_live_output_models") ?? []) as string[]
       ).includes(currentModel.id),
@@ -456,6 +460,11 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({
       nativeStreamingTitle = t(
         "modelSelector.nativeStreamingActiveTooltip",
         "Native streaming available. Live Preview Window is enabled.",
+      );
+    } else if (currentModelIsMoonshineStreaming) {
+      nativeStreamingTitle = t(
+        "modelSelector.moonshineStreamingPreviewOnlyTooltip",
+        "Native streaming is available through Live Preview. Text is inserted after recording stops.",
       );
     } else if (nativeLiveOutputEnabled) {
       nativeStreamingTitle = t(

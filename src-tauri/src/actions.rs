@@ -3068,6 +3068,9 @@ fn local_model_supports_native_streaming(app: &AppHandle, settings: &AppSettings
 
 fn native_streaming_live_output_enabled(settings: &AppSettings) -> bool {
     settings.transcription_provider == TranscriptionProvider::Local
+        && !crate::managers::moonshine_streaming_shim::is_moonshine_streaming_hint(
+            &settings.selected_model,
+        )
         && settings
             .native_streaming_live_output_models
             .iter()
