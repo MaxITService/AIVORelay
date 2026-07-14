@@ -53,6 +53,7 @@ Frozen branch:
 - Keep this file short.
 - Keep detailed procedures in linked documents.
 - Keep documentation text in English.
+- Write release notes in clear, user-facing language. Describe the observable benefit or problem fixed, and avoid internal implementation jargon unless users need it. For example, prefer "Fixed voice detection when the app is installed in a path containing non-Latin characters" over "Improved Unicode VAD resource handling."
 - When committing, if encoutered surprising behavior, like "made change and it does not builds untill we completely overhaul build scripts", propose edits to docs in chat. Dense, short, and to the point.
 
 At the start of a new session, include `AGENTS.md received.` once in your first normal reply.
