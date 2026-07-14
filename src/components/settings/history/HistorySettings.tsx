@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { useTranslation } from "react-i18next";
-import { AudioPlayer } from "../../ui/AudioPlayer";
+import { AudioPlayer, AudioPlayerGroup } from "../../ui/AudioPlayer";
 import { Button } from "../../ui/Button";
 import { ConfirmationModal } from "../../ui/ConfirmationModal";
 import {
@@ -1025,26 +1025,28 @@ export const HistorySettings: React.FC = () => {
             />
           </div>
           <div className="bg-background border border-mid-gray/20 rounded-lg overflow-visible">
-            <div className="divide-y divide-mid-gray/20">
-              {historyEntries.map((entry) => (
-                <HistoryEntryComponent
-                  key={entry.id}
-                  entry={entry}
-                  onToggleSaved={() => toggleSaved(entry.id)}
-                  onCopyText={() => {
-                    const textToCopy =
-                      entry.action_type === "ai_replace"
-                        ? (entry.ai_response ?? entry.transcription_text)
-                        : (entry.post_processed_text ??
-                          entry.transcription_text);
-                    copyToClipboard(textToCopy);
-                  }}
-                  getAudioUrl={getAudioUrl}
-                  deleteAudio={deleteAudioEntry}
-                  retryTranscription={retryHistoryEntry}
-                />
-              ))}
-            </div>
+            <AudioPlayerGroup>
+              <div className="divide-y divide-mid-gray/20">
+                {historyEntries.map((entry) => (
+                  <HistoryEntryComponent
+                    key={entry.id}
+                    entry={entry}
+                    onToggleSaved={() => toggleSaved(entry.id)}
+                    onCopyText={() => {
+                      const textToCopy =
+                        entry.action_type === "ai_replace"
+                          ? (entry.ai_response ?? entry.transcription_text)
+                          : (entry.post_processed_text ??
+                            entry.transcription_text);
+                      copyToClipboard(textToCopy);
+                    }}
+                    getAudioUrl={getAudioUrl}
+                    deleteAudio={deleteAudioEntry}
+                    retryTranscription={retryHistoryEntry}
+                  />
+                ))}
+              </div>
+            </AudioPlayerGroup>
             {hasMore && <div ref={sentinelRef} className="h-1" />}
           </div>
         </div>
