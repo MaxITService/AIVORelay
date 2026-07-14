@@ -2,6 +2,11 @@ use transcribe_cpp::{CommitPolicy, StreamOptions};
 
 const MOONSHINE_STREAMING_ARCHITECTURE: &str = "moonshine_streaming";
 
+pub fn is_moonshine_streaming_hint(value: &str) -> bool {
+    let normalized = value.to_ascii_lowercase();
+    normalized.contains("moonshine") && normalized.contains("streaming")
+}
+
 /// Describes whether a streaming text consumer can replace an earlier
 /// hypothesis or has already made the text irreversible outside the app.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -69,5 +74,16 @@ mod tests {
 
         assert_eq!(options.commit_policy, CommitPolicy::StablePrefix);
         assert_eq!(options.stable_prefix_agreement_n, 32);
+    }
+
+    #[test]
+    fn recognizes_catalog_and_custom_moonshine_streaming_ids() {
+        assert!(is_moonshine_streaming_hint(
+            "handy-computer/moonshine-streaming-tiny-gguf"
+        ));
+        assert!(is_moonshine_streaming_hint(
+            "Moonshine_Streaming_Custom.gguf"
+        ));
+        assert!(!is_moonshine_streaming_hint("moonshine-tiny-gguf"));
     }
 }

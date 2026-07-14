@@ -11,7 +11,7 @@ pub mod llm_operation;
 pub mod microphone_auto_switch;
 pub mod model;
 pub mod model_capabilities;
-mod moonshine_streaming_shim;
+pub(crate) mod moonshine_streaming_shim;
 mod native_streaming_latency;
 pub mod openai_realtime_whisper;
 pub mod preview_output_mode;

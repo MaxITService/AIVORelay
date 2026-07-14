@@ -8,6 +8,7 @@ import { useSettings } from "../../../hooks/useSettings";
 import { ToggleSwitch } from "../../ui/ToggleSwitch";
 import { Slider } from "../../ui/Slider";
 import { sessionToast as toast } from "../../../lib/sessionToast";
+import { isMoonshineStreamingModel } from "../../model-selector/nativeStreamingModel";
 
 const NATIVE_STREAMING_LATENCY_PRESETS: NativeStreamingLatencyPreset[] = [
   "fastest",
@@ -382,7 +383,9 @@ export const ModelMetadataPanel: React.FC<{ model: ModelInfo }> = ({
     [i18n.language, model],
   );
   const supportsNativeLiveOutput =
-    model.engine_type === "TranscribeCpp" && model.supports_streaming;
+    model.engine_type === "TranscribeCpp" &&
+    model.supports_streaming &&
+    !isMoonshineStreamingModel(model);
   const supportsConfigurableLatency = Boolean(
     model.is_downloaded &&
       supportsNativeLiveOutput &&
