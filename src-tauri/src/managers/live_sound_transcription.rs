@@ -306,21 +306,6 @@ pub fn finish_session(app: &AppHandle) {
     });
 }
 
-pub fn set_recording(app: &AppHandle, recording: bool) {
-    if !recording {
-        cancel_auto_stop_task();
-    }
-
-    update_state(app, move |state| {
-        state.recording = recording;
-        if recording {
-            state.active = true;
-        } else {
-            state.auto_stop_deadline = None;
-        }
-    });
-}
-
 pub fn set_recording_if_session_matches(app: &AppHandle, session_id: u64, recording: bool) {
     if !recording && is_session_current(session_id) {
         cancel_auto_stop_task();
@@ -385,21 +370,6 @@ pub fn replace_final_text(app: &AppHandle, final_text: String) {
     });
 }
 
-pub fn append_final_result(
-    app: &AppHandle,
-    final_text: &str,
-    raw_blocks: Vec<RawSpeakerBlock>,
-    add_separator: bool,
-) {
-    update_state(app, move |state| {
-        state.push_final_text(final_text, add_separator);
-        if raw_blocks.is_empty() {
-            return;
-        }
-        state.final_raw_blocks.extend(raw_blocks);
-    });
-}
-
 pub fn append_final_result_if_session_matches(
     app: &AppHandle,
     session_id: u64,
@@ -412,13 +382,6 @@ pub fn append_final_result_if_session_matches(
         if !raw_blocks.is_empty() {
             state.final_raw_blocks.extend(raw_blocks);
         }
-    });
-}
-
-pub fn set_interim_result(app: &AppHandle, interim_text: String, raw_blocks: Vec<RawSpeakerBlock>) {
-    update_state(app, move |state| {
-        state.interim_text = interim_text.trim().to_string();
-        state.interim_raw_blocks = raw_blocks;
     });
 }
 
