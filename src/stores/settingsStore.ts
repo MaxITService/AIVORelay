@@ -7,6 +7,7 @@ import type {
 } from "@/bindings";
 import { commands } from "@/bindings";
 import { invoke } from "@tauri-apps/api/core";
+import { invalidateModelDownloadActivationIntent } from "@/lib/modelDownloadActivation";
 
 interface SettingsStore {
   settings: Settings | null;
@@ -1284,6 +1285,9 @@ export const useSettingsStore = create<SettingsStore>()(
     },
 
     setTranscriptionProvider: async (providerId) => {
+      // A provider change is an explicit user choice and must not be
+      // overwritten by a model download that finishes a moment later.
+      invalidateModelDownloadActivationIntent();
       const { settings, setUpdating, refreshSettings } = get();
       const updateKey = "transcription_provider";
       const previousId = settings?.transcription_provider ?? null;

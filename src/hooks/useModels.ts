@@ -1,6 +1,11 @@
 import { useEffect, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { commands, type ModelInfo } from "@/bindings";
+import {
+  beginModelDownloadActivationIntent,
+  cancelModelDownloadActivationIntent,
+  invalidateModelDownloadActivationIntent,
+} from "@/lib/modelDownloadActivation";
 
 interface DownloadProgress {
   model_id: string;
@@ -76,6 +81,7 @@ export const useModels = () => {
 
   const selectModel = async (modelId: string) => {
     try {
+      invalidateModelDownloadActivationIntent();
       setError(null);
       const result = await commands.setActiveModel(modelId);
       if (result.status === "ok") {
@@ -97,10 +103,12 @@ export const useModels = () => {
     try {
       setError(null);
       setDownloadingModels((prev) => new Set(prev.add(modelId)));
+      await beginModelDownloadActivationIntent(modelId);
       const result = await commands.downloadModel(modelId);
       if (result.status === "ok") {
         return true;
       } else {
+        cancelModelDownloadActivationIntent(modelId);
         setError(`Failed to download model: ${result.error}`);
         setDownloadingModels((prev) => {
           const next = new Set(prev);
@@ -110,6 +118,7 @@ export const useModels = () => {
         return false;
       }
     } catch (err) {
+      cancelModelDownloadActivationIntent(modelId);
       setError(`Failed to download model: ${err}`);
       setDownloadingModels((prev) => {
         const next = new Set(prev);
@@ -217,20 +226,24 @@ export const useModels = () => {
     );
 
     // Listen for cancellation so UIs using this hook stay in sync
-    const cancelUnlisten = listen<string>("model-download-cancelled", (event) => {
-      const modelId = event.payload;
-      setDownloadingModels((prev) => {
-        const next = new Set(prev);
-        next.delete(modelId);
-        return next;
-      });
-      setDownloadProgress((prev) => {
-        const next = new Map(prev);
-        next.delete(modelId);
-        return next;
-      });
-      loadModels();
-    });
+    const cancelUnlisten = listen<string>(
+      "model-download-cancelled",
+      (event) => {
+        const modelId = event.payload;
+        cancelModelDownloadActivationIntent(modelId);
+        setDownloadingModels((prev) => {
+          const next = new Set(prev);
+          next.delete(modelId);
+          return next;
+        });
+        setDownloadProgress((prev) => {
+          const next = new Map(prev);
+          next.delete(modelId);
+          return next;
+        });
+        loadModels();
+      },
+    );
 
     // Listen for extraction events
     const extractionStartedUnlisten = listen<string>(
@@ -272,6 +285,7 @@ export const useModels = () => {
       "model-download-failed",
       (event) => {
         const { model_id, error } = event.payload;
+        cancelModelDownloadActivationIntent(model_id);
         setDownloadingModels((prev) => {
           const next = new Set(prev);
           next.delete(model_id);

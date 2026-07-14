@@ -336,7 +336,7 @@
     "downloading": "Downloading {{percentage}}%",
     "downloadingMultiple": "Downloading {{count}} models...",
     "downloadActivationNoticeTitle": "Model download started",
-    "downloadActivationNoticeDescription": "The new model will become active only after the download completes. Current recordings continue using the active model.",
+    "downloadActivationNoticeDescription": "The most recently started model download becomes active after it completes. A later manual model or provider choice is preserved.",
     "modelReady": "Model Ready",
     "loading": "Loading {{modelName}}...",
     "loadingGeneric": "Loading...",

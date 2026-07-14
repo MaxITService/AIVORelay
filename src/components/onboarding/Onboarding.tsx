@@ -2,6 +2,11 @@ import React, { useState, useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import { type } from "@tauri-apps/plugin-os";
 import { commands, type ModelInfo } from "@/bindings";
+import {
+  beginModelDownloadActivationIntent,
+  cancelModelDownloadActivationIntent,
+  invalidateModelDownloadActivationIntent,
+} from "@/lib/modelDownloadActivation";
 import ModelCard from "./ModelCard";
 import HandyTextLogo from "../icons/HandyTextLogo";
 import { RemoteSttWizard } from "./RemoteSttWizard";
@@ -77,6 +82,7 @@ const Onboarding: React.FC<OnboardingProps> = ({
   const handleModelSelection = async (model: ModelInfo) => {
     if (model.is_downloaded) {
       try {
+        invalidateModelDownloadActivationIntent();
         const result = await commands.setActiveModel(model.id);
         if (result.status === "ok") {
           setWelcomeVariant("local");
@@ -99,14 +105,17 @@ const Onboarding: React.FC<OnboardingProps> = ({
     setMode("welcome");
 
     try {
+      await beginModelDownloadActivationIntent(model.id);
       const result = await commands.downloadModel(model.id);
       if (result.status === "error") {
+        cancelModelDownloadActivationIntent(model.id);
         console.error("Download failed:", result.error);
         setDownloading(false);
         setDownloadingModelId(null);
         setMode("local");
       }
     } catch (err) {
+      cancelModelDownloadActivationIntent(model.id);
       console.error("Download failed:", err);
       setDownloading(false);
       setDownloadingModelId(null);
@@ -123,6 +132,7 @@ const Onboarding: React.FC<OnboardingProps> = ({
       return;
     }
 
+    cancelModelDownloadActivationIntent(downloadingModelId);
     setDownloading(false);
     setDownloadingModelId(null);
     setMode("local");
@@ -134,6 +144,7 @@ const Onboarding: React.FC<OnboardingProps> = ({
 
   const handleSelectLocal = async () => {
     try {
+      invalidateModelDownloadActivationIntent();
       await commands.changeTranscriptionProviderSetting("local");
       setMode("local");
     } catch (err) {
@@ -145,6 +156,7 @@ const Onboarding: React.FC<OnboardingProps> = ({
   const handleSelectRemote = async () => {
     if (!isWindows) return;
     try {
+      invalidateModelDownloadActivationIntent();
       await commands.changeTranscriptionProviderSetting(
         "remote_openai_compatible",
       );
