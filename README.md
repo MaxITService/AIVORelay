@@ -25,6 +25,16 @@ Then after speech-to-text model produced text, it can be processed by LLM model 
 And also there are some other processings that can be made, like replacing any text by regular expression or some minor form of post processing.
 Then there are some additonal feautures that you might want to use or not: like relaying your text to the ChatGPT, running commands, making text out of audio files, recording computer audio as text and so on. The app is complex but capable and you can make it simpler by not using some features.
 
+### 🎙️ Automatic Microphone Selection for Remote Desktop
+
+When you connect through Windows Remote Desktop, your redirected microphone may appear under a different name—often **Remote Audio**—instead of the microphone you normally use. AivoRelay can check the available input devices before every recording, automatically switch to the matching remote microphone while it is present, and fall back to your last manually selected microphone when it disappears.
+
+Set a case-insensitive microphone name mask such as `Remote Audio` (wildcards `*` and `?` are also supported). The check runs only when recording starts, with no background device polling.
+
+![Automatic Microphone Selection](Promo/aivorelay_AutoMicSelection.png)
+
+**Setup:** Settings → General → Sound → Automatic Microphone Selection
+
 ### 🎚️ Transcription Profiles
 
 Quick-switch between language, prompt, and LLM post-processing presets with dedicated shortcuts: switch the currently active profile or assign each profile its own hotkey!
