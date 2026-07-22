@@ -3,8 +3,15 @@ import { useTranslation } from "react-i18next";
 import { check } from "@tauri-apps/plugin-updater";
 import { relaunch } from "@tauri-apps/plugin-process";
 import { listen } from "@tauri-apps/api/event";
+import { invoke } from "@tauri-apps/api/core";
+import { openUrl } from "@tauri-apps/plugin-opener";
 import { ProgressBar } from "../shared";
 import { useSettings } from "../../hooks/useSettings";
+import { ConfirmationModal } from "../ui/ConfirmationModal";
+import {
+  buildPortableInstallerUrl,
+  PORTABLE_RELEASES_URL,
+} from "./portableInstaller";
 
 interface UpdateCheckerProps {
   className?: string;
@@ -18,6 +25,11 @@ const UpdateChecker: React.FC<UpdateCheckerProps> = ({ className = "" }) => {
   const [isInstalling, setIsInstalling] = useState(false);
   const [downloadProgress, setDownloadProgress] = useState(0);
   const [showUpToDate, setShowUpToDate] = useState(false);
+  const [showPortableUpdateDialog, setShowPortableUpdateDialog] =
+    useState(false);
+  const [portableInstallerUrl, setPortableInstallerUrl] = useState(
+    PORTABLE_RELEASES_URL,
+  );
 
   const { settings, isLoading } = useSettings();
   const settingsLoaded = !isLoading && settings !== null;
@@ -106,6 +118,19 @@ const UpdateChecker: React.FC<UpdateCheckerProps> = ({ className = "" }) => {
 
       if (!update) {
         console.log("No update available during install attempt");
+        return;
+      }
+
+      let portable = false;
+      try {
+        portable = await invoke<boolean>("is_portable");
+      } catch (error) {
+        console.error("Failed to detect portable mode:", error);
+      }
+
+      if (portable) {
+        setPortableInstallerUrl(buildPortableInstallerUrl(update.version));
+        setShowPortableUpdateDialog(true);
         return;
       }
 
@@ -202,6 +227,16 @@ const UpdateChecker: React.FC<UpdateCheckerProps> = ({ className = "" }) => {
           size="large"
         />
       )}
+
+      <ConfirmationModal
+        isOpen={showPortableUpdateDialog}
+        onClose={() => setShowPortableUpdateDialog(false)}
+        onConfirm={() => void openUrl(portableInstallerUrl)}
+        title={t("footer.portableUpdateTitle")}
+        message={t("footer.portableUpdateMessage")}
+        confirmText={t("footer.portableUpdateButton")}
+        cancelText={t("common.cancel")}
+      />
     </div>
   );
 };

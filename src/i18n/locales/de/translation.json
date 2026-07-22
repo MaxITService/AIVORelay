@@ -452,7 +452,10 @@
     "downloading": "Wird heruntergeladen... {{progress}}%",
     "installing": "Wird installiert...",
     "preparing": "Wird vorbereitet...",
-    "checkForUpdates": "Nach Updates suchen"
+    "checkForUpdates": "Nach Updates suchen",
+    "portableUpdateTitle": "Manuelles Update erforderlich",
+    "portableUpdateMessage": "Die portable Version kann sich nicht selbst aktualisieren. Laden Sie das signierte MSI-Installationsprogramm herunter und führen Sie es aus. Ihr vorhandener portabler Data-Ordner wird nicht gelöscht.",
+    "portableUpdateButton": "Installationsprogramm herunterladen"
   },
   "common": {
     "loading": "Wird geladen...",

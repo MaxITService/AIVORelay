@@ -452,7 +452,10 @@
     "downloading": "Stahování... {{progress}}%",
     "installing": "Instalace...",
     "preparing": "Příprava...",
-    "checkForUpdates": "Zkontrolovat aktualizace"
+    "checkForUpdates": "Zkontrolovat aktualizace",
+    "portableUpdateTitle": "Je vyžadována ruční aktualizace",
+    "portableUpdateMessage": "Přenosná verze se nemůže aktualizovat sama. Stáhněte a spusťte podepsaný instalátor MSI. Vaše stávající přenosná složka Data nebude odstraněna.",
+    "portableUpdateButton": "Stáhnout instalátor"
   },
   "common": {
     "loading": "Načítání...",

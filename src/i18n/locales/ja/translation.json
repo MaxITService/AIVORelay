@@ -452,7 +452,10 @@
     "downloading": "ダウンロード中... {{progress}}%",
     "installing": "インストール中...",
     "preparing": "準備中...",
-    "checkForUpdates": "アップデートを確認"
+    "checkForUpdates": "アップデートを確認",
+    "portableUpdateTitle": "手動アップデートが必要です",
+    "portableUpdateMessage": "ポータブル版は自動更新できません。署名済みの MSI インストーラーをダウンロードして実行してください。既存のポータブル版 Data フォルダーは削除されません。",
+    "portableUpdateButton": "インストーラーをダウンロード"
   },
   "common": {
     "loading": "読み込み中...",

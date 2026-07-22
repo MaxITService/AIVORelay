@@ -452,7 +452,10 @@
     "downloading": "Pobieranie... {{progress}}%",
     "installing": "Instalowanie...",
     "preparing": "Przygotowywanie...",
-    "checkForUpdates": "Sprawdź aktualizacje"
+    "checkForUpdates": "Sprawdź aktualizacje",
+    "portableUpdateTitle": "Wymagana aktualizacja ręczna",
+    "portableUpdateMessage": "Wersja przenośna nie może zaktualizować się samodzielnie. Pobierz i uruchom podpisany instalator MSI. Istniejący przenośny folder Data nie zostanie usunięty.",
+    "portableUpdateButton": "Pobierz instalator"
   },
   "common": {
     "loading": "Wczytywanie...",

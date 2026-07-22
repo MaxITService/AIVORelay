@@ -453,7 +453,10 @@
     "downloading": "Đang tải... {{progress}}%",
     "installing": "Đang cài đặt...",
     "preparing": "Đang chuẩn bị...",
-    "checkForUpdates": "Kiểm tra cập nhật"
+    "checkForUpdates": "Kiểm tra cập nhật",
+    "portableUpdateTitle": "Cần cập nhật thủ công",
+    "portableUpdateMessage": "Bản di động không thể tự cập nhật. Hãy tải xuống và chạy trình cài đặt MSI đã ký. Thư mục Data di động hiện có của bạn sẽ không bị xóa.",
+    "portableUpdateButton": "Tải trình cài đặt"
   },
   "common": {
     "loading": "Đang tải...",

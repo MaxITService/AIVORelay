@@ -84,6 +84,12 @@ pub fn get_app_dir_path(app: AppHandle) -> Result<String, String> {
 
 #[tauri::command]
 #[specta::specta]
+pub fn is_portable() -> bool {
+    crate::portable::data_dir().is_some()
+}
+
+#[tauri::command]
+#[specta::specta]
 pub fn get_app_settings(app: AppHandle) -> Result<AppSettings, String> {
     Ok(get_settings(&app))
 }

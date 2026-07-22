@@ -128,6 +128,7 @@ Files that are added by this fork rather than upstream files that were modified.
 | `src/components/settings/browser-connector/BrowserConnectorSettings.tsx` | Extension/screenshot UI. |
 | `src/components/settings/general/GeneralSettings.tsx` | Fork settings layout. |
 | `src/components/settings/AudioFeedback.tsx` | Separate controls and user guidance for recording start/stop sounds and the result-ready cue. |
+| `src/components/update-checker/UpdateChecker.tsx` | Installed builds use the Tauri updater; portable builds are detected by the backend and receive a direct link to AivoRelay's signed x64 MSI asset. Keep `portableInstaller.ts` aligned with release asset naming. |
 | `src/components/settings/user-interface/UserInterfaceSettings.tsx` | Soniox live preview UI. |
 | `src/components/Sidebar.tsx` | Navigation for fork settings. |
 | `src/hooks/useSettings.ts` | Fork settings hooks. |

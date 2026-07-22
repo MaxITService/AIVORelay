@@ -457,7 +457,10 @@
     "downloading": "Descargando... {{progress}}%",
     "installing": "Instalando...",
     "preparing": "Preparando...",
-    "checkForUpdates": "Buscar actualizaciones"
+    "checkForUpdates": "Buscar actualizaciones",
+    "portableUpdateTitle": "Se requiere una actualización manual",
+    "portableUpdateMessage": "La versión portátil no puede actualizarse por sí sola. Descarga y ejecuta el instalador MSI firmado. Tu carpeta Data portátil actual no se eliminará.",
+    "portableUpdateButton": "Descargar instalador"
   },
   "common": {
     "loading": "Cargando...",

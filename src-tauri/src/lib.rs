@@ -1202,6 +1202,7 @@ pub fn run(cli_args: CliArgs) {
         trigger_update_check,
         commands::cancel_operation,
         commands::get_app_dir_path,
+        commands::is_portable,
         commands::get_app_settings,
         commands::take_settings_store_reset_notice,
         commands::get_default_settings,

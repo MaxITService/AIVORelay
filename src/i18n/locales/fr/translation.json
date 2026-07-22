@@ -453,7 +453,10 @@
     "downloading": "Téléchargement... {{progress}}%",
     "installing": "Installation...",
     "preparing": "Préparation...",
-    "checkForUpdates": "Rechercher des mises à jour"
+    "checkForUpdates": "Rechercher des mises à jour",
+    "portableUpdateTitle": "Mise à jour manuelle requise",
+    "portableUpdateMessage": "La version portable ne peut pas se mettre à jour elle-même. Téléchargez et exécutez le programme d’installation MSI signé. Votre dossier Data portable existant ne sera pas supprimé.",
+    "portableUpdateButton": "Télécharger l’installateur"
   },
   "common": {
     "loading": "Chargement...",

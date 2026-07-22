@@ -452,7 +452,10 @@
     "downloading": "Download... {{progress}}%",
     "installing": "Installazione...",
     "preparing": "Preparazione...",
-    "checkForUpdates": "Controlla aggiornamenti"
+    "checkForUpdates": "Controlla aggiornamenti",
+    "portableUpdateTitle": "Aggiornamento manuale richiesto",
+    "portableUpdateMessage": "La versione portatile non può aggiornarsi da sola. Scarica ed esegui il programma di installazione MSI firmato. La cartella Data portatile esistente non verrà eliminata.",
+    "portableUpdateButton": "Scarica il programma di installazione"
   },
   "common": {
     "loading": "Caricamento...",

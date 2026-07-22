@@ -472,7 +472,10 @@
     "downloading": "İndiriliyor... %{{progress}}",
     "installing": "Yükleniyor...",
     "preparing": "Hazırlanıyor...",
-    "checkForUpdates": "Güncellemeleri kontrol et"
+    "checkForUpdates": "Güncellemeleri kontrol et",
+    "portableUpdateTitle": "Elle güncelleme gerekiyor",
+    "portableUpdateMessage": "Taşınabilir sürüm kendini güncelleyemez. İmzalı MSI yükleyicisini indirip çalıştırın. Mevcut taşınabilir Data klasörünüz silinmez.",
+    "portableUpdateButton": "Yükleyiciyi indir"
   },
   "common": {
     "loading": "Yükleniyor...",
