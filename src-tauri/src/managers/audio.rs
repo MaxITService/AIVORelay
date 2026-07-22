@@ -107,6 +107,113 @@ fn set_mute(mute: bool) {
     }
 }
 
+/// Reads the current system output mute state using the same platform backend
+/// as `set_mute`. `None` means the state could not be determined.
+#[cfg(target_os = "windows")]
+fn get_mute() -> Option<bool> {
+    unsafe {
+        use windows::Win32::{
+            Media::Audio::{
+                eMultimedia, eRender, Endpoints::IAudioEndpointVolume, IMMDeviceEnumerator,
+                MMDeviceEnumerator,
+            },
+            System::Com::{CoCreateInstance, CoInitializeEx, CLSCTX_ALL, COINIT_MULTITHREADED},
+        };
+
+        let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
+        let all_devices: IMMDeviceEnumerator =
+            CoCreateInstance(&MMDeviceEnumerator, None, CLSCTX_ALL).ok()?;
+        let default_device = all_devices
+            .GetDefaultAudioEndpoint(eRender, eMultimedia)
+            .ok()?;
+        let volume_interface = default_device
+            .Activate::<IAudioEndpointVolume>(CLSCTX_ALL, None)
+            .ok()?;
+
+        Some(volume_interface.GetMute().ok()?.as_bool())
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn get_mute() -> Option<bool> {
+    use std::process::Command;
+
+    if let Ok(output) = Command::new("wpctl")
+        .args(["get-volume", "@DEFAULT_AUDIO_SINK@"])
+        .output()
+    {
+        if output.status.success() {
+            return Some(String::from_utf8_lossy(&output.stdout).contains("[MUTED]"));
+        }
+    }
+
+    if let Ok(output) = Command::new("pactl")
+        .env("LC_ALL", "C")
+        .args(["get-sink-mute", "@DEFAULT_SINK@"])
+        .output()
+    {
+        if output.status.success() {
+            let state = String::from_utf8_lossy(&output.stdout).to_lowercase();
+            if state.contains("yes") {
+                return Some(true);
+            }
+            if state.contains("no") {
+                return Some(false);
+            }
+        }
+    }
+
+    if let Ok(output) = Command::new("amixer")
+        .env("LC_ALL", "C")
+        .args(["get", "Master"])
+        .output()
+    {
+        if output.status.success() {
+            let state = String::from_utf8_lossy(&output.stdout);
+            if state.contains("[off]") {
+                return Some(true);
+            }
+            if state.contains("[on]") {
+                return Some(false);
+            }
+        }
+    }
+
+    None
+}
+
+#[cfg(target_os = "macos")]
+fn get_mute() -> Option<bool> {
+    use std::process::Command;
+
+    let output = Command::new("osascript")
+        .args(["-e", "output muted of (get volume settings)"])
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+
+    match String::from_utf8_lossy(&output.stdout).trim() {
+        "true" => Some(true),
+        "false" => Some(false),
+        _ => None,
+    }
+}
+
+#[cfg(not(any(target_os = "windows", target_os = "linux", target_os = "macos")))]
+fn get_mute() -> Option<bool> {
+    None
+}
+
+fn restore_mute(previously_muted: Option<bool>) {
+    // Preserve an intentional pre-existing mute. For an unknown state, retain
+    // the old fail-safe behavior and unmute so AIVO cannot strand system audio.
+    if previously_muted != Some(true) {
+        set_mute(false);
+    }
+}
+
 #[cfg(target_os = "windows")]
 fn pause_media_playback() -> Vec<String> {
     use windows::Media::Control::{
@@ -358,6 +465,12 @@ pub enum MicrophoneMode {
     OnDemand,
 }
 
+#[derive(Clone, Copy, Debug, Default)]
+struct MuteState {
+    did_mute: bool,
+    previously_muted: Option<bool>,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct ActiveRecorderSelection {
     source: AudioCaptureSource,
@@ -470,7 +583,7 @@ pub struct AudioRecordingManager {
     recorder: Arc<Mutex<Option<AudioRecorder>>>,
     is_open: Arc<Mutex<bool>>,
     is_recording: Arc<Mutex<bool>>,
-    did_mute: Arc<Mutex<bool>>,
+    mute_state: Arc<Mutex<MuteState>>,
     paused_media_sessions: Arc<Mutex<Vec<String>>>,
     close_generation: Arc<AtomicU64>,
     cancel_generation: Arc<AtomicU64>,
@@ -498,7 +611,7 @@ impl AudioRecordingManager {
             recorder: Arc::new(Mutex::new(None)),
             is_open: Arc::new(Mutex::new(false)),
             is_recording: Arc::new(Mutex::new(false)),
-            did_mute: Arc::new(Mutex::new(false)),
+            mute_state: Arc::new(Mutex::new(MuteState::default())),
             paused_media_sessions: Arc::new(Mutex::new(Vec::new())),
             close_generation: Arc::new(AtomicU64::new(0)),
             cancel_generation: Arc::new(AtomicU64::new(0)),
@@ -638,15 +751,16 @@ impl AudioRecordingManager {
 
     /* ---------- microphone life-cycle -------------------------------------- */
 
-    /// Applies mute if mute_while_recording is enabled and stream is open
+    /// Applies mute if mute_while_recording is enabled and stream is open.
+    /// The user's previous mute state is captured once per recording.
     pub fn apply_mute(&self) {
         let settings = get_settings(&self.app_handle);
         if !settings.mute_while_recording {
             return;
         }
 
-        let is_open = *self.is_open.lock().unwrap();
-        if !is_open {
+        let is_open = self.is_open.lock().unwrap();
+        if !*is_open {
             return;
         }
 
@@ -655,12 +769,18 @@ impl AudioRecordingManager {
             return;
         }
 
-        let mut did_mute_guard = self.did_mute.lock().unwrap();
-        if !*did_mute_guard {
-            set_mute(true);
-            *did_mute_guard = true;
-            debug!("Mute applied");
+        let mut mute_state = self.mute_state.lock().unwrap();
+        if mute_state.did_mute {
+            return;
         }
+
+        mute_state.previously_muted = get_mute();
+        set_mute(true);
+        mute_state.did_mute = true;
+        debug!(
+            "Mute applied (previously_muted={:?})",
+            mute_state.previously_muted
+        );
     }
 
     /// Pauses active media if pause_media_while_recording is enabled.
@@ -690,13 +810,16 @@ impl AudioRecordingManager {
         *paused_guard = paused_sessions;
     }
 
-    /// Removes mute if it was applied
+    /// Removes AIVO's mute while preserving an intentional pre-existing mute.
     pub fn remove_mute(&self) {
-        let mut did_mute_guard = self.did_mute.lock().unwrap();
-        if *did_mute_guard {
-            set_mute(false);
-            *did_mute_guard = false;
-            debug!("Mute removed");
+        let mut mute_state = self.mute_state.lock().unwrap();
+        if mute_state.did_mute {
+            restore_mute(mute_state.previously_muted);
+            mute_state.did_mute = false;
+            debug!(
+                "Mute removed (restored previously_muted={:?})",
+                mute_state.previously_muted
+            );
         }
     }
 
@@ -781,10 +904,15 @@ impl AudioRecordingManager {
 
         let start_time = Instant::now();
 
-        // Don't mute immediately - caller will handle muting after audio feedback
-        let mut did_mute_guard = self.did_mute.lock().unwrap();
-        *did_mute_guard = false;
-        drop(did_mute_guard);
+        // Don't mute immediately - caller will handle muting after audio feedback.
+        // Restore a stale forced mute instead of merely forgetting about it.
+        {
+            let mut mute_state = self.mute_state.lock().unwrap();
+            if mute_state.did_mute {
+                restore_mute(mute_state.previously_muted);
+                mute_state.did_mute = false;
+            }
+        }
         self.paused_media_sessions.lock().unwrap().clear();
 
         self.ensure_recorder(settings)?;
@@ -836,12 +964,13 @@ impl AudioRecordingManager {
             return;
         }
 
-        let mut did_mute_guard = self.did_mute.lock().unwrap();
-        if *did_mute_guard {
-            set_mute(false);
+        {
+            let mut mute_state = self.mute_state.lock().unwrap();
+            if mute_state.did_mute {
+                restore_mute(mute_state.previously_muted);
+            }
+            *mute_state = MuteState::default();
         }
-        *did_mute_guard = false;
-        drop(did_mute_guard);
         self.resume_media_if_paused();
 
         if let Some(rec) = self.recorder.lock().unwrap().as_mut() {
