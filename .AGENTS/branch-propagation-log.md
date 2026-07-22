@@ -13,6 +13,7 @@ Rules:
 
 | Propagation Date | Target Branch | Main SHA | Main Message | Branch SHA | Branch Message | Issues |
 | --- | --- | --- | --- | --- | --- | --- |
+| 2026-07-22 | `release/microsoft-store` | `5b22f470` | chore: bump version to 1.0.25 | `c2d7c994` | chore: bump version to 1.0.25 | 15 runtime updates propagated; main-only docs and updater excluded; Store notes updated; lock regenerated locally |
 | 2026-07-15 | `release/microsoft-store` | `86242355` | chore: bump version to 1.0.24 | `482f6bcc` | chore: bump version to 1.0.24 | 11 runtime commits propagated; main-only docs excluded; Store notes updated; lock resolved locally |
 | 2026-07-12 | `release/microsoft-store` | `318a74dd` | chore: bump version to 1.0.23 | `7657ed89` | chore: bump version to 1.0.23 | runtime propagated; Store notes updated; lock resolved locally |
 | 2026-06-24 | `integration/combined` | `3b37e049` | chore: bump version to 1.0.22 | `a34f02af` | chore: bump version to 1.0.22 | runtime clean; lock patched |
@@ -22,7 +23,6 @@ Rules:
 | 2026-06-22 | `integration/cuda` | `00b053b9` | ci: pin Vulkan action to Node 24 cache fix | `0f538b69` | ci: pin Vulkan action to Node 24 cache fix | clean propagation |
 | 2026-06-22 | `release/microsoft-store` | `00b053b9` | ci: pin Vulkan action to Node 24 cache fix | `a18d5198` | ci: pin Vulkan action to Node 24 cache fix | clean propagation |
 | 2026-06-22 | `integration/combined` | `630abf2e` | fix: repair release build and update Node actions | `98e2e09a` | fix: repair release build and update Node actions | clean propagation |
-| 2026-06-22 | `integration/cuda` | `630abf2e` | fix: repair release build and update Node actions | `7db52d68` | fix: repair release build and update Node actions | clean propagation |
 
 Entry template:
 
