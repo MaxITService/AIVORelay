@@ -5,12 +5,12 @@ GitHub Actions prepends this Markdown above GitHub-generated release notes.
 
 ## Highlights
 
-- Added native local streaming with per-model live-output controls, latency presets, clearer capability status, and safer cancellation across transcription sessions.
-- Expanded the local model catalog with release dates, capability details, improved filtering, clearer download state, and corrected Moonshine metadata.
-- Improved model download cancellation and selection stability, onboarding feedback, custom-word handling, and profile synchronization.
-- Improved streaming output reliability, clipboard restoration, and audio playback from transcription history.
-- Reduced microphone startup latency and improved Unicode VAD resource handling.
-- Improved Windows reliability with mixed-DPI overlay placement, tray-icon contrast fixes, and app-local VC runtime support.
+- Added an optional sound when transcribed text is ready and made audio feedback start faster while preserving the system mute state.
+- Fixed cases where transcription results could disappear during text cleanup.
+- Added the latest local transcription models and fixed public downloads when obsolete credentials were saved.
+- Soniox live transcription now retries recoverable timeouts without duplicating already inserted text.
+- Reduced memory use by sharing WebView2 resources and closing temporary interface processes after use.
+- Improved Windows shutdown and x64-on-ARM reliability.
 
 ---
 
