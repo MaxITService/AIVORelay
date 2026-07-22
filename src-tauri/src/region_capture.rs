@@ -348,8 +348,14 @@ pub async fn open_region_picker(
     .focused(true)
     .visible(false); // Start hidden, show after ready
 
-    if let Some(data_dir) = crate::portable::data_dir() {
-        builder = builder.data_directory(data_dir.join("webview"));
+    match crate::webview_runtime::config(app) {
+        Ok(runtime) => {
+            builder = builder.data_directory(runtime.data_directory);
+            if let Some(browser_args) = runtime.additional_browser_args {
+                builder = builder.additional_browser_args(&browser_args);
+            }
+        }
+        Err(error) => error!("Failed to configure the shared WebView runtime: {error}"),
     }
 
     let window_result = builder.build();

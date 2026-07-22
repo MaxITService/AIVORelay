@@ -19,6 +19,7 @@ Files that are added by this fork rather than upstream files that were modified.
 | `src-tauri/src/secure_keys.rs` | Secure API key storage (Windows). |
 | `src-tauri/src/plus_overlay_state.rs` | Extended overlay states. |
 | `src-tauri/src/region_capture.rs` | Native region capture overlay. |
+| `src-tauri/src/webview_runtime.rs` | Shared Windows WebView2 environment configuration. Every WebView window must use it so one app instance keeps a single browser-process group; CDP mode must apply the same debugging arguments and data directory to every window. |
 | `src-tauri/src/commands/region_capture.rs` | Commands for region capture. |
 | `src-tauri/src/commands/voice_command.rs` | Voice Command Center. |
 | `src-tauri/src/commands/live_sound_transcription.rs` | Live Sound Transcription page command surface. |
@@ -88,7 +89,7 @@ Files that are added by this fork rather than upstream files that were modified.
 | File | Current State |
 | --- | --- |
 | `src-tauri/src/actions.rs` | Shortcut actions, variable resolution, preview delete actions. Soniox live-finalization timeouts get one automatic full-recording replay only when output is still reversible (preview workflow or no stable chunk was inserted); never replay over already-inserted live text. |
-| `src-tauri/src/overlay.rs` | Overlay states, preview window helpers, live preview geometry constraints, preview action appearance payload. |
+| `src-tauri/src/overlay.rs` | Overlay states, preview window helpers, live preview geometry constraints, preview action appearance payload. The live preview WebView is created on first use instead of keeping an idle renderer alive from startup. |
 | `src-tauri/src/settings.rs` | Fork-specific settings & features, including live preview actions, preview bindings, and local-only recording tail buffer controls. |
 | `src-tauri/src/lib.rs` | Registers managers, commands, tray. |
 | `src-tauri/src/shortcut.rs` | Multi-engine shortcut bindings (Tauri/rdev/HandyKeys), live preview geometry persistence commands, preview action settings commands, preview delete-last-word global hotkey sync. |

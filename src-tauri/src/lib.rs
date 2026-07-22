@@ -38,6 +38,8 @@ mod tray_i18n;
 mod url_security;
 mod utils;
 mod webview_hardening;
+#[cfg(target_os = "windows")]
+mod webview_runtime;
 #[cfg(debug_assertions)]
 use specta_typescript::{BigIntExportBehavior, Typescript};
 use tauri_specta::{collect_commands, Builder};
@@ -700,8 +702,8 @@ fn initialize_core_logic(app_handle: &AppHandle) {
 
     // Create the recording overlay window (hidden by default)
     utils::create_recording_overlay(app_handle);
-    // Create live preview window (hidden by default)
-    utils::create_soniox_live_preview_window(app_handle);
+    // The live preview window is created on first use. Pre-creating it kept an
+    // otherwise idle renderer process alive for the entire app session.
 }
 
 #[tauri::command]
@@ -1495,12 +1497,6 @@ pub fn run(cli_args: CliArgs) {
                 return Ok(());
             }
 
-            #[cfg(target_os = "windows")]
-            let playwright_cdp_port = std::env::var("PLAYWRIGHT_TAURI_REMOTE_DEBUGGING_PORT")
-                .ok()
-                .map(|port| port.trim().to_string())
-                .filter(|port| !port.is_empty());
-
             let mut window_builder =
                 tauri::WebviewWindowBuilder::new(app, "main", tauri::WebviewUrl::App("/".into()))
                     .title("AivoRelay")
@@ -1511,28 +1507,12 @@ pub fn run(cli_args: CliArgs) {
                     .visible(false);
 
             #[cfg(target_os = "windows")]
-            if let Some(port) = playwright_cdp_port.as_deref() {
-                let browser_args = format!("--remote-debugging-port={port}");
-                window_builder = window_builder.additional_browser_args(&browser_args);
-            }
-
-            #[cfg(target_os = "windows")]
             {
-                let webview_dir = if let Some(data_dir) = portable::data_dir() {
-                    if let Some(port) = playwright_cdp_port.as_deref() {
-                        data_dir.join(format!("webview-playwright-{port}"))
-                    } else {
-                        data_dir.join("webview")
-                    }
-                } else if let Some(port) = playwright_cdp_port.as_deref() {
-                    app.path()
-                        .app_local_data_dir()?
-                        .join(format!("EBWebView-playwright-{port}"))
-                } else {
-                    app.path().app_local_data_dir()?.join("EBWebView")
-                };
-
-                window_builder = window_builder.data_directory(webview_dir);
+                let runtime = webview_runtime::config(app.handle())?;
+                window_builder = window_builder.data_directory(runtime.data_directory);
+                if let Some(browser_args) = runtime.additional_browser_args {
+                    window_builder = window_builder.additional_browser_args(&browser_args);
+                }
             }
 
             #[cfg(not(target_os = "windows"))]
