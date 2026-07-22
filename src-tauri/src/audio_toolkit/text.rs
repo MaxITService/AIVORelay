@@ -31,7 +31,11 @@ fn build_custom_word_match_keys(word: &str, word_index: usize) -> Vec<CustomWord
     let primary_key = build_match_key(word);
     let mut keys = Vec::with_capacity(2);
 
-    if !primary_key.is_empty() {
+    // The fallback matcher is intentionally limited to ASCII terms. Its
+    // whitespace tokenization and Soundex scoring are not suitable for CJK
+    // scripts. Unicode custom words remain available to models that accept
+    // them as native decode prompts; they are simply skipped by this fallback.
+    if is_supported_fuzzy_key(&primary_key) {
         keys.push(CustomWordMatchKey {
             word_index,
             key: primary_key.clone(),
@@ -40,7 +44,7 @@ fn build_custom_word_match_keys(word: &str, word_index: usize) -> Vec<CustomWord
 
     if word.contains('&') {
         let spoken_ampersand_key = build_match_key(&word.replace('&', " and "));
-        if !spoken_ampersand_key.is_empty() && spoken_ampersand_key != primary_key {
+        if is_supported_fuzzy_key(&spoken_ampersand_key) && spoken_ampersand_key != primary_key {
             keys.push(CustomWordMatchKey {
                 word_index,
                 key: spoken_ampersand_key,
@@ -49,6 +53,14 @@ fn build_custom_word_match_keys(word: &str, word_index: usize) -> Vec<CustomWord
     }
 
     keys
+}
+
+fn is_supported_fuzzy_key(key: &str) -> bool {
+    !key.is_empty() && key.chars().all(|c| c.is_ascii_alphanumeric())
+}
+
+fn supports_soundex(key: &str) -> bool {
+    !key.is_empty() && key.chars().all(|c| c.is_ascii_alphabetic())
 }
 
 /// Finds the best matching custom word for a normalized candidate string.
@@ -61,7 +73,7 @@ fn find_best_match<'a>(
     custom_word_match_keys: &[CustomWordMatchKey],
     threshold: f64,
 ) -> Option<(&'a String, f64)> {
-    if candidate.is_empty() || candidate.len() > 50 {
+    if !is_supported_fuzzy_key(candidate) || candidate.chars().count() > 50 {
         return None;
     }
 
@@ -70,9 +82,10 @@ fn find_best_match<'a>(
 
     for custom_word_match_key in custom_word_match_keys {
         // Guard against over-matching very different lengths.
-        let len_diff = (candidate.len() as i32 - custom_word_match_key.key.len() as i32).abs()
-            as f64;
-        let max_len = candidate.len().max(custom_word_match_key.key.len()) as f64;
+        let candidate_len = candidate.chars().count();
+        let custom_word_len = custom_word_match_key.key.chars().count();
+        let len_diff = candidate_len.abs_diff(custom_word_len) as f64;
+        let max_len = candidate_len.max(custom_word_len) as f64;
         let max_allowed_diff = (max_len * 0.25).max(2.0);
         if len_diff > max_allowed_diff {
             continue;
@@ -85,7 +98,11 @@ fn find_best_match<'a>(
             1.0
         };
 
-        let phonetic_match = soundex(candidate, &custom_word_match_key.key);
+        // Soundex is an English/ASCII phonetic algorithm. Numeric terms can
+        // still use edit distance, but must not receive a phonetic boost.
+        let phonetic_match = supports_soundex(candidate)
+            && supports_soundex(&custom_word_match_key.key)
+            && soundex(candidate, &custom_word_match_key.key);
         let combined_score = if phonetic_match {
             levenshtein_score * 0.3
         } else {
@@ -140,36 +157,50 @@ pub fn apply_custom_words(
     let max_ngram = if enable_ngram { 3 } else { 1 };
 
     while i < words.len() {
-        let mut matched = false;
+        let mut best_match: Option<(usize, &String, f64)> = None;
 
-        // Try longest n-grams first for greedy matching.
+        // Consider n-grams up to the configured maximum and choose the closest
+        // match. A longest-first match can consume a following ordinary word
+        // when both candidates happen to share a Soundex code.
         for n in (1..=max_ngram).rev() {
             if i + n > words.len() {
                 continue;
             }
 
             let ngram_words = &words[i..i + n];
+            // Do not consume across a punctuation boundary. In
+            // "Charge B, che", the comma closes the candidate at "B,".
+            if ngram_words[..n.saturating_sub(1)]
+                .iter()
+                .any(|word| !extract_punctuation(word).1.is_empty())
+            {
+                continue;
+            }
             let ngram = build_ngram(ngram_words);
             if ngram.is_empty() {
                 continue;
             }
 
-            if let Some((replacement, _score)) =
+            if let Some((replacement, score)) =
                 find_best_match(&ngram, custom_words, &custom_word_match_keys, threshold)
             {
-                let (prefix, _) = extract_punctuation(ngram_words[0]);
-                let (_, suffix) = extract_punctuation(ngram_words[n - 1]);
-
-                let corrected = preserve_case_pattern(ngram_words[0], replacement);
-                result.push(format!("{}{}{}", prefix, corrected, suffix));
-
-                i += n;
-                matched = true;
-                break;
+                let is_better = best_match
+                    .as_ref()
+                    .is_none_or(|(_, _, best_score)| score < *best_score);
+                if is_better {
+                    best_match = Some((n, replacement, score));
+                }
             }
         }
 
-        if !matched {
+        if let Some((n, replacement, _)) = best_match {
+            let ngram_words = &words[i..i + n];
+            let (prefix, _) = extract_punctuation(ngram_words[0]);
+            let (_, suffix) = extract_punctuation(ngram_words[n - 1]);
+            let corrected = preserve_case_pattern(ngram_words[0], replacement);
+            result.push(format!("{}{}{}", prefix, corrected, suffix));
+            i += n;
+        } else {
             result.push(words[i].to_string());
             i += 1;
         }
@@ -195,12 +226,19 @@ fn preserve_case_pattern(original: &str, replacement: &str) -> String {
 
 /// Extracts punctuation prefix and suffix from a word
 fn extract_punctuation(word: &str) -> (&str, &str) {
-    let prefix_end = word.chars().take_while(|c| !c.is_alphanumeric()).count();
+    // String slices use byte offsets. Derive both boundaries from char_indices
+    // so multibyte punctuation such as `。` and `「」` can never be split.
+    let prefix_end = word
+        .char_indices()
+        .find(|(_, c)| c.is_alphanumeric())
+        .map(|(index, _)| index)
+        .unwrap_or(word.len());
     let suffix_start = word
         .char_indices()
         .rev()
-        .take_while(|(_, c)| !c.is_alphanumeric())
-        .count();
+        .find(|(_, c)| c.is_alphanumeric())
+        .map(|(index, c)| index + c.len_utf8())
+        .unwrap_or(0);
 
     let prefix = if prefix_end > 0 {
         &word[..prefix_end]
@@ -208,8 +246,8 @@ fn extract_punctuation(word: &str) -> (&str, &str) {
         ""
     };
 
-    let suffix = if suffix_start > 0 {
-        &word[word.len() - suffix_start..]
+    let suffix = if suffix_start < word.len() {
+        &word[suffix_start..]
     } else {
         ""
     };
@@ -395,6 +433,13 @@ mod tests {
     }
 
     #[test]
+    fn test_extract_punctuation_uses_unicode_boundaries() {
+        assert_eq!(extract_punctuation("你好。"), ("", "。"));
+        assert_eq!(extract_punctuation("「你好」"), ("「", "」"));
+        assert_eq!(extract_punctuation("你好！"), ("", "！"));
+    }
+
+    #[test]
     fn test_empty_custom_words() {
         let text = "hello world";
         let custom_words = vec![];
@@ -407,7 +452,7 @@ mod tests {
         let text = "il cui nome e Charge B, che permette";
         let custom_words = vec!["ChargeBee".to_string()];
         let result = apply_custom_words(text, &custom_words, 0.5, true);
-        assert!(result.contains("ChargeBee,"));
+        assert!(result.contains("ChargeBee,"), "unexpected result: {result}");
         assert!(!result.contains("Charge B"));
     }
 
@@ -469,6 +514,22 @@ mod tests {
         let custom_words = vec!["R&D".to_string()];
         let result = apply_custom_words(text, &custom_words, 0.18, true);
         assert_eq!(result, "send it to R&D for review");
+    }
+
+    #[test]
+    fn test_apply_custom_words_handles_unicode_punctuation() {
+        let text = "「Handee。」";
+        let custom_words = vec!["Handy".to_string()];
+        let result = apply_custom_words(text, &custom_words, 0.5, true);
+        assert_eq!(result, "「Handy。」");
+    }
+
+    #[test]
+    fn test_apply_custom_words_skips_cjk_fuzzy_matching() {
+        let text = "你好。";
+        let custom_words = vec!["你号".to_string()];
+        let result = apply_custom_words(text, &custom_words, 1.0, true);
+        assert_eq!(result, text);
     }
 
     #[test]
