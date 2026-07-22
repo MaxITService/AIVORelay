@@ -406,6 +406,10 @@ fn initialize_core_logic(app_handle: &AppHandle) {
     app_handle.manage(key_listener_state);
     app_handle.manage(settings::DictationStatsEditState::default());
 
+    // Open the feedback output once at startup rather than racing a fresh
+    // WASAPI stream against microphone shutdown for every cue.
+    audio_feedback::init(app_handle);
+
     // Initialize region capture state (Windows only)
     #[cfg(target_os = "windows")]
     app_handle.manage(std::sync::Mutex::new(
