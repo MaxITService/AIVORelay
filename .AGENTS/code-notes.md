@@ -108,7 +108,7 @@ Files that are added by this fork rather than upstream files that were modified.
 | `src-tauri/src/audio_toolkit/audio/recorder.rs` | Audio capture stream logic, including Windows output loopback support. |
 | `src-tauri/src/managers/audio.rs` | Routes recordings between mic capture and Windows output loopback for live sound, plus local-only release-tail buffering. |
 | `src-tauri/src/managers/transcription.rs` | Local STT runtime, including transcribe.cpp batch/native streaming and per-model latency presets, transcribe-rs backend updates, Canary support, Whisper/ORT accelerator selection wiring, x64-on-Windows-ARM CPU fallback for GGML backends, and GigaAM v3 on the non-legacy API. |
-| `src-tauri/src/audio_feedback.rs` | Recording feedback plus the independent result-ready cue played only after successful normal-dictation delivery. |
+| `src-tauri/src/audio_feedback.rs` | Recording feedback plus the independent result-ready cue played only after successful normal-dictation delivery. A single worker owns and reuses the output stream; keep CPAL stream creation, playback, and destruction on that worker for macOS/Linux `!Send` compatibility. |
 | `src-tauri/src/commands/file_transcription.rs` | Soniox async integration overrides and diarized speaker-session handling. |
 | `src-tauri/src/settings.rs` | Also stores saved diarization speaker-name set profiles for file transcription. |
 | `src-tauri/src/shortcut.rs` | Includes persisted setting update commands for diarization speaker-name sets. |
