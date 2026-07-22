@@ -1,6 +1,8 @@
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 use crate::apple_intelligence;
-use crate::audio_feedback::{play_feedback_sound, play_feedback_sound_blocking, SoundType};
+use crate::audio_feedback::{
+    play_feedback_sound, play_feedback_sound_blocking, play_result_ready_sound, SoundType,
+};
 use crate::audio_toolkit::{
     apply_custom_words, is_microphone_access_denied, is_no_input_device_error,
 };
@@ -4633,18 +4635,17 @@ async fn paste_preview_buffer_to_target(
         return Ok(false);
     }
 
-    let ah_for_call = app.clone();
     let ah_for_paste = app.clone();
-    ah_for_call
-        .run_on_main_thread(move || {
-            if operation_stamp.is_some_and(|stamp| stamp.was_cancelled(&ah_for_paste)) {
-                return;
-            }
-            if let Err(err) = utils::paste(text, ah_for_paste.clone()) {
-                warn!("Preview paste failed: {}", err);
-            }
-        })
-        .map_err(|err| format!("Failed to dispatch paste operation: {}", err))?;
+    let main_thread_timeout_ms = get_settings(app).paste_delay_ms.saturating_add(1500);
+    run_on_main_thread_sync(app, main_thread_timeout_ms, move || {
+        if operation_stamp.is_some_and(|stamp| stamp.was_cancelled(&ah_for_paste)) {
+            return;
+        }
+        match utils::paste(text, ah_for_paste.clone()) {
+            Ok(()) => play_result_ready_sound(&ah_for_paste),
+            Err(err) => warn!("Preview paste failed: {}", err),
+        }
+    })?;
 
     Ok(true)
 }
@@ -4721,7 +4722,7 @@ fn end_streaming_paste_session_after_main_thread_queue(
     app: &AppHandle,
     operation_id: u64,
     timeout_ms: u64,
-) {
+) -> bool {
     let app_for_restore = app.clone();
     if let Err(err) = run_on_main_thread_sync(app, timeout_ms, move || {
         if let Err(restore_err) = crate::clipboard::end_streaming_paste_session_if_matches(
@@ -4738,7 +4739,9 @@ fn end_streaming_paste_session_after_main_thread_queue(
             "{}; clipboard restoration remains queued behind pending streaming pastes",
             err
         );
+        return false;
     }
+    true
 }
 
 pub(crate) fn transcribe_action_for_binding(binding_id: &str) -> Option<Arc<dyn ShortcutAction>> {
@@ -6742,6 +6745,7 @@ impl ShortcutAction for TranscribeAction {
                         }
                     } else if invoked_from_preview_action {
                         update_preview_text_for_output_mode(&ah, &final_text);
+                        play_result_ready_sound(&ah);
                     }
                 }
 
@@ -6756,11 +6760,14 @@ impl ShortcutAction for TranscribeAction {
                 }
 
                 if !preview_output_only_enabled {
-                    end_streaming_paste_session_after_main_thread_queue(
+                    let output_finalized = end_streaming_paste_session_after_main_thread_queue(
                         &ah,
                         recording_operation_id,
                         streaming_clipboard_timeout_ms,
                     );
+                    if output_finalized {
+                        play_result_ready_sound(&ah);
+                    }
                 }
 
                 finish_guard.finish();
@@ -7073,9 +7080,12 @@ impl ShortcutAction for TranscribeAction {
                         let _ = ah_clone.clipboard().write_text(final_text_for_ui.clone());
                     }
                 } else if !preview_output_only_enabled {
-                    if let Err(err) = utils::paste(final_text_for_ui.clone(), ah_clone.clone()) {
-                        error!("Failed to paste transcription: {}", err);
-                        let _ = ah_clone.emit("paste-error", ());
+                    match utils::paste(final_text_for_ui.clone(), ah_clone.clone()) {
+                        Ok(()) => play_result_ready_sound(&ah_clone),
+                        Err(err) => {
+                            error!("Failed to paste transcription: {}", err);
+                            let _ = ah_clone.emit("paste-error", ());
+                        }
                     }
                 }
                 utils::hide_recording_overlay(&ah_clone);
@@ -7101,15 +7111,19 @@ impl ShortcutAction for TranscribeAction {
                     }
                 } else if invoked_from_preview_action {
                     update_preview_text_for_output_mode(&ah, &final_text);
+                    play_result_ready_sound(&ah);
                 }
             }
 
             if uses_streaming_insert && !preview_output_only_enabled {
-                end_streaming_paste_session_after_main_thread_queue(
+                let output_finalized = end_streaming_paste_session_after_main_thread_queue(
                     &ah,
                     recording_operation_id,
                     streaming_clipboard_timeout_ms,
                 );
+                if output_finalized {
+                    play_result_ready_sound(&ah);
+                }
             }
 
             finish_guard.finish();
