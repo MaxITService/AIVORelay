@@ -1626,6 +1626,18 @@ pub fn create_recording_overlay(app_handle: &AppHandle) {
         builder = builder.position(x, y);
     }
 
+    #[cfg(target_os = "windows")]
+    match crate::webview_runtime::config(app_handle) {
+        Ok(runtime) => {
+            builder = builder.data_directory(runtime.data_directory);
+            if let Some(browser_args) = runtime.additional_browser_args {
+                builder = builder.additional_browser_args(&browser_args);
+            }
+        }
+        Err(error) => log::error!("Failed to configure the shared WebView runtime: {error}"),
+    }
+
+    #[cfg(not(target_os = "windows"))]
     if let Some(data_dir) = crate::portable::data_dir() {
         builder = builder.data_directory(data_dir.join("webview"));
     }
@@ -1679,8 +1691,14 @@ pub fn create_soniox_live_preview_window(app_handle: &AppHandle) {
         .focused(false)
         .visible(false);
 
-        if let Some(data_dir) = crate::portable::data_dir() {
-            builder = builder.data_directory(data_dir.join("webview"));
+        match crate::webview_runtime::config(app_handle) {
+            Ok(runtime) => {
+                builder = builder.data_directory(runtime.data_directory);
+                if let Some(browser_args) = runtime.additional_browser_args {
+                    builder = builder.additional_browser_args(&browser_args);
+                }
+            }
+            Err(error) => log::error!("Failed to configure the shared WebView runtime: {error}"),
         }
 
         match builder.build() {
@@ -2400,8 +2418,14 @@ pub fn show_voice_activation_button_window(app_handle: &AppHandle) -> Result<(),
         .focused(false)
         .visible(false);
 
-        if let Some(data_dir) = crate::portable::data_dir() {
-            builder = builder.data_directory(data_dir.join("webview"));
+        match crate::webview_runtime::config(app_handle) {
+            Ok(runtime) => {
+                builder = builder.data_directory(runtime.data_directory);
+                if let Some(browser_args) = runtime.additional_browser_args {
+                    builder = builder.additional_browser_args(&browser_args);
+                }
+            }
+            Err(error) => log::error!("Failed to configure the shared WebView runtime: {error}"),
         }
 
         match builder.build() {
@@ -2438,8 +2462,14 @@ pub fn show_voice_activation_button_window(app_handle: &AppHandle) -> Result<(),
         .focused(false)
         .visible(false);
 
-        if let Some(data_dir) = crate::portable::data_dir() {
-            builder = builder.data_directory(data_dir.join("webview"));
+        match crate::webview_runtime::config(app_handle) {
+            Ok(runtime) => {
+                builder = builder.data_directory(runtime.data_directory);
+                if let Some(browser_args) = runtime.additional_browser_args {
+                    builder = builder.additional_browser_args(&browser_args);
+                }
+            }
+            Err(error) => log::error!("Failed to configure the shared WebView runtime: {error}"),
         }
 
         match builder.build() {
@@ -2528,8 +2558,16 @@ pub fn show_command_confirm_overlay(
             .focused(true)
             .visible(false);
 
-            if let Some(data_dir) = crate::portable::data_dir() {
-                builder = builder.data_directory(data_dir.join("webview"));
+            match crate::webview_runtime::config(app_handle) {
+                Ok(runtime) => {
+                    builder = builder.data_directory(runtime.data_directory);
+                    if let Some(browser_args) = runtime.additional_browser_args {
+                        builder = builder.additional_browser_args(&browser_args);
+                    }
+                }
+                Err(error) => {
+                    log::error!("Failed to configure the shared WebView runtime: {error}")
+                }
             }
 
             match builder.build() {

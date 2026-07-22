@@ -38,6 +38,8 @@ mod tray_i18n;
 mod url_security;
 mod utils;
 mod webview_hardening;
+#[cfg(target_os = "windows")]
+mod webview_runtime;
 #[cfg(debug_assertions)]
 use specta_typescript::{BigIntExportBehavior, Typescript};
 use tauri_specta::{collect_commands, Builder};
@@ -700,8 +702,8 @@ fn initialize_core_logic(app_handle: &AppHandle) {
 
     // Create the recording overlay window (hidden by default)
     utils::create_recording_overlay(app_handle);
-    // Create live preview window (hidden by default)
-    utils::create_soniox_live_preview_window(app_handle);
+    // The live preview window is created on first use. Pre-creating it kept an
+    // otherwise idle renderer process alive for the entire app session.
 }
 
 #[tauri::command]
@@ -1502,6 +1504,16 @@ pub fn run(cli_args: CliArgs) {
                     .maximizable(true)
                     .visible(false);
 
+            #[cfg(target_os = "windows")]
+            {
+                let runtime = webview_runtime::config(app.handle())?;
+                window_builder = window_builder.data_directory(runtime.data_directory);
+                if let Some(browser_args) = runtime.additional_browser_args {
+                    window_builder = window_builder.additional_browser_args(&browser_args);
+                }
+            }
+
+            #[cfg(not(target_os = "windows"))]
             if let Some(data_dir) = portable::data_dir() {
                 window_builder = window_builder.data_directory(data_dir.join("webview"));
             }
