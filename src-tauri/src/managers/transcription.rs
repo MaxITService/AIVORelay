@@ -57,6 +57,16 @@ enum LoadedEngine {
 
 const STREAM_FINALIZE_REPLY_TIMEOUT: Duration = Duration::from_secs(30);
 const STREAM_PERF_LOG_INTERVAL: Duration = Duration::from_secs(5);
+
+fn panic_payload_message(payload: &(dyn std::any::Any + Send)) -> String {
+    if let Some(message) = payload.downcast_ref::<&str>() {
+        (*message).to_string()
+    } else if let Some(message) = payload.downcast_ref::<String>() {
+        message.clone()
+    } else {
+        "unknown panic".to_string()
+    }
+}
 // transcribe.cpp's generic policy counts identical hypotheses on every 30 ms
 // audio feed. Voxtral decodes roughly once per second, so its default agreement
 // of three feeds commits a tentative tail in about 60 ms—too brief to render.
@@ -1653,13 +1663,7 @@ impl TranscriptionManager {
                 Err(panic_payload) => {
                     // Engine panicked — do NOT put it back (it's in an unknown state).
                     // The engine is dropped here, effectively unloading it.
-                    let panic_msg = if let Some(s) = panic_payload.downcast_ref::<&str>() {
-                        s.to_string()
-                    } else if let Some(s) = panic_payload.downcast_ref::<String>() {
-                        s.clone()
-                    } else {
-                        "unknown panic".to_string()
-                    };
+                    let panic_msg = panic_payload_message(panic_payload.as_ref());
                     error!(
                         "Transcription engine panicked: {}. Model has been unloaded.",
                         panic_msg
@@ -1692,31 +1696,12 @@ impl TranscriptionManager {
             }
         };
 
-        let should_apply_custom_words =
-            apply_custom_words_enabled && !settings.custom_words.is_empty();
-
-        // Apply word correction if custom words are enabled and configured
-        let corrected_result = if should_apply_custom_words {
-            apply_custom_words(
-                &result.text,
-                &settings.custom_words,
-                settings.word_correction_threshold,
-                settings.custom_words_ngram_enabled,
-            )
-        } else {
-            result.text
-        };
-
-        // Filter out filler words and hallucinations (if enabled)
-        let filtered_result = if settings.filler_word_filter_enabled {
-            filter_transcription_output(
-                &corrected_result,
-                &effective_language,
-                &settings.custom_filler_words,
-            )
-        } else {
-            corrected_result
-        };
+        let filtered_result = post_process_transcription_text(
+            result.text,
+            &settings,
+            &effective_language,
+            apply_custom_words_enabled,
+        );
 
         let et = std::time::Instant::now();
         let translation_note = if settings.translate_to_english {
@@ -1917,30 +1902,12 @@ impl TranscriptionManager {
             }
         };
 
-        let should_apply_custom_words =
-            apply_custom_words_enabled && !settings.custom_words.is_empty();
-
-        let corrected_result = if should_apply_custom_words {
-            apply_custom_words(
-                &result.text,
-                &settings.custom_words,
-                settings.word_correction_threshold,
-                settings.custom_words_ngram_enabled,
-            )
-        } else {
-            result.text
-        };
-
-        // Filter out filler words and hallucinations (if enabled)
-        let filtered_result = if settings.filler_word_filter_enabled {
-            filter_transcription_output(
-                &corrected_result,
-                &effective_language,
-                &settings.custom_filler_words,
-            )
-        } else {
-            corrected_result
-        };
+        let filtered_result = post_process_transcription_text(
+            result.text,
+            &settings,
+            &effective_language,
+            apply_custom_words_enabled,
+        );
 
         let et = std::time::Instant::now();
         let translation_note = if translate_to_english {
@@ -1984,28 +1951,12 @@ impl TranscriptionManager {
                 apply_custom_words_enabled,
             )?;
 
-        let should_apply_custom_words =
-            apply_custom_words_enabled && !settings.custom_words.is_empty();
-        let corrected_result = if should_apply_custom_words {
-            apply_custom_words(
-                &result.text,
-                &settings.custom_words,
-                settings.word_correction_threshold,
-                settings.custom_words_ngram_enabled,
-            )
-        } else {
-            result.text
-        };
-
-        let filtered_result = if settings.filler_word_filter_enabled {
-            filter_transcription_output(
-                &corrected_result,
-                &selected_language,
-                &settings.custom_filler_words,
-            )
-        } else {
-            corrected_result
-        };
+        let filtered_result = post_process_transcription_text(
+            result.text,
+            &settings,
+            &selected_language,
+            apply_custom_words_enabled,
+        );
 
         let translation_note = if translate_to_english {
             " (translated)"
@@ -2043,31 +1994,15 @@ impl TranscriptionManager {
                 apply_custom_words_enabled,
             )?;
 
-        let should_apply_custom_words =
-            apply_custom_words_enabled && !settings.custom_words.is_empty();
-
         let segments = result.segments.map(|segs| {
             segs.into_iter()
                 .map(|seg| {
-                    let corrected_text = if should_apply_custom_words {
-                        apply_custom_words(
-                            &seg.text,
-                            &settings.custom_words,
-                            settings.word_correction_threshold,
-                            settings.custom_words_ngram_enabled,
-                        )
-                    } else {
-                        seg.text
-                    };
-                    let text = if settings.filler_word_filter_enabled {
-                        filter_transcription_output(
-                            &corrected_text,
-                            &selected_language,
-                            &settings.custom_filler_words,
-                        )
-                    } else {
-                        corrected_text
-                    };
+                    let text = post_process_transcription_text(
+                        seg.text,
+                        &settings,
+                        &selected_language,
+                        apply_custom_words_enabled,
+                    );
                     crate::subtitle::SubtitleSegment {
                         start: seg.start,
                         end: seg.end,
@@ -2077,26 +2012,12 @@ impl TranscriptionManager {
                 .collect::<Vec<_>>()
         });
 
-        let corrected_result = if should_apply_custom_words {
-            apply_custom_words(
-                &result.text,
-                &settings.custom_words,
-                settings.word_correction_threshold,
-                settings.custom_words_ngram_enabled,
-            )
-        } else {
-            result.text
-        };
-
-        let filtered_result = if settings.filler_word_filter_enabled {
-            filter_transcription_output(
-                &corrected_result,
-                &selected_language,
-                &settings.custom_filler_words,
-            )
-        } else {
-            corrected_result
-        };
+        let filtered_result = post_process_transcription_text(
+            result.text,
+            &settings,
+            &selected_language,
+            apply_custom_words_enabled,
+        );
 
         let translation_note = if translate_to_english {
             " (translated)"
@@ -3258,21 +3179,61 @@ fn post_process_stream_text(
     settings: &AppSettings,
     selected_language: &str,
 ) -> String {
-    let corrected = if settings.custom_words_enabled && !settings.custom_words.is_empty() {
-        apply_custom_words(
-            &raw,
-            &settings.custom_words,
-            settings.word_correction_threshold,
-            settings.custom_words_ngram_enabled,
-        )
-    } else {
-        raw
-    };
+    post_process_transcription_text(
+        raw,
+        settings,
+        selected_language,
+        settings.custom_words_enabled,
+    )
+}
 
-    if settings.filler_word_filter_enabled {
-        filter_transcription_output(&corrected, selected_language, &settings.custom_filler_words)
-    } else {
-        corrected
+fn post_process_transcription_text(
+    raw: String,
+    settings: &AppSettings,
+    selected_language: &str,
+    apply_custom_words_enabled: bool,
+) -> String {
+    fail_open_text_transform(raw, |raw| {
+        let corrected = if apply_custom_words_enabled && !settings.custom_words.is_empty() {
+            apply_custom_words(
+                &raw,
+                &settings.custom_words,
+                settings.word_correction_threshold,
+                settings.custom_words_ngram_enabled,
+            )
+        } else {
+            raw
+        };
+
+        if settings.filler_word_filter_enabled {
+            filter_transcription_output(
+                &corrected,
+                selected_language,
+                &settings.custom_filler_words,
+            )
+        } else {
+            corrected
+        }
+    })
+}
+
+/// Optional text cleanup must never discard a successful model result. The
+/// transform is pure and owns its input, so recovering the untouched text is
+/// safe even if a bug in custom-word or filler filtering unwinds.
+fn fail_open_text_transform<F>(raw: String, transform: F) -> String
+where
+    F: FnOnce(String) -> String,
+{
+    let fallback = raw.clone();
+    match catch_unwind(AssertUnwindSafe(|| transform(raw))) {
+        Ok(processed) => processed,
+        Err(payload) => {
+            error!(
+                "Optional transcription text post-processing panicked: {}; using the raw transcription",
+                panic_payload_message(payload.as_ref())
+            );
+            fallback
+        }
     }
 }
 
@@ -3363,6 +3324,16 @@ mod tests {
 
     fn languages(codes: &[&str]) -> Vec<String> {
         codes.iter().map(|code| (*code).to_string()).collect()
+    }
+
+    #[test]
+    fn optional_text_transform_falls_back_to_raw_text_after_panic() {
+        let raw = "原始轉錄。".to_string();
+        let result = fail_open_text_transform(raw.clone(), |_| {
+            panic!("simulated optional cleanup failure")
+        });
+
+        assert_eq!(result, raw);
     }
 
     #[test]

@@ -712,6 +712,44 @@ fn trigger_update_check(app: AppHandle) -> Result<(), String> {
     Ok(())
 }
 
+/// Convert an unexpected panic on the headless worker into a normal CLI
+/// failure. Without this guard the Tauri event loop remains alive after the
+/// worker exits, leaving `--transcribe-file` hung indefinitely.
+fn run_headless_guarded<F>(operation: F) -> i32
+where
+    F: FnOnce() -> i32,
+{
+    match std::panic::catch_unwind(std::panic::AssertUnwindSafe(operation)) {
+        Ok(code) => code,
+        Err(payload) => {
+            let message = if let Some(message) = payload.downcast_ref::<&str>() {
+                (*message).to_string()
+            } else if let Some(message) = payload.downcast_ref::<String>() {
+                message.clone()
+            } else {
+                "unknown panic".to_string()
+            };
+            eprintln!("error: headless transcription panicked: {message}");
+            1
+        }
+    }
+}
+
+#[cfg(test)]
+mod headless_guard_tests {
+    use super::run_headless_guarded;
+
+    #[test]
+    fn preserves_normal_exit_codes() {
+        assert_eq!(run_headless_guarded(|| 2), 2);
+    }
+
+    #[test]
+    fn converts_worker_panics_to_runtime_failures() {
+        assert_eq!(run_headless_guarded(|| panic!("simulated failure")), 1);
+    }
+}
+
 /// Headless one-shot transcription for `--transcribe-file` / `--list-devices`.
 /// Returns a process exit code: 0 ok, 1 runtime failure, 2 bad input/usage.
 fn run_headless_transcription(app: &AppHandle, args: &CliArgs) -> i32 {
@@ -1440,7 +1478,7 @@ pub fn run(cli_args: CliArgs) {
                 let handle = app_handle.clone();
                 let args = cli_args.clone();
                 std::thread::spawn(move || {
-                    let code = run_headless_transcription(&handle, &args);
+                    let code = run_headless_guarded(|| run_headless_transcription(&handle, &args));
                     if let Some(tm) = handle.try_state::<Arc<TranscriptionManager>>() {
                         let _ = tm.unload_model();
                     }
