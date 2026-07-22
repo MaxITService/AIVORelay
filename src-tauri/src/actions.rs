@@ -4200,6 +4200,40 @@ mod local_preview_text_tests {
     }
 
     #[test]
+    fn soniox_timeout_replay_requires_reversible_output() {
+        assert!(should_replay_soniox_live_timeout(
+            "Timed out while waiting for Soniox live session completion",
+            true,
+            false,
+            false,
+        ));
+        assert!(should_replay_soniox_live_timeout(
+            "Soniox timeout",
+            true,
+            true,
+            true,
+        ));
+        assert!(!should_replay_soniox_live_timeout(
+            "Soniox timeout",
+            true,
+            false,
+            true,
+        ));
+        assert!(!should_replay_soniox_live_timeout(
+            "Soniox timeout",
+            false,
+            true,
+            false,
+        ));
+        assert!(!should_replay_soniox_live_timeout(
+            "Soniox WebSocket closed",
+            true,
+            true,
+            false,
+        ));
+    }
+
+    #[test]
     fn filters_common_short_tail_and_repairs_cyrillic_capitalization() {
         let existing = "Это приводит к тому, что государство берет эти деньги и тратит.";
         let incoming = "это максимально неэффективно. Thank you.";
@@ -4470,6 +4504,47 @@ fn current_preview_interim_text() -> String {
 fn is_timeout_error_message(err: &str) -> bool {
     let normalized = err.to_ascii_lowercase();
     normalized.contains("timed out") || normalized.contains("timeout")
+}
+
+fn should_replay_soniox_live_timeout(
+    err: &str,
+    is_soniox: bool,
+    preview_output_only_enabled: bool,
+    had_stream_output: bool,
+) -> bool {
+    is_soniox
+        && is_timeout_error_message(err)
+        && (preview_output_only_enabled || !had_stream_output)
+}
+
+fn handle_live_transcription_failure_after_stop(
+    app: &AppHandle,
+    binding_id: &str,
+    message: String,
+    shown_in_overlay: bool,
+    preview_output_only_enabled: bool,
+    recording_operation_id: u64,
+    streaming_clipboard_timeout_ms: u64,
+) {
+    if !shown_in_overlay {
+        let _ = app.emit("remote-stt-error", message.clone());
+        crate::plus_overlay_state::handle_transcription_error(app, &message);
+    }
+
+    if preview_output_only_enabled {
+        close_preview_output_mode_workflow(app, true);
+    } else {
+        end_streaming_paste_session_after_main_thread_queue(
+            app,
+            recording_operation_id,
+            streaming_clipboard_timeout_ms,
+        );
+    }
+
+    if binding_id == LIVE_SOUND_TRANSCRIPTION_BINDING_ID {
+        crate::managers::live_sound_transcription::set_error(app, Some(message));
+        crate::managers::live_sound_transcription::finish_session(app);
+    }
 }
 
 fn should_suppress_preview_timeout_error(err: &str) -> bool {
@@ -6310,7 +6385,7 @@ impl ShortcutAction for TranscribeAction {
             tauri::async_runtime::spawn(async move {
                 let mut finish_guard =
                     FinishGuard::new(ah.clone(), binding_id.clone(), recording_operation_id);
-                let stream_processor = take_soniox_stream_processor(&binding_id);
+                let mut stream_processor = take_soniox_stream_processor(&binding_id);
                 let had_soniox_stream_output =
                     if is_deepgram_live_provider || is_openai_realtime_whisper_live_provider {
                         false
@@ -6466,6 +6541,12 @@ impl ShortcutAction for TranscribeAction {
                     openai_realtime_whisper_manager
                         .finish_session(live_finalize_timeout_ms)
                         .await
+                } else if preview_output_only_enabled {
+                    // Preview output is still reversible, so surface a partial
+                    // Soniox timeout and let the complete-recording replay repair it.
+                    soniox_live_manager
+                        .finish_session_strict(live_finalize_timeout_ms)
+                        .await
                 } else {
                     soniox_live_manager
                         .finish_session(live_finalize_timeout_ms)
@@ -6479,56 +6560,129 @@ impl ShortcutAction for TranscribeAction {
                     finish_guard.finish();
                     return;
                 }
+                let mut recovered_from_soniox_replay = false;
                 let transcription = match transcription_result {
                     Ok(text) => apply_soniox_output_filters(&recording_settings, text),
                     Err(err) => {
                         let err_str = format!("{}", err);
-                        let suppress_timeout = preview_output_only_enabled
-                            && should_suppress_preview_timeout_error(&err_str);
-                        if suppress_timeout {
-                            utils::hide_recording_overlay(&ah);
-                            change_tray_icon(&ah, TrayIconState::Idle);
-                            if !invoked_from_preview_action {
-                                let text_to_insert = current_preview_buffer_text();
-                                if let Err(err) = finalize_preview_workflow_after_stop(
-                                    &ah,
-                                    text_to_insert,
-                                    operation_stamp,
-                                )
-                                .await
-                                {
-                                    crate::managers::preview_output_mode::set_error(&ah, Some(err));
+                        let can_replay_soniox = should_replay_soniox_live_timeout(
+                            &err_str,
+                            !is_deepgram_live_provider && !is_openai_realtime_whisper_live_provider,
+                            preview_output_only_enabled,
+                            had_soniox_stream_output,
+                        );
+
+                        if can_replay_soniox {
+                            warn!(
+                                "Soniox live finalization timed out without irreversible stream output; replaying the complete recording once"
+                            );
+                            // Do not flush a partial safety-buffer tail after the replay;
+                            // the replay result represents the complete recording.
+                            stream_processor = None;
+                            let mut replay_settings = recording_settings.clone();
+                            replay_settings.soniox_live_enabled = false;
+                            replay_settings.soniox_optimize_delivery_preconnect_enabled = false;
+
+                            match perform_transcription_for_profile_with_retry_action(
+                                &ah,
+                                samples.clone(),
+                                Some(&binding_id),
+                                profile_id_for_postprocess.clone(),
+                                &replay_settings,
+                                false,
+                                false,
+                            )
+                            .await
+                            {
+                                TranscriptionOutcome::Success(text) => {
+                                    recovered_from_soniox_replay = true;
+                                    text
+                                }
+                                TranscriptionOutcome::Cancelled => {
+                                    if !preview_output_only_enabled {
+                                        end_streaming_paste_session_after_main_thread_queue(
+                                            &ah,
+                                            recording_operation_id,
+                                            streaming_clipboard_timeout_ms,
+                                        );
+                                    } else if !invoked_from_preview_action {
+                                        close_preview_output_mode_workflow(&ah, true);
+                                    }
+                                    if binding_id == LIVE_SOUND_TRANSCRIPTION_BINDING_ID {
+                                        crate::managers::live_sound_transcription::finish_session(
+                                            &ah,
+                                        );
+                                    }
+                                    finish_guard.finish();
+                                    return;
+                                }
+                                TranscriptionOutcome::Error {
+                                    message,
+                                    shown_in_overlay,
+                                } => {
+                                    handle_live_transcription_failure_after_stop(
+                                        &ah,
+                                        &binding_id,
+                                        message,
+                                        shown_in_overlay,
+                                        preview_output_only_enabled,
+                                        recording_operation_id,
+                                        streaming_clipboard_timeout_ms,
+                                    );
+                                    finish_guard.finish();
+                                    return;
                                 }
                             }
-                            if binding_id == LIVE_SOUND_TRANSCRIPTION_BINDING_ID {
-                                crate::managers::live_sound_transcription::finish_session(&ah);
+                        } else {
+                            let suppress_timeout = preview_output_only_enabled
+                                && should_suppress_preview_timeout_error(&err_str);
+                            if suppress_timeout {
+                                utils::hide_recording_overlay(&ah);
+                                change_tray_icon(&ah, TrayIconState::Idle);
+                                if !invoked_from_preview_action {
+                                    let text_to_insert = current_preview_buffer_text();
+                                    if let Err(err) = finalize_preview_workflow_after_stop(
+                                        &ah,
+                                        text_to_insert,
+                                        operation_stamp,
+                                    )
+                                    .await
+                                    {
+                                        crate::managers::preview_output_mode::set_error(
+                                            &ah,
+                                            Some(err),
+                                        );
+                                    }
+                                }
+                                if binding_id == LIVE_SOUND_TRANSCRIPTION_BINDING_ID {
+                                    crate::managers::live_sound_transcription::finish_session(&ah);
+                                }
+                                finish_guard.finish();
+                                return;
                             }
-                            finish_guard.finish();
-                            return;
-                        }
-                        let _ = ah.emit("remote-stt-error", err_str.clone());
-                        crate::plus_overlay_state::handle_transcription_error(&ah, &err_str);
-                        if !preview_output_only_enabled {
-                            end_streaming_paste_session_after_main_thread_queue(
+                            handle_live_transcription_failure_after_stop(
                                 &ah,
+                                &binding_id,
+                                err_str,
+                                false,
+                                preview_output_only_enabled,
                                 recording_operation_id,
                                 streaming_clipboard_timeout_ms,
                             );
+                            finish_guard.finish();
+                            return;
                         }
-                        if preview_output_only_enabled {
-                            close_preview_output_mode_workflow(&ah, true);
-                        }
-                        if binding_id == LIVE_SOUND_TRANSCRIPTION_BINDING_ID {
-                            crate::managers::live_sound_transcription::set_error(
-                                &ah,
-                                Some(err_str),
-                            );
-                            crate::managers::live_sound_transcription::finish_session(&ah);
-                        }
-                        finish_guard.finish();
-                        return;
                     }
                 };
+
+                if !finish_guard.is_current() {
+                    debug!(
+                        "Discarding finalized or replayed live output for stale operation {}",
+                        recording_operation_id
+                    );
+                    finish_guard.finish();
+                    return;
+                }
 
                 if is_deepgram_live_provider {
                     // Deepgram can emit the first finalized chunk only during finish_session().
@@ -6709,9 +6863,21 @@ impl ShortcutAction for TranscribeAction {
                                 let _ = ah_clone.clipboard().write_text(final_text_for_ui.clone());
                             }
                         } else {
-                            // Soniox live mode already inserted text incrementally while chunks arrived.
-                            // Apply only boundary-level trailing adjustment at finalization.
-                            apply_stream_trailing_adjustment(&ah_clone, stream_trailing_adjustment);
+                            if recovered_from_soniox_replay {
+                                // No stable live chunks reached the target, so the one-shot
+                                // replay owns the complete output.
+                                let _ = crate::clipboard::paste_stream_chunk(
+                                    final_text_for_ui.clone(),
+                                    ah_clone.clone(),
+                                );
+                            } else {
+                                // Soniox live mode already inserted text incrementally while
+                                // chunks arrived. Apply only the final boundary adjustment.
+                                apply_stream_trailing_adjustment(
+                                    &ah_clone,
+                                    stream_trailing_adjustment,
+                                );
+                            }
                             if copy_to_clipboard {
                                 let _ = ah_clone.clipboard().write_text(final_text_for_ui.clone());
                             }
@@ -6750,7 +6916,9 @@ impl ShortcutAction for TranscribeAction {
                 }
 
                 if binding_id == LIVE_SOUND_TRANSCRIPTION_BINDING_ID {
-                    if final_text.trim() != transcription_before_post_process.trim() {
+                    if recovered_from_soniox_replay
+                        || final_text.trim() != transcription_before_post_process.trim()
+                    {
                         crate::managers::live_sound_transcription::replace_final_text(
                             &ah,
                             final_text.clone(),
