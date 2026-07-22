@@ -8,7 +8,7 @@ Non-`main` branches must not carry or update independent copies.
 
 Audit note (2026-07-22):
 - Current fetched `upstream/main` head checked locally: `8a362e9`.
-- Safe review cursor for the next `upstream -> main` intake: `2203a82`.
+- Safe review cursor for the next `upstream -> main` intake: `468129f`.
 - The table below logs integrated upstream commits only; the review cursor may be newer because it also accounts for explicitly skipped commits.
 - Reviewed corridor from `dad37baa` to `0a59e1f3`: manually adapted `0a59e1f3` (custom words with ampersands); skipped `45e3eed8` (Italian locale plus formatting-only Rust diff) and `cdb46339` (does not fit the fork preview-output architecture).
 - Reviewed corridor from `0a59e1f3` to `bf258d10`: manually adapted `a201be91` (Handy Keys 0.3.0), `e2c72a25` (mic-level IPC throttling), `87c45f81` (transcribe.cpp 0.1.2), and the remaining tray package portions from `2dd35bbb`/`bf258d10`; already covered `eb9301e0` (resampler reset), `a6df7428` (poisoned-mutex recovery), `5464bfaa` (tray-state tracking), and `f79a907f` (fork session-generation/stale-result cancellation); treated `cd040d93` as superseded by the fork's backup/reset/user-notice recovery policy; skipped `66e57ca8` (Linux packaging), `485f4ade` (macOS build fallback), `58760b22` (optional translation), `11c2bb1e` (not needed with fork settings contract), `07637ea9` (logging-only), and `f0f7e7ff` (optional split paste-delay UX).
@@ -33,6 +33,7 @@ Rules:
 
 | Merge Date | Upstream Date | Upstream SHA | Upstream Message | Main Message | Issues |
 | --- | --- | --- | --- | --- | --- |
+| 2026-07-22 | 2026-07-20 | `468129f` | bump to handy-keys 0.3.1 | chore(deps): update handy-keys to 0.3.1 | manual manifest port; Cargo lock resolved locally |
 | 2026-07-22 | 2026-07-20 | `2203a82` | fix: prevent custom-word correction from losing transcriptions | fix(transcription): preserve results through text cleanup | manual port; retained fork n-gram/filler toggles; Unicode-safe matching and fail-open cleanup/headless guards |
 | 2026-07-13 | 2026-07-12 | `c912c6b` | transcribe 0.1.3 (#1664) | chore(deps): update transcribe-cpp to 0.1.3 | manifest port; Cargo lock resolved locally; retained fork CI path workaround |
 | 2026-07-12 | 2026-07-08 | `87c45f81` | bump version (#1634) | chore(deps): update transcribe-cpp to 0.1.2 | corrected earlier version-bump classification; Cargo lock resolved locally |
@@ -42,7 +43,6 @@ Rules:
 | 2026-07-10 | 2026-07-09 | `2dd35bbb` | fix(tray): log tray icon failures instead of panicking (#1355) | fix(tray): preserve status and contrast on Windows | manual combined tray port; added `set_icon` failure logging; review cursor retained |
 | 2026-07-10 | 2026-07-08 | `e2c72a25` | fix: throttle mic-level IPC to mitigate WebKitWebProcess memory leak (#1444) | fix(overlay): throttle mic-level IPC | manual port; retained fork recording-overlay cache and single `emit_to` target; review cursor retained |
 | 2026-07-10 | 2026-07-08 | `a201be91` | handy keys 0.3.0 (#1623) | chore(deps): update handy-keys to 0.3.0 | manual manifest port; `Cargo.lock` resolved locally with Cargo; review cursor retained |
-| 2026-07-10 | 2026-07-07 | `0a59e1f3` | fix: preserve ampersands in custom words (#1569) | fix(custom-words): preserve ampersands | manual port; retained fork enabled/n-gram controls |
 
 Entry template:
 
