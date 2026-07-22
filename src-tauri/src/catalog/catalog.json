@@ -1,6 +1,6 @@
 {
   "catalog_version": 1,
-  "generated_at": "2026-07-01T13:30:59+00:00",
+  "generated_at": "2026-07-21T12:23:22+00:00",
   "models": [
     {
       "id": "handy-computer/parakeet-unified-en-0.6b-gguf",
@@ -780,6 +780,62 @@
           "filename": "canary-qwen-2.5b-F16.gguf",
           "quant": "F16",
           "size_bytes": 5076972928
+        }
+      ],
+      "default_quant": "Q5_K_M",
+      "recommended": false,
+      "recommended_rank": null
+    },
+    {
+      "id": "handy-computer/cohere-transcribe-arabic-07-2026-gguf",
+      "slug": "cohere-transcribe-arabic-07-2026",
+      "name": "Cohere Transcribe",
+      "architecture": "cohere_asr",
+      "family": "cohere",
+      "parameters": "2.0B",
+      "description": "2-language speech-to-text.",
+      "base_model": "CohereLabs/cohere-transcribe-arabic-07-2026",
+      "license": "apache-2.0",
+      "language_count": 2,
+      "languages": ["ar", "en"],
+      "capabilities": {
+        "streaming": false,
+        "translate": false,
+        "lang_detect": false,
+        "timestamps": "none"
+      },
+      "speed_score": 63,
+      "accuracy_score": 48,
+      "files": [
+        {
+          "filename": "cohere-transcribe-arabic-07-2026-Q4_K_M.gguf",
+          "quant": "Q4_K_M",
+          "size_bytes": 1558162848
+        },
+        {
+          "filename": "cohere-transcribe-arabic-07-2026-Q5_K_M.gguf",
+          "quant": "Q5_K_M",
+          "size_bytes": 1770270112
+        },
+        {
+          "filename": "cohere-transcribe-arabic-07-2026-Q6_K.gguf",
+          "quant": "Q6_K",
+          "size_bytes": 1972524448
+        },
+        {
+          "filename": "cohere-transcribe-arabic-07-2026-Q8_0.gguf",
+          "quant": "Q8_0",
+          "size_bytes": 2410655136
+        },
+        {
+          "filename": "cohere-transcribe-arabic-07-2026-BF16.gguf",
+          "quant": "BF16",
+          "size_bytes": 4105263008
+        },
+        {
+          "filename": "cohere-transcribe-arabic-07-2026-F16.gguf",
+          "quant": "F16",
+          "size_bytes": 4106644896
         }
       ],
       "default_quant": "Q5_K_M",
@@ -2156,6 +2212,62 @@
       "recommended_rank": null
     },
     {
+      "id": "handy-computer/multitalker-parakeet-streaming-0.6b-v1-gguf",
+      "slug": "multitalker-parakeet-streaming-0.6b-v1",
+      "name": "Multitalker Parakeet Streaming EN",
+      "architecture": "parakeet",
+      "family": "parakeet",
+      "parameters": "0.6B",
+      "description": "English speech-to-text with streaming, token-level timestamps.",
+      "base_model": "nvidia/multitalker-parakeet-streaming-0.6b-v1",
+      "license": "other",
+      "language_count": 1,
+      "languages": ["en"],
+      "capabilities": {
+        "streaming": true,
+        "translate": false,
+        "lang_detect": false,
+        "timestamps": "token"
+      },
+      "speed_score": 96,
+      "accuracy_score": 86,
+      "files": [
+        {
+          "filename": "multitalker-parakeet-streaming-0.6b-v1-Q4_K_M.gguf",
+          "quant": "Q4_K_M",
+          "size_bytes": 477812416
+        },
+        {
+          "filename": "multitalker-parakeet-streaming-0.6b-v1-Q5_K_M.gguf",
+          "quant": "Q5_K_M",
+          "size_bytes": 541890240
+        },
+        {
+          "filename": "multitalker-parakeet-streaming-0.6b-v1-Q6_K.gguf",
+          "quant": "Q6_K",
+          "size_bytes": 603878080
+        },
+        {
+          "filename": "multitalker-parakeet-streaming-0.6b-v1-Q8_0.gguf",
+          "quant": "Q8_0",
+          "size_bytes": 734123712
+        },
+        {
+          "filename": "multitalker-parakeet-streaming-0.6b-v1-F16.gguf",
+          "quant": "F16",
+          "size_bytes": 1246058304
+        },
+        {
+          "filename": "multitalker-parakeet-streaming-0.6b-v1-F32.gguf",
+          "quant": "F32",
+          "size_bytes": 2489180480
+        }
+      ],
+      "default_quant": "Q8_0",
+      "recommended": false,
+      "recommended_rank": null
+    },
+    {
       "id": "handy-computer/parakeet-ctc-0.6b-gguf",
       "slug": "parakeet-ctc-0.6b",
       "name": "Parakeet CTC 0.6B",
@@ -2544,6 +2656,62 @@
         }
       ],
       "default_quant": "Q5_K_M",
+      "recommended": false,
+      "recommended_rank": null
+    },
+    {
+      "id": "handy-computer/moss-transcribe-diarize-gguf",
+      "slug": "moss-transcribe-diarize",
+      "name": "MOSS-Transcribe-Diarize 0.9B",
+      "architecture": "moss",
+      "family": "qwen3",
+      "parameters": "909M",
+      "description": "2-language speech-to-text with segment-level timestamps.",
+      "base_model": "OpenMOSS-Team/MOSS-Transcribe-Diarize",
+      "license": "apache-2.0",
+      "language_count": 2,
+      "languages": ["en", "zh"],
+      "capabilities": {
+        "streaming": false,
+        "translate": false,
+        "lang_detect": false,
+        "timestamps": "segment"
+      },
+      "speed_score": 31,
+      "accuracy_score": 88,
+      "files": [
+        {
+          "filename": "MOSS-Transcribe-Diarize-Q4_K_M.gguf",
+          "quant": "Q4_K_M",
+          "size_bytes": 617345184
+        },
+        {
+          "filename": "MOSS-Transcribe-Diarize-Q5_K_M.gguf",
+          "quant": "Q5_K_M",
+          "size_bytes": 700313760
+        },
+        {
+          "filename": "MOSS-Transcribe-Diarize-Q6_K.gguf",
+          "quant": "Q6_K",
+          "size_bytes": 768151712
+        },
+        {
+          "filename": "MOSS-Transcribe-Diarize-Q8_0.gguf",
+          "quant": "Q8_0",
+          "size_bytes": 986899616
+        },
+        {
+          "filename": "MOSS-Transcribe-Diarize-BF16.gguf",
+          "quant": "BF16",
+          "size_bytes": 1826882720
+        },
+        {
+          "filename": "MOSS-Transcribe-Diarize-F16.gguf",
+          "quant": "F16",
+          "size_bytes": 1833665696
+        }
+      ],
+      "default_quant": "Q8_0",
       "recommended": false,
       "recommended_rank": null
     },
@@ -3131,27 +3299,27 @@
         {
           "filename": "whisper-large-v3-turbo-Q4_K_M.gguf",
           "quant": "Q4_K_M",
-          "size_bytes": 536069792
+          "size_bytes": 536069728
         },
         {
           "filename": "whisper-large-v3-turbo-Q5_K_M.gguf",
           "quant": "Q5_K_M",
-          "size_bytes": 619628192
+          "size_bytes": 619628128
         },
         {
           "filename": "whisper-large-v3-turbo-Q6_K.gguf",
           "quant": "Q6_K",
-          "size_bytes": 692536992
+          "size_bytes": 692536928
         },
         {
           "filename": "whisper-large-v3-turbo-Q8_0.gguf",
           "quant": "Q8_0",
-          "size_bytes": 886381824
+          "size_bytes": 886381760
         },
         {
           "filename": "whisper-large-v3-turbo-F16.gguf",
           "quant": "F16",
-          "size_bytes": 1636749024
+          "size_bytes": 1625935520
         }
       ],
       "default_quant": "Q8_0",
