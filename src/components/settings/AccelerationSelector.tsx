@@ -54,28 +54,33 @@ export const AccelerationSelector: FC<AccelerationSelectorProps> = ({
 
   useEffect(() => {
     commands.getAvailableAccelerators().then((available) => {
-      const nextWhisperOptions: DropdownOption[] = [
-        {
+      const nextWhisperOptions: DropdownOption[] = [];
+      if (available.whisper.includes("auto")) {
+        nextWhisperOptions.push({
           value: "auto",
           label: t("settings.advanced.acceleration.gpuDevice.auto"),
-        },
-      ];
-
-      for (const device of available.gpu_devices) {
-        const vramLabel =
-          device.total_vram_mb >= 1024
-            ? `${(device.total_vram_mb / 1024).toFixed(1)} GB`
-            : `${device.total_vram_mb} MB`;
-        nextWhisperOptions.push({
-          value: `gpu:${device.id}`,
-          label: `${device.name} (${vramLabel})`,
         });
       }
 
-      nextWhisperOptions.push({
-        value: "cpu",
-        label: "CPU",
-      });
+      if (available.whisper.includes("gpu")) {
+        for (const device of available.gpu_devices) {
+          const vramLabel =
+            device.total_vram_mb >= 1024
+              ? `${(device.total_vram_mb / 1024).toFixed(1)} GB`
+              : `${device.total_vram_mb} MB`;
+          nextWhisperOptions.push({
+            value: `gpu:${device.id}`,
+            label: `${device.name} (${vramLabel})`,
+          });
+        }
+      }
+
+      if (available.whisper.includes("cpu")) {
+        nextWhisperOptions.push({
+          value: "cpu",
+          label: "CPU",
+        });
+      }
       setWhisperOptions(nextWhisperOptions);
 
       const ortValues = available.ort.includes("auto")
@@ -96,6 +101,11 @@ export const AccelerationSelector: FC<AccelerationSelectorProps> = ({
     currentAccelerator as WhisperAcceleratorSetting,
     currentGpuDevice as number,
   );
+  const displayedWhisper = whisperOptions.some(
+    (option) => option.value === currentWhisper,
+  )
+    ? currentWhisper
+    : (whisperOptions[0]?.value ?? null);
   const currentOrt = getSetting("ort_accelerator") ?? "auto";
 
   const handleWhisperChange = async (value: string) => {
@@ -115,7 +125,7 @@ export const AccelerationSelector: FC<AccelerationSelectorProps> = ({
       >
         <Dropdown
           options={whisperOptions}
-          selectedValue={currentWhisper}
+          selectedValue={displayedWhisper}
           onSelect={handleWhisperChange}
           disabled={
             isUpdating("whisper_accelerator") ||

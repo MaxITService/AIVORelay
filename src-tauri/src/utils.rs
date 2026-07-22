@@ -19,6 +19,62 @@ pub use crate::clipboard::*;
 pub use crate::overlay::*;
 pub use crate::tray::*;
 
+#[cfg(any(test, all(target_os = "windows", target_arch = "x86_64")))]
+const IMAGE_FILE_MACHINE_ARM64: u16 = 0xaa64;
+
+#[cfg(any(test, all(target_os = "windows", target_arch = "x86_64")))]
+fn native_machine_is_arm64(native_machine: Option<u16>) -> bool {
+    native_machine == Some(IMAGE_FILE_MACHINE_ARM64)
+}
+
+/// Whether this is the x64 Windows build running under emulation on Windows ARM64.
+///
+/// Only that exact process/host pairing disables GGML GPU paths. Detection is
+/// deliberately fail-open: a native x64 host, an older Windows version without
+/// `IsWow64Process2`, or any API error preserves the existing behavior.
+pub fn is_windows_x64_emulated_on_arm64() -> bool {
+    #[cfg(all(target_os = "windows", target_arch = "x86_64"))]
+    {
+        use std::sync::OnceLock;
+
+        static DETECTED: OnceLock<bool> = OnceLock::new();
+        *DETECTED.get_or_init(|| native_machine_is_arm64(native_windows_machine()))
+    }
+
+    #[cfg(not(all(target_os = "windows", target_arch = "x86_64")))]
+    {
+        false
+    }
+}
+
+#[cfg(all(target_os = "windows", target_arch = "x86_64"))]
+fn native_windows_machine() -> Option<u16> {
+    use windows::core::{s, w, BOOL};
+    use windows::Win32::Foundation::HANDLE;
+    use windows::Win32::System::LibraryLoader::{GetModuleHandleW, GetProcAddress};
+    use windows::Win32::System::Threading::GetCurrentProcess;
+
+    type IsWow64Process2 = unsafe extern "system" fn(HANDLE, *mut u16, *mut u16) -> BOOL;
+
+    // Resolve dynamically so merely starting AivoRelay never raises the
+    // minimum Windows version.
+    unsafe {
+        let kernel32 = GetModuleHandleW(w!("kernel32.dll")).ok()?;
+        let address = GetProcAddress(kernel32, s!("IsWow64Process2"))?;
+        // SAFETY: GetProcAddress returned the documented IsWow64Process2 symbol.
+        let is_wow64_process2: IsWow64Process2 = std::mem::transmute(address);
+        let mut process_machine = 0u16;
+        let mut native_machine = 0u16;
+        is_wow64_process2(
+            GetCurrentProcess(),
+            &mut process_machine,
+            &mut native_machine,
+        )
+        .as_bool()
+        .then_some(native_machine)
+    }
+}
+
 /// Centralized cancellation function that can be called from anywhere in the app.
 /// Handles cancelling both recording and transcription operations and updates UI state.
 /// This also cancels any ongoing Processing work (transcription, LLM, etc.).
@@ -113,4 +169,17 @@ pub fn is_wayland() -> bool {
         || std::env::var("XDG_SESSION_TYPE")
             .map(|v| v.to_lowercase() == "wayland")
             .unwrap_or(false)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn arm64_native_machine_is_the_only_match() {
+        assert!(native_machine_is_arm64(Some(IMAGE_FILE_MACHINE_ARM64)));
+        assert!(!native_machine_is_arm64(Some(0x8664))); // AMD64
+        assert!(!native_machine_is_arm64(Some(0x014c))); // I386
+        assert!(!native_machine_is_arm64(None));
+    }
 }
