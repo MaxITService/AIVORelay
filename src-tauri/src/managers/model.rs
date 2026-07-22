@@ -1520,7 +1520,10 @@ impl ModelManager {
                 },
             );
 
-            let api = ApiBuilder::new().build()?;
+            // Every catalog repository is public. Ignore cached credentials so
+            // an expired or otherwise invalid token cannot break public model
+            // downloads.
+            let api = ApiBuilder::new().with_token(None).build()?;
             let repo = api.repo(Repo::with_revision(repo_id, RepoType::Model, revision));
             let progress = HfDownloadProgress::new(
                 self.app_handle.clone(),
