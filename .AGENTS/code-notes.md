@@ -108,6 +108,7 @@ Files that are added by this fork rather than upstream files that were modified.
 | `src-tauri/src/audio_toolkit/audio/recorder.rs` | Audio capture stream logic, including Windows output loopback support. |
 | `src-tauri/src/managers/audio.rs` | Routes recordings between mic capture and Windows output loopback for live sound, plus local-only release-tail buffering. |
 | `src-tauri/src/managers/transcription.rs` | Local STT runtime, including transcribe.cpp batch/native streaming and per-model latency presets, transcribe-rs backend updates, Canary support, Whisper/ORT accelerator selection wiring, and GigaAM v3 on the non-legacy API. |
+| `src-tauri/src/audio_feedback.rs` | Recording feedback plus the independent result-ready cue played only after successful normal-dictation delivery. |
 | `src-tauri/src/commands/file_transcription.rs` | Soniox async integration overrides and diarized speaker-session handling. |
 | `src-tauri/src/settings.rs` | Also stores saved diarization speaker-name set profiles for file transcription. |
 | `src-tauri/src/shortcut.rs` | Includes persisted setting update commands for diarization speaker-name sets. |
@@ -126,6 +127,7 @@ Files that are added by this fork rather than upstream files that were modified.
 | `src/components/settings/advanced/AdvancedSettings.tsx` | Extra startup/paste toggles and local accelerator settings entry point. |
 | `src/components/settings/browser-connector/BrowserConnectorSettings.tsx` | Extension/screenshot UI. |
 | `src/components/settings/general/GeneralSettings.tsx` | Fork settings layout. |
+| `src/components/settings/AudioFeedback.tsx` | Separate controls and user guidance for recording start/stop sounds and the result-ready cue. |
 | `src/components/settings/user-interface/UserInterfaceSettings.tsx` | Soniox live preview UI. |
 | `src/components/Sidebar.tsx` | Navigation for fork settings. |
 | `src/hooks/useSettings.ts` | Fork settings hooks. |

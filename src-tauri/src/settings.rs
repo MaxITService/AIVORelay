@@ -1426,6 +1426,8 @@ pub struct AppSettings {
     #[serde(default)]
     pub preview_output_only_enabled: bool,
     pub audio_feedback: bool,
+    #[serde(default)]
+    pub result_ready_audio_feedback: bool,
     #[serde(default = "default_audio_feedback_volume")]
     pub audio_feedback_volume: f32,
     #[serde(default = "default_sound_theme")]
@@ -3317,6 +3319,7 @@ pub fn get_default_settings() -> AppSettings {
         push_to_talk: true,
         preview_output_only_enabled: false,
         audio_feedback: false,
+        result_ready_audio_feedback: false,
         audio_feedback_volume: default_audio_feedback_volume(),
         sound_theme: default_sound_theme(),
         start_hidden: default_start_hidden(),

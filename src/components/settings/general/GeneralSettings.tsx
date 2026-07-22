@@ -20,6 +20,8 @@ type ReadinessStatus = "ready" | "todo" | "optional";
 export const GeneralSettings: React.FC = () => {
   const { t } = useTranslation();
   const { audioFeedbackEnabled, settings } = useSettings();
+  const anyFeedbackEnabled =
+    audioFeedbackEnabled || Boolean(settings?.result_ready_audio_feedback);
   const { setSection } = useNavigationStore();
   const profilesRef = useRef<HTMLDivElement | null>(null);
   const soundRef = useRef<HTMLDivElement | null>(null);
@@ -194,9 +196,9 @@ export const GeneralSettings: React.FC = () => {
             <OutputDeviceSelector
               descriptionMode="tooltip"
               grouped={true}
-              disabled={!audioFeedbackEnabled}
+              disabled={!anyFeedbackEnabled}
             />
-            <VolumeSlider disabled={!audioFeedbackEnabled} />
+            <VolumeSlider disabled={!anyFeedbackEnabled} />
           </div>
         </SettingsGroup>
       </div>

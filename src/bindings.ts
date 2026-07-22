@@ -45,6 +45,14 @@ async changeAudioFeedbackSetting(enabled: boolean) : Promise<Result<null, string
     else return { status: "error", error: e  as any };
 }
 },
+async changeResultReadyAudioFeedbackSetting(enabled: boolean) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("change_result_ready_audio_feedback_setting", { enabled }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async changeAudioFeedbackVolumeSetting(volume: number) : Promise<Result<null, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("change_audio_feedback_volume_setting", { volume }) };
@@ -421,17 +429,17 @@ async changeNativeStreamingLiveOutputModelSetting(modelId: string, enabled: bool
     else return { status: "error", error: e  as any };
 }
 },
-async changeNativeStreamingLatencyPresetSetting(modelId: string, preset: NativeStreamingLatencyPreset) : Promise<Result<null, string>> {
+async changeNativeStreamingShowInterimLongerSetting(enabled: boolean) : Promise<Result<null, string>> {
     try {
-    return { status: "ok", data: await TAURI_INVOKE("change_native_streaming_latency_preset_setting", { modelId, preset }) };
+    return { status: "ok", data: await TAURI_INVOKE("change_native_streaming_show_interim_longer_setting", { enabled }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
 }
 },
-async changeNativeStreamingShowInterimLongerSetting(enabled: boolean) : Promise<Result<null, string>> {
+async changeNativeStreamingLatencyPresetSetting(modelId: string, preset: NativeStreamingLatencyPreset) : Promise<Result<null, string>> {
     try {
-    return { status: "ok", data: await TAURI_INVOKE("change_native_streaming_show_interim_longer_setting", { enabled }) };
+    return { status: "ok", data: await TAURI_INVOKE("change_native_streaming_latency_preset_setting", { modelId, preset }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
@@ -3391,7 +3399,7 @@ async isLaptop() : Promise<Result<boolean, string>> {
 /** user-defined types **/
 
 export type AddTranscriptionProfilePayload = { name: string; language: string; translateToEnglish: boolean; systemPrompt: string; sttPromptOverrideEnabled?: boolean; pushToTalk: boolean; previewOutputOnlyEnabled?: boolean; sonioxLanguageHintsStrict?: boolean | null; includeInCycle: boolean | null; llmSettings: ProfileLlmSettings | null; sonioxContextGeneralJson: string | null; sonioxContextText: string | null; sonioxContextTerms: string[] | null }
-export type AppSettings = { bindings: Partial<{ [key in string]: ShortcutBinding }>; push_to_talk: boolean; preview_output_only_enabled?: boolean; audio_feedback: boolean; audio_feedback_volume?: number; sound_theme?: SoundTheme; start_hidden?: boolean; autostart_enabled?: boolean; show_tray_icon?: boolean; show_tray_shortcut_guide?: boolean; show_tray_shortcut_guide_in_main_menu?: boolean; update_checks_enabled?: boolean; selected_model?: string; transcription_provider?: TranscriptionProvider; remote_stt?: RemoteSttSettings; openai_realtime_whisper_delay?: OpenAiRealtimeWhisperDelay; openai_realtime_whisper_flatten_enabled?: boolean; soniox_model?: string; soniox_timeout_seconds?: number; soniox_live_enabled?: boolean; soniox_language_hints?: string[]; soniox_context_general_json?: string; soniox_context_text?: string; soniox_context_terms?: string[]; soniox_use_profile_language_hint_only?: boolean; soniox_language_hints_strict?: boolean; soniox_enable_endpoint_detection?: boolean; soniox_max_endpoint_delay_ms?: number; soniox_endpoint_sensitivity?: number; soniox_enable_language_identification?: boolean; soniox_enable_speaker_diarization?: boolean; soniox_keepalive_interval_seconds?: number; soniox_live_finalize_timeout_ms?: number; soniox_live_instant_stop?: boolean; soniox_optimize_delivery_preconnect_enabled?: boolean; soniox_realtime_fuzzy_correction_enabled?: boolean; soniox_realtime_keep_safety_buffer_enabled?: boolean; deepgram_model?: string; deepgram_timeout_seconds?: number; deepgram_live_enabled?: boolean; deepgram_keepalive_interval_seconds?: number; deepgram_live_finalize_timeout_ms?: number; deepgram_live_instant_stop?: boolean; deepgram_interim_results?: boolean; deepgram_smart_format?: boolean; deepgram_diarize?: boolean; live_sound_enable_speaker_diarization?: boolean; deepgram_endpointing_enabled?: boolean; deepgram_endpointing_ms?: number; always_on_microphone?: boolean; selected_microphone?: string | null; last_manual_microphone?: string | null; selected_microphone_auto_switch_enabled?: boolean; selected_microphone_name_pattern?: string; clamshell_microphone?: string | null; 
+export type AppSettings = { bindings: Partial<{ [key in string]: ShortcutBinding }>; push_to_talk: boolean; preview_output_only_enabled?: boolean; audio_feedback: boolean; result_ready_audio_feedback?: boolean; audio_feedback_volume?: number; sound_theme?: SoundTheme; start_hidden?: boolean; autostart_enabled?: boolean; show_tray_icon?: boolean; show_tray_shortcut_guide?: boolean; show_tray_shortcut_guide_in_main_menu?: boolean; update_checks_enabled?: boolean; selected_model?: string; transcription_provider?: TranscriptionProvider; remote_stt?: RemoteSttSettings; openai_realtime_whisper_delay?: OpenAiRealtimeWhisperDelay; openai_realtime_whisper_flatten_enabled?: boolean; soniox_model?: string; soniox_timeout_seconds?: number; soniox_live_enabled?: boolean; soniox_language_hints?: string[]; soniox_context_general_json?: string; soniox_context_text?: string; soniox_context_terms?: string[]; soniox_use_profile_language_hint_only?: boolean; soniox_language_hints_strict?: boolean; soniox_enable_endpoint_detection?: boolean; soniox_max_endpoint_delay_ms?: number; soniox_endpoint_sensitivity?: number; soniox_enable_language_identification?: boolean; soniox_enable_speaker_diarization?: boolean; soniox_keepalive_interval_seconds?: number; soniox_live_finalize_timeout_ms?: number; soniox_live_instant_stop?: boolean; soniox_optimize_delivery_preconnect_enabled?: boolean; soniox_realtime_fuzzy_correction_enabled?: boolean; soniox_realtime_keep_safety_buffer_enabled?: boolean; deepgram_model?: string; deepgram_timeout_seconds?: number; deepgram_live_enabled?: boolean; deepgram_keepalive_interval_seconds?: number; deepgram_live_finalize_timeout_ms?: number; deepgram_live_instant_stop?: boolean; deepgram_interim_results?: boolean; deepgram_smart_format?: boolean; deepgram_diarize?: boolean; live_sound_enable_speaker_diarization?: boolean; deepgram_endpointing_enabled?: boolean; deepgram_endpointing_ms?: number; always_on_microphone?: boolean; selected_microphone?: string | null; last_manual_microphone?: string | null; selected_microphone_auto_switch_enabled?: boolean; selected_microphone_name_pattern?: string; clamshell_microphone?: string | null;
 /**
  * Microphone used exclusively by the Live Sound pipeline.
  * `None` means fall back to `selected_microphone` (global default).
@@ -3911,8 +3919,6 @@ export type LlmPostProcessBenchmarkResult = { timestamp_ms: number; provider_id:
 export type LogLevel = "trace" | "debug" | "info" | "warn" | "error"
 export type ModelInfo = { id: string; name: string; description: string; filename: string; url: string | null; sha256: string | null; size_mb: number; is_downloaded: boolean; is_downloading: boolean; partial_size: number; is_directory: boolean; engine_type: EngineType; accuracy_score: number; speed_score: number; supports_translation: boolean; supports_streaming: boolean; native_streaming_latency_kind: NativeStreamingLatencyKind | null; supports_language_detection: boolean; is_recommended: boolean; supported_languages: string[]; is_custom: boolean }
 export type ModelUnloadTimeout = "never" | "immediately" | "min_2" | "min_5" | "min_10" | "min_15" | "hour_1" | "sec_5"
-export type NativeStreamingLatencyKind = "parakeet_buffered" | "nemotron_3_5_cache_aware" | "nemotron_speech_cache_aware"
-export type NativeStreamingLatencyPreset = "fastest" | "fast" | "balanced" | "accurate"
 export type NativeRegionCaptureMode = 
 /**
  * Most performant: transparent picker over the live desktop.
@@ -3922,6 +3928,8 @@ export type NativeRegionCaptureMode =
  * Legacy: capture a full screenshot first and use it as the picker background.
  */
 "screenshot_background"
+export type NativeStreamingLatencyKind = "parakeet_buffered" | "nemotron_3_5_cache_aware" | "nemotron_speech_cache_aware"
+export type NativeStreamingLatencyPreset = "fastest" | "fast" | "balanced" | "accurate"
 export type OpenAiRealtimeWhisperDelay = "minimal" | "low" | "medium" | "high" | "xhigh"
 export type OrtAcceleratorSetting = "auto" | "cpu" | "cuda" | "directml" | "rocm"
 /**

@@ -65,6 +65,19 @@ pub fn play_feedback_sound_blocking(app: &AppHandle, sound_type: SoundType) {
     }
 }
 
+/// Plays the selected theme's start cue as a distinct "result ready" signal.
+/// This setting is independent from recording start/stop feedback so users can
+/// enable only the completion cue when that better suits their workflow.
+pub fn play_result_ready_sound(app: &AppHandle) {
+    let settings = settings::get_settings(app);
+    if !settings.result_ready_audio_feedback {
+        return;
+    }
+    if let Some(path) = resolve_sound_path(app, &settings, SoundType::Start) {
+        play_sound_async(app, path);
+    }
+}
+
 pub fn play_test_sound(app: &AppHandle, sound_type: SoundType) {
     let settings = settings::get_settings(app);
     if let Some(path) = resolve_sound_path(app, &settings, sound_type) {

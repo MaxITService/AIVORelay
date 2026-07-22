@@ -1049,8 +1049,14 @@
         }
       },
       "audioFeedback": {
-        "label": "Audio Feedback",
-        "description": "Play sound when recording starts and stops"
+        "sectionTitle": "Recording and result sounds",
+        "sectionDescription": "These are separate signals. The recording Stop sound means only that microphone capture ended; transcription may still be running. The Result-ready sound means transcription, optional post-processing, and final text delivery have completed. Enable either or both. They use the output device and volume below; choose the cue under Settings → Debug → Sound Theme.",
+        "label": "Recording start/stop sounds",
+        "description": "Play immediate sounds when microphone recording starts and stops. The stop sound confirms that capture ended; it does not mean transcription is finished.",
+        "resultReady": {
+          "label": "Result-ready sound",
+          "description": "Play the selected theme's Start cue after a normal dictation has finished transcription and optional post-processing, and its final text has been delivered. It does not play for cancelled, failed, or empty recordings. Useful on slower computers or when you wait for the result before using Paste. This option is independent of the recording start/stop sounds and uses the same sound theme, volume, and output device."
+        }
       },
       "outputDevice": {
         "title": "Output Device",
