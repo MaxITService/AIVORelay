@@ -41,12 +41,12 @@ type Status =
   | { type: "success"; message: string }
   | { type: "error"; message: string };
 
-/** Helper to hide the current window - handles the async nature of hide() */
-const hideWindow = () => {
+/** Destroy the short-lived window so its renderer can be released. */
+const destroyWindow = () => {
   getCurrentWindow()
-    .hide()
+    .destroy()
     .catch((err) => {
-      console.error("Failed to hide window:", err);
+      console.error("Failed to destroy window:", err);
     });
 };
 
@@ -201,9 +201,9 @@ export default function CommandConfirmOverlay() {
           wasOpenedInWindow: openedInWindow,
         } as VoiceCommandResultPayload);
 
-        // Auto-hide after success
+        // Release the renderer after success.
         setTimeout(() => {
-          hideWindow();
+          destroyWindow();
         }, 1000);
       } else {
         const errorMsg = result.error || "Execution failed";
@@ -267,7 +267,7 @@ export default function CommandConfirmOverlay() {
   const handleCancel = useCallback(() => {
     setIsPaused(true);
     setPayload(null);
-    hideWindow();
+    destroyWindow();
   }, []);
 
   const handleCopyOutput = async () => {

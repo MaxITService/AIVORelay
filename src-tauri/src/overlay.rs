@@ -1947,6 +1947,15 @@ pub fn hide_soniox_live_preview_window(app_handle: &AppHandle) {
     }
 }
 
+#[cfg(target_os = "windows")]
+fn destroy_soniox_live_preview_window(app_handle: &AppHandle) {
+    if let Some(window) = app_handle.get_webview_window(SONIOX_LIVE_PREVIEW_WINDOW_LABEL) {
+        if let Err(error) = window.destroy() {
+            log::warn!("Failed to destroy live preview window: {error}");
+        }
+    }
+}
+
 #[cfg(not(target_os = "windows"))]
 pub fn hide_soniox_live_preview_window(_app_handle: &AppHandle) {}
 
@@ -2232,8 +2241,8 @@ pub fn close_soniox_live_preview_demo_window(app_handle: AppHandle) -> Result<()
             return Ok(());
         }
 
-        hide_soniox_live_preview_window(&app_handle);
         reset_soniox_live_preview(&app_handle);
+        destroy_soniox_live_preview_window(&app_handle);
         return Ok(());
     }
 
