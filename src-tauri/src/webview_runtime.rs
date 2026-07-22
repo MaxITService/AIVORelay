@@ -2,6 +2,9 @@ use std::path::PathBuf;
 
 use tauri::{AppHandle, Manager};
 
+const WRY_DEFAULT_DISABLED_FEATURES: &str =
+    "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection";
+
 pub struct WebviewRuntimeConfig {
     pub data_directory: PathBuf,
     pub additional_browser_args: Option<String>,
@@ -28,7 +31,10 @@ pub fn config(app: &AppHandle) -> Result<WebviewRuntimeConfig, tauri::Error> {
 
     Ok(WebviewRuntimeConfig {
         data_directory,
-        additional_browser_args: remote_debugging_port
-            .map(|port| format!("--remote-debugging-port={port}")),
+        // Wry only supplies its default disabled-feature arguments when custom
+        // browser arguments are absent. Preserve them when enabling CDP.
+        additional_browser_args: remote_debugging_port.map(|port| {
+            format!("{WRY_DEFAULT_DISABLED_FEATURES} --remote-debugging-port={port}")
+        }),
     })
 }

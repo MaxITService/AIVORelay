@@ -89,7 +89,7 @@ Files that are added by this fork rather than upstream files that were modified.
 | File | Current State |
 | --- | --- |
 | `src-tauri/src/actions.rs` | Shortcut actions, variable resolution, preview delete actions. Soniox live-finalization timeouts get one automatic full-recording replay only when output is still reversible (preview workflow or no stable chunk was inserted); never replay over already-inserted live text. |
-| `src-tauri/src/overlay.rs` | Overlay states, preview window helpers, live preview geometry constraints, preview action appearance payload. The live preview WebView is created on first use instead of keeping an idle renderer alive from startup. |
+| `src-tauri/src/overlay.rs` | Overlay states, preview window helpers, live preview geometry constraints, preview action appearance payload. The live preview WebView is created on first use instead of keeping an idle renderer alive from startup; terminal demo close destroys it, while temporary workflow hides must preserve it. |
 | `src-tauri/src/settings.rs` | Fork-specific settings & features, including live preview actions, preview bindings, and local-only recording tail buffer controls. |
 | `src-tauri/src/lib.rs` | Registers managers, commands, tray. |
 | `src-tauri/src/shortcut.rs` | Multi-engine shortcut bindings (Tauri/rdev/HandyKeys), live preview geometry persistence commands, preview action settings commands, preview delete-last-word global hotkey sync. |

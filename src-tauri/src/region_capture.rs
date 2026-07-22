@@ -406,7 +406,7 @@ pub fn on_region_selected(app: &AppHandle, region: SelectedRegion) {
     // Hide/close the overlay window immediately so it won't be included in the capture.
     if let Some(window) = app.get_webview_window("region_capture") {
         let _ = window.hide();
-        let _ = window.close();
+        let _ = window.destroy();
     }
 
     let state = app.state::<ManagedRegionCaptureState>();
@@ -468,7 +468,7 @@ pub fn on_region_cancelled(app: &AppHandle) {
 
     // Close the overlay window
     if let Some(window) = app.get_webview_window("region_capture") {
-        let _ = window.close();
+        let _ = window.destroy();
     }
 }
 
