@@ -2291,6 +2291,9 @@ async getAppDirPath() : Promise<Result<string, string>> {
     else return { status: "error", error: e  as any };
 }
 },
+async isPortable() : Promise<boolean> {
+    return await TAURI_INVOKE("is_portable");
+},
 async getAppSettings() : Promise<Result<AppSettings, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("get_app_settings") };
