@@ -1055,6 +1055,11 @@ pub fn change_transcription_provider_setting(
     let mut settings = settings::get_settings(&app);
     settings.transcription_provider = parsed;
     settings::write_settings(&app, settings);
+
+    if parsed == TranscriptionProvider::Local {
+        std::thread::spawn(crate::managers::transcription::prewarm_local_transcription_backends);
+    }
+
     Ok(())
 }
 

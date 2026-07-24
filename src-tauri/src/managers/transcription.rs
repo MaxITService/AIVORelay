@@ -57,6 +57,7 @@ enum LoadedEngine {
 
 const STREAM_FINALIZE_REPLY_TIMEOUT: Duration = Duration::from_secs(30);
 const STREAM_PERF_LOG_INTERVAL: Duration = Duration::from_secs(5);
+static TRANSCRIBE_BACKEND_INIT: OnceLock<std::result::Result<(), String>> = OnceLock::new();
 
 fn panic_payload_message(payload: &(dyn std::any::Any + Send)) -> String {
     if let Some(message) = payload.downcast_ref::<&str>() {
@@ -1232,6 +1233,14 @@ impl TranscriptionManager {
         }
 
         let model_path = self.model_manager.get_model_path(model_id)?;
+
+        if matches!(&model_info.engine_type, EngineType::TranscribeCpp) {
+            ensure_transcribe_backend_initialized().inspect_err(|err| {
+                emit_loading_failed(&format!(
+                    "Failed to initialize transcribe.cpp before loading {model_id}: {err}"
+                ));
+            })?;
+        }
 
         // Create appropriate engine based on model type
 
@@ -3307,29 +3316,50 @@ fn drain_until_finalize(rx: mpsc::Receiver<StreamCmd>) {
     }
 }
 
-pub fn init_transcribe_backend() {
-    transcribe_cpp::init_logging();
-    match transcribe_cpp::init_backends_default() {
-        Ok(()) => {
-            if transcribe_gpu_disabled_for_host() {
-                warn!(
-                    "Windows x64 build is running under emulation on an ARM64 host; \
-                     hiding transcribe.cpp GPU devices and using CPU"
+fn transcribe_backend_init_result() -> &'static std::result::Result<(), String> {
+    TRANSCRIBE_BACKEND_INIT.get_or_init(|| {
+        transcribe_cpp::init_logging();
+        transcribe_cpp::init_backends_default()
+            .map_err(|err| {
+                let message = format!("Failed to initialize transcribe.cpp backends: {err}");
+                warn!("{message}");
+                message
+            })
+            .map(|()| {
+                if transcribe_gpu_disabled_for_host() {
+                    warn!(
+                        "Windows x64 build is running under emulation on an ARM64 host; \
+                         hiding transcribe.cpp GPU devices and using CPU"
+                    );
+                }
+                let devices = transcribe_compute_devices();
+                info!(
+                    "transcribe.cpp initialized with {} compute device(s): [{}]",
+                    devices.len(),
+                    devices
+                        .iter()
+                        .map(|device| format!("{} ({})", device.name, device.kind))
+                        .collect::<Vec<_>>()
+                        .join(", ")
                 );
-            }
-            let devices = transcribe_compute_devices();
-            info!(
-                "transcribe.cpp initialized with {} compute device(s): [{}]",
-                devices.len(),
-                devices
-                    .iter()
-                    .map(|device| format!("{} ({})", device.name, device.kind))
-                    .collect::<Vec<_>>()
-                    .join(", ")
-            );
-        }
-        Err(err) => warn!("Failed to initialize transcribe.cpp backends: {}", err),
+            })
+    })
+}
+
+fn ensure_transcribe_backend_initialized() -> Result<()> {
+    match transcribe_backend_init_result() {
+        Ok(()) => Ok(()),
+        Err(message) => Err(anyhow::anyhow!(message.clone())),
     }
+}
+
+pub fn init_transcribe_backend() {
+    let _ = transcribe_backend_init_result();
+}
+
+pub fn prewarm_local_transcription_backends() {
+    init_transcribe_backend();
+    let _ = get_available_accelerators();
 }
 
 pub fn apply_accelerator_settings(app: &tauri::AppHandle) {
