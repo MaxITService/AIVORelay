@@ -1,10 +1,10 @@
 use crate::input::{self, EnigoState};
 use crate::settings::{get_settings, AutoSubmitKey, ClipboardHandling, PasteMethod};
 use enigo::{Direction, Enigo, Key, Keyboard};
-use log::{info, warn};
+use log::{debug, info, warn};
 use once_cell::sync::Lazy;
 use std::sync::Mutex;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tauri::{AppHandle, Manager};
 use tauri_plugin_clipboard_manager::ClipboardExt;
 
@@ -13,6 +13,11 @@ use crate::utils::is_wayland;
 #[cfg(target_os = "linux")]
 use std::process::Command;
 
+// Ctrl+V only queues work in the target application. Keep transcription text
+// available long enough for a busy target to read it before another chunk or
+// the user's original clipboard replaces it.
+const CLIPBOARD_CONSUMER_GRACE: Duration = Duration::from_millis(200);
+
 struct StreamingPasteSession {
     operation_id: u64,
     paste_method: PasteMethod,
@@ -20,6 +25,7 @@ struct StreamingPasteSession {
     paste_delay_ms: u64,
     convert_lf_to_crlf: bool,
     text_backup: String,
+    last_clipboard_paste_sent_at: Option<Instant>,
     #[cfg(target_os = "windows")]
     advanced_backup: Option<win_clipboard::ClipboardBackup>,
 }
@@ -506,7 +512,7 @@ fn paste_via_clipboard_no_restore(
     paste_method: &PasteMethod,
     paste_delay_ms: u64,
     convert_lf_to_crlf: bool,
-) -> Result<(), String> {
+) -> Result<Instant, String> {
     let clipboard = app_handle.clipboard();
     let text = convert_text_for_clipboard(text, convert_lf_to_crlf);
 
@@ -516,14 +522,36 @@ fn paste_via_clipboard_no_restore(
 
     std::thread::sleep(Duration::from_millis(paste_delay_ms));
     send_paste_shortcut(enigo, paste_method)?;
+    let paste_sent_at = Instant::now();
     std::thread::sleep(Duration::from_millis(50));
-    Ok(())
+    Ok(paste_sent_at)
+}
+
+fn remaining_clipboard_consumer_grace(paste_sent_at: Option<Instant>, now: Instant) -> Duration {
+    paste_sent_at
+        .map(|sent_at| {
+            CLIPBOARD_CONSUMER_GRACE.saturating_sub(now.saturating_duration_since(sent_at))
+        })
+        .unwrap_or(Duration::ZERO)
+}
+
+fn wait_for_clipboard_consumer(paste_sent_at: Option<Instant>) {
+    let remaining = remaining_clipboard_consumer_grace(paste_sent_at, Instant::now());
+    if !remaining.is_zero() {
+        debug!(
+            "Waiting {}ms for target application to consume clipboard paste",
+            remaining.as_millis()
+        );
+        std::thread::sleep(remaining);
+    }
 }
 
 fn restore_streaming_session(
     session: StreamingPasteSession,
     app_handle: &AppHandle,
 ) -> Result<(), String> {
+    wait_for_clipboard_consumer(session.last_clipboard_paste_sent_at);
+
     let clipboard = app_handle.clipboard();
 
     if session.clipboard_handling == ClipboardHandling::RestoreAdvanced {
@@ -570,7 +598,10 @@ pub fn begin_streaming_paste_session(
     if let Some(previous) = session_guard.take() {
         warn!("Replacing stale streaming clipboard session; restoring previous backup");
         if let Err(error) = restore_streaming_session(previous, app_handle) {
-            warn!("Failed to restore stale streaming clipboard session: {}", error);
+            warn!(
+                "Failed to restore stale streaming clipboard session: {}",
+                error
+            );
         }
     }
 
@@ -614,6 +645,7 @@ pub fn begin_streaming_paste_session(
         paste_delay_ms: settings.paste_delay_ms,
         convert_lf_to_crlf: settings.convert_lf_to_crlf,
         text_backup,
+        last_clipboard_paste_sent_at: None,
         #[cfg(target_os = "windows")]
         advanced_backup,
     };
@@ -624,14 +656,10 @@ pub fn begin_streaming_paste_session(
 }
 
 pub fn end_streaming_paste_session(app_handle: &AppHandle) -> Result<(), String> {
-    let session = {
-        let mut guard = STREAMING_PASTE_SESSION
-            .lock()
-            .map_err(|_| "Streaming clipboard session lock poisoned".to_string())?;
-        guard.take()
-    };
-
-    if let Some(session) = session {
+    let mut guard = STREAMING_PASTE_SESSION
+        .lock()
+        .map_err(|_| "Streaming clipboard session lock poisoned".to_string())?;
+    if let Some(session) = guard.take() {
         restore_streaming_session(session, app_handle)?;
     }
 
@@ -642,23 +670,17 @@ pub fn end_streaming_paste_session_if_matches(
     app_handle: &AppHandle,
     operation_id: u64,
 ) -> Result<bool, String> {
-    let session = {
-        let mut guard = STREAMING_PASTE_SESSION
-            .lock()
-            .map_err(|_| "Streaming clipboard session lock poisoned".to_string())?;
-        if guard
-            .as_ref()
-            .is_some_and(|session| session.operation_id == operation_id)
-        {
-            guard.take()
-        } else {
-            None
+    let mut guard = STREAMING_PASTE_SESSION
+        .lock()
+        .map_err(|_| "Streaming clipboard session lock poisoned".to_string())?;
+    if guard
+        .as_ref()
+        .is_some_and(|session| session.operation_id == operation_id)
+    {
+        if let Some(session) = guard.take() {
+            restore_streaming_session(session, app_handle)?;
+            return Ok(true);
         }
-    };
-
-    if let Some(session) = session {
-        restore_streaming_session(session, app_handle)?;
-        return Ok(true);
     }
 
     Ok(false)
@@ -708,7 +730,7 @@ fn paste_via_clipboard(
         String::new()
     };
 
-    paste_via_clipboard_no_restore(
+    let paste_sent_at = paste_via_clipboard_no_restore(
         enigo,
         text,
         app_handle,
@@ -716,15 +738,12 @@ fn paste_via_clipboard(
         paste_delay_ms,
         convert_lf_to_crlf,
     )?;
+    wait_for_clipboard_consumer(Some(paste_sent_at));
 
     // Restore clipboard based on handling mode.
     #[cfg(target_os = "windows")]
     if let Some(backup) = advanced_backup {
-        return restore_advanced_clipboard_with_text_fallback(
-            app_handle,
-            backup,
-            &text_backup,
-        );
+        return restore_advanced_clipboard_with_text_fallback(app_handle, backup, &text_backup);
     }
 
     // Text-only restore for DontModify and as the fallback when an advanced
@@ -1163,7 +1182,7 @@ pub fn paste_stream_chunk(text: String, app_handle: AppHandle) -> Result<(), Str
     // Keep the session locked until the target application has received the
     // paste shortcut. This prevents a concurrent stop/error path from
     // restoring the previous clipboard during paste_delay_ms.
-    let stream_session_guard = STREAMING_PASTE_SESSION
+    let mut stream_session_guard = STREAMING_PASTE_SESSION
         .lock()
         .map_err(|_| "Streaming clipboard session lock poisoned".to_string())?;
     let active_stream_config = stream_session_guard.as_ref().map(|session| {
@@ -1191,14 +1210,24 @@ pub fn paste_stream_chunk(text: String, app_handle: AppHandle) -> Result<(), Str
                 paste_direct(&mut enigo, &text)?;
             }
             PasteMethod::CtrlV | PasteMethod::CtrlShiftV | PasteMethod::ShiftInsert => {
-                paste_via_clipboard_no_restore(
+                // Do not overwrite a previous chunk until the target has had a
+                // chance to read it from the clipboard.
+                wait_for_clipboard_consumer(
+                    stream_session_guard
+                        .as_ref()
+                        .and_then(|session| session.last_clipboard_paste_sent_at),
+                );
+                let paste_sent_at = paste_via_clipboard_no_restore(
                     &mut enigo,
                     &text,
                     &app_handle,
                     &paste_method,
                     paste_delay_ms,
                     convert_lf_to_crlf,
-                )?
+                )?;
+                if let Some(session) = stream_session_guard.as_mut() {
+                    session.last_clipboard_paste_sent_at = Some(paste_sent_at);
+                }
             }
         }
     } else {
@@ -1414,5 +1443,37 @@ mod tests {
         assert!(should_send_auto_submit(true, PasteMethod::Direct));
         assert!(should_send_auto_submit(true, PasteMethod::CtrlShiftV));
         assert!(should_send_auto_submit(true, PasteMethod::ShiftInsert));
+    }
+
+    #[test]
+    fn clipboard_consumer_grace_is_full_immediately_after_paste() {
+        let paste_sent_at = Instant::now();
+        assert_eq!(
+            remaining_clipboard_consumer_grace(Some(paste_sent_at), paste_sent_at),
+            CLIPBOARD_CONSUMER_GRACE
+        );
+    }
+
+    #[test]
+    fn clipboard_consumer_grace_counts_down_and_expires() {
+        let paste_sent_at = Instant::now();
+        assert_eq!(
+            remaining_clipboard_consumer_grace(
+                Some(paste_sent_at),
+                paste_sent_at + Duration::from_millis(75),
+            ),
+            Duration::from_millis(125)
+        );
+        assert_eq!(
+            remaining_clipboard_consumer_grace(
+                Some(paste_sent_at),
+                paste_sent_at + CLIPBOARD_CONSUMER_GRACE,
+            ),
+            Duration::ZERO
+        );
+        assert_eq!(
+            remaining_clipboard_consumer_grace(None, paste_sent_at),
+            Duration::ZERO
+        );
     }
 }
