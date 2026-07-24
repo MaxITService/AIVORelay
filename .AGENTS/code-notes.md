@@ -91,9 +91,9 @@ Files that are added by this fork rather than upstream files that were modified.
 | `src-tauri/src/actions.rs` | Shortcut actions, variable resolution, preview delete actions. Soniox live-finalization timeouts get one automatic full-recording replay only when output is still reversible (preview workflow or no stable chunk was inserted); never replay over already-inserted live text. |
 | `src-tauri/src/overlay.rs` | Overlay states, preview window helpers, live preview geometry constraints, preview action appearance payload. The live preview WebView is created on first use instead of keeping an idle renderer alive from startup; terminal demo close destroys it, while temporary workflow hides must preserve it. |
 | `src-tauri/src/settings.rs` | Fork-specific settings & features, including live preview actions, preview bindings, and local-only recording tail buffer controls. |
-| `src-tauri/src/lib.rs` | Registers managers, commands, tray. |
+| `src-tauri/src/lib.rs` | Registers managers, commands, and tray. Remote transcription providers defer the local transcribe.cpp/Vulkan stack; Local keeps eager startup pre-warm. |
 | `src-tauri/src/shortcut.rs` | Multi-engine shortcut bindings (Tauri/rdev/HandyKeys), live preview geometry persistence commands, preview action settings commands, preview delete-last-word global hotkey sync. |
-| `src-tauri/src/clipboard.rs` | Clipboard behavior. |
+| `src-tauri/src/clipboard.rs` | Clipboard behavior. Streaming clipboard sessions are operation-scoped and serialized through the actual restore. Clipboard-backed paste keeps each transcription value available for a 200 ms post-shortcut consumer grace before another chunk or the user's original multi-format clipboard may replace it. |
 | `src-tauri/src/input.rs` | Selection capture utilities. |
 | `src-tauri/src/tray.rs` | Custom tray menu. |
 
@@ -108,7 +108,7 @@ Files that are added by this fork rather than upstream files that were modified.
 | `src-tauri/src/audio_toolkit/audio/utils.rs` | WAV encoding utils. |
 | `src-tauri/src/audio_toolkit/audio/recorder.rs` | Audio capture stream logic, including Windows output loopback support. |
 | `src-tauri/src/managers/audio.rs` | Routes recordings between mic capture and Windows output loopback for live sound, plus local-only release-tail buffering. |
-| `src-tauri/src/managers/transcription.rs` | Local STT runtime, including transcribe.cpp batch/native streaming and per-model latency presets, transcribe-rs backend updates, Canary support, Whisper/ORT accelerator selection wiring, x64-on-Windows-ARM CPU fallback for GGML backends, and GigaAM v3 on the non-legacy API. |
+| `src-tauri/src/managers/transcription.rs` | Local STT runtime, including thread-safe on-demand transcribe.cpp initialization, batch/native streaming and per-model latency presets, transcribe-rs backend updates, Canary support, Whisper/ORT accelerator selection wiring, x64-on-Windows-ARM CPU fallback for GGML backends, and GigaAM v3 on the non-legacy API. The first transcribe.cpp model load must pass the same cached initialization guard used by startup pre-warm. |
 | `src-tauri/src/audio_feedback.rs` | Recording feedback plus the independent result-ready cue played only after successful normal-dictation delivery. A single worker owns and reuses the output stream; keep CPAL stream creation, playback, and destruction on that worker for macOS/Linux `!Send` compatibility. |
 | `src-tauri/src/commands/file_transcription.rs` | Soniox async integration overrides and diarized speaker-session handling. |
 | `src-tauri/src/settings.rs` | Also stores saved diarization speaker-name set profiles for file transcription. |
