@@ -333,6 +333,10 @@ fn should_force_show_permissions_window(app: &AppHandle) -> bool {
     false
 }
 
+fn should_eagerly_initialize_local_backends(settings: &settings::AppSettings) -> bool {
+    settings.transcription_provider == settings::TranscriptionProvider::Local
+}
+
 fn initialize_core_logic(app_handle: &AppHandle) {
     // Initialize the input state (Enigo singleton for keyboard/mouse simulation)
     let enigo_state = input::EnigoState::new().expect("Failed to initialize input state (Enigo)");
@@ -354,8 +358,18 @@ fn initialize_core_logic(app_handle: &AppHandle) {
         current_settings.error_overlay_auto_hide_ms,
     );
 
+    // Remote providers do not need the local transcribe.cpp/Vulkan stack.
+    // Keep the existing eager initialization for Local so its first use remains fast.
+    if should_eagerly_initialize_local_backends(&current_settings) {
+        managers::transcription::init_transcribe_backend();
+    } else {
+        log::info!(
+            "Deferring local transcribe.cpp backend initialization while provider is {:?}",
+            current_settings.transcription_provider
+        );
+    }
+
     // Initialize the managers
-    managers::transcription::init_transcribe_backend();
     let recording_manager = Arc::new(
         AudioRecordingManager::new(app_handle).expect("Failed to initialize recording manager"),
     );
@@ -1556,16 +1570,16 @@ pub fn run(cli_args: CliArgs) {
 
             initialize_core_logic(&app_handle);
 
-            // Pre-warm GPU/accelerator enumeration on a background thread.
-            // The first call into transcribe_rs::whisper_cpp::gpu::list_gpu_devices
-            // loads the Metal/Vulkan backend and probes devices, which can take
-            // several seconds. Without this, that cost is paid synchronously the
-            // first time the user opens the Advanced settings page (which calls
-            // the get_available_accelerators command), causing a UI freeze.
-            // Result is cached in a OnceLock inside the transcription manager.
-            std::thread::spawn(|| {
-                let _ = crate::managers::transcription::get_available_accelerators();
-            });
+            if should_eagerly_initialize_local_backends(&settings) {
+                // The first call into transcribe_rs::whisper_cpp::gpu::list_gpu_devices
+                // loads the Metal/Vulkan backend and probes devices. Preserve the
+                // background pre-warm for Local, but do not pay that cost for remote STT.
+                std::thread::spawn(|| {
+                    let _ = crate::managers::transcription::get_available_accelerators();
+                });
+            } else {
+                log::info!("Skipping local GPU accelerator pre-warm for remote transcription");
+            }
 
             let should_force_show_permissions = should_force_show_permissions_window(&app_handle);
 
