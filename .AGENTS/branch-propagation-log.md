@@ -13,6 +13,7 @@ Rules:
 
 | Propagation Date | Target Branch | Main SHA | Main Message | Branch SHA | Branch Message | Issues |
 | --- | --- | --- | --- | --- | --- | --- |
+| 2026-07-24 | `release/microsoft-store` | `3d772235` | chore: bump version to 1.0.26 | `777eedd2` | chore: bump version to 1.0.26 | 2 runtime fixes propagated; main-only docs and updater binding excluded; Store notes updated; lock version updated locally |
 | 2026-07-22 | `release/microsoft-store` | `5b22f470` | chore: bump version to 1.0.25 | `c2d7c994` | chore: bump version to 1.0.25 | 15 runtime updates propagated; main-only docs and updater excluded; Store notes updated; lock regenerated locally |
 | 2026-07-15 | `release/microsoft-store` | `86242355` | chore: bump version to 1.0.24 | `482f6bcc` | chore: bump version to 1.0.24 | 11 runtime commits propagated; main-only docs excluded; Store notes updated; lock resolved locally |
 | 2026-07-12 | `release/microsoft-store` | `318a74dd` | chore: bump version to 1.0.23 | `7657ed89` | chore: bump version to 1.0.23 | runtime propagated; Store notes updated; lock resolved locally |
@@ -22,7 +23,6 @@ Rules:
 | 2026-06-22 | `release/microsoft-store` | `1e1f7379` | chore: bump version to 1.0.21 | `d2202bc4` | chore: bump version to 1.0.21 | store notes updated |
 | 2026-06-18 | `release/microsoft-store` | `aed4b537` | chore: bump version to 1.0.20 | `7a2c8dfb` | chore: bump version to 1.0.20 | store notes updated |
 | 2026-06-03 | `release/microsoft-store` | `9c9bc15b` | fix(installer): use executable icon for app shortcuts | `89d8fbf5` | fix(installer): use executable icon for app shortcuts | main notes excluded; store notes updated |
-| 2026-06-01 | `release/microsoft-store` | `8ef91425` | chore: bump version to 1.0.18 | `8705dae4` | chore: bump version to 1.0.18 | runtime-only doc exclusion; lock patched |
 
 Entry template:
 
