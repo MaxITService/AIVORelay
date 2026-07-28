@@ -2802,11 +2802,24 @@ pub fn change_openai_realtime_whisper_flatten_enabled_setting(
 #[tauri::command]
 #[specta::specta]
 pub fn change_soniox_model_setting(app: AppHandle, model: String) -> Result<(), String> {
+    let trimmed_model = model.trim();
+    if trimmed_model
+        .to_ascii_lowercase()
+        .starts_with("stt-async")
+        && trimmed_model.chars().count()
+            > crate::managers::soniox_stt::SONIOX_ASYNC_MODEL_MAX_CHARS
+    {
+        return Err(format!(
+            "Soniox async model id must not exceed {} characters",
+            crate::managers::soniox_stt::SONIOX_ASYNC_MODEL_MAX_CHARS
+        ));
+    }
+
     let mut settings = settings::get_settings(&app);
-    settings.soniox_model = if model.trim().is_empty() {
+    settings.soniox_model = if trimmed_model.is_empty() {
         SONIOX_DEFAULT_MODEL.to_string()
     } else {
-        model.trim().to_string()
+        trimmed_model.to_string()
     };
     settings::write_settings(&app, settings);
     Ok(())
@@ -2847,9 +2860,18 @@ pub fn change_soniox_language_hints_setting(
             normalized_hints.rejected.join(", ")
         );
     }
+    if normalized_hints.normalized.len()
+        > crate::managers::soniox_stt::SONIOX_LANGUAGE_HINTS_MAX_COUNT
+    {
+        return Err(format!(
+            "Soniox accepts at most {} language hints; received {}",
+            crate::managers::soniox_stt::SONIOX_LANGUAGE_HINTS_MAX_COUNT,
+            normalized_hints.normalized.len()
+        ));
+    }
 
     let mut settings = settings::get_settings(&app);
-    settings.soniox_language_hints = normalized_hints.normalized.into_iter().take(100).collect();
+    settings.soniox_language_hints = normalized_hints.normalized;
     settings::write_settings(&app, settings);
     Ok(())
 }
@@ -3235,8 +3257,8 @@ pub fn change_deepgram_endpointing_enabled_setting(
 #[tauri::command]
 #[specta::specta]
 pub fn change_deepgram_endpointing_ms_setting(app: AppHandle, value_ms: u32) -> Result<(), String> {
-    if !(50..=5000).contains(&value_ms) {
-        return Err("Deepgram endpointing must be between 50 and 5000 ms".to_string());
+    if !(10..=5000).contains(&value_ms) {
+        return Err("Deepgram endpointing must be between 10 and 5000 ms".to_string());
     }
 
     let mut settings = settings::get_settings(&app);

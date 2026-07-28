@@ -261,6 +261,10 @@ async fn convert_text_to_audio(
     refuse_existing_output(&output)?;
     settings.output_format = format;
     let instruction_source = apply_tts_instruction_override(args, &mut settings)?;
+    if settings.provider == TtsProvider::OpenAi {
+        TtsManager::validate_openai_instructions(&settings.openai_instructions)
+            .map_err(|error| CliFailure::usage(error.to_string()))?;
+    }
     let history_source = if settings.history_enabled {
         Some(
             app.state::<Arc<TtsManager>>()

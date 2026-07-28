@@ -73,7 +73,7 @@
       "customUnsaved": "Свой / несохранённый промпт",
       "deletePreset": "Удалить пресет",
       "instructionsTitle": "Инструкции для голоса OpenAI",
-      "instructionsDescription": "Необязательные указания по стилю, тону, темпу и подаче.",
+      "instructionsDescription": "Необязательные указания по стилю, тону, темпу и подаче (до 4 096 символов).",
       "instructionsPlaceholder": "Говори тепло и чётко...",
       "namePlaceholder": "Название пресета",
       "saveNamed": "Сохранить именованный промпт",
@@ -350,7 +350,8 @@
       "languageHintsLabel": "Подсказки языков (через запятую, не JSON)",
       "languageHintsPlaceholder": "например, en, es, ru",
       "speakerDiarizationLabel": "Включить diarization спикеров",
-      "languageIdentificationLabel": "Включить определение языка"
+      "languageIdentificationLabel": "Включить определение языка",
+      "tooManyHints": "Soniox принимает не более {{limit}} языковых подсказок; введено: {{count}}."
     },
     "deepgram": {
       "title": "Параметры транскрипции файла Deepgram",
@@ -1366,9 +1367,10 @@
         },
         "languageHints": {
           "title": "Language hints",
-          "description": "В это поле вводите коды языков через запятую (например: en, es или en, es, ru). Не вводите JSON в это поле. Эквивалент API для двух языков: { \"language_hints\": [\"en\", \"es\"] }. Soniox будет склоняться к этим языкам, что обычно улучшает точность и уменьшает случайные переключения на другой язык. Область действия: применяется в Live-режиме и как значения по умолчанию для Transcribe File (Soniox); в non-live shortcut fallback этот список сейчас не используется напрямую, там hint выводится из текущего языка профиля/глобального языка.",
+          "description": "В это поле вводите до 100 кодов языков через запятую (например: en, es или en, es, ru). Не вводите JSON в это поле. Эквивалент API для двух языков: { \"language_hints\": [\"en\", \"es\"] }. Soniox будет склоняться к этим языкам, что обычно улучшает точность и уменьшает случайные переключения на другой язык. Область действия: применяется в Live-режиме и как значения по умолчанию для Transcribe File (Soniox); в non-live shortcut fallback этот список сейчас не используется напрямую, там hint выводится из текущего языка профиля/глобального языка.",
           "placeholder": "en, es, ru",
-          "supportedLanguagesLink": "Поддерживаемые языки"
+          "supportedLanguagesLink": "Поддерживаемые языки",
+          "tooMany": "Soniox принимает не более {{limit}} языковых подсказок; введено: {{count}}."
         },
         "profileLanguageHintOnly": {
           "title": "Использовать язык текущего профиля как hint",
@@ -1510,7 +1512,7 @@
             "interim": "Interim Results: соответствует query-параметру `interim_results`. В API Deepgram default = false, в приложении default = true.",
             "smartFormat": "Smart Format: соответствует query-параметру `smart_format`. Улучшает пунктуацию/числа/читаемость. В API default = false, в приложении default = true.",
             "endpointing": "Endpointing: включает/выключает механизм endpointing Deepgram (query-параметр `endpointing`).",
-            "endpointingMs": "Endpointing (ms): при включённом endpointing приложение отправляет числовой `endpointing=<ms>` (диапазон 50-5000, default 400).",
+            "endpointingMs": "Endpointing (ms): при включённом endpointing приложение отправляет числовой `endpointing=<ms>` (диапазон 10-5000, default 400).",
             "keepalive": "KeepAlive Interval: приложение отправляет `{\"type\":\"KeepAlive\"}` во время тишины; значение ограничено 3-5 секундами.",
             "finalizeTimeout": "Live Finalization Timeout: после Stop приложение отправляет Finalize + CloseStream и ждёт это время для поздних финальных чанков перед форс-завершением.",
             "instantStop": "Instant Stop: локальный shortcut-режим, который мгновенно отменяет live-сессию и пропускает стандартное ожидание финализации.",
@@ -1556,7 +1558,7 @@
         },
         "endpointingMs": {
           "title": "Endpointing (мс)",
-          "description": "Чувствительность к паузам для endpointing. Меньше - быстрее реакция, но выше риск раннего разделения фраз; больше - осторожнее и медленнее финализация. Диапазон в приложении: 50-5000мс, по умолчанию 400мс. В рекомендациях Deepgram обычно фигурирует 300-500мс для разговорного сценария."
+          "description": "Чувствительность к паузам для endpointing. Меньше - быстрее реакция, но выше риск раннего разделения фраз; больше - осторожнее и медленнее финализация. Диапазон в приложении: 10-5000мс, по умолчанию 400мс. В рекомендациях Deepgram обычно фигурирует 300-500мс для разговорного сценария."
         },
         "keepalive": {
           "title": "Интервал KeepAlive (секунды)",

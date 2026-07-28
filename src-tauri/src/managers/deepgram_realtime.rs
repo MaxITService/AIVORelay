@@ -20,7 +20,7 @@ const DEFAULT_KEEPALIVE_INTERVAL_SECONDS: u32 = 5;
 const MIN_KEEPALIVE_INTERVAL_SECONDS: u32 = 3;
 const MAX_KEEPALIVE_INTERVAL_SECONDS: u32 = 5;
 const DEFAULT_ENDPOINTING_MS: u32 = 400;
-const MIN_ENDPOINTING_MS: u32 = 50;
+const MIN_ENDPOINTING_MS: u32 = 10;
 const MAX_ENDPOINTING_MS: u32 = 5000;
 
 pub type FinalChunkCallback = Arc<dyn Fn(String) + Send + Sync + 'static>;

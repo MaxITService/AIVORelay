@@ -482,6 +482,10 @@ fn regenerate_history(
             "TTS instruction prompts require the OpenAI provider",
         ));
     }
+    if let Some(instructions) = instructions.as_deref() {
+        TtsManager::validate_openai_instructions(instructions)
+            .map_err(|error| CliFailure::new(EXIT_USAGE, error.to_string()))?;
+    }
     if let Some(name) = effective_prompt_name.as_deref() {
         validate_prompt_name(app, name)?;
     }
@@ -664,13 +668,14 @@ fn validate_prompt_name(app: &AppHandle, name: &str) -> Result<(), CliFailure> {
         .prompt_presets
         .iter()
         .filter(|preset| preset.name.eq_ignore_ascii_case(name.trim()))
-        .count();
-    match matches {
-        0 => Err(CliFailure::new(
+        .collect::<Vec<_>>();
+    match matches.as_slice() {
+        [] => Err(CliFailure::new(
             EXIT_USAGE,
             format!("Unknown TTS prompt preset '{}'", name.trim()),
         )),
-        1 => Ok(()),
+        [preset] => TtsManager::validate_openai_instructions(&preset.instructions)
+            .map_err(|error| CliFailure::new(EXIT_USAGE, error.to_string())),
         _ => Err(CliFailure::new(
             EXIT_USAGE,
             format!("More than one TTS prompt preset is named '{}'", name.trim()),

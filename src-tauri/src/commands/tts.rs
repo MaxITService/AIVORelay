@@ -1,6 +1,7 @@
 use crate::managers::tts::{
     FileConversionResult, TextFileInspection, TtsChunkReady, TtsManager, TtsOperationKind,
-    TtsPhase, TtsState, SUPPORTED_MP3_BITRATES, TTS_EVENT_CHUNK_READY, TTS_EVENT_STATE,
+    TtsPhase, TtsState, SONIOX_TTS_API_KEY_MAX_CHARS, SUPPORTED_MP3_BITRATES,
+    TTS_EVENT_CHUNK_READY, TTS_EVENT_STATE,
 };
 use crate::managers::tts_history::{
     metadata_from_settings, NewTtsHistoryEntry, TtsHistoryManager, TtsHistorySourceKind,
@@ -560,6 +561,7 @@ fn watcher_configuration_changed(previous: &TtsSettings, current: &TtsSettings) 
 #[specta::specta]
 pub fn update_tts_settings(app: AppHandle, settings: TtsSettings) -> Result<TtsSettings, String> {
     let settings = normalize_settings(settings);
+    TtsManager::validate_settings(&settings).map_err(|error| error.to_string())?;
     let mut app_settings = get_settings(&app);
     let previous = app_settings.tts.clone();
     let watcher_configuration_changed = watcher_configuration_changed(&previous, &settings);
@@ -606,10 +608,17 @@ pub fn tts_has_api_key(provider: String) -> Result<bool, String> {
 #[specta::specta]
 pub fn tts_set_api_key(provider: String, api_key: String) -> Result<(), String> {
     let provider = parse_provider(&provider)?;
-    if api_key.trim().is_empty() {
+    let api_key = api_key.trim();
+    if api_key.is_empty() {
         return Err("API key cannot be empty".to_string());
     }
-    crate::secure_keys::set_tts_api_key(provider.as_str(), api_key.trim())
+    if provider == TtsProvider::Soniox && api_key.chars().count() > SONIOX_TTS_API_KEY_MAX_CHARS {
+        return Err(format!(
+            "Soniox TTS API key must not exceed {} characters",
+            SONIOX_TTS_API_KEY_MAX_CHARS
+        ));
+    }
+    crate::secure_keys::set_tts_api_key(provider.as_str(), api_key)
         .map_err(|error| error.to_string())
 }
 

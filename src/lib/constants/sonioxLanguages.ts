@@ -61,6 +61,8 @@ export const SONIOX_SUPPORTED_LANGUAGE_CODES = new Set<string>([
   "cy",
 ]);
 
+export const SONIOX_LANGUAGE_HINTS_MAX_COUNT = 100;
+
 const canonicalizeLanguageCode = (value: string): string | null => {
   const trimmed = value.trim();
   if (!trimmed) return null;

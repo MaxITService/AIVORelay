@@ -260,6 +260,10 @@ pub async fn regenerate_tts_history_entry_core(
         explicit_prompt_override,
         resolve_regeneration_prompt(&settings, &source_entry, &request)?,
     )?;
+    if let Some(instructions) = prompt.instructions.as_deref() {
+        TtsManager::validate_openai_instructions(instructions)
+            .map_err(|error| error.to_string())?;
+    }
     settings.openai_instructions = prompt.instructions.clone().unwrap_or_default();
 
     let temporary_source =

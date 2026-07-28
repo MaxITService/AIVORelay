@@ -180,6 +180,9 @@ const PROVIDER_INPUT_LIMITS: Record<TtsProvider, number> = {
   deepgram: 2000,
   openai: 4096,
 };
+const SONIOX_TTS_FIELD_MAX_LENGTH = 50;
+const SONIOX_TTS_API_KEY_MAX_LENGTH = 250;
+const OPENAI_TTS_INSTRUCTIONS_MAX_LENGTH = 4096;
 
 const PROVIDER_VOICE_RESOURCES: Record<
   TtsProvider,
@@ -903,6 +906,11 @@ export const TextToSpeechSettings: React.FC = () => {
               <ApiKeyEditor
                 loading={keyBusy}
                 value={keyDraft}
+                maxLength={
+                  tts.provider === "soniox"
+                    ? SONIOX_TTS_API_KEY_MAX_LENGTH
+                    : undefined
+                }
                 onChange={setKeyDraft}
                 onSave={() => void saveKey()}
                 onCancel={() => {
@@ -934,6 +942,11 @@ export const TextToSpeechSettings: React.FC = () => {
           <Input
             className="w-full md:w-72"
             value={voiceValue}
+            maxLength={
+              tts.provider === "soniox"
+                ? SONIOX_TTS_FIELD_MAX_LENGTH
+                : undefined
+            }
             placeholder={
               tts.provider === "deepgram"
                 ? "aura-2-thalia-en"
@@ -960,6 +973,7 @@ export const TextToSpeechSettings: React.FC = () => {
             <Input
               className="w-full md:w-72"
               value={tts.soniox_language}
+              maxLength={SONIOX_TTS_FIELD_MAX_LENGTH}
               placeholder="en"
               onChange={(event) =>
                 void updateTts(
@@ -979,6 +993,11 @@ export const TextToSpeechSettings: React.FC = () => {
             <Input
               className="w-full md:w-72"
               value={modelValue}
+              maxLength={
+                tts.provider === "soniox"
+                  ? SONIOX_TTS_FIELD_MAX_LENGTH
+                  : undefined
+              }
               onChange={(event) =>
                 void updateTts(
                   tts.provider === "soniox"
@@ -1105,6 +1124,7 @@ export const TextToSpeechSettings: React.FC = () => {
               <Textarea
                 className="w-full"
                 value={tts.openai_instructions}
+                maxLength={OPENAI_TTS_INSTRUCTIONS_MAX_LENGTH}
                 placeholder={t("textToSpeech.prompts.instructionsPlaceholder")}
                 onChange={(event) =>
                   void updateTts(
@@ -1116,6 +1136,10 @@ export const TextToSpeechSettings: React.FC = () => {
                   )
                 }
               />
+              <p className="mt-1 text-right text-xs text-text/60">
+                {tts.openai_instructions.length}/
+                {OPENAI_TTS_INSTRUCTIONS_MAX_LENGTH}
+              </p>
               <div className="mt-3 flex flex-wrap gap-2">
                 <Input
                   className="min-w-64 flex-1"

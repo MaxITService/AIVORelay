@@ -266,7 +266,7 @@ impl SonioxRealtimeManager {
         model.trim() == "stt-rt-v5"
     }
 
-    fn normalize_language_hints(language_hints: Vec<String>) -> Option<Vec<String>> {
+    fn normalize_language_hints(language_hints: Vec<String>) -> Result<Option<Vec<String>>> {
         let normalized_hints = crate::language_resolver::normalize_soniox_hint_list(language_hints);
         if !normalized_hints.rejected.is_empty() {
             warn!(
@@ -275,10 +275,20 @@ impl SonioxRealtimeManager {
             );
         }
 
+        if normalized_hints.normalized.len()
+            > crate::managers::soniox_stt::SONIOX_LANGUAGE_HINTS_MAX_COUNT
+        {
+            return Err(anyhow!(
+                "Soniox accepts at most {} language hints; received {}",
+                crate::managers::soniox_stt::SONIOX_LANGUAGE_HINTS_MAX_COUNT,
+                normalized_hints.normalized.len()
+            ));
+        }
+
         if normalized_hints.normalized.is_empty() {
-            None
+            Ok(None)
         } else {
-            Some(normalized_hints.normalized)
+            Ok(Some(normalized_hints.normalized))
         }
     }
 
@@ -350,7 +360,7 @@ impl SonioxRealtimeManager {
             audio_format: "pcm_s16le".to_string(),
             sample_rate: 16_000,
             num_channels: 1,
-            language_hints: Self::normalize_language_hints(language_hints),
+            language_hints: Self::normalize_language_hints(language_hints)?,
             context,
             language_hints_strict,
             enable_speaker_diarization,

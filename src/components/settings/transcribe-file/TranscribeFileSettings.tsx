@@ -38,7 +38,10 @@ import {
   useTranscribeFileStore,
   type SelectedFile,
 } from "@/stores/transcribeFileStore";
-import { parseAndNormalizeSonioxLanguageHints } from "@/lib/constants/sonioxLanguages";
+import {
+  parseAndNormalizeSonioxLanguageHints,
+  SONIOX_LANGUAGE_HINTS_MAX_COUNT,
+} from "@/lib/constants/sonioxLanguages";
 
 const supportedExtensions = ["wav", "mp3", "m4a", "ogg", "flac", "webm"];
 const DEEPGRAM_MAX_FILE_DURATION_SECONDS = 10 * 60;
@@ -348,6 +351,13 @@ export const TranscribeFileSettings: React.FC = () => {
   ] = useState(false);
   const [fileRetryRequest, setFileRetryRequest] =
     useState<FileTranscriptionRequest | null>(null);
+  const parsedSonioxLanguageHintsInput = useMemo(
+    () => parseAndNormalizeSonioxLanguageHints(sonioxLanguageHintsInput),
+    [sonioxLanguageHintsInput],
+  );
+  const sonioxLanguageHintsOverLimit =
+    parsedSonioxLanguageHintsInput.normalized.length >
+    SONIOX_LANGUAGE_HINTS_MAX_COUNT;
 
   const dropZoneRef = useRef<HTMLDivElement>(null);
   const selectedFileRef = useRef<SelectedFile | null>(selectedFile);
@@ -923,9 +933,16 @@ export const TranscribeFileSettings: React.FC = () => {
 
     let sonioxOptionsOverride: SonioxFileTranscriptionOptions | null = null;
     if (showSonioxFileOptions) {
-      const parsedHints = parseAndNormalizeSonioxLanguageHints(
-        sonioxLanguageHintsInput,
-      );
+      const parsedHints = parsedSonioxLanguageHintsInput;
+      if (parsedHints.normalized.length > SONIOX_LANGUAGE_HINTS_MAX_COUNT) {
+        setError(
+          t("transcribeFile.soniox.tooManyHints", {
+            count: parsedHints.normalized.length,
+            limit: SONIOX_LANGUAGE_HINTS_MAX_COUNT,
+          }),
+        );
+        return null;
+      }
       if (parsedHints.rejected.length > 0) {
         setError(
           t("transcribeFile.soniox.invalidHints", {
@@ -1471,8 +1488,16 @@ export const TranscribeFileSettings: React.FC = () => {
                     : ""}
                 </Alert>
                 <div className="space-y-2">
-                  <label className="text-xs text-[#808080]">
+                  <label className="flex justify-between text-xs text-[#808080]">
                     {t("transcribeFile.soniox.languageHintsLabel")}
+                    <span
+                      className={
+                        sonioxLanguageHintsOverLimit ? "text-red-400" : ""
+                      }
+                    >
+                      {parsedSonioxLanguageHintsInput.normalized.length}/
+                      {SONIOX_LANGUAGE_HINTS_MAX_COUNT}
+                    </span>
                   </label>
                   <input
                     type="text"
@@ -1484,6 +1509,7 @@ export const TranscribeFileSettings: React.FC = () => {
                     placeholder={t(
                       "transcribeFile.soniox.languageHintsPlaceholder",
                     )}
+                    aria-invalid={sonioxLanguageHintsOverLimit}
                   />
                 </div>
                 <label className="flex items-center gap-2 cursor-pointer select-none">

@@ -16,7 +16,10 @@ import {
   type RemoteSttPreset,
 } from "../../../lib/constants/remoteSttProviders";
 import { LANGUAGES } from "../../../lib/constants/languages";
-import { parseAndNormalizeSonioxLanguageHints } from "../../../lib/constants/sonioxLanguages";
+import {
+  parseAndNormalizeSonioxLanguageHints,
+  SONIOX_LANGUAGE_HINTS_MAX_COUNT,
+} from "../../../lib/constants/sonioxLanguages";
 import { ApiKeyEditor, StoredApiKeyDisplay } from "../ApiKeyControls";
 import { Button } from "../../ui/Button";
 import { Input } from "../../ui/Input";
@@ -45,6 +48,7 @@ const REALTIME_AGENT_PROMPT_TEMPLATE =
 
 const SONIOX_DEFAULT_REALTIME_MODEL = "stt-rt-v5";
 const SONIOX_DEFAULT_ASYNC_MODEL = "stt-async-v5";
+const SONIOX_ASYNC_MODEL_MAX_CHARS = 32;
 
 type PersistentHintInputProps = React.ComponentProps<typeof Input> & {
   hint: React.ReactNode;
@@ -407,6 +411,19 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
   const [deepgramEndpointingMsInput, setDeepgramEndpointingMsInput] = useState(
     String(deepgramEndpointingMs),
   );
+  const parsedSonioxLanguageHintsInput = useMemo(
+    () => parseAndNormalizeSonioxLanguageHints(sonioxLanguageHintsInput),
+    [sonioxLanguageHintsInput],
+  );
+  const sonioxLanguageHintCount =
+    parsedSonioxLanguageHintsInput.normalized.length;
+  const sonioxLanguageHintsOverLimit =
+    sonioxLanguageHintCount > SONIOX_LANGUAGE_HINTS_MAX_COUNT;
+  const customSonioxModelIsAsync = customSonioxModelInput
+    .trim()
+    .toLowerCase()
+    .startsWith("stt-async");
+  const customSonioxModelLength = customSonioxModelInput.trim().length;
 
   const [apiKeyInput, setApiKeyInput] = useState("");
   const [hasApiKey, setHasApiKey] = useState(false);
@@ -934,6 +951,19 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
       setCustomSonioxModelInput(sonioxModelMode === "custom" ? sonioxModel : "");
       return;
     }
+    if (
+      trimmed.toLowerCase().startsWith("stt-async") &&
+      trimmed.length > SONIOX_ASYNC_MODEL_MAX_CHARS
+    ) {
+      toast.error(
+        t("settings.advanced.soniox.model.asyncModelTooLong", {
+          limit: SONIOX_ASYNC_MODEL_MAX_CHARS,
+          defaultValue:
+            "Soniox async model ids must not exceed {{limit}} characters.",
+        }),
+      );
+      return;
+    }
     if (trimmed !== sonioxModel) {
       void updateSetting("soniox_model" as any, trimmed as any);
     }
@@ -987,10 +1017,22 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
   };
 
   const handleSonioxLanguageHintsBlur = () => {
-    const parsed = parseAndNormalizeSonioxLanguageHints(sonioxLanguageHintsInput);
+    const parsed = parsedSonioxLanguageHintsInput;
     const current = parseAndNormalizeSonioxLanguageHints(
       sonioxLanguageHints.join(","),
     );
+
+    if (parsed.normalized.length > SONIOX_LANGUAGE_HINTS_MAX_COUNT) {
+      toast.error(
+        t("settings.advanced.soniox.languageHints.tooMany", {
+          count: parsed.normalized.length,
+          limit: SONIOX_LANGUAGE_HINTS_MAX_COUNT,
+          defaultValue:
+            "Soniox accepts at most {{limit}} language hints; {{count}} were entered.",
+        }),
+      );
+      return;
+    }
 
     if (parsed.rejected.length > 0) {
       toast.warning(
@@ -1843,7 +1885,23 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
                     }
                     onBlur={handleCustomSonioxModelBlur}
                     placeholder="stt-rt-v5"
-                    hint="stt-rt-v5"
+                    maxLength={
+                      customSonioxModelIsAsync
+                        ? SONIOX_ASYNC_MODEL_MAX_CHARS
+                        : undefined
+                    }
+                    hint={
+                      customSonioxModelIsAsync
+                        ? `${customSonioxModelLength}/${SONIOX_ASYNC_MODEL_MAX_CHARS}`
+                        : "stt-rt-v5"
+                    }
+                    hintClassName={
+                      customSonioxModelIsAsync &&
+                      customSonioxModelLength >
+                        SONIOX_ASYNC_MODEL_MAX_CHARS
+                        ? "text-red-400"
+                        : ""
+                    }
                   />
                 </SettingContainer>
               )}
@@ -2047,7 +2105,12 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
                   onBlur={handleSonioxLanguageHintsBlur}
                   placeholder={t("settings.advanced.soniox.languageHints.placeholder")}
                   disabled={sonioxUseProfileLanguageHintOnly}
-                  hint="e.g. en, fr"
+                  hint={`${sonioxLanguageHintCount}/${SONIOX_LANGUAGE_HINTS_MAX_COUNT}`}
+                  hintClassName={
+                    sonioxLanguageHintsOverLimit ? "text-red-400" : ""
+                  }
+                  inputPaddingClassName="pr-20"
+                  aria-invalid={sonioxLanguageHintsOverLimit}
                 />
               </SettingContainer>
 
@@ -2639,7 +2702,7 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
                   value={deepgramEndpointingMsInput}
                   onChange={(event) => setDeepgramEndpointingMsInput(event.target.value)}
                   onBlur={handleDeepgramEndpointingMsBlur}
-                  min={50}
+                  min={10}
                   max={5000}
                   className="w-full"
                   disabled={!deepgramEndpointingEnabled}

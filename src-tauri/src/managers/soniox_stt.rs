@@ -26,6 +26,8 @@ const AUDIO_CHUNK_SIZE_BYTES: usize = 32 * 1024;
 const MIN_TIMEOUT_SECONDS: u32 = 5;
 const SONIOX_FALLBACK_SAMPLE_RATE: u32 = 16_000;
 const SONIOX_FALLBACK_CHANNELS: u8 = 1;
+pub const SONIOX_ASYNC_MODEL_MAX_CHARS: usize = 32;
+pub const SONIOX_LANGUAGE_HINTS_MAX_COUNT: usize = 100;
 
 #[derive(Serialize)]
 struct SonioxStartRequest {
@@ -1189,6 +1191,22 @@ impl SonioxSttManager {
         } = options;
         let language_hints =
             explicit_language_hints.or_else(|| Self::normalized_language_hints(language));
+        if model.chars().count() > SONIOX_ASYNC_MODEL_MAX_CHARS {
+            return Err(anyhow!(
+                "Soniox async model id must not exceed {} characters; received {}",
+                SONIOX_ASYNC_MODEL_MAX_CHARS,
+                model.chars().count()
+            ));
+        }
+        if let Some(hints) = language_hints.as_ref() {
+            if hints.len() > SONIOX_LANGUAGE_HINTS_MAX_COUNT {
+                return Err(anyhow!(
+                    "Soniox accepts at most {} language hints; received {}",
+                    SONIOX_LANGUAGE_HINTS_MAX_COUNT,
+                    hints.len()
+                ));
+            }
+        }
         let started_at = Instant::now();
 
         let file_id = self
