@@ -28,6 +28,12 @@ export const getRemoteApiDisplayLabel = (
   }
 
   if (preset === "openai") {
+    if (modelId === "gpt-transcribe") {
+      return "OpenAI gpt-transcribe";
+    }
+    if (modelId === "gpt-live-transcribe") {
+      return "OpenAI gpt-live-transcribe";
+    }
     if (modelId === "gpt-realtime-whisper") {
       return "OpenAI gpt-realtime-whisper";
     }

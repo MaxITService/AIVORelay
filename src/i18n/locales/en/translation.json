@@ -20,6 +20,7 @@
     "browserConnector": "Connector",
     "transcribeFile": "Transcribe File",
     "textToSpeech": "Text to Speech",
+    "ttsFiles": "TTS File Operations",
     "textReplacement": "Text Processing",
     "audioProcessing": "Speech Processing",
     "userInterface": "User Interface",
@@ -36,7 +37,7 @@
     },
     "provider": {
       "title": "Provider",
-      "description": "Cloud service used for speech synthesis."
+      "description": "Choose a cloud service or an optional local offline model."
     },
     "api": {
       "title": "API settings for TTS",
@@ -52,12 +53,35 @@
       "replaceKeyHint": "Enter a replacement key.",
       "noKeyHint": "No separate TTS key stored."
     },
+    "local": {
+      "title": "Local Qwen3-TTS",
+      "description": "Optional on-device speech synthesis. Text and generated audio stay on this computer after installation.",
+      "modelTitle": "Model and runtime",
+      "modelDescription": "Downloads the official Apache-2.0 Qwen3-TTS 0.6B model ({{size}}) and an isolated AivoRelay-managed runtime. The complete installed footprint is larger.",
+      "ready": "Ready for offline synthesis · {{profile}} runtime",
+      "installing": "Installing: {{phase}} · {{percentage}}%",
+      "notInstalled": "Not installed. Cloud providers remain available.",
+      "install": "Download and install",
+      "cancel": "Cancel installation",
+      "delete": "Delete local model and runtime",
+      "resourceWarning": "CAUTION — installation and local synthesis can use substantial disk space, memory, GPU resources, and time. CPU synthesis may be slower than real time.",
+      "license": "Official Qwen code and model weights: Apache-2.0. Runtime component licenses and notices are retained with the managed installation.",
+      "languageDescription": "Use an explicit language for short text; Auto is useful for mixed-language passages."
+    },
+    "windows": {
+      "loading": "Loading installed Windows voices…",
+      "noVoices": "Windows reports no installed speech voices.",
+      "defaultVoice": "Use Windows default voice",
+      "refresh": "Refresh installed voices",
+      "help": "Uses voices installed in Windows; no model or API key is needed. AivoRelay does not redistribute voices. Usage rights depend on the installed voice and its provider terms."
+    },
     "voice": {
       "title": "Voice",
       "description": "Provider request options.",
       "voiceTitle": "Voice",
       "voiceDescription": "Provider voice ID or name.",
       "voicePlaceholder": "Voice ID",
+      "custom": "Custom…",
       "languageTitle": "Language",
       "languageDescription": "Language code required by Soniox.",
       "modelTitle": "Model",
@@ -74,12 +98,13 @@
       "presetDescription": "Select a named prompt that can also be referenced from the TTS CLI.",
       "customUnsaved": "Custom / unsaved prompt",
       "deletePreset": "Delete preset",
-      "instructionsTitle": "OpenAI voice instructions",
+      "instructionsTitle": "Voice instructions",
       "instructionsDescription": "Optional style, tone, pacing, and delivery guidance (up to 4,096 characters).",
       "instructionsPlaceholder": "Speak warmly and clearly...",
       "namePlaceholder": "Preset name",
       "saveNamed": "Save named prompt",
       "aiDisclosure": "The selected voice is AI-generated.",
+      "localUnsupported": "The official Qwen3-TTS 0.6B runtime does not apply free-form voice instructions. Saved prompt presets remain available for compatible providers and are not sent to this local model.",
       "unsupportedModel": "The selected OpenAI model does not support voice instructions. Saved prompts are preserved but will not be sent unless a gpt-4o-mini-tts model is selected."
     },
     "actions": {
@@ -91,11 +116,15 @@
     },
     "overlay": {
       "title": "TTS overlay keys",
-      "description": "These keys work only while the TTS overlay is focused; they are not global shortcuts.",
+      "description": "These keys normally work only while the TTS overlay is focused. The optional History fallback makes Play / Pause global.",
       "autoplayLabel": "Start playback automatically",
       "autoplayDescription": "Play the first synthesized chunk as soon as it is ready.",
       "playPauseTitle": "Play / Pause",
       "playPauseDescription": "Toggle playback in the focused overlay.",
+      "historyFallbackLabel": "Use Play / Pause when the overlay is closed",
+      "historyFallbackDescription": "Makes the configured Play / Pause key global. When the overlay is closed, it replays the newest Interactive History audio without synthesis or API charges. Caution: a plain key such as Space is captured across other applications while enabled.",
+      "historyFallbackRequiresHistory": "Unavailable because Interactive TTS History is disabled. Enable its saved-data option first.",
+      "historyFallbackRequiresResult": "Unavailable because Interactive TTS History is empty. Read clipboard or selected text once to save a replayable result.",
       "stopTitle": "Stop",
       "stopDescription": "Cancel synthesis and stop playback."
     },
@@ -139,8 +168,10 @@
       "title": "Convert text file to audio",
       "description": "Inspect processed text and chunks before generating a final MP3 or WAV file.",
       "cliHelpTitle": "CLI help — text or Markdown to audio",
-      "cliHelpDescription": "Uses the provider, voice, chunking, retry, output, and API-key settings configured on this page.",
+      "cliHelpDescription": "Starts from the settings on this page. Any --tts-* override applies only to that conversion and never rewrites the saved configuration.",
       "cliExample": "AivoRelay.exe --convert-file .\\article.md --output .\\article.mp3",
+      "cliOverrideExample": "AivoRelay.exe --convert-file .\\article.md --output .\\article.mp3 --tts-provider windows --tts-voice default --tts-speed 1.1 --tts-bitrate 192 --tts-chunk-chars 1200 --tts-retries 3 --tts-history true",
+      "cliOverrideDescription": "Provider, model, voice, language, speed, stored-key source, format/bitrate, chunking, retry, pauses, preprocessing/rules, disk reserve, and History capture can be overridden. Unsupported provider-specific arguments fail before synthesis with an actionable error and exit code 2.",
       "cliPromptExample": "AivoRelay.exe --convert-file .\\article.md --output .\\article.mp3 --tts-prompt \"Warm narration\"",
       "cliLongInstructions": "Long voice instructions can be supplied with --tts-instructions-file; progress is shown in the current terminal unless --json is used.",
       "cliHistory": "When TTS History is enabled, successful CLI and automatic-folder conversions are also saved there.",
@@ -217,18 +248,38 @@
       "cancelError": "Unable to cancel TTS.",
       "chunkProgress": "Chunk {{current}} of {{total}}",
       "progress": "Speech progress",
+      "activeModel": "model: {{model}}",
+      "activeVoice": "voice: {{voice}}",
       "play": "Play",
       "pause": "Pause",
       "playPause": "Play or pause",
       "playPauseWithHotkey": "Play or pause ({{hotkey}})",
       "stop": "Stop",
-      "stopWithHotkey": "Stop ({{hotkey}})"
+      "stopWithHotkey": "Stop ({{hotkey}})",
+      "playbackRate": "Playback speed {{rate}}. Activate to use {{nextRate}}.",
+      "playbackRateDescription": "Changes playback speed only. Speech synthesis speed is unchanged."
     },
     "history": {
       "title": "TTS History",
       "description": "Keep and compare successful speech results separately from transcription History.",
       "enable": "Save successful TTS results",
       "enableDescription": "Opt in to keeping the original source text, result metadata, and a local audio copy.",
+      "scopes": {
+        "interactive": {
+          "title": "Interactive TTS History",
+          "description": "Keep and compare speech created from the clipboard, selected text, and interactive playback.",
+          "enableDescription": "Opt in to keeping interactive source text, result metadata, and a local audio copy.",
+          "emptyEnabled": "Read the clipboard or selected text to create the first saved interactive result.",
+          "emptyDisabled": "Enable Interactive History if you want future clipboard and selected-text results saved locally."
+        },
+        "file": {
+          "title": "TTS File History",
+          "description": "Keep file results from manual conversion, the CLI, and the watched folder separately from interactive playback.",
+          "enableDescription": "Opt in to keeping file source text, result metadata, and a local audio copy for manual, CLI, and watched-folder conversions.",
+          "emptyEnabled": "Convert a text or Markdown file in the app, CLI, or watched folder to create the first saved file result.",
+          "emptyDisabled": "Enable File History if you want future manual, CLI, and watched-folder results saved locally."
+        }
+      },
       "maxEntries": "Maximum saved results",
       "maxEntriesDescription": "When this count is exceeded, automatically delete the oldest TTS History results first.",
       "maxStorage": "Maximum managed audio storage",
@@ -253,12 +304,14 @@
       "customInstructions": "Custom instructions",
       "play": "Play",
       "pause": "Pause",
+      "seek": "Seek through this saved audio",
       "export": "Export",
       "exportSuccess": "The retained audio copy was exported without an API request.",
       "regenerate": "Generate again",
       "regenerateSuccess": "A new variant was generated and added without replacing older results.",
       "regenerateSuccessResumed": "A new variant was added after recovering {{count}} verified audio chunk(s) from the previous attempt.",
       "regenerateAndUseCredits": "Generate and use API credits",
+      "regenerateOffline": "Generate offline",
       "delete": "Delete",
       "deleteSuccess": "The retained TTS result was deleted.",
       "deletePartial": "The history record was deleted, but retained-audio cleanup was incomplete: {{error}}",
@@ -267,6 +320,7 @@
       "confirmDelete": "This deletes only AivoRelay's retained audio copy and history record. It never deletes a file you previously exported elsewhere.",
       "confirmRegenerateTitle": "Generate a new comparison variant?",
       "confirmRegenerate": "This sends the saved source text through the complete TTS pipeline again using {{provider}}, voice {{voice}}, and prompt {{prompt}}. It is a new paid API request and uses provider credits. Existing variants remain unchanged.",
+      "confirmRegenerateOffline": "This sends the saved source text through the complete TTS pipeline again using {{provider}} and voice {{voice}}. It runs locally without API credits. Existing variants remain unchanged.",
       "audio": {
         "mp3": "MP3 audio",
         "wav": "WAV audio"
@@ -274,6 +328,7 @@
       "metadata": {
         "model": "Model",
         "voice": "Voice",
+        "language": "Language",
         "prompt": "Prompt",
         "format": "Format"
       },

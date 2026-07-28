@@ -1,7 +1,7 @@
 use crate::managers::tts::{FileConversionResult, TtsManager};
 use crate::managers::tts_history::{
     NewTtsHistoryEntry, TtsHistoryDeleteOutcome, TtsHistoryEntry, TtsHistoryManager,
-    TtsHistorySourceKind,
+    TtsHistoryScope, TtsHistorySourceKind,
 };
 use crate::settings::{TtsOutputFormat, TtsProvider, TtsSettings};
 use serde::{Deserialize, Serialize};
@@ -93,8 +93,11 @@ impl Drop for TemporaryOutputFile {
 #[specta::specta]
 pub fn get_tts_history_entries(
     history: State<'_, Arc<TtsHistoryManager>>,
+    scope: TtsHistoryScope,
 ) -> Result<Vec<TtsHistoryEntry>, String> {
-    history.list_entries().map_err(|error| error.to_string())
+    history
+        .list_entries(scope)
+        .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
@@ -155,9 +158,10 @@ pub fn delete_tts_history_entry_detailed(
 #[specta::specta]
 pub fn delete_all_tts_history_entries(
     history: State<'_, Arc<TtsHistoryManager>>,
+    scope: TtsHistoryScope,
 ) -> Result<usize, String> {
     history
-        .delete_all_entries()
+        .delete_all_entries(scope)
         .map_err(|error| error.to_string())
 }
 
@@ -184,17 +188,17 @@ pub async fn regenerate_tts_history_entry_core(
     tts: &Arc<TtsManager>,
     request: RegenerateTtsHistoryRequest,
 ) -> Result<RegenerateTtsHistoryResponse, String> {
-    if !request.confirmed_api_charge {
+    let source_entry = history
+        .get_entry_by_id(request.id)
+        .map_err(|error| error.to_string())?
+        .ok_or_else(|| format!("TTS history entry {} not found", request.id))?;
+    let effective_provider = request.provider.unwrap_or(source_entry.provider);
+    if effective_provider.requires_paid_confirmation() && !request.confirmed_api_charge {
         return Err(
             "Regeneration requires explicit confirmation because it makes a new paid TTS API request"
                 .to_string(),
         );
     }
-
-    let source_entry = history
-        .get_entry_by_id(request.id)
-        .map_err(|error| error.to_string())?
-        .ok_or_else(|| format!("TTS history entry {} not found", request.id))?;
     let (output_path, output_format, temporary_output) = prepare_regeneration_output(
         app,
         request.output_path.as_deref(),
@@ -213,6 +217,7 @@ pub async fn regenerate_tts_history_entry_core(
             Some(&source_entry.model),
             Some(&source_entry.voice),
         )?;
+        restore_source_language(&mut settings, &source_entry.language);
     }
     let selected_provider = settings.provider;
     set_model_and_voice(
@@ -221,6 +226,10 @@ pub async fn regenerate_tts_history_entry_core(
         request.model.as_deref(),
         request.voice.as_deref(),
     )?;
+    settings = tts
+        .resolve_operation_settings(&settings)
+        .await
+        .map_err(|error| error.to_string())?;
     settings.output_format = output_format;
     if let Some(bitrate) = request.mp3_bitrate_kbps {
         if output_format != TtsOutputFormat::Mp3 {
@@ -286,15 +295,18 @@ pub async fn regenerate_tts_history_entry_core(
     }
     .map_err(|error| error.to_string())?;
     let (model, voice) = current_model_and_voice(&settings);
+    let language = current_language(&settings);
     let new_entry = history
         .append_confirmed_regeneration_success(
             NewTtsHistoryEntry {
+                scope: source_entry.scope,
                 group_id: source_entry.group_id.clone(),
                 source_text: source_entry.source_text.clone(),
                 source_kind: source_entry.source_kind,
                 provider: settings.provider,
                 model,
                 voice,
+                language,
                 output_format,
                 external_output_path: request.output_path.as_ref().map(|_| output_path.clone()),
                 prompt_preset_id: prompt.preset_id,
@@ -456,15 +468,44 @@ fn set_model_and_voice(
             TtsProvider::Soniox => settings.soniox_model = model,
             TtsProvider::Deepgram => settings.deepgram_model = model,
             TtsProvider::OpenAi => settings.openai_model = model,
+            TtsProvider::LocalQwen => {
+                let expected_repo = crate::managers::local_tts::LOCAL_TTS_MODEL_REPO;
+                let expected_revision = crate::managers::local_tts::LOCAL_TTS_MODEL_REVISION;
+                if model != expected_repo
+                    && model != expected_revision
+                    && model != format!("{expected_repo}@{expected_revision}")
+                {
+                    return Err(format!(
+                        "Local Qwen3-TTS uses the pinned model {expected_repo}@{expected_revision}"
+                    ));
+                }
+            }
+            TtsProvider::Windows => {
+                if model != "windows.media.speechsynthesis" {
+                    return Err(
+                        "Windows voices use the fixed model windows.media.speechsynthesis"
+                            .to_string(),
+                    );
+                }
+            }
         }
     }
     if let Some(voice) = voice {
-        let voice = nonempty_override("--voice", voice)?;
+        // An empty Windows voice ID is a deliberate, persisted selection of
+        // the current OS default. Other providers still require a concrete
+        // non-empty voice/model identifier.
+        let voice = if provider == TtsProvider::Windows {
+            voice.trim().to_string()
+        } else {
+            nonempty_override("--voice", voice)?
+        };
         match provider {
             TtsProvider::Soniox => settings.soniox_voice = voice,
             // Deepgram represents its voice as the speak endpoint's model.
             TtsProvider::Deepgram => settings.deepgram_model = voice,
             TtsProvider::OpenAi => settings.openai_voice = voice,
+            TtsProvider::LocalQwen => settings.local_qwen_voice = voice,
+            TtsProvider::Windows => settings.windows_voice_id = voice,
         }
     }
     Ok(())
@@ -487,6 +528,40 @@ fn current_model_and_voice(settings: &TtsSettings) -> (String, String) {
             settings.deepgram_model.clone(),
         ),
         TtsProvider::OpenAi => (settings.openai_model.clone(), settings.openai_voice.clone()),
+        TtsProvider::LocalQwen => (
+            format!(
+                "{}@{}",
+                crate::managers::local_tts::LOCAL_TTS_MODEL_REPO,
+                crate::managers::local_tts::LOCAL_TTS_MODEL_REVISION
+            ),
+            settings.local_qwen_voice.clone(),
+        ),
+        TtsProvider::Windows => (
+            "windows.media.speechsynthesis".to_string(),
+            settings.windows_voice_id.clone(),
+        ),
+    }
+}
+
+fn current_language(settings: &TtsSettings) -> String {
+    match settings.provider {
+        TtsProvider::Soniox => settings.soniox_language.clone(),
+        TtsProvider::LocalQwen => settings.local_qwen_language.clone(),
+        TtsProvider::Windows => settings.windows_voice_language.clone(),
+        TtsProvider::Deepgram | TtsProvider::OpenAi => String::new(),
+    }
+}
+
+fn restore_source_language(settings: &mut TtsSettings, source_language: &str) {
+    let source_language = source_language.trim();
+    if source_language.is_empty() {
+        return;
+    }
+    match settings.provider {
+        TtsProvider::Soniox => settings.soniox_language = source_language.to_string(),
+        TtsProvider::LocalQwen => settings.local_qwen_language = source_language.to_string(),
+        TtsProvider::Windows => settings.windows_voice_language = source_language.to_string(),
+        TtsProvider::Deepgram | TtsProvider::OpenAi => {}
     }
 }
 
@@ -730,5 +805,50 @@ mod tests {
         assert!(inactive.preset_name.is_none());
         assert!(inactive.instructions.is_none());
         assert!(enforce_prompt_model_compatibility(&settings, true, prompt()).is_err());
+    }
+
+    #[test]
+    fn legacy_empty_history_language_keeps_current_provider_language() {
+        let mut qwen = TtsSettings {
+            provider: TtsProvider::LocalQwen,
+            local_qwen_language: "Russian".to_string(),
+            ..TtsSettings::default()
+        };
+        restore_source_language(&mut qwen, "");
+        assert_eq!(qwen.local_qwen_language, "Russian");
+        restore_source_language(&mut qwen, "English");
+        assert_eq!(qwen.local_qwen_language, "English");
+
+        let mut soniox = TtsSettings {
+            provider: TtsProvider::Soniox,
+            soniox_language: "fi".to_string(),
+            ..TtsSettings::default()
+        };
+        restore_source_language(&mut soniox, "  ");
+        assert_eq!(soniox.soniox_language, "fi");
+    }
+
+    #[test]
+    fn windows_history_accepts_default_voice_and_fixed_model_only() {
+        let mut settings = TtsSettings {
+            provider: TtsProvider::Windows,
+            windows_voice_id: "old-voice".to_string(),
+            ..TtsSettings::default()
+        };
+        set_model_and_voice(
+            &mut settings,
+            TtsProvider::Windows,
+            Some("windows.media.speechsynthesis"),
+            Some(""),
+        )
+        .unwrap();
+        assert!(settings.windows_voice_id.is_empty());
+        assert!(set_model_and_voice(
+            &mut settings,
+            TtsProvider::Windows,
+            Some("wrong-model"),
+            None,
+        )
+        .is_err());
     }
 }

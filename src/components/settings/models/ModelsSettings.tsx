@@ -27,6 +27,8 @@ import {
 
 type RemoteApiRowId =
   | "groq"
+  | "openai_transcribe"
+  | "openai_live_transcribe"
   | "openai_realtime_whisper"
   | "openai_realtime2"
   | "openai_translate"
@@ -176,6 +178,10 @@ export const ModelsSettings: React.FC = () => {
         ? "groq"
         : remotePreset === "custom"
           ? "custom"
+          : remoteModelId === "gpt-transcribe"
+            ? "openai_transcribe"
+          : remoteModelId === "gpt-live-transcribe"
+            ? "openai_live_transcribe"
           : remoteModelId === "gpt-realtime-whisper"
             ? "openai_realtime_whisper"
           : remoteModelId === "gpt-realtime-translate"
@@ -196,6 +202,22 @@ export const ModelsSettings: React.FC = () => {
       description: "Custom OpenAI-compatible transcription endpoint",
       preset: "custom",
       iconClassName: "text-slate-300",
+    },
+    {
+      id: "openai_transcribe",
+      title: "Remote via OpenAI gpt-transcribe",
+      description: "Recommended for completed recordings and file transcription",
+      preset: "openai",
+      modelId: "gpt-transcribe",
+      iconClassName: "text-emerald-400",
+    },
+    {
+      id: "openai_live_transcribe",
+      title: "Remote via OpenAI gpt-live-transcribe",
+      description: "Recommended for low-latency live transcription",
+      preset: "openai",
+      modelId: "gpt-live-transcribe",
+      iconClassName: "text-cyan-400",
     },
     {
       id: "openai_realtime_whisper",

@@ -1,3 +1,4 @@
+use crate::managers::provider_error::parse_provider_error_value;
 use anyhow::{anyhow, Result};
 use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
 use base64::Engine as _;
@@ -16,6 +17,8 @@ use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 use tokio_tungstenite::{connect_async, tungstenite::Message};
 
 pub const OPENAI_REALTIME_WHISPER_MODEL: &str = "gpt-realtime-whisper";
+pub const OPENAI_LIVE_TRANSCRIBE_MODEL: &str = "gpt-live-transcribe";
+pub const OPENAI_TRANSCRIBE_MODEL: &str = "gpt-transcribe";
 
 // Server-side transcription WebSocket sessions are opened through the GA
 // Realtime endpoint with transcription intent. The similarly named
@@ -32,14 +35,18 @@ pub type FinalChunkCallback = Arc<dyn Fn(String) + Send + Sync + 'static>;
 
 #[derive(Clone, Debug)]
 pub struct OpenAiRealtimeWhisperOptions {
+    pub model: String,
     pub language: Option<String>,
+    pub prompt: Option<String>,
     pub delay: crate::settings::OpenAiRealtimeWhisperDelay,
 }
 
 impl Default for OpenAiRealtimeWhisperOptions {
     fn default() -> Self {
         Self {
+            model: OPENAI_REALTIME_WHISPER_MODEL.to_string(),
             language: None,
+            prompt: None,
             delay: crate::settings::OpenAiRealtimeWhisperDelay::Low,
         }
     }
@@ -85,9 +92,9 @@ impl OpenAiRealtimeWhisperManager {
     }
 
     pub fn is_realtime_model(model: &str) -> bool {
-        model
-            .trim()
-            .eq_ignore_ascii_case(OPENAI_REALTIME_WHISPER_MODEL)
+        let model = model.trim();
+        model.eq_ignore_ascii_case(OPENAI_REALTIME_WHISPER_MODEL)
+            || model.eq_ignore_ascii_case(OPENAI_LIVE_TRANSCRIBE_MODEL)
     }
 
     pub fn restart_session(&self) -> Result<()> {
@@ -113,6 +120,12 @@ impl OpenAiRealtimeWhisperManager {
     ) -> Result<()> {
         if api_key.trim().is_empty() {
             return Err(anyhow!("OpenAI API key is missing"));
+        }
+        if !Self::is_realtime_model(&options.model) {
+            return Err(anyhow!(
+                "{} is not supported by the OpenAI live-transcription adapter",
+                options.model
+            ));
         }
 
         let mut active_session_guard = self.active_session.lock();
@@ -291,6 +304,12 @@ impl OpenAiRealtimeWhisperManager {
         if api_key.trim().is_empty() {
             return Err(anyhow!("OpenAI API key is missing"));
         }
+        if !Self::is_realtime_model(&options.model) {
+            return Err(anyhow!(
+                "{} is not supported by the OpenAI live-transcription adapter",
+                options.model
+            ));
+        }
 
         let pcm_bytes = resample_16khz_f32_to_24khz_pcm16(audio_samples);
         let mut request = Self::build_realtime_ws_url()
@@ -386,12 +405,11 @@ impl OpenAiRealtimeWhisperManager {
                 .unwrap_or_default();
 
             if msg_type == "error" {
-                let message = payload
-                    .get("error")
-                    .and_then(|error| error.get("message"))
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("OpenAI Realtime Whisper returned an error");
-                return Err(anyhow!("{}", message));
+                let message = parse_provider_error_value(
+                    &payload,
+                    "OpenAI Realtime Whisper returned an error",
+                );
+                return Err(anyhow!(message));
             }
 
             match msg_type {
@@ -434,13 +452,26 @@ impl OpenAiRealtimeWhisperManager {
     }
 
     fn build_session_update_payload(options: &OpenAiRealtimeWhisperOptions) -> Value {
+        let model = options.model.trim();
         let mut transcription = json!({
-            "model": OPENAI_REALTIME_WHISPER_MODEL,
+            "model": model,
             "delay": options.delay.as_str(),
         });
 
         if let Some(language) = Self::normalize_language(options.language.clone()) {
-            transcription["language"] = json!(language);
+            if model.eq_ignore_ascii_case(OPENAI_LIVE_TRANSCRIBE_MODEL) {
+                transcription["languages"] = json!([language]);
+            } else {
+                transcription["language"] = json!(language);
+            }
+        }
+
+        if model.eq_ignore_ascii_case(OPENAI_LIVE_TRANSCRIBE_MODEL) {
+            if let Some(prompt) = options.prompt.as_deref().map(str::trim) {
+                if !prompt.is_empty() {
+                    transcription["prompt"] = json!(prompt);
+                }
+            }
         }
 
         json!({
@@ -613,12 +644,11 @@ impl OpenAiRealtimeWhisperManager {
                         .unwrap_or_default();
 
                     if msg_type == "error" {
-                        let message = payload
-                            .get("error")
-                            .and_then(|error| error.get("message"))
-                            .and_then(|v| v.as_str())
-                            .unwrap_or("OpenAI Realtime Whisper returned an error");
-                        return Err(anyhow!("{}", message));
+                        let message = parse_provider_error_value(
+                            &payload,
+                            "OpenAI Realtime Whisper returned an error",
+                        );
+                        return Err(anyhow!(message));
                     }
 
                     match msg_type {
@@ -729,11 +759,10 @@ impl OpenAiRealtimeWhisperManager {
                         }
                         "conversation.item.input_audio_transcription.failed" => {
                             pending_commits = pending_commits.saturating_sub(1);
-                            let message = payload
-                                .get("error")
-                                .and_then(|error| error.get("message"))
-                                .and_then(|v| v.as_str())
-                                .unwrap_or("OpenAI Realtime Whisper transcription failed");
+                            let message = parse_provider_error_value(
+                                &payload,
+                                "OpenAI Realtime Whisper transcription failed",
+                            );
                             if finish_requested && audio_input_closed && pending_commits == 0 {
                                 let partial = final_text.lock().trim().to_string();
                                 if !partial.is_empty() {
@@ -744,7 +773,7 @@ impl OpenAiRealtimeWhisperManager {
                                     break;
                                 }
                             }
-                            return Err(anyhow!("{}", message));
+                            return Err(anyhow!(message));
                         }
                         _ => {
                             debug!("Ignoring OpenAI Realtime Whisper event '{}'", msg_type);
@@ -936,7 +965,9 @@ mod tests {
     fn session_update_uses_transcription_contract() {
         let payload = OpenAiRealtimeWhisperManager::build_session_update_payload(
             &OpenAiRealtimeWhisperOptions {
+                model: OPENAI_REALTIME_WHISPER_MODEL.to_string(),
                 language: Some("en".to_string()),
+                prompt: Some("Ignored for the legacy model.".to_string()),
                 delay: crate::settings::OpenAiRealtimeWhisperDelay::Medium,
             },
         );
@@ -963,8 +994,35 @@ mod tests {
             payload["session"]["audio"]["input"]["transcription"]["language"],
             "en"
         );
+        assert!(payload["session"]["audio"]["input"]["transcription"]
+            .get("languages")
+            .is_none());
+        assert!(payload["session"]["audio"]["input"]["transcription"]
+            .get("prompt")
+            .is_none());
         assert!(payload["session"]["audio"]["input"]["turn_detection"].is_null());
         assert!(payload.get("response").is_none());
+    }
+
+    #[test]
+    fn live_transcribe_session_uses_plural_languages_and_prompt() {
+        let payload = OpenAiRealtimeWhisperManager::build_session_update_payload(
+            &OpenAiRealtimeWhisperOptions {
+                model: OPENAI_LIVE_TRANSCRIBE_MODEL.to_string(),
+                language: Some("fr".to_string()),
+                prompt: Some("A bilingual customer-support call.".to_string()),
+                delay: crate::settings::OpenAiRealtimeWhisperDelay::Low,
+            },
+        );
+        let transcription = &payload["session"]["audio"]["input"]["transcription"];
+
+        assert_eq!(transcription["model"], OPENAI_LIVE_TRANSCRIBE_MODEL);
+        assert_eq!(transcription["languages"], json!(["fr"]));
+        assert_eq!(
+            transcription["prompt"],
+            "A bilingual customer-support call."
+        );
+        assert!(transcription.get("language").is_none());
     }
 
     #[test]

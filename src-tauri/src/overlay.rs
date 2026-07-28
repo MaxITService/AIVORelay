@@ -1011,8 +1011,8 @@ fn calculate_recording_overlay_window_geometry(
                 | OverlayPosition::BottomRight
         );
         let full_bounds = get_monitor_logical_bounds(&monitor);
-        let work_area_bounds = get_monitor_logical_work_area_bounds(&monitor)
-            .unwrap_or(full_bounds);
+        let work_area_bounds =
+            get_monitor_logical_work_area_bounds(&monitor).unwrap_or(full_bounds);
         let bounds = if is_corner {
             if settings.auto_position_allow_reserved_areas {
                 full_bounds
@@ -1027,14 +1027,11 @@ fn calculate_recording_overlay_window_geometry(
         };
 
         if is_corner {
-            let bottom_reserved_height =
-                (full_bounds.y + full_bounds.height
-                    - (work_area_bounds.y + work_area_bounds.height))
-                    .max(0.0);
+            let bottom_reserved_height = (full_bounds.y + full_bounds.height
+                - (work_area_bounds.y + work_area_bounds.height))
+                .max(0.0);
             let frame_x = match settings.overlay_position {
-                OverlayPosition::TopLeft => {
-                    bounds.x + RECORDING_OVERLAY_CORNER_INSET
-                }
+                OverlayPosition::TopLeft => bounds.x + RECORDING_OVERLAY_CORNER_INSET,
                 OverlayPosition::BottomLeft => {
                     let left_inset = if settings.auto_position_allow_reserved_areas
                         && bottom_reserved_height > 0.0
@@ -1046,8 +1043,7 @@ fn calculate_recording_overlay_window_geometry(
                     bounds.x + left_inset
                 }
                 OverlayPosition::TopRight | OverlayPosition::BottomRight => {
-                    bounds.x + bounds.width - metrics.frame_width
-                        - RECORDING_OVERLAY_CORNER_INSET
+                    bounds.x + bounds.width - metrics.frame_width - RECORDING_OVERLAY_CORNER_INSET
                 }
                 _ => unreachable!(),
             };
@@ -1059,16 +1055,14 @@ fn calculate_recording_overlay_window_geometry(
                     let bottom_inset = if settings.auto_position_allow_reserved_areas
                         && bottom_reserved_height > 0.0
                     {
-                        RECORDING_OVERLAY_CORNER_INSET
-                            + RECORDING_OVERLAY_TASKBAR_VERTICAL_LIFT
+                        RECORDING_OVERLAY_CORNER_INSET + RECORDING_OVERLAY_TASKBAR_VERTICAL_LIFT
                     } else {
                         RECORDING_OVERLAY_CORNER_INSET
                     };
                     bounds.y + bounds.height - metrics.frame_height - bottom_inset
                 }
                 OverlayPosition::BottomRight => {
-                    bounds.y + bounds.height - metrics.frame_height
-                        - RECORDING_OVERLAY_CORNER_INSET
+                    bounds.y + bounds.height - metrics.frame_height - RECORDING_OVERLAY_CORNER_INSET
                 }
                 _ => unreachable!(),
             };
@@ -2803,11 +2797,7 @@ pub fn emit_recording_overlay_position_settings_changed(app_handle: &AppHandle) 
     let _ = app_handle.emit("recording-overlay-position-settings-changed", ());
 }
 
-fn persist_recording_overlay_custom_position(
-    app_handle: &AppHandle,
-    x_px: i32,
-    y_px: i32,
-) {
+fn persist_recording_overlay_custom_position(app_handle: &AppHandle, x_px: i32, y_px: i32) {
     let mut settings = settings::get_settings(app_handle);
     settings.recording_overlay_use_manual_position = true;
     settings.recording_overlay_has_saved_custom_position = true;
@@ -2823,8 +2813,7 @@ fn clamp_custom_position_to_nearest_work_area(
     x_px: i32,
     y_px: i32,
 ) -> Result<RecordingOverlayCustomPositionPayload, String> {
-    if !(-100000..=100000).contains(&x_px) || !(-100000..=100000).contains(&y_px)
-    {
+    if !(-100000..=100000).contains(&x_px) || !(-100000..=100000).contains(&y_px) {
         return Err("Custom coordinates must be between -100000 and 100000".to_string());
     }
 
@@ -2844,12 +2833,8 @@ fn clamp_custom_position_to_nearest_work_area(
     let scale = monitor.scale_factor();
     let frame_width = metrics.frame_width * scale;
     let frame_height = metrics.frame_height * scale;
-    let final_x = clamp_f64(
-        x_px as f64,
-        bounds.x,
-        bounds.x + bounds.width - frame_width,
-    )
-    .round() as i32;
+    let final_x =
+        clamp_f64(x_px as f64, bounds.x, bounds.x + bounds.width - frame_width).round() as i32;
     let final_y = clamp_f64(
         y_px as f64,
         bounds.y,
@@ -2857,9 +2842,7 @@ fn clamp_custom_position_to_nearest_work_area(
     )
     .round() as i32;
 
-    if !(-100000..=100000).contains(&final_x)
-        || !(-100000..=100000).contains(&final_y)
-    {
+    if !(-100000..=100000).contains(&final_x) || !(-100000..=100000).contains(&final_y) {
         return Err("The nearest monitor is outside the supported coordinate range".to_string());
     }
 

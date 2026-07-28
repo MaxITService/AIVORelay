@@ -467,6 +467,11 @@ fn is_binding_enabled_for_settings(settings: &settings::AppSettings, binding_id:
         "send_screenshot_to_extension" => settings.send_screenshot_to_extension_enabled,
         "voice_command" => settings.voice_command_enabled,
         "read_clipboard" | "read_selection_tts" => settings.tts.enabled,
+        settings::TTS_PLAY_HISTORY_FALLBACK_BINDING_ID => {
+            settings.tts.enabled
+                && settings.tts.interactive_history_enabled
+                && settings.tts.play_history_when_overlay_closed
+        }
         _ => true,
     }
 }
@@ -518,6 +523,59 @@ fn sync_feature_shortcut_registration(
 
     if is_binding_currently_registered(app, &binding) {
         unregister_shortcut(app, binding)?;
+    }
+
+    Ok(())
+}
+
+pub fn prepare_tts_play_history_fallback_binding(
+    app: &AppHandle,
+    app_settings: &mut settings::AppSettings,
+    next_tts: &settings::TtsSettings,
+) -> Result<(), String> {
+    let binding_id = settings::TTS_PLAY_HISTORY_FALLBACK_BINDING_ID;
+    let previous_binding = app_settings
+        .bindings
+        .get(binding_id)
+        .cloned()
+        .ok_or_else(|| "TTS Play history fallback shortcut is unavailable".to_string())?;
+    let was_registered = is_binding_currently_registered(app, &previous_binding);
+    let next_hotkey = next_tts.play_pause_hotkey.trim().to_string();
+    let should_register = next_tts.enabled
+        && next_tts.interactive_history_enabled
+        && next_tts.play_history_when_overlay_closed;
+
+    if previous_binding.current_binding == next_hotkey && was_registered == should_register {
+        return Ok(());
+    }
+
+    if was_registered {
+        unregister_shortcut(app, previous_binding.clone())?;
+    }
+
+    let mut next_binding = previous_binding.clone();
+    next_binding.current_binding = next_hotkey;
+    app_settings
+        .bindings
+        .insert(binding_id.to_string(), next_binding.clone());
+
+    if !should_register {
+        return Ok(());
+    }
+    if next_binding.current_binding.is_empty() {
+        if was_registered {
+            let _ = register_shortcut(app, previous_binding);
+        }
+        return Err(
+            "Set a Play / Pause key before enabling the Interactive History fallback".to_string(),
+        );
+    }
+
+    if let Err(error) = register_shortcut(app, next_binding) {
+        if was_registered {
+            let _ = register_shortcut(app, previous_binding);
+        }
+        return Err(error);
     }
 
     Ok(())
@@ -2803,11 +2861,8 @@ pub fn change_openai_realtime_whisper_flatten_enabled_setting(
 #[specta::specta]
 pub fn change_soniox_model_setting(app: AppHandle, model: String) -> Result<(), String> {
     let trimmed_model = model.trim();
-    if trimmed_model
-        .to_ascii_lowercase()
-        .starts_with("stt-async")
-        && trimmed_model.chars().count()
-            > crate::managers::soniox_stt::SONIOX_ASYNC_MODEL_MAX_CHARS
+    if trimmed_model.to_ascii_lowercase().starts_with("stt-async")
+        && trimmed_model.chars().count() > crate::managers::soniox_stt::SONIOX_ASYNC_MODEL_MAX_CHARS
     {
         return Err(format!(
             "Soniox async model id must not exceed {} characters",

@@ -1,4 +1,11 @@
-import React, { useEffect, useRef, useState, useCallback } from "react";
+import React, {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
+import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 
 export interface DropdownOption {
@@ -37,12 +44,35 @@ export const Dropdown: React.FC<DropdownProps> = ({
   const listRef = useRef<HTMLDivElement>(null);
   const searchBufferRef = useRef("");
   const searchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [menuStyle, setMenuStyle] = useState<React.CSSProperties | null>(null);
+
+  const updateMenuPosition = useCallback(() => {
+    if (!isOpen || !dropdownRef.current) {
+      return;
+    }
+
+    const rect = dropdownRef.current.getBoundingClientRect();
+    const edgeGap = 8;
+    const anchorGap = 4;
+    const horizontalRight = Math.max(edgeGap, window.innerWidth - rect.right);
+
+    setMenuStyle({
+      minWidth: rect.width,
+      maxWidth: `calc(100vw - ${edgeGap * 2}px)`,
+      right: horizontalRight,
+      ...(dropUp
+        ? { bottom: window.innerHeight - rect.top + anchorGap }
+        : { top: rect.bottom + anchorGap }),
+    });
+  }, [dropUp, isOpen]);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
+      const target = event.target as Node;
       if (
         dropdownRef.current &&
-        !dropdownRef.current.contains(event.target as Node)
+        !dropdownRef.current.contains(target) &&
+        !listRef.current?.contains(target)
       ) {
         setIsOpen(false);
       }
@@ -50,6 +80,21 @@ export const Dropdown: React.FC<DropdownProps> = ({
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
+
+  useLayoutEffect(() => {
+    if (!isOpen) {
+      setMenuStyle(null);
+      return;
+    }
+
+    updateMenuPosition();
+    window.addEventListener("resize", updateMenuPosition);
+    window.addEventListener("scroll", updateMenuPosition, true);
+    return () => {
+      window.removeEventListener("resize", updateMenuPosition);
+      window.removeEventListener("scroll", updateMenuPosition, true);
+    };
+  }, [isOpen, updateMenuPosition]);
 
   // Reset highlighted index when dropdown opens
   useEffect(() => {
@@ -192,40 +237,50 @@ export const Dropdown: React.FC<DropdownProps> = ({
           />
         </svg>
       </button>
-      {isOpen && !disabled && (
-        <div
-          ref={listRef}
-          className={`absolute ${dropUp ? "bottom-full mb-1" : "top-full mt-1"} right-0 min-w-full w-max max-w-sm bg-[#252525]/98 backdrop-blur-xl border border-[#3c3c3c] rounded-lg shadow-[0_12px_40px_rgba(0,0,0,0.5)] z-[130] max-h-60 overflow-y-auto p-1`}
-          onKeyDown={handleKeyDown}
-        >
-          {options.length === 0 ? (
-            <div className="px-3 py-2 text-sm text-[#6b6b6b]">
-              {t("common.noOptionsFound")}
-            </div>
-          ) : (
-            options.map((option, index) => (
-              <button
-                key={option.value}
-                type="button"
-                className={`w-full px-3 py-2 text-sm text-left rounded-md transition-all duration-150 ${
-                  selectedValue === option.value
-                    ? `bg-[#ff4d8d]/20 font-medium ${option.className || "text-[#ff4d8d]"}`
-                    : index === highlightedIndex
-                      ? `bg-[#ffffff]/10 ${option.className || "text-[#e8e8e8]"}`
-                      : `hover:bg-[#ffffff]/5 ${option.className || "text-[#e8e8e8]"}`
-                } ${option.disabled ? "opacity-40 cursor-not-allowed" : "cursor-pointer"}`}
-                onClick={() => handleSelect(option.value)}
-                disabled={option.disabled}
-                onMouseEnter={() => setHighlightedIndex(index)}
-              >
-                <span className="block whitespace-normal break-words">
-                  {option.label}
-                </span>
-              </button>
-            ))
-          )}
-        </div>
-      )}
+      {isOpen &&
+        !disabled &&
+        createPortal(
+          <div
+            ref={listRef}
+            className="fixed z-[9998] w-max max-w-sm max-h-60 overflow-y-auto rounded-lg border border-[#3c3c3c] bg-[#252525]/98 p-1 shadow-[0_12px_40px_rgba(0,0,0,0.5)] backdrop-blur-xl"
+            style={
+              menuStyle ?? {
+                top: 0,
+                left: 0,
+                visibility: "hidden",
+              }
+            }
+            onKeyDown={handleKeyDown}
+          >
+            {options.length === 0 ? (
+              <div className="px-3 py-2 text-sm text-[#6b6b6b]">
+                {t("common.noOptionsFound")}
+              </div>
+            ) : (
+              options.map((option, index) => (
+                <button
+                  key={option.value}
+                  type="button"
+                  className={`w-full px-3 py-2 text-sm text-left rounded-md transition-all duration-150 ${
+                    selectedValue === option.value
+                      ? `bg-[#ff4d8d]/20 font-medium ${option.className || "text-[#ff4d8d]"}`
+                      : index === highlightedIndex
+                        ? `bg-[#ffffff]/10 ${option.className || "text-[#e8e8e8]"}`
+                        : `hover:bg-[#ffffff]/5 ${option.className || "text-[#e8e8e8]"}`
+                  } ${option.disabled ? "opacity-40 cursor-not-allowed" : "cursor-pointer"}`}
+                  onClick={() => handleSelect(option.value)}
+                  disabled={option.disabled}
+                  onMouseEnter={() => setHighlightedIndex(index)}
+                >
+                  <span className="block whitespace-normal break-words">
+                    {option.label}
+                  </span>
+                </button>
+              ))
+            )}
+          </div>,
+          document.body,
+        )}
     </div>
   );
 };

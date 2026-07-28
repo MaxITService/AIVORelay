@@ -30,19 +30,27 @@ import { SettingContainer } from "@/components/ui/SettingContainer";
 import { SettingsGroup } from "@/components/ui/SettingsGroup";
 import { ToggleSwitch } from "@/components/ui/ToggleSwitch";
 
-type TtsProvider = "soniox" | "deepgram" | "openai";
+type TtsProvider = "soniox" | "deepgram" | "openai" | "local_qwen" | "windows";
 type TtsOutputFormat = "mp3" | "wav";
+export type TtsHistoryScope = "interactive" | "file";
 
 export type TtsHistorySettingsSnapshot = {
-  history_enabled?: boolean;
-  history_max_entries?: number;
-  history_max_storage_mb?: number;
+  interactive_history_enabled?: boolean;
+  interactive_history_max_entries?: number;
+  interactive_history_max_storage_mb?: number;
+  file_history_enabled?: boolean;
+  file_history_max_entries?: number;
+  file_history_max_storage_mb?: number;
   provider?: TtsProvider;
   soniox_model?: string;
   soniox_voice?: string;
   deepgram_model?: string;
   openai_model?: string;
   openai_voice?: string;
+  local_qwen_voice?: string;
+  local_qwen_language?: string;
+  windows_voice_id?: string;
+  windows_voice_language?: string;
   openai_instructions?: string;
   selected_prompt_id?: string;
   output_format?: TtsOutputFormat;
@@ -57,12 +65,14 @@ export type TtsHistorySettingsSnapshot = {
 export type TtsHistoryEntry = {
   id: number;
   timestamp: number;
+  scope: TtsHistoryScope;
   group_id: string;
   source_text: string;
   source_kind?: "text" | "markdown";
   provider: TtsProvider;
   model: string;
   voice: string;
+  language: string;
   output_format: TtsOutputFormat;
   managed_audio_filename: string;
   external_output_path?: string | null;
@@ -72,8 +82,10 @@ export type TtsHistoryEntry = {
 };
 
 type TtsHistoryProps = {
+  scope: TtsHistoryScope;
   tts: TtsHistorySettingsSnapshot;
   savingField: string | null;
+  onAvailabilityChange?: (hasEntries: boolean) => void;
   updateTts: (
     patch: Partial<TtsHistorySettingsSnapshot>,
     field: string,
@@ -117,6 +129,13 @@ type TtsHistoryDeleteOutcome = {
 const asErrorMessage = (error: unknown) =>
   error instanceof Error ? error.message : String(error);
 
+const formatPlaybackTime = (seconds: number) => {
+  const safeSeconds =
+    Number.isFinite(seconds) && seconds > 0 ? Math.floor(seconds) : 0;
+  const minutes = Math.floor(safeSeconds / 60);
+  return `${minutes}:${String(safeSeconds % 60).padStart(2, "0")}`;
+};
+
 const asBoundedInteger = (
   value: string,
   minimum: number,
@@ -136,6 +155,49 @@ const providerLabel = (provider: TtsProvider) => {
       return "Deepgram";
     case "openai":
       return "OpenAI";
+    case "local_qwen":
+      return "Qwen3-TTS (Local)";
+    case "windows":
+      return "Windows voices";
+  }
+};
+
+const providerUsesPaidApi = (provider: TtsProvider | undefined) =>
+  provider === "soniox" || provider === "deepgram" || provider === "openai";
+
+const modelForProvider = (
+  tts: TtsHistorySettingsSnapshot,
+  provider: TtsProvider,
+) => {
+  switch (provider) {
+    case "soniox":
+      return tts.soniox_model;
+    case "deepgram":
+      return tts.deepgram_model;
+    case "openai":
+      return tts.openai_model;
+    case "local_qwen":
+      return "Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice";
+    case "windows":
+      return "windows.media.speechsynthesis";
+  }
+};
+
+const voiceForProvider = (
+  tts: TtsHistorySettingsSnapshot,
+  provider: TtsProvider,
+) => {
+  switch (provider) {
+    case "soniox":
+      return tts.soniox_voice;
+    case "deepgram":
+      return tts.deepgram_model;
+    case "openai":
+      return tts.openai_voice;
+    case "local_qwen":
+      return tts.local_qwen_voice;
+    case "windows":
+      return tts.windows_voice_id;
   }
 };
 
@@ -174,8 +236,10 @@ const groupHistoryEntries = (entries: TtsHistoryEntry[]): HistoryGroup[] => {
 };
 
 export const TtsHistory: React.FC<TtsHistoryProps> = ({
+  scope,
   tts,
   savingField,
+  onAvailabilityChange,
   updateTts,
 }) => {
   const { t, i18n } = useTranslation();
@@ -184,15 +248,41 @@ export const TtsHistory: React.FC<TtsHistoryProps> = ({
   const [loadError, setLoadError] = useState<string | null>(null);
   const [busyEntryId, setBusyEntryId] = useState<number | null>(null);
   const [activeEntryId, setActiveEntryId] = useState<number | null>(null);
+  const [loadedEntryId, setLoadedEntryId] = useState<number | null>(null);
+  const [playbackTime, setPlaybackTime] = useState(0);
+  const [playbackDuration, setPlaybackDuration] = useState(0);
   const [confirmation, setConfirmation] = useState<Confirmation>(null);
   const [actionMessage, setActionMessage] = useState<ActionMessage>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const loadedEntryIdRef = useRef<number | null>(null);
   const playbackGenerationRef = useRef(0);
 
-  const historyEnabled = Boolean(tts.history_enabled);
-  const historyMaxEntries = Number(tts.history_max_entries ?? 100);
-  const historyMaxStorageMb = Number(tts.history_max_storage_mb ?? 1024);
+  const historyEnabled =
+    scope === "interactive"
+      ? Boolean(tts.interactive_history_enabled)
+      : Boolean(tts.file_history_enabled);
+  const historyMaxEntries = Number(
+    scope === "interactive"
+      ? (tts.interactive_history_max_entries ?? 100)
+      : (tts.file_history_max_entries ?? 100),
+  );
+  const historyMaxStorageMb = Number(
+    scope === "interactive"
+      ? (tts.interactive_history_max_storage_mb ?? 1024)
+      : (tts.file_history_max_storage_mb ?? 1024),
+  );
+  const enabledField =
+    scope === "interactive"
+      ? ("interactive_history_enabled" as const)
+      : ("file_history_enabled" as const);
+  const maxEntriesField =
+    scope === "interactive"
+      ? ("interactive_history_max_entries" as const)
+      : ("file_history_max_entries" as const);
+  const maxStorageField =
+    scope === "interactive"
+      ? ("interactive_history_max_storage_mb" as const)
+      : ("file_history_max_storage_mb" as const);
   const groups = useMemo(() => groupHistoryEntries(entries), [entries]);
   const dateFormatter = useMemo(
     () =>
@@ -214,6 +304,9 @@ export const TtsHistory: React.FC<TtsHistoryProps> = ({
     audioRef.current = null;
     loadedEntryIdRef.current = null;
     setActiveEntryId(null);
+    setLoadedEntryId(null);
+    setPlaybackTime(0);
+    setPlaybackDuration(0);
   }, []);
 
   const refreshHistory = useCallback(async () => {
@@ -221,14 +314,16 @@ export const TtsHistory: React.FC<TtsHistoryProps> = ({
     try {
       const nextEntries = await invoke<TtsHistoryEntry[]>(
         "get_tts_history_entries",
+        { scope },
       );
       setEntries(nextEntries);
+      onAvailabilityChange?.(nextEntries.length > 0);
     } catch (error) {
       setLoadError(asErrorMessage(error));
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [onAvailabilityChange, scope]);
 
   useEffect(() => {
     void refreshHistory();
@@ -325,8 +420,26 @@ export const TtsHistory: React.FC<TtsHistoryProps> = ({
       const audio = new Audio(convertFileSrc(audioPath, "asset"));
       audioRef.current = audio;
       loadedEntryIdRef.current = entry.id;
+      setLoadedEntryId(entry.id);
+      setPlaybackTime(0);
+      setPlaybackDuration(0);
+      const updateTimeline = () => {
+        if (audioRef.current !== audio) return;
+        setPlaybackTime(
+          Number.isFinite(audio.currentTime) ? audio.currentTime : 0,
+        );
+        setPlaybackDuration(
+          Number.isFinite(audio.duration) ? audio.duration : 0,
+        );
+      };
+      audio.onloadedmetadata = updateTimeline;
+      audio.ondurationchange = updateTimeline;
+      audio.ontimeupdate = updateTimeline;
       audio.onended = () => {
-        if (audioRef.current === audio) setActiveEntryId(null);
+        if (audioRef.current === audio) {
+          updateTimeline();
+          setActiveEntryId(null);
+        }
       };
       audio.onerror = () => {
         if (audioRef.current === audio) {
@@ -358,6 +471,24 @@ export const TtsHistory: React.FC<TtsHistoryProps> = ({
         setBusyEntryId(null);
       }
     }
+  };
+
+  const seekPlayback = (entryId: number, requestedTime: number) => {
+    const audio = audioRef.current;
+    if (
+      !audio ||
+      loadedEntryIdRef.current !== entryId ||
+      !Number.isFinite(requestedTime) ||
+      playbackDuration <= 0
+    ) {
+      return;
+    }
+    const boundedTime = Math.min(
+      playbackDuration,
+      Math.max(0, requestedTime),
+    );
+    audio.currentTime = boundedTime;
+    setPlaybackTime(boundedTime);
   };
 
   const exportEntry = async (entry: TtsHistoryEntry) => {
@@ -440,18 +571,8 @@ export const TtsHistory: React.FC<TtsHistoryProps> = ({
     setBusyEntryId(entry.id);
     try {
       const provider = tts.provider ?? entry.provider;
-      const model =
-        provider === "soniox"
-          ? tts.soniox_model
-          : provider === "deepgram"
-            ? tts.deepgram_model
-            : tts.openai_model;
-      const voice =
-        provider === "soniox"
-          ? tts.soniox_voice
-          : provider === "deepgram"
-            ? tts.deepgram_model
-            : tts.openai_voice;
+      const model = modelForProvider(tts, provider);
+      const voice = voiceForProvider(tts, provider);
       const normalizedModel = model?.trim() ?? "";
       const promptSupported =
         provider === "openai" &&
@@ -479,7 +600,7 @@ export const TtsHistory: React.FC<TtsHistoryProps> = ({
               (tts.output_format ?? entry.output_format) === "mp3"
                 ? (tts.mp3_bitrate_kbps ?? null)
                 : null,
-            confirmedApiCharge: true,
+            confirmedApiCharge: providerUsesPaidApi(provider),
           },
         },
       );
@@ -507,12 +628,9 @@ export const TtsHistory: React.FC<TtsHistoryProps> = ({
     else void regenerateEntry(pending.entry);
   };
 
-  const currentModel =
-    tts.provider === "soniox"
-      ? tts.soniox_model
-      : tts.provider === "deepgram"
-        ? tts.deepgram_model
-        : tts.openai_model;
+  const currentModel = tts.provider
+    ? modelForProvider(tts, tts.provider)
+    : undefined;
   const normalizedCurrentModel = currentModel?.trim() ?? "";
   const currentPromptSupported =
     tts.provider === "openai" &&
@@ -526,31 +644,30 @@ export const TtsHistory: React.FC<TtsHistoryProps> = ({
         ? t("textToSpeech.history.customInstructions")
         : t("textToSpeech.history.none")))
     : t("textToSpeech.history.none");
-  const currentVoice =
-    tts.provider === "soniox"
-      ? tts.soniox_voice
-      : tts.provider === "deepgram"
-        ? tts.deepgram_model
-        : tts.openai_voice;
+  const currentVoice = tts.provider
+    ? voiceForProvider(tts, tts.provider)
+    : undefined;
+  const regenerationUsesPaidApi = providerUsesPaidApi(tts.provider);
 
   return (
     <>
       <SettingsGroup
-        title={t("textToSpeech.history.title")}
-        description={t("textToSpeech.history.description")}
+        title={t(`textToSpeech.history.scopes.${scope}.title`)}
+        description={t(`textToSpeech.history.scopes.${scope}.description`)}
       >
         <ToggleSwitch
           grouped
           checked={historyEnabled}
           onChange={(enabled) => {
-            void updateTts(
-              { history_enabled: enabled },
-              "history_enabled",
-            ).then(refreshHistory);
+            void updateTts({ [enabledField]: enabled }, enabledField).then(
+              refreshHistory,
+            );
           }}
-          isUpdating={savingField === "history_enabled"}
+          isUpdating={savingField === enabledField}
           label={t("textToSpeech.history.enable")}
-          description={t("textToSpeech.history.enableDescription")}
+          description={t(
+            `textToSpeech.history.scopes.${scope}.enableDescription`,
+          )}
           descriptionMode="inline"
         />
 
@@ -570,14 +687,14 @@ export const TtsHistory: React.FC<TtsHistoryProps> = ({
             onChange={(event) =>
               void updateTts(
                 {
-                  history_max_entries: asBoundedInteger(
+                  [maxEntriesField]: asBoundedInteger(
                     event.target.value,
                     1,
                     100000,
                     100,
                   ),
                 },
-                "history_max_entries",
+                maxEntriesField,
               )
             }
           />
@@ -600,14 +717,14 @@ export const TtsHistory: React.FC<TtsHistoryProps> = ({
               onChange={(event) =>
                 void updateTts(
                   {
-                    history_max_storage_mb: asBoundedInteger(
+                    [maxStorageField]: asBoundedInteger(
                       event.target.value,
                       1,
                       1048576,
                       1024,
                     ),
                   },
-                  "history_max_storage_mb",
+                  maxStorageField,
                 )
               }
             />
@@ -736,8 +853,8 @@ export const TtsHistory: React.FC<TtsHistoryProps> = ({
               </p>
               <p className="mx-auto mt-1 max-w-lg text-xs leading-relaxed text-[#808080]">
                 {historyEnabled
-                  ? t("textToSpeech.history.emptyEnabled")
-                  : t("textToSpeech.history.emptyDisabled")}
+                  ? t(`textToSpeech.history.scopes.${scope}.emptyEnabled`)
+                  : t(`textToSpeech.history.scopes.${scope}.emptyDisabled`)}
               </p>
             </div>
           )}
@@ -768,6 +885,7 @@ export const TtsHistory: React.FC<TtsHistoryProps> = ({
                   <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
                     {group.entries.map((entry) => {
                       const isPlaying = activeEntryId === entry.id;
+                      const isLoaded = loadedEntryId === entry.id;
                       const isBusy = busyEntryId === entry.id;
                       const timestamp = new Date(
                         normalizedTimestamp(entry.timestamp),
@@ -821,7 +939,17 @@ export const TtsHistory: React.FC<TtsHistoryProps> = ({
                               {t("textToSpeech.history.metadata.voice")}
                             </dt>
                             <dd className="truncate text-right text-[#c8c8c8]">
-                              {entry.voice || t("textToSpeech.history.none")}
+                              {entry.voice ||
+                                (entry.provider === "windows"
+                                  ? t("textToSpeech.windows.defaultVoice")
+                                  : t("textToSpeech.history.none"))}
+                            </dd>
+                            <dt className="text-[#707070]">
+                              {t("textToSpeech.history.metadata.language")}
+                            </dt>
+                            <dd className="truncate text-right text-[#c8c8c8]">
+                              {entry.language ||
+                                t("textToSpeech.history.none")}
                             </dd>
                             <dt className="text-[#707070]">
                               {t("textToSpeech.history.metadata.prompt")}
@@ -839,6 +967,35 @@ export const TtsHistory: React.FC<TtsHistoryProps> = ({
                               {entry.output_format}
                             </dd>
                           </dl>
+
+                          <div className="mt-4 flex items-center gap-2">
+                            <span className="min-w-9 text-right font-mono text-[11px] tabular-nums text-[#808080]">
+                              {formatPlaybackTime(
+                                isLoaded ? playbackTime : 0,
+                              )}
+                            </span>
+                            <input
+                              type="range"
+                              min={0}
+                              max={isLoaded ? playbackDuration : 0}
+                              step={0.01}
+                              value={isLoaded ? playbackTime : 0}
+                              disabled={!isLoaded || playbackDuration <= 0}
+                              onChange={(event) =>
+                                seekPlayback(
+                                  entry.id,
+                                  Number(event.target.value),
+                                )
+                              }
+                              aria-label={t("textToSpeech.history.seek")}
+                              className="h-1 min-w-0 flex-1 cursor-pointer appearance-none rounded-lg bg-white/10 accent-[#ff4d8d] disabled:cursor-not-allowed disabled:opacity-40"
+                            />
+                            <span className="min-w-9 font-mono text-[11px] tabular-nums text-[#808080]">
+                              {formatPlaybackTime(
+                                isLoaded ? playbackDuration : 0,
+                              )}
+                            </span>
+                          </div>
 
                           <div className="mt-4 flex flex-wrap gap-2">
                             <Button
@@ -949,14 +1106,27 @@ export const TtsHistory: React.FC<TtsHistoryProps> = ({
         onClose={() => setConfirmation(null)}
         onConfirm={confirmAction}
         title={t("textToSpeech.history.confirmRegenerateTitle")}
-        message={t("textToSpeech.history.confirmRegenerate", {
-          provider: tts.provider
-            ? providerLabel(tts.provider)
-            : t("textToSpeech.history.none"),
-          voice: currentVoice || t("textToSpeech.history.none"),
-          prompt: selectedPrompt,
-        })}
-        confirmText={t("textToSpeech.history.regenerateAndUseCredits")}
+        message={t(
+          regenerationUsesPaidApi
+            ? "textToSpeech.history.confirmRegenerate"
+            : "textToSpeech.history.confirmRegenerateOffline",
+          {
+            provider: tts.provider
+              ? providerLabel(tts.provider)
+              : t("textToSpeech.history.none"),
+            voice:
+              currentVoice ||
+              (tts.provider === "windows"
+                ? t("textToSpeech.windows.defaultVoice")
+                : t("textToSpeech.history.none")),
+            prompt: selectedPrompt,
+          },
+        )}
+        confirmText={t(
+          regenerationUsesPaidApi
+            ? "textToSpeech.history.regenerateAndUseCredits"
+            : "textToSpeech.history.regenerateOffline",
+        )}
         cancelText={t("common.cancel")}
         variant="warning"
       />

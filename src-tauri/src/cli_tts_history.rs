@@ -5,7 +5,7 @@
 //! an interactive confirmation or `--yes`.
 
 use crate::cli::{
-    CliArgs, CliCommand, CliTtsOutputFormat, CliTtsProvider, TtsHistoryCommand,
+    CliArgs, CliCommand, CliTtsHistoryScope, CliTtsOutputFormat, CliTtsProvider, TtsHistoryCommand,
     TtsHistoryDeleteArgs, TtsHistoryExportArgs, TtsHistoryListArgs, TtsHistoryRegenerateArgs,
     TtsHistoryShowArgs,
 };
@@ -14,7 +14,7 @@ use crate::commands::tts_history::{
 };
 use crate::managers::tts::{TtsManager, TtsPhase};
 use crate::managers::tts_history::{
-    TtsHistoryEntry, TtsHistoryManagedAudioDeleteStatus, TtsHistoryManager,
+    TtsHistoryEntry, TtsHistoryManagedAudioDeleteStatus, TtsHistoryManager, TtsHistoryScope,
 };
 use crate::settings::{TtsOutputFormat, TtsProvider};
 use serde_json::{json, Value};
@@ -33,6 +33,28 @@ const EXIT_OUTPUT_COLLISION: i32 = 5;
 const EXIT_RETAINED_AUDIO_MISSING: i32 = 6;
 const EXIT_PARTIAL: i32 = 7;
 const ALLOWED_MP3_BITRATES: &[u16] = &[64, 96, 128, 192, 256, 320];
+
+fn cli_history_scope(scope: CliTtsHistoryScope) -> TtsHistoryScope {
+    match scope {
+        CliTtsHistoryScope::Interactive => TtsHistoryScope::Interactive,
+        CliTtsHistoryScope::File => TtsHistoryScope::File,
+    }
+}
+
+fn history_scope_name(scope: TtsHistoryScope) -> &'static str {
+    match scope {
+        TtsHistoryScope::Interactive => "interactive",
+        TtsHistoryScope::File => "file",
+    }
+}
+
+fn history_capture_enabled(app: &AppHandle, scope: TtsHistoryScope) -> bool {
+    let settings = crate::settings::get_settings(app).tts;
+    match scope {
+        TtsHistoryScope::Interactive => settings.interactive_history_enabled,
+        TtsHistoryScope::File => settings.file_history_enabled,
+    }
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum ConfirmationPolicy {
@@ -99,21 +121,23 @@ fn failure_json(failure: &CliFailure) -> Value {
 
 fn run_tts_history_inner(app: &AppHandle, args: &CliArgs) -> Result<Value, CliFailure> {
     validate_root_scope(args)?;
-    let command = match args.command.as_ref() {
-        Some(CliCommand::TtsHistory(history)) => &history.command,
-        None => return Err(CliFailure::new(EXIT_USAGE, "Missing tts-history command")),
+    let history_args = match args.command.as_ref() {
+        Some(CliCommand::TtsHistory(history)) => history,
+        _ => return Err(CliFailure::new(EXIT_USAGE, "Missing tts-history command")),
     };
+    let command = &history_args.command;
+    let scope = cli_history_scope(history_args.scope);
     initialize_history_manager(app)?;
     let history = app.state::<Arc<TtsHistoryManager>>().inner().clone();
 
     match command {
-        TtsHistoryCommand::List(options) => list_history(app, &history, options, args.json),
-        TtsHistoryCommand::Show(options) => show_history(app, &history, options, args.json),
-        TtsHistoryCommand::Export(options) => export_history(&history, options, args.json),
-        TtsHistoryCommand::Delete(options) => delete_history(&history, options, args.json),
+        TtsHistoryCommand::List(options) => list_history(app, &history, scope, options, args.json),
+        TtsHistoryCommand::Show(options) => show_history(app, &history, scope, options, args.json),
+        TtsHistoryCommand::Export(options) => export_history(&history, scope, options, args.json),
+        TtsHistoryCommand::Delete(options) => delete_history(&history, scope, options, args.json),
         TtsHistoryCommand::Regenerate(options) => {
             initialize_tts_manager(app)?;
-            regenerate_history(app, &history, options, args.json)
+            regenerate_history(app, &history, scope, options, args.json)
         }
     }
 }
@@ -151,9 +175,7 @@ fn validate_root_scope(args: &CliArgs) -> Result<(), CliFailure> {
         || args.transcribe_file.is_some()
         || args.convert_file.is_some()
         || args.output.is_some()
-        || args.tts_prompt.is_some()
-        || args.tts_instructions.is_some()
-        || args.tts_instructions_file.is_some()
+        || args.has_tts_file_conversion_args()
         || args.model.is_some()
         || args.device_index.is_some()
         || args.list_devices
@@ -170,6 +192,7 @@ fn validate_root_scope(args: &CliArgs) -> Result<(), CliFailure> {
 fn list_history(
     app: &AppHandle,
     history: &TtsHistoryManager,
+    scope: TtsHistoryScope,
     options: &TtsHistoryListArgs,
     json_mode: bool,
 ) -> Result<Value, CliFailure> {
@@ -181,7 +204,7 @@ fn list_history(
         return Err(CliFailure::new(EXIT_USAGE, "--group must not be empty"));
     }
     let mut entries = history
-        .list_entries()
+        .list_entries(scope)
         .map_err(|error| CliFailure::new(EXIT_RUNTIME, error.to_string()))?;
     if let Some(group) = options.group.as_deref() {
         entries.retain(|entry| entry.group_id == group);
@@ -195,7 +218,7 @@ fn list_history(
     if let Some(limit) = options.limit {
         entries.truncate(limit);
     }
-    let history_enabled = crate::settings::get_settings(app).tts.history_enabled;
+    let history_enabled = history_capture_enabled(app, scope);
     let values = entries
         .iter()
         .map(|entry| history_entry_json(history, entry))
@@ -208,7 +231,10 @@ fn list_history(
             } else {
                 "disabled"
             };
-            println!("TTS history is empty (new-history capture is {capture}).");
+            println!(
+                "{} TTS history is empty (new-history capture is {capture}).",
+                history_scope_name(scope)
+            );
         } else {
             println!(
                 "{:<8} {:<24} {:<10} {:<22} {:<7} TEXT",
@@ -237,6 +263,7 @@ fn list_history(
     Ok(json!({
         "ok": true,
         "operation": "tts_history_list",
+        "scope": scope,
         "history_enabled": history_enabled,
         "count": values.len(),
         "group": options.group,
@@ -247,19 +274,36 @@ fn list_history(
 fn show_history(
     app: &AppHandle,
     history: &TtsHistoryManager,
+    scope: TtsHistoryScope,
     options: &TtsHistoryShowArgs,
     json_mode: bool,
 ) -> Result<Value, CliFailure> {
-    let entry = require_entry(history, options.id)?;
+    let entry = require_entry(history, options.id, scope)?;
     let value = history_entry_json(history, &entry)?;
-    let history_enabled = crate::settings::get_settings(app).tts.history_enabled;
+    let history_enabled = history_capture_enabled(app, scope);
     if !json_mode {
         println!("ID: {}", entry.id);
+        println!("Scope: {}", history_scope_name(entry.scope));
         println!("Group: {}", entry.group_id);
         println!("Time: {}", format_timestamp(entry.timestamp));
         println!("Provider: {}", entry.provider.as_str());
         println!("Model: {}", entry.model);
-        println!("Voice: {}", entry.voice);
+        println!(
+            "Voice: {}",
+            if entry.provider == TtsProvider::Windows && entry.voice.trim().is_empty() {
+                "(Windows default voice)"
+            } else {
+                entry.voice.as_str()
+            }
+        );
+        println!(
+            "Language: {}",
+            if entry.language.trim().is_empty() {
+                "(not recorded)"
+            } else {
+                entry.language.as_str()
+            }
+        );
         println!("Format: {}", output_format_name(entry.output_format));
         println!("Source kind: {:?}", entry.source_kind);
         println!(
@@ -285,6 +329,7 @@ fn show_history(
     Ok(json!({
         "ok": true,
         "operation": "tts_history_show",
+        "scope": scope,
         "history_enabled": history_enabled,
         "entry": value,
     }))
@@ -292,10 +337,11 @@ fn show_history(
 
 fn export_history(
     history: &TtsHistoryManager,
+    scope: TtsHistoryScope,
     options: &TtsHistoryExportArgs,
     json_mode: bool,
 ) -> Result<Value, CliFailure> {
-    let entry = require_entry(history, options.id)?;
+    let entry = require_entry(history, options.id, scope)?;
     let retained = require_retained_audio(history, &entry)?;
     let output = absolute_path(&options.output)?;
     ensure_new_output(&output)?;
@@ -327,6 +373,7 @@ fn export_history(
     Ok(json!({
         "ok": true,
         "operation": "tts_history_export",
+        "scope": entry.scope,
         "id": entry.id,
         "group_id": entry.group_id,
         "output": exported,
@@ -337,10 +384,11 @@ fn export_history(
 
 fn delete_history(
     history: &TtsHistoryManager,
+    scope: TtsHistoryScope,
     options: &TtsHistoryDeleteArgs,
     json_mode: bool,
 ) -> Result<Value, CliFailure> {
-    let entry = require_entry(history, options.id)?;
+    let entry = require_entry(history, options.id, scope)?;
     let confirmed = confirm(
         options.yes,
         json_mode,
@@ -375,6 +423,7 @@ fn delete_history(
             Ok(json!({
                 "ok": true,
                 "operation": "tts_history_delete",
+                "scope": entry.scope,
                 "outcome": outcome_json,
             }))
         }
@@ -400,10 +449,11 @@ fn delete_history(
 fn regenerate_history(
     app: &AppHandle,
     history: &Arc<TtsHistoryManager>,
+    scope: TtsHistoryScope,
     options: &TtsHistoryRegenerateArgs,
     json_mode: bool,
 ) -> Result<Value, CliFailure> {
-    let source_entry = require_entry(history, options.id)?;
+    let source_entry = require_entry(history, options.id, scope)?;
     let requested_format = options.format.map(cli_output_format);
     let (output, output_format) = if let Some(output) = options.output.as_deref() {
         let output = absolute_path(output)?;
@@ -490,16 +540,17 @@ fn regenerate_history(
         validate_prompt_name(app, name)?;
     }
 
-    let confirmed = confirm(
-        options.yes,
-        json_mode,
-        &format!(
-            "WARNING: regenerate result {} with {} as a NEW PAID API request? The old result stays unchanged and the new variant is appended to group {}. [y/N] ",
-            source_entry.id,
-            final_provider.as_str(),
-            source_entry.group_id
-        ),
-    )?;
+    let confirmed = !final_provider.requires_paid_confirmation()
+        || confirm(
+            options.yes,
+            json_mode,
+            &format!(
+                "WARNING: regenerate result {} with {} as a NEW PAID API request? The old result stays unchanged and the new variant is appended to group {}. [y/N] ",
+                source_entry.id,
+                final_provider.as_str(),
+                source_entry.group_id
+            ),
+        )?;
     if !confirmed {
         return Err(CliFailure::new(
             EXIT_NOT_CONFIRMED,
@@ -527,7 +578,12 @@ fn regenerate_history(
     let tts = app.state::<Arc<TtsManager>>().inner().clone();
     if !json_mode {
         eprintln!(
-            "TTS history: starting paid regeneration with {}…",
+            "TTS history: starting {} regeneration with {}…",
+            if final_provider.requires_paid_confirmation() {
+                "paid API"
+            } else {
+                "offline"
+            },
             final_provider.as_str()
         );
     }
@@ -581,6 +637,7 @@ fn regenerate_history(
     Ok(json!({
         "ok": true,
         "operation": "tts_history_regenerate",
+        "scope": response.new_entry.scope,
         "source_entry_id": response.source_entry_id,
         "new_entry": response.new_entry,
         "output": response.output_path,
@@ -589,22 +646,51 @@ fn regenerate_history(
         "resumed_chunks": response.resumed_chunks,
         "processed_characters": response.processed_character_count,
         "elapsed_ms": elapsed_ms,
-        "api_request_made": response.resumed_chunks < response.chunk_count,
+        "api_request_made": regeneration_makes_api_request(
+            final_provider,
+            response.resumed_chunks,
+            response.chunk_count,
+        ),
         "prior_variants_preserved": true,
     }))
 }
 
-fn require_entry(history: &TtsHistoryManager, id: i64) -> Result<TtsHistoryEntry, CliFailure> {
+fn regeneration_makes_api_request(
+    provider: TtsProvider,
+    resumed_chunks: usize,
+    chunk_count: usize,
+) -> bool {
+    provider.requires_paid_confirmation() && resumed_chunks < chunk_count
+}
+
+fn require_entry(
+    history: &TtsHistoryManager,
+    id: i64,
+    scope: TtsHistoryScope,
+) -> Result<TtsHistoryEntry, CliFailure> {
     if id <= 0 {
         return Err(CliFailure::new(
             EXIT_USAGE,
             "TTS history result ID must be a positive integer",
         ));
     }
-    history
+    let entry = history
         .get_entry_by_id(id)
         .map_err(|error| CliFailure::new(EXIT_RUNTIME, error.to_string()))?
-        .ok_or_else(|| CliFailure::new(EXIT_NOT_FOUND, format!("TTS history entry {id} not found")))
+        .ok_or_else(|| {
+            CliFailure::new(EXIT_NOT_FOUND, format!("TTS history entry {id} not found"))
+        })?;
+    if entry.scope != scope {
+        return Err(CliFailure::new(
+            EXIT_NOT_FOUND,
+            format!(
+                "TTS history entry {id} belongs to the {} scope, not {}",
+                history_scope_name(entry.scope),
+                history_scope_name(scope)
+            ),
+        ));
+    }
+    Ok(entry)
 }
 
 fn require_retained_audio(
@@ -645,12 +731,14 @@ fn history_entry_json(
         "id": entry.id,
         "timestamp": entry.timestamp,
         "timestamp_iso": format_timestamp(entry.timestamp),
+        "scope": entry.scope,
         "group_id": entry.group_id,
         "source_text": entry.source_text,
         "source_kind": entry.source_kind,
         "provider": entry.provider,
         "model": entry.model,
         "voice": entry.voice,
+        "language": entry.language,
         "output_format": entry.output_format,
         "managed_audio_filename": entry.managed_audio_filename,
         "external_output_path": entry.external_output_path,
@@ -865,6 +953,8 @@ fn cli_provider(provider: CliTtsProvider) -> TtsProvider {
         CliTtsProvider::Soniox => TtsProvider::Soniox,
         CliTtsProvider::Deepgram => TtsProvider::Deepgram,
         CliTtsProvider::Openai => TtsProvider::OpenAi,
+        CliTtsProvider::LocalQwen => TtsProvider::LocalQwen,
+        CliTtsProvider::Windows => TtsProvider::Windows,
     }
 }
 
@@ -966,6 +1056,18 @@ mod tests {
             cli_output_format(CliTtsOutputFormat::Wav),
             TtsOutputFormat::Wav
         );
+    }
+
+    #[test]
+    fn regeneration_api_request_flag_distinguishes_cloud_offline_and_full_resume() {
+        assert!(regeneration_makes_api_request(TtsProvider::OpenAi, 1, 2));
+        assert!(!regeneration_makes_api_request(TtsProvider::OpenAi, 2, 2));
+        assert!(!regeneration_makes_api_request(TtsProvider::Windows, 0, 2));
+        assert!(!regeneration_makes_api_request(
+            TtsProvider::LocalQwen,
+            0,
+            2
+        ));
     }
 
     #[test]

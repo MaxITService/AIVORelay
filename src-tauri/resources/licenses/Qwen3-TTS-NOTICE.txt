@@ -1,0 +1,29 @@
+Qwen3-TTS local Text-to-Speech components
+
+Model and upstream implementation:
+  Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice
+  https://huggingface.co/Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice
+  Revision: 85e237c12c027371202489a0ec509ded67b5e4b5
+  https://github.com/QwenLM/Qwen3-TTS
+
+The official Qwen3-TTS source, qwen-tts package, and selected official model
+weights are licensed under the Apache License, Version 2.0. A canonical copy
+is provided in Apache-2.0.txt. The pinned model snapshot does not itself
+contain a separate LICENSE file, so AivoRelay supplies this notice and license
+copy alongside the managed installation.
+
+Managed runtime resolver:
+  uv 0.11.16
+  https://github.com/astral-sh/uv
+
+AivoRelay elects uv's MIT license option. A copy is provided in uv-MIT.txt.
+
+The isolated runtime retains the license files supplied by its managed CPython
+distribution and every installed Python wheel, including PyTorch, torchaudio,
+Transformers, qwen-tts, NumPy, and SoundFile. The exact resolved package list
+is recorded in the installation manifest. PyTorch binary distributions contain
+a composite set of permissive third-party licenses; consult the retained wheel
+license directories rather than treating PyTorch as a single-license binary.
+
+No Qwen or Alibaba trademark is used as AivoRelay branding, and no endorsement
+is implied.

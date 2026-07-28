@@ -29,6 +29,7 @@ import {
   UserInterfaceSettings,
   LiveSoundTranscriptionSettings,
   TextToSpeechSettings,
+  TtsFileOperationsSettings,
 } from "./settings";
 
 export type SidebarSection = keyof typeof SECTIONS_CONFIG;
@@ -139,6 +140,12 @@ export const SECTIONS_CONFIG = {
     labelKey: "sidebar.textToSpeech",
     icon: Volume2,
     component: TextToSpeechSettings,
+    enabled: () => true,
+  },
+  ttsFiles: {
+    labelKey: "sidebar.ttsFiles",
+    icon: FileAudio,
+    component: TtsFileOperationsSettings,
     enabled: () => true,
   },
   about: {

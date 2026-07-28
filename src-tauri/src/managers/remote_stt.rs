@@ -1,4 +1,8 @@
 use crate::audio_toolkit::encode_wav_bytes;
+use crate::managers::openai_realtime_whisper::{
+    OpenAiRealtimeWhisperManager, OpenAiRealtimeWhisperOptions, OPENAI_TRANSCRIBE_MODEL,
+};
+use crate::managers::provider_error::{parse_provider_error, parse_provider_error_value};
 use crate::settings::{RemoteSttDebugMode, RemoteSttSettings};
 use crate::url_security::{
     infer_remote_stt_preset, validate_remote_stt_base_url, REMOTE_STT_OPENAI_BASE_URL,
@@ -179,6 +183,13 @@ struct TranscriptionResponse {
 pub fn supports_translation(model_id: &str) -> bool {
     let lower = model_id.to_lowercase();
 
+    if lower == "gpt-transcribe"
+        || lower == "gpt-live-transcribe"
+        || lower == "gpt-realtime-whisper"
+    {
+        return false;
+    }
+
     // Groq whisper-large-v3-turbo does NOT support translation
     // https://console.groq.com/docs/speech-to-text
     if lower.contains("whisper") && lower.contains("turbo") {
@@ -212,6 +223,12 @@ fn is_openai_realtime_translate_model(model_id: &str) -> bool {
     model_id
         .trim()
         .eq_ignore_ascii_case(OPENAI_REALTIME_TRANSLATE_MODEL)
+}
+
+fn uses_plural_language_hints(model_id: &str) -> bool {
+    model_id
+        .trim()
+        .eq_ignore_ascii_case(OPENAI_TRANSCRIBE_MODEL)
 }
 
 fn resample_16khz_f32_to_24khz_pcm16(samples: &[f32]) -> Vec<u8> {
@@ -429,26 +446,6 @@ impl RemoteSttManager {
         self.record_line(settings, line, true);
     }
 
-    pub async fn transcribe(
-        &self,
-        settings: &RemoteSttSettings,
-        audio_samples: &[f32],
-        prompt: Option<String>,
-        language: Option<String>,
-        translate_to_english: bool,
-    ) -> Result<String> {
-        let operation_id = self.start_operation();
-        self.transcribe_with_operation(
-            operation_id,
-            settings,
-            audio_samples,
-            prompt,
-            language,
-            translate_to_english,
-        )
-        .await
-    }
-
     pub async fn transcribe_with_operation(
         &self,
         operation_id: u64,
@@ -511,6 +508,53 @@ impl RemoteSttManager {
             self.record_error(settings, message.clone());
             anyhow!(message)
         })?;
+
+        if uses_plural_language_hints(&settings.model_id) && translate_to_english {
+            let message = format!(
+                "{} does not support Translate to English. Disable translation or select whisper-1.",
+                settings.model_id
+            );
+            self.record_error(settings, message.clone());
+            return Err(anyhow!(message));
+        }
+
+        if OpenAiRealtimeWhisperManager::is_realtime_model(&settings.model_id) {
+            if base_url != REMOTE_STT_OPENAI_BASE_URL {
+                let message = format!(
+                    "{} requires the OpenAI Remote STT preset at {}.",
+                    settings.model_id, REMOTE_STT_OPENAI_BASE_URL
+                );
+                self.record_error(settings, message.clone());
+                return Err(anyhow!(message));
+            }
+            if translate_to_english {
+                let message = format!(
+                    "{} does not support Translate to English. Disable translation or select whisper-1.",
+                    settings.model_id
+                );
+                self.record_error(settings, message.clone());
+                return Err(anyhow!(message));
+            }
+
+            let app_settings = crate::settings::get_settings(&self.app_handle);
+            let manager = OpenAiRealtimeWhisperManager::new(&self.app_handle)?;
+            let result = manager
+                .transcribe_flattened(
+                    audio_samples,
+                    &api_key.value,
+                    OpenAiRealtimeWhisperOptions {
+                        model: settings.model_id.clone(),
+                        language,
+                        prompt,
+                        delay: app_settings.openai_realtime_whisper_delay,
+                    },
+                )
+                .await;
+            if let Err(error) = &result {
+                self.record_error(settings, error.to_string());
+            }
+            return self.migrate_legacy_api_key_after_success(settings, &api_key, result);
+        }
 
         if is_openai_realtime_model(&settings.model_id) {
             if base_url != REMOTE_STT_OPENAI_BASE_URL {
@@ -626,7 +670,12 @@ impl RemoteSttManager {
                     if lang == "zh-Hans" || lang == "zh-Hant" {
                         lang = "zh".to_string();
                     }
-                    form = form.text("language", lang);
+                    let field = if uses_plural_language_hints(&settings.model_id) {
+                        "languages[]"
+                    } else {
+                        "language"
+                    };
+                    form = form.text(field, lang);
                 }
             }
         }
@@ -676,12 +725,12 @@ impl RemoteSttManager {
         if !status.is_success() {
             let snippet = String::from_utf8_lossy(&body);
             let snippet = snippet.chars().take(500).collect::<String>();
-            let message = format!(
+            let diagnostic = format!(
                 "Remote STT failed: status={} elapsed_ms={} body_snippet={}",
                 status, elapsed_ms, snippet
             );
-            self.record_error(settings, message.clone());
-            return Err(anyhow!(message));
+            self.record_error(settings, diagnostic);
+            return Err(anyhow!(parse_provider_error(&body, status)));
         }
 
         let parsed: TranscriptionResponse = serde_json::from_slice(&body).map_err(|e| {
@@ -878,13 +927,10 @@ impl RemoteSttManager {
                 .unwrap_or_default();
 
             if msg_type == "error" {
-                let message = payload
-                    .get("error")
-                    .and_then(|error| error.get("message"))
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("OpenAI Realtime returned an error");
-                self.record_error(settings, message.to_string());
-                return Err(anyhow!("{}", message));
+                let message =
+                    parse_provider_error_value(&payload, "OpenAI Realtime returned an error");
+                self.record_error(settings, message.clone());
+                return Err(anyhow!(message));
             }
 
             if msg_type == "response.output_text.delta" {
@@ -1090,13 +1136,12 @@ impl RemoteSttManager {
                 .unwrap_or_default();
 
             if msg_type == "error" {
-                let message = payload
-                    .get("error")
-                    .and_then(|error| error.get("message"))
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("OpenAI Realtime Translate returned an error");
-                self.record_error(settings, message.to_string());
-                return Err(anyhow!("{}", message));
+                let message = parse_provider_error_value(
+                    &payload,
+                    "OpenAI Realtime Translate returned an error",
+                );
+                self.record_error(settings, message.clone());
+                return Err(anyhow!(message));
             }
 
             if msg_type == "session.output_transcript.delta" {
@@ -1177,13 +1222,10 @@ impl RemoteSttManager {
                 return Ok(());
             }
             if msg_type == "error" {
-                let message = payload
-                    .get("error")
-                    .and_then(|error| error.get("message"))
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("OpenAI Realtime returned an error");
-                self.record_error(settings, message.to_string());
-                return Err(anyhow!("{}", message));
+                let message =
+                    parse_provider_error_value(&payload, "OpenAI Realtime returned an error");
+                self.record_error(settings, message.clone());
+                return Err(anyhow!(message));
             }
         }
     }
@@ -1245,12 +1287,12 @@ impl RemoteSttManager {
             let body = response.bytes().await.unwrap_or_default();
             let snippet = String::from_utf8_lossy(&body);
             let snippet = snippet.chars().take(500).collect::<String>();
-            let message = format!(
+            let diagnostic = format!(
                 "Remote STT test failed: status={} elapsed_ms={} body_snippet={}",
                 status, elapsed_ms, snippet
             );
-            self.record_error(settings, message.clone());
-            return Err(anyhow!(message));
+            self.record_error(settings, diagnostic);
+            return Err(anyhow!(parse_provider_error(&body, status)));
         }
 
         self.migrate_legacy_api_key_after_success(settings, &api_key, Ok(()))?;
@@ -1463,7 +1505,7 @@ pub fn has_remote_stt_api_key(_settings: &RemoteSttSettings) -> bool {
 mod tests {
     use super::{
         remote_stt_api_key_clear_targets, select_remote_stt_api_key, supports_translation,
-        RemoteSttApiKeySource,
+        uses_plural_language_hints, RemoteSttApiKeySource,
     };
 
     #[test]
@@ -1479,6 +1521,15 @@ mod tests {
     #[test]
     fn whisper_turbo_still_does_not_support_remote_stt_translation() {
         assert!(!supports_translation("whisper-large-v3-turbo"));
+    }
+
+    #[test]
+    fn gpt_transcribe_uses_plural_language_hints_without_translation() {
+        assert!(uses_plural_language_hints("gpt-transcribe"));
+        assert!(!uses_plural_language_hints("gpt-live-transcribe"));
+        assert!(!supports_translation("gpt-transcribe"));
+        assert!(!supports_translation("gpt-live-transcribe"));
+        assert!(!supports_translation("gpt-realtime-whisper"));
     }
 
     #[test]

@@ -121,6 +121,7 @@ pub struct ShortcutBinding {
 }
 
 pub const PREVIEW_DELETE_LAST_WORD_BINDING_ID: &str = "preview_delete_last_word";
+pub const TTS_PLAY_HISTORY_FALLBACK_BINDING_ID: &str = "tts_play_history_fallback";
 
 pub fn build_preview_delete_last_word_binding(current_binding: String) -> ShortcutBinding {
     ShortcutBinding {
@@ -703,6 +704,8 @@ pub enum TtsProvider {
     Deepgram,
     #[serde(rename = "openai")]
     OpenAi,
+    LocalQwen,
+    Windows,
 }
 
 impl Default for TtsProvider {
@@ -717,7 +720,31 @@ impl TtsProvider {
             Self::Soniox => "soniox",
             Self::Deepgram => "deepgram",
             Self::OpenAi => "openai",
+            Self::LocalQwen => "local_qwen",
+            Self::Windows => "windows",
         }
+    }
+
+    pub fn requires_api_key(self) -> bool {
+        matches!(self, Self::Soniox | Self::Deepgram | Self::OpenAi)
+    }
+
+    pub fn requires_paid_confirmation(self) -> bool {
+        self.requires_api_key()
+    }
+
+    pub fn supports_instructions(self, model: &str) -> bool {
+        self == Self::OpenAi
+            && (model.trim().is_empty() || model.trim().starts_with("gpt-4o-mini-tts"))
+    }
+
+    pub fn is_local_or_system(self) -> bool {
+        matches!(self, Self::LocalQwen | Self::Windows)
+    }
+
+    #[allow(dead_code)] // Used by the next downloadable provider registry slice.
+    pub fn supports_downloadable_local_runtime(self) -> bool {
+        self == Self::LocalQwen
     }
 }
 
@@ -782,6 +809,15 @@ pub struct TtsSettings {
     pub openai_model: String,
     #[serde(default = "default_tts_openai_voice")]
     pub openai_voice: String,
+    #[serde(default = "default_tts_local_qwen_voice")]
+    pub local_qwen_voice: String,
+    #[serde(default = "default_tts_local_qwen_language")]
+    pub local_qwen_language: String,
+    /// Stable WinRT VoiceInformation ID. Empty selects the current OS default.
+    #[serde(default)]
+    pub windows_voice_id: String,
+    #[serde(default)]
+    pub windows_voice_language: String,
     #[serde(default)]
     pub openai_instructions: String,
     #[serde(default)]
@@ -808,6 +844,8 @@ pub struct TtsSettings {
     pub paragraph_pause_ms: u32,
     #[serde(default = "default_tts_play_pause_hotkey")]
     pub play_pause_hotkey: String,
+    #[serde(default)]
+    pub play_history_when_overlay_closed: bool,
     #[serde(default = "default_tts_stop_hotkey")]
     pub stop_hotkey: String,
     #[serde(default = "default_true")]
@@ -829,11 +867,17 @@ pub struct TtsSettings {
     #[serde(default = "default_tts_disk_reserve_mb")]
     pub disk_reserve_mb: u32,
     #[serde(default)]
-    pub history_enabled: bool,
+    pub interactive_history_enabled: bool,
     #[serde(default = "default_tts_history_max_entries")]
-    pub history_max_entries: u32,
+    pub interactive_history_max_entries: u32,
     #[serde(default = "default_tts_history_max_storage_mb")]
-    pub history_max_storage_mb: u32,
+    pub interactive_history_max_storage_mb: u32,
+    #[serde(default)]
+    pub file_history_enabled: bool,
+    #[serde(default = "default_tts_history_max_entries")]
+    pub file_history_max_entries: u32,
+    #[serde(default = "default_tts_history_max_storage_mb")]
+    pub file_history_max_storage_mb: u32,
 }
 
 impl Default for TtsSettings {
@@ -850,6 +894,10 @@ impl Default for TtsSettings {
             deepgram_model: default_tts_deepgram_model(),
             openai_model: default_tts_openai_model(),
             openai_voice: default_tts_openai_voice(),
+            local_qwen_voice: default_tts_local_qwen_voice(),
+            local_qwen_language: default_tts_local_qwen_language(),
+            windows_voice_id: String::new(),
+            windows_voice_language: String::new(),
             openai_instructions: String::new(),
             prompt_presets: Vec::new(),
             selected_prompt_id: String::new(),
@@ -863,6 +911,7 @@ impl Default for TtsSettings {
             inter_chunk_pause_ms: default_tts_inter_chunk_pause_ms(),
             paragraph_pause_ms: default_tts_paragraph_pause_ms(),
             play_pause_hotkey: default_tts_play_pause_hotkey(),
+            play_history_when_overlay_closed: false,
             stop_hotkey: default_tts_stop_hotkey(),
             autoplay: true,
             output_format: TtsOutputFormat::default(),
@@ -873,9 +922,12 @@ impl Default for TtsSettings {
             watch_output_directory: String::new(),
             watch_settle_delay_ms: default_tts_watch_settle_delay_ms(),
             disk_reserve_mb: default_tts_disk_reserve_mb(),
-            history_enabled: false,
-            history_max_entries: default_tts_history_max_entries(),
-            history_max_storage_mb: default_tts_history_max_storage_mb(),
+            interactive_history_enabled: false,
+            interactive_history_max_entries: default_tts_history_max_entries(),
+            interactive_history_max_storage_mb: default_tts_history_max_storage_mb(),
+            file_history_enabled: false,
+            file_history_max_entries: default_tts_history_max_entries(),
+            file_history_max_storage_mb: default_tts_history_max_storage_mb(),
         }
     }
 }
@@ -2681,6 +2733,14 @@ fn default_tts_openai_voice() -> String {
     "marin".to_string()
 }
 
+fn default_tts_local_qwen_voice() -> String {
+    "Ryan".to_string()
+}
+
+fn default_tts_local_qwen_language() -> String {
+    "Auto".to_string()
+}
+
 fn default_tts_speed() -> f32 {
     1.0
 }
@@ -3606,6 +3666,18 @@ pub fn get_default_settings() -> AppSettings {
                     .to_string(),
             default_binding: String::new(),
             current_binding: String::new(),
+        },
+    );
+    bindings.insert(
+        TTS_PLAY_HISTORY_FALLBACK_BINDING_ID.to_string(),
+        ShortcutBinding {
+            id: TTS_PLAY_HISTORY_FALLBACK_BINDING_ID.to_string(),
+            name: "TTS Play / Pause History Fallback".to_string(),
+            description:
+                "Play or pause the active TTS overlay, or replay the newest Interactive History result when the overlay is closed."
+                    .to_string(),
+            default_binding: default_tts_play_pause_hotkey(),
+            current_binding: default_tts_play_pause_hotkey(),
         },
     );
 
@@ -5047,9 +5119,12 @@ mod tests {
         assert_eq!(settings.tts.mp3_bitrate_kbps, 256);
         assert!(!settings.tts.watch_folder_enabled);
         assert!(!settings.tts.watch_recursive);
-        assert!(!settings.tts.history_enabled);
-        assert_eq!(settings.tts.history_max_entries, 100);
-        assert_eq!(settings.tts.history_max_storage_mb, 1_024);
+        assert!(!settings.tts.interactive_history_enabled);
+        assert_eq!(settings.tts.interactive_history_max_entries, 100);
+        assert_eq!(settings.tts.interactive_history_max_storage_mb, 1_024);
+        assert!(!settings.tts.file_history_enabled);
+        assert_eq!(settings.tts.file_history_max_entries, 100);
+        assert_eq!(settings.tts.file_history_max_storage_mb, 1_024);
     }
 
     #[test]
@@ -5070,9 +5145,12 @@ mod tests {
         assert_eq!(settings.tts.retry_count, 3);
         assert_eq!(settings.tts.output_format, TtsOutputFormat::Mp3);
         assert_eq!(settings.tts.mp3_bitrate_kbps, 256);
-        assert!(!settings.tts.history_enabled);
-        assert_eq!(settings.tts.history_max_entries, 100);
-        assert_eq!(settings.tts.history_max_storage_mb, 1_024);
+        assert!(!settings.tts.interactive_history_enabled);
+        assert_eq!(settings.tts.interactive_history_max_entries, 100);
+        assert_eq!(settings.tts.interactive_history_max_storage_mb, 1_024);
+        assert!(!settings.tts.file_history_enabled);
+        assert_eq!(settings.tts.file_history_max_entries, 100);
+        assert_eq!(settings.tts.file_history_max_storage_mb, 1_024);
     }
 
     #[test]
@@ -5147,5 +5225,31 @@ mod tests {
             add_dictation_stats_count(MAX_DICTATION_STATS_COUNT - 10, 50),
             MAX_DICTATION_STATS_COUNT
         );
+    }
+
+    #[test]
+    fn tts_provider_capabilities_and_windows_wire_id_are_stable() {
+        assert_eq!(
+            serde_json::to_string(&TtsProvider::Windows).unwrap(),
+            "\"windows\""
+        );
+        assert!(!TtsProvider::Windows.requires_api_key());
+        assert!(!TtsProvider::Windows.requires_paid_confirmation());
+        assert!(TtsProvider::Windows.is_local_or_system());
+        assert!(!TtsProvider::Windows.supports_downloadable_local_runtime());
+        assert!(!TtsProvider::Windows.supports_instructions(""));
+        assert!(TtsProvider::OpenAi.supports_instructions("gpt-4o-mini-tts"));
+        assert!(!TtsProvider::OpenAi.supports_instructions("tts-1"));
+    }
+
+    #[test]
+    fn old_tts_settings_default_windows_voice_fields() {
+        let value = serde_json::json!({
+            "enabled": true,
+            "provider": "windows"
+        });
+        let settings: TtsSettings = serde_json::from_value(value).unwrap();
+        assert!(settings.windows_voice_id.is_empty());
+        assert!(settings.windows_voice_language.is_empty());
     }
 }

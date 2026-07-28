@@ -69,17 +69,91 @@ pub struct CliArgs {
     #[arg(short = 'o', long, value_name = "FILE", requires = "convert_file")]
     pub output: Option<PathBuf>,
 
+    /// Override the saved TTS provider for this TXT/MD conversion only.
+    #[arg(long, value_enum, requires = "convert_file")]
+    pub tts_provider: Option<CliTtsProvider>,
+
+    /// Override the selected provider's saved voice for this conversion only.
+    /// With Windows, omit this flag to use the current OS default voice.
+    #[arg(long, value_name = "VOICE", requires = "convert_file")]
+    pub tts_voice: Option<String>,
+
+    /// Override the selected provider's model for this conversion only.
+    #[arg(long, value_name = "MODEL", requires = "convert_file")]
+    pub tts_model: Option<String>,
+
+    /// Override the selected provider's language for this conversion only.
+    #[arg(long, value_name = "LANGUAGE", requires = "convert_file")]
+    pub tts_language: Option<String>,
+
+    /// Override speech speed for this conversion only. The accepted range is
+    /// provider-specific and is validated before synthesis.
+    #[arg(long, value_name = "MULTIPLIER", requires = "convert_file")]
+    pub tts_speed: Option<f32>,
+
+    /// Select which already-stored credential to use for this conversion.
+    /// Cloud providers only; no secret is accepted on the command line.
+    #[arg(long, value_enum, requires = "convert_file")]
+    pub tts_key_source: Option<CliTtsKeySource>,
+
+    /// Select MP3 or WAV when --output is omitted. With --output, this must
+    /// match the destination extension.
+    #[arg(long, value_enum, requires = "convert_file")]
+    pub tts_format: Option<CliTtsOutputFormat>,
+
+    /// Override the final MP3 CBR bitrate in kb/s.
+    #[arg(long, value_name = "KBPS", requires = "convert_file")]
+    pub tts_bitrate: Option<u16>,
+
+    /// Override the semantic file-conversion chunk target in Unicode
+    /// characters. The provider hard limit is enforced.
+    #[arg(long, value_name = "CHARS", requires = "convert_file")]
+    pub tts_chunk_chars: Option<u32>,
+
+    /// Override the number of retries after the first provider attempt.
+    #[arg(long, value_name = "N", requires = "convert_file")]
+    pub tts_retries: Option<u8>,
+
+    /// Override the initial exponential retry delay in milliseconds.
+    #[arg(long, value_name = "MS", requires = "convert_file")]
+    pub tts_retry_delay_ms: Option<u32>,
+
+    /// Override the silence inserted between ordinary chunks.
+    #[arg(long, value_name = "MS", requires = "convert_file")]
+    pub tts_chunk_pause_ms: Option<u32>,
+
+    /// Override the silence inserted at paragraph boundaries.
+    #[arg(long, value_name = "MS", requires = "convert_file")]
+    pub tts_paragraph_pause_ms: Option<u32>,
+
+    /// Enable or disable saved TTS preprocessing rules for this conversion.
+    #[arg(long, value_name = "BOOL", requires = "convert_file")]
+    pub tts_preprocessing: Option<bool>,
+
+    /// Replace saved preprocessing rules with a UTF-8 JSON array of
+    /// TextReplacement objects for this conversion only.
+    #[arg(long, value_name = "FILE", requires = "convert_file")]
+    pub tts_replacements_file: Option<PathBuf>,
+
+    /// Override the minimum free-disk reserve for this conversion.
+    #[arg(long, value_name = "MB", requires = "convert_file")]
+    pub tts_disk_reserve_mb: Option<u32>,
+
+    /// Enable or disable TTS History capture for this conversion only.
+    #[arg(long, value_name = "BOOL", requires = "convert_file")]
+    pub tts_history: Option<bool>,
+
     /// Use a saved, named TTS instruction-prompt preset for --convert-file.
     /// OpenAI TTS only.
     #[arg(long, value_name = "NAME", requires = "convert_file")]
     pub tts_prompt: Option<String>,
 
-    /// Use these OpenAI TTS instructions for this conversion only. This is a
+    /// Use these TTS voice instructions for this conversion only. This is a
     /// literal argument: AivoRelay never evaluates it as shell code.
     #[arg(long, value_name = "TEXT", requires = "convert_file")]
     pub tts_instructions: Option<String>,
 
-    /// Read OpenAI TTS instructions from a UTF-8 file for this conversion.
+    /// Read TTS voice instructions from a UTF-8 file for this conversion.
     /// Takes precedence over --tts-instructions and --tts-prompt.
     #[arg(long, value_name = "FILE", requires = "convert_file")]
     pub tts_instructions_file: Option<PathBuf>,
@@ -106,17 +180,99 @@ pub struct CliArgs {
     pub json: bool,
 }
 
+impl CliArgs {
+    pub(crate) fn has_tts_file_conversion_args(&self) -> bool {
+        self.tts_provider.is_some()
+            || self.tts_voice.is_some()
+            || self.tts_model.is_some()
+            || self.tts_language.is_some()
+            || self.tts_speed.is_some()
+            || self.tts_key_source.is_some()
+            || self.tts_format.is_some()
+            || self.tts_bitrate.is_some()
+            || self.tts_chunk_chars.is_some()
+            || self.tts_retries.is_some()
+            || self.tts_retry_delay_ms.is_some()
+            || self.tts_chunk_pause_ms.is_some()
+            || self.tts_paragraph_pause_ms.is_some()
+            || self.tts_preprocessing.is_some()
+            || self.tts_replacements_file.is_some()
+            || self.tts_disk_reserve_mb.is_some()
+            || self.tts_history.is_some()
+            || self.tts_prompt.is_some()
+            || self.tts_instructions.is_some()
+            || self.tts_instructions_file.is_some()
+    }
+}
+
 #[derive(Subcommand, Debug, Clone)]
 pub enum CliCommand {
     /// Inspect, export, regenerate, or delete retained Text-to-Speech history.
     #[command(name = "tts-history")]
     TtsHistory(TtsHistoryArgs),
+    /// Inspect, install, or delete the optional local Qwen3-TTS runtime.
+    #[command(name = "tts-local")]
+    TtsLocal(TtsLocalArgs),
+}
+
+#[derive(Args, Debug, Clone)]
+pub struct TtsLocalArgs {
+    #[command(subcommand)]
+    pub command: TtsLocalCommand,
+}
+
+#[derive(Subcommand, Debug, Clone)]
+pub enum TtsLocalCommand {
+    /// Show local model/runtime availability and exact pinned revision.
+    Status,
+    /// Download and install the app-managed local model and runtime.
+    Install(TtsLocalConfirmationArgs),
+    /// Delete the app-managed local model and runtime.
+    Delete(TtsLocalConfirmationArgs),
+    /// Generate a real local MP3/WAV without changing saved provider settings.
+    Test(TtsLocalTestArgs),
+}
+
+#[derive(Args, Debug, Clone, Default)]
+pub struct TtsLocalConfirmationArgs {
+    /// Confirm the multi-gigabyte install or destructive deletion.
+    #[arg(long)]
+    pub yes: bool,
+}
+
+#[derive(Args, Debug, Clone)]
+pub struct TtsLocalTestArgs {
+    /// Text to synthesize. Defaults to a short English/Russian validation text.
+    #[arg(long, value_name = "TEXT")]
+    pub text: Option<String>,
+
+    /// New .mp3 or .wav output path. Existing files are never overwritten.
+    #[arg(short = 'o', long, value_name = "FILE")]
+    pub output: PathBuf,
+
+    /// One of the nine official Qwen CustomVoice speaker IDs.
+    #[arg(long, value_name = "VOICE")]
+    pub voice: Option<String>,
+
+    /// Qwen language name, such as English, Russian, or Auto.
+    #[arg(long, value_name = "LANGUAGE")]
+    pub language: Option<String>,
 }
 
 #[derive(Args, Debug, Clone)]
 pub struct TtsHistoryArgs {
+    /// Select the independent TTS history to inspect or modify.
+    #[arg(long, value_enum, default_value_t = CliTtsHistoryScope::File, global = true)]
+    pub scope: CliTtsHistoryScope,
+
     #[command(subcommand)]
     pub command: TtsHistoryCommand,
+}
+
+#[derive(ValueEnum, Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CliTtsHistoryScope {
+    Interactive,
+    File,
 }
 
 #[derive(Subcommand, Debug, Clone)]
@@ -127,7 +283,7 @@ pub enum TtsHistoryCommand {
     Show(TtsHistoryShowArgs),
     /// Export the retained audio copy without making an API request.
     Export(TtsHistoryExportArgs),
-    /// Make a new paid TTS request and append it as a comparison variant.
+    /// Make a new TTS result and append it as a comparison variant.
     Regenerate(TtsHistoryRegenerateArgs),
     /// Delete one retained result and its managed audio copy.
     Delete(TtsHistoryDeleteArgs),
@@ -203,7 +359,7 @@ pub struct TtsHistoryRegenerateArgs {
     #[arg(long, value_name = "KBPS")]
     pub bitrate: Option<u16>,
 
-    /// Confirm the new paid API request without an interactive prompt.
+    /// Confirm a new paid cloud API request without an interactive prompt.
     #[arg(long)]
     pub yes: bool,
 }
@@ -223,6 +379,14 @@ pub enum CliTtsProvider {
     Soniox,
     Deepgram,
     Openai,
+    LocalQwen,
+    Windows,
+}
+
+#[derive(ValueEnum, Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CliTtsKeySource {
+    Shared,
+    Separate,
 }
 
 #[derive(ValueEnum, Debug, Clone, Copy, PartialEq, Eq)]
@@ -233,7 +397,10 @@ pub enum CliTtsOutputFormat {
 
 #[cfg(test)]
 mod tests {
-    use super::{CliArgs, CliCommand, CliTtsProvider, TtsHistoryCommand};
+    use super::{
+        CliArgs, CliCommand, CliTtsHistoryScope, CliTtsKeySource, CliTtsOutputFormat,
+        CliTtsProvider, TtsHistoryCommand, TtsLocalCommand,
+    };
     use clap::Parser;
 
     #[test]
@@ -252,6 +419,74 @@ mod tests {
         assert_eq!(args.convert_file.unwrap().to_string_lossy(), "chapter.md");
         assert_eq!(args.output.unwrap().to_string_lossy(), "chapter.mp3");
         assert_eq!(args.tts_prompt.as_deref(), Some("Calm narrator"));
+    }
+
+    #[test]
+    fn parses_comprehensive_temporary_tts_overrides() {
+        let args = CliArgs::try_parse_from([
+            "aivorelay",
+            "--convert-file",
+            "chapter.md",
+            "--tts-provider",
+            "soniox",
+            "--tts-model",
+            "sonic-preview",
+            "--tts-voice",
+            "voice-id",
+            "--tts-language",
+            "ru",
+            "--tts-speed",
+            "1.2",
+            "--tts-key-source",
+            "separate",
+            "--tts-format",
+            "mp3",
+            "--tts-bitrate",
+            "192",
+            "--tts-chunk-chars",
+            "1400",
+            "--tts-retries",
+            "4",
+            "--tts-retry-delay-ms",
+            "750",
+            "--tts-chunk-pause-ms",
+            "80",
+            "--tts-paragraph-pause-ms",
+            "300",
+            "--tts-preprocessing",
+            "true",
+            "--tts-replacements-file",
+            "rules.json",
+            "--tts-disk-reserve-mb",
+            "1024",
+            "--tts-history",
+            "false",
+        ])
+        .expect("TTS provider overrides should parse");
+
+        assert_eq!(args.tts_provider, Some(CliTtsProvider::Soniox));
+        assert_eq!(args.tts_model.as_deref(), Some("sonic-preview"));
+        assert_eq!(args.tts_voice.as_deref(), Some("voice-id"));
+        assert_eq!(args.tts_language.as_deref(), Some("ru"));
+        assert_eq!(args.tts_speed, Some(1.2));
+        assert_eq!(args.tts_key_source, Some(CliTtsKeySource::Separate));
+        assert_eq!(args.tts_format, Some(CliTtsOutputFormat::Mp3));
+        assert_eq!(args.tts_bitrate, Some(192));
+        assert_eq!(args.tts_chunk_chars, Some(1400));
+        assert_eq!(args.tts_retries, Some(4));
+        assert_eq!(args.tts_retry_delay_ms, Some(750));
+        assert_eq!(args.tts_chunk_pause_ms, Some(80));
+        assert_eq!(args.tts_paragraph_pause_ms, Some(300));
+        assert_eq!(args.tts_preprocessing, Some(true));
+        assert_eq!(
+            args.tts_replacements_file
+                .as_deref()
+                .map(|path| path.to_string_lossy().into_owned()),
+            Some("rules.json".to_string())
+        );
+        assert_eq!(args.tts_disk_reserve_mb, Some(1024));
+        assert_eq!(args.tts_history, Some(false));
+        assert!(args.has_tts_file_conversion_args());
     }
 
     #[test]
@@ -277,7 +512,15 @@ mod tests {
     #[test]
     fn parses_every_tts_history_subcommand() {
         for command in [
-            vec!["aivorelay", "tts-history", "list", "--limit", "10"],
+            vec![
+                "aivorelay",
+                "tts-history",
+                "list",
+                "--scope",
+                "interactive",
+                "--limit",
+                "10",
+            ],
             vec!["aivorelay", "tts-history", "show", "42"],
             vec![
                 "aivorelay",
@@ -300,6 +543,30 @@ mod tests {
         ] {
             CliArgs::try_parse_from(command).expect("history subcommand should parse");
         }
+    }
+
+    #[test]
+    fn parses_local_tts_lifecycle_commands() {
+        for command in [
+            vec!["aivorelay", "tts-local", "status"],
+            vec!["aivorelay", "tts-local", "install", "--yes"],
+            vec!["aivorelay", "tts-local", "delete", "--yes"],
+            vec![
+                "aivorelay",
+                "tts-local",
+                "test",
+                "--output",
+                "local-test.mp3",
+            ],
+        ] {
+            CliArgs::try_parse_from(command).expect("local TTS command should parse");
+        }
+        let args = CliArgs::try_parse_from(["aivorelay", "tts-local", "status"])
+            .expect("local status should parse");
+        let Some(CliCommand::TtsLocal(local)) = args.command else {
+            panic!("expected tts-local command");
+        };
+        assert!(matches!(local.command, TtsLocalCommand::Status));
     }
 
     #[test]
@@ -327,6 +594,7 @@ mod tests {
         let Some(CliCommand::TtsHistory(history)) = args.command else {
             panic!("expected tts-history command");
         };
+        assert_eq!(history.scope, CliTtsHistoryScope::File);
         let TtsHistoryCommand::Regenerate(regenerate) = history.command else {
             panic!("expected regenerate command");
         };
@@ -345,6 +613,7 @@ mod tests {
         let Some(CliCommand::TtsHistory(history)) = args.command else {
             panic!("expected tts-history command");
         };
+        assert_eq!(history.scope, CliTtsHistoryScope::File);
         let TtsHistoryCommand::Regenerate(regenerate) = history.command else {
             panic!("expected regenerate command");
         };
