@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useEffect, useId, useRef } from "react";
 import { AlertTriangle, X } from "lucide-react";
 import { Button } from "./Button";
 
@@ -23,26 +23,83 @@ export const ConfirmationModal: React.FC<ConfirmationModalProps> = ({
   cancelText = "Cancel",
   variant = "warning",
 }) => {
+  const titleId = useId();
+  const descriptionId = useId();
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const onCloseRef = useRef(onClose);
+
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  }, [onClose]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const previousFocus =
+      document.activeElement instanceof HTMLElement
+        ? document.activeElement
+        : null;
+    const focusTimer = window.setTimeout(() => {
+      const buttons = dialogRef.current?.querySelectorAll("button");
+      buttons?.item(Math.max(0, buttons.length - 2)).focus();
+    }, 0);
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        onCloseRef.current();
+        return;
+      }
+      if (event.key !== "Tab") return;
+      const buttons = Array.from(
+        dialogRef.current?.querySelectorAll<HTMLButtonElement>(
+          "button:not(:disabled)",
+        ) ?? [],
+      );
+      if (buttons.length === 0) return;
+      const first = buttons[0];
+      const last = buttons[buttons.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      window.clearTimeout(focusTimer);
+      window.removeEventListener("keydown", handleKeyDown);
+      previousFocus?.focus();
+    };
+  }, [isOpen]);
+
   if (!isOpen) return null;
 
-  const borderColor = variant === "danger" ? "border-red-500/50" : "border-yellow-500/50";
-  const bgGradient = variant === "danger" 
-    ? "from-red-500/10 to-red-600/5" 
-    : "from-yellow-500/10 to-orange-500/5";
+  const borderColor =
+    variant === "danger" ? "border-red-500/50" : "border-yellow-500/50";
+  const bgGradient =
+    variant === "danger"
+      ? "from-red-500/10 to-red-600/5"
+      : "from-yellow-500/10 to-orange-500/5";
   const iconColor = variant === "danger" ? "text-red-400" : "text-yellow-400";
   const titleColor = variant === "danger" ? "text-red-300" : "text-yellow-300";
   const confirmVariant = variant === "danger" ? "danger" : "primary";
 
   return (
-    <div 
+    <div
       className="fixed inset-0 z-50 flex items-center justify-center"
       onClick={onClose}
     >
       {/* Backdrop with blur */}
       <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
-      
+
       {/* Modal */}
-      <div 
+      <div
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        aria-describedby={descriptionId}
         className={`
           relative z-10 w-full max-w-md mx-4
           bg-gradient-to-br ${bgGradient}
@@ -55,7 +112,9 @@ export const ConfirmationModal: React.FC<ConfirmationModalProps> = ({
       >
         {/* Close button */}
         <button
+          type="button"
           onClick={onClose}
+          aria-label={cancelText}
           className="absolute top-3 right-3 p-1 rounded-md text-text/60 hover:text-text hover:bg-mid-gray/20 transition-colors"
         >
           <X className="w-5 h-5" />
@@ -68,22 +127,22 @@ export const ConfirmationModal: React.FC<ConfirmationModalProps> = ({
             <div className={`p-2 rounded-full bg-black/30 ${iconColor}`}>
               <AlertTriangle className="w-6 h-6" />
             </div>
-            <h2 className={`text-lg font-semibold ${titleColor}`}>
+            <h2 id={titleId} className={`text-lg font-semibold ${titleColor}`}>
               {title}
             </h2>
           </div>
 
           {/* Message */}
-          <p className="text-text/80 text-sm leading-relaxed mb-6">
+          <p
+            id={descriptionId}
+            className="text-text/80 text-sm leading-relaxed mb-6"
+          >
             {message}
           </p>
 
           {/* Actions */}
           <div className="flex gap-3 justify-end">
-            <Button
-              variant="ghost"
-              onClick={onClose}
-            >
+            <Button variant="ghost" onClick={onClose}>
               {cancelText}
             </Button>
             <Button

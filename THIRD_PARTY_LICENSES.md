@@ -163,6 +163,54 @@ IN NO EVENT SHALL THE FOUNDATION OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIR
 
 ---
 
+## LAME and Rust bindings
+
+**Copyright:** The LAME Project, Douman Ash, and contributors
+
+**Versions:**
+
+- LAME 3.100
+- `mp3lame-sys` 0.1.11
+- `mp3lame-encoder` 0.2.4
+
+**Licenses:**
+
+- LAME 3.100: GNU Library General Public License, version 2
+- `mp3lame-sys` and `mp3lame-encoder`: GNU Lesser General Public License,
+  version 3
+
+**Sources:**
+
+- https://lame.sourceforge.io/
+- https://github.com/DoumanAsh/mp3lame-sys
+- https://github.com/DoumanAsh/mp3lame-encoder
+
+The Rust bindings build LAME into AivoRelay for provider-independent MP3
+export. No external FFmpeg executable or LAME DLL is required. AivoRelay's
+source and Cargo build configuration preserve the ability to rebuild and
+relink the application with a modified compatible library.
+
+The applicable license texts are shipped in:
+
+- `src-tauri/resources/licenses/LAME-LGPL-2.0.txt`
+- `src-tauri/resources/licenses/MP3LAME-LGPL-3.0.txt`
+- `src-tauri/resources/licenses/GPL-3.0.txt`
+
+---
+
+## pulldown-cmark
+
+**Copyright:** pulldown-cmark contributors
+
+**License:** MIT License
+
+**Source:** https://github.com/pulldown-cmark/pulldown-cmark
+
+Used to turn Markdown documents into readable text before TTS preprocessing
+and chunking.
+
+---
+
 ## Other Dependencies
 
 For a complete list of Rust and JavaScript dependencies, please refer to the `Cargo.toml` and `package.json` files in the source repository.

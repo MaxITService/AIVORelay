@@ -36,6 +36,14 @@ type ModelDownloadProgressPayload = {
   model_id: string;
 };
 
+type TtsBackgroundStatePayload = {
+  operation_id?: number | string;
+  operationId?: number | string;
+  kind?: string | null;
+  phase?: string;
+  message?: string | null;
+};
+
 const renderSettingsContent = (section: SidebarSection) => {
   const ActiveComponent =
     SECTIONS_CONFIG[section]?.component || SECTIONS_CONFIG.general.component;
@@ -135,6 +143,35 @@ function App() {
     const unlistenScreenshot = listen<string>("screenshot-error", (event) => {
       toast.error(event.payload, { duration: ERROR_TOAST_DURATION_MS });
     });
+    const unlistenTts = listen<string>("tts-error", (event) => {
+      toast.error(event.payload, { duration: ERROR_TOAST_DURATION_MS });
+    });
+    const unlistenTtsHistory = listen<string>(
+      "tts-history-error",
+      (event) => {
+        toast.error(
+          t("textToSpeech.history.errors.capture", {
+            error: event.payload,
+          }),
+          { duration: ERROR_TOAST_DURATION_MS },
+        );
+      },
+    );
+    const unlistenTtsBackground = listen<TtsBackgroundStatePayload>(
+      "tts://state",
+      (event) => {
+        const state = event.payload;
+        const operationId = state.operation_id ?? state.operationId;
+        if (
+          state.kind === "file_conversion" &&
+          state.phase === "error" &&
+          Number(operationId) === 0 &&
+          state.message
+        ) {
+          toast.error(state.message, { duration: ERROR_TOAST_DURATION_MS });
+        }
+      },
+    );
     const unlistenVoiceCommand = listen<string>(
       "voice-command-error",
       (event) => {
@@ -233,6 +270,9 @@ function App() {
     return () => {
       unlistenRemote.then((unlisten) => unlisten());
       unlistenScreenshot.then((unlisten) => unlisten());
+      unlistenTts.then((unlisten) => unlisten());
+      unlistenTtsHistory.then((unlisten) => unlisten());
+      unlistenTtsBackground.then((unlisten) => unlisten());
       unlistenVoiceCommand.then((unlisten) => unlisten());
       unlistenRecording.then((unlisten) => unlisten());
       unlistenPaste.then((unlisten) => unlisten());

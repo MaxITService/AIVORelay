@@ -9,6 +9,8 @@ pub mod models;
 pub mod region_capture;
 pub mod remote_stt;
 pub mod transcription;
+pub mod tts;
+pub mod tts_history;
 pub mod voice_activation_button;
 pub mod voice_command;
 

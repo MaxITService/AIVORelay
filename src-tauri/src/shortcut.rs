@@ -466,6 +466,7 @@ fn is_binding_enabled_for_settings(settings: &settings::AppSettings, binding_id:
         "send_to_extension_with_selection" => settings.send_to_extension_with_selection_enabled,
         "send_screenshot_to_extension" => settings.send_screenshot_to_extension_enabled,
         "voice_command" => settings.voice_command_enabled,
+        "read_clipboard" | "read_selection_tts" => settings.tts.enabled,
         _ => true,
     }
 }

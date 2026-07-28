@@ -1163,6 +1163,25 @@ export const TranscribeFileSettings: React.FC = () => {
         title={t("transcribeFile.title")}
         description={t("transcribeFile.description")}
       >
+        <details className="group border-b border-white/[0.05] px-4 py-3">
+          <summary className="cursor-pointer select-none text-sm font-medium text-[#d7b9ff]">
+            CLI help — audio file to text or Markdown
+          </summary>
+          <div className="mt-3 space-y-2 text-xs leading-relaxed text-[#a0a0a0]">
+            <p>
+              Uses the provider and file-transcription settings configured in
+              this section.
+            </p>
+            <code className="block overflow-x-auto rounded-lg bg-black/30 p-3 text-[#e8e8e8]">
+              AivoRelay.exe --convert-file .\meeting.mp3 --output .\meeting.md
+            </code>
+            <p>
+              Progress is printed in the current terminal. Add{" "}
+              <span className="font-mono">--json</span> for machine-readable
+              output.
+            </p>
+          </div>
+        </details>
         {/* Drop Zone / File Selection */}
         <div className="px-4 py-4">
           {!selectedFile ? (

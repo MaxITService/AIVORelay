@@ -19,3 +19,6 @@ pub mod remote_stt;
 pub mod soniox_realtime;
 pub mod soniox_stt;
 pub mod transcription;
+pub mod tts;
+pub mod tts_history;
+pub(crate) mod tts_resume;
