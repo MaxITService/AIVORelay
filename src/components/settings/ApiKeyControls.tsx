@@ -14,6 +14,7 @@ interface StoredApiKeyDisplayProps {
 interface ApiKeyEditorProps {
   disabled?: boolean;
   loading?: boolean;
+  maxLength?: number;
   placeholder?: string;
   saveDisabled?: boolean;
   showCancel?: boolean;
@@ -82,6 +83,7 @@ export const ApiKeyEditor: React.FC<ApiKeyEditorProps> = ({
   disabled = false,
   hint,
   loading = false,
+  maxLength,
   onCancel,
   onBlur,
   onChange,
@@ -100,6 +102,7 @@ export const ApiKeyEditor: React.FC<ApiKeyEditorProps> = ({
         <Input
           type="password"
           value={value}
+          maxLength={maxLength}
           onChange={(event) => onChange(event.target.value)}
           onBlur={onBlur}
           placeholder={placeholder}

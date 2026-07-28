@@ -36,7 +36,8 @@ export interface ModelPromptInfo {
 
 export function getModelPromptInfo(
   modelId: string,
-  engineType?: string
+  engineType?: string,
+  enforceCharacterLimit = true,
 ): ModelPromptInfo {
   const lower = modelId.toLowerCase();
 
@@ -47,7 +48,7 @@ export function getModelPromptInfo(
         supportsPrompt: true,
         isWhisperLike: true,
         isParakeet: false,
-        charLimit: WHISPER_CHAR_LIMIT,
+        charLimit: enforceCharacterLimit ? WHISPER_CHAR_LIMIT : 0,
         modelId,
       };
     }
@@ -91,7 +92,7 @@ export function getModelPromptInfo(
       supportsPrompt: true,
       isWhisperLike: true,
       isParakeet: false,
-      charLimit: WHISPER_CHAR_LIMIT,
+      charLimit: enforceCharacterLimit ? WHISPER_CHAR_LIMIT : 0,
       modelId,
     };
   }
@@ -101,17 +102,18 @@ export function getModelPromptInfo(
       supportsPrompt: true,
       isWhisperLike: false,
       isParakeet: false,
-      charLimit: DEEPGRAM_CHAR_LIMIT,
+      charLimit: enforceCharacterLimit ? DEEPGRAM_CHAR_LIMIT : 0,
       modelId,
     };
   }
 
-  // Unknown - assume supports prompt with default limit
+  // Unknown local models use the conservative local prompt limit. Remote
+  // providers apply their own authoritative (often token-based) limits.
   return {
     supportsPrompt: true,
     isWhisperLike: false,
     isParakeet: false,
-    charLimit: DEFAULT_CHAR_LIMIT,
+    charLimit: enforceCharacterLimit ? DEFAULT_CHAR_LIMIT : 0,
     modelId,
   };
 }
@@ -148,7 +150,7 @@ export const TranscriptionSystemPrompt: React.FC<{ grouped?: boolean }> = ({
     }
 
     if (isRemoteOpenAi) {
-      return getModelPromptInfo(activeModelId);
+      return getModelPromptInfo(activeModelId, undefined, false);
     }
 
     const localModelInfo = getModelInfo(activeModelId);
@@ -187,7 +189,8 @@ export const TranscriptionSystemPrompt: React.FC<{ grouped?: boolean }> = ({
   const approxTokens = Math.ceil(charCount / CHARS_PER_TOKEN);
   const percentUsed = modelInfo.charLimit > 0 ? (charCount / modelInfo.charLimit) * 100 : 0;
   const isNearLimit = percentUsed > 80;
-  const isOverLimit = charCount > modelInfo.charLimit;
+  const isOverLimit =
+    modelInfo.charLimit > 0 && charCount > modelInfo.charLimit;
 
   return (
     <SettingContainer
@@ -226,17 +229,19 @@ export const TranscriptionSystemPrompt: React.FC<{ grouped?: boolean }> = ({
               {t("settings.general.transcriptionSystemPrompt.tokensApprox", "~{{count}} tok", { count: approxTokens })}
             </div>
             {/* Character count */}
-            <div
-              className={`px-2 py-0.5 rounded text-[10px] font-mono backdrop-blur-md border ${
-                isOverLimit
-                  ? "bg-red-500/10 text-red-400/90 border-red-500/20"
-                  : isNearLimit
-                    ? "bg-amber-500/10 text-amber-500/80 border-amber-500/20"
-                    : "bg-white/5 text-mid-gray/60 border-white/5"
-              }`}
-            >
-              {charCount} / {modelInfo.charLimit}
-            </div>
+            {modelInfo.charLimit > 0 && (
+              <div
+                className={`px-2 py-0.5 rounded text-[10px] font-mono backdrop-blur-md border ${
+                  isOverLimit
+                    ? "bg-red-500/10 text-red-400/90 border-red-500/20"
+                    : isNearLimit
+                      ? "bg-amber-500/10 text-amber-500/80 border-amber-500/20"
+                      : "bg-white/5 text-mid-gray/60 border-white/5"
+                }`}
+              >
+                {charCount} / {modelInfo.charLimit}
+              </div>
+            )}
           </div>
         </div>
 

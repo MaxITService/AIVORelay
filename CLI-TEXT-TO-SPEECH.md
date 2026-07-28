@@ -66,7 +66,10 @@ Voice instructions require OpenAI TTS and a compatible
 `gpt-4o-mini-tts` model. An explicitly requested CLI prompt is rejected before
 the provider request if the current model is incompatible. Saved instructions
 remain stored but inactive for OpenAI models that do not support instructions.
-Argument text is passed as data and is never evaluated as shell code.
+OpenAI voice instructions are limited to 4,096 characters; the same validation
+applies to inline text, instruction files, named presets, saved instructions,
+and history regeneration. Argument text is passed as data and is never
+evaluated as shell code.
 
 ## Progress and automation
 

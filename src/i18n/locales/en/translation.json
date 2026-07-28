@@ -75,7 +75,7 @@
       "customUnsaved": "Custom / unsaved prompt",
       "deletePreset": "Delete preset",
       "instructionsTitle": "OpenAI voice instructions",
-      "instructionsDescription": "Optional style, tone, pacing, and delivery guidance.",
+      "instructionsDescription": "Optional style, tone, pacing, and delivery guidance (up to 4,096 characters).",
       "instructionsPlaceholder": "Speak warmly and clearly...",
       "namePlaceholder": "Preset name",
       "saveNamed": "Save named prompt",
@@ -1051,7 +1051,7 @@
       "transcriptionSystemPrompt": {
         "title": "Voice Model Prompt (optional, will only work if STT model supports it)",
         "description": "Provide context to help the voice model with specialized terminology, names, or formatting.",
-        "tooltip": "This prompt provides context hints directly to the Speech-to-Text (STT) model to help it recognize specialized terminology, proper nouns, or formatting before the transcript is created. Unlike LLM Post-Processing, this works at the 'hearing' stage to prevent errors. Note that prompts are saved independently for each specific voice model—switching models will switch the active prompt. Because STT engines have small memory windows for context (often 224-448 tokens), if the input exceeds this limit, it will be automatically truncated from the start. Support depends on the specific model provider (e.g., Whisper models generally support this, while Parakeet does not).",
+        "tooltip": "This prompt provides context hints directly to the Speech-to-Text (STT) model to help it recognize specialized terminology, proper nouns, or formatting before the transcript is created. Unlike LLM Post-Processing, this works at the 'hearing' stage to prevent errors. Prompts are saved independently for each specific voice model—switching models switches the active prompt. Remote provider limits may be token-based and vary by model; an oversized prompt can be rejected by the provider. Support also depends on the model (for example, Whisper models generally support prompts while Parakeet does not).",
         "placeholder": "Example: Context: technical discussion. Terms: Kubernetes, gRPC, CI/CD.",
         "nearLimit": "Approaching the {{limit}} character limit. Longer prompts may be truncated.",
         "overLimit": "Exceeds {{limit}} character limit! The prompt will be automatically truncated.",
@@ -1784,10 +1784,11 @@
         },
         "languageHints": {
           "title": "Language Hints",
-          "description": "Type language codes as a comma-separated list in this input field (for example: en, es or en, es, ru). Do not type JSON here. API equivalent for two languages is: { \"language_hints\": [\"en\", \"es\"] }. Soniox is biased toward these languages, which usually improves recognition accuracy and reduces wrong-language guesses. Mode scope: applied in Live mode and used as defaults for Soniox File Transcription; not currently used as-is by the non-live shortcut fallback path, which derives hint from current profile/global language.",
+          "description": "Type up to 100 language codes as a comma-separated list in this input field (for example: en, es or en, es, ru). Do not type JSON here. API equivalent for two languages is: { \"language_hints\": [\"en\", \"es\"] }. Soniox is biased toward these languages, which usually improves recognition accuracy and reduces wrong-language guesses. Mode scope: applied in Live mode and used as defaults for Soniox File Transcription; not currently used as-is by the non-live shortcut fallback path, which derives hint from current profile/global language.",
           "placeholder": "en, es, ru",
           "supportedLanguagesLink": "Supported languages (Open Web Documentation)",
-          "languageHintsDocsLink": "Language hints docs"
+          "languageHintsDocsLink": "Language hints docs",
+          "tooMany": "Soniox accepts at most {{limit}} language hints; {{count}} were entered."
         },
         "profileLanguageHintOnly": {
           "title": "Use Current Profile Language As Hint",
@@ -1930,7 +1931,7 @@
             "interim": "Interim Results: maps to `interim_results` query param. Deepgram API default is false; app default is true.",
             "smartFormat": "Smart Format: maps to `smart_format` query param. Improves punctuation/number readability. API default is false; app default is true.",
             "endpointing": "Endpointing: enables/disables Deepgram endpointing behavior (query param `endpointing`).",
-            "endpointingMs": "Endpointing (ms): when endpointing is enabled, app sends numeric `endpointing=<ms>` (allowed 50-5000 in app; default 400).",
+            "endpointingMs": "Endpointing (ms): when endpointing is enabled, app sends numeric `endpointing=<ms>` (allowed 10-5000 in app; default 400).",
             "keepalive": "KeepAlive Interval: app sends `{\"type\":\"KeepAlive\"}` during silence; value is clamped to 3-5s.",
             "finalizeTimeout": "Live Finalization Timeout: after Stop, app sends Finalize + CloseStream and waits this many milliseconds for late final chunks before force-completing.",
             "instantStop": "Instant Stop: local app shortcut that cancels live session immediately and skips normal finalization wait.",
@@ -1976,7 +1977,7 @@
         },
         "endpointingMs": {
           "title": "Endpointing (ms)",
-          "description": "Pause sensitivity value for endpointing. Lower values react faster but can split speech earlier; higher values are safer but slower to finalize. App range is 50-5000ms, default 400ms. Deepgram guidance generally suggests around 300-500ms for natural conversational behavior."
+          "description": "Pause sensitivity value for endpointing. Lower values react faster but can split speech earlier; higher values are safer but slower to finalize. App range is 10-5000ms, default 400ms. Deepgram guidance generally suggests around 300-500ms for natural conversational behavior."
         },
         "keepalive": {
           "title": "KeepAlive Interval (seconds)",
@@ -3181,7 +3182,8 @@
       "languageHintsPlaceholder": "e.g. en, es, ru",
       "speakerDiarizationLabel": "Enable speaker diarization",
       "languageIdentificationLabel": "Enable language identification",
-      "invalidHints": "Unsupported Soniox language hints: {{hints}}"
+      "invalidHints": "Unsupported Soniox language hints: {{hints}}",
+      "tooManyHints": "Soniox accepts at most {{limit}} language hints; {{count}} were entered."
     },
     "deepgram": {
       "title": "Deepgram File Transcription Options",

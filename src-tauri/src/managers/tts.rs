@@ -36,6 +36,11 @@ pub const TTS_EVENT_PROGRESS: &str = "tts://progress";
 pub const SONIOX_CHARACTER_LIMIT: usize = 5_000;
 pub const DEEPGRAM_CHARACTER_LIMIT: usize = 2_000;
 pub const OPENAI_CHARACTER_LIMIT: usize = 4_096;
+pub const SONIOX_TTS_MODEL_MAX_CHARS: usize = 50;
+pub const SONIOX_TTS_LANGUAGE_MAX_CHARS: usize = 50;
+pub const SONIOX_TTS_VOICE_MAX_CHARS: usize = 50;
+pub const SONIOX_TTS_API_KEY_MAX_CHARS: usize = 250;
+pub const OPENAI_TTS_INSTRUCTIONS_MAX_CHARS: usize = 4_096;
 pub const PROVIDER_PCM_SAMPLE_RATE: u32 = 24_000;
 pub const MP3_OUTPUT_SAMPLE_RATE: u32 = 32_000;
 pub const SUPPORTED_MP3_BITRATES: [u16; 6] = [64, 96, 128, 192, 256, 320];
@@ -235,6 +240,46 @@ impl TtsManager {
     pub fn openai_model_supports_instructions(model: &str) -> bool {
         let model = model.trim();
         model.is_empty() || model.starts_with("gpt-4o-mini-tts")
+    }
+
+    pub fn validate_openai_instructions(instructions: &str) -> Result<()> {
+        validate_max_chars(
+            "OpenAI voice instructions",
+            instructions,
+            OPENAI_TTS_INSTRUCTIONS_MAX_CHARS,
+        )
+    }
+
+    pub fn validate_settings(settings: &TtsSettings) -> Result<()> {
+        if settings.provider == TtsProvider::Soniox {
+            validate_max_chars(
+                "Soniox TTS model",
+                &settings.soniox_model,
+                SONIOX_TTS_MODEL_MAX_CHARS,
+            )?;
+            validate_max_chars(
+                "Soniox TTS language",
+                &settings.soniox_language,
+                SONIOX_TTS_LANGUAGE_MAX_CHARS,
+            )?;
+            validate_max_chars(
+                "Soniox TTS voice",
+                &settings.soniox_voice,
+                SONIOX_TTS_VOICE_MAX_CHARS,
+            )?;
+        }
+        Self::validate_openai_instructions(&settings.openai_instructions)?;
+        for preset in &settings.prompt_presets {
+            validate_max_chars(
+                &format!(
+                    "OpenAI voice instructions in preset '{}'",
+                    preset.name.trim()
+                ),
+                &preset.instructions,
+                OPENAI_TTS_INSTRUCTIONS_MAX_CHARS,
+            )?;
+        }
+        Ok(())
     }
 
     pub fn current_state(&self) -> TtsState {
@@ -1634,13 +1679,22 @@ fn resolve_api_key(settings: &TtsSettings) -> Result<String> {
             crate::secure_keys::get_post_process_api_key("openai")
         }
     };
-    if key.trim().is_empty() {
+    let key = key.trim();
+    if key.is_empty() {
         Err(anyhow!(
             "No {} API key is configured for text-to-speech",
             provider_name(settings.provider)
         ))
+    } else if settings.provider == TtsProvider::Soniox
+        && key.chars().count() > SONIOX_TTS_API_KEY_MAX_CHARS
+    {
+        Err(anyhow!(
+            "Soniox TTS API key must not exceed {} characters; received {}",
+            SONIOX_TTS_API_KEY_MAX_CHARS,
+            key.chars().count()
+        ))
     } else {
-        Ok(key.trim().to_string())
+        Ok(key.to_string())
     }
 }
 
@@ -1656,7 +1710,19 @@ fn ensure_enabled(settings: &TtsSettings) -> Result<()> {
     if !settings.enabled {
         return Err(anyhow!("Text-to-speech is disabled"));
     }
+    TtsManager::validate_settings(settings)?;
     Ok(())
+}
+
+fn validate_max_chars(label: &str, value: &str, maximum: usize) -> Result<()> {
+    let count = value.chars().count();
+    if count > maximum {
+        Err(anyhow!(
+            "{label} must not exceed {maximum} characters; received {count}"
+        ))
+    } else {
+        Ok(())
+    }
 }
 
 fn nonempty_or<'a>(value: &'a str, fallback: &'a str) -> &'a str {

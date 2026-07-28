@@ -1215,7 +1215,7 @@ export const TranscriptionProfiles: React.FC = () => {
       return { supportsPrompt: true, charLimit: 896, modelId: "" };
     }
     if (provider === "remote_openai_compatible") {
-      return getModelPromptInfo(activeModelId);
+      return getModelPromptInfo(activeModelId, undefined, false);
     }
     // For local models, get engine_type from model info
     const localModelInfo = getModelInfo(activeModelId);
