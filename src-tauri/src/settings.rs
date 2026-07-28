@@ -696,6 +696,190 @@ pub fn apply_text_replacements(text: &str, replacements: &[TextReplacement]) -> 
     result
 }
 
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Type)]
+#[serde(rename_all = "snake_case")]
+pub enum TtsProvider {
+    Soniox,
+    Deepgram,
+    #[serde(rename = "openai")]
+    OpenAi,
+}
+
+impl Default for TtsProvider {
+    fn default() -> Self {
+        Self::Soniox
+    }
+}
+
+impl TtsProvider {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Soniox => "soniox",
+            Self::Deepgram => "deepgram",
+            Self::OpenAi => "openai",
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Type)]
+#[serde(rename_all = "snake_case")]
+pub enum TtsKeySource {
+    Shared,
+    Separate,
+}
+
+impl Default for TtsKeySource {
+    fn default() -> Self {
+        Self::Shared
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Type)]
+#[serde(rename_all = "snake_case")]
+pub enum TtsOutputFormat {
+    #[serde(rename = "mp3")]
+    Mp3,
+    Wav,
+}
+
+impl Default for TtsOutputFormat {
+    fn default() -> Self {
+        Self::Mp3
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, Type)]
+pub struct TtsPromptPreset {
+    pub id: String,
+    pub name: String,
+    pub instructions: String,
+}
+
+/// Text-to-Speech configuration shared by clipboard playback and text-file export.
+///
+/// API secrets are deliberately excluded and live in Windows Credential Manager.
+#[derive(Serialize, Deserialize, Debug, Clone, Type)]
+pub struct TtsSettings {
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+    #[serde(default)]
+    pub provider: TtsProvider,
+    #[serde(default)]
+    pub soniox_key_source: TtsKeySource,
+    #[serde(default)]
+    pub deepgram_key_source: TtsKeySource,
+    #[serde(default)]
+    pub openai_key_source: TtsKeySource,
+    #[serde(default = "default_tts_soniox_model")]
+    pub soniox_model: String,
+    #[serde(default = "default_tts_soniox_language")]
+    pub soniox_language: String,
+    #[serde(default = "default_tts_soniox_voice")]
+    pub soniox_voice: String,
+    #[serde(default = "default_tts_deepgram_model")]
+    pub deepgram_model: String,
+    #[serde(default = "default_tts_openai_model")]
+    pub openai_model: String,
+    #[serde(default = "default_tts_openai_voice")]
+    pub openai_voice: String,
+    #[serde(default)]
+    pub openai_instructions: String,
+    #[serde(default)]
+    pub prompt_presets: Vec<TtsPromptPreset>,
+    #[serde(default)]
+    pub selected_prompt_id: String,
+    #[serde(default = "default_tts_speed")]
+    pub speed: f32,
+    #[serde(default = "default_true")]
+    pub preprocessing_enabled: bool,
+    #[serde(default)]
+    pub preprocessing_rules: Vec<TextReplacement>,
+    #[serde(default = "default_tts_interactive_target_chars")]
+    pub interactive_target_chars: u32,
+    #[serde(default = "default_tts_file_target_chars")]
+    pub file_target_chars: u32,
+    #[serde(default = "default_tts_retry_count")]
+    pub retry_count: u8,
+    #[serde(default = "default_tts_retry_base_delay_ms")]
+    pub retry_base_delay_ms: u32,
+    #[serde(default = "default_tts_inter_chunk_pause_ms")]
+    pub inter_chunk_pause_ms: u32,
+    #[serde(default = "default_tts_paragraph_pause_ms")]
+    pub paragraph_pause_ms: u32,
+    #[serde(default = "default_tts_play_pause_hotkey")]
+    pub play_pause_hotkey: String,
+    #[serde(default = "default_tts_stop_hotkey")]
+    pub stop_hotkey: String,
+    #[serde(default = "default_true")]
+    pub autoplay: bool,
+    #[serde(default)]
+    pub output_format: TtsOutputFormat,
+    #[serde(default = "default_tts_mp3_bitrate_kbps")]
+    pub mp3_bitrate_kbps: u16,
+    #[serde(default)]
+    pub watch_folder_enabled: bool,
+    #[serde(default)]
+    pub watch_recursive: bool,
+    #[serde(default)]
+    pub watch_input_directory: String,
+    #[serde(default)]
+    pub watch_output_directory: String,
+    #[serde(default = "default_tts_watch_settle_delay_ms")]
+    pub watch_settle_delay_ms: u32,
+    #[serde(default = "default_tts_disk_reserve_mb")]
+    pub disk_reserve_mb: u32,
+    #[serde(default)]
+    pub history_enabled: bool,
+    #[serde(default = "default_tts_history_max_entries")]
+    pub history_max_entries: u32,
+    #[serde(default = "default_tts_history_max_storage_mb")]
+    pub history_max_storage_mb: u32,
+}
+
+impl Default for TtsSettings {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            provider: TtsProvider::default(),
+            soniox_key_source: TtsKeySource::Shared,
+            deepgram_key_source: TtsKeySource::Shared,
+            openai_key_source: TtsKeySource::Shared,
+            soniox_model: default_tts_soniox_model(),
+            soniox_language: default_tts_soniox_language(),
+            soniox_voice: default_tts_soniox_voice(),
+            deepgram_model: default_tts_deepgram_model(),
+            openai_model: default_tts_openai_model(),
+            openai_voice: default_tts_openai_voice(),
+            openai_instructions: String::new(),
+            prompt_presets: Vec::new(),
+            selected_prompt_id: String::new(),
+            speed: default_tts_speed(),
+            preprocessing_enabled: true,
+            preprocessing_rules: Vec::new(),
+            interactive_target_chars: default_tts_interactive_target_chars(),
+            file_target_chars: default_tts_file_target_chars(),
+            retry_count: default_tts_retry_count(),
+            retry_base_delay_ms: default_tts_retry_base_delay_ms(),
+            inter_chunk_pause_ms: default_tts_inter_chunk_pause_ms(),
+            paragraph_pause_ms: default_tts_paragraph_pause_ms(),
+            play_pause_hotkey: default_tts_play_pause_hotkey(),
+            stop_hotkey: default_tts_stop_hotkey(),
+            autoplay: true,
+            output_format: TtsOutputFormat::default(),
+            mp3_bitrate_kbps: default_tts_mp3_bitrate_kbps(),
+            watch_folder_enabled: false,
+            watch_recursive: false,
+            watch_input_directory: String::new(),
+            watch_output_directory: String::new(),
+            watch_settle_delay_ms: default_tts_watch_settle_delay_ms(),
+            disk_reserve_mb: default_tts_disk_reserve_mb(),
+            history_enabled: false,
+            history_max_entries: default_tts_history_max_entries(),
+            history_max_storage_mb: default_tts_history_max_storage_mb(),
+        }
+    }
+}
+
 pub fn text_has_leading_whitespace(text: &str) -> bool {
     text.chars()
         .next()
@@ -2060,6 +2244,9 @@ pub struct AppSettings {
     /// List of text replacement rules
     #[serde(default)]
     pub text_replacements: Vec<TextReplacement>,
+    /// Text-to-Speech provider, preprocessing, playback, and export settings.
+    #[serde(default)]
+    pub tts: TtsSettings,
     /// Whether to apply text replacements BEFORE LLM post-processing (default: after)
     /// When true: STT → Text Replacement → LLM → Output
     /// When false (default): STT → LLM → Text Replacement → Output
@@ -2468,6 +2655,86 @@ fn default_recording_overlay_decapitalize_indicator_color() -> String {
 
 fn default_soniox_live_preview_enabled() -> bool {
     false
+}
+
+fn default_tts_soniox_model() -> String {
+    "tts-rt-v1".to_string()
+}
+
+fn default_tts_soniox_language() -> String {
+    "en".to_string()
+}
+
+fn default_tts_soniox_voice() -> String {
+    "Maya".to_string()
+}
+
+fn default_tts_deepgram_model() -> String {
+    "aura-2-thalia-en".to_string()
+}
+
+fn default_tts_openai_model() -> String {
+    "gpt-4o-mini-tts".to_string()
+}
+
+fn default_tts_openai_voice() -> String {
+    "marin".to_string()
+}
+
+fn default_tts_speed() -> f32 {
+    1.0
+}
+
+fn default_tts_interactive_target_chars() -> u32 {
+    350
+}
+
+fn default_tts_file_target_chars() -> u32 {
+    1_800
+}
+
+fn default_tts_retry_count() -> u8 {
+    3
+}
+
+fn default_tts_retry_base_delay_ms() -> u32 {
+    750
+}
+
+fn default_tts_inter_chunk_pause_ms() -> u32 {
+    120
+}
+
+fn default_tts_paragraph_pause_ms() -> u32 {
+    350
+}
+
+fn default_tts_play_pause_hotkey() -> String {
+    "space".to_string()
+}
+
+fn default_tts_stop_hotkey() -> String {
+    "escape".to_string()
+}
+
+fn default_tts_mp3_bitrate_kbps() -> u16 {
+    256
+}
+
+fn default_tts_watch_settle_delay_ms() -> u32 {
+    1_500
+}
+
+fn default_tts_disk_reserve_mb() -> u32 {
+    512
+}
+
+fn default_tts_history_max_entries() -> u32 {
+    100
+}
+
+fn default_tts_history_max_storage_mb() -> u32 {
+    1_024
 }
 
 fn default_soniox_live_preview_position() -> SonioxLivePreviewPosition {
@@ -3095,7 +3362,9 @@ fn settings_store_disk_path(app: &AppHandle) -> Option<PathBuf> {
     crate::portable::resolve_app_data(app, SETTINGS_STORE_PATH).ok()
 }
 
-fn parse_settings_store_document(bytes: &[u8]) -> Result<HashMap<String, Value>, serde_json::Error> {
+fn parse_settings_store_document(
+    bytes: &[u8],
+) -> Result<HashMap<String, Value>, serde_json::Error> {
     serde_json::from_slice(bytes)
 }
 
@@ -3108,7 +3377,11 @@ fn settings_store_file_is_corrupted(app: &AppHandle) -> bool {
         Ok(bytes) => bytes,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return false,
         Err(error) => {
-            warn!("Could not read settings store '{}': {}", path.display(), error);
+            warn!(
+                "Could not read settings store '{}': {}",
+                path.display(),
+                error
+            );
             return false;
         }
     };
@@ -3312,6 +3585,28 @@ pub fn get_default_settings() -> AppSettings {
     bindings.insert(
         PREVIEW_DELETE_LAST_WORD_BINDING_ID.to_string(),
         build_preview_delete_last_word_binding(String::new()),
+    );
+    bindings.insert(
+        "read_clipboard".to_string(),
+        ShortcutBinding {
+            id: "read_clipboard".to_string(),
+            name: "Read Clipboard".to_string(),
+            description: "Read the current clipboard text with Text-to-Speech.".to_string(),
+            default_binding: String::new(),
+            current_binding: String::new(),
+        },
+    );
+    bindings.insert(
+        "read_selection_tts".to_string(),
+        ShortcutBinding {
+            id: "read_selection_tts".to_string(),
+            name: "Copy Selection and Read".to_string(),
+            description:
+                "Copy selected text without replacing the clipboard, then read it with Text-to-Speech."
+                    .to_string(),
+            default_binding: String::new(),
+            current_binding: String::new(),
+        },
     );
 
     AppSettings {
@@ -3614,6 +3909,7 @@ pub fn get_default_settings() -> AppSettings {
         // Text Replacement
         text_replacements_enabled: false,
         text_replacements: Vec::new(),
+        tts: TtsSettings::default(),
         text_replacements_before_llm: false,
         text_replacement_decapitalize_after_edit_key_enabled: false,
         text_replacement_decapitalize_after_edit_key:
@@ -4732,6 +5028,51 @@ mod tests {
         assert_eq!(settings.soniox_context_general_json, "");
         assert_eq!(settings.soniox_context_text, "");
         assert!(settings.soniox_context_terms.is_empty());
+    }
+
+    #[test]
+    fn older_settings_without_tts_receive_safe_tts_defaults() {
+        let mut value = serde_json::to_value(get_default_settings()).unwrap();
+        value["selected_model"] = json!("keep-existing-model");
+        value.as_object_mut().unwrap().remove("tts");
+
+        let (settings, repaired) = deserialize_settings_value_with_repair(&value);
+
+        assert!(!repaired);
+        assert_eq!(settings.selected_model, "keep-existing-model");
+        assert!(settings.tts.enabled);
+        assert_eq!(settings.tts.provider, TtsProvider::Soniox);
+        assert_eq!(settings.tts.retry_count, 3);
+        assert_eq!(settings.tts.output_format, TtsOutputFormat::Mp3);
+        assert_eq!(settings.tts.mp3_bitrate_kbps, 256);
+        assert!(!settings.tts.watch_folder_enabled);
+        assert!(!settings.tts.watch_recursive);
+        assert!(!settings.tts.history_enabled);
+        assert_eq!(settings.tts.history_max_entries, 100);
+        assert_eq!(settings.tts.history_max_storage_mb, 1_024);
+    }
+
+    #[test]
+    fn partial_tts_settings_preserve_values_and_default_new_fields() {
+        let mut value = serde_json::to_value(get_default_settings()).unwrap();
+        value["tts"] = json!({
+            "enabled": false,
+            "provider": "deepgram",
+            "deepgram_model": "custom-aura-model"
+        });
+
+        let (settings, repaired) = deserialize_settings_value_with_repair(&value);
+
+        assert!(!repaired);
+        assert!(!settings.tts.enabled);
+        assert_eq!(settings.tts.provider, TtsProvider::Deepgram);
+        assert_eq!(settings.tts.deepgram_model, "custom-aura-model");
+        assert_eq!(settings.tts.retry_count, 3);
+        assert_eq!(settings.tts.output_format, TtsOutputFormat::Mp3);
+        assert_eq!(settings.tts.mp3_bitrate_kbps, 256);
+        assert!(!settings.tts.history_enabled);
+        assert_eq!(settings.tts.history_max_entries, 100);
+        assert_eq!(settings.tts.history_max_storage_mb, 1_024);
     }
 
     #[test]

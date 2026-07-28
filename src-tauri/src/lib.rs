@@ -6,6 +6,8 @@ mod audio_feedback;
 pub mod audio_toolkit;
 mod catalog;
 pub mod cli;
+mod cli_file_conversion;
+mod cli_tts_history;
 mod clipboard;
 mod commands;
 mod file_transcription_diarization;
@@ -16,6 +18,7 @@ mod input_source;
 mod language_resolver;
 mod llm_client;
 mod managers;
+mod no_clobber;
 mod overlay;
 mod plus_overlay_state;
 mod portable;
@@ -60,6 +63,8 @@ use managers::remote_stt::RemoteSttManager;
 use managers::soniox_realtime::SonioxRealtimeManager;
 use managers::soniox_stt::SonioxSttManager;
 use managers::transcription::TranscriptionManager;
+use managers::tts::TtsManager;
+use managers::tts_history::TtsHistoryManager;
 #[cfg(unix)]
 use signal_hook::consts::SIGUSR2;
 #[cfg(unix)]
@@ -398,10 +403,15 @@ fn initialize_core_logic(app_handle: &AppHandle) {
         Arc::new(DeepgramSttManager::new(app_handle).expect("Failed to initialize Deepgram STT"));
     let history_manager =
         Arc::new(HistoryManager::new(app_handle).expect("Failed to initialize history manager"));
+    let tts_history_manager = Arc::new(
+        TtsHistoryManager::new(app_handle).expect("Failed to initialize TTS history manager"),
+    );
     let connector_manager = Arc::new(
         ConnectorManager::new(app_handle).expect("Failed to initialize connector manager"),
     );
     let llm_operation_tracker = Arc::new(LlmOperationTracker::new());
+    let tts_manager =
+        TtsManager::new(app_handle).expect("Failed to initialize Text-to-Speech manager");
 
     // Initialize key listener
     let key_listener_state = KeyListenerState::new(app_handle.clone());
@@ -418,9 +428,16 @@ fn initialize_core_logic(app_handle: &AppHandle) {
     app_handle.manage(deepgram_stt_manager.clone());
     app_handle.manage(llm_operation_tracker.clone());
     app_handle.manage(history_manager.clone());
+    app_handle.manage(tts_history_manager);
     app_handle.manage(connector_manager.clone());
+    app_handle.manage(tts_manager.clone());
+    app_handle.manage(commands::tts::TtsOverlayRuntime::default());
     app_handle.manage(key_listener_state);
     app_handle.manage(settings::DictationStatsEditState::default());
+    commands::tts::install_tts_event_bridge(app_handle);
+    if let Err(error) = tts_manager.sync_folder_watcher() {
+        log::error!("Failed to initialize the TTS folder watcher: {error}");
+    }
 
     // Open the feedback output once at startup rather than racing a fresh
     // WASAPI stream against microphone shutdown for every cue.
@@ -735,7 +752,7 @@ fn trigger_update_check(app: AppHandle) -> Result<(), String> {
 /// Convert an unexpected panic on the headless worker into a normal CLI
 /// failure. Without this guard the Tauri event loop remains alive after the
 /// worker exits, leaving `--transcribe-file` hung indefinitely.
-fn run_headless_guarded<F>(operation: F) -> i32
+fn run_headless_guarded<F>(operation_name: &'static str, json_mode: bool, operation: F) -> i32
 where
     F: FnOnce() -> i32,
 {
@@ -749,7 +766,20 @@ where
             } else {
                 "unknown panic".to_string()
             };
-            eprintln!("error: headless transcription panicked: {message}");
+            let error = format!("{operation_name} panicked: {message}");
+            if json_mode {
+                println!(
+                    "{}",
+                    serde_json::json!({
+                        "ok": false,
+                        "operation": operation_name,
+                        "error": error,
+                        "exit_code": 1,
+                    })
+                );
+            } else {
+                eprintln!("error: {error}");
+            }
             1
         }
     }
@@ -761,12 +791,15 @@ mod headless_guard_tests {
 
     #[test]
     fn preserves_normal_exit_codes() {
-        assert_eq!(run_headless_guarded(|| 2), 2);
+        assert_eq!(run_headless_guarded("test", false, || 2), 2);
     }
 
     #[test]
     fn converts_worker_panics_to_runtime_failures() {
-        assert_eq!(run_headless_guarded(|| panic!("simulated failure")), 1);
+        assert_eq!(
+            run_headless_guarded("test", false, || panic!("simulated failure")),
+            1
+        );
     }
 }
 
@@ -1251,6 +1284,23 @@ pub fn run(cli_args: CliArgs) {
         commands::remote_stt::remote_stt_clear_debug,
         commands::remote_stt::remote_stt_test_connection,
         commands::remote_stt::remote_stt_supports_translation,
+        commands::tts::update_tts_settings,
+        commands::tts::tts_has_api_key,
+        commands::tts::tts_set_api_key,
+        commands::tts::tts_clear_api_key,
+        commands::tts::inspect_tts_text_file,
+        commands::tts::convert_tts_text_file,
+        commands::tts::get_tts_overlay_state,
+        commands::tts::cancel_tts_operation,
+        commands::tts::tts_overlay_playback_state,
+        commands::tts_history::get_tts_history_entries,
+        commands::tts_history::get_tts_history_entry,
+        commands::tts_history::get_tts_history_audio_path,
+        commands::tts_history::delete_tts_history_entry,
+        commands::tts_history::delete_tts_history_entry_detailed,
+        commands::tts_history::delete_all_tts_history_entries,
+        commands::tts_history::export_tts_history_audio,
+        commands::tts_history::regenerate_tts_history_entry,
         commands::check_apple_intelligence_available,
         commands::llm_has_stored_api_key,
         commands::debug_show_error_overlay,
@@ -1381,7 +1431,10 @@ pub fn run(cli_args: CliArgs) {
         .expect("Failed to export typescript bindings");
 
     // mut is required on macOS where we add the nspanel plugin
-    let headless_mode = cli_args.transcribe_file.is_some() || cli_args.list_devices;
+    let headless_mode = cli_args.transcribe_file.is_some()
+        || cli_args.list_devices
+        || cli_file_conversion::is_file_conversion_requested(&cli_args)
+        || cli_tts_history::is_tts_history_requested(&cli_args);
 
     #[allow(unused_mut)]
     let mut builder = tauri::Builder::default()
@@ -1484,6 +1537,38 @@ pub fn run(cli_args: CliArgs) {
         .setup(move |app| {
             if headless_mode {
                 let app_handle = app.handle().clone();
+                if cli_tts_history::is_tts_history_requested(&cli_args) {
+                    let handle = app_handle.clone();
+                    let args = cli_args.clone();
+                    std::thread::spawn(move || {
+                        let code = run_headless_guarded("tts_history", args.json, || {
+                            cli_tts_history::run_tts_history(&handle, &args)
+                        });
+                        use std::io::Write;
+                        let _ = std::io::stdout().flush();
+                        let _ = std::io::stderr().flush();
+                        std::process::exit(code);
+                    });
+                    return Ok(());
+                }
+                if cli_file_conversion::is_file_conversion_requested(&cli_args) {
+                    let handle = app_handle.clone();
+                    let args = cli_args.clone();
+                    std::thread::spawn(move || {
+                        let code = run_headless_guarded("file_conversion", args.json, || {
+                            cli_file_conversion::run_file_conversion(&handle, &args)
+                        });
+                        if let Some(tm) = handle.try_state::<Arc<TranscriptionManager>>() {
+                            let _ = tm.unload_model();
+                        }
+                        use std::io::Write;
+                        let _ = std::io::stdout().flush();
+                        let _ = std::io::stderr().flush();
+                        std::process::exit(code);
+                    });
+                    return Ok(());
+                }
+
                 managers::transcription::init_transcribe_backend();
                 let model_manager = Arc::new(
                     ModelManager::new(&app_handle).expect("Failed to initialize model manager"),
@@ -1499,7 +1584,9 @@ pub fn run(cli_args: CliArgs) {
                 let handle = app_handle.clone();
                 let args = cli_args.clone();
                 std::thread::spawn(move || {
-                    let code = run_headless_guarded(|| run_headless_transcription(&handle, &args));
+                    let code = run_headless_guarded("file_transcription", args.json, || {
+                        run_headless_transcription(&handle, &args)
+                    });
                     if let Some(tm) = handle.try_state::<Arc<TranscriptionManager>>() {
                         let _ = tm.unload_model();
                     }

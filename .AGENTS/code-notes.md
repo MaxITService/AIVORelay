@@ -37,6 +37,12 @@ Files that are added by this fork rather than upstream files that were modified.
 | `src-tauri/src/shortcut_handy_keys.rs` | Ported upstream HandyKeys shortcut backend and backend-side shortcut recording. |
 | `src-tauri/src/language_resolver.rs` | Soniox language resolver. |
 | `src-tauri/src/text_replacement_decapitalize.rs` | Decapitalize trigger. |
+| `src-tauri/src/managers/tts.rs` | Provider-independent Soniox/Deepgram/OpenAI TTS, semantic chunking, retry, Markdown rendering, resumable PCM-backed WAV/MP3 assembly, disk protection, cache, and lazy recursive/non-recursive folder watching. Successful watcher conversions are copied into opt-in TTS History without invalidating the external result when History capture fails. |
+| `src-tauri/src/managers/tts_history.rs` | Separate opt-in TTS History database and managed audio storage, comparison groups, safe export/delete, and oldest-first rolling count/storage retention. |
+| `src-tauri/src/managers/tts_resume.rs` | Cross-process TTS file-conversion leases and ownership-marked alternating atomic checkpoints with synthesis-plan fingerprints, per-segment PCM hashes, safe tail truncation, watcher recovery discovery, and managed History regeneration namespaces. |
+| `src-tauri/src/commands/tts.rs` | TTS settings/key/file-conversion commands, the playback-overlay event bridge, and cold/warm shortcut-to-first-playback latency measurements. |
+| `src-tauri/src/cli_file_conversion.rs` | Headless app-managed audio-to-text/Markdown and text/Markdown-to-audio conversion with terminal/JSON progress and opt-in TTS History capture. |
+| `src-tauri/src/cli_tts_history.rs` | Headless TTS History list/show/export/regenerate/delete operations; regeneration may produce an external file or only a new managed comparison result. |
 
 ### Frontend (React/TypeScript)
 
@@ -56,8 +62,8 @@ Files that are added by this fork rather than upstream files that were modified.
 | `src/soniox-live-preview/SonioxLivePreview.tsx` | Live preview window UI, drag grip, edge resize handles, persisted geometry, preview delete actions. |
 | `src/lib/utils/previewHotkeys.ts` | Preview hotkeys logic. |
 | `src/components/ui/HotkeyCapture.tsx` | Hotkey capture UI. |
-| `src/soniox-live-preview/SonioxLivePreview.css` | Styles for live preview, drag grip, and resize handles. |
-| `src/components/settings/voice-commands/VoiceCommandSettings.tsx` | Voice Command settings UI. |
+| `src/soniox-live-preview/SonioxLivePreview.css` | Styles for live preview, drag grip, edge resize handles. |
+| `src/components/settings/voice-commands/VoiceCommandSettings.tsx` | Voice Command Center. |
 | `src/components/settings/live-sound-transcription/LiveSoundTranscriptionSettings.tsx` | Live Sound Transcription page with in-page diarized transcript and source/device controls. |
 | `src/components/settings/text-replacement/TextReplacementSettings.tsx` | Text Replacement rules UI. |
 | `src/components/settings/audio-processing/AudioProcessingSettings.tsx` | Audio processing UI. |
@@ -68,6 +74,11 @@ Files that are added by this fork rather than upstream files that were modified.
 | `src/components/settings/debug/ShortcutEngineSelector.tsx` | Shortcut engine toggle UI. |
 | `src/lib/constants/sonioxLanguages.ts` | Soniox languages mapping. |
 | `src/lib/constants/remoteSttProviders.ts` | Remote STT preset metadata for Groq/OpenAI/custom URL handling. |
+| `src/components/settings/text-to-speech/TextToSpeechSettings.tsx` | TTS providers, secure key source, official voice resources, voice prompt presets, preprocessing, chunk/retry controls, folder automation, and file conversion. |
+| `src/components/settings/text-to-speech/TtsFolderAutomation.tsx` | Opt-in recursive/non-recursive `.txt`/`.md` folder conversion controls, disk-reserve warning, and OS-event reliability notice. |
+| `src/components/settings/text-to-speech/TtsHistory.tsx` | Separate in-page TTS History controls, rolling retention settings, grouped comparison variants, playback, export, regeneration, and deletion. |
+| `src/tts-overlay/TtsOverlay.tsx` | Lazy focused playback overlay with incremental chunks and local Play/Pause/Stop hotkeys. |
+| `src/tts-overlay/TtsOverlay.css` | TTS playback overlay styling. |
 
 ### Development & Build Tools
 
@@ -88,12 +99,13 @@ Files that are added by this fork rather than upstream files that were modified.
 
 | File | Current State |
 | --- | --- |
-| `src-tauri/src/actions.rs` | Shortcut actions, variable resolution, preview delete actions. Soniox live-finalization timeouts get one automatic full-recording replay only when output is still reversible (preview workflow or no stable chunk was inserted); never replay over already-inserted live text. |
-| `src-tauri/src/overlay.rs` | Overlay states, preview window helpers, live preview geometry constraints, preview action appearance payload. The live preview WebView is created on first use instead of keeping an idle renderer alive from startup; terminal demo close destroys it, while temporary workflow hides must preserve it. |
-| `src-tauri/src/settings.rs` | Fork-specific settings & features, including live preview actions, preview bindings, and local-only recording tail buffer controls. |
-| `src-tauri/src/lib.rs` | Registers managers, commands, and tray. Remote transcription providers defer the local transcribe.cpp/Vulkan stack; Local keeps eager startup pre-warm. |
+| `src-tauri/src/actions.rs` | Shortcut actions, variable resolution, preview delete actions, and global clipboard/selection TTS actions. Soniox live-finalization timeouts get one automatic full-recording replay only when output is still reversible (preview workflow or no stable chunk was inserted); never replay over already-inserted live text. |
+| `src-tauri/src/overlay.rs` | Overlay states, lazy TTS/preview window helpers, live preview geometry constraints, and preview action appearance payload. |
+| `src-tauri/src/settings.rs` | Fork-specific settings & features, including isolated TTS configuration/prompt presets, watcher recursion, TTS History retention, live preview actions, preview bindings, and local-only recording tail buffer controls. |
+| `src-tauri/src/lib.rs` | Registers managers, commands, tray, and headless file conversion. Remote transcription providers defer the local transcribe.cpp/Vulkan stack; Local keeps eager startup pre-warm. |
+| `src-tauri/src/cli.rs` | CLI flags for legacy transcription benchmarking, symmetric app-managed file conversion, and TTS History operations. |
 | `src-tauri/src/shortcut.rs` | Multi-engine shortcut bindings (Tauri/rdev/HandyKeys), live preview geometry persistence commands, preview action settings commands, preview delete-last-word global hotkey sync. |
-| `src-tauri/src/clipboard.rs` | Clipboard behavior. Streaming clipboard sessions are operation-scoped and serialized through the actual restore. Clipboard-backed paste keeps each transcription value available for a 200 ms post-shortcut consumer grace before another chunk or the user's original multi-format clipboard may replace it. |
+| `src-tauri/src/clipboard.rs` | Clipboard behavior. Streaming clipboard sessions are operation-scoped and serialized through the actual restore. Clipboard-backed paste keeps each transcription value available for a 200 ms post-shortcut consumer grace before another chunk or the user's original multi-format clipboard may replace it. Selection-copy capture reuses the same Windows multi-format backup/restore with text fallback. |
 | `src-tauri/src/input.rs` | Selection capture utilities. |
 | `src-tauri/src/tray.rs` | Custom tray menu. |
 
@@ -157,7 +169,7 @@ Files that are added by this fork rather than upstream files that were modified.
 | `src/components/onboarding/Onboarding.tsx` | Remote STT wizards. |
 | `src/overlay/RecordingOverlay.tsx` | Extended error/sending states. |
 | `src/overlay/RecordingOverlay.css` | Styles for error state. |
-| `vite.config.ts` | Multi-entry target for live preview. |
+| `vite.config.ts` | Multi-entry target for live preview and the lazy TTS playback overlay. |
 
 ## Other Context Files
 

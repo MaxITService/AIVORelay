@@ -7,7 +7,7 @@ import React, {
   useEffect,
 } from "react";
 import { useTranslation } from "react-i18next";
-import { Cog, FlaskConical, Globe, History, Info, Sparkles, Wand2, Terminal, FileAudio, Replace, Mic, Palette, Cpu, Radio } from "lucide-react";
+import { Cog, FlaskConical, Globe, History, Info, Sparkles, Wand2, Terminal, FileAudio, Replace, Mic, Palette, Cpu, Radio, Volume2 } from "lucide-react";
 import { type } from "@tauri-apps/plugin-os";
 import HandyTextLogo from "./icons/HandyTextLogo";
 import HandyHand from "./icons/HandyHand";
@@ -28,6 +28,7 @@ import {
   AudioProcessingSettings,
   UserInterfaceSettings,
   LiveSoundTranscriptionSettings,
+  TextToSpeechSettings,
 } from "./settings";
 
 export type SidebarSection = keyof typeof SECTIONS_CONFIG;
@@ -132,6 +133,12 @@ export const SECTIONS_CONFIG = {
     labelKey: "sidebar.transcribeFile",
     icon: FileAudio,
     component: TranscribeFileSettings,
+    enabled: () => true,
+  },
+  textToSpeech: {
+    labelKey: "sidebar.textToSpeech",
+    icon: Volume2,
+    component: TextToSpeechSettings,
     enabled: () => true,
   },
   about: {
@@ -394,6 +401,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
             return (
               <div
                 key={id}
+                role="button"
+                tabIndex={0}
+                aria-current={isActive ? "page" : undefined}
                 ref={(el) => {
                   if (el) itemRefs.current.set(id, el);
                   else itemRefs.current.delete(id);
@@ -401,7 +411,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 onPointerDown={(e) => onPointerDown(e, id)}
                 onPointerMove={onPointerMove}
                 onPointerUp={onPointerUp}
-                className={`adobe-sidebar-item flex gap-3 items-center w-full select-none hover:cursor-grab ${
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    onSectionChange(id as SidebarSection);
+                  }
+                }}
+                className={`adobe-sidebar-item flex gap-3 items-center w-full select-none hover:cursor-grab focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#ff4d8d]/70 ${
                   isActive ? "active" : ""
                 } ${isDragging ? "opacity-40 cursor-grabbing" : ""} ${
                   isDropTarget

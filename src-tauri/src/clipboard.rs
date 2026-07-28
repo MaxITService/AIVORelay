@@ -1357,6 +1357,23 @@ pub fn capture_selection_text(app_handle: &AppHandle) -> Result<String, String> 
 pub fn capture_selection_text_copy(app_handle: &AppHandle) -> Result<String, String> {
     let clipboard = app_handle.clipboard();
     let clipboard_backup = clipboard.read_text().unwrap_or_default();
+    #[cfg(target_os = "windows")]
+    let advanced_backup = match win_clipboard::backup_all_formats() {
+        Ok(backup) => {
+            info!(
+                "Selection-copy clipboard backup: {} formats saved",
+                backup.len()
+            );
+            Some(backup)
+        }
+        Err(error) => {
+            warn!(
+                "Selection-copy clipboard backup failed: {}. Falling back to text-only restore.",
+                error
+            );
+            None
+        }
+    };
 
     let capture_result = (|| -> Result<String, String> {
         let enigo_state = app_handle
@@ -1377,6 +1394,19 @@ pub fn capture_selection_text_copy(app_handle: &AppHandle) -> Result<String, Str
             .read_text()
             .map_err(|e| format!("Failed to read clipboard: {}", e))
     })();
+
+    #[cfg(target_os = "windows")]
+    if let Some(backup) = advanced_backup {
+        if let Err(error) =
+            restore_advanced_clipboard_with_text_fallback(app_handle, backup, &clipboard_backup)
+        {
+            warn!(
+                "Failed to restore clipboard after selection copy capture: {}",
+                error
+            );
+        }
+        return capture_result;
+    }
 
     if let Err(err) = clipboard.write_text(&clipboard_backup) {
         warn!(

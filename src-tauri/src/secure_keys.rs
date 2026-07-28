@@ -22,6 +22,8 @@ pub enum KeyType {
     SonioxStt,
     /// Deepgram cloud STT API key
     DeepgramStt,
+    /// Text-to-Speech API key stored separately per provider
+    Tts,
 }
 
 impl KeyType {
@@ -32,6 +34,7 @@ impl KeyType {
             KeyType::VoiceCommand => "voice_command_api_key",
             KeyType::SonioxStt => "soniox_api_key",
             KeyType::DeepgramStt => "deepgram_api_key",
+            KeyType::Tts => "tts_api_key",
         }
     }
 
@@ -178,6 +181,26 @@ pub fn clear_deepgram_api_key() -> Result<()> {
 /// Returns whether Deepgram STT API key is present
 pub fn has_deepgram_api_key() -> bool {
     !get_deepgram_api_key().trim().is_empty()
+}
+
+/// Get a provider-specific Text-to-Speech API key.
+pub fn get_tts_api_key(provider_id: &str) -> String {
+    get_api_key(KeyType::Tts, Some(provider_id)).unwrap_or_default()
+}
+
+/// Store a provider-specific Text-to-Speech API key.
+pub fn set_tts_api_key(provider_id: &str, key: &str) -> Result<()> {
+    set_api_key(KeyType::Tts, Some(provider_id), key)
+}
+
+/// Clear a provider-specific Text-to-Speech API key.
+pub fn clear_tts_api_key(provider_id: &str) -> Result<()> {
+    set_api_key(KeyType::Tts, Some(provider_id), "")
+}
+
+/// Returns whether a provider-specific Text-to-Speech API key is present.
+pub fn has_tts_api_key(provider_id: &str) -> bool {
+    !get_tts_api_key(provider_id).trim().is_empty()
 }
 
 // ============================================================================

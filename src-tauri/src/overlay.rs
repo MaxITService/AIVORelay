@@ -75,6 +75,9 @@ const SONIOX_LIVE_PREVIEW_MEDIUM_HEIGHT: f64 = 200.0;
 const SONIOX_LIVE_PREVIEW_LARGE_WIDTH: f64 = 960.0;
 const SONIOX_LIVE_PREVIEW_LARGE_HEIGHT: f64 = 260.0;
 const SONIOX_LIVE_PREVIEW_WINDOW_LABEL: &str = "soniox_live_preview";
+pub const TTS_OVERLAY_WINDOW_LABEL: &str = "tts_overlay";
+const TTS_OVERLAY_WIDTH: f64 = 560.0;
+const TTS_OVERLAY_HEIGHT: f64 = 176.0;
 const SONIOX_LIVE_PREVIEW_TOP_OFFSET: f64 = 52.0;
 const SONIOX_LIVE_PREVIEW_BOTTOM_OFFSET: f64 = 86.0;
 const SONIOX_LIVE_PREVIEW_CURSOR_EDGE_MARGIN: f64 = 12.0;
@@ -1715,6 +1718,87 @@ pub fn create_soniox_live_preview_window(app_handle: &AppHandle) {
 
 #[cfg(not(target_os = "windows"))]
 pub fn create_soniox_live_preview_window(_app_handle: &AppHandle) {}
+
+/// Lazily creates the focused Text-to-Speech playback overlay.
+pub fn create_tts_overlay_window(app_handle: &AppHandle) {
+    if app_handle
+        .get_webview_window(TTS_OVERLAY_WINDOW_LABEL)
+        .is_some()
+    {
+        return;
+    }
+
+    let mut builder = tauri::WebviewWindowBuilder::new(
+        app_handle,
+        TTS_OVERLAY_WINDOW_LABEL,
+        tauri::WebviewUrl::App("src/tts-overlay/index.html".into()),
+    )
+    .title("Text to Speech")
+    .resizable(false)
+    .inner_size(TTS_OVERLAY_WIDTH, TTS_OVERLAY_HEIGHT)
+    .maximizable(false)
+    .minimizable(false)
+    .closable(false)
+    .accept_first_mouse(true)
+    .decorations(false)
+    .always_on_top(true)
+    .skip_taskbar(true)
+    .transparent(true)
+    .focused(true)
+    .visible(false);
+
+    if let Ok(Some(monitor)) = app_handle.primary_monitor() {
+        let scale = monitor.scale_factor();
+        let monitor_position = monitor.position();
+        let monitor_size = monitor.size();
+        let logical_x = monitor_position.x as f64 / scale
+            + (monitor_size.width as f64 / scale - TTS_OVERLAY_WIDTH) / 2.0;
+        let logical_y = monitor_position.y as f64 / scale + monitor_size.height as f64 / scale
+            - TTS_OVERLAY_HEIGHT
+            - 84.0;
+        builder = builder.position(logical_x, logical_y);
+    }
+
+    #[cfg(target_os = "windows")]
+    match crate::webview_runtime::config(app_handle) {
+        Ok(runtime) => {
+            builder = builder.data_directory(runtime.data_directory);
+            if let Some(browser_args) = runtime.additional_browser_args {
+                builder = builder.additional_browser_args(&browser_args);
+            }
+        }
+        Err(error) => log::error!("Failed to configure the shared WebView runtime: {error}"),
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    if let Some(data_dir) = crate::portable::data_dir() {
+        builder = builder.data_directory(data_dir.join("webview"));
+    }
+
+    match builder.build() {
+        Ok(window) => {
+            crate::webview_hardening::disable_browser_accelerator_keys(&window);
+            log::debug!("Text-to-Speech overlay window created successfully (hidden)");
+        }
+        Err(error) => log::error!("Failed to create Text-to-Speech overlay window: {error}"),
+    }
+}
+
+pub fn show_tts_overlay_window(app_handle: &AppHandle) {
+    if app_handle
+        .get_webview_window(TTS_OVERLAY_WINDOW_LABEL)
+        .is_none()
+    {
+        create_tts_overlay_window(app_handle);
+    }
+
+    if let Some(window) = app_handle.get_webview_window(TTS_OVERLAY_WINDOW_LABEL) {
+        let _ = window.unminimize();
+        let _ = window.show();
+        force_overlay_topmost(&window);
+        let _ = window.set_focus();
+    }
+}
 
 /// Creates the recording overlay panel and keeps it hidden by default (macOS)
 #[cfg(target_os = "macos")]

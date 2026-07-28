@@ -15,6 +15,17 @@ AI Voice Relay
 
 > 🛒 **[Microsoft Store Version](https://apps.microsoft.com/detail/9ppfkfh2zn1l)** — This is an official listing on the Microsoft Store. Note that the Store version is **not updated as frequently as the desktop application** available here on GitHub, but it does not require administrator rights to install, is signed by Microsoft, and is verified by Microsoft before releasing.
 
+## ⌨️ File Conversion CLI
+
+AivoRelay exposes the same two app-managed file workflows in the current
+terminal:
+
+- [Audio file → text or Markdown](CLI-SPEECH-TO-TEXT.md)
+- [Text or Markdown → MP3 or WAV](CLI-TEXT-TO-SPEECH.md)
+
+Provider credentials and detailed conversion behavior remain configured in
+the matching app settings pages.
+
 ## ✨ Key Features
 
 ### Place cursor anywhere, press hotkey, speak, and watch your text appear in place!

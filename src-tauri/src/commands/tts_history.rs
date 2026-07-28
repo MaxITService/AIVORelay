@@ -1,0 +1,730 @@
+use crate::managers::tts::{FileConversionResult, TtsManager};
+use crate::managers::tts_history::{
+    NewTtsHistoryEntry, TtsHistoryDeleteOutcome, TtsHistoryEntry, TtsHistoryManager,
+    TtsHistorySourceKind,
+};
+use crate::settings::{TtsOutputFormat, TtsProvider, TtsSettings};
+use serde::{Deserialize, Serialize};
+use specta::Type;
+use std::fs::{self, OpenOptions};
+use std::io::Write;
+use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
+use tauri::{AppHandle, Manager, State};
+
+static REGENERATION_FILE_ID: AtomicU64 = AtomicU64::new(0);
+const ALLOWED_MP3_BITRATES: &[u16] = &[64, 96, 128, 192, 256, 320];
+
+#[derive(Clone, Debug, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct RegenerateTtsHistoryRequest {
+    pub id: i64,
+    /// Optional external destination. When omitted (the normal UI path), a
+    /// collision-safe cache output is used only long enough to append the
+    /// managed history copy and is then removed.
+    pub output_path: Option<String>,
+    pub provider: Option<TtsProvider>,
+    pub model: Option<String>,
+    pub voice: Option<String>,
+    pub prompt_preset_id: Option<String>,
+    pub prompt_preset_name: Option<String>,
+    /// Literal resolved instructions. Callers must read any instructions file
+    /// themselves; this string is never evaluated as code.
+    pub instructions: Option<String>,
+    pub output_format: Option<TtsOutputFormat>,
+    pub mp3_bitrate_kbps: Option<u16>,
+    /// Must be true only after showing the API-credit warning.
+    pub confirmed_api_charge: bool,
+}
+
+#[derive(Clone, Debug, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct RegenerateTtsHistoryResponse {
+    pub source_entry_id: i64,
+    pub new_entry: TtsHistoryEntry,
+    pub output_path: Option<String>,
+    pub operation_id: u64,
+    pub chunk_count: usize,
+    pub resumed_chunks: usize,
+    pub processed_character_count: usize,
+}
+
+#[derive(Clone, Debug)]
+struct ResolvedPrompt {
+    preset_id: Option<String>,
+    preset_name: Option<String>,
+    instructions: Option<String>,
+}
+
+struct TemporarySourceFile(PathBuf);
+
+impl Drop for TemporarySourceFile {
+    fn drop(&mut self) {
+        if let Err(error) = fs::remove_file(&self.0) {
+            if error.kind() != std::io::ErrorKind::NotFound {
+                log::warn!(
+                    "Failed to remove temporary TTS history source {}: {}",
+                    self.0.display(),
+                    error
+                );
+            }
+        }
+    }
+}
+
+struct TemporaryOutputFile(PathBuf);
+
+impl Drop for TemporaryOutputFile {
+    fn drop(&mut self) {
+        if let Err(error) = fs::remove_file(&self.0) {
+            if error.kind() != std::io::ErrorKind::NotFound {
+                log::warn!(
+                    "Failed to remove temporary TTS history output {}: {}",
+                    self.0.display(),
+                    error
+                );
+            }
+        }
+    }
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn get_tts_history_entries(
+    history: State<'_, Arc<TtsHistoryManager>>,
+) -> Result<Vec<TtsHistoryEntry>, String> {
+    history.list_entries().map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn get_tts_history_entry(
+    history: State<'_, Arc<TtsHistoryManager>>,
+    id: i64,
+) -> Result<Option<TtsHistoryEntry>, String> {
+    history
+        .get_entry_by_id(id)
+        .map_err(|error| error.to_string())
+}
+
+/// Returns a retained path resolved exclusively from the database row.
+/// Missing records return `None`; a missing retained file is an explicit error.
+#[tauri::command]
+#[specta::specta]
+pub fn get_tts_history_audio_path(
+    history: State<'_, Arc<TtsHistoryManager>>,
+    id: i64,
+) -> Result<Option<String>, String> {
+    let Some(path) = history
+        .retained_audio_path(id)
+        .map_err(|error| error.to_string())?
+    else {
+        return Ok(None);
+    };
+    if !path.is_file() {
+        return Err(format!(
+            "Retained audio file for TTS history entry {id} is missing: {}",
+            path.display()
+        ));
+    }
+    Ok(Some(path.to_string_lossy().into_owned()))
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn delete_tts_history_entry(
+    history: State<'_, Arc<TtsHistoryManager>>,
+    id: i64,
+) -> Result<bool, String> {
+    history.delete_entry(id).map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn delete_tts_history_entry_detailed(
+    history: State<'_, Arc<TtsHistoryManager>>,
+    id: i64,
+) -> Result<Option<TtsHistoryDeleteOutcome>, String> {
+    history
+        .delete_entry_detailed(id)
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn delete_all_tts_history_entries(
+    history: State<'_, Arc<TtsHistoryManager>>,
+) -> Result<usize, String> {
+    history
+        .delete_all_entries()
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn export_tts_history_audio(
+    history: State<'_, Arc<TtsHistoryManager>>,
+    id: i64,
+    destination: String,
+) -> Result<String, String> {
+    let path = history
+        .export_audio(id, destination)
+        .map_err(|error| error.to_string())?;
+    Ok(path.to_string_lossy().into_owned())
+}
+
+/// Re-synthesizes retained raw text through the full file TTS pipeline and
+/// appends a new history variant under the source entry's group.
+///
+/// This is also the shared implementation used by the headless CLI.
+pub async fn regenerate_tts_history_entry_core(
+    app: &AppHandle,
+    history: &Arc<TtsHistoryManager>,
+    tts: &Arc<TtsManager>,
+    request: RegenerateTtsHistoryRequest,
+) -> Result<RegenerateTtsHistoryResponse, String> {
+    if !request.confirmed_api_charge {
+        return Err(
+            "Regeneration requires explicit confirmation because it makes a new paid TTS API request"
+                .to_string(),
+        );
+    }
+
+    let source_entry = history
+        .get_entry_by_id(request.id)
+        .map_err(|error| error.to_string())?
+        .ok_or_else(|| format!("TTS history entry {} not found", request.id))?;
+    let (output_path, output_format, temporary_output) = prepare_regeneration_output(
+        app,
+        request.output_path.as_deref(),
+        request.output_format,
+        source_entry.output_format,
+    )?;
+
+    let mut settings = crate::settings::get_settings(app).tts;
+    let provider_was_overridden = request.provider.is_some();
+    settings.provider = request.provider.unwrap_or(source_entry.provider);
+    if !provider_was_overridden {
+        let source_provider = settings.provider;
+        set_model_and_voice(
+            &mut settings,
+            source_provider,
+            Some(&source_entry.model),
+            Some(&source_entry.voice),
+        )?;
+    }
+    let selected_provider = settings.provider;
+    set_model_and_voice(
+        &mut settings,
+        selected_provider,
+        request.model.as_deref(),
+        request.voice.as_deref(),
+    )?;
+    settings.output_format = output_format;
+    if let Some(bitrate) = request.mp3_bitrate_kbps {
+        if output_format != TtsOutputFormat::Mp3 {
+            return Err("--bitrate is valid only for MP3 output".to_string());
+        }
+        if !ALLOWED_MP3_BITRATES.contains(&bitrate) {
+            return Err(format!(
+                "Unsupported MP3 bitrate {bitrate}; use {} kb/s",
+                ALLOWED_MP3_BITRATES
+                    .iter()
+                    .map(u16::to_string)
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ));
+        }
+        settings.mp3_bitrate_kbps = bitrate;
+    }
+    if output_format == TtsOutputFormat::Mp3
+        && !ALLOWED_MP3_BITRATES.contains(&settings.mp3_bitrate_kbps)
+    {
+        return Err(format!(
+            "Saved MP3 bitrate {} is invalid; select one of {}",
+            settings.mp3_bitrate_kbps,
+            ALLOWED_MP3_BITRATES
+                .iter()
+                .map(u16::to_string)
+                .collect::<Vec<_>>()
+                .join(", ")
+        ));
+    }
+
+    let explicit_prompt_override = request.instructions.is_some()
+        || request.prompt_preset_id.is_some()
+        || request.prompt_preset_name.is_some();
+    let prompt = enforce_prompt_model_compatibility(
+        &settings,
+        explicit_prompt_override,
+        resolve_regeneration_prompt(&settings, &source_entry, &request)?,
+    )?;
+    settings.openai_instructions = prompt.instructions.clone().unwrap_or_default();
+
+    let temporary_source =
+        write_temporary_source(app, &source_entry.source_text, source_entry.source_kind)?;
+    let resume_namespace = request
+        .output_path
+        .is_none()
+        .then(|| format!("history-regeneration-entry-{}", source_entry.id));
+    let conversion = if let Some(resume_namespace) = resume_namespace.as_deref() {
+        tts.convert_text_file_with_resume_namespace(
+            &temporary_source.0,
+            &output_path,
+            &settings,
+            resume_namespace,
+        )
+        .await
+    } else {
+        tts.convert_text_file(&temporary_source.0, &output_path, &settings)
+            .await
+    }
+    .map_err(|error| error.to_string())?;
+    let (model, voice) = current_model_and_voice(&settings);
+    let new_entry = history
+        .append_confirmed_regeneration_success(
+            NewTtsHistoryEntry {
+                group_id: source_entry.group_id.clone(),
+                source_text: source_entry.source_text.clone(),
+                source_kind: source_entry.source_kind,
+                provider: settings.provider,
+                model,
+                voice,
+                output_format,
+                external_output_path: request.output_path.as_ref().map(|_| output_path.clone()),
+                prompt_preset_id: prompt.preset_id,
+                prompt_preset_name: prompt.preset_name,
+                resolved_instructions: prompt.instructions,
+            },
+            &output_path,
+        )
+        .map_err(|error| {
+            format!(
+                "Audio was created at {}, but the new history variant could not be retained: {}",
+                output_path.display(),
+                error
+            )
+        })?;
+    if let Some(resume_namespace) = resume_namespace.as_deref() {
+        if let Err(error) = tts.discard_managed_resume_namespace(resume_namespace) {
+            log::warn!(
+                "TTS History result {} was saved, but its completed resume checkpoint could not be cleared: {}",
+                new_entry.id,
+                error
+            );
+        }
+    }
+    drop(temporary_output);
+
+    Ok(regeneration_response(
+        source_entry.id,
+        new_entry,
+        request.output_path.as_ref().map(|_| output_path.as_path()),
+        &conversion,
+    ))
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn regenerate_tts_history_entry(
+    app: AppHandle,
+    history: State<'_, Arc<TtsHistoryManager>>,
+    tts: State<'_, Arc<TtsManager>>,
+    request: RegenerateTtsHistoryRequest,
+) -> Result<RegenerateTtsHistoryResponse, String> {
+    regenerate_tts_history_entry_core(&app, history.inner(), tts.inner(), request).await
+}
+
+fn regeneration_response(
+    source_entry_id: i64,
+    new_entry: TtsHistoryEntry,
+    output_path: Option<&Path>,
+    conversion: &FileConversionResult,
+) -> RegenerateTtsHistoryResponse {
+    RegenerateTtsHistoryResponse {
+        source_entry_id,
+        new_entry,
+        output_path: output_path.map(|path| path.to_string_lossy().into_owned()),
+        operation_id: conversion.operation_id,
+        chunk_count: conversion.chunk_count,
+        resumed_chunks: conversion.resumed_chunks,
+        processed_character_count: conversion.processed_character_count,
+    }
+}
+
+fn prepare_regeneration_output(
+    app: &AppHandle,
+    external_output: Option<&str>,
+    requested_format: Option<TtsOutputFormat>,
+    source_format: TtsOutputFormat,
+) -> Result<(PathBuf, TtsOutputFormat, Option<TemporaryOutputFile>), String> {
+    if let Some(external_output) = external_output {
+        let output_path = absolute_path(Path::new(external_output.trim()))?;
+        if output_path.exists() {
+            return Err(format!(
+                "Output file already exists: {}",
+                output_path.display()
+            ));
+        }
+        let output_format = resolve_output_format(&output_path, requested_format)?;
+        return Ok((output_path, output_format, None));
+    }
+
+    let output_format = requested_format.unwrap_or(source_format);
+    let extension = match output_format {
+        TtsOutputFormat::Mp3 => "mp3",
+        TtsOutputFormat::Wav => "wav",
+    };
+    let directory = app
+        .path()
+        .app_cache_dir()
+        .map_err(|error| format!("Failed to resolve app cache directory: {error}"))?
+        .join("tts-history-regeneration");
+    fs::create_dir_all(&directory).map_err(|error| {
+        format!(
+            "Failed to create TTS history regeneration cache {}: {error}",
+            directory.display()
+        )
+    })?;
+    let sequence = REGENERATION_FILE_ID.fetch_add(1, Ordering::Relaxed);
+    let output_path = directory.join(format!(
+        ".output-{}-{sequence}.{extension}",
+        std::process::id()
+    ));
+    if output_path.exists() {
+        return Err(format!(
+            "Temporary regeneration output collision: {}",
+            output_path.display()
+        ));
+    }
+    Ok((
+        output_path.clone(),
+        output_format,
+        Some(TemporaryOutputFile(output_path)),
+    ))
+}
+
+fn resolve_output_format(
+    output_path: &Path,
+    requested: Option<TtsOutputFormat>,
+) -> Result<TtsOutputFormat, String> {
+    let from_extension = match output_path
+        .extension()
+        .and_then(|extension| extension.to_str())
+        .map(str::to_ascii_lowercase)
+        .as_deref()
+    {
+        Some("mp3") => TtsOutputFormat::Mp3,
+        Some("wav") => TtsOutputFormat::Wav,
+        _ => return Err("Regeneration output must end in .mp3 or .wav".to_string()),
+    };
+    if let Some(requested) = requested {
+        if requested != from_extension {
+            return Err(format!(
+                "Requested output format does not match the {} extension",
+                output_path.display()
+            ));
+        }
+    }
+    Ok(from_extension)
+}
+
+fn set_model_and_voice(
+    settings: &mut TtsSettings,
+    provider: TtsProvider,
+    model: Option<&str>,
+    voice: Option<&str>,
+) -> Result<(), String> {
+    if provider == TtsProvider::Deepgram {
+        if let (Some(model), Some(voice)) = (model, voice) {
+            if !model.trim().eq_ignore_ascii_case(voice.trim()) {
+                return Err(
+                    "Deepgram uses one model identifier as its voice; --model and --voice must match when both are supplied"
+                        .to_string(),
+                );
+            }
+        }
+    }
+    if let Some(model) = model {
+        let model = nonempty_override("--model", model)?;
+        match provider {
+            TtsProvider::Soniox => settings.soniox_model = model,
+            TtsProvider::Deepgram => settings.deepgram_model = model,
+            TtsProvider::OpenAi => settings.openai_model = model,
+        }
+    }
+    if let Some(voice) = voice {
+        let voice = nonempty_override("--voice", voice)?;
+        match provider {
+            TtsProvider::Soniox => settings.soniox_voice = voice,
+            // Deepgram represents its voice as the speak endpoint's model.
+            TtsProvider::Deepgram => settings.deepgram_model = voice,
+            TtsProvider::OpenAi => settings.openai_voice = voice,
+        }
+    }
+    Ok(())
+}
+
+fn nonempty_override(flag: &str, value: &str) -> Result<String, String> {
+    let value = value.trim();
+    if value.is_empty() {
+        Err(format!("{flag} must not be empty"))
+    } else {
+        Ok(value.to_string())
+    }
+}
+
+fn current_model_and_voice(settings: &TtsSettings) -> (String, String) {
+    match settings.provider {
+        TtsProvider::Soniox => (settings.soniox_model.clone(), settings.soniox_voice.clone()),
+        TtsProvider::Deepgram => (
+            settings.deepgram_model.clone(),
+            settings.deepgram_model.clone(),
+        ),
+        TtsProvider::OpenAi => (settings.openai_model.clone(), settings.openai_voice.clone()),
+    }
+}
+
+fn resolve_regeneration_prompt(
+    settings: &TtsSettings,
+    source_entry: &TtsHistoryEntry,
+    request: &RegenerateTtsHistoryRequest,
+) -> Result<ResolvedPrompt, String> {
+    if settings.provider != TtsProvider::OpenAi {
+        if request.instructions.is_some()
+            || request.prompt_preset_id.is_some()
+            || request.prompt_preset_name.is_some()
+        {
+            return Err(
+                "TTS instruction prompts require the OpenAI provider for regeneration".to_string(),
+            );
+        }
+        return Ok(ResolvedPrompt {
+            preset_id: None,
+            preset_name: None,
+            instructions: None,
+        });
+    }
+
+    if let Some(instructions) = request.instructions.as_ref() {
+        return Ok(ResolvedPrompt {
+            preset_id: None,
+            preset_name: None,
+            instructions: nonempty_optional(instructions),
+        });
+    }
+
+    if request.prompt_preset_id.is_some() && request.prompt_preset_name.is_some() {
+        return Err("Specify a TTS prompt preset by either ID or name, not both".to_string());
+    }
+    if let Some(id) = request.prompt_preset_id.as_deref() {
+        let preset = settings
+            .prompt_presets
+            .iter()
+            .find(|preset| preset.id == id)
+            .ok_or_else(|| format!("Unknown TTS prompt preset ID '{id}'"))?;
+        return Ok(ResolvedPrompt {
+            preset_id: Some(preset.id.clone()),
+            preset_name: Some(preset.name.clone()),
+            instructions: nonempty_optional(&preset.instructions),
+        });
+    }
+    if let Some(name) = request.prompt_preset_name.as_deref() {
+        let matches = settings
+            .prompt_presets
+            .iter()
+            .filter(|preset| preset.name.eq_ignore_ascii_case(name.trim()))
+            .collect::<Vec<_>>();
+        let preset = match matches.as_slice() {
+            [] => return Err(format!("Unknown TTS prompt preset '{}'", name.trim())),
+            [preset] => *preset,
+            _ => {
+                return Err(format!(
+                    "More than one TTS prompt preset is named '{}'",
+                    name.trim()
+                ))
+            }
+        };
+        return Ok(ResolvedPrompt {
+            preset_id: Some(preset.id.clone()),
+            preset_name: Some(preset.name.clone()),
+            instructions: nonempty_optional(&preset.instructions),
+        });
+    }
+
+    if settings.provider == source_entry.provider {
+        if source_entry.prompt_preset_id.is_some()
+            || source_entry.prompt_preset_name.is_some()
+            || source_entry.resolved_instructions.is_some()
+        {
+            return Ok(ResolvedPrompt {
+                preset_id: source_entry.prompt_preset_id.clone(),
+                preset_name: source_entry.prompt_preset_name.clone(),
+                instructions: source_entry.resolved_instructions.clone(),
+            });
+        }
+    }
+
+    if !settings.selected_prompt_id.trim().is_empty() {
+        if let Some(preset) = settings
+            .prompt_presets
+            .iter()
+            .find(|preset| preset.id == settings.selected_prompt_id)
+        {
+            return Ok(ResolvedPrompt {
+                preset_id: Some(preset.id.clone()),
+                preset_name: Some(preset.name.clone()),
+                instructions: nonempty_optional(&preset.instructions),
+            });
+        }
+    }
+    Ok(ResolvedPrompt {
+        preset_id: None,
+        preset_name: None,
+        instructions: nonempty_optional(&settings.openai_instructions),
+    })
+}
+
+fn enforce_prompt_model_compatibility(
+    settings: &TtsSettings,
+    explicit_prompt_override: bool,
+    prompt: ResolvedPrompt,
+) -> Result<ResolvedPrompt, String> {
+    if settings.provider != TtsProvider::OpenAi
+        || prompt.instructions.is_none()
+        || TtsManager::openai_model_supports_instructions(&settings.openai_model)
+    {
+        return Ok(prompt);
+    }
+    if explicit_prompt_override {
+        return Err(format!(
+            "OpenAI voice instructions require a gpt-4o-mini-tts model; selected model is '{}'",
+            settings.openai_model.trim()
+        ));
+    }
+    Ok(ResolvedPrompt {
+        preset_id: None,
+        preset_name: None,
+        instructions: None,
+    })
+}
+
+fn nonempty_optional(value: &str) -> Option<String> {
+    if value.trim().is_empty() {
+        None
+    } else {
+        Some(value.to_string())
+    }
+}
+
+fn write_temporary_source(
+    app: &AppHandle,
+    source_text: &str,
+    source_kind: TtsHistorySourceKind,
+) -> Result<TemporarySourceFile, String> {
+    let directory = app
+        .path()
+        .app_cache_dir()
+        .map_err(|error| format!("Failed to resolve app cache directory: {error}"))?
+        .join("tts-history-regeneration");
+    fs::create_dir_all(&directory).map_err(|error| {
+        format!(
+            "Failed to create TTS history regeneration cache {}: {error}",
+            directory.display()
+        )
+    })?;
+    let sequence = REGENERATION_FILE_ID.fetch_add(1, Ordering::Relaxed);
+    let extension = source_kind_extension(source_kind);
+    let path = directory.join(format!(
+        ".source-{}-{sequence}.{extension}",
+        std::process::id()
+    ));
+    let mut file = OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&path)
+        .map_err(|error| {
+            format!(
+                "Failed to create temporary TTS history source {}: {error}",
+                path.display()
+            )
+        })?;
+    if let Err(error) = file
+        .write_all(source_text.as_bytes())
+        .and_then(|_| file.flush())
+        .and_then(|_| file.sync_all())
+    {
+        let _ = fs::remove_file(&path);
+        return Err(format!(
+            "Failed to write temporary TTS history source {}: {error}",
+            path.display()
+        ));
+    }
+    Ok(TemporarySourceFile(path))
+}
+
+fn source_kind_extension(source_kind: TtsHistorySourceKind) -> &'static str {
+    match source_kind {
+        TtsHistorySourceKind::Text => "txt",
+        TtsHistorySourceKind::Markdown => "md",
+    }
+}
+
+fn absolute_path(path: &Path) -> Result<PathBuf, String> {
+    if path.as_os_str().is_empty() {
+        return Err("Regeneration output path must not be empty".to_string());
+    }
+    if path.is_absolute() {
+        Ok(path.to_path_buf())
+    } else {
+        std::env::current_dir()
+            .map(|directory| directory.join(path))
+            .map_err(|error| format!("Failed to resolve current directory: {error}"))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn output_format_must_match_extension() {
+        assert_eq!(
+            resolve_output_format(Path::new("voice.mp3"), None).expect("infer MP3"),
+            TtsOutputFormat::Mp3
+        );
+        assert!(resolve_output_format(Path::new("voice.wav"), Some(TtsOutputFormat::Mp3)).is_err());
+        assert!(resolve_output_format(Path::new("voice.flac"), None).is_err());
+    }
+
+    #[test]
+    fn mp3_bitrate_allowlist_is_stable() {
+        assert_eq!(ALLOWED_MP3_BITRATES, &[64, 96, 128, 192, 256, 320]);
+    }
+
+    #[test]
+    fn markdown_history_regeneration_uses_markdown_normalization_path() {
+        assert_eq!(source_kind_extension(TtsHistorySourceKind::Markdown), "md");
+        assert_eq!(source_kind_extension(TtsHistorySourceKind::Text), "txt");
+    }
+
+    #[test]
+    fn incompatible_openai_model_ignores_saved_prompt_but_rejects_override() {
+        let mut settings = TtsSettings::default();
+        settings.provider = TtsProvider::OpenAi;
+        settings.openai_model = "tts-1".to_string();
+        let prompt = || ResolvedPrompt {
+            preset_id: Some("saved".to_string()),
+            preset_name: Some("Saved".to_string()),
+            instructions: Some("Speak calmly.".to_string()),
+        };
+
+        let inactive = enforce_prompt_model_compatibility(&settings, false, prompt())
+            .expect("saved prompt should become inactive");
+        assert!(inactive.preset_id.is_none());
+        assert!(inactive.preset_name.is_none());
+        assert!(inactive.instructions.is_none());
+        assert!(enforce_prompt_model_compatibility(&settings, true, prompt()).is_err());
+    }
+}

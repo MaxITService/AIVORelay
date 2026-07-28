@@ -60,9 +60,13 @@
         "scope": {
           "allow": [
             "$APPDATA/recordings/**",
+            "$APPDATA/tts-history-audio/**",
             "$APPCACHE/transcribe-file-preview/**",
+            "$APPCACHE/tts/**",
             "**/Data/recordings/**",
-            "**/Data/cache/transcribe-file-preview/**"
+            "**/Data/tts-history-audio/**",
+            "**/Data/cache/transcribe-file-preview/**",
+            "**/Data/cache/tts/**"
           ],
           "requireLiteralLeadingDot": false
         }

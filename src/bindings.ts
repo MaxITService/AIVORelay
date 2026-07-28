@@ -2547,6 +2547,141 @@ async remoteSttTestConnection(baseUrl: string) : Promise<Result<null, string>> {
 async remoteSttSupportsTranslation() : Promise<boolean> {
     return await TAURI_INVOKE("remote_stt_supports_translation");
 },
+async updateTtsSettings(settings: TtsSettings) : Promise<Result<TtsSettings, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("update_tts_settings", { settings }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async ttsHasApiKey(provider: string) : Promise<Result<boolean, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("tts_has_api_key", { provider }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async ttsSetApiKey(provider: string, apiKey: string) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("tts_set_api_key", { provider, apiKey }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async ttsClearApiKey(provider: string) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("tts_clear_api_key", { provider }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async inspectTtsTextFile(path: string) : Promise<Result<TextFileInspection, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("inspect_tts_text_file", { path }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async convertTtsTextFile(request: ConvertTtsTextFileRequest) : Promise<Result<ConvertTtsTextFileResponse, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("convert_tts_text_file", { request }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async getTtsOverlayState() : Promise<TtsOverlayState> {
+    return await TAURI_INVOKE("get_tts_overlay_state");
+},
+async cancelTtsOperation(operationId: string | null) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("cancel_tts_operation", { operationId }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async ttsOverlayPlaybackState(operationId: string, status: string, currentChunk: number | null) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("tts_overlay_playback_state", { operationId, status, currentChunk }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async getTtsHistoryEntries() : Promise<Result<TtsHistoryEntry[], string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("get_tts_history_entries") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async getTtsHistoryEntry(id: number) : Promise<Result<TtsHistoryEntry | null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("get_tts_history_entry", { id }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Returns a retained path resolved exclusively from the database row.
+ * Missing records return `None`; a missing retained file is an explicit error.
+ */
+async getTtsHistoryAudioPath(id: number) : Promise<Result<string | null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("get_tts_history_audio_path", { id }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async deleteTtsHistoryEntry(id: number) : Promise<Result<boolean, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("delete_tts_history_entry", { id }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async deleteTtsHistoryEntryDetailed(id: number) : Promise<Result<TtsHistoryDeleteOutcome | null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("delete_tts_history_entry_detailed", { id }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async deleteAllTtsHistoryEntries() : Promise<Result<number, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("delete_all_tts_history_entries") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async exportTtsHistoryAudio(id: number, destination: string) : Promise<Result<string, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("export_tts_history_audio", { id, destination }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async regenerateTtsHistoryEntry(request: RegenerateTtsHistoryRequest) : Promise<Result<RegenerateTtsHistoryResponse, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("regenerate_tts_history_entry", { request }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 /**
  * Check if Apple Intelligence is available on this device.
  * Called by the frontend when the user selects Apple Intelligence provider.
@@ -3402,7 +3537,7 @@ async isLaptop() : Promise<Result<boolean, string>> {
 /** user-defined types **/
 
 export type AddTranscriptionProfilePayload = { name: string; language: string; translateToEnglish: boolean; systemPrompt: string; sttPromptOverrideEnabled?: boolean; pushToTalk: boolean; previewOutputOnlyEnabled?: boolean; sonioxLanguageHintsStrict?: boolean | null; includeInCycle: boolean | null; llmSettings: ProfileLlmSettings | null; sonioxContextGeneralJson: string | null; sonioxContextText: string | null; sonioxContextTerms: string[] | null }
-export type AppSettings = { bindings: Partial<{ [key in string]: ShortcutBinding }>; push_to_talk: boolean; preview_output_only_enabled?: boolean; audio_feedback: boolean; result_ready_audio_feedback?: boolean; audio_feedback_volume?: number; sound_theme?: SoundTheme; start_hidden?: boolean; autostart_enabled?: boolean; show_tray_icon?: boolean; show_tray_shortcut_guide?: boolean; show_tray_shortcut_guide_in_main_menu?: boolean; update_checks_enabled?: boolean; selected_model?: string; transcription_provider?: TranscriptionProvider; remote_stt?: RemoteSttSettings; openai_realtime_whisper_delay?: OpenAiRealtimeWhisperDelay; openai_realtime_whisper_flatten_enabled?: boolean; soniox_model?: string; soniox_timeout_seconds?: number; soniox_live_enabled?: boolean; soniox_language_hints?: string[]; soniox_context_general_json?: string; soniox_context_text?: string; soniox_context_terms?: string[]; soniox_use_profile_language_hint_only?: boolean; soniox_language_hints_strict?: boolean; soniox_enable_endpoint_detection?: boolean; soniox_max_endpoint_delay_ms?: number; soniox_endpoint_sensitivity?: number; soniox_enable_language_identification?: boolean; soniox_enable_speaker_diarization?: boolean; soniox_keepalive_interval_seconds?: number; soniox_live_finalize_timeout_ms?: number; soniox_live_instant_stop?: boolean; soniox_optimize_delivery_preconnect_enabled?: boolean; soniox_realtime_fuzzy_correction_enabled?: boolean; soniox_realtime_keep_safety_buffer_enabled?: boolean; deepgram_model?: string; deepgram_timeout_seconds?: number; deepgram_live_enabled?: boolean; deepgram_keepalive_interval_seconds?: number; deepgram_live_finalize_timeout_ms?: number; deepgram_live_instant_stop?: boolean; deepgram_interim_results?: boolean; deepgram_smart_format?: boolean; deepgram_diarize?: boolean; live_sound_enable_speaker_diarization?: boolean; deepgram_endpointing_enabled?: boolean; deepgram_endpointing_ms?: number; always_on_microphone?: boolean; selected_microphone?: string | null; last_manual_microphone?: string | null; selected_microphone_auto_switch_enabled?: boolean; selected_microphone_name_pattern?: string; clamshell_microphone?: string | null;
+export type AppSettings = { bindings: Partial<{ [key in string]: ShortcutBinding }>; push_to_talk: boolean; preview_output_only_enabled?: boolean; audio_feedback: boolean; result_ready_audio_feedback?: boolean; audio_feedback_volume?: number; sound_theme?: SoundTheme; start_hidden?: boolean; autostart_enabled?: boolean; show_tray_icon?: boolean; show_tray_shortcut_guide?: boolean; show_tray_shortcut_guide_in_main_menu?: boolean; update_checks_enabled?: boolean; selected_model?: string; transcription_provider?: TranscriptionProvider; remote_stt?: RemoteSttSettings; openai_realtime_whisper_delay?: OpenAiRealtimeWhisperDelay; openai_realtime_whisper_flatten_enabled?: boolean; soniox_model?: string; soniox_timeout_seconds?: number; soniox_live_enabled?: boolean; soniox_language_hints?: string[]; soniox_context_general_json?: string; soniox_context_text?: string; soniox_context_terms?: string[]; soniox_use_profile_language_hint_only?: boolean; soniox_language_hints_strict?: boolean; soniox_enable_endpoint_detection?: boolean; soniox_max_endpoint_delay_ms?: number; soniox_endpoint_sensitivity?: number; soniox_enable_language_identification?: boolean; soniox_enable_speaker_diarization?: boolean; soniox_keepalive_interval_seconds?: number; soniox_live_finalize_timeout_ms?: number; soniox_live_instant_stop?: boolean; soniox_optimize_delivery_preconnect_enabled?: boolean; soniox_realtime_fuzzy_correction_enabled?: boolean; soniox_realtime_keep_safety_buffer_enabled?: boolean; deepgram_model?: string; deepgram_timeout_seconds?: number; deepgram_live_enabled?: boolean; deepgram_keepalive_interval_seconds?: number; deepgram_live_finalize_timeout_ms?: number; deepgram_live_instant_stop?: boolean; deepgram_interim_results?: boolean; deepgram_smart_format?: boolean; deepgram_diarize?: boolean; live_sound_enable_speaker_diarization?: boolean; deepgram_endpointing_enabled?: boolean; deepgram_endpointing_ms?: number; always_on_microphone?: boolean; selected_microphone?: string | null; last_manual_microphone?: string | null; selected_microphone_auto_switch_enabled?: boolean; selected_microphone_name_pattern?: string; clamshell_microphone?: string | null; 
 /**
  * Microphone used exclusively by the Live Sound pipeline.
  * `None` means fall back to `selected_microphone` (global default).
@@ -3428,12 +3563,12 @@ native_streaming_live_output_models?: string[];
 /**
  * Keep Voxtral's tentative tail visible long enough to read in Live Preview.
  */
-native_streaming_show_interim_longer?: boolean;
+native_streaming_show_interim_longer?: boolean; 
 /**
  * Per-model latency presets for native transcribe.cpp streaming.
  * Missing entries intentionally preserve the runtime's accurate defaults.
  */
-native_streaming_latency_presets?: Partial<{ [key in string]: NativeStreamingLatencyPreset }>; soniox_live_preview_close_hotkey?: string; soniox_live_preview_clear_hotkey?: string; soniox_live_preview_flush_hotkey?: string; soniox_live_preview_process_hotkey?: string; soniox_live_preview_insert_hotkey?: string; soniox_live_preview_delete_until_dot_or_comma_hotkey?: string; soniox_live_preview_delete_until_dot_hotkey?: string; soniox_live_preview_delete_last_word_hotkey?: string; soniox_live_preview_show_clear_button?: boolean; soniox_live_preview_show_flush_button?: boolean; soniox_live_preview_show_process_button?: boolean; soniox_live_preview_show_insert_button?: boolean; soniox_live_preview_show_delete_until_dot_or_comma_button?: boolean; soniox_live_preview_show_delete_until_dot_button?: boolean; soniox_live_preview_show_delete_last_word_button?: boolean; soniox_live_preview_ctrl_backspace_delete_last_word?: boolean; soniox_live_preview_backspace_delete_last_char?: boolean; soniox_live_preview_show_drag_grip?: boolean; local_preview_auto_flush_enabled?: boolean; local_preview_auto_flush_interval_ms?: number; local_preview_auto_flush_overlap_ms?: number; soniox_live_preview_sliding_lm_window_enabled?: boolean; soniox_live_preview_sliding_lm_window_prompt?: string; soniox_live_preview_sliding_lm_window_tail_words?: number; debug_mode?: boolean; log_level?: LogLevel; custom_words?: string[]; custom_words_enabled?: boolean; custom_words_ngram_enabled?: boolean; model_unload_timeout?: ModelUnloadTimeout; word_correction_threshold?: number; history_limit?: number; recording_retention_period?: RecordingRetentionPeriod; dictation_stats_enabled?: boolean; dictation_word_count?: number; dictation_word_count_since_ms?: number | null; dictation_character_count?: number; dictation_character_count_since_ms?: number | null; paste_method?: PasteMethod; paste_delay_ms?: number;
+native_streaming_latency_presets?: Partial<{ [key in string]: NativeStreamingLatencyPreset }>; soniox_live_preview_close_hotkey?: string; soniox_live_preview_clear_hotkey?: string; soniox_live_preview_flush_hotkey?: string; soniox_live_preview_process_hotkey?: string; soniox_live_preview_insert_hotkey?: string; soniox_live_preview_delete_until_dot_or_comma_hotkey?: string; soniox_live_preview_delete_until_dot_hotkey?: string; soniox_live_preview_delete_last_word_hotkey?: string; soniox_live_preview_show_clear_button?: boolean; soniox_live_preview_show_flush_button?: boolean; soniox_live_preview_show_process_button?: boolean; soniox_live_preview_show_insert_button?: boolean; soniox_live_preview_show_delete_until_dot_or_comma_button?: boolean; soniox_live_preview_show_delete_until_dot_button?: boolean; soniox_live_preview_show_delete_last_word_button?: boolean; soniox_live_preview_ctrl_backspace_delete_last_word?: boolean; soniox_live_preview_backspace_delete_last_char?: boolean; soniox_live_preview_show_drag_grip?: boolean; local_preview_auto_flush_enabled?: boolean; local_preview_auto_flush_interval_ms?: number; local_preview_auto_flush_overlap_ms?: number; soniox_live_preview_sliding_lm_window_enabled?: boolean; soniox_live_preview_sliding_lm_window_prompt?: string; soniox_live_preview_sliding_lm_window_tail_words?: number; debug_mode?: boolean; log_level?: LogLevel; custom_words?: string[]; custom_words_enabled?: boolean; custom_words_ngram_enabled?: boolean; model_unload_timeout?: ModelUnloadTimeout; word_correction_threshold?: number; history_limit?: number; recording_retention_period?: RecordingRetentionPeriod; dictation_stats_enabled?: boolean; dictation_word_count?: number; dictation_word_count_since_ms?: number | null; dictation_character_count?: number; dictation_character_count_since_ms?: number | null; paste_method?: PasteMethod; paste_delay_ms?: number; 
 /**
  * Convert LF to CRLF before clipboard paste (fixes newlines on Windows)
  */
@@ -3651,6 +3786,10 @@ text_replacements_enabled?: boolean;
  */
 text_replacements?: TextReplacement[]; 
 /**
+ * Text-to-Speech provider, preprocessing, playback, and export settings.
+ */
+tts?: TtsSettings; 
+/**
  * Whether to apply text replacements BEFORE LLM post-processing (default: after)
  * When true: STT → Text Replacement → LLM → Output
  * When false (default): STT → LLM → Text Replacement → Output
@@ -3803,6 +3942,8 @@ port: number;
  * Last server error (e.g., port binding failure), None if no error
  */
 server_error: string | null }
+export type ConvertTtsTextFileRequest = { inputPath: string; outputPath: string; outputFormat: TtsOutputFormat; mp3Bitrate: number }
+export type ConvertTtsTextFileResponse = { operation_id: string; output_path: string; source_character_count: number; processed_character_count: number; chunk_count: number; output_format: TtsOutputFormat; mp3_bitrate_kbps: number | null }
 export type CustomSounds = { start: boolean; stop: boolean }
 export type DecapitalizeOverlayStateResponse = { decapitalizeEligible: boolean; decapitalizeArmed: boolean }
 export type DeepgramFileTranscriptionOptions = { diarize: boolean | null; multichannel: boolean | null }
@@ -3973,6 +4114,23 @@ export type RecordingOverlayDecapitalizeIndicatorMode = "text" | "custom" | "hid
 export type RecordingOverlayMaterialMode = "liquid_glass" | "pearl" | "velvet_neon" | "frost" | "candy_chrome"
 export type RecordingOverlayTheme = "classic" | "minimal" | "glass"
 export type RecordingRetentionPeriod = "never" | "preserve_limit" | "days_3" | "weeks_2" | "months_3"
+export type RegenerateTtsHistoryRequest = { id: number; 
+/**
+ * Optional external destination. When omitted (the normal UI path), a
+ * collision-safe cache output is used only long enough to append the
+ * managed history copy and is then removed.
+ */
+outputPath: string | null; provider: TtsProvider | null; model: string | null; voice: string | null; promptPresetId: string | null; promptPresetName: string | null; 
+/**
+ * Literal resolved instructions. Callers must read any instructions file
+ * themselves; this string is never evaluated as code.
+ */
+instructions: string | null; outputFormat: TtsOutputFormat | null; mp3BitrateKbps: number | null; 
+/**
+ * Must be true only after showing the API-credit warning.
+ */
+confirmedApiCharge: boolean }
+export type RegenerateTtsHistoryResponse = { sourceEntryId: number; newEntry: TtsHistoryEntry; outputPath: string | null; operationId: number; chunkCount: number; processedCharacterCount: number }
 /**
  * Response for get_data command
  */
@@ -4048,6 +4206,7 @@ end: number;
  * The transcribed text for this segment
  */
 text: string }
+export type TextFileInspection = { path: string; source_character_count: number; processed_character_count: number; chunk_count: number; encoding: string }
 /**
  * A text replacement rule that substitutes one text pattern with another.
  * Supports escape sequences for special characters (e.g., \n for newline).
@@ -4161,6 +4320,39 @@ soniox_context_text?: string;
  */
 soniox_context_terms?: string[] }
 export type TranscriptionProvider = "local" | "remote_openai_compatible" | "remote_soniox" | "remote_deepgram"
+export type TtsHistoryDeleteOutcome = { id: number; record_deleted: boolean; managed_audio_status: TtsHistoryManagedAudioDeleteStatus; managed_audio_error: string | null }
+export type TtsHistoryEntry = { id: number; timestamp: number; 
+/**
+ * Stable source identifier shared by append-only provider/voice variants.
+ */
+group_id: string; 
+/**
+ * Original, unprocessed input text retained for later re-synthesis.
+ */
+source_text: string; source_kind: TtsHistorySourceKind; provider: TtsProvider; model: string; voice: string; output_format: TtsOutputFormat; managed_audio_filename: string; external_output_path: string | null; 
+/**
+ * Optional saved TTS preset identity used for this variant.
+ */
+prompt_preset_id: string | null; prompt_preset_name: string | null; 
+/**
+ * Resolved provider instructions, if any. API credentials are never
+ * stored in history.
+ */
+resolved_instructions: string | null }
+export type TtsHistoryManagedAudioDeleteStatus = "deleted" | "missing" | "failed"
+export type TtsHistorySourceKind = "text" | "markdown"
+export type TtsKeySource = "shared" | "separate"
+export type TtsOutputFormat = "mp3" | "wav"
+export type TtsOverlayChunk = { index: number; path: string }
+export type TtsOverlayState = { operation_id: string; status: string; provider: string; text_preview: string; chunks: TtsOverlayChunk[]; current_chunk: number; total_chunks: number; retry_attempt: number; error: string | null; play_pause_hotkey: string; stop_hotkey: string; autoplay: boolean }
+export type TtsPromptPreset = { id: string; name: string; instructions: string }
+export type TtsProvider = "soniox" | "deepgram" | "openai"
+/**
+ * Text-to-Speech configuration shared by clipboard playback and text-file export.
+ * 
+ * API secrets are deliberately excluded and live in Windows Credential Manager.
+ */
+export type TtsSettings = { enabled?: boolean; provider?: TtsProvider; soniox_key_source?: TtsKeySource; deepgram_key_source?: TtsKeySource; openai_key_source?: TtsKeySource; soniox_model?: string; soniox_language?: string; soniox_voice?: string; deepgram_model?: string; openai_model?: string; openai_voice?: string; openai_instructions?: string; prompt_presets?: TtsPromptPreset[]; selected_prompt_id?: string; speed?: number; preprocessing_enabled?: boolean; preprocessing_rules?: TextReplacement[]; interactive_target_chars?: number; file_target_chars?: number; retry_count?: number; retry_base_delay_ms?: number; inter_chunk_pause_ms?: number; paragraph_pause_ms?: number; play_pause_hotkey?: string; stop_hotkey?: string; autoplay?: boolean; output_format?: TtsOutputFormat; mp3_bitrate_kbps?: number; watch_folder_enabled?: boolean; watch_recursive?: boolean; watch_input_directory?: string; watch_output_directory?: string; watch_settle_delay_ms?: number; disk_reserve_mb?: number; history_enabled?: boolean; history_max_entries?: number; history_max_storage_mb?: number }
 export type UpdateTranscriptionProfilePayload = { id: string; name: string; language: string; translateToEnglish: boolean; systemPrompt: string; sttPromptOverrideEnabled: boolean; includeInCycle: boolean; pushToTalk: boolean; previewOutputOnlyEnabled: boolean; sonioxLanguageHintsStrict?: boolean | null; llmSettings: ProfileLlmSettings; sonioxContextGeneralJson: string | null; sonioxContextText: string | null; sonioxContextTerms: string[] | null }
 /**
  * Information about the virtual screen (all monitors combined).

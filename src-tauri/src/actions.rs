@@ -85,6 +85,8 @@ struct SendToExtensionWithSelectionAction;
 struct SendScreenshotToExtensionAction;
 
 struct RepastLastAction;
+struct ReadClipboardAction;
+struct ReadSelectionTtsAction;
 
 const REPASTE_LAST_PRE_PASTE_DELAY_MS: u64 = 100;
 
@@ -8508,6 +8510,83 @@ impl ShortcutAction for RepastLastAction {
     }
 }
 
+impl ShortcutAction for ReadClipboardAction {
+    fn start(&self, app: &AppHandle, _binding_id: &str, _shortcut_str: &str) {
+        let activation_started_at = Instant::now();
+        let app_handle = app.clone();
+        tauri::async_runtime::spawn(async move {
+            let text = app_handle.clipboard().read_text().unwrap_or_default();
+            if text.trim().is_empty() {
+                let message = "The clipboard does not contain readable text.".to_string();
+                log::warn!("{message}");
+                let _ = app_handle.emit("tts-error", message);
+                return;
+            }
+
+            if let Err(error) = crate::commands::tts::start_tts_text_at(
+                app_handle.clone(),
+                text,
+                activation_started_at,
+            )
+            .await
+            {
+                log::error!("Failed to read clipboard with Text-to-Speech: {error}");
+                let _ = app_handle.emit("tts-error", error);
+            }
+        });
+    }
+
+    fn stop(&self, _app: &AppHandle, _binding_id: &str, _shortcut_str: &str) {}
+
+    fn is_instant(&self) -> bool {
+        true
+    }
+}
+
+impl ShortcutAction for ReadSelectionTtsAction {
+    fn start(&self, app: &AppHandle, _binding_id: &str, _shortcut_str: &str) {
+        let activation_started_at = Instant::now();
+        let app_handle = app.clone();
+        tauri::async_runtime::spawn(async move {
+            let selected_text = match crate::clipboard::capture_selection_text_copy(&app_handle) {
+                Ok(text) if !text.trim().is_empty() => text,
+                Ok(_) => {
+                    let message = "No readable text is selected.".to_string();
+                    log::warn!("{message}");
+                    let _ = app_handle.emit("tts-error", message);
+                    return;
+                }
+                Err(error) => {
+                    log::error!("Failed to copy selected text for Text-to-Speech: {error}");
+                    let _ = app_handle.emit("tts-error", error);
+                    return;
+                }
+            };
+
+            if let Err(error) = crate::commands::tts::start_tts_text_at(
+                app_handle.clone(),
+                selected_text,
+                activation_started_at,
+            )
+            .await
+            {
+                log::error!("Failed to read selected text with Text-to-Speech: {error}");
+                let _ = app_handle.emit("tts-error", error);
+            }
+        });
+    }
+
+    fn stop(&self, _app: &AppHandle, _binding_id: &str, _shortcut_str: &str) {}
+
+    fn is_instant(&self) -> bool {
+        true
+    }
+
+    fn instant_fire_on_release(&self) -> bool {
+        true
+    }
+}
+
 // ============================================================================
 // Cycle Transcription Profile Action
 // ============================================================================
@@ -9503,6 +9582,14 @@ pub static ACTION_MAP: Lazy<HashMap<String, Arc<dyn ShortcutAction>>> = Lazy::ne
     map.insert(
         "repaste_last".to_string(),
         Arc::new(RepastLastAction) as Arc<dyn ShortcutAction>,
+    );
+    map.insert(
+        "read_clipboard".to_string(),
+        Arc::new(ReadClipboardAction) as Arc<dyn ShortcutAction>,
+    );
+    map.insert(
+        "read_selection_tts".to_string(),
+        Arc::new(ReadSelectionTtsAction) as Arc<dyn ShortcutAction>,
     );
     map.insert(
         "test".to_string(),

@@ -33,6 +33,7 @@ export default defineConfig(async () => ({
           __dirname,
           "src/soniox-live-preview/index.html",
         ),
+        "tts-overlay": resolve(__dirname, "src/tts-overlay/index.html"),
       },
     },
   },

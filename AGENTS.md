@@ -47,6 +47,7 @@ Frozen branch:
 - If you need branch state context, read [[.AGENTS/branching-status|branching-status.md]].
 - If you need tracked docs navigation, read [[.AGENTS/MOC|.AGENTS/MOC.md]].
 - If you need local-only notes, research, logs, scripts, reports, or artifacts that should not be propagated to GitHub, read [[.AGENTS/.UNTRACKED/MOC|.AGENTS/.UNTRACKED/MOC.md]].
+- For app-managed CLI file conversion behavior, read [[CLI-SPEECH-TO-TEXT|CLI Speech-to-Text File Conversion]] and [[CLI-TEXT-TO-SPEECH|CLI Text-to-Speech File Conversion]].
 
 ## Documentation Style
 
