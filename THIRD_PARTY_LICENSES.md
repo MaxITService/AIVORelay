@@ -211,6 +211,44 @@ and chunking.
 
 ---
 
+## Optional local Qwen3-TTS runtime
+
+The optional local TTS provider is downloaded only after explicit user
+confirmation. It is not bundled into the normal AivoRelay installer.
+
+**Model and inference implementation:** Qwen3-TTS and
+`Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice`
+
+**License:** Apache License 2.0
+
+**Sources:**
+
+- https://github.com/QwenLM/Qwen3-TTS
+- https://huggingface.co/Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice
+
+AivoRelay pins the official model revision
+`85e237c12c027371202489a0ec509ded67b5e4b5` and `qwen-tts` 0.1.1. The managed
+installation includes `Qwen3-TTS-NOTICE.txt` and a canonical Apache-2.0 license
+copy.
+
+**Managed resolver:** uv 0.11.16
+
+**License:** MIT License
+
+**Source:** https://github.com/astral-sh/uv
+
+The managed installation also retains the license metadata distributed with
+its isolated CPython runtime and installed Python packages. Its install
+manifest records the exact resolved package versions.
+
+License and notice files shipped by AivoRelay:
+
+- `src-tauri/resources/licenses/Apache-2.0.txt`
+- `src-tauri/resources/licenses/Qwen3-TTS-NOTICE.txt`
+- `src-tauri/resources/licenses/uv-MIT.txt`
+
+---
+
 ## Other Dependencies
 
 For a complete list of Rust and JavaScript dependencies, please refer to the `Cargo.toml` and `package.json` files in the source repository.

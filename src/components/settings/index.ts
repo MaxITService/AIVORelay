@@ -15,6 +15,7 @@ export { UserInterfaceSettings } from "./user-interface/UserInterfaceSettings";
 export { ModelsSettings } from "./models/ModelsSettings";
 export { LiveSoundTranscriptionSettings } from "./live-sound-transcription/LiveSoundTranscriptionSettings";
 export { TextToSpeechSettings } from "./text-to-speech/TextToSpeechSettings";
+export { TtsFileOperationsSettings } from "./text-to-speech/TtsFileOperationsSettings";
 
 // Individual setting components
 export { MicrophoneSelector } from "./MicrophoneSelector";

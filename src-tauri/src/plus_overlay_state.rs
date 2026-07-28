@@ -683,9 +683,7 @@ fn show_error_overlay_internal(
     retry_session_id: Option<u64>,
 ) -> bool {
     let settings = crate::settings::get_settings(app);
-    if !settings.error_feedback_enabled
-        || !settings.recording_overlay_enabled
-    {
+    if !settings.error_feedback_enabled || !settings.recording_overlay_enabled {
         // Still need to reset tray icon even if overlay is disabled
         change_tray_icon(app, TrayIconState::Idle);
         if let Some(retry_session_id) = retry_session_id {
@@ -827,11 +825,7 @@ fn show_categorized_error_overlay_internal(
     envelope.user_message = category.display_text().to_string();
     envelope.context = context;
     envelope.configuration_target = configuration_target;
-    log::error!(
-        "Error categorized as {:?}: {}",
-        category,
-        err_string
-    );
+    log::error!("Error categorized as {:?}: {}", category, err_string);
     show_error_overlay_internal(
         app,
         category,

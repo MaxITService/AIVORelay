@@ -17,8 +17,7 @@ pub mod voice_command;
 use crate::settings::{
     clamp_dictation_stats_count, get_settings,
     take_settings_store_reset_notice as take_settings_store_reset_notice_flag, write_settings,
-    AppSettings,
-    DictationStatsEditState, LlmFeature, LogLevel, DICTATION_STATS_WARNING_THRESHOLD,
+    AppSettings, DictationStatsEditState, LlmFeature, LogLevel, DICTATION_STATS_WARNING_THRESHOLD,
     MAX_DICTATION_STATS_COUNT,
 };
 use crate::utils::cancel_current_operation;

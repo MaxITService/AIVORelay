@@ -4,19 +4,20 @@
 //! text/Markdown -> TTS audio, and common audio -> text/Markdown. Provider
 //! credentials and conversion behavior continue to come from saved settings.
 
-use crate::cli::CliArgs;
+use crate::cli::{CliArgs, CliTtsKeySource, CliTtsOutputFormat, CliTtsProvider};
 use crate::commands::file_transcription;
 use crate::managers::deepgram_stt::DeepgramSttManager;
 use crate::managers::model::ModelManager;
 use crate::managers::remote_stt::RemoteSttManager;
 use crate::managers::soniox_stt::SonioxSttManager;
 use crate::managers::transcription::TranscriptionManager;
-use crate::managers::tts::{TtsManager, TtsPhase};
+use crate::managers::tts::{TtsManager, TtsPhase, SUPPORTED_MP3_BITRATES};
 use crate::managers::tts_history::{
-    metadata_from_settings, TtsHistoryManager, TtsHistorySourceKind,
+    metadata_from_settings, TtsHistoryManager, TtsHistoryScope, TtsHistorySourceKind,
 };
 use crate::settings::{
-    get_settings, TranscriptionProvider, TtsOutputFormat, TtsProvider, TtsSettings,
+    get_settings, TextReplacement, TranscriptionProvider, TtsKeySource, TtsOutputFormat,
+    TtsProvider, TtsSettings,
 };
 use crate::subtitle::OutputFormat;
 use serde_json::{json, Value};
@@ -88,15 +89,6 @@ pub fn initialize_file_conversion_managers(
                 let manager = TtsManager::new(app)
                     .map_err(|error| format!("Failed to initialize Text-to-Speech: {error}"))?;
                 app.manage(manager);
-            }
-            if get_settings(app).tts.history_enabled
-                && app.try_state::<Arc<TtsHistoryManager>>().is_none()
-            {
-                let history = Arc::new(
-                    TtsHistoryManager::new(app)
-                        .map_err(|error| format!("Failed to initialize TTS History: {error}"))?,
-                );
-                app.manage(history);
             }
         }
         CliFileConversionKind::AudioToText => {
@@ -239,12 +231,9 @@ fn validate_direction_specific_args(
     args: &CliArgs,
     kind: CliFileConversionKind,
 ) -> Result<(), CliFailure> {
-    let has_tts_instruction_override = args.tts_prompt.is_some()
-        || args.tts_instructions.is_some()
-        || args.tts_instructions_file.is_some();
-    if kind == CliFileConversionKind::AudioToText && has_tts_instruction_override {
+    if kind == CliFileConversionKind::AudioToText && args.has_tts_file_conversion_args() {
         return Err(CliFailure::usage(
-            "--tts-prompt, --tts-instructions, and --tts-instructions-file apply only to TXT/MD to audio conversion",
+            "TTS conversion flags apply only to TXT/MD to audio conversion",
         ));
     }
     Ok(())
@@ -256,24 +245,29 @@ async fn convert_text_to_audio(
     input: PathBuf,
 ) -> Result<Value, CliFailure> {
     let mut settings = get_settings(app).tts;
+    apply_tts_provider_override(args, &mut settings)?;
+    apply_tts_conversion_overrides(args, &mut settings)?;
     let (output, format) =
         resolve_tts_output(args.output.as_deref(), &input, settings.output_format)?;
+    if args.tts_format.is_some() && format != settings.output_format {
+        return Err(CliFailure::usage(format!(
+            "--tts-format {} conflicts with output extension .{}",
+            output_format_name(settings.output_format),
+            output_format_name(format)
+        )));
+    }
     refuse_existing_output(&output)?;
     settings.output_format = format;
+    if args.tts_bitrate.is_some() && format != TtsOutputFormat::Mp3 {
+        return Err(CliFailure::usage(
+            "--tts-bitrate applies only when the final output format is MP3",
+        ));
+    }
     let instruction_source = apply_tts_instruction_override(args, &mut settings)?;
     if settings.provider == TtsProvider::OpenAi {
         TtsManager::validate_openai_instructions(&settings.openai_instructions)
             .map_err(|error| CliFailure::usage(error.to_string()))?;
     }
-    let history_source = if settings.history_enabled {
-        Some(
-            app.state::<Arc<TtsManager>>()
-                .read_original_text_file(&input)
-                .map_err(|error| CliFailure::runtime(error.to_string()))?,
-        )
-    } else {
-        None
-    };
     let history_source_kind = if extension(&input).as_deref() == Some("md") {
         TtsHistorySourceKind::Markdown
     } else {
@@ -286,10 +280,12 @@ async fn convert_text_to_audio(
             || args.tts_instructions_file.is_some())
     {
         return Err(CliFailure::usage(format!(
-            "TTS instruction prompts require the saved OpenAI provider; current provider is {}",
+            "TTS instruction prompts require the selected OpenAI provider; current provider is {}",
             settings.provider.as_str()
         )));
     }
+    TtsManager::validate_settings(&settings)
+        .map_err(|error| CliFailure::usage(error.to_string()))?;
     if settings.provider == TtsProvider::OpenAi
         && (args.tts_prompt.is_some()
             || args.tts_instructions.is_some()
@@ -304,6 +300,25 @@ async fn convert_text_to_audio(
     }
 
     let manager = app.state::<Arc<TtsManager>>().inner().clone();
+    settings = manager
+        .resolve_operation_settings(&settings)
+        .await
+        .map_err(|error| CliFailure::runtime(error.to_string()))?;
+    if settings.file_history_enabled && app.try_state::<Arc<TtsHistoryManager>>().is_none() {
+        let history = Arc::new(TtsHistoryManager::new(app).map_err(|error| {
+            CliFailure::runtime(format!("Failed to initialize TTS History: {error}"))
+        })?);
+        app.manage(history);
+    }
+    let history_source = if settings.file_history_enabled {
+        Some(
+            manager
+                .read_original_text_file(&input)
+                .map_err(|error| CliFailure::runtime(error.to_string()))?,
+        )
+    } else {
+        None
+    };
     if !args.json {
         eprintln!(
             "TTS: converting {} with {}…",
@@ -348,20 +363,24 @@ async fn convert_text_to_audio(
             .try_state::<Arc<TtsHistoryManager>>()
             .ok_or_else(|| anyhow::anyhow!("TTS History manager is unavailable"))
             .and_then(|history| {
-                history.save_success(
-                    metadata_from_settings(
-                        &settings,
-                        source_text,
-                        history_source_kind,
-                        format!(
-                            "cli-{}-{}",
-                            chrono::Utc::now().timestamp_millis(),
-                            result.operation_id
+                history
+                    .save_explicit_capture_success(
+                        metadata_from_settings(
+                            &settings,
+                            TtsHistoryScope::File,
+                            source_text,
+                            history_source_kind,
+                            format!(
+                                "cli-{}-{}",
+                                chrono::Utc::now().timestamp_millis(),
+                                result.operation_id
+                            ),
+                            Some(result.output_path.clone()),
                         ),
-                        Some(result.output_path.clone()),
-                    ),
-                    &result.output_path,
-                )
+                        &result.output_path,
+                        settings.disk_reserve_mb,
+                    )
+                    .map(Some)
             }) {
             Ok(Some(entry)) => (true, Some(entry.id), None),
             Ok(None) => (false, None, None),
@@ -391,8 +410,22 @@ async fn convert_text_to_audio(
         "input": input,
         "output": result.output_path,
         "provider": settings.provider,
+        "model": effective_tts_model(&settings),
+        "voice": effective_tts_voice(&settings),
+        "language": effective_tts_language(&settings),
+        "key_source": effective_tts_key_source(&settings),
+        "speed": settings.speed,
         "output_format": result.output_format,
         "mp3_bitrate_kbps": result.mp3_bitrate_kbps,
+        "file_chunk_target_chars": settings.file_target_chars,
+        "retry_count": settings.retry_count,
+        "retry_base_delay_ms": settings.retry_base_delay_ms,
+        "inter_chunk_pause_ms": settings.inter_chunk_pause_ms,
+        "paragraph_pause_ms": settings.paragraph_pause_ms,
+        "preprocessing_enabled": settings.preprocessing_enabled,
+        "preprocessing_rule_count": settings.preprocessing_rules.len(),
+        "disk_reserve_mb": settings.disk_reserve_mb,
+        "history_requested": settings.file_history_enabled,
         "source_characters": result.source_character_count,
         "processed_characters": result.processed_character_count,
         "chunks": result.chunk_count,
@@ -404,6 +437,317 @@ async fn convert_text_to_audio(
         "history_entry_id": history_entry_id,
         "history_error": history_error,
     }))
+}
+
+fn apply_tts_provider_override(
+    args: &CliArgs,
+    settings: &mut TtsSettings,
+) -> Result<(), CliFailure> {
+    if let Some(provider) = args.tts_provider {
+        settings.provider = match provider {
+            CliTtsProvider::Soniox => TtsProvider::Soniox,
+            CliTtsProvider::Deepgram => TtsProvider::Deepgram,
+            CliTtsProvider::Openai => TtsProvider::OpenAi,
+            CliTtsProvider::LocalQwen => TtsProvider::LocalQwen,
+            CliTtsProvider::Windows => TtsProvider::Windows,
+        };
+        if provider == CliTtsProvider::Windows && args.tts_voice.is_none() {
+            settings.windows_voice_id.clear();
+            settings.windows_voice_language.clear();
+        }
+    }
+    if let Some(model) = args.tts_model.as_deref() {
+        let model = nonempty_cli_value("--tts-model", model)?;
+        match settings.provider {
+            TtsProvider::Soniox => settings.soniox_model = model.to_string(),
+            TtsProvider::Deepgram => settings.deepgram_model = model.to_string(),
+            TtsProvider::OpenAi => settings.openai_model = model.to_string(),
+            TtsProvider::LocalQwen => {
+                return Err(CliFailure::usage(
+                    "--tts-model is not supported by local-qwen because AivoRelay uses one pinned model; remove the flag",
+                ));
+            }
+            TtsProvider::Windows => {
+                return Err(CliFailure::usage(
+                    "--tts-model is not supported by windows voices; choose an installed voice with --tts-voice",
+                ));
+            }
+        }
+    }
+    if let Some(voice) = args.tts_voice.as_deref() {
+        let voice = nonempty_cli_value("--tts-voice", voice)?;
+        match settings.provider {
+            TtsProvider::Soniox => settings.soniox_voice = voice.to_string(),
+            TtsProvider::Deepgram => {
+                return Err(CliFailure::usage(
+                    "Deepgram selects its voice through the model ID; use --tts-model instead of --tts-voice",
+                ));
+            }
+            TtsProvider::OpenAi => settings.openai_voice = voice.to_string(),
+            TtsProvider::LocalQwen => settings.local_qwen_voice = voice.to_string(),
+            TtsProvider::Windows => {
+                if voice.eq_ignore_ascii_case("default") {
+                    settings.windows_voice_id.clear();
+                    settings.windows_voice_language.clear();
+                } else {
+                    settings.windows_voice_id = voice.to_string();
+                    settings.windows_voice_language.clear();
+                }
+            }
+        }
+    }
+    if let Some(language) = args.tts_language.as_deref() {
+        let language = nonempty_cli_value("--tts-language", language)?;
+        match settings.provider {
+            TtsProvider::Soniox => settings.soniox_language = language.to_string(),
+            TtsProvider::LocalQwen => settings.local_qwen_language = language.to_string(),
+            TtsProvider::Deepgram => {
+                return Err(CliFailure::usage(
+                    "Deepgram TTS language is part of its model/voice ID; use --tts-model instead of --tts-language",
+                ));
+            }
+            TtsProvider::OpenAi => {
+                return Err(CliFailure::usage(
+                    "--tts-language is not supported by OpenAI TTS; choose a voice/model and provide the intended language in the input text",
+                ));
+            }
+            TtsProvider::Windows => {
+                return Err(CliFailure::usage(
+                    "Windows derives language from the installed voice; use --tts-voice with a stable Windows voice ID",
+                ));
+            }
+        }
+    }
+    if let Some(source) = args.tts_key_source {
+        let source = match source {
+            CliTtsKeySource::Shared => TtsKeySource::Shared,
+            CliTtsKeySource::Separate => TtsKeySource::Separate,
+        };
+        match settings.provider {
+            TtsProvider::Soniox => settings.soniox_key_source = source,
+            TtsProvider::Deepgram => settings.deepgram_key_source = source,
+            TtsProvider::OpenAi => settings.openai_key_source = source,
+            TtsProvider::LocalQwen | TtsProvider::Windows => {
+                return Err(CliFailure::usage(format!(
+                    "--tts-key-source is not supported by {} because it does not use an API key",
+                    settings.provider.as_str()
+                )));
+            }
+        }
+    }
+    Ok(())
+}
+
+fn apply_tts_conversion_overrides(
+    args: &CliArgs,
+    settings: &mut TtsSettings,
+) -> Result<(), CliFailure> {
+    if let Some(speed) = args.tts_speed {
+        if !speed.is_finite() {
+            return Err(CliFailure::usage("--tts-speed must be a finite number"));
+        }
+        let (minimum, maximum) = match settings.provider {
+            TtsProvider::Soniox => (0.7, 1.3),
+            TtsProvider::Deepgram => (0.7, 1.5),
+            TtsProvider::OpenAi => (0.25, 4.0),
+            TtsProvider::LocalQwen | TtsProvider::Windows => (0.5, 2.0),
+        };
+        if !(minimum..=maximum).contains(&speed) {
+            return Err(CliFailure::usage(format!(
+                "--tts-speed for {} must be between {minimum} and {maximum}",
+                settings.provider.as_str()
+            )));
+        }
+        settings.speed = speed;
+    }
+    if let Some(format) = args.tts_format {
+        settings.output_format = match format {
+            CliTtsOutputFormat::Mp3 => TtsOutputFormat::Mp3,
+            CliTtsOutputFormat::Wav => TtsOutputFormat::Wav,
+        };
+    }
+    if let Some(bitrate) = args.tts_bitrate {
+        if !SUPPORTED_MP3_BITRATES.contains(&bitrate) {
+            return Err(CliFailure::usage(format!(
+                "--tts-bitrate must be one of: {}",
+                SUPPORTED_MP3_BITRATES
+                    .iter()
+                    .map(u16::to_string)
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            )));
+        }
+        settings.mp3_bitrate_kbps = bitrate;
+    }
+    if let Some(chars) = args.tts_chunk_chars {
+        let hard_limit = TtsManager::provider_character_limit(settings.provider) as u32;
+        if !(50..=hard_limit).contains(&chars) {
+            return Err(CliFailure::usage(format!(
+                "--tts-chunk-chars for {} must be between 50 and {hard_limit}",
+                settings.provider.as_str()
+            )));
+        }
+        settings.file_target_chars = chars;
+    }
+    if let Some(retries) = args.tts_retries {
+        if retries > 10 {
+            return Err(CliFailure::usage("--tts-retries must be between 0 and 10"));
+        }
+        settings.retry_count = retries;
+    }
+    if let Some(delay) = args.tts_retry_delay_ms {
+        if !(100..=30_000).contains(&delay) {
+            return Err(CliFailure::usage(
+                "--tts-retry-delay-ms must be between 100 and 30000",
+            ));
+        }
+        settings.retry_base_delay_ms = delay;
+    }
+    if let Some(pause) = args.tts_chunk_pause_ms {
+        if pause > 5_000 {
+            return Err(CliFailure::usage(
+                "--tts-chunk-pause-ms must be between 0 and 5000",
+            ));
+        }
+        settings.inter_chunk_pause_ms = pause;
+    }
+    if let Some(pause) = args.tts_paragraph_pause_ms {
+        if pause > 10_000 {
+            return Err(CliFailure::usage(
+                "--tts-paragraph-pause-ms must be between 0 and 10000",
+            ));
+        }
+        settings.paragraph_pause_ms = pause;
+    }
+    if let Some(enabled) = args.tts_preprocessing {
+        settings.preprocessing_enabled = enabled;
+    }
+    if let Some(path) = args.tts_replacements_file.as_deref() {
+        if args.tts_preprocessing == Some(false) {
+            return Err(CliFailure::usage(
+                "--tts-replacements-file conflicts with --tts-preprocessing false",
+            ));
+        }
+        settings.preprocessing_rules = read_tts_replacement_rules(path)?;
+        settings.preprocessing_enabled = true;
+    }
+    if let Some(reserve) = args.tts_disk_reserve_mb {
+        if reserve > 1_048_576 {
+            return Err(CliFailure::usage(
+                "--tts-disk-reserve-mb must be between 0 and 1048576",
+            ));
+        }
+        settings.disk_reserve_mb = reserve;
+    }
+    if let Some(history) = args.tts_history {
+        settings.file_history_enabled = history;
+    }
+    Ok(())
+}
+
+fn nonempty_cli_value<'a>(flag: &str, value: &'a str) -> Result<&'a str, CliFailure> {
+    let value = value.trim();
+    if value.is_empty() {
+        Err(CliFailure::usage(format!("{flag} must not be empty")))
+    } else {
+        Ok(value)
+    }
+}
+
+fn output_format_name(format: TtsOutputFormat) -> &'static str {
+    match format {
+        TtsOutputFormat::Mp3 => "mp3",
+        TtsOutputFormat::Wav => "wav",
+    }
+}
+
+fn read_tts_replacement_rules(path: &Path) -> Result<Vec<TextReplacement>, CliFailure> {
+    let absolute = absolute_path(path).map_err(CliFailure::usage)?;
+    let size = fs::metadata(&absolute)
+        .map_err(|error| {
+            CliFailure::usage(format!(
+                "Cannot inspect --tts-replacements-file {}: {error}",
+                absolute.display()
+            ))
+        })?
+        .len();
+    if size > 1_048_576 {
+        return Err(CliFailure::usage(
+            "--tts-replacements-file must not exceed 1 MiB",
+        ));
+    }
+    let json = read_utf8_bom(&absolute)?;
+    let rules: Vec<TextReplacement> = serde_json::from_str(&json).map_err(|error| {
+        CliFailure::usage(format!(
+            "Invalid --tts-replacements-file JSON in {}: {error}",
+            absolute.display()
+        ))
+    })?;
+    if rules.len() > 1_000 {
+        return Err(CliFailure::usage(
+            "--tts-replacements-file must contain at most 1000 rules",
+        ));
+    }
+    for (index, rule) in rules.iter().enumerate() {
+        if rule.enabled && rule.from.is_empty() {
+            return Err(CliFailure::usage(format!(
+                "Enabled replacement rule {} has an empty 'from' value",
+                index + 1
+            )));
+        }
+        if rule.enabled && rule.is_regex {
+            let pattern = if rule.case_sensitive {
+                rule.from.clone()
+            } else {
+                format!("(?i){}", rule.from)
+            };
+            regex::Regex::new(&pattern).map_err(|error| {
+                CliFailure::usage(format!(
+                    "Replacement rule {} has an invalid regular expression: {error}",
+                    index + 1
+                ))
+            })?;
+        }
+    }
+    Ok(rules)
+}
+
+fn effective_tts_model(settings: &TtsSettings) -> &str {
+    match settings.provider {
+        TtsProvider::Soniox => &settings.soniox_model,
+        TtsProvider::Deepgram => &settings.deepgram_model,
+        TtsProvider::OpenAi => &settings.openai_model,
+        TtsProvider::LocalQwen => "Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice",
+        TtsProvider::Windows => "windows.media.speechsynthesis",
+    }
+}
+
+fn effective_tts_voice(settings: &TtsSettings) -> &str {
+    match settings.provider {
+        TtsProvider::Soniox => &settings.soniox_voice,
+        TtsProvider::Deepgram => &settings.deepgram_model,
+        TtsProvider::OpenAi => &settings.openai_voice,
+        TtsProvider::LocalQwen => &settings.local_qwen_voice,
+        TtsProvider::Windows => &settings.windows_voice_id,
+    }
+}
+
+fn effective_tts_language(settings: &TtsSettings) -> &str {
+    match settings.provider {
+        TtsProvider::Soniox => &settings.soniox_language,
+        TtsProvider::LocalQwen => &settings.local_qwen_language,
+        TtsProvider::Windows => &settings.windows_voice_language,
+        TtsProvider::Deepgram | TtsProvider::OpenAi => "",
+    }
+}
+
+fn effective_tts_key_source(settings: &TtsSettings) -> Option<TtsKeySource> {
+    match settings.provider {
+        TtsProvider::Soniox => Some(settings.soniox_key_source),
+        TtsProvider::Deepgram => Some(settings.deepgram_key_source),
+        TtsProvider::OpenAi => Some(settings.openai_key_source),
+        TtsProvider::LocalQwen | TtsProvider::Windows => None,
+    }
 }
 
 async fn convert_audio_to_text(
@@ -818,6 +1162,220 @@ mod tests {
             .expect("instructions should resolve");
         assert_eq!(source, "inline");
         assert_eq!(settings.openai_instructions, "Use the inline prompt.");
+    }
+
+    #[test]
+    fn provider_and_voice_overrides_are_temporary_and_provider_aware() {
+        let mut windows = TtsSettings::default();
+        let args = CliArgs {
+            convert_file: Some(PathBuf::from("chapter.md")),
+            tts_provider: Some(CliTtsProvider::Windows),
+            tts_voice: Some(" Windows voice ID ".to_string()),
+            ..CliArgs::default()
+        };
+        apply_tts_provider_override(&args, &mut windows).unwrap();
+        assert_eq!(windows.provider, TtsProvider::Windows);
+        assert_eq!(windows.windows_voice_id, "Windows voice ID");
+
+        let mut qwen = TtsSettings::default();
+        let args = CliArgs {
+            convert_file: Some(PathBuf::from("chapter.md")),
+            tts_provider: Some(CliTtsProvider::LocalQwen),
+            tts_voice: Some("Vivian".to_string()),
+            ..CliArgs::default()
+        };
+        apply_tts_provider_override(&args, &mut qwen).unwrap();
+        assert_eq!(qwen.provider, TtsProvider::LocalQwen);
+        assert_eq!(qwen.local_qwen_voice, "Vivian");
+    }
+
+    #[test]
+    fn all_supported_file_overrides_apply_without_mutating_the_source_snapshot() {
+        let original = TtsSettings::default();
+        let mut effective = original.clone();
+        let args = CliArgs {
+            convert_file: Some(PathBuf::from("chapter.md")),
+            tts_provider: Some(CliTtsProvider::Soniox),
+            tts_model: Some("sonic-preview".to_string()),
+            tts_voice: Some("voice-id".to_string()),
+            tts_language: Some("ru".to_string()),
+            tts_speed: Some(1.2),
+            tts_key_source: Some(CliTtsKeySource::Separate),
+            tts_format: Some(CliTtsOutputFormat::Mp3),
+            tts_bitrate: Some(192),
+            tts_chunk_chars: Some(1_400),
+            tts_retries: Some(4),
+            tts_retry_delay_ms: Some(750),
+            tts_chunk_pause_ms: Some(80),
+            tts_paragraph_pause_ms: Some(300),
+            tts_preprocessing: Some(false),
+            tts_disk_reserve_mb: Some(1_024),
+            tts_history: Some(false),
+            ..CliArgs::default()
+        };
+
+        apply_tts_provider_override(&args, &mut effective).unwrap();
+        apply_tts_conversion_overrides(&args, &mut effective).unwrap();
+
+        assert_eq!(effective.provider, TtsProvider::Soniox);
+        assert_eq!(effective.soniox_model, "sonic-preview");
+        assert_eq!(effective.soniox_voice, "voice-id");
+        assert_eq!(effective.soniox_language, "ru");
+        assert_eq!(effective.soniox_key_source, TtsKeySource::Separate);
+        assert_eq!(effective.speed, 1.2);
+        assert_eq!(effective.output_format, TtsOutputFormat::Mp3);
+        assert_eq!(effective.mp3_bitrate_kbps, 192);
+        assert_eq!(effective.file_target_chars, 1_400);
+        assert_eq!(effective.retry_count, 4);
+        assert_eq!(effective.retry_base_delay_ms, 750);
+        assert_eq!(effective.inter_chunk_pause_ms, 80);
+        assert_eq!(effective.paragraph_pause_ms, 300);
+        assert!(!effective.preprocessing_enabled);
+        assert_eq!(effective.disk_reserve_mb, 1_024);
+        assert!(!effective.file_history_enabled);
+
+        assert_eq!(original.provider, TtsSettings::default().provider);
+        assert_eq!(original.soniox_model, TtsSettings::default().soniox_model);
+        assert_eq!(original.speed, TtsSettings::default().speed);
+        assert_eq!(
+            original.mp3_bitrate_kbps,
+            TtsSettings::default().mp3_bitrate_kbps
+        );
+    }
+
+    #[test]
+    fn provider_incompatible_overrides_return_actionable_usage_errors() {
+        let cases = [
+            (
+                CliArgs {
+                    tts_provider: Some(CliTtsProvider::Deepgram),
+                    tts_voice: Some("aura-voice".to_string()),
+                    ..CliArgs::default()
+                },
+                "--tts-model",
+            ),
+            (
+                CliArgs {
+                    tts_provider: Some(CliTtsProvider::Openai),
+                    tts_language: Some("ru".to_string()),
+                    ..CliArgs::default()
+                },
+                "not supported by OpenAI",
+            ),
+            (
+                CliArgs {
+                    tts_provider: Some(CliTtsProvider::LocalQwen),
+                    tts_model: Some("another-model".to_string()),
+                    ..CliArgs::default()
+                },
+                "one pinned model",
+            ),
+            (
+                CliArgs {
+                    tts_provider: Some(CliTtsProvider::Windows),
+                    tts_key_source: Some(CliTtsKeySource::Separate),
+                    ..CliArgs::default()
+                },
+                "does not use an API key",
+            ),
+        ];
+
+        for (args, expected) in cases {
+            let mut settings = TtsSettings::default();
+            let error = apply_tts_provider_override(&args, &mut settings)
+                .expect_err("unsupported provider argument must fail");
+            assert_eq!(error.exit_code, 2);
+            assert!(
+                error.message.contains(expected),
+                "expected {:?} in {:?}",
+                expected,
+                error.message
+            );
+        }
+    }
+
+    #[test]
+    fn invalid_scalar_overrides_return_usage_errors_instead_of_clamping() {
+        let cases = [
+            (
+                CliArgs {
+                    tts_provider: Some(CliTtsProvider::Soniox),
+                    tts_speed: Some(1.31),
+                    ..CliArgs::default()
+                },
+                "--tts-speed for soniox must be between 0.7 and 1.3",
+            ),
+            (
+                CliArgs {
+                    tts_bitrate: Some(160),
+                    ..CliArgs::default()
+                },
+                "--tts-bitrate must be one of",
+            ),
+            (
+                CliArgs {
+                    tts_retries: Some(11),
+                    ..CliArgs::default()
+                },
+                "--tts-retries must be between 0 and 10",
+            ),
+        ];
+
+        for (args, expected) in cases {
+            let mut settings = TtsSettings::default();
+            apply_tts_provider_override(&args, &mut settings).unwrap();
+            let error = apply_tts_conversion_overrides(&args, &mut settings)
+                .expect_err("invalid scalar override must fail");
+            assert_eq!(error.exit_code, 2);
+            assert!(error.message.contains(expected));
+        }
+    }
+
+    #[test]
+    fn replacement_file_is_validated_and_applied_as_one_off_configuration() {
+        let path = std::env::temp_dir().join(format!(
+            "aivorelay-tts-replacements-{}-{}.json",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_nanos()
+        ));
+        fs::write(
+            &path,
+            br#"[{"id":"cli-rule","from":"\\bAI\\b","to":"A I","enabled":true,"case_sensitive":false,"is_regex":true}]"#,
+        )
+        .expect("temporary rules should be writable");
+
+        let mut settings = TtsSettings::default();
+        let args = CliArgs {
+            tts_replacements_file: Some(path.clone()),
+            ..CliArgs::default()
+        };
+        apply_tts_conversion_overrides(&args, &mut settings)
+            .expect("valid replacement rules should apply");
+        let _ = fs::remove_file(path);
+
+        assert!(settings.preprocessing_enabled);
+        assert_eq!(settings.preprocessing_rules.len(), 1);
+        assert_eq!(settings.preprocessing_rules[0].id, "cli-rule");
+    }
+
+    #[test]
+    fn windows_provider_without_voice_override_uses_os_default_not_saved_voice() {
+        let mut settings = TtsSettings::default();
+        settings.windows_voice_id = "saved-voice-id".to_string();
+        settings.windows_voice_language = "en-US".to_string();
+        let args = CliArgs {
+            tts_provider: Some(CliTtsProvider::Windows),
+            ..CliArgs::default()
+        };
+
+        apply_tts_provider_override(&args, &mut settings).unwrap();
+
+        assert_eq!(settings.provider, TtsProvider::Windows);
+        assert!(settings.windows_voice_id.is_empty());
+        assert!(settings.windows_voice_language.is_empty());
     }
 
     #[test]

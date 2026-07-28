@@ -1,24 +1,38 @@
+use crate::managers::local_tts::{
+    LocalTtsKind, LocalTtsStatus, LOCAL_TTS_MODEL_REPO, LOCAL_TTS_MODEL_REVISION,
+};
 use crate::managers::tts::{
     FileConversionResult, TextFileInspection, TtsChunkReady, TtsManager, TtsOperationKind,
     TtsPhase, TtsState, SONIOX_TTS_API_KEY_MAX_CHARS, SUPPORTED_MP3_BITRATES,
     TTS_EVENT_CHUNK_READY, TTS_EVENT_STATE,
 };
 use crate::managers::tts_history::{
-    metadata_from_settings, NewTtsHistoryEntry, TtsHistoryManager, TtsHistorySourceKind,
+    metadata_from_settings, NewTtsHistoryEntry, TtsHistoryManager, TtsHistoryScope,
+    TtsHistorySourceKind,
 };
+use crate::managers::windows_tts::{self, WindowsVoiceCatalog};
 use crate::settings::{get_settings, write_settings, TtsOutputFormat, TtsProvider, TtsSettings};
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 use specta::Type;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Instant;
 use tauri::{AppHandle, Emitter, Listener, Manager};
 
 const TTS_OVERLAY_EVENT: &str = "tts-overlay-state";
+const TTS_OVERLAY_CONTROL_EVENT: &str = "tts-overlay-control";
 const TTS_FIRST_PLAYBACK_WARM_TARGET_MS: u64 = 3_000;
 const TTS_FIRST_PLAYBACK_COLD_TARGET_MS: u64 = 4_000;
 const TTS_CHUNK_READY_TO_PLAYING_TARGET_MS: u64 = 250;
+static TTS_HISTORY_REPLAY_GENERATION: AtomicU64 = AtomicU64::new(0);
+
+#[tauri::command]
+#[specta::specta]
+pub async fn get_windows_tts_voice_catalog() -> WindowsVoiceCatalog {
+    windows_tts::voice_catalog().await
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
 pub struct TtsOverlayChunk {
@@ -26,11 +40,20 @@ pub struct TtsOverlayChunk {
     pub path: String,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct TtsOverlayIdentity {
+    provider: String,
+    model: String,
+    voice: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
 pub struct TtsOverlayState {
     pub operation_id: String,
     pub status: String,
     pub provider: String,
+    pub model: String,
+    pub voice: String,
     pub text_preview: String,
     pub chunks: Vec<TtsOverlayChunk>,
     pub current_chunk: usize,
@@ -38,6 +61,7 @@ pub struct TtsOverlayState {
     pub retry_attempt: u8,
     pub error: Option<String>,
     pub play_pause_hotkey: String,
+    pub play_history_when_overlay_closed: bool,
     pub stop_hotkey: String,
     pub autoplay: bool,
 }
@@ -48,6 +72,8 @@ impl Default for TtsOverlayState {
             operation_id: String::new(),
             status: "idle".to_string(),
             provider: String::new(),
+            model: String::new(),
+            voice: String::new(),
             text_preview: String::new(),
             chunks: Vec::new(),
             current_chunk: 0,
@@ -55,6 +81,7 @@ impl Default for TtsOverlayState {
             retry_attempt: 0,
             error: None,
             play_pause_hotkey: String::new(),
+            play_history_when_overlay_closed: false,
             stop_hotkey: String::new(),
             autoplay: true,
         }
@@ -217,6 +244,92 @@ fn emit_overlay_state(app: &AppHandle, state: &TtsOverlayState) {
     let _ = app.emit(TTS_OVERLAY_EVENT, state);
 }
 
+pub fn play_pause_or_replay_latest_history(app: &AppHandle) -> Result<(), String> {
+    let settings = get_settings(app).tts;
+    if !settings.enabled {
+        return Err("Text to Speech is disabled".to_string());
+    }
+    if !settings.interactive_history_enabled {
+        return Err(
+            "Enable Interactive TTS History before using the Play history fallback".to_string(),
+        );
+    }
+    if !settings.play_history_when_overlay_closed {
+        return Err("The Play history fallback is disabled".to_string());
+    }
+
+    if app
+        .get_webview_window(crate::overlay::TTS_OVERLAY_WINDOW_LABEL)
+        .is_some_and(|window| window.is_visible().unwrap_or(false))
+    {
+        app.emit(TTS_OVERLAY_CONTROL_EVENT, "play_pause")
+            .map_err(|error| format!("Failed to control the TTS overlay: {error}"))?;
+        return Ok(());
+    }
+
+    let history = app
+        .try_state::<Arc<TtsHistoryManager>>()
+        .ok_or_else(|| "Interactive TTS History is unavailable".to_string())?;
+    let entry = history
+        .list_entries(TtsHistoryScope::Interactive)
+        .map_err(|error| error.to_string())?
+        .into_iter()
+        .next()
+        .ok_or_else(|| {
+            "Interactive TTS History is empty. Read clipboard or selected text first.".to_string()
+        })?;
+    let audio_path = history
+        .retained_audio_path(entry.id)
+        .map_err(|error| error.to_string())?
+        .ok_or_else(|| "The newest Interactive History result no longer exists".to_string())?;
+    if !audio_path.is_file() {
+        return Err(format!(
+            "The retained audio for Interactive History result {} is missing",
+            entry.id
+        ));
+    }
+
+    let preview: String = entry.source_text.chars().take(240).collect();
+    let preview = if entry.source_text.chars().count() > 240 {
+        format!("{}…", preview.trim_end())
+    } else {
+        preview
+    };
+    let operation_id = u64::MAX
+        .saturating_sub(TTS_HISTORY_REPLAY_GENERATION.fetch_add(1, Ordering::Relaxed))
+        .to_string();
+    let snapshot = {
+        let runtime = app.state::<TtsOverlayRuntime>();
+        let mut runtime = runtime.inner.lock();
+        runtime.playback_status = None;
+        runtime.latency = TtsLatencyTrace::default();
+        runtime.state = TtsOverlayState {
+            operation_id,
+            status: "ready".to_string(),
+            provider: entry.provider.as_str().to_string(),
+            model: entry.model,
+            voice: entry.voice,
+            text_preview: preview,
+            chunks: vec![TtsOverlayChunk {
+                index: 0,
+                path: audio_path.to_string_lossy().into_owned(),
+            }],
+            current_chunk: 0,
+            total_chunks: 1,
+            retry_attempt: 0,
+            error: None,
+            play_pause_hotkey: settings.play_pause_hotkey,
+            play_history_when_overlay_closed: settings.play_history_when_overlay_closed,
+            stop_hotkey: settings.stop_hotkey,
+            autoplay: true,
+        };
+        runtime.state.clone()
+    };
+    crate::overlay::show_tts_overlay_window(app);
+    emit_overlay_state(app, &snapshot);
+    Ok(())
+}
+
 fn apply_manager_state(app: &AppHandle, manager_state: TtsState) {
     let runtime = app.state::<TtsOverlayRuntime>();
     let snapshot = {
@@ -305,6 +418,7 @@ fn prepare_overlay(
     activation_started_at: Instant,
     overlay_was_cold: bool,
 ) {
+    let identity = overlay_identity(settings);
     let preview: String = text.chars().take(240).collect();
     let input_characters = text.chars().count();
     let preview = if text.chars().count() > 240 {
@@ -325,7 +439,9 @@ fn prepare_overlay(
         runtime.state = TtsOverlayState {
             operation_id: String::new(),
             status: "loading".to_string(),
-            provider: settings.provider.as_str().to_string(),
+            provider: identity.provider,
+            model: identity.model,
+            voice: identity.voice,
             text_preview: preview,
             chunks: Vec::new(),
             current_chunk: 0,
@@ -333,12 +449,37 @@ fn prepare_overlay(
             retry_attempt: 0,
             error: None,
             play_pause_hotkey: settings.play_pause_hotkey.clone(),
+            play_history_when_overlay_closed: settings.play_history_when_overlay_closed,
             stop_hotkey: settings.stop_hotkey.clone(),
             autoplay: settings.autoplay,
         };
         runtime.state.clone()
     };
     emit_overlay_state(app, &snapshot);
+}
+
+fn overlay_identity(settings: &TtsSettings) -> TtsOverlayIdentity {
+    let (model, voice) = match settings.provider {
+        TtsProvider::Soniox => (settings.soniox_model.clone(), settings.soniox_voice.clone()),
+        TtsProvider::Deepgram => (
+            settings.deepgram_model.clone(),
+            settings.deepgram_model.clone(),
+        ),
+        TtsProvider::OpenAi => (settings.openai_model.clone(), settings.openai_voice.clone()),
+        TtsProvider::LocalQwen => (
+            format!("{LOCAL_TTS_MODEL_REPO}@{LOCAL_TTS_MODEL_REVISION}"),
+            settings.local_qwen_voice.clone(),
+        ),
+        TtsProvider::Windows => (
+            "windows.media.speechsynthesis".to_string(),
+            settings.windows_voice_id.clone(),
+        ),
+    };
+    TtsOverlayIdentity {
+        provider: settings.provider.as_str().to_string(),
+        model,
+        voice,
+    }
 }
 
 fn report_overlay_error(app: &AppHandle, error: impl std::fmt::Display) {
@@ -356,6 +497,7 @@ fn report_overlay_error(app: &AppHandle, error: impl std::fmt::Display) {
 
 fn history_metadata(
     settings: &TtsSettings,
+    scope: TtsHistoryScope,
     source_text: String,
     source_kind: TtsHistorySourceKind,
     group_id: String,
@@ -363,6 +505,7 @@ fn history_metadata(
 ) -> NewTtsHistoryEntry {
     metadata_from_settings(
         settings,
+        scope,
         source_text,
         source_kind,
         group_id,
@@ -398,7 +541,11 @@ fn save_passive_history(
     audio_path: PathBuf,
     show_error_in_overlay: bool,
 ) {
-    if !settings.history_enabled {
+    let enabled = match metadata.scope {
+        TtsHistoryScope::Interactive => settings.interactive_history_enabled,
+        TtsHistoryScope::File => settings.file_history_enabled,
+    };
+    if !enabled {
         return;
     }
     let history = app.state::<Arc<TtsHistoryManager>>();
@@ -410,10 +557,6 @@ fn save_passive_history(
             show_error_in_overlay,
         );
     }
-}
-
-pub async fn start_tts_text(app: AppHandle, text: String) -> Result<(), String> {
-    start_tts_text_at(app, text, Instant::now()).await
 }
 
 pub(crate) async fn start_tts_text_at(
@@ -432,6 +575,10 @@ pub(crate) async fn start_tts_text_at(
     let manager = app.state::<Arc<TtsManager>>().inner().clone();
     let operation_guard = manager
         .try_reserve_foreground_operation()
+        .map_err(|error| error.to_string())?;
+    let settings = manager
+        .resolve_operation_settings(&settings)
+        .await
         .map_err(|error| error.to_string())?;
     let overlay_was_cold = app
         .get_webview_window(crate::overlay::TTS_OVERLAY_WINDOW_LABEL)
@@ -454,13 +601,14 @@ pub(crate) async fn start_tts_text_at(
             return Err(error.to_string());
         }
     };
-    if settings.history_enabled {
+    if settings.interactive_history_enabled {
         if let Some(audio_path) = synthesis.combined_audio_path {
             save_passive_history(
                 &app,
                 &settings,
                 history_metadata(
                     &settings,
+                    TtsHistoryScope::Interactive,
                     text,
                     TtsHistorySourceKind::Text,
                     format!(
@@ -490,6 +638,8 @@ fn parse_provider(provider: &str) -> Result<TtsProvider, String> {
         "soniox" => Ok(TtsProvider::Soniox),
         "deepgram" => Ok(TtsProvider::Deepgram),
         "openai" | "open_ai" => Ok(TtsProvider::OpenAi),
+        "local_qwen" | "qwen" | "qwen3" => Ok(TtsProvider::LocalQwen),
+        "windows" | "winrt" => Ok(TtsProvider::Windows),
         _ => Err("Unsupported TTS provider".to_string()),
     }
 }
@@ -501,6 +651,10 @@ fn normalize_settings(mut settings: TtsSettings) -> TtsSettings {
     settings.deepgram_model = nonempty_setting(settings.deepgram_model, "aura-2-thalia-en");
     settings.openai_model = nonempty_setting(settings.openai_model, "gpt-4o-mini-tts");
     settings.openai_voice = nonempty_setting(settings.openai_voice, "marin");
+    settings.local_qwen_voice = nonempty_setting(settings.local_qwen_voice, "Ryan");
+    settings.local_qwen_language = nonempty_setting(settings.local_qwen_language, "Auto");
+    settings.windows_voice_id = settings.windows_voice_id.trim().to_string();
+    settings.windows_voice_language = settings.windows_voice_language.trim().to_string();
     let hard_limit = TtsManager::provider_character_limit(settings.provider) as u32;
     settings.interactive_target_chars = settings.interactive_target_chars.clamp(50, hard_limit);
     settings.file_target_chars = settings.file_target_chars.clamp(50, hard_limit);
@@ -510,12 +664,19 @@ fn normalize_settings(mut settings: TtsSettings) -> TtsSettings {
     settings.paragraph_pause_ms = settings.paragraph_pause_ms.min(10_000);
     settings.watch_settle_delay_ms = settings.watch_settle_delay_ms.clamp(100, 60_000);
     settings.disk_reserve_mb = settings.disk_reserve_mb.min(1_048_576);
-    settings.history_max_entries = settings.history_max_entries.clamp(1, 100_000);
-    settings.history_max_storage_mb = settings.history_max_storage_mb.clamp(1, 1_048_576);
+    settings.interactive_history_max_entries =
+        settings.interactive_history_max_entries.clamp(1, 100_000);
+    settings.interactive_history_max_storage_mb = settings
+        .interactive_history_max_storage_mb
+        .clamp(1, 1_048_576);
+    settings.file_history_max_entries = settings.file_history_max_entries.clamp(1, 100_000);
+    settings.file_history_max_storage_mb = settings.file_history_max_storage_mb.clamp(1, 1_048_576);
     settings.speed = match settings.provider {
         TtsProvider::Soniox => settings.speed.clamp(0.7, 1.3),
         TtsProvider::Deepgram => settings.speed.clamp(0.7, 1.5),
         TtsProvider::OpenAi => settings.speed.clamp(0.25, 4.0),
+        TtsProvider::LocalQwen => settings.speed.clamp(0.5, 2.0),
+        TtsProvider::Windows => settings.speed.clamp(0.5, 2.0),
     };
     if !SUPPORTED_MP3_BITRATES.contains(&settings.mp3_bitrate_kbps) {
         settings.mp3_bitrate_kbps = 256;
@@ -560,30 +721,70 @@ fn watcher_configuration_changed(previous: &TtsSettings, current: &TtsSettings) 
 #[tauri::command]
 #[specta::specta]
 pub fn update_tts_settings(app: AppHandle, settings: TtsSettings) -> Result<TtsSettings, String> {
-    let settings = normalize_settings(settings);
+    let mut settings = normalize_settings(settings);
+    if !settings.interactive_history_enabled {
+        settings.play_history_when_overlay_closed = false;
+    } else if settings.play_history_when_overlay_closed {
+        let has_interactive_history = app
+            .try_state::<Arc<TtsHistoryManager>>()
+            .ok_or_else(|| "Interactive TTS History is unavailable".to_string())?
+            .list_entries(TtsHistoryScope::Interactive)
+            .map_err(|error| error.to_string())?
+            .into_iter()
+            .next()
+            .is_some();
+        if !has_interactive_history {
+            settings.play_history_when_overlay_closed = false;
+        }
+    }
     TtsManager::validate_settings(&settings).map_err(|error| error.to_string())?;
     let mut app_settings = get_settings(&app);
     let previous = app_settings.tts.clone();
     let watcher_configuration_changed = watcher_configuration_changed(&previous, &settings);
-    let retention_configuration_changed = previous.history_max_entries
-        != settings.history_max_entries
-        || previous.history_max_storage_mb != settings.history_max_storage_mb;
+    let interactive_retention_changed = previous.interactive_history_max_entries
+        != settings.interactive_history_max_entries
+        || previous.interactive_history_max_storage_mb
+            != settings.interactive_history_max_storage_mb;
+    let file_retention_changed = previous.file_history_max_entries
+        != settings.file_history_max_entries
+        || previous.file_history_max_storage_mb != settings.file_history_max_storage_mb;
+    crate::shortcut::prepare_tts_play_history_fallback_binding(&app, &mut app_settings, &settings)?;
     app_settings.tts = settings.clone();
     write_settings(&app, app_settings);
+    let overlay_snapshot = {
+        let runtime = app.state::<TtsOverlayRuntime>();
+        let mut runtime = runtime.inner.lock();
+        runtime.state.play_pause_hotkey = settings.play_pause_hotkey.clone();
+        runtime.state.play_history_when_overlay_closed = settings.play_history_when_overlay_closed;
+        runtime.state.stop_hotkey = settings.stop_hotkey.clone();
+        runtime.state.clone()
+    };
+    emit_overlay_state(&app, &overlay_snapshot);
 
     if watcher_configuration_changed {
         let manager = app.state::<Arc<TtsManager>>().inner().clone();
         if let Err(error) = manager.sync_folder_watcher() {
             let mut rollback = get_settings(&app);
+            let _ = crate::shortcut::prepare_tts_play_history_fallback_binding(
+                &app,
+                &mut rollback,
+                &previous,
+            );
             rollback.tts = previous;
             write_settings(&app, rollback);
             let _ = manager.sync_folder_watcher();
             return Err(error.to_string());
         }
     }
-    if retention_configuration_changed {
-        if let Some(history) = app.try_state::<Arc<TtsHistoryManager>>() {
-            if let Err(error) = history.enforce_retention() {
+    if let Some(history) = app.try_state::<Arc<TtsHistoryManager>>() {
+        for scope in [
+            interactive_retention_changed.then_some(TtsHistoryScope::Interactive),
+            file_retention_changed.then_some(TtsHistoryScope::File),
+        ]
+        .into_iter()
+        .flatten()
+        {
+            if let Err(error) = history.enforce_retention(scope) {
                 report_history_error(
                     &app,
                     "TTS History limits were saved, but old results could not be removed",
@@ -601,6 +802,9 @@ pub fn update_tts_settings(app: AppHandle, settings: TtsSettings) -> Result<TtsS
 #[specta::specta]
 pub fn tts_has_api_key(provider: String) -> Result<bool, String> {
     let provider = parse_provider(&provider)?;
+    if !provider.requires_api_key() {
+        return Ok(false);
+    }
     Ok(crate::secure_keys::has_tts_api_key(provider.as_str()))
 }
 
@@ -608,6 +812,9 @@ pub fn tts_has_api_key(provider: String) -> Result<bool, String> {
 #[specta::specta]
 pub fn tts_set_api_key(provider: String, api_key: String) -> Result<(), String> {
     let provider = parse_provider(&provider)?;
+    if !provider.requires_api_key() {
+        return Err(format!("{} does not use an API key", provider.as_str()));
+    }
     let api_key = api_key.trim();
     if api_key.is_empty() {
         return Err("API key cannot be empty".to_string());
@@ -626,7 +833,54 @@ pub fn tts_set_api_key(provider: String, api_key: String) -> Result<(), String> 
 #[specta::specta]
 pub fn tts_clear_api_key(provider: String) -> Result<(), String> {
     let provider = parse_provider(&provider)?;
+    if !provider.requires_api_key() {
+        return Ok(());
+    }
     crate::secure_keys::clear_tts_api_key(provider.as_str()).map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn get_local_tts_status(
+    kind: LocalTtsKind,
+    manager: tauri::State<'_, Arc<TtsManager>>,
+) -> Result<LocalTtsStatus, String> {
+    Ok(manager.local_tts_status(kind))
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn install_local_tts(
+    kind: LocalTtsKind,
+    app: AppHandle,
+    manager: tauri::State<'_, Arc<TtsManager>>,
+) -> Result<LocalTtsStatus, String> {
+    let reserve_mb = get_settings(&app).tts.disk_reserve_mb;
+    manager
+        .install_local_tts(kind, reserve_mb)
+        .await
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn cancel_local_tts_install(
+    kind: LocalTtsKind,
+    manager: tauri::State<'_, Arc<TtsManager>>,
+) -> Result<bool, String> {
+    Ok(manager.cancel_local_tts_install(kind))
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn delete_local_tts(
+    kind: LocalTtsKind,
+    manager: tauri::State<'_, Arc<TtsManager>>,
+) -> Result<(), String> {
+    manager
+        .delete_local_tts(kind)
+        .await
+        .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
@@ -652,7 +906,11 @@ pub async fn convert_tts_text_file(
         256
     };
     let manager = app.state::<Arc<TtsManager>>().inner().clone();
-    let history_source = if settings.history_enabled {
+    settings = manager
+        .resolve_operation_settings(&settings)
+        .await
+        .map_err(|error| error.to_string())?;
+    let history_source = if settings.file_history_enabled {
         Some(
             manager
                 .read_original_text_file(&request.input_path)
@@ -678,6 +936,7 @@ pub async fn convert_tts_text_file(
             &settings,
             history_metadata(
                 &settings,
+                TtsHistoryScope::File,
                 source_text,
                 history_source_kind,
                 format!(
@@ -830,6 +1089,35 @@ mod tests {
         assert!(trace
             .record_first_playback(started + Duration::from_millis(2_800), Some(0))
             .is_none());
+    }
+
+    #[test]
+    fn overlay_identity_tracks_the_resolved_provider_settings() {
+        let mut settings = TtsSettings {
+            provider: TtsProvider::OpenAi,
+            openai_model: "gpt-4o-mini-tts-test".to_string(),
+            openai_voice: "coral".to_string(),
+            ..TtsSettings::default()
+        };
+        assert_eq!(
+            overlay_identity(&settings),
+            TtsOverlayIdentity {
+                provider: "openai".to_string(),
+                model: "gpt-4o-mini-tts-test".to_string(),
+                voice: "coral".to_string(),
+            }
+        );
+
+        settings.provider = TtsProvider::Windows;
+        settings.windows_voice_id = "resolved-windows-voice".to_string();
+        assert_eq!(
+            overlay_identity(&settings),
+            TtsOverlayIdentity {
+                provider: "windows".to_string(),
+                model: "windows.media.speechsynthesis".to_string(),
+                voice: "resolved-windows-voice".to_string(),
+            }
+        );
     }
 
     #[test]

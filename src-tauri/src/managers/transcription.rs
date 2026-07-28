@@ -3062,11 +3062,9 @@ fn resolve_transcribe_cpp_gpu_device(setting: WhisperAcceleratorSetting, gpu_dev
         return 0;
     }
 
-    let still_valid = transcribe_compute_devices()
-        .iter()
-        .any(|device| {
-            device.index == Some(gpu_device as usize) && is_transcribe_cpp_gpu_device(device)
-        });
+    let still_valid = transcribe_compute_devices().iter().any(|device| {
+        device.index == Some(gpu_device as usize) && is_transcribe_cpp_gpu_device(device)
+    });
     if still_valid {
         gpu_device
     } else {

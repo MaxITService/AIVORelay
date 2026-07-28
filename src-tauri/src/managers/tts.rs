@@ -5,10 +5,16 @@
 //! cache asset. File conversion assembles PCM first and encodes exactly one
 //! final WAV or MP3 stream.
 
+use crate::managers::local_tts::{
+    LocalTtsKind, LocalTtsRuntime, LocalTtsStatus, LOCAL_TTS_LANGUAGES, LOCAL_TTS_PROVIDER_LIMIT,
+    LOCAL_TTS_VOICES,
+};
+use crate::managers::provider_error::{parse_provider_error, safe_text};
 use crate::managers::tts_history::{
-    metadata_from_settings, TtsHistoryManager, TtsHistorySourceKind,
+    metadata_from_settings, TtsHistoryManager, TtsHistoryScope, TtsHistorySourceKind,
 };
 use crate::managers::tts_resume::{self, ResumeOrigin, ResumeWorkspace, WatcherResumeTask};
+use crate::managers::windows_tts::{self, WINDOWS_TTS_PROVIDER_LIMIT};
 use crate::settings::{
     apply_text_replacements, TtsKeySource, TtsOutputFormat, TtsProvider, TtsSettings,
 };
@@ -50,7 +56,6 @@ const DEEPGRAM_TTS_URL: &str = "https://api.deepgram.com/v1/speak";
 const OPENAI_TTS_URL: &str = "https://api.openai.com/v1/audio/speech";
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(15);
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(120);
-const MAX_SAFE_ERROR_CHARS: usize = 2_000;
 const MAX_RETRY_DELAY: Duration = Duration::from_secs(60);
 const INTERACTIVE_CACHE_STALE_AGE: Duration = Duration::from_secs(24 * 60 * 60);
 
@@ -197,6 +202,7 @@ pub struct TtsManager {
     watched_conversion_lock: tokio::sync::Mutex<()>,
     foreground_operation_lock: Arc<tokio::sync::Mutex<()>>,
     finalization_lock: parking_lot::Mutex<()>,
+    local_tts: LocalTtsRuntime,
 }
 
 impl TtsManager {
@@ -213,6 +219,7 @@ impl TtsManager {
             .app_cache_dir()
             .context("Could not resolve the application cache directory")?
             .join("tts");
+        let local_tts = LocalTtsRuntime::new(app_handle)?;
 
         Ok(Arc::new(Self {
             app_handle: app_handle.clone(),
@@ -226,6 +233,7 @@ impl TtsManager {
             watched_conversion_lock: tokio::sync::Mutex::new(()),
             foreground_operation_lock: Arc::new(tokio::sync::Mutex::new(())),
             finalization_lock: parking_lot::Mutex::new(()),
+            local_tts,
         }))
     }
 
@@ -234,12 +242,13 @@ impl TtsManager {
             TtsProvider::Soniox => SONIOX_CHARACTER_LIMIT,
             TtsProvider::Deepgram => DEEPGRAM_CHARACTER_LIMIT,
             TtsProvider::OpenAi => OPENAI_CHARACTER_LIMIT,
+            TtsProvider::LocalQwen => LOCAL_TTS_PROVIDER_LIMIT,
+            TtsProvider::Windows => WINDOWS_TTS_PROVIDER_LIMIT,
         }
     }
 
     pub fn openai_model_supports_instructions(model: &str) -> bool {
-        let model = model.trim();
-        model.is_empty() || model.starts_with("gpt-4o-mini-tts")
+        TtsProvider::OpenAi.supports_instructions(model)
     }
 
     pub fn validate_openai_instructions(instructions: &str) -> Result<()> {
@@ -268,6 +277,28 @@ impl TtsManager {
                 SONIOX_TTS_VOICE_MAX_CHARS,
             )?;
         }
+        if settings.provider == TtsProvider::LocalQwen {
+            if !LOCAL_TTS_VOICES.contains(&settings.local_qwen_voice.as_str()) {
+                return Err(anyhow!(
+                    "Unsupported local Qwen3-TTS voice: {}",
+                    settings.local_qwen_voice
+                ));
+            }
+            if !LOCAL_TTS_LANGUAGES.contains(&settings.local_qwen_language.as_str()) {
+                return Err(anyhow!(
+                    "Unsupported local Qwen3-TTS language: {}",
+                    settings.local_qwen_language
+                ));
+            }
+        }
+        if settings.provider == TtsProvider::Windows {
+            validate_max_chars("Windows voice ID", &settings.windows_voice_id, 1_024)?;
+            validate_max_chars(
+                "Windows voice language",
+                &settings.windows_voice_language,
+                128,
+            )?;
+        }
         Self::validate_openai_instructions(&settings.openai_instructions)?;
         for preset in &settings.prompt_presets {
             validate_max_chars(
@@ -282,8 +313,68 @@ impl TtsManager {
         Ok(())
     }
 
+    pub fn local_tts_status(&self, kind: LocalTtsKind) -> LocalTtsStatus {
+        match kind {
+            LocalTtsKind::Qwen => self.local_tts.status(),
+        }
+    }
+
+    pub async fn install_local_tts(
+        &self,
+        kind: LocalTtsKind,
+        disk_reserve_mb: u32,
+    ) -> Result<LocalTtsStatus> {
+        match kind {
+            LocalTtsKind::Qwen => self.local_tts.install(disk_reserve_mb).await,
+        }
+    }
+
+    pub fn cancel_local_tts_install(&self, kind: LocalTtsKind) -> bool {
+        match kind {
+            LocalTtsKind::Qwen => self.local_tts.cancel_install(),
+        }
+    }
+
+    pub async fn delete_local_tts(&self, kind: LocalTtsKind) -> Result<()> {
+        match kind {
+            LocalTtsKind::Qwen => self.local_tts.delete().await,
+        }
+    }
+
     pub fn current_state(&self) -> TtsState {
         self.state.read().clone()
+    }
+
+    pub async fn resolve_operation_settings(&self, settings: &TtsSettings) -> Result<TtsSettings> {
+        let mut resolved = settings.clone();
+        if resolved.provider == TtsProvider::Windows {
+            let max_attempts = resolved.retry_count.min(10).saturating_add(1);
+            let mut attempt = 1;
+            let voice = loop {
+                match windows_tts::resolve_voice_selection(&resolved.windows_voice_id).await {
+                    Ok(voice) => break voice,
+                    Err(error) if error.transient && attempt < max_attempts => {
+                        let delay = exponential_delay(
+                            resolved.retry_base_delay_ms.clamp(100, 30_000),
+                            attempt,
+                        );
+                        log::warn!(
+                            "Windows voice catalog failed on attempt {}/{}: {}; retrying in {:.1}s",
+                            attempt,
+                            max_attempts,
+                            error.safe_message,
+                            delay.as_secs_f32()
+                        );
+                        tokio::time::sleep(delay).await;
+                        attempt = attempt.saturating_add(1);
+                    }
+                    Err(error) => return Err(anyhow!(error.safe_message)),
+                }
+            };
+            resolved.windows_voice_id = voice.id;
+            resolved.windows_voice_language = voice.language;
+        }
+        Ok(resolved)
     }
 
     pub fn try_reserve_foreground_operation(&self) -> Result<tokio::sync::OwnedMutexGuard<()>> {
@@ -556,6 +647,13 @@ impl TtsManager {
             .await;
     }
 
+    fn watcher_is_current(&self, generation: u64) -> bool {
+        crate::settings::get_settings(&self.app_handle)
+            .tts
+            .watch_folder_enabled
+            && self.watcher_generation.load(Ordering::SeqCst) == generation
+    }
+
     async fn process_watched_file_to(
         self: Arc<Self>,
         input_path: PathBuf,
@@ -587,6 +685,12 @@ impl TtsManager {
             {
                 return Ok(());
             }
+            let settings = self.resolve_operation_settings(&settings).await?;
+            if !settings.watch_folder_enabled
+                || self.watcher_generation.load(Ordering::SeqCst) != generation
+            {
+                return Ok(());
+            }
             let (canonical_input, source) = read_watched_input_no_follow(
                 &input_path,
                 Path::new(settings.watch_input_directory.trim()),
@@ -604,6 +708,9 @@ impl TtsManager {
                 unique_watched_output_path(&output_dir, &canonical_input, extension)?
             };
             let conversion = loop {
+                if !self.watcher_is_current(generation) {
+                    return Ok(());
+                }
                 while matches!(
                     self.current_state().phase,
                     TtsPhase::Preparing
@@ -611,12 +718,13 @@ impl TtsManager {
                         | TtsPhase::Retrying
                         | TtsPhase::Ready
                 ) {
-                    if !settings.watch_folder_enabled
-                        || self.watcher_generation.load(Ordering::SeqCst) != generation
-                    {
+                    if !self.watcher_is_current(generation) {
                         return Ok(());
                     }
                     tokio::time::sleep(Duration::from_millis(250)).await;
+                }
+                if !self.watcher_is_current(generation) {
+                    return Ok(());
                 }
 
                 match self
@@ -640,8 +748,7 @@ impl TtsManager {
                             .to_string()
                             .to_ascii_lowercase()
                             .contains("already running")
-                            && settings.watch_folder_enabled
-                            && self.watcher_generation.load(Ordering::SeqCst) == generation =>
+                            && self.watcher_is_current(generation) =>
                     {
                         log::info!(
                             "Retrying queued TTS folder conversion after foreground operation: {}",
@@ -652,7 +759,7 @@ impl TtsManager {
                     Err(error) => return Err(error),
                 }
             };
-            if settings.history_enabled {
+            if settings.file_history_enabled {
                 let source_kind = canonical_input
                     .extension()
                     .and_then(|extension| extension.to_str())
@@ -668,6 +775,7 @@ impl TtsManager {
                             .save_success(
                                 metadata_from_settings(
                                     &settings,
+                                    TtsHistoryScope::File,
                                     source.clone(),
                                     source_kind,
                                     format!(
@@ -719,18 +827,6 @@ impl TtsManager {
         }
     }
 
-    /// Synthesizes chunks sequentially and emits a playable WAV path as soon as
-    /// each provider response arrives.
-    pub async fn synthesize_interactive(
-        self: &Arc<Self>,
-        text: &str,
-        settings: &TtsSettings,
-    ) -> Result<InteractiveSynthesis> {
-        let operation_guard = self.try_reserve_foreground_operation()?;
-        self.synthesize_interactive_reserved(text, settings, operation_guard)
-            .await
-    }
-
     pub async fn synthesize_interactive_reserved(
         self: &Arc<Self>,
         text: &str,
@@ -738,12 +834,14 @@ impl TtsManager {
         _operation_guard: tokio::sync::OwnedMutexGuard<()>,
     ) -> Result<InteractiveSynthesis> {
         ensure_enabled(settings)?;
+        let resolved_settings = self.resolve_operation_settings(settings).await?;
+        let settings = &resolved_settings;
         let processed = Self::preprocess_text(text, settings);
         let chunks = Self::chunk_interactive(&processed, settings);
         if chunks.is_empty() {
             return Err(anyhow!("There is no speakable text"));
         }
-        if settings.history_enabled {
+        if settings.interactive_history_enabled {
             validate_output_settings(settings)?;
         }
 
@@ -783,7 +881,7 @@ impl TtsManager {
                     TtsOutputFormat::Wav => "wav",
                 }
             ));
-            let mut history_raw_file = if settings.history_enabled {
+            let mut history_raw_file = if settings.interactive_history_enabled {
                 Some(
                     OpenOptions::new()
                         .write(true)
@@ -1008,6 +1106,8 @@ impl TtsManager {
             .foreground_operation_lock
             .try_lock()
             .map_err(|_| anyhow!("Another text-to-speech operation is already running"))?;
+        let resolved_settings = self.resolve_operation_settings(settings).await?;
+        let settings = &resolved_settings;
         validate_input_extension(input_path)?;
         validate_output_extension(output_path, settings.output_format)?;
         validate_output_settings(settings)?;
@@ -1395,10 +1495,7 @@ impl TtsManager {
                     } else {
                         error.safe_message.replace(api_key, "[redacted]")
                     };
-                    let status = error
-                        .status
-                        .map(|value| value.as_u16().to_string())
-                        .unwrap_or_else(|| "network".to_string());
+                    let status = attempt_status_label(settings.provider, error.status);
                     log::error!(
                         "TTS provider={} status={} chunk={}/{} attempt={}/{} error={}",
                         provider_name(settings.provider),
@@ -1473,6 +1570,47 @@ impl TtsManager {
             });
         }
 
+        if settings.provider == TtsProvider::LocalQwen {
+            let synthesis = self.local_tts.synthesize(
+                text,
+                nonempty_or(&settings.local_qwen_voice, "Ryan"),
+                nonempty_or(&settings.local_qwen_language, "Auto"),
+                "",
+                settings.speed,
+            );
+            return tokio::select! {
+                result = synthesis => result.map_err(|error| ProviderAttemptError {
+                    status: None,
+                    safe_message: error.safe_message,
+                    transient: error.transient,
+                    retry_after: None,
+                }),
+                _ = self.wait_for_cancellation(operation_id) => {
+                    self.local_tts.stop_worker().await;
+                    Err(cancelled_attempt_error())
+                }
+            };
+        }
+        if settings.provider == TtsProvider::Windows {
+            // The WinRT call runs on a blocking thread. Cancellation returns to
+            // AivoRelay promptly via select and discards the late result, though
+            // the detached OS operation may still finish internally.
+            let synthesis = windows_tts::synthesize(
+                text.to_string(),
+                settings.windows_voice_id.clone(),
+                settings.speed,
+            );
+            return tokio::select! {
+                result = synthesis => result.map_err(|error| ProviderAttemptError {
+                    status: None,
+                    safe_message: error.safe_message,
+                    transient: error.transient,
+                    retry_after: None,
+                }),
+                _ = self.wait_for_cancellation(operation_id) => Err(cancelled_attempt_error()),
+            };
+        }
+
         let request = match settings.provider {
             TtsProvider::Soniox => {
                 self.client
@@ -1526,6 +1664,8 @@ impl TtsManager {
                     .bearer_auth(api_key)
                     .json(&body)
             }
+            TtsProvider::LocalQwen => unreachable!("local provider returned before HTTP dispatch"),
+            TtsProvider::Windows => unreachable!("Windows provider returned before HTTP dispatch"),
         };
 
         let response = tokio::select! {
@@ -1651,7 +1791,12 @@ fn last_boundary(
 ) -> Option<usize> {
     (start..upper)
         .rev()
-        .find(|&index| predicate(chars[index]))
+        .find(|&index| {
+            predicate(chars[index])
+                && chars[start..=index]
+                    .iter()
+                    .any(|character| !character.is_whitespace())
+        })
         .map(|index| index + 1)
 }
 
@@ -1664,10 +1809,15 @@ fn is_clause_boundary(ch: char) -> bool {
 }
 
 fn resolve_api_key(settings: &TtsSettings) -> Result<String> {
+    if !settings.provider.requires_api_key() {
+        return Ok(String::new());
+    }
     let source = match settings.provider {
         TtsProvider::Soniox => settings.soniox_key_source,
         TtsProvider::Deepgram => settings.deepgram_key_source,
         TtsProvider::OpenAi => settings.openai_key_source,
+        TtsProvider::LocalQwen => unreachable!("handled above"),
+        TtsProvider::Windows => unreachable!("handled above"),
     };
     let key = match (settings.provider, source) {
         (provider, TtsKeySource::Separate) => {
@@ -1678,6 +1828,8 @@ fn resolve_api_key(settings: &TtsSettings) -> Result<String> {
         (TtsProvider::OpenAi, TtsKeySource::Shared) => {
             crate::secure_keys::get_post_process_api_key("openai")
         }
+        (TtsProvider::LocalQwen, _) => unreachable!("handled above"),
+        (TtsProvider::Windows, _) => unreachable!("handled above"),
     };
     let key = key.trim();
     if key.is_empty() {
@@ -1703,6 +1855,8 @@ fn provider_name(provider: TtsProvider) -> &'static str {
         TtsProvider::Soniox => "Soniox",
         TtsProvider::Deepgram => "Deepgram",
         TtsProvider::OpenAi => "OpenAI",
+        TtsProvider::LocalQwen => "Local Qwen3-TTS",
+        TtsProvider::Windows => "Windows voices",
     }
 }
 
@@ -1744,6 +1898,19 @@ fn network_error(error: reqwest::Error) -> ProviderAttemptError {
     }
 }
 
+fn attempt_status_label(provider: TtsProvider, status: Option<StatusCode>) -> String {
+    status.map_or_else(
+        || {
+            if provider.is_local_or_system() {
+                "local".to_string()
+            } else {
+                "network".to_string()
+            }
+        },
+        |value| value.as_u16().to_string(),
+    )
+}
+
 fn cancelled_attempt_error() -> ProviderAttemptError {
     ProviderAttemptError {
         status: None,
@@ -1751,60 +1918,6 @@ fn cancelled_attempt_error() -> ProviderAttemptError {
         transient: false,
         retry_after: None,
     }
-}
-
-fn parse_provider_error(body: &[u8], status: StatusCode) -> String {
-    let body = String::from_utf8_lossy(body);
-    if let Ok(json) = serde_json::from_str::<Value>(&body) {
-        let provider_code = json
-            .pointer("/error/code")
-            .or_else(|| json.pointer("/code"))
-            .and_then(Value::as_str);
-        for pointer in [
-            "/error/message",
-            "/error_message",
-            "/message",
-            "/detail",
-            "/error",
-        ] {
-            if let Some(value) = json.pointer(pointer) {
-                if let Some(message) = value.as_str() {
-                    return safe_text(
-                        &provider_code
-                            .map(|code| format!("{message} (code: {code})"))
-                            .unwrap_or_else(|| message.to_string()),
-                    );
-                }
-                if !value.is_null() {
-                    return safe_text(&value.to_string());
-                }
-            }
-        }
-        let compact = json.to_string();
-        if !compact.is_empty() {
-            return safe_text(&compact);
-        }
-    }
-    let plain = safe_text(&body);
-    if plain.is_empty() {
-        format!("HTTP {}", status.as_u16())
-    } else {
-        plain
-    }
-}
-
-fn safe_text(value: &str) -> String {
-    let mut output = String::new();
-    for ch in value.chars() {
-        if output.chars().count() >= MAX_SAFE_ERROR_CHARS {
-            output.push('…');
-            break;
-        }
-        if ch == '\n' || ch == '\t' || !ch.is_control() {
-            output.push(ch);
-        }
-    }
-    output.trim().to_string()
 }
 
 fn is_transient_status(status: StatusCode, message: &str) -> bool {
@@ -2524,7 +2637,7 @@ fn encode_mp3_cbr_file(
             .map(|pair| i16::from_le_bytes([pair[0], pair[1]]))
             .collect();
         let mut encoded =
-            Vec::with_capacity(mp3lame_encoder::max_required_buffer_size(samples.len()));
+            Vec::with_capacity(mp3_encode_buffer_capacity(samples.len(), input_sample_rate));
         encoder
             .encode_to_vec(MonoPcm(&samples), &mut encoded)
             .map_err(|error| anyhow!("LAME encoding failed: {error}"))?;
@@ -2539,9 +2652,25 @@ fn encode_mp3_cbr_file(
     Ok(())
 }
 
+fn mp3_encode_buffer_capacity(input_samples: usize, input_sample_rate: u32) -> usize {
+    let resampled_samples = input_samples
+        .saturating_mul(MP3_OUTPUT_SAMPLE_RATE as usize)
+        .div_ceil(input_sample_rate.max(1) as usize);
+    mp3lame_encoder::max_required_buffer_size(input_samples.max(resampled_samples))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn mp3_buffer_accounts_for_upsampling() {
+        let input_samples = 32_768;
+        let unscaled = mp3lame_encoder::max_required_buffer_size(input_samples);
+
+        assert!(mp3_encode_buffer_capacity(input_samples, 24_000) > unscaled);
+        assert_eq!(mp3_encode_buffer_capacity(input_samples, 48_000), unscaled);
+    }
 
     #[test]
     fn semantic_chunking_is_unicode_safe_and_lossless() {
@@ -2564,6 +2693,23 @@ mod tests {
     fn semantic_chunking_rejects_empty_and_whitespace_only_input() {
         assert!(semantic_chunks("", 100, 200).is_empty());
         assert!(semantic_chunks(" \r\n\t ", 100, 200).is_empty());
+    }
+
+    #[test]
+    fn semantic_chunking_never_turns_a_leading_newline_into_its_own_request() {
+        let source = "AivoRelay Windows TTS smoke test\n\
+                      Hello from the Windows text-to-speech provider.\n\
+                      This file checks Markdown preprocessing, Unicode text.";
+        let chunks = semantic_chunks(source, 80, WINDOWS_TTS_PROVIDER_LIMIT);
+
+        assert_eq!(
+            chunks
+                .iter()
+                .map(|chunk| chunk.text.as_str())
+                .collect::<String>(),
+            source
+        );
+        assert!(chunks.iter().all(|chunk| !chunk.text.trim().is_empty()));
     }
 
     #[test]
@@ -2749,6 +2895,8 @@ mod tests {
             SONIOX_CHARACTER_LIMIT,
             DEEPGRAM_CHARACTER_LIMIT,
             OPENAI_CHARACTER_LIMIT,
+            LOCAL_TTS_PROVIDER_LIMIT,
+            WINDOWS_TTS_PROVIDER_LIMIT,
         ] {
             let source = "界".repeat(hard_limit + 37);
             let chunks = semantic_chunks(&source, hard_limit + 500, hard_limit);
@@ -2765,6 +2913,17 @@ mod tests {
                 .all(|chunk| chunk.character_count <= hard_limit));
             assert!(chunks.len() >= 2);
         }
+    }
+
+    #[test]
+    fn attempt_status_does_not_describe_offline_failures_as_network_errors() {
+        assert_eq!(attempt_status_label(TtsProvider::Windows, None), "local");
+        assert_eq!(attempt_status_label(TtsProvider::LocalQwen, None), "local");
+        assert_eq!(attempt_status_label(TtsProvider::OpenAi, None), "network");
+        assert_eq!(
+            attempt_status_label(TtsProvider::OpenAi, Some(StatusCode::TOO_MANY_REQUESTS)),
+            "429"
+        );
     }
 
     #[test]

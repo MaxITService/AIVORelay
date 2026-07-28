@@ -605,6 +605,16 @@ fn append_remote_openai_model_items(
         ),
         (
             REMOTE_STT_PRESET_OPENAI.to_string(),
+            "gpt-transcribe".to_string(),
+            "OpenAI: gpt-transcribe (file / post-recording)".to_string(),
+        ),
+        (
+            REMOTE_STT_PRESET_OPENAI.to_string(),
+            "gpt-live-transcribe".to_string(),
+            "OpenAI: gpt-live-transcribe (live)".to_string(),
+        ),
+        (
+            REMOTE_STT_PRESET_OPENAI.to_string(),
             REMOTE_STT_OPENAI_DEFAULT_MODEL.to_string(),
             "OpenAI: gpt-realtime-2 STT Hack - Not actually realtime".to_string(),
         ),

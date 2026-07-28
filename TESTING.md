@@ -37,6 +37,26 @@ Windows backend tests in this fork must be runnable through the checked-in harne
 - The harness uses a short `CARGO_TARGET_DIR` to reduce Windows path-length pain.
 - By policy, every new test batch must be documented in this file immediately after it is added.
 
+## Windows TTS Focused Tests
+
+The `managers::windows_tts::tests` library subset covers installed-voice
+catalog normalization and stable-ID selection, permanent/transient error
+classification, WinRT cancellation signaling, strict WAV validation,
+mono/stereo downmixing, normalized-duration bounds, common/coprime sample-rate
+conversion at exact ratio-chunk boundaries, bounded resampler draining, and
+pre-decode cancellation. A Windows-only regression test also queries the
+installed-voice catalog twice on one reused thread so WinRT apartment teardown
+cannot invalidate the second `SpeechSynthesizer::DefaultVoice()` call.
+
+Run it with:
+
+`pwsh -NoProfile -File .\test-local.ps1 -LibOnly -Filter 'managers::windows_tts::tests'`
+
+On the current development machine the test binary compiles, but the existing
+project-wide native test-loader issue terminates it before the Rust harness
+starts with `0xc0000139 STATUS_ENTRYPOINT_NOT_FOUND`. Compile-only validation
+remains available with the same harness plus `-NoRun`.
+
 ## Playwright + Tauri
 
 - Working Playwright/Tauri instructions live in [[PLAYWRIGHT_TAURI_CONNECTION]].
@@ -57,10 +77,19 @@ Update this section every time new tests are added.
   Error categorization, status extraction, display code generation, and envelope defaults.
 - `src-tauri/src/clipboard.rs`
   Auto-submit gating and clipboard text normalization helpers.
+- `src-tauri/src/cli.rs` and `src-tauri/src/cli_file_conversion.rs`
+  First-class TTS file-conversion parsing, comprehensive temporary overrides,
+  provider/argument compatibility errors, strict scalar ranges, one-off
+  replacement-rule files, Windows default-voice selection, and proof that the
+  saved settings snapshot is not mutated. Black-box coverage also verifies that
+  `--tts-history true` bypasses only the saved passive-capture toggle.
 - `src-tauri/src/managers/history.rs`
   Latest-entry selection rules for mixed transcribe and AI Replace history rows.
 - `src-tauri/src/managers/model.rs`
   SHA256 computation and download-verification cleanup/error behavior.
+- `src-tauri/src/managers/tts.rs`
+  Unicode-safe/lossless semantic chunking, including the regression that a
+  leading paragraph newline cannot become a whitespace-only provider request.
 - `src-tauri/src/tray.rs`
   Tray helper selection parsing, icon-path mapping, tooltip labeling, and transcript text fallback rules.
 - `src-tauri/src/subtitle.rs`

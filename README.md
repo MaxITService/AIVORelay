@@ -300,6 +300,9 @@ All original Handy features remain available:
 
 MIT License — NO WARRANTIES.
 
+Bundled and optional runtime components are listed in
+[Third-Party Licenses](THIRD_PARTY_LICENSES.md).
+
 ---
 
 ## My other projects:

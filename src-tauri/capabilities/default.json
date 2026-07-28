@@ -2,7 +2,14 @@
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
   "description": "Capabilities for the app",
-  "windows": ["main", "recording_overlay", "command_confirm", "voice_activation_button", "soniox_live_preview"],
+  "windows": [
+    "main",
+    "recording_overlay",
+    "command_confirm",
+    "voice_activation_button",
+    "soniox_live_preview",
+    "tts_overlay"
+  ],
   "permissions": [
     "core:default",
     "core:window:allow-hide",

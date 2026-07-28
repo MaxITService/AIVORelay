@@ -7,6 +7,7 @@ pub mod audio_toolkit;
 mod catalog;
 pub mod cli;
 mod cli_file_conversion;
+mod cli_local_tts;
 mod cli_tts_history;
 mod clipboard;
 mod commands;
@@ -1288,6 +1289,11 @@ pub fn run(cli_args: CliArgs) {
         commands::tts::tts_has_api_key,
         commands::tts::tts_set_api_key,
         commands::tts::tts_clear_api_key,
+        commands::tts::get_local_tts_status,
+        commands::tts::install_local_tts,
+        commands::tts::cancel_local_tts_install,
+        commands::tts::delete_local_tts,
+        commands::tts::get_windows_tts_voice_catalog,
         commands::tts::inspect_tts_text_file,
         commands::tts::convert_tts_text_file,
         commands::tts::get_tts_overlay_state,
@@ -1434,6 +1440,7 @@ pub fn run(cli_args: CliArgs) {
     let headless_mode = cli_args.transcribe_file.is_some()
         || cli_args.list_devices
         || cli_file_conversion::is_file_conversion_requested(&cli_args)
+        || cli_local_tts::is_local_tts_requested(&cli_args)
         || cli_tts_history::is_tts_history_requested(&cli_args);
 
     #[allow(unused_mut)]
@@ -1537,6 +1544,20 @@ pub fn run(cli_args: CliArgs) {
         .setup(move |app| {
             if headless_mode {
                 let app_handle = app.handle().clone();
+                if cli_local_tts::is_local_tts_requested(&cli_args) {
+                    let handle = app_handle.clone();
+                    let args = cli_args.clone();
+                    std::thread::spawn(move || {
+                        let code = run_headless_guarded("tts_local", args.json, || {
+                            cli_local_tts::run_local_tts(&handle, &args)
+                        });
+                        use std::io::Write;
+                        let _ = std::io::stdout().flush();
+                        let _ = std::io::stderr().flush();
+                        std::process::exit(code);
+                    });
+                    return Ok(());
+                }
                 if cli_tts_history::is_tts_history_requested(&cli_args) {
                     let handle = app_handle.clone();
                     let args = cli_args.clone();

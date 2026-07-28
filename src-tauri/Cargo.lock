@@ -150,6 +150,7 @@ dependencies = [
  "vad-rs",
  "webview2-com",
  "windows 0.61.3",
+ "windows-future",
  "winreg 0.55.0",
  "zip 0.6.6",
 ]
@@ -8157,6 +8158,7 @@ dependencies = [
  "libc",
  "mio 1.1.1",
  "pin-project-lite",
+ "signal-hook-registry",
  "socket2 0.6.2",
  "tokio-macros",
  "windows-sys 0.61.2",

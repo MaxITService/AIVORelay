@@ -305,6 +305,28 @@ pub fn synthesis_signature(chunks: &[TtsChunk], settings: &TtsSettings) -> Resul
             },
             settings.speed.clamp(0.25, 4.0),
         ),
+        TtsProvider::LocalQwen => (
+            crate::managers::local_tts::LOCAL_TTS_MODEL_REVISION,
+            settings.local_qwen_language.trim(),
+            settings.local_qwen_voice.trim(),
+            "",
+            settings.speed.clamp(0.5, 2.0),
+        ),
+        TtsProvider::Windows => {
+            let voice = settings.windows_voice_id.trim();
+            if voice.is_empty() {
+                return Err(anyhow!(
+                    "Windows default voice must be resolved to a stable ID before checkpointing"
+                ));
+            }
+            (
+                "windows.media.speechsynthesis",
+                settings.windows_voice_language.trim(),
+                voice,
+                "",
+                settings.speed.clamp(0.5, 2.0),
+            )
+        }
     };
     let payload = EffectiveSynthesisSignature {
         pipeline_revision: PIPELINE_REVISION,
@@ -837,12 +859,35 @@ mod tests {
         changed.retry_count = changed.retry_count.saturating_add(1);
         changed.retry_base_delay_ms = changed.retry_base_delay_ms.saturating_add(100);
         changed.disk_reserve_mb = changed.disk_reserve_mb.saturating_add(1);
-        changed.history_enabled = !changed.history_enabled;
+        changed.file_history_enabled = !changed.file_history_enabled;
         changed.mp3_bitrate_kbps = 64;
         assert_eq!(synthesis_signature(&chunks, &changed).unwrap(), expected);
 
         changed.soniox_voice.push_str("-different");
         assert_ne!(synthesis_signature(&chunks, &changed).unwrap(), expected);
+    }
+
+    #[test]
+    fn windows_signature_requires_and_tracks_resolved_voice_identity() {
+        let chunks = vec![TtsChunk {
+            index: 1,
+            text: "hello".to_string(),
+            character_count: 5,
+            boundary_after: TtsBoundary::End,
+        }];
+        let mut settings = TtsSettings {
+            provider: TtsProvider::Windows,
+            ..TtsSettings::default()
+        };
+        assert!(synthesis_signature(&chunks, &settings).is_err());
+
+        settings.windows_voice_id = "voice-en".to_string();
+        settings.windows_voice_language = "en-US".to_string();
+        let english = synthesis_signature(&chunks, &settings).unwrap();
+
+        settings.windows_voice_id = "voice-ru".to_string();
+        settings.windows_voice_language = "ru-RU".to_string();
+        assert_ne!(synthesis_signature(&chunks, &settings).unwrap(), english);
     }
 
     #[test]

@@ -14,6 +14,7 @@ Files that are added by this fork rather than upstream files that were modified.
 | `src-tauri/src/managers/connector.rs` | Main connector HTTP server. |
 | `src-tauri/src/commands/connector.rs` | Commands: status, queue, cancel, bundled extension export. |
 | `src-tauri/src/managers/remote_stt.rs` | Remote STT manager (OpenAI/Soniox). |
+| `src-tauri/src/managers/provider_error.rs` | Shared bounded provider-error parser for concise TTS/STT UI and CLI messages while retaining technical response details in diagnostic logs. |
 | `src-tauri/src/commands/remote_stt.rs` | Commands for remote STT & keys. |
 | `src-tauri/src/managers/deepgram_stt.rs` | Deepgram non-live/live-finalize transcription manager. |
 | `src-tauri/src/secure_keys.rs` | Secure API key storage (Windows). |
@@ -37,10 +38,12 @@ Files that are added by this fork rather than upstream files that were modified.
 | `src-tauri/src/shortcut_handy_keys.rs` | Ported upstream HandyKeys shortcut backend and backend-side shortcut recording. |
 | `src-tauri/src/language_resolver.rs` | Soniox language resolver. |
 | `src-tauri/src/text_replacement_decapitalize.rs` | Decapitalize trigger. |
-| `src-tauri/src/managers/tts.rs` | Provider-independent Soniox/Deepgram/OpenAI TTS, semantic chunking, retry, Markdown rendering, resumable PCM-backed WAV/MP3 assembly, disk protection, cache, and lazy recursive/non-recursive folder watching. Successful watcher conversions are copied into opt-in TTS History without invalidating the external result when History capture fails. |
-| `src-tauri/src/managers/tts_history.rs` | Separate opt-in TTS History database and managed audio storage, comparison groups, safe export/delete, and oldest-first rolling count/storage retention. |
+| `src-tauri/src/managers/tts.rs` | Provider-independent Soniox/Deepgram/OpenAI/local-Qwen/Windows TTS, semantic chunking, retry, Markdown rendering, resumable PCM-backed WAV/MP3 assembly, disk protection, cache, and lazy recursive/non-recursive folder watching. Successful watcher conversions are copied into opt-in TTS History without invalidating the external result when History capture fails. |
+| `src-tauri/src/managers/local_tts.rs` | Explicit app-managed Qwen3-TTS model/runtime lifecycle, pinned resumable downloads, isolated uv/Python/PyTorch installation, persistent offline worker supervision, and validated 24 kHz mono PCM handoff. |
+| `src-tauri/src/managers/windows_tts.rs` | Windows WinRT installed-voice discovery and synthesis with stable per-operation voice resolution, worker-lifetime WinRT apartments for reused blocking threads, bounded WAVE validation, downmixing, and 24 kHz mono PCM normalization. |
+| `src-tauri/src/managers/tts_history.rs` | Separate opt-in Interactive and File TTS History scopes in one dedicated database/managed-audio store, with independently configured rolling retention, comparison groups, and safe export/delete. |
 | `src-tauri/src/managers/tts_resume.rs` | Cross-process TTS file-conversion leases and ownership-marked alternating atomic checkpoints with synthesis-plan fingerprints, per-segment PCM hashes, safe tail truncation, watcher recovery discovery, and managed History regeneration namespaces. |
-| `src-tauri/src/commands/tts.rs` | TTS settings/key/file-conversion commands, the playback-overlay event bridge, and cold/warm shortcut-to-first-playback latency measurements. |
+| `src-tauri/src/commands/tts.rs` | TTS settings/key/file-conversion commands, the playback-overlay event bridge, no-synthesis replay of the newest Interactive History result, and cold/warm shortcut-to-first-playback latency measurements. |
 | `src-tauri/src/cli_file_conversion.rs` | Headless app-managed audio-to-text/Markdown and text/Markdown-to-audio conversion with terminal/JSON progress and opt-in TTS History capture. |
 | `src-tauri/src/cli_tts_history.rs` | Headless TTS History list/show/export/regenerate/delete operations; regeneration may produce an external file or only a new managed comparison result. |
 
@@ -74,10 +77,11 @@ Files that are added by this fork rather than upstream files that were modified.
 | `src/components/settings/debug/ShortcutEngineSelector.tsx` | Shortcut engine toggle UI. |
 | `src/lib/constants/sonioxLanguages.ts` | Soniox languages mapping. |
 | `src/lib/constants/remoteSttProviders.ts` | Remote STT preset metadata for Groq/OpenAI/custom URL handling. |
-| `src/components/settings/text-to-speech/TextToSpeechSettings.tsx` | TTS providers, secure key source, official voice resources, voice prompt presets, preprocessing, chunk/retry controls, folder automation, and file conversion. |
+| `src/components/settings/text-to-speech/TextToSpeechSettings.tsx` | Interactive TTS providers, secure key source, documented/custom voice selection, voice prompt presets, preprocessing, chunk/retry controls, overlay keys, opt-in Interactive History replay fallback, and Interactive History. |
+| `src/components/settings/text-to-speech/TtsFileOperationsSettings.tsx` | Separate TTS File Operations page for manual conversion, folder automation, file chunking, and independently retained File History. |
 | `src/components/settings/text-to-speech/TtsFolderAutomation.tsx` | Opt-in recursive/non-recursive `.txt`/`.md` folder conversion controls, disk-reserve warning, and OS-event reliability notice. |
-| `src/components/settings/text-to-speech/TtsHistory.tsx` | Separate in-page TTS History controls, rolling retention settings, grouped comparison variants, playback, export, regeneration, and deletion. |
-| `src/tts-overlay/TtsOverlay.tsx` | Lazy focused playback overlay with incremental chunks and local Play/Pause/Stop hotkeys. |
+| `src/components/settings/text-to-speech/TtsHistory.tsx` | Reusable Interactive/File TTS History controls with scope-specific opt-in and retention, grouped comparison variants, playback, export, regeneration, and deletion. |
+| `src/tts-overlay/TtsOverlay.tsx` | Lazy focused playback overlay with incremental chunks, seeking, playback-rate control, and local Play/Pause/Stop keys; it also accepts Play/Pause from the opt-in global History fallback. |
 | `src/tts-overlay/TtsOverlay.css` | TTS playback overlay styling. |
 
 ### Development & Build Tools
@@ -103,7 +107,7 @@ Files that are added by this fork rather than upstream files that were modified.
 | `src-tauri/src/overlay.rs` | Overlay states, lazy TTS/preview window helpers, live preview geometry constraints, and preview action appearance payload. |
 | `src-tauri/src/settings.rs` | Fork-specific settings & features, including isolated TTS configuration/prompt presets, watcher recursion, TTS History retention, live preview actions, preview bindings, and local-only recording tail buffer controls. |
 | `src-tauri/src/lib.rs` | Registers managers, commands, tray, and headless file conversion. Remote transcription providers defer the local transcribe.cpp/Vulkan stack; Local keeps eager startup pre-warm. |
-| `src-tauri/src/cli.rs` | CLI flags for legacy transcription benchmarking, symmetric app-managed file conversion, and TTS History operations. |
+| `src-tauri/src/cli.rs` | CLI flags for legacy transcription benchmarking, symmetric app-managed file conversion with comprehensive one-off TTS settings overrides and provider-aware validation, TTS History operations, and local TTS lifecycle management. |
 | `src-tauri/src/shortcut.rs` | Multi-engine shortcut bindings (Tauri/rdev/HandyKeys), live preview geometry persistence commands, preview action settings commands, preview delete-last-word global hotkey sync. |
 | `src-tauri/src/clipboard.rs` | Clipboard behavior. Streaming clipboard sessions are operation-scoped and serialized through the actual restore. Clipboard-backed paste keeps each transcription value available for a 200 ms post-shortcut consumer grace before another chunk or the user's original multi-format clipboard may replace it. Selection-copy capture reuses the same Windows multi-format backup/restore with text fallback. |
 | `src-tauri/src/input.rs` | Selection capture utilities. |

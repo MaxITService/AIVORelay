@@ -20,46 +20,44 @@ use tauri::{AppHandle, Emitter};
 static UNIQUE_FILE_ID: AtomicU64 = AtomicU64::new(0);
 pub const TTS_HISTORY_CHANGED_EVENT: &str = "tts-history-changed";
 
-static MIGRATIONS: &[M] = &[
-    M::up(
-        "CREATE TABLE IF NOT EXISTS tts_history (
+static MIGRATIONS: &[M] = &[M::up(
+    "CREATE TABLE IF NOT EXISTS tts_history (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             timestamp INTEGER NOT NULL,
+            scope TEXT NOT NULL,
+            group_id TEXT NOT NULL,
             source_text TEXT NOT NULL,
+            source_kind TEXT NOT NULL,
             provider TEXT NOT NULL,
             model TEXT NOT NULL,
             voice TEXT NOT NULL,
+            language TEXT NOT NULL,
             output_format TEXT NOT NULL,
             managed_audio_filename TEXT NOT NULL UNIQUE,
-            external_output_path TEXT
+            external_output_path TEXT,
+            prompt_preset_id TEXT,
+            prompt_preset_name TEXT,
+            resolved_instructions TEXT
         );
         CREATE INDEX IF NOT EXISTS idx_tts_history_timestamp
-            ON tts_history(timestamp DESC, id DESC);",
-    ),
-    M::up(
-        "ALTER TABLE tts_history
-            ADD COLUMN group_id TEXT NOT NULL DEFAULT '';
-        UPDATE tts_history
-            SET group_id = 'legacy-' || id
-            WHERE group_id = '';
+            ON tts_history(timestamp DESC, id DESC);
         CREATE INDEX IF NOT EXISTS idx_tts_history_group
-            ON tts_history(group_id, timestamp DESC, id DESC);",
-    ),
-    M::up(
-        "ALTER TABLE tts_history ADD COLUMN prompt_preset_id TEXT;
-        ALTER TABLE tts_history ADD COLUMN prompt_preset_name TEXT;
-        ALTER TABLE tts_history ADD COLUMN resolved_instructions TEXT;",
-    ),
-    M::up(
-        "ALTER TABLE tts_history
-            ADD COLUMN source_kind TEXT NOT NULL DEFAULT 'text';",
-    ),
-];
+            ON tts_history(group_id, timestamp DESC, id DESC);
+        CREATE INDEX IF NOT EXISTS idx_tts_history_scope_timestamp
+            ON tts_history(scope, timestamp DESC, id DESC);",
+)];
 
 const ENTRY_COLUMNS: &str =
-    "id, timestamp, group_id, source_text, source_kind, provider, model, voice, \
+    "id, timestamp, scope, group_id, source_text, source_kind, provider, model, voice, \
     output_format, managed_audio_filename, external_output_path, prompt_preset_id, \
-    prompt_preset_name, resolved_instructions";
+    prompt_preset_name, resolved_instructions, language";
+
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, Type, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum TtsHistoryScope {
+    Interactive,
+    File,
+}
 
 #[derive(Clone, Copy, Debug, Serialize, Deserialize, Type, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -72,6 +70,7 @@ pub enum TtsHistorySourceKind {
 pub struct TtsHistoryEntry {
     pub id: i64,
     pub timestamp: i64,
+    pub scope: TtsHistoryScope,
     /// Stable source identifier shared by append-only provider/voice variants.
     pub group_id: String,
     /// Original, unprocessed input text retained for later re-synthesis.
@@ -80,6 +79,7 @@ pub struct TtsHistoryEntry {
     pub provider: TtsProvider,
     pub model: String,
     pub voice: String,
+    pub language: String,
     pub output_format: TtsOutputFormat,
     pub managed_audio_filename: String,
     pub external_output_path: Option<String>,
@@ -93,6 +93,7 @@ pub struct TtsHistoryEntry {
 
 #[derive(Clone, Debug)]
 pub struct NewTtsHistoryEntry {
+    pub scope: TtsHistoryScope,
     /// Stable source identifier. Re-synthesized variants reuse this value but
     /// are always inserted as additional rows.
     pub group_id: String,
@@ -103,6 +104,7 @@ pub struct NewTtsHistoryEntry {
     pub provider: TtsProvider,
     pub model: String,
     pub voice: String,
+    pub language: String,
     pub output_format: TtsOutputFormat,
     pub external_output_path: Option<PathBuf>,
     pub prompt_preset_id: Option<String>,
@@ -112,23 +114,46 @@ pub struct NewTtsHistoryEntry {
 
 pub fn metadata_from_settings(
     settings: &TtsSettings,
+    scope: TtsHistoryScope,
     source_text: String,
     source_kind: TtsHistorySourceKind,
     group_id: String,
     external_output_path: Option<PathBuf>,
 ) -> NewTtsHistoryEntry {
-    let (model, voice) = match settings.provider {
-        TtsProvider::Soniox => (settings.soniox_model.clone(), settings.soniox_voice.clone()),
+    let (model, voice, language) = match settings.provider {
+        TtsProvider::Soniox => (
+            settings.soniox_model.clone(),
+            settings.soniox_voice.clone(),
+            settings.soniox_language.clone(),
+        ),
         TtsProvider::Deepgram => (
             settings.deepgram_model.clone(),
             settings.deepgram_model.clone(),
+            String::new(),
         ),
-        TtsProvider::OpenAi => (settings.openai_model.clone(), settings.openai_voice.clone()),
+        TtsProvider::OpenAi => (
+            settings.openai_model.clone(),
+            settings.openai_voice.clone(),
+            String::new(),
+        ),
+        TtsProvider::LocalQwen => (
+            format!(
+                "{}@{}",
+                crate::managers::local_tts::LOCAL_TTS_MODEL_REPO,
+                crate::managers::local_tts::LOCAL_TTS_MODEL_REVISION
+            ),
+            settings.local_qwen_voice.clone(),
+            settings.local_qwen_language.clone(),
+        ),
+        TtsProvider::Windows => (
+            "windows.media.speechsynthesis".to_string(),
+            settings.windows_voice_id.clone(),
+            settings.windows_voice_language.clone(),
+        ),
     };
-    let instructions_supported = settings.provider == TtsProvider::OpenAi
-        && crate::managers::tts::TtsManager::openai_model_supports_instructions(
-            &settings.openai_model,
-        );
+    let instructions_supported = settings
+        .provider
+        .supports_instructions(&settings.openai_model);
     let selected_preset = instructions_supported
         .then(|| {
             settings
@@ -143,12 +168,14 @@ pub fn metadata_from_settings(
         .map(str::to_string);
 
     NewTtsHistoryEntry {
+        scope,
         group_id,
         source_text,
         source_kind,
         provider: settings.provider,
         model,
         voice,
+        language,
         output_format: settings.output_format,
         external_output_path,
         prompt_preset_id: selected_preset.map(|preset| preset.id.clone()),
@@ -225,15 +252,27 @@ impl TtsHistoryManager {
         metadata: NewTtsHistoryEntry,
         audio_source_path: impl AsRef<Path>,
     ) -> Result<Option<TtsHistoryEntry>> {
-        if !crate::settings::get_settings(&self.app_handle)
-            .tts
-            .history_enabled
-        {
+        let settings = crate::settings::get_settings(&self.app_handle).tts;
+        if !scope_capture_enabled(&settings, metadata.scope) {
             return Ok(None);
         }
 
-        self.store_success(metadata, audio_source_path.as_ref())
+        self.store_success(metadata, audio_source_path.as_ref(), None)
             .map(Some)
+    }
+
+    /// Saves a result after the caller has already resolved an explicit
+    /// per-operation capture policy.
+    ///
+    /// This reuses the same storage, retention, and atomic-copy path while
+    /// bypassing only the saved passive-capture toggle.
+    pub fn save_explicit_capture_success(
+        &self,
+        metadata: NewTtsHistoryEntry,
+        audio_source_path: impl AsRef<Path>,
+        disk_reserve_mb: u32,
+    ) -> Result<TtsHistoryEntry> {
+        self.store_success(metadata, audio_source_path.as_ref(), Some(disk_reserve_mb))
     }
 
     /// Appends an explicitly confirmed re-synthesis result.
@@ -246,13 +285,14 @@ impl TtsHistoryManager {
         metadata: NewTtsHistoryEntry,
         audio_source_path: impl AsRef<Path>,
     ) -> Result<TtsHistoryEntry> {
-        self.store_success(metadata, audio_source_path.as_ref())
+        self.store_success(metadata, audio_source_path.as_ref(), None)
     }
 
     fn store_success(
         &self,
         metadata: NewTtsHistoryEntry,
         audio_source_path: &Path,
+        disk_reserve_override_mb: Option<u32>,
     ) -> Result<TtsHistoryEntry> {
         let _mutation_guard = self.mutation_lock.lock();
         let settings = crate::settings::get_settings(&self.app_handle).tts;
@@ -264,19 +304,24 @@ impl TtsHistoryManager {
                 )
             })?
             .len();
-        let maximum_bytes = u64::from(settings.history_max_storage_mb.clamp(1, 1_048_576))
-            .saturating_mul(1024 * 1024);
+        let (_, maximum_storage_mb) = scope_retention_limits(&settings, metadata.scope);
+        let maximum_bytes =
+            u64::from(maximum_storage_mb.clamp(1, 1_048_576)).saturating_mul(1024 * 1024);
         if source_bytes > maximum_bytes {
             return Err(anyhow!(
                 "The completed audio is {} bytes, larger than the configured TTS History maximum of {} MB",
                 source_bytes,
-                settings.history_max_storage_mb.clamp(1, 1_048_576)
+                maximum_storage_mb.clamp(1, 1_048_576)
             ));
         }
         let timestamp = chrono::Utc::now().timestamp_millis();
         let managed_audio_filename = new_managed_filename(timestamp, metadata.output_format);
         let managed_path = self.managed_audio_path(&managed_audio_filename)?;
-        atomic_copy_new(audio_source_path, &managed_path, settings.disk_reserve_mb)?;
+        atomic_copy_new(
+            audio_source_path,
+            &managed_path,
+            disk_reserve_override_mb.unwrap_or(settings.disk_reserve_mb),
+        )?;
 
         let external_output_path = metadata
             .external_output_path
@@ -292,7 +337,9 @@ impl TtsHistoryManager {
         );
         match insert_result {
             Ok(entry) => {
-                if let Err(error) = self.enforce_retention_locked(&connection, &settings) {
+                if let Err(error) =
+                    self.enforce_retention_locked(&connection, &settings, metadata.scope)
+                {
                     self.report_retention_error(&error);
                 }
                 let _ = self.app_handle.emit(TTS_HISTORY_CHANGED_EVENT, ());
@@ -311,15 +358,15 @@ impl TtsHistoryManager {
         }
     }
 
-    pub fn list_entries(&self) -> Result<Vec<TtsHistoryEntry>> {
-        list_entries_with_connection(&self.connection()?)
+    pub fn list_entries(&self, scope: TtsHistoryScope) -> Result<Vec<TtsHistoryEntry>> {
+        list_entries_with_connection(&self.connection()?, scope)
     }
 
-    pub fn enforce_retention(&self) -> Result<usize> {
+    pub fn enforce_retention(&self, scope: TtsHistoryScope) -> Result<usize> {
         let _mutation_guard = self.mutation_lock.lock();
         let settings = crate::settings::get_settings(&self.app_handle).tts;
         let connection = self.connection()?;
-        let deleted = self.enforce_retention_locked(&connection, &settings)?;
+        let deleted = self.enforce_retention_locked(&connection, &settings, scope)?;
         if deleted != 0 {
             let _ = self.app_handle.emit(TTS_HISTORY_CHANGED_EVENT, ());
         }
@@ -330,12 +377,13 @@ impl TtsHistoryManager {
         &self,
         connection: &Connection,
         settings: &crate::settings::TtsSettings,
+        scope: TtsHistoryScope,
     ) -> Result<usize> {
-        let maximum_entries =
-            usize::try_from(settings.history_max_entries.clamp(1, 100_000)).unwrap_or(100_000);
-        let maximum_bytes = u64::from(settings.history_max_storage_mb.clamp(1, 1_048_576))
-            .saturating_mul(1024 * 1024);
-        let mut entries = list_entries_with_connection(connection)?;
+        let (maximum_entries, maximum_storage_mb) = scope_retention_limits(settings, scope);
+        let maximum_entries = usize::try_from(maximum_entries.clamp(1, 100_000)).unwrap_or(100_000);
+        let maximum_bytes =
+            u64::from(maximum_storage_mb.clamp(1, 1_048_576)).saturating_mul(1024 * 1024);
+        let mut entries = list_entries_with_connection(connection, scope)?;
         entries.reverse();
         let mut entry_sizes = Vec::with_capacity(entries.len());
         for entry in entries {
@@ -447,17 +495,21 @@ impl TtsHistoryManager {
         }))
     }
 
-    pub fn delete_all_entries(&self) -> Result<usize> {
+    pub fn delete_all_entries(&self, scope: TtsHistoryScope) -> Result<usize> {
         let _mutation_guard = self.mutation_lock.lock();
         let mut connection = self.connection()?;
         let transaction = connection.transaction()?;
         let filenames = {
-            let mut statement =
-                transaction.prepare("SELECT managed_audio_filename FROM tts_history")?;
-            let rows = statement.query_map([], |row| row.get::<_, String>(0))?;
+            let mut statement = transaction
+                .prepare("SELECT managed_audio_filename FROM tts_history WHERE scope = ?1")?;
+            let rows =
+                statement.query_map(params![scope_to_db(scope)], |row| row.get::<_, String>(0))?;
             rows.collect::<std::result::Result<Vec<_>, _>>()?
         };
-        let deleted = transaction.execute("DELETE FROM tts_history", [])?;
+        let deleted = transaction.execute(
+            "DELETE FROM tts_history WHERE scope = ?1",
+            params![scope_to_db(scope)],
+        )?;
         transaction.commit()?;
         if deleted != 0 {
             let _ = self.app_handle.emit(TTS_HISTORY_CHANGED_EVENT, ());
@@ -550,6 +602,26 @@ fn retention_delete_count(
     delete_count
 }
 
+fn scope_capture_enabled(settings: &TtsSettings, scope: TtsHistoryScope) -> bool {
+    match scope {
+        TtsHistoryScope::Interactive => settings.interactive_history_enabled,
+        TtsHistoryScope::File => settings.file_history_enabled,
+    }
+}
+
+fn scope_retention_limits(settings: &TtsSettings, scope: TtsHistoryScope) -> (u32, u32) {
+    match scope {
+        TtsHistoryScope::Interactive => (
+            settings.interactive_history_max_entries,
+            settings.interactive_history_max_storage_mb,
+        ),
+        TtsHistoryScope::File => (
+            settings.file_history_max_entries,
+            settings.file_history_max_storage_mb,
+        ),
+    }
+}
+
 fn migrations() -> Migrations<'static> {
     Migrations::new(MIGRATIONS.to_vec())
 }
@@ -566,12 +638,13 @@ fn insert_entry(
     }
     connection.execute(
         "INSERT INTO tts_history (
-            timestamp, group_id, source_text, source_kind, provider, model, voice,
+            timestamp, scope, group_id, source_text, source_kind, provider, model, voice,
             output_format, managed_audio_filename, external_output_path,
-            prompt_preset_id, prompt_preset_name, resolved_instructions
-        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
+            prompt_preset_id, prompt_preset_name, resolved_instructions, language
+        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
         params![
             timestamp,
+            scope_to_db(metadata.scope),
             &metadata.group_id,
             &metadata.source_text,
             source_kind_to_db(metadata.source_kind),
@@ -584,6 +657,7 @@ fn insert_entry(
             metadata.prompt_preset_id.as_deref(),
             metadata.prompt_preset_name.as_deref(),
             metadata.resolved_instructions.as_deref(),
+            &metadata.language,
         ],
     )?;
     let id = connection.last_insert_rowid();
@@ -591,10 +665,17 @@ fn insert_entry(
         .ok_or_else(|| anyhow!("Inserted TTS history entry {id} could not be read back"))
 }
 
-fn list_entries_with_connection(connection: &Connection) -> Result<Vec<TtsHistoryEntry>> {
-    let query = format!("SELECT {ENTRY_COLUMNS} FROM tts_history ORDER BY timestamp DESC, id DESC");
+fn list_entries_with_connection(
+    connection: &Connection,
+    scope: TtsHistoryScope,
+) -> Result<Vec<TtsHistoryEntry>> {
+    let query = format!(
+        "SELECT {ENTRY_COLUMNS} FROM tts_history
+         WHERE scope = ?1
+         ORDER BY timestamp DESC, id DESC"
+    );
     let mut statement = connection.prepare(&query)?;
-    let rows = statement.query_map([], map_entry)?;
+    let rows = statement.query_map(params![scope_to_db(scope)], map_entry)?;
     Ok(rows.collect::<std::result::Result<Vec<_>, _>>()?)
 }
 
@@ -609,15 +690,18 @@ fn map_entry(row: &Row<'_>) -> rusqlite::Result<TtsHistoryEntry> {
     let provider: String = row.get("provider")?;
     let output_format: String = row.get("output_format")?;
     let source_kind: String = row.get("source_kind")?;
+    let scope: String = row.get("scope")?;
     Ok(TtsHistoryEntry {
         id: row.get("id")?,
         timestamp: row.get("timestamp")?,
+        scope: scope_from_db(&scope).map_err(sql_conversion_error)?,
         group_id: row.get("group_id")?,
         source_text: row.get("source_text")?,
         source_kind: source_kind_from_db(&source_kind).map_err(sql_conversion_error)?,
         provider: provider_from_db(&provider).map_err(sql_conversion_error)?,
         model: row.get("model")?,
         voice: row.get("voice")?,
+        language: row.get("language")?,
         output_format: output_format_from_db(&output_format).map_err(sql_conversion_error)?,
         managed_audio_filename: row.get("managed_audio_filename")?,
         external_output_path: row.get("external_output_path")?,
@@ -642,11 +726,28 @@ fn provider_to_db(provider: TtsProvider) -> &'static str {
     provider.as_str()
 }
 
+fn scope_to_db(scope: TtsHistoryScope) -> &'static str {
+    match scope {
+        TtsHistoryScope::Interactive => "interactive",
+        TtsHistoryScope::File => "file",
+    }
+}
+
+fn scope_from_db(value: &str) -> Result<TtsHistoryScope> {
+    match value {
+        "interactive" => Ok(TtsHistoryScope::Interactive),
+        "file" => Ok(TtsHistoryScope::File),
+        _ => Err(anyhow!("Unknown TTS history scope: {value}")),
+    }
+}
+
 fn provider_from_db(value: &str) -> Result<TtsProvider> {
     match value {
         "soniox" => Ok(TtsProvider::Soniox),
         "deepgram" => Ok(TtsProvider::Deepgram),
         "openai" => Ok(TtsProvider::OpenAi),
+        "local_qwen" => Ok(TtsProvider::LocalQwen),
+        "windows" => Ok(TtsProvider::Windows),
         _ => Err(anyhow!("Unknown TTS provider in history: {value}")),
     }
 }
@@ -802,12 +903,14 @@ mod tests {
 
     fn metadata(source_text: &str, format: TtsOutputFormat) -> NewTtsHistoryEntry {
         NewTtsHistoryEntry {
+            scope: TtsHistoryScope::File,
             group_id: "source-group-1".to_string(),
             source_text: source_text.to_string(),
             source_kind: TtsHistorySourceKind::Markdown,
             provider: TtsProvider::OpenAi,
             model: "gpt-4o-mini-tts".to_string(),
             voice: "alloy".to_string(),
+            language: String::new(),
             output_format: format,
             external_output_path: Some(PathBuf::from(r"C:\Audio\external.mp3")),
             prompt_preset_id: Some("calm-narrator".to_string()),
@@ -836,7 +939,8 @@ mod tests {
         )
         .expect("insert second");
 
-        let entries = list_entries_with_connection(&connection).expect("list entries");
+        let entries =
+            list_entries_with_connection(&connection, TtsHistoryScope::File).expect("list entries");
         assert_eq!(entries.len(), 2);
         assert_eq!(entries[0].group_id, "source-group-1");
         assert_eq!(entries[1].group_id, "source-group-1");
@@ -870,13 +974,43 @@ mod tests {
         connection
             .execute(
                 "INSERT INTO tts_history (
-                    timestamp, source_text, provider, model, voice, output_format,
+                    timestamp, scope, source_text, provider, model, voice, output_format,
                     managed_audio_filename
-                ) VALUES (1, 'text', 'unknown', 'model', 'voice', 'mp3', 'audio.mp3')",
+                ) VALUES (1, 'interactive', 'text', 'unknown', 'model', 'voice', 'mp3', 'audio.mp3')",
                 [],
             )
             .expect("insert malformed row");
-        assert!(list_entries_with_connection(&connection).is_err());
+        assert!(list_entries_with_connection(&connection, TtsHistoryScope::Interactive).is_err());
+    }
+
+    #[test]
+    fn listing_one_scope_never_returns_the_other_scope() {
+        let connection = test_connection();
+        let mut interactive = metadata("interactive", TtsOutputFormat::Mp3);
+        interactive.scope = TtsHistoryScope::Interactive;
+        insert_entry(&connection, 100, &interactive, "tts-interactive.mp3", None)
+            .expect("insert interactive");
+        insert_entry(
+            &connection,
+            200,
+            &metadata("file", TtsOutputFormat::Mp3),
+            "tts-file.mp3",
+            Some(r"C:\Audio\file.mp3"),
+        )
+        .expect("insert file");
+
+        let interactive_entries =
+            list_entries_with_connection(&connection, TtsHistoryScope::Interactive)
+                .expect("list interactive");
+        let file_entries =
+            list_entries_with_connection(&connection, TtsHistoryScope::File).expect("list file");
+
+        assert_eq!(interactive_entries.len(), 1);
+        assert_eq!(interactive_entries[0].source_text, "interactive");
+        assert_eq!(interactive_entries[0].scope, TtsHistoryScope::Interactive);
+        assert_eq!(file_entries.len(), 1);
+        assert_eq!(file_entries[0].source_text, "file");
+        assert_eq!(file_entries[0].scope, TtsHistoryScope::File);
     }
 
     #[test]

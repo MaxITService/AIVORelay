@@ -2542,7 +2542,7 @@ async remoteSttTestConnection(baseUrl: string) : Promise<Result<null, string>> {
  * Returns whether the currently selected Remote STT model supports translation to English.
  * Uses the OpenAI-compatible /audio/translations endpoint.
  * Known support: Groq whisper-large-v3, OpenAI whisper-1/gpt-realtime-2/gpt-realtime-translate.
- * NOT supported: whisper-large-v3-turbo.
+ * NOT supported: whisper-large-v3-turbo and OpenAI's transcription-only models.
  */
 async remoteSttSupportsTranslation() : Promise<boolean> {
     return await TAURI_INVOKE("remote_stt_supports_translation");
@@ -2579,6 +2579,41 @@ async ttsClearApiKey(provider: string) : Promise<Result<null, string>> {
     else return { status: "error", error: e  as any };
 }
 },
+async getLocalTtsStatus(kind: LocalTtsKind) : Promise<Result<LocalTtsStatus, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("get_local_tts_status", { kind }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async installLocalTts(kind: LocalTtsKind) : Promise<Result<LocalTtsStatus, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("install_local_tts", { kind }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async cancelLocalTtsInstall(kind: LocalTtsKind) : Promise<Result<boolean, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("cancel_local_tts_install", { kind }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async deleteLocalTts(kind: LocalTtsKind) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("delete_local_tts", { kind }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async getWindowsTtsVoiceCatalog() : Promise<WindowsVoiceCatalog> {
+    return await TAURI_INVOKE("get_windows_tts_voice_catalog");
+},
 async inspectTtsTextFile(path: string) : Promise<Result<TextFileInspection, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("inspect_tts_text_file", { path }) };
@@ -2614,9 +2649,9 @@ async ttsOverlayPlaybackState(operationId: string, status: string, currentChunk:
     else return { status: "error", error: e  as any };
 }
 },
-async getTtsHistoryEntries() : Promise<Result<TtsHistoryEntry[], string>> {
+async getTtsHistoryEntries(scope: TtsHistoryScope) : Promise<Result<TtsHistoryEntry[], string>> {
     try {
-    return { status: "ok", data: await TAURI_INVOKE("get_tts_history_entries") };
+    return { status: "ok", data: await TAURI_INVOKE("get_tts_history_entries", { scope }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
@@ -2658,9 +2693,9 @@ async deleteTtsHistoryEntryDetailed(id: number) : Promise<Result<TtsHistoryDelet
     else return { status: "error", error: e  as any };
 }
 },
-async deleteAllTtsHistoryEntries() : Promise<Result<number, string>> {
+async deleteAllTtsHistoryEntries(scope: TtsHistoryScope) : Promise<Result<number, string>> {
     try {
-    return { status: "ok", data: await TAURI_INVOKE("delete_all_tts_history_entries") };
+    return { status: "ok", data: await TAURI_INVOKE("delete_all_tts_history_entries", { scope }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
@@ -3943,7 +3978,7 @@ port: number;
  */
 server_error: string | null }
 export type ConvertTtsTextFileRequest = { inputPath: string; outputPath: string; outputFormat: TtsOutputFormat; mp3Bitrate: number }
-export type ConvertTtsTextFileResponse = { operation_id: string; output_path: string; source_character_count: number; processed_character_count: number; chunk_count: number; output_format: TtsOutputFormat; mp3_bitrate_kbps: number | null }
+export type ConvertTtsTextFileResponse = { operation_id: string; output_path: string; source_character_count: number; processed_character_count: number; chunk_count: number; resumed_chunks: number; output_format: TtsOutputFormat; mp3_bitrate_kbps: number | null }
 export type CustomSounds = { start: boolean; stop: boolean }
 export type DecapitalizeOverlayStateResponse = { decapitalizeEligible: boolean; decapitalizeArmed: boolean }
 export type DeepgramFileTranscriptionOptions = { diarize: boolean | null; multichannel: boolean | null }
@@ -4060,6 +4095,8 @@ export type LlmFeature =
  */
 "voice_command"
 export type LlmPostProcessBenchmarkResult = { timestamp_ms: number; provider_id: string; provider_label: string; model: string; duration_ms: number; chars_per_second: number; input_chars: number; output_chars: number; success: boolean; system_prompt: string; user_message: string; response_text: string; error: string | null }
+export type LocalTtsKind = "qwen"
+export type LocalTtsStatus = { kind?: LocalTtsKind; installed: boolean; installing: boolean; phase: string; downloaded_bytes: number; total_bytes: number; percentage: number; runtime_profile: string; model_repository: string; model_revision: string; model_download_bytes: number; error: string | null }
 export type LogLevel = "trace" | "debug" | "info" | "warn" | "error"
 export type ModelInfo = { id: string; name: string; description: string; filename: string; url: string | null; sha256: string | null; size_mb: number; is_downloaded: boolean; is_downloading: boolean; partial_size: number; is_directory: boolean; engine_type: EngineType; accuracy_score: number; speed_score: number; supports_translation: boolean; supports_streaming: boolean; native_streaming_latency_kind: NativeStreamingLatencyKind | null; supports_language_detection: boolean; is_recommended: boolean; supported_languages: string[]; is_custom: boolean }
 export type ModelUnloadTimeout = "never" | "immediately" | "min_2" | "min_5" | "min_10" | "min_15" | "hour_1" | "sec_5"
@@ -4130,7 +4167,7 @@ instructions: string | null; outputFormat: TtsOutputFormat | null; mp3BitrateKbp
  * Must be true only after showing the API-credit warning.
  */
 confirmedApiCharge: boolean }
-export type RegenerateTtsHistoryResponse = { sourceEntryId: number; newEntry: TtsHistoryEntry; outputPath: string | null; operationId: number; chunkCount: number; processedCharacterCount: number }
+export type RegenerateTtsHistoryResponse = { sourceEntryId: number; newEntry: TtsHistoryEntry; outputPath: string | null; operationId: number; chunkCount: number; resumedChunks: number; processedCharacterCount: number }
 /**
  * Response for get_data command
  */
@@ -4321,7 +4358,7 @@ soniox_context_text?: string;
 soniox_context_terms?: string[] }
 export type TranscriptionProvider = "local" | "remote_openai_compatible" | "remote_soniox" | "remote_deepgram"
 export type TtsHistoryDeleteOutcome = { id: number; record_deleted: boolean; managed_audio_status: TtsHistoryManagedAudioDeleteStatus; managed_audio_error: string | null }
-export type TtsHistoryEntry = { id: number; timestamp: number; 
+export type TtsHistoryEntry = { id: number; timestamp: number; scope: TtsHistoryScope; 
 /**
  * Stable source identifier shared by append-only provider/voice variants.
  */
@@ -4329,7 +4366,7 @@ group_id: string;
 /**
  * Original, unprocessed input text retained for later re-synthesis.
  */
-source_text: string; source_kind: TtsHistorySourceKind; provider: TtsProvider; model: string; voice: string; output_format: TtsOutputFormat; managed_audio_filename: string; external_output_path: string | null; 
+source_text: string; source_kind: TtsHistorySourceKind; provider: TtsProvider; model: string; voice: string; language: string; output_format: TtsOutputFormat; managed_audio_filename: string; external_output_path: string | null; 
 /**
  * Optional saved TTS preset identity used for this variant.
  */
@@ -4340,19 +4377,24 @@ prompt_preset_id: string | null; prompt_preset_name: string | null;
  */
 resolved_instructions: string | null }
 export type TtsHistoryManagedAudioDeleteStatus = "deleted" | "missing" | "failed"
+export type TtsHistoryScope = "interactive" | "file"
 export type TtsHistorySourceKind = "text" | "markdown"
 export type TtsKeySource = "shared" | "separate"
 export type TtsOutputFormat = "mp3" | "wav"
 export type TtsOverlayChunk = { index: number; path: string }
-export type TtsOverlayState = { operation_id: string; status: string; provider: string; text_preview: string; chunks: TtsOverlayChunk[]; current_chunk: number; total_chunks: number; retry_attempt: number; error: string | null; play_pause_hotkey: string; stop_hotkey: string; autoplay: boolean }
+export type TtsOverlayState = { operation_id: string; status: string; provider: string; model: string; voice: string; text_preview: string; chunks: TtsOverlayChunk[]; current_chunk: number; total_chunks: number; retry_attempt: number; error: string | null; play_pause_hotkey: string; play_history_when_overlay_closed: boolean; stop_hotkey: string; autoplay: boolean }
 export type TtsPromptPreset = { id: string; name: string; instructions: string }
-export type TtsProvider = "soniox" | "deepgram" | "openai"
+export type TtsProvider = "soniox" | "deepgram" | "openai" | "local_qwen" | "windows"
 /**
  * Text-to-Speech configuration shared by clipboard playback and text-file export.
  * 
  * API secrets are deliberately excluded and live in Windows Credential Manager.
  */
-export type TtsSettings = { enabled?: boolean; provider?: TtsProvider; soniox_key_source?: TtsKeySource; deepgram_key_source?: TtsKeySource; openai_key_source?: TtsKeySource; soniox_model?: string; soniox_language?: string; soniox_voice?: string; deepgram_model?: string; openai_model?: string; openai_voice?: string; openai_instructions?: string; prompt_presets?: TtsPromptPreset[]; selected_prompt_id?: string; speed?: number; preprocessing_enabled?: boolean; preprocessing_rules?: TextReplacement[]; interactive_target_chars?: number; file_target_chars?: number; retry_count?: number; retry_base_delay_ms?: number; inter_chunk_pause_ms?: number; paragraph_pause_ms?: number; play_pause_hotkey?: string; stop_hotkey?: string; autoplay?: boolean; output_format?: TtsOutputFormat; mp3_bitrate_kbps?: number; watch_folder_enabled?: boolean; watch_recursive?: boolean; watch_input_directory?: string; watch_output_directory?: string; watch_settle_delay_ms?: number; disk_reserve_mb?: number; history_enabled?: boolean; history_max_entries?: number; history_max_storage_mb?: number }
+export type TtsSettings = { enabled?: boolean; provider?: TtsProvider; soniox_key_source?: TtsKeySource; deepgram_key_source?: TtsKeySource; openai_key_source?: TtsKeySource; soniox_model?: string; soniox_language?: string; soniox_voice?: string; deepgram_model?: string; openai_model?: string; openai_voice?: string; local_qwen_voice?: string; local_qwen_language?: string; 
+/**
+ * Stable WinRT VoiceInformation ID. Empty selects the current OS default.
+ */
+windows_voice_id?: string; windows_voice_language?: string; openai_instructions?: string; prompt_presets?: TtsPromptPreset[]; selected_prompt_id?: string; speed?: number; preprocessing_enabled?: boolean; preprocessing_rules?: TextReplacement[]; interactive_target_chars?: number; file_target_chars?: number; retry_count?: number; retry_base_delay_ms?: number; inter_chunk_pause_ms?: number; paragraph_pause_ms?: number; play_pause_hotkey?: string; play_history_when_overlay_closed?: boolean; stop_hotkey?: string; autoplay?: boolean; output_format?: TtsOutputFormat; mp3_bitrate_kbps?: number; watch_folder_enabled?: boolean; watch_recursive?: boolean; watch_input_directory?: string; watch_output_directory?: string; watch_settle_delay_ms?: number; disk_reserve_mb?: number; interactive_history_enabled?: boolean; interactive_history_max_entries?: number; interactive_history_max_storage_mb?: number; file_history_enabled?: boolean; file_history_max_entries?: number; file_history_max_storage_mb?: number }
 export type UpdateTranscriptionProfilePayload = { id: string; name: string; language: string; translateToEnglish: boolean; systemPrompt: string; sttPromptOverrideEnabled: boolean; includeInCycle: boolean; pushToTalk: boolean; previewOutputOnlyEnabled: boolean; sonioxLanguageHintsStrict?: boolean | null; llmSettings: ProfileLlmSettings; sonioxContextGeneralJson: string | null; sonioxContextText: string | null; sonioxContextTerms: string[] | null }
 /**
  * Information about the virtual screen (all monitors combined).
@@ -4450,6 +4492,9 @@ use_pwsh?: boolean;
 execution_policy?: ExecutionPolicy }
 export type WhisperAcceleratorSetting = "auto" | "cpu" | "gpu"
 export type WindowsMicrophonePermissionStatus = { supported: boolean; overall_access: PermissionAccess; device_access: PermissionAccess; app_access: PermissionAccess; desktop_app_access: PermissionAccess }
+export type WindowsVoice = { id: string; display_name: string; language: string; description: string; gender: WindowsVoiceGender; is_default: boolean }
+export type WindowsVoiceCatalog = { available: boolean; voices: WindowsVoice[]; default_voice_id: string | null; unavailable_reason: string | null }
+export type WindowsVoiceGender = "female" | "male" | "unknown"
 
 /** tauri-specta globals **/
 

@@ -33,8 +33,7 @@ pub fn config(app: &AppHandle) -> Result<WebviewRuntimeConfig, tauri::Error> {
         data_directory,
         // Wry only supplies its default disabled-feature arguments when custom
         // browser arguments are absent. Preserve them when enabling CDP.
-        additional_browser_args: remote_debugging_port.map(|port| {
-            format!("{WRY_DEFAULT_DISABLED_FEATURES} --remote-debugging-port={port}")
-        }),
+        additional_browser_args: remote_debugging_port
+            .map(|port| format!("{WRY_DEFAULT_DISABLED_FEATURES} --remote-debugging-port={port}")),
     })
 }

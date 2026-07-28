@@ -1,7 +1,15 @@
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { type as getOsType } from "@tauri-apps/plugin-os";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  type ChangeEvent,
+  type CSSProperties,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import type { TFunction } from "i18next";
 import { useTranslation } from "react-i18next";
 import type { OSType } from "../lib/utils/keyboard";
@@ -10,6 +18,13 @@ import {
   formatPreviewHotkeyForDisplay,
   normalizePreviewHotkeyString,
 } from "../lib/utils/previewHotkeys";
+import {
+  applyPlaybackRate,
+  DEFAULT_PLAYBACK_RATE,
+  formatPlaybackRate,
+  nextPlaybackRate,
+  type PlaybackRate,
+} from "../lib/utils/playbackRate";
 
 type TtsStatus =
   | "idle"
@@ -31,6 +46,8 @@ type TtsOverlayState = {
   operationId: string;
   status: TtsStatus;
   provider: string;
+  model: string;
+  voice: string;
   textPreview: string;
   chunks: TtsChunk[];
   currentChunk: number;
@@ -38,6 +55,7 @@ type TtsOverlayState = {
   retryAttempt: number;
   error: string | null;
   playPauseHotkey: string;
+  playHistoryWhenOverlayClosed: boolean;
   stopHotkey: string;
   autoplay: boolean;
 };
@@ -48,6 +66,8 @@ const EMPTY_STATE: TtsOverlayState = {
   operationId: "",
   status: "idle",
   provider: "",
+  model: "",
+  voice: "",
   textPreview: "",
   chunks: [],
   currentChunk: 0,
@@ -55,6 +75,7 @@ const EMPTY_STATE: TtsOverlayState = {
   retryAttempt: 0,
   error: null,
   playPauseHotkey: "",
+  playHistoryWhenOverlayClosed: false,
   stopHotkey: "",
   autoplay: true,
 };
@@ -102,6 +123,16 @@ function readNumber(
   return typeof value === "number" && Number.isFinite(value)
     ? Math.max(0, Math.floor(value))
     : fallback;
+}
+
+function readBoolean(
+  data: UnknownRecord,
+  camelName: string,
+  snakeName: string,
+  fallback = false,
+): boolean {
+  const value = data[camelName] ?? data[snakeName];
+  return typeof value === "boolean" ? value : fallback;
 }
 
 function safeErrorMessage(value: unknown): string | null {
@@ -154,6 +185,8 @@ function normalizeState(raw: unknown): TtsOverlayState | null {
     operationId: readString(data, "operationId", "operation_id"),
     status,
     provider: readString(data, "provider", "provider"),
+    model: readString(data, "model", "model"),
+    voice: readString(data, "voice", "voice"),
     textPreview: readString(data, "textPreview", "text_preview"),
     chunks,
     currentChunk: readNumber(data, "currentChunk", "current_chunk"),
@@ -162,6 +195,12 @@ function normalizeState(raw: unknown): TtsOverlayState | null {
     error: safeErrorMessage(data.error),
     playPauseHotkey: normalizePreviewHotkeyString(
       readString(data, "playPauseHotkey", "play_pause_hotkey"),
+    ),
+    playHistoryWhenOverlayClosed: readBoolean(
+      data,
+      "playHistoryWhenOverlayClosed",
+      "play_history_when_overlay_closed",
+      false,
     ),
     stopHotkey: normalizePreviewHotkeyString(
       readString(data, "stopHotkey", "stop_hotkey"),
@@ -221,8 +260,14 @@ export default function TtsOverlay() {
   const [state, setState] = useState<TtsOverlayState>(EMPTY_STATE);
   const [isPlaying, setIsPlaying] = useState(false);
   const [activeChunkIndex, setActiveChunkIndex] = useState<number | null>(null);
+  const [playbackTime, setPlaybackTime] = useState(0);
+  const [playbackDuration, setPlaybackDuration] = useState(0);
   const [playbackError, setPlaybackError] = useState<string | null>(null);
+  const [playbackRate, setPlaybackRate] = useState<PlaybackRate>(
+    DEFAULT_PLAYBACK_RATE,
+  );
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const playbackRateRef = useRef<PlaybackRate>(DEFAULT_PLAYBACK_RATE);
   const stateRef = useRef(state);
   const desiredPlayingRef = useRef(false);
   const activeChunkIndexRef = useRef<number | null>(null);
@@ -267,6 +312,8 @@ export default function TtsOverlay() {
     activeChunkIndexRef.current = null;
     setActiveChunkIndex(null);
     setIsPlaying(false);
+    setPlaybackTime(0);
+    setPlaybackDuration(0);
   }, []);
 
   const findNextChunk = useCallback((afterIndex: number | null) => {
@@ -290,11 +337,28 @@ export default function TtsOverlay() {
 
       const audio = new Audio(convertFileSrc(chunk.path, "asset"));
       audio.preload = "auto";
+      applyPlaybackRate(audio, playbackRateRef.current);
       audioRef.current = audio;
       activeChunkIndexRef.current = chunk.index;
       setActiveChunkIndex(chunk.index);
+      setPlaybackTime(0);
+      setPlaybackDuration(0);
       setPlaybackError(null);
 
+      const updateTimeline = () => {
+        if (audioRef.current !== audio) {
+          return;
+        }
+        setPlaybackTime(
+          Number.isFinite(audio.currentTime) ? audio.currentTime : 0,
+        );
+        setPlaybackDuration(
+          Number.isFinite(audio.duration) ? audio.duration : 0,
+        );
+      };
+      audio.addEventListener("loadedmetadata", updateTimeline);
+      audio.addEventListener("durationchange", updateTimeline);
+      audio.addEventListener("timeupdate", updateTimeline);
       audio.addEventListener(
         "ended",
         () => {
@@ -302,6 +366,7 @@ export default function TtsOverlay() {
             return;
           }
           setIsPlaying(false);
+          updateTimeline();
           const nextChunk = findNextChunk(chunk.index);
           if (nextChunk && desiredPlayingRef.current) {
             void playChunkRef.current?.(nextChunk);
@@ -532,6 +597,33 @@ export default function TtsOverlay() {
     });
   }, [reportPlaybackState, resetAudio, t]);
 
+  const cyclePlaybackRate = useCallback(() => {
+    const nextRate = nextPlaybackRate(playbackRateRef.current);
+    playbackRateRef.current = nextRate;
+    setPlaybackRate(nextRate);
+    const audio = audioRef.current;
+    if (audio) {
+      applyPlaybackRate(audio, nextRate);
+    }
+  }, []);
+
+  useEffect(() => {
+    let disposed = false;
+    let unlisten: (() => void) | undefined;
+    void listen<string>("tts-overlay-control", (event) => {
+      if (!disposed && event.payload === "play_pause") {
+        togglePlayback();
+      }
+    }).then((dispose) => {
+      if (disposed) dispose();
+      else unlisten = dispose;
+    });
+    return () => {
+      disposed = true;
+      unlisten?.();
+    };
+  }, [togglePlayback]);
+
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
       if (!document.hasFocus() || event.repeat) {
@@ -546,7 +638,10 @@ export default function TtsOverlay() {
         Boolean(configuredHotkey) &&
         normalizePreviewHotkeyString(configuredHotkey) === currentHotkey;
 
-      if (matches(state.playPauseHotkey)) {
+      if (
+        !state.playHistoryWhenOverlayClosed &&
+        matches(state.playPauseHotkey)
+      ) {
         event.preventDefault();
         event.stopPropagation();
         togglePlayback();
@@ -563,6 +658,7 @@ export default function TtsOverlay() {
     return () => window.removeEventListener("keydown", handleKeyDown, true);
   }, [
     osType,
+    state.playHistoryWhenOverlayClosed,
     state.playPauseHotkey,
     state.stopHotkey,
     stopPlayback,
@@ -583,6 +679,31 @@ export default function TtsOverlay() {
     totalChunks > 0
       ? Math.min(100, Math.max(0, (currentPosition / totalChunks) * 100))
       : 0;
+  const seekValue =
+    playbackDuration > 0
+      ? Math.min(playbackDuration, Math.max(0, playbackTime))
+      : progress;
+  const seekMaximum = playbackDuration > 0 ? playbackDuration : 100;
+  const seekPercent =
+    seekMaximum > 0
+      ? Math.min(100, Math.max(0, (seekValue / seekMaximum) * 100))
+      : 0;
+  const seekPlayback = useCallback(
+    (event: ChangeEvent<HTMLInputElement>) => {
+      const audio = audioRef.current;
+      if (!audio || playbackDuration <= 0) {
+        return;
+      }
+      const nextTime = Number(event.target.value);
+      if (!Number.isFinite(nextTime)) {
+        return;
+      }
+      const boundedTime = Math.min(playbackDuration, Math.max(0, nextTime));
+      audio.currentTime = boundedTime;
+      setPlaybackTime(boundedTime);
+    },
+    [playbackDuration],
+  );
   const waitingForChunk =
     desiredPlayingRef.current &&
     !isPlaying &&
@@ -621,6 +742,22 @@ export default function TtsOverlay() {
     state.stopHotkey,
     osType,
   );
+  const showVoice =
+    Boolean(state.voice) &&
+    state.voice.localeCompare(state.model, undefined, {
+      sensitivity: "accent",
+    }) !== 0;
+  const identityTitle = [
+    state.provider || "AivoRelay",
+    state.model &&
+      t("textToSpeech.overlayPlayer.activeModel", { model: state.model }),
+    showVoice &&
+      t("textToSpeech.overlayPlayer.activeVoice", { voice: state.voice }),
+  ]
+    .filter(Boolean)
+    .join(" · ");
+  const nextRate = nextPlaybackRate(playbackRate);
+  const playbackRateLabel = formatPlaybackRate(playbackRate);
 
   return (
     <main className={`tts-overlay tts-overlay--${state.status}`}>
@@ -631,8 +768,47 @@ export default function TtsOverlay() {
             <div className="tts-overlay__status" data-tauri-drag-region>
               {label}
             </div>
-            <div className="tts-overlay__provider" data-tauri-drag-region>
-              {state.provider || "AivoRelay"}
+            <div
+              className="tts-overlay__provider"
+              data-tauri-drag-region
+              title={identityTitle}
+            >
+              <span
+                className="tts-overlay__provider-name"
+                data-tauri-drag-region
+              >
+                {state.provider || "AivoRelay"}
+              </span>
+              {state.model && (
+                <>
+                  <span
+                    className="tts-overlay__identity-separator"
+                    aria-hidden="true"
+                  >
+                    ·
+                  </span>
+                  <span data-tauri-drag-region>
+                    {t("textToSpeech.overlayPlayer.activeModel", {
+                      model: state.model,
+                    })}
+                  </span>
+                </>
+              )}
+              {showVoice && (
+                <>
+                  <span
+                    className="tts-overlay__identity-separator"
+                    aria-hidden="true"
+                  >
+                    ·
+                  </span>
+                  <span data-tauri-drag-region>
+                    {t("textToSpeech.overlayPlayer.activeVoice", {
+                      voice: state.voice,
+                    })}
+                  </span>
+                </>
+              )}
             </div>
           </div>
         </div>
@@ -655,16 +831,18 @@ export default function TtsOverlay() {
         </p>
       )}
 
-      <div
+      <input
+        type="range"
         className="tts-overlay__progress"
-        role="progressbar"
         aria-label={t("textToSpeech.overlayPlayer.progress")}
-        aria-valuemin={0}
-        aria-valuemax={100}
-        aria-valuenow={Math.round(progress)}
-      >
-        <span style={{ width: `${progress}%` }} />
-      </div>
+        min={0}
+        max={seekMaximum}
+        step={playbackDuration > 0 ? 0.01 : 1}
+        value={seekValue}
+        disabled={playbackDuration <= 0}
+        onChange={seekPlayback}
+        style={{ "--tts-seek-progress": `${seekPercent}%` } as CSSProperties}
+      />
 
       {visibleError && (
         <div className="tts-overlay__error" role="alert">
@@ -708,6 +886,18 @@ export default function TtsOverlay() {
           <span className="tts-overlay__stop-icon" aria-hidden="true" />
           {t("textToSpeech.overlayPlayer.stop")}
           {stopHotkeyLabel && <kbd>{stopHotkeyLabel}</kbd>}
+        </button>
+        <button
+          type="button"
+          className="tts-overlay__button tts-overlay__rate"
+          onClick={cyclePlaybackRate}
+          aria-label={t("textToSpeech.overlayPlayer.playbackRate", {
+            rate: playbackRateLabel,
+            nextRate: formatPlaybackRate(nextRate),
+          })}
+          title={t("textToSpeech.overlayPlayer.playbackRateDescription")}
+        >
+          {playbackRateLabel}
         </button>
       </div>
     </main>

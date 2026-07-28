@@ -38,6 +38,8 @@ interface RemoteSttSettingsProps {
 
 type RemoteSttInterfaceId =
   | "groq"
+  | "openai_transcribe"
+  | "openai_live_transcribe"
   | "openai_realtime_whisper"
   | "openai_realtime_agent"
   | "openai_realtime_translate"
@@ -266,6 +268,10 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
       ? "groq"
       : remotePreset === "custom"
         ? "custom"
+        : (remoteSettings?.model_id ?? "") === "gpt-transcribe"
+          ? "openai_transcribe"
+        : (remoteSettings?.model_id ?? "") === "gpt-live-transcribe"
+          ? "openai_live_transcribe"
         : (remoteSettings?.model_id ?? "") === "gpt-realtime-whisper"
           ? "openai_realtime_whisper"
         : (remoteSettings?.model_id ?? "") === "gpt-realtime-translate"
@@ -694,8 +700,16 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
           label: "Groq",
         },
         {
+          value: "openai_transcribe",
+          label: "OpenAI gpt-transcribe · File / post-recording",
+        },
+        {
+          value: "openai_live_transcribe",
+          label: "OpenAI gpt-live-transcribe · Live",
+        },
+        {
           value: "openai_realtime_whisper",
-          label: "OpenAI gpt-realtime-whisper",
+          label: "OpenAI gpt-realtime-whisper · Legacy",
         },
         {
           value: "openai_realtime_agent",
@@ -716,8 +730,12 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
   const remoteInterfaceHint = useMemo(() => {
     const hints: Record<RemoteSttInterfaceId, string> = {
       groq: "Classic OpenAI-compatible /audio/transcriptions endpoint.",
+      openai_transcribe:
+        "Recommended for completed recordings, file transcription, and batch workloads.",
+      openai_live_transcribe:
+        "Recommended for low-latency microphone and other live audio streams.",
       openai_realtime_whisper:
-        "Native Realtime transcription model. Can stream live deltas, or flatten into post-recording STT.",
+        "Legacy Realtime transcription model. Existing integrations can keep using it.",
       openai_realtime_agent:
         "Voice-agent model coerced into transcript-only output. Uses global/profile STT prompts.",
       openai_realtime_translate:
@@ -778,6 +796,10 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
     const nextModel =
       interfaceId === "groq"
         ? REMOTE_STT_PRESETS.groq.defaultModel
+        : interfaceId === "openai_transcribe"
+          ? "gpt-transcribe"
+        : interfaceId === "openai_live_transcribe"
+          ? "gpt-live-transcribe"
         : interfaceId === "openai_realtime_whisper"
           ? "gpt-realtime-whisper"
         : interfaceId === "openai_realtime_translate"
@@ -1382,11 +1404,12 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
                 />
               </SettingContainer>
 
-              {currentRemoteInterface === "openai_realtime_whisper" && (
+              {(currentRemoteInterface === "openai_live_transcribe" ||
+                currentRemoteInterface === "openai_realtime_whisper") && (
                 <>
                   <SettingContainer
-                    title="Realtime Whisper Delay"
-                    description="Controls how much audio context gpt-realtime-whisper gets before AivoRelay asks for a transcript chunk. Faster settings show text sooner; slower settings cut speech less often."
+                    title="Realtime transcription delay"
+                    description={`Controls how much audio context ${remoteSettings?.model_id} gets before AivoRelay asks for a transcript chunk. Faster settings show text sooner; slower settings provide more context.`}
                     descriptionMode={descriptionMode}
                     grouped={grouped}
                     layout="stacked"
@@ -1411,8 +1434,8 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
                     isUpdating={isUpdating(
                       "openai_realtime_whisper_flatten_enabled" as any,
                     )}
-                    label="Flatten realtime Whisper"
-                    description="Record the whole utterance first, then send it to gpt-realtime-whisper for a final transcript instead of showing live deltas."
+                    label="Wait for the complete recording"
+                    description={`Record the whole utterance first, then send it to ${remoteSettings?.model_id} for a final transcript instead of showing live deltas.`}
                     descriptionMode={descriptionMode}
                     grouped={grouped}
                   />
@@ -1435,11 +1458,46 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
                       then wait for the final transcript.
                     </p>
                     <p className="mt-1">
-                      STT prompts are not sent for this model; use language and
-                      delay here, then evaluate vocabulary against real audio.
+                      {currentRemoteInterface === "openai_live_transcribe"
+                        ? "The active global or profile STT prompt is sent as transcription context."
+                        : "This legacy model receives language and delay but does not receive the STT prompt."}
+                    </p>
+                    <p className="mt-2">
+                      <a
+                        href="https://developers.openai.com/api/docs/guides/transcription"
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-accent hover:underline"
+                      >
+                        OpenAI transcription model guide
+                      </a>
                     </p>
                   </div>
                 </>
+              )}
+
+              {currentRemoteInterface === "openai_transcribe" && (
+                <div className="mx-4 rounded-lg border border-emerald-400/20 bg-emerald-400/5 p-3 text-xs text-text/80">
+                  <p className="font-medium text-text">
+                    Uses the file transcription API.
+                  </p>
+                  <p className="mt-1">
+                    AivoRelay records the complete utterance before uploading it.
+                    The active global or profile STT prompt and language hint are
+                    sent as transcription context. For live partial text, select
+                    gpt-live-transcribe.
+                  </p>
+                  <p className="mt-2">
+                    <a
+                      href="https://developers.openai.com/api/docs/guides/speech-to-text"
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-accent hover:underline"
+                    >
+                      OpenAI file transcription guide
+                    </a>
+                  </p>
+                </div>
               )}
 
               {showOpenAiRealtimeNotes && (

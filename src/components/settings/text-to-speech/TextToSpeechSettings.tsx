@@ -37,7 +37,7 @@ import { Textarea } from "@/components/ui/Textarea";
 import { ToggleSwitch } from "@/components/ui/ToggleSwitch";
 import type { OSType } from "@/lib/utils/keyboard";
 
-type TtsProvider = "soniox" | "deepgram" | "openai";
+type TtsProvider = "soniox" | "deepgram" | "openai" | "local_qwen" | "windows";
 type TtsKeySource = "shared" | "separate";
 type TtsOutputFormat = "mp3" | "wav";
 
@@ -68,11 +68,16 @@ type TtsSettings = {
   deepgram_model: string;
   openai_model: string;
   openai_voice: string;
+  local_qwen_voice: string;
+  local_qwen_language: string;
+  windows_voice_id: string;
+  windows_voice_language: string;
   speed: number;
   openai_instructions: string;
   prompt_presets: TtsPromptPreset[];
   selected_prompt_id: string;
   play_pause_hotkey: string;
+  play_history_when_overlay_closed: boolean;
   stop_hotkey: string;
   preprocessing_enabled: boolean;
   preprocessing_rules: TtsReplacementRule[];
@@ -91,9 +96,12 @@ type TtsSettings = {
   watch_output_directory: string;
   watch_settle_delay_ms: number;
   disk_reserve_mb: number;
-  history_enabled: boolean;
-  history_max_entries: number;
-  history_max_storage_mb: number;
+  interactive_history_enabled: boolean;
+  interactive_history_max_entries: number;
+  interactive_history_max_storage_mb: number;
+  file_history_enabled: boolean;
+  file_history_max_entries: number;
+  file_history_max_storage_mb: number;
 };
 
 type FileInspection = {
@@ -129,6 +137,35 @@ type ConversionProgress = {
   outputPath?: string | null;
 };
 
+type LocalTtsStatus = {
+  kind: "qwen";
+  installed: boolean;
+  installing: boolean;
+  phase: string;
+  downloaded_bytes: number;
+  total_bytes: number;
+  percentage: number;
+  runtime_profile: string;
+  model_repository: string;
+  model_revision: string;
+  model_download_bytes: number;
+  error?: string | null;
+};
+
+type WindowsVoiceCatalog = {
+  available: boolean;
+  voices: Array<{
+    id: string;
+    display_name: string;
+    language: string;
+    description: string;
+    gender: "female" | "male" | "unknown";
+    is_default: boolean;
+  }>;
+  default_voice_id?: string | null;
+  unavailable_reason?: string | null;
+};
+
 const DEFAULT_TTS_SETTINGS: TtsSettings = {
   enabled: true,
   provider: "soniox",
@@ -141,11 +178,16 @@ const DEFAULT_TTS_SETTINGS: TtsSettings = {
   deepgram_model: "aura-2-thalia-en",
   openai_model: "gpt-4o-mini-tts",
   openai_voice: "marin",
+  local_qwen_voice: "Ryan",
+  local_qwen_language: "Auto",
+  windows_voice_id: "",
+  windows_voice_language: "",
   speed: 1,
   openai_instructions: "",
   prompt_presets: [],
   selected_prompt_id: "",
   play_pause_hotkey: "space",
+  play_history_when_overlay_closed: false,
   stop_hotkey: "escape",
   preprocessing_enabled: true,
   preprocessing_rules: [],
@@ -164,21 +206,74 @@ const DEFAULT_TTS_SETTINGS: TtsSettings = {
   watch_output_directory: "",
   watch_settle_delay_ms: 1500,
   disk_reserve_mb: 512,
-  history_enabled: false,
-  history_max_entries: 100,
-  history_max_storage_mb: 1024,
+  interactive_history_enabled: false,
+  interactive_history_max_entries: 100,
+  interactive_history_max_storage_mb: 1024,
+  file_history_enabled: false,
+  file_history_max_entries: 100,
+  file_history_max_storage_mb: 1024,
 };
 
 const PROVIDERS: DropdownOption[] = [
   { value: "soniox", label: "Soniox" },
   { value: "deepgram", label: "Deepgram" },
   { value: "openai", label: "OpenAI" },
+  { value: "local_qwen", label: "Qwen3-TTS (Local)" },
+  { value: "windows", label: "Windows voices" },
 ];
 
 const PROVIDER_INPUT_LIMITS: Record<TtsProvider, number> = {
   soniox: 5000,
   deepgram: 2000,
   openai: 4096,
+  local_qwen: 4096,
+  windows: 4096,
+};
+const PROVIDER_CAPABILITIES: Record<
+  TtsProvider,
+  {
+    requiresApiKey: boolean;
+    localOrSystem: boolean;
+    downloadableRuntime: boolean;
+    supportsInstructions: boolean;
+    speed: [number, number];
+  }
+> = {
+  soniox: {
+    requiresApiKey: true,
+    localOrSystem: false,
+    downloadableRuntime: false,
+    supportsInstructions: false,
+    speed: [0.7, 1.3],
+  },
+  deepgram: {
+    requiresApiKey: true,
+    localOrSystem: false,
+    downloadableRuntime: false,
+    supportsInstructions: false,
+    speed: [0.7, 1.5],
+  },
+  openai: {
+    requiresApiKey: true,
+    localOrSystem: false,
+    downloadableRuntime: false,
+    supportsInstructions: true,
+    speed: [0.25, 4],
+  },
+  local_qwen: {
+    requiresApiKey: false,
+    localOrSystem: true,
+    downloadableRuntime: true,
+    supportsInstructions: false,
+    speed: [0.5, 2],
+  },
+  windows: {
+    requiresApiKey: false,
+    localOrSystem: true,
+    downloadableRuntime: false,
+    supportsInstructions: false,
+    speed: [0.5, 2],
+  },
 };
 const SONIOX_TTS_FIELD_MAX_LENGTH = 50;
 const SONIOX_TTS_API_KEY_MAX_LENGTH = 250;
@@ -199,6 +294,226 @@ const PROVIDER_VOICE_RESOURCES: Record<
     voices: "https://developers.openai.com/api/docs/guides/text-to-speech",
     playground: "https://www.openai.fm/",
   },
+  local_qwen: {
+    voices:
+      "https://huggingface.co/Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice",
+    playground: "https://huggingface.co/spaces/Qwen/Qwen3-TTS",
+  },
+  windows: {
+    voices: "https://support.microsoft.com/windows/download-languages-and-voices-for-immersive-reader-read-mode-and-read-aloud-4c83a8d8-7486-42f7-8e46-2b0fdf753130",
+  },
+};
+
+const SONIOX_VOICES: DropdownOption[] = [
+  "Maya",
+  "Daniel",
+  "Noah",
+  "Nina",
+  "Emma",
+  "Jack",
+  "Adrian",
+  "Claire",
+  "Grace",
+  "Owen",
+  "Mina",
+  "Kenji",
+  "Rafael",
+  "Mateo",
+  "Lucia",
+  "Sofia",
+  "Oliver",
+  "Arthur",
+  "Isla",
+  "Victoria",
+  "Cooper",
+  "Mason",
+  "Ruby",
+  "Elise",
+  "Arjun",
+  "Rohan",
+  "Priya",
+  "Meera",
+].map((value) => ({ value, label: value }));
+
+const DEEPGRAM_AURA_2_VOICES: DropdownOption[] = [
+  "aura-2-amalthea-en",
+  "aura-2-andromeda-en",
+  "aura-2-apollo-en",
+  "aura-2-arcas-en",
+  "aura-2-aries-en",
+  "aura-2-asteria-en",
+  "aura-2-athena-en",
+  "aura-2-atlas-en",
+  "aura-2-aurora-en",
+  "aura-2-callista-en",
+  "aura-2-cora-en",
+  "aura-2-cordelia-en",
+  "aura-2-delia-en",
+  "aura-2-draco-en",
+  "aura-2-electra-en",
+  "aura-2-harmonia-en",
+  "aura-2-helena-en",
+  "aura-2-hera-en",
+  "aura-2-hermes-en",
+  "aura-2-hyperion-en",
+  "aura-2-iris-en",
+  "aura-2-janus-en",
+  "aura-2-juno-en",
+  "aura-2-jupiter-en",
+  "aura-2-luna-en",
+  "aura-2-mars-en",
+  "aura-2-minerva-en",
+  "aura-2-neptune-en",
+  "aura-2-odysseus-en",
+  "aura-2-ophelia-en",
+  "aura-2-orion-en",
+  "aura-2-orpheus-en",
+  "aura-2-pandora-en",
+  "aura-2-phoebe-en",
+  "aura-2-pluto-en",
+  "aura-2-saturn-en",
+  "aura-2-selene-en",
+  "aura-2-thalia-en",
+  "aura-2-theia-en",
+  "aura-2-vesta-en",
+  "aura-2-zeus-en",
+  "aura-2-agustina-es",
+  "aura-2-alvaro-es",
+  "aura-2-antonia-es",
+  "aura-2-aquila-es",
+  "aura-2-carina-es",
+  "aura-2-celeste-es",
+  "aura-2-diana-es",
+  "aura-2-estrella-es",
+  "aura-2-gloria-es",
+  "aura-2-javier-es",
+  "aura-2-luciano-es",
+  "aura-2-nestor-es",
+  "aura-2-olivia-es",
+  "aura-2-selena-es",
+  "aura-2-silvia-es",
+  "aura-2-sirio-es",
+  "aura-2-valerio-es",
+  "aura-2-beatrix-nl",
+  "aura-2-cornelia-nl",
+  "aura-2-daphne-nl",
+  "aura-2-hestia-nl",
+  "aura-2-lars-nl",
+  "aura-2-leda-nl",
+  "aura-2-rhea-nl",
+  "aura-2-roman-nl",
+  "aura-2-sander-nl",
+  "aura-2-agathe-fr",
+  "aura-2-hector-fr",
+  "aura-2-aurelia-de",
+  "aura-2-elara-de",
+  "aura-2-fabian-de",
+  "aura-2-julius-de",
+  "aura-2-kara-de",
+  "aura-2-lara-de",
+  "aura-2-viktoria-de",
+  "aura-2-cesare-it",
+  "aura-2-cinzia-it",
+  "aura-2-demetra-it",
+  "aura-2-dionisio-it",
+  "aura-2-elio-it",
+  "aura-2-flavio-it",
+  "aura-2-livia-it",
+  "aura-2-maia-it",
+  "aura-2-melia-it",
+  "aura-2-perseo-it",
+  "aura-2-ama-ja",
+  "aura-2-ebisu-ja",
+  "aura-2-fujin-ja",
+  "aura-2-izanami-ja",
+  "aura-2-uzume-ja",
+].map((value) => ({ value, label: value }));
+
+const LOCAL_QWEN_VOICES: DropdownOption[] = [
+  "Vivian",
+  "Serena",
+  "Uncle_Fu",
+  "Dylan",
+  "Eric",
+  "Ryan",
+  "Aiden",
+  "Ono_Anna",
+  "Sohee",
+].map((value) => ({ value, label: value }));
+
+const LOCAL_QWEN_LANGUAGES: DropdownOption[] = [
+  "Auto",
+  "Chinese",
+  "English",
+  "Japanese",
+  "Korean",
+  "German",
+  "French",
+  "Russian",
+  "Portuguese",
+  "Spanish",
+  "Italian",
+].map((value) => ({ value, label: value }));
+
+const CUSTOM_VOICE_VALUE = "__aivorelay_custom_tts_voice__";
+
+type DocumentedVoiceSelectorProps = {
+  value: string;
+  options: DropdownOption[];
+  customLabel: string;
+  customPlaceholder: string;
+  disabled: boolean;
+  maxLength?: number;
+  onChange: (value: string) => void;
+};
+
+const DocumentedVoiceSelector: React.FC<DocumentedVoiceSelectorProps> = ({
+  value,
+  options,
+  customLabel,
+  customPlaceholder,
+  disabled,
+  maxLength,
+  onChange,
+}) => {
+  const isDocumentedValue = options.some((option) => option.value === value);
+  const [editingCustom, setEditingCustom] = useState(!isDocumentedValue);
+  const customMode = editingCustom || !isDocumentedValue;
+
+  useEffect(() => {
+    if (isDocumentedValue) {
+      setEditingCustom(false);
+    }
+  }, [isDocumentedValue, value]);
+
+  return (
+    <div className="w-full space-y-2 md:w-96">
+      <Dropdown
+        selectedValue={customMode ? CUSTOM_VOICE_VALUE : value}
+        options={[
+          ...options,
+          { value: CUSTOM_VOICE_VALUE, label: customLabel },
+        ]}
+        onSelect={(selected) => {
+          if (selected === CUSTOM_VOICE_VALUE) {
+            setEditingCustom(true);
+            return;
+          }
+          setEditingCustom(false);
+          onChange(selected);
+        }}
+        disabled={disabled}
+      />
+      {customMode && (
+        <Input
+          value={value}
+          maxLength={maxLength}
+          placeholder={customPlaceholder}
+          onChange={(event) => onChange(event.target.value)}
+        />
+      )}
+    </div>
+  );
 };
 
 const BITRATES = [64, 96, 128, 192, 256, 320];
@@ -220,12 +535,19 @@ const COALESCED_TTS_FIELDS = new Set([
   "paragraph_pause_ms",
   "watch_settle_delay_ms",
   "disk_reserve_mb",
-  "history_max_entries",
-  "history_max_storage_mb",
+  "interactive_history_max_entries",
+  "interactive_history_max_storage_mb",
+  "file_history_max_entries",
+  "file_history_max_storage_mb",
 ]);
 
 const asErrorMessage = (error: unknown) =>
   error instanceof Error ? error.message : String(error);
+
+const formatBytes = (bytes: number) =>
+  bytes >= 1024 ** 3
+    ? `${(bytes / 1024 ** 3).toFixed(2)} GiB`
+    : `${(bytes / 1024 ** 2).toFixed(1)} MiB`;
 
 const clampNumber = (
   value: string,
@@ -258,7 +580,13 @@ const characterCount = (
 const chunkCount = (inspection: FileInspection | null) =>
   inspection?.chunk_count ?? inspection?.chunkCount ?? null;
 
-export const TextToSpeechSettings: React.FC = () => {
+export interface TextToSpeechSettingsProps {
+  mode?: "interactive" | "files";
+}
+
+export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
+  mode = "interactive",
+}) => {
   const { t } = useTranslation();
   const { settings, refreshSettings } = useSettings();
   const storedTts = (settings as any)?.tts as Partial<TtsSettings> | undefined;
@@ -296,9 +624,17 @@ export const TextToSpeechSettings: React.FC = () => {
   const [keyDraft, setKeyDraft] = useState("");
   const [editingKey, setEditingKey] = useState(false);
   const [keyBusy, setKeyBusy] = useState(false);
+  const [localTtsStatus, setLocalTtsStatus] =
+    useState<LocalTtsStatus | null>(null);
+  const [localTtsBusy, setLocalTtsBusy] = useState(false);
+  const [windowsCatalog, setWindowsCatalog] =
+    useState<WindowsVoiceCatalog | null>(null);
+  const [windowsCatalogBusy, setWindowsCatalogBusy] = useState(false);
   const [capturingHotkey, setCapturingHotkey] = useState<
     "play_pause" | "stop" | null
   >(null);
+  const [interactiveHistoryHasEntries, setInteractiveHistoryHasEntries] =
+    useState(false);
   const [ruleFrom, setRuleFrom] = useState("");
   const [ruleTo, setRuleTo] = useState("");
   const [ruleCaseSensitive, setRuleCaseSensitive] = useState(true);
@@ -319,30 +655,99 @@ export const TextToSpeechSettings: React.FC = () => {
   const [operationId, setOperationId] = useState<string | null>(null);
   const conversionBusyRef = useRef(false);
   const conversionOperationIdRef = useRef<string | null>(null);
-  const keySourceField = `${tts.provider}_key_source` as
-    | "soniox_key_source"
-    | "deepgram_key_source"
-    | "openai_key_source";
-  const keySource = tts[keySourceField];
+  const providerCapabilities = PROVIDER_CAPABILITIES[tts.provider];
+  const keySourceField =
+    !providerCapabilities.requiresApiKey
+      ? null
+      : (`${tts.provider}_key_source` as
+          | "soniox_key_source"
+          | "deepgram_key_source"
+          | "openai_key_source");
+  const keySource = keySourceField ? tts[keySourceField] : "shared";
   const voiceValue =
     tts.provider === "soniox"
       ? tts.soniox_voice
       : tts.provider === "deepgram"
         ? tts.deepgram_model
-        : tts.openai_voice;
+        : tts.provider === "openai"
+          ? tts.openai_voice
+          : tts.provider === "windows"
+            ? tts.windows_voice_id
+            : tts.local_qwen_voice;
   const modelValue =
     tts.provider === "soniox"
       ? tts.soniox_model
       : tts.provider === "deepgram"
         ? tts.deepgram_model
-        : tts.openai_model;
-  const speedMinimum = tts.provider === "openai" ? 0.25 : 0.7;
-  const speedMaximum =
-    tts.provider === "soniox" ? 1.3 : tts.provider === "deepgram" ? 1.5 : 4;
+        : tts.provider === "openai"
+          ? tts.openai_model
+          : tts.provider === "windows"
+            ? "windows.media.speechsynthesis"
+            : "Qwen3-TTS-12Hz-0.6B-CustomVoice";
+  const [speedMinimum, speedMaximum] = providerCapabilities.speed;
   const openAiInstructionsSupported =
     !tts.openai_model.trim() ||
     tts.openai_model.trim().startsWith("gpt-4o-mini-tts");
   const voiceResources = PROVIDER_VOICE_RESOURCES[tts.provider];
+
+  const refreshLocalTtsStatus = useCallback(async () => {
+    try {
+      setLocalTtsStatus(
+        await invoke<LocalTtsStatus>("get_local_tts_status", { kind: "qwen" }),
+      );
+    } catch (error) {
+      setSettingsError(asErrorMessage(error));
+    }
+  }, []);
+
+  const refreshWindowsCatalog = useCallback(async () => {
+    setWindowsCatalogBusy(true);
+    try {
+      setWindowsCatalog(
+        await invoke<WindowsVoiceCatalog>("get_windows_tts_voice_catalog"),
+      );
+    } catch (error) {
+      const message = asErrorMessage(error);
+      setWindowsCatalog({
+        available: false,
+        voices: [],
+        default_voice_id: null,
+        unavailable_reason: message,
+      });
+      setSettingsError(message);
+    } finally {
+      setWindowsCatalogBusy(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (
+      mode === "interactive" &&
+      tts.provider === "windows" &&
+      windowsCatalog === null
+    ) {
+      void refreshWindowsCatalog();
+    }
+  }, [mode, refreshWindowsCatalog, tts.provider, windowsCatalog]);
+
+  useEffect(() => {
+    if (mode === "files") return;
+    void refreshLocalTtsStatus();
+    let disposed = false;
+    let unlisten: (() => void) | undefined;
+    void listen<LocalTtsStatus>("local-tts://status", (event) => {
+      if (!disposed && event.payload.kind === "qwen") {
+        setLocalTtsStatus(event.payload);
+      }
+    }).then((dispose) => {
+      if (disposed) dispose();
+      else unlisten = dispose;
+    });
+    return () => {
+      disposed = true;
+      unlisten?.();
+    };
+  }, [mode, refreshLocalTtsStatus]);
 
   const updateTts = useCallback(
     async (patch: Partial<TtsSettings>, field: string) => {
@@ -419,6 +824,10 @@ export const TextToSpeechSettings: React.FC = () => {
   );
 
   const refreshKeyStatus = useCallback(async () => {
+    if (!providerCapabilities.requiresApiKey) {
+      setHasSeparateKey(false);
+      return;
+    }
     setKeyBusy(true);
     try {
       const exists = await invoke<boolean>("tts_has_api_key", {
@@ -430,15 +839,18 @@ export const TextToSpeechSettings: React.FC = () => {
     } finally {
       setKeyBusy(false);
     }
-  }, [tts.provider]);
+  }, [providerCapabilities.requiresApiKey, tts.provider]);
 
   useEffect(() => {
+    if (mode === "files") return;
     void refreshKeyStatus();
     setEditingKey(false);
     setKeyDraft("");
-  }, [refreshKeyStatus]);
+  }, [mode, refreshKeyStatus]);
 
   useEffect(() => {
+    if (mode !== "files") return;
+
     const unlisteners: Array<() => void> = [];
     let disposed = false;
 
@@ -502,7 +914,7 @@ export const TextToSpeechSettings: React.FC = () => {
       disposed = true;
       unlisteners.forEach((unlisten) => unlisten());
     };
-  }, []);
+  }, [mode]);
 
   useEffect(() => {
     let disposed = false;
@@ -534,8 +946,44 @@ export const TextToSpeechSettings: React.FC = () => {
   const chooseProvider = (provider: TtsProvider) =>
     updateTts({ provider }, "provider");
 
+  const installLocalTts = async () => {
+    setLocalTtsBusy(true);
+    setSettingsError(null);
+    try {
+      setLocalTtsStatus(
+        await invoke<LocalTtsStatus>("install_local_tts", { kind: "qwen" }),
+      );
+    } catch (error) {
+      setSettingsError(asErrorMessage(error));
+      await refreshLocalTtsStatus();
+    } finally {
+      setLocalTtsBusy(false);
+    }
+  };
+
+  const cancelLocalTtsInstall = async () => {
+    try {
+      await invoke("cancel_local_tts_install", { kind: "qwen" });
+    } catch (error) {
+      setSettingsError(asErrorMessage(error));
+    }
+  };
+
+  const deleteLocalTts = async () => {
+    setLocalTtsBusy(true);
+    setSettingsError(null);
+    try {
+      await invoke("delete_local_tts", { kind: "qwen" });
+      await refreshLocalTtsStatus();
+    } catch (error) {
+      setSettingsError(asErrorMessage(error));
+    } finally {
+      setLocalTtsBusy(false);
+    }
+  };
+
   const saveKey = async () => {
-    if (!keyDraft.trim()) return;
+    if (!keyDraft.trim() || !providerCapabilities.requiresApiKey) return;
     setKeyBusy(true);
     setSettingsError(null);
     try {
@@ -814,6 +1262,18 @@ export const TextToSpeechSettings: React.FC = () => {
     setMp3Bitrate(tts.mp3_bitrate_kbps);
   }, [tts.mp3_bitrate_kbps, tts.output_format]);
 
+  const handleInteractiveHistoryAvailability = useCallback(
+    (hasEntries: boolean) => setInteractiveHistoryHasEntries(hasEntries),
+    [],
+  );
+  const playHistoryFallbackUnavailable =
+    !tts.interactive_history_enabled || !interactiveHistoryHasEntries;
+  const playHistoryFallbackDescription = !tts.interactive_history_enabled
+    ? t("textToSpeech.overlay.historyFallbackRequiresHistory")
+    : !interactiveHistoryHasEntries
+      ? t("textToSpeech.overlay.historyFallbackRequiresResult")
+      : t("textToSpeech.overlay.historyFallbackDescription");
+
   return (
     <div className="mx-auto w-full max-w-3xl space-y-6 pb-12">
       {settingsError && (
@@ -826,10 +1286,12 @@ export const TextToSpeechSettings: React.FC = () => {
         </div>
       )}
 
-      <SettingsGroup
-        title={t("textToSpeech.title")}
-        description={t("textToSpeech.description")}
-      >
+      {mode === "interactive" && (
+        <>
+          <SettingsGroup
+            title={t("textToSpeech.title")}
+            description={t("textToSpeech.description")}
+          >
         <ToggleSwitch
           grouped
           checked={tts.enabled}
@@ -854,10 +1316,110 @@ export const TextToSpeechSettings: React.FC = () => {
         </SettingContainer>
       </SettingsGroup>
 
-      <SettingsGroup
-        title={t("textToSpeech.api.title")}
-        description={t("textToSpeech.api.description")}
-      >
+      {tts.provider === "local_qwen" && (
+        <SettingsGroup
+          title={t("textToSpeech.local.title")}
+          description={t("textToSpeech.local.description")}
+        >
+          <SettingContainer
+            grouped
+            layout="stacked"
+            title={t("textToSpeech.local.modelTitle")}
+            description={t("textToSpeech.local.modelDescription", {
+              size: formatBytes(
+                localTtsStatus?.model_download_bytes ?? 2_498_388_392,
+              ),
+            })}
+            descriptionMode="inline"
+          >
+            <div className="space-y-3">
+              <div className="text-sm text-text/80">
+                <div>{localTtsStatus?.model_repository ?? "Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice"}</div>
+                <div className="break-all text-xs text-text/55">
+                  {localTtsStatus?.model_revision ??
+                    "85e237c12c027371202489a0ec509ded67b5e4b5"}
+                </div>
+              </div>
+              <div
+                role="status"
+                className="rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm"
+              >
+                {localTtsStatus?.installed
+                  ? t("textToSpeech.local.ready", {
+                      profile: localTtsStatus.runtime_profile.toUpperCase(),
+                    })
+                  : localTtsStatus?.installing
+                    ? t("textToSpeech.local.installing", {
+                        phase: localTtsStatus.phase,
+                        percentage: localTtsStatus.percentage.toFixed(1),
+                      })
+                    : t("textToSpeech.local.notInstalled")}
+              </div>
+              {localTtsStatus?.installing &&
+                localTtsStatus.total_bytes > 0 && (
+                  <div className="h-2 overflow-hidden rounded-full bg-white/10">
+                    <div
+                      className="h-full bg-[#a66cff] transition-[width]"
+                      style={{
+                        width: `${Math.min(100, localTtsStatus.percentage)}%`,
+                      }}
+                    />
+                  </div>
+                )}
+              {localTtsStatus?.error && (
+                <div role="alert" className="text-sm text-red-300">
+                  {localTtsStatus.error}
+                </div>
+              )}
+              <div className="flex flex-wrap gap-2">
+                {!localTtsStatus?.installed &&
+                  !localTtsStatus?.installing && (
+                    <Button
+                      variant="primary"
+                      disabled={localTtsBusy}
+                      onClick={() => void installLocalTts()}
+                    >
+                      {localTtsBusy && (
+                        <Loader2 className="mr-2 inline h-4 w-4 animate-spin" />
+                      )}
+                      {t("textToSpeech.local.install")}
+                    </Button>
+                  )}
+                {localTtsStatus?.installing && (
+                  <Button
+                    variant="secondary"
+                    onClick={() => void cancelLocalTtsInstall()}
+                  >
+                    {t("textToSpeech.local.cancel")}
+                  </Button>
+                )}
+                {localTtsStatus?.installed && (
+                  <Button
+                    variant="danger"
+                    disabled={localTtsBusy}
+                    onClick={() => void deleteLocalTts()}
+                  >
+                    <Trash2 className="mr-2 inline h-4 w-4" />
+                    {t("textToSpeech.local.delete")}
+                  </Button>
+                )}
+              </div>
+              <p className="text-xs leading-relaxed text-amber-200/90">
+                {t("textToSpeech.local.resourceWarning")}
+              </p>
+              <p className="text-xs leading-relaxed text-text/60">
+                {t("textToSpeech.local.license")}
+              </p>
+            </div>
+          </SettingContainer>
+        </SettingsGroup>
+      )}
+
+      {providerCapabilities.requiresApiKey && (
+        <SettingsGroup
+          title={t("textToSpeech.api.title")}
+          description={t("textToSpeech.api.description")}
+        >
         <SettingContainer
           grouped
           layout="stacked"
@@ -875,12 +1437,14 @@ export const TextToSpeechSettings: React.FC = () => {
                 label: t("textToSpeech.api.separateKey"),
               },
             ]}
-            onSelect={(value) =>
-              void updateTts(
-                { [keySourceField]: value as TtsKeySource },
-                keySourceField,
-              )
-            }
+            onSelect={(value) => {
+              if (keySourceField) {
+                void updateTts(
+                  { [keySourceField]: value as TtsKeySource },
+                  keySourceField,
+                );
+              }
+            }}
             disabled={savingField !== null}
             dropUp={false}
           />
@@ -928,7 +1492,8 @@ export const TextToSpeechSettings: React.FC = () => {
             )}
           </SettingContainer>
         )}
-      </SettingsGroup>
+        </SettingsGroup>
+      )}
 
       <SettingsGroup
         title={t("textToSpeech.voice.title")}
@@ -939,30 +1504,114 @@ export const TextToSpeechSettings: React.FC = () => {
           title={t("textToSpeech.voice.voiceTitle")}
           description={t("textToSpeech.voice.voiceDescription")}
         >
-          <Input
-            className="w-full md:w-72"
-            value={voiceValue}
-            maxLength={
-              tts.provider === "soniox"
-                ? SONIOX_TTS_FIELD_MAX_LENGTH
-                : undefined
-            }
-            placeholder={
-              tts.provider === "deepgram"
-                ? "aura-2-thalia-en"
-                : t("textToSpeech.voice.voicePlaceholder")
-            }
-            onChange={(event) => {
-              const value = event.target.value;
-              if (tts.provider === "soniox") {
-                void updateTts({ soniox_voice: value }, "soniox_voice");
-              } else if (tts.provider === "deepgram") {
-                void updateTts({ deepgram_model: value }, "deepgram_model");
-              } else {
-                void updateTts({ openai_voice: value }, "openai_voice");
+          {tts.provider === "local_qwen" ? (
+            <Dropdown
+              className="w-full md:w-72"
+              selectedValue={tts.local_qwen_voice}
+              options={LOCAL_QWEN_VOICES}
+              onSelect={(value) =>
+                void updateTts(
+                  { local_qwen_voice: value },
+                  "local_qwen_voice",
+                )
               }
-            }}
-          />
+              disabled={savingField !== null}
+              dropUp={false}
+            />
+          ) : tts.provider === "windows" ? (
+            <div className="w-full space-y-2 md:w-96">
+              {windowsCatalogBusy ? (
+                <p className="text-sm text-text/60">
+                  {t("textToSpeech.windows.loading")}
+                </p>
+              ) : windowsCatalog && !windowsCatalog.available ? (
+                <p className="text-sm text-red-300">
+                  {windowsCatalog.unavailable_reason}
+                </p>
+              ) : windowsCatalog?.voices.length === 0 ? (
+                <p className="text-sm text-amber-200">
+                  {t("textToSpeech.windows.noVoices")}
+                </p>
+              ) : (
+                <Dropdown
+                  selectedValue={tts.windows_voice_id}
+                  options={[
+                    {
+                      value: "",
+                      label: t("textToSpeech.windows.defaultVoice"),
+                    },
+                    ...(windowsCatalog?.voices ?? []).map((voice) => ({
+                      value: voice.id,
+                      label: `${voice.display_name} — ${voice.language}`,
+                    })),
+                  ]}
+                  onSelect={(value) => {
+                    const language =
+                      windowsCatalog?.voices.find((voice) => voice.id === value)
+                        ?.language ?? "";
+                    void updateTts(
+                      {
+                        windows_voice_id: value,
+                        windows_voice_language: language,
+                      },
+                      "windows_voice_id",
+                    );
+                  }}
+                  disabled={savingField !== null}
+                  dropUp={false}
+                />
+              )}
+              <Button
+                variant="secondary"
+                disabled={windowsCatalogBusy}
+                onClick={() => void refreshWindowsCatalog()}
+              >
+                {t("textToSpeech.windows.refresh")}
+              </Button>
+              <p className="text-xs text-text/60">
+                {t("textToSpeech.windows.help")}
+              </p>
+            </div>
+          ) : tts.provider === "soniox" || tts.provider === "deepgram" ? (
+            <DocumentedVoiceSelector
+              key={tts.provider}
+              value={voiceValue}
+              options={
+                tts.provider === "soniox"
+                  ? SONIOX_VOICES
+                  : DEEPGRAM_AURA_2_VOICES
+              }
+              customLabel={t("textToSpeech.voice.custom")}
+              customPlaceholder={
+                tts.provider === "deepgram"
+                  ? "aura-2-thalia-en"
+                  : t("textToSpeech.voice.voicePlaceholder")
+              }
+              maxLength={
+                tts.provider === "soniox"
+                  ? SONIOX_TTS_FIELD_MAX_LENGTH
+                  : undefined
+              }
+              disabled={savingField !== null}
+              onChange={(value) => {
+                if (tts.provider === "soniox") {
+                  void updateTts({ soniox_voice: value }, "soniox_voice");
+                } else {
+                  void updateTts({ deepgram_model: value }, "deepgram_model");
+                }
+              }}
+            />
+          ) : (
+            <Input
+              className="w-full md:w-72"
+              value={voiceValue}
+              placeholder={t("textToSpeech.voice.voicePlaceholder")}
+              onChange={(event) => {
+                const value = event.target.value;
+                void updateTts({ openai_voice: value }, "openai_voice");
+              }}
+            />
+          )}
         </SettingContainer>
         {tts.provider === "soniox" && (
           <SettingContainer
@@ -984,7 +1633,30 @@ export const TextToSpeechSettings: React.FC = () => {
             />
           </SettingContainer>
         )}
-        {tts.provider !== "deepgram" && (
+        {tts.provider === "local_qwen" && (
+          <SettingContainer
+            grouped
+            title={t("textToSpeech.voice.languageTitle")}
+            description={t("textToSpeech.local.languageDescription")}
+          >
+            <Dropdown
+              className="w-full md:w-72"
+              selectedValue={tts.local_qwen_language}
+              options={LOCAL_QWEN_LANGUAGES}
+              onSelect={(value) =>
+                void updateTts(
+                  { local_qwen_language: value },
+                  "local_qwen_language",
+                )
+              }
+              disabled={savingField !== null}
+              dropUp={false}
+            />
+          </SettingContainer>
+        )}
+        {tts.provider !== "deepgram" &&
+          tts.provider !== "local_qwen" &&
+          tts.provider !== "windows" && (
           <SettingContainer
             grouped
             title={t("textToSpeech.voice.modelTitle")}
@@ -1069,6 +1741,14 @@ export const TextToSpeechSettings: React.FC = () => {
             )}
           </div>
         </SettingContainer>
+        {tts.provider === "local_qwen" && (
+          <div
+            role="status"
+            className="mx-6 my-4 rounded-lg border border-amber-400/40 bg-amber-400/10 px-4 py-3 text-xs leading-relaxed text-amber-100"
+          >
+            {t("textToSpeech.prompts.localUnsupported")}
+          </div>
+        )}
         {tts.provider === "openai" && (
           <>
             {!openAiInstructionsSupported && (
@@ -1222,6 +1902,21 @@ export const TextToSpeechSettings: React.FC = () => {
             osType={hotkeyOsType}
           />
         </SettingContainer>
+        <ToggleSwitch
+          grouped
+          checked={tts.play_history_when_overlay_closed}
+          disabled={playHistoryFallbackUnavailable}
+          onChange={(play_history_when_overlay_closed) =>
+            void updateTts(
+              { play_history_when_overlay_closed },
+              "play_history_when_overlay_closed",
+            )
+          }
+          isUpdating={savingField === "play_history_when_overlay_closed"}
+          label={t("textToSpeech.overlay.historyFallbackLabel")}
+          description={playHistoryFallbackDescription}
+          descriptionMode="inline"
+        />
         <SettingContainer
           grouped
           title={t("textToSpeech.overlay.stopTitle")}
@@ -1241,6 +1936,249 @@ export const TextToSpeechSettings: React.FC = () => {
           />
         </SettingContainer>
       </SettingsGroup>
+        </>
+      )}
+
+      {mode === "files" && (
+        <>
+          <SettingsGroup
+            title={t("textToSpeech.conversion.title")}
+            description={t("textToSpeech.conversion.description")}
+          >
+            <details className="group border-b border-white/[0.05] px-6 py-4">
+              <summary className="cursor-pointer select-none text-sm font-medium text-[#d7b9ff]">
+                {t("textToSpeech.conversion.cliHelpTitle")}
+              </summary>
+              <div className="mt-3 space-y-2 text-xs leading-relaxed text-[#a0a0a0]">
+                <p>{t("textToSpeech.conversion.cliHelpDescription")}</p>
+                <code className="block overflow-x-auto rounded-lg bg-black/30 p-3 text-[#e8e8e8]">
+                  {t("textToSpeech.conversion.cliExample")}
+                </code>
+                <code className="block overflow-x-auto rounded-lg bg-black/30 p-3 text-[#e8e8e8]">
+                  {t("textToSpeech.conversion.cliOverrideExample")}
+                </code>
+                <p>{t("textToSpeech.conversion.cliOverrideDescription")}</p>
+                <code className="block overflow-x-auto rounded-lg bg-black/30 p-3 text-[#e8e8e8]">
+                  {t("textToSpeech.conversion.cliPromptExample")}
+                </code>
+                <p>{t("textToSpeech.conversion.cliLongInstructions")}</p>
+                <p>{t("textToSpeech.conversion.cliHistory")}</p>
+                <code className="block overflow-x-auto rounded-lg bg-black/30 p-3 text-[#e8e8e8]">
+                  {t("textToSpeech.conversion.cliRegenerateExample")}
+                </code>
+                <p>{t("textToSpeech.conversion.cliRegenerateDescription")}</p>
+              </div>
+            </details>
+            <SettingContainer
+              grouped
+              layout="stacked"
+              title={t("textToSpeech.conversion.sourceTitle")}
+              description={t("textToSpeech.conversion.sourceDescription")}
+              descriptionMode="inline"
+            >
+              <div className="flex gap-2">
+                <Input
+                  className="min-w-0 flex-1"
+                  readOnly
+                  value={inputPath}
+                  placeholder={t("textToSpeech.conversion.noFileSelected")}
+                />
+                <Button variant="secondary" onClick={() => void chooseInputFile()}>
+                  <FileText className="mr-2 inline h-4 w-4" />
+                  {t("textToSpeech.conversion.chooseFile")}
+                </Button>
+              </div>
+              <div className="mt-3">
+                <Button
+                  variant="secondary"
+                  disabled={!inputPath || inspecting || conversionBusy}
+                  onClick={() => void inspectFile()}
+                >
+                  {inspecting && (
+                    <Loader2 className="mr-2 inline h-4 w-4 animate-spin" />
+                  )}
+                  {t("textToSpeech.conversion.inspect")}
+                </Button>
+              </div>
+              {inspection && (
+                <div className="mt-3 grid grid-cols-3 gap-3">
+                  {[
+                    [
+                      t("textToSpeech.conversion.sourceCharacters"),
+                      characterCount(inspection, "source"),
+                    ],
+                    [
+                      t("textToSpeech.conversion.processedCharacters"),
+                      characterCount(inspection, "processed"),
+                    ],
+                    [t("textToSpeech.conversion.chunks"), chunkCount(inspection)],
+                  ].map(([label, value]) => (
+                    <div
+                      key={String(label)}
+                      className="rounded-lg border border-white/[0.06] bg-black/15 p-3"
+                    >
+                      <div className="text-xs text-[#808080]">{label}</div>
+                      <div className="mt-1 text-lg font-semibold text-[#f5f5f5]">
+                        {value ?? "—"}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </SettingContainer>
+
+            <SettingContainer
+              grouped
+              title={t("textToSpeech.conversion.finalFormatTitle")}
+              description={t("textToSpeech.conversion.finalFormatDescription")}
+            >
+              <Dropdown
+                selectedValue={outputFormat}
+                options={[
+                  { value: "mp3", label: "MP3" },
+                  { value: "wav", label: "WAV" },
+                ]}
+                onSelect={(value) => {
+                  const format = value as TtsOutputFormat;
+                  setOutputFormat(format);
+                  setOutputPath("");
+                  void updateTts({ output_format: format }, "output_format");
+                }}
+                disabled={conversionBusy}
+                dropUp={false}
+              />
+            </SettingContainer>
+            {outputFormat === "mp3" && (
+              <SettingContainer
+                grouped
+                title={t("textToSpeech.conversion.bitrateTitle")}
+                description={t("textToSpeech.conversion.bitrateDescription")}
+              >
+                <Dropdown
+                  selectedValue={String(mp3Bitrate)}
+                  options={BITRATES.map((bitrate) => ({
+                    value: String(bitrate),
+                    label: `${bitrate} kb/s`,
+                  }))}
+                  onSelect={(value) => {
+                    const bitrate = Number(value);
+                    setMp3Bitrate(bitrate);
+                    void updateTts(
+                      { mp3_bitrate_kbps: bitrate },
+                      "mp3_bitrate_kbps",
+                    );
+                  }}
+                  disabled={conversionBusy}
+                  dropUp={false}
+                />
+              </SettingContainer>
+            )}
+            <SettingContainer
+              grouped
+              layout="stacked"
+              title={t("textToSpeech.conversion.outputTitle")}
+              description={t("textToSpeech.conversion.outputDescription")}
+              descriptionMode="inline"
+            >
+              <div className="flex gap-2">
+                <Input
+                  className="min-w-0 flex-1"
+                  readOnly
+                  value={outputPath}
+                  placeholder={t("textToSpeech.conversion.noOutputSelected")}
+                />
+                <Button
+                  variant="secondary"
+                  disabled={!inputPath || conversionBusy}
+                  onClick={() => void chooseOutputFile()}
+                >
+                  <FileAudio className="mr-2 inline h-4 w-4" />
+                  {t("textToSpeech.conversion.saveAs")}
+                </Button>
+              </div>
+            </SettingContainer>
+
+            {(conversionBusy || conversionProgress) && (
+              <div className="space-y-2 px-6 py-4">
+                <div className="flex items-center justify-between text-xs text-[#b8b8b8]">
+                  <span>
+                    {conversionStatus}{" "}
+                    {totalChunks > 0
+                      ? t("textToSpeech.conversion.chunkProgress", {
+                          completed: completedChunks,
+                          total: totalChunks,
+                        })
+                      : ""}
+                  </span>
+                  <span>{progressPercent}%</span>
+                </div>
+                <div className="h-2 overflow-hidden rounded-full bg-[#252525]">
+                  <div
+                    className="h-full rounded-full bg-[#9b5de5] transition-[width]"
+                    style={{ width: `${progressPercent}%` }}
+                  />
+                </div>
+                {conversionProgress?.message && (
+                  <p className="text-xs text-[#a0a0a0]">
+                    {conversionProgress.message}
+                  </p>
+                )}
+              </div>
+            )}
+
+            <div className="flex flex-wrap items-center gap-3 px-6 py-4">
+              <Button
+                disabled={!inspection || !outputPath || conversionBusy}
+                onClick={() => void convertFile()}
+              >
+                {conversionBusy && (
+                  <Loader2 className="mr-2 inline h-4 w-4 animate-spin" />
+                )}
+                {t("textToSpeech.conversion.convert")}
+              </Button>
+              {conversionBusy && (
+                <Button
+                  variant="danger"
+                  disabled={!operationId}
+                  onClick={() => void cancelConversion()}
+                >
+                  {t("textToSpeech.conversion.cancel")}
+                </Button>
+              )}
+            </div>
+
+            {conversionError && (
+              <div
+                role="alert"
+                className="flex items-start gap-2 px-6 py-4 text-sm text-red-300"
+              >
+                <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+                <span>{conversionError}</span>
+              </div>
+            )}
+            {completedPath && (
+              <div
+                role="status"
+                aria-live="polite"
+                className="flex items-start gap-2 px-6 py-4 text-sm text-green-300"
+              >
+                <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />
+                <span className="min-w-0 break-all">
+                  {t("textToSpeech.conversion.completed", {
+                    path: completedPath,
+                  })}
+                </span>
+              </div>
+            )}
+          </SettingsGroup>
+
+          <TtsFolderAutomation
+            tts={tts}
+            savingField={savingField}
+            updateTts={updateTts}
+          />
+        </>
+      )}
 
       <SettingsGroup
         title={t("textToSpeech.preprocessing.title")}
@@ -1410,7 +2348,13 @@ export const TextToSpeechSettings: React.FC = () => {
             max: 10000,
             step: 50,
           },
-        ].map((item) => (
+        ]
+          .filter((item) =>
+            mode === "files"
+              ? item.key !== "interactive_target_chars"
+              : item.key !== "file_target_chars",
+          )
+          .map((item) => (
           <SettingContainer
             key={item.key}
             grouped
@@ -1442,240 +2386,23 @@ export const TextToSpeechSettings: React.FC = () => {
         ))}
       </SettingsGroup>
 
-      <TtsFolderAutomation
-        tts={tts}
-        savingField={savingField}
-        updateTts={updateTts}
-      />
-
-      <SettingsGroup
-        title={t("textToSpeech.conversion.title")}
-        description={t("textToSpeech.conversion.description")}
-      >
-        <details className="group border-b border-white/[0.05] px-6 py-4">
-          <summary className="cursor-pointer select-none text-sm font-medium text-[#d7b9ff]">
-            {t("textToSpeech.conversion.cliHelpTitle")}
-          </summary>
-          <div className="mt-3 space-y-2 text-xs leading-relaxed text-[#a0a0a0]">
-            <p>{t("textToSpeech.conversion.cliHelpDescription")}</p>
-            <code className="block overflow-x-auto rounded-lg bg-black/30 p-3 text-[#e8e8e8]">
-              {t("textToSpeech.conversion.cliExample")}
-            </code>
-            <code className="block overflow-x-auto rounded-lg bg-black/30 p-3 text-[#e8e8e8]">
-              {t("textToSpeech.conversion.cliPromptExample")}
-            </code>
-            <p>{t("textToSpeech.conversion.cliLongInstructions")}</p>
-            <p>{t("textToSpeech.conversion.cliHistory")}</p>
-            <code className="block overflow-x-auto rounded-lg bg-black/30 p-3 text-[#e8e8e8]">
-              {t("textToSpeech.conversion.cliRegenerateExample")}
-            </code>
-            <p>{t("textToSpeech.conversion.cliRegenerateDescription")}</p>
-          </div>
-        </details>
-        <SettingContainer
-          grouped
-          layout="stacked"
-          title={t("textToSpeech.conversion.sourceTitle")}
-          description={t("textToSpeech.conversion.sourceDescription")}
-          descriptionMode="inline"
-        >
-          <div className="flex gap-2">
-            <Input
-              className="min-w-0 flex-1"
-              readOnly
-              value={inputPath}
-              placeholder={t("textToSpeech.conversion.noFileSelected")}
-            />
-            <Button variant="secondary" onClick={() => void chooseInputFile()}>
-              <FileText className="mr-2 inline h-4 w-4" />
-              {t("textToSpeech.conversion.chooseFile")}
-            </Button>
-          </div>
-          <div className="mt-3">
-            <Button
-              variant="secondary"
-              disabled={!inputPath || inspecting || conversionBusy}
-              onClick={() => void inspectFile()}
-            >
-              {inspecting && (
-                <Loader2 className="mr-2 inline h-4 w-4 animate-spin" />
-              )}
-              {t("textToSpeech.conversion.inspect")}
-            </Button>
-          </div>
-          {inspection && (
-            <div className="mt-3 grid grid-cols-3 gap-3">
-              {[
-                [
-                  t("textToSpeech.conversion.sourceCharacters"),
-                  characterCount(inspection, "source"),
-                ],
-                [
-                  t("textToSpeech.conversion.processedCharacters"),
-                  characterCount(inspection, "processed"),
-                ],
-                [t("textToSpeech.conversion.chunks"), chunkCount(inspection)],
-              ].map(([label, value]) => (
-                <div
-                  key={String(label)}
-                  className="rounded-lg border border-white/[0.06] bg-black/15 p-3"
-                >
-                  <div className="text-xs text-[#808080]">{label}</div>
-                  <div className="mt-1 text-lg font-semibold text-[#f5f5f5]">
-                    {value ?? "—"}
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </SettingContainer>
-
-        <SettingContainer
-          grouped
-          title={t("textToSpeech.conversion.finalFormatTitle")}
-          description={t("textToSpeech.conversion.finalFormatDescription")}
-        >
-          <Dropdown
-            selectedValue={outputFormat}
-            options={[
-              { value: "mp3", label: "MP3" },
-              { value: "wav", label: "WAV" },
-            ]}
-            onSelect={(value) => {
-              const format = value as TtsOutputFormat;
-              setOutputFormat(format);
-              setOutputPath("");
-              void updateTts({ output_format: format }, "output_format");
-            }}
-            disabled={conversionBusy}
-            dropUp={false}
-          />
-        </SettingContainer>
-        {outputFormat === "mp3" && (
-          <SettingContainer
-            grouped
-            title={t("textToSpeech.conversion.bitrateTitle")}
-            description={t("textToSpeech.conversion.bitrateDescription")}
-          >
-            <Dropdown
-              selectedValue={String(mp3Bitrate)}
-              options={BITRATES.map((bitrate) => ({
-                value: String(bitrate),
-                label: `${bitrate} kb/s`,
-              }))}
-              onSelect={(value) => {
-                const bitrate = Number(value);
-                setMp3Bitrate(bitrate);
-                void updateTts(
-                  { mp3_bitrate_kbps: bitrate },
-                  "mp3_bitrate_kbps",
-                );
-              }}
-              disabled={conversionBusy}
-              dropUp={false}
-            />
-          </SettingContainer>
-        )}
-        <SettingContainer
-          grouped
-          layout="stacked"
-          title={t("textToSpeech.conversion.outputTitle")}
-          description={t("textToSpeech.conversion.outputDescription")}
-          descriptionMode="inline"
-        >
-          <div className="flex gap-2">
-            <Input
-              className="min-w-0 flex-1"
-              readOnly
-              value={outputPath}
-              placeholder={t("textToSpeech.conversion.noOutputSelected")}
-            />
-            <Button
-              variant="secondary"
-              disabled={!inputPath || conversionBusy}
-              onClick={() => void chooseOutputFile()}
-            >
-              <FileAudio className="mr-2 inline h-4 w-4" />
-              {t("textToSpeech.conversion.saveAs")}
-            </Button>
-          </div>
-        </SettingContainer>
-
-        {(conversionBusy || conversionProgress) && (
-          <div className="space-y-2 px-6 py-4">
-            <div className="flex items-center justify-between text-xs text-[#b8b8b8]">
-              <span>
-                {conversionStatus}{" "}
-                {totalChunks > 0
-                  ? t("textToSpeech.conversion.chunkProgress", {
-                      completed: completedChunks,
-                      total: totalChunks,
-                    })
-                  : ""}
-              </span>
-              <span>{progressPercent}%</span>
-            </div>
-            <div className="h-2 overflow-hidden rounded-full bg-[#252525]">
-              <div
-                className="h-full rounded-full bg-[#9b5de5] transition-[width]"
-                style={{ width: `${progressPercent}%` }}
-              />
-            </div>
-            {conversionProgress?.message && (
-              <p className="text-xs text-[#a0a0a0]">
-                {conversionProgress.message}
-              </p>
-            )}
-          </div>
-        )}
-
-        <div className="flex flex-wrap items-center gap-3 px-6 py-4">
-          <Button
-            disabled={!inspection || !outputPath || conversionBusy}
-            onClick={() => void convertFile()}
-          >
-            {conversionBusy && (
-              <Loader2 className="mr-2 inline h-4 w-4 animate-spin" />
-            )}
-            {t("textToSpeech.conversion.convert")}
-          </Button>
-          {conversionBusy && (
-            <Button
-              variant="danger"
-              disabled={!operationId}
-              onClick={() => void cancelConversion()}
-            >
-              {t("textToSpeech.conversion.cancel")}
-            </Button>
-          )}
-        </div>
-
-        {conversionError && (
-          <div
-            role="alert"
-            className="flex items-start gap-2 px-6 py-4 text-sm text-red-300"
-          >
-            <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
-            <span>{conversionError}</span>
-          </div>
-        )}
-        {completedPath && (
-          <div
-            role="status"
-            aria-live="polite"
-            className="flex items-start gap-2 px-6 py-4 text-sm text-green-300"
-          >
-            <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />
-            <span className="min-w-0 break-all">
-              {t("textToSpeech.conversion.completed", {
-                path: completedPath,
-              })}
-            </span>
-          </div>
-        )}
-      </SettingsGroup>
-
-      <TtsHistory tts={tts} savingField={savingField} updateTts={updateTts} />
+      {mode === "interactive" && (
+        <TtsHistory
+          scope="interactive"
+          tts={tts}
+          savingField={savingField}
+          onAvailabilityChange={handleInteractiveHistoryAvailability}
+          updateTts={updateTts}
+        />
+      )}
+      {mode === "files" && (
+        <TtsHistory
+          scope="file"
+          tts={tts}
+          savingField={savingField}
+          updateTts={updateTts}
+        />
+      )}
     </div>
   );
 };

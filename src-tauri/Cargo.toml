@@ -60,7 +60,7 @@ pulldown-cmark = { version = "0.13", default-features = false }
 libc = "0.2"
 log = "0.4.25"
 env_filter = "0.1.0"
-tokio = { version = "1.43.0", features = ["rt-multi-thread", "time", "sync", "net"] }
+tokio = { version = "1.43.0", features = ["rt-multi-thread", "time", "sync", "net", "process", "io-util"] }
 tokio-util = "0.7"
 vad-rs = { git = "https://github.com/cjpais/vad-rs", default-features = false }
 enigo = "0.6.1"
@@ -138,8 +138,14 @@ windows = { version = "0.61.3", features = [
   "Win32_Graphics_Dxgi_Common",
   "Wdk_Graphics_Direct3D",
   "Foundation_Collections",
+  "Foundation",
+  "Media_Core",
+  "Media_SpeechSynthesis",
+  "Storage_Streams",
+  "Win32_System_WinRT",
   "Media_Control",
 ] }
+windows-future = "0.2.1"
 screenshots = "0.8"
 winreg = "0.55"
 

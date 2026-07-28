@@ -1245,8 +1245,15 @@ export const TranscriptionProfiles: React.FC = () => {
     getModelInfo,
     settings,
   ]);
+  const openAiTranscriptionOnlyModel =
+    activeProvider === "remote_openai_compatible" &&
+    ["gpt-transcribe", "gpt-live-transcribe", "gpt-realtime-whisper"].includes(
+      activeModelId.toLowerCase(),
+    );
   const supportsTranslation =
-    activeProvider !== "remote_soniox" && activeProvider !== "remote_deepgram";
+    activeProvider !== "remote_soniox" &&
+    activeProvider !== "remote_deepgram" &&
+    !openAiTranscriptionOnlyModel;
   const isSonioxProvider = activeProvider === "remote_soniox";
   const isLiveCloudNoPostProcessProvider =
     activeProvider === "remote_soniox" || activeProvider === "remote_deepgram";

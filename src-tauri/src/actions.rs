@@ -87,6 +87,7 @@ struct SendScreenshotToExtensionAction;
 struct RepastLastAction;
 struct ReadClipboardAction;
 struct ReadSelectionTtsAction;
+struct TtsPlayHistoryFallbackAction;
 
 const REPASTE_LAST_PRE_PASTE_DELAY_MS: u64 = 100;
 
@@ -1848,61 +1849,46 @@ async fn perform_transcription_for_profile_with_retry_action(
         let remote_manager = app.state::<Arc<RemoteSttManager>>();
         let operation_id = remote_manager.start_operation();
 
-        let result = if is_openai_realtime_whisper_selected(settings) {
-            match crate::managers::remote_stt::get_remote_stt_api_key(&settings.remote_stt) {
-                Ok(api_key) => {
-                    let openai_realtime_whisper_manager =
-                        app.state::<Arc<OpenAiRealtimeWhisperManager>>();
-                    openai_realtime_whisper_manager
-                        .transcribe_flattened(
-                            &samples,
-                            &api_key,
-                            build_openai_realtime_whisper_options(settings, &language),
-                        )
-                        .await
-                }
-                Err(err) => Err(err),
-            }
-        } else {
-            let prompt = crate::settings::resolve_stt_prompt(
-                profile,
-                &settings.transcription_prompts,
-                &settings.remote_stt.model_id,
-            );
+        let prompt = crate::settings::resolve_stt_prompt(
+            profile,
+            &settings.transcription_prompts,
+            &settings.remote_stt.model_id,
+        );
 
-            remote_manager
-                .transcribe(
-                    &settings.remote_stt,
-                    &samples,
-                    prompt,
-                    Some(language.clone()),
-                    translate_to_english,
-                )
-                .await
-        }
-        .map(|text| {
-            // Apply custom word corrections
-            let corrected = if settings.custom_words_enabled && !settings.custom_words.is_empty() {
-                apply_custom_words(
-                    &text,
-                    &settings.custom_words,
-                    settings.word_correction_threshold,
-                    settings.custom_words_ngram_enabled,
-                )
-            } else {
-                text
-            };
-            // Apply filler word filter (if enabled)
-            if settings.filler_word_filter_enabled {
-                crate::audio_toolkit::filter_transcription_output(
-                    &corrected,
-                    language.as_str(),
-                    &settings.custom_filler_words,
-                )
-            } else {
-                corrected
-            }
-        });
+        let result = remote_manager
+            .transcribe_with_operation(
+                operation_id,
+                &settings.remote_stt,
+                &samples,
+                prompt,
+                Some(language.clone()),
+                translate_to_english,
+            )
+            .await
+            .map(|text| {
+                // Apply custom word corrections
+                let corrected =
+                    if settings.custom_words_enabled && !settings.custom_words.is_empty() {
+                        apply_custom_words(
+                            &text,
+                            &settings.custom_words,
+                            settings.word_correction_threshold,
+                            settings.custom_words_ngram_enabled,
+                        )
+                    } else {
+                        text
+                    };
+                // Apply filler word filter (if enabled)
+                if settings.filler_word_filter_enabled {
+                    crate::audio_toolkit::filter_transcription_output(
+                        &corrected,
+                        language.as_str(),
+                        &settings.custom_filler_words,
+                    )
+                } else {
+                    corrected
+                }
+            });
 
         // Check if operation was cancelled while we were waiting
         if remote_manager.is_cancelled(operation_id) {
@@ -4802,10 +4788,9 @@ fn end_streaming_paste_session_after_main_thread_queue(
 ) -> bool {
     let app_for_restore = app.clone();
     if let Err(err) = run_on_main_thread_sync(app, timeout_ms, move || {
-        if let Err(restore_err) = crate::clipboard::end_streaming_paste_session_if_matches(
-            &app_for_restore,
-            operation_id,
-        ) {
+        if let Err(restore_err) =
+            crate::clipboard::end_streaming_paste_session_if_matches(&app_for_restore, operation_id)
+        {
             warn!(
                 "Failed to restore clipboard after streaming paste session: {}",
                 restore_err
@@ -5062,7 +5047,12 @@ pub(crate) fn build_openai_options_for_live_sound(
         .as_ref()
         .map(|p| p.language.clone())
         .unwrap_or_else(|| settings.selected_language.clone());
-    build_openai_realtime_whisper_options(settings, &language)
+    let prompt = crate::settings::resolve_stt_prompt(
+        profile,
+        &settings.transcription_prompts,
+        &settings.remote_stt.model_id,
+    );
+    build_openai_realtime_whisper_options(settings, &language, prompt)
 }
 
 fn should_use_live_streaming(settings: &AppSettings) -> bool {
@@ -5140,6 +5130,11 @@ fn setup_and_start_live(
         .as_ref()
         .map(|p| p.language.clone())
         .unwrap_or_else(|| settings.selected_language.clone());
+    let openai_prompt = crate::settings::resolve_stt_prompt(
+        profile,
+        &settings.transcription_prompts,
+        &settings.remote_stt.model_id,
+    );
 
     match settings.transcription_provider {
         TranscriptionProvider::RemoteSoniox => {
@@ -5181,7 +5176,7 @@ fn setup_and_start_live(
         TranscriptionProvider::RemoteOpenAiCompatible
             if should_use_openai_realtime_whisper_live(settings) =>
         {
-            let options = build_openai_realtime_whisper_options(settings, &language);
+            let options = build_openai_realtime_whisper_options(settings, &language, openai_prompt);
             let openai_realtime_whisper_manager =
                 Arc::clone(&app.state::<Arc<OpenAiRealtimeWhisperManager>>());
             let api_key = crate::managers::remote_stt::get_remote_stt_api_key(&settings.remote_stt)
@@ -5372,9 +5367,12 @@ fn build_deepgram_realtime_options(
 fn build_openai_realtime_whisper_options(
     settings: &AppSettings,
     language: &str,
+    prompt: Option<String>,
 ) -> OpenAiRealtimeWhisperOptions {
     OpenAiRealtimeWhisperOptions {
+        model: settings.remote_stt.model_id.clone(),
         language: Some(language.to_string()),
+        prompt,
         delay: settings.openai_realtime_whisper_delay,
     }
 }
@@ -6269,10 +6267,15 @@ impl ShortcutAction for TranscribeAction {
                         }) as OpenAiRealtimeWhisperFinalChunkCallback
                     });
 
+                    let prompt = crate::settings::resolve_stt_prompt(
+                        profile,
+                        &settings.transcription_prompts,
+                        &settings.remote_stt.model_id,
+                    );
                     let start_result = openai_realtime_whisper_manager.start_session(
                         &binding_id,
                         &api_key,
-                        build_openai_realtime_whisper_options(&settings, &language),
+                        build_openai_realtime_whisper_options(&settings, &language, prompt),
                         chunk_callback,
                     );
 
@@ -6954,8 +6957,7 @@ impl ShortcutAction for TranscribeAction {
         let recording_settings = stop_context.recording_settings.clone();
         let operation_stamp = stop_context.operation_stamp();
         let recording_operation_id = stop_context.operation_id;
-        let streaming_clipboard_timeout_ms =
-            recording_settings.paste_delay_ms.saturating_add(5000);
+        let streaming_clipboard_timeout_ms = recording_settings.paste_delay_ms.saturating_add(5000);
         let native_streaming_live_output =
             native_streaming_live_output_enabled(&recording_settings)
                 && local_model_supports_native_streaming(app, &recording_settings);
@@ -7001,10 +7003,9 @@ impl ShortcutAction for TranscribeAction {
                 }
             }
             if is_soniox_streaming_insert && !preview_output_only_enabled {
-                if let Err(e) = crate::clipboard::begin_streaming_paste_session(
-                    &ah,
-                    recording_operation_id,
-                ) {
+                if let Err(e) =
+                    crate::clipboard::begin_streaming_paste_session(&ah, recording_operation_id)
+                {
                     warn!("Failed to begin streaming clipboard session: {}", e);
                 }
             }
@@ -8587,6 +8588,21 @@ impl ShortcutAction for ReadSelectionTtsAction {
     }
 }
 
+impl ShortcutAction for TtsPlayHistoryFallbackAction {
+    fn start(&self, app: &AppHandle, _binding_id: &str, _shortcut_str: &str) {
+        if let Err(error) = crate::commands::tts::play_pause_or_replay_latest_history(app) {
+            log::warn!("TTS Play history fallback was unavailable: {error}");
+            let _ = app.emit("tts-error", error);
+        }
+    }
+
+    fn stop(&self, _app: &AppHandle, _binding_id: &str, _shortcut_str: &str) {}
+
+    fn is_instant(&self) -> bool {
+        true
+    }
+}
+
 // ============================================================================
 // Cycle Transcription Profile Action
 // ============================================================================
@@ -9590,6 +9606,10 @@ pub static ACTION_MAP: Lazy<HashMap<String, Arc<dyn ShortcutAction>>> = Lazy::ne
     map.insert(
         "read_selection_tts".to_string(),
         Arc::new(ReadSelectionTtsAction) as Arc<dyn ShortcutAction>,
+    );
+    map.insert(
+        crate::settings::TTS_PLAY_HISTORY_FALLBACK_BINDING_ID.to_string(),
+        Arc::new(TtsPlayHistoryFallbackAction) as Arc<dyn ShortcutAction>,
     );
     map.insert(
         "test".to_string(),
