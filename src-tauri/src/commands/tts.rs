@@ -1,10 +1,13 @@
+use crate::managers::edge_tts::{
+    voice_language as edge_voice_language, DEFAULT_EDGE_TTS_VOICE, EDGE_TTS_MODEL,
+};
 use crate::managers::local_kokoro::{KOKORO_MODEL_REPOSITORY, KOKORO_MODEL_REVISION};
 use crate::managers::local_tts::{
     LocalTtsKind, LocalTtsStatus, LOCAL_TTS_MODEL_REPO, LOCAL_TTS_MODEL_REVISION,
 };
 use crate::managers::tts::{
     FileConversionResult, TextFileInspection, TtsChunkReady, TtsManager, TtsOperationKind,
-    TtsPhase, TtsState, SONIOX_TTS_API_KEY_MAX_CHARS, SUPPORTED_MP3_BITRATES,
+    TtsPhase, TtsState, TtsVoiceCatalog, SONIOX_TTS_API_KEY_MAX_CHARS, SUPPORTED_MP3_BITRATES,
     TTS_EVENT_CHUNK_READY, TTS_EVENT_STATE,
 };
 use crate::managers::tts_history::{
@@ -15,8 +18,8 @@ use crate::managers::tts_llm;
 use crate::managers::windows_tts::{self, WindowsVoiceCatalog};
 use crate::settings::{
     get_settings, write_settings, LlmPostProcessBenchmarkResult, TtsLlmScope, TtsOperationScope,
-    TtsOutputFormat, TtsProvider, TtsScopeSynthesisSettings, TtsSettings, TtsSynthesisConfig,
-    APPLE_INTELLIGENCE_PROVIDER_ID,
+    TtsOutputFormat, TtsPlaybackEffect, TtsProvider, TtsScopeSynthesisSettings, TtsSettings,
+    TtsSynthesisConfig, APPLE_INTELLIGENCE_PROVIDER_ID,
 };
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
@@ -40,6 +43,23 @@ static TTS_HISTORY_REPLAY_GENERATION: AtomicU64 = AtomicU64::new(0);
 #[specta::specta]
 pub async fn get_windows_tts_voice_catalog() -> WindowsVoiceCatalog {
     windows_tts::voice_catalog().await
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn get_tts_voice_catalog(
+    app: AppHandle,
+    provider: TtsProvider,
+    scope: Option<TtsOperationScope>,
+) -> Result<TtsVoiceCatalog, String> {
+    let mut settings = get_settings(&app)
+        .tts
+        .effective_for_scope(scope.unwrap_or(TtsOperationScope::Interactive));
+    settings.provider = provider;
+    app.state::<Arc<TtsManager>>()
+        .voice_catalog(&settings)
+        .await
+        .map_err(|error| error.to_string())
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
@@ -73,6 +93,8 @@ pub struct TtsOverlayState {
     pub play_history_when_overlay_closed: bool,
     pub stop_hotkey: String,
     pub autoplay: bool,
+    pub playback_pitch: f32,
+    pub playback_effect: TtsPlaybackEffect,
 }
 
 impl Default for TtsOverlayState {
@@ -93,6 +115,8 @@ impl Default for TtsOverlayState {
             play_history_when_overlay_closed: false,
             stop_hotkey: String::new(),
             autoplay: true,
+            playback_pitch: 1.0,
+            playback_effect: TtsPlaybackEffect::None,
         }
     }
 }
@@ -332,6 +356,8 @@ pub fn play_pause_or_replay_latest_history(app: &AppHandle) -> Result<(), String
             play_history_when_overlay_closed: settings.play_history_when_overlay_closed,
             stop_hotkey: settings.stop_hotkey,
             autoplay: true,
+            playback_pitch: settings.playback_pitch,
+            playback_effect: settings.playback_effect,
         };
         runtime.state.clone()
     };
@@ -464,6 +490,8 @@ fn prepare_overlay(
             play_history_when_overlay_closed: settings.play_history_when_overlay_closed,
             stop_hotkey: settings.stop_hotkey.clone(),
             autoplay: settings.autoplay,
+            playback_pitch: settings.playback_pitch,
+            playback_effect: settings.playback_effect,
         };
         runtime.state.clone()
     };
@@ -478,6 +506,7 @@ fn overlay_identity(settings: &TtsSettings) -> TtsOverlayIdentity {
             settings.deepgram_model.clone(),
         ),
         TtsProvider::OpenAi => (settings.openai_model.clone(), settings.openai_voice.clone()),
+        TtsProvider::Edge => (EDGE_TTS_MODEL.to_string(), settings.edge_voice.clone()),
         TtsProvider::LocalQwen => (
             format!("{LOCAL_TTS_MODEL_REPO}@{LOCAL_TTS_MODEL_REVISION}"),
             settings.local_qwen_voice.clone(),
@@ -656,6 +685,7 @@ fn parse_provider(provider: &str) -> Result<TtsProvider, String> {
         "soniox" => Ok(TtsProvider::Soniox),
         "deepgram" => Ok(TtsProvider::Deepgram),
         "openai" | "open_ai" => Ok(TtsProvider::OpenAi),
+        "edge" | "edge_tts" | "edge-tts" => Ok(TtsProvider::Edge),
         "local_qwen" | "qwen" | "qwen3" => Ok(TtsProvider::LocalQwen),
         "local_kokoro" | "kokoro" | "kokoro82m" => Ok(TtsProvider::LocalKokoro),
         "windows" | "winrt" => Ok(TtsProvider::Windows),
@@ -670,6 +700,8 @@ fn normalize_settings(mut settings: TtsSettings) -> TtsSettings {
     settings.deepgram_model = nonempty_setting(settings.deepgram_model, "aura-2-thalia-en");
     settings.openai_model = nonempty_setting(settings.openai_model, "gpt-4o-mini-tts");
     settings.openai_voice = nonempty_setting(settings.openai_voice, "marin");
+    settings.edge_voice = nonempty_setting(settings.edge_voice, DEFAULT_EDGE_TTS_VOICE);
+    settings.edge_voice_language = edge_voice_language(&settings.edge_voice);
     settings.local_qwen_voice = nonempty_setting(settings.local_qwen_voice, "Ryan");
     settings.local_qwen_language = nonempty_setting(settings.local_qwen_language, "Auto");
     settings.local_kokoro_voice = nonempty_setting(settings.local_kokoro_voice, "af_maple");
@@ -734,10 +766,12 @@ fn normalize_settings(mut settings: TtsSettings) -> TtsSettings {
         TtsProvider::Soniox => settings.speed.clamp(0.7, 1.3),
         TtsProvider::Deepgram => settings.speed.clamp(0.7, 1.5),
         TtsProvider::OpenAi => settings.speed.clamp(0.25, 4.0),
+        TtsProvider::Edge => settings.speed.clamp(0.5, 2.0),
         TtsProvider::LocalQwen => settings.speed.clamp(0.5, 2.0),
         TtsProvider::LocalKokoro => settings.speed.clamp(0.5, 2.0),
         TtsProvider::Windows => settings.speed.clamp(0.5, 2.0),
     };
+    settings.playback_pitch = settings.playback_pitch.clamp(0.5, 2.0);
     if !SUPPORTED_MP3_BITRATES.contains(&settings.mp3_bitrate_kbps) {
         settings.mp3_bitrate_kbps = 256;
     }
@@ -793,6 +827,14 @@ fn normalize_synthesis_config(
             config.voice = nonempty_setting(std::mem::take(&mut config.voice), "marin");
             config.language.clear();
         }
+        TtsProvider::Edge => {
+            config.model = EDGE_TTS_MODEL.to_string();
+            config.voice = nonempty_setting(
+                std::mem::take(&mut config.voice),
+                crate::managers::edge_tts::DEFAULT_EDGE_TTS_VOICE,
+            );
+            config.language = edge_voice_language(&config.voice);
+        }
         TtsProvider::LocalQwen => {
             config.model = "qwen3-tts-12hz-0.6b-customvoice".to_string();
             config.voice = nonempty_setting(std::mem::take(&mut config.voice), "Ryan");
@@ -813,9 +855,10 @@ fn normalize_synthesis_config(
         TtsProvider::Soniox => config.speed.clamp(0.7, 1.3),
         TtsProvider::Deepgram => config.speed.clamp(0.7, 1.5),
         TtsProvider::OpenAi => config.speed.clamp(0.25, 4.0),
-        TtsProvider::LocalQwen | TtsProvider::LocalKokoro | TtsProvider::Windows => {
-            config.speed.clamp(0.5, 2.0)
-        }
+        TtsProvider::Edge
+        | TtsProvider::LocalQwen
+        | TtsProvider::LocalKokoro
+        | TtsProvider::Windows => config.speed.clamp(0.5, 2.0),
     };
     config.target_chars = config.target_chars.clamp(
         50,
@@ -1012,6 +1055,8 @@ fn is_tts_synthesis_field(field: &str) -> bool {
             | "deepgram_model"
             | "openai_model"
             | "openai_voice"
+            | "edge_voice"
+            | "edge_voice_language"
             | "local_qwen_voice"
             | "local_qwen_language"
             | "local_kokoro_voice"
@@ -1164,6 +1209,8 @@ pub fn update_tts_settings(
         runtime.state.play_pause_hotkey = settings.play_pause_hotkey.clone();
         runtime.state.play_history_when_overlay_closed = settings.play_history_when_overlay_closed;
         runtime.state.stop_hotkey = settings.stop_hotkey.clone();
+        runtime.state.playback_pitch = settings.playback_pitch;
+        runtime.state.playback_effect = settings.playback_effect;
         runtime.state.clone()
     };
     emit_overlay_state(&app, &overlay_snapshot);
@@ -1374,14 +1421,33 @@ pub fn get_local_tts_status(
 #[specta::specta]
 pub async fn install_local_tts(
     kind: LocalTtsKind,
+    source_trusted: bool,
+    risk_acknowledged: bool,
     app: AppHandle,
     manager: tauri::State<'_, Arc<TtsManager>>,
 ) -> Result<LocalTtsStatus, String> {
+    require_local_tts_install_consent(source_trusted, risk_acknowledged)?;
     let reserve_mb = get_settings(&app).tts.disk_reserve_mb;
     manager
         .install_local_tts(kind, reserve_mb)
         .await
         .map_err(|error| error.to_string())
+}
+
+fn require_local_tts_install_consent(
+    source_trusted: bool,
+    risk_acknowledged: bool,
+) -> Result<(), String> {
+    if !source_trusted {
+        return Err("Confirm that you trust the selected model source before downloading".into());
+    }
+    if !risk_acknowledged {
+        return Err(
+            "Confirm that you understand the local model installation risks before downloading"
+                .into(),
+        );
+    }
+    Ok(())
 }
 
 #[tauri::command]
@@ -1588,6 +1654,14 @@ pub fn tts_overlay_playback_state(
 mod tests {
     use super::*;
     use std::time::Duration;
+
+    #[test]
+    fn local_tts_install_requires_both_explicit_confirmations() {
+        assert!(require_local_tts_install_consent(false, false).is_err());
+        assert!(require_local_tts_install_consent(true, false).is_err());
+        assert!(require_local_tts_install_consent(false, true).is_err());
+        assert!(require_local_tts_install_consent(true, true).is_ok());
+    }
 
     #[test]
     fn latency_trace_records_only_the_first_chunk_and_first_playback() {

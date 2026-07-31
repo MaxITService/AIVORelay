@@ -315,6 +315,13 @@ pub fn synthesis_signature(chunks: &[TtsChunk], settings: &TtsSettings) -> Resul
             },
             settings.speed.clamp(0.25, 4.0),
         ),
+        TtsProvider::Edge => (
+            crate::managers::edge_tts::EDGE_TTS_MODEL,
+            settings.edge_voice_language.trim(),
+            settings.edge_voice.trim(),
+            "",
+            settings.speed.clamp(0.5, 2.0),
+        ),
         TtsProvider::LocalQwen => (
             crate::managers::local_tts::LOCAL_TTS_MODEL_REVISION,
             settings.local_qwen_language.trim(),

@@ -29,12 +29,20 @@ import { Input } from "@/components/ui/Input";
 import { SettingContainer } from "@/components/ui/SettingContainer";
 import { SettingsGroup } from "@/components/ui/SettingsGroup";
 import { ToggleSwitch } from "@/components/ui/ToggleSwitch";
+import { AIVORELAY_TTS_GUIDE_URL } from "@/lib/tts/ttsProviderMetadata";
 import type { TtsLlmPreprocessingSettings } from "./TtsAiCleanup";
+import { TtsHelpDisclosure } from "./TtsHelpDisclosure";
+import { applyPlaybackRate } from "@/lib/utils/playbackRate";
+import {
+  prepareTtsPlaybackSource,
+  type TtsPlaybackEffect,
+} from "@/lib/utils/ttsPlaybackEffects";
 
 type TtsProvider =
   | "soniox"
   | "deepgram"
   | "openai"
+  | "edge"
   | "local_qwen"
   | "local_kokoro"
   | "windows";
@@ -54,6 +62,8 @@ export type TtsHistorySettingsSnapshot = {
   deepgram_model?: string;
   openai_model?: string;
   openai_voice?: string;
+  edge_voice?: string;
+  edge_voice_language?: string;
   local_qwen_voice?: string;
   local_qwen_language?: string;
   local_kokoro_voice?: string;
@@ -64,6 +74,8 @@ export type TtsHistorySettingsSnapshot = {
   selected_prompt_id?: string;
   output_format?: TtsOutputFormat;
   mp3_bitrate_kbps?: number;
+  playback_pitch?: number;
+  playback_effect?: TtsPlaybackEffect;
   prompt_presets?: Array<{
     id: string;
     name: string;
@@ -185,6 +197,8 @@ const providerLabel = (provider: TtsProvider) => {
       return "Deepgram";
     case "openai":
       return "OpenAI";
+    case "edge":
+      return "Edge-TTS (Experimental)";
     case "local_qwen":
       return "Qwen3-TTS (Local)";
     case "local_kokoro":
@@ -208,6 +222,8 @@ const modelForProvider = (
       return tts.deepgram_model;
     case "openai":
       return tts.openai_model;
+    case "edge":
+      return "microsoft-edge-read-aloud";
     case "local_qwen":
       return "Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice";
     case "local_kokoro":
@@ -228,6 +244,8 @@ const voiceForProvider = (
       return tts.deepgram_model;
     case "openai":
       return tts.openai_voice;
+    case "edge":
+      return tts.edge_voice;
     case "local_qwen":
       return tts.local_qwen_voice;
     case "local_kokoro":
@@ -291,6 +309,9 @@ export const TtsHistory: React.FC<TtsHistoryProps> = ({
   const [confirmation, setConfirmation] = useState<Confirmation>(null);
   const [actionMessage, setActionMessage] = useState<ActionMessage>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const playbackAbortRef = useRef<AbortController | null>(null);
+  const playbackObjectUrlRef = useRef<string | null>(null);
+  const playbackPitchCompensationRef = useRef(1);
   const loadedEntryIdRef = useRef<number | null>(null);
   const playbackGenerationRef = useRef(0);
 
@@ -332,6 +353,8 @@ export const TtsHistory: React.FC<TtsHistoryProps> = ({
 
   const stopAudio = useCallback(() => {
     playbackGenerationRef.current += 1;
+    playbackAbortRef.current?.abort();
+    playbackAbortRef.current = null;
     const audio = audioRef.current;
     if (audio) {
       audio.pause();
@@ -339,6 +362,11 @@ export const TtsHistory: React.FC<TtsHistoryProps> = ({
       audio.load();
     }
     audioRef.current = null;
+    if (playbackObjectUrlRef.current) {
+      URL.revokeObjectURL(playbackObjectUrlRef.current);
+      playbackObjectUrlRef.current = null;
+    }
+    playbackPitchCompensationRef.current = 1;
     loadedEntryIdRef.current = null;
     setActiveEntryId(null);
     setLoadedEntryId(null);
@@ -454,7 +482,37 @@ export const TtsHistory: React.FC<TtsHistoryProps> = ({
       if (!audioPath) {
         throw new Error(t("textToSpeech.history.errors.notFound"));
       }
-      const audio = new Audio(convertFileSrc(audioPath, "asset"));
+      const sourceUrl = convertFileSrc(audioPath, "asset");
+      const playbackAbort = new AbortController();
+      playbackAbortRef.current = playbackAbort;
+      let prepared = {
+        url: sourceUrl,
+        objectUrl: null as string | null,
+        pitchCompensation: 1,
+      };
+      try {
+        prepared = await prepareTtsPlaybackSource(
+          sourceUrl,
+          tts.playback_pitch ?? 1,
+          tts.playback_effect ?? "none",
+          playbackAbort.signal,
+        );
+      } catch (error) {
+        if (playbackAbort.signal.aborted) return;
+        console.warn(
+          "Unable to apply optional TTS History playback processing; using the original audio:",
+          error,
+        );
+      }
+      if (playbackGenerationRef.current !== playbackGeneration) {
+        if (prepared.objectUrl) URL.revokeObjectURL(prepared.objectUrl);
+        return;
+      }
+      playbackAbortRef.current = null;
+      playbackObjectUrlRef.current = prepared.objectUrl;
+      playbackPitchCompensationRef.current = prepared.pitchCompensation;
+      const audio = new Audio(prepared.url);
+      applyPlaybackRate(audio, 1 / prepared.pitchCompensation);
       audioRef.current = audio;
       loadedEntryIdRef.current = entry.id;
       setLoadedEntryId(entry.id);
@@ -463,10 +521,14 @@ export const TtsHistory: React.FC<TtsHistoryProps> = ({
       const updateTimeline = () => {
         if (audioRef.current !== audio) return;
         setPlaybackTime(
-          Number.isFinite(audio.currentTime) ? audio.currentTime : 0,
+          Number.isFinite(audio.currentTime)
+            ? audio.currentTime * playbackPitchCompensationRef.current
+            : 0,
         );
         setPlaybackDuration(
-          Number.isFinite(audio.duration) ? audio.duration : 0,
+          Number.isFinite(audio.duration)
+            ? audio.duration * playbackPitchCompensationRef.current
+            : 0,
         );
       };
       audio.onloadedmetadata = updateTimeline;
@@ -520,11 +582,8 @@ export const TtsHistory: React.FC<TtsHistoryProps> = ({
     ) {
       return;
     }
-    const boundedTime = Math.min(
-      playbackDuration,
-      Math.max(0, requestedTime),
-    );
-    audio.currentTime = boundedTime;
+    const boundedTime = Math.min(playbackDuration, Math.max(0, requestedTime));
+    audio.currentTime = boundedTime / playbackPitchCompensationRef.current;
     setPlaybackTime(boundedTime);
   };
 
@@ -695,12 +754,39 @@ export const TtsHistory: React.FC<TtsHistoryProps> = ({
       : Boolean(tts.llm_preprocessing?.file_enabled);
   const regenerationUsesPaidApi =
     providerUsesPaidApi(tts.provider) || currentLlmCleanupEnabled;
+  const regenerationUsesNoKeyNetwork =
+    tts.provider === "edge" && !currentLlmCleanupEnabled;
 
   return (
     <>
       <SettingsGroup
         title={t(`textToSpeech.history.scopes.${scope}.title`)}
         description={t(`textToSpeech.history.scopes.${scope}.description`)}
+        help={
+          <TtsHelpDisclosure
+            summary={t("textToSpeech.help.historySummary")}
+            items={[
+              {
+                term: t("textToSpeech.help.retention"),
+                description: t("textToSpeech.help.retentionDescription"),
+              },
+              {
+                term: t("textToSpeech.help.regeneration"),
+                description: t("textToSpeech.help.regenerationDescription"),
+              },
+              {
+                term: t("textToSpeech.help.export"),
+                description: t("textToSpeech.help.exportDescription"),
+              },
+            ]}
+            links={[
+              {
+                label: t("textToSpeech.help.aivoRelayGuide"),
+                href: AIVORELAY_TTS_GUIDE_URL,
+              },
+            ]}
+          />
+        }
       >
         <ToggleSwitch
           grouped
@@ -995,8 +1081,7 @@ export const TtsHistory: React.FC<TtsHistoryProps> = ({
                               {t("textToSpeech.history.metadata.language")}
                             </dt>
                             <dd className="truncate text-right text-[#c8c8c8]">
-                              {entry.language ||
-                                t("textToSpeech.history.none")}
+                              {entry.language || t("textToSpeech.history.none")}
                             </dd>
                             <dt className="text-[#707070]">
                               {t("textToSpeech.history.metadata.prompt")}
@@ -1030,9 +1115,7 @@ export const TtsHistory: React.FC<TtsHistoryProps> = ({
 
                           <div className="mt-4 flex items-center gap-2">
                             <span className="min-w-9 text-right font-mono text-[11px] tabular-nums text-[#808080]">
-                              {formatPlaybackTime(
-                                isLoaded ? playbackTime : 0,
-                              )}
+                              {formatPlaybackTime(isLoaded ? playbackTime : 0)}
                             </span>
                             <input
                               type="range"
@@ -1169,7 +1252,9 @@ export const TtsHistory: React.FC<TtsHistoryProps> = ({
         message={t(
           regenerationUsesPaidApi
             ? "textToSpeech.history.confirmRegenerate"
-            : "textToSpeech.history.confirmRegenerateOffline",
+            : regenerationUsesNoKeyNetwork
+              ? "textToSpeech.history.confirmRegenerateNoCredits"
+              : "textToSpeech.history.confirmRegenerateOffline",
           {
             provider: tts.provider
               ? providerLabel(tts.provider)
@@ -1185,7 +1270,9 @@ export const TtsHistory: React.FC<TtsHistoryProps> = ({
         confirmText={t(
           regenerationUsesPaidApi
             ? "textToSpeech.history.regenerateAndUseCredits"
-            : "textToSpeech.history.regenerateOffline",
+            : regenerationUsesNoKeyNetwork
+              ? "textToSpeech.history.regenerateNoCredits"
+              : "textToSpeech.history.regenerateOffline",
         )}
         cancelText={t("common.cancel")}
         variant="warning"

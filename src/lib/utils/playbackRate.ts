@@ -9,9 +9,12 @@ export function nextPlaybackRate(current: PlaybackRate): PlaybackRate {
   return PLAYBACK_RATES[(currentIndex + 1) % PLAYBACK_RATES.length];
 }
 
-export function applyPlaybackRate(audio: HTMLAudioElement, rate: PlaybackRate) {
-  audio.defaultPlaybackRate = rate;
-  audio.playbackRate = rate;
+export function applyPlaybackRate(audio: HTMLAudioElement, rate: number) {
+  const normalized = Number.isFinite(rate)
+    ? Math.min(16, Math.max(0.0625, rate))
+    : 1;
+  audio.defaultPlaybackRate = normalized;
+  audio.playbackRate = normalized;
   audio.preservesPitch = true;
 }
 

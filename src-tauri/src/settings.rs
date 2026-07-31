@@ -704,6 +704,7 @@ pub enum TtsProvider {
     Deepgram,
     #[serde(rename = "openai")]
     OpenAi,
+    Edge,
     LocalQwen,
     LocalKokoro,
     Windows,
@@ -721,6 +722,7 @@ impl TtsProvider {
             Self::Soniox => "soniox",
             Self::Deepgram => "deepgram",
             Self::OpenAi => "openai",
+            Self::Edge => "edge",
             Self::LocalQwen => "local_qwen",
             Self::LocalKokoro => "local_kokoro",
             Self::Windows => "windows",
@@ -747,6 +749,20 @@ impl TtsProvider {
     #[allow(dead_code)] // Used by the next downloadable provider registry slice.
     pub fn supports_downloadable_local_runtime(self) -> bool {
         matches!(self, Self::LocalQwen | Self::LocalKokoro)
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Type)]
+#[serde(rename_all = "snake_case")]
+pub enum TtsPlaybackEffect {
+    None,
+    Radio,
+    Retro,
+}
+
+impl Default for TtsPlaybackEffect {
+    fn default() -> Self {
+        Self::None
     }
 }
 
@@ -847,6 +863,11 @@ impl TtsSynthesisConfig {
                 settings.openai_voice.clone(),
                 String::new(),
             ),
+            TtsProvider::Edge => (
+                "microsoft-edge-read-aloud".to_string(),
+                settings.edge_voice.clone(),
+                settings.edge_voice_language.clone(),
+            ),
             TtsProvider::LocalQwen => (
                 "qwen3-tts-12hz-0.6b-customvoice".to_string(),
                 settings.local_qwen_voice.clone(),
@@ -867,9 +888,10 @@ impl TtsSynthesisConfig {
             TtsProvider::Soniox => settings.soniox_key_source,
             TtsProvider::Deepgram => settings.deepgram_key_source,
             TtsProvider::OpenAi => settings.openai_key_source,
-            TtsProvider::LocalQwen | TtsProvider::LocalKokoro | TtsProvider::Windows => {
-                TtsKeySource::Shared
-            }
+            TtsProvider::Edge
+            | TtsProvider::LocalQwen
+            | TtsProvider::LocalKokoro
+            | TtsProvider::Windows => TtsKeySource::Shared,
         };
         let target_chars = match scope {
             TtsOperationScope::Interactive => settings.interactive_target_chars,
@@ -913,6 +935,10 @@ impl TtsSynthesisConfig {
                 settings.openai_model = self.model.clone();
                 settings.openai_voice = self.voice.clone();
                 settings.openai_key_source = self.key_source;
+            }
+            TtsProvider::Edge => {
+                settings.edge_voice = self.voice.clone();
+                settings.edge_voice_language = self.language.clone();
             }
             TtsProvider::LocalQwen => {
                 settings.local_qwen_voice = self.voice.clone();
@@ -1117,6 +1143,10 @@ pub struct TtsSettings {
     pub openai_model: String,
     #[serde(default = "default_tts_openai_voice")]
     pub openai_voice: String,
+    #[serde(default = "default_tts_edge_voice")]
+    pub edge_voice: String,
+    #[serde(default = "default_tts_edge_voice_language")]
+    pub edge_voice_language: String,
     #[serde(default = "default_tts_local_qwen_voice")]
     pub local_qwen_voice: String,
     #[serde(default = "default_tts_local_qwen_language")]
@@ -1170,6 +1200,12 @@ pub struct TtsSettings {
     pub stop_hotkey: String,
     #[serde(default = "default_true")]
     pub autoplay: bool,
+    /// Pitch-only overlay playback transform. The stored/generated audio is unchanged.
+    #[serde(default = "default_tts_playback_pitch")]
+    pub playback_pitch: f32,
+    /// Optional overlay playback effect. The stored/generated audio is unchanged.
+    #[serde(default)]
+    pub playback_effect: TtsPlaybackEffect,
     #[serde(default)]
     pub output_format: TtsOutputFormat,
     #[serde(default = "default_tts_mp3_bitrate_kbps")]
@@ -1214,6 +1250,8 @@ impl Default for TtsSettings {
             deepgram_model: default_tts_deepgram_model(),
             openai_model: default_tts_openai_model(),
             openai_voice: default_tts_openai_voice(),
+            edge_voice: default_tts_edge_voice(),
+            edge_voice_language: default_tts_edge_voice_language(),
             local_qwen_voice: default_tts_local_qwen_voice(),
             local_qwen_language: default_tts_local_qwen_language(),
             local_kokoro_voice: default_tts_local_kokoro_voice(),
@@ -1240,6 +1278,8 @@ impl Default for TtsSettings {
             play_history_when_overlay_closed: false,
             stop_hotkey: default_tts_stop_hotkey(),
             autoplay: true,
+            playback_pitch: default_tts_playback_pitch(),
+            playback_effect: TtsPlaybackEffect::default(),
             output_format: TtsOutputFormat::default(),
             mp3_bitrate_kbps: default_tts_mp3_bitrate_kbps(),
             watch_folder_enabled: false,
@@ -3140,6 +3180,14 @@ fn default_tts_openai_voice() -> String {
     "marin".to_string()
 }
 
+fn default_tts_edge_voice() -> String {
+    "en-US-AriaNeural".to_string()
+}
+
+fn default_tts_edge_voice_language() -> String {
+    "en-US".to_string()
+}
+
 fn default_tts_local_qwen_voice() -> String {
     "Ryan".to_string()
 }
@@ -3157,6 +3205,10 @@ fn default_tts_local_kokoro_language() -> String {
 }
 
 fn default_tts_speed() -> f32 {
+    1.0
+}
+
+fn default_tts_playback_pitch() -> f32 {
     1.0
 }
 
@@ -5623,7 +5675,7 @@ mod tests {
 
         let (settings, repaired) = deserialize_settings_value_with_repair(&value);
 
-        assert!(!repaired);
+        assert!(repaired);
         assert_eq!(settings.selected_model, "keep-existing-model");
         assert!(settings.tts.enabled);
         assert_eq!(settings.tts.provider, TtsProvider::Soniox);
@@ -5654,7 +5706,7 @@ mod tests {
 
         let (settings, repaired) = deserialize_settings_value_with_repair(&value);
 
-        assert!(!repaired);
+        assert!(repaired);
         assert!(!settings.tts.enabled);
         assert_eq!(settings.tts.provider, TtsProvider::Deepgram);
         assert_eq!(settings.tts.deepgram_model, "custom-aura-model");
@@ -5761,6 +5813,37 @@ mod tests {
         assert!(!TtsProvider::OpenAi.supports_instructions("tts-1"));
         assert!(TtsProvider::LocalKokoro.supports_downloadable_local_runtime());
         assert_eq!(TtsProvider::LocalKokoro.as_str(), "local_kokoro");
+        assert_eq!(
+            serde_json::to_string(&TtsProvider::Edge).unwrap(),
+            "\"edge\""
+        );
+        assert!(!TtsProvider::Edge.requires_api_key());
+        assert!(!TtsProvider::Edge.requires_paid_confirmation());
+        assert!(!TtsProvider::Edge.is_local_or_system());
+        assert_eq!(TtsSettings::default().playback_pitch, 1.0);
+        assert_eq!(
+            TtsSettings::default().playback_effect,
+            TtsPlaybackEffect::None
+        );
+    }
+
+    #[test]
+    fn tts_provider_defaults_match_documented_working_choices() {
+        let settings = TtsSettings::default();
+        assert_eq!(settings.provider, TtsProvider::Soniox);
+        assert_eq!(settings.soniox_model, "tts-rt-v1");
+        assert_eq!(settings.soniox_language, "en");
+        assert_eq!(settings.soniox_voice, "Maya");
+        assert_eq!(settings.deepgram_model, "aura-2-thalia-en");
+        assert_eq!(settings.openai_model, "gpt-4o-mini-tts");
+        assert_eq!(settings.openai_voice, "marin");
+        assert_eq!(settings.edge_voice, "en-US-AriaNeural");
+        assert_eq!(settings.edge_voice_language, "en-US");
+        assert_eq!(settings.local_qwen_voice, "Ryan");
+        assert_eq!(settings.local_qwen_language, "Auto");
+        assert_eq!(settings.local_kokoro_voice, "af_maple");
+        assert_eq!(settings.local_kokoro_language, "English");
+        assert_eq!(settings.speed, 1.0);
     }
 
     #[test]

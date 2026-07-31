@@ -5,11 +5,11 @@
 //! already hosts a different ONNX Runtime for speech-to-text.
 
 use super::local_tts::{
-    cancel_if_requested, download_resumable, extract_uv, hide_child_window, permanent_local_error,
-    read_worker_wav, sha256_bytes, transient_local_error, verify_sha256, write_json_atomic,
-    write_owned_marker, LocalTtsAttemptError, LocalTtsKind, LocalTtsStatus, LOCAL_TTS_EVENT_STATUS,
-    LOCAL_TTS_PYTHON_VERSION, LOCAL_TTS_UV_VERSION, UV_WINDOWS_SHA256, UV_WINDOWS_URL,
-    UV_WINDOWS_ZIP_NAME,
+    cancel_if_requested, directory_size_bytes, download_resumable, extract_uv, hide_child_window,
+    permanent_local_error, read_worker_wav, sha256_bytes, transient_local_error, verify_sha256,
+    write_json_atomic, write_owned_marker, LocalTtsAttemptError, LocalTtsKind, LocalTtsStatus,
+    LOCAL_TTS_EVENT_STATUS, LOCAL_TTS_PYTHON_VERSION, LOCAL_TTS_UV_VERSION, UV_WINDOWS_SHA256,
+    UV_WINDOWS_URL, UV_WINDOWS_ZIP_NAME,
 };
 use anyhow::{anyhow, Context, Result};
 use base64::Engine;
@@ -48,7 +48,11 @@ const INSTALL_MANIFEST_VERSION: u32 = 1;
 const WORKER_PROTOCOL_VERSION: u32 = 1;
 const EXPECTED_SAMPLE_RATE: u32 = 24_000;
 const EXPECTED_SPEAKERS: u32 = 103;
-const INSTALL_REQUIRED_BYTES: u64 = 2 * 1024 * 1024 * 1024;
+pub const KOKORO_INSTALL_ESTIMATE_BYTES: u64 = 2 * 1024 * 1024 * 1024;
+pub const KOKORO_MODEL_SOURCE_URL: &str =
+    "https://github.com/k2-fsa/sherpa-onnx/releases/tag/tts-models";
+pub const KOKORO_MODEL_LICENSE_URL: &str =
+    "https://huggingface.co/csukuangfj/kokoro-int8-multi-lang-v1_1/blob/main/LICENSE";
 const WORKER_SOURCE: &str = include_str!("local_kokoro_worker.py");
 const APACHE_LICENSE: &str = include_str!("../../resources/licenses/Apache-2.0.txt");
 const GPL3_LICENSE: &str = include_str!("../../resources/licenses/GPL-3.0.txt");
@@ -235,9 +239,9 @@ impl KokoroTtsRuntime {
             .context("Failed to build Kokoro installer HTTP client")?;
         let runtime = Self {
             app_handle: app_handle.clone(),
+            status: Arc::new(RwLock::new(kokoro_status(&root))),
             root,
             client,
-            status: Arc::new(RwLock::new(kokoro_status())),
             install_cancel: Mutex::new(None),
             worker: tokio::sync::Mutex::new(None),
             request_id: AtomicU64::new(1),
@@ -845,6 +849,10 @@ impl KokoroTtsRuntime {
                 status.total_bytes = KOKORO_MODEL_DOWNLOAD_BYTES;
                 status.percentage = 100.0;
                 status.runtime_profile = "cpu".to_string();
+                if status.installed_size_bytes == 0 {
+                    status.installed_size_bytes = directory_size_bytes(&self.root);
+                }
+                status.model_license_available = self.model_license_path().is_file();
                 status.error = None;
             }
             Err(error) => {
@@ -864,6 +872,8 @@ impl KokoroTtsRuntime {
                 status.total_bytes = KOKORO_MODEL_DOWNLOAD_BYTES;
                 status.percentage = partial as f64 / KOKORO_MODEL_DOWNLOAD_BYTES as f64 * 100.0;
                 status.runtime_profile.clear();
+                status.installed_size_bytes = directory_size_bytes(&self.root);
+                status.model_license_available = self.model_license_path().is_file();
             }
         }
     }
@@ -959,6 +969,10 @@ impl KokoroTtsRuntime {
         self.root.join("install-manifest.json")
     }
 
+    fn model_license_path(&self) -> PathBuf {
+        self.model_dir().join("LICENSE")
+    }
+
     fn write_managed_notices(&self) -> Result<()> {
         let dir = self.root.join("licenses");
         fs::create_dir_all(&dir)?;
@@ -986,7 +1000,7 @@ impl KokoroTtsRuntime {
     }
 }
 
-fn kokoro_status() -> LocalTtsStatus {
+fn kokoro_status(root: &Path) -> LocalTtsStatus {
     LocalTtsStatus {
         kind: LocalTtsKind::Kokoro,
         installed: false,
@@ -999,6 +1013,24 @@ fn kokoro_status() -> LocalTtsStatus {
         model_repository: KOKORO_MODEL_REPOSITORY.to_string(),
         model_revision: KOKORO_MODEL_REVISION.to_string(),
         model_download_bytes: KOKORO_MODEL_DOWNLOAD_BYTES,
+        install_root: root.to_string_lossy().to_string(),
+        installed_size_bytes: 0,
+        estimated_install_bytes: KOKORO_INSTALL_ESTIMATE_BYTES,
+        model_author: "k2-fsa (sherpa-onnx), based on hexgrad Kokoro-82M".to_string(),
+        model_source_url: KOKORO_MODEL_SOURCE_URL.to_string(),
+        model_license_name: "Apache License 2.0".to_string(),
+        model_license_url: KOKORO_MODEL_LICENSE_URL.to_string(),
+        model_license_path: root
+            .join("model")
+            .join("LICENSE")
+            .to_string_lossy()
+            .to_string(),
+        model_license_declaration_path: root
+            .join("model")
+            .join("LICENSE")
+            .to_string_lossy()
+            .to_string(),
+        model_license_available: false,
         error: None,
     }
 }
@@ -1065,7 +1097,7 @@ fn validate_install_manifest(manifest: &KokoroInstallManifest) -> Result<()> {
 }
 
 fn required_install_bytes(disk_reserve_mb: u32) -> u64 {
-    INSTALL_REQUIRED_BYTES.saturating_add(u64::from(disk_reserve_mb) * 1024 * 1024)
+    KOKORO_INSTALL_ESTIMATE_BYTES.saturating_add(u64::from(disk_reserve_mb) * 1024 * 1024)
 }
 
 fn extract_tar_bz2(archive_path: &Path, destination: &Path, expected_root: &str) -> Result<()> {
@@ -1200,10 +1232,44 @@ mod tests {
 
     #[test]
     fn status_identifies_kokoro_kind_and_pinned_asset() {
-        let status = kokoro_status();
+        let status = kokoro_status(Path::new(r"C:\AivoRelay\kokoro"));
         assert_eq!(status.kind, LocalTtsKind::Kokoro);
         assert_eq!(status.model_download_bytes, KOKORO_MODEL_DOWNLOAD_BYTES);
         assert!(status.model_revision.contains(MODEL_ARCHIVE_SHA256));
+        assert_eq!(
+            status.estimated_install_bytes,
+            KOKORO_INSTALL_ESTIMATE_BYTES
+        );
+        assert!(status.model_license_url.starts_with("https://"));
+        assert!(status.model_license_path.ends_with("model\\LICENSE"));
+    }
+
+    #[test]
+    fn directory_size_ignores_directories_and_counts_nested_files() {
+        let temp = TestDir::new("directory-size");
+        let nested = temp.0.join("nested");
+        fs::create_dir_all(&nested).unwrap();
+        fs::write(temp.0.join("one.bin"), [1_u8, 2, 3]).unwrap();
+        fs::write(nested.join("two.bin"), [4_u8, 5]).unwrap();
+
+        assert_eq!(directory_size_bytes(&temp.0), 5);
+    }
+
+    #[test]
+    fn directory_size_counts_large_hard_linked_content_once() {
+        let temp = TestDir::new("directory-size-hard-link");
+        let original = temp.0.join("original.bin");
+        fs::write(
+            &original,
+            vec![1_u8; crate::managers::local_tts::HARD_LINK_DEDUPLICATION_MIN_BYTES as usize],
+        )
+        .unwrap();
+        fs::hard_link(&original, temp.0.join("linked.bin")).unwrap();
+
+        assert_eq!(
+            directory_size_bytes(&temp.0),
+            crate::managers::local_tts::HARD_LINK_DEDUPLICATION_MIN_BYTES
+        );
     }
 
     #[test]

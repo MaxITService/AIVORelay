@@ -67,7 +67,7 @@ fn run_local_tts_inner(
             let status = manager.local_tts_status(kind);
             if !args.json {
                 println!(
-                    "{engine_name}: {}\nModel: {}@{}\nRuntime: {}",
+                    "{engine_name}: {}\nModel: {}@{}\nRuntime: {}\nSource: {} ({})\nInstall path: {}\nDisk: {}\nLicense: {}\nLicense URL: {}\nLocal license: {}",
                     if status.installed {
                         "ready"
                     } else {
@@ -79,17 +79,51 @@ fn run_local_tts_inner(
                         "not installed"
                     } else {
                         status.runtime_profile.as_str()
-                    }
+                    },
+                    status.model_author,
+                    status.model_source_url,
+                    status.install_root,
+                    if status.installed {
+                        format!(
+                            "~{} currently used",
+                            human_bytes(status.installed_size_bytes)
+                        )
+                    } else if status.installed_size_bytes > 0 {
+                        format!(
+                            "~{} existing; allow up to {} for repair or installation",
+                            human_bytes(status.installed_size_bytes),
+                            human_bytes(status.estimated_install_bytes)
+                        )
+                    } else {
+                        format!(
+                            "allow up to {} for installation",
+                            human_bytes(status.estimated_install_bytes)
+                        )
+                    },
+                    status.model_license_name,
+                    status.model_license_url,
+                    if status.model_license_available {
+                        status.model_license_path.as_str()
+                    } else {
+                        "available after installation"
+                    },
                 );
             }
             Ok(json!({ "ok": true, "status": status }))
         }
         TtsLocalCommand::Install(options) => {
             if !options.yes {
+                let status = manager.local_tts_status(kind);
                 return Err((
                     EXIT_NOT_CONFIRMED,
                     format!(
-                        "{engine_name} installation downloads a managed runtime and model. Re-run with --yes."
+                        "{engine_name} installation downloads a managed runtime and model from {}. Author: {}. Destination: {}. Allow up to {}. License: {} ({}). Review and trust the source, understand the risks, then re-run with --yes.",
+                        status.model_source_url,
+                        status.model_author,
+                        status.install_root,
+                        human_bytes(status.estimated_install_bytes),
+                        status.model_license_name,
+                        status.model_license_url,
                     ),
                 ));
             }
@@ -245,6 +279,16 @@ fn run_local_tts_inner(
                 "resumed_chunks": result.resumed_chunks,
             }))
         }
+    }
+}
+
+fn human_bytes(bytes: u64) -> String {
+    const GIB: f64 = 1024.0 * 1024.0 * 1024.0;
+    const MIB: f64 = 1024.0 * 1024.0;
+    if bytes >= 1024 * 1024 * 1024 {
+        format!("{:.2} GiB", bytes as f64 / GIB)
+    } else {
+        format!("{:.1} MiB", bytes as f64 / MIB)
     }
 }
 

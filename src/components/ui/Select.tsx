@@ -3,6 +3,8 @@ import SelectComponent from "react-select";
 import CreatableSelect from "react-select/creatable";
 import type {
   ActionMeta,
+  GroupBase,
+  OptionsOrGroups,
   Props as ReactSelectProps,
   SingleValue,
   StylesConfig,
@@ -11,6 +13,7 @@ import type {
 export type SelectOption = {
   value: string;
   label: string;
+  group?: string;
   isDisabled?: boolean;
 };
 
@@ -49,14 +52,18 @@ const accentPrimary = "#ff4d8d";
 const textPrimary = "#e8e8e8";
 const textMuted = "#6b6b6b";
 
-const selectStyles: StylesConfig<SelectOption, false> = {
+const selectStyles: StylesConfig<
+  SelectOption,
+  false,
+  GroupBase<SelectOption>
+> = {
   control: (base, state) => ({
     ...base,
     minHeight: 40,
     borderRadius: 6,
     borderColor: state.isFocused ? accentPrimary : borderColor,
-    boxShadow: state.isFocused 
-      ? `0 0 0 2px rgba(255, 77, 141, 0.2)` 
+    boxShadow: state.isFocused
+      ? `0 0 0 2px rgba(255, 77, 141, 0.2)`
       : "0 2px 8px rgba(0, 0, 0, 0.2)",
     backgroundColor: state.isFocused ? darkBgFocus : darkBg,
     fontSize: "0.875rem",
@@ -125,6 +132,13 @@ const selectStyles: StylesConfig<SelectOption, false> = {
     opacity: state.isDisabled ? 0.4 : 1,
     transition: "all 150ms ease",
   }),
+  groupHeading: (base) => ({
+    ...base,
+    color: "#a7a7a7",
+    fontSize: "0.7rem",
+    letterSpacing: "0.06em",
+    marginBlock: 4,
+  }),
   placeholder: (base) => ({
     ...base,
     color: textMuted,
@@ -147,7 +161,7 @@ export const Select: React.FC<SelectProps> = React.memo(
     onCreateOption,
   }) => {
     const selectValue = React.useMemo(() => {
-      if (!value) return null;
+      if (value === null) return null;
       const existing = options.find((option) => option.value === value);
       if (existing) return existing;
       return { value, label: value, isDisabled: false };
@@ -160,11 +174,32 @@ export const Select: React.FC<SelectProps> = React.memo(
       onChange(option?.value ?? null, action);
     };
 
-    const sharedProps: Partial<ReactSelectProps<SelectOption, false>> = {
+    const groupedOptions = React.useMemo<
+      OptionsOrGroups<SelectOption, GroupBase<SelectOption>>
+    >(() => {
+      if (!options.some((option) => option.group)) {
+        return options;
+      }
+      const groups = new Map<string, SelectOption[]>();
+      for (const option of options) {
+        const group = option.group?.trim() || "Other";
+        const existing = groups.get(group);
+        if (existing) existing.push(option);
+        else groups.set(group, [option]);
+      }
+      return Array.from(groups, ([label, grouped]) => ({
+        label,
+        options: grouped,
+      }));
+    }, [options]);
+
+    const sharedProps: Partial<
+      ReactSelectProps<SelectOption, false, GroupBase<SelectOption>>
+    > = {
       className,
       classNamePrefix: "app-select",
       value: selectValue,
-      options,
+      options: groupedOptions,
       onChange: handleChange,
       placeholder,
       isDisabled: disabled,
@@ -172,12 +207,12 @@ export const Select: React.FC<SelectProps> = React.memo(
       onBlur,
       isClearable,
       styles: selectStyles,
-      menuPortalTarget: typeof document !== 'undefined' ? document.body : null,
+      menuPortalTarget: typeof document !== "undefined" ? document.body : null,
     };
 
     if (isCreatable) {
       return (
-        <CreatableSelect<SelectOption, false>
+        <CreatableSelect<SelectOption, false, GroupBase<SelectOption>>
           {...sharedProps}
           onCreateOption={onCreateOption}
           formatCreateLabel={formatCreateLabel}
@@ -185,7 +220,11 @@ export const Select: React.FC<SelectProps> = React.memo(
       );
     }
 
-    return <SelectComponent<SelectOption, false> {...sharedProps} />;
+    return (
+      <SelectComponent<SelectOption, false, GroupBase<SelectOption>>
+        {...sharedProps}
+      />
+    );
   },
 );
 

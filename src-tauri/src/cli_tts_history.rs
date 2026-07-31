@@ -1053,6 +1053,7 @@ fn cli_provider(provider: CliTtsProvider) -> TtsProvider {
         CliTtsProvider::Soniox => TtsProvider::Soniox,
         CliTtsProvider::Deepgram => TtsProvider::Deepgram,
         CliTtsProvider::Openai => TtsProvider::OpenAi,
+        CliTtsProvider::Edge => TtsProvider::Edge,
         CliTtsProvider::LocalQwen => TtsProvider::LocalQwen,
         CliTtsProvider::LocalKokoro => TtsProvider::LocalKokoro,
         CliTtsProvider::Windows => TtsProvider::Windows,
