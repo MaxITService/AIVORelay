@@ -24,6 +24,8 @@ pub enum KeyType {
     DeepgramStt,
     /// Text-to-Speech API key stored separately per provider
     Tts,
+    /// TTS LLM preprocessing API key stored separately per provider
+    TtsLlm,
 }
 
 impl KeyType {
@@ -35,6 +37,7 @@ impl KeyType {
             KeyType::SonioxStt => "soniox_api_key",
             KeyType::DeepgramStt => "deepgram_api_key",
             KeyType::Tts => "tts_api_key",
+            KeyType::TtsLlm => "tts_llm_api_key",
         }
     }
 
@@ -201,6 +204,26 @@ pub fn clear_tts_api_key(provider_id: &str) -> Result<()> {
 /// Returns whether a provider-specific Text-to-Speech API key is present.
 pub fn has_tts_api_key(provider_id: &str) -> bool {
     !get_tts_api_key(provider_id).trim().is_empty()
+}
+
+/// Get a provider-specific key used only by TTS LLM preprocessing.
+pub fn get_tts_llm_api_key(provider_id: &str) -> String {
+    get_api_key(KeyType::TtsLlm, Some(provider_id)).unwrap_or_default()
+}
+
+/// Store a provider-specific key used only by TTS LLM preprocessing.
+pub fn set_tts_llm_api_key(provider_id: &str, key: &str) -> Result<()> {
+    set_api_key(KeyType::TtsLlm, Some(provider_id), key)
+}
+
+/// Clear a provider-specific TTS LLM preprocessing key.
+pub fn clear_tts_llm_api_key(provider_id: &str) -> Result<()> {
+    set_api_key(KeyType::TtsLlm, Some(provider_id), "")
+}
+
+/// Returns whether a provider-specific TTS LLM preprocessing key is present.
+pub fn has_tts_llm_api_key(provider_id: &str) -> bool {
+    !get_tts_llm_api_key(provider_id).trim().is_empty()
 }
 
 // ============================================================================

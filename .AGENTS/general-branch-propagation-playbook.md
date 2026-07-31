@@ -59,7 +59,7 @@ Common Documentation Handling:
 8. Switch to the target branch.
 9. Cherry-pick selected non-documentation `main` commits in order, plus only the documentation files the user explicitly approved, minus branch-specific exclusions.
 10. If conflicts are small and safe, resolve and continue.
-11. If conflicts are many/high-risk, run `git cherry-pick --abort` and switch to diff-path using `.AGENTS/.UNTRACKED/<sha>.diff.txt`.
+11. If conflicts are many/high-risk, run `git cherry-pick --abort` and switch to diff-path using `.AGENTS/.untracked/<sha>.diff.txt`.
 12. Record resulting local commit hashes.
 13. Update [[.AGENTS/branch-propagation-log|branch-propagation-log.md]] in the target branch worktree after successful propagation.
 14. Update [[.AGENTS/branching-status|branching-status.md]] in the target branch worktree after successful propagation.

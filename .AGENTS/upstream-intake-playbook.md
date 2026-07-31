@@ -22,7 +22,7 @@ Primary reference:
 
 Optional context only:
 - [[.AGENTS/branching-status|branching-status.md]]
-- local machine path hints in [[.AGENTS/.UNTRACKED/local-paths|local-paths.md]] when available
+- local machine path hints in [[.AGENTS/.untracked/local-paths|local-paths.md]] when available
 - `Q:\Handy-upstream` when present: local read-only checkout of `cjpais/Handy` for source comparison; refresh it before relying on current upstream code.
 
 Authoritative source:
@@ -65,7 +65,7 @@ Skip:
 2. Switch to `main`.
 3. Cherry-pick selected upstream commits one by one.
 4. If conflicts are small and safe, resolve and continue.
-5. If conflicts are many/high-risk, run `git cherry-pick --abort` and switch to diff-path using `.AGENTS/.UNTRACKED/<sha>.diff.txt`.
+5. If conflicts are many/high-risk, run `git cherry-pick --abort` and switch to diff-path using `.AGENTS/.untracked/<sha>.diff.txt`.
 6. Record the integrated upstream commit SHA and the intended `main` commit message for each taken item.
 7. Update [[.AGENTS/upstream-sync-log|upstream-sync-log.md]].
 8. At the end of intake, show the remaining working tree status and propose a commit plan that leaves the worktree clean after the work. Call out any pre-existing unrelated changes before including them in that plan.

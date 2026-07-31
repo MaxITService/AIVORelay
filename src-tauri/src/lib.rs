@@ -27,6 +27,7 @@ mod recording_auto_stop;
 #[cfg(target_os = "windows")]
 mod region_capture;
 mod secure_keys;
+mod selection;
 mod session_manager;
 mod settings;
 mod shortcut;
@@ -958,6 +959,16 @@ fn run_headless_transcription(app: &AppHandle, args: &CliArgs) -> i32 {
 pub fn run(cli_args: CliArgs) {
     portable::init();
 
+    // Headless commands must not perform GUI-only startup work such as
+    // regenerating TypeScript bindings. In particular, a directly invoked
+    // debug executable must behave the same regardless of its working
+    // directory.
+    let headless_mode = cli_args.transcribe_file.is_some()
+        || cli_args.list_devices
+        || cli_file_conversion::is_file_conversion_requested(&cli_args)
+        || cli_local_tts::is_local_tts_requested(&cli_args)
+        || cli_tts_history::is_tts_history_requested(&cli_args);
+
     // Release keeps the existing RUST_LOG filter. Dev builds instead use the
     // process-local Dev Console Log Level selector below, so it can reliably
     // raise verbosity even when the launching shell has RUST_LOG=warn/error.
@@ -1289,6 +1300,11 @@ pub fn run(cli_args: CliArgs) {
         commands::tts::tts_has_api_key,
         commands::tts::tts_set_api_key,
         commands::tts::tts_clear_api_key,
+        commands::tts::tts_llm_has_api_key,
+        commands::tts::tts_llm_set_api_key,
+        commands::tts::tts_llm_clear_api_key,
+        commands::tts::fetch_tts_llm_models,
+        commands::tts::run_tts_llm_benchmark,
         commands::tts::get_local_tts_status,
         commands::tts::install_local_tts,
         commands::tts::cancel_local_tts_install,
@@ -1428,21 +1444,19 @@ pub fn run(cli_args: CliArgs) {
     #[cfg(not(debug_assertions))]
     let specta_builder = Builder::<tauri::Wry>::new().commands(app_commands!());
 
-    #[cfg(debug_assertions)] // <- Only export on non-release builds
-    specta_builder
-        .export(
-            Typescript::default().bigint(BigIntExportBehavior::Number),
-            "../src/bindings.ts",
-        )
-        .expect("Failed to export typescript bindings");
+    #[cfg(debug_assertions)]
+    if !headless_mode {
+        let bindings_path =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../src/bindings.ts");
+        specta_builder
+            .export(
+                Typescript::default().bigint(BigIntExportBehavior::Number),
+                bindings_path,
+            )
+            .expect("Failed to export typescript bindings");
+    }
 
     // mut is required on macOS where we add the nspanel plugin
-    let headless_mode = cli_args.transcribe_file.is_some()
-        || cli_args.list_devices
-        || cli_file_conversion::is_file_conversion_requested(&cli_args)
-        || cli_local_tts::is_local_tts_requested(&cli_args)
-        || cli_tts_history::is_tts_history_requested(&cli_args);
-
     #[allow(unused_mut)]
     let mut builder = tauri::Builder::default()
         .device_event_filter(tauri::DeviceEventFilter::Always)

@@ -29,8 +29,15 @@ import { Input } from "@/components/ui/Input";
 import { SettingContainer } from "@/components/ui/SettingContainer";
 import { SettingsGroup } from "@/components/ui/SettingsGroup";
 import { ToggleSwitch } from "@/components/ui/ToggleSwitch";
+import type { TtsLlmPreprocessingSettings } from "./TtsAiCleanup";
 
-type TtsProvider = "soniox" | "deepgram" | "openai" | "local_qwen" | "windows";
+type TtsProvider =
+  | "soniox"
+  | "deepgram"
+  | "openai"
+  | "local_qwen"
+  | "local_kokoro"
+  | "windows";
 type TtsOutputFormat = "mp3" | "wav";
 export type TtsHistoryScope = "interactive" | "file";
 
@@ -49,6 +56,8 @@ export type TtsHistorySettingsSnapshot = {
   openai_voice?: string;
   local_qwen_voice?: string;
   local_qwen_language?: string;
+  local_kokoro_voice?: string;
+  local_kokoro_language?: string;
   windows_voice_id?: string;
   windows_voice_language?: string;
   openai_instructions?: string;
@@ -60,6 +69,7 @@ export type TtsHistorySettingsSnapshot = {
     name: string;
     instructions: string;
   }>;
+  llm_preprocessing?: TtsLlmPreprocessingSettings;
 };
 
 export type TtsHistoryEntry = {
@@ -79,6 +89,7 @@ export type TtsHistoryEntry = {
   prompt_preset_id?: string | null;
   prompt_preset_name?: string | null;
   resolved_instructions?: string | null;
+  llm_cleanup_config?: string | null;
 };
 
 type TtsHistoryProps = {
@@ -90,6 +101,7 @@ type TtsHistoryProps = {
     patch: Partial<TtsHistorySettingsSnapshot>,
     field: string,
   ) => Promise<void>;
+  flushPendingSettingsWrites: () => Promise<void>;
 };
 
 type Confirmation =
@@ -129,6 +141,24 @@ type TtsHistoryDeleteOutcome = {
 const asErrorMessage = (error: unknown) =>
   error instanceof Error ? error.message : String(error);
 
+const llmCleanupSummary = (entry: TtsHistoryEntry): string | null => {
+  if (!entry.llm_cleanup_config) return null;
+  try {
+    const config = JSON.parse(entry.llm_cleanup_config) as Record<
+      string,
+      unknown
+    >;
+    const provider =
+      typeof config.provider_id === "string" ? config.provider_id : "";
+    const model = typeof config.model === "string" ? config.model : "";
+    const prompt =
+      typeof config.prompt_name === "string" ? config.prompt_name : "";
+    return [provider, model, prompt].filter(Boolean).join(" · ") || null;
+  } catch {
+    return null;
+  }
+};
+
 const formatPlaybackTime = (seconds: number) => {
   const safeSeconds =
     Number.isFinite(seconds) && seconds > 0 ? Math.floor(seconds) : 0;
@@ -157,6 +187,8 @@ const providerLabel = (provider: TtsProvider) => {
       return "OpenAI";
     case "local_qwen":
       return "Qwen3-TTS (Local)";
+    case "local_kokoro":
+      return "Kokoro 82M (Local)";
     case "windows":
       return "Windows voices";
   }
@@ -178,6 +210,8 @@ const modelForProvider = (
       return tts.openai_model;
     case "local_qwen":
       return "Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice";
+    case "local_kokoro":
+      return "k2-fsa/sherpa-onnx/kokoro-int8-multi-lang-v1_1";
     case "windows":
       return "windows.media.speechsynthesis";
   }
@@ -196,6 +230,8 @@ const voiceForProvider = (
       return tts.openai_voice;
     case "local_qwen":
       return tts.local_qwen_voice;
+    case "local_kokoro":
+      return tts.local_kokoro_voice;
     case "windows":
       return tts.windows_voice_id;
   }
@@ -241,6 +277,7 @@ export const TtsHistory: React.FC<TtsHistoryProps> = ({
   savingField,
   onAvailabilityChange,
   updateTts,
+  flushPendingSettingsWrites,
 }) => {
   const { t, i18n } = useTranslation();
   const [entries, setEntries] = useState<TtsHistoryEntry[]>([]);
@@ -570,6 +607,7 @@ export const TtsHistory: React.FC<TtsHistoryProps> = ({
     setActionMessage(null);
     setBusyEntryId(entry.id);
     try {
+      await flushPendingSettingsWrites();
       const provider = tts.provider ?? entry.provider;
       const model = modelForProvider(tts, provider);
       const voice = voiceForProvider(tts, provider);
@@ -600,7 +638,11 @@ export const TtsHistory: React.FC<TtsHistoryProps> = ({
               (tts.output_format ?? entry.output_format) === "mp3"
                 ? (tts.mp3_bitrate_kbps ?? null)
                 : null,
-            confirmedApiCharge: providerUsesPaidApi(provider),
+            confirmedApiCharge:
+              providerUsesPaidApi(provider) ||
+              (scope === "interactive"
+                ? Boolean(tts.llm_preprocessing?.interactive_enabled)
+                : Boolean(tts.llm_preprocessing?.file_enabled)),
           },
         },
       );
@@ -647,7 +689,12 @@ export const TtsHistory: React.FC<TtsHistoryProps> = ({
   const currentVoice = tts.provider
     ? voiceForProvider(tts, tts.provider)
     : undefined;
-  const regenerationUsesPaidApi = providerUsesPaidApi(tts.provider);
+  const currentLlmCleanupEnabled =
+    scope === "interactive"
+      ? Boolean(tts.llm_preprocessing?.interactive_enabled)
+      : Boolean(tts.llm_preprocessing?.file_enabled);
+  const regenerationUsesPaidApi =
+    providerUsesPaidApi(tts.provider) || currentLlmCleanupEnabled;
 
   return (
     <>
@@ -959,6 +1006,19 @@ export const TtsHistory: React.FC<TtsHistoryProps> = ({
                                 (entry.resolved_instructions?.trim()
                                   ? t("textToSpeech.history.customInstructions")
                                   : t("textToSpeech.history.none"))}
+                            </dd>
+                            <dt className="text-[#707070]">
+                              {t(
+                                "textToSpeech.history.metadata.aiCleanup",
+                                "AI cleanup",
+                              )}
+                            </dt>
+                            <dd
+                              className="truncate text-right text-[#c8c8c8]"
+                              title={llmCleanupSummary(entry) ?? undefined}
+                            >
+                              {llmCleanupSummary(entry) ||
+                                t("textToSpeech.history.none")}
                             </dd>
                             <dt className="text-[#707070]">
                               {t("textToSpeech.history.metadata.format")}

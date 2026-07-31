@@ -10,6 +10,7 @@ AivoRelay.exe --convert-file .\chapter.md --output .\chapter.mp3
 AivoRelay.exe --convert-file .\notes.txt --output .\notes.wav
 AivoRelay.exe --convert-file .\chapter.md --output .\windows.wav --tts-provider windows
 AivoRelay.exe --convert-file .\chapter.md --output .\qwen.mp3 --tts-provider local-qwen --tts-voice Vivian
+AivoRelay.exe --convert-file .\chapter.md --output .\kokoro.mp3 --tts-provider local-kokoro --tts-voice af_maple --tts-language English
 ```
 
 `.md` and `.txt` are first-class inputs. Markdown is converted to readable
@@ -17,11 +18,15 @@ text before TTS-only preprocessing, semantic chunking, retry, and synthesis.
 The output extension selects MP3 or WAV. If `--output` is omitted, the saved
 TTS output format is used beside the input file.
 
-The CLI starts from **Settings → Text to Speech**, then applies any command-line
-overrides to an in-memory copy. It never rewrites saved settings. When TTS
-History capture is enabled, every successful CLI conversion also receives a
-managed History copy. Failure to create that secondary copy is reported
-without discarding the successfully created output file.
+The CLI starts from the active provider/model profile in **Settings → TTS File
+Operations**, then applies any command-line overrides to an in-memory copy.
+Interactive hotkey settings are independent. Each page automatically remembers
+its synthesis settings per provider/model, while named synthesis presets can be
+loaded on either page. LLM cleanup prompts and presets remain separate. CLI
+overrides never rewrite saved settings. When TTS History capture is enabled,
+every successful CLI conversion also receives a managed History copy. Failure
+to create that secondary copy is reported without discarding the successfully
+created output file.
 
 ## Temporary conversion overrides
 
@@ -37,11 +42,11 @@ AivoRelay.exe --convert-file .\chapter.md --output .\chapter.mp3 `
 
 | Option | Accepted values and behavior |
 | --- | --- |
-| `--tts-provider` | `soniox`, `deepgram`, `openai`, `local-qwen`, or `windows` |
+| `--tts-provider` | `soniox`, `deepgram`, `openai`, `local-qwen`, `local-kokoro`, or `windows` |
 | `--tts-model` | Soniox, Deepgram, or OpenAI model ID |
-| `--tts-voice` | Soniox/OpenAI voice ID, official Qwen speaker ID, or stable Windows voice ID; `default` selects the current Windows default |
-| `--tts-language` | Soniox language code or Qwen language name |
-| `--tts-speed` | Soniox `0.7–1.3`; Deepgram `0.7–1.5`; OpenAI `0.25–4.0`; Qwen/Windows `0.5–2.0` |
+| `--tts-voice` | Soniox/OpenAI voice ID, official Qwen/Kokoro speaker ID, or stable Windows voice ID; `default` selects the current Windows default |
+| `--tts-language` | Soniox language code, Qwen language name, or Kokoro `English`/`Chinese` |
+| `--tts-speed` | Soniox `0.7–1.3`; Deepgram `0.7–1.5`; OpenAI `0.25–4.0`; Qwen/Kokoro/Windows `0.5–2.0` |
 | `--tts-key-source` | `shared` or `separate`; chooses an already-stored cloud credential and never exposes a secret on the command line |
 | `--tts-format` | `mp3` or `wav`; with `--output`, it must match the extension |
 | `--tts-bitrate` | MP3 only: `64`, `96`, `128`, `192`, `256`, or `320` kb/s |
@@ -52,6 +57,21 @@ AivoRelay.exe --convert-file .\chapter.md --output .\chapter.mp3 `
 | `--tts-paragraph-pause-ms` | `0–10000` ms |
 | `--tts-preprocessing` | `true` or `false` for saved TTS replacement rules |
 | `--tts-replacements-file` | UTF-8 JSON replacement-rule array used instead of saved rules for this run |
+| `--tts-llm-preprocessing` | `true` or `false` for TTS File Operations AI cleanup |
+| `--tts-llm-prompt` | Saved prompt name from the File Operations cleanup collection |
+| `--tts-llm-instructions` | Literal one-off cleanup system prompt |
+| `--tts-llm-instructions-file` | UTF-8 cleanup prompt file; takes precedence over inline/named prompt |
+| `--tts-llm-provider` | Provider ID shared with the LLM provider catalog, such as `openrouter`, `openai`, or `custom` |
+| `--tts-llm-model` | Exact cleanup-model ID |
+| `--tts-llm-key-source` | `shared` reuses the secure LLM Post Processing key; `separate` uses the secure TTS cleanup key |
+| `--tts-llm-base-url` | OpenAI-compatible URL; accepted only by the effective `custom` provider |
+| `--tts-llm-allow-insecure-http` | `true` or `false`; accepted only by `custom` and intended for trusted local endpoints |
+| `--tts-llm-reasoning` | `true` or `false` for compatible-provider reasoning controls |
+| `--tts-llm-reasoning-budget` | `1024–1000000`; requires reasoning to be enabled |
+| `--tts-llm-chunk-chars` | `1000–50000` Unicode characters; splitting prefers paragraph/sentence boundaries |
+| `--tts-llm-retries` | `0–10` retries after the first cleanup request |
+| `--tts-llm-retry-delay-ms` | `100–30000` ms initial exponential cleanup retry delay |
+| `--tts-llm-timeout-seconds` | `10–600` seconds per cleanup request |
 | `--tts-disk-reserve-mb` | `0–1048576` MB minimum free-space reserve |
 | `--tts-history` | `true` or `false` for this result's History capture |
 
@@ -69,6 +89,9 @@ value:
   rejected.
 - The local Qwen runtime uses AivoRelay's pinned model, so `--tts-model` is
   rejected; use `--tts-voice` and `--tts-language`.
+- The local Kokoro runtime also uses a pinned model, so `--tts-model` is
+  rejected. English accepts `af_maple`, `af_sol`, and `bf_vale`; Chinese uses
+  the documented `zf_*` and `zm_*` voices.
 - Windows derives language from its installed voice and has no API key or model
   selector, so use `--tts-voice`; model, language, and key-source flags are
   rejected.
@@ -97,6 +120,49 @@ page. It may contain at most 1,000 rules and 1 MiB:
 
 Invalid JSON, an invalid enabled regular expression, or combining the file
 with `--tts-preprocessing false` fails before synthesis.
+
+## Optional AI text cleanup
+
+AI cleanup is separate from voice instructions and deterministic replacement
+rules. It runs first, then the cleaned result passes through replacement rules,
+semantic speech chunking, and synthesis. Interactive reading and File
+Operations have independent named prompt collections; `--convert-file` uses
+only the File Operations collection.
+
+```powershell
+# Use the saved File Operations provider/model/prompt
+AivoRelay.exe --convert-file .\scan.md --output .\scan.mp3 `
+  --tts-llm-preprocessing true
+
+# Select a saved File Operations cleanup prompt
+AivoRelay.exe --convert-file .\scan.md --output .\scan.mp3 `
+  --tts-llm-prompt "Remove page numbers and layout artifacts"
+
+# Temporary provider/model/prompt overrides; saved settings are unchanged
+AivoRelay.exe --convert-file .\article.md --output .\short.mp3 `
+  --tts-llm-provider openrouter --tts-llm-model "provider/model-id" `
+  --tts-llm-key-source shared `
+  --tts-llm-instructions-file .\shorten-for-listening.txt
+```
+
+Any cleanup-specific override implies `--tts-llm-preprocessing true`.
+Combining another `--tts-llm-*` option with
+`--tts-llm-preprocessing false` fails before a network or synthesis request.
+Provider/model/key errors include the provider response text after secret-safe
+sanitization. Authentication, quota/billing, and invalid-request errors are not
+retried; transient network, rate-limit, and 5xx failures retry only the current
+cleanup chunk.
+
+Cleanup instruction precedence is:
+
+1. `--tts-llm-instructions-file`
+2. `--tts-llm-instructions`
+3. `--tts-llm-prompt`
+4. the selected File Operations cleanup prompt
+
+Cleanup prompts are limited to 32,768 Unicode characters. The same Windows
+command-line limits described below apply, so prefer an instructions file for
+long prompts. API keys are never accepted as CLI arguments.
 
 ## Named voice prompts
 
@@ -141,8 +207,8 @@ Instruction precedence is:
 Voice instructions require OpenAI TTS with a compatible `gpt-4o-mini-tts`
 model. An explicitly requested CLI prompt is rejected before an incompatible
 provider request. Saved instructions remain stored but inactive for OpenAI
-models that do not support instructions, local Qwen3-TTS 0.6B, and Windows
-installed voices.
+models that do not support instructions, local Qwen3-TTS 0.6B, local Kokoro
+82M, and Windows installed voices.
 OpenAI voice instructions are limited to 4,096 characters; the same validation
 applies to inline text, instruction files, named presets, saved instructions,
 and history regeneration. Argument text is passed as data and is never
@@ -175,7 +241,7 @@ new History row and managed audio copy are safely stored. A final MP3/WAV is
 still encoded from the complete verified PCM and published atomically—an
 incomplete file is never presented as finished.
 
-## Optional local Qwen3-TTS
+## Optional local TTS engines
 
 AivoRelay can use the official Apache-2.0
 `Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice` model without sending synthesis text or
@@ -184,18 +250,18 @@ the app installer; installation is an explicit multi-gigabyte download.
 
 ```powershell
 # Inspect installation state and the pinned model revision
-AivoRelay.exe tts-local status
-AivoRelay.exe tts-local status --json
+AivoRelay.exe tts-local --engine qwen status
+AivoRelay.exe tts-local --engine qwen status --json
 
 # Explicitly download/install the managed runtime and official model
-AivoRelay.exe tts-local install --yes
+AivoRelay.exe tts-local --engine qwen install --yes
 
 # Generate a real bilingual diagnostic file through the normal TTS pipeline
-AivoRelay.exe tts-local test --output .\local-tts-test.mp3
-AivoRelay.exe tts-local test --output .\local-tts-test.wav --voice Serena --language Russian
+AivoRelay.exe tts-local --engine qwen test --output .\local-tts-test.mp3
+AivoRelay.exe tts-local --engine qwen test --output .\local-tts-test.wav --voice Serena --language Russian
 
 # Remove only the managed local runtime/model; TTS History remains intact
-AivoRelay.exe tts-local delete --yes
+AivoRelay.exe tts-local --engine qwen delete --yes
 ```
 
 Installation reuses the app's resumable Hugging Face download behavior,
@@ -213,6 +279,26 @@ actionable error.
 
 `tts-local test` does not change the saved provider or other TTS settings. Its
 MP3 output uses the normal default of 256 kb/s.
+
+Kokoro 82M is the smaller, fast CPU-oriented option. AivoRelay pins the
+official sherpa-onnx `kokoro-int8-multi-lang-v1_1` package (about 147 MB for
+the model archive), verifies its SHA-256 before extraction, and keeps its
+native runtime in a hidden persistent worker isolated from the app's
+speech-to-text ONNX Runtime:
+
+```powershell
+AivoRelay.exe tts-local --engine kokoro status
+AivoRelay.exe tts-local --engine kokoro install --yes
+AivoRelay.exe tts-local --engine kokoro test --output .\kokoro-en.mp3 --voice af_maple --language English
+AivoRelay.exe tts-local --engine kokoro test --output .\kokoro-zh.wav --voice zf_001 --language Chinese
+AivoRelay.exe tts-local --engine kokoro delete --yes
+```
+
+Installation is explicit and resumable; normal conversion never downloads a
+model implicitly. See the official
+[Kokoro multi-language model documentation](https://k2-fsa.github.io/sherpa/onnx/tts/all/Chinese-English/kokoro-multi-lang-v1_1.html)
+for its speaker catalog and samples. Kokoro and sherpa-onnx are Apache-2.0;
+the installed notice bundle records the exact model, runtime, and licenses.
 
 See also [[CLI-SPEECH-TO-TEXT|CLI Speech-to-Text File Conversion]].
 
@@ -233,8 +319,8 @@ AivoRelay.exe tts-history --scope interactive show 7
 ```
 
 `list` is newest-first. `show` includes the retained raw source text, provider,
-model, voice, output format, prompt metadata, and whether the managed audio
-copy still exists.
+model, voice, output format, voice-prompt metadata, secret-free AI-cleanup
+configuration/prompt identity, and whether the managed audio copy still exists.
 
 Exporting copies retained audio and does **not** make an API request:
 
@@ -247,8 +333,8 @@ are never overwritten.
 
 ### Regenerate a comparison variant
 
-Cloud regeneration makes a **new paid TTS API request**. Local Qwen and Windows
-voice regeneration do not use API credits. The source result and every
+Cloud regeneration makes a **new paid TTS API request**. Local Qwen, Kokoro,
+and Windows voice regeneration do not use API credits. The source result and every
 older variant remain unchanged; the successful result is appended under the
 same comparison-group ID. Retained Markdown remains Markdown and passes through
 the same Markdown-to-readable-speech normalization as the original conversion.
@@ -270,6 +356,12 @@ AivoRelay.exe tts-history regenerate 42 --output .\variant.wav `
 # MP3 CBR override
 AivoRelay.exe tts-history regenerate 42 --output .\variant.mp3 `
   --format mp3 --bitrate 256 --yes
+
+# Re-run through a different AI cleanup model and saved scope-specific prompt
+AivoRelay.exe tts-history regenerate 42 `
+  --tts-llm-preprocessing true `
+  --tts-llm-provider openrouter --tts-llm-model "provider/model-id" `
+  --tts-llm-prompt "Create a concise listening edition" --yes
 ```
 
 `--output` is optional for regeneration. Without it, AivoRelay stores only the
@@ -280,8 +372,8 @@ format and must match any explicit `--format`. Managed-only regeneration also
 recovers verified chunks after a failed process and reports
 `resumed_chunks`.
 
-Supported providers are `soniox`, `deepgram`, `openai`, `local-qwen`, and
-`windows`. For Windows, `--voice` is the stable WinRT installed-voice ID, not
+Supported providers are `soniox`, `deepgram`, `openai`, `local-qwen`,
+`local-kokoro`, and `windows`. For Windows, `--voice` is the stable WinRT installed-voice ID, not
 its display name; an empty saved voice selects the current Windows default.
 Before synthesis, AivoRelay resolves that default to one concrete stable ID for
 the whole operation and its resume checkpoint. History list/show output includes
@@ -292,9 +384,10 @@ and its provider terms.
 Supported formats are `mp3` and `wav`; MP3 bitrates are `64`, `96`, `128`,
 `192`, `256`, and `320` kb/s. Provider credentials, retry, chunking,
 preprocessing, speed, and other behavior still come from the saved Text to
-Speech settings. `local-qwen` requires a completed explicit `tts-local install`
-but does not require `--yes` for History regeneration because no paid API call
-is made.
+Speech settings. `local-qwen` and `local-kokoro` require a completed explicit
+`tts-local --engine ... install`. Local speech regeneration does not itself
+use credits, but `--yes` is still required when AI cleanup is enabled because
+the cleanup provider may make a paid API request.
 
 Interactive and File History have independent opt-in, maximum-result, and
 managed-audio limits. Manual file conversion, ordinary CLI conversion, and
@@ -321,8 +414,14 @@ AivoRelay.exe tts-history regenerate 42 --output .\variant.mp3 `
 
 Precedence is instructions file, inline instructions, named preset, then the
 retained/saved prompt. Prompt instructions require OpenAI with a compatible
-`gpt-4o-mini-tts` model. The official Qwen3-TTS 0.6B runtime does not apply
-`instruct`, so local regeneration preserves but does not send saved prompts.
+`gpt-4o-mini-tts` model. The official Qwen3-TTS 0.6B and Kokoro runtimes do
+not apply instructions, so local regeneration preserves but does not send
+saved prompts.
+
+History regeneration accepts the same `--tts-llm-*` temporary overrides as
+normal file conversion. File History uses the File Operations prompt
+collection; Interactive History uses the interactive-reading collection.
+Regeneration never opens the playback overlay, even for Interactive History.
 
 ### Delete retained history
 

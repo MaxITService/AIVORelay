@@ -9,7 +9,7 @@ $ErrorActionPreference = "Stop"
 $repoRoot = Split-Path -Parent $PSScriptRoot
 $defaultExtensionRepo = Join-Path (Split-Path -Parent $repoRoot) "AIVORelay-relay"
 $defaultOutputZip = Join-Path $repoRoot "src-tauri\resources\browser-connector\aivorelay-extension.zip"
-$stageRoot = Join-Path $repoRoot ".AGENTS\.UNTRACKED\browser-connector-bundle-stage"
+$stageRoot = Join-Path $repoRoot ".AGENTS\.untracked\browser-connector-bundle-stage"
 
 if ([string]::IsNullOrWhiteSpace($ExtensionRepo)) {
     $ExtensionRepo = $defaultExtensionRepo

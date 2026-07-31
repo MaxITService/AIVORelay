@@ -6,7 +6,7 @@ param(
     [switch]$SkipChecks,
     [switch]$Debug,
     [switch]$WarmCache,
-    [string]$OutputDir = ".AGENTS/.UNTRACKED",
+    [string]$OutputDir = ".AGENTS/.untracked",
     [string]$BaseTargetDir = ""
 )
 

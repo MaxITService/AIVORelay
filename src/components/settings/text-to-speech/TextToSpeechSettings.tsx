@@ -27,6 +27,11 @@ import { ApiKeyEditor, StoredApiKeyDisplay } from "../ApiKeyControls";
 import { HandyShortcut } from "../HandyShortcut";
 import { TtsFolderAutomation } from "./TtsFolderAutomation";
 import { TtsHistory } from "./TtsHistory";
+import {
+  DEFAULT_TTS_LLM_PREPROCESSING,
+  TtsAiCleanup,
+  type TtsLlmPreprocessingSettings,
+} from "./TtsAiCleanup";
 import { Button } from "@/components/ui/Button";
 import { Dropdown, type DropdownOption } from "@/components/ui/Dropdown";
 import { HotkeyCapture } from "@/components/ui/HotkeyCapture";
@@ -37,9 +42,17 @@ import { Textarea } from "@/components/ui/Textarea";
 import { ToggleSwitch } from "@/components/ui/ToggleSwitch";
 import type { OSType } from "@/lib/utils/keyboard";
 
-type TtsProvider = "soniox" | "deepgram" | "openai" | "local_qwen" | "windows";
+type TtsProvider =
+  | "soniox"
+  | "deepgram"
+  | "openai"
+  | "local_qwen"
+  | "local_kokoro"
+  | "windows";
+type LocalTtsKind = "qwen" | "kokoro";
 type TtsKeySource = "shared" | "separate";
 type TtsOutputFormat = "mp3" | "wav";
+type TtsOperationScope = "interactive" | "file";
 
 type TtsReplacementRule = {
   id: string;
@@ -56,6 +69,43 @@ type TtsPromptPreset = {
   instructions: string;
 };
 
+type TtsSynthesisConfig = {
+  provider: TtsProvider;
+  model: string;
+  voice: string;
+  language: string;
+  key_source: TtsKeySource;
+  speed: number;
+  voice_instructions: string;
+  voice_prompt_preset_id: string;
+  preprocessing_enabled: boolean;
+  preprocessing_rules: TtsReplacementRule[];
+  target_chars: number;
+  retry_count: number;
+  retry_base_delay_ms: number;
+  inter_chunk_pause_ms: number;
+  paragraph_pause_ms: number;
+  output_format: TtsOutputFormat;
+  mp3_bitrate_kbps: number;
+};
+
+type TtsModelSynthesisSettings = {
+  model_key: string;
+  config: TtsSynthesisConfig;
+};
+
+type TtsScopeSynthesisSettings = {
+  active_model_key: string;
+  selected_preset_id: string;
+  models: TtsModelSynthesisSettings[];
+};
+
+type TtsSynthesisPreset = {
+  id: string;
+  name: string;
+  config: TtsSynthesisConfig;
+};
+
 type TtsSettings = {
   enabled: boolean;
   provider: TtsProvider;
@@ -70,12 +120,18 @@ type TtsSettings = {
   openai_voice: string;
   local_qwen_voice: string;
   local_qwen_language: string;
+  local_kokoro_voice: string;
+  local_kokoro_language: string;
   windows_voice_id: string;
   windows_voice_language: string;
   speed: number;
   openai_instructions: string;
   prompt_presets: TtsPromptPreset[];
   selected_prompt_id: string;
+  synthesis_presets: TtsSynthesisPreset[];
+  interactive_synthesis: TtsScopeSynthesisSettings;
+  file_synthesis: TtsScopeSynthesisSettings;
+  llm_preprocessing: TtsLlmPreprocessingSettings;
   play_pause_hotkey: string;
   play_history_when_overlay_closed: boolean;
   stop_hotkey: string;
@@ -138,7 +194,7 @@ type ConversionProgress = {
 };
 
 type LocalTtsStatus = {
-  kind: "qwen";
+  kind: LocalTtsKind;
   installed: boolean;
   installing: boolean;
   phase: string;
@@ -180,12 +236,26 @@ const DEFAULT_TTS_SETTINGS: TtsSettings = {
   openai_voice: "marin",
   local_qwen_voice: "Ryan",
   local_qwen_language: "Auto",
+  local_kokoro_voice: "af_maple",
+  local_kokoro_language: "English",
   windows_voice_id: "",
   windows_voice_language: "",
   speed: 1,
   openai_instructions: "",
   prompt_presets: [],
   selected_prompt_id: "",
+  synthesis_presets: [],
+  interactive_synthesis: {
+    active_model_key: "",
+    selected_preset_id: "",
+    models: [],
+  },
+  file_synthesis: {
+    active_model_key: "",
+    selected_preset_id: "",
+    models: [],
+  },
+  llm_preprocessing: DEFAULT_TTS_LLM_PREPROCESSING,
   play_pause_hotkey: "space",
   play_history_when_overlay_closed: false,
   stop_hotkey: "escape",
@@ -219,6 +289,7 @@ const PROVIDERS: DropdownOption[] = [
   { value: "deepgram", label: "Deepgram" },
   { value: "openai", label: "OpenAI" },
   { value: "local_qwen", label: "Qwen3-TTS (Local)" },
+  { value: "local_kokoro", label: "Kokoro 82M (Local)" },
   { value: "windows", label: "Windows voices" },
 ];
 
@@ -227,6 +298,7 @@ const PROVIDER_INPUT_LIMITS: Record<TtsProvider, number> = {
   deepgram: 2000,
   openai: 4096,
   local_qwen: 4096,
+  local_kokoro: 4096,
   windows: 4096,
 };
 const PROVIDER_CAPABILITIES: Record<
@@ -267,6 +339,13 @@ const PROVIDER_CAPABILITIES: Record<
     supportsInstructions: false,
     speed: [0.5, 2],
   },
+  local_kokoro: {
+    requiresApiKey: false,
+    localOrSystem: true,
+    downloadableRuntime: true,
+    supportsInstructions: false,
+    speed: [0.5, 2],
+  },
   windows: {
     requiresApiKey: false,
     localOrSystem: true,
@@ -298,6 +377,11 @@ const PROVIDER_VOICE_RESOURCES: Record<
     voices:
       "https://huggingface.co/Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice",
     playground: "https://huggingface.co/spaces/Qwen/Qwen3-TTS",
+  },
+  local_kokoro: {
+    voices:
+      "https://k2-fsa.github.io/sherpa/onnx/tts/all/Chinese-English/kokoro-multi-lang-v1_1.html",
+    playground: "https://huggingface.co/spaces/hexgrad/Kokoro-TTS",
   },
   windows: {
     voices: "https://support.microsoft.com/windows/download-languages-and-voices-for-immersive-reader-read-mode-and-read-aloud-4c83a8d8-7486-42f7-8e46-2b0fdf753130",
@@ -455,6 +539,35 @@ const LOCAL_QWEN_LANGUAGES: DropdownOption[] = [
   "Italian",
 ].map((value) => ({ value, label: value }));
 
+const LOCAL_KOKORO_ENGLISH_VOICES: DropdownOption[] = [
+  "af_maple",
+  "af_sol",
+  "bf_vale",
+].map((value) => ({ value, label: value }));
+
+const LOCAL_KOKORO_CHINESE_VOICES: DropdownOption[] = [
+  "zf_001", "zf_002", "zf_003", "zf_004", "zf_005", "zf_006", "zf_007",
+  "zf_008", "zf_017", "zf_018", "zf_019", "zf_021", "zf_022", "zf_023",
+  "zf_024", "zf_026", "zf_027", "zf_028", "zf_032", "zf_036", "zf_038",
+  "zf_039", "zf_040", "zf_042", "zf_043", "zf_044", "zf_046", "zf_047",
+  "zf_048", "zf_049", "zf_051", "zf_059", "zf_060", "zf_067", "zf_070",
+  "zf_071", "zf_072", "zf_073", "zf_074", "zf_075", "zf_076", "zf_077",
+  "zf_078", "zf_079", "zf_083", "zf_084", "zf_085", "zf_086", "zf_087",
+  "zf_088", "zf_090", "zf_092", "zf_093", "zf_094", "zf_099", "zm_009",
+  "zm_010", "zm_011", "zm_012", "zm_013", "zm_014", "zm_015", "zm_016",
+  "zm_020", "zm_025", "zm_029", "zm_030", "zm_031", "zm_033", "zm_034",
+  "zm_035", "zm_037", "zm_041", "zm_045", "zm_050", "zm_052", "zm_053",
+  "zm_054", "zm_055", "zm_056", "zm_057", "zm_058", "zm_061", "zm_062",
+  "zm_063", "zm_064", "zm_065", "zm_066", "zm_068", "zm_069", "zm_080",
+  "zm_081", "zm_082", "zm_089", "zm_091", "zm_095", "zm_096", "zm_097",
+  "zm_098", "zm_100",
+].map((value) => ({ value, label: value }));
+
+const LOCAL_KOKORO_LANGUAGES: DropdownOption[] = [
+  { value: "English", label: "English" },
+  { value: "Chinese", label: "Chinese" },
+];
+
 const CUSTOM_VOICE_VALUE = "__aivorelay_custom_tts_voice__";
 
 type DocumentedVoiceSelectorProps = {
@@ -540,6 +653,17 @@ const COALESCED_TTS_FIELDS = new Set([
   "file_history_max_entries",
   "file_history_max_storage_mb",
 ]);
+const COALESCED_TTS_LLM_FIELDS = new Set([
+  "llm_preprocessing.custom_base_url",
+  "llm_preprocessing.interactive_prompts",
+  "llm_preprocessing.file_prompts",
+  "llm_preprocessing.chunk_target_chars",
+  "llm_preprocessing.retry_count",
+  "llm_preprocessing.retry_base_delay_ms",
+  "llm_preprocessing.request_timeout_seconds",
+  "llm_preprocessing.interactive_benchmark_text",
+  "llm_preprocessing.file_benchmark_text",
+]);
 
 const asErrorMessage = (error: unknown) =>
   error instanceof Error ? error.message : String(error);
@@ -559,6 +683,167 @@ const clampNumber = (
   return Number.isFinite(parsed)
     ? Math.min(max, Math.max(min, parsed))
     : fallback;
+};
+
+const operationScope = (
+  mode: TextToSpeechSettingsProps["mode"],
+): TtsOperationScope => (mode === "files" ? "file" : "interactive");
+
+const scopeSettingsKey = (
+  mode: TextToSpeechSettingsProps["mode"],
+): "interactive_synthesis" | "file_synthesis" =>
+  mode === "files" ? "file_synthesis" : "interactive_synthesis";
+
+const synthesisModelIdentity = (
+  provider: TtsProvider,
+  model: string,
+): string => `${provider}:${model.trim()}`;
+
+const synthesisConfigFromSettings = (
+  settings: TtsSettings,
+  mode: TextToSpeechSettingsProps["mode"],
+): TtsSynthesisConfig => {
+  const [model, voice, language] =
+    settings.provider === "soniox"
+      ? [
+          settings.soniox_model,
+          settings.soniox_voice,
+          settings.soniox_language,
+        ]
+      : settings.provider === "deepgram"
+        ? [settings.deepgram_model, settings.deepgram_model, ""]
+        : settings.provider === "openai"
+          ? [settings.openai_model, settings.openai_voice, ""]
+          : settings.provider === "local_qwen"
+            ? [
+                "qwen3-tts-12hz-0.6b-customvoice",
+                settings.local_qwen_voice,
+                settings.local_qwen_language,
+              ]
+            : settings.provider === "local_kokoro"
+              ? [
+                  "kokoro-82m",
+                  settings.local_kokoro_voice,
+                  settings.local_kokoro_language,
+                ]
+              : [
+                  "windows.media.speechsynthesis",
+                  settings.windows_voice_id,
+                  settings.windows_voice_language,
+                ];
+  const keySource =
+    settings.provider === "soniox"
+      ? settings.soniox_key_source
+      : settings.provider === "deepgram"
+        ? settings.deepgram_key_source
+        : settings.provider === "openai"
+          ? settings.openai_key_source
+          : "shared";
+  return {
+    provider: settings.provider,
+    model,
+    voice,
+    language,
+    key_source: keySource,
+    speed: settings.speed,
+    voice_instructions: settings.openai_instructions,
+    voice_prompt_preset_id: settings.selected_prompt_id,
+    preprocessing_enabled: settings.preprocessing_enabled,
+    preprocessing_rules: settings.preprocessing_rules,
+    target_chars:
+      mode === "files"
+        ? settings.file_target_chars
+        : settings.interactive_target_chars,
+    retry_count: settings.retry_count,
+    retry_base_delay_ms: settings.retry_base_delay_ms,
+    inter_chunk_pause_ms: settings.inter_chunk_pause_ms,
+    paragraph_pause_ms: settings.paragraph_pause_ms,
+    output_format: settings.output_format,
+    mp3_bitrate_kbps: settings.mp3_bitrate_kbps,
+  };
+};
+
+const applySynthesisConfig = (
+  settings: TtsSettings,
+  config: TtsSynthesisConfig,
+  mode: TextToSpeechSettingsProps["mode"],
+): TtsSettings => {
+  const next: TtsSettings = {
+    ...settings,
+    provider: config.provider,
+    speed: config.speed,
+    openai_instructions: config.voice_instructions,
+    selected_prompt_id: config.voice_prompt_preset_id,
+    preprocessing_enabled: config.preprocessing_enabled,
+    preprocessing_rules: config.preprocessing_rules,
+    retry_count: config.retry_count,
+    retry_base_delay_ms: config.retry_base_delay_ms,
+    inter_chunk_pause_ms: config.inter_chunk_pause_ms,
+    paragraph_pause_ms: config.paragraph_pause_ms,
+    output_format: config.output_format,
+    mp3_bitrate_kbps: config.mp3_bitrate_kbps,
+    ...(mode === "files"
+      ? { file_target_chars: config.target_chars }
+      : { interactive_target_chars: config.target_chars }),
+  };
+  if (config.provider === "soniox") {
+    next.soniox_model = config.model;
+    next.soniox_voice = config.voice;
+    next.soniox_language = config.language;
+    next.soniox_key_source = config.key_source;
+  } else if (config.provider === "deepgram") {
+    next.deepgram_model = config.model;
+    next.deepgram_key_source = config.key_source;
+  } else if (config.provider === "openai") {
+    next.openai_model = config.model;
+    next.openai_voice = config.voice;
+    next.openai_key_source = config.key_source;
+  } else if (config.provider === "local_qwen") {
+    next.local_qwen_voice = config.voice;
+    next.local_qwen_language = config.language;
+  } else if (config.provider === "local_kokoro") {
+    next.local_kokoro_voice = config.voice;
+    next.local_kokoro_language = config.language;
+  } else {
+    next.windows_voice_id = config.voice;
+    next.windows_voice_language = config.language;
+  }
+  return next;
+};
+
+const upsertScopeConfig = (
+  scope: TtsScopeSynthesisSettings,
+  config: TtsSynthesisConfig,
+  selectedPresetId: string,
+): TtsScopeSynthesisSettings => {
+  const modelKey = synthesisModelIdentity(config.provider, config.model);
+  const existingIndex = scope.models.findIndex(
+    (entry) => entry.model_key === modelKey,
+  );
+  const models =
+    existingIndex >= 0
+      ? scope.models.map((entry, index) =>
+          index === existingIndex
+            ? { model_key: modelKey, config }
+            : entry,
+        )
+      : [...scope.models, { model_key: modelKey, config }];
+  return {
+    active_model_key: modelKey,
+    selected_preset_id: selectedPresetId,
+    models: models.slice(-100),
+  };
+};
+
+const materializeSynthesisScope = (
+  settings: TtsSettings,
+  mode: TextToSpeechSettingsProps["mode"],
+): TtsSettings => {
+  const scope = settings[scopeSettingsKey(mode)];
+  const active = scope.models.find(
+    (entry) => entry.model_key === scope.active_model_key,
+  );
+  return active ? applySynthesisConfig(settings, active.config, mode) : settings;
 };
 
 const characterCount = (
@@ -591,19 +876,48 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
   const { settings, refreshSettings } = useSettings();
   const storedTts = (settings as any)?.tts as Partial<TtsSettings> | undefined;
   const storedTtsSnapshot = useMemo<TtsSettings>(
-    () => ({
-      ...DEFAULT_TTS_SETTINGS,
-      ...storedTts,
-      preprocessing_rules: storedTts?.preprocessing_rules ?? [],
-      prompt_presets: storedTts?.prompt_presets ?? [],
-    }),
-    [storedTts],
+    () => {
+      const merged: TtsSettings = {
+        ...DEFAULT_TTS_SETTINGS,
+        ...storedTts,
+        llm_preprocessing: {
+          ...DEFAULT_TTS_LLM_PREPROCESSING,
+          ...storedTts?.llm_preprocessing,
+          interactive_prompts:
+            storedTts?.llm_preprocessing?.interactive_prompts ??
+            DEFAULT_TTS_LLM_PREPROCESSING.interactive_prompts,
+          file_prompts:
+            storedTts?.llm_preprocessing?.file_prompts ??
+            DEFAULT_TTS_LLM_PREPROCESSING.file_prompts,
+          interactive_benchmark_log:
+            storedTts?.llm_preprocessing?.interactive_benchmark_log ?? [],
+          file_benchmark_log:
+            storedTts?.llm_preprocessing?.file_benchmark_log ?? [],
+        },
+        preprocessing_rules: storedTts?.preprocessing_rules ?? [],
+        prompt_presets: storedTts?.prompt_presets ?? [],
+        synthesis_presets: storedTts?.synthesis_presets ?? [],
+        interactive_synthesis: {
+          ...DEFAULT_TTS_SETTINGS.interactive_synthesis,
+          ...storedTts?.interactive_synthesis,
+          models: storedTts?.interactive_synthesis?.models ?? [],
+        },
+        file_synthesis: {
+          ...DEFAULT_TTS_SETTINGS.file_synthesis,
+          ...storedTts?.file_synthesis,
+          models: storedTts?.file_synthesis?.models ?? [],
+        },
+      };
+      return materializeSynthesisScope(merged, mode);
+    },
+    [mode, storedTts],
   );
   const [tts, setTts] = useState(storedTtsSnapshot);
   const ttsRef = useRef(storedTtsSnapshot);
   const settingsWriteQueueRef = useRef<Promise<void>>(Promise.resolve());
   const pendingSettingsWritesRef = useRef(0);
   const settingsWriteGenerationRef = useRef(0);
+  const keyStatusGenerationRef = useRef(0);
 
   useEffect(() => {
     if (pendingSettingsWritesRef.current === 0) {
@@ -621,6 +935,8 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
   const [savingField, setSavingField] = useState<string | null>(null);
   const [settingsError, setSettingsError] = useState<string | null>(null);
   const [hasSeparateKey, setHasSeparateKey] = useState(false);
+  const [hasEffectiveKey, setHasEffectiveKey] = useState(false);
+  const [keyStatusLoaded, setKeyStatusLoaded] = useState(false);
   const [keyDraft, setKeyDraft] = useState("");
   const [editingKey, setEditingKey] = useState(false);
   const [keyBusy, setKeyBusy] = useState(false);
@@ -640,6 +956,26 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
   const [ruleCaseSensitive, setRuleCaseSensitive] = useState(true);
   const [ruleIsRegex, setRuleIsRegex] = useState(false);
   const [promptPresetName, setPromptPresetName] = useState("");
+  const [synthesisPresetName, setSynthesisPresetName] = useState(() => {
+    const scope = storedTtsSnapshot[scopeSettingsKey(mode)];
+    return (
+      storedTtsSnapshot.synthesis_presets.find(
+        (preset) => preset.id === scope.selected_preset_id,
+      )?.name ?? ""
+    );
+  });
+  const synthesisPresetModeRef = useRef(mode);
+
+  useEffect(() => {
+    if (synthesisPresetModeRef.current === mode) return;
+    synthesisPresetModeRef.current = mode;
+    const scope = storedTtsSnapshot[scopeSettingsKey(mode)];
+    setSynthesisPresetName(
+      storedTtsSnapshot.synthesis_presets.find(
+        (preset) => preset.id === scope.selected_preset_id,
+      )?.name ?? "",
+    );
+  }, [mode, storedTtsSnapshot]);
 
   const [inputPath, setInputPath] = useState("");
   const [outputPath, setOutputPath] = useState("");
@@ -655,7 +991,24 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
   const [operationId, setOperationId] = useState<string | null>(null);
   const conversionBusyRef = useRef(false);
   const conversionOperationIdRef = useRef<string | null>(null);
+  const llmProviders = useMemo(
+    () =>
+      (
+        (settings as any)?.post_process_providers as
+          | Array<{ id: string; label: string }>
+          | undefined
+      ) ?? [
+        { id: "openai", label: "OpenAI" },
+        { id: "openrouter", label: "OpenRouter" },
+        { id: "anthropic", label: "Anthropic" },
+        { id: "groq", label: "Groq" },
+        { id: "custom", label: "Custom" },
+      ],
+    [settings],
+  );
   const providerCapabilities = PROVIDER_CAPABILITIES[tts.provider];
+  const activeLocalKind: LocalTtsKind =
+    tts.provider === "local_kokoro" ? "kokoro" : "qwen";
   const keySourceField =
     !providerCapabilities.requiresApiKey
       ? null
@@ -673,7 +1026,9 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
           ? tts.openai_voice
           : tts.provider === "windows"
             ? tts.windows_voice_id
-            : tts.local_qwen_voice;
+            : tts.provider === "local_kokoro"
+              ? tts.local_kokoro_voice
+              : tts.local_qwen_voice;
   const modelValue =
     tts.provider === "soniox"
       ? tts.soniox_model
@@ -683,7 +1038,9 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
           ? tts.openai_model
           : tts.provider === "windows"
             ? "windows.media.speechsynthesis"
-            : "Qwen3-TTS-12Hz-0.6B-CustomVoice";
+            : tts.provider === "local_kokoro"
+              ? "kokoro-int8-multi-lang-v1_1"
+              : "Qwen3-TTS-12Hz-0.6B-CustomVoice";
   const [speedMinimum, speedMaximum] = providerCapabilities.speed;
   const openAiInstructionsSupported =
     !tts.openai_model.trim() ||
@@ -693,12 +1050,14 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
   const refreshLocalTtsStatus = useCallback(async () => {
     try {
       setLocalTtsStatus(
-        await invoke<LocalTtsStatus>("get_local_tts_status", { kind: "qwen" }),
+        await invoke<LocalTtsStatus>("get_local_tts_status", {
+          kind: activeLocalKind,
+        }),
       );
     } catch (error) {
       setSettingsError(asErrorMessage(error));
     }
-  }, []);
+  }, [activeLocalKind]);
 
   const refreshWindowsCatalog = useCallback(async () => {
     setWindowsCatalogBusy(true);
@@ -722,21 +1081,20 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
 
   useEffect(() => {
     if (
-      mode === "interactive" &&
       tts.provider === "windows" &&
       windowsCatalog === null
     ) {
       void refreshWindowsCatalog();
     }
-  }, [mode, refreshWindowsCatalog, tts.provider, windowsCatalog]);
+  }, [refreshWindowsCatalog, tts.provider, windowsCatalog]);
 
   useEffect(() => {
-    if (mode === "files") return;
+    setLocalTtsStatus(null);
     void refreshLocalTtsStatus();
     let disposed = false;
     let unlisten: (() => void) | undefined;
     void listen<LocalTtsStatus>("local-tts://status", (event) => {
-      if (!disposed && event.payload.kind === "qwen") {
+      if (!disposed && event.payload.kind === activeLocalKind) {
         setLocalTtsStatus(event.payload);
       }
     }).then((dispose) => {
@@ -747,7 +1105,7 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
       disposed = true;
       unlisten?.();
     };
-  }, [mode, refreshLocalTtsStatus]);
+  }, [activeLocalKind, refreshLocalTtsStatus]);
 
   const updateTts = useCallback(
     async (patch: Partial<TtsSettings>, field: string) => {
@@ -759,6 +1117,7 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
         Object.keys(patch).some((key) =>
           [
             "provider",
+            "llm_preprocessing",
             "preprocessing_enabled",
             "preprocessing_rules",
             "file_target_chars",
@@ -770,7 +1129,10 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
       pendingSettingsWritesRef.current += 1;
       setSavingField(field);
       setSettingsError(null);
-      if (COALESCED_TTS_FIELDS.has(field)) {
+      if (
+        COALESCED_TTS_FIELDS.has(field) ||
+        COALESCED_TTS_LLM_FIELDS.has(field)
+      ) {
         await new Promise((resolve) =>
           window.setTimeout(resolve, SETTINGS_EDIT_DEBOUNCE_MS),
         );
@@ -794,6 +1156,8 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
               "update_tts_settings",
               {
                 settings: nextSettings,
+                scope: operationScope(mode),
+                changedField: field,
               },
             );
             if (pendingSettingsWritesRef.current === 1) {
@@ -820,33 +1184,89 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
         }
       }
     },
-    [refreshSettings],
+    [mode, refreshSettings],
   );
 
+  const updateTtsLlmPreprocessing = useCallback(
+    (
+      update:
+        | Partial<TtsLlmPreprocessingSettings>
+        | ((
+            current: TtsLlmPreprocessingSettings,
+          ) => Partial<TtsLlmPreprocessingSettings>),
+      field: string,
+    ) => {
+      const current = ttsRef.current.llm_preprocessing;
+      const partial = typeof update === "function" ? update(current) : update;
+      return updateTts(
+        {
+          llm_preprocessing: {
+            ...current,
+            ...partial,
+          },
+        },
+        field,
+      );
+    },
+    [updateTts],
+  );
+
+  const flushPendingSettingsWrites = useCallback(async () => {
+    if (pendingSettingsWritesRef.current === 0) {
+      await settingsWriteQueueRef.current;
+      return;
+    }
+    await updateTts({}, "__tts_settings_flush__");
+  }, [updateTts]);
+
   const refreshKeyStatus = useCallback(async () => {
+    const generation = ++keyStatusGenerationRef.current;
     if (!providerCapabilities.requiresApiKey) {
       setHasSeparateKey(false);
+      setHasEffectiveKey(true);
+      setKeyStatusLoaded(true);
+      setKeyBusy(false);
       return;
     }
     setKeyBusy(true);
+    setKeyStatusLoaded(false);
     try {
-      const exists = await invoke<boolean>("tts_has_api_key", {
+      const separateKeyExists = await invoke<boolean>("tts_has_api_key", {
         provider: tts.provider,
       });
-      setHasSeparateKey(exists);
+
+      let effectiveKeyExists = separateKeyExists;
+      if (keySource === "shared") {
+        effectiveKeyExists =
+          tts.provider === "soniox"
+            ? await invoke<boolean>("soniox_has_api_key")
+            : tts.provider === "deepgram"
+              ? await invoke<boolean>("deepgram_has_api_key")
+              : await invoke<boolean>("llm_has_stored_api_key", {
+                  feature: "post_processing",
+                  providerId: "openai",
+                });
+      }
+      if (generation !== keyStatusGenerationRef.current) return;
+      setHasSeparateKey(separateKeyExists);
+      setHasEffectiveKey(effectiveKeyExists);
+      setKeyStatusLoaded(true);
     } catch (error) {
+      if (generation !== keyStatusGenerationRef.current) return;
+      setKeyStatusLoaded(false);
       setSettingsError(asErrorMessage(error));
     } finally {
-      setKeyBusy(false);
+      if (generation === keyStatusGenerationRef.current) {
+        setKeyBusy(false);
+      }
     }
-  }, [providerCapabilities.requiresApiKey, tts.provider]);
+  }, [keySource, providerCapabilities.requiresApiKey, tts.provider]);
 
   useEffect(() => {
-    if (mode === "files") return;
     void refreshKeyStatus();
     setEditingKey(false);
     setKeyDraft("");
-  }, [mode, refreshKeyStatus]);
+  }, [refreshKeyStatus]);
 
   useEffect(() => {
     if (mode !== "files") return;
@@ -951,7 +1371,9 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
     setSettingsError(null);
     try {
       setLocalTtsStatus(
-        await invoke<LocalTtsStatus>("install_local_tts", { kind: "qwen" }),
+        await invoke<LocalTtsStatus>("install_local_tts", {
+          kind: activeLocalKind,
+        }),
       );
     } catch (error) {
       setSettingsError(asErrorMessage(error));
@@ -963,7 +1385,7 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
 
   const cancelLocalTtsInstall = async () => {
     try {
-      await invoke("cancel_local_tts_install", { kind: "qwen" });
+      await invoke("cancel_local_tts_install", { kind: activeLocalKind });
     } catch (error) {
       setSettingsError(asErrorMessage(error));
     }
@@ -973,7 +1395,7 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
     setLocalTtsBusy(true);
     setSettingsError(null);
     try {
-      await invoke("delete_local_tts", { kind: "qwen" });
+      await invoke("delete_local_tts", { kind: activeLocalKind });
       await refreshLocalTtsStatus();
     } catch (error) {
       setSettingsError(asErrorMessage(error));
@@ -992,6 +1414,7 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
         apiKey: keyDraft.trim(),
       });
       setHasSeparateKey(true);
+      setHasEffectiveKey(true);
       setEditingKey(false);
       setKeyDraft("");
     } catch (error) {
@@ -1007,6 +1430,7 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
     try {
       await invoke("tts_clear_api_key", { provider: tts.provider });
       setHasSeparateKey(false);
+      setHasEffectiveKey(false);
       setEditingKey(false);
       setKeyDraft("");
     } catch (error) {
@@ -1104,6 +1528,124 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
     );
   };
 
+  const currentSynthesisScope = tts[scopeSettingsKey(mode)];
+  const selectedSynthesisPresetId = currentSynthesisScope.selected_preset_id;
+
+  const saveSynthesisPreset = async () => {
+    const name = synthesisPresetName.trim();
+    if (!name) return;
+    const existing = tts.synthesis_presets.find(
+      (preset) => preset.name.toLocaleLowerCase() === name.toLocaleLowerCase(),
+    );
+    const config = synthesisConfigFromSettings(tts, mode);
+    const preset: TtsSynthesisPreset = {
+      id:
+        existing?.id ??
+        `tts_synthesis_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+      name,
+      config,
+    };
+    const synthesisPresets = existing
+      ? tts.synthesis_presets.map((candidate) =>
+          candidate.id === existing.id ? preset : candidate,
+        )
+      : [...tts.synthesis_presets, preset];
+    const scopeKey = scopeSettingsKey(mode);
+    const updatedScope = upsertScopeConfig(
+      tts[scopeKey],
+      config,
+      preset.id,
+    );
+    const otherScopeKey =
+      scopeKey === "interactive_synthesis"
+        ? "file_synthesis"
+        : "interactive_synthesis";
+    const otherScope =
+      existing && tts[otherScopeKey].selected_preset_id === existing.id
+        ? { ...tts[otherScopeKey], selected_preset_id: "" }
+        : tts[otherScopeKey];
+    const scopePatch =
+      scopeKey === "interactive_synthesis"
+        ? {
+            interactive_synthesis: updatedScope,
+            file_synthesis: otherScope,
+          }
+        : {
+            interactive_synthesis: otherScope,
+            file_synthesis: updatedScope,
+          };
+    await updateTts(
+      {
+        synthesis_presets: synthesisPresets,
+        ...scopePatch,
+      },
+      "synthesis_presets",
+    );
+    setSynthesisPresetName("");
+  };
+
+  const loadSynthesisPreset = async (presetId: string) => {
+    if (!presetId) {
+      setSynthesisPresetName("");
+      const scopeKey = scopeSettingsKey(mode);
+      await updateTts(
+        {
+          [scopeKey]: {
+            ...tts[scopeKey],
+            selected_preset_id: "",
+          },
+        },
+        "__tts_synthesis_preset_clear__",
+      );
+      return;
+    }
+    const preset = tts.synthesis_presets.find(
+      (candidate) => candidate.id === presetId,
+    );
+    if (!preset) {
+      setSettingsError(t("textToSpeech.synthesisPresets.missing"));
+      return;
+    }
+    setSynthesisPresetName(preset.name);
+    const scopeKey = scopeSettingsKey(mode);
+    const applied = applySynthesisConfig(tts, preset.config, mode);
+    await updateTts(
+      {
+        ...applied,
+        [scopeKey]: upsertScopeConfig(
+          tts[scopeKey],
+          preset.config,
+          preset.id,
+        ),
+      },
+      "synthesis_preset_load",
+    );
+    setOutputFormat(preset.config.output_format);
+    setMp3Bitrate(preset.config.mp3_bitrate_kbps);
+    setInspection(null);
+  };
+
+  const deleteSelectedSynthesisPreset = async () => {
+    if (!selectedSynthesisPresetId) return;
+    const clearSelection = (
+      scope: TtsScopeSynthesisSettings,
+    ): TtsScopeSynthesisSettings =>
+      scope.selected_preset_id === selectedSynthesisPresetId
+        ? { ...scope, selected_preset_id: "" }
+        : scope;
+    await updateTts(
+      {
+        synthesis_presets: tts.synthesis_presets.filter(
+          (preset) => preset.id !== selectedSynthesisPresetId,
+        ),
+        interactive_synthesis: clearSelection(tts.interactive_synthesis),
+        file_synthesis: clearSelection(tts.file_synthesis),
+      },
+      "synthesis_presets",
+    );
+    setSynthesisPresetName("");
+  };
+
   const chooseInputFile = async () => {
     const selected = await open({
       multiple: false,
@@ -1128,6 +1670,7 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
     setInspecting(true);
     setConversionError(null);
     try {
+      await flushPendingSettingsWrites();
       const result = await invoke<FileInspection>("inspect_tts_text_file", {
         path: inputPath,
       });
@@ -1166,6 +1709,7 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
     conversionOperationIdRef.current = null;
     conversionBusyRef.current = true;
     try {
+      await flushPendingSettingsWrites();
       const result = await invoke<
         | string
         | {
@@ -1256,6 +1800,12 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
       : t("textToSpeech.api.sameAsStt", {
           provider: tts.provider === "soniox" ? "Soniox" : "Deepgram",
         });
+  const selectedApiKeyMissing =
+    providerCapabilities.requiresApiKey &&
+    !keyBusy &&
+    (keySource === "separate"
+      ? !hasSeparateKey
+      : keyStatusLoaded && !hasEffectiveKey);
 
   useEffect(() => {
     setOutputFormat(tts.output_format);
@@ -1286,8 +1836,8 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
         </div>
       )}
 
-      {mode === "interactive" && (
-        <>
+      <>
+        {mode === "interactive" && (
           <SettingsGroup
             title={t("textToSpeech.title")}
             description={t("textToSpeech.description")}
@@ -1314,9 +1864,170 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
             dropUp={false}
           />
         </SettingContainer>
-      </SettingsGroup>
+        {selectedApiKeyMissing && (
+          <div
+            role="alert"
+            className="flex items-start gap-3 bg-amber-400/10 px-6 py-4 text-sm text-amber-100"
+          >
+            <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+            <div>
+              <span>
+                {t("textToSpeech.api.missingKeyWarning", {
+                  provider: PROVIDERS.find(
+                    (item) => item.value === tts.provider,
+                  )?.label,
+                })}
+              </span>{" "}
+              <a
+                href="#tts-api-settings"
+                onClick={(event) => {
+                  event.preventDefault();
+                  document
+                    .getElementById("tts-api-settings")
+                    ?.scrollIntoView({ behavior: "smooth", block: "start" });
+                }}
+                className="font-semibold text-amber-200 underline decoration-amber-200/60 underline-offset-2 hover:text-amber-100"
+              >
+                {t("textToSpeech.api.configureKey")}
+              </a>
+            </div>
+          </div>
+        )}
+          </SettingsGroup>
+        )}
 
-      {tts.provider === "local_qwen" && (
+        {mode === "files" && (
+          <SettingsGroup
+            title={t("textToSpeech.fileSettings.title")}
+            description={t("textToSpeech.fileSettings.description")}
+          >
+            <SettingContainer
+              grouped
+              title={t("textToSpeech.provider.title")}
+              description={t("textToSpeech.provider.description")}
+            >
+              <Dropdown
+                selectedValue={tts.provider}
+                options={PROVIDERS}
+                onSelect={(value) =>
+                  void chooseProvider(value as TtsProvider)
+                }
+                disabled={savingField !== null}
+                dropUp={false}
+              />
+            </SettingContainer>
+            {selectedApiKeyMissing && (
+              <div
+                role="alert"
+                className="flex items-start gap-3 bg-amber-400/10 px-6 py-4 text-sm text-amber-100"
+              >
+                <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+                <div>
+                  <span>
+                    {t("textToSpeech.api.missingKeyWarning", {
+                      provider: PROVIDERS.find(
+                        (item) => item.value === tts.provider,
+                      )?.label,
+                    })}
+                  </span>{" "}
+                  <a
+                    href="#tts-api-settings"
+                    onClick={(event) => {
+                      event.preventDefault();
+                      document
+                        .getElementById("tts-api-settings")
+                        ?.scrollIntoView({
+                          behavior: "smooth",
+                          block: "start",
+                        });
+                    }}
+                    className="font-semibold text-amber-200 underline decoration-amber-200/60 underline-offset-2 hover:text-amber-100"
+                  >
+                    {t("textToSpeech.api.configureKey")}
+                  </a>
+                </div>
+              </div>
+            )}
+          </SettingsGroup>
+        )}
+
+        <SettingsGroup
+          title={t("textToSpeech.synthesisPresets.title")}
+          description={t("textToSpeech.synthesisPresets.description")}
+        >
+          <div className="border-b border-white/[0.05] px-6 py-4 text-xs leading-relaxed text-text/65">
+            {t("textToSpeech.synthesisPresets.modelMemory")}
+          </div>
+          <SettingContainer
+            grouped
+            layout="stacked"
+            title={t("textToSpeech.synthesisPresets.loadTitle")}
+            description={t("textToSpeech.synthesisPresets.loadDescription")}
+            descriptionMode="inline"
+          >
+            <div className="flex flex-wrap gap-2">
+              <Dropdown
+                className="min-w-64 flex-1"
+                selectedValue={selectedSynthesisPresetId}
+                options={[
+                  {
+                    value: "",
+                    label: t("textToSpeech.synthesisPresets.custom"),
+                  },
+                  ...tts.synthesis_presets.map((preset) => ({
+                    value: preset.id,
+                    label: preset.name,
+                  })),
+                ]}
+                onSelect={(value) => void loadSynthesisPreset(value)}
+                disabled={savingField !== null}
+                dropUp={false}
+              />
+              <Button
+                variant="danger"
+                disabled={!selectedSynthesisPresetId || savingField !== null}
+                onClick={() => void deleteSelectedSynthesisPreset()}
+              >
+                <Trash2 className="mr-2 inline h-4 w-4" />
+                {t("textToSpeech.synthesisPresets.delete")}
+              </Button>
+            </div>
+          </SettingContainer>
+          <SettingContainer
+            grouped
+            layout="stacked"
+            title={t("textToSpeech.synthesisPresets.saveTitle")}
+            description={t("textToSpeech.synthesisPresets.saveDescription")}
+            descriptionMode="inline"
+          >
+            <div className="flex flex-wrap gap-2">
+              <Input
+                className="min-w-64 flex-1"
+                value={synthesisPresetName}
+                maxLength={256}
+                placeholder={t("textToSpeech.synthesisPresets.namePlaceholder")}
+                onChange={(event) =>
+                  setSynthesisPresetName(event.target.value)
+                }
+              />
+              <Button
+                variant="secondary"
+                disabled={
+                  !synthesisPresetName.trim() || savingField !== null
+                }
+                onClick={() => void saveSynthesisPreset()}
+              >
+                <SaveIcon className="mr-2 inline h-4 w-4" />
+                {t("textToSpeech.synthesisPresets.save")}
+              </Button>
+            </div>
+          </SettingContainer>
+          <div className="px-6 py-4 text-xs leading-relaxed text-text/60">
+            {t("textToSpeech.synthesisPresets.exclusions")}
+          </div>
+        </SettingsGroup>
+
+      {(tts.provider === "local_qwen" || tts.provider === "local_kokoro") && (
         <SettingsGroup
           title={t("textToSpeech.local.title")}
           description={t("textToSpeech.local.description")}
@@ -1327,17 +2038,27 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
             title={t("textToSpeech.local.modelTitle")}
             description={t("textToSpeech.local.modelDescription", {
               size: formatBytes(
-                localTtsStatus?.model_download_bytes ?? 2_498_388_392,
+                localTtsStatus?.model_download_bytes ??
+                  (tts.provider === "local_kokoro"
+                    ? 147_031_220
+                    : 2_498_388_392),
               ),
             })}
             descriptionMode="inline"
           >
             <div className="space-y-3">
               <div className="text-sm text-text/80">
-                <div>{localTtsStatus?.model_repository ?? "Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice"}</div>
+                <div>
+                  {localTtsStatus?.model_repository ??
+                    (tts.provider === "local_kokoro"
+                      ? "k2-fsa/sherpa-onnx/tts-models/kokoro-int8-multi-lang-v1_1"
+                      : "Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice")}
+                </div>
                 <div className="break-all text-xs text-text/55">
                   {localTtsStatus?.model_revision ??
-                    "85e237c12c027371202489a0ec509ded67b5e4b5"}
+                    (tts.provider === "local_kokoro"
+                      ? "tts-models:a1e94694776049035c4f2c6529f003aaece993c76aae9a78995831c3c4dcafc6"
+                      : "85e237c12c027371202489a0ec509ded67b5e4b5")}
                 </div>
               </div>
               <div
@@ -1415,83 +2136,43 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
         </SettingsGroup>
       )}
 
-      {providerCapabilities.requiresApiKey && (
-        <SettingsGroup
-          title={t("textToSpeech.api.title")}
-          description={t("textToSpeech.api.description")}
-        >
+      {mode === "interactive" && (
+        <SettingsGroup title={t("textToSpeech.actions.title")}>
         <SettingContainer
           grouped
           layout="stacked"
-          title={t("textToSpeech.api.sourceTitle")}
-          description={t("textToSpeech.api.sourceDescription")}
+          title={t("textToSpeech.actions.readClipboardTitle")}
+          description={t("textToSpeech.actions.readClipboardDescription")}
           descriptionMode="inline"
         >
-          <Dropdown
-            className="max-w-md"
-            selectedValue={keySource}
-            options={[
-              { value: "shared", label: keySourceLabel },
-              {
-                value: "separate",
-                label: t("textToSpeech.api.separateKey"),
-              },
-            ]}
-            onSelect={(value) => {
-              if (keySourceField) {
-                void updateTts(
-                  { [keySourceField]: value as TtsKeySource },
-                  keySourceField,
-                );
-              }
-            }}
-            disabled={savingField !== null}
-            dropUp={false}
+          <HandyShortcut shortcutId="read_clipboard" grouped />
+        </SettingContainer>
+        <SettingContainer
+          grouped
+          layout="stacked"
+          title={t("textToSpeech.actions.readSelectionTitle")}
+          description={t("textToSpeech.actions.readSelectionDescription")}
+          descriptionMode="inline"
+        >
+          <HandyShortcut shortcutId="read_selection_tts" grouped />
+        </SettingContainer>
+        <SettingContainer
+          grouped
+          layout="stacked"
+          title={t("textToSpeech.actions.readSelectionDirectTitle")}
+          description={
+            osKind === "windows"
+              ? t("textToSpeech.actions.readSelectionDirectDescription")
+              : t("textToSpeech.actions.readSelectionDirectWindowsOnly")
+          }
+          descriptionMode="inline"
+        >
+          <HandyShortcut
+            shortcutId="read_selection_direct_tts"
+            grouped
+            disabled={osKind !== "windows"}
           />
         </SettingContainer>
-        {keySource === "separate" && (
-          <SettingContainer
-            grouped
-            layout="stacked"
-            title={t("textToSpeech.api.providerKeyTitle", {
-              provider: PROVIDERS.find((item) => item.value === tts.provider)
-                ?.label,
-            })}
-            description={t("textToSpeech.api.keyStorageDescription")}
-            descriptionMode="inline"
-          >
-            {hasSeparateKey && !editingKey ? (
-              <StoredApiKeyDisplay
-                loading={keyBusy}
-                onDelete={() => void clearKey()}
-                onReplace={() => setEditingKey(true)}
-              />
-            ) : (
-              <ApiKeyEditor
-                loading={keyBusy}
-                value={keyDraft}
-                maxLength={
-                  tts.provider === "soniox"
-                    ? SONIOX_TTS_API_KEY_MAX_LENGTH
-                    : undefined
-                }
-                onChange={setKeyDraft}
-                onSave={() => void saveKey()}
-                onCancel={() => {
-                  setEditingKey(false);
-                  setKeyDraft("");
-                }}
-                showCancel={hasSeparateKey}
-                placeholder={t("textToSpeech.api.keyPlaceholder")}
-                hint={
-                  hasSeparateKey
-                    ? t("textToSpeech.api.replaceKeyHint")
-                    : t("textToSpeech.api.noKeyHint")
-                }
-              />
-            )}
-          </SettingContainer>
-        )}
         </SettingsGroup>
       )}
 
@@ -1513,6 +2194,24 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
                 void updateTts(
                   { local_qwen_voice: value },
                   "local_qwen_voice",
+                )
+              }
+              disabled={savingField !== null}
+              dropUp={false}
+            />
+          ) : tts.provider === "local_kokoro" ? (
+            <Dropdown
+              className="w-full md:w-72"
+              selectedValue={tts.local_kokoro_voice}
+              options={
+                tts.local_kokoro_language === "Chinese"
+                  ? LOCAL_KOKORO_CHINESE_VOICES
+                  : LOCAL_KOKORO_ENGLISH_VOICES
+              }
+              onSelect={(value) =>
+                void updateTts(
+                  { local_kokoro_voice: value },
+                  "local_kokoro_voice",
                 )
               }
               disabled={savingField !== null}
@@ -1654,8 +2353,34 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
             />
           </SettingContainer>
         )}
+        {tts.provider === "local_kokoro" && (
+          <SettingContainer
+            grouped
+            title={t("textToSpeech.voice.languageTitle")}
+            description={t("textToSpeech.local.languageDescription")}
+          >
+            <Dropdown
+              className="w-full md:w-72"
+              selectedValue={tts.local_kokoro_language}
+              options={LOCAL_KOKORO_LANGUAGES}
+              onSelect={(value) =>
+                void updateTts(
+                  {
+                    local_kokoro_language: value,
+                    local_kokoro_voice:
+                      value === "Chinese" ? "zf_001" : "af_maple",
+                  },
+                  "local_kokoro_language",
+                )
+              }
+              disabled={savingField !== null}
+              dropUp={false}
+            />
+          </SettingContainer>
+        )}
         {tts.provider !== "deepgram" &&
           tts.provider !== "local_qwen" &&
+          tts.provider !== "local_kokoro" &&
           tts.provider !== "windows" && (
           <SettingContainer
             grouped
@@ -1741,7 +2466,8 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
             )}
           </div>
         </SettingContainer>
-        {tts.provider === "local_qwen" && (
+        {(tts.provider === "local_qwen" ||
+          tts.provider === "local_kokoro") && (
           <div
             role="status"
             className="mx-6 my-4 rounded-lg border border-amber-400/40 bg-amber-400/10 px-4 py-3 text-xs leading-relaxed text-amber-100"
@@ -1848,31 +2574,11 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
         )}
       </SettingsGroup>
 
-      <SettingsGroup title={t("textToSpeech.actions.title")}>
-        <SettingContainer
-          grouped
-          layout="stacked"
-          title={t("textToSpeech.actions.readClipboardTitle")}
-          description={t("textToSpeech.actions.readClipboardDescription")}
-          descriptionMode="inline"
+      {mode === "interactive" && (
+        <SettingsGroup
+          title={t("textToSpeech.overlay.title")}
+          description={t("textToSpeech.overlay.description")}
         >
-          <HandyShortcut shortcutId="read_clipboard" grouped />
-        </SettingContainer>
-        <SettingContainer
-          grouped
-          layout="stacked"
-          title={t("textToSpeech.actions.readSelectionTitle")}
-          description={t("textToSpeech.actions.readSelectionDescription")}
-          descriptionMode="inline"
-        >
-          <HandyShortcut shortcutId="read_selection_tts" grouped />
-        </SettingContainer>
-      </SettingsGroup>
-
-      <SettingsGroup
-        title={t("textToSpeech.overlay.title")}
-        description={t("textToSpeech.overlay.description")}
-      >
         <ToggleSwitch
           grouped
           checked={tts.autoplay}
@@ -1935,9 +2641,9 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
             osType={hotkeyOsType}
           />
         </SettingContainer>
-      </SettingsGroup>
-        </>
+        </SettingsGroup>
       )}
+      </>
 
       {mode === "files" && (
         <>
@@ -2180,6 +2886,15 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
         </>
       )}
 
+      <TtsAiCleanup
+        mode={mode}
+        value={tts.llm_preprocessing}
+        providers={llmProviders}
+        saving={savingField?.startsWith("llm_preprocessing") ?? false}
+        flushPendingSettingsWrites={flushPendingSettingsWrites}
+        onChange={updateTtsLlmPreprocessing}
+      />
+
       <SettingsGroup
         title={t("textToSpeech.preprocessing.title")}
         description={t("textToSpeech.preprocessing.description")}
@@ -2393,7 +3108,102 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
           savingField={savingField}
           onAvailabilityChange={handleInteractiveHistoryAvailability}
           updateTts={updateTts}
+          flushPendingSettingsWrites={flushPendingSettingsWrites}
         />
+      )}
+      {providerCapabilities.requiresApiKey && (
+        <SettingsGroup
+          id="tts-api-settings"
+          title={t("textToSpeech.api.title")}
+          description={t("textToSpeech.api.description")}
+        >
+          <SettingContainer
+            grouped
+            title={t("textToSpeech.provider.title")}
+            description={t("textToSpeech.provider.description")}
+          >
+            <Dropdown
+              selectedValue={tts.provider}
+              options={PROVIDERS}
+              onSelect={(value) => void chooseProvider(value as TtsProvider)}
+              disabled={savingField !== null}
+              dropUp
+            />
+          </SettingContainer>
+          <SettingContainer
+            grouped
+            layout="stacked"
+            title={t("textToSpeech.api.sourceTitle")}
+            description={t("textToSpeech.api.sourceDescription")}
+            descriptionMode="inline"
+          >
+            <Dropdown
+              className="max-w-md"
+              selectedValue={keySource}
+              options={[
+                { value: "shared", label: keySourceLabel },
+                {
+                  value: "separate",
+                  label: t("textToSpeech.api.separateKey"),
+                },
+              ]}
+              onSelect={(value) => {
+                if (keySourceField) {
+                  void updateTts(
+                    { [keySourceField]: value as TtsKeySource },
+                    keySourceField,
+                  );
+                }
+              }}
+              disabled={savingField !== null}
+              dropUp
+            />
+          </SettingContainer>
+          {keySource === "separate" && (
+            <SettingContainer
+              grouped
+              layout="stacked"
+              title={t("textToSpeech.api.providerKeyTitle", {
+                provider: PROVIDERS.find(
+                  (item) => item.value === tts.provider,
+                )?.label,
+              })}
+              description={t("textToSpeech.api.keyStorageDescription")}
+              descriptionMode="inline"
+            >
+              {hasSeparateKey && !editingKey ? (
+                <StoredApiKeyDisplay
+                  loading={keyBusy}
+                  onDelete={() => void clearKey()}
+                  onReplace={() => setEditingKey(true)}
+                />
+              ) : (
+                <ApiKeyEditor
+                  loading={keyBusy}
+                  value={keyDraft}
+                  maxLength={
+                    tts.provider === "soniox"
+                      ? SONIOX_TTS_API_KEY_MAX_LENGTH
+                      : undefined
+                  }
+                  onChange={setKeyDraft}
+                  onSave={() => void saveKey()}
+                  onCancel={() => {
+                    setEditingKey(false);
+                    setKeyDraft("");
+                  }}
+                  showCancel={hasSeparateKey}
+                  placeholder={t("textToSpeech.api.keyPlaceholder")}
+                  hint={
+                    hasSeparateKey
+                      ? t("textToSpeech.api.replaceKeyHint")
+                      : t("textToSpeech.api.noKeyHint")
+                  }
+                />
+              )}
+            </SettingContainer>
+          )}
+        </SettingsGroup>
       )}
       {mode === "files" && (
         <TtsHistory
@@ -2401,6 +3211,7 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
           tts={tts}
           savingField={savingField}
           updateTts={updateTts}
+          flushPendingSettingsWrites={flushPendingSettingsWrites}
         />
       )}
     </div>

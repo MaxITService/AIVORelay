@@ -467,6 +467,7 @@ fn is_binding_enabled_for_settings(settings: &settings::AppSettings, binding_id:
         "send_screenshot_to_extension" => settings.send_screenshot_to_extension_enabled,
         "voice_command" => settings.voice_command_enabled,
         "read_clipboard" | "read_selection_tts" => settings.tts.enabled,
+        "read_selection_direct_tts" => cfg!(target_os = "windows") && settings.tts.enabled,
         settings::TTS_PLAY_HISTORY_FALLBACK_BINDING_ID => {
             settings.tts.enabled
                 && settings.tts.interactive_history_enabled

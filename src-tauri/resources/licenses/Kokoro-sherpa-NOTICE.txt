@@ -1,0 +1,28 @@
+AivoRelay optional local Kokoro text-to-speech support
+=======================================================
+
+The optional runtime is downloaded only when the user explicitly installs it.
+
+Runtime:
+  sherpa-onnx 1.13.4
+  https://github.com/k2-fsa/sherpa-onnx
+  Apache License 2.0
+
+Model package:
+  kokoro-int8-multi-lang-v1_1
+  https://github.com/k2-fsa/sherpa-onnx/releases/tag/tts-models
+  Derived from hexgrad/Kokoro-82M-v1.1-zh
+  Apache License 2.0
+
+The exact downloaded archives, sizes, and SHA-256 digests are pinned in the
+AivoRelay source. The installed model package retains its original LICENSE.
+
+Phonemizer data:
+  eSpeak NG data included in the official sherpa-onnx model archive
+  https://github.com/espeak-ng/espeak-ng
+  GNU General Public License version 3 or later
+
+AivoRelay does not copy Parrot's eSpeak executable. The optional official
+sherpa-onnx archive is downloaded by the user and its eSpeak NG data is used
+in-process by the pinned sherpa-onnx runtime. The managed license directory
+includes the complete GPL-3.0 license text.

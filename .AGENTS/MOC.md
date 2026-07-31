@@ -34,4 +34,4 @@ Map of tracked agent documentation.
 
 ## Local-Only Materials
 
-- [[.AGENTS/.UNTRACKED/MOC|.AGENTS/.UNTRACKED/MOC.md]]
+- [[.AGENTS/.untracked/MOC|.AGENTS/.untracked/MOC.md]]

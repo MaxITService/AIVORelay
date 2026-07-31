@@ -87,6 +87,7 @@ struct SendScreenshotToExtensionAction;
 struct RepastLastAction;
 struct ReadClipboardAction;
 struct ReadSelectionTtsAction;
+struct ReadSelectionDirectTtsAction;
 struct TtsPlayHistoryFallbackAction;
 
 const REPASTE_LAST_PRE_PASTE_DELAY_MS: u64 = 100;
@@ -8588,6 +8589,54 @@ impl ShortcutAction for ReadSelectionTtsAction {
     }
 }
 
+impl ShortcutAction for ReadSelectionDirectTtsAction {
+    fn start(&self, app: &AppHandle, _binding_id: &str, _shortcut_str: &str) {
+        let activation_started_at = Instant::now();
+        let app_handle = app.clone();
+        tauri::async_runtime::spawn(async move {
+            let selected_text = match crate::selection::read_selected_text_without_copying() {
+                Ok(text) if !text.trim().is_empty() => text,
+                Ok(_) => {
+                    let message =
+                        "No readable text is exposed as selected by the focused application."
+                            .to_string();
+                    log::warn!("{message}");
+                    let _ = app_handle.emit("tts-error", message);
+                    return;
+                }
+                Err(error) => {
+                    log::error!(
+                        "Failed to read selected text without copying for Text-to-Speech: {error}"
+                    );
+                    let _ = app_handle.emit("tts-error", error);
+                    return;
+                }
+            };
+
+            if let Err(error) = crate::commands::tts::start_tts_text_at(
+                app_handle.clone(),
+                selected_text,
+                activation_started_at,
+            )
+            .await
+            {
+                log::error!("Failed to read selected text with Text-to-Speech: {error}");
+                let _ = app_handle.emit("tts-error", error);
+            }
+        });
+    }
+
+    fn stop(&self, _app: &AppHandle, _binding_id: &str, _shortcut_str: &str) {}
+
+    fn is_instant(&self) -> bool {
+        true
+    }
+
+    fn instant_fire_on_release(&self) -> bool {
+        true
+    }
+}
+
 impl ShortcutAction for TtsPlayHistoryFallbackAction {
     fn start(&self, app: &AppHandle, _binding_id: &str, _shortcut_str: &str) {
         if let Err(error) = crate::commands::tts::play_pause_or_replay_latest_history(app) {
@@ -9606,6 +9655,10 @@ pub static ACTION_MAP: Lazy<HashMap<String, Arc<dyn ShortcutAction>>> = Lazy::ne
     map.insert(
         "read_selection_tts".to_string(),
         Arc::new(ReadSelectionTtsAction) as Arc<dyn ShortcutAction>,
+    );
+    map.insert(
+        "read_selection_direct_tts".to_string(),
+        Arc::new(ReadSelectionDirectTtsAction) as Arc<dyn ShortcutAction>,
     );
     map.insert(
         crate::settings::TTS_PLAY_HISTORY_FALLBACK_BINDING_ID.to_string(),

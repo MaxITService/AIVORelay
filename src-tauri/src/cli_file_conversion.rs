@@ -11,12 +11,14 @@ use crate::managers::model::ModelManager;
 use crate::managers::remote_stt::RemoteSttManager;
 use crate::managers::soniox_stt::SonioxSttManager;
 use crate::managers::transcription::TranscriptionManager;
-use crate::managers::tts::{TtsManager, TtsPhase, SUPPORTED_MP3_BITRATES};
+use crate::managers::tts::{
+    TtsManager, TtsPhase, OPENAI_TTS_INSTRUCTIONS_MAX_CHARS, SUPPORTED_MP3_BITRATES,
+};
 use crate::managers::tts_history::{
     metadata_from_settings, TtsHistoryManager, TtsHistoryScope, TtsHistorySourceKind,
 };
 use crate::settings::{
-    get_settings, TextReplacement, TranscriptionProvider, TtsKeySource, TtsOutputFormat,
+    get_settings, LLMPrompt, TextReplacement, TranscriptionProvider, TtsKeySource, TtsOutputFormat,
     TtsProvider, TtsSettings,
 };
 use crate::subtitle::OutputFormat;
@@ -30,6 +32,9 @@ use tauri::{AppHandle, Manager};
 
 const TEXT_EXTENSIONS: &[&str] = &["txt", "md"];
 const AUDIO_EXTENSIONS: &[&str] = &["wav", "mp3", "m4a", "ogg", "flac", "webm"];
+const TTS_LLM_INSTRUCTIONS_MAX_CHARS: usize = 32_768;
+const UTF8_BOM_BYTES: usize = 3;
+const UTF8_MAX_BYTES_PER_CHAR: usize = 4;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CliFileConversionKind {
@@ -244,9 +249,12 @@ async fn convert_text_to_audio(
     args: &CliArgs,
     input: PathBuf,
 ) -> Result<Value, CliFailure> {
-    let mut settings = get_settings(app).tts;
+    let mut settings = get_settings(app)
+        .tts
+        .effective_for_scope(crate::settings::TtsOperationScope::File);
     apply_tts_provider_override(args, &mut settings)?;
     apply_tts_conversion_overrides(args, &mut settings)?;
+    let llm_cleanup_instruction_source = apply_tts_llm_overrides(args, &mut settings)?;
     let (output, format) =
         resolve_tts_output(args.output.as_deref(), &input, settings.output_format)?;
     if args.tts_format.is_some() && format != settings.output_format {
@@ -424,6 +432,16 @@ async fn convert_text_to_audio(
         "paragraph_pause_ms": settings.paragraph_pause_ms,
         "preprocessing_enabled": settings.preprocessing_enabled,
         "preprocessing_rule_count": settings.preprocessing_rules.len(),
+        "llm_preprocessing_enabled": settings.llm_preprocessing.file_enabled,
+        "llm_provider": settings.llm_preprocessing.provider_id,
+        "llm_model": settings.llm_preprocessing.model,
+        "llm_key_source": settings.llm_preprocessing.key_source,
+        "llm_prompt_id": settings.llm_preprocessing.file_selected_prompt_id,
+        "llm_chunk_target_chars": settings.llm_preprocessing.chunk_target_chars,
+        "llm_retry_count": settings.llm_preprocessing.retry_count,
+        "llm_retry_base_delay_ms": settings.llm_preprocessing.retry_base_delay_ms,
+        "llm_request_timeout_seconds": settings.llm_preprocessing.request_timeout_seconds,
+        "llm_cleanup_instruction_source": llm_cleanup_instruction_source,
         "disk_reserve_mb": settings.disk_reserve_mb,
         "history_requested": settings.file_history_enabled,
         "source_characters": result.source_character_count,
@@ -449,6 +467,7 @@ fn apply_tts_provider_override(
             CliTtsProvider::Deepgram => TtsProvider::Deepgram,
             CliTtsProvider::Openai => TtsProvider::OpenAi,
             CliTtsProvider::LocalQwen => TtsProvider::LocalQwen,
+            CliTtsProvider::LocalKokoro => TtsProvider::LocalKokoro,
             CliTtsProvider::Windows => TtsProvider::Windows,
         };
         if provider == CliTtsProvider::Windows && args.tts_voice.is_none() {
@@ -465,6 +484,11 @@ fn apply_tts_provider_override(
             TtsProvider::LocalQwen => {
                 return Err(CliFailure::usage(
                     "--tts-model is not supported by local-qwen because AivoRelay uses one pinned model; remove the flag",
+                ));
+            }
+            TtsProvider::LocalKokoro => {
+                return Err(CliFailure::usage(
+                    "--tts-model is not supported by local-kokoro because AivoRelay uses one pinned model; remove the flag",
                 ));
             }
             TtsProvider::Windows => {
@@ -485,6 +509,7 @@ fn apply_tts_provider_override(
             }
             TtsProvider::OpenAi => settings.openai_voice = voice.to_string(),
             TtsProvider::LocalQwen => settings.local_qwen_voice = voice.to_string(),
+            TtsProvider::LocalKokoro => settings.local_kokoro_voice = voice.to_string(),
             TtsProvider::Windows => {
                 if voice.eq_ignore_ascii_case("default") {
                     settings.windows_voice_id.clear();
@@ -501,6 +526,7 @@ fn apply_tts_provider_override(
         match settings.provider {
             TtsProvider::Soniox => settings.soniox_language = language.to_string(),
             TtsProvider::LocalQwen => settings.local_qwen_language = language.to_string(),
+            TtsProvider::LocalKokoro => settings.local_kokoro_language = language.to_string(),
             TtsProvider::Deepgram => {
                 return Err(CliFailure::usage(
                     "Deepgram TTS language is part of its model/voice ID; use --tts-model instead of --tts-language",
@@ -527,7 +553,7 @@ fn apply_tts_provider_override(
             TtsProvider::Soniox => settings.soniox_key_source = source,
             TtsProvider::Deepgram => settings.deepgram_key_source = source,
             TtsProvider::OpenAi => settings.openai_key_source = source,
-            TtsProvider::LocalQwen | TtsProvider::Windows => {
+            TtsProvider::LocalQwen | TtsProvider::LocalKokoro | TtsProvider::Windows => {
                 return Err(CliFailure::usage(format!(
                     "--tts-key-source is not supported by {} because it does not use an API key",
                     settings.provider.as_str()
@@ -550,7 +576,7 @@ fn apply_tts_conversion_overrides(
             TtsProvider::Soniox => (0.7, 1.3),
             TtsProvider::Deepgram => (0.7, 1.5),
             TtsProvider::OpenAi => (0.25, 4.0),
-            TtsProvider::LocalQwen | TtsProvider::Windows => (0.5, 2.0),
+            TtsProvider::LocalQwen | TtsProvider::LocalKokoro | TtsProvider::Windows => (0.5, 2.0),
         };
         if !(minimum..=maximum).contains(&speed) {
             return Err(CliFailure::usage(format!(
@@ -654,6 +680,198 @@ fn nonempty_cli_value<'a>(flag: &str, value: &'a str) -> Result<&'a str, CliFail
     }
 }
 
+fn apply_tts_llm_overrides(
+    args: &CliArgs,
+    settings: &mut TtsSettings,
+) -> Result<String, CliFailure> {
+    let has_configuration_override = args.tts_llm_prompt.is_some()
+        || args.tts_llm_instructions.is_some()
+        || args.tts_llm_instructions_file.is_some()
+        || args.tts_llm_provider.is_some()
+        || args.tts_llm_model.is_some()
+        || args.tts_llm_key_source.is_some()
+        || args.tts_llm_base_url.is_some()
+        || args.tts_llm_allow_insecure_http.is_some()
+        || args.tts_llm_reasoning.is_some()
+        || args.tts_llm_reasoning_budget.is_some()
+        || args.tts_llm_chunk_chars.is_some()
+        || args.tts_llm_retries.is_some()
+        || args.tts_llm_retry_delay_ms.is_some()
+        || args.tts_llm_timeout_seconds.is_some();
+    if args.tts_llm_preprocessing == Some(false) && has_configuration_override {
+        return Err(CliFailure::usage(
+            "--tts-llm-preprocessing false conflicts with other --tts-llm-* overrides",
+        ));
+    }
+    if let Some(enabled) = args.tts_llm_preprocessing {
+        settings.llm_preprocessing.file_enabled = enabled;
+    } else if has_configuration_override {
+        settings.llm_preprocessing.file_enabled = true;
+    }
+
+    if let Some(provider) = args.tts_llm_provider.as_deref() {
+        settings.llm_preprocessing.provider_id =
+            nonempty_cli_value("--tts-llm-provider", provider)?.to_string();
+    }
+    if let Some(model) = args.tts_llm_model.as_deref() {
+        settings.llm_preprocessing.model =
+            nonempty_cli_value("--tts-llm-model", model)?.to_string();
+    }
+    if let Some(source) = args.tts_llm_key_source {
+        settings.llm_preprocessing.key_source = match source {
+            CliTtsKeySource::Shared => TtsKeySource::Shared,
+            CliTtsKeySource::Separate => TtsKeySource::Separate,
+        };
+    }
+    if let Some(base_url) = args.tts_llm_base_url.as_deref() {
+        if settings.llm_preprocessing.provider_id != "custom" {
+            return Err(CliFailure::usage(
+                "--tts-llm-base-url is supported only with --tts-llm-provider custom",
+            ));
+        }
+        settings.llm_preprocessing.custom_base_url =
+            nonempty_cli_value("--tts-llm-base-url", base_url)?
+                .trim_end_matches('/')
+                .to_string();
+    }
+    if let Some(allow) = args.tts_llm_allow_insecure_http {
+        if settings.llm_preprocessing.provider_id != "custom" {
+            return Err(CliFailure::usage(
+                "--tts-llm-allow-insecure-http is supported only by the custom TTS cleanup provider",
+            ));
+        }
+        settings.llm_preprocessing.custom_allow_insecure_http = allow;
+    }
+    if let Some(reasoning) = args.tts_llm_reasoning {
+        settings.llm_preprocessing.reasoning_enabled = reasoning;
+    }
+    if let Some(budget) = args.tts_llm_reasoning_budget {
+        if !(1_024..=1_000_000).contains(&budget) {
+            return Err(CliFailure::usage(
+                "--tts-llm-reasoning-budget must be between 1024 and 1000000",
+            ));
+        }
+        if args.tts_llm_reasoning == Some(false)
+            || (args.tts_llm_reasoning.is_none() && !settings.llm_preprocessing.reasoning_enabled)
+        {
+            return Err(CliFailure::usage(
+                "--tts-llm-reasoning-budget requires reasoning to be enabled; add --tts-llm-reasoning true",
+            ));
+        }
+        settings.llm_preprocessing.reasoning_budget = budget;
+    }
+    if let Some(chars) = args.tts_llm_chunk_chars {
+        if !(1_000..=50_000).contains(&chars) {
+            return Err(CliFailure::usage(
+                "--tts-llm-chunk-chars must be between 1000 and 50000",
+            ));
+        }
+        settings.llm_preprocessing.chunk_target_chars = chars;
+    }
+    if let Some(retries) = args.tts_llm_retries {
+        if retries > 10 {
+            return Err(CliFailure::usage(
+                "--tts-llm-retries must be between 0 and 10",
+            ));
+        }
+        settings.llm_preprocessing.retry_count = retries;
+    }
+    if let Some(delay) = args.tts_llm_retry_delay_ms {
+        if !(100..=30_000).contains(&delay) {
+            return Err(CliFailure::usage(
+                "--tts-llm-retry-delay-ms must be between 100 and 30000",
+            ));
+        }
+        settings.llm_preprocessing.retry_base_delay_ms = delay;
+    }
+    if let Some(timeout) = args.tts_llm_timeout_seconds {
+        if !(10..=600).contains(&timeout) {
+            return Err(CliFailure::usage(
+                "--tts-llm-timeout-seconds must be between 10 and 600",
+            ));
+        }
+        settings.llm_preprocessing.request_timeout_seconds = timeout;
+    }
+
+    let instructions = if let Some(path) = args.tts_llm_instructions_file.as_deref() {
+        Some((
+            "instructions_file",
+            read_utf8_bom_bounded(
+                path,
+                maximum_utf8_file_bytes(TTS_LLM_INSTRUCTIONS_MAX_CHARS),
+                "TTS LLM cleanup instructions must not exceed 32768 characters",
+            )?,
+        ))
+    } else if let Some(instructions) = args.tts_llm_instructions.as_ref() {
+        Some(("inline", instructions.clone()))
+    } else {
+        None
+    };
+    if let Some((source, instructions)) = instructions {
+        if instructions.trim().is_empty() {
+            return Err(CliFailure::usage(
+                "TTS LLM cleanup instructions must not be empty",
+            ));
+        }
+        if instructions.chars().count() > TTS_LLM_INSTRUCTIONS_MAX_CHARS {
+            return Err(CliFailure::usage(
+                "TTS LLM cleanup instructions must not exceed 32768 characters",
+            ));
+        }
+        let id = "cli_tts_llm_instructions".to_string();
+        settings.llm_preprocessing.file_prompts.push(LLMPrompt {
+            id: id.clone(),
+            name: "CLI instructions".to_string(),
+            prompt: instructions,
+        });
+        settings.llm_preprocessing.file_selected_prompt_id = id;
+        return Ok(source.to_string());
+    }
+    if let Some(name) = args.tts_llm_prompt.as_deref() {
+        let name = nonempty_cli_value("--tts-llm-prompt", name)?;
+        let matches = settings
+            .llm_preprocessing
+            .file_prompts
+            .iter()
+            .filter(|prompt| prompt.name.eq_ignore_ascii_case(name))
+            .collect::<Vec<_>>();
+        let prompt = match matches.as_slice() {
+            [] => {
+                let available = settings
+                    .llm_preprocessing
+                    .file_prompts
+                    .iter()
+                    .map(|prompt| prompt.name.as_str())
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                return Err(CliFailure::usage(format!(
+                    "Unknown TTS File Operations cleanup prompt '{name}'. Available presets: {available}"
+                )));
+            }
+            [prompt] => *prompt,
+            _ => {
+                return Err(CliFailure::usage(format!(
+                    "More than one TTS File Operations cleanup prompt is named '{name}'; rename one in TTS File Operations settings"
+                )))
+            }
+        };
+        settings.llm_preprocessing.file_selected_prompt_id = prompt.id.clone();
+        return Ok(format!("preset:{}", prompt.name));
+    }
+    if settings.llm_preprocessing.file_enabled {
+        let selected = settings
+            .llm_preprocessing
+            .file_prompts
+            .iter()
+            .find(|prompt| prompt.id == settings.llm_preprocessing.file_selected_prompt_id)
+            .map(|prompt| prompt.name.as_str())
+            .unwrap_or("missing");
+        Ok(format!("saved_preset:{selected}"))
+    } else {
+        Ok("disabled".to_string())
+    }
+}
+
 fn output_format_name(format: TtsOutputFormat) -> &'static str {
     match format {
         TtsOutputFormat::Mp3 => "mp3",
@@ -676,7 +894,11 @@ fn read_tts_replacement_rules(path: &Path) -> Result<Vec<TextReplacement>, CliFa
             "--tts-replacements-file must not exceed 1 MiB",
         ));
     }
-    let json = read_utf8_bom(&absolute)?;
+    let json = read_utf8_bom_bounded(
+        &absolute,
+        1_048_576,
+        "--tts-replacements-file must not exceed 1 MiB",
+    )?;
     let rules: Vec<TextReplacement> = serde_json::from_str(&json).map_err(|error| {
         CliFailure::usage(format!(
             "Invalid --tts-replacements-file JSON in {}: {error}",
@@ -718,6 +940,7 @@ fn effective_tts_model(settings: &TtsSettings) -> &str {
         TtsProvider::Deepgram => &settings.deepgram_model,
         TtsProvider::OpenAi => &settings.openai_model,
         TtsProvider::LocalQwen => "Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice",
+        TtsProvider::LocalKokoro => crate::managers::local_kokoro::KOKORO_MODEL_REPOSITORY,
         TtsProvider::Windows => "windows.media.speechsynthesis",
     }
 }
@@ -728,6 +951,7 @@ fn effective_tts_voice(settings: &TtsSettings) -> &str {
         TtsProvider::Deepgram => &settings.deepgram_model,
         TtsProvider::OpenAi => &settings.openai_voice,
         TtsProvider::LocalQwen => &settings.local_qwen_voice,
+        TtsProvider::LocalKokoro => &settings.local_kokoro_voice,
         TtsProvider::Windows => &settings.windows_voice_id,
     }
 }
@@ -736,6 +960,7 @@ fn effective_tts_language(settings: &TtsSettings) -> &str {
     match settings.provider {
         TtsProvider::Soniox => &settings.soniox_language,
         TtsProvider::LocalQwen => &settings.local_qwen_language,
+        TtsProvider::LocalKokoro => &settings.local_kokoro_language,
         TtsProvider::Windows => &settings.windows_voice_language,
         TtsProvider::Deepgram | TtsProvider::OpenAi => "",
     }
@@ -746,7 +971,7 @@ fn effective_tts_key_source(settings: &TtsSettings) -> Option<TtsKeySource> {
         TtsProvider::Soniox => Some(settings.soniox_key_source),
         TtsProvider::Deepgram => Some(settings.deepgram_key_source),
         TtsProvider::OpenAi => Some(settings.openai_key_source),
-        TtsProvider::LocalQwen | TtsProvider::Windows => None,
+        TtsProvider::LocalQwen | TtsProvider::LocalKokoro | TtsProvider::Windows => None,
     }
 }
 
@@ -880,7 +1105,11 @@ fn apply_tts_instruction_override(
     }
 
     if let Some(path) = args.tts_instructions_file.as_deref() {
-        settings.openai_instructions = read_utf8_bom(path)?;
+        settings.openai_instructions = read_utf8_bom_bounded(
+            path,
+            maximum_utf8_file_bytes(OPENAI_TTS_INSTRUCTIONS_MAX_CHARS),
+            "OpenAI voice instructions must not exceed 4096 characters",
+        )?;
         settings.selected_prompt_id.clear();
         return Ok("instructions_file".to_string());
     }
@@ -939,19 +1168,37 @@ fn apply_tts_instruction_override(
     Ok("saved_instructions".to_string())
 }
 
-fn read_utf8_bom(path: &Path) -> Result<String, CliFailure> {
+fn maximum_utf8_file_bytes(maximum_characters: usize) -> usize {
+    maximum_characters
+        .saturating_mul(UTF8_MAX_BYTES_PER_CHAR)
+        .saturating_add(UTF8_BOM_BYTES)
+}
+
+fn read_utf8_bom_bounded(
+    path: &Path,
+    maximum_bytes: usize,
+    oversized_message: &str,
+) -> Result<String, CliFailure> {
     let path = absolute_path(path).map_err(CliFailure::usage)?;
     let mut bytes = Vec::new();
     File::open(&path)
-        .and_then(|mut file| file.read_to_end(&mut bytes))
+        .and_then(|file| {
+            file.take(maximum_bytes.saturating_add(1) as u64)
+                .read_to_end(&mut bytes)
+        })
         .map_err(|error| {
             CliFailure::usage(format!(
                 "Failed to read TTS instructions file {}: {error}",
                 path.display()
             ))
         })?;
-    let bytes = bytes.strip_prefix(&[0xEF, 0xBB, 0xBF]).unwrap_or(&bytes);
-    String::from_utf8(bytes.to_vec()).map_err(|_| {
+    if bytes.len() > maximum_bytes {
+        return Err(CliFailure::usage(oversized_message));
+    }
+    if bytes.starts_with(&[0xEF, 0xBB, 0xBF]) {
+        bytes.drain(..UTF8_BOM_BYTES);
+    }
+    String::from_utf8(bytes).map_err(|_| {
         CliFailure::usage(format!(
             "TTS instructions file must be UTF-8: {}",
             path.display()
@@ -968,6 +1215,10 @@ fn print_tts_progress(state: &crate::managers::tts::TtsState) {
                 eprintln!("TTS: preparing {} chunk(s)…", state.total_chunks);
             }
         }
+        TtsPhase::Preprocessing => eprintln!(
+            "TTS: AI text cleanup {}/{} (attempt {})…",
+            state.completed_chunks, state.total_chunks, state.current_attempt
+        ),
         TtsPhase::Synthesizing => eprintln!(
             "TTS: synthesized {}/{} chunk(s)…",
             state.completed_chunks, state.total_chunks
@@ -1405,6 +1656,159 @@ mod tests {
 
         assert_eq!(source, "instructions_file");
         assert_eq!(settings.openai_instructions, "Read from the file.");
+    }
+
+    #[test]
+    fn inline_utf8_cyrillic_instructions_survive_without_normalization() {
+        let instructions = "Говори спокойно и произноси «АИ» по буквам.";
+        let mut settings = TtsSettings::default();
+        settings.provider = TtsProvider::OpenAi;
+        let args = CliArgs {
+            tts_instructions: Some(instructions.to_string()),
+            ..CliArgs::default()
+        };
+
+        apply_tts_instruction_override(&args, &mut settings)
+            .expect("UTF-8 inline instructions should resolve");
+
+        assert_eq!(settings.openai_instructions, instructions);
+    }
+
+    #[test]
+    fn large_utf8_instruction_file_is_loaded_without_copying_into_inline_argument() {
+        let directory = std::env::temp_dir().join(format!(
+            "aivorelay-tts-instructions-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_nanos()
+        ));
+        fs::create_dir_all(&directory).expect("create isolated instruction directory");
+        let path = directory.join("large-instructions.txt");
+        let instructions =
+            "Говори медленно; сохраняй Unicode: русский, Ελληνικά, 日本語. ".repeat(64);
+        let mut bytes = vec![0xEF, 0xBB, 0xBF];
+        bytes.extend_from_slice(instructions.as_bytes());
+        fs::write(&path, bytes).expect("write large UTF-8 instruction file");
+
+        let mut settings = TtsSettings::default();
+        settings.provider = TtsProvider::OpenAi;
+        let args = CliArgs {
+            tts_instructions_file: Some(path.clone()),
+            ..CliArgs::default()
+        };
+        apply_tts_instruction_override(&args, &mut settings)
+            .expect("large UTF-8 instruction file should resolve");
+
+        assert_eq!(settings.openai_instructions, instructions);
+        TtsManager::validate_openai_instructions(&settings.openai_instructions)
+            .expect("the file fixture should remain valid for a real OpenAI TTS request");
+        assert!(args.tts_instructions.is_none());
+        assert_eq!(args.tts_instructions_file.as_deref(), Some(path.as_path()));
+
+        fs::remove_dir_all(directory).expect("remove isolated instruction directory");
+    }
+
+    #[test]
+    fn all_tts_llm_overrides_are_temporary_and_select_inline_instructions() {
+        let original = TtsSettings::default();
+        let mut effective = original.clone();
+        let args = CliArgs {
+            tts_llm_preprocessing: Some(true),
+            tts_llm_instructions: Some("Remove page numbers.".to_string()),
+            tts_llm_provider: Some("custom".to_string()),
+            tts_llm_model: Some("cleanup-model".to_string()),
+            tts_llm_key_source: Some(CliTtsKeySource::Separate),
+            tts_llm_base_url: Some("https://example.test/v1/".to_string()),
+            tts_llm_allow_insecure_http: Some(false),
+            tts_llm_reasoning: Some(true),
+            tts_llm_reasoning_budget: Some(4096),
+            tts_llm_chunk_chars: Some(12_000),
+            tts_llm_retries: Some(3),
+            tts_llm_retry_delay_ms: Some(900),
+            tts_llm_timeout_seconds: Some(120),
+            ..CliArgs::default()
+        };
+
+        let source =
+            apply_tts_llm_overrides(&args, &mut effective).expect("LLM overrides should apply");
+
+        assert_eq!(source, "inline");
+        assert!(effective.llm_preprocessing.file_enabled);
+        assert_eq!(effective.llm_preprocessing.provider_id, "custom");
+        assert_eq!(effective.llm_preprocessing.model, "cleanup-model");
+        assert_eq!(
+            effective.llm_preprocessing.key_source,
+            TtsKeySource::Separate
+        );
+        assert_eq!(
+            effective.llm_preprocessing.custom_base_url,
+            "https://example.test/v1"
+        );
+        assert!(!effective.llm_preprocessing.custom_allow_insecure_http);
+        assert!(effective.llm_preprocessing.reasoning_enabled);
+        assert_eq!(effective.llm_preprocessing.reasoning_budget, 4096);
+        assert_eq!(effective.llm_preprocessing.chunk_target_chars, 12_000);
+        assert_eq!(effective.llm_preprocessing.retry_count, 3);
+        assert_eq!(effective.llm_preprocessing.retry_base_delay_ms, 900);
+        assert_eq!(effective.llm_preprocessing.request_timeout_seconds, 120);
+        let selected = effective
+            .llm_preprocessing
+            .file_prompts
+            .iter()
+            .find(|prompt| prompt.id == effective.llm_preprocessing.file_selected_prompt_id)
+            .expect("CLI prompt should be selected");
+        assert_eq!(selected.prompt, "Remove page numbers.");
+
+        assert!(!original.llm_preprocessing.file_enabled);
+        assert_eq!(
+            original.llm_preprocessing.provider_id,
+            TtsSettings::default().llm_preprocessing.provider_id
+        );
+    }
+
+    #[test]
+    fn invalid_tts_llm_combinations_return_actionable_usage_errors() {
+        let cases = [
+            (
+                CliArgs {
+                    tts_llm_preprocessing: Some(false),
+                    tts_llm_model: Some("cleanup-model".to_string()),
+                    ..CliArgs::default()
+                },
+                "conflicts with other --tts-llm-* overrides",
+            ),
+            (
+                CliArgs {
+                    tts_llm_provider: Some("openrouter".to_string()),
+                    tts_llm_base_url: Some("https://example.test/v1".to_string()),
+                    ..CliArgs::default()
+                },
+                "only with --tts-llm-provider custom",
+            ),
+            (
+                CliArgs {
+                    tts_llm_reasoning: Some(false),
+                    tts_llm_reasoning_budget: Some(4096),
+                    ..CliArgs::default()
+                },
+                "requires reasoning to be enabled",
+            ),
+        ];
+
+        for (args, expected) in cases {
+            let mut settings = TtsSettings::default();
+            let error = apply_tts_llm_overrides(&args, &mut settings)
+                .expect_err("invalid LLM override combination must fail");
+            assert_eq!(error.exit_code, 2);
+            assert!(
+                error.message.contains(expected),
+                "expected {:?} in {:?}",
+                expected,
+                error.message
+            );
+        }
     }
 
     #[test]

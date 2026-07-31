@@ -69,6 +69,16 @@ remains available with the same harness plus `-NoRun`.
 
 Update this section every time new tests are added.
 
+The TTS entries below document source-level unit coverage that was added on
+2026-07-31. On the same date, the following focused library subsets passed:
+`managers::tts::tests` (26), `managers::local_tts::tests` (7),
+`managers::local_kokoro::tests` (6), `managers::tts_llm::tests` (5),
+`commands::tts::tests` (11), and `cli_file_conversion::tests` (14), for 69
+passing tests in total. `cargo fmt --manifest-path src-tauri/Cargo.toml --all
+-- --check`, `bun x tsc --noEmit`, and the documented wrapped `cargo check`
+also passed. This is not evidence that mocked HTTP, real watcher events,
+cancellation publication, or end-to-end CLI/GUI workflows have passed.
+
 - `src-tauri/src/language_resolver.rs`
   Soniox language code normalization, support checks, hint-list cleanup, and requested-language resolution.
 - `src-tauri/src/shortcut_handy_keys.rs`
@@ -88,8 +98,28 @@ Update this section every time new tests are added.
 - `src-tauri/src/managers/model.rs`
   SHA256 computation and download-verification cleanup/error behavior.
 - `src-tauri/src/managers/tts.rs`
-  Unicode-safe/lossless semantic chunking, including the regression that a
-  leading paragraph newline cannot become a whitespace-only provider request.
+  Unit seams for shared cloud PCM response decoding, provider dispatch labels,
+  local/system instruction inactivity, operation-ID cancellation/busy-lock
+  primitives, Unicode-safe/lossless semantic chunking, in-memory watcher-path
+  deduplication, filesystem containment, and disk-capacity thresholds, plus the
+  regression that a leading paragraph newline cannot become a whitespace-only
+  provider request.
+- `src-tauri/src/managers/local_tts.rs` and
+  `src-tauri/src/managers/local_kokoro.rs`
+  Unit seams for pinned install-manifest validation, disk-reserve preflight
+  arithmetic, shared worker WAV validation, local-runtime retry
+  classification, and Kokoro voice/language and archive-safety checks. These
+  tests do not install models or launch inference workers.
+- `src-tauri/src/managers/provider_error.rs`
+  Bounded provider error extraction and secret-safe message shaping.
+- `src-tauri/src/managers/tts_llm.rs`
+  TTS AI-cleanup chunk ordering, retry classification/backoff bounds, and
+  resolved-key redaction for provider errors.
+- `src-tauri/src/cli_file_conversion.rs`
+  Unit-level UTF-8/Cyrillic inline-instruction preservation, BOM-aware large
+  instruction-file loading, and proof that the file contents are not copied
+  into the parsed CLI argument object. This is not a spawned-process command
+  line or full CLI conversion test.
 - `src-tauri/src/tray.rs`
   Tray helper selection parsing, icon-path mapping, tooltip labeling, and transcript text fallback rules.
 - `src-tauri/src/subtitle.rs`

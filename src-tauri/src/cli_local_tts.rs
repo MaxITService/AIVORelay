@@ -1,6 +1,6 @@
 //! Headless lifecycle CLI for the optional app-managed local TTS provider.
 
-use crate::cli::{CliArgs, CliCommand, TtsLocalCommand};
+use crate::cli::{CliArgs, CliCommand, CliLocalTtsEngine, TtsLocalCommand};
 use crate::managers::local_tts::LocalTtsKind;
 use crate::managers::tts::TtsManager;
 use crate::settings::{TtsOutputFormat, TtsProvider};
@@ -56,16 +56,18 @@ fn run_local_tts_inner(
         app.manage(manager);
     }
     let manager = app.state::<Arc<TtsManager>>().inner().clone();
-    let command = match args.command.as_ref() {
-        Some(CliCommand::TtsLocal(local)) => &local.command,
+    let (engine, command) = match args.command.as_ref() {
+        Some(CliCommand::TtsLocal(local)) => (local.engine, &local.command),
         _ => return Err((EXIT_USAGE, "Missing tts-local command".to_string())),
     };
+    let kind = local_kind(engine);
+    let engine_name = local_engine_name(engine);
     match command {
         TtsLocalCommand::Status => {
-            let status = manager.local_tts_status(LocalTtsKind::Qwen);
+            let status = manager.local_tts_status(kind);
             if !args.json {
                 println!(
-                    "Local Qwen3-TTS: {}\nModel: {}@{}\nRuntime: {}",
+                    "{engine_name}: {}\nModel: {}@{}\nRuntime: {}",
                     if status.installed {
                         "ready"
                     } else {
@@ -86,21 +88,20 @@ fn run_local_tts_inner(
             if !options.yes {
                 return Err((
                     EXIT_NOT_CONFIRMED,
-                    "Local TTS installation downloads several gigabytes. Re-run with --yes."
-                        .to_string(),
+                    format!(
+                        "{engine_name} installation downloads a managed runtime and model. Re-run with --yes."
+                    ),
                 ));
             }
             if !args.json {
-                eprintln!("Installing the app-managed local Qwen3-TTS model and runtime…");
+                eprintln!("Installing the app-managed {engine_name} model and runtime…");
             }
             let reserve = crate::settings::get_settings(app).tts.disk_reserve_mb;
-            let status = tauri::async_runtime::block_on(
-                manager.install_local_tts(LocalTtsKind::Qwen, reserve),
-            )
-            .map_err(|error| (EXIT_RUNTIME, error.to_string()))?;
+            let status = tauri::async_runtime::block_on(manager.install_local_tts(kind, reserve))
+                .map_err(|error| (EXIT_RUNTIME, error.to_string()))?;
             if !args.json {
                 println!(
-                    "Local Qwen3-TTS is ready ({} runtime).",
+                    "{engine_name} is ready ({} runtime).",
                     status.runtime_profile
                 );
             }
@@ -113,19 +114,21 @@ fn run_local_tts_inner(
                     "Deletion removes the local model and runtime. Re-run with --yes.".to_string(),
                 ));
             }
-            tauri::async_runtime::block_on(manager.delete_local_tts(LocalTtsKind::Qwen))
+            tauri::async_runtime::block_on(manager.delete_local_tts(kind))
                 .map_err(|error| (EXIT_RUNTIME, error.to_string()))?;
             if !args.json {
-                println!("Local Qwen3-TTS model and runtime deleted.");
+                println!("{engine_name} model and runtime deleted.");
             }
             Ok(json!({ "ok": true }))
         }
         TtsLocalCommand::Test(options) => {
-            if !manager.local_tts_status(LocalTtsKind::Qwen).installed {
+            if !manager.local_tts_status(kind).installed {
                 return Err((
                     EXIT_RUNTIME,
-                    "Local Qwen3-TTS is not installed. Run `aivorelay tts-local install --yes`."
-                        .to_string(),
+                    format!(
+                        "{engine_name} is not installed. Run `aivorelay tts-local --engine {} install --yes`.",
+                        local_engine_cli_name(engine)
+                    ),
                 ));
             }
             let output = absolute_path(&options.output).map_err(|error| (EXIT_USAGE, error))?;
@@ -150,21 +153,42 @@ fn run_local_tts_inner(
                     ))
                 }
             };
-            let text = options.text.clone().unwrap_or_else(|| {
-                "AivoRelay local speech is ready. Локальный синтез речи AivoRelay работает."
-                    .to_string()
+            let text = options.text.clone().unwrap_or_else(|| match engine {
+                CliLocalTtsEngine::Qwen => {
+                    "AivoRelay local speech is ready. Локальный синтез речи AivoRelay работает."
+                        .to_string()
+                }
+                CliLocalTtsEngine::Kokoro => {
+                    "AivoRelay local Kokoro speech is ready and running offline.".to_string()
+                }
             });
             if text.trim().is_empty() {
                 return Err((EXIT_USAGE, "--text must not be empty".to_string()));
             }
             let mut settings = crate::settings::get_settings(app).tts;
             settings.enabled = true;
-            settings.provider = TtsProvider::LocalQwen;
-            settings.local_qwen_voice = options.voice.clone().unwrap_or_else(|| "Ryan".to_string());
-            settings.local_qwen_language = options
-                .language
-                .clone()
-                .unwrap_or_else(|| "Auto".to_string());
+            match engine {
+                CliLocalTtsEngine::Qwen => {
+                    settings.provider = TtsProvider::LocalQwen;
+                    settings.local_qwen_voice =
+                        options.voice.clone().unwrap_or_else(|| "Ryan".to_string());
+                    settings.local_qwen_language = options
+                        .language
+                        .clone()
+                        .unwrap_or_else(|| "Auto".to_string());
+                }
+                CliLocalTtsEngine::Kokoro => {
+                    settings.provider = TtsProvider::LocalKokoro;
+                    settings.local_kokoro_voice = options
+                        .voice
+                        .clone()
+                        .unwrap_or_else(|| "af_maple".to_string());
+                    settings.local_kokoro_language = options
+                        .language
+                        .clone()
+                        .unwrap_or_else(|| "English".to_string());
+                }
+            }
             settings.output_format = format;
             settings.mp3_bitrate_kbps = 256;
             // Keep the diagnostic command fast and guarantee worker reuse for
@@ -190,9 +214,18 @@ fn run_local_tts_inner(
                 )
             })?;
             if !args.json {
+                let (voice, language) = match engine {
+                    CliLocalTtsEngine::Qwen => (
+                        settings.local_qwen_voice.as_str(),
+                        settings.local_qwen_language.as_str(),
+                    ),
+                    CliLocalTtsEngine::Kokoro => (
+                        settings.local_kokoro_voice.as_str(),
+                        settings.local_kokoro_language.as_str(),
+                    ),
+                };
                 eprintln!(
-                    "Synthesizing local Qwen3-TTS test with voice {} and language {}…",
-                    settings.local_qwen_voice, settings.local_qwen_language
+                    "Synthesizing {engine_name} test with voice {voice} and language {language}…"
                 );
             }
             let result = tauri::async_runtime::block_on(
@@ -212,6 +245,27 @@ fn run_local_tts_inner(
                 "resumed_chunks": result.resumed_chunks,
             }))
         }
+    }
+}
+
+fn local_kind(engine: CliLocalTtsEngine) -> LocalTtsKind {
+    match engine {
+        CliLocalTtsEngine::Qwen => LocalTtsKind::Qwen,
+        CliLocalTtsEngine::Kokoro => LocalTtsKind::Kokoro,
+    }
+}
+
+fn local_engine_name(engine: CliLocalTtsEngine) -> &'static str {
+    match engine {
+        CliLocalTtsEngine::Qwen => "Local Qwen3-TTS",
+        CliLocalTtsEngine::Kokoro => "Local Kokoro-82M",
+    }
+}
+
+fn local_engine_cli_name(engine: CliLocalTtsEngine) -> &'static str {
+    match engine {
+        CliLocalTtsEngine::Qwen => "qwen",
+        CliLocalTtsEngine::Kokoro => "kokoro",
     }
 }
 

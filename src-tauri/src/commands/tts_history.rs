@@ -1,9 +1,11 @@
 use crate::managers::tts::{FileConversionResult, TtsManager};
 use crate::managers::tts_history::{
-    NewTtsHistoryEntry, TtsHistoryDeleteOutcome, TtsHistoryEntry, TtsHistoryManager,
-    TtsHistoryScope, TtsHistorySourceKind,
+    llm_cleanup_config_from_settings, NewTtsHistoryEntry, TtsHistoryDeleteOutcome, TtsHistoryEntry,
+    TtsHistoryManager, TtsHistoryScope, TtsHistorySourceKind,
 };
-use crate::settings::{TtsOutputFormat, TtsProvider, TtsSettings};
+use crate::settings::{
+    LLMPrompt, TtsKeySource, TtsLlmScope, TtsOutputFormat, TtsProvider, TtsSettings,
+};
 use serde::{Deserialize, Serialize};
 use specta::Type;
 use std::fs::{self, OpenOptions};
@@ -32,6 +34,23 @@ pub struct RegenerateTtsHistoryRequest {
     /// Literal resolved instructions. Callers must read any instructions file
     /// themselves; this string is never evaluated as code.
     pub instructions: Option<String>,
+    /// Optional LLM text-cleanup overrides. These are separate from TTS voice
+    /// instructions and never mutate saved settings.
+    pub llm_preprocessing: Option<bool>,
+    pub llm_prompt_id: Option<String>,
+    pub llm_prompt_name: Option<String>,
+    pub llm_instructions: Option<String>,
+    pub llm_provider_id: Option<String>,
+    pub llm_model: Option<String>,
+    pub llm_key_source: Option<TtsKeySource>,
+    pub llm_custom_base_url: Option<String>,
+    pub llm_custom_allow_insecure_http: Option<bool>,
+    pub llm_reasoning_enabled: Option<bool>,
+    pub llm_reasoning_budget: Option<u32>,
+    pub llm_chunk_target_chars: Option<u32>,
+    pub llm_retry_count: Option<u8>,
+    pub llm_retry_base_delay_ms: Option<u32>,
+    pub llm_request_timeout_seconds: Option<u32>,
     pub output_format: Option<TtsOutputFormat>,
     pub mp3_bitrate_kbps: Option<u16>,
     /// Must be true only after showing the API-credit warning.
@@ -193,9 +212,33 @@ pub async fn regenerate_tts_history_entry_core(
         .map_err(|error| error.to_string())?
         .ok_or_else(|| format!("TTS history entry {} not found", request.id))?;
     let effective_provider = request.provider.unwrap_or(source_entry.provider);
-    if effective_provider.requires_paid_confirmation() && !request.confirmed_api_charge {
+    let saved_tts = crate::settings::get_settings(app).tts;
+    let saved_llm_enabled = match source_entry.scope {
+        TtsHistoryScope::Interactive => saved_tts.llm_preprocessing.interactive_enabled,
+        TtsHistoryScope::File => saved_tts.llm_preprocessing.file_enabled,
+    };
+    let has_llm_override = request.llm_prompt_id.is_some()
+        || request.llm_prompt_name.is_some()
+        || request.llm_instructions.is_some()
+        || request.llm_provider_id.is_some()
+        || request.llm_model.is_some()
+        || request.llm_key_source.is_some()
+        || request.llm_custom_base_url.is_some()
+        || request.llm_custom_allow_insecure_http.is_some()
+        || request.llm_reasoning_enabled.is_some()
+        || request.llm_reasoning_budget.is_some()
+        || request.llm_chunk_target_chars.is_some()
+        || request.llm_retry_count.is_some()
+        || request.llm_retry_base_delay_ms.is_some()
+        || request.llm_request_timeout_seconds.is_some();
+    let llm_cleanup_enabled = request
+        .llm_preprocessing
+        .unwrap_or(saved_llm_enabled || has_llm_override);
+    if (effective_provider.requires_paid_confirmation() || llm_cleanup_enabled)
+        && !request.confirmed_api_charge
+    {
         return Err(
-            "Regeneration requires explicit confirmation because it makes a new paid TTS API request"
+            "Regeneration requires explicit confirmation because it can make a paid TTS or AI-cleanup API request"
                 .to_string(),
         );
     }
@@ -206,7 +249,13 @@ pub async fn regenerate_tts_history_entry_core(
         source_entry.output_format,
     )?;
 
-    let mut settings = crate::settings::get_settings(app).tts;
+    let scope = match source_entry.scope {
+        TtsHistoryScope::Interactive => crate::settings::TtsOperationScope::Interactive,
+        TtsHistoryScope::File => crate::settings::TtsOperationScope::File,
+    };
+    let mut settings = crate::settings::get_settings(app)
+        .tts
+        .effective_for_scope(scope);
     let provider_was_overridden = request.provider.is_some();
     settings.provider = request.provider.unwrap_or(source_entry.provider);
     if !provider_was_overridden {
@@ -226,6 +275,11 @@ pub async fn regenerate_tts_history_entry_core(
         request.model.as_deref(),
         request.voice.as_deref(),
     )?;
+    let llm_scope = match source_entry.scope {
+        TtsHistoryScope::Interactive => TtsLlmScope::Interactive,
+        TtsHistoryScope::File => TtsLlmScope::File,
+    };
+    apply_regeneration_llm_overrides(&mut settings, llm_scope, &request)?;
     settings = tts
         .resolve_operation_settings(&settings)
         .await
@@ -281,19 +335,16 @@ pub async fn regenerate_tts_history_entry_core(
         .output_path
         .is_none()
         .then(|| format!("history-regeneration-entry-{}", source_entry.id));
-    let conversion = if let Some(resume_namespace) = resume_namespace.as_deref() {
-        tts.convert_text_file_with_resume_namespace(
+    let conversion = tts
+        .convert_text_file_for_history(
             &temporary_source.0,
             &output_path,
             &settings,
-            resume_namespace,
+            llm_scope,
+            resume_namespace.as_deref(),
         )
         .await
-    } else {
-        tts.convert_text_file(&temporary_source.0, &output_path, &settings)
-            .await
-    }
-    .map_err(|error| error.to_string())?;
+        .map_err(|error| error.to_string())?;
     let (model, voice) = current_model_and_voice(&settings);
     let language = current_language(&settings);
     let new_entry = history
@@ -312,6 +363,7 @@ pub async fn regenerate_tts_history_entry_core(
                 prompt_preset_id: prompt.preset_id,
                 prompt_preset_name: prompt.preset_name,
                 resolved_instructions: prompt.instructions,
+                llm_cleanup_config: llm_cleanup_config_from_settings(&settings, source_entry.scope),
             },
             &output_path,
         )
@@ -367,6 +419,174 @@ fn regeneration_response(
         resumed_chunks: conversion.resumed_chunks,
         processed_character_count: conversion.processed_character_count,
     }
+}
+
+fn apply_regeneration_llm_overrides(
+    settings: &mut TtsSettings,
+    scope: TtsLlmScope,
+    request: &RegenerateTtsHistoryRequest,
+) -> Result<(), String> {
+    let has_override = request.llm_prompt_id.is_some()
+        || request.llm_prompt_name.is_some()
+        || request.llm_instructions.is_some()
+        || request.llm_provider_id.is_some()
+        || request.llm_model.is_some()
+        || request.llm_key_source.is_some()
+        || request.llm_custom_base_url.is_some()
+        || request.llm_custom_allow_insecure_http.is_some()
+        || request.llm_reasoning_enabled.is_some()
+        || request.llm_reasoning_budget.is_some()
+        || request.llm_chunk_target_chars.is_some()
+        || request.llm_retry_count.is_some()
+        || request.llm_retry_base_delay_ms.is_some()
+        || request.llm_request_timeout_seconds.is_some();
+    if request.llm_preprocessing == Some(false) && has_override {
+        return Err(
+            "Disabling TTS AI cleanup conflicts with the supplied LLM cleanup overrides"
+                .to_string(),
+        );
+    }
+
+    let llm = &mut settings.llm_preprocessing;
+    let enabled = request.llm_preprocessing.unwrap_or(has_override);
+    if request.llm_preprocessing.is_some() || has_override {
+        match scope {
+            TtsLlmScope::Interactive => llm.interactive_enabled = enabled,
+            TtsLlmScope::File => llm.file_enabled = enabled,
+        }
+    }
+    if let Some(provider_id) = request.llm_provider_id.as_deref() {
+        let provider_id = provider_id.trim();
+        if provider_id.is_empty() {
+            return Err("TTS AI cleanup provider ID cannot be empty".to_string());
+        }
+        llm.provider_id = provider_id.to_string();
+    }
+    if let Some(model) = request.llm_model.as_deref() {
+        let model = model.trim();
+        if model.is_empty() {
+            return Err("TTS AI cleanup model cannot be empty".to_string());
+        }
+        llm.model = model.to_string();
+    }
+    if let Some(key_source) = request.llm_key_source {
+        llm.key_source = key_source;
+    }
+    if let Some(base_url) = request.llm_custom_base_url.as_deref() {
+        if llm.provider_id != "custom" {
+            return Err(
+                "A custom LLM base URL is supported only by the custom provider".to_string(),
+            );
+        }
+        let base_url = base_url.trim();
+        if base_url.is_empty() {
+            return Err("Custom TTS AI cleanup base URL cannot be empty".to_string());
+        }
+        llm.custom_base_url = base_url.trim_end_matches('/').to_string();
+    }
+    if let Some(allow) = request.llm_custom_allow_insecure_http {
+        if llm.provider_id != "custom" {
+            return Err(
+                "Insecure HTTP is supported only by the custom TTS AI cleanup provider".to_string(),
+            );
+        }
+        llm.custom_allow_insecure_http = allow;
+    }
+    if let Some(reasoning) = request.llm_reasoning_enabled {
+        llm.reasoning_enabled = reasoning;
+    }
+    if let Some(budget) = request.llm_reasoning_budget {
+        if !(1_024..=1_000_000).contains(&budget) {
+            return Err("TTS AI cleanup reasoning budget must be 1024–1000000".to_string());
+        }
+        if request.llm_reasoning_enabled == Some(false)
+            || (request.llm_reasoning_enabled.is_none() && !llm.reasoning_enabled)
+        {
+            return Err(
+                "A TTS AI cleanup reasoning budget requires reasoning to be enabled".to_string(),
+            );
+        }
+        llm.reasoning_budget = budget;
+    }
+    if let Some(chars) = request.llm_chunk_target_chars {
+        if !(1_000..=50_000).contains(&chars) {
+            return Err("TTS AI cleanup chunk size must be 1000–50000 characters".to_string());
+        }
+        llm.chunk_target_chars = chars;
+    }
+    if let Some(retries) = request.llm_retry_count {
+        if retries > 10 {
+            return Err("TTS AI cleanup retries must be 0–10".to_string());
+        }
+        llm.retry_count = retries;
+    }
+    if let Some(delay) = request.llm_retry_base_delay_ms {
+        if !(100..=30_000).contains(&delay) {
+            return Err("TTS AI cleanup retry delay must be 100–30000 ms".to_string());
+        }
+        llm.retry_base_delay_ms = delay;
+    }
+    if let Some(timeout) = request.llm_request_timeout_seconds {
+        if !(10..=600).contains(&timeout) {
+            return Err("TTS AI cleanup timeout must be 10–600 seconds".to_string());
+        }
+        llm.request_timeout_seconds = timeout;
+    }
+
+    if request.llm_prompt_id.is_some() && request.llm_prompt_name.is_some() {
+        return Err("Choose a TTS AI cleanup prompt by ID or name, not both".to_string());
+    }
+    let (prompts, selected_id) = match scope {
+        TtsLlmScope::Interactive => (
+            &mut llm.interactive_prompts,
+            &mut llm.interactive_selected_prompt_id,
+        ),
+        TtsLlmScope::File => (&mut llm.file_prompts, &mut llm.file_selected_prompt_id),
+    };
+    if let Some(instructions) = request.llm_instructions.as_deref() {
+        let instructions = instructions.trim();
+        if instructions.is_empty() {
+            return Err("TTS AI cleanup instructions cannot be empty".to_string());
+        }
+        if instructions.chars().count() > 32_768 {
+            return Err("TTS AI cleanup instructions must not exceed 32768 characters".to_string());
+        }
+        let id = "history_regeneration_llm_instructions".to_string();
+        prompts.push(LLMPrompt {
+            id: id.clone(),
+            name: "History regeneration instructions".to_string(),
+            prompt: instructions.to_string(),
+        });
+        *selected_id = id;
+    } else if let Some(id) = request.llm_prompt_id.as_deref() {
+        let prompt = prompts
+            .iter()
+            .find(|prompt| prompt.id == id.trim())
+            .ok_or_else(|| format!("Unknown TTS AI cleanup prompt ID '{}'", id.trim()))?;
+        *selected_id = prompt.id.clone();
+    } else if let Some(name) = request.llm_prompt_name.as_deref() {
+        let matches = prompts
+            .iter()
+            .filter(|prompt| prompt.name.eq_ignore_ascii_case(name.trim()))
+            .collect::<Vec<_>>();
+        let prompt = match matches.as_slice() {
+            [] => {
+                return Err(format!(
+                    "Unknown TTS AI cleanup prompt name '{}'",
+                    name.trim()
+                ))
+            }
+            [prompt] => *prompt,
+            _ => {
+                return Err(format!(
+                    "More than one TTS AI cleanup prompt is named '{}'",
+                    name.trim()
+                ))
+            }
+        };
+        *selected_id = prompt.id.clone();
+    }
+    Ok(())
 }
 
 fn prepare_regeneration_output(
@@ -480,6 +700,18 @@ fn set_model_and_voice(
                     ));
                 }
             }
+            TtsProvider::LocalKokoro => {
+                let expected_repo = crate::managers::local_kokoro::KOKORO_MODEL_REPOSITORY;
+                let expected_revision = crate::managers::local_kokoro::KOKORO_MODEL_REVISION;
+                if model != expected_repo
+                    && model != expected_revision
+                    && model != format!("{expected_repo}@{expected_revision}")
+                {
+                    return Err(format!(
+                        "Local Kokoro uses the pinned model {expected_repo}@{expected_revision}"
+                    ));
+                }
+            }
             TtsProvider::Windows => {
                 if model != "windows.media.speechsynthesis" {
                     return Err(
@@ -505,6 +737,7 @@ fn set_model_and_voice(
             TtsProvider::Deepgram => settings.deepgram_model = voice,
             TtsProvider::OpenAi => settings.openai_voice = voice,
             TtsProvider::LocalQwen => settings.local_qwen_voice = voice,
+            TtsProvider::LocalKokoro => settings.local_kokoro_voice = voice,
             TtsProvider::Windows => settings.windows_voice_id = voice,
         }
     }
@@ -536,6 +769,14 @@ fn current_model_and_voice(settings: &TtsSettings) -> (String, String) {
             ),
             settings.local_qwen_voice.clone(),
         ),
+        TtsProvider::LocalKokoro => (
+            format!(
+                "{}@{}",
+                crate::managers::local_kokoro::KOKORO_MODEL_REPOSITORY,
+                crate::managers::local_kokoro::KOKORO_MODEL_REVISION
+            ),
+            settings.local_kokoro_voice.clone(),
+        ),
         TtsProvider::Windows => (
             "windows.media.speechsynthesis".to_string(),
             settings.windows_voice_id.clone(),
@@ -547,6 +788,7 @@ fn current_language(settings: &TtsSettings) -> String {
     match settings.provider {
         TtsProvider::Soniox => settings.soniox_language.clone(),
         TtsProvider::LocalQwen => settings.local_qwen_language.clone(),
+        TtsProvider::LocalKokoro => settings.local_kokoro_language.clone(),
         TtsProvider::Windows => settings.windows_voice_language.clone(),
         TtsProvider::Deepgram | TtsProvider::OpenAi => String::new(),
     }
@@ -560,6 +802,7 @@ fn restore_source_language(settings: &mut TtsSettings, source_language: &str) {
     match settings.provider {
         TtsProvider::Soniox => settings.soniox_language = source_language.to_string(),
         TtsProvider::LocalQwen => settings.local_qwen_language = source_language.to_string(),
+        TtsProvider::LocalKokoro => settings.local_kokoro_language = source_language.to_string(),
         TtsProvider::Windows => settings.windows_voice_language = source_language.to_string(),
         TtsProvider::Deepgram | TtsProvider::OpenAi => {}
     }

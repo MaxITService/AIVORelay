@@ -5,8 +5,33 @@ fn main() {
     generate_tray_translations();
 
     stage_vc_runtime_dlls();
+    let build_attributes = configure_windows_manifest();
 
-    tauri_build::build()
+    tauri_build::try_build(build_attributes).expect("failed to run Tauri build script")
+}
+
+/// Embed one Common Controls v6 manifest in every Windows executable target.
+///
+/// Tauri normally compiles this manifest into the GUI binary's resource file,
+/// which leaves Rust unit-test harnesses without it. The linker-level manifest
+/// follows Tauri's own test workaround: it covers both targets while disabling
+/// Tauri's duplicate manifest resource.
+fn configure_windows_manifest() -> tauri_build::Attributes {
+    let mut attributes = tauri_build::Attributes::new();
+    if std::env::var("CARGO_CFG_TARGET_OS").as_deref() != Ok("windows") {
+        return attributes;
+    }
+
+    let manifest = std::path::PathBuf::from(
+        std::env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR not set"),
+    )
+    .join("windows-app-manifest.xml");
+    println!("cargo:rerun-if-changed={}", manifest.display());
+    println!("cargo:rustc-link-arg=/MANIFEST:EMBED");
+    println!("cargo:rustc-link-arg=/MANIFESTINPUT:{}", manifest.display());
+    attributes =
+        attributes.windows_attributes(tauri_build::WindowsAttributes::new_without_app_manifest());
+    attributes
 }
 
 /// Stage MSVC runtime DLLs into `transcribe-libs/` for app-local Windows deployment.

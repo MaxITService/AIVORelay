@@ -11,6 +11,7 @@ use rusqlite::{params, Connection, OptionalExtension, Row};
 use rusqlite_migration::{Migrations, M};
 use serde::{Deserialize, Serialize};
 use specta::Type;
+use std::collections::HashSet;
 use std::fs::{self, File, OpenOptions};
 use std::io::Write;
 use std::path::{Component, Path, PathBuf};
@@ -20,37 +21,57 @@ use tauri::{AppHandle, Emitter};
 static UNIQUE_FILE_ID: AtomicU64 = AtomicU64::new(0);
 pub const TTS_HISTORY_CHANGED_EVENT: &str = "tts-history-changed";
 
-static MIGRATIONS: &[M] = &[M::up(
-    "CREATE TABLE IF NOT EXISTS tts_history (
+static MIGRATIONS: &[M] = &[
+    M::up(
+        "CREATE TABLE IF NOT EXISTS tts_history (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             timestamp INTEGER NOT NULL,
-            scope TEXT NOT NULL,
-            group_id TEXT NOT NULL,
             source_text TEXT NOT NULL,
-            source_kind TEXT NOT NULL,
             provider TEXT NOT NULL,
             model TEXT NOT NULL,
             voice TEXT NOT NULL,
-            language TEXT NOT NULL,
             output_format TEXT NOT NULL,
             managed_audio_filename TEXT NOT NULL UNIQUE,
-            external_output_path TEXT,
-            prompt_preset_id TEXT,
-            prompt_preset_name TEXT,
-            resolved_instructions TEXT
+            external_output_path TEXT
         );
         CREATE INDEX IF NOT EXISTS idx_tts_history_timestamp
-            ON tts_history(timestamp DESC, id DESC);
+            ON tts_history(timestamp DESC, id DESC);",
+    ),
+    M::up(
+        "ALTER TABLE tts_history
+            ADD COLUMN group_id TEXT NOT NULL DEFAULT '';
+        UPDATE tts_history
+            SET group_id = 'legacy-' || id
+            WHERE group_id = '';
         CREATE INDEX IF NOT EXISTS idx_tts_history_group
-            ON tts_history(group_id, timestamp DESC, id DESC);
+            ON tts_history(group_id, timestamp DESC, id DESC);",
+    ),
+    M::up(
+        "ALTER TABLE tts_history ADD COLUMN prompt_preset_id TEXT;
+        ALTER TABLE tts_history ADD COLUMN prompt_preset_name TEXT;
+        ALTER TABLE tts_history ADD COLUMN resolved_instructions TEXT;",
+    ),
+    M::up(
+        "ALTER TABLE tts_history
+            ADD COLUMN source_kind TEXT NOT NULL DEFAULT 'text';",
+    ),
+    M::up("ALTER TABLE tts_history ADD COLUMN language TEXT NOT NULL DEFAULT '';"),
+    M::up(
+        "ALTER TABLE tts_history
+            ADD COLUMN scope TEXT NOT NULL DEFAULT 'file';
+        UPDATE tts_history
+            SET scope = 'interactive'
+            WHERE group_id LIKE 'interactive-%';
         CREATE INDEX IF NOT EXISTS idx_tts_history_scope_timestamp
             ON tts_history(scope, timestamp DESC, id DESC);",
-)];
+    ),
+    M::up("ALTER TABLE tts_history ADD COLUMN llm_cleanup_config TEXT;"),
+];
 
 const ENTRY_COLUMNS: &str =
     "id, timestamp, scope, group_id, source_text, source_kind, provider, model, voice, \
     output_format, managed_audio_filename, external_output_path, prompt_preset_id, \
-    prompt_preset_name, resolved_instructions, language";
+    prompt_preset_name, resolved_instructions, language, llm_cleanup_config";
 
 #[derive(Clone, Copy, Debug, Serialize, Deserialize, Type, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -89,6 +110,9 @@ pub struct TtsHistoryEntry {
     /// Resolved provider instructions, if any. API credentials are never
     /// stored in history.
     pub resolved_instructions: Option<String>,
+    /// Effective TTS AI-cleanup metadata as secret-free JSON. This is separate
+    /// from provider voice instructions and may be absent when cleanup was off.
+    pub llm_cleanup_config: Option<String>,
 }
 
 #[derive(Clone, Debug)]
@@ -110,6 +134,46 @@ pub struct NewTtsHistoryEntry {
     pub prompt_preset_id: Option<String>,
     pub prompt_preset_name: Option<String>,
     pub resolved_instructions: Option<String>,
+    pub llm_cleanup_config: Option<String>,
+}
+
+pub fn llm_cleanup_config_from_settings(
+    settings: &TtsSettings,
+    scope: TtsHistoryScope,
+) -> Option<String> {
+    let llm = &settings.llm_preprocessing;
+    let (enabled, selected_prompt_id, prompts) = match scope {
+        TtsHistoryScope::Interactive => (
+            llm.interactive_enabled,
+            llm.interactive_selected_prompt_id.as_str(),
+            llm.interactive_prompts.as_slice(),
+        ),
+        TtsHistoryScope::File => (
+            llm.file_enabled,
+            llm.file_selected_prompt_id.as_str(),
+            llm.file_prompts.as_slice(),
+        ),
+    };
+    enabled.then(|| {
+        let selected_prompt = prompts
+            .iter()
+            .find(|prompt| prompt.id == selected_prompt_id);
+        serde_json::json!({
+            "provider_id": llm.provider_id,
+            "model": llm.model,
+            "key_source": llm.key_source,
+            "prompt_id": selected_prompt.map(|prompt| prompt.id.as_str()),
+            "prompt_name": selected_prompt.map(|prompt| prompt.name.as_str()),
+            "instructions": selected_prompt.map(|prompt| prompt.prompt.as_str()),
+            "reasoning_enabled": llm.reasoning_enabled,
+            "reasoning_budget": llm.reasoning_budget,
+            "chunk_target_chars": llm.chunk_target_chars,
+            "retry_count": llm.retry_count,
+            "retry_base_delay_ms": llm.retry_base_delay_ms,
+            "request_timeout_seconds": llm.request_timeout_seconds,
+        })
+        .to_string()
+    })
 }
 
 pub fn metadata_from_settings(
@@ -145,6 +209,15 @@ pub fn metadata_from_settings(
             settings.local_qwen_voice.clone(),
             settings.local_qwen_language.clone(),
         ),
+        TtsProvider::LocalKokoro => (
+            format!(
+                "{}@{}",
+                crate::managers::local_kokoro::KOKORO_MODEL_REPOSITORY,
+                crate::managers::local_kokoro::KOKORO_MODEL_REVISION
+            ),
+            settings.local_kokoro_voice.clone(),
+            settings.local_kokoro_language.clone(),
+        ),
         TtsProvider::Windows => (
             "windows.media.speechsynthesis".to_string(),
             settings.windows_voice_id.clone(),
@@ -166,6 +239,7 @@ pub fn metadata_from_settings(
         .then(|| settings.openai_instructions.trim())
         .filter(|instructions| !instructions.is_empty())
         .map(str::to_string);
+    let llm_cleanup_config = llm_cleanup_config_from_settings(settings, scope);
 
     NewTtsHistoryEntry {
         scope,
@@ -181,6 +255,7 @@ pub fn metadata_from_settings(
         prompt_preset_id: selected_preset.map(|preset| preset.id.clone()),
         prompt_preset_name: selected_preset.map(|preset| preset.name.clone()),
         resolved_instructions,
+        llm_cleanup_config,
     }
 }
 
@@ -231,6 +306,7 @@ impl TtsHistoryManager {
 
     fn init_database(&self) -> Result<()> {
         let mut connection = self.connection()?;
+        normalize_squashed_pre_release_schema_version(&connection)?;
         migrations().to_latest(&mut connection)?;
         Ok(())
     }
@@ -626,6 +702,55 @@ fn migrations() -> Migrations<'static> {
     Migrations::new(MIGRATIONS.to_vec())
 }
 
+fn normalize_squashed_pre_release_schema_version(connection: &Connection) -> Result<()> {
+    let version: i64 = connection.pragma_query_value(None, "user_version", |row| row.get(0))?;
+    if version != 1 {
+        return Ok(());
+    }
+
+    let mut statement = connection.prepare("PRAGMA table_info(tts_history)")?;
+    let columns = statement
+        .query_map([], |row| row.get::<_, String>(1))?
+        .collect::<rusqlite::Result<HashSet<_>>>()?;
+    let pre_llm_final_columns = [
+        "id",
+        "timestamp",
+        "scope",
+        "group_id",
+        "source_text",
+        "source_kind",
+        "provider",
+        "model",
+        "voice",
+        "language",
+        "output_format",
+        "managed_audio_filename",
+        "external_output_path",
+        "prompt_preset_id",
+        "prompt_preset_name",
+        "resolved_instructions",
+    ];
+    if pre_llm_final_columns
+        .iter()
+        .all(|column| columns.contains(*column))
+    {
+        // Pre-release builds briefly shipped the then-final schema while
+        // retaining user_version=1. Promote it to the last migration whose
+        // columns are present, then allow any newer additive migration to run.
+        let promoted_version = if columns.contains("llm_cleanup_config") {
+            MIGRATIONS.len()
+        } else {
+            MIGRATIONS.len().saturating_sub(1)
+        };
+        connection.pragma_update(None, "user_version", promoted_version as i64)?;
+        log::info!(
+            "Recognized pre-release squashed TTS history schema and advanced it to migration version {}",
+            promoted_version
+        );
+    }
+    Ok(())
+}
+
 fn insert_entry(
     connection: &Connection,
     timestamp: i64,
@@ -640,8 +765,9 @@ fn insert_entry(
         "INSERT INTO tts_history (
             timestamp, scope, group_id, source_text, source_kind, provider, model, voice,
             output_format, managed_audio_filename, external_output_path,
-            prompt_preset_id, prompt_preset_name, resolved_instructions, language
-        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
+            prompt_preset_id, prompt_preset_name, resolved_instructions, language,
+            llm_cleanup_config
+        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)",
         params![
             timestamp,
             scope_to_db(metadata.scope),
@@ -658,6 +784,7 @@ fn insert_entry(
             metadata.prompt_preset_name.as_deref(),
             metadata.resolved_instructions.as_deref(),
             &metadata.language,
+            metadata.llm_cleanup_config.as_deref(),
         ],
     )?;
     let id = connection.last_insert_rowid();
@@ -708,6 +835,7 @@ fn map_entry(row: &Row<'_>) -> rusqlite::Result<TtsHistoryEntry> {
         prompt_preset_id: row.get("prompt_preset_id")?,
         prompt_preset_name: row.get("prompt_preset_name")?,
         resolved_instructions: row.get("resolved_instructions")?,
+        llm_cleanup_config: row.get("llm_cleanup_config")?,
     })
 }
 
@@ -747,6 +875,7 @@ fn provider_from_db(value: &str) -> Result<TtsProvider> {
         "deepgram" => Ok(TtsProvider::Deepgram),
         "openai" => Ok(TtsProvider::OpenAi),
         "local_qwen" => Ok(TtsProvider::LocalQwen),
+        "local_kokoro" => Ok(TtsProvider::LocalKokoro),
         "windows" => Ok(TtsProvider::Windows),
         _ => Err(anyhow!("Unknown TTS provider in history: {value}")),
     }
@@ -916,7 +1045,136 @@ mod tests {
             prompt_preset_id: Some("calm-narrator".to_string()),
             prompt_preset_name: Some("Calm narrator".to_string()),
             resolved_instructions: Some("Speak calmly.".to_string()),
+            llm_cleanup_config: None,
         }
+    }
+
+    #[test]
+    fn squashed_version_one_database_is_promoted_without_reapplying_columns() {
+        let mut connection = Connection::open_in_memory().expect("open in-memory database");
+        connection
+            .execute_batch(
+                "CREATE TABLE tts_history (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    timestamp INTEGER NOT NULL,
+                    scope TEXT NOT NULL,
+                    group_id TEXT NOT NULL,
+                    source_text TEXT NOT NULL,
+                    source_kind TEXT NOT NULL,
+                    provider TEXT NOT NULL,
+                    model TEXT NOT NULL,
+                    voice TEXT NOT NULL,
+                    language TEXT NOT NULL,
+                    output_format TEXT NOT NULL,
+                    managed_audio_filename TEXT NOT NULL UNIQUE,
+                    external_output_path TEXT,
+                    prompt_preset_id TEXT,
+                    prompt_preset_name TEXT,
+                    resolved_instructions TEXT
+                );
+                CREATE INDEX idx_tts_history_timestamp
+                    ON tts_history(timestamp DESC, id DESC);
+                CREATE INDEX idx_tts_history_group
+                    ON tts_history(group_id, timestamp DESC, id DESC);
+                CREATE INDEX idx_tts_history_scope_timestamp
+                    ON tts_history(scope, timestamp DESC, id DESC);
+                PRAGMA user_version = 1;",
+            )
+            .expect("create squashed version-one TTS history database");
+        connection
+            .execute(
+                "INSERT INTO tts_history (
+                    timestamp, scope, group_id, source_text, source_kind, provider, model,
+                    voice, language, output_format, managed_audio_filename
+                ) VALUES (
+                    100, 'file', 'file-100-1', 'preserved', 'text', 'openai',
+                    'gpt-4o-mini-tts', 'alloy', '', 'mp3', 'tts-preserved.mp3'
+                )",
+                [],
+            )
+            .expect("insert squashed version-one history");
+
+        normalize_squashed_pre_release_schema_version(&connection)
+            .expect("recognize squashed version-one schema");
+        migrations()
+            .to_latest(&mut connection)
+            .expect("accept promoted squashed schema");
+
+        let version: i64 = connection
+            .pragma_query_value(None, "user_version", |row| row.get(0))
+            .expect("read promoted database version");
+        assert_eq!(version, MIGRATIONS.len() as i64);
+        let entries = list_entries_with_connection(&connection, TtsHistoryScope::File)
+            .expect("list promoted squashed schema");
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].source_text, "preserved");
+        let columns = connection
+            .prepare("PRAGMA table_info(tts_history)")
+            .expect("prepare promoted column query")
+            .query_map([], |row| row.get::<_, String>(1))
+            .expect("query promoted columns")
+            .collect::<rusqlite::Result<HashSet<_>>>()
+            .expect("read promoted columns");
+        assert!(columns.contains("llm_cleanup_config"));
+    }
+
+    #[test]
+    fn version_five_database_migrates_scopes_without_data_loss() {
+        let mut connection = Connection::open_in_memory().expect("open in-memory database");
+        Migrations::new(MIGRATIONS[..5].to_vec())
+            .to_latest(&mut connection)
+            .expect("create version-five TTS history database");
+        connection
+            .execute(
+                "INSERT INTO tts_history (
+                    timestamp, group_id, source_text, source_kind, provider, model, voice,
+                    language, output_format, managed_audio_filename
+                ) VALUES (?1, ?2, ?3, 'text', 'openai', 'gpt-4o-mini-tts', 'alloy',
+                    '', 'mp3', ?4)",
+                params![
+                    100_i64,
+                    "interactive-100-1",
+                    "interactive text",
+                    "tts-interactive.mp3"
+                ],
+            )
+            .expect("insert version-five interactive history");
+        connection
+            .execute(
+                "INSERT INTO tts_history (
+                    timestamp, group_id, source_text, source_kind, provider, model, voice,
+                    language, output_format, managed_audio_filename
+                ) VALUES (?1, ?2, ?3, 'text', 'openai', 'gpt-4o-mini-tts', 'alloy',
+                    '', 'mp3', ?4)",
+                params![200_i64, "file-200-2", "file text", "tts-file.mp3"],
+            )
+            .expect("insert version-five file history");
+
+        migrations()
+            .to_latest(&mut connection)
+            .expect("upgrade version-five TTS history database");
+
+        let version: i64 = connection
+            .pragma_query_value(None, "user_version", |row| row.get(0))
+            .expect("read migrated database version");
+        let scopes = connection
+            .prepare("SELECT scope FROM tts_history ORDER BY id")
+            .expect("prepare migrated scope query")
+            .query_map([], |row| row.get::<_, String>(0))
+            .expect("query migrated scopes")
+            .collect::<rusqlite::Result<Vec<_>>>()
+            .expect("read migrated scopes");
+        let columns = connection
+            .prepare("PRAGMA table_info(tts_history)")
+            .expect("prepare migrated column query")
+            .query_map([], |row| row.get::<_, String>(1))
+            .expect("query migrated columns")
+            .collect::<rusqlite::Result<HashSet<_>>>()
+            .expect("read migrated columns");
+
+        assert_eq!(version, MIGRATIONS.len() as i64);
+        assert_eq!(scopes, vec!["interactive".to_string(), "file".to_string()]);
+        assert!(columns.contains("llm_cleanup_config"));
     }
 
     #[test]
@@ -966,6 +1224,36 @@ mod tests {
             Some("Speak calmly.")
         );
         assert_eq!(entries[0].source_kind, TtsHistorySourceKind::Markdown);
+    }
+
+    #[test]
+    fn history_metadata_records_scope_specific_llm_cleanup_without_secrets() {
+        let mut settings = TtsSettings::default();
+        settings.llm_preprocessing.file_enabled = true;
+        settings.llm_preprocessing.provider_id = "openrouter".to_string();
+        settings.llm_preprocessing.model = "test/model".to_string();
+        let metadata = metadata_from_settings(
+            &settings,
+            TtsHistoryScope::File,
+            "source".to_string(),
+            TtsHistorySourceKind::Text,
+            "group".to_string(),
+            None,
+        );
+        let config: serde_json::Value = serde_json::from_str(
+            metadata
+                .llm_cleanup_config
+                .as_deref()
+                .expect("enabled cleanup metadata"),
+        )
+        .expect("valid cleanup metadata JSON");
+        assert_eq!(config["provider_id"], "openrouter");
+        assert_eq!(config["model"], "test/model");
+        assert_eq!(
+            config["prompt_id"],
+            settings.llm_preprocessing.file_selected_prompt_id
+        );
+        assert!(config.get("api_key").is_none());
     }
 
     #[test]
@@ -1025,8 +1313,9 @@ mod tests {
     fn retention_deletes_oldest_until_count_and_storage_limits_both_fit() {
         let oldest_first_sizes = [10, 20, 30, 40];
         assert_eq!(retention_delete_count(&oldest_first_sizes, 3, u64::MAX), 1);
-        assert_eq!(retention_delete_count(&oldest_first_sizes, 10, 65), 2);
-        assert_eq!(retention_delete_count(&oldest_first_sizes, 2, 65), 2);
+        assert_eq!(retention_delete_count(&oldest_first_sizes, 10, 65), 3);
+        assert_eq!(retention_delete_count(&oldest_first_sizes, 2, 65), 3);
+        assert_eq!(retention_delete_count(&oldest_first_sizes, 2, 70), 2);
         assert_eq!(retention_delete_count(&oldest_first_sizes, 10, 100), 0);
     }
 

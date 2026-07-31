@@ -3564,7 +3564,9 @@ mod tests {
     fn kennedy_fixture_path() -> std::path::PathBuf {
         std::env::var_os("AIVORELAY_KENNEDY_WAV")
             .map(std::path::PathBuf::from)
-            .unwrap_or_else(|| std::path::PathBuf::from("../.AGENTS/UNTRACKED/kennedy-30s-16k.wav"))
+            .unwrap_or_else(|| {
+                std::path::PathBuf::from("../.AGENTS/.untracked/kennedy-30s-16k.wav")
+            })
     }
 
     fn moonshine_base_model_path() -> std::path::PathBuf {
