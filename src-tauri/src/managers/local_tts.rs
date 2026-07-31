@@ -11,7 +11,7 @@ use futures_util::StreamExt;
 use hf_hub::api::tokio::{ApiBuilder, ApiError, Progress};
 use hf_hub::{Repo, RepoType};
 use parking_lot::{Mutex, RwLock};
-use reqwest::header::RANGE;
+use reqwest::header::{CONTENT_RANGE, RANGE};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use specta::Type;
@@ -41,10 +41,11 @@ const WORKER_PROTOCOL_VERSION: u32 = 1;
 const EXPECTED_SAMPLE_RATE: u32 = 24_000;
 const MAX_WORKER_WAV_BYTES: u64 = 512 * 1024 * 1024;
 const INSTALL_REQUIRED_BYTES: u64 = 8 * 1024 * 1024 * 1024;
-const UV_WINDOWS_URL: &str =
+pub(crate) const UV_WINDOWS_URL: &str =
     "https://github.com/astral-sh/uv/releases/download/0.11.16/uv-x86_64-pc-windows-msvc.zip";
-const UV_WINDOWS_SHA256: &str = "dd9d6d6554bfab265bfa98aa8e8a406c5c3a7b97582f93de1f4d48d9154a0395";
-const UV_WINDOWS_ZIP_NAME: &str = "uv-x86_64-pc-windows-msvc.zip";
+pub(crate) const UV_WINDOWS_SHA256: &str =
+    "dd9d6d6554bfab265bfa98aa8e8a406c5c3a7b97582f93de1f4d48d9154a0395";
+pub(crate) const UV_WINDOWS_ZIP_NAME: &str = "uv-x86_64-pc-windows-msvc.zip";
 const WORKER_SOURCE: &str = include_str!("local_tts_worker.py");
 const APACHE_LICENSE: &str = include_str!("../../resources/licenses/Apache-2.0.txt");
 const UV_MIT_LICENSE: &str = include_str!("../../resources/licenses/uv-MIT.txt");
@@ -96,6 +97,7 @@ pub const LOCAL_TTS_LANGUAGES: &[&str] = &[
 #[serde(rename_all = "snake_case")]
 pub enum LocalTtsKind {
     Qwen,
+    Kokoro,
 }
 
 impl Default for LocalTtsKind {
@@ -869,21 +871,7 @@ impl LocalTtsRuntime {
             fs::read_to_string(self.manifest_path()).context("installation manifest is missing")?;
         let manifest: InstallManifest =
             serde_json::from_str(&content).context("installation manifest is invalid")?;
-        if manifest.manifest_version != INSTALL_MANIFEST_VERSION
-            || manifest.worker_protocol_version != WORKER_PROTOCOL_VERSION
-            || manifest.model_repository != LOCAL_TTS_MODEL_REPO
-            || manifest.model_revision != LOCAL_TTS_MODEL_REVISION
-            || manifest.model_bytes != LOCAL_TTS_MODEL_BYTES
-            || manifest.qwen_package != LOCAL_TTS_QWEN_PACKAGE
-            || manifest.python_version != LOCAL_TTS_PYTHON_VERSION
-            || manifest.uv_version != LOCAL_TTS_UV_VERSION
-            || manifest.worker_sha256 != sha256_bytes(WORKER_SOURCE.as_bytes())
-            || manifest.notice_bundle_sha256 != notice_bundle_sha256()
-            || !manifest.runtime_smoke_tested
-            || !matches!(manifest.runtime_profile.as_str(), "cuda" | "cpu")
-        {
-            return Err(anyhow!("installation manifest is incompatible"));
-        }
+        validate_install_manifest(&manifest)?;
         if !self.uv_path().is_file()
             || !self.venv_python_path().is_file()
             || !self.worker_path().is_file()
@@ -1080,9 +1068,8 @@ impl LocalTtsRuntime {
                 .ok_or_else(|| std::io::Error::other("No parent data directory"))
                 .and_then(available_space)
         })?;
-        let reserve = u64::from(disk_reserve_mb) * 1024 * 1024;
-        let required = INSTALL_REQUIRED_BYTES.saturating_add(reserve);
-        if available < required {
+        let required = required_install_bytes(disk_reserve_mb);
+        if !has_required_disk_space(available, required) {
             return Err(anyhow!(
                 "Local Qwen3-TTS needs about {:.1} GiB free plus the configured disk reserve; only {:.1} GiB is available",
                 INSTALL_REQUIRED_BYTES as f64 / 1024_f64.powi(3),
@@ -1145,6 +1132,33 @@ impl LocalTtsRuntime {
     }
 }
 
+fn validate_install_manifest(manifest: &InstallManifest) -> Result<()> {
+    if manifest.manifest_version != INSTALL_MANIFEST_VERSION
+        || manifest.worker_protocol_version != WORKER_PROTOCOL_VERSION
+        || manifest.model_repository != LOCAL_TTS_MODEL_REPO
+        || manifest.model_revision != LOCAL_TTS_MODEL_REVISION
+        || manifest.model_bytes != LOCAL_TTS_MODEL_BYTES
+        || manifest.qwen_package != LOCAL_TTS_QWEN_PACKAGE
+        || manifest.python_version != LOCAL_TTS_PYTHON_VERSION
+        || manifest.uv_version != LOCAL_TTS_UV_VERSION
+        || manifest.worker_sha256 != sha256_bytes(WORKER_SOURCE.as_bytes())
+        || manifest.notice_bundle_sha256 != notice_bundle_sha256()
+        || !manifest.runtime_smoke_tested
+        || !matches!(manifest.runtime_profile.as_str(), "cuda" | "cpu")
+    {
+        return Err(anyhow!("installation manifest is incompatible"));
+    }
+    Ok(())
+}
+
+fn required_install_bytes(disk_reserve_mb: u32) -> u64 {
+    INSTALL_REQUIRED_BYTES.saturating_add(u64::from(disk_reserve_mb) * 1024 * 1024)
+}
+
+fn has_required_disk_space(available: u64, required: u64) -> bool {
+    available >= required
+}
+
 #[derive(Clone)]
 struct AggregateHfProgress {
     app_handle: AppHandle,
@@ -1191,7 +1205,7 @@ impl Progress for AggregateHfProgress {
     }
 }
 
-async fn download_resumable(
+pub(crate) async fn download_resumable(
     client: &reqwest::Client,
     url: &str,
     final_path: &Path,
@@ -1215,6 +1229,13 @@ async fn download_resumable(
         let _ = fs::remove_file(&partial_path);
         resume_from = 0;
         response = client.get(url).send().await?;
+    }
+    if resume_from > 0 && response.status() == reqwest::StatusCode::RANGE_NOT_SATISFIABLE {
+        if unsatisfied_range_length(&response) == Some(resume_from) {
+            progress(resume_from, resume_from);
+            fs::rename(&partial_path, final_path)?;
+            return Ok(());
+        }
     }
     if !response.status().is_success() && response.status() != reqwest::StatusCode::PARTIAL_CONTENT
     {
@@ -1257,7 +1278,20 @@ async fn download_resumable(
     Ok(())
 }
 
-fn extract_uv(archive_path: &Path, runtime_dir: &Path) -> Result<()> {
+fn unsatisfied_range_length(response: &reqwest::Response) -> Option<u64> {
+    let value = response.headers().get(CONTENT_RANGE)?.to_str().ok()?;
+    let mut parts = value.split_whitespace();
+    if !parts.next()?.eq_ignore_ascii_case("bytes") {
+        return None;
+    }
+    let complete_length = parts.next()?.strip_prefix("*/")?;
+    if parts.next().is_some() {
+        return None;
+    }
+    complete_length.parse().ok()
+}
+
+pub(crate) fn extract_uv(archive_path: &Path, runtime_dir: &Path) -> Result<()> {
     let file = File::open(archive_path)?;
     let mut archive = zip::ZipArchive::new(file)?;
     for name in ["uv.exe", "uvx.exe"] {
@@ -1274,7 +1308,7 @@ fn extract_uv(archive_path: &Path, runtime_dir: &Path) -> Result<()> {
     Ok(())
 }
 
-fn verify_sha256(path: &Path, expected: &str) -> Result<()> {
+pub(crate) fn verify_sha256(path: &Path, expected: &str) -> Result<()> {
     let mut file = File::open(path)?;
     let mut hasher = Sha256::new();
     let mut buffer = vec![0_u8; 8 * 1024 * 1024];
@@ -1295,7 +1329,7 @@ fn verify_sha256(path: &Path, expected: &str) -> Result<()> {
     Ok(())
 }
 
-fn sha256_bytes(bytes: &[u8]) -> String {
+pub(crate) fn sha256_bytes(bytes: &[u8]) -> String {
     let mut hasher = Sha256::new();
     hasher.update(bytes);
     format!("{:x}", hasher.finalize())
@@ -1309,7 +1343,7 @@ fn notice_bundle_sha256() -> String {
     format!("{:x}", hasher.finalize())
 }
 
-fn write_owned_marker(root: &Path) -> Result<()> {
+pub(crate) fn write_owned_marker(root: &Path) -> Result<()> {
     fs::create_dir_all(root)?;
     let marker = root.join(".aivorelay-local-tts");
     if !marker.exists() {
@@ -1318,7 +1352,7 @@ fn write_owned_marker(root: &Path) -> Result<()> {
     Ok(())
 }
 
-fn write_json_atomic(path: &Path, value: &impl Serialize) -> Result<()> {
+pub(crate) fn write_json_atomic(path: &Path, value: &impl Serialize) -> Result<()> {
     let partial = path.with_extension("json.partial");
     let bytes = serde_json::to_vec_pretty(value)?;
     {
@@ -1363,7 +1397,7 @@ fn validate_worker_response(
     Ok(())
 }
 
-fn read_worker_wav(path: &Path) -> std::result::Result<Vec<i16>, LocalTtsAttemptError> {
+pub(crate) fn read_worker_wav(path: &Path) -> std::result::Result<Vec<i16>, LocalTtsAttemptError> {
     let metadata = path.metadata().map_err(permanent_local_error)?;
     if metadata.len() == 0 || metadata.len() > MAX_WORKER_WAV_BYTES {
         return Err(permanent_local_error(
@@ -1391,7 +1425,7 @@ fn read_worker_wav(path: &Path) -> std::result::Result<Vec<i16>, LocalTtsAttempt
     Ok(samples)
 }
 
-fn cancel_if_requested(cancel: &CancellationToken) -> Result<()> {
+pub(crate) fn cancel_if_requested(cancel: &CancellationToken) -> Result<()> {
     if cancel.is_cancelled() {
         Err(anyhow!("Local TTS installation cancelled"))
     } else {
@@ -1399,14 +1433,14 @@ fn cancel_if_requested(cancel: &CancellationToken) -> Result<()> {
     }
 }
 
-fn permanent_local_error(error: impl std::fmt::Display) -> LocalTtsAttemptError {
+pub(crate) fn permanent_local_error(error: impl std::fmt::Display) -> LocalTtsAttemptError {
     LocalTtsAttemptError {
         safe_message: error.to_string(),
         transient: false,
     }
 }
 
-fn transient_local_error(message: String) -> LocalTtsAttemptError {
+pub(crate) fn transient_local_error(message: String) -> LocalTtsAttemptError {
     LocalTtsAttemptError {
         safe_message: message,
         transient: true,
@@ -1414,12 +1448,12 @@ fn transient_local_error(message: String) -> LocalTtsAttemptError {
 }
 
 #[cfg(windows)]
-fn hide_child_window(command: &mut Command) {
+pub(crate) fn hide_child_window(command: &mut Command) {
     command.creation_flags(0x0800_0000);
 }
 
 #[cfg(not(windows))]
-fn hide_child_window(_command: &mut Command) {}
+pub(crate) fn hide_child_window(_command: &mut Command) {}
 
 #[cfg(windows)]
 fn hide_std_child_window(command: &mut std::process::Command) {
@@ -1433,6 +1467,24 @@ fn hide_std_child_window(_command: &mut std::process::Command) {}
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn valid_install_manifest() -> InstallManifest {
+        InstallManifest {
+            manifest_version: INSTALL_MANIFEST_VERSION,
+            worker_protocol_version: WORKER_PROTOCOL_VERSION,
+            model_repository: LOCAL_TTS_MODEL_REPO.to_string(),
+            model_revision: LOCAL_TTS_MODEL_REVISION.to_string(),
+            model_bytes: LOCAL_TTS_MODEL_BYTES,
+            qwen_package: LOCAL_TTS_QWEN_PACKAGE.to_string(),
+            python_version: LOCAL_TTS_PYTHON_VERSION.to_string(),
+            uv_version: LOCAL_TTS_UV_VERSION.to_string(),
+            worker_sha256: sha256_bytes(WORKER_SOURCE.as_bytes()),
+            notice_bundle_sha256: notice_bundle_sha256(),
+            runtime_smoke_tested: true,
+            runtime_profile: "cpu".to_string(),
+            resolved_packages: vec![LOCAL_TTS_QWEN_PACKAGE.to_string()],
+        }
+    }
 
     #[test]
     fn local_tts_status_identifies_qwen_kind() {
@@ -1461,5 +1513,73 @@ mod tests {
             retryable: None,
         };
         assert!(validate_worker_response(&response, "expected").is_err());
+    }
+
+    #[test]
+    fn manifest_validation_rejects_wrong_revision() {
+        let mut manifest = valid_install_manifest();
+        validate_install_manifest(&manifest).expect("the pinned manifest should validate");
+
+        manifest.model_revision = "different-revision".to_string();
+        let error = validate_install_manifest(&manifest).expect_err("revision drift must fail");
+        assert!(error.to_string().contains("incompatible"));
+    }
+
+    #[test]
+    fn disk_reserve_is_included_in_local_install_preflight() {
+        let without_reserve = required_install_bytes(0);
+        let with_reserve = required_install_bytes(512);
+
+        assert!(with_reserve > without_reserve);
+        assert!(has_required_disk_space(with_reserve, with_reserve));
+        assert!(!has_required_disk_space(with_reserve - 1, with_reserve));
+    }
+
+    #[test]
+    fn worker_output_rejects_empty_malformed_and_wrong_format_wavs() {
+        let directory = std::env::temp_dir().join(format!(
+            "aivorelay-local-tts-wav-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(&directory).expect("create isolated WAV test directory");
+
+        let empty = directory.join("empty.wav");
+        fs::write(&empty, &[] as &[u8]).expect("write empty worker output");
+        assert!(read_worker_wav(&empty).is_err());
+
+        let malformed = directory.join("malformed.wav");
+        fs::write(&malformed, b"not a RIFF/WAV file").expect("write malformed worker output");
+        assert!(read_worker_wav(&malformed).is_err());
+
+        let wrong_format = directory.join("wrong-format.wav");
+        let spec = hound::WavSpec {
+            channels: 2,
+            sample_rate: EXPECTED_SAMPLE_RATE,
+            bits_per_sample: 16,
+            sample_format: hound::SampleFormat::Int,
+        };
+        let mut writer = hound::WavWriter::create(&wrong_format, spec).unwrap();
+        writer.write_sample(0_i16).unwrap();
+        writer.write_sample(0_i16).unwrap();
+        writer.finalize().unwrap();
+        let error = read_worker_wav(&wrong_format).expect_err("stereo output must be rejected");
+        assert!(error.safe_message.contains("outside the required"));
+
+        fs::remove_dir_all(directory).expect("remove isolated WAV test directory");
+    }
+
+    #[test]
+    fn local_runtime_error_helpers_preserve_retry_classification() {
+        let permanent = permanent_local_error("invalid worker response");
+        assert!(!permanent.transient);
+        assert_eq!(permanent.safe_message, "invalid worker response");
+
+        let transient = transient_local_error("worker stopped".to_string());
+        assert!(transient.transient);
+        assert_eq!(transient.safe_message, "worker stopped");
     }
 }

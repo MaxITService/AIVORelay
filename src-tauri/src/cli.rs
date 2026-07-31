@@ -15,6 +15,7 @@ fn parse_positive_usize(value: &str) -> Result<usize, String> {
 #[derive(Parser, Debug, Clone, Default)]
 #[command(
     name = "aivorelay",
+    version,
     about = "AivoRelay - Speech to Text and Text to Speech"
 )]
 pub struct CliArgs {
@@ -135,6 +136,70 @@ pub struct CliArgs {
     #[arg(long, value_name = "FILE", requires = "convert_file")]
     pub tts_replacements_file: Option<PathBuf>,
 
+    /// Enable or disable LLM cleanup for this file conversion. Other
+    /// --tts-llm-* overrides imply true unless this is explicitly false.
+    #[arg(long, value_name = "BOOL", requires = "convert_file")]
+    pub tts_llm_preprocessing: Option<bool>,
+
+    /// Use a saved, named TTS File Operations cleanup prompt.
+    #[arg(long, value_name = "NAME", requires = "convert_file")]
+    pub tts_llm_prompt: Option<String>,
+
+    /// Use literal TTS File Operations LLM cleanup instructions.
+    #[arg(long, value_name = "TEXT", requires = "convert_file")]
+    pub tts_llm_instructions: Option<String>,
+
+    /// Read literal TTS File Operations LLM cleanup instructions from UTF-8.
+    /// Takes precedence over --tts-llm-instructions and --tts-llm-prompt.
+    #[arg(long, value_name = "FILE", requires = "convert_file")]
+    pub tts_llm_instructions_file: Option<PathBuf>,
+
+    /// Override the saved TTS cleanup LLM provider ID.
+    #[arg(long, value_name = "PROVIDER_ID", requires = "convert_file")]
+    pub tts_llm_provider: Option<String>,
+
+    /// Override the saved TTS cleanup LLM model ID.
+    #[arg(long, value_name = "MODEL", requires = "convert_file")]
+    pub tts_llm_model: Option<String>,
+
+    /// Select which already-stored LLM credential to use. Secrets are never
+    /// accepted on the command line.
+    #[arg(long, value_enum, requires = "convert_file")]
+    pub tts_llm_key_source: Option<CliTtsKeySource>,
+
+    /// Override the OpenAI-compatible base URL. Supported only when the
+    /// effective TTS cleanup provider is custom.
+    #[arg(long, value_name = "URL", requires = "convert_file")]
+    pub tts_llm_base_url: Option<String>,
+
+    /// Allow insecure HTTP for a custom local TTS cleanup endpoint.
+    #[arg(long, value_name = "BOOL", requires = "convert_file")]
+    pub tts_llm_allow_insecure_http: Option<bool>,
+
+    /// Enable or disable reasoning controls for TTS cleanup.
+    #[arg(long, value_name = "BOOL", requires = "convert_file")]
+    pub tts_llm_reasoning: Option<bool>,
+
+    /// Override the TTS cleanup reasoning budget.
+    #[arg(long, value_name = "TOKENS", requires = "convert_file")]
+    pub tts_llm_reasoning_budget: Option<u32>,
+
+    /// Override semantic LLM cleanup chunk size in Unicode characters.
+    #[arg(long, value_name = "CHARS", requires = "convert_file")]
+    pub tts_llm_chunk_chars: Option<u32>,
+
+    /// Override LLM cleanup retries after the first request.
+    #[arg(long, value_name = "N", requires = "convert_file")]
+    pub tts_llm_retries: Option<u8>,
+
+    /// Override initial LLM cleanup retry delay in milliseconds.
+    #[arg(long, value_name = "MS", requires = "convert_file")]
+    pub tts_llm_retry_delay_ms: Option<u32>,
+
+    /// Override per-request LLM cleanup timeout in seconds.
+    #[arg(long, value_name = "SECONDS", requires = "convert_file")]
+    pub tts_llm_timeout_seconds: Option<u32>,
+
     /// Override the minimum free-disk reserve for this conversion.
     #[arg(long, value_name = "MB", requires = "convert_file")]
     pub tts_disk_reserve_mb: Option<u32>,
@@ -197,6 +262,21 @@ impl CliArgs {
             || self.tts_paragraph_pause_ms.is_some()
             || self.tts_preprocessing.is_some()
             || self.tts_replacements_file.is_some()
+            || self.tts_llm_preprocessing.is_some()
+            || self.tts_llm_prompt.is_some()
+            || self.tts_llm_instructions.is_some()
+            || self.tts_llm_instructions_file.is_some()
+            || self.tts_llm_provider.is_some()
+            || self.tts_llm_model.is_some()
+            || self.tts_llm_key_source.is_some()
+            || self.tts_llm_base_url.is_some()
+            || self.tts_llm_allow_insecure_http.is_some()
+            || self.tts_llm_reasoning.is_some()
+            || self.tts_llm_reasoning_budget.is_some()
+            || self.tts_llm_chunk_chars.is_some()
+            || self.tts_llm_retries.is_some()
+            || self.tts_llm_retry_delay_ms.is_some()
+            || self.tts_llm_timeout_seconds.is_some()
             || self.tts_disk_reserve_mb.is_some()
             || self.tts_history.is_some()
             || self.tts_prompt.is_some()
@@ -210,15 +290,25 @@ pub enum CliCommand {
     /// Inspect, export, regenerate, or delete retained Text-to-Speech history.
     #[command(name = "tts-history")]
     TtsHistory(TtsHistoryArgs),
-    /// Inspect, install, or delete the optional local Qwen3-TTS runtime.
+    /// Inspect, install, test, or delete an optional local TTS runtime.
     #[command(name = "tts-local")]
     TtsLocal(TtsLocalArgs),
 }
 
 #[derive(Args, Debug, Clone)]
 pub struct TtsLocalArgs {
+    /// Select the managed local engine.
+    #[arg(long, value_enum, default_value_t = CliLocalTtsEngine::Qwen, global = true)]
+    pub engine: CliLocalTtsEngine,
+
     #[command(subcommand)]
     pub command: TtsLocalCommand,
+}
+
+#[derive(ValueEnum, Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CliLocalTtsEngine {
+    Qwen,
+    Kokoro,
 }
 
 #[derive(Subcommand, Debug, Clone)]
@@ -242,7 +332,7 @@ pub struct TtsLocalConfirmationArgs {
 
 #[derive(Args, Debug, Clone)]
 pub struct TtsLocalTestArgs {
-    /// Text to synthesize. Defaults to a short English/Russian validation text.
+    /// Text to synthesize. Defaults to a short engine-compatible validation text.
     #[arg(long, value_name = "TEXT")]
     pub text: Option<String>,
 
@@ -250,11 +340,11 @@ pub struct TtsLocalTestArgs {
     #[arg(short = 'o', long, value_name = "FILE")]
     pub output: PathBuf,
 
-    /// One of the nine official Qwen CustomVoice speaker IDs.
+    /// Engine-specific official voice name.
     #[arg(long, value_name = "VOICE")]
     pub voice: Option<String>,
 
-    /// Qwen language name, such as English, Russian, or Auto.
+    /// Engine-specific language name.
     #[arg(long, value_name = "LANGUAGE")]
     pub language: Option<String>,
 }
@@ -350,6 +440,66 @@ pub struct TtsHistoryRegenerateArgs {
     #[arg(long, value_name = "FILE")]
     pub tts_instructions_file: Option<PathBuf>,
 
+    /// Enable or disable LLM cleanup for this regenerated variant.
+    #[arg(long, value_name = "BOOL")]
+    pub tts_llm_preprocessing: Option<bool>,
+
+    /// Select a saved cleanup prompt from the entry scope.
+    #[arg(long, value_name = "NAME")]
+    pub tts_llm_prompt: Option<String>,
+
+    /// Use literal LLM cleanup instructions for this variant.
+    #[arg(long, value_name = "TEXT")]
+    pub tts_llm_instructions: Option<String>,
+
+    /// Read literal LLM cleanup instructions from a UTF-8 file.
+    #[arg(long, value_name = "FILE")]
+    pub tts_llm_instructions_file: Option<PathBuf>,
+
+    /// Override the TTS cleanup provider ID.
+    #[arg(long, value_name = "PROVIDER_ID")]
+    pub tts_llm_provider: Option<String>,
+
+    /// Override the TTS cleanup model ID.
+    #[arg(long, value_name = "MODEL")]
+    pub tts_llm_model: Option<String>,
+
+    /// Select the shared or separate already-stored cleanup credential.
+    #[arg(long, value_enum)]
+    pub tts_llm_key_source: Option<CliTtsKeySource>,
+
+    /// Override the custom provider base URL.
+    #[arg(long, value_name = "URL")]
+    pub tts_llm_base_url: Option<String>,
+
+    /// Allow insecure HTTP for a trusted custom local endpoint.
+    #[arg(long, value_name = "BOOL")]
+    pub tts_llm_allow_insecure_http: Option<bool>,
+
+    /// Enable or disable cleanup-model reasoning controls.
+    #[arg(long, value_name = "BOOL")]
+    pub tts_llm_reasoning: Option<bool>,
+
+    /// Override cleanup reasoning budget.
+    #[arg(long, value_name = "TOKENS")]
+    pub tts_llm_reasoning_budget: Option<u32>,
+
+    /// Override cleanup chunk size in Unicode characters.
+    #[arg(long, value_name = "CHARS")]
+    pub tts_llm_chunk_chars: Option<u32>,
+
+    /// Override cleanup retries after the first request.
+    #[arg(long, value_name = "N")]
+    pub tts_llm_retries: Option<u8>,
+
+    /// Override cleanup retry delay in milliseconds.
+    #[arg(long, value_name = "MS")]
+    pub tts_llm_retry_delay_ms: Option<u32>,
+
+    /// Override cleanup request timeout in seconds.
+    #[arg(long, value_name = "SECONDS")]
+    pub tts_llm_timeout_seconds: Option<u32>,
+
     /// Explicit output format. With --output, it must match the extension;
     /// without --output, it selects the managed History result format.
     #[arg(long, value_enum)]
@@ -380,6 +530,7 @@ pub enum CliTtsProvider {
     Deepgram,
     Openai,
     LocalQwen,
+    LocalKokoro,
     Windows,
 }
 
@@ -401,7 +552,16 @@ mod tests {
         CliArgs, CliCommand, CliTtsHistoryScope, CliTtsKeySource, CliTtsOutputFormat,
         CliTtsProvider, TtsHistoryCommand, TtsLocalCommand,
     };
-    use clap::Parser;
+    use clap::{error::ErrorKind, Parser};
+
+    #[test]
+    fn exposes_package_version() {
+        let error = CliArgs::try_parse_from(["aivorelay", "--version"])
+            .expect_err("--version should be handled by clap before app startup");
+
+        assert_eq!(error.kind(), ErrorKind::DisplayVersion);
+        assert!(error.to_string().contains(env!("CARGO_PKG_VERSION")));
+    }
 
     #[test]
     fn parses_symmetric_file_conversion_and_named_tts_prompt() {
@@ -457,6 +617,32 @@ mod tests {
             "true",
             "--tts-replacements-file",
             "rules.json",
+            "--tts-llm-preprocessing",
+            "true",
+            "--tts-llm-instructions",
+            "Remove page numbers.",
+            "--tts-llm-provider",
+            "custom",
+            "--tts-llm-model",
+            "cleanup-model",
+            "--tts-llm-key-source",
+            "separate",
+            "--tts-llm-base-url",
+            "https://example.test/v1",
+            "--tts-llm-allow-insecure-http",
+            "false",
+            "--tts-llm-reasoning",
+            "true",
+            "--tts-llm-reasoning-budget",
+            "4096",
+            "--tts-llm-chunk-chars",
+            "12000",
+            "--tts-llm-retries",
+            "3",
+            "--tts-llm-retry-delay-ms",
+            "900",
+            "--tts-llm-timeout-seconds",
+            "120",
             "--tts-disk-reserve-mb",
             "1024",
             "--tts-history",
@@ -484,6 +670,25 @@ mod tests {
                 .map(|path| path.to_string_lossy().into_owned()),
             Some("rules.json".to_string())
         );
+        assert_eq!(args.tts_llm_preprocessing, Some(true));
+        assert_eq!(
+            args.tts_llm_instructions.as_deref(),
+            Some("Remove page numbers.")
+        );
+        assert_eq!(args.tts_llm_provider.as_deref(), Some("custom"));
+        assert_eq!(args.tts_llm_model.as_deref(), Some("cleanup-model"));
+        assert_eq!(args.tts_llm_key_source, Some(CliTtsKeySource::Separate));
+        assert_eq!(
+            args.tts_llm_base_url.as_deref(),
+            Some("https://example.test/v1")
+        );
+        assert_eq!(args.tts_llm_allow_insecure_http, Some(false));
+        assert_eq!(args.tts_llm_reasoning, Some(true));
+        assert_eq!(args.tts_llm_reasoning_budget, Some(4096));
+        assert_eq!(args.tts_llm_chunk_chars, Some(12000));
+        assert_eq!(args.tts_llm_retries, Some(3));
+        assert_eq!(args.tts_llm_retry_delay_ms, Some(900));
+        assert_eq!(args.tts_llm_timeout_seconds, Some(120));
         assert_eq!(args.tts_disk_reserve_mb, Some(1024));
         assert_eq!(args.tts_history, Some(false));
         assert!(args.has_tts_file_conversion_args());

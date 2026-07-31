@@ -5,18 +5,18 @@
 //! an interactive confirmation or `--yes`.
 
 use crate::cli::{
-    CliArgs, CliCommand, CliTtsHistoryScope, CliTtsOutputFormat, CliTtsProvider, TtsHistoryCommand,
-    TtsHistoryDeleteArgs, TtsHistoryExportArgs, TtsHistoryListArgs, TtsHistoryRegenerateArgs,
-    TtsHistoryShowArgs,
+    CliArgs, CliCommand, CliTtsHistoryScope, CliTtsKeySource, CliTtsOutputFormat, CliTtsProvider,
+    TtsHistoryCommand, TtsHistoryDeleteArgs, TtsHistoryExportArgs, TtsHistoryListArgs,
+    TtsHistoryRegenerateArgs, TtsHistoryShowArgs,
 };
 use crate::commands::tts_history::{
     regenerate_tts_history_entry_core, RegenerateTtsHistoryRequest,
 };
-use crate::managers::tts::{TtsManager, TtsPhase};
+use crate::managers::tts::{TtsManager, TtsPhase, OPENAI_TTS_INSTRUCTIONS_MAX_CHARS};
 use crate::managers::tts_history::{
     TtsHistoryEntry, TtsHistoryManagedAudioDeleteStatus, TtsHistoryManager, TtsHistoryScope,
 };
-use crate::settings::{TtsOutputFormat, TtsProvider};
+use crate::settings::{TtsKeySource, TtsOutputFormat, TtsProvider};
 use serde_json::{json, Value};
 use std::fs::File;
 use std::io::{IsTerminal, Read, Write};
@@ -33,6 +33,9 @@ const EXIT_OUTPUT_COLLISION: i32 = 5;
 const EXIT_RETAINED_AUDIO_MISSING: i32 = 6;
 const EXIT_PARTIAL: i32 = 7;
 const ALLOWED_MP3_BITRATES: &[u16] = &[64, 96, 128, 192, 256, 320];
+const TTS_LLM_INSTRUCTIONS_MAX_CHARS: usize = 32_768;
+const UTF8_BOM_BYTES: usize = 3;
+const UTF8_MAX_BYTES_PER_CHAR: usize = 4;
 
 fn cli_history_scope(scope: CliTtsHistoryScope) -> TtsHistoryScope {
     match scope {
@@ -540,14 +543,49 @@ fn regenerate_history(
         validate_prompt_name(app, name)?;
     }
 
-    let confirmed = !final_provider.requires_paid_confirmation()
+    let llm_instructions = resolve_cli_llm_instructions(options)?;
+    let has_llm_override = options.tts_llm_prompt.is_some()
+        || llm_instructions.is_some()
+        || options.tts_llm_provider.is_some()
+        || options.tts_llm_model.is_some()
+        || options.tts_llm_key_source.is_some()
+        || options.tts_llm_base_url.is_some()
+        || options.tts_llm_allow_insecure_http.is_some()
+        || options.tts_llm_reasoning.is_some()
+        || options.tts_llm_reasoning_budget.is_some()
+        || options.tts_llm_chunk_chars.is_some()
+        || options.tts_llm_retries.is_some()
+        || options.tts_llm_retry_delay_ms.is_some()
+        || options.tts_llm_timeout_seconds.is_some();
+    if options.tts_llm_preprocessing == Some(false) && has_llm_override {
+        return Err(CliFailure::new(
+            EXIT_USAGE,
+            "--tts-llm-preprocessing false conflicts with other --tts-llm-* overrides",
+        ));
+    }
+    let saved_tts = crate::settings::get_settings(app).tts;
+    let saved_llm_enabled = match source_entry.scope {
+        TtsHistoryScope::Interactive => saved_tts.llm_preprocessing.interactive_enabled,
+        TtsHistoryScope::File => saved_tts.llm_preprocessing.file_enabled,
+    };
+    let llm_cleanup_enabled = options
+        .tts_llm_preprocessing
+        .unwrap_or(saved_llm_enabled || has_llm_override);
+    let requires_paid_confirmation =
+        final_provider.requires_paid_confirmation() || llm_cleanup_enabled;
+    let confirmed = !requires_paid_confirmation
         || confirm(
             options.yes,
             json_mode,
             &format!(
-                "WARNING: regenerate result {} with {} as a NEW PAID API request? The old result stays unchanged and the new variant is appended to group {}. [y/N] ",
+                "WARNING: regenerate result {} with {}{} as a NEW PAID API operation? The old result stays unchanged and the new variant is appended to group {}. [y/N] ",
                 source_entry.id,
                 final_provider.as_str(),
+                if llm_cleanup_enabled {
+                    " plus TTS AI text cleanup"
+                } else {
+                    ""
+                },
                 source_entry.group_id
             ),
         )?;
@@ -569,6 +607,24 @@ fn regenerate_history(
         prompt_preset_id: None,
         prompt_preset_name: effective_prompt_name,
         instructions,
+        llm_preprocessing: options.tts_llm_preprocessing,
+        llm_prompt_id: None,
+        llm_prompt_name: options.tts_llm_prompt.clone(),
+        llm_instructions,
+        llm_provider_id: options.tts_llm_provider.clone(),
+        llm_model: options.tts_llm_model.clone(),
+        llm_key_source: options.tts_llm_key_source.map(|source| match source {
+            CliTtsKeySource::Shared => TtsKeySource::Shared,
+            CliTtsKeySource::Separate => TtsKeySource::Separate,
+        }),
+        llm_custom_base_url: options.tts_llm_base_url.clone(),
+        llm_custom_allow_insecure_http: options.tts_llm_allow_insecure_http,
+        llm_reasoning_enabled: options.tts_llm_reasoning,
+        llm_reasoning_budget: options.tts_llm_reasoning_budget,
+        llm_chunk_target_chars: options.tts_llm_chunk_chars,
+        llm_retry_count: options.tts_llm_retries,
+        llm_retry_base_delay_ms: options.tts_llm_retry_delay_ms,
+        llm_request_timeout_seconds: options.tts_llm_timeout_seconds,
         output_format: Some(output_format),
         mp3_bitrate_kbps: options
             .bitrate
@@ -579,7 +635,7 @@ fn regenerate_history(
     if !json_mode {
         eprintln!(
             "TTS history: starting {} regeneration with {}…",
-            if final_provider.requires_paid_confirmation() {
+            if requires_paid_confirmation {
                 "paid API"
             } else {
                 "offline"
@@ -646,16 +702,22 @@ fn regenerate_history(
         "resumed_chunks": response.resumed_chunks,
         "processed_characters": response.processed_character_count,
         "elapsed_ms": elapsed_ms,
-        "api_request_made": regeneration_makes_api_request(
+        "api_request_made": llm_cleanup_enabled || regeneration_makes_tts_api_request(
             final_provider,
             response.resumed_chunks,
             response.chunk_count,
         ),
+        "tts_api_request_made": regeneration_makes_tts_api_request(
+            final_provider,
+            response.resumed_chunks,
+            response.chunk_count,
+        ),
+        "llm_cleanup_requested": llm_cleanup_enabled,
         "prior_variants_preserved": true,
     }))
 }
 
-fn regeneration_makes_api_request(
+fn regeneration_makes_tts_api_request(
     provider: TtsProvider,
     resumed_chunks: usize,
     chunk_count: usize,
@@ -745,6 +807,7 @@ fn history_entry_json(
         "prompt_preset_id": entry.prompt_preset_id,
         "prompt_preset_name": entry.prompt_preset_name,
         "resolved_instructions": entry.resolved_instructions,
+        "llm_cleanup_config": entry.llm_cleanup_config,
         "audio_available": audio_available,
         "retained_audio_path": retained_path,
     }))
@@ -775,16 +838,48 @@ fn resolve_cli_instructions(
     options: &TtsHistoryRegenerateArgs,
 ) -> Result<Option<String>, CliFailure> {
     if let Some(path) = options.tts_instructions_file.as_deref() {
-        return read_utf8_bom(path).map(Some);
+        return read_utf8_bom_bounded(
+            path,
+            maximum_utf8_file_bytes(OPENAI_TTS_INSTRUCTIONS_MAX_CHARS),
+            "OpenAI voice instructions must not exceed 4096 characters",
+        )
+        .map(Some);
     }
     Ok(options.tts_instructions.clone())
 }
 
-fn read_utf8_bom(path: &Path) -> Result<String, CliFailure> {
+fn resolve_cli_llm_instructions(
+    options: &TtsHistoryRegenerateArgs,
+) -> Result<Option<String>, CliFailure> {
+    if let Some(path) = options.tts_llm_instructions_file.as_deref() {
+        return read_utf8_bom_bounded(
+            path,
+            maximum_utf8_file_bytes(TTS_LLM_INSTRUCTIONS_MAX_CHARS),
+            "TTS AI cleanup instructions must not exceed 32768 characters",
+        )
+        .map(Some);
+    }
+    Ok(options.tts_llm_instructions.clone())
+}
+
+fn maximum_utf8_file_bytes(maximum_characters: usize) -> usize {
+    maximum_characters
+        .saturating_mul(UTF8_MAX_BYTES_PER_CHAR)
+        .saturating_add(UTF8_BOM_BYTES)
+}
+
+fn read_utf8_bom_bounded(
+    path: &Path,
+    maximum_bytes: usize,
+    oversized_message: &str,
+) -> Result<String, CliFailure> {
     let path = absolute_path(path)?;
     let mut bytes = Vec::new();
     File::open(&path)
-        .and_then(|mut file| file.read_to_end(&mut bytes))
+        .and_then(|file| {
+            file.take(maximum_bytes.saturating_add(1) as u64)
+                .read_to_end(&mut bytes)
+        })
         .map_err(|error| {
             CliFailure::new(
                 EXIT_USAGE,
@@ -794,8 +889,13 @@ fn read_utf8_bom(path: &Path) -> Result<String, CliFailure> {
                 ),
             )
         })?;
-    let bytes = bytes.strip_prefix(&[0xEF, 0xBB, 0xBF]).unwrap_or(&bytes);
-    String::from_utf8(bytes.to_vec()).map_err(|_| {
+    if bytes.len() > maximum_bytes {
+        return Err(CliFailure::new(EXIT_USAGE, oversized_message));
+    }
+    if bytes.starts_with(&[0xEF, 0xBB, 0xBF]) {
+        bytes.drain(..UTF8_BOM_BYTES);
+    }
+    String::from_utf8(bytes).map_err(|_| {
         CliFailure::new(
             EXIT_USAGE,
             format!("TTS instructions file must be UTF-8: {}", path.display()),
@@ -954,6 +1054,7 @@ fn cli_provider(provider: CliTtsProvider) -> TtsProvider {
         CliTtsProvider::Deepgram => TtsProvider::Deepgram,
         CliTtsProvider::Openai => TtsProvider::OpenAi,
         CliTtsProvider::LocalQwen => TtsProvider::LocalQwen,
+        CliTtsProvider::LocalKokoro => TtsProvider::LocalKokoro,
         CliTtsProvider::Windows => TtsProvider::Windows,
     }
 }
@@ -1018,6 +1119,10 @@ fn print_tts_progress(state: &crate::managers::tts::TtsState) {
                 eprintln!("TTS: preparing {} chunk(s)…", state.total_chunks);
             }
         }
+        TtsPhase::Preprocessing => eprintln!(
+            "TTS: AI text cleanup {}/{} (attempt {})…",
+            state.completed_chunks, state.total_chunks, state.current_attempt
+        ),
         TtsPhase::Synthesizing => eprintln!(
             "TTS: synthesized {}/{} chunk(s)…",
             state.completed_chunks, state.total_chunks
@@ -1060,10 +1165,22 @@ mod tests {
 
     #[test]
     fn regeneration_api_request_flag_distinguishes_cloud_offline_and_full_resume() {
-        assert!(regeneration_makes_api_request(TtsProvider::OpenAi, 1, 2));
-        assert!(!regeneration_makes_api_request(TtsProvider::OpenAi, 2, 2));
-        assert!(!regeneration_makes_api_request(TtsProvider::Windows, 0, 2));
-        assert!(!regeneration_makes_api_request(
+        assert!(regeneration_makes_tts_api_request(
+            TtsProvider::OpenAi,
+            1,
+            2
+        ));
+        assert!(!regeneration_makes_tts_api_request(
+            TtsProvider::OpenAi,
+            2,
+            2
+        ));
+        assert!(!regeneration_makes_tts_api_request(
+            TtsProvider::Windows,
+            0,
+            2
+        ));
+        assert!(!regeneration_makes_tts_api_request(
             TtsProvider::LocalQwen,
             0,
             2

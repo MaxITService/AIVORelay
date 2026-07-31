@@ -5,6 +5,9 @@
 //! cache asset. File conversion assembles PCM first and encodes exactly one
 //! final WAV or MP3 stream.
 
+use crate::managers::local_kokoro::{
+    KokoroTtsRuntime, KOKORO_LANGUAGES, KOKORO_PROVIDER_LIMIT, KOKORO_VOICES,
+};
 use crate::managers::local_tts::{
     LocalTtsKind, LocalTtsRuntime, LocalTtsStatus, LOCAL_TTS_LANGUAGES, LOCAL_TTS_PROVIDER_LIMIT,
     LOCAL_TTS_VOICES,
@@ -13,10 +16,11 @@ use crate::managers::provider_error::{parse_provider_error, safe_text};
 use crate::managers::tts_history::{
     metadata_from_settings, TtsHistoryManager, TtsHistoryScope, TtsHistorySourceKind,
 };
+use crate::managers::tts_llm::{self, TtsLlmProgress};
 use crate::managers::tts_resume::{self, ResumeOrigin, ResumeWorkspace, WatcherResumeTask};
 use crate::managers::windows_tts::{self, WINDOWS_TTS_PROVIDER_LIMIT};
 use crate::settings::{
-    apply_text_replacements, TtsKeySource, TtsOutputFormat, TtsProvider, TtsSettings,
+    apply_text_replacements, TtsKeySource, TtsLlmScope, TtsOutputFormat, TtsProvider, TtsSettings,
 };
 use anyhow::{anyhow, Context, Result};
 use mp3lame_encoder::{Bitrate, Builder as LameBuilder, FlushGap, Mode, MonoPcm, Quality, VbrMode};
@@ -71,6 +75,7 @@ pub enum TtsOperationKind {
 pub enum TtsPhase {
     Idle,
     Preparing,
+    Preprocessing,
     Synthesizing,
     Retrying,
     Ready,
@@ -133,6 +138,7 @@ pub struct TtsChunkReady {
     pub total_chunks: usize,
     pub wav_path: PathBuf,
     pub boundary_after: TtsBoundary,
+    pub pause_after_ms: u32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
@@ -203,6 +209,7 @@ pub struct TtsManager {
     foreground_operation_lock: Arc<tokio::sync::Mutex<()>>,
     finalization_lock: parking_lot::Mutex<()>,
     local_tts: LocalTtsRuntime,
+    local_kokoro: KokoroTtsRuntime,
 }
 
 impl TtsManager {
@@ -220,6 +227,7 @@ impl TtsManager {
             .context("Could not resolve the application cache directory")?
             .join("tts");
         let local_tts = LocalTtsRuntime::new(app_handle)?;
+        let local_kokoro = KokoroTtsRuntime::new(app_handle)?;
 
         Ok(Arc::new(Self {
             app_handle: app_handle.clone(),
@@ -234,6 +242,7 @@ impl TtsManager {
             foreground_operation_lock: Arc::new(tokio::sync::Mutex::new(())),
             finalization_lock: parking_lot::Mutex::new(()),
             local_tts,
+            local_kokoro,
         }))
     }
 
@@ -243,6 +252,7 @@ impl TtsManager {
             TtsProvider::Deepgram => DEEPGRAM_CHARACTER_LIMIT,
             TtsProvider::OpenAi => OPENAI_CHARACTER_LIMIT,
             TtsProvider::LocalQwen => LOCAL_TTS_PROVIDER_LIMIT,
+            TtsProvider::LocalKokoro => KOKORO_PROVIDER_LIMIT,
             TtsProvider::Windows => WINDOWS_TTS_PROVIDER_LIMIT,
         }
     }
@@ -259,7 +269,7 @@ impl TtsManager {
         )
     }
 
-    pub fn validate_settings(settings: &TtsSettings) -> Result<()> {
+    pub fn validate_synthesis_settings(settings: &TtsSettings) -> Result<()> {
         if settings.provider == TtsProvider::Soniox {
             validate_max_chars(
                 "Soniox TTS model",
@@ -291,6 +301,36 @@ impl TtsManager {
                 ));
             }
         }
+        if settings.provider == TtsProvider::LocalKokoro {
+            if !KOKORO_VOICES
+                .iter()
+                .any(|(voice, _)| *voice == settings.local_kokoro_voice)
+            {
+                return Err(anyhow!(
+                    "Unsupported local Kokoro voice: {}",
+                    settings.local_kokoro_voice
+                ));
+            }
+            if !KOKORO_LANGUAGES.contains(&settings.local_kokoro_language.as_str()) {
+                return Err(anyhow!(
+                    "Unsupported local Kokoro language: {}",
+                    settings.local_kokoro_language
+                ));
+            }
+            let is_english_voice = KOKORO_VOICES
+                .iter()
+                .find_map(|(voice, sid)| {
+                    (*voice == settings.local_kokoro_voice).then_some(*sid <= 2)
+                })
+                .unwrap_or(false);
+            if (settings.local_kokoro_language == "English") != is_english_voice {
+                return Err(anyhow!(
+                    "Kokoro voice {} is not compatible with language {}",
+                    settings.local_kokoro_voice,
+                    settings.local_kokoro_language
+                ));
+            }
+        }
         if settings.provider == TtsProvider::Windows {
             validate_max_chars("Windows voice ID", &settings.windows_voice_id, 1_024)?;
             validate_max_chars(
@@ -300,6 +340,11 @@ impl TtsManager {
             )?;
         }
         Self::validate_openai_instructions(&settings.openai_instructions)?;
+        Ok(())
+    }
+
+    pub fn validate_settings(settings: &TtsSettings) -> Result<()> {
+        Self::validate_synthesis_settings(settings)?;
         for preset in &settings.prompt_presets {
             validate_max_chars(
                 &format!(
@@ -310,12 +355,87 @@ impl TtsManager {
                 OPENAI_TTS_INSTRUCTIONS_MAX_CHARS,
             )?;
         }
+        let llm = &settings.llm_preprocessing;
+        validate_max_chars("TTS AI cleanup provider ID", &llm.provider_id, 128)?;
+        validate_max_chars("TTS AI cleanup model", &llm.model, 512)?;
+        validate_max_chars(
+            "TTS AI cleanup custom base URL",
+            &llm.custom_base_url,
+            2_048,
+        )?;
+        for (scope, prompts, selected_id) in [
+            (
+                "interactive",
+                llm.interactive_prompts.as_slice(),
+                llm.interactive_selected_prompt_id.as_str(),
+            ),
+            (
+                "file",
+                llm.file_prompts.as_slice(),
+                llm.file_selected_prompt_id.as_str(),
+            ),
+        ] {
+            if prompts.len() > 100 {
+                return Err(anyhow!(
+                    "TTS AI cleanup {scope} prompts must not exceed 100 presets"
+                ));
+            }
+            let mut prompt_ids = std::collections::HashSet::new();
+            let mut prompt_names = std::collections::HashSet::new();
+            for prompt in prompts {
+                if prompt.id.trim().is_empty() {
+                    return Err(anyhow!("TTS AI cleanup {scope} prompt ID cannot be empty"));
+                }
+                if prompt.name.trim().is_empty() {
+                    return Err(anyhow!(
+                        "TTS AI cleanup {scope} prompt name cannot be empty"
+                    ));
+                }
+                if prompt.prompt.trim().is_empty() {
+                    return Err(anyhow!(
+                        "TTS AI cleanup prompt '{}' cannot be empty",
+                        prompt.name.trim()
+                    ));
+                }
+                if !prompt_ids.insert(prompt.id.trim().to_string()) {
+                    return Err(anyhow!("TTS AI cleanup {scope} prompt IDs must be unique"));
+                }
+                if !prompt_names.insert(prompt.name.trim().to_lowercase()) {
+                    return Err(anyhow!(
+                        "TTS AI cleanup {scope} prompt names must be unique"
+                    ));
+                }
+                validate_max_chars("TTS AI cleanup prompt ID", &prompt.id, 256)?;
+                validate_max_chars("TTS AI cleanup prompt name", &prompt.name, 256)?;
+                validate_max_chars(
+                    &format!("TTS AI cleanup prompt '{}'", prompt.name.trim()),
+                    &prompt.prompt,
+                    32_768,
+                )?;
+            }
+            if !prompts.iter().any(|prompt| prompt.id == selected_id) {
+                return Err(anyhow!(
+                    "The selected TTS AI cleanup {scope} prompt no longer exists"
+                ));
+            }
+        }
+        validate_max_chars(
+            "TTS AI cleanup interactive benchmark text",
+            &llm.interactive_benchmark_text,
+            50_000,
+        )?;
+        validate_max_chars(
+            "TTS AI cleanup file benchmark text",
+            &llm.file_benchmark_text,
+            50_000,
+        )?;
         Ok(())
     }
 
     pub fn local_tts_status(&self, kind: LocalTtsKind) -> LocalTtsStatus {
         match kind {
             LocalTtsKind::Qwen => self.local_tts.status(),
+            LocalTtsKind::Kokoro => self.local_kokoro.status(),
         }
     }
 
@@ -326,18 +446,21 @@ impl TtsManager {
     ) -> Result<LocalTtsStatus> {
         match kind {
             LocalTtsKind::Qwen => self.local_tts.install(disk_reserve_mb).await,
+            LocalTtsKind::Kokoro => self.local_kokoro.install(disk_reserve_mb).await,
         }
     }
 
     pub fn cancel_local_tts_install(&self, kind: LocalTtsKind) -> bool {
         match kind {
             LocalTtsKind::Qwen => self.local_tts.cancel_install(),
+            LocalTtsKind::Kokoro => self.local_kokoro.cancel_install(),
         }
     }
 
     pub async fn delete_local_tts(&self, kind: LocalTtsKind) -> Result<()> {
         match kind {
             LocalTtsKind::Qwen => self.local_tts.delete().await,
+            LocalTtsKind::Kokoro => self.local_kokoro.delete().await,
         }
     }
 
@@ -378,33 +501,14 @@ impl TtsManager {
     }
 
     pub fn try_reserve_foreground_operation(&self) -> Result<tokio::sync::OwnedMutexGuard<()>> {
-        Arc::clone(&self.foreground_operation_lock)
-            .try_lock_owned()
-            .map_err(|_| anyhow!("Another text-to-speech operation is already running"))
+        try_reserve_foreground_operation_lock(Arc::clone(&self.foreground_operation_lock))
     }
 
     /// Cancels exactly one currently running operation.
     pub fn cancel_operation(&self, operation_id: u64) -> bool {
         let _finalization_guard = self.finalization_lock.lock();
         let current = self.current_state();
-        if current.operation_id != operation_id
-            || !matches!(
-                current.phase,
-                TtsPhase::Preparing | TtsPhase::Synthesizing | TtsPhase::Retrying | TtsPhase::Ready
-            )
-        {
-            return false;
-        }
-        if self
-            .active_operation_id
-            .compare_exchange(
-                operation_id,
-                operation_id.saturating_add(1),
-                Ordering::SeqCst,
-                Ordering::SeqCst,
-            )
-            .is_err()
-        {
+        if !try_cancel_operation(&self.active_operation_id, &current, operation_id) {
             return false;
         }
         let mut state = self.state.write();
@@ -426,6 +530,41 @@ impl TtsManager {
         }
     }
 
+    async fn preprocess_for_scope(
+        &self,
+        operation_id: u64,
+        text: &str,
+        settings: &TtsSettings,
+        scope: TtsLlmScope,
+    ) -> Result<String> {
+        let mut app_settings = crate::settings::get_settings(&self.app_handle);
+        // CLI and History regeneration may supply temporary TTS overrides.
+        // Provider definitions remain app-owned, while effective TTS settings
+        // must come from the operation rather than the saved JSON snapshot.
+        app_settings.tts = settings.clone();
+        let config = tts_llm::resolve_config(&app_settings, scope)?;
+        let llm_output = if let Some(config) = config {
+            let cleanup = tts_llm::preprocess_text(text, &config, |progress| {
+                self.update_preprocessing_progress(operation_id, progress);
+            });
+            tokio::select! {
+                result = cleanup => result?,
+                _ = self.wait_for_cancellation(operation_id) => {
+                    return Err(anyhow!("Text-to-speech operation cancelled"));
+                }
+            }
+        } else {
+            text.to_string()
+        };
+        self.ensure_active(operation_id)?;
+
+        let processed = Self::preprocess_text(&llm_output, settings);
+        if processed.trim().is_empty() {
+            return Err(anyhow!("TTS preprocessing returned no speakable text"));
+        }
+        Ok(processed)
+    }
+
     pub fn chunk_interactive(text: &str, settings: &TtsSettings) -> Vec<TtsChunk> {
         let hard_limit = Self::provider_character_limit(settings.provider);
         semantic_chunks(
@@ -444,24 +583,48 @@ impl TtsManager {
         )
     }
 
-    pub fn inspect_text_file(
-        &self,
+    pub async fn inspect_text_file(
+        self: &Arc<Self>,
         path: impl AsRef<Path>,
         settings: &TtsSettings,
     ) -> Result<TextFileInspection> {
+        validate_enabled_independent_settings(settings)?;
+        let _operation_guard = self
+            .foreground_operation_lock
+            .try_lock()
+            .map_err(|_| anyhow!("Another text-to-speech operation is already running"))?;
         let path = path.as_ref();
         validate_input_extension(path)?;
         let (source, encoding) = read_supported_text_file(path)?;
         let source_for_speech = normalize_source_text(path, &source);
-        let processed = Self::preprocess_text(&source_for_speech, settings);
+        let operation_id =
+            self.begin_operation(TtsOperationKind::FileConversion, settings.provider, 0);
+        let processed = match self
+            .preprocess_for_scope(
+                operation_id,
+                &source_for_speech,
+                settings,
+                TtsLlmScope::File,
+            )
+            .await
+        {
+            Ok(processed) => processed,
+            Err(error) => {
+                self.finish_result::<()>(operation_id, &Err(anyhow!(error.to_string())));
+                return Err(error);
+            }
+        };
         let chunks = Self::chunk_file(&processed, settings);
-        Ok(TextFileInspection {
+        self.set_synthesis_plan(operation_id, chunks.len());
+        let result = Ok(TextFileInspection {
             path: path.to_path_buf(),
             source_character_count: source.chars().count(),
             processed_character_count: processed.chars().count(),
             chunk_count: chunks.len(),
             encoding,
-        })
+        });
+        self.finish_result(operation_id, &result);
+        result
     }
 
     /// Reads the original unprocessed source for opt-in TTS History metadata.
@@ -480,7 +643,9 @@ impl TtsManager {
     pub fn sync_folder_watcher(self: &Arc<Self>) -> Result<()> {
         use notify::{Config, RecommendedWatcher, RecursiveMode, Watcher};
 
-        let settings = crate::settings::get_settings(&self.app_handle).tts;
+        let settings = crate::settings::get_settings(&self.app_handle)
+            .tts
+            .effective_for_scope(crate::settings::TtsOperationScope::File);
         let generation = self.watcher_generation.fetch_add(1, Ordering::SeqCst) + 1;
         *self.folder_watcher.lock() = None;
         self.watched_paths.lock().clear();
@@ -570,7 +735,11 @@ impl TtsManager {
                     .into_iter()
                     .filter(|path| is_supported_text_path(path))
                 {
-                    if !seen.lock().insert(path.clone()) {
+                    let queued = {
+                        let mut watched = seen.lock();
+                        queue_watched_path(&mut watched, path.clone())
+                    };
+                    if !queued {
                         continue;
                     }
                     let manager = Arc::clone(&manager);
@@ -599,7 +768,13 @@ impl TtsManager {
             })?;
         // Reconcile once after subscribing to close the snapshot/watch race.
         for path in collect_supported_text_paths(&input_dir, recursive)? {
-            if is_supported_text_path(&path) && self.watched_paths.lock().insert(path.clone()) {
+            let queued = if is_supported_text_path(&path) {
+                let mut watched = self.watched_paths.lock();
+                queue_watched_path(&mut watched, path.clone())
+            } else {
+                false
+            };
+            if queued {
                 let manager = Arc::clone(self);
                 tauri::async_runtime::spawn(async move {
                     manager.process_watched_file(path, generation).await;
@@ -661,7 +836,9 @@ impl TtsManager {
         generation: u64,
     ) {
         let result = async {
-            let initial_settings = crate::settings::get_settings(&self.app_handle).tts;
+            let initial_settings = crate::settings::get_settings(&self.app_handle)
+                .tts
+                .effective_for_scope(crate::settings::TtsOperationScope::File);
             if !initial_settings.watch_folder_enabled
                 || self.watcher_generation.load(Ordering::SeqCst) != generation
             {
@@ -679,7 +856,9 @@ impl TtsManager {
             // Folder events may arrive in bursts. Queue automatic conversions
             // so one new file cannot supersede another manager operation.
             let _conversion_guard = self.watched_conversion_lock.lock().await;
-            let settings = crate::settings::get_settings(&self.app_handle).tts;
+            let settings = crate::settings::get_settings(&self.app_handle)
+                .tts
+                .effective_for_scope(crate::settings::TtsOperationScope::File);
             if !settings.watch_folder_enabled
                 || self.watcher_generation.load(Ordering::SeqCst) != generation
             {
@@ -714,6 +893,7 @@ impl TtsManager {
                 while matches!(
                     self.current_state().phase,
                     TtsPhase::Preparing
+                        | TtsPhase::Preprocessing
                         | TtsPhase::Synthesizing
                         | TtsPhase::Retrying
                         | TtsPhase::Ready
@@ -733,6 +913,7 @@ impl TtsManager {
                         &source,
                         &output_path,
                         &settings,
+                        TtsLlmScope::File,
                         None,
                         ResumeOrigin::Watcher {
                             source_path: canonical_input.clone(),
@@ -836,20 +1017,29 @@ impl TtsManager {
         ensure_enabled(settings)?;
         let resolved_settings = self.resolve_operation_settings(settings).await?;
         let settings = &resolved_settings;
-        let processed = Self::preprocess_text(text, settings);
-        let chunks = Self::chunk_interactive(&processed, settings);
-        if chunks.is_empty() {
-            return Err(anyhow!("There is no speakable text"));
-        }
         if settings.interactive_history_enabled {
             validate_output_settings(settings)?;
         }
 
-        let operation_id = self.begin_operation(
-            TtsOperationKind::Interactive,
-            settings.provider,
-            chunks.len(),
-        );
+        let operation_id =
+            self.begin_operation(TtsOperationKind::Interactive, settings.provider, 0);
+        let processed = match self
+            .preprocess_for_scope(operation_id, text, settings, TtsLlmScope::Interactive)
+            .await
+        {
+            Ok(processed) => processed,
+            Err(error) => {
+                self.finish_result::<()>(operation_id, &Err(anyhow!(error.to_string())));
+                return Err(error);
+            }
+        };
+        let chunks = Self::chunk_interactive(&processed, settings);
+        if chunks.is_empty() {
+            let error = anyhow!("There is no speakable text");
+            self.finish_result::<()>(operation_id, &Err(anyhow!(error.to_string())));
+            return Err(error);
+        }
+        self.set_synthesis_plan(operation_id, chunks.len());
         let operation_cache = self.cache_root.join(format!("operation-{operation_id}"));
         if let Err(error) = reset_interactive_cache(&self.cache_root)
             .and_then(|_| fs::create_dir_all(&operation_cache).map_err(anyhow::Error::from))
@@ -923,6 +1113,15 @@ impl TtsManager {
                     total_chunks: chunks.len(),
                     wav_path,
                     boundary_after: chunk.boundary_after,
+                    pause_after_ms: if chunk.index < chunks.len() {
+                        if chunk.boundary_after == TtsBoundary::Paragraph {
+                            settings.paragraph_pause_ms.min(10_000)
+                        } else {
+                            settings.inter_chunk_pause_ms.min(5_000)
+                        }
+                    } else {
+                        0
+                    },
                 };
                 ready.push(event.clone());
                 let _ = self.app_handle.emit(TTS_EVENT_CHUNK_READY, &event);
@@ -1046,7 +1245,7 @@ impl TtsManager {
         output_path: impl AsRef<Path>,
         settings: &TtsSettings,
     ) -> Result<FileConversionResult> {
-        ensure_enabled(settings)?;
+        validate_enabled_independent_settings(settings)?;
         validate_input_extension(input_path.as_ref())?;
         let (source, _encoding) = read_supported_text_file(input_path.as_ref())?;
         self.convert_decoded_text_file(
@@ -1054,6 +1253,7 @@ impl TtsManager {
             &source,
             output_path.as_ref(),
             settings,
+            TtsLlmScope::File,
             None,
             ResumeOrigin::Manual,
             false,
@@ -1061,18 +1261,18 @@ impl TtsManager {
         .await
     }
 
-    /// Uses an app-owned stable resume namespace instead of an output-sibling
-    /// workspace. This is for managed conversions whose temporary destination
-    /// changes between processes, such as History regeneration without an
-    /// explicit output path.
-    pub async fn convert_text_file_with_resume_namespace(
+    /// Re-synthesizes retained History source through the prompt collection
+    /// matching its original scope, while still using the non-overlay file
+    /// conversion sink.
+    pub async fn convert_text_file_for_history(
         self: &Arc<Self>,
         input_path: impl AsRef<Path>,
         output_path: impl AsRef<Path>,
         settings: &TtsSettings,
-        resume_namespace: &str,
+        scope: TtsLlmScope,
+        resume_namespace: Option<&str>,
     ) -> Result<FileConversionResult> {
-        ensure_enabled(settings)?;
+        validate_enabled_independent_settings(settings)?;
         validate_input_extension(input_path.as_ref())?;
         let (source, _encoding) = read_supported_text_file(input_path.as_ref())?;
         self.convert_decoded_text_file(
@@ -1080,7 +1280,8 @@ impl TtsManager {
             &source,
             output_path.as_ref(),
             settings,
-            Some(resume_namespace),
+            scope,
+            resume_namespace,
             ResumeOrigin::Manual,
             false,
         )
@@ -1097,11 +1298,12 @@ impl TtsManager {
         source: &str,
         output_path: &Path,
         settings: &TtsSettings,
+        preprocessing_scope: TtsLlmScope,
         resume_namespace: Option<&str>,
         resume_origin: ResumeOrigin,
         require_resume_checkpoint: bool,
     ) -> Result<FileConversionResult> {
-        ensure_enabled(settings)?;
+        validate_enabled_independent_settings(settings)?;
         let _operation_guard = self
             .foreground_operation_lock
             .try_lock()
@@ -1111,61 +1313,83 @@ impl TtsManager {
         validate_input_extension(input_path)?;
         validate_output_extension(output_path, settings.output_format)?;
         validate_output_settings(settings)?;
-        let source_for_speech = normalize_source_text(input_path, source);
-        let processed = Self::preprocess_text(&source_for_speech, settings);
-        let chunks = Self::chunk_file(&processed, settings);
-        if chunks.is_empty() {
-            return Err(anyhow!("There is no speakable text to convert"));
-        }
         if output_path.exists() {
             return Err(anyhow!(
                 "Output file already exists: {}",
                 output_path.display()
             ));
         }
-        let synthesis_signature = tts_resume::synthesis_signature(&chunks, settings)?;
-        let mut resume_workspace = if let Some(namespace) = resume_namespace {
-            ResumeWorkspace::open_managed(
-                &self.cache_root,
-                namespace,
-                synthesis_signature,
-                chunks.len(),
-                resume_origin,
-            )?
-        } else {
-            ResumeWorkspace::open_for_output(
-                output_path,
-                synthesis_signature,
-                chunks.len(),
-                resume_origin,
-            )?
-        };
-        if output_path.exists() {
-            return Err(anyhow!(
-                "Output file appeared while waiting for the TTS resume workspace: {}",
-                output_path.display()
-            ));
-        }
-        let resumed_chunks = resume_workspace.completed_chunks();
-        if require_resume_checkpoint && resumed_chunks == 0 {
-            resume_workspace.discard();
-            return Err(anyhow!(
-                "The saved watcher checkpoint no longer matches the current source/settings; the pre-existing file was skipped without an API request"
-            ));
-        }
-        ensure_disk_capacity(
-            output_path,
-            processed.chars().count(),
-            chunks.len(),
-            resume_workspace.committed_bytes(),
-            settings,
-        )?;
 
-        let operation_id = self.begin_operation(
-            TtsOperationKind::FileConversion,
-            settings.provider,
-            chunks.len(),
-        );
+        let operation_id =
+            self.begin_operation(TtsOperationKind::FileConversion, settings.provider, 0);
+        let source_for_speech = normalize_source_text(input_path, source);
+        let processed = match self
+            .preprocess_for_scope(
+                operation_id,
+                &source_for_speech,
+                settings,
+                preprocessing_scope,
+            )
+            .await
+        {
+            Ok(processed) => processed,
+            Err(error) => {
+                self.finish_result::<()>(operation_id, &Err(anyhow!(error.to_string())));
+                return Err(error);
+            }
+        };
+        let preparation = (|| -> Result<(Vec<TtsChunk>, ResumeWorkspace, usize)> {
+            let chunks = Self::chunk_file(&processed, settings);
+            if chunks.is_empty() {
+                return Err(anyhow!("There is no speakable text to convert"));
+            }
+            let synthesis_signature = tts_resume::synthesis_signature(&chunks, settings)?;
+            let resume_workspace = if let Some(namespace) = resume_namespace {
+                ResumeWorkspace::open_managed(
+                    &self.cache_root,
+                    namespace,
+                    synthesis_signature,
+                    chunks.len(),
+                    resume_origin,
+                )?
+            } else {
+                ResumeWorkspace::open_for_output(
+                    output_path,
+                    synthesis_signature,
+                    chunks.len(),
+                    resume_origin,
+                )?
+            };
+            if output_path.exists() {
+                return Err(anyhow!(
+                    "Output file appeared while waiting for the TTS resume workspace: {}",
+                    output_path.display()
+                ));
+            }
+            let resumed_chunks = resume_workspace.completed_chunks();
+            if require_resume_checkpoint && resumed_chunks == 0 {
+                resume_workspace.discard();
+                return Err(anyhow!(
+                    "The saved watcher checkpoint no longer matches the current source/settings; the pre-existing file was skipped without an API request"
+                ));
+            }
+            ensure_disk_capacity(
+                output_path,
+                processed.chars().count(),
+                chunks.len(),
+                resume_workspace.committed_bytes(),
+                settings,
+            )?;
+            Ok((chunks, resume_workspace, resumed_chunks))
+        })();
+        let (chunks, mut resume_workspace, resumed_chunks) = match preparation {
+            Ok(prepared) => prepared,
+            Err(error) => {
+                self.finish_result::<()>(operation_id, &Err(anyhow!(error.to_string())));
+                return Err(error);
+            }
+        };
+        self.set_synthesis_plan(operation_id, chunks.len());
         if resumed_chunks > 0 {
             self.mark_resume_loaded(operation_id, resumed_chunks, chunks.len());
         }
@@ -1318,7 +1542,7 @@ impl TtsManager {
     }
 
     fn ensure_active(&self, operation_id: u64) -> Result<()> {
-        if self.active_operation_id.load(Ordering::SeqCst) != operation_id {
+        if !operation_is_active(&self.active_operation_id, operation_id) {
             Err(anyhow!("Text-to-speech operation cancelled"))
         } else {
             Ok(())
@@ -1362,6 +1586,46 @@ impl TtsManager {
         state.phase = phase;
         state.current_attempt = attempt;
         state.message = message;
+        let snapshot = state.clone();
+        drop(state);
+        self.emit_state(&snapshot);
+    }
+
+    fn update_preprocessing_progress(&self, operation_id: u64, progress: TtsLlmProgress) {
+        let mut state = self.state.write();
+        if state.operation_id != operation_id {
+            return;
+        }
+        state.phase = TtsPhase::Preprocessing;
+        state.completed_chunks = progress.completed_chunks;
+        state.total_chunks = progress.total_chunks;
+        state.current_attempt = progress.attempt;
+        state.message = Some(progress.message);
+        let snapshot = state.clone();
+        drop(state);
+        self.emit_state(&snapshot);
+        let _ = self.app_handle.emit(
+            TTS_EVENT_PROGRESS,
+            TtsProgress {
+                operation_id,
+                completed_chunks: progress.completed_chunks,
+                total_chunks: progress.total_chunks,
+                current_chunk: progress.current_chunk,
+                attempt: progress.attempt,
+            },
+        );
+    }
+
+    fn set_synthesis_plan(&self, operation_id: u64, total_chunks: usize) {
+        let mut state = self.state.write();
+        if state.operation_id != operation_id {
+            return;
+        }
+        state.phase = TtsPhase::Preparing;
+        state.completed_chunks = 0;
+        state.total_chunks = total_chunks;
+        state.current_attempt = 0;
+        state.message = None;
         let snapshot = state.clone();
         drop(state);
         self.emit_state(&snapshot);
@@ -1591,6 +1855,26 @@ impl TtsManager {
                 }
             };
         }
+        if settings.provider == TtsProvider::LocalKokoro {
+            let synthesis = self.local_kokoro.synthesize(
+                text,
+                nonempty_or(&settings.local_kokoro_voice, "af_maple"),
+                nonempty_or(&settings.local_kokoro_language, "English"),
+                settings.speed,
+            );
+            return tokio::select! {
+                result = synthesis => result.map_err(|error| ProviderAttemptError {
+                    status: None,
+                    safe_message: error.safe_message,
+                    transient: error.transient,
+                    retry_after: None,
+                }),
+                _ = self.wait_for_cancellation(operation_id) => {
+                    self.local_kokoro.stop_worker().await;
+                    Err(cancelled_attempt_error())
+                }
+            };
+        }
         if settings.provider == TtsProvider::Windows {
             // The WinRT call runs on a blocking thread. Cancellation returns to
             // AivoRelay promptly via select and discards the late result, though
@@ -1665,6 +1949,9 @@ impl TtsManager {
                     .json(&body)
             }
             TtsProvider::LocalQwen => unreachable!("local provider returned before HTTP dispatch"),
+            TtsProvider::LocalKokoro => {
+                unreachable!("local provider returned before HTTP dispatch")
+            }
             TtsProvider::Windows => unreachable!("Windows provider returned before HTTP dispatch"),
         };
 
@@ -1682,27 +1969,7 @@ impl TtsManager {
                 return Err(cancelled_attempt_error());
             }
         };
-        if !status.is_success() {
-            let message = parse_provider_error(&bytes, status);
-            return Err(ProviderAttemptError {
-                status: Some(status),
-                transient: is_transient_status(status, &message),
-                safe_message: message,
-                retry_after,
-            });
-        }
-        if bytes.len() % 2 != 0 {
-            return Err(ProviderAttemptError {
-                status: Some(status),
-                safe_message: "Provider returned malformed 16-bit PCM audio".to_string(),
-                transient: false,
-                retry_after: None,
-            });
-        }
-        Ok(bytes
-            .chunks_exact(2)
-            .map(|pair| i16::from_le_bytes([pair[0], pair[1]]))
-            .collect())
+        decode_cloud_pcm_response(status, retry_after, &bytes)
     }
 
     async fn wait_for_cancellation(&self, operation_id: u64) {
@@ -1817,6 +2084,7 @@ fn resolve_api_key(settings: &TtsSettings) -> Result<String> {
         TtsProvider::Deepgram => settings.deepgram_key_source,
         TtsProvider::OpenAi => settings.openai_key_source,
         TtsProvider::LocalQwen => unreachable!("handled above"),
+        TtsProvider::LocalKokoro => unreachable!("handled above"),
         TtsProvider::Windows => unreachable!("handled above"),
     };
     let key = match (settings.provider, source) {
@@ -1829,6 +2097,7 @@ fn resolve_api_key(settings: &TtsSettings) -> Result<String> {
             crate::secure_keys::get_post_process_api_key("openai")
         }
         (TtsProvider::LocalQwen, _) => unreachable!("handled above"),
+        (TtsProvider::LocalKokoro, _) => unreachable!("handled above"),
         (TtsProvider::Windows, _) => unreachable!("handled above"),
     };
     let key = key.trim();
@@ -1856,6 +2125,7 @@ fn provider_name(provider: TtsProvider) -> &'static str {
         TtsProvider::Deepgram => "Deepgram",
         TtsProvider::OpenAi => "OpenAI",
         TtsProvider::LocalQwen => "Local Qwen3-TTS",
+        TtsProvider::LocalKokoro => "Local Kokoro",
         TtsProvider::Windows => "Windows voices",
     }
 }
@@ -1866,6 +2136,10 @@ fn ensure_enabled(settings: &TtsSettings) -> Result<()> {
     }
     TtsManager::validate_settings(settings)?;
     Ok(())
+}
+
+fn validate_enabled_independent_settings(settings: &TtsSettings) -> Result<()> {
+    TtsManager::validate_settings(settings)
 }
 
 fn validate_max_chars(label: &str, value: &str, maximum: usize) -> Result<()> {
@@ -1918,6 +2192,80 @@ fn cancelled_attempt_error() -> ProviderAttemptError {
         transient: false,
         retry_after: None,
     }
+}
+
+fn try_reserve_foreground_operation_lock(
+    lock: Arc<tokio::sync::Mutex<()>>,
+) -> Result<tokio::sync::OwnedMutexGuard<()>> {
+    lock.try_lock_owned()
+        .map_err(|_| anyhow!("Another text-to-speech operation is already running"))
+}
+
+fn operation_is_active(active_operation_id: &AtomicU64, operation_id: u64) -> bool {
+    active_operation_id.load(Ordering::SeqCst) == operation_id
+}
+
+fn try_cancel_operation(
+    active_operation_id: &AtomicU64,
+    current: &TtsState,
+    operation_id: u64,
+) -> bool {
+    if current.operation_id != operation_id
+        || !matches!(
+            current.phase,
+            TtsPhase::Preparing
+                | TtsPhase::Preprocessing
+                | TtsPhase::Synthesizing
+                | TtsPhase::Retrying
+                | TtsPhase::Ready
+        )
+    {
+        return false;
+    }
+    active_operation_id
+        .compare_exchange(
+            operation_id,
+            operation_id.saturating_add(1),
+            Ordering::SeqCst,
+            Ordering::SeqCst,
+        )
+        .is_ok()
+}
+
+fn decode_cloud_pcm_response(
+    status: StatusCode,
+    retry_after: Option<Duration>,
+    bytes: &[u8],
+) -> std::result::Result<Vec<i16>, ProviderAttemptError> {
+    if !status.is_success() {
+        let message = parse_provider_error(bytes, status);
+        return Err(ProviderAttemptError {
+            status: Some(status),
+            transient: is_transient_status(status, &message),
+            safe_message: message,
+            retry_after,
+        });
+    }
+
+    decode_pcm_s16_le(bytes).map_err(|error| ProviderAttemptError {
+        status: Some(status),
+        safe_message: error.to_string(),
+        transient: false,
+        retry_after: None,
+    })
+}
+
+fn decode_pcm_s16_le(bytes: &[u8]) -> Result<Vec<i16>> {
+    if bytes.is_empty() {
+        return Err(anyhow!("Provider returned empty PCM audio"));
+    }
+    if bytes.len() % 2 != 0 {
+        return Err(anyhow!("Provider returned malformed 16-bit PCM audio"));
+    }
+    Ok(bytes
+        .chunks_exact(2)
+        .map(|pair| i16::from_le_bytes([pair[0], pair[1]]))
+        .collect())
 }
 
 fn is_transient_status(status: StatusCode, message: &str) -> bool {
@@ -2444,7 +2792,7 @@ fn ensure_disk_capacity(
     let reserve_mb = settings.disk_reserve_mb.min(1_048_576);
     let reserve_bytes = u64::from(reserve_mb).saturating_mul(1024 * 1024);
     let required = estimated_additional_bytes.saturating_add(reserve_bytes);
-    if available < required {
+    if !disk_capacity_is_sufficient(available, required) {
         return Err(anyhow!(
             "Insufficient disk space for TTS conversion: {:.1} MiB available, {:.1} MiB required (including {} MiB reserve)",
             available as f64 / (1024.0 * 1024.0),
@@ -2469,7 +2817,7 @@ fn ensure_disk_reserve(output_path: &Path, reserve_mb: u32, additional_bytes: u6
     let required = u64::from(reserve_mb.min(1_048_576))
         .saturating_mul(1024 * 1024)
         .saturating_add(additional_bytes);
-    if available < required {
+    if !disk_capacity_is_sufficient(available, required) {
         return Err(anyhow!(
             "TTS conversion stopped to protect disk space: {:.1} MiB available, {:.1} MiB required",
             available as f64 / (1024.0 * 1024.0),
@@ -2477,6 +2825,14 @@ fn ensure_disk_reserve(output_path: &Path, reserve_mb: u32, additional_bytes: u6
         ));
     }
     Ok(())
+}
+
+fn queue_watched_path(seen: &mut HashSet<PathBuf>, path: PathBuf) -> bool {
+    seen.insert(path)
+}
+
+fn disk_capacity_is_sufficient(available: u64, required: u64) -> bool {
+    available >= required
 }
 
 fn write_i16_le(writer: &mut impl Write, samples: &[i16]) -> Result<()> {
@@ -2858,6 +3214,53 @@ mod tests {
     }
 
     #[test]
+    fn repeated_watcher_events_queue_one_conversion_until_path_is_removed() {
+        let mut seen = HashSet::new();
+        let path = PathBuf::from(r"C:\TTS\input\chapter.txt");
+
+        assert!(queue_watched_path(&mut seen, path.clone()));
+        assert!(!queue_watched_path(&mut seen, path.clone()));
+        seen.remove(&path);
+        assert!(queue_watched_path(&mut seen, path));
+    }
+
+    #[test]
+    fn disk_capacity_threshold_rejects_insufficient_space() {
+        let reserve_bytes = 512_u64 * 1024 * 1024;
+        let required = reserve_bytes + 1_024;
+
+        assert!(!disk_capacity_is_sufficient(required - 1, required));
+        assert!(disk_capacity_is_sufficient(required, required));
+    }
+
+    #[test]
+    fn watched_input_path_must_remain_inside_the_configured_root() {
+        let directory = std::env::temp_dir().join(format!(
+            "aivorelay-tts-watch-containment-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let outside = directory.with_file_name(format!(
+            "{}-outside",
+            directory.file_name().unwrap().to_string_lossy()
+        ));
+        fs::create_dir_all(&directory).unwrap();
+        fs::create_dir_all(&outside).unwrap();
+        let input = outside.join("outside.txt");
+        fs::write(&input, "must not be read").unwrap();
+
+        let error = read_watched_input_no_follow(&input, &directory, true)
+            .expect_err("watched inputs outside the configured root must be rejected");
+        assert!(error.to_string().contains("outside the configured folder"));
+
+        fs::remove_dir_all(&directory).unwrap();
+        fs::remove_dir_all(&outside).unwrap();
+    }
+
+    #[test]
     fn semantic_chunking_preserves_crlf_and_detects_paragraphs() {
         let source = "First paragraph.\r\n\r\nSecond paragraph.";
         let chunks = semantic_chunks(source, 25, 30);
@@ -2924,6 +3327,122 @@ mod tests {
             attempt_status_label(TtsProvider::OpenAi, Some(StatusCode::TOO_MANY_REQUESTS)),
             "429"
         );
+    }
+
+    #[test]
+    fn shared_cloud_pcm_decoder_rejects_empty_and_odd_responses() {
+        let empty = decode_cloud_pcm_response(StatusCode::OK, None, &[]).unwrap_err();
+        assert_eq!(empty.safe_message, "Provider returned empty PCM audio");
+
+        let odd = decode_cloud_pcm_response(StatusCode::OK, None, &[0x01]).unwrap_err();
+        assert_eq!(
+            odd.safe_message,
+            "Provider returned malformed 16-bit PCM audio"
+        );
+    }
+
+    #[test]
+    fn shared_cloud_pcm_decoder_preserves_non_success_error_details_and_retry_after() {
+        let retry_after = Duration::from_secs(7);
+        let error = decode_cloud_pcm_response(
+            StatusCode::BAD_GATEWAY,
+            Some(retry_after),
+            br#"{"error":{"message":"upstream returned invalid audio"}}"#,
+        )
+        .expect_err("non-success provider responses must not be decoded as PCM");
+
+        assert_eq!(error.status, Some(StatusCode::BAD_GATEWAY));
+        assert_eq!(error.safe_message, "upstream returned invalid audio");
+        assert!(error.transient);
+        assert_eq!(error.retry_after, Some(retry_after));
+    }
+
+    #[test]
+    fn shared_cloud_pcm_decoder_reads_valid_little_endian_samples() {
+        let pcm = decode_cloud_pcm_response(
+            StatusCode::OK,
+            None,
+            &[
+                0x00, 0x80, // i16::MIN
+                0xff, 0xff, // -1
+                0x00, 0x00, // 0
+                0xff, 0x7f, // i16::MAX
+            ],
+        )
+        .expect("valid little-endian PCM should decode through the shared cloud path");
+
+        assert_eq!(pcm, vec![i16::MIN, -1, 0, i16::MAX]);
+    }
+
+    #[test]
+    fn provider_dispatch_names_cover_cloud_local_and_system_providers() {
+        assert_eq!(provider_name(TtsProvider::Soniox), "Soniox");
+        assert_eq!(provider_name(TtsProvider::Deepgram), "Deepgram");
+        assert_eq!(provider_name(TtsProvider::OpenAi), "OpenAI");
+        assert_eq!(provider_name(TtsProvider::LocalQwen), "Local Qwen3-TTS");
+        assert_eq!(provider_name(TtsProvider::LocalKokoro), "Local Kokoro");
+        assert_eq!(provider_name(TtsProvider::Windows), "Windows voices");
+    }
+
+    #[test]
+    fn local_and_system_voice_instructions_are_inactive() {
+        assert!(!TtsProvider::LocalQwen.supports_instructions("any-model"));
+        assert!(!TtsProvider::LocalKokoro.supports_instructions("any-model"));
+        assert!(!TtsProvider::Windows.supports_instructions("any-model"));
+    }
+
+    #[test]
+    fn stale_operation_ids_cannot_cancel_a_newer_operation() {
+        let active = AtomicU64::new(27);
+        let current = TtsState {
+            operation_id: 27,
+            phase: TtsPhase::Synthesizing,
+            ..TtsState::default()
+        };
+
+        assert!(!try_cancel_operation(&active, &current, 26));
+        assert_eq!(active.load(Ordering::SeqCst), 27);
+        assert!(try_cancel_operation(&active, &current, 27));
+        assert_eq!(active.load(Ordering::SeqCst), 28);
+        assert!(!operation_is_active(&active, 27));
+    }
+
+    #[test]
+    fn completed_state_is_not_cancellable_while_ready_state_is() {
+        let active = AtomicU64::new(31);
+        let completed = TtsState {
+            operation_id: 31,
+            phase: TtsPhase::Completed,
+            ..TtsState::default()
+        };
+
+        assert!(!try_cancel_operation(&active, &completed, 31));
+        assert!(operation_is_active(&active, 31));
+        assert_eq!(completed.phase, TtsPhase::Completed);
+
+        let running = TtsState {
+            operation_id: 31,
+            phase: TtsPhase::Ready,
+            ..TtsState::default()
+        };
+        assert!(try_cancel_operation(&active, &running, 31));
+        assert!(!operation_is_active(&active, 31));
+    }
+
+    #[test]
+    fn foreground_operation_lock_returns_the_documented_busy_error() {
+        let lock = Arc::new(tokio::sync::Mutex::new(()));
+        let first = try_reserve_foreground_operation_lock(Arc::clone(&lock))
+            .expect("first foreground operation should reserve the lock");
+        let error = try_reserve_foreground_operation_lock(Arc::clone(&lock))
+            .err()
+            .expect("a second foreground operation must be rejected as busy");
+        assert_eq!(
+            error.to_string(),
+            "Another text-to-speech operation is already running"
+        );
+        drop(first);
+        assert!(try_reserve_foreground_operation_lock(lock).is_ok());
     }
 
     #[test]

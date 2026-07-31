@@ -1,3 +1,4 @@
+use crate::managers::local_kokoro::{KOKORO_MODEL_REPOSITORY, KOKORO_MODEL_REVISION};
 use crate::managers::local_tts::{
     LocalTtsKind, LocalTtsStatus, LOCAL_TTS_MODEL_REPO, LOCAL_TTS_MODEL_REVISION,
 };
@@ -10,8 +11,13 @@ use crate::managers::tts_history::{
     metadata_from_settings, NewTtsHistoryEntry, TtsHistoryManager, TtsHistoryScope,
     TtsHistorySourceKind,
 };
+use crate::managers::tts_llm;
 use crate::managers::windows_tts::{self, WindowsVoiceCatalog};
-use crate::settings::{get_settings, write_settings, TtsOutputFormat, TtsProvider, TtsSettings};
+use crate::settings::{
+    get_settings, write_settings, LlmPostProcessBenchmarkResult, TtsLlmScope, TtsOperationScope,
+    TtsOutputFormat, TtsProvider, TtsScopeSynthesisSettings, TtsSettings, TtsSynthesisConfig,
+    APPLE_INTELLIGENCE_PROVIDER_ID,
+};
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 use specta::Type;
@@ -26,6 +32,8 @@ const TTS_OVERLAY_CONTROL_EVENT: &str = "tts-overlay-control";
 const TTS_FIRST_PLAYBACK_WARM_TARGET_MS: u64 = 3_000;
 const TTS_FIRST_PLAYBACK_COLD_TARGET_MS: u64 = 4_000;
 const TTS_CHUNK_READY_TO_PLAYING_TARGET_MS: u64 = 250;
+const TTS_LLM_BENCHMARK_LOG_MAX_ENTRIES: usize = 100;
+const TTS_LLM_BENCHMARK_LOG_MAX_BYTES: usize = 2 * 1024 * 1024;
 static TTS_HISTORY_REPLAY_GENERATION: AtomicU64 = AtomicU64::new(0);
 
 #[tauri::command]
@@ -38,6 +46,7 @@ pub async fn get_windows_tts_voice_catalog() -> WindowsVoiceCatalog {
 pub struct TtsOverlayChunk {
     pub index: usize,
     pub path: String,
+    pub pause_after_ms: u32,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -313,6 +322,7 @@ pub fn play_pause_or_replay_latest_history(app: &AppHandle) -> Result<(), String
             chunks: vec![TtsOverlayChunk {
                 index: 0,
                 path: audio_path.to_string_lossy().into_owned(),
+                pause_after_ms: 0,
             }],
             current_chunk: 0,
             total_chunks: 1,
@@ -359,6 +369,7 @@ fn apply_manager_state(app: &AppHandle, manager_state: TtsState) {
             TtsPhase::Error => "error".to_string(),
             TtsPhase::Cancelled => "stopped".to_string(),
             TtsPhase::Retrying => "retrying".to_string(),
+            TtsPhase::Preprocessing => "preprocessing".to_string(),
             _ if runtime.playback_status.as_deref() == Some("playing") => "playing".to_string(),
             _ if runtime.playback_status.as_deref() == Some("paused") => "paused".to_string(),
             TtsPhase::Idle => "idle".to_string(),
@@ -392,6 +403,7 @@ fn apply_chunk_ready(app: &AppHandle, chunk: TtsChunkReady) {
             runtime.state.chunks.push(TtsOverlayChunk {
                 index: overlay_index,
                 path: chunk.wav_path.to_string_lossy().into_owned(),
+                pause_after_ms: chunk.pause_after_ms,
             });
             runtime.state.chunks.sort_by_key(|item| item.index);
         }
@@ -469,6 +481,10 @@ fn overlay_identity(settings: &TtsSettings) -> TtsOverlayIdentity {
         TtsProvider::LocalQwen => (
             format!("{LOCAL_TTS_MODEL_REPO}@{LOCAL_TTS_MODEL_REVISION}"),
             settings.local_qwen_voice.clone(),
+        ),
+        TtsProvider::LocalKokoro => (
+            format!("{KOKORO_MODEL_REPOSITORY}@{KOKORO_MODEL_REVISION}"),
+            settings.local_kokoro_voice.clone(),
         ),
         TtsProvider::Windows => (
             "windows.media.speechsynthesis".to_string(),
@@ -564,7 +580,9 @@ pub(crate) async fn start_tts_text_at(
     text: String,
     activation_started_at: Instant,
 ) -> Result<(), String> {
-    let settings = get_settings(&app).tts;
+    let settings = get_settings(&app)
+        .tts
+        .effective_for_scope(TtsOperationScope::Interactive);
     if !settings.enabled {
         return Err("Text to Speech is disabled".to_string());
     }
@@ -639,6 +657,7 @@ fn parse_provider(provider: &str) -> Result<TtsProvider, String> {
         "deepgram" => Ok(TtsProvider::Deepgram),
         "openai" | "open_ai" => Ok(TtsProvider::OpenAi),
         "local_qwen" | "qwen" | "qwen3" => Ok(TtsProvider::LocalQwen),
+        "local_kokoro" | "kokoro" | "kokoro82m" => Ok(TtsProvider::LocalKokoro),
         "windows" | "winrt" => Ok(TtsProvider::Windows),
         _ => Err("Unsupported TTS provider".to_string()),
     }
@@ -653,8 +672,48 @@ fn normalize_settings(mut settings: TtsSettings) -> TtsSettings {
     settings.openai_voice = nonempty_setting(settings.openai_voice, "marin");
     settings.local_qwen_voice = nonempty_setting(settings.local_qwen_voice, "Ryan");
     settings.local_qwen_language = nonempty_setting(settings.local_qwen_language, "Auto");
+    settings.local_kokoro_voice = nonempty_setting(settings.local_kokoro_voice, "af_maple");
+    settings.local_kokoro_language = nonempty_setting(settings.local_kokoro_language, "English");
     settings.windows_voice_id = settings.windows_voice_id.trim().to_string();
     settings.windows_voice_language = settings.windows_voice_language.trim().to_string();
+    settings.llm_preprocessing.provider_id =
+        nonempty_setting(settings.llm_preprocessing.provider_id, "openrouter");
+    settings.llm_preprocessing.model = settings.llm_preprocessing.model.trim().to_string();
+    settings.llm_preprocessing.custom_base_url = settings
+        .llm_preprocessing
+        .custom_base_url
+        .trim()
+        .trim_end_matches('/')
+        .to_string();
+    settings.llm_preprocessing.reasoning_budget = settings
+        .llm_preprocessing
+        .reasoning_budget
+        .clamp(1_024, 1_000_000);
+    settings.llm_preprocessing.chunk_target_chars = settings
+        .llm_preprocessing
+        .chunk_target_chars
+        .clamp(1_000, 50_000);
+    settings.llm_preprocessing.retry_count = settings.llm_preprocessing.retry_count.min(10);
+    settings.llm_preprocessing.retry_base_delay_ms = settings
+        .llm_preprocessing
+        .retry_base_delay_ms
+        .clamp(100, 30_000);
+    settings.llm_preprocessing.request_timeout_seconds = settings
+        .llm_preprocessing
+        .request_timeout_seconds
+        .clamp(10, 600);
+    normalize_tts_llm_prompts(
+        &mut settings.llm_preprocessing.interactive_prompts,
+        &mut settings.llm_preprocessing.interactive_selected_prompt_id,
+        crate::settings::TtsLlmPreprocessingSettings::default().interactive_prompts,
+    );
+    normalize_tts_llm_prompts(
+        &mut settings.llm_preprocessing.file_prompts,
+        &mut settings.llm_preprocessing.file_selected_prompt_id,
+        crate::settings::TtsLlmPreprocessingSettings::default().file_prompts,
+    );
+    trim_tts_llm_benchmark_log(&mut settings.llm_preprocessing.interactive_benchmark_log);
+    trim_tts_llm_benchmark_log(&mut settings.llm_preprocessing.file_benchmark_log);
     let hard_limit = TtsManager::provider_character_limit(settings.provider) as u32;
     settings.interactive_target_chars = settings.interactive_target_chars.clamp(50, hard_limit);
     settings.file_target_chars = settings.file_target_chars.clamp(50, hard_limit);
@@ -676,6 +735,7 @@ fn normalize_settings(mut settings: TtsSettings) -> TtsSettings {
         TtsProvider::Deepgram => settings.speed.clamp(0.7, 1.5),
         TtsProvider::OpenAi => settings.speed.clamp(0.25, 4.0),
         TtsProvider::LocalQwen => settings.speed.clamp(0.5, 2.0),
+        TtsProvider::LocalKokoro => settings.speed.clamp(0.5, 2.0),
         TtsProvider::Windows => settings.speed.clamp(0.5, 2.0),
     };
     if !SUPPORTED_MP3_BITRATES.contains(&settings.mp3_bitrate_kbps) {
@@ -698,7 +758,318 @@ fn normalize_settings(mut settings: TtsSettings) -> TtsSettings {
     } else {
         settings.selected_prompt_id.clear();
     }
+    settings.ensure_synthesis_scopes();
+    normalize_synthesis_scope(
+        &mut settings.interactive_synthesis,
+        &settings.prompt_presets,
+        &settings.synthesis_presets,
+    );
+    normalize_synthesis_scope(
+        &mut settings.file_synthesis,
+        &settings.prompt_presets,
+        &settings.synthesis_presets,
+    );
+    normalize_synthesis_presets(&mut settings);
     settings
+}
+
+fn normalize_synthesis_config(
+    config: &mut TtsSynthesisConfig,
+    prompt_presets: &[crate::settings::TtsPromptPreset],
+) {
+    match config.provider {
+        TtsProvider::Soniox => {
+            config.model = nonempty_setting(std::mem::take(&mut config.model), "tts-rt-v1");
+            config.voice = nonempty_setting(std::mem::take(&mut config.voice), "Maya");
+            config.language = nonempty_setting(std::mem::take(&mut config.language), "en");
+        }
+        TtsProvider::Deepgram => {
+            config.model = nonempty_setting(std::mem::take(&mut config.model), "aura-2-thalia-en");
+            config.voice = config.model.clone();
+            config.language.clear();
+        }
+        TtsProvider::OpenAi => {
+            config.model = nonempty_setting(std::mem::take(&mut config.model), "gpt-4o-mini-tts");
+            config.voice = nonempty_setting(std::mem::take(&mut config.voice), "marin");
+            config.language.clear();
+        }
+        TtsProvider::LocalQwen => {
+            config.model = "qwen3-tts-12hz-0.6b-customvoice".to_string();
+            config.voice = nonempty_setting(std::mem::take(&mut config.voice), "Ryan");
+            config.language = nonempty_setting(std::mem::take(&mut config.language), "Auto");
+        }
+        TtsProvider::LocalKokoro => {
+            config.model = "kokoro-82m".to_string();
+            config.voice = nonempty_setting(std::mem::take(&mut config.voice), "af_maple");
+            config.language = nonempty_setting(std::mem::take(&mut config.language), "English");
+        }
+        TtsProvider::Windows => {
+            config.model = "windows.media.speechsynthesis".to_string();
+            config.voice = config.voice.trim().to_string();
+            config.language = config.language.trim().to_string();
+        }
+    }
+    config.speed = match config.provider {
+        TtsProvider::Soniox => config.speed.clamp(0.7, 1.3),
+        TtsProvider::Deepgram => config.speed.clamp(0.7, 1.5),
+        TtsProvider::OpenAi => config.speed.clamp(0.25, 4.0),
+        TtsProvider::LocalQwen | TtsProvider::LocalKokoro | TtsProvider::Windows => {
+            config.speed.clamp(0.5, 2.0)
+        }
+    };
+    config.target_chars = config.target_chars.clamp(
+        50,
+        TtsManager::provider_character_limit(config.provider) as u32,
+    );
+    config.retry_count = config.retry_count.min(10);
+    config.retry_base_delay_ms = config.retry_base_delay_ms.clamp(100, 30_000);
+    config.inter_chunk_pause_ms = config.inter_chunk_pause_ms.min(5_000);
+    config.paragraph_pause_ms = config.paragraph_pause_ms.min(10_000);
+    if !SUPPORTED_MP3_BITRATES.contains(&config.mp3_bitrate_kbps) {
+        config.mp3_bitrate_kbps = 256;
+    }
+    if let Some(selected) = prompt_presets
+        .iter()
+        .find(|preset| preset.id == config.voice_prompt_preset_id)
+    {
+        config.voice_instructions = selected.instructions.clone();
+    } else {
+        config.voice_prompt_preset_id.clear();
+    }
+}
+
+fn normalize_synthesis_scope(
+    scope: &mut TtsScopeSynthesisSettings,
+    prompt_presets: &[crate::settings::TtsPromptPreset],
+    synthesis_presets: &[crate::settings::TtsSynthesisPreset],
+) {
+    let mut keys = std::collections::HashSet::new();
+    for entry in &mut scope.models {
+        normalize_synthesis_config(&mut entry.config, prompt_presets);
+        entry.model_key = entry.config.model_key();
+    }
+    scope
+        .models
+        .retain(|entry| keys.insert(entry.model_key.clone()));
+    if scope.models.len() > 100 {
+        let excess = scope.models.len() - 100;
+        scope.models.drain(..excess);
+    }
+    if !scope
+        .models
+        .iter()
+        .any(|entry| entry.model_key == scope.active_model_key)
+    {
+        scope.active_model_key = scope
+            .models
+            .first()
+            .map(|entry| entry.model_key.clone())
+            .unwrap_or_default();
+    }
+    if !synthesis_presets
+        .iter()
+        .any(|preset| preset.id == scope.selected_preset_id)
+    {
+        scope.selected_preset_id.clear();
+    }
+}
+
+fn normalize_synthesis_presets(settings: &mut TtsSettings) {
+    let mut ids = std::collections::HashSet::new();
+    let mut names = std::collections::HashSet::new();
+    for preset in &mut settings.synthesis_presets {
+        preset.id = preset.id.trim().to_string();
+        preset.name = preset.name.trim().to_string();
+        normalize_synthesis_config(&mut preset.config, &settings.prompt_presets);
+    }
+    settings.synthesis_presets.retain(|preset| {
+        !preset.id.is_empty()
+            && !preset.name.is_empty()
+            && ids.insert(preset.id.clone())
+            && names.insert(preset.name.to_lowercase())
+    });
+    settings.synthesis_presets.truncate(100);
+    let presets = settings.synthesis_presets.clone();
+    normalize_synthesis_scope(
+        &mut settings.interactive_synthesis,
+        &settings.prompt_presets,
+        &presets,
+    );
+    normalize_synthesis_scope(
+        &mut settings.file_synthesis,
+        &settings.prompt_presets,
+        &presets,
+    );
+}
+
+fn validate_synthesis_collections(settings: &TtsSettings) -> Result<(), String> {
+    const MAX_SAVED_MODELS_PER_SCOPE: usize = 100;
+    const MAX_SYNTHESIS_PRESETS: usize = 100;
+    const MAX_ID_CHARS: usize = 256;
+    const MAX_NAME_CHARS: usize = 256;
+
+    if settings.synthesis_presets.len() > MAX_SYNTHESIS_PRESETS {
+        return Err(format!(
+            "TTS synthesis presets must not exceed {MAX_SYNTHESIS_PRESETS} entries"
+        ));
+    }
+    let mut preset_ids = std::collections::HashSet::new();
+    let mut preset_names = std::collections::HashSet::new();
+    for preset in &settings.synthesis_presets {
+        let id = preset.id.trim();
+        let name = preset.name.trim();
+        if id.is_empty() {
+            return Err("TTS synthesis preset ID cannot be empty".to_string());
+        }
+        if name.is_empty() {
+            return Err("TTS synthesis preset name cannot be empty".to_string());
+        }
+        if id.chars().count() > MAX_ID_CHARS {
+            return Err(format!(
+                "TTS synthesis preset ID must not exceed {MAX_ID_CHARS} characters"
+            ));
+        }
+        if name.chars().count() > MAX_NAME_CHARS {
+            return Err(format!(
+                "TTS synthesis preset name must not exceed {MAX_NAME_CHARS} characters"
+            ));
+        }
+        if !preset_ids.insert(id.to_string()) {
+            return Err("TTS synthesis preset IDs must be unique".to_string());
+        }
+        if !preset_names.insert(name.to_lowercase()) {
+            return Err("TTS synthesis preset names must be unique".to_string());
+        }
+    }
+
+    for (scope_name, scope) in [
+        ("Interactive", &settings.interactive_synthesis),
+        ("File Operations", &settings.file_synthesis),
+    ] {
+        if scope.models.len() > MAX_SAVED_MODELS_PER_SCOPE {
+            return Err(format!(
+                "{scope_name} TTS settings must not exceed {MAX_SAVED_MODELS_PER_SCOPE} saved models"
+            ));
+        }
+        let mut model_keys = std::collections::HashSet::new();
+        for entry in &scope.models {
+            if !model_keys.insert(entry.config.model_key()) {
+                return Err(format!(
+                    "{scope_name} TTS settings contain more than one profile for the same provider/model"
+                ));
+            }
+        }
+    }
+    Ok(())
+}
+
+fn validate_all_synthesis_configs(settings: &TtsSettings) -> Result<(), String> {
+    for (scope_name, scope) in [
+        ("Interactive", &settings.interactive_synthesis),
+        ("File Operations", &settings.file_synthesis),
+    ] {
+        for entry in &scope.models {
+            let mut candidate = settings.clone();
+            entry
+                .config
+                .apply_to(&mut candidate, TtsOperationScope::Interactive);
+            TtsManager::validate_synthesis_settings(&candidate).map_err(|error| {
+                format!(
+                    "{scope_name} TTS settings for '{}': {error}",
+                    entry.model_key
+                )
+            })?;
+        }
+    }
+    for preset in &settings.synthesis_presets {
+        let mut candidate = settings.clone();
+        preset
+            .config
+            .apply_to(&mut candidate, TtsOperationScope::Interactive);
+        TtsManager::validate_synthesis_settings(&candidate)
+            .map_err(|error| format!("TTS synthesis preset '{}': {error}", preset.name.trim()))?;
+    }
+    Ok(())
+}
+
+fn is_tts_model_identity_field(field: &str) -> bool {
+    matches!(
+        field,
+        "provider" | "soniox_model" | "deepgram_model" | "openai_model"
+    )
+}
+
+fn is_tts_synthesis_field(field: &str) -> bool {
+    matches!(
+        field,
+        "provider"
+            | "soniox_key_source"
+            | "deepgram_key_source"
+            | "openai_key_source"
+            | "soniox_model"
+            | "soniox_language"
+            | "soniox_voice"
+            | "deepgram_model"
+            | "openai_model"
+            | "openai_voice"
+            | "local_qwen_voice"
+            | "local_qwen_language"
+            | "local_kokoro_voice"
+            | "local_kokoro_language"
+            | "windows_voice_id"
+            | "windows_voice_language"
+            | "openai_instructions"
+            | "selected_prompt_id"
+            | "prompt_presets"
+            | "speed"
+            | "preprocessing_enabled"
+            | "preprocessing_rules"
+            | "interactive_target_chars"
+            | "file_target_chars"
+            | "retry_count"
+            | "retry_base_delay_ms"
+            | "inter_chunk_pause_ms"
+            | "paragraph_pause_ms"
+            | "output_format"
+            | "mp3_bitrate_kbps"
+            | "synthesis_preset_load"
+    )
+}
+
+fn normalize_tts_llm_prompts(
+    prompts: &mut Vec<crate::settings::LLMPrompt>,
+    selected_prompt_id: &mut String,
+    defaults: Vec<crate::settings::LLMPrompt>,
+) {
+    if prompts.is_empty() {
+        *prompts = defaults;
+    }
+    if !prompts
+        .iter()
+        .any(|prompt| prompt.id == *selected_prompt_id)
+    {
+        *selected_prompt_id = prompts
+            .first()
+            .map(|prompt| prompt.id.clone())
+            .unwrap_or_default();
+    }
+}
+
+fn trim_tts_llm_benchmark_log(log: &mut Vec<LlmPostProcessBenchmarkResult>) {
+    let mut retained_bytes = 0usize;
+    let mut retained_entries = 0usize;
+    for entry in log.iter().take(TTS_LLM_BENCHMARK_LOG_MAX_ENTRIES) {
+        let entry_bytes = serde_json::to_vec(entry)
+            .map(|serialized| serialized.len())
+            .unwrap_or(TTS_LLM_BENCHMARK_LOG_MAX_BYTES.saturating_add(1));
+        let next_bytes = retained_bytes.saturating_add(entry_bytes);
+        if next_bytes > TTS_LLM_BENCHMARK_LOG_MAX_BYTES {
+            break;
+        }
+        retained_bytes = next_bytes;
+        retained_entries += 1;
+    }
+    log.truncate(retained_entries);
 }
 
 fn nonempty_setting(value: String, fallback: &str) -> String {
@@ -720,8 +1091,39 @@ fn watcher_configuration_changed(previous: &TtsSettings, current: &TtsSettings) 
 
 #[tauri::command]
 #[specta::specta]
-pub fn update_tts_settings(app: AppHandle, settings: TtsSettings) -> Result<TtsSettings, String> {
+pub fn update_tts_settings(
+    app: AppHandle,
+    settings: TtsSettings,
+    scope: Option<TtsOperationScope>,
+    changed_field: Option<String>,
+) -> Result<TtsSettings, String> {
+    validate_synthesis_collections(&settings)?;
     let mut settings = normalize_settings(settings);
+    if let Some(scope) = scope {
+        let changed_field = changed_field.as_deref().unwrap_or_default();
+        if changed_field == "synthesis_preset_load" {
+            let preset_id = settings.scope_synthesis(scope).selected_preset_id.clone();
+            settings.load_synthesis_preset(scope, &preset_id)?;
+        } else if is_tts_model_identity_field(changed_field) {
+            let requested = settings.clone();
+            settings.select_scope_model(scope, &requested);
+        } else if is_tts_synthesis_field(changed_field) {
+            let requested = settings.clone();
+            settings.capture_scope_settings(scope, &requested);
+            settings
+                .scope_synthesis_mut(scope)
+                .selected_preset_id
+                .clear();
+        }
+        settings = normalize_settings(settings);
+    } else {
+        // Compatibility for older callers that still submit only the legacy
+        // flat TTS object. Treat its synthesis fields as Interactive settings.
+        let requested = settings.clone();
+        settings.capture_scope_settings(TtsOperationScope::Interactive, &requested);
+        settings = normalize_settings(settings);
+    }
+    validate_all_synthesis_configs(&settings)?;
     if !settings.interactive_history_enabled {
         settings.play_history_when_overlay_closed = false;
     } else if settings.play_history_when_overlay_closed {
@@ -737,7 +1139,12 @@ pub fn update_tts_settings(app: AppHandle, settings: TtsSettings) -> Result<TtsS
             settings.play_history_when_overlay_closed = false;
         }
     }
-    TtsManager::validate_settings(&settings).map_err(|error| error.to_string())?;
+    for validation_scope in [TtsOperationScope::Interactive, TtsOperationScope::File] {
+        TtsManager::validate_settings(&settings.effective_for_scope(validation_scope))
+            .map_err(|error| error.to_string())?;
+    }
+    settings.apply_scope_to_flat(TtsOperationScope::Interactive);
+    let response = settings.effective_for_scope(scope.unwrap_or(TtsOperationScope::Interactive));
     let mut app_settings = get_settings(&app);
     let previous = app_settings.tts.clone();
     let watcher_configuration_changed = watcher_configuration_changed(&previous, &settings);
@@ -795,7 +1202,7 @@ pub fn update_tts_settings(app: AppHandle, settings: TtsSettings) -> Result<TtsS
         }
     }
 
-    Ok(settings)
+    Ok(response)
 }
 
 #[tauri::command]
@@ -837,6 +1244,121 @@ pub fn tts_clear_api_key(provider: String) -> Result<(), String> {
         return Ok(());
     }
     crate::secure_keys::clear_tts_api_key(provider.as_str()).map_err(|error| error.to_string())
+}
+
+fn validate_tts_llm_provider(app: &AppHandle, provider_id: &str) -> Result<String, String> {
+    let provider_id = provider_id.trim();
+    if provider_id.is_empty() {
+        return Err("TTS AI cleanup provider cannot be empty".to_string());
+    }
+    let settings = get_settings(app);
+    let provider = settings
+        .post_process_provider(provider_id)
+        .ok_or_else(|| format!("Unknown TTS AI cleanup provider: {provider_id}"))?;
+    if provider.id == APPLE_INTELLIGENCE_PROVIDER_ID {
+        return Err("Apple Intelligence is not yet supported by TTS AI text cleanup".to_string());
+    }
+    Ok(provider.id.clone())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn tts_llm_has_api_key(app: AppHandle, provider_id: String) -> Result<bool, String> {
+    let provider_id = validate_tts_llm_provider(&app, &provider_id)?;
+    Ok(crate::secure_keys::has_tts_llm_api_key(&provider_id))
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn tts_llm_set_api_key(
+    app: AppHandle,
+    provider_id: String,
+    api_key: String,
+) -> Result<(), String> {
+    let provider_id = validate_tts_llm_provider(&app, &provider_id)?;
+    let api_key = api_key.trim();
+    if api_key.is_empty() {
+        return Err("API key cannot be empty".to_string());
+    }
+    crate::secure_keys::set_tts_llm_api_key(&provider_id, api_key)
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn tts_llm_clear_api_key(app: AppHandle, provider_id: String) -> Result<(), String> {
+    let provider_id = validate_tts_llm_provider(&app, &provider_id)?;
+    crate::secure_keys::clear_tts_llm_api_key(&provider_id).map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn fetch_tts_llm_models(app: AppHandle) -> Result<Vec<String>, String> {
+    let settings = get_settings(&app);
+    let (provider, api_key) =
+        tts_llm::resolve_provider_and_key(&settings).map_err(|error| error.to_string())?;
+    let mut models = crate::llm_client::fetch_models(&provider, api_key.clone())
+        .await
+        .map_err(|error| tts_llm::safe_provider_error(&error, &api_key))?;
+    models.sort();
+    models.dedup();
+    Ok(models)
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn run_tts_llm_benchmark(
+    app: AppHandle,
+    scope: TtsLlmScope,
+) -> Result<LlmPostProcessBenchmarkResult, String> {
+    let mut settings = get_settings(&app);
+    match scope {
+        TtsLlmScope::Interactive => settings.tts.llm_preprocessing.interactive_enabled = true,
+        TtsLlmScope::File => settings.tts.llm_preprocessing.file_enabled = true,
+    }
+    let config = tts_llm::resolve_config(&settings, scope)
+        .map_err(|error| error.to_string())?
+        .ok_or_else(|| "TTS AI cleanup is not configured".to_string())?;
+    let user_message = match scope {
+        TtsLlmScope::Interactive => settings
+            .tts
+            .llm_preprocessing
+            .interactive_benchmark_text
+            .clone(),
+        TtsLlmScope::File => settings.tts.llm_preprocessing.file_benchmark_text.clone(),
+    };
+    if user_message.trim().is_empty() {
+        return Err("TTS AI cleanup benchmark text cannot be empty".to_string());
+    }
+    let timestamp_ms = chrono::Utc::now().timestamp_millis();
+    let started = Instant::now();
+    let response = tts_llm::preprocess_text(&user_message, &config, |_| {}).await;
+    let duration_ms = started.elapsed().as_millis().min(u128::from(u64::MAX)) as u64;
+    let (response_text, error) = match response {
+        Ok(response) => (response, None),
+        Err(error) => (String::new(), Some(error.to_string())),
+    };
+    let output_chars = response_text.chars().count();
+    let chars_per_second = if duration_ms == 0 {
+        output_chars as f64
+    } else {
+        output_chars as f64 / (duration_ms as f64 / 1_000.0)
+    };
+    Ok(LlmPostProcessBenchmarkResult {
+        timestamp_ms,
+        provider_id: config.provider.id,
+        provider_label: config.provider.label,
+        model: config.model,
+        duration_ms,
+        chars_per_second,
+        input_chars: user_message.chars().count(),
+        output_chars,
+        success: error.is_none(),
+        system_prompt: config.instructions,
+        user_message,
+        response_text,
+        error,
+    })
 }
 
 #[tauri::command]
@@ -885,10 +1407,17 @@ pub async fn delete_local_tts(
 
 #[tauri::command]
 #[specta::specta]
-pub fn inspect_tts_text_file(app: AppHandle, path: PathBuf) -> Result<TextFileInspection, String> {
-    let settings = get_settings(&app).tts;
-    app.state::<Arc<TtsManager>>()
+pub async fn inspect_tts_text_file(
+    app: AppHandle,
+    path: PathBuf,
+) -> Result<TextFileInspection, String> {
+    let settings = get_settings(&app)
+        .tts
+        .effective_for_scope(TtsOperationScope::File);
+    let manager = app.state::<Arc<TtsManager>>().inner().clone();
+    manager
         .inspect_text_file(path, &settings)
+        .await
         .map_err(|error| error.to_string())
 }
 
@@ -898,7 +1427,9 @@ pub async fn convert_tts_text_file(
     app: AppHandle,
     request: ConvertTtsTextFileRequest,
 ) -> Result<ConvertTtsTextFileResponse, String> {
-    let mut settings = get_settings(&app).tts;
+    let mut settings = get_settings(&app)
+        .tts
+        .effective_for_scope(TtsOperationScope::File);
     settings.output_format = request.output_format;
     settings.mp3_bitrate_kbps = if SUPPORTED_MP3_BITRATES.contains(&request.mp3_bitrate) {
         request.mp3_bitrate
@@ -1147,5 +1678,244 @@ mod tests {
             &enabled_previous,
             &enabled_current
         ));
+    }
+
+    #[test]
+    fn normalization_restores_independent_tts_llm_prompt_scopes_and_bounds() {
+        let mut settings = TtsSettings::default();
+        settings.llm_preprocessing.interactive_prompts.clear();
+        settings.llm_preprocessing.file_prompts.clear();
+        settings.llm_preprocessing.interactive_selected_prompt_id = "missing".to_string();
+        settings.llm_preprocessing.file_selected_prompt_id = "missing".to_string();
+        settings.llm_preprocessing.chunk_target_chars = 10;
+        settings.llm_preprocessing.retry_count = 99;
+        settings.llm_preprocessing.request_timeout_seconds = 1;
+
+        let normalized = normalize_settings(settings);
+        assert!(normalized.llm_preprocessing.interactive_prompts.len() >= 4);
+        assert!(normalized.llm_preprocessing.file_prompts.len() >= 4);
+        assert!(normalized
+            .llm_preprocessing
+            .interactive_prompts
+            .iter()
+            .any(|prompt| {
+                prompt.id == normalized.llm_preprocessing.interactive_selected_prompt_id
+            }));
+        assert!(normalized
+            .llm_preprocessing
+            .file_prompts
+            .iter()
+            .any(|prompt| prompt.id == normalized.llm_preprocessing.file_selected_prompt_id));
+        assert_eq!(normalized.llm_preprocessing.chunk_target_chars, 1_000);
+        assert_eq!(normalized.llm_preprocessing.retry_count, 10);
+        assert_eq!(normalized.llm_preprocessing.request_timeout_seconds, 10);
+        assert_ne!(
+            normalized.llm_preprocessing.interactive_selected_prompt_id,
+            normalized.llm_preprocessing.file_selected_prompt_id
+        );
+    }
+
+    #[test]
+    fn invalid_tts_llm_prompt_edits_are_rejected_instead_of_silently_deleted() {
+        let mut empty_prompt = TtsSettings::default();
+        empty_prompt.llm_preprocessing.interactive_prompts[0]
+            .prompt
+            .clear();
+        let normalized = normalize_settings(empty_prompt);
+        assert!(normalized.llm_preprocessing.interactive_prompts[0]
+            .prompt
+            .is_empty());
+        let error = TtsManager::validate_settings(&normalized)
+            .expect_err("empty prompt body must be rejected")
+            .to_string();
+        assert!(error.contains("cannot be empty"));
+
+        let mut duplicate_name = TtsSettings::default();
+        let first_name = duplicate_name.llm_preprocessing.file_prompts[0]
+            .name
+            .clone();
+        duplicate_name.llm_preprocessing.file_prompts[1].name = first_name.to_uppercase();
+        let error = TtsManager::validate_settings(&duplicate_name)
+            .expect_err("duplicate prompt names must be rejected")
+            .to_string();
+        assert!(error.contains("prompt names must be unique"));
+    }
+
+    #[test]
+    fn normalization_seeds_independent_interactive_and_file_synthesis_scopes() {
+        let settings = TtsSettings {
+            provider: TtsProvider::OpenAi,
+            openai_model: "gpt-4o-mini-tts".to_string(),
+            openai_voice: "marin".to_string(),
+            interactive_target_chars: 320,
+            file_target_chars: 1_750,
+            ..TtsSettings::default()
+        };
+
+        let normalized = normalize_settings(settings);
+        let interactive = normalized.effective_for_scope(TtsOperationScope::Interactive);
+        let file = normalized.effective_for_scope(TtsOperationScope::File);
+
+        assert_eq!(interactive.provider, TtsProvider::OpenAi);
+        assert_eq!(file.provider, TtsProvider::OpenAi);
+        assert_eq!(interactive.interactive_target_chars, 320);
+        assert_eq!(file.file_target_chars, 1_750);
+        assert_eq!(normalized.interactive_synthesis.models.len(), 1);
+        assert_eq!(normalized.file_synthesis.models.len(), 1);
+    }
+
+    #[test]
+    fn switching_models_restores_settings_per_model_and_scope() {
+        let mut settings = normalize_settings(TtsSettings {
+            provider: TtsProvider::OpenAi,
+            openai_model: "gpt-4o-mini-tts".to_string(),
+            openai_voice: "marin".to_string(),
+            speed: 1.25,
+            ..TtsSettings::default()
+        });
+
+        let deepgram_request = TtsSettings {
+            provider: TtsProvider::Deepgram,
+            deepgram_model: "aura-2-thalia-en".to_string(),
+            speed: 0.9,
+            ..settings.effective_for_scope(TtsOperationScope::Interactive)
+        };
+        settings.select_scope_model(TtsOperationScope::Interactive, &deepgram_request);
+        let deepgram = settings.effective_for_scope(TtsOperationScope::Interactive);
+        assert_eq!(deepgram.provider, TtsProvider::Deepgram);
+        assert_eq!(deepgram.speed, 0.9);
+
+        let openai_request = TtsSettings {
+            provider: TtsProvider::OpenAi,
+            openai_model: "gpt-4o-mini-tts".to_string(),
+            ..deepgram
+        };
+        settings.select_scope_model(TtsOperationScope::Interactive, &openai_request);
+        let restored = settings.effective_for_scope(TtsOperationScope::Interactive);
+        assert_eq!(restored.provider, TtsProvider::OpenAi);
+        assert_eq!(restored.openai_voice, "marin");
+        assert_eq!(restored.speed, 1.25);
+
+        let file = settings.effective_for_scope(TtsOperationScope::File);
+        assert_eq!(file.provider, TtsProvider::OpenAi);
+        assert_eq!(file.speed, 1.25);
+    }
+
+    #[test]
+    fn synthesis_presets_are_shared_but_page_selection_is_independent() {
+        let mut settings = normalize_settings(TtsSettings::default());
+        let mut config =
+            TtsSynthesisConfig::from_settings(&settings, TtsOperationScope::Interactive);
+        config.provider = TtsProvider::OpenAi;
+        config.model = "gpt-4o-mini-tts".to_string();
+        config.voice = "coral".to_string();
+        config.speed = 1.1;
+        settings
+            .synthesis_presets
+            .push(crate::settings::TtsSynthesisPreset {
+                id: "narrator".to_string(),
+                name: "Narrator".to_string(),
+                config,
+            });
+
+        settings
+            .load_synthesis_preset(TtsOperationScope::File, "narrator")
+            .expect("shared preset should load on File Operations");
+
+        assert!(settings.interactive_synthesis.selected_preset_id.is_empty());
+        assert_eq!(settings.file_synthesis.selected_preset_id, "narrator");
+        let file = settings.effective_for_scope(TtsOperationScope::File);
+        assert_eq!(file.provider, TtsProvider::OpenAi);
+        assert_eq!(file.openai_voice, "coral");
+        assert_eq!(file.speed, 1.1);
+    }
+
+    #[test]
+    fn synthesis_profiles_exclude_llm_history_hotkey_and_path_settings() {
+        let mut settings = TtsSettings::default();
+        settings.llm_preprocessing.file_enabled = true;
+        settings.llm_preprocessing.file_selected_prompt_id = "cleanup".to_string();
+        settings.watch_input_directory = r"C:\TTS\input".to_string();
+        settings.watch_output_directory = r"C:\TTS\output".to_string();
+        settings.play_pause_hotkey = "Space".to_string();
+        settings.file_history_enabled = true;
+
+        let config = TtsSynthesisConfig::from_settings(&settings, TtsOperationScope::File);
+        let serialized = serde_json::to_value(config).expect("serialize synthesis profile");
+
+        for forbidden in [
+            "llm_preprocessing",
+            "file_history_enabled",
+            "watch_input_directory",
+            "watch_output_directory",
+            "play_pause_hotkey",
+            "api_key",
+        ] {
+            assert!(
+                !serialized.get(forbidden).is_some(),
+                "unexpected {forbidden}"
+            );
+        }
+        assert_eq!(serialized["provider"], serde_json::json!("soniox"));
+        assert_eq!(
+            serialized["target_chars"],
+            serde_json::json!(settings.file_target_chars)
+        );
+    }
+
+    #[test]
+    fn duplicate_synthesis_preset_names_are_rejected_case_insensitively() {
+        let mut settings = normalize_settings(TtsSettings::default());
+        let config = TtsSynthesisConfig::from_settings(&settings, TtsOperationScope::Interactive);
+        settings.synthesis_presets = vec![
+            crate::settings::TtsSynthesisPreset {
+                id: "one".to_string(),
+                name: "Audiobook".to_string(),
+                config: config.clone(),
+            },
+            crate::settings::TtsSynthesisPreset {
+                id: "two".to_string(),
+                name: "AUDIOBOOK".to_string(),
+                config,
+            },
+        ];
+
+        let error = validate_synthesis_collections(&settings)
+            .expect_err("duplicate preset names must be rejected");
+        assert!(error.contains("names must be unique"));
+    }
+
+    #[test]
+    fn tts_llm_benchmark_log_is_bounded_by_count_and_serialized_size() {
+        let result = LlmPostProcessBenchmarkResult {
+            timestamp_ms: 1,
+            provider_id: "openai".to_string(),
+            provider_label: "OpenAI".to_string(),
+            model: "test-model".to_string(),
+            duration_ms: 1,
+            chars_per_second: 1.0,
+            input_chars: 50_000,
+            output_chars: 100_000,
+            success: true,
+            system_prompt: "prompt".to_string(),
+            user_message: "input".repeat(1_000),
+            response_text: "output".repeat(20_000),
+            error: None,
+        };
+        let mut log = vec![result; TTS_LLM_BENCHMARK_LOG_MAX_ENTRIES];
+
+        trim_tts_llm_benchmark_log(&mut log);
+
+        assert!(!log.is_empty());
+        assert!(log.len() < TTS_LLM_BENCHMARK_LOG_MAX_ENTRIES);
+        let serialized_bytes = log
+            .iter()
+            .map(|entry| {
+                serde_json::to_vec(entry)
+                    .expect("serialize benchmark")
+                    .len()
+            })
+            .sum::<usize>();
+        assert!(serialized_bytes <= TTS_LLM_BENCHMARK_LOG_MAX_BYTES);
     }
 }

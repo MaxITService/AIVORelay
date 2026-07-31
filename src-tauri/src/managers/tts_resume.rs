@@ -5,7 +5,7 @@
 //! checkpoint is atomically published.
 
 use super::tts::{TtsChunk, TtsManager, PROVIDER_PCM_SAMPLE_RATE};
-use crate::settings::{TtsProvider, TtsSettings};
+use crate::settings::{TtsKeySource, TtsProvider, TtsSettings};
 use anyhow::{anyhow, Context, Result};
 use fs2::FileExt;
 use serde::{Deserialize, Serialize};
@@ -74,6 +74,16 @@ struct EffectiveSynthesisSignature<'a> {
     speed_bits: u32,
     inter_chunk_pause_ms: u32,
     paragraph_pause_ms: u32,
+    llm_cleanup_enabled: bool,
+    llm_cleanup_provider: &'a str,
+    llm_cleanup_model: &'a str,
+    llm_cleanup_key_source: TtsKeySource,
+    llm_cleanup_custom_base_url: &'a str,
+    llm_cleanup_prompt_id: &'a str,
+    llm_cleanup_prompt: &'a str,
+    llm_cleanup_reasoning_enabled: bool,
+    llm_cleanup_reasoning_budget: u32,
+    llm_cleanup_chunk_target_chars: u32,
 }
 
 pub struct ResumeWorkspace {
@@ -312,6 +322,13 @@ pub fn synthesis_signature(chunks: &[TtsChunk], settings: &TtsSettings) -> Resul
             "",
             settings.speed.clamp(0.5, 2.0),
         ),
+        TtsProvider::LocalKokoro => (
+            crate::managers::local_kokoro::KOKORO_MODEL_REVISION,
+            settings.local_kokoro_language.trim(),
+            settings.local_kokoro_voice.trim(),
+            "",
+            settings.speed.clamp(0.5, 2.0),
+        ),
         TtsProvider::Windows => {
             let voice = settings.windows_voice_id.trim();
             if voice.is_empty() {
@@ -340,6 +357,22 @@ pub fn synthesis_signature(chunks: &[TtsChunk], settings: &TtsSettings) -> Resul
         speed_bits: speed.to_bits(),
         inter_chunk_pause_ms: settings.inter_chunk_pause_ms.min(5_000),
         paragraph_pause_ms: settings.paragraph_pause_ms.min(10_000),
+        llm_cleanup_enabled: settings.llm_preprocessing.file_enabled,
+        llm_cleanup_provider: settings.llm_preprocessing.provider_id.trim(),
+        llm_cleanup_model: settings.llm_preprocessing.model.trim(),
+        llm_cleanup_key_source: settings.llm_preprocessing.key_source,
+        llm_cleanup_custom_base_url: settings.llm_preprocessing.custom_base_url.trim(),
+        llm_cleanup_prompt_id: settings.llm_preprocessing.file_selected_prompt_id.trim(),
+        llm_cleanup_prompt: settings
+            .llm_preprocessing
+            .file_prompts
+            .iter()
+            .find(|prompt| prompt.id == settings.llm_preprocessing.file_selected_prompt_id)
+            .map(|prompt| prompt.prompt.trim())
+            .unwrap_or(""),
+        llm_cleanup_reasoning_enabled: settings.llm_preprocessing.reasoning_enabled,
+        llm_cleanup_reasoning_budget: settings.llm_preprocessing.reasoning_budget,
+        llm_cleanup_chunk_target_chars: settings.llm_preprocessing.chunk_target_chars,
     };
     let bytes = serde_json::to_vec(&payload).context("Failed to fingerprint TTS synthesis plan")?;
     Ok(sha256_hex(&bytes))

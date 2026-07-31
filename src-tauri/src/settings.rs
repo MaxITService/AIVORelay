@@ -705,6 +705,7 @@ pub enum TtsProvider {
     #[serde(rename = "openai")]
     OpenAi,
     LocalQwen,
+    LocalKokoro,
     Windows,
 }
 
@@ -721,6 +722,7 @@ impl TtsProvider {
             Self::Deepgram => "deepgram",
             Self::OpenAi => "openai",
             Self::LocalQwen => "local_qwen",
+            Self::LocalKokoro => "local_kokoro",
             Self::Windows => "windows",
         }
     }
@@ -739,12 +741,12 @@ impl TtsProvider {
     }
 
     pub fn is_local_or_system(self) -> bool {
-        matches!(self, Self::LocalQwen | Self::Windows)
+        matches!(self, Self::LocalQwen | Self::LocalKokoro | Self::Windows)
     }
 
     #[allow(dead_code)] // Used by the next downloadable provider registry slice.
     pub fn supports_downloadable_local_runtime(self) -> bool {
-        self == Self::LocalQwen
+        matches!(self, Self::LocalQwen | Self::LocalKokoro)
     }
 }
 
@@ -782,7 +784,313 @@ pub struct TtsPromptPreset {
     pub instructions: String,
 }
 
-/// Text-to-Speech configuration shared by clipboard playback and text-file export.
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Type)]
+#[serde(rename_all = "snake_case")]
+pub enum TtsOperationScope {
+    Interactive,
+    File,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, Type)]
+pub struct TtsSynthesisConfig {
+    pub provider: TtsProvider,
+    pub model: String,
+    pub voice: String,
+    pub language: String,
+    #[serde(default)]
+    pub key_source: TtsKeySource,
+    #[serde(default = "default_tts_speed")]
+    pub speed: f32,
+    #[serde(default)]
+    pub voice_instructions: String,
+    #[serde(default)]
+    pub voice_prompt_preset_id: String,
+    #[serde(default = "default_true")]
+    pub preprocessing_enabled: bool,
+    #[serde(default)]
+    pub preprocessing_rules: Vec<TextReplacement>,
+    #[serde(default = "default_tts_interactive_target_chars")]
+    pub target_chars: u32,
+    #[serde(default = "default_tts_retry_count")]
+    pub retry_count: u8,
+    #[serde(default = "default_tts_retry_base_delay_ms")]
+    pub retry_base_delay_ms: u32,
+    #[serde(default = "default_tts_inter_chunk_pause_ms")]
+    pub inter_chunk_pause_ms: u32,
+    #[serde(default = "default_tts_paragraph_pause_ms")]
+    pub paragraph_pause_ms: u32,
+    #[serde(default)]
+    pub output_format: TtsOutputFormat,
+    #[serde(default = "default_tts_mp3_bitrate_kbps")]
+    pub mp3_bitrate_kbps: u16,
+}
+
+impl TtsSynthesisConfig {
+    pub fn model_key(&self) -> String {
+        tts_model_key(self.provider, &self.model)
+    }
+
+    pub fn from_settings(settings: &TtsSettings, scope: TtsOperationScope) -> Self {
+        let (model, voice, language) = match settings.provider {
+            TtsProvider::Soniox => (
+                settings.soniox_model.clone(),
+                settings.soniox_voice.clone(),
+                settings.soniox_language.clone(),
+            ),
+            TtsProvider::Deepgram => (
+                settings.deepgram_model.clone(),
+                settings.deepgram_model.clone(),
+                String::new(),
+            ),
+            TtsProvider::OpenAi => (
+                settings.openai_model.clone(),
+                settings.openai_voice.clone(),
+                String::new(),
+            ),
+            TtsProvider::LocalQwen => (
+                "qwen3-tts-12hz-0.6b-customvoice".to_string(),
+                settings.local_qwen_voice.clone(),
+                settings.local_qwen_language.clone(),
+            ),
+            TtsProvider::LocalKokoro => (
+                "kokoro-82m".to_string(),
+                settings.local_kokoro_voice.clone(),
+                settings.local_kokoro_language.clone(),
+            ),
+            TtsProvider::Windows => (
+                "windows.media.speechsynthesis".to_string(),
+                settings.windows_voice_id.clone(),
+                settings.windows_voice_language.clone(),
+            ),
+        };
+        let key_source = match settings.provider {
+            TtsProvider::Soniox => settings.soniox_key_source,
+            TtsProvider::Deepgram => settings.deepgram_key_source,
+            TtsProvider::OpenAi => settings.openai_key_source,
+            TtsProvider::LocalQwen | TtsProvider::LocalKokoro | TtsProvider::Windows => {
+                TtsKeySource::Shared
+            }
+        };
+        let target_chars = match scope {
+            TtsOperationScope::Interactive => settings.interactive_target_chars,
+            TtsOperationScope::File => settings.file_target_chars,
+        };
+        Self {
+            provider: settings.provider,
+            model,
+            voice,
+            language,
+            key_source,
+            speed: settings.speed,
+            voice_instructions: settings.openai_instructions.clone(),
+            voice_prompt_preset_id: settings.selected_prompt_id.clone(),
+            preprocessing_enabled: settings.preprocessing_enabled,
+            preprocessing_rules: settings.preprocessing_rules.clone(),
+            target_chars,
+            retry_count: settings.retry_count,
+            retry_base_delay_ms: settings.retry_base_delay_ms,
+            inter_chunk_pause_ms: settings.inter_chunk_pause_ms,
+            paragraph_pause_ms: settings.paragraph_pause_ms,
+            output_format: settings.output_format,
+            mp3_bitrate_kbps: settings.mp3_bitrate_kbps,
+        }
+    }
+
+    pub fn apply_to(&self, settings: &mut TtsSettings, scope: TtsOperationScope) {
+        settings.provider = self.provider;
+        match self.provider {
+            TtsProvider::Soniox => {
+                settings.soniox_model = self.model.clone();
+                settings.soniox_voice = self.voice.clone();
+                settings.soniox_language = self.language.clone();
+                settings.soniox_key_source = self.key_source;
+            }
+            TtsProvider::Deepgram => {
+                settings.deepgram_model = self.model.clone();
+                settings.deepgram_key_source = self.key_source;
+            }
+            TtsProvider::OpenAi => {
+                settings.openai_model = self.model.clone();
+                settings.openai_voice = self.voice.clone();
+                settings.openai_key_source = self.key_source;
+            }
+            TtsProvider::LocalQwen => {
+                settings.local_qwen_voice = self.voice.clone();
+                settings.local_qwen_language = self.language.clone();
+            }
+            TtsProvider::LocalKokoro => {
+                settings.local_kokoro_voice = self.voice.clone();
+                settings.local_kokoro_language = self.language.clone();
+            }
+            TtsProvider::Windows => {
+                settings.windows_voice_id = self.voice.clone();
+                settings.windows_voice_language = self.language.clone();
+            }
+        }
+        settings.speed = self.speed;
+        settings.openai_instructions = self.voice_instructions.clone();
+        settings.selected_prompt_id = self.voice_prompt_preset_id.clone();
+        settings.preprocessing_enabled = self.preprocessing_enabled;
+        settings.preprocessing_rules = self.preprocessing_rules.clone();
+        match scope {
+            TtsOperationScope::Interactive => {
+                settings.interactive_target_chars = self.target_chars;
+            }
+            TtsOperationScope::File => {
+                settings.file_target_chars = self.target_chars;
+            }
+        }
+        settings.retry_count = self.retry_count;
+        settings.retry_base_delay_ms = self.retry_base_delay_ms;
+        settings.inter_chunk_pause_ms = self.inter_chunk_pause_ms;
+        settings.paragraph_pause_ms = self.paragraph_pause_ms;
+        settings.output_format = self.output_format;
+        settings.mp3_bitrate_kbps = self.mp3_bitrate_kbps;
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, Type)]
+pub struct TtsModelSynthesisSettings {
+    pub model_key: String,
+    pub config: TtsSynthesisConfig,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, Default, Type)]
+pub struct TtsScopeSynthesisSettings {
+    #[serde(default)]
+    pub active_model_key: String,
+    #[serde(default)]
+    pub selected_preset_id: String,
+    #[serde(default)]
+    pub models: Vec<TtsModelSynthesisSettings>,
+}
+
+impl TtsScopeSynthesisSettings {
+    fn active_config(&self) -> Option<&TtsSynthesisConfig> {
+        self.models
+            .iter()
+            .find(|entry| entry.model_key == self.active_model_key)
+            .map(|entry| &entry.config)
+    }
+
+    fn upsert(&mut self, config: TtsSynthesisConfig) {
+        let model_key = config.model_key();
+        if let Some(existing) = self
+            .models
+            .iter_mut()
+            .find(|entry| entry.model_key == model_key)
+        {
+            existing.config = config;
+        } else {
+            self.models.push(TtsModelSynthesisSettings {
+                model_key: model_key.clone(),
+                config,
+            });
+        }
+        self.active_model_key = model_key;
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, Type)]
+pub struct TtsSynthesisPreset {
+    pub id: String,
+    pub name: String,
+    pub config: TtsSynthesisConfig,
+}
+
+pub fn tts_model_key(provider: TtsProvider, model: &str) -> String {
+    format!("{}:{}", provider.as_str(), model.trim())
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Type)]
+#[serde(rename_all = "snake_case")]
+pub enum TtsLlmScope {
+    Interactive,
+    File,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, Type)]
+pub struct TtsLlmPreprocessingSettings {
+    #[serde(default)]
+    pub interactive_enabled: bool,
+    #[serde(default)]
+    pub file_enabled: bool,
+    #[serde(default = "default_tts_llm_provider_id")]
+    pub provider_id: String,
+    #[serde(default)]
+    pub model: String,
+    #[serde(default)]
+    pub key_source: TtsKeySource,
+    #[serde(default)]
+    pub custom_base_url: String,
+    #[serde(default)]
+    pub custom_allow_insecure_http: bool,
+    #[serde(default)]
+    pub reasoning_enabled: bool,
+    #[serde(default = "default_reasoning_budget")]
+    pub reasoning_budget: u32,
+    #[serde(default = "default_tts_llm_chunk_target_chars")]
+    pub chunk_target_chars: u32,
+    #[serde(default = "default_tts_llm_retry_count")]
+    pub retry_count: u8,
+    #[serde(default = "default_tts_llm_retry_base_delay_ms")]
+    pub retry_base_delay_ms: u32,
+    #[serde(default = "default_tts_llm_request_timeout_seconds")]
+    pub request_timeout_seconds: u32,
+    #[serde(default = "default_tts_llm_interactive_prompts")]
+    pub interactive_prompts: Vec<LLMPrompt>,
+    #[serde(default = "default_tts_llm_interactive_selected_prompt_id")]
+    pub interactive_selected_prompt_id: String,
+    #[serde(default = "default_tts_llm_file_prompts")]
+    pub file_prompts: Vec<LLMPrompt>,
+    #[serde(default = "default_tts_llm_file_selected_prompt_id")]
+    pub file_selected_prompt_id: String,
+    #[serde(default = "default_true")]
+    pub section_collapsed: bool,
+    #[serde(default = "default_true")]
+    pub benchmark_collapsed: bool,
+    #[serde(default = "default_tts_llm_interactive_benchmark_text")]
+    pub interactive_benchmark_text: String,
+    #[serde(default = "default_tts_llm_file_benchmark_text")]
+    pub file_benchmark_text: String,
+    #[serde(default)]
+    pub interactive_benchmark_log: Vec<LlmPostProcessBenchmarkResult>,
+    #[serde(default)]
+    pub file_benchmark_log: Vec<LlmPostProcessBenchmarkResult>,
+}
+
+impl Default for TtsLlmPreprocessingSettings {
+    fn default() -> Self {
+        Self {
+            interactive_enabled: false,
+            file_enabled: false,
+            provider_id: default_tts_llm_provider_id(),
+            model: String::new(),
+            key_source: TtsKeySource::Shared,
+            custom_base_url: String::new(),
+            custom_allow_insecure_http: false,
+            reasoning_enabled: false,
+            reasoning_budget: default_reasoning_budget(),
+            chunk_target_chars: default_tts_llm_chunk_target_chars(),
+            retry_count: default_tts_llm_retry_count(),
+            retry_base_delay_ms: default_tts_llm_retry_base_delay_ms(),
+            request_timeout_seconds: default_tts_llm_request_timeout_seconds(),
+            interactive_prompts: default_tts_llm_interactive_prompts(),
+            interactive_selected_prompt_id: default_tts_llm_interactive_selected_prompt_id(),
+            file_prompts: default_tts_llm_file_prompts(),
+            file_selected_prompt_id: default_tts_llm_file_selected_prompt_id(),
+            section_collapsed: true,
+            benchmark_collapsed: true,
+            interactive_benchmark_text: default_tts_llm_interactive_benchmark_text(),
+            file_benchmark_text: default_tts_llm_file_benchmark_text(),
+            interactive_benchmark_log: Vec::new(),
+            file_benchmark_log: Vec::new(),
+        }
+    }
+}
+
+/// Text-to-Speech configuration with separate Interactive and File Operations
+/// synthesis profiles plus a shared named-preset catalog.
 ///
 /// API secrets are deliberately excluded and live in Windows Credential Manager.
 #[derive(Serialize, Deserialize, Debug, Clone, Type)]
@@ -813,6 +1121,10 @@ pub struct TtsSettings {
     pub local_qwen_voice: String,
     #[serde(default = "default_tts_local_qwen_language")]
     pub local_qwen_language: String,
+    #[serde(default = "default_tts_local_kokoro_voice")]
+    pub local_kokoro_voice: String,
+    #[serde(default = "default_tts_local_kokoro_language")]
+    pub local_kokoro_language: String,
     /// Stable WinRT VoiceInformation ID. Empty selects the current OS default.
     #[serde(default)]
     pub windows_voice_id: String,
@@ -824,8 +1136,16 @@ pub struct TtsSettings {
     pub prompt_presets: Vec<TtsPromptPreset>,
     #[serde(default)]
     pub selected_prompt_id: String,
+    #[serde(default)]
+    pub synthesis_presets: Vec<TtsSynthesisPreset>,
+    #[serde(default)]
+    pub interactive_synthesis: TtsScopeSynthesisSettings,
+    #[serde(default)]
+    pub file_synthesis: TtsScopeSynthesisSettings,
     #[serde(default = "default_tts_speed")]
     pub speed: f32,
+    #[serde(default)]
+    pub llm_preprocessing: TtsLlmPreprocessingSettings,
     #[serde(default = "default_true")]
     pub preprocessing_enabled: bool,
     #[serde(default)]
@@ -896,12 +1216,18 @@ impl Default for TtsSettings {
             openai_voice: default_tts_openai_voice(),
             local_qwen_voice: default_tts_local_qwen_voice(),
             local_qwen_language: default_tts_local_qwen_language(),
+            local_kokoro_voice: default_tts_local_kokoro_voice(),
+            local_kokoro_language: default_tts_local_kokoro_language(),
             windows_voice_id: String::new(),
             windows_voice_language: String::new(),
             openai_instructions: String::new(),
             prompt_presets: Vec::new(),
             selected_prompt_id: String::new(),
+            synthesis_presets: Vec::new(),
+            interactive_synthesis: TtsScopeSynthesisSettings::default(),
+            file_synthesis: TtsScopeSynthesisSettings::default(),
             speed: default_tts_speed(),
+            llm_preprocessing: TtsLlmPreprocessingSettings::default(),
             preprocessing_enabled: true,
             preprocessing_rules: Vec::new(),
             interactive_target_chars: default_tts_interactive_target_chars(),
@@ -929,6 +1255,87 @@ impl Default for TtsSettings {
             file_history_max_entries: default_tts_history_max_entries(),
             file_history_max_storage_mb: default_tts_history_max_storage_mb(),
         }
+    }
+}
+
+impl TtsSettings {
+    pub fn scope_synthesis(&self, scope: TtsOperationScope) -> &TtsScopeSynthesisSettings {
+        match scope {
+            TtsOperationScope::Interactive => &self.interactive_synthesis,
+            TtsOperationScope::File => &self.file_synthesis,
+        }
+    }
+
+    pub fn scope_synthesis_mut(
+        &mut self,
+        scope: TtsOperationScope,
+    ) -> &mut TtsScopeSynthesisSettings {
+        match scope {
+            TtsOperationScope::Interactive => &mut self.interactive_synthesis,
+            TtsOperationScope::File => &mut self.file_synthesis,
+        }
+    }
+
+    pub fn effective_for_scope(&self, scope: TtsOperationScope) -> Self {
+        let mut effective = self.clone();
+        if let Some(config) = self.scope_synthesis(scope).active_config() {
+            config.apply_to(&mut effective, scope);
+        }
+        effective
+    }
+
+    pub fn apply_scope_to_flat(&mut self, scope: TtsOperationScope) {
+        let config = self.scope_synthesis(scope).active_config().cloned();
+        if let Some(config) = config {
+            config.apply_to(self, scope);
+        }
+    }
+
+    pub fn ensure_synthesis_scopes(&mut self) {
+        for scope in [TtsOperationScope::Interactive, TtsOperationScope::File] {
+            if self.scope_synthesis(scope).active_config().is_none() {
+                let config = TtsSynthesisConfig::from_settings(self, scope);
+                self.scope_synthesis_mut(scope).upsert(config);
+            }
+        }
+    }
+
+    pub fn capture_scope_settings(&mut self, scope: TtsOperationScope, settings: &TtsSettings) {
+        let config = TtsSynthesisConfig::from_settings(settings, scope);
+        self.scope_synthesis_mut(scope).upsert(config);
+    }
+
+    pub fn select_scope_model(&mut self, scope: TtsOperationScope, requested: &TtsSettings) {
+        let requested_config = TtsSynthesisConfig::from_settings(requested, scope);
+        let requested_key = requested_config.model_key();
+        let scope_settings = self.scope_synthesis_mut(scope);
+        if scope_settings
+            .models
+            .iter()
+            .any(|entry| entry.model_key == requested_key)
+        {
+            scope_settings.active_model_key = requested_key;
+        } else {
+            scope_settings.upsert(requested_config);
+        }
+        scope_settings.selected_preset_id.clear();
+    }
+
+    pub fn load_synthesis_preset(
+        &mut self,
+        scope: TtsOperationScope,
+        preset_id: &str,
+    ) -> Result<(), String> {
+        let preset = self
+            .synthesis_presets
+            .iter()
+            .find(|preset| preset.id == preset_id)
+            .cloned()
+            .ok_or_else(|| "The selected TTS synthesis preset no longer exists".to_string())?;
+        let scope_settings = self.scope_synthesis_mut(scope);
+        scope_settings.upsert(preset.config);
+        scope_settings.selected_preset_id = preset.id;
+        Ok(())
     }
 }
 
@@ -2741,8 +3148,102 @@ fn default_tts_local_qwen_language() -> String {
     "Auto".to_string()
 }
 
+fn default_tts_local_kokoro_voice() -> String {
+    "af_maple".to_string()
+}
+
+fn default_tts_local_kokoro_language() -> String {
+    "English".to_string()
+}
+
 fn default_tts_speed() -> f32 {
     1.0
+}
+
+fn default_tts_llm_provider_id() -> String {
+    "openrouter".to_string()
+}
+
+fn default_tts_llm_chunk_target_chars() -> u32 {
+    12_000
+}
+
+fn default_tts_llm_retry_count() -> u8 {
+    2
+}
+
+fn default_tts_llm_retry_base_delay_ms() -> u32 {
+    750
+}
+
+fn default_tts_llm_request_timeout_seconds() -> u32 {
+    120
+}
+
+fn default_tts_llm_interactive_selected_prompt_id() -> String {
+    "tts_llm_interactive_clean".to_string()
+}
+
+fn default_tts_llm_file_selected_prompt_id() -> String {
+    "tts_llm_file_narration".to_string()
+}
+
+fn default_tts_llm_interactive_prompts() -> Vec<LLMPrompt> {
+    vec![
+        LLMPrompt {
+            id: default_tts_llm_interactive_selected_prompt_id(),
+            name: "Clean selected text".to_string(),
+            prompt: "Prepare the supplied text to be read aloud. Remove advertisements, navigation fragments, page numbers, duplicated boilerplate, and characters that are not meaningfully pronounceable. Preserve the original language, meaning, useful content, paragraph order, names, numbers, and URLs that should be spoken. Do not summarize or add facts. Return only the cleaned text without commentary, labels, Markdown fences, or surrounding quotes.".to_string(),
+        },
+        LLMPrompt {
+            id: "tts_llm_interactive_remove_page_artifacts".to_string(),
+            name: "Remove page numbers and headers".to_string(),
+            prompt: "Remove standalone page numbers, running headers and footers, repeated document titles, scan artifacts, and broken line wrapping from the supplied text. Preserve every substantive sentence in its original language and order. Join words split only by a line-break hyphen, but preserve real hyphenated words. Return only the corrected text without commentary.".to_string(),
+        },
+        LLMPrompt {
+            id: "tts_llm_interactive_shorten".to_string(),
+            name: "Shorten while preserving meaning".to_string(),
+            prompt: "Rewrite the supplied text more concisely for listening. Remove repetition, filler, advertisements, navigation, and nonessential asides while preserving the original language, facts, intent, names, numbers, warnings, and conclusions. Do not add information. Return only the shortened text without commentary.".to_string(),
+        },
+        LLMPrompt {
+            id: "tts_llm_interactive_english".to_string(),
+            name: "Rewrite in English".to_string(),
+            prompt: "Rewrite the supplied text in clear, natural English for listening. Preserve its meaning, facts, names, numbers, tone, and paragraph order. Translate non-English content accurately, remove only obvious navigation or advertisement noise, and do not summarize or add facts. Return only the English text without commentary.".to_string(),
+        },
+    ]
+}
+
+fn default_tts_llm_file_prompts() -> Vec<LLMPrompt> {
+    vec![
+        LLMPrompt {
+            id: default_tts_llm_file_selected_prompt_id(),
+            name: "Prepare document for narration".to_string(),
+            prompt: "Prepare the supplied document text for natural audiobook-style narration. Remove advertisements, cookie notices, repeated headers and footers, standalone page numbers, navigation fragments, citation noise, and characters that are not meaningfully pronounceable. Preserve the original language, meaning, chapter and paragraph order, useful headings, dialogue, names, numbers, and all substantive content. Do not summarize or add facts. Return only the cleaned narration text without commentary, labels, Markdown fences, or surrounding quotes.".to_string(),
+        },
+        LLMPrompt {
+            id: "tts_llm_file_remove_page_artifacts".to_string(),
+            name: "Remove page numbers and layout artifacts".to_string(),
+            prompt: "Clean this document for continuous narration. Remove standalone page numbers, running headers and footers, repeated document titles, table-of-contents leader dots, scan artifacts, and line-break hyphenation. Preserve chapters, useful headings, every substantive sentence, dialogue, footnotes that carry meaning, and the original language and order. Return only the cleaned document text without commentary.".to_string(),
+        },
+        LLMPrompt {
+            id: "tts_llm_file_shorten".to_string(),
+            name: "Create a concise listening edition".to_string(),
+            prompt: "Create a shorter listening edition of the supplied document. Remove repetition, advertisements, navigation, boilerplate, and nonessential digressions while preserving the original language, central argument or story, factual claims, names, numbers, warnings, dialogue needed for continuity, and chapter order. Do not add facts. Return only the shortened narration text without commentary.".to_string(),
+        },
+        LLMPrompt {
+            id: "tts_llm_file_english".to_string(),
+            name: "Rewrite document in English".to_string(),
+            prompt: "Rewrite the supplied document in clear, natural English suitable for audiobook narration. Translate non-English content accurately while preserving meaning, facts, names, numbers, tone, dialogue, chapter structure, and paragraph order. Remove only obvious page-layout, navigation, and advertisement noise. Do not summarize or add facts. Return only the English document text without commentary.".to_string(),
+        },
+    ]
+}
+
+fn default_tts_llm_interactive_benchmark_text() -> String {
+    "Article title\n\nAdvertisement: Save 50% today.\n\nThis is the useful sentence that should be read aloud.\n\nPage 3".to_string()
+}
+
+fn default_tts_llm_file_benchmark_text() -> String {
+    "CHAPTER ONE\n\nCookie notice: Accept all cookies to continue.\n\nThe train crossed the valley before sunrise. The passengers watched the mountains turn gold.\n\n— 12 —\n\nSponsored links".to_string()
 }
 
 fn default_tts_interactive_target_chars() -> u32 {
@@ -3663,6 +4164,18 @@ pub fn get_default_settings() -> AppSettings {
             name: "Copy Selection and Read".to_string(),
             description:
                 "Copy selected text without replacing the clipboard, then read it with Text-to-Speech."
+                    .to_string(),
+            default_binding: String::new(),
+            current_binding: String::new(),
+        },
+    );
+    bindings.insert(
+        "read_selection_direct_tts".to_string(),
+        ShortcutBinding {
+            id: "read_selection_direct_tts".to_string(),
+            name: "Read Selection Without Copying".to_string(),
+            description:
+                "Read text exposed as selected by Windows accessibility without using the clipboard."
                     .to_string(),
             default_binding: String::new(),
             current_binding: String::new(),
@@ -5125,6 +5638,9 @@ mod tests {
         assert!(!settings.tts.file_history_enabled);
         assert_eq!(settings.tts.file_history_max_entries, 100);
         assert_eq!(settings.tts.file_history_max_storage_mb, 1_024);
+        assert!(settings.tts.synthesis_presets.is_empty());
+        assert!(settings.tts.interactive_synthesis.models.is_empty());
+        assert!(settings.tts.file_synthesis.models.is_empty());
     }
 
     #[test]
@@ -5151,6 +5667,9 @@ mod tests {
         assert!(!settings.tts.file_history_enabled);
         assert_eq!(settings.tts.file_history_max_entries, 100);
         assert_eq!(settings.tts.file_history_max_storage_mb, 1_024);
+        assert!(settings.tts.synthesis_presets.is_empty());
+        assert!(settings.tts.interactive_synthesis.models.is_empty());
+        assert!(settings.tts.file_synthesis.models.is_empty());
     }
 
     #[test]
@@ -5240,6 +5759,8 @@ mod tests {
         assert!(!TtsProvider::Windows.supports_instructions(""));
         assert!(TtsProvider::OpenAi.supports_instructions("gpt-4o-mini-tts"));
         assert!(!TtsProvider::OpenAi.supports_instructions("tts-1"));
+        assert!(TtsProvider::LocalKokoro.supports_downloadable_local_runtime());
+        assert_eq!(TtsProvider::LocalKokoro.as_str(), "local_kokoro");
     }
 
     #[test]

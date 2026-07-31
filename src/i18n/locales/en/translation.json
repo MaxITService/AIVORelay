@@ -29,7 +29,7 @@
     "about": "About"
   },
   "textToSpeech": {
-    "title": "Text to Speech",
+    "title": "Text to Speech: Select text, press a key, and hear it read aloud.",
     "description": "Read clipboard or selected text aloud and configure provider-independent voice generation.",
     "enable": {
       "label": "Enable Text to Speech",
@@ -38,6 +38,25 @@
     "provider": {
       "title": "Provider",
       "description": "Choose a cloud service or an optional local offline model."
+    },
+    "fileSettings": {
+      "title": "TTS File Operations settings",
+      "description": "Provider and synthesis settings used by manual file conversion, folder automation, the CLI, and File History."
+    },
+    "synthesisPresets": {
+      "title": "Synthesis presets",
+      "description": "Saved presets are shared between Interactive TTS and File Operations. Loading a preset changes only this page.",
+      "modelMemory": "This page automatically remembers its settings separately for every provider/model you select.",
+      "loadTitle": "Load synthesis preset",
+      "loadDescription": "Load the provider, model, voice, language, speed, chunking, retry, pause, text-rule, API-key source, and output settings saved in a preset.",
+      "custom": "Custom / unsaved settings",
+      "delete": "Delete preset",
+      "saveTitle": "Save current synthesis settings",
+      "saveDescription": "Save the current page's synthesis settings so the preset can also be loaded on the other TTS page. Reusing a name updates that preset.",
+      "namePlaceholder": "Preset name",
+      "save": "Save preset",
+      "exclusions": "API secrets, hotkeys, history, folder paths, and LLM cleanup settings or prompts are not stored in synthesis presets. LLM presets remain separate.",
+      "missing": "The selected synthesis preset no longer exists."
     },
     "api": {
       "title": "API settings for TTS",
@@ -51,7 +70,9 @@
       "keyStorageDescription": "The key is never written to the settings JSON.",
       "keyPlaceholder": "Paste API key",
       "replaceKeyHint": "Enter a replacement key.",
-      "noKeyHint": "No separate TTS key stored."
+      "noKeyHint": "No separate TTS key stored.",
+      "missingKeyWarning": "No API key is available for {{provider}} TTS.",
+      "configureKey": "Configure it below"
     },
     "local": {
       "title": "Local Qwen3-TTS",
@@ -112,11 +133,14 @@
       "readClipboardTitle": "Read clipboard",
       "readClipboardDescription": "Open the TTS overlay and read the current clipboard text.",
       "readSelectionTitle": "Copy selected text, then read clipboard",
-      "readSelectionDescription": "Uses the non-destructive selection-copy flow and restores the existing clipboard."
+      "readSelectionDescription": "Temporarily copies selected text, reads it, and restores every supported clipboard format.",
+      "readSelectionDirectTitle": "Read selected text without copying",
+      "readSelectionDirectDescription": "Reads the selection exposed by Windows accessibility. It never sends Ctrl+C or reads or changes the clipboard. Some applications do not expose their selection.",
+      "readSelectionDirectWindowsOnly": "Direct selection reading is currently available only on Windows."
     },
     "overlay": {
-      "title": "TTS overlay keys",
-      "description": "These keys normally work only while the TTS overlay is focused. The optional History fallback makes Play / Pause global.",
+      "title": "TTS overlay",
+      "description": "While reading is in progress, an overlay with playback controls appears. You can assign keyboard keys to actions such as Play / Pause and Stop. These keys normally work only while the TTS overlay is visible on screen. The optional History feature lets Play / Pause work when no overlay is visible and opens the overlay with the latest saved result.",
       "autoplayLabel": "Start playback automatically",
       "autoplayDescription": "Play the first synthesized chunk as soon as it is ready.",
       "playPauseTitle": "Play / Pause",
@@ -127,10 +151,59 @@
       "historyFallbackRequiresResult": "Unavailable because Interactive TTS History is empty. Read clipboard or selected text once to save a replayable result.",
       "stopTitle": "Stop",
       "stopDescription": "Cancel synthesis and stop playback."
-    },
-    "preprocessing": {
-      "title": "TTS preprocessing",
-      "description": "These rules apply only before speech chunking and do not modify transcription output.",
+      },
+      "aiCleanup": {
+        "title": "AI text cleanup",
+        "description": "Optionally rewrite text with an LLM before deterministic rules and speech chunking.",
+        "enable": "Clean this text with AI",
+        "enableDescription": "The text is sent to the configured LLM before speech synthesis. This can use paid credits and may send document content to a third party.",
+        "privacyWarning": "Privacy and cost: when enabled, source text is sent to the selected provider. Review confidential material and provider pricing before use.",
+        "provider": "Provider",
+        "providerDescription": "Provider definitions are shared with LLM Post Processing; this selection and model are TTS-only.",
+        "keySource": "API key source",
+        "keySourceDescription": "Reuse the secure key for this provider from LLM Post Processing, or store a separate TTS cleanup key.",
+        "sharedKey": "Same as LLM Post Processing",
+        "separateKey": "Separate TTS cleanup key",
+        "sharedKeyStatus": "Shared key",
+        "sharedKeyStatusDescription": "Manage this credential on the LLM Post Processing page.",
+        "keyAvailable": "Key available",
+        "keyMissing": "No shared key for this provider",
+        "separateKeyTitle": "Separate TTS cleanup API key",
+        "separateKeyDescription": "Stored securely in Windows Credential Manager and never written to settings JSON.",
+        "apiKeyPlaceholder": "Paste API key",
+        "baseUrl": "Custom base URL",
+        "baseUrlDescription": "OpenAI-compatible API root ending at /v1.",
+        "allowHttp": "Allow insecure HTTP",
+        "allowHttpDescription": "Use only for a trusted local endpoint. API keys and text are otherwise exposed in transit.",
+        "model": "Model",
+        "modelDescription": "Choose a discovered model or enter an exact provider model ID.",
+        "modelPlaceholder": "Select or enter model ID",
+        "loadModels": "Load models",
+        "prompt": "Cleanup prompt",
+        "promptDescription": "Prompt collections are independent for interactive reading and File Operations.",
+        "newPromptName": "New cleanup prompt",
+        "newPromptInstructions": "Prepare the supplied text for natural speech. Preserve its meaning and return only the cleaned text.",
+        "promptName": "Prompt name",
+        "promptInstructions": "Instructions sent as the system prompt",
+        "chunkSize": "LLM chunk size",
+        "chunkSizeDescription": "Large documents are split at paragraph or sentence boundaries before cleanup.",
+        "retries": "Retries",
+        "retryDelay": "Retry delay (ms)",
+        "timeout": "Request timeout (s)",
+        "benchmarkTitle": "Test and benchmark",
+        "benchmarkDescription": "Send synthetic or non-sensitive sample text through the selected prompt and save latency and output for comparison.",
+        "testText": "Test text",
+        "testTextDescription": "This text is sent to the configured provider.",
+        "running": "Running…",
+        "runBenchmark": "Run test and benchmark",
+        "clearLog": "Clear log",
+        "results": "Results",
+        "resultsDescription": "Up to 100 newest results are retained within a safe settings-storage limit for this TTS scope.",
+        "noResults": "No test runs yet."
+      },
+      "preprocessing": {
+        "title": "TTS preprocessing: Before text is converted to speech, you may want to remove advertisements, page numbers, or other unwanted content.",
+        "description": "These rules apply only to the text used for TTS, before it is converted to speech.",
       "enableLabel": "Enable pre-voiceover processing",
       "enableDescription": "Apply the rules below before calculating chunks and sending text to the provider.",
       "regexPlaceholder": "Regex pattern",
@@ -235,6 +308,7 @@
       "playing": "Playing",
       "retryingAttempt": "Retrying (attempt {{attempt}})",
       "retrying": "Retrying",
+      "aiPreprocessing": "Cleaning text with AI",
       "preparing": "Preparing speech",
       "waiting": "Waiting for the next chunk",
       "ready": "Ready",
@@ -319,7 +393,7 @@
       "confirmDeleteTitle": "Delete this TTS result?",
       "confirmDelete": "This deletes only AivoRelay's retained audio copy and history record. It never deletes a file you previously exported elsewhere.",
       "confirmRegenerateTitle": "Generate a new comparison variant?",
-      "confirmRegenerate": "This sends the saved source text through the complete TTS pipeline again using {{provider}}, voice {{voice}}, and prompt {{prompt}}. It is a new paid API request and uses provider credits. Existing variants remain unchanged.",
+      "confirmRegenerate": "This sends the saved source text through the complete TTS pipeline again using {{provider}}, voice {{voice}}, and prompt {{prompt}}. Speech synthesis and/or AI cleanup can make new paid API requests. Existing variants remain unchanged.",
       "confirmRegenerateOffline": "This sends the saved source text through the complete TTS pipeline again using {{provider}} and voice {{voice}}. It runs locally without API credits. Existing variants remain unchanged.",
       "audio": {
         "mp3": "MP3 audio",
@@ -330,6 +404,7 @@
         "voice": "Voice",
         "language": "Language",
         "prompt": "Prompt",
+        "aiCleanup": "AI cleanup",
         "format": "Format"
       },
       "errors": {
@@ -1002,6 +1077,10 @@
           "read_selection_tts": {
             "name": "Copy selected text, then read",
             "description": "Copies selected text without replacing the clipboard and reads it using Text to Speech."
+          },
+          "read_selection_direct_tts": {
+            "name": "Read selected text without copying",
+            "description": "Reads text exposed as selected by Windows accessibility without using the clipboard."
           },
           "send_to_extension": {
             "name": "Send Transcription Directly to Extension",

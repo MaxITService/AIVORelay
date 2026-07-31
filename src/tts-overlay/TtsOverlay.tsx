@@ -29,6 +29,7 @@ import {
 type TtsStatus =
   | "idle"
   | "loading"
+  | "preprocessing"
   | "retrying"
   | "ready"
   | "playing"
@@ -40,6 +41,7 @@ type TtsStatus =
 type TtsChunk = {
   index: number;
   path: string;
+  pauseAfterMs: number;
 };
 
 type TtsOverlayState = {
@@ -83,6 +85,7 @@ const EMPTY_STATE: TtsOverlayState = {
 const VALID_STATUSES = new Set<TtsStatus>([
   "idle",
   "loading",
+  "preprocessing",
   "retrying",
   "ready",
   "playing",
@@ -175,7 +178,17 @@ function normalizeState(raw: unknown): TtsOverlayState | null {
             rawIndex >= 0
               ? Math.floor(rawIndex)
               : null;
-          return path && index !== null ? { index, path } : null;
+          return path && index !== null
+            ? {
+                index,
+                path,
+                pauseAfterMs: readNumber(
+                  chunk,
+                  "pauseAfterMs",
+                  "pause_after_ms",
+                ),
+              }
+            : null;
         })
         .filter((chunk): chunk is TtsChunk => chunk !== null)
         .sort((a, b) => a.index - b.index)
@@ -231,6 +244,9 @@ function statusLabel(
   if (state.status === "loading") {
     return t("textToSpeech.overlayPlayer.preparing");
   }
+  if (state.status === "preprocessing") {
+    return t("textToSpeech.overlayPlayer.aiPreprocessing");
+  }
   if (waitingForChunk) {
     return t("textToSpeech.overlayPlayer.waiting");
   }
@@ -273,6 +289,7 @@ export default function TtsOverlay() {
   const activeChunkIndexRef = useRef<number | null>(null);
   const operationIdRef = useRef("");
   const lastLoggedProviderErrorRef = useRef("");
+  const pauseTimerRef = useRef<number | null>(null);
   const playChunkRef = useRef<((chunk: TtsChunk) => Promise<void>) | null>(
     null,
   );
@@ -301,7 +318,15 @@ export default function TtsOverlay() {
     [],
   );
 
+  const clearPendingPause = useCallback(() => {
+    if (pauseTimerRef.current !== null) {
+      window.clearTimeout(pauseTimerRef.current);
+      pauseTimerRef.current = null;
+    }
+  }, []);
+
   const resetAudio = useCallback(() => {
+    clearPendingPause();
     const audio = audioRef.current;
     if (audio) {
       audio.pause();
@@ -314,7 +339,7 @@ export default function TtsOverlay() {
     setIsPlaying(false);
     setPlaybackTime(0);
     setPlaybackDuration(0);
-  }, []);
+  }, [clearPendingPause]);
 
   const findNextChunk = useCallback((afterIndex: number | null) => {
     const chunks = stateRef.current.chunks;
@@ -329,6 +354,7 @@ export default function TtsOverlay() {
       if (!desiredPlayingRef.current) {
         return;
       }
+      clearPendingPause();
 
       const priorAudio = audioRef.current;
       if (priorAudio) {
@@ -368,15 +394,38 @@ export default function TtsOverlay() {
           setIsPlaying(false);
           updateTimeline();
           const nextChunk = findNextChunk(chunk.index);
-          if (nextChunk && desiredPlayingRef.current) {
-            void playChunkRef.current?.(nextChunk);
-            return;
-          }
-          audioRef.current = null;
           const completedOrdinal =
             stateRef.current.chunks.findIndex(
               (candidate) => candidate.index === chunk.index,
             ) + 1;
+          const waitingForNextChunk =
+            stateRef.current.status !== "completed" &&
+            (stateRef.current.totalChunks <= 0 ||
+              completedOrdinal < stateRef.current.totalChunks);
+          audioRef.current = null;
+          if (
+            desiredPlayingRef.current &&
+            (nextChunk || waitingForNextChunk)
+          ) {
+            const continuePlayback = () => {
+              pauseTimerRef.current = null;
+              if (desiredPlayingRef.current) {
+                const pendingChunk = findNextChunk(chunk.index);
+                if (pendingChunk) {
+                  void playChunkRef.current?.(pendingChunk);
+                }
+              }
+            };
+            if (chunk.pauseAfterMs > 0) {
+              pauseTimerRef.current = window.setTimeout(
+                continuePlayback,
+                chunk.pauseAfterMs,
+              );
+            } else {
+              continuePlayback();
+            }
+            return;
+          }
           if (
             stateRef.current.status === "completed" ||
             (stateRef.current.totalChunks > 0 &&
@@ -426,7 +475,7 @@ export default function TtsOverlay() {
         reportPlaybackState("paused", chunk.index);
       }
     },
-    [findNextChunk, reportPlaybackState, t],
+    [clearPendingPause, findNextChunk, reportPlaybackState, t],
   );
   playChunkRef.current = playChunk;
 
@@ -483,6 +532,7 @@ export default function TtsOverlay() {
       } else if (
         desiredPlayingRef.current &&
         !audioRef.current &&
+        pauseTimerRef.current === null &&
         next.chunks.length > 0
       ) {
         const nextChunk =
@@ -553,6 +603,7 @@ export default function TtsOverlay() {
     }
 
     desiredPlayingRef.current = true;
+    clearPendingPause();
     setPlaybackError(null);
     if (audio && activeChunkIndexRef.current !== null && !audio.ended) {
       void audio
@@ -580,7 +631,13 @@ export default function TtsOverlay() {
     if (nextChunk) {
       void playChunk(nextChunk);
     }
-  }, [findNextChunk, playChunk, reportPlaybackState, t]);
+  }, [
+    clearPendingPause,
+    findNextChunk,
+    playChunk,
+    reportPlaybackState,
+    t,
+  ]);
 
   const stopPlayback = useCallback(() => {
     const operationId = operationIdRef.current;
