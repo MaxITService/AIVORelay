@@ -5,6 +5,7 @@
 //! cache asset. File conversion assembles PCM first and encodes exactly one
 //! final WAV or MP3 stream.
 
+use crate::managers::edge_tts::{self, DEFAULT_EDGE_TTS_VOICE, EDGE_TTS_PROVIDER_LIMIT};
 use crate::managers::local_kokoro::{
     KokoroTtsRuntime, KOKORO_LANGUAGES, KOKORO_PROVIDER_LIMIT, KOKORO_VOICES,
 };
@@ -23,6 +24,7 @@ use crate::settings::{
     apply_text_replacements, TtsKeySource, TtsLlmScope, TtsOutputFormat, TtsProvider, TtsSettings,
 };
 use anyhow::{anyhow, Context, Result};
+use futures_util::StreamExt;
 use mp3lame_encoder::{Bitrate, Builder as LameBuilder, FlushGap, Mode, MonoPcm, Quality, VbrMode};
 use parking_lot::RwLock;
 use reqwest::{header::RETRY_AFTER, StatusCode};
@@ -62,6 +64,7 @@ const CONNECT_TIMEOUT: Duration = Duration::from_secs(15);
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(120);
 const MAX_RETRY_DELAY: Duration = Duration::from_secs(60);
 const INTERACTIVE_CACHE_STALE_AGE: Duration = Duration::from_secs(24 * 60 * 60);
+const MAX_VOICE_CATALOG_BYTES: usize = 4 * 1024 * 1024;
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, Type, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -139,6 +142,26 @@ pub struct TtsChunkReady {
     pub wav_path: PathBuf,
     pub boundary_after: TtsBoundary,
     pub pause_after_ms: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+pub struct TtsVoiceCatalogEntry {
+    pub id: String,
+    pub label: String,
+    pub group: String,
+    pub language: String,
+    pub gender: String,
+    pub description: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+pub struct TtsVoiceCatalog {
+    pub provider: TtsProvider,
+    pub voices: Vec<TtsVoiceCatalogEntry>,
+    pub source: String,
+    pub supports_live_refresh: bool,
+    pub replace_builtin: bool,
+    pub warning: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
@@ -251,6 +274,7 @@ impl TtsManager {
             TtsProvider::Soniox => SONIOX_CHARACTER_LIMIT,
             TtsProvider::Deepgram => DEEPGRAM_CHARACTER_LIMIT,
             TtsProvider::OpenAi => OPENAI_CHARACTER_LIMIT,
+            TtsProvider::Edge => EDGE_TTS_PROVIDER_LIMIT,
             TtsProvider::LocalQwen => LOCAL_TTS_PROVIDER_LIMIT,
             TtsProvider::LocalKokoro => KOKORO_PROVIDER_LIMIT,
             TtsProvider::Windows => WINDOWS_TTS_PROVIDER_LIMIT,
@@ -336,6 +360,14 @@ impl TtsManager {
             validate_max_chars(
                 "Windows voice language",
                 &settings.windows_voice_language,
+                128,
+            )?;
+        }
+        if settings.provider == TtsProvider::Edge {
+            validate_max_chars("Edge-TTS voice", &settings.edge_voice, 256)?;
+            validate_max_chars(
+                "Edge-TTS voice language",
+                &settings.edge_voice_language,
                 128,
             )?;
         }
@@ -430,6 +462,100 @@ impl TtsManager {
             50_000,
         )?;
         Ok(())
+    }
+
+    pub async fn voice_catalog(&self, settings: &TtsSettings) -> Result<TtsVoiceCatalog> {
+        match settings.provider {
+            TtsProvider::Edge => {
+                let voices = edge_tts::list_voices()
+                    .await
+                    .map_err(|error| anyhow!(error.safe_message))?
+                    .into_iter()
+                    .map(|voice| TtsVoiceCatalogEntry {
+                        label: voice.id.clone(),
+                        group: voice.language.clone(),
+                        language: voice.language,
+                        gender: voice.gender,
+                        description: voice.description,
+                        id: voice.id,
+                    })
+                    .collect();
+                Ok(TtsVoiceCatalog {
+                    provider: settings.provider,
+                    voices,
+                    source: "live".to_string(),
+                    supports_live_refresh: true,
+                    replace_builtin: true,
+                    warning: Some(
+                        "Experimental community adapter for Microsoft Edge's online Read Aloud service; availability and protocol may change without notice."
+                            .to_string(),
+                    ),
+                })
+            }
+            TtsProvider::Deepgram => {
+                let api_key = resolve_api_key(settings)?;
+                let response = self
+                    .client
+                    .get("https://api.deepgram.com/v1/models")
+                    .header("Authorization", format!("Token {api_key}"))
+                    .send()
+                    .await
+                    .map_err(|error| anyhow!(safe_text(&error.to_string())))?;
+                let json = bounded_catalog_json(response).await?;
+                let voices = json
+                    .get("tts")
+                    .and_then(Value::as_array)
+                    .into_iter()
+                    .flatten()
+                    .filter_map(deepgram_catalog_entry)
+                    .collect::<Vec<_>>();
+                if voices.is_empty() {
+                    return Err(anyhow!("Deepgram returned no public TTS voices"));
+                }
+                Ok(TtsVoiceCatalog {
+                    provider: settings.provider,
+                    voices,
+                    source: "live".to_string(),
+                    supports_live_refresh: true,
+                    replace_builtin: true,
+                    warning: None,
+                })
+            }
+            TtsProvider::Soniox => {
+                let api_key = resolve_api_key(settings)?;
+                let response = self
+                    .client
+                    .get("https://api.soniox.com/v1/voices")
+                    .query(&[("limit", "1000")])
+                    .bearer_auth(api_key)
+                    .send()
+                    .await
+                    .map_err(|error| anyhow!(safe_text(&error.to_string())))?;
+                let json = bounded_catalog_json(response).await?;
+                let voices = json
+                    .get("voices")
+                    .and_then(Value::as_array)
+                    .into_iter()
+                    .flatten()
+                    .filter_map(soniox_catalog_entry)
+                    .collect();
+                Ok(TtsVoiceCatalog {
+                    provider: settings.provider,
+                    voices,
+                    source: "live".to_string(),
+                    supports_live_refresh: true,
+                    replace_builtin: false,
+                    warning: Some(
+                        "Project voice refresh adds custom Soniox voices to the built-in catalog."
+                            .to_string(),
+                    ),
+                })
+            }
+            TtsProvider::OpenAi => Ok(openai_voice_catalog()),
+            TtsProvider::LocalQwen | TtsProvider::LocalKokoro | TtsProvider::Windows => Err(
+                anyhow!("Live voice refresh is unavailable for this provider"),
+            ),
+        }
     }
 
     pub fn local_tts_status(&self, kind: LocalTtsKind) -> LocalTtsStatus {
@@ -1894,6 +2020,24 @@ impl TtsManager {
                 _ = self.wait_for_cancellation(operation_id) => Err(cancelled_attempt_error()),
             };
         }
+        if settings.provider == TtsProvider::Edge {
+            let synthesis = edge_tts::synthesize(
+                &self.cache_root,
+                operation_id,
+                text,
+                nonempty_or(&settings.edge_voice, DEFAULT_EDGE_TTS_VOICE),
+                settings.speed,
+            );
+            return tokio::select! {
+                result = synthesis => result.map_err(|error| ProviderAttemptError {
+                    status: None,
+                    safe_message: error.safe_message,
+                    transient: error.transient,
+                    retry_after: None,
+                }),
+                _ = self.wait_for_cancellation(operation_id) => Err(cancelled_attempt_error()),
+            };
+        }
 
         let request = match settings.provider {
             TtsProvider::Soniox => {
@@ -1948,6 +2092,7 @@ impl TtsManager {
                     .bearer_auth(api_key)
                     .json(&body)
             }
+            TtsProvider::Edge => unreachable!("Edge provider returned before HTTP dispatch"),
             TtsProvider::LocalQwen => unreachable!("local provider returned before HTTP dispatch"),
             TtsProvider::LocalKokoro => {
                 unreachable!("local provider returned before HTTP dispatch")
@@ -1976,6 +2121,147 @@ impl TtsManager {
         while self.active_operation_id.load(Ordering::SeqCst) == operation_id {
             tokio::time::sleep(Duration::from_millis(50)).await;
         }
+    }
+}
+
+async fn bounded_catalog_json(response: reqwest::Response) -> Result<Value> {
+    let status = response.status();
+    if response
+        .content_length()
+        .is_some_and(|length| length > MAX_VOICE_CATALOG_BYTES as u64)
+    {
+        return Err(anyhow!("The provider voice catalog is unexpectedly large"));
+    }
+    let mut bytes = Vec::new();
+    let mut stream = response.bytes_stream();
+    while let Some(chunk) = stream.next().await {
+        let chunk = chunk.map_err(|error| anyhow!(safe_text(&error.to_string())))?;
+        if bytes.len().saturating_add(chunk.len()) > MAX_VOICE_CATALOG_BYTES {
+            return Err(anyhow!("The provider voice catalog is unexpectedly large"));
+        }
+        bytes.extend_from_slice(&chunk);
+    }
+    if !status.is_success() {
+        return Err(anyhow!(
+            "Voice catalog refresh failed: {}",
+            parse_provider_error(&bytes, status)
+        ));
+    }
+    serde_json::from_slice(&bytes).context("The provider returned an invalid voice catalog")
+}
+
+fn deepgram_catalog_entry(value: &Value) -> Option<TtsVoiceCatalogEntry> {
+    let id = value.get("canonical_name")?.as_str()?.trim();
+    if id.is_empty() {
+        return None;
+    }
+    let name = value
+        .get("name")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|name| !name.is_empty())
+        .unwrap_or(id);
+    let languages = value
+        .get("languages")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+        .map(str::trim)
+        .filter(|language| !language.is_empty())
+        .collect::<Vec<_>>();
+    let tags = value
+        .pointer("/metadata/tags")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+        .collect::<Vec<_>>();
+    let gender = tags
+        .iter()
+        .copied()
+        .find(|tag| matches!(*tag, "feminine" | "masculine" | "neutral"))
+        .unwrap_or_default();
+    let accent = value
+        .pointer("/metadata/accent")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    let group = if languages.is_empty() {
+        "Other".to_string()
+    } else if accent.is_empty() {
+        languages.join(", ")
+    } else {
+        format!("{} · {accent}", languages.join(", "))
+    };
+    Some(TtsVoiceCatalogEntry {
+        id: id.to_string(),
+        label: format!("{name} — {id}"),
+        group,
+        language: languages.first().copied().unwrap_or_default().to_string(),
+        gender: gender.to_string(),
+        description: tags.join(", "),
+    })
+}
+
+fn soniox_catalog_entry(value: &Value) -> Option<TtsVoiceCatalogEntry> {
+    let id = value.get("id")?.as_str()?.trim();
+    if id.is_empty() {
+        return None;
+    }
+    let name = value
+        .get("name")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|name| !name.is_empty())
+        .unwrap_or(id);
+    let statuses = value
+        .get("models")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|model| {
+            Some(format!(
+                "{}: {}",
+                model.get("model")?.as_str()?,
+                model.get("status")?.as_str()?
+            ))
+        })
+        .collect::<Vec<_>>();
+    Some(TtsVoiceCatalogEntry {
+        id: id.to_string(),
+        label: format!("{name} — {id}"),
+        group: "Custom voices".to_string(),
+        language: String::new(),
+        gender: String::new(),
+        description: statuses.join(", "),
+    })
+}
+
+fn openai_voice_catalog() -> TtsVoiceCatalog {
+    let voices = [
+        "alloy", "ash", "ballad", "cedar", "coral", "echo", "fable", "marin", "nova", "onyx",
+        "sage", "shimmer", "verse",
+    ]
+    .into_iter()
+    .map(|voice| TtsVoiceCatalogEntry {
+        id: voice.to_string(),
+        label: voice.to_string(),
+        group: "Built-in voices".to_string(),
+        language: String::new(),
+        gender: String::new(),
+        description: String::new(),
+    })
+    .collect();
+    TtsVoiceCatalog {
+        provider: TtsProvider::OpenAi,
+        voices,
+        source: "builtin".to_string(),
+        supports_live_refresh: false,
+        replace_builtin: true,
+        warning: Some(
+            "OpenAI does not expose a list endpoint for built-in TTS voices; this catalog follows the documented speech API."
+                .to_string(),
+        ),
     }
 }
 
@@ -2083,6 +2369,7 @@ fn resolve_api_key(settings: &TtsSettings) -> Result<String> {
         TtsProvider::Soniox => settings.soniox_key_source,
         TtsProvider::Deepgram => settings.deepgram_key_source,
         TtsProvider::OpenAi => settings.openai_key_source,
+        TtsProvider::Edge => unreachable!("handled above"),
         TtsProvider::LocalQwen => unreachable!("handled above"),
         TtsProvider::LocalKokoro => unreachable!("handled above"),
         TtsProvider::Windows => unreachable!("handled above"),
@@ -2096,6 +2383,7 @@ fn resolve_api_key(settings: &TtsSettings) -> Result<String> {
         (TtsProvider::OpenAi, TtsKeySource::Shared) => {
             crate::secure_keys::get_post_process_api_key("openai")
         }
+        (TtsProvider::Edge, _) => unreachable!("handled above"),
         (TtsProvider::LocalQwen, _) => unreachable!("handled above"),
         (TtsProvider::LocalKokoro, _) => unreachable!("handled above"),
         (TtsProvider::Windows, _) => unreachable!("handled above"),
@@ -2124,6 +2412,7 @@ fn provider_name(provider: TtsProvider) -> &'static str {
         TtsProvider::Soniox => "Soniox",
         TtsProvider::Deepgram => "Deepgram",
         TtsProvider::OpenAi => "OpenAI",
+        TtsProvider::Edge => "Edge-TTS (experimental)",
         TtsProvider::LocalQwen => "Local Qwen3-TTS",
         TtsProvider::LocalKokoro => "Local Kokoro",
         TtsProvider::Windows => "Windows voices",
@@ -3018,6 +3307,38 @@ fn mp3_encode_buffer_capacity(input_samples: usize, input_sample_rate: u32) -> u
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn cloud_voice_catalog_parsers_keep_provider_ids_and_groups() {
+        let deepgram = deepgram_catalog_entry(&json!({
+            "name": "thalia",
+            "canonical_name": "aura-2-thalia-en",
+            "languages": ["en", "en-US"],
+            "metadata": { "accent": "American", "tags": ["feminine", "clear"] }
+        }))
+        .unwrap();
+        assert_eq!(deepgram.id, "aura-2-thalia-en");
+        assert!(deepgram.group.contains("American"));
+        assert_eq!(deepgram.gender, "feminine");
+
+        let soniox = soniox_catalog_entry(&json!({
+            "id": "voice-id",
+            "name": "Narrator",
+            "models": [{ "model": "tts-rt-v1", "status": "ready" }]
+        }))
+        .unwrap();
+        assert_eq!(soniox.id, "voice-id");
+        assert_eq!(soniox.group, "Custom voices");
+        assert!(soniox.description.contains("ready"));
+    }
+
+    #[test]
+    fn edge_provider_has_a_bounded_chunk_limit() {
+        assert_eq!(
+            TtsManager::provider_character_limit(TtsProvider::Edge),
+            EDGE_TTS_PROVIDER_LIMIT
+        );
+    }
 
     #[test]
     fn mp3_buffer_accounts_for_upsampling() {

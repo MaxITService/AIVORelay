@@ -40,7 +40,16 @@ const INSTALL_MANIFEST_VERSION: u32 = 2;
 const WORKER_PROTOCOL_VERSION: u32 = 1;
 const EXPECTED_SAMPLE_RATE: u32 = 24_000;
 const MAX_WORKER_WAV_BYTES: u64 = 512 * 1024 * 1024;
-const INSTALL_REQUIRED_BYTES: u64 = 8 * 1024 * 1024 * 1024;
+// Opening every file for a Windows file ID made status scans take minutes in a
+// Python environment with tens of thousands of small files. Large hard links
+// account for nearly all duplicated bytes, so deduplicate those exactly and
+// conservatively count smaller files by their logical length.
+pub(super) const HARD_LINK_DEDUPLICATION_MIN_BYTES: u64 = 1024 * 1024;
+// Includes the model cache layout, managed Python environment, CUDA/CPU wheels,
+// extraction overhead, and enough headroom for installer updates.
+pub const LOCAL_TTS_INSTALL_ESTIMATE_BYTES: u64 = 16 * 1024 * 1024 * 1024;
+pub const LOCAL_TTS_MODEL_SOURCE_URL: &str = "https://huggingface.co/Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice/tree/85e237c12c027371202489a0ec509ded67b5e4b5";
+pub const LOCAL_TTS_MODEL_LICENSE_URL: &str = "https://huggingface.co/Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice/blob/85e237c12c027371202489a0ec509ded67b5e4b5/README.md";
 pub(crate) const UV_WINDOWS_URL: &str =
     "https://github.com/astral-sh/uv/releases/download/0.11.16/uv-x86_64-pc-windows-msvc.zip";
 pub(crate) const UV_WINDOWS_SHA256: &str =
@@ -120,6 +129,26 @@ pub struct LocalTtsStatus {
     pub model_repository: String,
     pub model_revision: String,
     pub model_download_bytes: u64,
+    #[serde(default)]
+    pub install_root: String,
+    #[serde(default)]
+    pub installed_size_bytes: u64,
+    #[serde(default)]
+    pub estimated_install_bytes: u64,
+    #[serde(default)]
+    pub model_author: String,
+    #[serde(default)]
+    pub model_source_url: String,
+    #[serde(default)]
+    pub model_license_name: String,
+    #[serde(default)]
+    pub model_license_url: String,
+    #[serde(default)]
+    pub model_license_path: String,
+    #[serde(default)]
+    pub model_license_declaration_path: String,
+    #[serde(default)]
+    pub model_license_available: bool,
     pub error: Option<String>,
 }
 
@@ -137,6 +166,16 @@ impl Default for LocalTtsStatus {
             model_repository: LOCAL_TTS_MODEL_REPO.to_string(),
             model_revision: LOCAL_TTS_MODEL_REVISION.to_string(),
             model_download_bytes: LOCAL_TTS_MODEL_BYTES,
+            install_root: String::new(),
+            installed_size_bytes: 0,
+            estimated_install_bytes: LOCAL_TTS_INSTALL_ESTIMATE_BYTES,
+            model_author: "Qwen Team (Alibaba Cloud)".to_string(),
+            model_source_url: LOCAL_TTS_MODEL_SOURCE_URL.to_string(),
+            model_license_name: "Apache License 2.0".to_string(),
+            model_license_url: LOCAL_TTS_MODEL_LICENSE_URL.to_string(),
+            model_license_path: String::new(),
+            model_license_declaration_path: String::new(),
+            model_license_available: false,
             error: None,
         }
     }
@@ -210,9 +249,9 @@ impl LocalTtsRuntime {
             .context("Failed to build local TTS installer HTTP client")?;
         let runtime = Self {
             app_handle: app_handle.clone(),
+            status: Arc::new(RwLock::new(qwen_status(&root))),
             root,
             client,
-            status: Arc::new(RwLock::new(LocalTtsStatus::default())),
             install_cancel: Mutex::new(None),
             worker: tokio::sync::Mutex::new(None),
             request_id: AtomicU64::new(1),
@@ -949,12 +988,18 @@ impl LocalTtsRuntime {
         fs::write(directory.join("Apache-2.0.txt"), APACHE_LICENSE)?;
         fs::write(directory.join("uv-MIT.txt"), UV_MIT_LICENSE)?;
         fs::write(directory.join("Qwen3-TTS-NOTICE.txt"), QWEN_NOTICE)?;
+        let upstream_model_card = fs::read(self.model_snapshot_path()?.join("README.md"))
+            .context("Failed to read the downloaded Qwen model card")?;
+        fs::write(
+            directory.join("Qwen3-TTS-UPSTREAM-MODEL-CARD.md"),
+            upstream_model_card,
+        )?;
         Ok(())
     }
 
     fn managed_notices_valid(&self) -> bool {
         let directory = self.root.join("licenses");
-        [
+        let bundled_notices_valid = [
             ("Apache-2.0.txt", APACHE_LICENSE),
             ("uv-MIT.txt", UV_MIT_LICENSE),
             ("Qwen3-TTS-NOTICE.txt", QWEN_NOTICE),
@@ -964,7 +1009,21 @@ impl LocalTtsRuntime {
             fs::read(directory.join(name))
                 .map(|actual| actual == expected.as_bytes())
                 .unwrap_or(false)
-        })
+        });
+        let upstream_model_card_valid = self
+            .model_snapshot_path()
+            .and_then(|root| fs::read(root.join("README.md")).map_err(Into::into))
+            .and_then(|expected| {
+                fs::read(
+                    self.root
+                        .join("licenses")
+                        .join("Qwen3-TTS-UPSTREAM-MODEL-CARD.md"),
+                )
+                .map(|actual| actual == expected)
+                .map_err(Into::into)
+            })
+            .unwrap_or(false);
+        bundled_notices_valid && upstream_model_card_valid
     }
 
     fn model_snapshot_path(&self) -> Result<PathBuf> {
@@ -1004,6 +1063,11 @@ impl LocalTtsRuntime {
                 status.total_bytes = LOCAL_TTS_MODEL_BYTES;
                 status.percentage = 100.0;
                 status.runtime_profile = manifest.runtime_profile;
+                if status.installed_size_bytes == 0 {
+                    status.installed_size_bytes = directory_size_bytes(&self.root);
+                }
+                status.model_license_available = self.model_license_path().is_file()
+                    && self.model_license_declaration_path().is_file();
                 status.error = None;
             }
             Err(error) => {
@@ -1027,6 +1091,9 @@ impl LocalTtsRuntime {
                 status.total_bytes = LOCAL_TTS_MODEL_BYTES;
                 status.percentage =
                     (partial as f64 / LOCAL_TTS_MODEL_BYTES as f64 * 100.0).clamp(0.0, 100.0);
+                status.installed_size_bytes = directory_size_bytes(&self.root);
+                status.model_license_available = self.model_license_path().is_file()
+                    && self.model_license_declaration_path().is_file();
             }
         }
     }
@@ -1072,7 +1139,7 @@ impl LocalTtsRuntime {
         if !has_required_disk_space(available, required) {
             return Err(anyhow!(
                 "Local Qwen3-TTS needs about {:.1} GiB free plus the configured disk reserve; only {:.1} GiB is available",
-                INSTALL_REQUIRED_BYTES as f64 / 1024_f64.powi(3),
+                LOCAL_TTS_INSTALL_ESTIMATE_BYTES as f64 / 1024_f64.powi(3),
                 available as f64 / 1024_f64.powi(3)
             ));
         }
@@ -1130,6 +1197,104 @@ impl LocalTtsRuntime {
     fn manifest_path(&self) -> PathBuf {
         self.root.join("install.json")
     }
+
+    fn model_license_path(&self) -> PathBuf {
+        self.root.join("licenses").join("Apache-2.0.txt")
+    }
+
+    fn model_license_declaration_path(&self) -> PathBuf {
+        self.root
+            .join("licenses")
+            .join("Qwen3-TTS-UPSTREAM-MODEL-CARD.md")
+    }
+}
+
+fn qwen_status(root: &Path) -> LocalTtsStatus {
+    let mut status = LocalTtsStatus::default();
+    status.install_root = root.to_string_lossy().to_string();
+    status.model_license_path = root
+        .join("licenses")
+        .join("Apache-2.0.txt")
+        .to_string_lossy()
+        .to_string();
+    status.model_license_declaration_path = root
+        .join("licenses")
+        .join("Qwen3-TTS-UPSTREAM-MODEL-CARD.md")
+        .to_string_lossy()
+        .to_string();
+    status
+}
+
+pub(super) fn directory_size_bytes(root: &Path) -> u64 {
+    let mut pending = vec![root.to_path_buf()];
+    let mut files = Vec::new();
+    let mut size_counts = std::collections::HashMap::<u64, usize>::new();
+    while let Some(directory) = pending.pop() {
+        let Ok(entries) = fs::read_dir(directory) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            let Ok(metadata) = path.symlink_metadata() else {
+                continue;
+            };
+            if metadata.is_dir() {
+                pending.push(path);
+            } else if metadata.is_file() {
+                let length = metadata.len();
+                files.push((path, metadata));
+                *size_counts.entry(length).or_default() += 1;
+            }
+        }
+    }
+
+    let mut total = 0_u64;
+    let mut seen_file_ids = std::collections::HashSet::new();
+    for (path, metadata) in files {
+        let length = metadata.len();
+        if length >= HARD_LINK_DEDUPLICATION_MIN_BYTES
+            && size_counts.get(&length).copied().unwrap_or_default() > 1
+        {
+            if let Some(file_id) = platform_file_id(&path, &metadata) {
+                if !seen_file_ids.insert(file_id) {
+                    continue;
+                }
+            }
+        }
+        total = total.saturating_add(length);
+    }
+    total
+}
+
+#[cfg(windows)]
+fn platform_file_id(path: &Path, _metadata: &fs::Metadata) -> Option<(u64, u64)> {
+    use std::os::windows::io::AsRawHandle;
+    use windows::Win32::Foundation::HANDLE;
+    use windows::Win32::Storage::FileSystem::{
+        GetFileInformationByHandle, BY_HANDLE_FILE_INFORMATION,
+    };
+
+    let file = File::open(path).ok()?;
+    let mut information = BY_HANDLE_FILE_INFORMATION::default();
+    // The handle remains owned by `file` for the duration of this call.
+    unsafe {
+        GetFileInformationByHandle(HANDLE(file.as_raw_handle()), &mut information).ok()?;
+    }
+    let file_index =
+        (u64::from(information.nFileIndexHigh) << 32) | u64::from(information.nFileIndexLow);
+    Some((u64::from(information.dwVolumeSerialNumber), file_index))
+}
+
+#[cfg(unix)]
+fn platform_file_id(_path: &Path, metadata: &fs::Metadata) -> Option<(u64, u64)> {
+    use std::os::unix::fs::MetadataExt;
+
+    Some((metadata.dev(), metadata.ino()))
+}
+
+#[cfg(not(any(windows, unix)))]
+fn platform_file_id(_path: &Path, _metadata: &fs::Metadata) -> Option<(u64, u64)> {
+    None
 }
 
 fn validate_install_manifest(manifest: &InstallManifest) -> Result<()> {
@@ -1152,7 +1317,7 @@ fn validate_install_manifest(manifest: &InstallManifest) -> Result<()> {
 }
 
 fn required_install_bytes(disk_reserve_mb: u32) -> u64 {
-    INSTALL_REQUIRED_BYTES.saturating_add(u64::from(disk_reserve_mb) * 1024 * 1024)
+    LOCAL_TTS_INSTALL_ESTIMATE_BYTES.saturating_add(u64::from(disk_reserve_mb) * 1024 * 1024)
 }
 
 fn has_required_disk_space(available: u64, required: u64) -> bool {
@@ -1488,8 +1653,18 @@ mod tests {
 
     #[test]
     fn local_tts_status_identifies_qwen_kind() {
-        let value = serde_json::to_value(LocalTtsStatus::default()).unwrap();
+        let status = qwen_status(Path::new(r"C:\AivoRelay\qwen"));
+        let value = serde_json::to_value(&status).unwrap();
         assert_eq!(value["kind"], "qwen");
+        assert_eq!(
+            status.estimated_install_bytes,
+            LOCAL_TTS_INSTALL_ESTIMATE_BYTES
+        );
+        assert!(status.model_source_url.starts_with("https://"));
+        assert!(status.model_license_url.starts_with("https://"));
+        assert!(status
+            .model_license_declaration_path
+            .ends_with("Qwen3-TTS-UPSTREAM-MODEL-CARD.md"));
     }
 
     #[test]
@@ -1530,6 +1705,7 @@ mod tests {
         let without_reserve = required_install_bytes(0);
         let with_reserve = required_install_bytes(512);
 
+        assert_eq!(without_reserve, 16_u64 * 1024 * 1024 * 1024);
         assert!(with_reserve > without_reserve);
         assert!(has_required_disk_space(with_reserve, with_reserve));
         assert!(!has_required_disk_space(with_reserve - 1, with_reserve));

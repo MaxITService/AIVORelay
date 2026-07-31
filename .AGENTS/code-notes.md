@@ -38,12 +38,15 @@ Files that are added by this fork rather than upstream files that were modified.
 | `src-tauri/src/shortcut_handy_keys.rs` | Ported upstream HandyKeys shortcut backend and backend-side shortcut recording. |
 | `src-tauri/src/language_resolver.rs` | Soniox language resolver. |
 | `src-tauri/src/text_replacement_decapitalize.rs` | Decapitalize trigger. |
-| `src-tauri/src/managers/tts.rs` | Provider-independent Soniox/Deepgram/OpenAI/local-Qwen/Windows TTS, semantic chunking, retry, Markdown rendering, resumable PCM-backed WAV/MP3 assembly, disk protection, cache, and lazy recursive/non-recursive folder watching. Successful watcher conversions are copied into opt-in TTS History without invalidating the external result when History capture fails. |
-| `src-tauri/src/managers/local_tts.rs` | Explicit app-managed Qwen3-TTS model/runtime lifecycle, pinned resumable downloads, isolated uv/Python/PyTorch installation, persistent offline worker supervision, and validated 24 kHz mono PCM handoff. |
+| `src-tauri/src/managers/tts.rs` | Provider-independent Soniox/Deepgram/OpenAI/experimental-Edge/local-Qwen/local-Kokoro/Windows TTS, bounded live cloud voice catalogs, semantic chunking, retry, Markdown rendering, resumable PCM-backed WAV/MP3 assembly, disk protection, cache, and lazy recursive/non-recursive folder watching. Successful watcher conversions are copied into opt-in TTS History without invalidating the external result when History capture fails. |
+| `src-tauri/src/managers/edge_tts.rs` | Experimental no-key subprocess adapter for the community `edge-tts` package, including bounded voice discovery, unique temporary files, timeout/cancellation-safe process cleanup, MP3 decoding, and 24 kHz mono PCM normalization. |
+| `src-tauri/src/managers/local_tts.rs` | Explicit app-managed Qwen3-TTS model/runtime lifecycle, pinned resumable downloads, conservative complete-install preflight, isolated uv/Python/PyTorch installation, preserved upstream license declaration, measured managed footprint, persistent offline worker supervision, and validated 24 kHz mono PCM handoff. |
+| `src-tauri/src/managers/local_kokoro.rs` | Pinned app-managed Kokoro int8 archive and sherpa-onnx runtime, safe extraction, retained original model `LICENSE`, measured managed footprint, hidden persistent CPU worker, and validated 24 kHz mono PCM handoff. |
 | `src-tauri/src/managers/windows_tts.rs` | Windows WinRT installed-voice discovery and synthesis with stable per-operation voice resolution, worker-lifetime WinRT apartments for reused blocking threads, bounded WAVE validation, downmixing, and 24 kHz mono PCM normalization. |
 | `src-tauri/src/managers/tts_history.rs` | Separate opt-in Interactive and File TTS History scopes in one dedicated database/managed-audio store, with independently configured rolling retention, comparison groups, and safe export/delete. |
 | `src-tauri/src/managers/tts_resume.rs` | Cross-process TTS file-conversion leases and ownership-marked alternating atomic checkpoints with synthesis-plan fingerprints, per-segment PCM hashes, safe tail truncation, watcher recovery discovery, and managed History regeneration namespaces. |
-| `src-tauri/src/commands/tts.rs` | TTS settings/key/file-conversion commands, the playback-overlay event bridge, no-synthesis replay of the newest Interactive History result, and cold/warm shortcut-to-first-playback latency measurements. |
+| `src-tauri/src/commands/tts.rs` | TTS settings/key/file-conversion commands, independently enforced source-trust and risk confirmations for local model installation, the playback-overlay event bridge, no-synthesis replay of the newest Interactive History result, and cold/warm shortcut-to-first-playback latency measurements. |
+| `src-tauri/src/cli_local_tts.rs` | Headless Qwen/Kokoro lifecycle and smoke CLI; status and pre-install confirmation expose source, revision, destination, measured/expected size, and license paths. |
 | `src-tauri/src/cli_file_conversion.rs` | Headless app-managed audio-to-text/Markdown and text/Markdown-to-audio conversion with terminal/JSON progress and opt-in TTS History capture. |
 | `src-tauri/src/cli_tts_history.rs` | Headless TTS History list/show/export/regenerate/delete operations; regeneration may produce an external file or only a new managed comparison result. |
 
@@ -77,11 +80,14 @@ Files that are added by this fork rather than upstream files that were modified.
 | `src/components/settings/debug/ShortcutEngineSelector.tsx` | Shortcut engine toggle UI. |
 | `src/lib/constants/sonioxLanguages.ts` | Soniox languages mapping. |
 | `src/lib/constants/remoteSttProviders.ts` | Remote STT preset metadata for Groq/OpenAI/custom URL handling. |
-| `src/components/settings/text-to-speech/TextToSpeechSettings.tsx` | Interactive TTS providers, secure key source, documented/custom voice selection, voice prompt presets, preprocessing, chunk/retry controls, overlay keys, opt-in Interactive History replay fallback, and Interactive History. |
+| `src/components/settings/text-to-speech/TextToSpeechSettings.tsx` | Interactive TTS providers, secure key source, searchable/grouped/creatable provider values, live voice refresh where provider APIs permit it, grouped help with human documentation links, two-step local download consent and source/path/size/license disclosure, voice prompt presets, preprocessing, chunk/retry controls, non-destructive playback pitch/effects, overlay keys, opt-in Interactive History replay fallback, and Interactive History. |
+| `src/components/settings/text-to-speech/TtsHelpDisclosure.tsx` | Accessible native progressive disclosure shared by logical TTS settings groups for concise parameter guidance and human-facing documentation links. |
+| `src/lib/tts/ttsProviderMetadata.ts` | Shared TTS provider defaults, documented speed bounds, human-facing documentation URLs, searchable model/language values, and local download source/license/size metadata. |
 | `src/components/settings/text-to-speech/TtsFileOperationsSettings.tsx` | Separate TTS File Operations page for manual conversion, folder automation, file chunking, and independently retained File History. |
 | `src/components/settings/text-to-speech/TtsFolderAutomation.tsx` | Opt-in recursive/non-recursive `.txt`/`.md` folder conversion controls, disk-reserve warning, and OS-event reliability notice. |
 | `src/components/settings/text-to-speech/TtsHistory.tsx` | Reusable Interactive/File TTS History controls with scope-specific opt-in and retention, grouped comparison variants, playback, export, regeneration, and deletion. |
-| `src/tts-overlay/TtsOverlay.tsx` | Lazy focused playback overlay with incremental chunks, seeking, playback-rate control, and local Play/Pause/Stop keys; it also accepts Play/Pause from the opt-in global History fallback. |
+| `src/tts-overlay/TtsOverlay.tsx` | Lazy focused playback overlay with incremental chunks, seeking, playback-rate control, optional non-destructive pitch/effect rendering, and local Play/Pause/Stop keys; it also accepts Play/Pause from the opt-in global History fallback. |
+| `src/lib/utils/ttsPlaybackEffects.ts` | Abort-aware Web Audio rendering for optional pitch, radio, and retro effects without modifying generated or retained audio files. |
 | `src/tts-overlay/TtsOverlay.css` | TTS playback overlay styling. |
 
 ### Development & Build Tools
@@ -106,7 +112,7 @@ Files that are added by this fork rather than upstream files that were modified.
 | `src-tauri/src/actions.rs` | Shortcut actions, variable resolution, preview delete actions, and global clipboard/selection TTS actions. Soniox live-finalization timeouts get one automatic full-recording replay only when output is still reversible (preview workflow or no stable chunk was inserted); never replay over already-inserted live text. |
 | `src-tauri/src/overlay.rs` | Overlay states, lazy TTS/preview window helpers, live preview geometry constraints, and preview action appearance payload. |
 | `src-tauri/src/settings.rs` | Fork-specific settings & features, including isolated TTS configuration/prompt presets, watcher recursion, TTS History retention, live preview actions, preview bindings, and local-only recording tail buffer controls. |
-| `src-tauri/src/lib.rs` | Registers managers, commands, tray, and headless file conversion. Remote transcription providers defer the local transcribe.cpp/Vulkan stack; Local keeps eager startup pre-warm. |
+| `src-tauri/src/lib.rs` | Registers managers, commands, tray, and headless file conversion. Remote transcription providers defer the local transcribe.cpp/Vulkan stack; Local keeps eager startup pre-warm. Debug binding export removes generator-produced trailing spaces without changing line endings. |
 | `src-tauri/src/cli.rs` | CLI flags for legacy transcription benchmarking, symmetric app-managed file conversion with comprehensive one-off TTS settings overrides and provider-aware validation, TTS History operations, and local TTS lifecycle management. |
 | `src-tauri/src/shortcut.rs` | Multi-engine shortcut bindings (Tauri/rdev/HandyKeys), live preview geometry persistence commands, preview action settings commands, preview delete-last-word global hotkey sync. |
 | `src-tauri/src/clipboard.rs` | Clipboard behavior. Streaming clipboard sessions are operation-scoped and serialized through the actual restore. Clipboard-backed paste keeps each transcription value available for a 200 ms post-shortcut consumer grace before another chunk or the user's original multi-format clipboard may replace it. Selection-copy capture reuses the same Windows multi-format backup/restore with text fallback. |
@@ -162,7 +168,7 @@ Files that are added by this fork rather than upstream files that were modified.
 | `src/stores/transcribeFileStore.ts` | Holds editable diarization speaker cards and bulk profile-apply helpers. |
 | `src/i18n/locales/en/translation.json` | EN strings. |
 | `src/i18n/locales/ru/translation.json` | RU strings. |
-| `src/bindings.ts` | Generated Tauri bindings, including live preview geometry helpers. |
+| `src/bindings.ts` | Generated Tauri bindings, including live preview geometry helpers. Never edit manually; the debug export hook normalizes trailing whitespace. |
 
 ### Other Fork-Differing Files
 

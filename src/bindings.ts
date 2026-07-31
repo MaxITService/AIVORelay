@@ -2627,9 +2627,9 @@ async getLocalTtsStatus(kind: LocalTtsKind) : Promise<Result<LocalTtsStatus, str
     else return { status: "error", error: e  as any };
 }
 },
-async installLocalTts(kind: LocalTtsKind) : Promise<Result<LocalTtsStatus, string>> {
+async installLocalTts(kind: LocalTtsKind, sourceTrusted: boolean, riskAcknowledged: boolean) : Promise<Result<LocalTtsStatus, string>> {
     try {
-    return { status: "ok", data: await TAURI_INVOKE("install_local_tts", { kind }) };
+    return { status: "ok", data: await TAURI_INVOKE("install_local_tts", { kind, sourceTrusted, riskAcknowledged }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
@@ -2653,6 +2653,14 @@ async deleteLocalTts(kind: LocalTtsKind) : Promise<Result<null, string>> {
 },
 async getWindowsTtsVoiceCatalog() : Promise<WindowsVoiceCatalog> {
     return await TAURI_INVOKE("get_windows_tts_voice_catalog");
+},
+async getTtsVoiceCatalog(provider: TtsProvider, scope: TtsOperationScope | null) : Promise<Result<TtsVoiceCatalog, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("get_tts_voice_catalog", { provider, scope }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
 },
 async inspectTtsTextFile(path: string) : Promise<Result<TextFileInspection, string>> {
     try {
@@ -3278,11 +3286,11 @@ async regionCaptureCancel() : Promise<void> {
 },
 /**
  * Executes a PowerShell command with the given execution options.
- * 
+ *
  * Parameters:
  * - `script`: The PowerShell script/command to execute
  * - `options`: Resolved execution options (silent, no_profile, use_pwsh, etc.)
- * 
+ *
  * Returns the output on success or an error message on failure.
  */
 async executeVoiceCommand(script: string, silent: boolean, noProfile: boolean, usePwsh: boolean, executionPolicy: string | null, workingDirectory: string | null) : Promise<Result<string, string>> {
@@ -3355,7 +3363,7 @@ async voiceActivationButtonRelease() : Promise<Result<null, string>> {
 },
 /**
  * Transcribe an audio file to text
- * 
+ *
  * # Arguments
  * * `file_path` - Path to the audio file
  * * `profile_id` - Optional transcription profile ID (uses active profile if not specified)
@@ -3363,7 +3371,7 @@ async voiceActivationButtonRelease() : Promise<Result<null, string>> {
  * * `output_format` - Output format: "text" (default), "srt", or "vtt"
  * * `custom_words_enabled_override` - Optional override for applying custom words
  * * `soniox_options_override` - Optional Soniox async options for language hints and recognition flags
- * 
+ *
  * # Returns
  * FileTranscriptionResult with the transcribed text and optional saved file path
  */
@@ -3612,377 +3620,377 @@ async isLaptop() : Promise<Result<boolean, string>> {
 /** user-defined types **/
 
 export type AddTranscriptionProfilePayload = { name: string; language: string; translateToEnglish: boolean; systemPrompt: string; sttPromptOverrideEnabled?: boolean; pushToTalk: boolean; previewOutputOnlyEnabled?: boolean; sonioxLanguageHintsStrict?: boolean | null; includeInCycle: boolean | null; llmSettings: ProfileLlmSettings | null; sonioxContextGeneralJson: string | null; sonioxContextText: string | null; sonioxContextTerms: string[] | null }
-export type AppSettings = { bindings: Partial<{ [key in string]: ShortcutBinding }>; push_to_talk: boolean; preview_output_only_enabled?: boolean; audio_feedback: boolean; result_ready_audio_feedback?: boolean; audio_feedback_volume?: number; sound_theme?: SoundTheme; start_hidden?: boolean; autostart_enabled?: boolean; show_tray_icon?: boolean; show_tray_shortcut_guide?: boolean; show_tray_shortcut_guide_in_main_menu?: boolean; update_checks_enabled?: boolean; selected_model?: string; transcription_provider?: TranscriptionProvider; remote_stt?: RemoteSttSettings; openai_realtime_whisper_delay?: OpenAiRealtimeWhisperDelay; openai_realtime_whisper_flatten_enabled?: boolean; soniox_model?: string; soniox_timeout_seconds?: number; soniox_live_enabled?: boolean; soniox_language_hints?: string[]; soniox_context_general_json?: string; soniox_context_text?: string; soniox_context_terms?: string[]; soniox_use_profile_language_hint_only?: boolean; soniox_language_hints_strict?: boolean; soniox_enable_endpoint_detection?: boolean; soniox_max_endpoint_delay_ms?: number; soniox_endpoint_sensitivity?: number; soniox_enable_language_identification?: boolean; soniox_enable_speaker_diarization?: boolean; soniox_keepalive_interval_seconds?: number; soniox_live_finalize_timeout_ms?: number; soniox_live_instant_stop?: boolean; soniox_optimize_delivery_preconnect_enabled?: boolean; soniox_realtime_fuzzy_correction_enabled?: boolean; soniox_realtime_keep_safety_buffer_enabled?: boolean; deepgram_model?: string; deepgram_timeout_seconds?: number; deepgram_live_enabled?: boolean; deepgram_keepalive_interval_seconds?: number; deepgram_live_finalize_timeout_ms?: number; deepgram_live_instant_stop?: boolean; deepgram_interim_results?: boolean; deepgram_smart_format?: boolean; deepgram_diarize?: boolean; live_sound_enable_speaker_diarization?: boolean; deepgram_endpointing_enabled?: boolean; deepgram_endpointing_ms?: number; always_on_microphone?: boolean; selected_microphone?: string | null; last_manual_microphone?: string | null; selected_microphone_auto_switch_enabled?: boolean; selected_microphone_name_pattern?: string; clamshell_microphone?: string | null; 
+export type AppSettings = { bindings: Partial<{ [key in string]: ShortcutBinding }>; push_to_talk: boolean; preview_output_only_enabled?: boolean; audio_feedback: boolean; result_ready_audio_feedback?: boolean; audio_feedback_volume?: number; sound_theme?: SoundTheme; start_hidden?: boolean; autostart_enabled?: boolean; show_tray_icon?: boolean; show_tray_shortcut_guide?: boolean; show_tray_shortcut_guide_in_main_menu?: boolean; update_checks_enabled?: boolean; selected_model?: string; transcription_provider?: TranscriptionProvider; remote_stt?: RemoteSttSettings; openai_realtime_whisper_delay?: OpenAiRealtimeWhisperDelay; openai_realtime_whisper_flatten_enabled?: boolean; soniox_model?: string; soniox_timeout_seconds?: number; soniox_live_enabled?: boolean; soniox_language_hints?: string[]; soniox_context_general_json?: string; soniox_context_text?: string; soniox_context_terms?: string[]; soniox_use_profile_language_hint_only?: boolean; soniox_language_hints_strict?: boolean; soniox_enable_endpoint_detection?: boolean; soniox_max_endpoint_delay_ms?: number; soniox_endpoint_sensitivity?: number; soniox_enable_language_identification?: boolean; soniox_enable_speaker_diarization?: boolean; soniox_keepalive_interval_seconds?: number; soniox_live_finalize_timeout_ms?: number; soniox_live_instant_stop?: boolean; soniox_optimize_delivery_preconnect_enabled?: boolean; soniox_realtime_fuzzy_correction_enabled?: boolean; soniox_realtime_keep_safety_buffer_enabled?: boolean; deepgram_model?: string; deepgram_timeout_seconds?: number; deepgram_live_enabled?: boolean; deepgram_keepalive_interval_seconds?: number; deepgram_live_finalize_timeout_ms?: number; deepgram_live_instant_stop?: boolean; deepgram_interim_results?: boolean; deepgram_smart_format?: boolean; deepgram_diarize?: boolean; live_sound_enable_speaker_diarization?: boolean; deepgram_endpointing_enabled?: boolean; deepgram_endpointing_ms?: number; always_on_microphone?: boolean; selected_microphone?: string | null; last_manual_microphone?: string | null; selected_microphone_auto_switch_enabled?: boolean; selected_microphone_name_pattern?: string; clamshell_microphone?: string | null;
 /**
  * Microphone used exclusively by the Live Sound pipeline.
  * `None` means fall back to `selected_microphone` (global default).
  */
-live_sound_microphone?: string | null; selected_output_device?: string | null; live_sound_capture_source?: LiveSoundCaptureSource; live_sound_transcription_provider?: LiveSoundTranscriptionProvider; live_sound_auto_stop_minutes?: number; 
+live_sound_microphone?: string | null; selected_output_device?: string | null; live_sound_capture_source?: LiveSoundCaptureSource; live_sound_transcription_provider?: LiveSoundTranscriptionProvider; live_sound_auto_stop_minutes?: number;
 /**
  * Overrides for Live Monitor sessions — None means inherit global provider setting.
  */
-live_sound_soniox_endpoint_detection?: boolean | null; live_sound_soniox_max_endpoint_delay_ms?: number | null; live_sound_deepgram_endpointing_enabled?: boolean | null; live_sound_deepgram_endpointing_ms?: number | null; translate_to_english?: boolean; selected_language?: string; overlay_position?: OverlayPosition; recording_overlay_enabled?: boolean; auto_position_allow_reserved_areas?: boolean; recording_overlay_use_manual_position?: boolean; recording_overlay_has_saved_custom_position?: boolean; recording_overlay_manual_position_uses_physical_px?: boolean; recording_overlay_custom_x_px?: number; recording_overlay_custom_y_px?: number; 
+live_sound_soniox_endpoint_detection?: boolean | null; live_sound_soniox_max_endpoint_delay_ms?: number | null; live_sound_deepgram_endpointing_enabled?: boolean | null; live_sound_deepgram_endpointing_ms?: number | null; translate_to_english?: boolean; selected_language?: string; overlay_position?: OverlayPosition; recording_overlay_enabled?: boolean; auto_position_allow_reserved_areas?: boolean; recording_overlay_use_manual_position?: boolean; recording_overlay_has_saved_custom_position?: boolean; recording_overlay_manual_position_uses_physical_px?: boolean; recording_overlay_custom_x_px?: number; recording_overlay_custom_y_px?: number;
 /**
  * Auto-hide duration for error overlay in milliseconds.
  */
-error_overlay_auto_hide_ms?: number; 
+error_overlay_auto_hide_ms?: number;
 /**
  * Show runtime errors in the recording overlay.
  */
-error_feedback_enabled?: boolean; recording_overlay_custom_enabled?: boolean; recording_overlay_show_drag_grip?: boolean; recording_overlay_theme?: RecordingOverlayTheme; recording_overlay_background_mode?: RecordingOverlayBackgroundMode; recording_overlay_material_mode?: RecordingOverlayMaterialMode; recording_overlay_centerpiece_mode?: RecordingOverlayCenterpieceMode; recording_overlay_animated_border_mode?: RecordingOverlayAnimatedBorderMode; recording_overlay_show_status_icon?: boolean; recording_overlay_show_cancel_button?: boolean; recording_overlay_bar_count?: number; recording_overlay_width_px?: number; recording_overlay_bar_width_px?: number; recording_overlay_bar_style?: RecordingOverlayBarStyle; recording_overlay_accent_color?: string; recording_overlay_status_icon_color?: string; recording_overlay_cancel_icon_color?: string; recording_overlay_surface_base_color?: string; recording_overlay_body_background_color?: string; recording_overlay_audio_reactive_scale?: boolean; recording_overlay_audio_reactive_scale_max_percent?: number; recording_overlay_voice_sensitivity_percent?: number; recording_overlay_animation_softness_percent?: number; recording_overlay_depth_parallax_percent?: number; recording_overlay_opacity_percent?: number; recording_overlay_silence_fade?: boolean; recording_overlay_silence_opacity_percent?: number; recording_overlay_decapitalize_indicator_mode?: RecordingOverlayDecapitalizeIndicatorMode; recording_overlay_decapitalize_indicator_custom_text?: string; recording_overlay_decapitalize_indicator_font_family?: string; recording_overlay_decapitalize_indicator_font_size_px?: number; recording_overlay_decapitalize_indicator_color?: string; soniox_live_preview_enabled?: boolean; soniox_live_preview_position?: SonioxLivePreviewPosition; soniox_live_preview_cursor_offset_px?: number; soniox_live_preview_custom_x_px?: number; soniox_live_preview_custom_y_px?: number; soniox_live_preview_size?: SonioxLivePreviewSize; soniox_live_preview_custom_width_px?: number; soniox_live_preview_custom_height_px?: number; soniox_live_preview_theme?: SonioxLivePreviewTheme; soniox_live_preview_opacity_percent?: number; soniox_live_preview_font_color?: string; soniox_live_preview_interim_font_color?: string; soniox_live_preview_accent_color?: string; soniox_live_preview_interim_opacity_percent?: number; 
+error_feedback_enabled?: boolean; recording_overlay_custom_enabled?: boolean; recording_overlay_show_drag_grip?: boolean; recording_overlay_theme?: RecordingOverlayTheme; recording_overlay_background_mode?: RecordingOverlayBackgroundMode; recording_overlay_material_mode?: RecordingOverlayMaterialMode; recording_overlay_centerpiece_mode?: RecordingOverlayCenterpieceMode; recording_overlay_animated_border_mode?: RecordingOverlayAnimatedBorderMode; recording_overlay_show_status_icon?: boolean; recording_overlay_show_cancel_button?: boolean; recording_overlay_bar_count?: number; recording_overlay_width_px?: number; recording_overlay_bar_width_px?: number; recording_overlay_bar_style?: RecordingOverlayBarStyle; recording_overlay_accent_color?: string; recording_overlay_status_icon_color?: string; recording_overlay_cancel_icon_color?: string; recording_overlay_surface_base_color?: string; recording_overlay_body_background_color?: string; recording_overlay_audio_reactive_scale?: boolean; recording_overlay_audio_reactive_scale_max_percent?: number; recording_overlay_voice_sensitivity_percent?: number; recording_overlay_animation_softness_percent?: number; recording_overlay_depth_parallax_percent?: number; recording_overlay_opacity_percent?: number; recording_overlay_silence_fade?: boolean; recording_overlay_silence_opacity_percent?: number; recording_overlay_decapitalize_indicator_mode?: RecordingOverlayDecapitalizeIndicatorMode; recording_overlay_decapitalize_indicator_custom_text?: string; recording_overlay_decapitalize_indicator_font_family?: string; recording_overlay_decapitalize_indicator_font_size_px?: number; recording_overlay_decapitalize_indicator_color?: string; soniox_live_preview_enabled?: boolean; soniox_live_preview_position?: SonioxLivePreviewPosition; soniox_live_preview_cursor_offset_px?: number; soniox_live_preview_custom_x_px?: number; soniox_live_preview_custom_y_px?: number; soniox_live_preview_size?: SonioxLivePreviewSize; soniox_live_preview_custom_width_px?: number; soniox_live_preview_custom_height_px?: number; soniox_live_preview_theme?: SonioxLivePreviewTheme; soniox_live_preview_opacity_percent?: number; soniox_live_preview_font_color?: string; soniox_live_preview_interim_font_color?: string; soniox_live_preview_accent_color?: string; soniox_live_preview_interim_opacity_percent?: number;
 /**
  * Model IDs whose native streaming output is pasted incrementally while recording.
  * Only committed chunks are ever sent to the active application.
  */
-native_streaming_live_output_models?: string[]; 
+native_streaming_live_output_models?: string[];
 /**
  * Keep Voxtral's tentative tail visible long enough to read in Live Preview.
  */
-native_streaming_show_interim_longer?: boolean; 
+native_streaming_show_interim_longer?: boolean;
 /**
  * Per-model latency presets for native transcribe.cpp streaming.
  * Missing entries intentionally preserve the runtime's accurate defaults.
  */
-native_streaming_latency_presets?: Partial<{ [key in string]: NativeStreamingLatencyPreset }>; soniox_live_preview_close_hotkey?: string; soniox_live_preview_clear_hotkey?: string; soniox_live_preview_flush_hotkey?: string; soniox_live_preview_process_hotkey?: string; soniox_live_preview_insert_hotkey?: string; soniox_live_preview_delete_until_dot_or_comma_hotkey?: string; soniox_live_preview_delete_until_dot_hotkey?: string; soniox_live_preview_delete_last_word_hotkey?: string; soniox_live_preview_show_clear_button?: boolean; soniox_live_preview_show_flush_button?: boolean; soniox_live_preview_show_process_button?: boolean; soniox_live_preview_show_insert_button?: boolean; soniox_live_preview_show_delete_until_dot_or_comma_button?: boolean; soniox_live_preview_show_delete_until_dot_button?: boolean; soniox_live_preview_show_delete_last_word_button?: boolean; soniox_live_preview_ctrl_backspace_delete_last_word?: boolean; soniox_live_preview_backspace_delete_last_char?: boolean; soniox_live_preview_show_drag_grip?: boolean; local_preview_auto_flush_enabled?: boolean; local_preview_auto_flush_interval_ms?: number; local_preview_auto_flush_overlap_ms?: number; soniox_live_preview_sliding_lm_window_enabled?: boolean; soniox_live_preview_sliding_lm_window_prompt?: string; soniox_live_preview_sliding_lm_window_tail_words?: number; debug_mode?: boolean; log_level?: LogLevel; custom_words?: string[]; custom_words_enabled?: boolean; custom_words_ngram_enabled?: boolean; model_unload_timeout?: ModelUnloadTimeout; word_correction_threshold?: number; history_limit?: number; recording_retention_period?: RecordingRetentionPeriod; dictation_stats_enabled?: boolean; dictation_word_count?: number; dictation_word_count_since_ms?: number | null; dictation_character_count?: number; dictation_character_count_since_ms?: number | null; paste_method?: PasteMethod; paste_delay_ms?: number; 
+native_streaming_latency_presets?: Partial<{ [key in string]: NativeStreamingLatencyPreset }>; soniox_live_preview_close_hotkey?: string; soniox_live_preview_clear_hotkey?: string; soniox_live_preview_flush_hotkey?: string; soniox_live_preview_process_hotkey?: string; soniox_live_preview_insert_hotkey?: string; soniox_live_preview_delete_until_dot_or_comma_hotkey?: string; soniox_live_preview_delete_until_dot_hotkey?: string; soniox_live_preview_delete_last_word_hotkey?: string; soniox_live_preview_show_clear_button?: boolean; soniox_live_preview_show_flush_button?: boolean; soniox_live_preview_show_process_button?: boolean; soniox_live_preview_show_insert_button?: boolean; soniox_live_preview_show_delete_until_dot_or_comma_button?: boolean; soniox_live_preview_show_delete_until_dot_button?: boolean; soniox_live_preview_show_delete_last_word_button?: boolean; soniox_live_preview_ctrl_backspace_delete_last_word?: boolean; soniox_live_preview_backspace_delete_last_char?: boolean; soniox_live_preview_show_drag_grip?: boolean; local_preview_auto_flush_enabled?: boolean; local_preview_auto_flush_interval_ms?: number; local_preview_auto_flush_overlap_ms?: number; soniox_live_preview_sliding_lm_window_enabled?: boolean; soniox_live_preview_sliding_lm_window_prompt?: string; soniox_live_preview_sliding_lm_window_tail_words?: number; debug_mode?: boolean; log_level?: LogLevel; custom_words?: string[]; custom_words_enabled?: boolean; custom_words_ngram_enabled?: boolean; model_unload_timeout?: ModelUnloadTimeout; word_correction_threshold?: number; history_limit?: number; recording_retention_period?: RecordingRetentionPeriod; dictation_stats_enabled?: boolean; dictation_word_count?: number; dictation_word_count_since_ms?: number | null; dictation_character_count?: number; dictation_character_count_since_ms?: number | null; paste_method?: PasteMethod; paste_delay_ms?: number;
 /**
  * Convert LF to CRLF before clipboard paste (fixes newlines on Windows)
  */
-convert_lf_to_crlf?: boolean; clipboard_handling?: ClipboardHandling; auto_submit?: boolean; auto_submit_key?: AutoSubmitKey; post_process_enabled?: boolean; post_process_provider_id?: string; post_process_providers?: PostProcessProvider[]; post_process_api_keys?: SecretMap; post_process_models?: Partial<{ [key in string]: string }>; post_process_prompts?: LLMPrompt[]; post_process_selected_prompt_id?: string | null; post_process_benchmark_collapsed?: boolean; post_process_benchmark_system_prompt?: string; post_process_benchmark_user_message?: string; post_process_benchmark_log?: LlmPostProcessBenchmarkResult[]; 
+convert_lf_to_crlf?: boolean; clipboard_handling?: ClipboardHandling; auto_submit?: boolean; auto_submit_key?: AutoSubmitKey; post_process_enabled?: boolean; post_process_provider_id?: string; post_process_providers?: PostProcessProvider[]; post_process_api_keys?: SecretMap; post_process_models?: Partial<{ [key in string]: string }>; post_process_prompts?: LLMPrompt[]; post_process_selected_prompt_id?: string | null; post_process_benchmark_collapsed?: boolean; post_process_benchmark_system_prompt?: string; post_process_benchmark_user_message?: string; post_process_benchmark_log?: LlmPostProcessBenchmarkResult[];
 /**
  * When true, the benchmark uses the currently selected post-processing prompt as the system
  * prompt instead of the separate custom benchmark system prompt field.
  */
-post_process_benchmark_use_selected_prompt?: boolean; 
+post_process_benchmark_use_selected_prompt?: boolean;
 /**
  * Whether ${short_prev_transcript} is enabled in LLM prompt templates.
  */
-llm_context_prev_transcript_enabled?: boolean; 
+llm_context_prev_transcript_enabled?: boolean;
 /**
  * Max words retained for ${short_prev_transcript}.
  */
-llm_context_prev_transcript_max_words?: number; 
+llm_context_prev_transcript_max_words?: number;
 /**
  * Expiry window (seconds) for ${short_prev_transcript}.
  */
-llm_context_prev_transcript_expiry_seconds?: number; ai_replace_system_prompt?: string; ai_replace_user_prompt?: string; ai_replace_max_chars?: number; ai_replace_restore_on_error?: boolean; ai_replace_allow_no_selection?: boolean; ai_replace_no_selection_system_prompt?: string; ai_replace_no_selection_user_prompt?: string; ai_replace_allow_quick_tap?: boolean; ai_replace_quick_tap_threshold_ms?: number; ai_replace_quick_tap_system_prompt?: string; ai_replace_quick_tap_user_prompt?: string; 
+llm_context_prev_transcript_expiry_seconds?: number; ai_replace_system_prompt?: string; ai_replace_user_prompt?: string; ai_replace_max_chars?: number; ai_replace_restore_on_error?: boolean; ai_replace_allow_no_selection?: boolean; ai_replace_no_selection_system_prompt?: string; ai_replace_no_selection_user_prompt?: string; ai_replace_allow_quick_tap?: boolean; ai_replace_quick_tap_threshold_ms?: number; ai_replace_quick_tap_system_prompt?: string; ai_replace_quick_tap_user_prompt?: string;
 /**
  * AI Replace LLM provider ID (separate from post-processing)
  */
-ai_replace_provider_id?: string | null; 
+ai_replace_provider_id?: string | null;
 /**
  * AI Replace API keys per provider
  */
-ai_replace_api_keys?: SecretMap; 
+ai_replace_api_keys?: SecretMap;
 /**
  * AI Replace models per provider
  */
-ai_replace_models?: Partial<{ [key in string]: string }>; send_to_extension_with_selection_system_prompt?: string; send_to_extension_with_selection_user_prompt?: string; 
+ai_replace_models?: Partial<{ [key in string]: string }>; send_to_extension_with_selection_system_prompt?: string; send_to_extension_with_selection_user_prompt?: string;
 /**
  * Whether the "Send Transcription to Extension" action is enabled (risky feature)
  */
-send_to_extension_enabled?: boolean; send_to_extension_push_to_talk?: boolean; 
+send_to_extension_enabled?: boolean; send_to_extension_push_to_talk?: boolean;
 /**
  * Whether the "Send Transcription + Selection to Extension" action is enabled (risky feature)
  */
-send_to_extension_with_selection_enabled?: boolean; send_to_extension_with_selection_push_to_talk?: boolean; send_to_extension_with_selection_allow_no_voice?: boolean; send_to_extension_with_selection_quick_tap_threshold_ms?: number; send_to_extension_with_selection_no_voice_system_prompt?: string; ai_replace_selection_push_to_talk?: boolean; mute_while_recording?: boolean; pause_media_while_recording?: boolean; filter_silence?: boolean; file_transcription_chunking_mode?: FileTranscriptionChunkingMode; file_transcription_chunking_max_minutes?: number; 
+send_to_extension_with_selection_enabled?: boolean; send_to_extension_with_selection_push_to_talk?: boolean; send_to_extension_with_selection_allow_no_voice?: boolean; send_to_extension_with_selection_quick_tap_threshold_ms?: number; send_to_extension_with_selection_no_voice_system_prompt?: string; ai_replace_selection_push_to_talk?: boolean; mute_while_recording?: boolean; pause_media_while_recording?: boolean; filter_silence?: boolean; file_transcription_chunking_mode?: FileTranscriptionChunkingMode; file_transcription_chunking_max_minutes?: number;
 /**
  * Optional microphone-only preamp in dB, saved per microphone device name.
  */
-microphone_input_boost_db_by_device?: Partial<{ [key in string]: number }>; 
+microphone_input_boost_db_by_device?: Partial<{ [key in string]: number }>;
 /**
  * Optional microphone-only preamp in dB (0.0-12.0). Zero keeps the capture path vanilla.
  */
-microphone_input_boost_db?: number; 
+microphone_input_boost_db?: number;
 /**
  * Microphone-only RNNoise suppression before VAD/STT. Loopback capture is left untouched.
  */
-microphone_noise_cancellation_enabled?: boolean; connector_port?: number; connector_enabled?: boolean; connector_encryption_enabled?: boolean; connector_allow_any_cors?: boolean; connector_cors?: string; connector_auto_open_enabled?: boolean; connector_auto_open_url?: string; screenshot_capture_method?: ScreenshotCaptureMethod; native_region_capture_mode?: NativeRegionCaptureMode; screenshot_capture_command?: string; screenshot_folder?: string; screenshot_require_recent?: boolean; screenshot_timeout_seconds?: number; screenshot_include_subfolders?: boolean; screenshot_allow_no_voice?: boolean; screenshot_quick_tap_threshold_ms?: number; screenshot_no_voice_default_prompt?: string; 
+microphone_noise_cancellation_enabled?: boolean; connector_port?: number; connector_enabled?: boolean; connector_encryption_enabled?: boolean; connector_allow_any_cors?: boolean; connector_cors?: string; connector_auto_open_enabled?: boolean; connector_auto_open_url?: string; screenshot_capture_method?: ScreenshotCaptureMethod; native_region_capture_mode?: NativeRegionCaptureMode; screenshot_capture_command?: string; screenshot_folder?: string; screenshot_require_recent?: boolean; screenshot_timeout_seconds?: number; screenshot_include_subfolders?: boolean; screenshot_allow_no_voice?: boolean; screenshot_quick_tap_threshold_ms?: number; screenshot_no_voice_default_prompt?: string;
 /**
  * Whether the "Send Transcription + Screenshot to Extension" action is enabled (risky feature)
  */
-send_screenshot_to_extension_enabled?: boolean; send_screenshot_to_extension_push_to_talk?: boolean; app_language?: string; connector_password?: SecretString; 
+send_screenshot_to_extension_enabled?: boolean; send_screenshot_to_extension_push_to_talk?: boolean; app_language?: string; connector_password?: SecretString;
 /**
  * Whether the user explicitly set the connector password (disables auto-generation)
  */
-connector_password_user_set?: boolean; 
+connector_password_user_set?: boolean;
 /**
  * Pending password awaiting acknowledgement from extension (two-phase commit)
  */
-connector_pending_password?: SecretOptionString; 
+connector_pending_password?: SecretOptionString;
 /**
  * Timestamp (Unix ms) when the pending connector password was issued.
  */
-connector_pending_password_issued_at_ms?: number; 
+connector_pending_password_issued_at_ms?: number;
 /**
  * Last extension export directory created by AivoRelay for the browser connector.
  */
-connector_last_export_dir?: string; 
+connector_last_export_dir?: string;
 /**
  * Last exported extension identity used by AivoRelay for browser connector packaging.
  */
-connector_last_export_extension_id?: string; 
+connector_last_export_extension_id?: string;
 /**
  * Last exported manifest key used for connector identity continuity across re-extracts.
  */
-connector_last_export_manifest_key?: string; 
+connector_last_export_manifest_key?: string;
 /**
  * Per-model transcription prompts (model_id -> prompt text)
  * For Whisper: context/terms prompt. For Parakeet: comma-separated boost words.
  */
-transcription_prompts?: Partial<{ [key in string]: string }>; 
+transcription_prompts?: Partial<{ [key in string]: string }>;
 /**
  * Custom transcription profiles with per-profile language/translation settings.
  * Each profile creates a dynamic shortcut binding.
  */
-transcription_profiles?: TranscriptionProfile[]; 
+transcription_profiles?: TranscriptionProfile[];
 /**
  * Saved speaker-name presets for diarized file transcription.
  */
-diarization_speaker_name_profiles?: DiarizationSpeakerNameProfile[]; 
+diarization_speaker_name_profiles?: DiarizationSpeakerNameProfile[];
 /**
  * ID of the currently active profile. "default" means use global settings.
  * When the main "Transcribe" shortcut is pressed, this profile's settings are used.
  */
-active_profile_id?: string; 
+active_profile_id?: string;
 /**
  * Whether to show an overlay notification when switching profiles
  */
-profile_switch_overlay_enabled?: boolean; 
+profile_switch_overlay_enabled?: boolean;
 /**
  * Whether the Voice Command feature is enabled
  */
-voice_command_enabled?: boolean; 
+voice_command_enabled?: boolean;
 /**
  * Push-to-talk mode for voice commands
  */
-voice_command_push_to_talk?: boolean; 
+voice_command_push_to_talk?: boolean;
 /**
  * Predefined voice commands (trigger phrase -> script)
  */
-voice_commands?: VoiceCommand[]; 
+voice_commands?: VoiceCommand[];
 /**
  * Default similarity threshold for fuzzy matching (0.0-1.0)
  */
-voice_command_default_threshold?: number; 
+voice_command_default_threshold?: number;
 /**
  * Whether to use LLM fallback when no predefined command matches
  */
-voice_command_llm_fallback?: boolean; 
+voice_command_llm_fallback?: boolean;
 /**
  * System prompt for LLM command generation
  */
-voice_command_system_prompt?: string; 
+voice_command_system_prompt?: string;
 /**
  * Default execution options for new voice commands and LLM fallback
  */
-voice_command_defaults?: VoiceCommandDefaults; voice_command_template?: string; voice_command_keep_window_open?: boolean; 
+voice_command_defaults?: VoiceCommandDefaults; voice_command_template?: string; voice_command_keep_window_open?: boolean;
 /**
  * Whether to auto-run predefined commands after countdown (not LLM-generated)
  */
-voice_command_auto_run?: boolean; 
+voice_command_auto_run?: boolean;
 /**
  * Countdown seconds before auto-running predefined commands (1-10)
  */
-voice_command_auto_run_seconds?: number; 
+voice_command_auto_run_seconds?: number;
 /**
  * Whether to enable extended thinking (reasoning tokens) for post-processing LLM calls
  */
-post_process_reasoning_enabled?: boolean; 
+post_process_reasoning_enabled?: boolean;
 /**
  * Token budget for post-processing extended thinking (min: 1024, default: 2048)
  */
-post_process_reasoning_budget?: number; 
+post_process_reasoning_budget?: number;
 /**
  * Whether to enable extended thinking for AI Replace LLM calls
  */
-ai_replace_reasoning_enabled?: boolean; 
+ai_replace_reasoning_enabled?: boolean;
 /**
  * Token budget for AI Replace extended thinking (min: 1024, default: 2048)
  */
-ai_replace_reasoning_budget?: number; 
+ai_replace_reasoning_budget?: number;
 /**
  * Voice Command LLM provider ID (separate from post-processing)
  */
-voice_command_provider_id?: string | null; 
+voice_command_provider_id?: string | null;
 /**
  * Voice Command API keys per provider
  */
-voice_command_api_keys?: SecretMap; 
+voice_command_api_keys?: SecretMap;
 /**
  * Voice Command models per provider
  */
-voice_command_models?: Partial<{ [key in string]: string }>; 
+voice_command_models?: Partial<{ [key in string]: string }>;
 /**
  * Whether to enable extended thinking for Voice Command LLM fallback
  */
-voice_command_reasoning_enabled?: boolean; 
+voice_command_reasoning_enabled?: boolean;
 /**
  * Token budget for Voice Command extended thinking (min: 1024, default: 2048)
  */
-voice_command_reasoning_budget?: number; 
+voice_command_reasoning_budget?: number;
 /**
  * Whether to use Levenshtein distance for character-level matching
  */
-voice_command_use_levenshtein?: boolean; 
+voice_command_use_levenshtein?: boolean;
 /**
  * Per-word Levenshtein threshold (0.0-1.0, lower = more tolerant of typos)
  */
-voice_command_levenshtein_threshold?: number; 
+voice_command_levenshtein_threshold?: number;
 /**
  * Whether to use phonetic (Soundex) matching
  */
-voice_command_use_phonetic?: boolean; 
+voice_command_use_phonetic?: boolean;
 /**
  * Phonetic match boost multiplier (0.0-1.0)
  */
-voice_command_phonetic_boost?: number; 
+voice_command_phonetic_boost?: number;
 /**
  * Word similarity threshold - minimum score for a word pair to be considered matching
  */
-voice_command_word_similarity_threshold?: number; 
+voice_command_word_similarity_threshold?: number;
 /**
  * Whether Voice Commands beta feature is enabled in the UI (Debug menu toggle)
  */
-beta_voice_commands_enabled?: boolean; 
+beta_voice_commands_enabled?: boolean;
 /**
  * Whether to show the bottom always-on-top toggle row in the floating voice button window
  */
-voice_button_show_aot_toggle?: boolean; 
+voice_button_show_aot_toggle?: boolean;
 /**
  * Whether clicking the close "x" once should close the floating voice button window
  */
-voice_button_single_click_close?: boolean; 
+voice_button_single_click_close?: boolean;
 /**
  * Whether text replacement feature is enabled globally
  */
-text_replacements_enabled?: boolean; 
+text_replacements_enabled?: boolean;
 /**
  * List of text replacement rules
  */
-text_replacements?: TextReplacement[]; 
+text_replacements?: TextReplacement[];
 /**
  * Text-to-Speech provider, preprocessing, playback, and export settings.
  */
-tts?: TtsSettings; 
+tts?: TtsSettings;
 /**
  * Whether to apply text replacements BEFORE LLM post-processing (default: after)
  * When true: STT → Text Replacement → LLM → Output
  * When false (default): STT → LLM → Text Replacement → Output
  */
-text_replacements_before_llm?: boolean; 
+text_replacements_before_llm?: boolean;
 /**
  * Enable passive key monitoring to decapitalize the next inserted chunk after manual edits.
  */
-text_replacement_decapitalize_after_edit_key_enabled?: boolean; 
+text_replacement_decapitalize_after_edit_key_enabled?: boolean;
 /**
  * Keyboard key (or shortcut) to monitor for manual edits. Default: backspace.
  */
-text_replacement_decapitalize_after_edit_key?: string; 
+text_replacement_decapitalize_after_edit_key?: string;
 /**
  * Enable an optional second monitored key for decapitalize-after-edit.
  * When enabled, either primary OR secondary key can arm decapitalization.
  */
-text_replacement_decapitalize_after_edit_secondary_key_enabled?: boolean; 
+text_replacement_decapitalize_after_edit_secondary_key_enabled?: boolean;
 /**
  * Optional secondary keyboard key (or shortcut) for manual edits. Default: delete.
  */
-text_replacement_decapitalize_after_edit_secondary_key?: string; 
+text_replacement_decapitalize_after_edit_secondary_key?: string;
 /**
  * How long the decapitalize trigger remains active after the monitored key is pressed.
  */
-text_replacement_decapitalize_timeout_ms?: number; 
+text_replacement_decapitalize_timeout_ms?: number;
 /**
  * For standard (non-realtime) STT only: how long after stop-recording
  * we keep monitoring for the edit key to arm decapitalization on the next output.
  */
-text_replacement_decapitalize_standard_post_recording_monitor_ms?: number; 
+text_replacement_decapitalize_standard_post_recording_monitor_ms?: number;
 /**
  * Output whitespace policy for the leading boundary.
  * - preserve: keep provider/processing output as-is
  * - remove_if_present: remove leading whitespace
  * - add_if_missing: prefix one leading space when missing
  */
-output_whitespace_leading_mode?: OutputWhitespaceMode; 
+output_whitespace_leading_mode?: OutputWhitespaceMode;
 /**
  * Output whitespace policy for the trailing boundary.
  * - preserve: keep provider/processing output as-is
  * - remove_if_present: remove trailing whitespace
  * - add_if_missing: suffix one trailing space when missing
  */
-output_whitespace_trailing_mode?: OutputWhitespaceMode; 
+output_whitespace_trailing_mode?: OutputWhitespaceMode;
 /**
  * Whether to filter filler words (uh, um, hmm, etc.) from transcriptions
  */
-filler_word_filter_enabled?: boolean; 
+filler_word_filter_enabled?: boolean;
 /**
  * Optional custom filler words. When set, overrides language defaults for filler filtering.
  */
-custom_filler_words?: string[] | null; whisper_accelerator?: WhisperAcceleratorSetting; ort_accelerator?: OrtAcceleratorSetting; whisper_gpu_device?: number; 
+custom_filler_words?: string[] | null; whisper_accelerator?: WhisperAcceleratorSetting; ort_accelerator?: OrtAcceleratorSetting; whisper_gpu_device?: number;
 /**
  * Whether to strip invisible Unicode characters (zero-width spaces, BOM) from LLM output
  */
-zero_width_filter_enabled?: boolean; 
+zero_width_filter_enabled?: boolean;
 /**
  * VAD (Voice Activity Detection) threshold for speech detection (0.1-0.9)
  * Lower = more sensitive (captures quieter speech but may include noise)
  * Higher = less sensitive (cleaner input but may cut off quiet speech)
  */
-vad_threshold?: number; 
+vad_threshold?: number;
 /**
  * Which shortcut engine to use for global hotkeys (Windows only)
  * - "tauri": High performance, but doesn't support Caps Lock, Num Lock, modifier-only shortcuts
  * - "handy_keys": Upstream backend with backend-side shortcut recording
  * - "rdev": Supports all keys, but uses more CPU (processes every keystroke)
  */
-shortcut_engine?: ShortcutEngine; 
+shortcut_engine?: ShortcutEngine;
 /**
  * Whether the recording auto-stop safety timer is enabled
  */
-recording_auto_stop_enabled?: boolean; 
+recording_auto_stop_enabled?: boolean;
 /**
  * Seconds before auto-stopping recording (10..7200, default 1800 = 30 min)
  */
-recording_auto_stop_timeout_seconds?: number; 
+recording_auto_stop_timeout_seconds?: number;
 /**
  * When true, auto-stop pastes normally; when false, cancels/wipes the recording
  */
-recording_auto_stop_paste?: boolean; 
+recording_auto_stop_paste?: boolean;
 /**
  * Extra trailing capture time for local STT paths after hotkey release (0..1500 ms)
  */
-extra_recording_buffer_ms?: number; 
+extra_recording_buffer_ms?: number;
 /**
  * Keep the microphone stream alive briefly after stop to reduce startup latency.
  */
-lazy_stream_close?: boolean; 
+lazy_stream_close?: boolean;
 /**
  * Whether the hotkey sidebar is pinned open
  */
-sidebar_pinned?: boolean; 
+sidebar_pinned?: boolean;
 /**
  * Width of the hotkey sidebar in pixels
  */
-sidebar_width?: number; 
+sidebar_width?: number;
 /**
  * Remember the main window size between sessions
  */
-remember_window_size?: boolean; 
+remember_window_size?: boolean;
 /**
  * Remember the main window position between sessions
  */
-remember_window_position?: boolean; 
+remember_window_position?: boolean;
 /**
  * Saved main window inner width in physical pixels (0 = not set)
  */
-saved_window_width?: number; 
+saved_window_width?: number;
 /**
  * Saved main window inner height in physical pixels (0 = not set)
  */
-saved_window_height?: number; 
+saved_window_height?: number;
 /**
  * Saved main window X position in physical pixels (i32::MIN = not set)
  */
-saved_window_x?: number; 
+saved_window_x?: number;
 /**
  * Saved main window Y position in physical pixels (i32::MIN = not set)
  */
@@ -3992,7 +4000,7 @@ export type AutoSubmitKey = "enter" | "ctrl_enter" | "cmd_enter"
 export type AvailableAccelerators = { whisper: string[]; ort: string[]; gpu_devices: GpuDeviceOption[] }
 export type BindingResponse = { success: boolean; binding: ShortcutBinding | null; error: string | null }
 export type BundledExtensionExportResult = { exportPath: string; extensionId: string; configuredOrigin: string; generatedPassword: string; reusedExistingId: boolean; replacedExistingExport: boolean }
-export type ClipboardHandling = "dont_modify" | "copy_to_clipboard" | 
+export type ClipboardHandling = "dont_modify" | "copy_to_clipboard" |
 /**
  * Experimental: Try to restore all clipboard formats including images, HTML, files (Windows-only)
  */
@@ -4000,19 +4008,19 @@ export type ClipboardHandling = "dont_modify" | "copy_to_clipboard" |
 /**
  * Status info returned to frontend
  */
-export type ConnectorStatus = { status: ExtensionStatus; 
+export type ConnectorStatus = { status: ExtensionStatus;
 /**
  * Last time extension polled (Unix timestamp in ms), 0 if never
  */
-last_poll_at: number; 
+last_poll_at: number;
 /**
  * Server is running
  */
-server_running: boolean; 
+server_running: boolean;
 /**
  * Port server is listening on
  */
-port: number; 
+port: number;
 /**
  * Last server error (e.g., port binding failure), None if no error
  */
@@ -4030,19 +4038,19 @@ export type EngineType = "TranscribeCpp" | "Whisper" | "Parakeet" | "Moonshine" 
  * PowerShell execution policy for voice commands.
  * Controls script execution permissions.
  */
-export type ExecutionPolicy = 
+export type ExecutionPolicy =
 /**
  * Use system default policy (no -ExecutionPolicy flag)
  */
-"default" | 
+"default" |
 /**
  * Bypass all restrictions (recommended for scripts)
  */
-"bypass" | 
+"bypass" |
 /**
  * No restrictions on local scripts, remote scripts require signature
  */
-"unrestricted" | 
+"unrestricted" |
 /**
  * Remote scripts require signature
  */
@@ -4050,15 +4058,15 @@ export type ExecutionPolicy =
 /**
  * Extension connection status
  */
-export type ExtensionStatus = 
+export type ExtensionStatus =
 /**
  * Extension is actively polling
  */
-"online" | 
+"online" |
 /**
  * Extension has not polled recently
  */
-"offline" | 
+"offline" |
 /**
  * Server is starting up, status unknown
  */
@@ -4069,27 +4077,27 @@ export type FileTranscriptionRecordingState = { isRecording: boolean; recordingU
 /**
  * Result of a file transcription operation
  */
-export type FileTranscriptionResult = { 
+export type FileTranscriptionResult = {
 /**
  * The transcribed text (or formatted SRT/VTT content)
  */
-text: string; 
+text: string;
 /**
  * Path where the file was saved (if save_to_file was true)
  */
-saved_file_path: string | null; 
+saved_file_path: string | null;
 /**
  * The segments with timestamps (only populated for SRT/VTT formats)
  */
-segments: SubtitleSegment[] | null; 
+segments: SubtitleSegment[] | null;
 /**
  * Optional informational message for UI display
  */
-info_message: string | null; 
+info_message: string | null;
 /**
  * Optional smart-chunking trace for UI/debug display
  */
-chunking_trace: FileTranscriptionChunkTraceEntry[] | null; 
+chunking_trace: FileTranscriptionChunkTraceEntry[] | null;
 /**
  * Temporary diarized speaker session for renaming/re-apply
  */
@@ -4099,15 +4107,15 @@ export type FileTranscriptionSpeakerNameInput = { speaker_id: number; name: stri
 export type FileTranscriptionSpeakerSession = { artifact_path: string; provider: DiarizedTranscriptProvider; speakers: FileTranscriptionSpeaker[] }
 export type GpuDeviceOption = { id: number; name: string; total_vram_mb: number }
 export type GpuVramStatus = { is_supported: boolean; adapter_name: string | null; used_bytes: number; budget_bytes: number; system_used_bytes: number; system_free_bytes: number; total_vram_bytes: number; updated_at_unix_ms: number; error: string | null }
-export type HistoryEntry = { id: number; file_name: string; timestamp: number; saved: boolean; title: string; transcription_text: string; post_processed_text: string | null; post_process_prompt: string | null; post_process_requested: boolean; 
+export type HistoryEntry = { id: number; file_name: string; timestamp: number; saved: boolean; title: string; transcription_text: string; post_processed_text: string | null; post_process_prompt: string | null; post_process_requested: boolean;
 /**
  * Type of action: "transcribe", "ai_replace", etc.
  */
-action_type: string; 
+action_type: string;
 /**
  * For AI Replace: the original selected text that was transformed
  */
-original_selection: string | null; 
+original_selection: string | null;
 /**
  * For AI Replace: the AI response (None if request failed/never received)
  */
@@ -4121,30 +4129,30 @@ export type LiveSoundTranscriptionStatePayload = { active: boolean; recording: b
  * Which feature is requesting LLM access.
  * Used to resolve the correct provider/key/model configuration.
  */
-export type LlmFeature = 
+export type LlmFeature =
 /**
  * Post-processing of transcriptions
  */
-"post_processing" | 
+"post_processing" |
 /**
  * AI Replace selection feature
  */
-"ai_replace" | 
+"ai_replace" |
 /**
  * Voice Command LLM fallback
  */
 "voice_command"
 export type LlmPostProcessBenchmarkResult = { timestamp_ms: number; provider_id: string; provider_label: string; model: string; duration_ms: number; chars_per_second: number; input_chars: number; output_chars: number; success: boolean; system_prompt: string; user_message: string; response_text: string; error: string | null }
 export type LocalTtsKind = "qwen" | "kokoro"
-export type LocalTtsStatus = { kind?: LocalTtsKind; installed: boolean; installing: boolean; phase: string; downloaded_bytes: number; total_bytes: number; percentage: number; runtime_profile: string; model_repository: string; model_revision: string; model_download_bytes: number; error: string | null }
+export type LocalTtsStatus = { kind?: LocalTtsKind; installed: boolean; installing: boolean; phase: string; downloaded_bytes: number; total_bytes: number; percentage: number; runtime_profile: string; model_repository: string; model_revision: string; model_download_bytes: number; install_root?: string; installed_size_bytes?: number; estimated_install_bytes?: number; model_author?: string; model_source_url?: string; model_license_name?: string; model_license_url?: string; model_license_path?: string; model_license_declaration_path?: string; model_license_available?: boolean; error: string | null }
 export type LogLevel = "trace" | "debug" | "info" | "warn" | "error"
 export type ModelInfo = { id: string; name: string; description: string; filename: string; url: string | null; sha256: string | null; size_mb: number; is_downloaded: boolean; is_downloading: boolean; partial_size: number; is_directory: boolean; engine_type: EngineType; accuracy_score: number; speed_score: number; supports_translation: boolean; supports_streaming: boolean; native_streaming_latency_kind: NativeStreamingLatencyKind | null; supports_language_detection: boolean; is_recommended: boolean; supported_languages: string[]; is_custom: boolean }
 export type ModelUnloadTimeout = "never" | "immediately" | "min_2" | "min_5" | "min_10" | "min_15" | "hour_1" | "sec_5"
-export type NativeRegionCaptureMode = 
+export type NativeRegionCaptureMode =
 /**
  * Most performant: transparent picker over the live desktop.
  */
-"live_desktop" | 
+"live_desktop" |
 /**
  * Legacy: capture a full screenshot first and use it as the picker background.
  */
@@ -4156,15 +4164,15 @@ export type OrtAcceleratorSetting = "auto" | "cpu" | "cuda" | "directml" | "rocm
 /**
  * Output format for transcription
  */
-export type OutputFormat = 
+export type OutputFormat =
 /**
  * Plain text (default)
  */
-"text" | 
+"text" |
 /**
  * SRT subtitle format
  */
-"srt" | 
+"srt" |
 /**
  * WebVTT subtitle format
  */
@@ -4191,13 +4199,13 @@ export type RecordingOverlayDecapitalizeIndicatorMode = "text" | "custom" | "hid
 export type RecordingOverlayMaterialMode = "liquid_glass" | "pearl" | "velvet_neon" | "frost" | "candy_chrome"
 export type RecordingOverlayTheme = "classic" | "minimal" | "glass"
 export type RecordingRetentionPeriod = "never" | "preserve_limit" | "days_3" | "weeks_2" | "months_3"
-export type RegenerateTtsHistoryRequest = { id: number; 
+export type RegenerateTtsHistoryRequest = { id: number;
 /**
  * Optional external destination. When omitted (the normal UI path), a
  * collision-safe cache output is used only long enough to append the
  * managed history copy and is then removed.
  */
-outputPath: string | null; provider: TtsProvider | null; model: string | null; voice: string | null; promptPresetId: string | null; promptPresetName: string | null; 
+outputPath: string | null; provider: TtsProvider | null; model: string | null; voice: string | null; promptPresetId: string | null; promptPresetName: string | null;
 /**
  * Literal resolved instructions. Callers must read any instructions file
  * themselves; this string is never evaluated as code.
@@ -4226,19 +4234,19 @@ export type SecretString = string
 /**
  * Region selected by the user (in screen coordinates).
  */
-export type SelectedRegion = { 
+export type SelectedRegion = {
 /**
  * X coordinate in virtual screen space
  */
-x: number; 
+x: number;
 /**
  * Y coordinate in virtual screen space
  */
-y: number; 
+y: number;
 /**
  * Width in pixels
  */
-width: number; 
+width: number;
 /**
  * Height in pixels
  */
@@ -4248,17 +4256,17 @@ export type ShortcutBinding = { id: string; name: string; description: string; d
  * Shortcut engine selection for Windows.
  * Controls which mechanism is used to listen for global hotkeys.
  */
-export type ShortcutEngine = 
+export type ShortcutEngine =
 /**
  * Use tauri-plugin-global-shortcut (high performance, limited key support)
  * Does NOT support: Caps Lock, Num Lock, Scroll Lock, modifier-only shortcuts
  */
-"tauri" | 
+"tauri" |
 /**
  * Use the upstream handy-keys backend (global hotkeys with backend-side recording)
  * Supports broader key coverage than Tauri without replacing fork-specific rdev monitors
  */
-"handy_keys" | 
+"handy_keys" |
 /**
  * Use rdev low-level hooks (all keys supported, higher CPU usage)
  * Supports ALL keys including Caps Lock, Num Lock, and modifier-only shortcuts
@@ -4275,15 +4283,15 @@ export type SoundTheme = "marimba" | "pop" | "custom"
 /**
  * A transcription segment with timing information
  */
-export type SubtitleSegment = { 
+export type SubtitleSegment = {
 /**
  * Start time in seconds
  */
-start: number; 
+start: number;
 /**
  * End time in seconds
  */
-end: number; 
+end: number;
 /**
  * The transcribed text for this segment
  */
@@ -4294,29 +4302,29 @@ export type TextFileInspection = { path: string; source_character_count: number;
  * Supports escape sequences for special characters (e.g., \n for newline).
  * Used to automatically fix common misheard phrases or apply consistent formatting.
  */
-export type TextReplacement = { 
+export type TextReplacement = {
 /**
  * Unique identifier (e.g., "tr_1704067200000")
  */
-id: string; 
+id: string;
 /**
  * The text pattern to search for (supports escape sequences: \n, \r\n, \t, \\)
  * If is_regex is true, this is treated as a regular expression pattern.
  */
-from: string; 
+from: string;
 /**
  * The replacement text (supports escape sequences: \n, \r\n, \t, \\)
  * For regex replacements, supports $1, $2, etc. for capture groups.
  */
-to: string; 
+to: string;
 /**
  * Whether this replacement rule is enabled
  */
-enabled?: boolean; 
+enabled?: boolean;
 /**
  * Whether the match should be case-sensitive (default: true)
  */
-case_sensitive?: boolean; 
+case_sensitive?: boolean;
 /**
  * Whether the 'from' field is a regular expression (default: false)
  */
@@ -4325,97 +4333,97 @@ is_regex?: boolean }
  * A custom transcription profile with its own language and translation settings.
  * Each profile creates a separate shortcut binding (e.g., "transcribe_profile_abc123").
  */
-export type TranscriptionProfile = { 
+export type TranscriptionProfile = {
 /**
  * Unique identifier (e.g., "profile_1704067200000")
  */
-id: string; 
+id: string;
 /**
  * User-friendly name (e.g., "French to English", "Spanish Native")
  */
-name: string; 
+name: string;
 /**
  * Language code for speech recognition (e.g., "fr", "es", "auto")
  */
-language: string; 
+language: string;
 /**
  * Whether to translate the transcription to English
  */
-translate_to_english: boolean; 
+translate_to_english: boolean;
 /**
  * Optional description shown in UI
  */
-description?: string; 
+description?: string;
 /**
  * Optional system prompt for STT models (context hints, terminology, etc.)
  * Character limits are enforced based on the active model (e.g., Whisper: 896 chars)
  */
-system_prompt?: string; 
+system_prompt?: string;
 /**
  * Whether to override the global per-model STT prompt with this profile's system_prompt.
  * When true, uses system_prompt (even if empty) instead of global transcription_prompts.
  * When false, falls back to global per-model prompt.
  */
-stt_prompt_override_enabled?: boolean; 
+stt_prompt_override_enabled?: boolean;
 /**
  * Whether this profile participates in the cycle shortcut rotation
  */
-include_in_cycle?: boolean; 
+include_in_cycle?: boolean;
 /**
  * Push-to-talk mode for this profile (hold key to record vs toggle)
  */
-push_to_talk?: boolean; 
+push_to_talk?: boolean;
 /**
  * Route transcription output to the preview window instead of auto-inserting.
  * The user explicitly controls when text is inserted via preview actions.
  */
-preview_output_only_enabled?: boolean; 
+preview_output_only_enabled?: boolean;
 /**
  * Enforce language hints strictly in Soniox (None = inherit global)
  */
-soniox_language_hints_strict?: boolean | null; 
+soniox_language_hints_strict?: boolean | null;
 /**
  * Whether LLM post-processing is enabled for this profile
  * Inherits from global post_process_enabled when profile is created
  */
-llm_post_process_enabled?: boolean; 
+llm_post_process_enabled?: boolean;
 /**
  * Override the global LLM system prompt for this profile
  * If Some, uses this text instead of the global selected prompt
  */
-llm_prompt_override?: string | null; 
+llm_prompt_override?: string | null;
 /**
  * Override the global LLM model for this profile
  * If Some, uses this model instead of the global model for the current provider
  */
-llm_model_override?: string | null; 
+llm_model_override?: string | null;
 /**
  * Soniox context.general as JSON array string.
  */
-soniox_context_general_json?: string; 
+soniox_context_general_json?: string;
 /**
  * Soniox context.text free-form text.
  */
-soniox_context_text?: string; 
+soniox_context_text?: string;
 /**
  * Soniox context.terms list.
  */
 soniox_context_terms?: string[] }
 export type TranscriptionProvider = "local" | "remote_openai_compatible" | "remote_soniox" | "remote_deepgram"
 export type TtsHistoryDeleteOutcome = { id: number; record_deleted: boolean; managed_audio_status: TtsHistoryManagedAudioDeleteStatus; managed_audio_error: string | null }
-export type TtsHistoryEntry = { id: number; timestamp: number; scope: TtsHistoryScope; 
+export type TtsHistoryEntry = { id: number; timestamp: number; scope: TtsHistoryScope;
 /**
  * Stable source identifier shared by append-only provider/voice variants.
  */
-group_id: string; 
+group_id: string;
 /**
  * Original, unprocessed input text retained for later re-synthesis.
  */
-source_text: string; source_kind: TtsHistorySourceKind; provider: TtsProvider; model: string; voice: string; language: string; output_format: TtsOutputFormat; managed_audio_filename: string; external_output_path: string | null; 
+source_text: string; source_kind: TtsHistorySourceKind; provider: TtsProvider; model: string; voice: string; language: string; output_format: TtsOutputFormat; managed_audio_filename: string; external_output_path: string | null;
 /**
  * Optional saved TTS preset identity used for this variant.
  */
-prompt_preset_id: string | null; prompt_preset_name: string | null; 
+prompt_preset_id: string | null; prompt_preset_name: string | null;
 /**
  * Resolved provider instructions, if any. API credentials are never
  * stored in history.
@@ -4436,44 +4444,55 @@ export type TtsModelSynthesisSettings = { model_key: string; config: TtsSynthesi
 export type TtsOperationScope = "interactive" | "file"
 export type TtsOutputFormat = "mp3" | "wav"
 export type TtsOverlayChunk = { index: number; path: string; pause_after_ms: number }
-export type TtsOverlayState = { operation_id: string; status: string; provider: string; model: string; voice: string; text_preview: string; chunks: TtsOverlayChunk[]; current_chunk: number; total_chunks: number; retry_attempt: number; error: string | null; play_pause_hotkey: string; play_history_when_overlay_closed: boolean; stop_hotkey: string; autoplay: boolean }
+export type TtsOverlayState = { operation_id: string; status: string; provider: string; model: string; voice: string; text_preview: string; chunks: TtsOverlayChunk[]; current_chunk: number; total_chunks: number; retry_attempt: number; error: string | null; play_pause_hotkey: string; play_history_when_overlay_closed: boolean; stop_hotkey: string; autoplay: boolean; playback_pitch: number; playback_effect: TtsPlaybackEffect }
+export type TtsPlaybackEffect = "none" | "radio" | "retro"
 export type TtsPromptPreset = { id: string; name: string; instructions: string }
-export type TtsProvider = "soniox" | "deepgram" | "openai" | "local_qwen" | "local_kokoro" | "windows"
+export type TtsProvider = "soniox" | "deepgram" | "openai" | "edge" | "local_qwen" | "local_kokoro" | "windows"
 export type TtsScopeSynthesisSettings = { active_model_key?: string; selected_preset_id?: string; models?: TtsModelSynthesisSettings[] }
 /**
  * Text-to-Speech configuration with separate Interactive and File Operations
  * synthesis profiles plus a shared named-preset catalog.
- * 
+ *
  * API secrets are deliberately excluded and live in Windows Credential Manager.
  */
-export type TtsSettings = { enabled?: boolean; provider?: TtsProvider; soniox_key_source?: TtsKeySource; deepgram_key_source?: TtsKeySource; openai_key_source?: TtsKeySource; soniox_model?: string; soniox_language?: string; soniox_voice?: string; deepgram_model?: string; openai_model?: string; openai_voice?: string; local_qwen_voice?: string; local_qwen_language?: string; local_kokoro_voice?: string; local_kokoro_language?: string;
+export type TtsSettings = { enabled?: boolean; provider?: TtsProvider; soniox_key_source?: TtsKeySource; deepgram_key_source?: TtsKeySource; openai_key_source?: TtsKeySource; soniox_model?: string; soniox_language?: string; soniox_voice?: string; deepgram_model?: string; openai_model?: string; openai_voice?: string; edge_voice?: string; edge_voice_language?: string; local_qwen_voice?: string; local_qwen_language?: string; local_kokoro_voice?: string; local_kokoro_language?: string;
 /**
  * Stable WinRT VoiceInformation ID. Empty selects the current OS default.
  */
-windows_voice_id?: string; windows_voice_language?: string; openai_instructions?: string; prompt_presets?: TtsPromptPreset[]; selected_prompt_id?: string; synthesis_presets?: TtsSynthesisPreset[]; interactive_synthesis?: TtsScopeSynthesisSettings; file_synthesis?: TtsScopeSynthesisSettings; speed?: number; llm_preprocessing?: TtsLlmPreprocessingSettings; preprocessing_enabled?: boolean; preprocessing_rules?: TextReplacement[]; interactive_target_chars?: number; file_target_chars?: number; retry_count?: number; retry_base_delay_ms?: number; inter_chunk_pause_ms?: number; paragraph_pause_ms?: number; play_pause_hotkey?: string; play_history_when_overlay_closed?: boolean; stop_hotkey?: string; autoplay?: boolean; output_format?: TtsOutputFormat; mp3_bitrate_kbps?: number; watch_folder_enabled?: boolean; watch_recursive?: boolean; watch_input_directory?: string; watch_output_directory?: string; watch_settle_delay_ms?: number; disk_reserve_mb?: number; interactive_history_enabled?: boolean; interactive_history_max_entries?: number; interactive_history_max_storage_mb?: number; file_history_enabled?: boolean; file_history_max_entries?: number; file_history_max_storage_mb?: number }
+windows_voice_id?: string; windows_voice_language?: string; openai_instructions?: string; prompt_presets?: TtsPromptPreset[]; selected_prompt_id?: string; synthesis_presets?: TtsSynthesisPreset[]; interactive_synthesis?: TtsScopeSynthesisSettings; file_synthesis?: TtsScopeSynthesisSettings; speed?: number; llm_preprocessing?: TtsLlmPreprocessingSettings; preprocessing_enabled?: boolean; preprocessing_rules?: TextReplacement[]; interactive_target_chars?: number; file_target_chars?: number; retry_count?: number; retry_base_delay_ms?: number; inter_chunk_pause_ms?: number; paragraph_pause_ms?: number; play_pause_hotkey?: string; play_history_when_overlay_closed?: boolean; stop_hotkey?: string; autoplay?: boolean;
+/**
+ * Pitch-only overlay playback transform. The stored/generated audio is unchanged.
+ */
+playback_pitch?: number;
+/**
+ * Optional overlay playback effect. The stored/generated audio is unchanged.
+ */
+playback_effect?: TtsPlaybackEffect; output_format?: TtsOutputFormat; mp3_bitrate_kbps?: number; watch_folder_enabled?: boolean; watch_recursive?: boolean; watch_input_directory?: string; watch_output_directory?: string; watch_settle_delay_ms?: number; disk_reserve_mb?: number; interactive_history_enabled?: boolean; interactive_history_max_entries?: number; interactive_history_max_storage_mb?: number; file_history_enabled?: boolean; file_history_max_entries?: number; file_history_max_storage_mb?: number }
 export type TtsSynthesisConfig = { provider: TtsProvider; model: string; voice: string; language: string; key_source?: TtsKeySource; speed?: number; voice_instructions?: string; voice_prompt_preset_id?: string; preprocessing_enabled?: boolean; preprocessing_rules?: TextReplacement[]; target_chars?: number; retry_count?: number; retry_base_delay_ms?: number; inter_chunk_pause_ms?: number; paragraph_pause_ms?: number; output_format?: TtsOutputFormat; mp3_bitrate_kbps?: number }
 export type TtsSynthesisPreset = { id: string; name: string; config: TtsSynthesisConfig }
+export type TtsVoiceCatalog = { provider: TtsProvider; voices: TtsVoiceCatalogEntry[]; source: string; supports_live_refresh: boolean; replace_builtin: boolean; warning: string | null }
+export type TtsVoiceCatalogEntry = { id: string; label: string; group: string; language: string; gender: string; description: string }
 export type UpdateTranscriptionProfilePayload = { id: string; name: string; language: string; translateToEnglish: boolean; systemPrompt: string; sttPromptOverrideEnabled: boolean; includeInCycle: boolean; pushToTalk: boolean; previewOutputOnlyEnabled: boolean; sonioxLanguageHintsStrict?: boolean | null; llmSettings: ProfileLlmSettings; sonioxContextGeneralJson: string | null; sonioxContextText: string | null; sonioxContextTerms: string[] | null }
 /**
  * Information about the virtual screen (all monitors combined).
  */
-export type VirtualScreenInfo = { 
+export type VirtualScreenInfo = {
 /**
  * Minimum X coordinate (can be negative if monitors are left of primary)
  */
-offset_x: number; 
+offset_x: number;
 /**
  * Minimum Y coordinate
  */
-offset_y: number; 
+offset_y: number;
 /**
  * Total width spanning all monitors
  */
-total_width: number; 
+total_width: number;
 /**
  * Total height spanning all monitors
  */
-total_height: number; 
+total_height: number;
 /**
  * Scale factor of primary monitor (for coordinate conversion)
  */
@@ -4482,47 +4501,47 @@ scale_factor: number }
  * A voice command that triggers a script when the user speaks a matching phrase.
  * Used by the Voice Command Center feature for hands-free automation.
  */
-export type VoiceCommand = { 
+export type VoiceCommand = {
 /**
  * Unique identifier (e.g., "vc_1704067200000")
  */
-id: string; 
+id: string;
 /**
  * User-friendly name shown in UI (e.g., "Lock Computer")
  */
-name: string; 
+name: string;
 /**
  * The trigger phrase to match (e.g., "lock computer", "open browser")
  */
-trigger_phrase: string; 
+trigger_phrase: string;
 /**
  * The script/command to execute (e.g., "rundll32.exe user32.dll,LockWorkStation")
  */
-script: string; 
+script: string;
 /**
  * Similarity threshold for fuzzy matching (0.0-1.0, default 0.8)
  */
-similarity_threshold?: number; 
+similarity_threshold?: number;
 /**
  * Whether this command is enabled
  */
-enabled?: boolean; 
+enabled?: boolean;
 /**
  * Silent execution (hidden window, non-interactive)
  */
-silent?: boolean; 
+silent?: boolean;
 /**
  * Skip profile loading (-NoProfile flag)
  */
-no_profile?: boolean; 
+no_profile?: boolean;
 /**
  * Use PowerShell 7 (pwsh) instead of Windows PowerShell 5.1
  */
-use_pwsh?: boolean; 
+use_pwsh?: boolean;
 /**
  * Execution policy (None = inherit from defaults)
  */
-execution_policy?: ExecutionPolicy | null; 
+execution_policy?: ExecutionPolicy | null;
 /**
  * Working directory for this command (None = current directory)
  */
@@ -4531,19 +4550,19 @@ working_directory?: string | null }
  * Global default settings for voice command execution.
  * These settings are used for new commands and LLM fallback.
  */
-export type VoiceCommandDefaults = { 
+export type VoiceCommandDefaults = {
 /**
  * Silent execution (hidden window, non-interactive, output captured)
  */
-silent?: boolean; 
+silent?: boolean;
 /**
  * Skip profile loading (-NoProfile flag)
  */
-no_profile?: boolean; 
+no_profile?: boolean;
 /**
  * Use PowerShell 7 (pwsh) instead of Windows PowerShell 5.1
  */
-use_pwsh?: boolean; 
+use_pwsh?: boolean;
 /**
  * Execution policy for scripts
  */

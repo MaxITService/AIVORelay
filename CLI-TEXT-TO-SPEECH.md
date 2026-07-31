@@ -9,6 +9,7 @@ audio from a text or Markdown document.
 AivoRelay.exe --convert-file .\chapter.md --output .\chapter.mp3
 AivoRelay.exe --convert-file .\notes.txt --output .\notes.wav
 AivoRelay.exe --convert-file .\chapter.md --output .\windows.wav --tts-provider windows
+AivoRelay.exe --convert-file .\chapter.md --output .\edge.mp3 --tts-provider edge --tts-voice en-US-AriaNeural
 AivoRelay.exe --convert-file .\chapter.md --output .\qwen.mp3 --tts-provider local-qwen --tts-voice Vivian
 AivoRelay.exe --convert-file .\chapter.md --output .\kokoro.mp3 --tts-provider local-kokoro --tts-voice af_maple --tts-language English
 ```
@@ -42,11 +43,11 @@ AivoRelay.exe --convert-file .\chapter.md --output .\chapter.mp3 `
 
 | Option | Accepted values and behavior |
 | --- | --- |
-| `--tts-provider` | `soniox`, `deepgram`, `openai`, `local-qwen`, `local-kokoro`, or `windows` |
+| `--tts-provider` | `soniox`, `deepgram`, `openai`, experimental `edge`, `local-qwen`, `local-kokoro`, or `windows` |
 | `--tts-model` | Soniox, Deepgram, or OpenAI model ID |
-| `--tts-voice` | Soniox/OpenAI voice ID, official Qwen/Kokoro speaker ID, or stable Windows voice ID; `default` selects the current Windows default |
+| `--tts-voice` | Soniox/OpenAI/Edge voice ID, official Qwen/Kokoro speaker ID, or stable Windows voice ID; `default` selects the current Windows default |
 | `--tts-language` | Soniox language code, Qwen language name, or Kokoro `English`/`Chinese` |
-| `--tts-speed` | Soniox `0.7–1.3`; Deepgram `0.7–1.5`; OpenAI `0.25–4.0`; Qwen/Kokoro/Windows `0.5–2.0` |
+| `--tts-speed` | Soniox `0.7–1.3`; Deepgram `0.7–1.5`; OpenAI `0.25–4.0`; Edge/Qwen/Kokoro/Windows `0.5–2.0` |
 | `--tts-key-source` | `shared` or `separate`; chooses an already-stored cloud credential and never exposes a secret on the command line |
 | `--tts-format` | `mp3` or `wav`; with `--output`, it must match the extension |
 | `--tts-bitrate` | MP3 only: `64`, `96`, `128`, `192`, `256`, or `320` kb/s |
@@ -87,6 +88,13 @@ value:
   `--tts-voice` and `--tts-language` are rejected.
 - OpenAI does not expose a separate language option, so `--tts-language` is
   rejected.
+- Experimental Edge-TTS uses the fixed `microsoft-edge-read-aloud` service
+  model and derives language from its voice ID, so use `--tts-voice`; model,
+  language, and key-source flags are rejected. It requires a separately
+  installed community helper (`uv tool install edge-tts` or
+  `pipx install edge-tts`) and sends text to Microsoft Edge's online Read
+  Aloud service without an API key. The unofficial service can change without
+  notice.
 - The local Qwen runtime uses AivoRelay's pinned model, so `--tts-model` is
   rejected; use `--tts-voice` and `--tts-language`.
 - The local Kokoro runtime also uses a pinned model, so `--tts-model` is
@@ -207,8 +215,8 @@ Instruction precedence is:
 Voice instructions require OpenAI TTS with a compatible `gpt-4o-mini-tts`
 model. An explicitly requested CLI prompt is rejected before an incompatible
 provider request. Saved instructions remain stored but inactive for OpenAI
-models that do not support instructions, local Qwen3-TTS 0.6B, local Kokoro
-82M, and Windows installed voices.
+models that do not support instructions, experimental Edge-TTS, local
+Qwen3-TTS 0.6B, local Kokoro 82M, and Windows installed voices.
 OpenAI voice instructions are limited to 4,096 characters; the same validation
 applies to inline text, instruction files, named presets, saved instructions,
 and history regeneration. Argument text is passed as data and is never
@@ -263,6 +271,15 @@ AivoRelay.exe tts-local --engine qwen test --output .\local-tts-test.wav --voice
 # Remove only the managed local runtime/model; TTS History remains intact
 AivoRelay.exe tts-local --engine qwen delete --yes
 ```
+
+Human-readable `status` output includes the exact source and author, pinned
+revision, managed installation path, a conservative current disk-use estimate
+(when files exist), installation allowance, web license, and local license
+path. The estimate deduplicates large hard-linked model/runtime files while
+conservatively counting small files. Running `install` without `--yes` prints
+the same source, destination,
+size, and license facts and asks the user to review the source and risks before
+explicitly confirming. The settings UI requires two independent confirmations.
 
 Installation reuses the app's resumable Hugging Face download behavior,
 verifies the pinned model files, and keeps Python, `uv`, PyTorch, and Qwen

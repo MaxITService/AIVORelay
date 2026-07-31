@@ -10,6 +10,7 @@ interface SettingsGroupProps {
   collapseLabel?: string;
   expandLabel?: string;
   onCollapsedChange?: (collapsed: boolean) => void;
+  help?: React.ReactNode;
   children: React.ReactNode;
 }
 
@@ -22,10 +23,12 @@ export const SettingsGroup: React.FC<SettingsGroupProps> = ({
   collapseLabel = "Collapse",
   expandLabel = "Expand",
   onCollapsedChange,
+  help,
   children,
 }) => {
   const contentId = React.useId();
-  const [uncontrolledCollapsed, setUncontrolledCollapsed] = React.useState(false);
+  const [uncontrolledCollapsed, setUncontrolledCollapsed] =
+    React.useState(false);
   const isCollapsible = Boolean(title && collapsible);
   const isCollapsed = isCollapsible
     ? (collapsed ?? uncontrolledCollapsed)
@@ -72,9 +75,7 @@ export const SettingsGroup: React.FC<SettingsGroupProps> = ({
                   aria-hidden="true"
                 />
               </span>
-              <span className="sr-only">
-                {collapsedActionLabel}
-              </span>
+              <span className="sr-only">{collapsedActionLabel}</span>
             </button>
           ) : (
             <h2 className="text-xs font-bold text-[#ff4d8d] uppercase tracking-widest">
@@ -82,7 +83,9 @@ export const SettingsGroup: React.FC<SettingsGroupProps> = ({
             </h2>
           )}
           {description && !isCollapsible && (
-            <p className="text-xs text-[#a0a0a0] mt-1.5 leading-relaxed">{description}</p>
+            <p className="text-xs text-[#a0a0a0] mt-1.5 leading-relaxed">
+              {description}
+            </p>
           )}
         </div>
       )}
@@ -91,7 +94,10 @@ export const SettingsGroup: React.FC<SettingsGroupProps> = ({
           id={contentId}
           className="glass-panel-subtle rounded-xl overflow-visible border border-white/[0.03]"
         >
-          <div className="divide-y divide-white/[0.05]">{children}</div>
+          <div className="divide-y divide-white/[0.05]">
+            {help}
+            {children}
+          </div>
         </div>
       )}
     </div>

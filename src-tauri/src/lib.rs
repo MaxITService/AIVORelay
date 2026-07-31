@@ -49,6 +49,33 @@ mod webview_runtime;
 use specta_typescript::{BigIntExportBehavior, Typescript};
 use tauri_specta::{collect_commands, Builder};
 
+#[cfg(debug_assertions)]
+fn trim_generated_typescript_trailing_whitespace(source: &str) -> String {
+    let mut output = String::with_capacity(source.len());
+    for segment in source.split_inclusive('\n') {
+        let (line, newline) = segment
+            .strip_suffix('\n')
+            .map_or((segment, ""), |line| (line, "\n"));
+        let (line, carriage_return) = line
+            .strip_suffix('\r')
+            .map_or((line, ""), |line| (line, "\r"));
+        output.push_str(line.trim_end_matches([' ', '\t']));
+        output.push_str(carriage_return);
+        output.push_str(newline);
+    }
+    output
+}
+
+#[cfg(debug_assertions)]
+fn normalize_generated_typescript_whitespace(path: &std::path::Path) -> std::io::Result<()> {
+    let source = std::fs::read_to_string(path)?;
+    let normalized = trim_generated_typescript_trailing_whitespace(&source);
+    if normalized != source {
+        std::fs::write(path, normalized)?;
+    }
+    Ok(())
+}
+
 pub use cli::CliArgs;
 #[cfg(not(debug_assertions))]
 use env_filter::Builder as EnvFilterBuilder;
@@ -805,6 +832,19 @@ mod headless_guard_tests {
     }
 }
 
+#[cfg(test)]
+mod generated_typescript_tests {
+    use super::trim_generated_typescript_trailing_whitespace;
+
+    #[test]
+    fn removes_spaces_and_tabs_without_changing_line_endings() {
+        assert_eq!(
+            trim_generated_typescript_trailing_whitespace("one  \ntwo\t\r\nthree  "),
+            "one\ntwo\r\nthree"
+        );
+    }
+}
+
 /// Headless one-shot transcription for `--transcribe-file` / `--list-devices`.
 /// Returns a process exit code: 0 ok, 1 runtime failure, 2 bad input/usage.
 fn run_headless_transcription(app: &AppHandle, args: &CliArgs) -> i32 {
@@ -1310,6 +1350,7 @@ pub fn run(cli_args: CliArgs) {
         commands::tts::cancel_local_tts_install,
         commands::tts::delete_local_tts,
         commands::tts::get_windows_tts_voice_catalog,
+        commands::tts::get_tts_voice_catalog,
         commands::tts::inspect_tts_text_file,
         commands::tts::convert_tts_text_file,
         commands::tts::get_tts_overlay_state,
@@ -1451,9 +1492,11 @@ pub fn run(cli_args: CliArgs) {
         specta_builder
             .export(
                 Typescript::default().bigint(BigIntExportBehavior::Number),
-                bindings_path,
+                &bindings_path,
             )
             .expect("Failed to export typescript bindings");
+        normalize_generated_typescript_whitespace(&bindings_path)
+            .expect("Failed to normalize generated typescript bindings");
     }
 
     // mut is required on macOS where we add the nspanel plugin

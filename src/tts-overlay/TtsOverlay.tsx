@@ -25,6 +25,10 @@ import {
   nextPlaybackRate,
   type PlaybackRate,
 } from "../lib/utils/playbackRate";
+import {
+  prepareTtsPlaybackSource,
+  type TtsPlaybackEffect,
+} from "../lib/utils/ttsPlaybackEffects";
 
 type TtsStatus =
   | "idle"
@@ -60,6 +64,8 @@ type TtsOverlayState = {
   playHistoryWhenOverlayClosed: boolean;
   stopHotkey: string;
   autoplay: boolean;
+  playbackPitch: number;
+  playbackEffect: TtsPlaybackEffect;
 };
 
 type UnknownRecord = Record<string, unknown>;
@@ -80,6 +86,8 @@ const EMPTY_STATE: TtsOverlayState = {
   playHistoryWhenOverlayClosed: false,
   stopHotkey: "",
   autoplay: true,
+  playbackPitch: 1,
+  playbackEffect: "none",
 };
 
 const VALID_STATUSES = new Set<TtsStatus>([
@@ -136,6 +144,16 @@ function readBoolean(
 ): boolean {
   const value = data[camelName] ?? data[snakeName];
   return typeof value === "boolean" ? value : fallback;
+}
+
+function readFiniteNumber(
+  data: UnknownRecord,
+  camelName: string,
+  snakeName: string,
+  fallback: number,
+): number {
+  const value = data[camelName] ?? data[snakeName];
+  return typeof value === "number" && Number.isFinite(value) ? value : fallback;
 }
 
 function safeErrorMessage(value: unknown): string | null {
@@ -222,6 +240,22 @@ function normalizeState(raw: unknown): TtsOverlayState | null {
       typeof (data.autoplay ?? data.auto_play) === "boolean"
         ? Boolean(data.autoplay ?? data.auto_play)
         : true,
+    playbackPitch: Math.min(
+      2,
+      Math.max(
+        0.5,
+        readFiniteNumber(data, "playbackPitch", "playback_pitch", 1),
+      ),
+    ),
+    playbackEffect: ["radio", "retro"].includes(
+      readString(data, "playbackEffect", "playback_effect"),
+    )
+      ? (readString(
+          data,
+          "playbackEffect",
+          "playback_effect",
+        ) as TtsPlaybackEffect)
+      : "none",
   };
 }
 
@@ -283,6 +317,10 @@ export default function TtsOverlay() {
     DEFAULT_PLAYBACK_RATE,
   );
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const playbackProcessingAbortRef = useRef<AbortController | null>(null);
+  const processingChunkIndexRef = useRef<number | null>(null);
+  const playbackObjectUrlRef = useRef<string | null>(null);
+  const pitchCompensationRef = useRef(1);
   const playbackRateRef = useRef<PlaybackRate>(DEFAULT_PLAYBACK_RATE);
   const stateRef = useRef(state);
   const desiredPlayingRef = useRef(false);
@@ -327,6 +365,9 @@ export default function TtsOverlay() {
 
   const resetAudio = useCallback(() => {
     clearPendingPause();
+    playbackProcessingAbortRef.current?.abort();
+    playbackProcessingAbortRef.current = null;
+    processingChunkIndexRef.current = null;
     const audio = audioRef.current;
     if (audio) {
       audio.pause();
@@ -334,6 +375,11 @@ export default function TtsOverlay() {
       audio.load();
     }
     audioRef.current = null;
+    if (playbackObjectUrlRef.current) {
+      URL.revokeObjectURL(playbackObjectUrlRef.current);
+      playbackObjectUrlRef.current = null;
+    }
+    pitchCompensationRef.current = 1;
     activeChunkIndexRef.current = null;
     setActiveChunkIndex(null);
     setIsPlaying(false);
@@ -354,6 +400,8 @@ export default function TtsOverlay() {
       if (!desiredPlayingRef.current) {
         return;
       }
+      if (processingChunkIndexRef.current === chunk.index) return;
+      processingChunkIndexRef.current = chunk.index;
       clearPendingPause();
 
       const priorAudio = audioRef.current;
@@ -361,9 +409,57 @@ export default function TtsOverlay() {
         priorAudio.pause();
       }
 
-      const audio = new Audio(convertFileSrc(chunk.path, "asset"));
+      playbackProcessingAbortRef.current?.abort();
+      const processingAbort = new AbortController();
+      playbackProcessingAbortRef.current = processingAbort;
+      if (playbackObjectUrlRef.current) {
+        URL.revokeObjectURL(playbackObjectUrlRef.current);
+        playbackObjectUrlRef.current = null;
+      }
+
+      const sourceUrl = convertFileSrc(chunk.path, "asset");
+      let prepared = {
+        url: sourceUrl,
+        objectUrl: null as string | null,
+        pitchCompensation: 1,
+      };
+      try {
+        prepared = await prepareTtsPlaybackSource(
+          sourceUrl,
+          stateRef.current.playbackPitch,
+          stateRef.current.playbackEffect,
+          processingAbort.signal,
+        );
+      } catch (error) {
+        if (processingAbort.signal.aborted) {
+          if (playbackProcessingAbortRef.current === processingAbort) {
+            processingChunkIndexRef.current = null;
+          }
+          return;
+        }
+        console.warn(
+          "Unable to apply optional TTS playback processing; using the original audio:",
+          error,
+        );
+      }
+      if (processingAbort.signal.aborted || !desiredPlayingRef.current) {
+        if (prepared.objectUrl) URL.revokeObjectURL(prepared.objectUrl);
+        if (playbackProcessingAbortRef.current === processingAbort) {
+          processingChunkIndexRef.current = null;
+        }
+        return;
+      }
+      playbackProcessingAbortRef.current = null;
+      processingChunkIndexRef.current = null;
+      playbackObjectUrlRef.current = prepared.objectUrl;
+      pitchCompensationRef.current = prepared.pitchCompensation;
+
+      const audio = new Audio(prepared.url);
       audio.preload = "auto";
-      applyPlaybackRate(audio, playbackRateRef.current);
+      applyPlaybackRate(
+        audio,
+        playbackRateRef.current / prepared.pitchCompensation,
+      );
       audioRef.current = audio;
       activeChunkIndexRef.current = chunk.index;
       setActiveChunkIndex(chunk.index);
@@ -376,10 +472,14 @@ export default function TtsOverlay() {
           return;
         }
         setPlaybackTime(
-          Number.isFinite(audio.currentTime) ? audio.currentTime : 0,
+          Number.isFinite(audio.currentTime)
+            ? audio.currentTime * pitchCompensationRef.current
+            : 0,
         );
         setPlaybackDuration(
-          Number.isFinite(audio.duration) ? audio.duration : 0,
+          Number.isFinite(audio.duration)
+            ? audio.duration * pitchCompensationRef.current
+            : 0,
         );
       };
       audio.addEventListener("loadedmetadata", updateTimeline);
@@ -403,10 +503,7 @@ export default function TtsOverlay() {
             (stateRef.current.totalChunks <= 0 ||
               completedOrdinal < stateRef.current.totalChunks);
           audioRef.current = null;
-          if (
-            desiredPlayingRef.current &&
-            (nextChunk || waitingForNextChunk)
-          ) {
+          if (desiredPlayingRef.current && (nextChunk || waitingForNextChunk)) {
             const continuePlayback = () => {
               pauseTimerRef.current = null;
               if (desiredPlayingRef.current) {
@@ -532,6 +629,7 @@ export default function TtsOverlay() {
       } else if (
         desiredPlayingRef.current &&
         !audioRef.current &&
+        processingChunkIndexRef.current === null &&
         pauseTimerRef.current === null &&
         next.chunks.length > 0
       ) {
@@ -631,13 +729,7 @@ export default function TtsOverlay() {
     if (nextChunk) {
       void playChunk(nextChunk);
     }
-  }, [
-    clearPendingPause,
-    findNextChunk,
-    playChunk,
-    reportPlaybackState,
-    t,
-  ]);
+  }, [clearPendingPause, findNextChunk, playChunk, reportPlaybackState, t]);
 
   const stopPlayback = useCallback(() => {
     const operationId = operationIdRef.current;
@@ -660,7 +752,7 @@ export default function TtsOverlay() {
     setPlaybackRate(nextRate);
     const audio = audioRef.current;
     if (audio) {
-      applyPlaybackRate(audio, nextRate);
+      applyPlaybackRate(audio, nextRate / pitchCompensationRef.current);
     }
   }, []);
 
@@ -756,7 +848,7 @@ export default function TtsOverlay() {
         return;
       }
       const boundedTime = Math.min(playbackDuration, Math.max(0, nextTime));
-      audio.currentTime = boundedTime;
+      audio.currentTime = boundedTime / pitchCompensationRef.current;
       setPlaybackTime(boundedTime);
     },
     [playbackDuration],

@@ -466,6 +466,7 @@ fn apply_tts_provider_override(
             CliTtsProvider::Soniox => TtsProvider::Soniox,
             CliTtsProvider::Deepgram => TtsProvider::Deepgram,
             CliTtsProvider::Openai => TtsProvider::OpenAi,
+            CliTtsProvider::Edge => TtsProvider::Edge,
             CliTtsProvider::LocalQwen => TtsProvider::LocalQwen,
             CliTtsProvider::LocalKokoro => TtsProvider::LocalKokoro,
             CliTtsProvider::Windows => TtsProvider::Windows,
@@ -481,6 +482,11 @@ fn apply_tts_provider_override(
             TtsProvider::Soniox => settings.soniox_model = model.to_string(),
             TtsProvider::Deepgram => settings.deepgram_model = model.to_string(),
             TtsProvider::OpenAi => settings.openai_model = model.to_string(),
+            TtsProvider::Edge => {
+                return Err(CliFailure::usage(
+                    "--tts-model is not supported by edge because the experimental adapter uses one fixed service; use --tts-voice instead",
+                ));
+            }
             TtsProvider::LocalQwen => {
                 return Err(CliFailure::usage(
                     "--tts-model is not supported by local-qwen because AivoRelay uses one pinned model; remove the flag",
@@ -508,6 +514,10 @@ fn apply_tts_provider_override(
                 ));
             }
             TtsProvider::OpenAi => settings.openai_voice = voice.to_string(),
+            TtsProvider::Edge => {
+                settings.edge_voice = voice.to_string();
+                settings.edge_voice_language = crate::managers::edge_tts::voice_language(voice);
+            }
             TtsProvider::LocalQwen => settings.local_qwen_voice = voice.to_string(),
             TtsProvider::LocalKokoro => settings.local_kokoro_voice = voice.to_string(),
             TtsProvider::Windows => {
@@ -537,6 +547,11 @@ fn apply_tts_provider_override(
                     "--tts-language is not supported by OpenAI TTS; choose a voice/model and provide the intended language in the input text",
                 ));
             }
+            TtsProvider::Edge => {
+                return Err(CliFailure::usage(
+                    "Edge-TTS derives language from its voice ID; use --tts-voice instead of --tts-language",
+                ));
+            }
             TtsProvider::Windows => {
                 return Err(CliFailure::usage(
                     "Windows derives language from the installed voice; use --tts-voice with a stable Windows voice ID",
@@ -553,7 +568,10 @@ fn apply_tts_provider_override(
             TtsProvider::Soniox => settings.soniox_key_source = source,
             TtsProvider::Deepgram => settings.deepgram_key_source = source,
             TtsProvider::OpenAi => settings.openai_key_source = source,
-            TtsProvider::LocalQwen | TtsProvider::LocalKokoro | TtsProvider::Windows => {
+            TtsProvider::Edge
+            | TtsProvider::LocalQwen
+            | TtsProvider::LocalKokoro
+            | TtsProvider::Windows => {
                 return Err(CliFailure::usage(format!(
                     "--tts-key-source is not supported by {} because it does not use an API key",
                     settings.provider.as_str()
@@ -576,7 +594,10 @@ fn apply_tts_conversion_overrides(
             TtsProvider::Soniox => (0.7, 1.3),
             TtsProvider::Deepgram => (0.7, 1.5),
             TtsProvider::OpenAi => (0.25, 4.0),
-            TtsProvider::LocalQwen | TtsProvider::LocalKokoro | TtsProvider::Windows => (0.5, 2.0),
+            TtsProvider::Edge
+            | TtsProvider::LocalQwen
+            | TtsProvider::LocalKokoro
+            | TtsProvider::Windows => (0.5, 2.0),
         };
         if !(minimum..=maximum).contains(&speed) {
             return Err(CliFailure::usage(format!(
@@ -939,6 +960,7 @@ fn effective_tts_model(settings: &TtsSettings) -> &str {
         TtsProvider::Soniox => &settings.soniox_model,
         TtsProvider::Deepgram => &settings.deepgram_model,
         TtsProvider::OpenAi => &settings.openai_model,
+        TtsProvider::Edge => crate::managers::edge_tts::EDGE_TTS_MODEL,
         TtsProvider::LocalQwen => "Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice",
         TtsProvider::LocalKokoro => crate::managers::local_kokoro::KOKORO_MODEL_REPOSITORY,
         TtsProvider::Windows => "windows.media.speechsynthesis",
@@ -950,6 +972,7 @@ fn effective_tts_voice(settings: &TtsSettings) -> &str {
         TtsProvider::Soniox => &settings.soniox_voice,
         TtsProvider::Deepgram => &settings.deepgram_model,
         TtsProvider::OpenAi => &settings.openai_voice,
+        TtsProvider::Edge => &settings.edge_voice,
         TtsProvider::LocalQwen => &settings.local_qwen_voice,
         TtsProvider::LocalKokoro => &settings.local_kokoro_voice,
         TtsProvider::Windows => &settings.windows_voice_id,
@@ -962,6 +985,7 @@ fn effective_tts_language(settings: &TtsSettings) -> &str {
         TtsProvider::LocalQwen => &settings.local_qwen_language,
         TtsProvider::LocalKokoro => &settings.local_kokoro_language,
         TtsProvider::Windows => &settings.windows_voice_language,
+        TtsProvider::Edge => &settings.edge_voice_language,
         TtsProvider::Deepgram | TtsProvider::OpenAi => "",
     }
 }
@@ -971,7 +995,10 @@ fn effective_tts_key_source(settings: &TtsSettings) -> Option<TtsKeySource> {
         TtsProvider::Soniox => Some(settings.soniox_key_source),
         TtsProvider::Deepgram => Some(settings.deepgram_key_source),
         TtsProvider::OpenAi => Some(settings.openai_key_source),
-        TtsProvider::LocalQwen | TtsProvider::LocalKokoro | TtsProvider::Windows => None,
+        TtsProvider::Edge
+        | TtsProvider::LocalQwen
+        | TtsProvider::LocalKokoro
+        | TtsProvider::Windows => None,
     }
 }
 

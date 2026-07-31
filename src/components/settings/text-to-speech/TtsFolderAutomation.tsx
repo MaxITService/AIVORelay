@@ -8,6 +8,8 @@ import { Input } from "@/components/ui/Input";
 import { SettingContainer } from "@/components/ui/SettingContainer";
 import { SettingsGroup } from "@/components/ui/SettingsGroup";
 import { ToggleSwitch } from "@/components/ui/ToggleSwitch";
+import { AIVORELAY_TTS_GUIDE_URL } from "@/lib/tts/ttsProviderMetadata";
+import { TtsHelpDisclosure } from "./TtsHelpDisclosure";
 
 type TtsFolderAutomationProps = {
   tts: any;
@@ -55,6 +57,31 @@ export const TtsFolderAutomation: React.FC<TtsFolderAutomationProps> = ({
     <SettingsGroup
       title={t("textToSpeech.folder.title")}
       description={t("textToSpeech.folder.description")}
+      help={
+        <TtsHelpDisclosure
+          summary={t("textToSpeech.help.folderSummary")}
+          items={[
+            {
+              term: t("textToSpeech.help.inputFolder"),
+              description: t("textToSpeech.help.inputFolderDescription"),
+            },
+            {
+              term: t("textToSpeech.help.settleDelay"),
+              description: t("textToSpeech.help.settleDelayDescription"),
+            },
+            {
+              term: t("textToSpeech.help.diskReserve"),
+              description: t("textToSpeech.help.diskReserveDescription"),
+            },
+          ]}
+          links={[
+            {
+              label: t("textToSpeech.help.aivoRelayGuide"),
+              href: AIVORELAY_TTS_GUIDE_URL,
+            },
+          ]}
+        />
+      }
     >
       <div className="px-6 py-4">
         <div

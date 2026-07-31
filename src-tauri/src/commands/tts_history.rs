@@ -688,6 +688,14 @@ fn set_model_and_voice(
             TtsProvider::Soniox => settings.soniox_model = model,
             TtsProvider::Deepgram => settings.deepgram_model = model,
             TtsProvider::OpenAi => settings.openai_model = model,
+            TtsProvider::Edge => {
+                if model != crate::managers::edge_tts::EDGE_TTS_MODEL {
+                    return Err(format!(
+                        "Edge-TTS uses the fixed model {}",
+                        crate::managers::edge_tts::EDGE_TTS_MODEL
+                    ));
+                }
+            }
             TtsProvider::LocalQwen => {
                 let expected_repo = crate::managers::local_tts::LOCAL_TTS_MODEL_REPO;
                 let expected_revision = crate::managers::local_tts::LOCAL_TTS_MODEL_REVISION;
@@ -736,6 +744,10 @@ fn set_model_and_voice(
             // Deepgram represents its voice as the speak endpoint's model.
             TtsProvider::Deepgram => settings.deepgram_model = voice,
             TtsProvider::OpenAi => settings.openai_voice = voice,
+            TtsProvider::Edge => {
+                settings.edge_voice_language = crate::managers::edge_tts::voice_language(&voice);
+                settings.edge_voice = voice;
+            }
             TtsProvider::LocalQwen => settings.local_qwen_voice = voice,
             TtsProvider::LocalKokoro => settings.local_kokoro_voice = voice,
             TtsProvider::Windows => settings.windows_voice_id = voice,
@@ -761,6 +773,10 @@ fn current_model_and_voice(settings: &TtsSettings) -> (String, String) {
             settings.deepgram_model.clone(),
         ),
         TtsProvider::OpenAi => (settings.openai_model.clone(), settings.openai_voice.clone()),
+        TtsProvider::Edge => (
+            crate::managers::edge_tts::EDGE_TTS_MODEL.to_string(),
+            settings.edge_voice.clone(),
+        ),
         TtsProvider::LocalQwen => (
             format!(
                 "{}@{}",
@@ -790,6 +806,7 @@ fn current_language(settings: &TtsSettings) -> String {
         TtsProvider::LocalQwen => settings.local_qwen_language.clone(),
         TtsProvider::LocalKokoro => settings.local_kokoro_language.clone(),
         TtsProvider::Windows => settings.windows_voice_language.clone(),
+        TtsProvider::Edge => settings.edge_voice_language.clone(),
         TtsProvider::Deepgram | TtsProvider::OpenAi => String::new(),
     }
 }
@@ -804,6 +821,7 @@ fn restore_source_language(settings: &mut TtsSettings, source_language: &str) {
         TtsProvider::LocalQwen => settings.local_qwen_language = source_language.to_string(),
         TtsProvider::LocalKokoro => settings.local_kokoro_language = source_language.to_string(),
         TtsProvider::Windows => settings.windows_voice_language = source_language.to_string(),
+        TtsProvider::Edge => settings.edge_voice_language = source_language.to_string(),
         TtsProvider::Deepgram | TtsProvider::OpenAi => {}
     }
 }

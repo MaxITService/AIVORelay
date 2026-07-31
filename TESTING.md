@@ -69,6 +69,41 @@ remains available with the same harness plus `-NoRun`.
 
 Update this section every time new tests are added.
 
+### TTS settings transparency pass (2026-07-31)
+
+- The active `bun tauri dev` watcher rebuilt and relaunched the debug app after
+  the local-install consent command and status-schema changes.
+- `bun x tsc --noEmit`, a scoped ESLint run over the changed TTS/settings
+  frontend, and `bun src/lib/tts/ttsProviderMetadata.test.ts` passed.
+- The metadata test proves every supported provider has complete HTTPS
+  human-facing documentation links (never `llms.txt`), a non-empty model
+  default, an in-range speed default, unique provider/language values, and
+  source/license/size metadata for both downloadable local engines.
+- A real debug-CLI status smoke passed for Qwen and Kokoro without synthesis or
+  network requests. It exposed the exact managed paths and conservative current
+  disk-use estimates: Qwen reported 9,056,372,390 bytes in 7.4 seconds for an
+  older installation needing notice repair; Kokoro reported 398,674,114 bytes
+  in 2.7 seconds and was ready with its original local `model/LICENSE` present.
+  The estimator deduplicates hard-linked files of at least 1 MiB by Windows file
+  identity and logically counts smaller files, so it cannot understate use due
+  to an unverified small hard link. The older tree's 12,062,403,280-byte logical
+  total raised Qwen's conservative install and disk-preflight allowance from
+  8 GiB to 16 GiB.
+- A live UI smoke confirmed the grouped searchable provider picker, collapsible
+  provider help with human documentation links, exact Qwen source/revision/path,
+  pre-install size/license disclosure, two separate unchecked consent boxes,
+  and a disabled install button. No model download or paid provider request was
+  started, and the original Soniox selection was restored.
+- The documented Rust build environment passed `cargo check`. The focused `tts`
+  filter passed 114 tests and the `local_kokoro` filter passed 8 tests, for
+  122/122 passing checks. Coverage includes documented provider defaults, both
+  consent flags, source/license/path metadata, settings migration, recursive
+  footprint counting, and large-hard-link deduplication.
+- The debug binding exporter now removes generator-produced trailing spaces
+  while preserving LF/CRLF endings. Its regression test passed, the real hidden
+  debug app regenerated `src/bindings.ts`, `bun x tsc --noEmit` passed against
+  that output, and the full `git diff --check` passed.
+
 The TTS entries below document source-level unit coverage that was added on
 2026-07-31. On the same date, the following focused library subsets passed:
 `managers::tts::tests` (26), `managers::local_tts::tests` (7),

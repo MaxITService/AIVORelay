@@ -529,6 +529,7 @@ pub enum CliTtsProvider {
     Soniox,
     Deepgram,
     Openai,
+    Edge,
     LocalQwen,
     LocalKokoro,
     Windows,

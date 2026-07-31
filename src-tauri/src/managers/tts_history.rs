@@ -200,6 +200,11 @@ pub fn metadata_from_settings(
             settings.openai_voice.clone(),
             String::new(),
         ),
+        TtsProvider::Edge => (
+            crate::managers::edge_tts::EDGE_TTS_MODEL.to_string(),
+            settings.edge_voice.clone(),
+            settings.edge_voice_language.clone(),
+        ),
         TtsProvider::LocalQwen => (
             format!(
                 "{}@{}",
@@ -874,6 +879,7 @@ fn provider_from_db(value: &str) -> Result<TtsProvider> {
         "soniox" => Ok(TtsProvider::Soniox),
         "deepgram" => Ok(TtsProvider::Deepgram),
         "openai" => Ok(TtsProvider::OpenAi),
+        "edge" => Ok(TtsProvider::Edge),
         "local_qwen" => Ok(TtsProvider::LocalQwen),
         "local_kokoro" => Ok(TtsProvider::LocalKokoro),
         "windows" => Ok(TtsProvider::Windows),

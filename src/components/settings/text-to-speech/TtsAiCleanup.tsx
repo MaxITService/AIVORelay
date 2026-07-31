@@ -11,9 +11,10 @@ import { useTranslation } from "react-i18next";
 import { commands } from "@/bindings";
 import { ApiKeyEditor, StoredApiKeyDisplay } from "../ApiKeyControls";
 import { ModelSelect } from "../PostProcessingSettingsApi/ModelSelect";
+import { TtsHelpDisclosure } from "./TtsHelpDisclosure";
 import { Button } from "@/components/ui/Button";
-import { Dropdown, type DropdownOption } from "@/components/ui/Dropdown";
 import { Input } from "@/components/ui/Input";
+import { Select, type SelectOption } from "@/components/ui/Select";
 import { SettingContainer } from "@/components/ui/SettingContainer";
 import { SettingsGroup } from "@/components/ui/SettingsGroup";
 import { Textarea } from "@/components/ui/Textarea";
@@ -120,6 +121,20 @@ const errorMessage = (error: unknown) =>
 const newPromptId = () =>
   `tts_llm_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
 
+const LLM_PROVIDER_DOCUMENTATION: Record<string, string> = {
+  openai: "https://developers.openai.com/api/docs/guides/text-generation",
+  openrouter: "https://openrouter.ai/docs/quickstart",
+  anthropic: "https://docs.anthropic.com/en/docs/intro-to-claude",
+  groq: "https://console.groq.com/docs/overview",
+  cerebras: "https://inference-docs.cerebras.ai/introduction",
+  zai: "https://docs.z.ai/",
+  bedrock_mantle:
+    "https://docs.aws.amazon.com/bedrock/latest/userguide/what-is-bedrock.html",
+};
+
+const AIVORELAY_TTS_GUIDE_URL =
+  "https://github.com/MaxITService/AIVORelay/blob/main/CLI-TEXT-TO-SPEECH.md";
+
 export const TtsAiCleanup: React.FC<TtsAiCleanupProps> = ({
   mode,
   value,
@@ -168,14 +183,14 @@ export const TtsAiCleanup: React.FC<TtsAiCleanupProps> = ({
   const modelsGenerationRef = useRef(0);
   valueRef.current = value;
 
-  const providerOptions = useMemo<DropdownOption[]>(
+  const providerOptions = useMemo<SelectOption[]>(
     () =>
       providers
         .filter((provider) => provider.id !== "apple_intelligence")
         .map((provider) => ({ value: provider.id, label: provider.label })),
     [providers],
   );
-  const promptOptions = useMemo<DropdownOption[]>(
+  const promptOptions = useMemo<SelectOption[]>(
     () =>
       prompts.map((prompt) => ({
         value: prompt.id,
@@ -193,6 +208,11 @@ export const TtsAiCleanup: React.FC<TtsAiCleanupProps> = ({
   const effectiveKeyAvailable =
     value.provider_id === "custom" ||
     (value.key_source === "shared" ? hasSharedKey : hasSeparateKey);
+  const providerLabel =
+    providerOptions.find((provider) => provider.value === value.provider_id)
+      ?.label ?? value.provider_id;
+  const providerDocumentationUrl =
+    LLM_PROVIDER_DOCUMENTATION[value.provider_id];
 
   const patch = useCallback(
     (partial: Partial<TtsLlmPreprocessingSettings>, field: string) =>
@@ -376,10 +396,10 @@ export const TtsAiCleanup: React.FC<TtsAiCleanupProps> = ({
       const result = response.data;
       await onChange(
         (current) => ({
-          [benchmarkLogField]: [
-            result,
-            ...current[benchmarkLogField],
-          ].slice(0, 100),
+          [benchmarkLogField]: [result, ...current[benchmarkLogField]].slice(
+            0,
+            100,
+          ),
         }),
         `llm_preprocessing.${benchmarkLogField}`,
       );
@@ -410,6 +430,45 @@ export const TtsAiCleanup: React.FC<TtsAiCleanupProps> = ({
       }
       collapseLabel={t("common.collapse", "Collapse")}
       expandLabel={t("common.expand", "Expand")}
+      help={
+        <TtsHelpDisclosure
+          summary={t("textToSpeech.help.aiCleanupSummary", {
+            provider: providerLabel,
+          })}
+          items={[
+            {
+              term: t("textToSpeech.help.provider"),
+              description: t("textToSpeech.help.aiProviderDescription"),
+            },
+            {
+              term: t("textToSpeech.help.model"),
+              description: t("textToSpeech.help.aiModelDescription"),
+            },
+            {
+              term: t("textToSpeech.help.prompt"),
+              description: t("textToSpeech.help.aiPromptDescription"),
+            },
+            {
+              term: t("textToSpeech.help.privacyAndCost"),
+              description: t("textToSpeech.help.aiPrivacyDescription"),
+            },
+          ]}
+          links={[
+            ...(providerDocumentationUrl
+              ? [
+                  {
+                    label: t("textToSpeech.help.providerDocumentation"),
+                    href: providerDocumentationUrl,
+                  },
+                ]
+              : []),
+            {
+              label: t("textToSpeech.help.aivoRelayGuide"),
+              href: AIVORELAY_TTS_GUIDE_URL,
+            },
+          ]}
+        />
+      }
     >
       <ToggleSwitch
         grouped
@@ -449,12 +508,13 @@ export const TtsAiCleanup: React.FC<TtsAiCleanupProps> = ({
           "Provider definitions are shared with LLM Post Processing; this selection and model are TTS-only.",
         )}
       >
-        <Dropdown
+        <Select
           className="min-w-64"
           options={providerOptions}
-          selectedValue={value.provider_id}
-          dropUp={false}
-          onSelect={(providerId) => {
+          value={value.provider_id}
+          isClearable={false}
+          onChange={(providerId) => {
+            if (!providerId) return;
             keyStatusGenerationRef.current += 1;
             modelsGenerationRef.current += 1;
             setKeyBusy(true);
@@ -476,7 +536,7 @@ export const TtsAiCleanup: React.FC<TtsAiCleanupProps> = ({
           "Reuse the secure key for this provider from LLM Post Processing, or store a separate TTS cleanup key.",
         )}
       >
-        <Dropdown
+        <Select
           className="min-w-64"
           options={[
             {
@@ -494,14 +554,16 @@ export const TtsAiCleanup: React.FC<TtsAiCleanupProps> = ({
               ),
             },
           ]}
-          selectedValue={value.key_source}
-          dropUp={false}
-          onSelect={(keySource) =>
-            void patch(
-              { key_source: keySource as "shared" | "separate" },
-              "llm_preprocessing.key_source",
-            )
-          }
+          value={value.key_source}
+          isClearable={false}
+          onChange={(keySource) => {
+            if (keySource) {
+              void patch(
+                { key_source: keySource as "shared" | "separate" },
+                "llm_preprocessing.key_source",
+              );
+            }
+          }}
         />
       </SettingContainer>
 
@@ -600,10 +662,7 @@ export const TtsAiCleanup: React.FC<TtsAiCleanupProps> = ({
                 "llm_preprocessing.custom_allow_insecure_http",
               )
             }
-            label={t(
-              "textToSpeech.aiCleanup.allowHttp",
-              "Allow insecure HTTP",
-            )}
+            label={t("textToSpeech.aiCleanup.allowHttp", "Allow insecure HTTP")}
             description={t(
               "textToSpeech.aiCleanup.allowHttpDescription",
               "Use only for a trusted local endpoint. API keys and text are otherwise exposed in transit.",
@@ -668,17 +727,19 @@ export const TtsAiCleanup: React.FC<TtsAiCleanupProps> = ({
       >
         <div className="space-y-3">
           <div className="flex flex-wrap gap-2">
-            <Dropdown
+            <Select
               className="min-w-64 flex-1"
               options={promptOptions}
-              selectedValue={selectedPrompt?.id ?? null}
-              dropUp={false}
-              onSelect={(promptId) =>
-                void patch(
-                  { [selectedField]: promptId },
-                  `llm_preprocessing.${selectedField}`,
-                )
-              }
+              value={selectedPrompt?.id ?? null}
+              isClearable={false}
+              onChange={(promptId) => {
+                if (promptId) {
+                  void patch(
+                    { [selectedField]: promptId },
+                    `llm_preprocessing.${selectedField}`,
+                  );
+                }
+              }}
             />
             <Button
               variant="secondary"
@@ -773,26 +834,23 @@ export const TtsAiCleanup: React.FC<TtsAiCleanupProps> = ({
           {
             key: "retry_count" as const,
             label: t("textToSpeech.aiCleanup.retries", "Retries"),
+            description: t("textToSpeech.aiCleanup.retriesDescription"),
             min: 0,
             max: 10,
             step: 1,
           },
           {
             key: "retry_base_delay_ms" as const,
-            label: t(
-              "textToSpeech.aiCleanup.retryDelay",
-              "Retry delay (ms)",
-            ),
+            label: t("textToSpeech.aiCleanup.retryDelay", "Retry delay (ms)"),
+            description: t("textToSpeech.aiCleanup.retryDelayDescription"),
             min: 100,
             max: 30000,
             step: 100,
           },
           {
             key: "request_timeout_seconds" as const,
-            label: t(
-              "textToSpeech.aiCleanup.timeout",
-              "Request timeout (s)",
-            ),
+            label: t("textToSpeech.aiCleanup.timeout", "Request timeout (s)"),
+            description: t("textToSpeech.aiCleanup.timeoutDescription"),
             min: 10,
             max: 600,
             step: 10,
@@ -803,7 +861,7 @@ export const TtsAiCleanup: React.FC<TtsAiCleanupProps> = ({
             grouped
             compact
             title={item.label}
-            description=""
+            description={item.description}
           >
             <Input
               className="w-28"
@@ -817,7 +875,10 @@ export const TtsAiCleanup: React.FC<TtsAiCleanupProps> = ({
                   {
                     [item.key]: Math.min(
                       item.max,
-                      Math.max(item.min, Number(event.target.value) || item.min),
+                      Math.max(
+                        item.min,
+                        Number(event.target.value) || item.min,
+                      ),
                     ),
                   },
                   `llm_preprocessing.${item.key}`,
@@ -830,10 +891,7 @@ export const TtsAiCleanup: React.FC<TtsAiCleanupProps> = ({
       </div>
 
       <SettingsGroup
-        title={t(
-          "textToSpeech.aiCleanup.benchmarkTitle",
-          "Test and benchmark",
-        )}
+        title={t("textToSpeech.aiCleanup.benchmarkTitle", "Test and benchmark")}
         description={t(
           "textToSpeech.aiCleanup.benchmarkDescription",
           "Send synthetic or non-sensitive sample text through the selected prompt and save latency and output for comparison.",
@@ -845,6 +903,36 @@ export const TtsAiCleanup: React.FC<TtsAiCleanupProps> = ({
             { benchmark_collapsed: collapsed },
             "llm_preprocessing.benchmark_collapsed",
           )
+        }
+        help={
+          <TtsHelpDisclosure
+            summary={t("textToSpeech.help.benchmarkSummary")}
+            items={[
+              {
+                term: t("textToSpeech.help.testText"),
+                description: t("textToSpeech.help.testTextDescription"),
+              },
+              {
+                term: t("textToSpeech.help.results"),
+                description: t("textToSpeech.help.resultsDescription"),
+              },
+            ]}
+            links={
+              providerDocumentationUrl
+                ? [
+                    {
+                      label: t("textToSpeech.help.providerDocumentation"),
+                      href: providerDocumentationUrl,
+                    },
+                  ]
+                : [
+                    {
+                      label: t("textToSpeech.help.aivoRelayGuide"),
+                      href: AIVORELAY_TTS_GUIDE_URL,
+                    },
+                  ]
+            }
+          />
         }
       >
         <SettingContainer
@@ -938,9 +1026,14 @@ export const TtsAiCleanup: React.FC<TtsAiCleanupProps> = ({
                     >
                       {result.success ? "✓" : "✕"}
                     </span>{" "}
-                    {result.provider_label} · {result.model || "—"} ·{" "}
-                    {result.duration_ms} ms · {result.input_chars} →{" "}
-                    {result.output_chars} chars
+                    {t("textToSpeech.aiCleanup.benchmarkResult", {
+                      provider: result.provider_label,
+                      model:
+                        result.model || t("textToSpeech.aiCleanup.modelNotSet"),
+                      duration: result.duration_ms,
+                      input: result.input_chars,
+                      output: result.output_chars,
+                    })}
                   </summary>
                   <div className="mt-3 space-y-2 text-xs">
                     {result.response_text && (
