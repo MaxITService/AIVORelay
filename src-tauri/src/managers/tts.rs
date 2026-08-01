@@ -209,6 +209,11 @@ pub struct FileConversionResult {
     pub mp3_bitrate_kbps: Option<u16>,
 }
 
+pub(crate) struct ResolvedTtsResult<T> {
+    pub value: T,
+    pub settings: TtsSettings,
+}
+
 #[derive(Debug)]
 struct ProviderAttemptError {
     status: Option<StatusCode>,
@@ -598,13 +603,25 @@ impl TtsManager {
         self.state.read().clone()
     }
 
-    pub async fn resolve_operation_settings(&self, settings: &TtsSettings) -> Result<TtsSettings> {
+    async fn resolve_operation_settings(
+        &self,
+        operation_id: u64,
+        settings: &TtsSettings,
+    ) -> Result<TtsSettings> {
         let mut resolved = settings.clone();
         if resolved.provider == TtsProvider::Windows {
             let max_attempts = resolved.retry_count.min(10).saturating_add(1);
             let mut attempt = 1;
             let voice = loop {
-                match windows_tts::resolve_voice_selection(&resolved.windows_voice_id).await {
+                self.ensure_active(operation_id)?;
+                let resolution = windows_tts::resolve_voice_selection(&resolved.windows_voice_id);
+                let result = tokio::select! {
+                    result = resolution => result,
+                    _ = self.wait_for_cancellation(operation_id) => {
+                        return Err(anyhow!("Text-to-speech operation cancelled"));
+                    }
+                };
+                match result {
                     Ok(voice) => break voice,
                     Err(error) if error.transient && attempt < max_attempts => {
                         let delay = exponential_delay(
@@ -618,12 +635,24 @@ impl TtsManager {
                             error.safe_message,
                             delay.as_secs_f32()
                         );
-                        tokio::time::sleep(delay).await;
+                        self.update_attempt(
+                            operation_id,
+                            TtsPhase::Retrying,
+                            attempt,
+                            Some(safe_text(&error.safe_message)),
+                        );
+                        tokio::select! {
+                            _ = tokio::time::sleep(delay) => {}
+                            _ = self.wait_for_cancellation(operation_id) => {
+                                return Err(anyhow!("Text-to-speech operation cancelled"));
+                            }
+                        }
                         attempt = attempt.saturating_add(1);
                     }
                     Err(error) => return Err(anyhow!(error.safe_message)),
                 }
             };
+            self.ensure_active(operation_id)?;
             resolved.windows_voice_id = voice.id;
             resolved.windows_voice_language = voice.language;
         }
@@ -994,7 +1023,6 @@ impl TtsManager {
             {
                 return Ok(());
             }
-            let settings = self.resolve_operation_settings(&settings).await?;
             if !settings.watch_folder_enabled
                 || self.watcher_generation.load(Ordering::SeqCst) != generation
             {
@@ -1038,7 +1066,7 @@ impl TtsManager {
                 }
 
                 match self
-                    .convert_decoded_text_file(
+                    .convert_decoded_text_file_resolved(
                         &canonical_input,
                         &source,
                         &output_path,
@@ -1070,6 +1098,10 @@ impl TtsManager {
                     Err(error) => return Err(error),
                 }
             };
+            let ResolvedTtsResult {
+                value: conversion,
+                settings,
+            } = conversion;
             if settings.file_history_enabled {
                 let source_kind = canonical_input
                     .extension()
@@ -1138,21 +1170,37 @@ impl TtsManager {
         }
     }
 
-    pub async fn synthesize_interactive_reserved(
+    pub(crate) async fn synthesize_interactive_reserved<F>(
         self: &Arc<Self>,
         text: &str,
         settings: &TtsSettings,
         _operation_guard: tokio::sync::OwnedMutexGuard<()>,
-    ) -> Result<InteractiveSynthesis> {
+        on_resolved: F,
+    ) -> Result<ResolvedTtsResult<InteractiveSynthesis>>
+    where
+        F: FnOnce(&TtsSettings) + Send,
+    {
         ensure_enabled(settings)?;
-        let resolved_settings = self.resolve_operation_settings(settings).await?;
-        let settings = &resolved_settings;
-        if settings.interactive_history_enabled {
-            validate_output_settings(settings)?;
-        }
-
         let operation_id =
             self.begin_operation(TtsOperationKind::Interactive, settings.provider, 0);
+        let resolved_settings = match self
+            .resolve_operation_settings(operation_id, settings)
+            .await
+        {
+            Ok(settings) => settings,
+            Err(error) => {
+                self.finish_result::<()>(operation_id, &Err(anyhow!(error.to_string())));
+                return Err(error);
+            }
+        };
+        let settings = &resolved_settings;
+        if settings.interactive_history_enabled {
+            if let Err(error) = validate_output_settings(settings) {
+                self.finish_result::<()>(operation_id, &Err(anyhow!(error.to_string())));
+                return Err(error);
+            }
+        }
+        on_resolved(settings);
         let processed = match self
             .preprocess_for_scope(operation_id, text, settings, TtsLlmScope::Interactive)
             .await
@@ -1363,7 +1411,10 @@ impl TtsManager {
             let _ = fs::remove_file(operation_cache.join("history-result.wav"));
         }
         self.finish_result(operation_id, &result);
-        result
+        result.map(|value| ResolvedTtsResult {
+            value,
+            settings: resolved_settings,
+        })
     }
 
     /// Converts a supported text file to one final WAV or CBR MP3. Provider
@@ -1375,10 +1426,22 @@ impl TtsManager {
         output_path: impl AsRef<Path>,
         settings: &TtsSettings,
     ) -> Result<FileConversionResult> {
+        Ok(self
+            .convert_text_file_resolved(input_path, output_path, settings)
+            .await?
+            .value)
+    }
+
+    pub(crate) async fn convert_text_file_resolved(
+        self: &Arc<Self>,
+        input_path: impl AsRef<Path>,
+        output_path: impl AsRef<Path>,
+        settings: &TtsSettings,
+    ) -> Result<ResolvedTtsResult<FileConversionResult>> {
         validate_enabled_independent_settings(settings)?;
         validate_input_extension(input_path.as_ref())?;
         let (source, _encoding) = read_supported_text_file(input_path.as_ref())?;
-        self.convert_decoded_text_file(
+        self.convert_decoded_text_file_resolved(
             input_path.as_ref(),
             &source,
             output_path.as_ref(),
@@ -1402,10 +1465,30 @@ impl TtsManager {
         scope: TtsLlmScope,
         resume_namespace: Option<&str>,
     ) -> Result<FileConversionResult> {
+        Ok(self
+            .convert_text_file_for_history_resolved(
+                input_path,
+                output_path,
+                settings,
+                scope,
+                resume_namespace,
+            )
+            .await?
+            .value)
+    }
+
+    pub(crate) async fn convert_text_file_for_history_resolved(
+        self: &Arc<Self>,
+        input_path: impl AsRef<Path>,
+        output_path: impl AsRef<Path>,
+        settings: &TtsSettings,
+        scope: TtsLlmScope,
+        resume_namespace: Option<&str>,
+    ) -> Result<ResolvedTtsResult<FileConversionResult>> {
         validate_enabled_independent_settings(settings)?;
         validate_input_extension(input_path.as_ref())?;
         let (source, _encoding) = read_supported_text_file(input_path.as_ref())?;
-        self.convert_decoded_text_file(
+        self.convert_decoded_text_file_resolved(
             input_path.as_ref(),
             &source,
             output_path.as_ref(),
@@ -1422,7 +1505,7 @@ impl TtsManager {
         tts_resume::discard_managed(&self.cache_root, resume_namespace)
     }
 
-    async fn convert_decoded_text_file(
+    async fn convert_decoded_text_file_resolved(
         self: &Arc<Self>,
         input_path: &Path,
         source: &str,
@@ -1432,14 +1515,12 @@ impl TtsManager {
         resume_namespace: Option<&str>,
         resume_origin: ResumeOrigin,
         require_resume_checkpoint: bool,
-    ) -> Result<FileConversionResult> {
+    ) -> Result<ResolvedTtsResult<FileConversionResult>> {
         validate_enabled_independent_settings(settings)?;
         let _operation_guard = self
             .foreground_operation_lock
             .try_lock()
             .map_err(|_| anyhow!("Another text-to-speech operation is already running"))?;
-        let resolved_settings = self.resolve_operation_settings(settings).await?;
-        let settings = &resolved_settings;
         validate_input_extension(input_path)?;
         validate_output_extension(output_path, settings.output_format)?;
         validate_output_settings(settings)?;
@@ -1452,6 +1533,17 @@ impl TtsManager {
 
         let operation_id =
             self.begin_operation(TtsOperationKind::FileConversion, settings.provider, 0);
+        let resolved_settings = match self
+            .resolve_operation_settings(operation_id, settings)
+            .await
+        {
+            Ok(settings) => settings,
+            Err(error) => {
+                self.finish_result::<()>(operation_id, &Err(anyhow!(error.to_string())));
+                return Err(error);
+            }
+        };
+        let settings = &resolved_settings;
         let source_for_speech = normalize_source_text(input_path, source);
         let processed = match self
             .preprocess_for_scope(
@@ -1646,7 +1738,10 @@ impl TtsManager {
             resume_workspace.discard();
         }
         self.finish_result(operation_id, &result);
-        result
+        result.map(|value| ResolvedTtsResult {
+            value,
+            settings: resolved_settings,
+        })
     }
 
     fn begin_operation(

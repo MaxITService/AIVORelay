@@ -280,10 +280,6 @@ pub async fn regenerate_tts_history_entry_core(
         TtsHistoryScope::File => TtsLlmScope::File,
     };
     apply_regeneration_llm_overrides(&mut settings, llm_scope, &request)?;
-    settings = tts
-        .resolve_operation_settings(&settings)
-        .await
-        .map_err(|error| error.to_string())?;
     settings.output_format = output_format;
     if let Some(bitrate) = request.mp3_bitrate_kbps {
         if output_format != TtsOutputFormat::Mp3 {
@@ -335,8 +331,8 @@ pub async fn regenerate_tts_history_entry_core(
         .output_path
         .is_none()
         .then(|| format!("history-regeneration-entry-{}", source_entry.id));
-    let conversion = tts
-        .convert_text_file_for_history(
+    let resolved = tts
+        .convert_text_file_for_history_resolved(
             &temporary_source.0,
             &output_path,
             &settings,
@@ -345,6 +341,8 @@ pub async fn regenerate_tts_history_entry_core(
         )
         .await
         .map_err(|error| error.to_string())?;
+    let conversion = resolved.value;
+    settings = resolved.settings;
     let (model, voice) = current_model_and_voice(&settings);
     let language = current_language(&settings);
     let new_entry = history

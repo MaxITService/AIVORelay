@@ -308,10 +308,6 @@ async fn convert_text_to_audio(
     }
 
     let manager = app.state::<Arc<TtsManager>>().inner().clone();
-    settings = manager
-        .resolve_operation_settings(&settings)
-        .await
-        .map_err(|error| CliFailure::runtime(error.to_string()))?;
     if settings.file_history_enabled && app.try_state::<Arc<TtsHistoryManager>>().is_none() {
         let history = Arc::new(TtsHistoryManager::new(app).map_err(|error| {
             CliFailure::runtime(format!("Failed to initialize TTS History: {error}"))
@@ -336,7 +332,7 @@ async fn convert_text_to_audio(
     }
 
     let started = Instant::now();
-    let mut operation = Box::pin(manager.convert_text_file(&input, &output, &settings));
+    let mut operation = Box::pin(manager.convert_text_file_resolved(&input, &output, &settings));
     let mut interval = tokio::time::interval(Duration::from_millis(200));
     interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     let mut last_status = None;
@@ -360,6 +356,9 @@ async fn convert_text_to_audio(
         }
     }
     .map_err(|error| CliFailure::runtime(error.to_string()))?;
+    drop(operation);
+    settings = result.settings;
+    let result = result.value;
 
     let output_bytes = fs::metadata(&result.output_path)
         .map(|metadata| metadata.len())
