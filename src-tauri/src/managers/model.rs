@@ -59,6 +59,9 @@ pub fn native_streaming_latency_kind(hint: &str) -> Option<NativeStreamingLatenc
 }
 
 const HF_SOURCE_PREFIX: &str = "hf://";
+const DOWNLOAD_CONNECT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(15);
+const DOWNLOAD_STALL_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
+const HF_DOWNLOAD_ATTEMPTS: usize = 3;
 
 fn hf_source_url(repo_id: &str, revision: &str, filename: &str) -> String {
     format!("{HF_SOURCE_PREFIX}{repo_id}|{revision}|{filename}")
@@ -78,13 +81,17 @@ fn model_hf_source(model: &ModelInfo) -> Option<(String, String, String)> {
 }
 
 fn hf_cached_path(repo_id: &str, revision: &str, filename: &str) -> Option<PathBuf> {
-    Cache::from_env()
-        .repo(Repo::with_revision(
-            repo_id.to_string(),
-            RepoType::Model,
-            revision.to_string(),
-        ))
-        .get(filename)
+    let get = |revision: &str| {
+        Cache::from_env()
+            .repo(Repo::with_revision(
+                repo_id.to_string(),
+                RepoType::Model,
+                revision.to_string(),
+            ))
+            .get(filename)
+    };
+
+    get(revision).or_else(|| (revision != "main").then(|| get("main")).flatten())
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
@@ -235,6 +242,7 @@ struct HfDownloadProgress {
 struct HfDownloadProgressState {
     downloaded: u64,
     total: u64,
+    last_activity: std::time::Instant,
 }
 
 impl HfDownloadProgress {
@@ -245,8 +253,13 @@ impl HfDownloadProgress {
             state: Arc::new(Mutex::new(HfDownloadProgressState {
                 downloaded: 0,
                 total: fallback_total,
+                last_activity: std::time::Instant::now(),
             })),
         }
+    }
+
+    fn last_activity(&self) -> std::time::Instant {
+        self.state.lock().unwrap().last_activity
     }
 
     fn emit(&self, downloaded: u64, total: u64) {
@@ -274,6 +287,7 @@ impl Progress for HfDownloadProgress {
             let mut state = self.state.lock().unwrap();
             state.downloaded = 0;
             state.total = total;
+            state.last_activity = std::time::Instant::now();
         }
         self.emit(0, total);
     }
@@ -282,6 +296,7 @@ impl Progress for HfDownloadProgress {
         let (downloaded, total) = {
             let mut state = self.state.lock().unwrap();
             state.downloaded = state.downloaded.saturating_add(size as u64);
+            state.last_activity = std::time::Instant::now();
             (state.downloaded, state.total)
         };
         self.emit(downloaded, total);
@@ -981,8 +996,12 @@ impl ModelManager {
                     name: catalog_model.name.clone(),
                     description: catalog_model.description.clone(),
                     filename: file.filename.clone(),
-                    url: Some(hf_source_url(&catalog_model.id, "main", &file.filename)),
-                    sha256: None,
+                    url: Some(hf_source_url(
+                        &catalog_model.id,
+                        catalog_model.revision.as_deref().unwrap_or("main"),
+                        &file.filename,
+                    )),
+                    sha256: file.sha256.clone(),
                     size_mb: file.size_bytes / (1024 * 1024),
                     is_downloaded: false,
                     is_downloading: false,
@@ -1135,9 +1154,15 @@ impl ModelManager {
 
         for model in models.values_mut() {
             if let Some((repo_id, revision, filename)) = model_hf_source(model) {
-                model.is_downloaded = hf_cached_path(&repo_id, &revision, &filename).is_some();
+                let local_path = self.models_dir.join(&filename);
+                let partial_path = self.models_dir.join(format!("{}.partial", &filename));
+                model.is_downloaded =
+                    hf_cached_path(&repo_id, &revision, &filename).is_some() || local_path.exists();
                 model.is_downloading = false;
-                model.partial_size = 0;
+                model.partial_size = partial_path
+                    .metadata()
+                    .map(|metadata| metadata.len())
+                    .unwrap_or(0);
                 continue;
             }
 
@@ -1479,6 +1504,199 @@ impl ModelManager {
         })
     }
 
+    /// Download one direct-HTTP file into a resumable partial path. This is
+    /// shared by legacy URL models and the catalog mirror fallback. A stalled
+    /// connection returns an error while preserving the partial file so the
+    /// caller can retry or switch mirrors.
+    async fn download_http_file(
+        &self,
+        model_id: &str,
+        url: &str,
+        partial_path: &Path,
+        expected_size: Option<u64>,
+        expected_sha256: Option<&str>,
+        cancel_token: CancellationToken,
+    ) -> Result<bool> {
+        if let Some(expected) = expected_size {
+            if partial_path
+                .metadata()
+                .map(|metadata| metadata.len())
+                .unwrap_or(0)
+                == expected
+            {
+                if let Some(expected_sha256) = expected_sha256 {
+                    let path = partial_path.to_path_buf();
+                    let expected = expected_sha256.to_string();
+                    let id = model_id.to_string();
+                    tokio::task::spawn_blocking(move || {
+                        Self::verify_sha256(&path, Some(&expected), &id)
+                    })
+                    .await
+                    .map_err(|error| anyhow::anyhow!("SHA256 task panicked: {}", error))??;
+                }
+                return Ok(true);
+            }
+        }
+
+        let client = reqwest::Client::builder()
+            .connect_timeout(DOWNLOAD_CONNECT_TIMEOUT)
+            .build()?;
+        let mut resume_from = partial_path
+            .metadata()
+            .map(|metadata| metadata.len())
+            .unwrap_or(0);
+
+        if let Some(expected) = expected_size {
+            if resume_from > expected {
+                let _ = fs::remove_file(partial_path);
+                resume_from = 0;
+            }
+        }
+
+        if resume_from > 0 {
+            info!(
+                "Resuming model download {} from byte {} via {}",
+                model_id, resume_from, url
+            );
+        } else {
+            info!("Starting model download {} from {}", model_id, url);
+        }
+
+        let mut request = client.get(url);
+        if resume_from > 0 {
+            request = request.header("Range", format!("bytes={}-", resume_from));
+        }
+        let mut response = tokio::time::timeout(DOWNLOAD_STALL_TIMEOUT, request.send())
+            .await
+            .map_err(|_| anyhow::anyhow!("Download stalled while connecting to {}", url))??;
+
+        if resume_from > 0 && response.status() == reqwest::StatusCode::OK {
+            warn!(
+                "Server does not support range requests for {}; restarting from zero",
+                model_id
+            );
+            drop(response);
+            let _ = fs::remove_file(partial_path);
+            resume_from = 0;
+            response = tokio::time::timeout(DOWNLOAD_STALL_TIMEOUT, client.get(url).send())
+                .await
+                .map_err(|_| anyhow::anyhow!("Download stalled while restarting {}", model_id))??;
+        }
+
+        if !response.status().is_success()
+            && response.status() != reqwest::StatusCode::PARTIAL_CONTENT
+        {
+            return Err(anyhow::anyhow!(
+                "Failed to download {}: HTTP {}",
+                model_id,
+                response.status()
+            ));
+        }
+
+        if resume_from > 0 && response.status() != reqwest::StatusCode::PARTIAL_CONTENT {
+            return Err(anyhow::anyhow!(
+                "Server returned an invalid resume response for {}",
+                model_id
+            ));
+        }
+
+        let total_size = expected_size.or_else(|| {
+            response.content_length().map(|length| {
+                if resume_from > 0 {
+                    resume_from + length
+                } else {
+                    length
+                }
+            })
+        });
+        let mut downloaded = resume_from;
+        let mut stream = response.bytes_stream();
+        let mut file = if resume_from > 0 {
+            fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(partial_path)?
+        } else {
+            fs::File::create(partial_path)?
+        };
+
+        let emit_progress = |downloaded: u64| {
+            let total = total_size.unwrap_or(0);
+            let _ = self.app_handle.emit(
+                "model-download-progress",
+                &DownloadProgress {
+                    model_id: model_id.to_string(),
+                    downloaded,
+                    total,
+                    percentage: if total > 0 {
+                        (downloaded as f64 / total as f64) * 100.0
+                    } else {
+                        0.0
+                    },
+                },
+            );
+        };
+        emit_progress(downloaded);
+
+        loop {
+            tokio::select! {
+                _ = cancel_token.cancelled() => {
+                    drop(file);
+                    self.clear_download_state(model_id, partial_path);
+                    let _ = self.app_handle.emit("model-download-cancelled", model_id);
+                    return Ok(false);
+                }
+                chunk_result = tokio::time::timeout(DOWNLOAD_STALL_TIMEOUT, stream.next()) => {
+                    let chunk_result = chunk_result
+                        .map_err(|_| anyhow::anyhow!(
+                            "Download stalled for {}: no data for {} seconds",
+                            model_id,
+                            DOWNLOAD_STALL_TIMEOUT.as_secs()
+                        ))?;
+                    match chunk_result {
+                        Some(Ok(chunk)) => {
+                            file.write_all(&chunk)?;
+                            downloaded = downloaded.saturating_add(chunk.len() as u64);
+                            emit_progress(downloaded);
+                        }
+                        Some(Err(error)) => return Err(error.into()),
+                        None => break,
+                    }
+                }
+            }
+        }
+
+        file.flush()?;
+        drop(file);
+
+        let actual_size = partial_path.metadata()?.len();
+        if let Some(expected) = total_size {
+            if actual_size != expected {
+                return Err(anyhow::anyhow!(
+                    "Download incomplete for {}: expected {} bytes, got {} bytes",
+                    model_id,
+                    expected,
+                    actual_size
+                ));
+            }
+        }
+
+        if let Some(expected_sha256) = expected_sha256 {
+            let _ = self.app_handle.emit("model-verification-started", model_id);
+            let path = partial_path.to_path_buf();
+            let expected = expected_sha256.to_string();
+            let id = model_id.to_string();
+            tokio::task::spawn_blocking(move || Self::verify_sha256(&path, Some(&expected), &id))
+                .await
+                .map_err(|error| anyhow::anyhow!("SHA256 task panicked: {}", error))??;
+            let _ = self
+                .app_handle
+                .emit("model-verification-completed", model_id);
+        }
+
+        Ok(true)
+    }
+
     async fn download_hf_model(
         &self,
         model_info: &ModelInfo,
@@ -1486,7 +1704,9 @@ impl ModelManager {
         revision: String,
         filename: String,
     ) -> Result<()> {
-        if hf_cached_path(&repo_id, &revision, &filename).is_some() {
+        if hf_cached_path(&repo_id, &revision, &filename).is_some()
+            || self.models_dir.join(&filename).exists()
+        {
             self.update_download_status()?;
             let _ = self
                 .app_handle
@@ -1522,39 +1742,159 @@ impl ModelManager {
                 },
             );
 
-            // Every catalog repository is public. Ignore cached credentials so
-            // an expired or otherwise invalid token cannot break public model
-            // downloads.
-            let api = ApiBuilder::new().with_token(None).build()?;
-            let repo = api.repo(Repo::with_revision(repo_id, RepoType::Model, revision));
-            let progress = HfDownloadProgress::new(
-                self.app_handle.clone(),
-                model_info.id.clone(),
-                model_info.size_mb.saturating_mul(1024 * 1024),
-            );
-            match repo
-                .download_with_progress_cancellable(&filename, progress, cancel_token)
-                .await
-            {
-                Ok(_) => {}
-                Err(ApiError::Cancelled) => {
-                    // hf-hub has stopped and joined every chunk task. Its
-                    // `.sync.part` cache file stays in place for resume, and
-                    // cancel_download already emitted the cancellation event.
-                    info!("HF download cancelled for: {}", model_info.id);
+            let mut last_error = "no download attempt was made".to_string();
+            for attempt in 1..=HF_DOWNLOAD_ATTEMPTS {
+                if cancel_token.is_cancelled() {
                     return Ok(false);
                 }
-                Err(error) => {
-                    return Err(anyhow::anyhow!("Hugging Face download failed: {}", error));
+
+                // Every catalog repository is public. Ignore cached credentials
+                // so an expired token cannot break a public model download.
+                let api = ApiBuilder::new().with_token(None).build()?;
+                let repo = api.repo(Repo::with_revision(
+                    repo_id.clone(),
+                    RepoType::Model,
+                    revision.clone(),
+                ));
+                let progress = HfDownloadProgress::new(
+                    self.app_handle.clone(),
+                    model_info.id.clone(),
+                    model_info.size_mb.saturating_mul(1024 * 1024),
+                );
+                let attempt_token = cancel_token.child_token();
+                let watchdog_token = attempt_token.clone();
+                let watchdog_progress = progress.clone();
+                let watchdog = tokio::spawn(async move {
+                    loop {
+                        tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+                        if watchdog_token.is_cancelled() {
+                            break;
+                        }
+                        if watchdog_progress.last_activity().elapsed() > DOWNLOAD_STALL_TIMEOUT {
+                            watchdog_token.cancel();
+                            break;
+                        }
+                    }
+                });
+
+                let transfer = repo
+                    .download_with_progress_cancellable(&filename, progress, attempt_token)
+                    .await;
+                watchdog.abort();
+                let _ = watchdog.await;
+
+                match transfer {
+                    Ok(_) => {
+                        let verified = if let Some(expected) = model_info.sha256.as_deref() {
+                            match hf_cached_path(&repo_id, &revision, &filename) {
+                                Some(path) => {
+                                    let id = model_info.id.clone();
+                                    let expected = expected.to_string();
+                                    tokio::task::spawn_blocking(move || {
+                                        Self::verify_sha256(&path, Some(&expected), &id)
+                                    })
+                                    .await
+                                    .map_err(|error| {
+                                        anyhow::anyhow!("SHA256 task panicked: {}", error)
+                                    })?
+                                }
+                                None => Err(anyhow::anyhow!(
+                                    "HF download completed but the cached file was not found"
+                                )),
+                            }
+                        } else {
+                            Ok(())
+                        };
+
+                        match verified {
+                            Ok(()) => {
+                                self.update_download_status()?;
+                                let _ = self
+                                    .app_handle
+                                    .emit("model-download-complete", &model_info.id);
+                                info!("Successfully downloaded HF model {}", model_info.id);
+                                return Ok(true);
+                            }
+                            Err(error) => {
+                                last_error = error.to_string();
+                            }
+                        }
+                    }
+                    Err(ApiError::Cancelled) if cancel_token.is_cancelled() => {
+                        info!("HF download cancelled for: {}", model_info.id);
+                        return Ok(false);
+                    }
+                    Err(ApiError::Cancelled) => {
+                        last_error = format!(
+                            "transfer stalled for more than {} seconds",
+                            DOWNLOAD_STALL_TIMEOUT.as_secs()
+                        );
+                    }
+                    Err(error) => {
+                        last_error = format!("Hugging Face download failed: {}", error);
+                    }
+                }
+
+                if attempt < HF_DOWNLOAD_ATTEMPTS {
+                    let delay = std::time::Duration::from_secs(attempt as u64);
+                    warn!(
+                        "HF download attempt {}/{} failed for {}; retrying in {}s: {}",
+                        attempt,
+                        HF_DOWNLOAD_ATTEMPTS,
+                        model_info.id,
+                        delay.as_secs(),
+                        last_error
+                    );
+                    tokio::time::sleep(delay).await;
                 }
             }
 
-            self.update_download_status()?;
-            let _ = self
-                .app_handle
-                .emit("model-download-complete", &model_info.id);
-            info!("Successfully downloaded HF model {}", model_info.id);
-            Ok(true)
+            let partial_path = self.models_dir.join(format!("{}.partial", &filename));
+            for mirror in crate::catalog::mirror_fallbacks(&model_info.id) {
+                info!(
+                    "Falling back to model mirror for {}: {}",
+                    model_info.id, mirror.url
+                );
+                match self
+                    .download_http_file(
+                        &model_info.id,
+                        &mirror.url,
+                        &partial_path,
+                        Some(mirror.size_bytes),
+                        Some(&mirror.sha256),
+                        cancel_token.clone(),
+                    )
+                    .await
+                {
+                    Ok(true) => {
+                        let model_path = self.models_dir.join(&filename);
+                        if model_path.exists() {
+                            let _ = fs::remove_file(&model_path);
+                        }
+                        fs::rename(&partial_path, &model_path)?;
+                        self.update_download_status()?;
+                        let _ = self
+                            .app_handle
+                            .emit("model-download-complete", &model_info.id);
+                        info!(
+                            "Successfully downloaded model {} from mirror",
+                            model_info.id
+                        );
+                        return Ok(true);
+                    }
+                    Ok(false) => return Ok(false),
+                    Err(error) => {
+                        last_error = format!("{}: {}", mirror.url, error);
+                        warn!("Model mirror failed for {}: {}", model_info.id, error);
+                    }
+                }
+            }
+
+            Err(anyhow::anyhow!(
+                "Hugging Face download failed after {} attempts: {}",
+                HF_DOWNLOAD_ATTEMPTS,
+                last_error
+            ))
         }
         .await;
 
@@ -1569,7 +1909,12 @@ impl ModelManager {
             let mut models = self.available_models.lock().unwrap();
             if let Some(model) = models.get_mut(&model_info.id) {
                 model.is_downloading = false;
-                model.partial_size = 0;
+                model.partial_size = self
+                    .models_dir
+                    .join(format!("{}.partial", &filename))
+                    .metadata()
+                    .map(|metadata| metadata.len())
+                    .unwrap_or(0);
             }
         }
 
@@ -1620,140 +1965,19 @@ impl ModelManager {
         }
 
         let result: Result<()> = async {
-            let mut resume_from = if partial_path.exists() {
-                let size = partial_path.metadata()?.len();
-                info!("Resuming download of model {} from byte {}", model_id, size);
-                size
-            } else {
-                info!("Starting fresh download of model {} from {}", model_id, url);
-                0
-            };
-
-            let client = reqwest::Client::new();
-            let mut request = client.get(&url);
-
-            if resume_from > 0 {
-                request = request.header("Range", format!("bytes={}-", resume_from));
+            let completed = self
+                .download_http_file(
+                    model_id,
+                    &url,
+                    &partial_path,
+                    None,
+                    model_info.sha256.as_deref(),
+                    cancel_token.clone(),
+                )
+                .await?;
+            if !completed {
+                return Ok(());
             }
-
-            let mut response = request.send().await?;
-
-            if resume_from > 0 && response.status() == reqwest::StatusCode::OK {
-                warn!(
-                    "Server doesn't support range requests for model {}, restarting download",
-                    model_id
-                );
-                drop(response);
-                let _ = fs::remove_file(&partial_path);
-                resume_from = 0;
-                response = client.get(&url).send().await?;
-            }
-
-            if !response.status().is_success()
-                && response.status() != reqwest::StatusCode::PARTIAL_CONTENT
-            {
-                return Err(anyhow::anyhow!(
-                    "Failed to download model: HTTP {}",
-                    response.status()
-                ));
-            }
-
-            let total_size = if resume_from > 0 {
-                resume_from + response.content_length().unwrap_or(0)
-            } else {
-                response.content_length().unwrap_or(0)
-            };
-
-            let mut downloaded = resume_from;
-            let mut stream = response.bytes_stream();
-            let mut file = if resume_from > 0 {
-                std::fs::OpenOptions::new()
-                    .create(true)
-                    .append(true)
-                    .open(&partial_path)?
-            } else {
-                std::fs::File::create(&partial_path)?
-            };
-
-            let initial_progress = DownloadProgress {
-                model_id: model_id.to_string(),
-                downloaded,
-                total: total_size,
-                percentage: if total_size > 0 {
-                    (downloaded as f64 / total_size as f64) * 100.0
-                } else {
-                    0.0
-                },
-            };
-            let _ = self
-                .app_handle
-                .emit("model-download-progress", &initial_progress);
-
-            loop {
-                tokio::select! {
-                    _ = cancel_token.cancelled() => {
-                        info!("Download cancelled for model: {}", model_id);
-                        drop(file);
-                        self.clear_download_state(model_id, &partial_path);
-                        let _ = self.app_handle.emit("model-download-cancelled", model_id);
-                        return Ok(());
-                    }
-                    chunk_result = stream.next() => {
-                        match chunk_result {
-                            Some(Ok(chunk)) => {
-                                file.write_all(&chunk)?;
-                                downloaded += chunk.len() as u64;
-
-                                let percentage = if total_size > 0 {
-                                    (downloaded as f64 / total_size as f64) * 100.0
-                                } else {
-                                    0.0
-                                };
-
-                                let progress = DownloadProgress {
-                                    model_id: model_id.to_string(),
-                                    downloaded,
-                                    total: total_size,
-                                    percentage,
-                                };
-                                let _ = self.app_handle.emit("model-download-progress", &progress);
-                            }
-                            Some(Err(error)) => return Err(error.into()),
-                            None => break,
-                        }
-                    }
-                }
-            }
-
-            file.flush()?;
-            drop(file);
-
-            if total_size > 0 {
-                let actual_size = partial_path.metadata()?.len();
-                if actual_size != total_size {
-                    let _ = fs::remove_file(&partial_path);
-                    return Err(anyhow::anyhow!(
-                        "Download incomplete: expected {} bytes, got {} bytes",
-                        total_size,
-                        actual_size
-                    ));
-                }
-            }
-
-            let _ = self.app_handle.emit("model-verification-started", model_id);
-            info!("Verifying SHA256 for model {}...", model_id);
-            let verify_path = partial_path.clone();
-            let verify_expected = model_info.sha256.clone();
-            let verify_model_id = model_id.to_string();
-            let verify_result = tokio::task::spawn_blocking(move || {
-                Self::verify_sha256(&verify_path, verify_expected.as_deref(), &verify_model_id)
-            })
-            .await
-            .map_err(|error| anyhow::anyhow!("SHA256 task panicked: {}", error))?;
-            verify_result?;
-            let _ = self
-                .app_handle
-                .emit("model-verification-completed", model_id);
 
             if model_info.is_directory {
                 let _ = self.app_handle.emit("model-extraction-started", model_id);
@@ -1876,6 +2100,22 @@ impl ModelManager {
                 }
             }
 
+            let local_path = self.models_dir.join(&filename);
+            let partial_path = self.models_dir.join(format!("{}.partial", &filename));
+            if local_path.exists() {
+                info!("Deleting mirrored model file at: {:?}", local_path);
+                fs::remove_file(&local_path)?;
+                deleted_something = true;
+            }
+            if partial_path.exists() {
+                info!(
+                    "Deleting partial mirrored model file at: {:?}",
+                    partial_path
+                );
+                fs::remove_file(&partial_path)?;
+                deleted_something = true;
+            }
+
             if !deleted_something {
                 return Err(anyhow::anyhow!("No model files found to delete"));
             }
@@ -1958,9 +2198,17 @@ impl ModelManager {
         }
 
         if let Some((repo_id, revision, filename)) = model_hf_source(&model_info) {
-            return hf_cached_path(&repo_id, &revision, &filename).ok_or_else(|| {
-                anyhow::anyhow!("Complete model file not found in HF cache: {}", model_id)
-            });
+            if let Some(path) = hf_cached_path(&repo_id, &revision, &filename) {
+                return Ok(path);
+            }
+            let local_path = self.models_dir.join(&filename);
+            if local_path.exists() {
+                return Ok(local_path);
+            }
+            return Err(anyhow::anyhow!(
+                "Complete model file not found in HF cache or mirror directory: {}",
+                model_id
+            ));
         }
 
         let model_path = self.models_dir.join(&model_info.filename);
