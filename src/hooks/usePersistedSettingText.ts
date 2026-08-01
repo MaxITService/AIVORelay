@@ -3,7 +3,7 @@ import type { AppSettings } from "@/bindings";
 import { useSettingsStore } from "../stores/settingsStore";
 
 export type StringSettingKey = {
-  [K in keyof AppSettings]: NonNullable<AppSettings[K]> extends string ? K : never;
+  [K in keyof AppSettings]-?: NonNullable<AppSettings[K]> extends string ? K : never;
 }[keyof AppSettings];
 
 export const usePersistedSettingText = <K extends StringSettingKey>(settingKey: K) => {
