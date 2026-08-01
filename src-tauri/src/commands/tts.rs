@@ -19,7 +19,8 @@ use crate::managers::windows_tts::{self, WindowsVoiceCatalog};
 use crate::settings::{
     get_settings, write_settings, LlmPostProcessBenchmarkResult, TtsLlmScope, TtsOperationScope,
     TtsOutputFormat, TtsPlaybackEffect, TtsProvider, TtsScopeSynthesisSettings, TtsSettings,
-    TtsSynthesisConfig, APPLE_INTELLIGENCE_PROVIDER_ID,
+    TtsSynthesisConfig, APPLE_INTELLIGENCE_PROVIDER_ID, DEFAULT_TTS_OPENAI_VOICE,
+    DEFAULT_TTS_SONIOX_VOICE,
 };
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
@@ -699,10 +700,10 @@ fn parse_provider(provider: &str) -> Result<TtsProvider, String> {
 fn normalize_settings(mut settings: TtsSettings) -> TtsSettings {
     settings.soniox_model = nonempty_setting(settings.soniox_model, "tts-rt-v1");
     settings.soniox_language = nonempty_setting(settings.soniox_language, "en");
-    settings.soniox_voice = nonempty_setting(settings.soniox_voice, "Maya");
+    settings.soniox_voice = nonempty_setting(settings.soniox_voice, DEFAULT_TTS_SONIOX_VOICE);
     settings.deepgram_model = nonempty_setting(settings.deepgram_model, "aura-2-thalia-en");
     settings.openai_model = nonempty_setting(settings.openai_model, "gpt-4o-mini-tts");
-    settings.openai_voice = nonempty_setting(settings.openai_voice, "marin");
+    settings.openai_voice = nonempty_setting(settings.openai_voice, DEFAULT_TTS_OPENAI_VOICE);
     settings.edge_voice = nonempty_setting(settings.edge_voice, DEFAULT_EDGE_TTS_VOICE);
     settings.edge_voice_language = edge_voice_language(&settings.edge_voice);
     settings.local_qwen_voice = nonempty_setting(settings.local_qwen_voice, "Ryan");
@@ -817,7 +818,8 @@ fn normalize_synthesis_config(
     match config.provider {
         TtsProvider::Soniox => {
             config.model = nonempty_setting(std::mem::take(&mut config.model), "tts-rt-v1");
-            config.voice = nonempty_setting(std::mem::take(&mut config.voice), "Maya");
+            config.voice =
+                nonempty_setting(std::mem::take(&mut config.voice), DEFAULT_TTS_SONIOX_VOICE);
             config.language = nonempty_setting(std::mem::take(&mut config.language), "en");
         }
         TtsProvider::Deepgram => {
@@ -827,7 +829,8 @@ fn normalize_synthesis_config(
         }
         TtsProvider::OpenAi => {
             config.model = nonempty_setting(std::mem::take(&mut config.model), "gpt-4o-mini-tts");
-            config.voice = nonempty_setting(std::mem::take(&mut config.voice), "marin");
+            config.voice =
+                nonempty_setting(std::mem::take(&mut config.voice), DEFAULT_TTS_OPENAI_VOICE);
             config.language.clear();
         }
         TtsProvider::Edge => {
