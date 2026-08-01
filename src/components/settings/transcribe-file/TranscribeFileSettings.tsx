@@ -419,13 +419,37 @@ export const TranscribeFileSettings: React.FC = () => {
     selectedFileRef.current = selectedFile;
   }, [selectedFile]);
 
+  const cancelTranscriptionForFileChange = useCallback(async () => {
+    if (!isTranscribing && !isTranscriptionCommandPending) return;
+
+    transcriptionRunIdRef.current += 1;
+    setIsCancellingTranscription(true);
+    setCancelRequestedAt(Date.now());
+    setCancelElapsedSeconds(0);
+    setIsTranscribing(false);
+
+    try {
+      await commands.cancelOperation();
+    } catch (err) {
+      setError(String(err));
+    } finally {
+      setIsCancellingTranscription(false);
+    }
+  }, [
+    isTranscribing,
+    isTranscriptionCommandPending,
+    setError,
+    setIsTranscribing,
+  ]);
+
   const replaceSelectedFile = useCallback(
     async (nextFile: SelectedFile | null) => {
+      await cancelTranscriptionForFileChange();
       await cleanupPreparedPreviewAsset(selectedFileRef.current);
       selectedFileRef.current = nextFile;
       setSelectedFile(nextFile);
     },
-    [setSelectedFile],
+    [cancelTranscriptionForFileChange, setSelectedFile],
   );
 
   const clearSelectedFileState = useCallback(async () => {
@@ -1069,8 +1093,6 @@ export const TranscribeFileSettings: React.FC = () => {
       setCancelRequestedAt(null);
       if (isCurrentRun()) {
         setIsTranscribing(false);
-      } else {
-        setInfoMessage(t("transcribeFile.cancelled"));
       }
     }
   };
@@ -1095,6 +1117,7 @@ export const TranscribeFileSettings: React.FC = () => {
 
     try {
       await commands.cancelOperation();
+      setInfoMessage(t("transcribeFile.cancelled"));
     } catch (err) {
       setError(String(err));
     } finally {
