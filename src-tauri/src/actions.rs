@@ -337,7 +337,12 @@ fn should_skip_transcription_for_quick_tap(
         }
 
         return sample_count
-            < quick_tap_threshold_samples(recording_settings.screenshot_quick_tap_threshold_ms);
+            < quick_tap_threshold_samples(
+                recording_settings.screenshot_quick_tap_threshold_ms.clamp(
+                    crate::settings::SCREENSHOT_QUICK_TAP_MIN_MS,
+                    crate::settings::SCREENSHOT_QUICK_TAP_MAX_MS,
+                ),
+            );
     }
 
     false
@@ -7996,7 +8001,10 @@ impl ShortcutAction for SendScreenshotToExtensionAction {
                 }
 
                 let quick_tap_threshold_samples = quick_tap_threshold_samples(
-                    recording_settings.screenshot_quick_tap_threshold_ms,
+                    recording_settings.screenshot_quick_tap_threshold_ms.clamp(
+                        crate::settings::SCREENSHOT_QUICK_TAP_MIN_MS,
+                        crate::settings::SCREENSHOT_QUICK_TAP_MAX_MS,
+                    ),
                 );
                 if samples.len() >= quick_tap_threshold_samples {
                     debug!(
@@ -8114,7 +8122,10 @@ impl ShortcutAction for SendScreenshotToExtensionAction {
             }
 
             // Wait for screenshot
-            let timeout = recording_settings.screenshot_timeout_seconds as u64;
+            let timeout = recording_settings.screenshot_timeout_seconds.clamp(
+                crate::settings::SCREENSHOT_TIMEOUT_MIN_SECONDS,
+                crate::settings::SCREENSHOT_TIMEOUT_MAX_SECONDS,
+            ) as u64;
             let screenshot_result = watch_for_new_image(
                 screenshot_folder,
                 timeout,

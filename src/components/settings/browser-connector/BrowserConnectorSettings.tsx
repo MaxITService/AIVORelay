@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation, Trans } from "react-i18next";
 import { Globe, Info, ExternalLink, Eye, EyeOff, Copy, AlertTriangle, Download, RefreshCw } from "lucide-react";
 import { open } from "@tauri-apps/plugin-dialog";
@@ -37,6 +37,22 @@ const EXPORT_PATH_STORAGE_KEY = "aivorelay.connectorExportPath";
 const EXPORTED_EXTENSION_FOLDER_NAME = "AivoRelay Connector";
 const COMPATIBLE_CONNECTOR_VERSION = "1.0.5";
 const AXUM_VERSION = "0.8.8";
+const SCREENSHOT_TIMEOUT_MIN_SECONDS = 1;
+const SCREENSHOT_TIMEOUT_MAX_SECONDS = 60;
+const SCREENSHOT_QUICK_TAP_MIN_MS = 100;
+const SCREENSHOT_QUICK_TAP_MAX_MS = 2000;
+
+const clampScreenshotTimeout = (value: number) =>
+  Math.min(
+    SCREENSHOT_TIMEOUT_MAX_SECONDS,
+    Math.max(SCREENSHOT_TIMEOUT_MIN_SECONDS, Math.trunc(value)),
+  );
+
+const clampScreenshotQuickTap = (value: number) =>
+  Math.min(
+    SCREENSHOT_QUICK_TAP_MAX_MS,
+    Math.max(SCREENSHOT_QUICK_TAP_MIN_MS, Math.trunc(value)),
+  );
 
 type ExportBundledExtensionResult = {
   exportPath: string;
@@ -124,8 +140,13 @@ export const BrowserConnectorSettings: React.FC = () => {
     settings?.screenshot_folder ?? getDefaultScreenshotFolder()
   );
   const [screenshotTimeoutInput, setScreenshotTimeoutInput] = useState(
-    String(settings?.screenshot_timeout_seconds ?? 5)
+    String(clampScreenshotTimeout(settings?.screenshot_timeout_seconds ?? 5))
   );
+  const [screenshotQuickTapInput, setScreenshotQuickTapInput] = useState(
+    String(clampScreenshotQuickTap(settings?.screenshot_quick_tap_threshold_ms ?? 500))
+  );
+  const screenshotTimeoutEditingRef = useRef(false);
+  const screenshotQuickTapEditingRef = useRef(false);
   
   // Textarea prompt local states (to prevent focus loss on each keystroke)
   const [selectionSystemPromptInput, setSelectionSystemPromptInput] = useState(
@@ -250,8 +271,22 @@ export const BrowserConnectorSettings: React.FC = () => {
   }, [settings?.screenshot_folder]);
 
   useEffect(() => {
-    setScreenshotTimeoutInput(String(settings?.screenshot_timeout_seconds ?? 5));
+    if (!screenshotTimeoutEditingRef.current) {
+      setScreenshotTimeoutInput(
+        String(clampScreenshotTimeout(settings?.screenshot_timeout_seconds ?? 5))
+      );
+    }
   }, [settings?.screenshot_timeout_seconds]);
+
+  useEffect(() => {
+    if (!screenshotQuickTapEditingRef.current) {
+      setScreenshotQuickTapInput(
+        String(
+          clampScreenshotQuickTap(settings?.screenshot_quick_tap_threshold_ms ?? 500)
+        )
+      );
+    }
+  }, [settings?.screenshot_quick_tap_threshold_ms]);
 
   // Sync prompt textarea local states with settings
   useEffect(() => {
@@ -512,9 +547,40 @@ export const BrowserConnectorSettings: React.FC = () => {
   };
 
   const handleScreenshotTimeoutBlur = () => {
-    const timeout = parseInt(screenshotTimeoutInput.trim(), 10);
-    if (!isNaN(timeout) && timeout > 0 && timeout !== settings?.screenshot_timeout_seconds) {
+    screenshotTimeoutEditingRef.current = false;
+    const rawPersistedTimeout = settings?.screenshot_timeout_seconds ?? 5;
+    const persistedTimeout = clampScreenshotTimeout(rawPersistedTimeout);
+    const timeout = Number(screenshotTimeoutInput.trim());
+    if (
+      !Number.isInteger(timeout) ||
+      timeout < SCREENSHOT_TIMEOUT_MIN_SECONDS ||
+      timeout > SCREENSHOT_TIMEOUT_MAX_SECONDS
+    ) {
+      setScreenshotTimeoutInput(String(persistedTimeout));
+      return;
+    }
+    setScreenshotTimeoutInput(String(timeout));
+    if (timeout !== rawPersistedTimeout) {
       void updateSetting("screenshot_timeout_seconds", timeout);
+    }
+  };
+
+  const handleScreenshotQuickTapBlur = () => {
+    screenshotQuickTapEditingRef.current = false;
+    const rawPersistedThreshold = settings?.screenshot_quick_tap_threshold_ms ?? 500;
+    const persistedThreshold = clampScreenshotQuickTap(rawPersistedThreshold);
+    const threshold = Number(screenshotQuickTapInput.trim());
+    if (
+      !Number.isInteger(threshold) ||
+      threshold < SCREENSHOT_QUICK_TAP_MIN_MS ||
+      threshold > SCREENSHOT_QUICK_TAP_MAX_MS
+    ) {
+      setScreenshotQuickTapInput(String(persistedThreshold));
+      return;
+    }
+    setScreenshotQuickTapInput(String(threshold));
+    if (threshold !== rawPersistedThreshold) {
+      void updateSetting("screenshot_quick_tap_threshold_ms", threshold);
     }
   };
 
@@ -1293,11 +1359,20 @@ export const BrowserConnectorSettings: React.FC = () => {
                     <Input
                       type="number"
                       value={screenshotTimeoutInput}
+                      onFocus={() => {
+                        screenshotTimeoutEditingRef.current = true;
+                      }}
                       onChange={(event) => setScreenshotTimeoutInput(event.target.value)}
                       onBlur={handleScreenshotTimeoutBlur}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter") {
+                          event.preventDefault();
+                          event.currentTarget.blur();
+                        }
+                      }}
                       placeholder="5"
-                      min={1}
-                      max={60}
+                      min={SCREENSHOT_TIMEOUT_MIN_SECONDS}
+                      max={SCREENSHOT_TIMEOUT_MAX_SECONDS}
                       className="w-20"
                       disabled={!settings?.screenshot_require_recent}
                     />
@@ -1332,16 +1407,21 @@ export const BrowserConnectorSettings: React.FC = () => {
                   <div className="flex items-center gap-2">
                     <Input
                       type="number"
-                      value={settings?.screenshot_quick_tap_threshold_ms ?? 500}
-                      onChange={(event) => {
-                        const val = parseInt(event.target.value, 10);
-                        if (!isNaN(val) && val > 0) {
-                          void updateSetting("screenshot_quick_tap_threshold_ms", val);
+                      value={screenshotQuickTapInput}
+                      onFocus={() => {
+                        screenshotQuickTapEditingRef.current = true;
+                      }}
+                      onChange={(event) => setScreenshotQuickTapInput(event.target.value)}
+                      onBlur={handleScreenshotQuickTapBlur}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter") {
+                          event.preventDefault();
+                          event.currentTarget.blur();
                         }
                       }}
-                      disabled={!settings?.screenshot_allow_no_voice || isUpdating("screenshot_quick_tap_threshold_ms")}
-                      min={100}
-                      max={2000}
+                      disabled={!settings?.screenshot_allow_no_voice}
+                      min={SCREENSHOT_QUICK_TAP_MIN_MS}
+                      max={SCREENSHOT_QUICK_TAP_MAX_MS}
                       step={50}
                       className="w-24"
                     />
