@@ -993,8 +993,8 @@ export const LiveSoundTranscriptionSettings: React.FC = () => {
                     }}
                   >
                     {isOverridden
-                      ? t("settings.liveSoundTranscription.sessionOverrides.override")
-                      : t("settings.liveSoundTranscription.sessionOverrides.useGlobal")}
+                      ? t("settings.liveSoundTranscription.sessionOverrides.useGlobal")
+                      : t("settings.liveSoundTranscription.sessionOverrides.override")}
                   </Button>
                   {isOverridden ? (
                     <input
@@ -1048,8 +1048,8 @@ export const LiveSoundTranscriptionSettings: React.FC = () => {
                     }}
                   >
                     {isOverridden
-                      ? t("settings.liveSoundTranscription.sessionOverrides.override")
-                      : t("settings.liveSoundTranscription.sessionOverrides.useGlobal")}
+                      ? t("settings.liveSoundTranscription.sessionOverrides.useGlobal")
+                      : t("settings.liveSoundTranscription.sessionOverrides.override")}
                   </Button>
                   {isOverridden ? (
                     <input
