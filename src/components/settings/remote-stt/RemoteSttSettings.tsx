@@ -1382,6 +1382,8 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
   const canTestConnection =
     isRemoteOpenAiProvider &&
     baseUrlInput.trim().length > 0 &&
+    hasKeyStatusLoaded &&
+    hasApiKey &&
     !apiKeyLoading;
 
   return (
