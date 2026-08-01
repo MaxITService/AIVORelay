@@ -499,6 +499,19 @@ fn prepare_overlay(
     emit_overlay_state(app, &snapshot);
 }
 
+fn update_overlay_identity(app: &AppHandle, settings: &TtsSettings) {
+    let identity = overlay_identity(settings);
+    let snapshot = {
+        let runtime = app.state::<TtsOverlayRuntime>();
+        let mut runtime = runtime.inner.lock();
+        runtime.state.provider = identity.provider;
+        runtime.state.model = identity.model;
+        runtime.state.voice = identity.voice;
+        runtime.state.clone()
+    };
+    emit_overlay_state(app, &snapshot);
+}
+
 fn overlay_identity(settings: &TtsSettings) -> TtsOverlayIdentity {
     let (model, voice) = match settings.provider {
         TtsProvider::Soniox => (settings.soniox_model.clone(), settings.soniox_voice.clone()),
@@ -627,10 +640,6 @@ pub(crate) async fn start_tts_text_at(
     let operation_guard = manager
         .try_reserve_foreground_operation()
         .map_err(|error| error.to_string())?;
-    let settings = manager
-        .resolve_operation_settings(&settings)
-        .await
-        .map_err(|error| error.to_string())?;
     let overlay_was_cold = app
         .get_webview_window(crate::overlay::TTS_OVERLAY_WINDOW_LABEL)
         .is_none();
@@ -642,16 +651,26 @@ pub(crate) async fn start_tts_text_at(
         overlay_was_cold,
     );
     crate::overlay::show_tts_overlay_window(&app);
-    let synthesis = match manager
-        .synthesize_interactive_reserved(&text, &settings, operation_guard)
+    let identity_app = app.clone();
+    let resolved = match manager
+        .synthesize_interactive_reserved(
+            &text,
+            &settings,
+            operation_guard,
+            move |resolved_settings| update_overlay_identity(&identity_app, resolved_settings),
+        )
         .await
     {
-        Ok(synthesis) => synthesis,
+        Ok(resolved) => resolved,
         Err(error) => {
-            report_overlay_error(&app, &error);
+            if manager.current_state().phase != TtsPhase::Cancelled {
+                report_overlay_error(&app, &error);
+            }
             return Err(error.to_string());
         }
     };
+    let synthesis = resolved.value;
+    let settings = resolved.settings;
     if settings.interactive_history_enabled {
         if let Some(audio_path) = synthesis.combined_audio_path {
             save_passive_history(
@@ -1509,10 +1528,6 @@ pub async fn convert_tts_text_file(
         256
     };
     let manager = app.state::<Arc<TtsManager>>().inner().clone();
-    settings = manager
-        .resolve_operation_settings(&settings)
-        .await
-        .map_err(|error| error.to_string())?;
     let history_source = if settings.file_history_enabled {
         Some(
             manager
@@ -1529,10 +1544,12 @@ pub async fn convert_tts_text_file(
         .filter(|extension| extension.eq_ignore_ascii_case("md"))
         .map(|_| TtsHistorySourceKind::Markdown)
         .unwrap_or(TtsHistorySourceKind::Text);
-    let result = manager
-        .convert_text_file(&request.input_path, &request.output_path, &settings)
+    let resolved = manager
+        .convert_text_file_resolved(&request.input_path, &request.output_path, &settings)
         .await
         .map_err(|error| error.to_string())?;
+    let result = resolved.value;
+    settings = resolved.settings;
     if let Some(source_text) = history_source {
         save_passive_history(
             &app,
