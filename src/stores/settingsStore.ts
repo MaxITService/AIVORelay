@@ -118,6 +118,20 @@ const normalizeModelUnloadTimeout = (
 const DEFAULT_MICROPHONE_INPUT_BOOST_DEVICE_KEY = "__default__";
 const MAX_MICROPHONE_INPUT_BOOST_DB = 17;
 
+// Most backend setting commands perform a whole-settings read/modify/write.
+// Keep frontend persistence ordered so two normal UI changes cannot both read
+// the same snapshot and let the later completion erase the earlier field.
+let settingsPersistenceQueue: Promise<void> = Promise.resolve();
+
+const persistSettingInOrder = <T>(operation: () => Promise<T>): Promise<T> => {
+  const result = settingsPersistenceQueue.then(operation, operation);
+  settingsPersistenceQueue = result.then(
+    () => undefined,
+    () => undefined,
+  );
+  return result;
+};
+
 const microphoneInputBoostDeviceKey = (deviceName: string) => {
   const normalized = deviceName.trim();
   if (!normalized || normalized.toLowerCase() === "default") {
@@ -1135,7 +1149,7 @@ export const useSettingsStore = create<SettingsStore>()(
 
         const updater = settingUpdaters[key];
         if (updater) {
-          const result = await updater(value);
+          const result = await persistSettingInOrder(() => updater(value));
           if (
             result &&
             typeof result === "object" &&
@@ -1150,9 +1164,10 @@ export const useSettingsStore = create<SettingsStore>()(
       } catch (error) {
         console.error(`Failed to update setting ${String(key)}:`, error);
         set((state) => ({
-          settings: state.settings
-            ? { ...state.settings, [key]: originalValue }
-            : state.settings,
+          settings:
+            state.settings && Object.is(state.settings[key], value)
+              ? { ...state.settings, [key]: originalValue }
+              : state.settings,
         }));
       } finally {
         setUpdating(updateKey, false);
@@ -1296,7 +1311,7 @@ export const useSettingsStore = create<SettingsStore>()(
       // A provider change is an explicit user choice and must not be
       // overwritten by a model download that finishes a moment later.
       invalidateModelDownloadActivationIntent();
-      const { settings, setUpdating, refreshSettings } = get();
+      const { settings, setUpdating } = get();
       const updateKey = "transcription_provider";
       const previousId = settings?.transcription_provider ?? null;
 
@@ -1311,18 +1326,23 @@ export const useSettingsStore = create<SettingsStore>()(
       }
 
       try {
-        await commands.changeTranscriptionProviderSetting(providerId);
-        await refreshSettings();
+        const result = await persistSettingInOrder(() =>
+          commands.changeTranscriptionProviderSetting(providerId),
+        );
+        if (result.status === "error") {
+          throw new Error(result.error);
+        }
       } catch (error) {
         console.error("Failed to set transcription provider:", error);
         if (previousId !== null) {
           set((state) => ({
-            settings: state.settings
-              ? {
-                  ...state.settings,
-                  transcription_provider: previousId as any,
-                }
-              : null,
+            settings:
+              state.settings?.transcription_provider === providerId
+                ? {
+                    ...state.settings,
+                    transcription_provider: previousId as any,
+                  }
+                : state.settings,
           }));
         }
       } finally {
