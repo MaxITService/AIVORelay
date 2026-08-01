@@ -6,6 +6,19 @@ Small rolling log of upstream commits integrated into `main`.
 This file is maintained from `main` only.
 Non-`main` branches must not carry or update independent copies.
 
+Audit note (2026-08-01):
+- Refreshed `Q:\Handy-upstream`; current upstream HEAD is `76736d5`.
+- Safe review cursor for the next `upstream -> main` intake is now `76736d5`.
+- Reviewed the full corridor from `8a362e9` to `76736d5` (21 non-merge commits).
+- Manually adapted `292db647` as `55176cae` (pinned catalog revisions,
+  mirror metadata, SHA-256 verification, resumable/stall-aware downloads) and
+  `16e5d48e` as `310c8619` (suspend all active bindings during shortcut
+  capture).
+- `70327582` and `76b44d83` are included in `6dfe700b`; `148e5492` is already
+  covered independently. Skipped macOS-only `d001fcd9`, `0902937b`, and
+  `f602ef4f` because AIVORelay does not ship macOS. Deferred `a70ac84f` and
+  `cf49ab35` for workflow/platform-specific follow-up.
+
 Audit note (2026-07-22):
 - Current fetched `upstream/main` head checked locally: `8a362e9`.
 - Safe review cursor for the next `upstream -> main` intake: `8a362e9`.
@@ -36,16 +49,16 @@ Rules:
 
 | Merge Date | Upstream Date | Upstream SHA | Upstream Message | Main Message | Issues |
 | --- | --- | --- | --- | --- | --- |
+| 2026-08-01 | 2026-07-30 | `16e5d48e` | dont fire bindings when recording (#1811) | fix(shortcuts): suspend all bindings during shortcut capture | manual port; retained legacy single-binding commands for old frontend bundles |
+| 2026-08-01 | 2026-07-28 | `292db647` | Harden Hugging Face downloads and use mirror fallback (#1773) | feat(models): harden downloads with pinned catalog mirrors | manual port; retained the fork model manager and kept the Aivo-only MOSS catalog entry |
+| 2026-08-01 | 2026-07-31 | `76b44d83` | fix(audio): recalibrate mic level meter so speech moves the bars (#1813) | fix(build): complete legacy Whisper transcribe.cpp migration | included with the build migration commit; no build dependency |
+| 2026-08-01 | 2026-08-01 | `70327582` | bump handy-keys to 0.3.3 | fix(build): complete legacy Whisper transcribe.cpp migration | included with the build migration commit; dependency freshness only |
 | 2026-07-22 | 2026-07-22 | `8a362e9` | fix mute bug (#1760) | fix(audio): preserve system mute state after recording | manual port; retained fork capture-source checks and media pause/resume behavior |
 | 2026-07-22 | 2026-07-21 | `e8c73ba` | update catalog | feat(models): add latest transcribe.cpp catalog models | manual catalog/generator port; kept all quantizations and fork Whisper translation support |
 | 2026-07-22 | 2026-07-21 | `68af495` | dont use hf env | fix(models): ignore stale credentials for public downloads | manual client-builder port; retained fork cancellable parallel download implementation |
 | 2026-07-22 | 2026-07-21 | `46d6a2a` | guard vulkan so only available to true x86 host, not emulated (#1731) | fix(acceleration): disable GGML GPU paths under x64-on-ARM | manual port; covered fork whisper.cpp and transcribe.cpp paths; fork workflow has no upstream package-smoke block |
 | 2026-07-22 | 2026-07-21 | `0470d9a` | fix windows not shutting down cleanly because of handy (#1732) | fix(windows): allow clean system shutdown | manual tao patch port; retained fork Tauri 2.11.5 and resolved Cargo lock locally |
 | 2026-07-22 | 2026-07-20 | `59ec695` | bump tauri global shortcut package.json | chore(deps): update frontend global-shortcut plugin to 2.3.2 | manual package and Bun lock port; retained fork dependency graph |
-| 2026-07-22 | 2026-07-20 | `2281b8b` | bump tauri global shortcut | chore(deps): update Rust global-shortcut plugin to 2.3.2 | manual dependency resolution; Cargo lock resolved locally |
-| 2026-07-22 | 2026-07-20 | `468129f` | bump to handy-keys 0.3.1 | chore(deps): update handy-keys to 0.3.1 | manual manifest port; Cargo lock resolved locally |
-| 2026-07-22 | 2026-07-20 | `2203a82` | fix: prevent custom-word correction from losing transcriptions | fix(transcription): preserve results through text cleanup | manual port; retained fork n-gram/filler toggles; Unicode-safe matching and fail-open cleanup/headless guards |
-| 2026-07-13 | 2026-07-12 | `c912c6b` | transcribe 0.1.3 (#1664) | chore(deps): update transcribe-cpp to 0.1.3 | manifest port; Cargo lock resolved locally; retained fork CI path workaround |
 
 Entry template:
 
