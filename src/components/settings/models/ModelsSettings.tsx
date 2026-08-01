@@ -1,6 +1,7 @@
 import React, { useMemo, useState, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { ask } from "@tauri-apps/plugin-dialog";
+import { type as getOsType } from "@tauri-apps/plugin-os";
 import { Cloud, Download, Filter, HardDrive, Radio, RotateCcw } from "lucide-react";
 import { useModels } from "../../../hooks/useModels";
 import { useSettings } from "../../../hooks/useSettings";
@@ -123,6 +124,7 @@ const ModelFilterSummaryBar: React.FC<ModelFilterSummaryBarProps> = ({
 
 export const ModelsSettings: React.FC = () => {
   const { t } = useTranslation();
+  const supportsRemoteProviders = getOsType() === "windows";
   const {
     models,
     currentModel,
@@ -378,8 +380,19 @@ export const ModelsSettings: React.FC = () => {
       }
       await setTranscriptionProvider("remote_openai_compatible");
       await refreshSettings();
+    } catch (error) {
+      toast.error(String(error));
     } finally {
       setSwitchingRemoteApiId(null);
+    }
+  };
+
+  const handleRemoteProviderSelect = async (provider: string) => {
+    invalidateModelDownloadActivationIntent();
+    try {
+      await setTranscriptionProvider(provider);
+    } catch (error) {
+      toast.error(String(error));
     }
   };
 
@@ -502,8 +515,9 @@ export const ModelsSettings: React.FC = () => {
         </div>
       </TellMeMore>
 
-      {/* Remote Providers */}
-      <SettingsGroup title={t("modelSelector.remoteMode")}>
+      {/* Remote providers depend on Windows Credential Manager. */}
+      {supportsRemoteProviders && (
+        <SettingsGroup title={t("modelSelector.remoteMode")}>
         {renderRemoteApiRows(primaryRemoteApiRows)}
 
         {/* Remote via Soniox */}
@@ -535,10 +549,7 @@ export const ModelsSettings: React.FC = () => {
               <Button
                 variant="secondary"
                 size="sm"
-                onClick={() => {
-                  invalidateModelDownloadActivationIntent();
-                  void setTranscriptionProvider("remote_soniox");
-                }}
+                onClick={() => void handleRemoteProviderSelect("remote_soniox")}
               >
                 {t("modelSelector.chooseModel")}
               </Button>
@@ -589,10 +600,7 @@ export const ModelsSettings: React.FC = () => {
               <Button
                 variant="secondary"
                 size="sm"
-                onClick={() => {
-                  invalidateModelDownloadActivationIntent();
-                  void setTranscriptionProvider("remote_deepgram");
-                }}
+                onClick={() => void handleRemoteProviderSelect("remote_deepgram")}
               >
                 {t("modelSelector.chooseModel")}
               </Button>
@@ -612,7 +620,8 @@ export const ModelsSettings: React.FC = () => {
         <div className="border-t border-[#3d3d3d]" />
 
         {renderRemoteApiRows(discouragedRemoteApiRows)}
-      </SettingsGroup>
+        </SettingsGroup>
+      )}
 
       <div className="glass-panel-subtle border border-[#3d3d3d] rounded-xl p-4">
         <p className="text-sm text-[#f5f5f5]">

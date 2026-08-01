@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect, useCallback } from "react";
 import { useTranslation } from "react-i18next";
 import { listen } from "@tauri-apps/api/event";
+import { type as getOsType } from "@tauri-apps/plugin-os";
 import { commands, type ModelInfo } from "@/bindings";
 import type { ModelStateEvent } from "@/lib/types/events";
 import { getTranslatedModelName } from "../../lib/utils/modelTranslation";
@@ -57,6 +58,7 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({
 }) => {
   const { t } = useTranslation();
   const { getSetting, setTranscriptionProvider } = useSettings();
+  const supportsRemoteProviders = getOsType() === "windows";
   const [models, setModels] = useState<ModelInfo[]>([]);
   const [currentModelId, setCurrentModelId] = useState<string>("");
   const [modelStatus, setModelStatus] = useState<ModelStatus>("unloaded");
@@ -554,16 +556,30 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({
 
   const handleRemoteProviderSelect = useCallback(
     async (provider: string) => {
+      if (!supportsRemoteProviders) {
+        const errorMsg = t(
+          "modelSelector.remoteWindowsOnly",
+          "Remote transcription providers are only available on Windows.",
+        );
+        setModelError(errorMsg);
+        setModelStatus("error");
+        onError?.(errorMsg);
+        return;
+      }
       try {
         invalidateModelDownloadActivationIntent();
         setShowModelDropdown(false);
         await setTranscriptionProvider(provider);
+        setModelError(null);
+        setModelStatus("ready");
       } catch (err) {
         const errorMsg = `Failed to switch to remote provider: ${err}`;
+        setModelError(errorMsg);
+        setModelStatus("error");
         onError?.(errorMsg);
       }
     },
-    [setTranscriptionProvider, onError],
+    [onError, setTranscriptionProvider, supportsRemoteProviders, t],
   );
 
   const handleModelDelete = async (modelId: string) => {
@@ -579,7 +595,13 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({
       {/* Model Status and Switcher */}
       <div className="relative" ref={dropdownRef}>
         <ModelStatusButton
-          status={isRemoteProvider ? "ready" : modelStatus}
+          status={
+            modelStatus === "error"
+              ? "error"
+              : isRemoteProvider
+                ? "ready"
+                : modelStatus
+          }
           displayText={getModelDisplayText()}
           nativeStreaming={currentModelSupportsNativeStreaming}
           nativeStreamingTitle={nativeStreamingTitle}
@@ -612,7 +634,9 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({
             onError={onError}
             currentProvider={transcriptionProvider}
             remoteApiLabel={remoteApiDisplayLabel}
-            onRemoteProviderSelect={handleRemoteProviderSelect}
+            onRemoteProviderSelect={
+              supportsRemoteProviders ? handleRemoteProviderSelect : undefined
+            }
           />
         )}
       </div>
