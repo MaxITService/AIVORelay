@@ -28,6 +28,7 @@ import { useSettings } from "@/hooks/useSettings";
 import { ApiKeyEditor, StoredApiKeyDisplay } from "../ApiKeyControls";
 import { HandyShortcut } from "../HandyShortcut";
 import { TtsFolderAutomation } from "./TtsFolderAutomation";
+import { TtsBetaBanner } from "./TtsBetaBanner";
 import { TtsHelpDisclosure } from "./TtsHelpDisclosure";
 import { TtsHistory } from "./TtsHistory";
 import {
@@ -2180,6 +2181,8 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
 
   return (
     <div className="mx-auto w-full max-w-3xl space-y-6 pb-12">
+      <TtsBetaBanner />
+
       {settingsError && (
         <div
           role="alert"

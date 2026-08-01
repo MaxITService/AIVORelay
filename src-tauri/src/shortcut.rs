@@ -2704,6 +2704,7 @@ pub fn change_clipboard_handling_setting(app: AppHandle, handling: String) -> Re
         "dont_modify" => ClipboardHandling::DontModify,
         "copy_to_clipboard" => ClipboardHandling::CopyToClipboard,
         "restore_advanced" => ClipboardHandling::RestoreAdvanced,
+        "restore_advanced_owned" => ClipboardHandling::RestoreAdvancedOwned,
         other => {
             warn!(
                 "Invalid clipboard handling '{}', defaulting to dont_modify",

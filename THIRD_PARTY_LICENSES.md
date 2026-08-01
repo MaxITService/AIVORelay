@@ -211,6 +211,21 @@ and chunking.
 
 ---
 
+## kothok-edge-tts
+
+**Copyright:** 2026 Nayeem Bin Ahsan
+
+**License:** MIT License
+
+**Source:** https://github.com/Nayeem170/kothok-edge-tts
+
+Used by the experimental Edge-TTS provider to communicate directly with
+Microsoft Edge's online Read Aloud WebSocket service. The dependency is pinned
+to version 0.2.10. Its license text is shipped in
+`src-tauri/resources/licenses/kothok-edge-tts-MIT.txt`.
+
+---
+
 ## Optional local Qwen3-TTS runtime
 
 The optional local TTS provider is downloaded only after explicit user

@@ -90,11 +90,10 @@ value:
   rejected.
 - Experimental Edge-TTS uses the fixed `microsoft-edge-read-aloud` service
   model and derives language from its voice ID, so use `--tts-voice`; model,
-  language, and key-source flags are rejected. It requires a separately
-  installed community helper (`uv tool install edge-tts` or
-  `pipx install edge-tts`) and sends text to Microsoft Edge's online Read
-  Aloud service without an API key. The unofficial service can change without
-  notice.
+  language, and key-source flags are rejected. AivoRelay's native Rust client
+  sends text directly to Microsoft Edge's online Read Aloud service without
+  Python, a separately installed helper, or an API key. The unofficial service
+  can change without notice.
 - The local Qwen runtime uses AivoRelay's pinned model, so `--tts-model` is
   rejected; use `--tts-voice` and `--tts-language`.
 - The local Kokoro runtime also uses a pinned model, so `--tts-model` is

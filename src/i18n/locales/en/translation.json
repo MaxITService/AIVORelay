@@ -31,6 +31,12 @@
   "textToSpeech": {
     "title": "Text to Speech: Select text, press a key, and hear it read aloud.",
     "description": "Read clipboard or selected text aloud and configure provider-independent voice generation.",
+    "beta": {
+      "label": "BETA",
+      "title": "Text to Speech is now in beta.",
+      "description": "This feature is still being refined. If you encounter a problem, please report it on GitHub.",
+      "reportIssue": "Open GitHub Issues"
+    },
     "help": {
       "tellMeMore": "Tell me more",
       "providerSummary": "{{provider}} is used for this page. Search the provider list by typing; model, voice, and language fields also accept exact custom IDs when the provider adds something new.",
@@ -226,7 +232,7 @@
       "help": "Uses voices installed in Windows; no model or API key is needed. AivoRelay does not redistribute voices. Usage rights depend on the installed voice and its provider terms."
     },
     "edge": {
-      "experimentalWarning": "Experimental provider: uses the community edge-tts helper and Microsoft Edge's online Read Aloud service. Install it with uv tool install edge-tts or pipx install edge-tts. The service can change without notice."
+      "experimentalWarning": "Experimental provider: connects directly from AivoRelay to Microsoft Edge's online Read Aloud service through a native Rust client. No Python, helper, or API key is required. This unofficial service can change without notice."
     },
     "voice": {
       "title": "Voice",
@@ -1684,6 +1690,10 @@
             "title": "Restore all formats (Windows only, experimental):",
             "description": "This mode tries to back up and restore more than plain text, including copied images, files, and formatted content. Use it only if the normal restore option is not enough. It can be less predictable because different apps expose clipboard data in different ways."
           },
+          "restoreAdvancedOwned": {
+            "title": "Restore all formats with a documented owner (Windows only):",
+            "description": "Uses an AivoRelay window as the Win32 clipboard owner before clearing and restoring supported formats, as required by Microsoft documentation. If no application window handle is available, AivoRelay falls back to restoring plain text. Choose this mode to avoid the legacy mode's null-owner compatibility behavior."
+          },
           "note": "If clipboard behavior ever feels unreliable, switch back to Restore previous text first."
         },
         "modelUnload": {
@@ -1829,10 +1839,12 @@
         "title": "Clipboard Handling",
         "description": "Choose what happens to your clipboard after pasting. If you are not sure, use Restore previous text.",
         "descriptionAdvanced": "Experimental Windows mode. Tries to restore text, images, files, and other clipboard formats after pasting. Use it only if you specifically need better recovery of rich clipboard content.",
+        "descriptionAdvancedOwned": "Windows mode that restores supported clipboard formats using an AivoRelay window as the documented Win32 clipboard owner. It falls back to plain text if a valid app window is unavailable.",
         "options": {
           "dontModify": "Restore previous text",
           "copyToClipboard": "Keep transcription in clipboard",
-          "restoreAdvanced": "⚠️ Experimental: Restore all formats (Windows)"
+          "restoreAdvanced": "⚠️ Legacy compatible: Restore all formats (Windows)",
+          "restoreAdvancedOwned": "🛡️ Documented owner: Restore all formats (Windows)"
         }
       },
       "autoSubmit": {

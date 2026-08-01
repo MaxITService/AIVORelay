@@ -65,6 +65,9 @@ const REQUEST_TIMEOUT: Duration = Duration::from_secs(120);
 const MAX_RETRY_DELAY: Duration = Duration::from_secs(60);
 const INTERACTIVE_CACHE_STALE_AGE: Duration = Duration::from_secs(24 * 60 * 60);
 const MAX_VOICE_CATALOG_BYTES: usize = 4 * 1024 * 1024;
+// Long enough for multi-million-character book sources while bounding the
+// additional copies created by Unicode chunking and preprocessing.
+pub(crate) const MAX_TTS_TEXT_INPUT_BYTES: usize = 8 * 1024 * 1024;
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, Type, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -467,7 +470,7 @@ impl TtsManager {
     pub async fn voice_catalog(&self, settings: &TtsSettings) -> Result<TtsVoiceCatalog> {
         match settings.provider {
             TtsProvider::Edge => {
-                let voices = edge_tts::list_voices()
+                let voices = edge_tts::list_voices(&self.client)
                     .await
                     .map_err(|error| anyhow!(error.safe_message))?
                     .into_iter()
@@ -2022,8 +2025,6 @@ impl TtsManager {
         }
         if settings.provider == TtsProvider::Edge {
             let synthesis = edge_tts::synthesize(
-                &self.cache_root,
-                operation_id,
                 text,
                 nonempty_or(&settings.edge_voice, DEFAULT_EDGE_TTS_VOICE),
                 settings.speed,
@@ -2601,15 +2602,33 @@ fn exponential_delay(base_ms: u32, attempt: u8) -> Duration {
 }
 
 fn read_supported_text_file(path: &Path) -> Result<(String, String)> {
-    let bytes =
-        fs::read(path).with_context(|| format!("Failed to read text file {}", path.display()))?;
+    let file =
+        File::open(path).with_context(|| format!("Failed to open text file {}", path.display()))?;
+    let bytes = read_tts_text_bytes_bounded(file, path)?;
     decode_supported_text_bytes(bytes)
 }
 
-fn decode_supported_text_bytes(bytes: Vec<u8>) -> Result<(String, String)> {
+fn read_tts_text_bytes_bounded(mut reader: impl Read, path: &Path) -> Result<Vec<u8>> {
+    let mut bytes = Vec::new();
+    reader
+        .by_ref()
+        .take(MAX_TTS_TEXT_INPUT_BYTES.saturating_add(1) as u64)
+        .read_to_end(&mut bytes)
+        .with_context(|| format!("Failed to read text file {}", path.display()))?;
+    if bytes.len() > MAX_TTS_TEXT_INPUT_BYTES {
+        return Err(anyhow!(
+            "TTS text input exceeds the 8 MiB safety limit: {}",
+            path.display()
+        ));
+    }
+    Ok(bytes)
+}
+
+fn decode_supported_text_bytes(mut bytes: Vec<u8>) -> Result<(String, String)> {
     if bytes.starts_with(&[0xEF, 0xBB, 0xBF]) {
+        bytes.drain(..3);
         return Ok((
-            String::from_utf8(bytes[3..].to_vec()).context("Invalid UTF-8 text after BOM")?,
+            String::from_utf8(bytes).context("Invalid UTF-8 text after BOM")?,
             "utf-8-bom".to_string(),
         ));
     }
@@ -2833,7 +2852,7 @@ fn read_watched_input_no_follow(
         const FILE_FLAG_OPEN_REPARSE_POINT: u32 = 0x0020_0000;
         options.custom_flags(FILE_FLAG_OPEN_REPARSE_POINT);
     }
-    let mut file = options
+    let file = options
         .open(path)
         .with_context(|| format!("Failed to safely open watched input {}", path.display()))?;
     let metadata = file
@@ -2865,8 +2884,7 @@ fn read_watched_input_no_follow(
             path.display()
         ));
     }
-    let mut bytes = Vec::new();
-    file.read_to_end(&mut bytes)
+    let bytes = read_tts_text_bytes_bounded(file, path)
         .with_context(|| format!("Failed to read watched input {}", path.display()))?;
     let (source, _encoding) = decode_supported_text_bytes(bytes)
         .with_context(|| format!("Failed to decode watched input {}", path.display()))?;
@@ -3496,6 +3514,18 @@ mod tests {
         fs::write(&malformed_path, [0xFF, 0xFE, 0x41]).unwrap();
         assert!(read_supported_text_file(&malformed_path).is_err());
         fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn supported_text_reader_rejects_input_above_memory_safety_limit() {
+        let oversized = vec![b'a'; MAX_TTS_TEXT_INPUT_BYTES + 1];
+        let error = read_tts_text_bytes_bounded(
+            std::io::Cursor::new(oversized),
+            Path::new("oversized.txt"),
+        )
+        .expect_err("oversized TTS text must be rejected before chunking");
+
+        assert!(error.to_string().contains("8 MiB safety limit"));
     }
 
     #[test]

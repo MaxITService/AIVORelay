@@ -1,21 +1,18 @@
-//! Experimental adapter for the community `edge-tts` command-line package.
+//! Experimental native Rust client for Microsoft Edge's online Read Aloud service.
 //!
-//! The package uses Microsoft Edge's online Read Aloud service and does not
-//! require an API key. It is intentionally isolated behind a subprocess: the
-//! protocol is unofficial and changes independently of AivoRelay.
+//! The wire protocol is unofficial and can change independently of AivoRelay.
+//! The implementation uses the MIT-licensed `kothok-edge-tts` crate and keeps
+//! AivoRelay's own input, timeout, media-size, decoding, and PCM limits around it.
 
 use anyhow::{anyhow, Context, Result};
+use futures_util::StreamExt;
+use kothok_edge_tts::{
+    EdgeTts, Engine, TtsError as NativeEdgeTtsError, TtsEvent as NativeTtsEvent, VoiceInfo,
+};
 use rodio::Source;
 use rubato::{FftFixedIn, Resampler};
-use std::ffi::OsString;
-use std::fs::{self, File};
-use std::io::BufReader;
-use std::path::{Path, PathBuf};
-use std::process::{Output, Stdio};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::io::{BufReader, Cursor};
 use std::time::Duration;
-use tokio::io::{AsyncRead, AsyncReadExt};
-use tokio::process::Command;
 
 pub const EDGE_TTS_MODEL: &str = "microsoft-edge-read-aloud";
 pub const EDGE_TTS_PROVIDER_LIMIT: usize = 4_096;
@@ -23,10 +20,13 @@ pub const DEFAULT_EDGE_TTS_VOICE: &str = "en-US-AriaNeural";
 
 const EDGE_TTS_TIMEOUT: Duration = Duration::from_secs(120);
 const EDGE_TTS_CATALOG_TIMEOUT: Duration = Duration::from_secs(30);
-const MAX_EDGE_MEDIA_BYTES: u64 = 64 * 1024 * 1024;
-const MAX_EDGE_PROCESS_OUTPUT_BYTES: usize = 4 * 1024 * 1024;
+const EDGE_TTS_ESCAPED_TEXT_BYTES_LIMIT: usize = 4_096;
+const EDGE_TTS_VOICE_CATALOG_BYTES_LIMIT: usize = 4 * 1024 * 1024;
+const MAX_EDGE_MEDIA_BYTES: usize = 64 * 1024 * 1024;
 const MAX_EDGE_PCM_SAMPLES: usize = 24_000 * 60 * 30;
-static EDGE_TEMP_SEQUENCE: AtomicU64 = AtomicU64::new(1);
+const MAX_EDGE_VOICES: usize = 1_024;
+const EDGE_TTS_TRUSTED_CLIENT_TOKEN: &str = "6A5AA1D4EAFF4E9FB37E23D68491D6F4";
+const EDGE_TTS_GEC_VERSION: &str = "1-143.0.3650.75";
 
 pub fn voice_language(voice: &str) -> String {
     let mut parts = voice.trim().split('-');
@@ -58,21 +58,7 @@ pub struct EdgeVoice {
     pub description: String,
 }
 
-struct EdgeTempFiles {
-    input: PathBuf,
-    output: PathBuf,
-}
-
-impl Drop for EdgeTempFiles {
-    fn drop(&mut self) {
-        let _ = fs::remove_file(&self.input);
-        let _ = fs::remove_file(&self.output);
-    }
-}
-
 pub async fn synthesize(
-    cache_root: &Path,
-    operation_id: u64,
     text: &str,
     voice: &str,
     speed: f32,
@@ -81,234 +67,207 @@ pub async fn synthesize(
     if voice.is_empty() || voice.chars().count() > 256 {
         return Err(permanent("Edge-TTS voice must contain 1 to 256 characters"));
     }
-
-    let directory = cache_root.join("edge");
-    fs::create_dir_all(&directory).map_err(|error| {
-        permanent(format!(
-            "Could not create the Edge-TTS cache directory: {error}"
-        ))
-    })?;
-    let sequence = EDGE_TEMP_SEQUENCE.fetch_add(1, Ordering::Relaxed);
-    let stem = format!("{operation_id}-{sequence}");
-    let files = EdgeTempFiles {
-        input: directory.join(format!("{stem}.txt")),
-        output: directory.join(format!("{stem}.mp3")),
-    };
-    fs::write(&files.input, text.as_bytes())
-        .map_err(|error| permanent(format!("Could not prepare Edge-TTS input: {error}")))?;
-
-    let rate_percent = ((speed.clamp(0.5, 2.0) - 1.0) * 100.0).round() as i32;
-    let args = vec![
-        OsString::from("--voice"),
-        OsString::from(voice),
-        OsString::from("--file"),
-        files.input.as_os_str().to_owned(),
-        OsString::from("--rate"),
-        OsString::from(format!("{rate_percent:+}%")),
-        OsString::from("--write-media"),
-        files.output.as_os_str().to_owned(),
-    ];
-    let output = run_edge_tts(&args, EDGE_TTS_TIMEOUT).await?;
-    if !output.status.success() {
-        return Err(command_failure(&output));
+    if text.trim().is_empty() {
+        return Err(permanent("Edge-TTS text must not be empty"));
     }
 
-    let media_size = fs::metadata(&files.output)
-        .map_err(|error| transient(format!("Edge-TTS did not create audio: {error}")))?
-        .len();
-    if media_size == 0 || media_size > MAX_EDGE_MEDIA_BYTES {
-        return Err(permanent(format!(
-            "Edge-TTS returned an invalid audio file ({media_size} bytes)"
+    // The native crate accepts one SSML utterance. AivoRelay normally chunks
+    // first, but XML escaping can expand a 4,096-character Unicode-safe chunk
+    // beyond Edge's practical message limit. Split the original text by its
+    // escaped byte cost here and let the crate escape it exactly once.
+    let segments = split_native_segments(text);
+    if segments.is_empty() {
+        return Err(permanent("Edge-TTS text must not be empty"));
+    }
+
+    let rate_percent = ((speed.clamp(0.5, 2.0) - 1.0) * 100.0).round() as i32;
+    let rate = format!("{rate_percent:+}%");
+    let language = match voice_language(voice) {
+        language if !language.is_empty() => language,
+        _ => "en-US".to_string(),
+    };
+
+    kothok_edge_tts::init_tls();
+    let mut pcm = Vec::new();
+    for segment in segments {
+        let events = tokio::time::timeout(
+            EDGE_TTS_TIMEOUT,
+            EdgeTts.synthesize(&segment, voice, &rate, &language),
+        )
+        .await
+        .map_err(|_| transient("Edge-TTS request timed out"))?
+        .map_err(|error| native_failure("Edge-TTS request failed", error))?;
+
+        let media = collect_bounded_media(events)?;
+        let decoded = tokio::task::spawn_blocking(move || decode_edge_mp3(media))
+            .await
+            .map_err(|error| permanent(format!("Edge-TTS audio decoder stopped: {error}")))?
+            .map_err(|error| permanent(format!("Could not decode Edge-TTS audio: {error}")))?;
+        let total_samples = pcm
+            .len()
+            .checked_add(decoded.len())
+            .filter(|samples| *samples <= MAX_EDGE_PCM_SAMPLES)
+            .ok_or_else(|| permanent("Edge-TTS audio exceeds the supported duration"))?;
+        pcm.reserve(total_samples.saturating_sub(pcm.len()));
+        pcm.extend_from_slice(&decoded);
+    }
+
+    if pcm.is_empty() {
+        Err(transient("Edge-TTS returned no audio"))
+    } else {
+        Ok(pcm)
+    }
+}
+
+pub async fn list_voices(
+    client: &reqwest::Client,
+) -> std::result::Result<Vec<EdgeVoice>, EdgeTtsError> {
+    kothok_edge_tts::init_tls();
+    let catalog = tokio::time::timeout(EDGE_TTS_CATALOG_TIMEOUT, fetch_voice_catalog(client))
+        .await
+        .map_err(|_| transient("Edge-TTS voice refresh timed out"))??;
+
+    let mut voices = catalog
+        .into_iter()
+        .filter(|voice| {
+            !voice.short_name().trim().is_empty()
+                && voice.short_name().chars().count() <= 256
+                && voice.locale().chars().count() <= 64
+                && voice.gender().chars().count() <= 32
+                && voice.friendly_name().chars().count() <= 512
+        })
+        .map(|voice| EdgeVoice {
+            id: voice.short_name().to_string(),
+            language: voice.locale().to_string(),
+            gender: voice.gender().to_ascii_lowercase(),
+            description: voice.friendly_name().to_string(),
+        })
+        .collect::<Vec<_>>();
+    voices.sort_by(|left, right| {
+        left.language
+            .cmp(&right.language)
+            .then_with(|| left.id.cmp(&right.id))
+    });
+    voices.dedup_by(|left, right| left.id == right.id);
+    voices.truncate(MAX_EDGE_VOICES);
+
+    if voices.is_empty() {
+        Err(permanent("Edge-TTS returned an empty voice catalog"))
+    } else {
+        Ok(voices)
+    }
+}
+
+async fn fetch_voice_catalog(
+    client: &reqwest::Client,
+) -> std::result::Result<Vec<VoiceInfo>, EdgeTtsError> {
+    // Use AivoRelay's HTTP client for the catalog endpoint. The upstream crate's
+    // raw TLS reader rejects Microsoft's normal EOF when no TLS close_notify is
+    // sent, while reqwest safely accepts the complete HTTP response.
+    let url = format!(
+        "https://speech.platform.bing.com/consumer/speech/synthesize/readaloud/voices/list\
+         ?TrustedClientToken={EDGE_TTS_TRUSTED_CLIENT_TOKEN}\
+         &Sec-MS-GEC={}\
+         &Sec-MS-GEC-Version={EDGE_TTS_GEC_VERSION}",
+        kothok_edge_tts::sec_ms_gec(0)
+    );
+    let response = client
+        .get(url)
+        .header(reqwest::header::USER_AGENT, "Mozilla/5.0")
+        .send()
+        .await
+        .map_err(|_| transient("Edge-TTS voice refresh request failed"))?;
+    let status = response.status();
+    if response
+        .content_length()
+        .is_some_and(|length| length > EDGE_TTS_VOICE_CATALOG_BYTES_LIMIT as u64)
+    {
+        return Err(permanent("Edge-TTS voice catalog exceeds the safety limit"));
+    }
+
+    let mut bytes = Vec::new();
+    let mut stream = response.bytes_stream();
+    while let Some(chunk) = stream.next().await {
+        let chunk =
+            chunk.map_err(|_| transient("Edge-TTS voice refresh response was interrupted"))?;
+        if bytes.len().saturating_add(chunk.len()) > EDGE_TTS_VOICE_CATALOG_BYTES_LIMIT {
+            return Err(permanent("Edge-TTS voice catalog exceeds the safety limit"));
+        }
+        bytes.extend_from_slice(&chunk);
+    }
+    if !status.is_success() {
+        return Err(transient(format!(
+            "Edge-TTS voice refresh failed with HTTP {status}"
         )));
     }
 
-    tokio::task::spawn_blocking(move || decode_edge_mp3(&files.output))
-        .await
-        .map_err(|error| permanent(format!("Edge-TTS audio decoder stopped: {error}")))?
-        .map_err(|error| permanent(format!("Could not decode Edge-TTS audio: {error}")))
+    serde_json::from_slice(&bytes)
+        .map_err(|_| transient("Edge-TTS returned an invalid voice catalog"))
 }
 
-pub async fn list_voices() -> std::result::Result<Vec<EdgeVoice>, EdgeTtsError> {
-    let output = run_edge_tts(&[OsString::from("--list-voices")], EDGE_TTS_CATALOG_TIMEOUT).await?;
-    if !output.status.success() {
-        return Err(command_failure(&output));
-    }
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let voices = parse_voice_table(&stdout);
-    if voices.is_empty() {
-        return Err(permanent(
-            "edge-tts returned an empty or unsupported voice catalog",
-        ));
-    }
-    Ok(voices)
-}
-
-async fn run_edge_tts(
-    args: &[OsString],
-    timeout: Duration,
-) -> std::result::Result<Output, EdgeTtsError> {
-    let candidates: [(&str, &[&str]); 3] = [
-        ("edge-tts", &[]),
-        ("py", &["-m", "edge_tts"]),
-        ("python", &["-m", "edge_tts"]),
-    ];
-    let mut missing_runtime = false;
-    for (program, prefix) in candidates {
-        let mut command = Command::new(program);
-        command
-            .args(prefix)
-            .args(args)
-            .stdin(Stdio::null())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .kill_on_drop(true);
-        let mut child = match command.spawn() {
-            Ok(child) => child,
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-                missing_runtime = true;
-                continue;
-            }
-            Err(error) => {
-                return Err(permanent(format!(
-                    "Could not start the Edge-TTS helper: {error}"
-                )))
-            }
-        };
-        let stdout = child
-            .stdout
-            .take()
-            .ok_or_else(|| permanent("Could not capture Edge-TTS output"))?;
-        let stderr = child
-            .stderr
-            .take()
-            .ok_or_else(|| permanent("Could not capture Edge-TTS errors"))?;
-        let wait = async {
-            let (status, stdout, stderr) = tokio::join!(
-                child.wait(),
-                read_bounded_output(stdout),
-                read_bounded_output(stderr),
-            );
-            Ok::<Output, std::io::Error>(Output {
-                status: status?,
-                stdout: stdout?,
-                stderr: stderr?,
-            })
-        };
-        let output = match tokio::time::timeout(timeout, wait).await {
-            Ok(Ok(output)) => output,
-            Ok(Err(error)) => {
-                return Err(transient(format!(
-                    "The Edge-TTS helper stopped unexpectedly: {error}"
-                )))
-            }
-            Err(_) => {
-                let _ = child.kill().await;
-                let _ = child.wait().await;
-                return Err(transient("The Edge-TTS helper timed out"));
-            }
-        };
-        if !output.status.success() && reports_missing_runtime(&output.stderr) {
-            missing_runtime = true;
-            continue;
+fn collect_bounded_media(
+    events: Vec<NativeTtsEvent>,
+) -> std::result::Result<Vec<u8>, EdgeTtsError> {
+    let mut media = Vec::new();
+    for event in events {
+        if let NativeTtsEvent::Audio(bytes) = event {
+            let next_len = media
+                .len()
+                .checked_add(bytes.len())
+                .filter(|length| *length <= MAX_EDGE_MEDIA_BYTES)
+                .ok_or_else(|| permanent("Edge-TTS audio exceeded the safety limit"))?;
+            media.reserve(next_len.saturating_sub(media.len()));
+            media.extend_from_slice(&bytes);
         }
-        return Ok(output);
     }
-
-    let detail = if missing_runtime {
-        "Install the experimental helper with `uv tool install edge-tts` or `pipx install edge-tts`, then refresh the voice list."
+    if media.is_empty() {
+        Err(transient("Edge-TTS returned no MP3 audio"))
     } else {
-        "The Edge-TTS helper is unavailable."
-    };
-    Err(permanent(detail))
-}
-
-fn reports_missing_runtime(stderr: &[u8]) -> bool {
-    let message = String::from_utf8_lossy(stderr).to_ascii_lowercase();
-    message.contains("no module named edge_tts")
-        || message.contains("no module named 'edge_tts'")
-        || message.contains("python was not found")
-        || message.contains("no suitable python runtime")
-}
-
-async fn read_bounded_output<R>(reader: R) -> std::io::Result<Vec<u8>>
-where
-    R: AsyncRead + Unpin,
-{
-    let mut reader = reader.take((MAX_EDGE_PROCESS_OUTPUT_BYTES + 1) as u64);
-    let mut bytes = Vec::new();
-    reader.read_to_end(&mut bytes).await?;
-    if bytes.len() > MAX_EDGE_PROCESS_OUTPUT_BYTES {
-        return Err(std::io::Error::new(
-            std::io::ErrorKind::InvalidData,
-            "Edge-TTS helper output exceeded the safety limit",
-        ));
-    }
-    Ok(bytes)
-}
-
-fn command_failure(output: &Output) -> EdgeTtsError {
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    let raw_message = stderr
-        .lines()
-        .rev()
-        .find(|line| !line.trim().is_empty())
-        .map(str::trim)
-        .unwrap_or("The Edge-TTS helper returned an error");
-    let message = raw_message
-        .chars()
-        .filter(|character| !character.is_control())
-        .take(1_024)
-        .collect::<String>();
-    let message = if message.is_empty() {
-        "The Edge-TTS helper returned an error"
-    } else {
-        &message
-    };
-    let lower = message.to_ascii_lowercase();
-    let transient_error = [
-        "timeout",
-        "timed out",
-        "connection",
-        "temporarily",
-        "network",
-        "websocket",
-        "429",
-        "503",
-    ]
-    .iter()
-    .any(|marker| lower.contains(marker));
-    EdgeTtsError {
-        safe_message: format!("Edge-TTS helper: {message}"),
-        transient: transient_error,
+        Ok(media)
     }
 }
 
-fn parse_voice_table(table: &str) -> Vec<EdgeVoice> {
-    table
-        .lines()
-        .filter_map(|line| {
-            let mut fields = line.split_whitespace();
-            let id = fields.next()?;
-            let gender = fields.next()?;
-            if !matches!(gender, "Female" | "Male" | "Neutral") || !id.contains('-') {
-                return None;
-            }
-            let language = voice_language(id);
-            Some(EdgeVoice {
-                id: id.to_string(),
-                language,
-                gender: gender.to_ascii_lowercase(),
-                description: fields.collect::<Vec<_>>().join(" "),
-            })
-        })
-        .collect()
+fn split_native_segments(text: &str) -> Vec<String> {
+    let mut segments = Vec::new();
+    let mut segment = String::new();
+    let mut escaped_bytes = 0usize;
+
+    for character in text.chars() {
+        let character_bytes = escaped_character_bytes(character);
+        if !segment.is_empty()
+            && escaped_bytes.saturating_add(character_bytes) > EDGE_TTS_ESCAPED_TEXT_BYTES_LIMIT
+        {
+            segments.push(std::mem::take(&mut segment));
+            escaped_bytes = 0;
+        }
+        segment.push(character);
+        escaped_bytes += character_bytes;
+    }
+    if !segment.is_empty() {
+        segments.push(segment);
+    }
+    segments
 }
 
-fn decode_edge_mp3(path: &Path) -> Result<Vec<i16>> {
-    let file = File::open(path).context("failed to open the generated MP3")?;
-    let byte_len = file.metadata()?.len();
+fn escaped_character_bytes(character: char) -> usize {
+    match character {
+        '&' => "&amp;".len(),
+        '<' => "&lt;".len(),
+        '>' => "&gt;".len(),
+        '\'' => "&apos;".len(),
+        '"' => "&quot;".len(),
+        character if matches!(character as u32, 0..=8 | 11..=12 | 14..=31) => 1,
+        character => character.len_utf8(),
+    }
+}
+
+fn decode_edge_mp3(media: Vec<u8>) -> Result<Vec<i16>> {
+    let byte_len = media.len() as u64;
+    if byte_len == 0 || byte_len > MAX_EDGE_MEDIA_BYTES as u64 {
+        return Err(anyhow!("invalid MP3 byte length"));
+    }
     let source = rodio::Decoder::builder()
-        .with_data(BufReader::new(file))
+        .with_data(BufReader::new(Cursor::new(media)))
         .with_byte_len(byte_len)
         .with_seekable(true)
         .with_hint("mp3")
@@ -394,6 +353,31 @@ fn greatest_common_divisor(mut left: u32, mut right: u32) -> u32 {
     left.max(1)
 }
 
+fn native_failure(prefix: &str, error: NativeEdgeTtsError) -> EdgeTtsError {
+    let transient_error = matches!(
+        &error,
+        NativeEdgeTtsError::Connect(_)
+            | NativeEdgeTtsError::VoiceFetch(_)
+            | NativeEdgeTtsError::Ws(_)
+            | NativeEdgeTtsError::Io(_)
+            | NativeEdgeTtsError::NoAudio
+    );
+    let detail = error
+        .to_string()
+        .chars()
+        .filter(|character| !character.is_control())
+        .take(1_024)
+        .collect::<String>();
+    EdgeTtsError {
+        safe_message: if detail.is_empty() {
+            prefix.to_string()
+        } else {
+            format!("{prefix}: {detail}")
+        },
+        transient: transient_error,
+    }
+}
+
 fn permanent(message: impl Into<String>) -> EdgeTtsError {
     EdgeTtsError {
         safe_message: message.into(),
@@ -413,26 +397,37 @@ mod tests {
     use super::*;
 
     #[test]
-    fn parses_edge_voice_table_without_trusting_column_widths() {
-        let table = "Name Gender ContentCategories VoicePersonalities\n\
-                     -------------------------------- -------- ----------------- ------------------\n\
-                     en-US-AriaNeural Female General Friendly, Positive\n\
-                     fi-FI-NooraNeural Female General Friendly\n";
-        let voices = parse_voice_table(table);
-        assert_eq!(voices.len(), 2);
-        assert_eq!(voices[0].id, "en-US-AriaNeural");
-        assert_eq!(voices[0].language, "en-US");
-        assert_eq!(voices[0].gender, "female");
+    fn splits_native_text_by_post_escape_utf8_size_without_data_loss() {
+        let source = format!("{}{}", "界".repeat(1_500), "&\"'<>".repeat(500));
+        let segments = split_native_segments(&source);
+
+        assert_eq!(segments.concat(), source);
+        assert!(segments.len() > 1);
+        assert!(segments.iter().all(|segment| {
+            segment.chars().map(escaped_character_bytes).sum::<usize>()
+                <= EDGE_TTS_ESCAPED_TEXT_BYTES_LIMIT
+        }));
     }
 
     #[test]
-    fn recognizes_missing_python_helper_diagnostics() {
-        assert!(reports_missing_runtime(
-            b"C:\\Python\\python.exe: No module named edge_tts"
-        ));
-        assert!(reports_missing_runtime(
-            b"Python was not found; run without arguments to install"
-        ));
-        assert!(!reports_missing_runtime(b"Connection timed out"));
+    fn voice_language_uses_the_bcp_47_prefix() {
+        assert_eq!(voice_language("en-US-AriaNeural"), "en-US");
+        assert_eq!(voice_language("zh-CN-liaoning-XiaobeiNeural"), "zh-CN");
+        assert!(voice_language("custom").is_empty());
+    }
+
+    #[tokio::test]
+    #[ignore = "requires the live Microsoft Edge Read Aloud service"]
+    async fn live_voice_catalog_contains_the_default_voice() {
+        let client = reqwest::Client::builder()
+            .timeout(EDGE_TTS_CATALOG_TIMEOUT)
+            .build()
+            .expect("HTTP client");
+        let voices = list_voices(&client).await.expect("live voice catalog");
+
+        assert!(voices.len() <= MAX_EDGE_VOICES);
+        assert!(voices
+            .iter()
+            .any(|voice| voice.id == DEFAULT_EDGE_TTS_VOICE));
     }
 }

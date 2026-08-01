@@ -4004,7 +4004,11 @@ export type ClipboardHandling = "dont_modify" | "copy_to_clipboard" |
 /**
  * Experimental: Try to restore all clipboard formats including images, HTML, files (Windows-only)
  */
-"restore_advanced"
+"restore_advanced" |
+/**
+ * Restore all supported formats using an AivoRelay HWND as the documented clipboard owner.
+ */
+"restore_advanced_owned"
 /**
  * Status info returned to frontend
  */
