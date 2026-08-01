@@ -28,6 +28,7 @@ import { useSettings } from "@/hooks/useSettings";
 import { ApiKeyEditor, StoredApiKeyDisplay } from "../ApiKeyControls";
 import { HandyShortcut } from "../HandyShortcut";
 import { TtsFolderAutomation } from "./TtsFolderAutomation";
+import { TtsBatchConversion } from "./TtsBatchConversion";
 import { TtsBetaBanner } from "./TtsBetaBanner";
 import { TtsHelpDisclosure } from "./TtsHelpDisclosure";
 import { TtsHistory } from "./TtsHistory";
@@ -3548,6 +3549,10 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
                   {t("textToSpeech.conversion.cliExample")}
                 </code>
                 <code className="block overflow-x-auto rounded-lg bg-black/30 p-3 text-[#e8e8e8]">
+                  {t("textToSpeech.conversion.cliBatchExample")}
+                </code>
+                <p>{t("textToSpeech.conversion.cliBatchDescription")}</p>
+                <code className="block overflow-x-auto rounded-lg bg-black/30 p-3 text-[#e8e8e8]">
                   {t("textToSpeech.conversion.cliOverrideExample")}
                 </code>
                 <p>{t("textToSpeech.conversion.cliOverrideDescription")}</p>
@@ -3774,6 +3779,12 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
               </div>
             )}
           </SettingsGroup>
+
+          <TtsBatchConversion
+            outputFormat={outputFormat}
+            mp3Bitrate={mp3Bitrate}
+            flushPendingSettingsWrites={flushPendingSettingsWrites}
+          />
 
           <TtsFolderAutomation
             tts={tts}
