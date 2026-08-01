@@ -24,6 +24,8 @@ use tokio_util::sync::CancellationToken;
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
 pub enum EngineType {
     TranscribeCpp,
+    /// Legacy catalog/settings tag. Runtime loading is routed through
+    /// transcribe.cpp so existing Whisper `.bin` models avoid whisper-rs.
     Whisper,
     Parakeet,
     Moonshine,
