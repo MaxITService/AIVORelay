@@ -122,10 +122,11 @@ export const TTS_PROVIDER_DOCUMENTATION: Record<
     playground: "https://www.openai.fm/",
   },
   edge: {
-    overview: "https://github.com/rany2/edge-tts",
-    voices: "https://github.com/rany2/edge-tts#list-available-voices",
+    overview: "https://www.microsoft.com/en-us/edge/features/read-aloud",
+    voices:
+      "https://learn.microsoft.com/en-us/azure/ai-services/speech-service/language-support",
     parameters:
-      "https://github.com/rany2/edge-tts#changing-rate-volume-and-pitch",
+      "https://support.microsoft.com/en-us/accessibility/edge/accessibility-features-in-microsoft-edge",
   },
   local_qwen: {
     overview: "https://github.com/QwenLM/Qwen3-TTS",

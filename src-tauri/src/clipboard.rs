@@ -40,7 +40,7 @@ mod win_clipboard {
     use std::mem::size_of;
     use std::ptr;
     use windows::core::{Free, PCWSTR};
-    use windows::Win32::Foundation::{HANDLE, HGLOBAL};
+    use windows::Win32::Foundation::{HANDLE, HGLOBAL, HWND};
     use windows::Win32::Graphics::Gdi::{
         CopyEnhMetaFileW, CopyMetaFileW, HBITMAP, HENHMETAFILE, HMETAFILE,
     };
@@ -260,7 +260,10 @@ mod win_clipboard {
     }
 
     /// Restore all backed-up clipboard formats
-    pub fn restore_all_formats(mut backup: ClipboardBackup) -> Result<RestoreStats, String> {
+    pub fn restore_all_formats(
+        mut backup: ClipboardBackup,
+        owner: Option<HWND>,
+    ) -> Result<RestoreStats, String> {
         if backup.entries.is_empty() {
             debug!("No clipboard entries to restore");
             return Ok(RestoreStats {
@@ -274,8 +277,7 @@ mod win_clipboard {
         let entries = std::mem::take(&mut backup.entries);
 
         unsafe {
-            // Open clipboard (None = current task)
-            if OpenClipboard(None).is_err() {
+            if OpenClipboard(owner).is_err() {
                 cleanup_entries(entries);
                 return Err("Failed to open clipboard for restore".into());
             }
@@ -438,9 +440,16 @@ fn restore_advanced_clipboard_with_text_fallback(
     app_handle: &AppHandle,
     backup: win_clipboard::ClipboardBackup,
     text_backup: &str,
+    use_documented_owner: bool,
 ) -> Result<(), String> {
     let clipboard = app_handle.clipboard();
-    let needs_text_fallback = match win_clipboard::restore_all_formats(backup) {
+    let restore_result = if use_documented_owner {
+        clipboard_owner_hwnd(app_handle)
+            .and_then(|owner| win_clipboard::restore_all_formats(backup, Some(owner)))
+    } else {
+        win_clipboard::restore_all_formats(backup, None)
+    };
+    let needs_text_fallback = match restore_result {
         Ok(stats) if stats.failed_formats == 0 && stats.restored_formats > 0 => {
             info!(
                 "Advanced clipboard restore completed successfully ({} formats)",
@@ -472,6 +481,36 @@ fn restore_advanced_clipboard_with_text_fallback(
     }
 
     Ok(())
+}
+
+#[cfg(target_os = "windows")]
+fn clipboard_owner_hwnd(
+    app_handle: &AppHandle,
+) -> Result<windows::Win32::Foundation::HWND, String> {
+    if let Some(window) = app_handle.get_webview_window("main") {
+        if let Ok(hwnd) = window.hwnd() {
+            return Ok(hwnd);
+        }
+    }
+
+    for window in app_handle.webview_windows().into_values() {
+        if let Ok(hwnd) = window.hwnd() {
+            return Ok(hwnd);
+        }
+    }
+
+    Err("No AivoRelay window handle is available for documented clipboard ownership".to_string())
+}
+
+fn restores_all_clipboard_formats(handling: ClipboardHandling) -> bool {
+    matches!(
+        handling,
+        ClipboardHandling::RestoreAdvanced | ClipboardHandling::RestoreAdvancedOwned
+    )
+}
+
+fn uses_documented_clipboard_owner(handling: ClipboardHandling) -> bool {
+    handling == ClipboardHandling::RestoreAdvancedOwned
 }
 
 fn convert_text_for_clipboard(text: &str, convert_lf_to_crlf: bool) -> String {
@@ -554,20 +593,23 @@ fn restore_streaming_session(
 
     let clipboard = app_handle.clipboard();
 
-    if session.clipboard_handling == ClipboardHandling::RestoreAdvanced {
+    if restores_all_clipboard_formats(session.clipboard_handling) {
         #[cfg(target_os = "windows")]
         if let Some(backup) = session.advanced_backup {
             return restore_advanced_clipboard_with_text_fallback(
                 app_handle,
                 backup,
                 &session.text_backup,
+                uses_documented_clipboard_owner(session.clipboard_handling),
             );
         }
     }
 
     if matches!(
         session.clipboard_handling,
-        ClipboardHandling::DontModify | ClipboardHandling::RestoreAdvanced
+        ClipboardHandling::DontModify
+            | ClipboardHandling::RestoreAdvanced
+            | ClipboardHandling::RestoreAdvancedOwned
     ) {
         clipboard
             .write_text(&session.text_backup)
@@ -609,7 +651,9 @@ pub fn begin_streaming_paste_session(
 
     let text_backup = if matches!(
         settings.clipboard_handling,
-        ClipboardHandling::DontModify | ClipboardHandling::RestoreAdvanced
+        ClipboardHandling::DontModify
+            | ClipboardHandling::RestoreAdvanced
+            | ClipboardHandling::RestoreAdvancedOwned
     ) {
         clipboard.read_text().unwrap_or_default()
     } else {
@@ -617,7 +661,7 @@ pub fn begin_streaming_paste_session(
     };
 
     #[cfg(target_os = "windows")]
-    let advanced_backup = if settings.clipboard_handling == ClipboardHandling::RestoreAdvanced {
+    let advanced_backup = if restores_all_clipboard_formats(settings.clipboard_handling) {
         match win_clipboard::backup_all_formats() {
             Ok(backup) => {
                 info!(
@@ -700,7 +744,7 @@ fn paste_via_clipboard(
 
     // Backup clipboard content based on handling mode.
     #[cfg(target_os = "windows")]
-    let advanced_backup = if clipboard_handling == ClipboardHandling::RestoreAdvanced {
+    let advanced_backup = if restores_all_clipboard_formats(clipboard_handling) {
         match win_clipboard::backup_all_formats() {
             Ok(entries) => {
                 info!("Advanced clipboard backup: {} formats saved", entries.len());
@@ -723,7 +767,9 @@ fn paste_via_clipboard(
     // - RestoreAdvanced fallback when rich-format restore is partial/failed
     let text_backup = if matches!(
         clipboard_handling,
-        ClipboardHandling::DontModify | ClipboardHandling::RestoreAdvanced
+        ClipboardHandling::DontModify
+            | ClipboardHandling::RestoreAdvanced
+            | ClipboardHandling::RestoreAdvancedOwned
     ) {
         clipboard.read_text().unwrap_or_default()
     } else {
@@ -743,14 +789,21 @@ fn paste_via_clipboard(
     // Restore clipboard based on handling mode.
     #[cfg(target_os = "windows")]
     if let Some(backup) = advanced_backup {
-        return restore_advanced_clipboard_with_text_fallback(app_handle, backup, &text_backup);
+        return restore_advanced_clipboard_with_text_fallback(
+            app_handle,
+            backup,
+            &text_backup,
+            uses_documented_clipboard_owner(clipboard_handling),
+        );
     }
 
     // Text-only restore for DontModify and as the fallback when an advanced
     // backup could not be created (including non-Windows platforms).
     if matches!(
         clipboard_handling,
-        ClipboardHandling::DontModify | ClipboardHandling::RestoreAdvanced
+        ClipboardHandling::DontModify
+            | ClipboardHandling::RestoreAdvanced
+            | ClipboardHandling::RestoreAdvancedOwned
     ) {
         clipboard
             .write_text(&text_backup)
@@ -1357,6 +1410,8 @@ pub fn capture_selection_text(app_handle: &AppHandle) -> Result<String, String> 
 pub fn capture_selection_text_copy(app_handle: &AppHandle) -> Result<String, String> {
     let clipboard = app_handle.clipboard();
     let clipboard_backup = clipboard.read_text().unwrap_or_default();
+    let use_documented_owner =
+        uses_documented_clipboard_owner(get_settings(app_handle).clipboard_handling);
     #[cfg(target_os = "windows")]
     let advanced_backup = match win_clipboard::backup_all_formats() {
         Ok(backup) => {
@@ -1397,9 +1452,12 @@ pub fn capture_selection_text_copy(app_handle: &AppHandle) -> Result<String, Str
 
     #[cfg(target_os = "windows")]
     if let Some(backup) = advanced_backup {
-        if let Err(error) =
-            restore_advanced_clipboard_with_text_fallback(app_handle, backup, &clipboard_backup)
-        {
+        if let Err(error) = restore_advanced_clipboard_with_text_fallback(
+            app_handle,
+            backup,
+            &clipboard_backup,
+            use_documented_owner,
+        ) {
             warn!(
                 "Failed to restore clipboard after selection copy capture: {}",
                 error
@@ -1473,6 +1531,29 @@ mod tests {
         assert!(should_send_auto_submit(true, PasteMethod::Direct));
         assert!(should_send_auto_submit(true, PasteMethod::CtrlShiftV));
         assert!(should_send_auto_submit(true, PasteMethod::ShiftInsert));
+    }
+
+    #[test]
+    fn both_advanced_modes_restore_all_supported_formats() {
+        assert!(restores_all_clipboard_formats(
+            ClipboardHandling::RestoreAdvanced
+        ));
+        assert!(restores_all_clipboard_formats(
+            ClipboardHandling::RestoreAdvancedOwned
+        ));
+        assert!(!restores_all_clipboard_formats(
+            ClipboardHandling::DontModify
+        ));
+    }
+
+    #[test]
+    fn only_owned_mode_requests_a_documented_clipboard_owner() {
+        assert!(!uses_documented_clipboard_owner(
+            ClipboardHandling::RestoreAdvanced
+        ));
+        assert!(uses_documented_clipboard_owner(
+            ClipboardHandling::RestoreAdvancedOwned
+        ));
     }
 
     #[test]

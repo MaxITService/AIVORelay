@@ -1833,6 +1833,8 @@ pub enum ClipboardHandling {
     CopyToClipboard,
     /// Experimental: Try to restore all clipboard formats including images, HTML, files (Windows-only)
     RestoreAdvanced,
+    /// Restore all supported formats using an AivoRelay HWND as the documented clipboard owner.
+    RestoreAdvancedOwned,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Type)]

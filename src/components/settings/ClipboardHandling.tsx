@@ -38,6 +38,12 @@ export const ClipboardHandlingSetting: React.FC<ClipboardHandlingProps> =
         value: "restore_advanced",
         label: t("settings.advanced.clipboardHandling.options.restoreAdvanced"),
       });
+      clipboardHandlingOptions.push({
+        value: "restore_advanced_owned",
+        label: t(
+          "settings.advanced.clipboardHandling.options.restoreAdvancedOwned",
+        ),
+      });
     }
 
     const selectedHandling = (getSetting("clipboard_handling") ||
@@ -47,7 +53,9 @@ export const ClipboardHandlingSetting: React.FC<ClipboardHandlingProps> =
     const description =
       (selectedHandling as string) === "restore_advanced"
         ? t("settings.advanced.clipboardHandling.descriptionAdvanced")
-        : t("settings.advanced.clipboardHandling.description");
+        : (selectedHandling as string) === "restore_advanced_owned"
+          ? t("settings.advanced.clipboardHandling.descriptionAdvancedOwned")
+          : t("settings.advanced.clipboardHandling.description");
 
     return (
       <SettingContainer

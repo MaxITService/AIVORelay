@@ -7,8 +7,8 @@ use crate::managers::local_tts::{
 };
 use crate::managers::tts::{
     FileConversionResult, TextFileInspection, TtsChunkReady, TtsManager, TtsOperationKind,
-    TtsPhase, TtsState, TtsVoiceCatalog, SONIOX_TTS_API_KEY_MAX_CHARS, SUPPORTED_MP3_BITRATES,
-    TTS_EVENT_CHUNK_READY, TTS_EVENT_STATE,
+    TtsPhase, TtsState, TtsVoiceCatalog, MAX_TTS_TEXT_INPUT_BYTES, SONIOX_TTS_API_KEY_MAX_CHARS,
+    SUPPORTED_MP3_BITRATES, TTS_EVENT_CHUNK_READY, TTS_EVENT_STATE,
 };
 use crate::managers::tts_history::{
     metadata_from_settings, NewTtsHistoryEntry, TtsHistoryManager, TtsHistoryScope,
@@ -617,6 +617,9 @@ pub(crate) async fn start_tts_text_at(
     }
     if text.trim().is_empty() {
         return Err("There is no clipboard text to read".to_string());
+    }
+    if text.len() > MAX_TTS_TEXT_INPUT_BYTES {
+        return Err("TTS text input exceeds the 8 MiB safety limit".to_string());
     }
 
     let manager = app.state::<Arc<TtsManager>>().inner().clone();
