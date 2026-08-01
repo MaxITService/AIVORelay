@@ -2854,11 +2854,10 @@ pub fn change_openai_realtime_whisper_keywords_setting(
     keywords: String,
 ) -> Result<(), String> {
     let mut settings = settings::get_settings(&app);
-    settings.openai_realtime_whisper_keywords = crate::actions::parse_openai_realtime_keywords(
-        &keywords,
-    )
-    .map(|items| items.join("\n"))
-    .unwrap_or_default();
+    settings.openai_realtime_whisper_keywords =
+        crate::actions::parse_openai_realtime_keywords(&keywords)
+            .map(|items| items.join("\n"))
+            .unwrap_or_default();
     settings::write_settings(&app, settings);
     Ok(())
 }
