@@ -2138,6 +2138,8 @@ pub struct AppSettings {
     #[serde(default)]
     pub openai_realtime_whisper_delay: OpenAiRealtimeWhisperDelay,
     #[serde(default)]
+    pub openai_realtime_whisper_keywords: String,
+    #[serde(default)]
     pub openai_realtime_whisper_flatten_enabled: bool,
     #[serde(default = "default_soniox_model")]
     pub soniox_model: String,
@@ -4266,6 +4268,7 @@ pub fn get_default_settings() -> AppSettings {
         transcription_provider: default_transcription_provider(),
         remote_stt: default_remote_stt_settings(),
         openai_realtime_whisper_delay: OpenAiRealtimeWhisperDelay::default(),
+        openai_realtime_whisper_keywords: String::new(),
         openai_realtime_whisper_flatten_enabled: false,
         soniox_model: default_soniox_model(),
         soniox_timeout_seconds: default_soniox_timeout_seconds(),

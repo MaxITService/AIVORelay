@@ -41,6 +41,7 @@ type RemoteSttInterfaceId =
   | "openai_transcribe"
   | "openai_live_transcribe"
   | "openai_realtime_whisper"
+  | "openai_realtime_agent_legacy"
   | "openai_realtime_agent"
   | "openai_realtime_translate"
   | "custom";
@@ -236,6 +237,9 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
   const openAiRealtimeWhisperDelay = String(
     (settings as any)?.openai_realtime_whisper_delay ?? "low",
   );
+  const openAiRealtimeWhisperKeywords = String(
+    (settings as any)?.openai_realtime_whisper_keywords ?? "",
+  );
   const openAiRealtimeWhisperFlattenEnabled = Boolean(
     (settings as any)?.openai_realtime_whisper_flatten_enabled ?? false,
   );
@@ -274,6 +278,8 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
           ? "openai_live_transcribe"
         : (remoteSettings?.model_id ?? "") === "gpt-realtime-whisper"
           ? "openai_realtime_whisper"
+        : (remoteSettings?.model_id ?? "") === "gpt-realtime-2"
+          ? "openai_realtime_agent_legacy"
         : (remoteSettings?.model_id ?? "") === "gpt-realtime-translate"
           ? "openai_realtime_translate"
           : "openai_realtime_agent";
@@ -304,7 +310,7 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
     activeProfile?.stt_prompt_override_enabled,
   );
   const effectiveRealtimePromptModelId =
-    remoteSettings?.model_id?.trim() || "gpt-realtime-2";
+    remoteSettings?.model_id?.trim() || "gpt-realtime-2.1";
   const globalRealtimeAgentPrompt =
     settings?.transcription_prompts?.[effectiveRealtimePromptModelId] ?? "";
   const storedRealtimeAgentPrompt = activeProfileUsesSttPrompt
@@ -382,6 +388,8 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
   const [baseUrlInput, setBaseUrlInput] = useState(
     effectiveRemoteBaseUrl,
   );
+  const [openAiRealtimeWhisperKeywordsInput, setOpenAiRealtimeWhisperKeywordsInput] =
+    useState(openAiRealtimeWhisperKeywords);
   const [modelIdInput, setModelIdInput] = useState(
     remoteSettings?.model_id ?? "",
   );
@@ -416,6 +424,21 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
     useState(String(deepgramLiveFinalizeTimeoutMs));
   const [deepgramEndpointingMsInput, setDeepgramEndpointingMsInput] = useState(
     String(deepgramEndpointingMs),
+  );
+  const openAiRealtimeWhisperKeywordLines = useMemo(
+    () =>
+      openAiRealtimeWhisperKeywordsInput
+        .split(/\r?\n/)
+        .map((keyword) => keyword.trim())
+        .filter((keyword) => keyword.length > 0),
+    [openAiRealtimeWhisperKeywordsInput],
+  );
+  const invalidOpenAiRealtimeKeywords = useMemo(
+    () =>
+      openAiRealtimeWhisperKeywordLines.filter((keyword) =>
+        /[<>\r\n]/.test(keyword),
+      ),
+    [openAiRealtimeWhisperKeywordLines],
   );
   const parsedSonioxLanguageHintsInput = useMemo(
     () => parseAndNormalizeSonioxLanguageHints(sonioxLanguageHintsInput),
@@ -461,6 +484,10 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
   useEffect(() => {
     setRealtimeAgentPromptDraft(effectiveRealtimeAgentPrompt);
   }, [effectiveRealtimeAgentPrompt]);
+
+  useEffect(() => {
+    setOpenAiRealtimeWhisperKeywordsInput(openAiRealtimeWhisperKeywords);
+  }, [openAiRealtimeWhisperKeywords]);
 
   useEffect(() => {
     setModelIdInput(remoteSettings?.model_id ?? "");
@@ -712,8 +739,12 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
           label: "OpenAI gpt-realtime-whisper · Legacy",
         },
         {
+          value: "openai_realtime_agent_legacy",
+          label: "OpenAI gpt-realtime-2 · Legacy STT Hack",
+        },
+        {
           value: "openai_realtime_agent",
-          label: "OpenAI gpt-realtime-2 STT Hack - Not actually realtime",
+          label: "OpenAI gpt-realtime-2.1 · STT Hack (latest)",
         },
         {
           value: "openai_realtime_translate",
@@ -736,8 +767,10 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
         "Recommended for low-latency microphone and other live audio streams.",
       openai_realtime_whisper:
         "Legacy Realtime transcription model. Existing integrations can keep using it.",
+      openai_realtime_agent_legacy:
+        "Legacy voice-agent model coerced into transcript-only output.",
       openai_realtime_agent:
-        "Voice-agent model coerced into transcript-only output. Uses global/profile STT prompts.",
+        "Latest voice-agent model coerced into transcript-only output. Uses global/profile STT prompts.",
       openai_realtime_translate:
         "Translation session used as STT by targeting the same language.",
       custom: "Self-hosted or non-standard OpenAI-compatible endpoint.",
@@ -746,6 +779,7 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
   }, [currentRemoteInterface]);
 
   const showOpenAiRealtimeNotes =
+    currentRemoteInterface === "openai_realtime_agent_legacy" ||
     currentRemoteInterface === "openai_realtime_agent" ||
     currentRemoteInterface === "openai_realtime_translate";
 
@@ -802,10 +836,12 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
           ? "gpt-live-transcribe"
         : interfaceId === "openai_realtime_whisper"
           ? "gpt-realtime-whisper"
-        : interfaceId === "openai_realtime_translate"
-          ? "gpt-realtime-translate"
-          : interfaceId === "openai_realtime_agent"
-            ? "gpt-realtime-2"
+        : interfaceId === "openai_realtime_agent_legacy"
+          ? "gpt-realtime-2"
+          : interfaceId === "openai_realtime_translate"
+            ? "gpt-realtime-translate"
+            : interfaceId === "openai_realtime_agent"
+              ? "gpt-realtime-2.1"
             : remotePreset === "custom"
               ? customModelId.trim() || modelIdInput.trim()
               : REMOTE_STT_PRESETS.custom.defaultModel;
@@ -874,6 +910,26 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
   const handleOpenAiRealtimeWhisperDelayChange = (value: string | null) => {
     if (!value) return;
     void updateSetting("openai_realtime_whisper_delay" as any, value as any);
+  };
+
+  const handleOpenAiRealtimeWhisperKeywordsBlur = () => {
+    const normalizedKeywords = openAiRealtimeWhisperKeywordLines
+      .filter((keyword) => !/[<>\r\n]/.test(keyword))
+      .join("\n");
+
+    if (invalidOpenAiRealtimeKeywords.length > 0) {
+      toast.warning(
+        `Ignored invalid OpenAI keywords: ${invalidOpenAiRealtimeKeywords.join(", ")}`,
+      );
+    }
+
+    setOpenAiRealtimeWhisperKeywordsInput(normalizedKeywords);
+    if (normalizedKeywords !== openAiRealtimeWhisperKeywords) {
+      void updateSetting(
+        "openai_realtime_whisper_keywords" as any,
+        normalizedKeywords as any,
+      );
+    }
   };
 
   const handleSaveRealtimeAgentPrompt = async () => {
@@ -1407,6 +1463,52 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
               {(currentRemoteInterface === "openai_live_transcribe" ||
                 currentRemoteInterface === "openai_realtime_whisper") && (
                 <>
+                  {currentRemoteInterface === "openai_realtime_whisper" && (
+                    <div className="mx-4 rounded-lg border border-red-500/50 bg-red-500/10 p-3 text-xs text-red-100">
+                      <p className="font-semibold text-red-300">
+                        ⚠️ Legacy model: gpt-realtime-whisper
+                      </p>
+                      <p className="mt-1">
+                        Kept for compatibility only. For new live transcription
+                        setups, OpenAI recommends gpt-live-transcribe.
+                      </p>
+                      <a
+                        href="https://developers.openai.com/cookbook/examples/migrating_from_whisper_to_gpt_transcribe"
+                        target="_blank"
+                        rel="noreferrer"
+                        className="mt-2 inline-block text-red-300 hover:underline"
+                      >
+                        OpenAI migration guide
+                      </a>
+                    </div>
+                  )}
+
+                  {currentRemoteInterface === "openai_live_transcribe" && (
+                    <SettingContainer
+                      title="Realtime transcription keywords"
+                      description="Optional vocabulary hints for gpt-live-transcribe. Enter one product name, acronym, or literal term per line. Invalid lines are removed and reported when you leave the field."
+                      descriptionMode={descriptionMode}
+                      grouped={grouped}
+                      layout="stacked"
+                    >
+                      <Textarea
+                        value={openAiRealtimeWhisperKeywordsInput}
+                        onChange={(event) =>
+                          setOpenAiRealtimeWhisperKeywordsInput(event.target.value)
+                        }
+                        onBlur={handleOpenAiRealtimeWhisperKeywordsBlur}
+                        placeholder={"AivoRelay\nDeepgram\nAC-42"}
+                        className="w-full min-h-[120px]"
+                      />
+                      {invalidOpenAiRealtimeKeywords.length > 0 && (
+                        <p className="mt-2 text-xs text-red-300">
+                          ⚠️ Invalid lines will be removed when you leave this
+                          field: {invalidOpenAiRealtimeKeywords.join(", ")}
+                        </p>
+                      )}
+                    </SettingContainer>
+                  )}
+
                   <SettingContainer
                     title="Realtime transcription delay"
                     description={`Controls how much audio context ${remoteSettings?.model_id} gets before AivoRelay asks for a transcript chunk. Faster settings show text sooner; slower settings provide more context.`}
@@ -1502,7 +1604,10 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
 
               {showOpenAiRealtimeNotes && (
                 <div className="mx-4 rounded-lg border border-blue-400/20 bg-blue-400/5 p-3 text-xs text-text/80">
-                  {currentRemoteInterface === "openai_realtime_agent" ? (
+                  {(
+                    currentRemoteInterface === "openai_realtime_agent" ||
+                    currentRemoteInterface === "openai_realtime_agent_legacy"
+                  ) ? (
                     <>
                       <p className="font-medium text-text">
                         How to configure: OpenAI key here, language/prompt in
@@ -1525,7 +1630,7 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
                         <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
                           <div>
                             <p className="font-medium text-text">
-                              Realtime 2 STT prompt
+                              Realtime voice-agent STT prompt
                             </p>
                             <p className="mt-0.5 text-[11px] text-text/60">
                               Source: {realtimeAgentPromptSource} | Language:{" "}
@@ -1590,7 +1695,7 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
                           <div className="mt-2 rounded-md border border-amber-400/40 bg-amber-400/10 p-2 text-[11px] text-amber-100">
                             Empty prompt means "use the built-in default".
                             AivoRelay will still send the fixed transcript-only
-                            guardrails plus the default Realtime 2 STT prompt,
+                            guardrails plus the default Realtime voice-agent STT prompt,
                             profile/global language, and Translate to English
                             settings.
                           </div>
@@ -1629,7 +1734,10 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
                           </li>
                           <li>
                             AivoRelay opens a Realtime WebSocket for
-                            <span className="font-mono"> gpt-realtime-2</span>,
+                            <span className="font-mono">
+                              {" "}
+                              {remoteSettings?.model_id?.trim() || "gpt-realtime-2.1"}
+                            </span>,
                             sends 24 kHz PCM audio, asks for text-only output,
                             and collects text deltas as the transcript.
                           </li>

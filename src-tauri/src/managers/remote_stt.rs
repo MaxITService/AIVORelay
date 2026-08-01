@@ -30,9 +30,12 @@ const DEFAULT_CONNECT_TIMEOUT_SECS: u64 = 10;
 
 const REMOTE_STT_SERVICE: &str = "fi.maxits.aivorelay";
 const REMOTE_STT_USER_PREFIX: &str = "remote_stt_api_key";
-const OPENAI_REALTIME_MODEL: &str = "gpt-realtime-2";
+const OPENAI_REALTIME_MODEL: &str = "gpt-realtime-2.1";
+const OPENAI_REALTIME_LEGACY_MODEL: &str = "gpt-realtime-2";
 const OPENAI_REALTIME_TRANSLATE_MODEL: &str = "gpt-realtime-translate";
-const OPENAI_REALTIME_WS_URL: &str = "wss://api.openai.com/v1/realtime?model=gpt-realtime-2";
+const OPENAI_REALTIME_WS_URL: &str = "wss://api.openai.com/v1/realtime?model=gpt-realtime-2.1";
+const OPENAI_REALTIME_LEGACY_WS_URL: &str =
+    "wss://api.openai.com/v1/realtime?model=gpt-realtime-2";
 const OPENAI_REALTIME_TRANSLATE_WS_URL: &str =
     "wss://api.openai.com/v1/realtime/translations?model=gpt-realtime-translate";
 const OPENAI_REALTIME_AUDIO_CHUNK_BYTES: usize = 48_000;
@@ -178,7 +181,7 @@ struct TranscriptionResponse {
 ///
 /// Known model support:
 /// - Groq: whisper-large-v3 supports translation, whisper-large-v3-turbo does NOT
-/// - OpenAI: whisper-1, gpt-realtime-2, and gpt-realtime-translate support translation
+/// - OpenAI: whisper-1, gpt-realtime-2.1, gpt-realtime-2, and gpt-realtime-translate support translation
 /// - Unknown models default to false (safe fallback)
 pub fn supports_translation(model_id: &str) -> bool {
     let lower = model_id.to_lowercase();
@@ -202,7 +205,11 @@ pub fn supports_translation(model_id: &str) -> bool {
     }
 
     // OpenAI whisper-1 and GPT Realtime 2 support /audio/translations.
-    if lower == "whisper-1" || lower == "gpt-realtime-2" || lower == "gpt-realtime-translate" {
+    if lower == "whisper-1"
+        || lower == "gpt-realtime-2.1"
+        || lower == "gpt-realtime-2"
+        || lower == "gpt-realtime-translate"
+    {
         return true;
     }
 
@@ -216,7 +223,20 @@ pub fn supports_translation(model_id: &str) -> bool {
 }
 
 fn is_openai_realtime_model(model_id: &str) -> bool {
-    model_id.trim().eq_ignore_ascii_case(OPENAI_REALTIME_MODEL)
+    let model_id = model_id.trim();
+    model_id.eq_ignore_ascii_case(OPENAI_REALTIME_MODEL)
+        || model_id.eq_ignore_ascii_case(OPENAI_REALTIME_LEGACY_MODEL)
+}
+
+fn openai_realtime_ws_url(model_id: &str) -> &'static str {
+    if model_id
+        .trim()
+        .eq_ignore_ascii_case(OPENAI_REALTIME_LEGACY_MODEL)
+    {
+        OPENAI_REALTIME_LEGACY_WS_URL
+    } else {
+        OPENAI_REALTIME_WS_URL
+    }
 }
 
 fn is_openai_realtime_translate_model(model_id: &str) -> bool {
@@ -286,6 +306,27 @@ fn build_openai_realtime_agent_transcription_prompt(
          If a word is unclear, use [⚠️inaudible⚠️].{}{}",
         task, language_hint, prompt_hint
     )
+}
+
+fn build_openai_realtime_agent_session_update(model_id: &str, instructions: &str) -> Value {
+    serde_json::json!({
+        "type": "session.update",
+        "session": {
+            "type": "realtime",
+            "model": model_id.trim(),
+            "output_modalities": ["text"],
+            "instructions": instructions,
+            "audio": {
+                "input": {
+                    "format": {
+                        "type": "audio/pcm",
+                        "rate": 24000
+                    },
+                    "turn_detection": null
+                }
+            }
+        }
+    })
 }
 
 fn resolve_realtime_agent_language_for_prompt(language: Option<&str>) -> Option<String> {
@@ -546,6 +587,9 @@ impl RemoteSttManager {
                         model: settings.model_id.clone(),
                         language,
                         prompt,
+                        keywords: crate::actions::parse_openai_realtime_keywords(
+                            &app_settings.openai_realtime_whisper_keywords,
+                        ),
                         delay: app_settings.openai_realtime_whisper_delay,
                     },
                 )
@@ -794,7 +838,7 @@ impl RemoteSttManager {
             );
         }
 
-        let mut request = OPENAI_REALTIME_WS_URL
+        let mut request = openai_realtime_ws_url(&settings.model_id)
             .into_client_request()
             .map_err(|e| anyhow!("Failed to create OpenAI Realtime request: {}", e))?;
         request.headers_mut().insert(
@@ -819,24 +863,10 @@ impl RemoteSttManager {
         .map_err(|e| anyhow!("Failed to connect to OpenAI Realtime WebSocket: {}", e))?;
         let (mut write, mut read) = stream.split();
 
-        let session_update = serde_json::json!({
-            "type": "session.update",
-            "session": {
-                "type": "realtime",
-                "model": OPENAI_REALTIME_MODEL,
-                "output_modalities": ["text"],
-                "instructions": instructions,
-                "audio": {
-                    "input": {
-                        "format": {
-                            "type": "audio/pcm",
-                            "rate": 24000
-                        },
-                        "turn_detection": null
-                    }
-                }
-            }
-        });
+        let session_update = build_openai_realtime_agent_session_update(
+            &settings.model_id,
+            &instructions,
+        );
         write
             .send(Message::Text(session_update.to_string().into()))
             .await
@@ -1504,13 +1534,28 @@ pub fn has_remote_stt_api_key(_settings: &RemoteSttSettings) -> bool {
 #[cfg(test)]
 mod tests {
     use super::{
-        remote_stt_api_key_clear_targets, select_remote_stt_api_key, supports_translation,
-        uses_plural_language_hints, RemoteSttApiKeySource,
+        build_openai_realtime_agent_session_update, remote_stt_api_key_clear_targets,
+        select_remote_stt_api_key, supports_translation, uses_plural_language_hints,
+        RemoteSttApiKeySource,
     };
+
+    #[test]
+    fn realtime_agent_session_update_uses_selected_model() {
+        let legacy = build_openai_realtime_agent_session_update(" gpt-realtime-2 ", "test");
+        assert_eq!(legacy["session"]["model"], "gpt-realtime-2");
+
+        let latest = build_openai_realtime_agent_session_update("gpt-realtime-2.1", "test");
+        assert_eq!(latest["session"]["model"], "gpt-realtime-2.1");
+    }
 
     #[test]
     fn gpt_realtime_2_supports_remote_stt_translation() {
         assert!(supports_translation("gpt-realtime-2"));
+    }
+
+    #[test]
+    fn gpt_realtime_2_1_supports_remote_stt_translation() {
+        assert!(supports_translation("gpt-realtime-2.1"));
     }
 
     #[test]

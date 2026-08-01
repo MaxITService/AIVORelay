@@ -2849,6 +2849,22 @@ pub fn change_openai_realtime_whisper_delay_setting(
 
 #[tauri::command]
 #[specta::specta]
+pub fn change_openai_realtime_whisper_keywords_setting(
+    app: AppHandle,
+    keywords: String,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.openai_realtime_whisper_keywords = crate::actions::parse_openai_realtime_keywords(
+        &keywords,
+    )
+    .map(|items| items.join("\n"))
+    .unwrap_or_default();
+    settings::write_settings(&app, settings);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
 pub fn change_openai_realtime_whisper_flatten_enabled_setting(
     app: AppHandle,
     enabled: bool,

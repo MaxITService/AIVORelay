@@ -1127,6 +1127,7 @@ pub fn run(cli_args: CliArgs) {
         shortcut::change_remote_stt_allow_insecure_http_setting,
         shortcut::change_remote_stt_model_id_setting,
         shortcut::change_openai_realtime_whisper_delay_setting,
+        shortcut::change_openai_realtime_whisper_keywords_setting,
         shortcut::change_openai_realtime_whisper_flatten_enabled_setting,
         shortcut::change_soniox_model_setting,
         shortcut::change_soniox_timeout_setting,

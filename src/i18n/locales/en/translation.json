@@ -1929,7 +1929,7 @@
         "modelId": {
           "title": "Remote Model ID",
           "description": "Model identifier to send in the transcription request.",
-          "placeholder": "gpt-realtime-2"
+          "placeholder": "gpt-realtime-2.1"
         },
         "apiKey": {
           "title": "Remote API Key",

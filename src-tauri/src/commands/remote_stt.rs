@@ -105,7 +105,7 @@ pub async fn remote_stt_test_connection(
 
 /// Returns whether the currently selected Remote STT model supports translation to English.
 /// Uses the OpenAI-compatible /audio/translations endpoint.
-/// Known support: Groq whisper-large-v3, OpenAI whisper-1/gpt-realtime-2/gpt-realtime-translate.
+/// Known support: Groq whisper-large-v3, OpenAI whisper-1/gpt-realtime-2.1/gpt-realtime-2/gpt-realtime-translate.
 /// NOT supported: whisper-large-v3-turbo and OpenAI's transcription-only models.
 #[tauri::command]
 #[specta::specta]
