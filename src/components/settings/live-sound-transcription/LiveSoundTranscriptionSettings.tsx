@@ -4,6 +4,7 @@ import { listen } from "@tauri-apps/api/event";
 import { useTranslation } from "react-i18next";
 import { Copy, Check, FileText, ChevronDown } from "lucide-react";
 import { save } from "@tauri-apps/plugin-dialog";
+import { type as getOsType } from "@tauri-apps/plugin-os";
 import { commands } from "@/bindings";
 import { Button } from "../../ui/Button";
 import { Dropdown } from "../../ui/Dropdown";
@@ -155,6 +156,7 @@ const NumericOverrideInput: React.FC<NumericOverrideInputProps> = ({
 export const LiveSoundTranscriptionSettings: React.FC = () => {
   const { t } = useTranslation();
   const { settings, refreshSettings } = useSettings();
+  const supportsRemoteLiveSound = getOsType() === "windows";
   const [finalText, setFinalText] = useState("");
   const [interimText, setInterimText] = useState("");
   const [isRecording, setIsRecording] = useState(false);
@@ -245,12 +247,13 @@ export const LiveSoundTranscriptionSettings: React.FC = () => {
               t("settings.liveSoundTranscription.session.notAvailable"),
           );
 
-  const liveModeEnabled =
+  const providerLiveModeEnabled =
     provider === "remote_soniox"
       ? Boolean((settings as any)?.soniox_live_enabled ?? true)
       : provider === "remote_deepgram"
         ? Boolean((settings as any)?.deepgram_live_enabled ?? true)
         : false;
+  const liveModeEnabled = supportsRemoteLiveSound && providerLiveModeEnabled;
   const autoStopMinutes = Number((settings as any)?.live_sound_auto_stop_minutes ?? 60);
 
   const liveSoundCaptureSource = String(
@@ -260,7 +263,8 @@ export const LiveSoundTranscriptionSettings: React.FC = () => {
   const outputEnabled = liveSoundCaptureSource === "system_output" || liveSoundCaptureSource === "both";
 
   const liveProviderReady =
-    provider === "remote_soniox" || provider === "remote_deepgram";
+    supportsRemoteLiveSound &&
+    (provider === "remote_soniox" || provider === "remote_deepgram");
   const diarizationEnabled = Boolean(
     (settings as any)?.live_sound_enable_speaker_diarization ?? true,
   );
@@ -689,7 +693,12 @@ export const LiveSoundTranscriptionSettings: React.FC = () => {
                   selectedValue={liveSoundProviderSetting}
                   options={providerOptions}
                   onSelect={(v) => void handleProviderChange(v)}
-                  disabled={sourceBusy || isRecording || actionBusy !== null}
+                  disabled={
+                    !supportsRemoteLiveSound ||
+                    sourceBusy ||
+                    isRecording ||
+                    actionBusy !== null
+                  }
                 />
               </div>
               <div className="rounded-lg border border-[#333333] bg-[#121212]/70 px-4 py-3">
@@ -724,11 +733,15 @@ export const LiveSoundTranscriptionSettings: React.FC = () => {
               )}
             </div>
 
-            {!liveProviderReady && (
+            {!supportsRemoteLiveSound ? (
+              <div className="rounded-lg border border-amber-500/25 bg-amber-500/10 px-4 py-3 text-sm text-amber-100">
+                {t("settings.liveSoundTranscription.session.windowsOnly")}
+              </div>
+            ) : !liveProviderReady ? (
               <div className="rounded-lg border border-amber-500/25 bg-amber-500/10 px-4 py-3 text-sm text-amber-100">
                 {t("settings.liveSoundTranscription.session.remoteOnly")}
               </div>
-            )}
+            ) : null}
 
             {liveProviderReady && !diarizationEnabled && (
               <div className="rounded-lg border border-amber-500/25 bg-amber-500/10 px-4 py-3 text-sm text-amber-100">
@@ -1354,4 +1367,3 @@ export const LiveSoundTranscriptionSettings: React.FC = () => {
     </div>
   );
 };
-

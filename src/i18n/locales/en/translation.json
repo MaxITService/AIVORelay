@@ -1514,6 +1514,7 @@
         "disabled": "Disabled",
         "providerUnsupported": "Local / unsupported for live page",
         "remoteOnly": "Select Soniox or Deepgram as provider above to use this page as a realtime session surface.",
+        "windowsOnly": "Live Monitor remote transcription is currently available only on Windows.",
         "anotherSessionActive": "Another preview-owned transcription session is active. Stop it before using this page.",
         "notAvailable": "Not available",
         "start": "Start",
