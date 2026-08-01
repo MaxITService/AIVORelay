@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { useTranslation } from "react-i18next";
@@ -76,6 +76,82 @@ const getSegmentText = (segment: LiveSoundSegment) => String(segment.text ?? "")
 const isInterimSegment = (segment: LiveSoundSegment) =>
   Boolean(segment.is_interim ?? segment.isInterim);
 
+interface NumericOverrideInputProps {
+  value: number;
+  min: number;
+  max: number;
+  step: number;
+  onCommit: (value: number) => Promise<void>;
+}
+
+const NumericOverrideInput: React.FC<NumericOverrideInputProps> = ({
+  value,
+  min,
+  max,
+  step,
+  onCommit,
+}) => {
+  const persistedDraft = String(value);
+  const [draft, setDraft] = useState(persistedDraft);
+  const editingRef = useRef(false);
+
+  useEffect(() => {
+    if (!editingRef.current) {
+      setDraft(persistedDraft);
+    }
+  }, [persistedDraft]);
+
+  const commit = async () => {
+    editingRef.current = false;
+    const trimmed = draft.trim();
+    const nextValue = Number(trimmed);
+    if (
+      trimmed.length === 0 ||
+      !Number.isInteger(nextValue) ||
+      nextValue < min ||
+      nextValue > max
+    ) {
+      setDraft(persistedDraft);
+      return;
+    }
+
+    setDraft(String(nextValue));
+    if (nextValue === value) {
+      return;
+    }
+
+    try {
+      await onCommit(nextValue);
+    } catch {
+      if (!editingRef.current) {
+        setDraft(persistedDraft);
+      }
+    }
+  };
+
+  return (
+    <input
+      type="number"
+      min={min}
+      max={max}
+      step={step}
+      value={draft}
+      onFocus={() => {
+        editingRef.current = true;
+      }}
+      onChange={(event) => setDraft(event.target.value)}
+      onBlur={() => void commit()}
+      onKeyDown={(event) => {
+        if (event.key === "Enter") {
+          event.preventDefault();
+          event.currentTarget.blur();
+        }
+      }}
+      className="w-24 rounded border border-[#333] bg-[#1a1a1a] px-2 py-1 text-[13px] text-[#e0e0e0]"
+    />
+  );
+};
+
 export const LiveSoundTranscriptionSettings: React.FC = () => {
   const { t } = useTranslation();
   const { settings, refreshSettings } = useSettings();
@@ -139,6 +215,23 @@ export const LiveSoundTranscriptionSettings: React.FC = () => {
       );
     } finally {
       setSourceBusy(false);
+    }
+  };
+
+  const persistNumericOverride = async (command: string, value: number) => {
+    setErrorMessage(null);
+    try {
+      await invoke(command, { value });
+      await refreshSettings();
+    } catch (error) {
+      setErrorMessage(
+        error instanceof Error
+          ? error.message
+          : typeof error === "string"
+            ? error
+            : t("settings.liveSoundTranscription.session.actionFailed"),
+      );
+      throw error;
     }
   };
 
@@ -985,6 +1078,7 @@ export const LiveSoundTranscriptionSettings: React.FC = () => {
                   <Button
                     variant={isOverridden ? "secondary" : "ghost"}
                     size="sm"
+                    onMouseDown={(event) => event.preventDefault()}
                     onClick={async () => {
                       await invoke("set_live_sound_soniox_max_endpoint_delay_ms", {
                         value: isOverridden ? null : globalVal,
@@ -997,20 +1091,17 @@ export const LiveSoundTranscriptionSettings: React.FC = () => {
                       : t("settings.liveSoundTranscription.sessionOverrides.override")}
                   </Button>
                   {isOverridden ? (
-                    <input
-                      type="number"
-                      min={500}
-                      max={10000}
-                      step={100}
+                    <NumericOverrideInput
                       value={currentOverride}
-                      onChange={async (e) => {
-                        const val = Number(e.target.value);
-                        if (!Number.isNaN(val)) {
-                          await invoke("set_live_sound_soniox_max_endpoint_delay_ms", { value: val });
-                          await refreshSettings();
-                        }
-                      }}
-                      className="w-24 rounded border border-[#333] bg-[#1a1a1a] px-2 py-1 text-[13px] text-[#e0e0e0]"
+                      min={500}
+                      max={3000}
+                      step={100}
+                      onCommit={(value) =>
+                        persistNumericOverride(
+                          "set_live_sound_soniox_max_endpoint_delay_ms",
+                          value,
+                        )
+                      }
                     />
                   ) : (
                     <span className="text-[12px] text-[#666]">
@@ -1040,6 +1131,7 @@ export const LiveSoundTranscriptionSettings: React.FC = () => {
                   <Button
                     variant={isOverridden ? "secondary" : "ghost"}
                     size="sm"
+                    onMouseDown={(event) => event.preventDefault()}
                     onClick={async () => {
                       await invoke("set_live_sound_deepgram_endpointing_ms", {
                         value: isOverridden ? null : globalVal,
@@ -1052,20 +1144,17 @@ export const LiveSoundTranscriptionSettings: React.FC = () => {
                       : t("settings.liveSoundTranscription.sessionOverrides.override")}
                   </Button>
                   {isOverridden ? (
-                    <input
-                      type="number"
-                      min={0}
+                    <NumericOverrideInput
+                      value={currentOverride}
+                      min={10}
                       max={5000}
                       step={10}
-                      value={currentOverride}
-                      onChange={async (e) => {
-                        const val = Number(e.target.value);
-                        if (!Number.isNaN(val)) {
-                          await invoke("set_live_sound_deepgram_endpointing_ms", { value: val });
-                          await refreshSettings();
-                        }
-                      }}
-                      className="w-24 rounded border border-[#333] bg-[#1a1a1a] px-2 py-1 text-[13px] text-[#e0e0e0]"
+                      onCommit={(value) =>
+                        persistNumericOverride(
+                          "set_live_sound_deepgram_endpointing_ms",
+                          value,
+                        )
+                      }
                     />
                   ) : (
                     <span className="text-[12px] text-[#666]">
@@ -1265,6 +1354,4 @@ export const LiveSoundTranscriptionSettings: React.FC = () => {
     </div>
   );
 };
-
-
 
