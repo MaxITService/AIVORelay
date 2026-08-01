@@ -5236,6 +5236,15 @@ pub fn change_screenshot_timeout_seconds_setting(
     app: AppHandle,
     seconds: u32,
 ) -> Result<(), String> {
+    if !(settings::SCREENSHOT_TIMEOUT_MIN_SECONDS..=settings::SCREENSHOT_TIMEOUT_MAX_SECONDS)
+        .contains(&seconds)
+    {
+        return Err(format!(
+            "Screenshot timeout must be between {} and {} seconds",
+            settings::SCREENSHOT_TIMEOUT_MIN_SECONDS,
+            settings::SCREENSHOT_TIMEOUT_MAX_SECONDS
+        ));
+    }
     let mut settings = settings::get_settings(&app);
     settings.screenshot_timeout_seconds = seconds;
     settings::write_settings(&app, settings);
@@ -5284,6 +5293,15 @@ pub fn change_screenshot_quick_tap_threshold_ms_setting(
     app: AppHandle,
     threshold_ms: u32,
 ) -> Result<(), String> {
+    if !(settings::SCREENSHOT_QUICK_TAP_MIN_MS..=settings::SCREENSHOT_QUICK_TAP_MAX_MS)
+        .contains(&threshold_ms)
+    {
+        return Err(format!(
+            "Screenshot quick-tap threshold must be between {} and {} ms",
+            settings::SCREENSHOT_QUICK_TAP_MIN_MS,
+            settings::SCREENSHOT_QUICK_TAP_MAX_MS
+        ));
+    }
     let mut settings = settings::get_settings(&app);
     settings.screenshot_quick_tap_threshold_ms = threshold_ms;
     settings::write_settings(&app, settings);
