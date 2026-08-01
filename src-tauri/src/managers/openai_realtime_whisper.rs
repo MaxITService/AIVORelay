@@ -1029,10 +1029,7 @@ mod tests {
             transcription["prompt"],
             "A bilingual customer-support call."
         );
-        assert_eq!(
-            transcription["keywords"],
-            json!(["AC-42", "premium plan"])
-        );
+        assert_eq!(transcription["keywords"], json!(["AC-42", "premium plan"]));
         assert!(transcription.get("language").is_none());
     }
 
