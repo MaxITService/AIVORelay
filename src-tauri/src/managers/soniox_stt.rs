@@ -1,6 +1,7 @@
 use crate::audio_toolkit::encode_wav_bytes;
 use crate::file_transcription_diarization::RawSpeakerBlock;
 use crate::settings::SonioxContext;
+use crate::subtitle::TimedTranscriptToken;
 use anyhow::{anyhow, Result};
 use futures_util::{SinkExt, StreamExt};
 use log::{debug, info, warn};
@@ -120,12 +121,17 @@ struct SonioxAsyncTranscriptToken {
     text: String,
     #[serde(default)]
     speaker: Option<Value>,
+    #[serde(default)]
+    start_ms: Option<f64>,
+    #[serde(default)]
+    end_ms: Option<f64>,
 }
 
 #[derive(Debug, Clone, Default)]
 pub struct SonioxAsyncTranscript {
     pub text: String,
     pub speaker_blocks: Vec<RawSpeakerBlock>,
+    pub timed_tokens: Vec<TimedTranscriptToken>,
 }
 
 pub struct SonioxSttManager {
@@ -393,6 +399,36 @@ impl SonioxSttManager {
         }
 
         blocks
+    }
+
+    fn build_async_timed_tokens(
+        tokens: &[SonioxAsyncTranscriptToken],
+    ) -> Vec<TimedTranscriptToken> {
+        tokens
+            .iter()
+            .filter_map(|token| {
+                if token.text.is_empty() || Self::is_async_control_token(&token.text) {
+                    return None;
+                }
+                let start_ms = token.start_ms?;
+                let end_ms = token.end_ms?;
+                if !start_ms.is_finite()
+                    || !end_ms.is_finite()
+                    || start_ms < 0.0
+                    || end_ms < start_ms
+                    || start_ms / 1000.0 > f32::MAX as f64
+                    || end_ms / 1000.0 > f32::MAX as f64
+                {
+                    return None;
+                }
+                Some(TimedTranscriptToken {
+                    start: (start_ms / 1000.0) as f32,
+                    end: (end_ms / 1000.0) as f32,
+                    text: token.text.clone(),
+                    prepend_space: false,
+                })
+            })
+            .collect()
     }
 
     fn ensure_within_timeout(start: Instant, timeout_seconds: u32) -> Result<()> {
@@ -984,6 +1020,7 @@ impl SonioxSttManager {
         Ok(SonioxAsyncTranscript {
             text: payload.text,
             speaker_blocks: Self::build_async_speaker_blocks(&payload.tokens),
+            timed_tokens: Self::build_async_timed_tokens(&payload.tokens),
         })
     }
 
@@ -1284,5 +1321,29 @@ mod tests {
         let err = anyhow!("temporary network hiccup");
 
         assert!(SonioxSttManager::should_retry("Soniox file upload", &err));
+    }
+
+    #[test]
+    fn async_tokens_keep_provider_timestamps_and_exact_spacing() {
+        let tokens: Vec<SonioxAsyncTranscriptToken> = serde_json::from_value(serde_json::json!([
+            { "text": "Beau", "start_ms": 300, "end_ms": 420 },
+            { "text": "ti", "start_ms": 420, "end_ms": 540 },
+            { "text": "ful day.", "start_ms": 540, "end_ms": 900 },
+            { "text": "<end>", "start_ms": 900, "end_ms": 900 }
+        ]))
+        .unwrap();
+
+        let timed = SonioxSttManager::build_async_timed_tokens(&tokens);
+        assert_eq!(timed.len(), 3);
+        assert_eq!(timed[0].start, 0.3);
+        assert_eq!(timed[2].end, 0.9);
+        assert!(!timed[0].prepend_space);
+        assert_eq!(
+            timed
+                .iter()
+                .map(|token| token.text.as_str())
+                .collect::<String>(),
+            "Beautiful day."
+        );
     }
 }

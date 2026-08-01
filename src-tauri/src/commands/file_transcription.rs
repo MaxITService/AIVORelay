@@ -20,7 +20,8 @@ use crate::settings::{
     write_settings, AppSettings, FileTranscriptionChunkingMode, TranscriptionProvider,
 };
 use crate::subtitle::{
-    get_format_extension, segments_to_srt, segments_to_vtt, OutputFormat, SubtitleSegment,
+    get_format_extension, segments_to_srt, segments_to_vtt, timed_tokens_to_subtitle_segments,
+    OutputFormat, SubtitleSegment,
 };
 use log::{debug, error, info};
 use serde::{Deserialize, Serialize};
@@ -275,6 +276,15 @@ pub async fn transcribe_audio_file(
     let use_deepgram = model_override.is_none()
         && settings.transcription_provider == TranscriptionProvider::RemoteDeepgram;
     let use_local = file_transcription_uses_local_model(&settings, model_override.as_deref());
+    if use_remote
+        && needs_segments
+        && !crate::managers::remote_stt::supports_subtitle_timestamps(&settings.remote_stt.model_id)
+    {
+        return Err(format!(
+            "Model '{}' does not provide segment timestamps. Select Text output or a timestamp-capable Whisper model.",
+            settings.remote_stt.model_id
+        ));
+    }
     if use_local && active_session_blocks_local_file_transcription(&app) {
         return Err(
             "Local file transcription is unavailable while another transcription is recording or processing."
@@ -344,14 +354,15 @@ pub async fn transcribe_audio_file(
             &settings.remote_stt.model_id,
         );
 
-        let text = remote_manager
-            .transcribe_with_operation(
+        let transcript = remote_manager
+            .transcribe_file_with_operation(
                 operation_id,
                 &settings.remote_stt,
                 &samples,
                 prompt,
                 Some(language.clone()),
                 translate_to_english,
+                needs_segments,
             )
             .await
             .map_err(|e| format!("Remote transcription failed: {}", e))?;
@@ -359,13 +370,13 @@ pub async fn transcribe_audio_file(
         // Apply custom word corrections
         let corrected = if should_apply_custom_words {
             apply_custom_words(
-                &text,
+                &transcript.text,
                 &settings.custom_words,
                 settings.word_correction_threshold,
                 settings.custom_words_ngram_enabled,
             )
         } else {
-            text
+            transcript.text
         };
 
         // Apply filler word filter (if enabled)
@@ -379,17 +390,17 @@ pub async fn transcribe_audio_file(
             corrected
         };
 
-        // For remote STT without segment support, create a single segment
-        // spanning the estimated duration if subtitle format is requested
         let segs = if needs_segments {
-            // Estimate duration: ~150 words per minute average
-            let word_count = corrected.split_whitespace().count();
-            let estimated_duration = (word_count as f32 / 150.0) * 60.0;
-            Some(vec![SubtitleSegment {
-                start: 0.0,
-                end: estimated_duration.max(1.0),
-                text: corrected.clone(),
-            }])
+            Some(post_process_remote_segments(
+                require_remote_segments(
+                    transcript.segments,
+                    &corrected,
+                    "the selected OpenAI-compatible model",
+                )?,
+                &settings,
+                should_apply_custom_words,
+                &language,
+            ))
         } else {
             None
         };
@@ -461,6 +472,12 @@ pub async fn transcribe_audio_file(
             return Err("Soniox transcription was cancelled".to_string());
         }
 
+        let timed_segments = if needs_segments {
+            timed_tokens_to_subtitle_segments(&transcript.timed_tokens)
+        } else {
+            Vec::new()
+        };
+
         let (corrected, new_speaker_session) = if let Some((rendered_text, session)) =
             build_diarized_text_output(
                 DiarizedTranscriptProvider::Soniox,
@@ -483,10 +500,13 @@ pub async fn transcribe_audio_file(
         };
         speaker_session = new_speaker_session;
 
-        // For remote STT without segment support, create a single segment
-        // spanning the estimated duration if subtitle format is requested
         let segs = if needs_segments {
-            Some(build_estimated_remote_segments(&corrected))
+            Some(post_process_remote_segments(
+                require_remote_segments(timed_segments, &corrected, "Soniox")?,
+                &settings,
+                should_apply_custom_words,
+                &language,
+            ))
         } else {
             None
         };
@@ -544,6 +564,12 @@ pub async fn transcribe_audio_file(
             return Err("Deepgram transcription was cancelled".to_string());
         }
 
+        let timed_segments = if needs_segments {
+            timed_tokens_to_subtitle_segments(&transcript.timed_tokens)
+        } else {
+            Vec::new()
+        };
+
         let (corrected, new_speaker_session) = if let Some((rendered_text, session)) =
             build_diarized_text_output(
                 DiarizedTranscriptProvider::Deepgram,
@@ -567,7 +593,12 @@ pub async fn transcribe_audio_file(
         speaker_session = new_speaker_session;
 
         let segs = if needs_segments {
-            Some(build_estimated_remote_segments(&corrected))
+            Some(post_process_remote_segments(
+                require_remote_segments(timed_segments, &corrected, "Deepgram")?,
+                &settings,
+                should_apply_custom_words,
+                &language,
+            ))
         } else {
             None
         };
@@ -699,28 +730,16 @@ pub async fn transcribe_audio_file(
             apply_output_whitespace_policy_for_settings(&transcription_text, &settings)
         }
         OutputFormat::Srt => {
-            if let Some(ref segs) = segments {
-                segments_to_srt(segs)
-            } else {
-                // Fallback: create single segment
-                segments_to_srt(&[SubtitleSegment {
-                    start: 0.0,
-                    end: 10.0,
-                    text: transcription_text.clone(),
-                }])
-            }
+            let segs = segments.as_ref().ok_or_else(|| {
+                "Transcription completed without timestamps required for SRT output.".to_string()
+            })?;
+            segments_to_srt(segs)
         }
         OutputFormat::Vtt => {
-            if let Some(ref segs) = segments {
-                segments_to_vtt(segs)
-            } else {
-                // Fallback: create single segment
-                segments_to_vtt(&[SubtitleSegment {
-                    start: 0.0,
-                    end: 10.0,
-                    text: transcription_text.clone(),
-                }])
-            }
+            let segs = segments.as_ref().ok_or_else(|| {
+                "Transcription completed without timestamps required for VTT output.".to_string()
+            })?;
+            segments_to_vtt(segs)
         }
     };
 
@@ -883,14 +902,46 @@ fn build_diarized_text_output(
     Ok(Some((rendered_text, session)))
 }
 
-fn build_estimated_remote_segments(text: &str) -> Vec<SubtitleSegment> {
-    let word_count = text.split_whitespace().count();
-    let estimated_duration = (word_count as f32 / 150.0) * 60.0;
-    vec![SubtitleSegment {
-        start: 0.0,
-        end: estimated_duration.max(1.0),
-        text: text.to_string(),
-    }]
+fn require_remote_segments(
+    segments: Vec<SubtitleSegment>,
+    transcript_text: &str,
+    provider: &str,
+) -> Result<Vec<SubtitleSegment>, String> {
+    if !transcript_text.trim().is_empty() && segments.is_empty() {
+        return Err(format!(
+            "{provider} returned transcript text without timestamps. Select Text output instead of SRT/VTT."
+        ));
+    }
+    Ok(segments)
+}
+
+fn post_process_remote_segments(
+    segments: Vec<SubtitleSegment>,
+    settings: &AppSettings,
+    should_apply_custom_words: bool,
+    language: &str,
+) -> Vec<SubtitleSegment> {
+    segments
+        .into_iter()
+        .filter_map(|mut segment| {
+            if should_apply_custom_words {
+                segment.text = apply_custom_words(
+                    &segment.text,
+                    &settings.custom_words,
+                    settings.word_correction_threshold,
+                    settings.custom_words_ngram_enabled,
+                );
+            }
+            if settings.filler_word_filter_enabled {
+                segment.text = crate::audio_toolkit::filter_transcription_output(
+                    &segment.text,
+                    language,
+                    &settings.custom_filler_words,
+                );
+            }
+            (!segment.text.trim().is_empty()).then_some(segment)
+        })
+        .collect()
 }
 
 fn normalize_soniox_language_hints(hints: Option<Vec<String>>) -> Option<Vec<String>> {
@@ -1124,8 +1175,9 @@ fn get_output_file_path(audio_path: &PathBuf, format: OutputFormat) -> Result<Pa
 
 #[cfg(test)]
 mod tests {
-    use super::session_blocks_local_file_transcription;
+    use super::{require_remote_segments, session_blocks_local_file_transcription};
     use crate::session_manager::SessionState;
+    use crate::subtitle::SubtitleSegment;
 
     #[test]
     fn processing_session_blocks_local_file_transcription() {
@@ -1138,5 +1190,23 @@ mod tests {
         assert!(!session_blocks_local_file_transcription(
             &SessionState::Idle
         ));
+    }
+
+    #[test]
+    fn remote_subtitle_export_rejects_text_without_timestamps() {
+        let error = require_remote_segments(Vec::new(), "Recognized speech", "Provider")
+            .expect_err("non-empty text without timing must not produce synthetic subtitles");
+        assert!(error.contains("without timestamps"));
+
+        assert!(require_remote_segments(
+            vec![SubtitleSegment {
+                start: 0.2,
+                end: 1.0,
+                text: "Recognized speech".to_string(),
+            }],
+            "Recognized speech",
+            "Provider",
+        )
+        .is_ok());
     }
 }

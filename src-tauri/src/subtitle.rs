@@ -16,6 +16,104 @@ pub struct SubtitleSegment {
     pub text: String,
 }
 
+/// A provider token with audio-relative timing. `prepend_space` is used by
+/// word-based APIs; token-stream APIs such as Soniox already encode spacing in
+/// the token text itself.
+#[derive(Debug, Clone, PartialEq)]
+pub struct TimedTranscriptToken {
+    pub start: f32,
+    pub end: f32,
+    pub text: String,
+    pub prepend_space: bool,
+}
+
+const SUBTITLE_MAX_CUE_DURATION_SECONDS: f32 = 6.0;
+const SUBTITLE_SPLIT_PAUSE_SECONDS: f32 = 0.8;
+const SUBTITLE_MAX_CUE_CHARS: usize = 84;
+
+fn ends_sentence(text: &str) -> bool {
+    text.trim_end()
+        .chars()
+        .next_back()
+        .is_some_and(|ch| matches!(ch, '.' | '!' | '?' | '。' | '！' | '？'))
+}
+
+fn push_token_text(target: &mut String, token: &TimedTranscriptToken) {
+    if token.prepend_space
+        && !target.is_empty()
+        && !target.chars().next_back().is_some_and(char::is_whitespace)
+    {
+        target.push(' ');
+    }
+    target.push_str(&token.text);
+}
+
+/// Groups provider word/token timings into readable subtitle cues while
+/// preserving the provider's real audio alignment.
+pub fn timed_tokens_to_subtitle_segments(tokens: &[TimedTranscriptToken]) -> Vec<SubtitleSegment> {
+    let valid_tokens = tokens.iter().filter(|token| {
+        token.start.is_finite()
+            && token.end.is_finite()
+            && token.start >= 0.0
+            && token.end >= token.start
+            && !token.text.is_empty()
+    });
+
+    let mut segments = Vec::new();
+    let mut current_text = String::new();
+    let mut current_start = 0.0;
+    let mut current_end = 0.0;
+
+    let flush = |segments: &mut Vec<SubtitleSegment>,
+                 current_text: &mut String,
+                 current_start: f32,
+                 current_end: f32| {
+        let text = current_text.trim();
+        if !text.is_empty() {
+            segments.push(SubtitleSegment {
+                start: current_start,
+                end: current_end,
+                text: text.to_string(),
+            });
+        }
+        current_text.clear();
+    };
+
+    for token in valid_tokens {
+        let mut candidate = current_text.clone();
+        push_token_text(&mut candidate, token);
+        let has_current = !current_text.is_empty();
+        let pause = token.start - current_end;
+        let would_be_too_long =
+            has_current && token.end - current_start > SUBTITLE_MAX_CUE_DURATION_SECONDS;
+        let would_be_too_wide = has_current && candidate.chars().count() > SUBTITLE_MAX_CUE_CHARS;
+
+        if has_current
+            && (pause >= SUBTITLE_SPLIT_PAUSE_SECONDS || would_be_too_long || would_be_too_wide)
+        {
+            flush(&mut segments, &mut current_text, current_start, current_end);
+        }
+
+        if current_text.is_empty() {
+            current_start = token.start;
+            current_end = token.end;
+        } else {
+            current_end = current_end.max(token.end);
+        }
+        push_token_text(&mut current_text, token);
+
+        if ends_sentence(&current_text) && current_end - current_start >= 1.0 {
+            flush(&mut segments, &mut current_text, current_start, current_end);
+        }
+    }
+
+    if !current_text.is_empty() {
+        flush(&mut segments, &mut current_text, current_start, current_end);
+    }
+
+    segments
+}
+
 /// Output format for transcription
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type, Default)]
 #[serde(rename_all = "snake_case")]
@@ -174,5 +272,71 @@ mod tests {
         assert_eq!(get_format_extension(OutputFormat::Text), "txt");
         assert_eq!(get_format_extension(OutputFormat::Srt), "srt");
         assert_eq!(get_format_extension(OutputFormat::Vtt), "vtt");
+    }
+
+    #[test]
+    fn timed_tokens_preserve_real_boundaries_and_split_on_pause() {
+        let tokens = vec![
+            TimedTranscriptToken {
+                start: 0.2,
+                end: 0.6,
+                text: "Hello".to_string(),
+                prepend_space: true,
+            },
+            TimedTranscriptToken {
+                start: 0.6,
+                end: 1.0,
+                text: "world".to_string(),
+                prepend_space: true,
+            },
+            TimedTranscriptToken {
+                start: 2.0,
+                end: 2.4,
+                text: "Again".to_string(),
+                prepend_space: true,
+            },
+        ];
+
+        let segments = timed_tokens_to_subtitle_segments(&tokens);
+        assert_eq!(segments.len(), 2);
+        assert_eq!(segments[0].start, 0.2);
+        assert_eq!(segments[0].end, 1.0);
+        assert_eq!(segments[0].text, "Hello world");
+        assert_eq!(segments[1].start, 2.0);
+        assert_eq!(segments[1].text, "Again");
+    }
+
+    #[test]
+    fn timed_tokens_can_preserve_provider_encoded_spacing() {
+        let tokens = vec![
+            TimedTranscriptToken {
+                start: 0.0,
+                end: 0.2,
+                text: "Beau".to_string(),
+                prepend_space: false,
+            },
+            TimedTranscriptToken {
+                start: 0.2,
+                end: 0.4,
+                text: "ti".to_string(),
+                prepend_space: false,
+            },
+            TimedTranscriptToken {
+                start: 0.4,
+                end: 0.7,
+                text: "ful".to_string(),
+                prepend_space: false,
+            },
+            TimedTranscriptToken {
+                start: 0.7,
+                end: 1.0,
+                text: " day.".to_string(),
+                prepend_space: false,
+            },
+        ];
+
+        let segments = timed_tokens_to_subtitle_segments(&tokens);
+        assert_eq!(segments[0].text, "Beautiful day.");
+        assert_eq!(segments[0].end, 1.0);
     }
 }

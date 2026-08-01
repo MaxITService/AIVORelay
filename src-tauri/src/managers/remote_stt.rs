@@ -4,6 +4,7 @@ use crate::managers::openai_realtime_whisper::{
 };
 use crate::managers::provider_error::{parse_provider_error, parse_provider_error_value};
 use crate::settings::{RemoteSttDebugMode, RemoteSttSettings};
+use crate::subtitle::SubtitleSegment;
 use crate::url_security::{
     infer_remote_stt_preset, validate_remote_stt_base_url, REMOTE_STT_OPENAI_BASE_URL,
     REMOTE_STT_PRESET_CUSTOM, REMOTE_STT_PRESET_GROQ, REMOTE_STT_PRESET_OPENAI,
@@ -34,8 +35,7 @@ const OPENAI_REALTIME_MODEL: &str = "gpt-realtime-2.1";
 const OPENAI_REALTIME_LEGACY_MODEL: &str = "gpt-realtime-2";
 const OPENAI_REALTIME_TRANSLATE_MODEL: &str = "gpt-realtime-translate";
 const OPENAI_REALTIME_WS_URL: &str = "wss://api.openai.com/v1/realtime?model=gpt-realtime-2.1";
-const OPENAI_REALTIME_LEGACY_WS_URL: &str =
-    "wss://api.openai.com/v1/realtime?model=gpt-realtime-2";
+const OPENAI_REALTIME_LEGACY_WS_URL: &str = "wss://api.openai.com/v1/realtime?model=gpt-realtime-2";
 const OPENAI_REALTIME_TRANSLATE_WS_URL: &str =
     "wss://api.openai.com/v1/realtime/translations?model=gpt-realtime-translate";
 const OPENAI_REALTIME_AUDIO_CHUNK_BYTES: usize = 48_000;
@@ -174,6 +174,14 @@ fn is_whisper_supported_language(lang: &str) -> bool {
 #[derive(Debug, Deserialize)]
 struct TranscriptionResponse {
     text: String,
+    #[serde(default)]
+    segments: Vec<SubtitleSegment>,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct RemoteFileTranscription {
+    pub text: String,
+    pub segments: Vec<SubtitleSegment>,
 }
 
 /// Returns whether a remote STT model supports translation to English.
@@ -249,6 +257,13 @@ fn uses_plural_language_hints(model_id: &str) -> bool {
     model_id
         .trim()
         .eq_ignore_ascii_case(OPENAI_TRANSCRIBE_MODEL)
+}
+
+pub fn supports_subtitle_timestamps(model_id: &str) -> bool {
+    model_id.trim().to_ascii_lowercase().contains("whisper")
+        && !OpenAiRealtimeWhisperManager::is_realtime_model(model_id)
+        && !is_openai_realtime_model(model_id)
+        && !is_openai_realtime_translate_model(model_id)
 }
 
 fn resample_16khz_f32_to_24khz_pcm16(samples: &[f32]) -> Vec<u8> {
@@ -496,6 +511,51 @@ impl RemoteSttManager {
         language: Option<String>,
         translate_to_english: bool,
     ) -> Result<String> {
+        self.transcribe_with_operation_inner(
+            operation_id,
+            settings,
+            audio_samples,
+            prompt,
+            language,
+            translate_to_english,
+            false,
+        )
+        .await
+        .map(|result| result.text)
+    }
+
+    pub async fn transcribe_file_with_operation(
+        &self,
+        operation_id: u64,
+        settings: &RemoteSttSettings,
+        audio_samples: &[f32],
+        prompt: Option<String>,
+        language: Option<String>,
+        translate_to_english: bool,
+        request_segments: bool,
+    ) -> Result<RemoteFileTranscription> {
+        self.transcribe_with_operation_inner(
+            operation_id,
+            settings,
+            audio_samples,
+            prompt,
+            language,
+            translate_to_english,
+            request_segments,
+        )
+        .await
+    }
+
+    async fn transcribe_with_operation_inner(
+        &self,
+        operation_id: u64,
+        settings: &RemoteSttSettings,
+        audio_samples: &[f32],
+        prompt: Option<String>,
+        language: Option<String>,
+        translate_to_english: bool,
+        request_segments: bool,
+    ) -> Result<RemoteFileTranscription> {
         let cancel_token = CancellationToken::new();
         self.active_requests
             .lock()
@@ -514,6 +574,7 @@ impl RemoteSttManager {
                 prompt,
                 language,
                 translate_to_english,
+                request_segments,
             ) => result,
         };
 
@@ -528,9 +589,10 @@ impl RemoteSttManager {
         prompt: Option<String>,
         language: Option<String>,
         translate_to_english: bool,
-    ) -> Result<String> {
+        request_segments: bool,
+    ) -> Result<RemoteFileTranscription> {
         if audio_samples.is_empty() {
-            return Ok(String::new());
+            return Ok(RemoteFileTranscription::default());
         }
 
         let base_url = validate_remote_stt_base_url(settings, None).map_err(|message| {
@@ -542,6 +604,13 @@ impl RemoteSttManager {
             let message = "Remote STT model ID is empty".to_string();
             self.record_error(settings, message.clone());
             return Err(anyhow!(message));
+        }
+
+        if request_segments && !supports_subtitle_timestamps(&settings.model_id) {
+            return Err(anyhow!(
+                "Model '{}' does not expose segment timestamps through its OpenAI-compatible transcription endpoint. Select Text output or a timestamp-capable Whisper model.",
+                settings.model_id
+            ));
         }
 
         let api_key = get_remote_stt_api_key_for_request(settings).map_err(|e| {
@@ -597,7 +666,12 @@ impl RemoteSttManager {
             if let Err(error) = &result {
                 self.record_error(settings, error.to_string());
             }
-            return self.migrate_legacy_api_key_after_success(settings, &api_key, result);
+            return self
+                .migrate_legacy_api_key_after_success(settings, &api_key, result)
+                .map(|text| RemoteFileTranscription {
+                    text,
+                    segments: Vec::new(),
+                });
         }
 
         if is_openai_realtime_model(&settings.model_id) {
@@ -620,7 +694,12 @@ impl RemoteSttManager {
                     &api_key.value,
                 )
                 .await;
-            return self.migrate_legacy_api_key_after_success(settings, &api_key, result);
+            return self
+                .migrate_legacy_api_key_after_success(settings, &api_key, result)
+                .map(|text| RemoteFileTranscription {
+                    text,
+                    segments: Vec::new(),
+                });
         }
 
         if is_openai_realtime_translate_model(&settings.model_id) {
@@ -643,7 +722,12 @@ impl RemoteSttManager {
                     &api_key.value,
                 )
                 .await;
-            return self.migrate_legacy_api_key_after_success(settings, &api_key, result);
+            return self
+                .migrate_legacy_api_key_after_success(settings, &api_key, result)
+                .map(|text| RemoteFileTranscription {
+                    text,
+                    segments: Vec::new(),
+                });
         }
 
         let wav_bytes = encode_wav_bytes(audio_samples).map_err(|e| {
@@ -674,9 +758,14 @@ impl RemoteSttManager {
             );
         }
 
+        let response_format = if request_segments {
+            "verbose_json"
+        } else {
+            "json"
+        };
         let mut form = reqwest::multipart::Form::new()
             .text("model", settings.model_id.clone())
-            .text("response_format", "json".to_string())
+            .text("response_format", response_format.to_string())
             .part(
                 "file",
                 reqwest::multipart::Part::bytes(wav_bytes)
@@ -791,7 +880,20 @@ impl RemoteSttManager {
         }
 
         self.migrate_legacy_api_key_after_success(settings, &api_key, Ok(()))?;
-        Ok(parsed.text)
+        Ok(RemoteFileTranscription {
+            text: parsed.text,
+            segments: parsed
+                .segments
+                .into_iter()
+                .filter(|segment| {
+                    segment.start.is_finite()
+                        && segment.end.is_finite()
+                        && segment.start >= 0.0
+                        && segment.end >= segment.start
+                        && !segment.text.trim().is_empty()
+                })
+                .collect(),
+        })
     }
 
     fn migrate_legacy_api_key_after_success<T>(
@@ -863,10 +965,8 @@ impl RemoteSttManager {
         .map_err(|e| anyhow!("Failed to connect to OpenAI Realtime WebSocket: {}", e))?;
         let (mut write, mut read) = stream.split();
 
-        let session_update = build_openai_realtime_agent_session_update(
-            &settings.model_id,
-            &instructions,
-        );
+        let session_update =
+            build_openai_realtime_agent_session_update(&settings.model_id, &instructions);
         write
             .send(Message::Text(session_update.to_string().into()))
             .await
@@ -1535,8 +1635,8 @@ pub fn has_remote_stt_api_key(_settings: &RemoteSttSettings) -> bool {
 mod tests {
     use super::{
         build_openai_realtime_agent_session_update, remote_stt_api_key_clear_targets,
-        select_remote_stt_api_key, supports_translation, uses_plural_language_hints,
-        RemoteSttApiKeySource,
+        select_remote_stt_api_key, supports_subtitle_timestamps, supports_translation,
+        uses_plural_language_hints, RemoteSttApiKeySource, TranscriptionResponse,
     };
 
     #[test]
@@ -1575,6 +1675,28 @@ mod tests {
         assert!(!supports_translation("gpt-transcribe"));
         assert!(!supports_translation("gpt-live-transcribe"));
         assert!(!supports_translation("gpt-realtime-whisper"));
+    }
+
+    #[test]
+    fn subtitle_timestamps_require_non_realtime_whisper_endpoint() {
+        assert!(supports_subtitle_timestamps("whisper-1"));
+        assert!(supports_subtitle_timestamps("whisper-large-v3"));
+        assert!(!supports_subtitle_timestamps("gpt-transcribe"));
+        assert!(!supports_subtitle_timestamps("gpt-realtime-whisper"));
+        assert!(!supports_subtitle_timestamps("gpt-realtime-2.1"));
+    }
+
+    #[test]
+    fn verbose_json_segments_deserialize_with_real_timestamps() {
+        let response: TranscriptionResponse = serde_json::from_value(serde_json::json!({
+            "text": "Hello world.",
+            "segments": [{ "start": 0.25, "end": 1.75, "text": "Hello world.", "id": 0 }]
+        }))
+        .unwrap();
+
+        assert_eq!(response.segments.len(), 1);
+        assert_eq!(response.segments[0].start, 0.25);
+        assert_eq!(response.segments[0].end, 1.75);
     }
 
     #[test]
