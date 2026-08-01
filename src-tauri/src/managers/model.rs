@@ -14,7 +14,7 @@ use specta::Type;
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::fs::File;
-use std::io::{Read, Write};
+use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use tar::Archive;
@@ -62,6 +62,23 @@ const HF_SOURCE_PREFIX: &str = "hf://";
 const DOWNLOAD_CONNECT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(15);
 const DOWNLOAD_STALL_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
 const HF_DOWNLOAD_ATTEMPTS: usize = 3;
+
+struct CancellationAwareReader<R> {
+    inner: R,
+    cancel_token: CancellationToken,
+}
+
+impl<R: Read> Read for CancellationAwareReader<R> {
+    fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
+        if self.cancel_token.is_cancelled() {
+            return Err(io::Error::new(
+                io::ErrorKind::Interrupted,
+                "model operation cancelled",
+            ));
+        }
+        self.inner.read(buffer)
+    }
+}
 
 fn hf_source_url(repo_id: &str, revision: &str, filename: &str) -> String {
     format!("{HF_SOURCE_PREFIX}{repo_id}|{revision}|{filename}")
@@ -1039,17 +1056,42 @@ impl ModelManager {
         self.cancellation_tokens.lock().unwrap().remove(model_id);
     }
 
+    fn finish_cancelled_partial_download(&self, model_id: &str, partial_path: &Path) {
+        if let Err(error) = fs::remove_file(partial_path) {
+            if error.kind() != std::io::ErrorKind::NotFound {
+                warn!(
+                    "Failed to delete cancelled partial download {:?}: {}",
+                    partial_path, error
+                );
+            }
+        }
+        self.clear_download_state(model_id, partial_path);
+        let _ = self.app_handle.emit("model-download-cancelled", model_id);
+    }
+
     fn verify_sha256(path: &Path, expected_sha256: Option<&str>, model_id: &str) -> Result<()> {
+        Self::verify_sha256_cancellable(path, expected_sha256, model_id, None).map(|_| ())
+    }
+
+    /// Returns `Ok(false)` when verification was cancelled without treating the
+    /// partially downloaded file as corrupt.
+    fn verify_sha256_cancellable(
+        path: &Path,
+        expected_sha256: Option<&str>,
+        model_id: &str,
+        cancel_token: Option<&CancellationToken>,
+    ) -> Result<bool> {
         let Some(expected) = expected_sha256 else {
-            return Ok(());
+            return Ok(true);
         };
 
-        match Self::compute_sha256(path) {
-            Ok(actual) if actual == expected => {
+        match Self::compute_sha256_cancellable(path, cancel_token) {
+            Ok(None) => Ok(false),
+            Ok(Some(actual)) if actual == expected => {
                 info!("SHA256 verified for model {}", model_id);
-                Ok(())
+                Ok(true)
             }
-            Ok(actual) => {
+            Ok(Some(actual)) => {
                 warn!(
                     "SHA256 mismatch for model {}: expected {}, got {}",
                     model_id, expected, actual
@@ -1072,11 +1114,22 @@ impl ModelManager {
     }
 
     fn compute_sha256(path: &Path) -> Result<String> {
+        Self::compute_sha256_cancellable(path, None)?
+            .ok_or_else(|| anyhow::anyhow!("SHA256 verification was unexpectedly cancelled"))
+    }
+
+    fn compute_sha256_cancellable(
+        path: &Path,
+        cancel_token: Option<&CancellationToken>,
+    ) -> Result<Option<String>> {
         let mut file = File::open(path)?;
         let mut hasher = Sha256::new();
         let mut buffer = [0u8; 65536];
 
         loop {
+            if cancel_token.is_some_and(CancellationToken::is_cancelled) {
+                return Ok(None);
+            }
             let bytes_read = file.read(&mut buffer)?;
             if bytes_read == 0 {
                 break;
@@ -1084,7 +1137,11 @@ impl ModelManager {
             hasher.update(&buffer[..bytes_read]);
         }
 
-        Ok(format!("{:x}", hasher.finalize()))
+        if cancel_token.is_some_and(CancellationToken::is_cancelled) {
+            return Ok(None);
+        }
+
+        Ok(Some(format!("{:x}", hasher.finalize())))
     }
 
     fn migrate_bundled_models(&self) -> Result<()> {
@@ -1528,11 +1585,25 @@ impl ModelManager {
                     let path = partial_path.to_path_buf();
                     let expected = expected_sha256.to_string();
                     let id = model_id.to_string();
-                    tokio::task::spawn_blocking(move || {
-                        Self::verify_sha256(&path, Some(&expected), &id)
+                    let verification_token = cancel_token.clone();
+                    let completed = tokio::task::spawn_blocking(move || {
+                        Self::verify_sha256_cancellable(
+                            &path,
+                            Some(&expected),
+                            &id,
+                            Some(&verification_token),
+                        )
                     })
                     .await
                     .map_err(|error| anyhow::anyhow!("SHA256 task panicked: {}", error))??;
+                    if !completed {
+                        self.finish_cancelled_partial_download(model_id, partial_path);
+                        return Ok(false);
+                    }
+                }
+                if cancel_token.is_cancelled() {
+                    self.finish_cancelled_partial_download(model_id, partial_path);
+                    return Ok(false);
                 }
                 return Ok(true);
             }
@@ -1642,8 +1713,7 @@ impl ModelManager {
             tokio::select! {
                 _ = cancel_token.cancelled() => {
                     drop(file);
-                    self.clear_download_state(model_id, partial_path);
-                    let _ = self.app_handle.emit("model-download-cancelled", model_id);
+                    self.finish_cancelled_partial_download(model_id, partial_path);
                     return Ok(false);
                 }
                 chunk_result = tokio::time::timeout(DOWNLOAD_STALL_TIMEOUT, stream.next()) => {
@@ -1686,9 +1756,25 @@ impl ModelManager {
             let path = partial_path.to_path_buf();
             let expected = expected_sha256.to_string();
             let id = model_id.to_string();
-            tokio::task::spawn_blocking(move || Self::verify_sha256(&path, Some(&expected), &id))
-                .await
-                .map_err(|error| anyhow::anyhow!("SHA256 task panicked: {}", error))??;
+            let verification_token = cancel_token.clone();
+            let completed = tokio::task::spawn_blocking(move || {
+                Self::verify_sha256_cancellable(
+                    &path,
+                    Some(&expected),
+                    &id,
+                    Some(&verification_token),
+                )
+            })
+            .await
+            .map_err(|error| anyhow::anyhow!("SHA256 task panicked: {}", error))??;
+            if !completed {
+                self.finish_cancelled_partial_download(model_id, partial_path);
+                return Ok(false);
+            }
+            if cancel_token.is_cancelled() {
+                self.finish_cancelled_partial_download(model_id, partial_path);
+                return Ok(false);
+            }
             let _ = self
                 .app_handle
                 .emit("model-verification-completed", model_id);
@@ -1785,13 +1871,22 @@ impl ModelManager {
 
                 match transfer {
                     Ok(_) => {
+                        if cancel_token.is_cancelled() {
+                            return Ok(false);
+                        }
                         let verified = if let Some(expected) = model_info.sha256.as_deref() {
                             match hf_cached_path(&repo_id, &revision, &filename) {
                                 Some(path) => {
                                     let id = model_info.id.clone();
                                     let expected = expected.to_string();
+                                    let verification_token = cancel_token.clone();
                                     tokio::task::spawn_blocking(move || {
-                                        Self::verify_sha256(&path, Some(&expected), &id)
+                                        Self::verify_sha256_cancellable(
+                                            &path,
+                                            Some(&expected),
+                                            &id,
+                                            Some(&verification_token),
+                                        )
                                     })
                                     .await
                                     .map_err(|error| {
@@ -1803,11 +1898,23 @@ impl ModelManager {
                                 )),
                             }
                         } else {
-                            Ok(())
+                            Ok(true)
                         };
 
                         match verified {
-                            Ok(()) => {
+                            Ok(false) => {
+                                if let Some(path) = hf_cached_path(&repo_id, &revision, &filename) {
+                                    let _ = fs::remove_file(path);
+                                }
+                                return Ok(false);
+                            }
+                            Ok(true) if cancel_token.is_cancelled() => {
+                                if let Some(path) = hf_cached_path(&repo_id, &revision, &filename) {
+                                    let _ = fs::remove_file(path);
+                                }
+                                return Ok(false);
+                            }
+                            Ok(true) => {
                                 self.update_download_status()?;
                                 let _ = self
                                     .app_handle
@@ -1899,6 +2006,7 @@ impl ModelManager {
         .await;
 
         let completed = matches!(&result, Ok(true));
+        let cancelled = matches!(&result, Ok(false));
 
         self.cancellation_tokens
             .lock()
@@ -1916,6 +2024,11 @@ impl ModelManager {
                     .map(|metadata| metadata.len())
                     .unwrap_or(0);
             }
+        }
+        if cancelled {
+            let _ = self
+                .app_handle
+                .emit("model-download-cancelled", &model_info.id);
         }
 
         result.map(|_| ())
@@ -1978,6 +2091,10 @@ impl ModelManager {
             if !completed {
                 return Ok(());
             }
+            if cancel_token.is_cancelled() {
+                self.finish_cancelled_partial_download(model_id, &partial_path);
+                return Ok(());
+            }
 
             if model_info.is_directory {
                 let _ = self.app_handle.emit("model-extraction-started", model_id);
@@ -1993,46 +2110,81 @@ impl ModelManager {
                 }
                 fs::create_dir_all(&temp_extract_dir)?;
 
-                let extraction_result: Result<()> = (|| {
-                    let tar_gz = File::open(&partial_path)?;
-                    let tar = GzDecoder::new(tar_gz);
+                let extraction_partial_path = partial_path.clone();
+                let extraction_temp_dir = temp_extract_dir.clone();
+                let extraction_final_dir = final_model_dir.clone();
+                let extraction_token = cancel_token.clone();
+                let extraction_result: Result<bool> = match tokio::task::spawn_blocking(move || {
+                    let tar_gz = File::open(&extraction_partial_path)?;
+                    let tar = GzDecoder::new(CancellationAwareReader {
+                        inner: tar_gz,
+                        cancel_token: extraction_token.clone(),
+                    });
                     let mut archive = Archive::new(tar);
-                    archive.unpack(&temp_extract_dir)?;
+                    for entry in archive.entries()? {
+                        if extraction_token.is_cancelled() {
+                            return Ok(false);
+                        }
+                        let mut entry = entry?;
+                        entry.unpack_in(&extraction_temp_dir)?;
+                    }
 
-                    let extracted_dirs: Vec<_> = fs::read_dir(&temp_extract_dir)?
+                    if extraction_token.is_cancelled() {
+                        return Ok(false);
+                    }
+
+                    let extracted_dirs: Vec<_> = fs::read_dir(&extraction_temp_dir)?
                         .filter_map(|entry| entry.ok())
                         .filter(|entry| entry.file_type().map(|ft| ft.is_dir()).unwrap_or(false))
                         .collect();
 
                     if extracted_dirs.len() == 1 {
                         let source_dir = extracted_dirs[0].path();
-                        if final_model_dir.exists() {
-                            fs::remove_dir_all(&final_model_dir)?;
+                        if extraction_final_dir.exists() {
+                            fs::remove_dir_all(&extraction_final_dir)?;
                         }
-                        fs::rename(&source_dir, &final_model_dir)?;
-                        let _ = fs::remove_dir_all(&temp_extract_dir);
+                        fs::rename(&source_dir, &extraction_final_dir)?;
+                        let _ = fs::remove_dir_all(&extraction_temp_dir);
                     } else {
-                        if final_model_dir.exists() {
-                            fs::remove_dir_all(&final_model_dir)?;
+                        if extraction_final_dir.exists() {
+                            fs::remove_dir_all(&extraction_final_dir)?;
                         }
-                        fs::rename(&temp_extract_dir, &final_model_dir)?;
+                        fs::rename(&extraction_temp_dir, &extraction_final_dir)?;
                     }
 
-                    Ok(())
-                })();
+                    Ok(true)
+                })
+                .await
+                {
+                    Ok(result) => result,
+                    Err(error) => Err(anyhow::anyhow!("Model extraction task panicked: {}", error)),
+                };
 
-                if let Err(error) = extraction_result {
-                    let error_msg = format!("Failed to extract archive: {}", error);
-                    let _ = fs::remove_dir_all(&temp_extract_dir);
-                    let _ = fs::remove_file(&partial_path);
-                    let _ = self.app_handle.emit(
-                        "model-extraction-failed",
-                        &serde_json::json!({
-                            "model_id": model_id,
-                            "error": error_msg
-                        }),
-                    );
-                    return Err(anyhow::anyhow!(error_msg));
+                match extraction_result {
+                    Ok(false) => {
+                        let _ = fs::remove_dir_all(&temp_extract_dir);
+                        self.finish_cancelled_partial_download(model_id, &partial_path);
+                        return Ok(());
+                    }
+                    Ok(true) => {}
+                    Err(_) if cancel_token.is_cancelled() => {
+                        let _ = fs::remove_dir_all(&temp_extract_dir);
+                        self.finish_cancelled_partial_download(model_id, &partial_path);
+                        return Ok(());
+                    }
+                    Err(error) => {
+                        let error_msg = format!("Failed to extract archive: {}", error);
+                        let _ = fs::remove_dir_all(&temp_extract_dir);
+                        let _ = fs::remove_file(&partial_path);
+                        let _ = self.app_handle.emit(
+                            "model-extraction-failed",
+                            &serde_json::json!({
+                                "model_id": model_id,
+                                "error": error_msg
+                            }),
+                        );
+                        return Err(anyhow::anyhow!(error_msg));
+                    }
                 }
 
                 info!("Successfully extracted archive for model: {}", model_id);
@@ -2263,7 +2415,18 @@ impl ModelManager {
             }
         };
 
-        // Mark as not downloading
+        if cancellation_sent {
+            // The active worker owns its partial/cache files. It will observe
+            // the token, stop verification/extraction, clean up, and only then
+            // publish the final non-downloading state. This avoids deleting a
+            // file from under a blocking worker or starting a replacement
+            // worker before the old one has actually exited.
+            info!("Download cancellation requested for: {}", model_id);
+            return Ok(());
+        }
+
+        // No worker owns this stale partial state, so it is safe to clean up
+        // synchronously.
         {
             let mut models = self.available_models.lock().unwrap();
             if let Some(model) = models.get_mut(model_id) {
@@ -2290,13 +2453,6 @@ impl ModelManager {
         // Update download status to reflect current state
         self.update_download_status()?;
 
-        // Direct-URL downloads emit this from their existing stream loop.
-        // HF downloads return ApiError::Cancelled instead, so emit exactly
-        // once here and let the async path treat it as successful cancellation.
-        if cancellation_sent && model_hf_source(&model_info).is_some() {
-            let _ = self.app_handle.emit("model-download-cancelled", model_id);
-        }
-
         info!("Download cancelled for: {}", model_id);
         Ok(())
     }
@@ -2308,6 +2464,7 @@ mod tests {
     use std::fs;
     use std::path::PathBuf;
     use std::time::{SystemTime, UNIX_EPOCH};
+    use tokio_util::sync::CancellationToken;
 
     fn temp_file_path(name: &str) -> PathBuf {
         let unique = SystemTime::now()
@@ -2350,6 +2507,28 @@ mod tests {
         let hash = ModelManager::compute_sha256(&path).unwrap();
 
         assert!(ModelManager::verify_sha256(&path, Some(&hash), "test").is_ok());
+        assert!(path.exists());
+
+        let _ = fs::remove_file(path);
+    }
+
+    #[test]
+    fn cancelled_sha256_verification_preserves_partial_for_worker_cleanup() {
+        let path = temp_file_path("cancelled-verification");
+        fs::write(&path, b"hello").unwrap();
+        let hash = ModelManager::compute_sha256(&path).unwrap();
+        let cancel_token = CancellationToken::new();
+        cancel_token.cancel();
+
+        let completed = ModelManager::verify_sha256_cancellable(
+            &path,
+            Some(&hash),
+            "cancelled-model",
+            Some(&cancel_token),
+        )
+        .unwrap();
+
+        assert!(!completed);
         assert!(path.exists());
 
         let _ = fs::remove_file(path);
