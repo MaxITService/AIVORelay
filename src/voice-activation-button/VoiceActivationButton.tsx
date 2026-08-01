@@ -29,6 +29,8 @@ export default function VoiceActivationButton() {
   const [isSingleClickClose, setIsSingleClickClose] = useState(false);
   const [isBusy, setIsBusy] = useState(false);
   const activeVoicePointerIdRef = useRef<number | null>(null);
+  const pendingVoicePressRef = useRef<Promise<boolean> | null>(null);
+  const voicePressSucceededRef = useRef(false);
   const closeButtonSuppressClickRef = useRef(false);
   const closeButtonDragRef = useRef({
     pointerId: -1,
@@ -136,6 +138,7 @@ export default function VoiceActivationButton() {
     if (isBusy || !isPushToTalk) return;
 
     activeVoicePointerIdRef.current = e.pointerId;
+    voicePressSucceededRef.current = false;
     try {
       e.currentTarget.setPointerCapture(e.pointerId);
     } catch (error) {
@@ -143,24 +146,32 @@ export default function VoiceActivationButton() {
     }
 
     setIsBusy(true);
-    try {
-      await invoke("voice_activation_button_press");
-      await refreshRecordingState();
-    } catch (error) {
-      console.error("Failed to start recording:", error);
-      setIsRecording(false);
-    } finally {
-      setIsBusy(false);
+    const pressOperation = (async () => {
+      try {
+        await invoke("voice_activation_button_press");
+        voicePressSucceededRef.current = true;
+        await refreshRecordingState();
+        return true;
+      } catch (error) {
+        console.error("Failed to start recording:", error);
+        voicePressSucceededRef.current = false;
+        setIsRecording(false);
+        return false;
+      }
+    })();
+    pendingVoicePressRef.current = pressOperation;
+    await pressOperation;
+    if (pendingVoicePressRef.current === pressOperation) {
+      pendingVoicePressRef.current = null;
     }
+    setIsBusy(false);
   };
 
   const handlePointerRelease = async (e: PointerEvent<HTMLButtonElement>) => {
-    if (
-      activeVoicePointerIdRef.current !== null &&
-      e.pointerId !== activeVoicePointerIdRef.current
-    ) {
+    if (e.pointerId !== activeVoicePointerIdRef.current) {
       return;
     }
+    const pendingPress = pendingVoicePressRef.current;
     activeVoicePointerIdRef.current = null;
 
     try {
@@ -171,11 +182,17 @@ export default function VoiceActivationButton() {
       console.debug("Failed to release pointer capture for voice button:", error);
     }
 
-    if (isBusy || !isPushToTalk || !isRecording) return;
+    if (!isPushToTalk) return;
+
+    if (pendingPress) {
+      await pendingPress;
+    }
+    if (!voicePressSucceededRef.current) return;
 
     setIsBusy(true);
     try {
       await invoke("voice_activation_button_release");
+      voicePressSucceededRef.current = false;
     } catch (error) {
       console.error("Failed to stop recording:", error);
     } finally {
