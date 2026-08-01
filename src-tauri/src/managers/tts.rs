@@ -1457,26 +1457,6 @@ impl TtsManager {
     /// Re-synthesizes retained History source through the prompt collection
     /// matching its original scope, while still using the non-overlay file
     /// conversion sink.
-    pub async fn convert_text_file_for_history(
-        self: &Arc<Self>,
-        input_path: impl AsRef<Path>,
-        output_path: impl AsRef<Path>,
-        settings: &TtsSettings,
-        scope: TtsLlmScope,
-        resume_namespace: Option<&str>,
-    ) -> Result<FileConversionResult> {
-        Ok(self
-            .convert_text_file_for_history_resolved(
-                input_path,
-                output_path,
-                settings,
-                scope,
-                resume_namespace,
-            )
-            .await?
-            .value)
-    }
-
     pub(crate) async fn convert_text_file_for_history_resolved(
         self: &Arc<Self>,
         input_path: impl AsRef<Path>,
