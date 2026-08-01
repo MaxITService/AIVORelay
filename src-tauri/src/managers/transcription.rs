@@ -357,13 +357,27 @@ fn effective_language_for_model(
     model_id: &str,
     selected_language: &str,
 ) -> String {
+    let selected_language = resolve_os_input_language(
+        selected_language,
+        crate::input_source::get_language_from_input_source(),
+    );
     match model_manager.get_model_info(model_id) {
         Some(info) => model::effective_language(
-            selected_language,
+            &selected_language,
             &info.supported_languages,
             info.supports_language_detection,
         ),
-        None => selected_language.to_string(),
+        None => selected_language,
+    }
+}
+
+fn resolve_os_input_language(selected_language: &str, os_input_language: Option<String>) -> String {
+    if selected_language.trim().eq_ignore_ascii_case("os_input") {
+        os_input_language
+            .filter(|language| !language.trim().is_empty())
+            .unwrap_or_else(|| "auto".to_string())
+    } else {
+        selected_language.to_string()
     }
 }
 
@@ -3434,6 +3448,39 @@ mod tests {
         assert!(matches!(plan.task, Task::Transcribe));
         assert_eq!(plan.language.as_deref(), Some("en"));
         assert_eq!(plan.target_language, None);
+    }
+
+    #[test]
+    fn os_input_language_resolves_before_model_language_selection() {
+        assert_eq!(
+            resolve_os_input_language("os_input", Some("fi".to_string())),
+            "fi"
+        );
+        assert_eq!(
+            resolve_os_input_language("OS_INPUT", Some("zh-Hant".to_string())),
+            "zh-Hant"
+        );
+    }
+
+    #[test]
+    fn unavailable_os_input_language_falls_back_to_auto() {
+        assert_eq!(resolve_os_input_language("os_input", None), "auto");
+        assert_eq!(
+            resolve_os_input_language("os_input", Some("  ".to_string())),
+            "auto"
+        );
+    }
+
+    #[test]
+    fn explicit_and_auto_languages_do_not_consult_os_input() {
+        assert_eq!(
+            resolve_os_input_language("es", Some("fi".to_string())),
+            "es"
+        );
+        assert_eq!(
+            resolve_os_input_language("auto", Some("fi".to_string())),
+            "auto"
+        );
     }
 
     #[test]
