@@ -221,6 +221,7 @@ pub struct KokoroTtsRuntime {
     root: PathBuf,
     client: reqwest::Client,
     status: Arc<RwLock<LocalTtsStatus>>,
+    lifecycle: tokio::sync::Mutex<()>,
     install_cancel: Mutex<Option<CancellationToken>>,
     worker: tokio::sync::Mutex<Option<KokoroWorker>>,
     request_id: AtomicU64,
@@ -242,6 +243,7 @@ impl KokoroTtsRuntime {
             status: Arc::new(RwLock::new(kokoro_status(&root))),
             root,
             client,
+            lifecycle: tokio::sync::Mutex::new(()),
             install_cancel: Mutex::new(None),
             worker: tokio::sync::Mutex::new(None),
             request_id: AtomicU64::new(1),
@@ -260,9 +262,10 @@ impl KokoroTtsRuntime {
     }
 
     pub async fn install(&self, disk_reserve_mb: u32) -> Result<LocalTtsStatus> {
-        if self.install_cancel.lock().is_some() {
-            return Err(anyhow!("Kokoro installation is already running"));
-        }
+        let _lifecycle_guard = self
+            .lifecycle
+            .try_lock()
+            .map_err(|_| anyhow!("Another Kokoro install or delete operation is running"))?;
         if self.is_installed() {
             return Ok(self.status());
         }
@@ -314,6 +317,10 @@ impl KokoroTtsRuntime {
     }
 
     pub async fn delete(&self) -> Result<()> {
+        let _lifecycle_guard = self
+            .lifecycle
+            .try_lock()
+            .map_err(|_| anyhow!("Another Kokoro install or delete operation is running"))?;
         if self.install_cancel.lock().is_some() {
             return Err(anyhow!(
                 "Cancel the active Kokoro installation before deleting it"
