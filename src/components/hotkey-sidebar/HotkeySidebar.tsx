@@ -27,6 +27,9 @@ export const HotkeySidebar: React.FC = () => {
   const resizeStartX = useRef<number>(0);
   const resizeStartWidth = useRef<number>(DEFAULT_WIDTH);
   const sidebarRef = useRef<HTMLDivElement>(null);
+  // Set when a drag actually toggled the sidebar, so the synthetic click
+  // fired after mouseup does not immediately revert the drag result.
+  const suppressNextClick = useRef(false);
 
   const isPinned = settings?.sidebar_pinned ?? false;
   const savedWidth = (settings as any)?.sidebar_width ?? DEFAULT_WIDTH;
@@ -63,8 +66,13 @@ export const HotkeySidebar: React.FC = () => {
     updateSetting("sidebar_pinned", !isPinned);
   }, [isPinned, updateSetting]);
 
-  // Handle click always toggles, regardless of pin state
+  // Handle click toggles, regardless of pin state — except the synthetic
+  // click fired right after a drag, which would revert the drag result.
   const handleToggleOpen = useCallback(() => {
+    if (suppressNextClick.current) {
+      suppressNextClick.current = false;
+      return;
+    }
     setIsOpen((prev) => !prev);
   }, []);
 
@@ -101,6 +109,7 @@ export const HotkeySidebar: React.FC = () => {
 
   // Drag handling for the edge handle (works regardless of pin state)
   const handleMouseDown = useCallback((e: React.MouseEvent) => {
+    suppressNextClick.current = false;
     setIsDragging(true);
     dragStartX.current = e.clientX;
     e.preventDefault();
@@ -114,11 +123,13 @@ export const HotkeySidebar: React.FC = () => {
       if (deltaX > 50 && !isOpen) {
         setIsOpen(true);
         setIsDragging(false);
+        suppressNextClick.current = true;
       }
       // If dragged more than 50px to the right, close the sidebar
       if (deltaX < -50 && isOpen) {
         setIsOpen(false);
         setIsDragging(false);
+        suppressNextClick.current = true;
       }
     },
     [isDragging, isOpen],
