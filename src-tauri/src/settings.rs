@@ -716,6 +716,7 @@ pub enum TtsProvider {
 
 pub(crate) const DEFAULT_TTS_SONIOX_VOICE: &str = "Maya";
 pub(crate) const DEFAULT_TTS_OPENAI_VOICE: &str = "marin";
+const DEFAULT_TTS_SYNTHESIS_PRESET_SEED_VERSION: u8 = 1;
 
 impl Default for TtsProvider {
     fn default() -> Self {
@@ -1031,6 +1032,176 @@ pub struct TtsSynthesisPreset {
     pub config: TtsSynthesisConfig,
 }
 
+fn builtin_tts_synthesis_preset(
+    id: &str,
+    name: &str,
+    provider: TtsProvider,
+    model: &str,
+    voice: &str,
+    language: &str,
+    speed: f32,
+) -> TtsSynthesisPreset {
+    TtsSynthesisPreset {
+        id: id.to_string(),
+        name: name.to_string(),
+        config: TtsSynthesisConfig {
+            provider,
+            model: model.to_string(),
+            voice: voice.to_string(),
+            language: language.to_string(),
+            key_source: TtsKeySource::Shared,
+            speed,
+            voice_instructions: String::new(),
+            voice_prompt_preset_id: String::new(),
+            preprocessing_enabled: true,
+            preprocessing_rules: Vec::new(),
+            target_chars: default_tts_interactive_target_chars(),
+            retry_count: default_tts_retry_count(),
+            retry_base_delay_ms: default_tts_retry_base_delay_ms(),
+            inter_chunk_pause_ms: default_tts_inter_chunk_pause_ms(),
+            paragraph_pause_ms: default_tts_paragraph_pause_ms(),
+            output_format: TtsOutputFormat::Mp3,
+            mp3_bitrate_kbps: default_tts_mp3_bitrate_kbps(),
+        },
+    }
+}
+
+/// Document-aware starter presets for every provider. Keep the catalog values
+/// aligned with the provider documentation linked in
+/// `src/lib/tts/ttsProviderMetadata.ts` and with the local runtime catalogs.
+/// These are seeded once by `ensure_default_tts_synthesis_presets`; the seed
+/// marker is deliberately separate so deleting a preset is permanent.
+fn default_tts_synthesis_presets() -> Vec<TtsSynthesisPreset> {
+    vec![
+        builtin_tts_synthesis_preset(
+            "builtin_tts_soniox_maya",
+            "Soniox — Maya",
+            TtsProvider::Soniox,
+            "tts-rt-v1",
+            "Maya",
+            "en",
+            1.0,
+        ),
+        builtin_tts_synthesis_preset(
+            "builtin_tts_soniox_daniel",
+            "Soniox — Daniel",
+            TtsProvider::Soniox,
+            "tts-rt-v1",
+            "Daniel",
+            "en",
+            1.0,
+        ),
+        builtin_tts_synthesis_preset(
+            "builtin_tts_deepgram_thalia",
+            "Deepgram — Thalia (Clear)",
+            TtsProvider::Deepgram,
+            "aura-2-thalia-en",
+            "aura-2-thalia-en",
+            "",
+            1.0,
+        ),
+        builtin_tts_synthesis_preset(
+            "builtin_tts_deepgram_arcas",
+            "Deepgram — Arcas (Smooth)",
+            TtsProvider::Deepgram,
+            "aura-2-arcas-en",
+            "aura-2-arcas-en",
+            "",
+            1.0,
+        ),
+        builtin_tts_synthesis_preset(
+            "builtin_tts_openai_marin",
+            "OpenAI — Marin (Recommended)",
+            TtsProvider::OpenAi,
+            "gpt-4o-mini-tts",
+            "marin",
+            "",
+            1.0,
+        ),
+        builtin_tts_synthesis_preset(
+            "builtin_tts_openai_cedar",
+            "OpenAI — Cedar (Recommended)",
+            TtsProvider::OpenAi,
+            "gpt-4o-mini-tts",
+            "cedar",
+            "",
+            1.0,
+        ),
+        builtin_tts_synthesis_preset(
+            "builtin_tts_edge_aria",
+            "Edge TTS — Aria",
+            TtsProvider::Edge,
+            "microsoft-edge-read-aloud",
+            "en-US-AriaNeural",
+            "en-US",
+            1.0,
+        ),
+        builtin_tts_synthesis_preset(
+            "builtin_tts_edge_guy",
+            "Edge TTS — Guy",
+            TtsProvider::Edge,
+            "microsoft-edge-read-aloud",
+            "en-US-GuyNeural",
+            "en-US",
+            1.0,
+        ),
+        builtin_tts_synthesis_preset(
+            "builtin_tts_qwen_ryan",
+            "Qwen3-TTS — Ryan (English)",
+            TtsProvider::LocalQwen,
+            "qwen3-tts-12hz-0.6b-customvoice",
+            "Ryan",
+            "English",
+            1.0,
+        ),
+        builtin_tts_synthesis_preset(
+            "builtin_tts_qwen_aiden",
+            "Qwen3-TTS — Aiden (English)",
+            TtsProvider::LocalQwen,
+            "qwen3-tts-12hz-0.6b-customvoice",
+            "Aiden",
+            "English",
+            1.0,
+        ),
+        builtin_tts_synthesis_preset(
+            "builtin_tts_kokoro_maple",
+            "Kokoro — Maple (English)",
+            TtsProvider::LocalKokoro,
+            "kokoro-82m",
+            "af_maple",
+            "English",
+            1.0,
+        ),
+        builtin_tts_synthesis_preset(
+            "builtin_tts_kokoro_sol",
+            "Kokoro — Sol (English)",
+            TtsProvider::LocalKokoro,
+            "kokoro-82m",
+            "af_sol",
+            "English",
+            1.0,
+        ),
+        builtin_tts_synthesis_preset(
+            "builtin_tts_windows_default",
+            "Windows — System Default",
+            TtsProvider::Windows,
+            "windows.media.speechsynthesis",
+            "",
+            "",
+            1.0,
+        ),
+        builtin_tts_synthesis_preset(
+            "builtin_tts_windows_default_slow",
+            "Windows — System Default (Slower)",
+            TtsProvider::Windows,
+            "windows.media.speechsynthesis",
+            "",
+            "",
+            0.9,
+        ),
+    ]
+}
+
 pub fn tts_model_key(provider: TtsProvider, model: &str) -> String {
     format!("{}:{}", provider.as_str(), model.trim())
 }
@@ -1175,6 +1346,10 @@ pub struct TtsSettings {
     pub selected_prompt_id: String,
     #[serde(default)]
     pub synthesis_presets: Vec<TtsSynthesisPreset>,
+    /// Version of the built-in synthesis-preset seed already applied.
+    /// This is separate from the preset list so user deletion is permanent.
+    #[serde(default)]
+    pub synthesis_presets_seed_version: u8,
     #[serde(default)]
     pub interactive_synthesis: TtsScopeSynthesisSettings,
     #[serde(default)]
@@ -1269,6 +1444,7 @@ impl Default for TtsSettings {
             prompt_presets: Vec::new(),
             selected_prompt_id: String::new(),
             synthesis_presets: Vec::new(),
+            synthesis_presets_seed_version: 0,
             interactive_synthesis: TtsScopeSynthesisSettings::default(),
             file_synthesis: TtsScopeSynthesisSettings::default(),
             speed: default_tts_speed(),
@@ -4952,6 +5128,49 @@ fn ensure_default_bindings(settings: &mut AppSettings) -> bool {
     changed
 }
 
+fn ensure_default_tts_synthesis_presets(settings: &mut AppSettings) -> bool {
+    if settings.tts.synthesis_presets_seed_version >= DEFAULT_TTS_SYNTHESIS_PRESET_SEED_VERSION {
+        return false;
+    }
+
+    let existing_ids = settings
+        .tts
+        .synthesis_presets
+        .iter()
+        .map(|preset| preset.id.clone())
+        .collect::<std::collections::HashSet<_>>();
+    let existing_names = settings
+        .tts
+        .synthesis_presets
+        .iter()
+        .map(|preset| preset.name.trim().to_lowercase())
+        .collect::<std::collections::HashSet<_>>();
+    let mut ids = existing_ids;
+    let mut names = existing_names;
+    let mut added = 0usize;
+
+    for preset in default_tts_synthesis_presets() {
+        if settings.tts.synthesis_presets.len() >= 100 {
+            break;
+        }
+
+        let name = preset.name.trim().to_lowercase();
+        if !ids.insert(preset.id.clone()) || !names.insert(name) {
+            continue;
+        }
+
+        settings.tts.synthesis_presets.push(preset);
+        added += 1;
+    }
+
+    settings.tts.synthesis_presets_seed_version = DEFAULT_TTS_SYNTHESIS_PRESET_SEED_VERSION;
+    debug!(
+        "Seeded {} built-in TTS synthesis presets (version {})",
+        added, DEFAULT_TTS_SYNTHESIS_PRESET_SEED_VERSION
+    );
+    true
+}
+
 fn ensure_preview_delete_last_word_binding(settings: &mut AppSettings) -> bool {
     let preview_delete_last_word_binding = build_preview_delete_last_word_binding(
         settings
@@ -5090,6 +5309,7 @@ fn ensure_soniox_v5_model_defaults(settings: &mut AppSettings) -> bool {
 fn repair_runtime_settings(settings: &mut AppSettings) -> bool {
     let mut changed = false;
     changed |= ensure_default_bindings(settings);
+    changed |= ensure_default_tts_synthesis_presets(settings);
     changed |= ensure_preview_delete_last_word_binding(settings);
     changed |= migrate_legacy_settings_fields(settings);
     changed |= ensure_post_process_defaults(settings);
@@ -5455,7 +5675,8 @@ pub fn load_or_create_app_settings(app: &AppHandle) -> AppSettings {
 
         settings
     } else {
-        let default_settings = get_default_settings();
+        let mut default_settings = get_default_settings();
+        repair_runtime_settings(&mut default_settings);
         store.set("settings", serde_json::to_value(&default_settings).unwrap());
         if let Err(e) = store.save() {
             warn!("Failed to flush default settings to disk: {}", e);
@@ -5489,7 +5710,8 @@ pub fn get_settings(app: &AppHandle) -> AppSettings {
         }
         settings
     } else {
-        let default_settings = get_default_settings();
+        let mut default_settings = get_default_settings();
+        repair_runtime_settings(&mut default_settings);
         store.set("settings", serde_json::to_value(&default_settings).unwrap());
         if let Err(e) = store.save() {
             warn!("Failed to flush default settings to disk: {}", e);
@@ -5857,6 +6079,46 @@ mod tests {
         assert_eq!(settings.local_kokoro_voice, "af_maple");
         assert_eq!(settings.local_kokoro_language, "English");
         assert_eq!(settings.speed, 1.0);
+    }
+
+    #[test]
+    fn built_in_tts_synthesis_presets_seed_once_and_stay_deleted() {
+        let mut settings = get_default_settings();
+        assert!(settings.tts.synthesis_presets.is_empty());
+        assert_eq!(settings.tts.synthesis_presets_seed_version, 0);
+
+        assert!(ensure_default_tts_synthesis_presets(&mut settings));
+        assert_eq!(settings.tts.synthesis_presets.len(), 14);
+        assert_eq!(
+            settings.tts.synthesis_presets_seed_version,
+            DEFAULT_TTS_SYNTHESIS_PRESET_SEED_VERSION
+        );
+
+        let mut provider_counts = HashMap::new();
+        for preset in &settings.tts.synthesis_presets {
+            *provider_counts
+                .entry(preset.config.provider.as_str())
+                .or_insert(0usize) += 1;
+        }
+        for provider in [
+            TtsProvider::Soniox,
+            TtsProvider::Deepgram,
+            TtsProvider::OpenAi,
+            TtsProvider::Edge,
+            TtsProvider::LocalQwen,
+            TtsProvider::LocalKokoro,
+            TtsProvider::Windows,
+        ] {
+            assert_eq!(provider_counts.get(provider.as_str()), Some(&2));
+        }
+
+        settings
+            .tts
+            .synthesis_presets
+            .retain(|preset| !preset.id.starts_with("builtin_tts_"));
+        assert!(settings.tts.synthesis_presets.is_empty());
+        assert!(!ensure_default_tts_synthesis_presets(&mut settings));
+        assert!(settings.tts.synthesis_presets.is_empty());
     }
 
     #[test]
