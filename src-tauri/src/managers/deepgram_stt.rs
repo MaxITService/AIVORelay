@@ -1,4 +1,5 @@
 use crate::file_transcription_diarization::RawSpeakerBlock;
+use crate::subtitle::TimedTranscriptToken;
 use anyhow::{anyhow, Result};
 use futures_util::{SinkExt, StreamExt};
 use serde_json::Value;
@@ -38,6 +39,7 @@ pub struct DeepgramSttManager {
 pub struct DeepgramPrerecordedTranscription {
     pub text: String,
     pub speaker_blocks: Vec<RawSpeakerBlock>,
+    pub timed_tokens: Vec<TimedTranscriptToken>,
 }
 
 impl DeepgramSttManager {
@@ -334,6 +336,56 @@ impl DeepgramSttManager {
             .filter_map(Self::extract_token_text)
             .collect::<Vec<_>>()
             .join(" ")
+    }
+
+    fn extract_timed_words(alternative: &Value) -> Vec<TimedTranscriptToken> {
+        alternative
+            .get("words")
+            .and_then(Value::as_array)
+            .map(|words| {
+                words
+                    .iter()
+                    .filter_map(|word| {
+                        let text = Self::extract_token_text(word)?;
+                        let start = word.get("start")?.as_f64()?;
+                        let end = word.get("end")?.as_f64()?;
+                        if !start.is_finite()
+                            || !end.is_finite()
+                            || start < 0.0
+                            || end < start
+                            || start > f32::MAX as f64
+                            || end > f32::MAX as f64
+                        {
+                            return None;
+                        }
+                        Some(TimedTranscriptToken {
+                            start: start as f32,
+                            end: end as f32,
+                            text,
+                            prepend_space: true,
+                        })
+                    })
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    fn extract_prerecorded_timed_words(
+        payload: &Value,
+        multichannel_enabled: bool,
+    ) -> Vec<TimedTranscriptToken> {
+        let mut tokens = if multichannel_enabled {
+            Self::extract_prerecorded_channel_alternatives(payload)
+                .into_iter()
+                .flat_map(|(_, alternative)| Self::extract_timed_words(alternative))
+                .collect::<Vec<_>>()
+        } else {
+            Self::extract_prerecorded_alternative(payload)
+                .map(Self::extract_timed_words)
+                .unwrap_or_default()
+        };
+        tokens.sort_by(|left, right| left.start.total_cmp(&right.start));
+        tokens
     }
 
     fn default_speaker_name(speaker: u32) -> String {
@@ -671,6 +723,7 @@ impl DeepgramSttManager {
         })?;
 
         let alternative = Self::extract_prerecorded_alternative(&payload);
+        let timed_tokens = Self::extract_prerecorded_timed_words(&payload, multichannel_enabled);
         let transcript = if multichannel_enabled {
             Self::render_speaker_blocks(&Self::extract_multichannel_channel_blocks(&payload))
                 .unwrap_or_else(|| Self::extract_transcript(alternative))
@@ -703,6 +756,7 @@ impl DeepgramSttManager {
             return Ok(DeepgramPrerecordedTranscription {
                 text,
                 speaker_blocks,
+                timed_tokens,
             });
         }
 
@@ -712,12 +766,14 @@ impl DeepgramSttManager {
             return Ok(DeepgramPrerecordedTranscription {
                 text,
                 speaker_blocks,
+                timed_tokens,
             });
         }
 
         Ok(DeepgramPrerecordedTranscription {
             text: transcript,
             speaker_blocks: Vec::new(),
+            timed_tokens,
         })
     }
 
@@ -873,4 +929,33 @@ fn frame_16khz_mono_to_pcm_s16le_bytes(frame: &[f32]) -> Vec<u8> {
         out.extend_from_slice(&value.to_le_bytes());
     }
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::DeepgramSttManager;
+
+    #[test]
+    fn prerecorded_words_keep_provider_timestamps() {
+        let payload = serde_json::json!({
+            "results": {
+                "channels": [{
+                    "alternatives": [{
+                        "transcript": "Hello world.",
+                        "words": [
+                            { "word": "hello", "punctuated_word": "Hello", "start": 0.08, "end": 0.32 },
+                            { "word": "world", "punctuated_word": "world.", "start": 0.4, "end": 0.9 }
+                        ]
+                    }]
+                }]
+            }
+        });
+
+        let timed = DeepgramSttManager::extract_prerecorded_timed_words(&payload, false);
+        assert_eq!(timed.len(), 2);
+        assert_eq!(timed[0].start, 0.08);
+        assert_eq!(timed[1].end, 0.9);
+        assert!(timed[0].prepend_space);
+        assert_eq!(timed[1].text, "world.");
+    }
 }
