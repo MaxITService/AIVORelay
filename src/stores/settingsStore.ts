@@ -1210,7 +1210,7 @@ export const useSettingsStore = create<SettingsStore>()(
         console.error(`Failed to update binding ${id}:`, error);
 
         // Rollback on error
-        if (originalBinding && get().settings) {
+        if (originalBinding !== undefined && get().settings) {
           set((state) => ({
             settings: state.settings
               ? {
