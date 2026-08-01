@@ -28,6 +28,11 @@ These hashes may change if local history is rebased before publishing; use commi
 ## Runtime End State
 
 - `EngineType::TranscribeCpp` is a first-class local engine.
+- `EngineType::Whisper` remains only as a legacy catalog/settings tag; legacy
+  Whisper `.bin` models are loaded and run through transcribe.cpp as well.
+- The fork no longer enables the `transcribe-rs` Whisper backend, so
+  `whisper-rs-sys` is not part of the Windows dependency graph or Vulkan link
+  path.
 - Catalog-backed GGUF models use the new JSON catalog while the UI keeps the old friendly model selector shape.
 - Batch transcription uses `transcribe_cpp::Session::run()`.
 - Native realtime preview uses `transcribe_cpp::Session::stream()` with a worker command loop:

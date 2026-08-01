@@ -861,6 +861,14 @@ async changeOpenaiRealtimeWhisperDelaySetting(delay: OpenAiRealtimeWhisperDelay)
     else return { status: "error", error: e  as any };
 }
 },
+async changeOpenaiRealtimeWhisperKeywordsSetting(keywords: string) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("change_openai_realtime_whisper_keywords_setting", { keywords }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async changeOpenaiRealtimeWhisperFlattenEnabledSetting(enabled: boolean) : Promise<Result<null, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("change_openai_realtime_whisper_flatten_enabled_setting", { enabled }) };
@@ -2541,7 +2549,7 @@ async remoteSttTestConnection(baseUrl: string) : Promise<Result<null, string>> {
 /**
  * Returns whether the currently selected Remote STT model supports translation to English.
  * Uses the OpenAI-compatible /audio/translations endpoint.
- * Known support: Groq whisper-large-v3, OpenAI whisper-1/gpt-realtime-2/gpt-realtime-translate.
+ * Known support: Groq whisper-large-v3, OpenAI whisper-1/gpt-realtime-2.1/gpt-realtime-2/gpt-realtime-translate.
  * NOT supported: whisper-large-v3-turbo and OpenAI's transcription-only models.
  */
 async remoteSttSupportsTranslation() : Promise<boolean> {
@@ -3620,7 +3628,7 @@ async isLaptop() : Promise<Result<boolean, string>> {
 /** user-defined types **/
 
 export type AddTranscriptionProfilePayload = { name: string; language: string; translateToEnglish: boolean; systemPrompt: string; sttPromptOverrideEnabled?: boolean; pushToTalk: boolean; previewOutputOnlyEnabled?: boolean; sonioxLanguageHintsStrict?: boolean | null; includeInCycle: boolean | null; llmSettings: ProfileLlmSettings | null; sonioxContextGeneralJson: string | null; sonioxContextText: string | null; sonioxContextTerms: string[] | null }
-export type AppSettings = { bindings: Partial<{ [key in string]: ShortcutBinding }>; push_to_talk: boolean; preview_output_only_enabled?: boolean; audio_feedback: boolean; result_ready_audio_feedback?: boolean; audio_feedback_volume?: number; sound_theme?: SoundTheme; start_hidden?: boolean; autostart_enabled?: boolean; show_tray_icon?: boolean; show_tray_shortcut_guide?: boolean; show_tray_shortcut_guide_in_main_menu?: boolean; update_checks_enabled?: boolean; selected_model?: string; transcription_provider?: TranscriptionProvider; remote_stt?: RemoteSttSettings; openai_realtime_whisper_delay?: OpenAiRealtimeWhisperDelay; openai_realtime_whisper_flatten_enabled?: boolean; soniox_model?: string; soniox_timeout_seconds?: number; soniox_live_enabled?: boolean; soniox_language_hints?: string[]; soniox_context_general_json?: string; soniox_context_text?: string; soniox_context_terms?: string[]; soniox_use_profile_language_hint_only?: boolean; soniox_language_hints_strict?: boolean; soniox_enable_endpoint_detection?: boolean; soniox_max_endpoint_delay_ms?: number; soniox_endpoint_sensitivity?: number; soniox_enable_language_identification?: boolean; soniox_enable_speaker_diarization?: boolean; soniox_keepalive_interval_seconds?: number; soniox_live_finalize_timeout_ms?: number; soniox_live_instant_stop?: boolean; soniox_optimize_delivery_preconnect_enabled?: boolean; soniox_realtime_fuzzy_correction_enabled?: boolean; soniox_realtime_keep_safety_buffer_enabled?: boolean; deepgram_model?: string; deepgram_timeout_seconds?: number; deepgram_live_enabled?: boolean; deepgram_keepalive_interval_seconds?: number; deepgram_live_finalize_timeout_ms?: number; deepgram_live_instant_stop?: boolean; deepgram_interim_results?: boolean; deepgram_smart_format?: boolean; deepgram_diarize?: boolean; live_sound_enable_speaker_diarization?: boolean; deepgram_endpointing_enabled?: boolean; deepgram_endpointing_ms?: number; always_on_microphone?: boolean; selected_microphone?: string | null; last_manual_microphone?: string | null; selected_microphone_auto_switch_enabled?: boolean; selected_microphone_name_pattern?: string; clamshell_microphone?: string | null;
+export type AppSettings = { bindings: Partial<{ [key in string]: ShortcutBinding }>; push_to_talk: boolean; preview_output_only_enabled?: boolean; audio_feedback: boolean; result_ready_audio_feedback?: boolean; audio_feedback_volume?: number; sound_theme?: SoundTheme; start_hidden?: boolean; autostart_enabled?: boolean; show_tray_icon?: boolean; show_tray_shortcut_guide?: boolean; show_tray_shortcut_guide_in_main_menu?: boolean; update_checks_enabled?: boolean; selected_model?: string; transcription_provider?: TranscriptionProvider; remote_stt?: RemoteSttSettings; openai_realtime_whisper_delay?: OpenAiRealtimeWhisperDelay; openai_realtime_whisper_keywords?: string; openai_realtime_whisper_flatten_enabled?: boolean; soniox_model?: string; soniox_timeout_seconds?: number; soniox_live_enabled?: boolean; soniox_language_hints?: string[]; soniox_context_general_json?: string; soniox_context_text?: string; soniox_context_terms?: string[]; soniox_use_profile_language_hint_only?: boolean; soniox_language_hints_strict?: boolean; soniox_enable_endpoint_detection?: boolean; soniox_max_endpoint_delay_ms?: number; soniox_endpoint_sensitivity?: number; soniox_enable_language_identification?: boolean; soniox_enable_speaker_diarization?: boolean; soniox_keepalive_interval_seconds?: number; soniox_live_finalize_timeout_ms?: number; soniox_live_instant_stop?: boolean; soniox_optimize_delivery_preconnect_enabled?: boolean; soniox_realtime_fuzzy_correction_enabled?: boolean; soniox_realtime_keep_safety_buffer_enabled?: boolean; deepgram_model?: string; deepgram_timeout_seconds?: number; deepgram_live_enabled?: boolean; deepgram_keepalive_interval_seconds?: number; deepgram_live_finalize_timeout_ms?: number; deepgram_live_instant_stop?: boolean; deepgram_interim_results?: boolean; deepgram_smart_format?: boolean; deepgram_diarize?: boolean; live_sound_enable_speaker_diarization?: boolean; deepgram_endpointing_enabled?: boolean; deepgram_endpointing_ms?: number; always_on_microphone?: boolean; selected_microphone?: string | null; last_manual_microphone?: string | null; selected_microphone_auto_switch_enabled?: boolean; selected_microphone_name_pattern?: string; clamshell_microphone?: string | null;
 /**
  * Microphone used exclusively by the Live Sound pipeline.
  * `None` means fall back to `selected_microphone` (global default).
@@ -4037,7 +4045,12 @@ export type DeepgramFileTranscriptionOptions = { diarize: boolean | null; multic
 export type DiarizationSpeakerNameProfile = { id: string; name: string; speaker_names?: string[] }
 export type DiarizedTranscriptProvider = "deepgram" | "soniox"
 export type DictationStatsRuntimeState = { is_editing: boolean; is_recording: boolean; is_processing: boolean; can_start_edit: boolean; can_apply_edit: boolean; max_count: number; warning_threshold: number }
-export type EngineType = "TranscribeCpp" | "Whisper" | "Parakeet" | "Moonshine" | "MoonshineStreaming" | "SenseVoice" | "GigaAM" | "Canary" | "Cohere"
+export type EngineType = "TranscribeCpp" |
+/**
+ * Legacy catalog/settings tag. Runtime loading is routed through
+ * transcribe.cpp so existing Whisper `.bin` models avoid whisper-rs.
+ */
+"Whisper" | "Parakeet" | "Moonshine" | "MoonshineStreaming" | "SenseVoice" | "GigaAM" | "Canary" | "Cohere"
 /**
  * PowerShell execution policy for voice commands.
  * Controls script execution permissions.

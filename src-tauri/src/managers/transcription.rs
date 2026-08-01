@@ -18,7 +18,8 @@ use std::thread;
 use std::time::{Duration, Instant, SystemTime};
 use tauri::{AppHandle, Emitter, Manager};
 use transcribe_cpp::{
-    Backend, Model, ModelOptions, RunOptions, Session, StreamOptions, Task, TimestampKind,
+    Backend, Model, ModelOptions, RunExtension, RunOptions, Session, StreamOptions, Task,
+    TimestampKind, WhisperRunOptions,
 };
 use transcribe_rs::{
     onnx::{
@@ -31,7 +32,6 @@ use transcribe_rs::{
         Quantization,
     },
     vad::{SileroVad as ChunkingSileroVad, SmoothedVad as ChunkingSmoothedVad, Vad},
-    whisper_cpp::{WhisperEngine, WhisperInferenceParams},
     SpeechModel, TranscribeOptions, TranscriptionResult,
 };
 
@@ -45,7 +45,6 @@ pub struct ModelStateEvent {
 
 enum LoadedEngine {
     TranscribeCpp(Session),
-    Whisper(WhisperEngine),
     Parakeet(ParakeetModel),
     Moonshine(MoonshineModel),
     MoonshineStreaming(StreamingModel),
@@ -168,24 +167,49 @@ impl Drop for StreamWorkerGuard {
     }
 }
 
-fn transcribe_cpp_transcription(
+fn transcribe_cpp_transcription_with_prompt(
     session: &mut Session,
     audio: &[f32],
     effective_language: &str,
     translate_to_english: bool,
+    initial_prompt: Option<String>,
 ) -> Result<TranscriptionResult> {
-    let options = transcribe_cpp_run_options(
+    let mut options = transcribe_cpp_run_options(
         session,
         effective_language,
         translate_to_english,
         TimestampKind::Segment,
     );
 
+    // transcribe.cpp exposes family extensions through a tagged union. Only
+    // Whisper-family models accept the Whisper extension; other GGUF models
+    // can advertise similarly named features but reject this extension.
+    if session.model().arch() == "whisper" {
+        options.family = initial_prompt.map(|prompt| {
+            RunExtension::Whisper(WhisperRunOptions {
+                initial_prompt: Some(prompt),
+                ..Default::default()
+            })
+        });
+    }
+
     session
         .run(audio, &options)
-        .map(|result| TranscriptionResult {
-            text: result.text,
-            segments: None,
+        .map(|result| {
+            let segments = result.segments;
+            TranscriptionResult {
+                text: result.text,
+                segments: (!segments.is_empty()).then(|| {
+                    segments
+                        .into_iter()
+                        .map(|segment| transcribe_rs::TranscriptionSegment {
+                            start: segment.t0_ms as f32 / 1000.0,
+                            end: segment.t1_ms as f32 / 1000.0,
+                            text: segment.text,
+                        })
+                        .collect()
+                }),
+            }
         })
         .map_err(|error| anyhow::anyhow!("transcribe.cpp transcription failed: {}", error))
 }
@@ -1159,39 +1183,13 @@ impl TranscriptionManager {
         self.load_model_inner(model_id, None)
     }
 
-    /// Load a model, optionally overriding the whisper.cpp compute device for this load only.
+    /// Load a model, optionally overriding the transcribe.cpp compute device for this load only.
     pub fn load_model_with_device(
         &self,
         model_id: &str,
         device_index: Option<usize>,
     ) -> Result<()> {
-        if device_index.is_none() {
-            return self.load_model_inner(model_id, None);
-        }
-
-        let model_info = self
-            .model_manager
-            .get_model_info(model_id)
-            .ok_or_else(|| anyhow::anyhow!("Model not found: {}", model_id))?;
-        if !matches!(model_info.engine_type, EngineType::Whisper) {
-            return self.load_model_inner(model_id, device_index);
-        }
-
-        use transcribe_rs::accel;
-
-        let previous_accelerator = accel::get_whisper_accelerator();
-        let previous_gpu_device = accel::get_whisper_gpu_device();
-
-        let (accelerator, gpu_device) = resolve_device_index(device_index.unwrap())?;
-        accel::set_whisper_accelerator(accelerator);
-        accel::set_whisper_gpu_device(gpu_device);
-
-        let result = self.load_model_inner(model_id, None);
-
-        accel::set_whisper_accelerator(previous_accelerator);
-        accel::set_whisper_gpu_device(previous_gpu_device);
-
-        result
+        self.load_model_inner(model_id, device_index)
     }
 
     fn load_model_inner(&self, model_id: &str, device_index: Option<usize>) -> Result<()> {
@@ -1234,7 +1232,10 @@ impl TranscriptionManager {
 
         let model_path = self.model_manager.get_model_path(model_id)?;
 
-        if matches!(&model_info.engine_type, EngineType::TranscribeCpp) {
+        if matches!(
+            &model_info.engine_type,
+            EngineType::TranscribeCpp | EngineType::Whisper
+        ) {
             ensure_transcribe_backend_initialized().inspect_err(|err| {
                 emit_loading_failed(&format!(
                     "Failed to initialize transcribe.cpp before loading {model_id}: {err}"
@@ -1245,7 +1246,7 @@ impl TranscriptionManager {
         // Create appropriate engine based on model type
 
         let loaded_engine = match model_info.engine_type {
-            EngineType::TranscribeCpp => {
+            EngineType::TranscribeCpp | EngineType::Whisper => {
                 let (backend, gpu_device) = match device_index {
                     Some(index) => resolve_transcribe_cpp_device_index(index)
                         .inspect_err(|err| emit_loading_failed(&err.to_string()))?,
@@ -1295,14 +1296,6 @@ impl TranscriptionManager {
                     caps.supports_language_detect
                 );
                 LoadedEngine::TranscribeCpp(session)
-            }
-            EngineType::Whisper => {
-                let engine = WhisperEngine::load(&model_path).map_err(|e| {
-                    let error_msg = format!("Failed to load whisper model {}: {}", model_id, e);
-                    emit_loading_failed(&error_msg);
-                    anyhow::anyhow!(error_msg)
-                })?;
-                LoadedEngine::Whisper(engine)
             }
             EngineType::Parakeet => {
                 let engine =
@@ -1538,51 +1531,26 @@ impl TranscriptionManager {
             let transcribe_result = catch_unwind(AssertUnwindSafe(
                 || -> Result<transcribe_rs::TranscriptionResult> {
                     match &mut engine {
-                        LoadedEngine::TranscribeCpp(session) => transcribe_cpp_transcription(
-                            session,
-                            &audio,
-                            &effective_language,
-                            settings.translate_to_english,
-                        ),
-                        LoadedEngine::Whisper(whisper_engine) => {
-                            let whisper_language = if settings.selected_language == "auto" {
-                                None
-                            } else if settings.selected_language == "os_input" {
-                                crate::input_source::get_language_from_input_source()
-                            } else {
-                                let normalized = if settings.selected_language == "zh-Hans"
-                                    || settings.selected_language == "zh-Hant"
-                                {
-                                    "zh".to_string()
-                                } else {
-                                    settings.selected_language.clone()
-                                };
-                                Some(normalized)
+                        LoadedEngine::TranscribeCpp(session) => {
+                            let initial_prompt = {
+                                let current_model_id = self.current_model_id.lock().unwrap();
+                                current_model_id
+                                    .as_ref()
+                                    .and_then(|id| settings.transcription_prompts.get(id))
+                                    .filter(|prompt| !prompt.trim().is_empty())
+                                    .cloned()
                             };
-
-                            let params = WhisperInferenceParams {
-                                language: whisper_language,
-                                translate: settings.translate_to_english,
-                                initial_prompt: build_whisper_initial_prompt(
-                                    {
-                                        // Get the prompt for current model from the per-model HashMap
-                                        let current_model_id =
-                                            self.current_model_id.lock().unwrap();
-                                        current_model_id
-                                            .as_ref()
-                                            .and_then(|id| settings.transcription_prompts.get(id))
-                                            .filter(|p| !p.trim().is_empty())
-                                            .cloned()
-                                    },
+                            transcribe_cpp_transcription_with_prompt(
+                                session,
+                                &audio,
+                                &effective_language,
+                                settings.translate_to_english,
+                                build_whisper_initial_prompt(
+                                    initial_prompt,
                                     &settings.custom_words,
                                     apply_custom_words_enabled,
                                 ),
-                                ..Default::default()
-                            };
-
-                            whisper_engine
-                                .transcribe_with(&audio, &params)
-                                .map_err(|e| anyhow::anyhow!("Whisper transcription failed: {}", e))
+                            )
                         }
                         LoadedEngine::Parakeet(parakeet_engine) => {
                             let params = ParakeetParams {
@@ -1792,52 +1760,28 @@ impl TranscriptionManager {
             })?;
 
             match engine {
-                LoadedEngine::TranscribeCpp(session) => transcribe_cpp_transcription(
-                    session,
-                    &audio,
-                    &effective_language,
-                    translate_to_english,
-                )?,
-                LoadedEngine::Whisper(whisper_engine) => {
-                    let whisper_language = if selected_language == "auto" {
-                        None
-                    } else if selected_language == "os_input" {
-                        // Resolve OS input source to language, fall back to auto-detect
-                        crate::input_source::get_language_from_input_source()
-                    } else {
-                        let normalized =
-                            if selected_language == "zh-Hans" || selected_language == "zh-Hant" {
-                                "zh".to_string()
-                            } else {
-                                selected_language.clone()
-                            };
-                        Some(normalized)
-                    };
-
-                    let params = WhisperInferenceParams {
-                        language: whisper_language,
-                        translate: translate_to_english,
-                        initial_prompt: build_whisper_initial_prompt(
-                            // Priority: 1) profile override, 2) global per-model prompt
-                            prompt_override
-                                .filter(|p| !p.trim().is_empty())
-                                .or_else(|| {
-                                    let current_model_id = self.current_model_id.lock().unwrap();
-                                    current_model_id
-                                        .as_ref()
-                                        .and_then(|id| settings.transcription_prompts.get(id))
-                                        .filter(|p| !p.trim().is_empty())
-                                        .cloned()
-                                }),
+                LoadedEngine::TranscribeCpp(session) => {
+                    let initial_prompt = prompt_override
+                        .filter(|prompt| !prompt.trim().is_empty())
+                        .or_else(|| {
+                            let current_model_id = self.current_model_id.lock().unwrap();
+                            current_model_id
+                                .as_ref()
+                                .and_then(|id| settings.transcription_prompts.get(id))
+                                .filter(|prompt| !prompt.trim().is_empty())
+                                .cloned()
+                        });
+                    transcribe_cpp_transcription_with_prompt(
+                        session,
+                        &audio,
+                        &effective_language,
+                        translate_to_english,
+                        build_whisper_initial_prompt(
+                            initial_prompt,
                             &settings.custom_words,
                             apply_custom_words_enabled,
                         ),
-                        ..Default::default()
-                    };
-
-                    whisper_engine
-                        .transcribe_with(&audio, &params)
-                        .map_err(|e| anyhow::anyhow!("Whisper transcription failed: {}", e))?
+                    )?
                 }
                 LoadedEngine::Parakeet(parakeet_engine) => {
                     let params = ParakeetParams {
@@ -2114,17 +2058,102 @@ impl TranscriptionManager {
             };
 
             match engine {
-                LoadedEngine::TranscribeCpp(session) => (
-                    self.run_cancelable_file_transcription(|| {
-                        transcribe_cpp_transcription(
-                            session,
-                            &audio,
-                            &effective_language,
-                            translate_to_english,
+                LoadedEngine::TranscribeCpp(session) => {
+                    let initial_prompt = build_whisper_initial_prompt(
+                        prompt_override
+                            .filter(|prompt| !prompt.trim().is_empty())
+                            .or_else(|| {
+                                let current_model_id = self.current_model_id.lock().unwrap();
+                                current_model_id
+                                    .as_ref()
+                                    .and_then(|id| settings.transcription_prompts.get(id))
+                                    .filter(|prompt| !prompt.trim().is_empty())
+                                    .cloned()
+                            }),
+                        &settings.custom_words,
+                        apply_custom_words_enabled,
+                    );
+                    let is_whisper = session.model().arch() == "whisper";
+
+                    if is_whisper {
+                        let (use_chunking, max_chunk_secs) =
+                            chunking_for(FileTranscriptionChunkProfile::Default);
+                        if use_chunking {
+                            match self.transcribe_file_with_vad_chunking(
+                                &audio,
+                                &settings,
+                                merge_separator,
+                                max_chunk_secs,
+                                |samples, chunk_start_secs| {
+                                    self.transcribe_cpp_chunk(
+                                        session,
+                                        samples,
+                                        chunk_start_secs,
+                                        &effective_language,
+                                        translate_to_english,
+                                        initial_prompt.clone(),
+                                    )
+                                },
+                            ) {
+                                Ok((chunked_result, chunk_count, chunking_trace)) => (
+                                    chunked_result,
+                                    FileTranscriptionExecutionMeta {
+                                        used_vad_chunking: chunk_count > 1,
+                                        chunk_count,
+                                        chunking_trace,
+                                    },
+                                ),
+                                Err(error) => {
+                                    if self.is_file_transcription_cancel_requested() {
+                                        return Err(error);
+                                    }
+                                    warn!(
+                                        "Falling back to one-shot transcribe.cpp file transcription after chunking failed: {}",
+                                        error
+                                    );
+                                    (
+                                        self.run_cancelable_file_transcription(|| {
+                                            transcribe_cpp_transcription_with_prompt(
+                                                session,
+                                                &audio,
+                                                &effective_language,
+                                                translate_to_english,
+                                                initial_prompt.clone(),
+                                            )
+                                        })?,
+                                        FileTranscriptionExecutionMeta::default(),
+                                    )
+                                }
+                            }
+                        } else {
+                            (
+                                self.run_cancelable_file_transcription(|| {
+                                    transcribe_cpp_transcription_with_prompt(
+                                        session,
+                                        &audio,
+                                        &effective_language,
+                                        translate_to_english,
+                                        initial_prompt,
+                                    )
+                                })?,
+                                FileTranscriptionExecutionMeta::default(),
+                            )
+                        }
+                    } else {
+                        (
+                            self.run_cancelable_file_transcription(|| {
+                                transcribe_cpp_transcription_with_prompt(
+                                    session,
+                                    &audio,
+                                    &effective_language,
+                                    translate_to_english,
+                                    initial_prompt,
+                                )
+                            })?,
+                            FileTranscriptionExecutionMeta::default(),
                         )
-                    })?,
-                    FileTranscriptionExecutionMeta::default(),
-                ),
+                    }
+                }
                 LoadedEngine::Parakeet(parakeet_engine) => {
                     let (use_chunking, max_chunk_secs) =
                         chunking_for(FileTranscriptionChunkProfile::Default);
@@ -2187,100 +2216,6 @@ impl TranscriptionManager {
                                     .transcribe_with(&audio, &params)
                                     .map_err(|e| {
                                         anyhow::anyhow!("Parakeet transcription failed: {}", e)
-                                    })
-                            })?,
-                            FileTranscriptionExecutionMeta::default(),
-                        )
-                    }
-                }
-                LoadedEngine::Whisper(whisper_engine) => {
-                    let (use_chunking, max_chunk_secs) =
-                        chunking_for(FileTranscriptionChunkProfile::Default);
-                    let whisper_language = if selected_language == "auto" {
-                        None
-                    } else if selected_language == "os_input" {
-                        crate::input_source::get_language_from_input_source()
-                    } else {
-                        let normalized =
-                            if selected_language == "zh-Hans" || selected_language == "zh-Hant" {
-                                "zh".to_string()
-                            } else {
-                                selected_language.clone()
-                            };
-                        Some(normalized)
-                    };
-
-                    let params = WhisperInferenceParams {
-                        language: whisper_language,
-                        translate: translate_to_english,
-                        initial_prompt: build_whisper_initial_prompt(
-                            prompt_override
-                                .filter(|p| !p.trim().is_empty())
-                                .or_else(|| {
-                                    let current_model_id = self.current_model_id.lock().unwrap();
-                                    current_model_id
-                                        .as_ref()
-                                        .and_then(|id| settings.transcription_prompts.get(id))
-                                        .filter(|p| !p.trim().is_empty())
-                                        .cloned()
-                                }),
-                            &settings.custom_words,
-                            apply_custom_words_enabled,
-                        ),
-                        ..Default::default()
-                    };
-
-                    if use_chunking {
-                        match self.transcribe_file_with_vad_chunking(
-                            &audio,
-                            &settings,
-                            merge_separator,
-                            max_chunk_secs,
-                            |samples, chunk_start_secs| {
-                                self.transcribe_whisper_chunk(
-                                    whisper_engine,
-                                    samples,
-                                    chunk_start_secs,
-                                    &params,
-                                )
-                            },
-                        ) {
-                            Ok((chunked_result, chunk_count, chunking_trace)) => (
-                                chunked_result,
-                                FileTranscriptionExecutionMeta {
-                                    used_vad_chunking: chunk_count > 1,
-                                    chunk_count,
-                                    chunking_trace,
-                                },
-                            ),
-                            Err(error) => {
-                                if self.is_file_transcription_cancel_requested() {
-                                    return Err(error);
-                                }
-                                warn!(
-                                    "Falling back to one-shot Whisper file transcription after chunking failed: {}",
-                                    error
-                                );
-                                (
-                                    self.run_cancelable_file_transcription(|| {
-                                        whisper_engine.transcribe_with(&audio, &params).map_err(|e| {
-                                            anyhow::anyhow!(
-                                                "Whisper transcription failed after chunking fallback: {}",
-                                                e
-                                            )
-                                        })
-                                    })?,
-                                    FileTranscriptionExecutionMeta::default(),
-                                )
-                            }
-                        }
-                    } else {
-                        (
-                            self.run_cancelable_file_transcription(|| {
-                                whisper_engine
-                                    .transcribe_with(&audio, &params)
-                                    .map_err(|e| {
-                                        anyhow::anyhow!("Whisper transcription failed: {}", e)
                                     })
                             })?,
                             FileTranscriptionExecutionMeta::default(),
@@ -2823,12 +2758,14 @@ impl TranscriptionManager {
         Ok(result)
     }
 
-    fn transcribe_whisper_chunk(
+    fn transcribe_cpp_chunk(
         &self,
-        whisper_engine: &mut WhisperEngine,
+        session: &mut Session,
         samples: Vec<f32>,
         chunk_start_secs: f32,
-        params: &WhisperInferenceParams,
+        effective_language: &str,
+        translate_to_english: bool,
+        initial_prompt: Option<String>,
     ) -> Result<TranscriptionResult> {
         let padding_samples =
             (FILE_TRANSCRIPTION_CHUNK_PADDING_SECS * FILE_TRANSCRIPTION_SAMPLE_RATE) as usize;
@@ -2851,9 +2788,13 @@ impl TranscriptionManager {
         padded.extend(std::iter::repeat(0.0).take(padding_samples));
 
         let mut result = self.run_cancelable_file_transcription(|| {
-            whisper_engine
-                .transcribe_with(&padded, params)
-                .map_err(|e| anyhow::anyhow!("Whisper chunk transcription failed: {}", e))
+            transcribe_cpp_transcription_with_prompt(
+                session,
+                &padded,
+                effective_language,
+                translate_to_english,
+                initial_prompt,
+            )
         })?;
         result
             .offset_timestamps((chunk_start_secs - FILE_TRANSCRIPTION_CHUNK_PADDING_SECS).max(0.0));
@@ -2963,49 +2904,24 @@ fn available_whisper_accelerators(gpu_disabled: bool) -> Vec<String> {
 }
 
 fn cached_gpu_devices() -> &'static [GpuDeviceOption] {
-    use transcribe_rs::whisper_cpp::gpu::list_gpu_devices;
-
     GPU_DEVICES.get_or_init(|| {
-        if transcribe_gpu_disabled_for_host() {
-            warn!(
-                "Windows x64 build is running under emulation on an ARM64 host; \
-                 disabling GGML GPU acceleration and using CPU"
-            );
-            return Vec::new();
-        }
-
-        // ggml's Vulkan backend uses FMA3 instructions internally.
-        // On older CPUs without FMA3 (e.g. Sandy Bridge Xeons) this causes
-        // a SIGILL crash that cannot be caught. Skip enumeration entirely
-        // on those CPUs - GPU-accelerated whisper won't work there anyway.
-        #[cfg(target_arch = "x86_64")]
-        if !std::arch::is_x86_feature_detected!("fma") {
-            warn!("CPU lacks FMA3 support - skipping GPU device enumeration");
-            return Vec::new();
-        }
-
-        list_gpu_devices()
+        // Use the same transcribe.cpp device registry that model loading uses.
+        // Keeping the registry index here is important: a re-numbered list of
+        // only GPUs can select the wrong device when the CPU appears first.
+        transcribe_compute_devices()
             .into_iter()
+            .filter(is_transcribe_cpp_gpu_device)
             .map(|device| GpuDeviceOption {
-                id: device.id,
-                name: device.name,
-                total_vram_mb: device.total_vram / (1024 * 1024),
+                id: device.index.unwrap_or(0) as i32,
+                name: if device.description.is_empty() {
+                    device.name
+                } else {
+                    device.description
+                },
+                total_vram_mb: (device.memory_total / (1024 * 1024)) as usize,
             })
             .collect()
     })
-}
-
-fn resolve_device_index(index: usize) -> Result<(transcribe_rs::accel::WhisperAccelerator, i32)> {
-    use transcribe_rs::accel;
-
-    if index == 0 {
-        return Ok((accel::WhisperAccelerator::CpuOnly, accel::GPU_DEVICE_AUTO));
-    }
-
-    let gpu = cached_gpu_devices()
-        .get(index - 1)
-        .ok_or_else(|| anyhow::anyhow!("Unknown whisper compute device index: {}", index))?;
-    Ok((accel::WhisperAccelerator::Gpu, gpu.id))
 }
 
 fn resolve_transcribe_cpp_device_index(index: usize) -> Result<(Backend, i32)> {
@@ -3102,25 +3018,24 @@ pub fn describe_compute_devices() -> Vec<String> {
 }
 
 pub fn describe_effective_whisper_device(device_index: Option<usize>) -> String {
-    use transcribe_rs::accel;
-
     match device_index {
-        Some(0) => "cpu".to_string(),
-        Some(index) => match cached_gpu_devices().get(index.saturating_sub(1)) {
-            Some(gpu) => format!("gpu:{}:{}", gpu.id, gpu.name),
-            None => format!("gpu:index:{}:unknown", index),
+        Some(index) => match transcribe_compute_devices()
+            .into_iter()
+            .find(|device| device.index == Some(index))
+        {
+            Some(device) => format!(
+                "{}:{}:{}",
+                device.kind,
+                index,
+                if device.description.is_empty() {
+                    device.name
+                } else {
+                    device.description
+                }
+            ),
+            None => format!("transcribe.cpp:index:{}:unknown", index),
         },
-        None => {
-            let accelerator = accel::get_whisper_accelerator();
-            let gpu_device = accel::get_whisper_gpu_device();
-            if !accelerator.use_gpu() {
-                "cpu".to_string()
-            } else if gpu_device == accel::GPU_DEVICE_AUTO {
-                format!("{}:auto", accelerator)
-            } else {
-                format!("{}:{}", accelerator, gpu_device)
-            }
-        }
+        None => "transcribe.cpp:settings".to_string(),
     }
 }
 
@@ -3365,30 +3280,14 @@ pub fn apply_accelerator_settings(app: &tauri::AppHandle) {
 
     let settings = get_settings(app);
 
-    let effective_whisper = effective_whisper_accelerator(
+    let effective_transcribe = effective_whisper_accelerator(
         settings.whisper_accelerator,
         transcribe_gpu_disabled_for_host(),
     );
-    let whisper_pref = match effective_whisper {
-        WhisperAcceleratorSetting::Auto => accel::WhisperAccelerator::Auto,
-        WhisperAcceleratorSetting::Cpu => accel::WhisperAccelerator::CpuOnly,
-        WhisperAcceleratorSetting::Gpu => accel::WhisperAccelerator::Gpu,
-    };
-    accel::set_whisper_accelerator(whisper_pref);
-    let whisper_gpu_device = if transcribe_gpu_disabled_for_host() {
-        accel::GPU_DEVICE_AUTO
-    } else {
-        settings.whisper_gpu_device
-    };
-    accel::set_whisper_gpu_device(whisper_gpu_device);
     info!(
-        "Whisper accelerator set to: {}, gpu_device: {}",
-        whisper_pref,
-        if whisper_gpu_device == accel::GPU_DEVICE_AUTO {
-            "auto".to_string()
-        } else {
-            whisper_gpu_device.to_string()
-        }
+        "transcribe.cpp accelerator preference set to: {:?}, gpu_device: {} (applied on model load)",
+        effective_transcribe,
+        settings.whisper_gpu_device
     );
 
     let ort_pref = match settings.ort_accelerator {
@@ -3671,7 +3570,8 @@ mod tests {
             },
         )?;
         let mut session = model.session()?;
-        let result = transcribe_cpp_transcription(&mut session, &audio, "en", false)?;
+        let result =
+            transcribe_cpp_transcription_with_prompt(&mut session, &audio, "en", false, None)?;
         println!("transcribe.cpp Moonshine smoke text: {}", result.text);
         assert_kennedy_transcription(&result.text);
         Ok(())

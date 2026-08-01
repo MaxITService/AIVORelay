@@ -1,8 +1,12 @@
 use rustfft::{num_complex::Complex32, Fft, FftPlanner};
 use std::sync::Arc;
 
-const DB_MIN: f32 = -55.0;
-const DB_MAX: f32 = -8.0;
+// `db` below is not true dBFS: it is a per-bin average divided by the FFT
+// window size, which puts speech roughly 20 dB below its actual dBFS. These
+// bounds are calibrated against captured speech and room tone so normal
+// speech moves the overlay instead of appearing frozen.
+const DB_MIN: f32 = -68.0;
+const DB_MAX: f32 = -30.0;
 const GAIN: f32 = 1.3;
 const CURVE_POWER: f32 = 0.7;
 

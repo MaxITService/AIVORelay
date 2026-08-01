@@ -1737,9 +1737,9 @@ pub fn run(cli_args: CliArgs) {
             initialize_core_logic(&app_handle);
 
             if should_eagerly_initialize_local_backends(&settings) {
-                // The first call into transcribe_rs::whisper_cpp::gpu::list_gpu_devices
-                // loads the Metal/Vulkan backend and probes devices. Preserve the
-                // background pre-warm for Local, but do not pay that cost for remote STT.
+                // The first call into transcribe.cpp's device registry loads the
+                // Metal/Vulkan backend and probes devices. Preserve the background
+                // pre-warm for Local, but do not pay that cost for remote STT.
                 std::thread::spawn(|| {
                     let _ = crate::managers::transcription::get_available_accelerators();
                 });
