@@ -105,6 +105,8 @@ pub fn switch_active_model(app: &AppHandle, model_id: &str) -> Result<(), String
     let settings = get_settings(app);
     let unload_timeout = settings.model_unload_timeout;
     let previous_model_id = settings.selected_model.clone();
+    let previous_provider = settings.transcription_provider;
+    let previous_language = settings.selected_language.clone();
 
     let mut updated_settings = settings;
     updated_settings.selected_model = model_id.to_string();
@@ -153,6 +155,8 @@ pub fn switch_active_model(app: &AppHandle, model_id: &str) -> Result<(), String
     if let Err(err) = transcription_manager.load_model(model_id) {
         let mut reverted_settings = get_settings(app);
         reverted_settings.selected_model = previous_model_id;
+        reverted_settings.transcription_provider = previous_provider;
+        reverted_settings.selected_language = previous_language;
         write_settings(app, reverted_settings);
         tray::refresh_tray_menu(app, None);
         return Err(err.to_string());
