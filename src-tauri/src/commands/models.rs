@@ -58,21 +58,61 @@ pub async fn delete_model(
     transcription_manager: State<'_, Arc<TranscriptionManager>>,
     model_id: String,
 ) -> Result<(), String> {
-    // If deleting the active model, unload it and clear the selection.
     let settings = get_settings(&app_handle);
-    if settings.selected_model == model_id {
+    if settings.selected_model != model_id {
+        return model_manager
+            .delete_model(&model_id)
+            .map_err(|e| e.to_string());
+    }
+
+    // Serialize deletion of the selected model with model switches so the
+    // rollback below cannot reload over a newer selection.
+    let _loading_guard = transcription_manager
+        .try_start_loading()
+        .ok_or_else(|| "Model load already in progress".to_string())?;
+
+    let was_loaded = transcription_manager.get_current_model().as_deref()
+        == Some(model_id.as_str())
+        && transcription_manager.is_model_loaded();
+
+    if was_loaded {
         transcription_manager
             .unload_model()
             .map_err(|e| format!("Failed to unload model: {}", e))?;
-
-        let mut updated_settings = get_settings(&app_handle);
-        updated_settings.selected_model = String::new();
-        write_settings(&app_handle, updated_settings);
     }
 
-    model_manager
-        .delete_model(&model_id)
-        .map_err(|e| e.to_string())
+    let mut updated_settings = get_settings(&app_handle);
+    if updated_settings.selected_model != model_id {
+        return Err("Active model changed while deletion was starting".to_string());
+    }
+    updated_settings.selected_model = String::new();
+    write_settings(&app_handle, updated_settings);
+
+    if let Err(delete_error) = model_manager.delete_model(&model_id) {
+        let current_settings = get_settings(&app_handle);
+        if current_settings.selected_model.is_empty() {
+            if was_loaded {
+                if let Err(reload_error) = transcription_manager.load_model(&model_id) {
+                    tray::refresh_tray_menu(&app_handle, None);
+                    return Err(format!(
+                        "Failed to delete model: {delete_error}. The model also failed to reload: {reload_error}"
+                    ));
+                }
+            }
+
+            let mut restored_settings = get_settings(&app_handle);
+            if restored_settings.selected_model.is_empty() {
+                restored_settings.selected_model = model_id.clone();
+                write_settings(&app_handle, restored_settings);
+            }
+        }
+
+        tray::refresh_tray_menu(&app_handle, None);
+        return Err(delete_error.to_string());
+    }
+
+    tray::refresh_tray_menu(&app_handle, None);
+    Ok(())
 }
 
 #[tauri::command]
