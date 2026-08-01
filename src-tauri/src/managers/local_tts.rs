@@ -1562,8 +1562,41 @@ pub(crate) fn write_json_atomic(path: &Path, value: &impl Serialize) -> Result<(
         file.flush()?;
         file.sync_all()?;
     }
-    fs::rename(partial, path)?;
+    replace_file_atomic(&partial, path)?;
     Ok(())
+}
+
+#[cfg(windows)]
+fn replace_file_atomic(source: &Path, destination: &Path) -> std::io::Result<()> {
+    use std::os::windows::ffi::OsStrExt;
+    use windows::core::PCWSTR;
+    use windows::Win32::Storage::FileSystem::{
+        MoveFileExW, MOVEFILE_REPLACE_EXISTING, MOVEFILE_WRITE_THROUGH,
+    };
+
+    let source_wide = source
+        .as_os_str()
+        .encode_wide()
+        .chain(std::iter::once(0))
+        .collect::<Vec<_>>();
+    let destination_wide = destination
+        .as_os_str()
+        .encode_wide()
+        .chain(std::iter::once(0))
+        .collect::<Vec<_>>();
+    unsafe {
+        MoveFileExW(
+            PCWSTR(source_wide.as_ptr()),
+            PCWSTR(destination_wide.as_ptr()),
+            MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH,
+        )
+    }
+    .map_err(|_| std::io::Error::last_os_error())
+}
+
+#[cfg(not(windows))]
+fn replace_file_atomic(source: &Path, destination: &Path) -> std::io::Result<()> {
+    fs::rename(source, destination)
 }
 
 fn detect_runtime_profile() -> String {
@@ -1768,6 +1801,31 @@ mod tests {
         assert_eq!(fs::read(&final_path).unwrap(), b"new archive");
         assert!(!partial.exists());
         fs::remove_dir_all(directory).expect("remove isolated download test directory");
+    }
+
+    #[test]
+    fn atomic_json_write_replaces_an_existing_manifest() {
+        let directory = std::env::temp_dir().join(format!(
+            "aivorelay-local-tts-manifest-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(&directory).expect("create isolated manifest test directory");
+        let manifest = directory.join("install.json");
+        write_json_atomic(&manifest, &serde_json::json!({ "version": 1 }))
+            .expect("write initial manifest");
+
+        write_json_atomic(&manifest, &serde_json::json!({ "version": 2 }))
+            .expect("replace existing manifest");
+
+        let value: serde_json::Value =
+            serde_json::from_slice(&fs::read(&manifest).unwrap()).unwrap();
+        assert_eq!(value["version"], 2);
+        assert!(!directory.join("install.json.partial").exists());
+        fs::remove_dir_all(directory).expect("remove isolated manifest test directory");
     }
 
     #[test]
