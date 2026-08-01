@@ -1405,9 +1405,17 @@ pub(crate) async fn download_resumable(
     if resume_from > 0 && response.status() == reqwest::StatusCode::RANGE_NOT_SATISFIABLE {
         if unsatisfied_range_length(&response) == Some(resume_from) {
             progress(resume_from, resume_from);
-            fs::rename(&partial_path, final_path)?;
+            publish_managed_download(&partial_path, final_path)?;
             return Ok(());
         }
+        fs::remove_file(&partial_path)
+            .context("Failed to reset an incompatible partial runtime download")?;
+        resume_from = 0;
+        response = client
+            .get(url)
+            .send()
+            .await
+            .context("Runtime download restart failed")?;
     }
     if !response.status().is_success() && response.status() != reqwest::StatusCode::PARTIAL_CONTENT
     {
@@ -1446,8 +1454,29 @@ pub(crate) async fn download_resumable(
             "Runtime download is incomplete: expected {total} bytes, received {downloaded}"
         ));
     }
-    fs::rename(&partial_path, final_path)?;
+    publish_managed_download(&partial_path, final_path)?;
     Ok(())
+}
+
+fn publish_managed_download(partial_path: &Path, final_path: &Path) -> Result<()> {
+    match fs::remove_file(final_path) {
+        Ok(()) => {}
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => {
+            return Err(error).with_context(|| {
+                format!(
+                    "Failed to replace stale managed download {}",
+                    final_path.display()
+                )
+            });
+        }
+    }
+    fs::rename(partial_path, final_path).with_context(|| {
+        format!(
+            "Failed to publish managed download {}",
+            final_path.display()
+        )
+    })
 }
 
 fn unsatisfied_range_length(response: &reqwest::Response) -> Option<u64> {
@@ -1716,6 +1745,29 @@ mod tests {
         assert!(with_reserve > without_reserve);
         assert!(has_required_disk_space(with_reserve, with_reserve));
         assert!(!has_required_disk_space(with_reserve - 1, with_reserve));
+    }
+
+    #[test]
+    fn managed_download_publish_replaces_a_stale_final_file() {
+        let directory = std::env::temp_dir().join(format!(
+            "aivorelay-local-tts-download-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(&directory).expect("create isolated download test directory");
+        let partial = directory.join("runtime.zip.partial");
+        let final_path = directory.join("runtime.zip");
+        fs::write(&partial, b"new archive").expect("write completed partial archive");
+        fs::write(&final_path, b"stale archive").expect("write stale final archive");
+
+        publish_managed_download(&partial, &final_path).expect("publish managed download");
+
+        assert_eq!(fs::read(&final_path).unwrap(), b"new archive");
+        assert!(!partial.exists());
+        fs::remove_dir_all(directory).expect("remove isolated download test directory");
     }
 
     #[test]
