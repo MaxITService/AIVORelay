@@ -615,13 +615,18 @@ fn append_remote_openai_model_items(
         ),
         (
             REMOTE_STT_PRESET_OPENAI.to_string(),
+            "gpt-realtime-2".to_string(),
+            "OpenAI: gpt-realtime-2 · Legacy STT Hack".to_string(),
+        ),
+        (
+            REMOTE_STT_PRESET_OPENAI.to_string(),
             REMOTE_STT_OPENAI_DEFAULT_MODEL.to_string(),
-            "OpenAI: gpt-realtime-2 STT Hack - Not actually realtime".to_string(),
+            "OpenAI: gpt-realtime-2.1 · Latest STT Hack".to_string(),
         ),
         (
             REMOTE_STT_PRESET_OPENAI.to_string(),
             "gpt-realtime-whisper".to_string(),
-            "OpenAI: gpt-realtime-whisper".to_string(),
+            "OpenAI: gpt-realtime-whisper · Legacy".to_string(),
         ),
         (
             REMOTE_STT_PRESET_OPENAI.to_string(),

@@ -5374,8 +5374,25 @@ fn build_openai_realtime_whisper_options(
         model: settings.remote_stt.model_id.clone(),
         language: Some(language.to_string()),
         prompt,
+        keywords: parse_openai_realtime_keywords(&settings.openai_realtime_whisper_keywords),
         delay: settings.openai_realtime_whisper_delay,
     }
+}
+
+pub(crate) fn parse_openai_realtime_keywords(value: &str) -> Option<Vec<String>> {
+    let keywords = value
+        .lines()
+        .map(str::trim)
+        .filter(|keyword| !keyword.is_empty())
+        .filter(|keyword| {
+            !keyword
+                .chars()
+                .any(|character| matches!(character, '<' | '>' | '\r' | '\n'))
+        })
+        .map(str::to_owned)
+        .collect::<Vec<_>>();
+
+    (!keywords.is_empty()).then_some(keywords)
 }
 fn apply_soniox_output_filters(settings: &AppSettings, text: String) -> String {
     let corrected = if settings.custom_words_enabled && !settings.custom_words.is_empty() {
@@ -5455,7 +5472,10 @@ fn should_run_transcription_post_process(post_process_requested: bool, text: &st
 
 #[cfg(test)]
 mod transcription_post_process_tests {
-    use super::{is_blank_transcription, should_run_transcription_post_process};
+    use super::{
+        is_blank_transcription, parse_openai_realtime_keywords,
+        should_run_transcription_post_process,
+    };
 
     #[test]
     fn blank_transcription_is_detected() {
@@ -5488,6 +5508,21 @@ mod transcription_post_process_tests {
     #[test]
     fn skips_post_process_when_feature_is_disabled() {
         assert!(!should_run_transcription_post_process(false, "hello"));
+    }
+
+    #[test]
+    fn filters_openai_realtime_keywords_by_line_and_rejects_invalid_characters() {
+        assert_eq!(
+            parse_openai_realtime_keywords(
+                " AivoRelay\n\nDeepgram\n<invalid>\nAC-42\nbad\rcarriage ",
+            ),
+            Some(vec![
+                "AivoRelay".to_string(),
+                "Deepgram".to_string(),
+                "AC-42".to_string(),
+            ])
+        );
+        assert_eq!(parse_openai_realtime_keywords(" \n<invalid>\n"), None);
     }
 }
 

@@ -411,6 +411,10 @@ settingUpdaters.error_overlay_auto_hide_ms = (value) =>
   invoke("change_deepgram_endpointing_ms_setting", { valueMs: value });
 (settingUpdaters as any).openai_realtime_whisper_delay = (value: any) =>
   invoke("change_openai_realtime_whisper_delay_setting", { delay: value });
+(settingUpdaters as any).openai_realtime_whisper_keywords = (value: any) =>
+  invoke("change_openai_realtime_whisper_keywords_setting", {
+    keywords: String(value),
+  });
 (settingUpdaters as any).openai_realtime_whisper_flatten_enabled = (
   value: any,
 ) =>

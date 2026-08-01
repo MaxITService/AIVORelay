@@ -31,6 +31,7 @@ type RemoteApiRowId =
   | "openai_live_transcribe"
   | "openai_realtime_whisper"
   | "openai_realtime2"
+  | "openai_realtime2_1"
   | "openai_translate"
   | "custom";
 
@@ -184,9 +185,13 @@ export const ModelsSettings: React.FC = () => {
             ? "openai_live_transcribe"
           : remoteModelId === "gpt-realtime-whisper"
             ? "openai_realtime_whisper"
+          : remoteModelId === "gpt-realtime-2"
+            ? "openai_realtime2"
+          : remoteModelId === "gpt-realtime-2.1"
+            ? "openai_realtime2_1"
           : remoteModelId === "gpt-realtime-translate"
             ? "openai_translate"
-            : "openai_realtime2";
+            : "openai_realtime2_1";
   const remoteApiRows: RemoteApiRow[] = [
     {
       id: "groq",
@@ -221,8 +226,8 @@ export const ModelsSettings: React.FC = () => {
     },
     {
       id: "openai_realtime_whisper",
-      title: "Remote via OpenAI gpt-realtime-whisper",
-      description: "Native Realtime transcription model with optional flattened STT mode",
+      title: "Remote via OpenAI gpt-realtime-whisper · Legacy",
+      description: "Legacy native Realtime transcription model kept for compatibility",
       notRecommended: true,
       preset: "openai",
       modelId: "gpt-realtime-whisper",
@@ -236,6 +241,15 @@ export const ModelsSettings: React.FC = () => {
       preset: "openai",
       modelId: "gpt-realtime-2",
       iconClassName: "text-blue-400",
+    },
+    {
+      id: "openai_realtime2_1",
+      title: "Remote via OpenAI gpt-realtime-2.1 STT Hack",
+      description: "Latest voice-agent model coerced into transcript-only output",
+      notRecommended: true,
+      preset: "openai",
+      modelId: "gpt-realtime-2.1",
+      iconClassName: "text-cyan-400",
     },
     {
       id: "openai_translate",

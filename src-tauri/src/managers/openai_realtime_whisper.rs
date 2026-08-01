@@ -38,6 +38,7 @@ pub struct OpenAiRealtimeWhisperOptions {
     pub model: String,
     pub language: Option<String>,
     pub prompt: Option<String>,
+    pub keywords: Option<Vec<String>>,
     pub delay: crate::settings::OpenAiRealtimeWhisperDelay,
 }
 
@@ -47,6 +48,7 @@ impl Default for OpenAiRealtimeWhisperOptions {
             model: OPENAI_REALTIME_WHISPER_MODEL.to_string(),
             language: None,
             prompt: None,
+            keywords: None,
             delay: crate::settings::OpenAiRealtimeWhisperDelay::Low,
         }
     }
@@ -471,6 +473,9 @@ impl OpenAiRealtimeWhisperManager {
                 if !prompt.is_empty() {
                     transcription["prompt"] = json!(prompt);
                 }
+            }
+            if let Some(keywords) = options.keywords.as_ref().filter(|items| !items.is_empty()) {
+                transcription["keywords"] = json!(keywords);
             }
         }
 
@@ -968,6 +973,7 @@ mod tests {
                 model: OPENAI_REALTIME_WHISPER_MODEL.to_string(),
                 language: Some("en".to_string()),
                 prompt: Some("Ignored for the legacy model.".to_string()),
+                keywords: Some(vec!["Ignored".to_string()]),
                 delay: crate::settings::OpenAiRealtimeWhisperDelay::Medium,
             },
         );
@@ -1011,6 +1017,7 @@ mod tests {
                 model: OPENAI_LIVE_TRANSCRIBE_MODEL.to_string(),
                 language: Some("fr".to_string()),
                 prompt: Some("A bilingual customer-support call.".to_string()),
+                keywords: Some(vec!["AC-42".to_string(), "premium plan".to_string()]),
                 delay: crate::settings::OpenAiRealtimeWhisperDelay::Low,
             },
         );
@@ -1021,6 +1028,10 @@ mod tests {
         assert_eq!(
             transcription["prompt"],
             "A bilingual customer-support call."
+        );
+        assert_eq!(
+            transcription["keywords"],
+            json!(["AC-42", "premium plan"])
         );
         assert!(transcription.get("language").is_none());
     }

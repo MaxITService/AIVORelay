@@ -35,10 +35,13 @@ export const getRemoteApiDisplayLabel = (
       return "OpenAI gpt-live-transcribe";
     }
     if (modelId === "gpt-realtime-whisper") {
-      return "OpenAI gpt-realtime-whisper";
+      return "OpenAI gpt-realtime-whisper · Legacy";
     }
     if (modelId === "gpt-realtime-translate") {
       return "OpenAI gpt-realtime-translate";
+    }
+    if (modelId === "gpt-realtime-2.1") {
+      return "OpenAI gpt-realtime-2.1 STT Hack - Not actually realtime";
     }
     if (modelId === "gpt-realtime-2") {
       return "OpenAI gpt-realtime-2 STT Hack - Not actually realtime";
