@@ -14,7 +14,7 @@ use crate::managers::deepgram_stt::{DeepgramSttManager, DeepgramTranscriptionOpt
 use crate::managers::remote_stt::RemoteSttManager;
 use crate::managers::soniox_stt::{SonioxAsyncTranscriptionOptions, SonioxSttManager};
 use crate::managers::transcription::{FileTranscriptionChunkTraceEntry, TranscriptionManager};
-use crate::session_manager::ManagedSessionState;
+use crate::session_manager::{ManagedSessionState, SessionState};
 use crate::settings::{
     apply_output_whitespace_policy_for_settings, get_settings, resolve_live_sound_provider,
     write_settings, AppSettings, FileTranscriptionChunkingMode, TranscriptionProvider,
@@ -122,9 +122,8 @@ pub fn get_file_transcription_recording_state(
         is_recording,
         recording_uses_local_model,
         file_transcription_uses_local_model,
-        blocks_file_transcription: is_recording
-            && recording_uses_local_model
-            && file_transcription_uses_local_model,
+        blocks_file_transcription: file_transcription_uses_local_model
+            && active_session_blocks_local_file_transcription(&app),
     }
 }
 
@@ -161,6 +160,35 @@ fn active_recording_uses_local_model(app: &AppHandle) -> bool {
         }
         _ => false,
     }
+}
+
+fn session_blocks_local_file_transcription(state: &SessionState) -> bool {
+    match state {
+        SessionState::Recording {
+            binding_id,
+            captured_settings,
+            ..
+        } => {
+            let provider = if binding_id == LIVE_SOUND_TRANSCRIPTION_BINDING_ID {
+                resolve_live_sound_provider(captured_settings)
+            } else {
+                captured_settings.transcription_provider
+            };
+            provider == TranscriptionProvider::Local
+        }
+        // Processing does not retain the captured provider. Conservatively
+        // protect the single local engine until the operation returns to Idle.
+        SessionState::Processing { .. } => true,
+        SessionState::Idle => false,
+    }
+}
+
+fn active_session_blocks_local_file_transcription(app: &AppHandle) -> bool {
+    let state = app.state::<ManagedSessionState>();
+    let Ok(state_guard) = state.lock() else {
+        return true;
+    };
+    session_blocks_local_file_transcription(&state_guard)
 }
 
 fn ensure_file_transcription_not_cancelled(app: &AppHandle) -> Result<(), String> {
@@ -247,9 +275,9 @@ pub async fn transcribe_audio_file(
     let use_deepgram = model_override.is_none()
         && settings.transcription_provider == TranscriptionProvider::RemoteDeepgram;
     let use_local = file_transcription_uses_local_model(&settings, model_override.as_deref());
-    if use_local && active_recording_uses_local_model(&app) {
+    if use_local && active_session_blocks_local_file_transcription(&app) {
         return Err(
-            "Local file transcription is unavailable while a local recording is active."
+            "Local file transcription is unavailable while another transcription is recording or processing."
                 .to_string(),
         );
     }
@@ -1092,4 +1120,23 @@ fn get_output_file_path(audio_path: &PathBuf, format: OutputFormat) -> Result<Pa
     let output_path = documents_dir.join(format!("{}.{}", stem, ext));
 
     Ok(output_path)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::session_blocks_local_file_transcription;
+    use crate::session_manager::SessionState;
+
+    #[test]
+    fn processing_session_blocks_local_file_transcription() {
+        let processing = SessionState::Processing {
+            binding_id: "transcribe".to_string(),
+            operation_id: 7,
+        };
+
+        assert!(session_blocks_local_file_transcription(&processing));
+        assert!(!session_blocks_local_file_transcription(
+            &SessionState::Idle
+        ));
+    }
 }
