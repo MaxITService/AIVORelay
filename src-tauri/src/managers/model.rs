@@ -258,8 +258,31 @@ struct HfDownloadProgress {
 
 struct HfDownloadProgressState {
     downloaded: u64,
+    attempt_downloaded: u64,
     total: u64,
     last_activity: std::time::Instant,
+}
+
+impl HfDownloadProgressState {
+    fn begin_attempt(&mut self, total: u64) -> (u64, u64) {
+        self.attempt_downloaded = 0;
+        self.total = total;
+        if self.total > 0 {
+            self.downloaded = self.downloaded.min(self.total);
+        }
+        self.last_activity = std::time::Instant::now();
+        (self.downloaded, self.total)
+    }
+
+    fn advance_attempt(&mut self, size: u64) -> (u64, u64) {
+        self.attempt_downloaded = self.attempt_downloaded.saturating_add(size);
+        self.downloaded = self.downloaded.max(self.attempt_downloaded);
+        if self.total > 0 {
+            self.downloaded = self.downloaded.min(self.total);
+        }
+        self.last_activity = std::time::Instant::now();
+        (self.downloaded, self.total)
+    }
 }
 
 impl HfDownloadProgress {
@@ -269,6 +292,7 @@ impl HfDownloadProgress {
             model_id,
             state: Arc::new(Mutex::new(HfDownloadProgressState {
                 downloaded: 0,
+                attempt_downloaded: 0,
                 total: fallback_total,
                 last_activity: std::time::Instant::now(),
             })),
@@ -300,21 +324,17 @@ impl HfDownloadProgress {
 impl Progress for HfDownloadProgress {
     async fn init(&mut self, size: usize, _filename: &str) {
         let total = size as u64;
-        {
+        let (downloaded, total) = {
             let mut state = self.state.lock().unwrap();
-            state.downloaded = 0;
-            state.total = total;
-            state.last_activity = std::time::Instant::now();
-        }
-        self.emit(0, total);
+            state.begin_attempt(total)
+        };
+        self.emit(downloaded, total);
     }
 
     async fn update(&mut self, size: usize) {
         let (downloaded, total) = {
             let mut state = self.state.lock().unwrap();
-            state.downloaded = state.downloaded.saturating_add(size as u64);
-            state.last_activity = std::time::Instant::now();
-            (state.downloaded, state.total)
+            state.advance_attempt(size as u64)
         };
         self.emit(downloaded, total);
     }
@@ -1828,6 +1848,11 @@ impl ModelManager {
                 },
             );
 
+            let progress = HfDownloadProgress::new(
+                self.app_handle.clone(),
+                model_info.id.clone(),
+                model_info.size_mb.saturating_mul(1024 * 1024),
+            );
             let mut last_error = "no download attempt was made".to_string();
             for attempt in 1..=HF_DOWNLOAD_ATTEMPTS {
                 if cancel_token.is_cancelled() {
@@ -1842,11 +1867,6 @@ impl ModelManager {
                     RepoType::Model,
                     revision.clone(),
                 ));
-                let progress = HfDownloadProgress::new(
-                    self.app_handle.clone(),
-                    model_info.id.clone(),
-                    model_info.size_mb.saturating_mul(1024 * 1024),
-                );
                 let attempt_token = cancel_token.child_token();
                 let watchdog_token = attempt_token.clone();
                 let watchdog_progress = progress.clone();
@@ -1864,7 +1884,7 @@ impl ModelManager {
                 });
 
                 let transfer = repo
-                    .download_with_progress_cancellable(&filename, progress, attempt_token)
+                    .download_with_progress_cancellable(&filename, progress.clone(), attempt_token)
                     .await;
                 watchdog.abort();
                 let _ = watchdog.await;
@@ -2460,7 +2480,7 @@ impl ModelManager {
 
 #[cfg(test)]
 mod tests {
-    use super::{effective_language, ModelManager};
+    use super::{effective_language, HfDownloadProgressState, ModelManager};
     use std::fs;
     use std::path::PathBuf;
     use std::time::{SystemTime, UNIX_EPOCH};
@@ -2487,6 +2507,22 @@ mod tests {
 
         assert_eq!(effective_language("zh-Hans", &languages, false), "zh-Hans");
         assert_eq!(effective_language("zh-Hant", &languages, false), "zh-Hant");
+    }
+
+    #[test]
+    fn hf_retry_progress_never_moves_backwards() {
+        let mut state = HfDownloadProgressState {
+            downloaded: 600,
+            attempt_downloaded: 600,
+            total: 1_000,
+            last_activity: std::time::Instant::now(),
+        };
+
+        assert_eq!(state.begin_attempt(1_000), (600, 1_000));
+        // The hf-hub fork reports the persisted resume offset first. It may be
+        // below bytes displayed from out-of-order chunks on the prior attempt.
+        assert_eq!(state.advance_attempt(400), (600, 1_000));
+        assert_eq!(state.advance_attempt(250), (650, 1_000));
     }
 
     #[test]
