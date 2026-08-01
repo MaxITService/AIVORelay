@@ -231,6 +231,7 @@ pub struct LocalTtsRuntime {
     root: PathBuf,
     client: reqwest::Client,
     status: Arc<RwLock<LocalTtsStatus>>,
+    lifecycle: tokio::sync::Mutex<()>,
     install_cancel: Mutex<Option<CancellationToken>>,
     worker: tokio::sync::Mutex<Option<LocalWorker>>,
     request_id: AtomicU64,
@@ -252,6 +253,7 @@ impl LocalTtsRuntime {
             status: Arc::new(RwLock::new(qwen_status(&root))),
             root,
             client,
+            lifecycle: tokio::sync::Mutex::new(()),
             install_cancel: Mutex::new(None),
             worker: tokio::sync::Mutex::new(None),
             request_id: AtomicU64::new(1),
@@ -270,9 +272,10 @@ impl LocalTtsRuntime {
     }
 
     pub async fn install(&self, disk_reserve_mb: u32) -> Result<LocalTtsStatus> {
-        if self.install_cancel.lock().is_some() {
-            return Err(anyhow!("Local TTS installation is already running"));
-        }
+        let _lifecycle_guard = self
+            .lifecycle
+            .try_lock()
+            .map_err(|_| anyhow!("Another local TTS install or delete operation is running"))?;
         if self.is_installed() {
             return Ok(self.status());
         }
@@ -329,6 +332,10 @@ impl LocalTtsRuntime {
     }
 
     pub async fn delete(&self) -> Result<()> {
+        let _lifecycle_guard = self
+            .lifecycle
+            .try_lock()
+            .map_err(|_| anyhow!("Another local TTS install or delete operation is running"))?;
         if self.install_cancel.lock().is_some() {
             return Err(anyhow!(
                 "Cancel the active local TTS installation before deleting it"
