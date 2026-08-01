@@ -19,8 +19,8 @@
     "voiceCommands": "Voice Commands",
     "browserConnector": "Connector",
     "transcribeFile": "Transcribe File",
-    "textToSpeech": "Text to Speech",
-    "ttsFiles": "TTS File Operations",
+    "textToSpeech": "Speak selected text",
+    "ttsFiles": "Text file to mp3",
     "textReplacement": "Text Processing",
     "audioProcessing": "Speech Processing",
     "userInterface": "User Interface",
@@ -29,7 +29,7 @@
     "about": "About"
   },
   "textToSpeech": {
-    "title": "Text to Speech: Select text, press a key, and hear it read aloud.",
+    "title": "Speak selected text",
     "description": "Read clipboard or selected text aloud and configure provider-independent voice generation.",
     "beta": {
       "label": "BETA",
@@ -157,11 +157,11 @@
       "system": "System"
     },
     "fileSettings": {
-      "title": "TTS File Operations settings",
+      "title": "Text file to mp3",
       "description": "Provider and synthesis settings used by manual file conversion, folder automation, the CLI, and File History."
     },
     "synthesisPresets": {
-      "title": "Synthesis presets",
+      "title": "Presets of all settings",
       "description": "Saved presets are shared between Interactive TTS and File Operations. Loading a preset changes only this page.",
       "modelMemory": "This page automatically remembers its settings separately for every provider/model you select.",
       "loadTitle": "Load synthesis preset",
