@@ -1929,10 +1929,11 @@ impl Default for LiveSoundTranscriptionProvider {
 }
 
 /// Resolve the effective transcription provider for Live Sound Transcription.
-/// If the page-level override is set, use it; otherwise fall back to the global provider.
+/// `System` is a legacy alias kept so old settings still deserialize; it maps to
+/// Soniox (the current default), matching the frontend migration semantics.
 pub fn resolve_live_sound_provider(settings: &AppSettings) -> TranscriptionProvider {
     match settings.live_sound_transcription_provider {
-        LiveSoundTranscriptionProvider::System => settings.transcription_provider,
+        LiveSoundTranscriptionProvider::System => TranscriptionProvider::RemoteSoniox,
         LiveSoundTranscriptionProvider::RemoteSoniox => TranscriptionProvider::RemoteSoniox,
         LiveSoundTranscriptionProvider::RemoteDeepgram => TranscriptionProvider::RemoteDeepgram,
     }
@@ -5860,5 +5861,37 @@ mod tests {
         let settings: TtsSettings = serde_json::from_value(value).unwrap();
         assert!(settings.windows_voice_id.is_empty());
         assert!(settings.windows_voice_language.is_empty());
+    }
+
+    #[test]
+    fn live_sound_resolver_maps_legacy_system_to_soniox() {
+        let mut settings = get_default_settings();
+        // A local global provider must not leak into the Live Sound branch.
+        settings.transcription_provider = TranscriptionProvider::Local;
+
+        settings.live_sound_transcription_provider = LiveSoundTranscriptionProvider::System;
+        assert_eq!(
+            resolve_live_sound_provider(&settings),
+            TranscriptionProvider::RemoteSoniox
+        );
+
+        settings.live_sound_transcription_provider = LiveSoundTranscriptionProvider::RemoteSoniox;
+        assert_eq!(
+            resolve_live_sound_provider(&settings),
+            TranscriptionProvider::RemoteSoniox
+        );
+
+        settings.live_sound_transcription_provider = LiveSoundTranscriptionProvider::RemoteDeepgram;
+        assert_eq!(
+            resolve_live_sound_provider(&settings),
+            TranscriptionProvider::RemoteDeepgram
+        );
+    }
+
+    #[test]
+    fn legacy_system_live_sound_provider_value_still_deserializes() {
+        let provider: LiveSoundTranscriptionProvider =
+            serde_json::from_value(json!("system")).unwrap();
+        assert_eq!(provider, LiveSoundTranscriptionProvider::System);
     }
 }
