@@ -37,6 +37,12 @@
       "description": "This feature is still being refined. If you encounter a problem, please report it on GitHub.",
       "reportIssue": "Open GitHub Issues"
     },
+    "firstVisit": {
+      "title": "Start with a preset",
+      "description": "Don't be intimidated by the number of settings. AivoRelay includes presets for every provider to help you get started. Select a provider, load one of its presets, add an API key if that provider requires one, and start using it. Everything else can stay at its default.",
+      "interactiveReminder": "Before using Speak selected text, assign at least one keyboard shortcut in Actions.",
+      "dismiss": "Got it"
+    },
     "help": {
       "tellMeMore": "Tell me more",
       "providerSummary": "{{provider}} is used for this page. Search the provider list by typing; model, voice, and language fields also accept exact custom IDs when the provider adds something new.",
@@ -232,7 +238,7 @@
       "help": "Uses voices installed in Windows; no model or API key is needed. AivoRelay does not redistribute voices. Usage rights depend on the installed voice and its provider terms."
     },
     "edge": {
-      "experimentalWarning": "Experimental provider: connects directly from AivoRelay to Microsoft Edge's online Read Aloud service through a native Rust client. No Python, helper, or API key is required. This unofficial service can change without notice."
+      "experimentalWarning": "Unofficial integration: AivoRelay connects directly to Microsoft Edge's online Read Aloud service through a native Rust client. It does not use an official public Microsoft API, and availability may change without notice. No Python, browser, helper, or API key is required."
     },
     "voice": {
       "title": "Voice",

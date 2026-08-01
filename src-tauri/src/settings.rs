@@ -1129,7 +1129,7 @@ fn default_tts_synthesis_presets() -> Vec<TtsSynthesisPreset> {
         ),
         builtin_tts_synthesis_preset(
             "builtin_tts_edge_aria",
-            "Edge TTS — Aria",
+            "Microsoft Read Aloud (unofficial) — Aria",
             TtsProvider::Edge,
             "microsoft-edge-read-aloud",
             "en-US-AriaNeural",
@@ -1138,7 +1138,7 @@ fn default_tts_synthesis_presets() -> Vec<TtsSynthesisPreset> {
         ),
         builtin_tts_synthesis_preset(
             "builtin_tts_edge_guy",
-            "Edge TTS — Guy",
+            "Microsoft Read Aloud (unofficial) — Guy",
             TtsProvider::Edge,
             "microsoft-edge-read-aloud",
             "en-US-GuyNeural",
@@ -5129,8 +5129,25 @@ fn ensure_default_bindings(settings: &mut AppSettings) -> bool {
 }
 
 fn ensure_default_tts_synthesis_presets(settings: &mut AppSettings) -> bool {
+    let mut changed = false;
+    for preset in &mut settings.tts.synthesis_presets {
+        let replacement = match (preset.id.as_str(), preset.name.as_str()) {
+            ("builtin_tts_edge_aria", "Edge TTS — Aria") => {
+                Some("Microsoft Read Aloud (unofficial) — Aria")
+            }
+            ("builtin_tts_edge_guy", "Edge TTS — Guy") => {
+                Some("Microsoft Read Aloud (unofficial) — Guy")
+            }
+            _ => None,
+        };
+        if let Some(name) = replacement {
+            preset.name = name.to_string();
+            changed = true;
+        }
+    }
+
     if settings.tts.synthesis_presets_seed_version >= DEFAULT_TTS_SYNTHESIS_PRESET_SEED_VERSION {
-        return false;
+        return changed;
     }
 
     let existing_ids = settings
@@ -6111,6 +6128,24 @@ mod tests {
         ] {
             assert_eq!(provider_counts.get(provider.as_str()), Some(&2));
         }
+
+        let edge_aria = settings
+            .tts
+            .synthesis_presets
+            .iter_mut()
+            .find(|preset| preset.id == "builtin_tts_edge_aria")
+            .unwrap();
+        edge_aria.name = "Edge TTS — Aria".to_string();
+        assert!(ensure_default_tts_synthesis_presets(&mut settings));
+        assert_eq!(
+            settings
+                .tts
+                .synthesis_presets
+                .iter()
+                .find(|preset| preset.id == "builtin_tts_edge_aria")
+                .map(|preset| preset.name.as_str()),
+            Some("Microsoft Read Aloud (unofficial) — Aria")
+        );
 
         settings
             .tts

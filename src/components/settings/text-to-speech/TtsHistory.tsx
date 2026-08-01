@@ -198,7 +198,7 @@ const providerLabel = (provider: TtsProvider) => {
     case "openai":
       return "OpenAI";
     case "edge":
-      return "Edge-TTS (Experimental)";
+      return "Microsoft Read Aloud (unofficial)";
     case "local_qwen":
       return "Qwen3-TTS (Local)";
     case "local_kokoro":

@@ -21,6 +21,7 @@ import {
   Plus,
   RefreshCw,
   Save as SaveIcon,
+  Sparkles,
   Trash2,
 } from "lucide-react";
 
@@ -1052,6 +1053,25 @@ export interface TextToSpeechSettingsProps {
   mode?: "interactive" | "files";
 }
 
+const FIRST_VISIT_NOTICE_STORAGE_KEYS = {
+  interactive: "aivorelay.tts.first-visit.interactive.v1",
+  files: "aivorelay.tts.first-visit.files.v1",
+} as const;
+
+const shouldShowFirstVisitNotice = (
+  mode: NonNullable<TextToSpeechSettingsProps["mode"]>,
+): boolean => {
+  if (typeof window === "undefined") return true;
+  try {
+    return (
+      window.localStorage.getItem(FIRST_VISIT_NOTICE_STORAGE_KEYS[mode]) !==
+      "dismissed"
+    );
+  } catch {
+    return true;
+  }
+};
+
 export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
   mode = "interactive",
 }) => {
@@ -1114,6 +1134,14 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
 
   const [savingField, setSavingField] = useState<string | null>(null);
   const [settingsError, setSettingsError] = useState<string | null>(null);
+  const [showFirstVisitNotice, setShowFirstVisitNotice] = useState(() =>
+    shouldShowFirstVisitNotice(mode),
+  );
+
+  useEffect(() => {
+    setShowFirstVisitNotice(shouldShowFirstVisitNotice(mode));
+  }, [mode]);
+
   const [hasSeparateKey, setHasSeparateKey] = useState(false);
   const [hasEffectiveKey, setHasEffectiveKey] = useState(false);
   const [keyStatusLoaded, setKeyStatusLoaded] = useState(false);
@@ -2180,9 +2208,52 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
       ? t("textToSpeech.overlay.historyFallbackRequiresResult")
       : t("textToSpeech.overlay.historyFallbackDescription");
 
+  const dismissFirstVisitNotice = () => {
+    setShowFirstVisitNotice(false);
+    try {
+      window.localStorage.setItem(
+        FIRST_VISIT_NOTICE_STORAGE_KEYS[mode],
+        "dismissed",
+      );
+    } catch {
+      // The notice still stays dismissed for this session when storage is unavailable.
+    }
+  };
+
   return (
     <div className="mx-auto w-full max-w-3xl space-y-6 pb-12">
       <TtsBetaBanner />
+
+      {showFirstVisitNotice && (
+        <div
+          role="note"
+          className="flex flex-col gap-3 rounded-lg border border-violet-300/30 bg-violet-400/[0.09] px-4 py-4 text-sm text-violet-50 sm:flex-row sm:items-start"
+        >
+          <Sparkles className="mt-0.5 h-5 w-5 shrink-0 text-violet-200" />
+          <div className="min-w-0 flex-1 space-y-1.5">
+            <p className="font-semibold">
+              {t("textToSpeech.firstVisit.title")}
+            </p>
+            <p className="leading-relaxed text-violet-50/85">
+              {t("textToSpeech.firstVisit.description")}
+            </p>
+            {mode === "interactive" && (
+              <p className="leading-relaxed text-violet-100">
+                {t("textToSpeech.firstVisit.interactiveReminder")}
+              </p>
+            )}
+          </div>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="shrink-0 self-start"
+            onClick={dismissFirstVisitNotice}
+          >
+            {t("textToSpeech.firstVisit.dismiss")}
+          </Button>
+        </div>
+      )}
 
       {settingsError && (
         <div

@@ -27,7 +27,7 @@ export const TTS_PROVIDER_OPTIONS: TtsProviderOption[] = [
   { value: "openai", label: "OpenAI", group: "Cloud" },
   {
     value: "edge",
-    label: "Edge-TTS (Experimental)",
+    label: "Microsoft Read Aloud (unofficial)",
     group: "Online without an API key",
   },
   { value: "local_qwen", label: "Qwen3-TTS (Local)", group: "On device" },

@@ -2897,7 +2897,7 @@ fn provider_name(provider: TtsProvider) -> &'static str {
         TtsProvider::Soniox => "Soniox",
         TtsProvider::Deepgram => "Deepgram",
         TtsProvider::OpenAi => "OpenAI",
-        TtsProvider::Edge => "Edge-TTS (experimental)",
+        TtsProvider::Edge => "Microsoft Read Aloud (unofficial)",
         TtsProvider::LocalQwen => "Local Qwen3-TTS",
         TtsProvider::LocalKokoro => "Local Kokoro",
         TtsProvider::Windows => "Windows voices",
