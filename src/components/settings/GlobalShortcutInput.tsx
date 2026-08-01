@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { useTranslation } from "react-i18next";
 import { type } from "@tauri-apps/plugin-os";
@@ -22,6 +22,12 @@ interface GlobalShortcutInputProps {
   disabled?: boolean;
 }
 
+interface BindingSuspension {
+  promise: Promise<boolean>;
+  releaseRequested: boolean;
+  resumeStarted: boolean;
+}
+
 export const GlobalShortcutInput: React.FC<GlobalShortcutInputProps> = ({
   descriptionMode = "tooltip",
   grouped = false,
@@ -39,6 +45,7 @@ export const GlobalShortcutInput: React.FC<GlobalShortcutInputProps> = ({
   const [originalBinding, setOriginalBinding] = useState<string>("");
   const [osType, setOsType] = useState<OSType>("unknown");
   const shortcutRefs = useRef<Map<string, HTMLDivElement | null>>(new Map());
+  const suspensionRef = useRef<BindingSuspension | null>(null);
 
   const bindings = getSetting("bindings") || {};
   const configuredShortcutEngine =
@@ -74,6 +81,29 @@ export const GlobalShortcutInput: React.FC<GlobalShortcutInputProps> = ({
     detectOsType();
   }, []);
 
+  const releaseBindingSuspension = useCallback(async () => {
+    const suspension = suspensionRef.current;
+    if (!suspension) return;
+
+    // Queue release behind an in-flight suspend command. This matters when the
+    // component unmounts before suspend_all_bindings has returned.
+    suspension.releaseRequested = true;
+    const suspended = await suspension.promise;
+    if (suspended && !suspension.resumeStarted) {
+      suspension.resumeStarted = true;
+      await invoke("resume_all_bindings").catch(console.error);
+    }
+    if (suspensionRef.current === suspension) {
+      suspensionRef.current = null;
+    }
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      void releaseBindingSuspension();
+    };
+  }, [releaseBindingSuspension]);
+
   useEffect(() => {
     if (editingShortcutId === null) return;
 
@@ -94,7 +124,7 @@ export const GlobalShortcutInput: React.FC<GlobalShortcutInputProps> = ({
             );
           }
         }
-        await invoke("resume_all_bindings").catch(console.error);
+        await releaseBindingSuspension();
         setEditingShortcutId(null);
         setKeyPressed([]);
         setRecordedKeys([]);
@@ -176,7 +206,7 @@ export const GlobalShortcutInput: React.FC<GlobalShortcutInputProps> = ({
             }
           }
 
-          await invoke("resume_all_bindings").catch(console.error);
+          await releaseBindingSuspension();
 
           setEditingShortcutId(null);
           setKeyPressed([]);
@@ -201,7 +231,7 @@ export const GlobalShortcutInput: React.FC<GlobalShortcutInputProps> = ({
             );
           }
         }
-        await invoke("resume_all_bindings").catch(console.error);
+        await releaseBindingSuspension();
         setEditingShortcutId(null);
         setKeyPressed([]);
         setRecordedKeys([]);
@@ -228,12 +258,36 @@ export const GlobalShortcutInput: React.FC<GlobalShortcutInputProps> = ({
     updateBinding,
     osType,
     t,
+    releaseBindingSuspension,
   ]);
 
   const startRecording = async (id: string) => {
-    if (editingShortcutId === id) return;
+    if (editingShortcutId !== null || suspensionRef.current) return;
 
-    await invoke("suspend_all_bindings").catch(console.error);
+    const suspension: BindingSuspension = {
+      promise: Promise.resolve(false),
+      releaseRequested: false,
+      resumeStarted: false,
+    };
+    suspension.promise = invoke("suspend_all_bindings")
+      .then(() => true)
+      .catch((error) => {
+        console.error(error);
+        return false;
+      });
+    suspensionRef.current = suspension;
+
+    const suspended = await suspension.promise;
+    if (!suspended) {
+      if (suspensionRef.current === suspension) {
+        suspensionRef.current = null;
+      }
+      return;
+    }
+    if (suspension.releaseRequested) {
+      await releaseBindingSuspension();
+      return;
+    }
 
     setOriginalBinding(bindings[id]?.current_binding || "");
     setEditingShortcutId(id);
