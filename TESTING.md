@@ -33,7 +33,7 @@ Windows backend tests in this fork must be runnable through the checked-in harne
 ## Harness Notes
 
 - `test-local.ps1` imports the same MSVC environment setup used for local builds.
-- The harness configures `BINDGEN_EXTRA_CLANG_ARGS_x86_64_pc_windows_msvc` and `LIBCLANG_PATH` so `whisper-rs-sys` can build under `cargo test`.
+- The harness configures `BINDGEN_EXTRA_CLANG_ARGS_x86_64_pc_windows_msvc` and `LIBCLANG_PATH` for native Cargo dependencies under `cargo test`.
 - The harness uses a short `CARGO_TARGET_DIR` to reduce Windows path-length pain.
 - By policy, every new test batch must be documented in this file immediately after it is added.
 
@@ -51,11 +51,6 @@ cannot invalidate the second `SpeechSynthesizer::DefaultVoice()` call.
 Run it with:
 
 `pwsh -NoProfile -File .\test-local.ps1 -LibOnly -Filter 'managers::windows_tts::tests'`
-
-On the current development machine the test binary compiles, but the existing
-project-wide native test-loader issue terminates it before the Rust harness
-starts with `0xc0000139 STATUS_ENTRYPOINT_NOT_FOUND`. Compile-only validation
-remains available with the same harness plus `-NoRun`.
 
 ## Playwright + Tauri
 
