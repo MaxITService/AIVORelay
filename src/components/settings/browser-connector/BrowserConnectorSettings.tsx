@@ -5,6 +5,7 @@ import { open } from "@tauri-apps/plugin-dialog";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { downloadDir } from "@tauri-apps/api/path";
+import { type as getOsType } from "@tauri-apps/plugin-os";
 import { TellMeMore } from "../../ui/TellMeMore";
 import { commands, type ConnectorStatus } from "@/bindings";
 import { useSettings } from "../../../hooks/useSettings";
@@ -84,6 +85,7 @@ const resolveConnectorExportDir = (value: string) => {
 export const BrowserConnectorSettings: React.FC = () => {
   const { t } = useTranslation();
   const { settings, updateSetting, isUpdating, refreshSettings } = useSettings();
+  const supportsScreenshotCapture = getOsType() === "windows";
   const normalizeCorsValue = (value?: string | null) => value ?? "";
 
   const [portInput, setPortInput] = useState(String(settings?.connector_port ?? 38243));
@@ -1101,7 +1103,10 @@ export const BrowserConnectorSettings: React.FC = () => {
           grouped={true}
         >
           <ToggleSwitch
-            checked={settings?.send_screenshot_to_extension_enabled ?? false}
+            checked={
+              supportsScreenshotCapture &&
+              (settings?.send_screenshot_to_extension_enabled ?? false)
+            }
             onChange={(enabled) => {
               if (enabled) {
                 setShowEnableWarning("send_screenshot_to_extension");
@@ -1109,12 +1114,21 @@ export const BrowserConnectorSettings: React.FC = () => {
                 void updateSetting("send_screenshot_to_extension_enabled", false);
               }
             }}
-            disabled={isUpdating("send_screenshot_to_extension_enabled")}
+            disabled={
+              !supportsScreenshotCapture ||
+              isUpdating("send_screenshot_to_extension_enabled")
+            }
           />
         </SettingContainer>
+        {!supportsScreenshotCapture && (
+          <div className="mx-6 mb-4 rounded border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-100">
+            {t("settings.browserConnector.screenshot.windowsOnly")}
+          </div>
+        )}
         <div 
           className={`overflow-hidden transition-all duration-300 ease-out ${
-            settings?.send_screenshot_to_extension_enabled 
+            supportsScreenshotCapture &&
+            settings?.send_screenshot_to_extension_enabled
               ? "max-h-[2500px] opacity-100" 
               : "max-h-0 opacity-0"
           }`}
@@ -1614,7 +1628,9 @@ export const BrowserConnectorSettings: React.FC = () => {
           } else if (showEnableWarning === "send_to_extension_with_selection") {
             void updateSetting("send_to_extension_with_selection_enabled", true);
           } else if (showEnableWarning === "send_screenshot_to_extension") {
-            void updateSetting("send_screenshot_to_extension_enabled", true);
+            if (supportsScreenshotCapture) {
+              void updateSetting("send_screenshot_to_extension_enabled", true);
+            }
           }
         }}
         title={showEnableWarning ? t(`settings.general.shortcut.bindings.${showEnableWarning}.enable.warning.title`) : ""}

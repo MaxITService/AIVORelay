@@ -2992,6 +2992,7 @@
       "screenshot": {
         "title": "Screenshot Settings",
         "description": "Configure screenshot capture for sending images with voice instructions to the extension.",
+        "windowsOnly": "Screenshot capture is currently available only on Windows. Other Browser Connector features remain available.",
         "method": {
           "title": "Capture Method",
           "description": "Choose how screenshots are captured.",

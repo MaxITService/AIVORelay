@@ -7896,6 +7896,15 @@ impl ShortcutAction for SendScreenshotToExtensionAction {
             binding_id
         );
 
+        if !cfg!(target_os = "windows") {
+            emit_screenshot_error(
+                app,
+                "Screenshot capture for Browser Connector is only supported on Windows.",
+            );
+            reset_toggle_state(app, binding_id);
+            return;
+        }
+
         // Check if extension is online before starting
         let cm = Arc::clone(&app.state::<Arc<ConnectorManager>>());
         if !cm.is_online() {
