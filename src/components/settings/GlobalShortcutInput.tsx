@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
+import { invoke } from "@tauri-apps/api/core";
 import { useTranslation } from "react-i18next";
 import { type } from "@tauri-apps/plugin-os";
 import {
@@ -11,7 +12,6 @@ import {
 import { ResetButton } from "../ui/ResetButton";
 import { SettingContainer } from "../ui/SettingContainer";
 import { useSettings } from "../../hooks/useSettings";
-import { commands } from "@/bindings";
 import { sessionToast as toast } from "@/lib/sessionToast";
 import { showShortcutSetErrorToast } from "../../lib/utils/shortcutEngineErrorToast";
 
@@ -93,9 +93,8 @@ export const GlobalShortcutInput: React.FC<GlobalShortcutInputProps> = ({
               }),
             );
           }
-        } else if (editingShortcutId) {
-          await commands.resumeBinding(editingShortcutId).catch(console.error);
         }
+        await invoke("resume_all_bindings").catch(console.error);
         setEditingShortcutId(null);
         setKeyPressed([]);
         setRecordedKeys([]);
@@ -177,6 +176,8 @@ export const GlobalShortcutInput: React.FC<GlobalShortcutInputProps> = ({
             }
           }
 
+          await invoke("resume_all_bindings").catch(console.error);
+
           setEditingShortcutId(null);
           setKeyPressed([]);
           setRecordedKeys([]);
@@ -199,9 +200,8 @@ export const GlobalShortcutInput: React.FC<GlobalShortcutInputProps> = ({
               }),
             );
           }
-        } else if (editingShortcutId) {
-          await commands.resumeBinding(editingShortcutId).catch(console.error);
         }
+        await invoke("resume_all_bindings").catch(console.error);
         setEditingShortcutId(null);
         setKeyPressed([]);
         setRecordedKeys([]);
@@ -233,7 +233,7 @@ export const GlobalShortcutInput: React.FC<GlobalShortcutInputProps> = ({
   const startRecording = async (id: string) => {
     if (editingShortcutId === id) return;
 
-    await commands.suspendBinding(id).catch(console.error);
+    await invoke("suspend_all_bindings").catch(console.error);
 
     setOriginalBinding(bindings[id]?.current_binding || "");
     setEditingShortcutId(id);

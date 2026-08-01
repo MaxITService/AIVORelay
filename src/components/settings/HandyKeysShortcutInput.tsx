@@ -72,6 +72,7 @@ export const HandyKeysShortcutInput: React.FC<HandyKeysShortcutInputProps> = ({
     }
 
     await invoke("stop_handy_keys_recording").catch(console.error);
+    await invoke("resume_all_bindings").catch(console.error);
     setIsRecording(false);
     setCurrentKeys("");
     currentKeysRef.current = "";
@@ -212,14 +213,13 @@ export const HandyKeysShortcutInput: React.FC<HandyKeysShortcutInputProps> = ({
     if (isRecording) return;
 
     try {
-      await invoke("suspend_binding", { id: shortcutId });
       setOriginalBinding(bindings[shortcutId]?.current_binding || "");
       await invoke("start_handy_keys_recording", { bindingId: shortcutId });
       setIsRecording(true);
       setCurrentKeys("");
       currentKeysRef.current = "";
     } catch (error) {
-      await invoke("resume_binding", { id: shortcutId }).catch(console.error);
+      await invoke("resume_all_bindings").catch(console.error);
       setOriginalBinding("");
       showShortcutSetErrorToast(error, configuredShortcutEngine, t);
     }

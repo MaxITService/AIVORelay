@@ -5518,8 +5518,70 @@ fn validate_shortcut_string(app: &AppHandle, raw: &str) -> Result<(), String> {
     }
 }
 
-/// Temporarily unregister a binding while the user is editing it in the UI.
-/// This avoids firing the action while keys are being recorded.
+/// Temporarily unregister every active binding while the user is recording a
+/// new shortcut in the UI. This prevents another action from firing or
+/// swallowing the keys being captured.
+pub fn suspend_all_shortcuts(app: &AppHandle) {
+    let settings = get_settings(app);
+    for (id, binding) in &settings.bindings {
+        if id == "cancel"
+            || binding.current_binding.trim().is_empty()
+            || !is_binding_enabled_for_settings(&settings, id)
+            || !is_binding_currently_registered(app, &binding)
+        {
+            continue;
+        }
+
+        if let Err(error) = unregister_shortcut(app, binding.clone()) {
+            log::debug!(
+                "suspend_all_shortcuts: failed to unregister '{}': {}",
+                id,
+                error
+            );
+        }
+    }
+}
+
+/// Re-register every binding that should currently be active after shortcut
+/// recording ends. Registration is idempotent from this helper's perspective:
+/// already-active or feature-disabled bindings are skipped.
+pub fn resume_all_shortcuts(app: &AppHandle) {
+    let settings = get_settings(app);
+    for (id, binding) in &settings.bindings {
+        if id == "cancel"
+            || binding.current_binding.trim().is_empty()
+            || !is_binding_enabled_for_settings(&settings, id)
+            || is_binding_currently_registered(app, binding)
+        {
+            continue;
+        }
+
+        if let Err(error) = register_shortcut(app, binding.clone()) {
+            log::debug!(
+                "resume_all_shortcuts: failed to register '{}': {}",
+                id,
+                error
+            );
+        }
+    }
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn suspend_all_bindings(app: AppHandle) -> Result<(), String> {
+    suspend_all_shortcuts(&app);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn resume_all_bindings(app: AppHandle) -> Result<(), String> {
+    resume_all_shortcuts(&app);
+    Ok(())
+}
+
+/// Legacy single-binding command retained for compatibility with older
+/// frontend bundles. New code should use [`suspend_all_bindings`].
 #[tauri::command]
 #[specta::specta]
 pub fn suspend_binding(app: AppHandle, id: String) -> Result<(), String> {
@@ -5532,7 +5594,8 @@ pub fn suspend_binding(app: AppHandle, id: String) -> Result<(), String> {
     Ok(())
 }
 
-/// Re-register the binding after the user has finished editing.
+/// Legacy single-binding command retained for compatibility with older
+/// frontend bundles. New code should use [`resume_all_bindings`].
 #[tauri::command]
 #[specta::specta]
 pub fn resume_binding(app: AppHandle, id: String) -> Result<(), String> {
