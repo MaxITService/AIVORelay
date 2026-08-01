@@ -36,8 +36,8 @@ use std::collections::HashSet;
 use std::fs::{self, File, OpenOptions};
 use std::io::{BufReader, Read, Write};
 use std::num::NonZeroU32;
-use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::path::{Component, Path, PathBuf};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 use tauri::{AppHandle, Emitter, Manager};
@@ -45,6 +45,7 @@ use tauri::{AppHandle, Emitter, Manager};
 pub const TTS_EVENT_STATE: &str = "tts://state";
 pub const TTS_EVENT_CHUNK_READY: &str = "tts://chunk-ready";
 pub const TTS_EVENT_PROGRESS: &str = "tts://progress";
+pub const TTS_EVENT_BATCH_PROGRESS: &str = "tts://batch-progress";
 
 pub const SONIOX_CHARACTER_LIMIT: usize = 5_000;
 pub const DEEPGRAM_CHARACTER_LIMIT: usize = 2_000;
@@ -69,6 +70,7 @@ const MAX_VOICE_CATALOG_BYTES: usize = 4 * 1024 * 1024;
 // Long enough for multi-million-character book sources while bounding the
 // additional copies created by Unicode chunking and preprocessing.
 pub(crate) const MAX_TTS_TEXT_INPUT_BYTES: usize = 8 * 1024 * 1024;
+const MAX_TTS_BATCH_FILES: usize = 100_000;
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, Type, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -209,6 +211,126 @@ pub struct FileConversionResult {
     pub mp3_bitrate_kbps: Option<u16>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct TtsBatchScanRequest {
+    pub input_directory: Option<PathBuf>,
+    #[serde(default)]
+    pub input_paths: Vec<PathBuf>,
+    pub output_directory: PathBuf,
+    pub recursive: bool,
+    pub output_format: TtsOutputFormat,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct TtsBatchFilePlan {
+    pub input_path: PathBuf,
+    pub relative_path: PathBuf,
+    pub output_path: PathBuf,
+    pub scan_error: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct TtsBatchScanResult {
+    pub input_directory: Option<PathBuf>,
+    pub output_directory: PathBuf,
+    pub recursive: bool,
+    pub output_format: TtsOutputFormat,
+    pub files: Vec<TtsBatchFilePlan>,
+    pub eligible_count: usize,
+    pub warnings: Vec<String>,
+}
+
+pub(crate) struct TtsBatchCancellation {
+    cancelled: AtomicBool,
+    current_operation_id: AtomicU64,
+}
+
+impl TtsBatchCancellation {
+    fn new() -> Self {
+        Self {
+            cancelled: AtomicBool::new(false),
+            current_operation_id: AtomicU64::new(0),
+        }
+    }
+
+    pub(crate) fn is_cancelled(&self) -> bool {
+        self.cancelled.load(Ordering::SeqCst)
+    }
+
+    fn attach_operation<'a>(
+        &'a self,
+        manager: &TtsManager,
+        operation_id: u64,
+    ) -> TtsBatchOperationRegistration<'a> {
+        self.current_operation_id
+            .store(operation_id, Ordering::SeqCst);
+        if self.is_cancelled() {
+            manager.cancel_operation(operation_id);
+        }
+        TtsBatchOperationRegistration {
+            cancellation: self,
+            operation_id,
+        }
+    }
+
+    fn cancel(&self, manager: &TtsManager) {
+        self.cancelled.store(true, Ordering::SeqCst);
+        let operation_id = self.current_operation_id.load(Ordering::SeqCst);
+        if operation_id != 0 {
+            manager.cancel_operation(operation_id);
+        }
+    }
+}
+
+struct TtsBatchOperationRegistration<'a> {
+    cancellation: &'a TtsBatchCancellation,
+    operation_id: u64,
+}
+
+impl Drop for TtsBatchOperationRegistration<'_> {
+    fn drop(&mut self) {
+        let _ = self.cancellation.current_operation_id.compare_exchange(
+            self.operation_id,
+            0,
+            Ordering::SeqCst,
+            Ordering::SeqCst,
+        );
+    }
+}
+
+struct ActiveTtsBatch {
+    id: u64,
+    cancellation: Arc<TtsBatchCancellation>,
+}
+
+pub(crate) struct TtsBatchLease {
+    manager: Arc<TtsManager>,
+    id: u64,
+    cancellation: Arc<TtsBatchCancellation>,
+}
+
+impl TtsBatchLease {
+    pub(crate) fn id(&self) -> u64 {
+        self.id
+    }
+
+    pub(crate) fn cancellation(&self) -> &Arc<TtsBatchCancellation> {
+        &self.cancellation
+    }
+}
+
+impl Drop for TtsBatchLease {
+    fn drop(&mut self) {
+        let mut active = self.manager.active_batch.lock();
+        if active.as_ref().is_some_and(|batch| batch.id == self.id) {
+            *active = None;
+        }
+    }
+}
+
 pub(crate) struct ResolvedTtsResult<T> {
     pub value: T,
     pub settings: TtsSettings,
@@ -239,6 +361,8 @@ pub struct TtsManager {
     watcher_generation: AtomicU64,
     watched_conversion_lock: tokio::sync::Mutex<()>,
     foreground_operation_lock: Arc<tokio::sync::Mutex<()>>,
+    active_batch: parking_lot::Mutex<Option<ActiveTtsBatch>>,
+    next_batch_id: AtomicU64,
     finalization_lock: parking_lot::Mutex<()>,
     local_tts: LocalTtsRuntime,
     local_kokoro: KokoroTtsRuntime,
@@ -272,6 +396,8 @@ impl TtsManager {
             watcher_generation: AtomicU64::new(0),
             watched_conversion_lock: tokio::sync::Mutex::new(()),
             foreground_operation_lock: Arc::new(tokio::sync::Mutex::new(())),
+            active_batch: parking_lot::Mutex::new(None),
+            next_batch_id: AtomicU64::new(0),
             finalization_lock: parking_lot::Mutex::new(()),
             local_tts,
             local_kokoro,
@@ -603,6 +729,62 @@ impl TtsManager {
         self.state.read().clone()
     }
 
+    pub(crate) fn begin_batch(self: &Arc<Self>) -> Result<TtsBatchLease> {
+        let mut active = self.active_batch.lock();
+        if active.is_some() {
+            return Err(anyhow!(
+                "Another batch text-to-speech conversion is already running"
+            ));
+        }
+        let id = self.next_batch_id.fetch_add(1, Ordering::SeqCst) + 1;
+        let cancellation = Arc::new(TtsBatchCancellation::new());
+        *active = Some(ActiveTtsBatch {
+            id,
+            cancellation: Arc::clone(&cancellation),
+        });
+        Ok(TtsBatchLease {
+            manager: Arc::clone(self),
+            id,
+            cancellation,
+        })
+    }
+
+    pub fn cancel_batch(&self, batch_id: u64) -> bool {
+        let cancellation = self
+            .active_batch
+            .lock()
+            .as_ref()
+            .filter(|batch| batch.id == batch_id)
+            .map(|batch| Arc::clone(&batch.cancellation));
+        if let Some(cancellation) = cancellation {
+            cancellation.cancel(self);
+            true
+        } else {
+            false
+        }
+    }
+
+    pub(crate) async fn wait_for_batch_foreground_slot(
+        &self,
+        cancellation: &TtsBatchCancellation,
+    ) -> Result<tokio::sync::OwnedMutexGuard<()>> {
+        loop {
+            if cancellation.is_cancelled() {
+                return Err(anyhow!("Text-to-speech batch cancelled"));
+            }
+            match self.try_reserve_foreground_operation() {
+                Ok(guard) => {
+                    if cancellation.is_cancelled() {
+                        drop(guard);
+                        return Err(anyhow!("Text-to-speech batch cancelled"));
+                    }
+                    return Ok(guard);
+                }
+                Err(_) => tokio::time::sleep(Duration::from_millis(100)).await,
+            }
+        }
+    }
+
     async fn resolve_operation_settings(
         &self,
         operation_id: u64,
@@ -795,6 +977,144 @@ impl TtsManager {
         let path = path.as_ref();
         validate_input_extension(path)?;
         read_supported_text_file(path).map(|(source, _encoding)| source)
+    }
+
+    pub fn scan_batch_files(&self, request: TtsBatchScanRequest) -> Result<TtsBatchScanResult> {
+        let output_directory =
+            canonicalize_batch_directory(&request.output_directory, "batch output directory")?;
+        let mut warnings = Vec::new();
+        let mut candidates = Vec::new();
+
+        let input_directory = match request.input_directory.as_deref() {
+            Some(directory) => {
+                if !request.input_paths.is_empty() {
+                    return Err(anyhow!(
+                        "Choose either one input directory or individual input files, not both"
+                    ));
+                }
+                let directory = canonicalize_batch_directory(directory, "batch input directory")?;
+                collect_batch_text_paths(
+                    &directory,
+                    &output_directory,
+                    request.recursive,
+                    &mut candidates,
+                    &mut warnings,
+                )?;
+                Some(directory)
+            }
+            None => {
+                if request.input_paths.is_empty() {
+                    return Err(anyhow!(
+                        "Choose an input directory or at least one text file"
+                    ));
+                }
+                if request.input_paths.len() > MAX_TTS_BATCH_FILES {
+                    return Err(anyhow!(
+                        "The batch contains more than {MAX_TTS_BATCH_FILES} files"
+                    ));
+                }
+                for path in request.input_paths {
+                    if !is_supported_text_path(&path) {
+                        continue;
+                    }
+                    if !path.is_absolute() {
+                        warnings.push(format!(
+                            "Ignored non-absolute batch input path: {}",
+                            path.display()
+                        ));
+                        continue;
+                    }
+                    candidates.push(path);
+                }
+                None
+            }
+        };
+
+        if candidates.len() > MAX_TTS_BATCH_FILES {
+            return Err(anyhow!(
+                "The batch contains more than {MAX_TTS_BATCH_FILES} supported files"
+            ));
+        }
+        if input_directory.is_some() {
+            candidates.sort_by_key(|path| path.to_string_lossy().to_ascii_lowercase());
+        }
+
+        let mut seen_inputs = HashSet::new();
+        let mut pending = Vec::with_capacity(candidates.len());
+        for candidate in candidates {
+            let checked = read_batch_input_no_follow(
+                &candidate,
+                input_directory.as_deref(),
+                request.recursive,
+            );
+            let (input_path, scan_error) = match checked {
+                Ok((canonical_path, _source)) => (canonical_path, None),
+                Err(error) => (candidate.clone(), Some(safe_text(&error.to_string()))),
+            };
+            let input_key = normalized_batch_path_key(&input_path);
+            if !seen_inputs.insert(input_key) {
+                continue;
+            }
+            let relative_path = if let Some(root) = input_directory.as_deref() {
+                match input_path.strip_prefix(root) {
+                    Ok(relative) if relative_path_is_safe(relative) => relative.to_path_buf(),
+                    _ => {
+                        warnings.push(format!(
+                            "Ignored batch input outside the selected folder: {}",
+                            input_path.display()
+                        ));
+                        continue;
+                    }
+                }
+            } else {
+                match input_path.file_name() {
+                    Some(file_name) => PathBuf::from(file_name),
+                    None => {
+                        warnings.push(format!(
+                            "Ignored batch input without a file name: {}",
+                            input_path.display()
+                        ));
+                        continue;
+                    }
+                }
+            };
+            pending.push((input_path, relative_path, scan_error));
+        }
+
+        let output_extension = match request.output_format {
+            TtsOutputFormat::Mp3 => "mp3",
+            TtsOutputFormat::Wav => "wav",
+        };
+        let mut reserved_outputs = HashSet::new();
+        let mut files = Vec::with_capacity(pending.len());
+        for (input_path, relative_path, scan_error) in pending {
+            let output_path = allocate_batch_output_path(
+                &output_directory,
+                &relative_path,
+                output_extension,
+                &mut reserved_outputs,
+            )?;
+            files.push(TtsBatchFilePlan {
+                input_path,
+                relative_path,
+                output_path,
+                scan_error,
+            });
+        }
+        let eligible_count = files
+            .iter()
+            .filter(|file| file.scan_error.is_none())
+            .count();
+
+        Ok(TtsBatchScanResult {
+            input_directory,
+            output_directory,
+            recursive: request.recursive,
+            output_format: request.output_format,
+            files,
+            eligible_count,
+            warnings,
+        })
     }
 
     /// Creates, replaces, or removes the folder watcher from the current saved
@@ -1481,6 +1801,65 @@ impl TtsManager {
         .await
     }
 
+    pub(crate) async fn convert_batch_file_resolved(
+        self: &Arc<Self>,
+        plan: &TtsBatchFilePlan,
+        input_root: Option<&Path>,
+        recursive: bool,
+        output_root: &Path,
+        settings: &TtsSettings,
+        operation_guard: tokio::sync::OwnedMutexGuard<()>,
+        cancellation: &TtsBatchCancellation,
+    ) -> Result<(ResolvedTtsResult<FileConversionResult>, String)> {
+        if cancellation.is_cancelled() {
+            return Err(anyhow!("Text-to-speech batch cancelled"));
+        }
+        let (canonical_input, source) =
+            read_batch_input_no_follow(&plan.input_path, input_root, recursive)?;
+        let current_relative = if let Some(root) = input_root {
+            canonical_input
+                .strip_prefix(root)
+                .map(Path::to_path_buf)
+                .map_err(|_| {
+                    anyhow!(
+                        "Batch input moved outside the selected folder: {}",
+                        plan.input_path.display()
+                    )
+                })?
+        } else {
+            PathBuf::from(
+                canonical_input
+                    .file_name()
+                    .ok_or_else(|| anyhow!("Batch input has no file name"))?,
+            )
+        };
+        if current_relative != plan.relative_path || !relative_path_is_safe(&current_relative) {
+            return Err(anyhow!(
+                "Batch input no longer matches the scanned relative path: {}",
+                plan.input_path.display()
+            ));
+        }
+        prepare_batch_output_path(&plan.output_path, output_root, &current_relative, settings)?;
+        if cancellation.is_cancelled() {
+            return Err(anyhow!("Text-to-speech batch cancelled"));
+        }
+        let result = self
+            .convert_decoded_text_file_reserved(
+                &canonical_input,
+                &source,
+                &plan.output_path,
+                settings,
+                TtsLlmScope::File,
+                None,
+                ResumeOrigin::Manual,
+                false,
+                operation_guard,
+                Some(cancellation),
+            )
+            .await?;
+        Ok((result, source))
+    }
+
     pub fn discard_managed_resume_namespace(&self, resume_namespace: &str) -> Result<()> {
         tts_resume::discard_managed(&self.cache_root, resume_namespace)
     }
@@ -1497,10 +1876,37 @@ impl TtsManager {
         require_resume_checkpoint: bool,
     ) -> Result<ResolvedTtsResult<FileConversionResult>> {
         validate_enabled_independent_settings(settings)?;
-        let _operation_guard = self
-            .foreground_operation_lock
-            .try_lock()
-            .map_err(|_| anyhow!("Another text-to-speech operation is already running"))?;
+        let operation_guard = self.try_reserve_foreground_operation()?;
+        self.convert_decoded_text_file_reserved(
+            input_path,
+            source,
+            output_path,
+            settings,
+            preprocessing_scope,
+            resume_namespace,
+            resume_origin,
+            require_resume_checkpoint,
+            operation_guard,
+            None,
+        )
+        .await
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    async fn convert_decoded_text_file_reserved(
+        self: &Arc<Self>,
+        input_path: &Path,
+        source: &str,
+        output_path: &Path,
+        settings: &TtsSettings,
+        preprocessing_scope: TtsLlmScope,
+        resume_namespace: Option<&str>,
+        resume_origin: ResumeOrigin,
+        require_resume_checkpoint: bool,
+        _operation_guard: tokio::sync::OwnedMutexGuard<()>,
+        batch_cancellation: Option<&TtsBatchCancellation>,
+    ) -> Result<ResolvedTtsResult<FileConversionResult>> {
+        validate_enabled_independent_settings(settings)?;
         validate_input_extension(input_path)?;
         validate_output_extension(output_path, settings.output_format)?;
         validate_output_settings(settings)?;
@@ -1513,6 +1919,8 @@ impl TtsManager {
 
         let operation_id =
             self.begin_operation(TtsOperationKind::FileConversion, settings.provider, 0);
+        let _batch_registration = batch_cancellation
+            .map(|cancellation| cancellation.attach_operation(self, operation_id));
         let resolved_settings = match self
             .resolve_operation_settings(operation_id, settings)
             .await
@@ -2854,6 +3262,382 @@ fn is_supported_text_path(path: &Path) -> bool {
         .unwrap_or(false)
 }
 
+fn metadata_is_reparse_point(metadata: &fs::Metadata) -> bool {
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::MetadataExt;
+        const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x0400;
+        metadata.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = metadata;
+        false
+    }
+}
+
+fn canonicalize_batch_directory(path: &Path, label: &str) -> Result<PathBuf> {
+    if path.as_os_str().is_empty() {
+        return Err(anyhow!("The {label} is not configured"));
+    }
+    let metadata = fs::symlink_metadata(path)
+        .with_context(|| format!("Failed to inspect {label} {}", path.display()))?;
+    if metadata.file_type().is_symlink() || metadata_is_reparse_point(&metadata) {
+        return Err(anyhow!(
+            "Refusing reparse-point or symlink {label}: {}",
+            path.display()
+        ));
+    }
+    if !metadata.is_dir() {
+        return Err(anyhow!(
+            "The {label} is not a directory: {}",
+            path.display()
+        ));
+    }
+    fs::canonicalize(path).with_context(|| format!("Failed to resolve {label} {}", path.display()))
+}
+
+fn relative_path_is_safe(path: &Path) -> bool {
+    !path.as_os_str().is_empty()
+        && path
+            .components()
+            .all(|component| matches!(component, Component::Normal(_)))
+}
+
+fn normalized_batch_path_key(path: &Path) -> String {
+    let value = path.to_string_lossy();
+    #[cfg(windows)]
+    {
+        value.to_ascii_lowercase()
+    }
+    #[cfg(not(windows))]
+    {
+        value.into_owned()
+    }
+}
+
+fn collect_batch_text_paths(
+    input_root: &Path,
+    output_root: &Path,
+    recursive: bool,
+    paths: &mut Vec<PathBuf>,
+    warnings: &mut Vec<String>,
+) -> Result<()> {
+    if output_root == input_root {
+        return Ok(());
+    }
+    let excluded_output = output_root
+        .starts_with(input_root)
+        .then(|| output_root.to_path_buf());
+    let mut pending = vec![input_root.to_path_buf()];
+    while let Some(directory) = pending.pop() {
+        let entries = match fs::read_dir(&directory) {
+            Ok(entries) => entries,
+            Err(error) if directory != input_root => {
+                warnings.push(format!(
+                    "Could not scan {}: {}",
+                    directory.display(),
+                    safe_text(&error.to_string())
+                ));
+                continue;
+            }
+            Err(error) => {
+                return Err(error)
+                    .with_context(|| format!("Failed to scan {}", directory.display()))
+            }
+        };
+        for entry in entries {
+            let entry = match entry {
+                Ok(entry) => entry,
+                Err(error) => {
+                    warnings.push(format!(
+                        "Could not read an entry in {}: {}",
+                        directory.display(),
+                        safe_text(&error.to_string())
+                    ));
+                    continue;
+                }
+            };
+            let path = entry.path();
+            let metadata = match fs::symlink_metadata(&path) {
+                Ok(metadata) => metadata,
+                Err(error) => {
+                    warnings.push(format!(
+                        "Could not inspect {}: {}",
+                        path.display(),
+                        safe_text(&error.to_string())
+                    ));
+                    continue;
+                }
+            };
+            if metadata.file_type().is_symlink() || metadata_is_reparse_point(&metadata) {
+                continue;
+            }
+            if metadata.is_dir() {
+                if !recursive {
+                    continue;
+                }
+                let canonical = match fs::canonicalize(&path) {
+                    Ok(canonical) => canonical,
+                    Err(error) => {
+                        warnings.push(format!(
+                            "Could not resolve {}: {}",
+                            path.display(),
+                            safe_text(&error.to_string())
+                        ));
+                        continue;
+                    }
+                };
+                if !canonical.starts_with(input_root)
+                    || excluded_output
+                        .as_deref()
+                        .is_some_and(|output| canonical.starts_with(output))
+                {
+                    continue;
+                }
+                pending.push(canonical);
+            } else if metadata.is_file() && is_supported_text_path(&path) {
+                paths.push(path);
+                if paths.len() > MAX_TTS_BATCH_FILES {
+                    return Err(anyhow!(
+                        "The selected folder contains more than {MAX_TTS_BATCH_FILES} supported files"
+                    ));
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+fn allocate_batch_output_path(
+    output_root: &Path,
+    source_relative: &Path,
+    output_extension: &str,
+    reserved: &mut HashSet<String>,
+) -> Result<PathBuf> {
+    if !relative_path_is_safe(source_relative) {
+        return Err(anyhow!(
+            "Unsafe relative batch input path: {}",
+            source_relative.display()
+        ));
+    }
+    let mut relative_output = source_relative.to_path_buf();
+    relative_output.set_extension(output_extension);
+    let parent = relative_output.parent().unwrap_or_else(|| Path::new(""));
+    let stem = relative_output
+        .file_stem()
+        .ok_or_else(|| anyhow!("Batch input has no valid file stem"))?;
+    let extension = relative_output
+        .extension()
+        .ok_or_else(|| anyhow!("Batch output has no extension"))?;
+
+    for index in 1..=10_000 {
+        let file_name = if index == 1 {
+            relative_output
+                .file_name()
+                .expect("relative output has a file name")
+                .to_os_string()
+        } else {
+            let mut name = stem.to_os_string();
+            name.push(format!("-{index}."));
+            name.push(extension);
+            name
+        };
+        let candidate = output_root.join(parent).join(file_name);
+        let key = normalized_batch_path_key(&candidate);
+        if !candidate.exists() && reserved.insert(key) {
+            return Ok(candidate);
+        }
+    }
+    Err(anyhow!(
+        "Could not allocate a collision-safe output name for {}",
+        source_relative.display()
+    ))
+}
+
+fn read_batch_input_no_follow(
+    path: &Path,
+    configured_root: Option<&Path>,
+    recursive: bool,
+) -> Result<(PathBuf, String)> {
+    validate_input_extension(path)?;
+    let canonical_root = configured_root.map(Path::to_path_buf);
+    let canonical_parent = fs::canonicalize(
+        path.parent()
+            .ok_or_else(|| anyhow!("Batch TTS input has no parent directory"))?,
+    )
+    .with_context(|| {
+        format!(
+            "Failed to resolve batch input parent for {}",
+            path.display()
+        )
+    })?;
+    if let Some(root) = canonical_root.as_deref() {
+        let parent_is_allowed = if recursive {
+            canonical_parent.starts_with(root)
+        } else {
+            canonical_parent == root
+        };
+        if !parent_is_allowed {
+            return Err(anyhow!(
+                "Refusing batch TTS input outside the selected folder: {}",
+                path.display()
+            ));
+        }
+    }
+
+    let mut options = OpenOptions::new();
+    options.read(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.custom_flags(libc::O_NOFOLLOW);
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::OpenOptionsExt;
+        const FILE_FLAG_OPEN_REPARSE_POINT: u32 = 0x0020_0000;
+        options.custom_flags(FILE_FLAG_OPEN_REPARSE_POINT);
+    }
+    let file = options
+        .open(path)
+        .with_context(|| format!("Failed to safely open batch input {}", path.display()))?;
+    let metadata = file
+        .metadata()
+        .with_context(|| format!("Failed to inspect batch input handle {}", path.display()))?;
+    if !metadata.is_file() {
+        return Err(anyhow!(
+            "Batch TTS input is not a regular file: {}",
+            path.display()
+        ));
+    }
+    if metadata_is_reparse_point(&metadata) {
+        return Err(anyhow!(
+            "Refusing reparse-point batch TTS input: {}",
+            path.display()
+        ));
+    }
+
+    let canonical_path = fs::canonicalize(path)
+        .with_context(|| format!("Failed to resolve batch input {}", path.display()))?;
+    if let Some(root) = canonical_root.as_deref() {
+        if !canonical_path.starts_with(root) || canonical_path == root {
+            return Err(anyhow!(
+                "Refusing batch TTS input outside the selected folder: {}",
+                path.display()
+            ));
+        }
+    }
+    let bytes = read_tts_text_bytes_bounded(file, path)
+        .with_context(|| format!("Failed to read batch input {}", path.display()))?;
+    let (source, _encoding) = decode_supported_text_bytes(bytes)
+        .with_context(|| format!("Failed to decode batch input {}", path.display()))?;
+    Ok((canonical_path, source))
+}
+
+fn prepare_batch_output_path(
+    output_path: &Path,
+    configured_root: &Path,
+    source_relative: &Path,
+    settings: &TtsSettings,
+) -> Result<()> {
+    validate_output_extension(output_path, settings.output_format)?;
+    validate_output_settings(settings)?;
+    let output_root = canonicalize_batch_directory(configured_root, "batch output directory")?;
+    let relative_output = output_path.strip_prefix(&output_root).map_err(|_| {
+        anyhow!(
+            "Refusing batch output outside the selected output folder: {}",
+            output_path.display()
+        )
+    })?;
+    if !relative_path_is_safe(relative_output) {
+        return Err(anyhow!(
+            "Refusing unsafe batch output path: {}",
+            output_path.display()
+        ));
+    }
+    let source_parent = source_relative.parent().unwrap_or_else(|| Path::new(""));
+    let output_parent = relative_output.parent().unwrap_or_else(|| Path::new(""));
+    if source_parent != output_parent {
+        return Err(anyhow!(
+            "Batch output no longer matches the scanned relative folder: {}",
+            output_path.display()
+        ));
+    }
+
+    let mut current = output_root.clone();
+    for component in output_parent.components() {
+        let Component::Normal(component) = component else {
+            return Err(anyhow!("Refusing unsafe batch output directory"));
+        };
+        current.push(component);
+        match fs::symlink_metadata(&current) {
+            Ok(metadata) => {
+                if !metadata.is_dir()
+                    || metadata.file_type().is_symlink()
+                    || metadata_is_reparse_point(&metadata)
+                {
+                    return Err(anyhow!(
+                        "Refusing unsafe batch output directory: {}",
+                        current.display()
+                    ));
+                }
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                match fs::create_dir(&current) {
+                    Ok(()) => {}
+                    Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
+                    Err(error) => {
+                        return Err(error).with_context(|| {
+                            format!("Failed to create batch output folder {}", current.display())
+                        })
+                    }
+                }
+                let metadata = fs::symlink_metadata(&current).with_context(|| {
+                    format!("Failed to verify batch output folder {}", current.display())
+                })?;
+                if !metadata.is_dir()
+                    || metadata.file_type().is_symlink()
+                    || metadata_is_reparse_point(&metadata)
+                {
+                    return Err(anyhow!(
+                        "Refusing unsafe batch output directory: {}",
+                        current.display()
+                    ));
+                }
+            }
+            Err(error) => {
+                return Err(error).with_context(|| {
+                    format!(
+                        "Failed to inspect batch output folder {}",
+                        current.display()
+                    )
+                })
+            }
+        }
+    }
+    let canonical_parent = fs::canonicalize(output_path.parent().unwrap_or(&output_root))
+        .with_context(|| {
+            format!(
+                "Failed to resolve batch output parent {}",
+                output_path.display()
+            )
+        })?;
+    if !canonical_parent.starts_with(&output_root) {
+        return Err(anyhow!(
+            "Refusing batch output outside the selected output folder: {}",
+            output_path.display()
+        ));
+    }
+    if output_path.exists() {
+        return Err(anyhow!(
+            "Output file already exists: {}",
+            output_path.display()
+        ));
+    }
+    Ok(())
+}
+
 fn collect_supported_text_paths(root: &Path, recursive: bool) -> Result<Vec<PathBuf>> {
     let mut paths = Vec::new();
     let mut pending = vec![root.to_path_buf()];
@@ -3638,6 +4422,88 @@ mod tests {
         assert!(recursive.contains(&nested_text));
 
         fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn tts_batch_scan_excludes_nested_output_and_keeps_relative_paths() {
+        let nonce = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let input = std::env::temp_dir().join(format!(
+            "aivorelay-tts-batch-scan-{}-{nonce}",
+            std::process::id()
+        ));
+        let nested = input.join("book");
+        let output = input.join("audio");
+        fs::create_dir_all(&nested).unwrap();
+        fs::create_dir_all(&output).unwrap();
+        let root_text = input.join("INTRO.TXT");
+        let nested_markdown = nested.join("chapter.md");
+        let generated_text = output.join("must-not-scan.txt");
+        fs::write(&root_text, "Introduction").unwrap();
+        fs::write(&nested_markdown, "# Chapter").unwrap();
+        fs::write(&generated_text, "Output subtree").unwrap();
+
+        let input = fs::canonicalize(input).unwrap();
+        let output = fs::canonicalize(output).unwrap();
+        let mut paths = Vec::new();
+        let mut warnings = Vec::new();
+        collect_batch_text_paths(&input, &output, true, &mut paths, &mut warnings).unwrap();
+
+        assert!(warnings.is_empty());
+        assert_eq!(paths.len(), 2);
+        assert!(paths.iter().any(|path| path.ends_with("INTRO.TXT")));
+        assert!(paths.iter().any(|path| path.ends_with("chapter.md")));
+        assert!(!paths.iter().any(|path| path.ends_with("must-not-scan.txt")));
+        let chapter = paths
+            .iter()
+            .find(|path| path.ends_with("chapter.md"))
+            .unwrap();
+        assert_eq!(
+            fs::canonicalize(chapter)
+                .unwrap()
+                .strip_prefix(&input)
+                .unwrap(),
+            Path::new("book").join("chapter.md")
+        );
+
+        fs::remove_dir_all(input).unwrap();
+    }
+
+    #[test]
+    fn tts_batch_output_planner_preserves_folders_and_avoids_collisions() {
+        let nonce = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let output = std::env::temp_dir().join(format!(
+            "aivorelay-tts-batch-output-{}-{nonce}",
+            std::process::id()
+        ));
+        fs::create_dir_all(output.join("book")).unwrap();
+        fs::write(output.join("book").join("chapter.mp3"), b"existing").unwrap();
+        let mut reserved = HashSet::new();
+
+        let first = allocate_batch_output_path(
+            &output,
+            Path::new("book").join("chapter.md").as_path(),
+            "mp3",
+            &mut reserved,
+        )
+        .unwrap();
+        let second = allocate_batch_output_path(
+            &output,
+            Path::new("book").join("chapter.txt").as_path(),
+            "mp3",
+            &mut reserved,
+        )
+        .unwrap();
+
+        assert_eq!(first, output.join("book").join("chapter-2.mp3"));
+        assert_eq!(second, output.join("book").join("chapter-3.mp3"));
+
+        fs::remove_dir_all(output).unwrap();
     }
 
     #[test]

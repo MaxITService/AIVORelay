@@ -23,6 +23,7 @@ use crate::settings::{
 };
 use crate::subtitle::OutputFormat;
 use serde_json::{json, Value};
+use std::collections::HashSet;
 use std::fs::{self, File, OpenOptions};
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
@@ -76,7 +77,7 @@ impl CliFailure {
 /// `lib.rs`; the two commands intentionally have different initialization and
 /// output contracts.
 pub fn is_file_conversion_requested(args: &CliArgs) -> bool {
-    args.convert_file.is_some()
+    !args.convert_file.is_empty()
 }
 
 /// Initializes only the managed state needed by the requested conversion.
@@ -155,6 +156,9 @@ pub fn initialize_file_conversion_managers(
 /// Human progress goes to stderr, leaving stdout available for the final human
 /// result or one machine-readable JSON object.
 pub fn run_file_conversion(app: &AppHandle, args: &CliArgs) -> i32 {
+    if args.convert_file.len() > 1 {
+        return run_multi_tts_file_conversion(app, args);
+    }
     let result = run_file_conversion_inner(app, args);
     match result {
         Ok(metadata) => {
@@ -182,6 +186,189 @@ pub fn run_file_conversion(app: &AppHandle, args: &CliArgs) -> i32 {
     }
 }
 
+fn run_multi_tts_file_conversion(app: &AppHandle, args: &CliArgs) -> i32 {
+    let result = prepare_multi_tts_inputs(args).and_then(|inputs| {
+        initialize_file_conversion_managers(app, CliFileConversionKind::TextToAudio)
+            .map_err(CliFailure::runtime)?;
+        tauri::async_runtime::block_on(convert_multiple_text_files(app, args, inputs))
+    });
+    match result {
+        Ok((metadata, failed)) => {
+            if args.json {
+                println!("{}", metadata);
+            }
+            if failed == 0 {
+                0
+            } else {
+                1
+            }
+        }
+        Err(failure) => {
+            if args.json {
+                println!(
+                    "{}",
+                    json!({
+                        "ok": false,
+                        "operation": "text_to_audio_batch",
+                        "error": failure.message,
+                        "exit_code": failure.exit_code,
+                    })
+                );
+            } else {
+                eprintln!("error: {}", failure.message);
+            }
+            failure.exit_code
+        }
+    }
+}
+
+fn prepare_multi_tts_inputs(args: &CliArgs) -> Result<Vec<PathBuf>, CliFailure> {
+    let mut inputs = Vec::with_capacity(args.convert_file.len());
+    for input in &args.convert_file {
+        let input = absolute_path(input).map_err(CliFailure::usage)?;
+        if !input.is_file() {
+            return Err(CliFailure::usage(format!(
+                "Input file does not exist: {}",
+                input.display()
+            )));
+        }
+        let input_extension = extension(&input).ok_or_else(|| {
+            CliFailure::usage(format!(
+                "Input file has no supported extension: {}",
+                input.display()
+            ))
+        })?;
+        if !TEXT_EXTENSIONS.contains(&input_extension.as_str()) {
+            return Err(CliFailure::usage(format!(
+                "Multiple --convert-file inputs support TXT/MD to audio only; unsupported input: {}",
+                input.display()
+            )));
+        }
+        inputs.push(input);
+    }
+    Ok(inputs)
+}
+
+async fn convert_multiple_text_files(
+    app: &AppHandle,
+    args: &CliArgs,
+    inputs: Vec<PathBuf>,
+) -> Result<(Value, usize), CliFailure> {
+    let mut planning_settings = get_settings(app)
+        .tts
+        .effective_for_scope(crate::settings::TtsOperationScope::File);
+    apply_tts_provider_override(args, &mut planning_settings)?;
+    apply_tts_conversion_overrides(args, &mut planning_settings)?;
+    let output_extension = output_format_name(planning_settings.output_format);
+    let output_directory = args
+        .output
+        .as_deref()
+        .map(absolute_path)
+        .transpose()
+        .map_err(CliFailure::usage)?;
+    if let Some(directory) = output_directory.as_deref() {
+        if directory.exists() && !directory.is_dir() {
+            return Err(CliFailure::usage(format!(
+                "--output must be a directory when multiple input files are supplied: {}",
+                directory.display()
+            )));
+        }
+        fs::create_dir_all(directory).map_err(|error| {
+            CliFailure::runtime(format!(
+                "Failed to create batch output directory {}: {error}",
+                directory.display()
+            ))
+        })?;
+    }
+
+    let total = inputs.len();
+    let mut reserved = HashSet::new();
+    let mut results = Vec::with_capacity(total);
+    let mut completed = 0usize;
+    let mut failed = 0usize;
+    for (index, input) in inputs.into_iter().enumerate() {
+        let destination = output_directory
+            .as_deref()
+            .or_else(|| input.parent())
+            .ok_or_else(|| {
+                CliFailure::usage(format!(
+                    "Input has no parent directory: {}",
+                    input.display()
+                ))
+            })?;
+        let output = unique_cli_batch_output(destination, &input, output_extension, &mut reserved)?;
+        if !args.json {
+            eprintln!("TTS batch: file {} of {}", index + 1, total);
+        }
+        let mut file_args = args.clone();
+        file_args.convert_file = vec![input.clone()];
+        file_args.output = Some(output);
+        match convert_text_to_audio(app, &file_args, input.clone()).await {
+            Ok(metadata) => {
+                completed += 1;
+                results.push(metadata);
+            }
+            Err(error) => {
+                failed += 1;
+                if !args.json {
+                    eprintln!("error: {}: {}", input.display(), error.message);
+                }
+                results.push(json!({
+                    "ok": false,
+                    "input": input,
+                    "error": error.message,
+                    "exit_code": error.exit_code,
+                }));
+            }
+        }
+    }
+    if !args.json {
+        eprintln!("TTS batch finished: {completed} completed, {failed} failed, {total} total.");
+    }
+    Ok((
+        json!({
+            "ok": failed == 0,
+            "operation": "text_to_audio_batch",
+            "total": total,
+            "completed": completed,
+            "failed": failed,
+            "results": results,
+        }),
+        failed,
+    ))
+}
+
+fn unique_cli_batch_output(
+    output_directory: &Path,
+    input: &Path,
+    output_extension: &str,
+    reserved: &mut HashSet<String>,
+) -> Result<PathBuf, CliFailure> {
+    let stem = input
+        .file_stem()
+        .ok_or_else(|| CliFailure::usage(format!("Input has no file name: {}", input.display())))?;
+    for index in 1..=10_000 {
+        let mut file_name = stem.to_os_string();
+        if index > 1 {
+            file_name.push(format!("-{index}"));
+        }
+        file_name.push(format!(".{output_extension}"));
+        let candidate = output_directory.join(file_name);
+        let key = if cfg!(windows) {
+            candidate.to_string_lossy().to_ascii_lowercase()
+        } else {
+            candidate.to_string_lossy().into_owned()
+        };
+        if !candidate.exists() && reserved.insert(key) {
+            return Ok(candidate);
+        }
+    }
+    Err(CliFailure::runtime(format!(
+        "Could not allocate a collision-safe output name for {}",
+        input.display()
+    )))
+}
+
 fn run_file_conversion_inner(app: &AppHandle, args: &CliArgs) -> Result<Value, CliFailure> {
     let plan = build_plan(args)?;
     validate_direction_specific_args(args, plan.kind)?;
@@ -202,7 +389,7 @@ fn run_file_conversion_inner(app: &AppHandle, args: &CliArgs) -> Result<Value, C
 fn build_plan(args: &CliArgs) -> Result<ConversionPlan, CliFailure> {
     let input = args
         .convert_file
-        .as_ref()
+        .first()
         .ok_or_else(|| CliFailure::usage("--convert-file requires an input path"))?;
     let input = absolute_path(input).map_err(CliFailure::usage)?;
     if !input.is_file() {
@@ -1429,7 +1616,7 @@ mod tests {
             instructions: "Use the saved prompt.".to_string(),
         });
         let args = CliArgs {
-            convert_file: Some(PathBuf::from("chapter.md")),
+            convert_file: vec![PathBuf::from("chapter.md")],
             tts_prompt: Some("Calm narrator".to_string()),
             tts_instructions: Some("Use the inline prompt.".to_string()),
             ..CliArgs::default()
@@ -1445,7 +1632,7 @@ mod tests {
     fn provider_and_voice_overrides_are_temporary_and_provider_aware() {
         let mut windows = TtsSettings::default();
         let args = CliArgs {
-            convert_file: Some(PathBuf::from("chapter.md")),
+            convert_file: vec![PathBuf::from("chapter.md")],
             tts_provider: Some(CliTtsProvider::Windows),
             tts_voice: Some(" Windows voice ID ".to_string()),
             ..CliArgs::default()
@@ -1456,7 +1643,7 @@ mod tests {
 
         let mut qwen = TtsSettings::default();
         let args = CliArgs {
-            convert_file: Some(PathBuf::from("chapter.md")),
+            convert_file: vec![PathBuf::from("chapter.md")],
             tts_provider: Some(CliTtsProvider::LocalQwen),
             tts_voice: Some("Vivian".to_string()),
             ..CliArgs::default()
@@ -1471,7 +1658,7 @@ mod tests {
         let original = TtsSettings::default();
         let mut effective = original.clone();
         let args = CliArgs {
-            convert_file: Some(PathBuf::from("chapter.md")),
+            convert_file: vec![PathBuf::from("chapter.md")],
             tts_provider: Some(CliTtsProvider::Soniox),
             tts_model: Some("sonic-preview".to_string()),
             tts_voice: Some("voice-id".to_string()),
@@ -1671,7 +1858,7 @@ mod tests {
         let mut settings = TtsSettings::default();
         settings.provider = TtsProvider::OpenAi;
         let args = CliArgs {
-            convert_file: Some(PathBuf::from("chapter.md")),
+            convert_file: vec![PathBuf::from("chapter.md")],
             tts_instructions: Some("Inline".to_string()),
             tts_instructions_file: Some(path.clone()),
             ..CliArgs::default()

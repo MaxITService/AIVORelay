@@ -43,14 +43,16 @@ pub struct CliArgs {
     #[arg(short = 'f', long, value_name = "WAV")]
     pub transcribe_file: Option<PathBuf>,
 
-    /// Convert a text/Markdown file to audio, or a common audio file to
-    /// text/Markdown, using the matching saved app configuration.
+    /// Convert one or more text/Markdown files to audio, or one common audio
+    /// file to text/Markdown, using the matching saved app configuration.
     ///
     /// This is intentionally separate from the legacy --transcribe-file
     /// benchmark command.
     #[arg(
         long,
         value_name = "FILE",
+        num_args = 1..,
+        action = clap::ArgAction::Append,
         conflicts_with_all = [
             "toggle_transcription",
             "toggle_post_process",
@@ -62,11 +64,12 @@ pub struct CliArgs {
             "repeat"
         ]
     )]
-    pub convert_file: Option<PathBuf>,
+    pub convert_file: Vec<PathBuf>,
 
-    /// Output path for --convert-file. Its extension selects MP3/WAV for TTS
-    /// or TXT/MD for transcription. When omitted, the saved TTS format or
-    /// Markdown is used next to the input file.
+    /// Output path for one --convert-file input, or an output directory when
+    /// multiple TXT/MD inputs are supplied. Its extension selects MP3/WAV for
+    /// one TTS input or TXT/MD for transcription. When omitted, output is
+    /// created next to each input using the saved format.
     #[arg(short = 'o', long, value_name = "FILE", requires = "convert_file")]
     pub output: Option<PathBuf>,
 
@@ -577,9 +580,28 @@ mod tests {
         ])
         .expect("conversion arguments should parse");
 
-        assert_eq!(args.convert_file.unwrap().to_string_lossy(), "chapter.md");
+        assert_eq!(args.convert_file.len(), 1);
+        assert_eq!(args.convert_file[0].to_string_lossy(), "chapter.md");
         assert_eq!(args.output.unwrap().to_string_lossy(), "chapter.mp3");
         assert_eq!(args.tts_prompt.as_deref(), Some("Calm narrator"));
+    }
+
+    #[test]
+    fn parses_multiple_tts_input_files_in_one_argument_group() {
+        let args = CliArgs::try_parse_from([
+            "aivorelay",
+            "--convert-file",
+            "chapter-1.md",
+            "chapter-2.txt",
+            "--output",
+            "audio",
+        ])
+        .expect("multiple TTS input paths should parse");
+
+        assert_eq!(args.convert_file.len(), 2);
+        assert_eq!(args.convert_file[0].to_string_lossy(), "chapter-1.md");
+        assert_eq!(args.convert_file[1].to_string_lossy(), "chapter-2.txt");
+        assert_eq!(args.output.unwrap().to_string_lossy(), "audio");
     }
 
     #[test]

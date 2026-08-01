@@ -6,9 +6,10 @@ use crate::managers::local_tts::{
     LocalTtsKind, LocalTtsStatus, LOCAL_TTS_MODEL_REPO, LOCAL_TTS_MODEL_REVISION,
 };
 use crate::managers::tts::{
-    FileConversionResult, TextFileInspection, TtsChunkReady, TtsManager, TtsOperationKind,
-    TtsPhase, TtsState, TtsVoiceCatalog, MAX_TTS_TEXT_INPUT_BYTES, SONIOX_TTS_API_KEY_MAX_CHARS,
-    SUPPORTED_MP3_BITRATES, TTS_EVENT_CHUNK_READY, TTS_EVENT_STATE,
+    FileConversionResult, TextFileInspection, TtsBatchFilePlan, TtsBatchScanRequest,
+    TtsBatchScanResult, TtsChunkReady, TtsManager, TtsOperationKind, TtsPhase, TtsState,
+    TtsVoiceCatalog, MAX_TTS_TEXT_INPUT_BYTES, SONIOX_TTS_API_KEY_MAX_CHARS,
+    SUPPORTED_MP3_BITRATES, TTS_EVENT_BATCH_PROGRESS, TTS_EVENT_CHUNK_READY, TTS_EVENT_STATE,
 };
 use crate::managers::tts_history::{
     metadata_from_settings, NewTtsHistoryEntry, TtsHistoryManager, TtsHistoryScope,
@@ -250,6 +251,68 @@ impl From<FileConversionResult> for ConvertTtsTextFileResponse {
             mp3_bitrate_kbps: value.mp3_bitrate_kbps,
         }
     }
+}
+
+#[derive(Debug, Clone, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct ConvertTtsBatchRequest {
+    pub client_id: String,
+    pub scan: TtsBatchScanResult,
+    pub mp3_bitrate: u16,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Type, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum TtsBatchFileStatus {
+    Queued,
+    Processing,
+    Completed,
+    Skipped,
+    Failed,
+}
+
+#[derive(Debug, Clone, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct TtsBatchFileResult {
+    pub index: usize,
+    pub input_path: PathBuf,
+    pub relative_path: PathBuf,
+    pub output_path: PathBuf,
+    pub status: TtsBatchFileStatus,
+    pub error: Option<String>,
+    pub warning: Option<String>,
+    pub operation_id: Option<String>,
+    pub resumed_chunks: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct TtsBatchSummary {
+    pub client_id: String,
+    pub batch_id: String,
+    pub total: usize,
+    pub finished: usize,
+    pub completed: usize,
+    pub skipped: usize,
+    pub failed: usize,
+    pub cancelled: bool,
+    pub files: Vec<TtsBatchFileResult>,
+}
+
+#[derive(Debug, Clone, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct TtsBatchProgress {
+    pub client_id: String,
+    pub batch_id: String,
+    pub total: usize,
+    pub finished: usize,
+    pub completed: usize,
+    pub skipped: usize,
+    pub failed: usize,
+    pub cancelled: bool,
+    pub done: bool,
+    pub message: Option<String>,
+    pub file: Option<TtsBatchFileResult>,
 }
 
 pub fn install_tts_event_bridge(app: &AppHandle) {
@@ -599,22 +662,26 @@ fn save_passive_history(
     metadata: NewTtsHistoryEntry,
     audio_path: PathBuf,
     show_error_in_overlay: bool,
-) {
+) -> Option<String> {
     let enabled = match metadata.scope {
         TtsHistoryScope::Interactive => settings.interactive_history_enabled,
         TtsHistoryScope::File => settings.file_history_enabled,
     };
     if !enabled {
-        return;
+        return None;
     }
     let history = app.state::<Arc<TtsHistoryManager>>();
     if let Err(error) = history.save_success(metadata, audio_path) {
+        let detail = error.to_string();
         report_history_error(
             app,
             "TTS completed but its History copy could not be saved",
-            error,
+            &detail,
             show_error_in_overlay,
         );
+        Some(detail)
+    } else {
+        None
     }
 }
 
@@ -673,7 +740,7 @@ pub(crate) async fn start_tts_text_at(
     let settings = resolved.settings;
     if settings.interactive_history_enabled {
         if let Some(audio_path) = synthesis.combined_audio_path {
-            save_passive_history(
+            let _ = save_passive_history(
                 &app,
                 &settings,
                 history_metadata(
@@ -1551,7 +1618,7 @@ pub async fn convert_tts_text_file(
     let result = resolved.value;
     settings = resolved.settings;
     if let Some(source_text) = history_source {
-        save_passive_history(
+        let _ = save_passive_history(
             &app,
             &settings,
             history_metadata(
@@ -1571,6 +1638,354 @@ pub async fn convert_tts_text_file(
         );
     }
     Ok(ConvertTtsTextFileResponse::from(result))
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn scan_tts_batch_files(
+    manager: tauri::State<'_, Arc<TtsManager>>,
+    request: TtsBatchScanRequest,
+) -> Result<TtsBatchScanResult, String> {
+    let manager = manager.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || manager.scan_batch_files(request))
+        .await
+        .map_err(|error| format!("TTS batch scan task failed: {error}"))?
+        .map_err(|error| error.to_string())
+}
+
+fn batch_file_result(
+    index: usize,
+    plan: &TtsBatchFilePlan,
+    status: TtsBatchFileStatus,
+    error: Option<String>,
+) -> TtsBatchFileResult {
+    TtsBatchFileResult {
+        index,
+        input_path: plan.input_path.clone(),
+        relative_path: plan.relative_path.clone(),
+        output_path: plan.output_path.clone(),
+        status,
+        error,
+        warning: None,
+        operation_id: None,
+        resumed_chunks: 0,
+    }
+}
+
+fn emit_batch_progress(
+    app: &AppHandle,
+    client_id: &str,
+    batch_id: &str,
+    total: usize,
+    files: &[TtsBatchFileResult],
+    cancelled: bool,
+    done: bool,
+    message: Option<String>,
+    file: Option<TtsBatchFileResult>,
+) {
+    let progress = TtsBatchProgress {
+        client_id: client_id.to_string(),
+        batch_id: batch_id.to_string(),
+        total,
+        finished: files.len(),
+        completed: files
+            .iter()
+            .filter(|file| file.status == TtsBatchFileStatus::Completed)
+            .count(),
+        skipped: files
+            .iter()
+            .filter(|file| file.status == TtsBatchFileStatus::Skipped)
+            .count(),
+        failed: files
+            .iter()
+            .filter(|file| file.status == TtsBatchFileStatus::Failed)
+            .count(),
+        cancelled,
+        done,
+        message,
+        file,
+    };
+    if let Err(error) = app.emit(TTS_EVENT_BATCH_PROGRESS, progress) {
+        log::warn!("Failed to emit TTS batch progress: {error}");
+    }
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn convert_tts_batch(
+    app: AppHandle,
+    request: ConvertTtsBatchRequest,
+) -> Result<TtsBatchSummary, String> {
+    let client_id = request.client_id.trim();
+    if client_id.is_empty() || client_id.len() > 128 {
+        return Err("A valid TTS batch client ID is required".to_string());
+    }
+    let client_id = client_id.to_string();
+    if request.scan.files.is_empty() {
+        return Err("The scanned batch contains no supported text files".to_string());
+    }
+    let manager = app.state::<Arc<TtsManager>>().inner().clone();
+    let lease = manager.begin_batch().map_err(|error| error.to_string())?;
+    let batch_id = lease.id().to_string();
+    let cancellation = Arc::clone(lease.cancellation());
+    let total = request.scan.files.len();
+    let mut settings = get_settings(&app)
+        .tts
+        .effective_for_scope(TtsOperationScope::File);
+    settings.output_format = request.scan.output_format;
+    settings.mp3_bitrate_kbps = if SUPPORTED_MP3_BITRATES.contains(&request.mp3_bitrate) {
+        request.mp3_bitrate
+    } else {
+        256
+    };
+    let mut files = Vec::with_capacity(total);
+    emit_batch_progress(
+        &app,
+        &client_id,
+        &batch_id,
+        total,
+        &files,
+        false,
+        false,
+        Some("Batch conversion queued".to_string()),
+        None,
+    );
+
+    for (index, plan) in request.scan.files.iter().enumerate() {
+        if cancellation.is_cancelled() {
+            for (remaining_index, remaining) in request.scan.files.iter().enumerate().skip(index) {
+                files.push(batch_file_result(
+                    remaining_index,
+                    remaining,
+                    TtsBatchFileStatus::Skipped,
+                    Some("Batch cancelled before this file started".to_string()),
+                ));
+            }
+            break;
+        }
+        if let Some(scan_error) = plan.scan_error.clone() {
+            let result =
+                batch_file_result(index, plan, TtsBatchFileStatus::Failed, Some(scan_error));
+            files.push(result.clone());
+            emit_batch_progress(
+                &app,
+                &client_id,
+                &batch_id,
+                total,
+                &files,
+                false,
+                false,
+                None,
+                Some(result),
+            );
+            continue;
+        }
+        if plan.output_path.exists() {
+            let result = batch_file_result(
+                index,
+                plan,
+                TtsBatchFileStatus::Skipped,
+                Some(format!(
+                    "Output file already exists: {}",
+                    plan.output_path.display()
+                )),
+            );
+            files.push(result.clone());
+            emit_batch_progress(
+                &app,
+                &client_id,
+                &batch_id,
+                total,
+                &files,
+                false,
+                false,
+                None,
+                Some(result),
+            );
+            continue;
+        }
+
+        let queued = batch_file_result(index, plan, TtsBatchFileStatus::Queued, None);
+        emit_batch_progress(
+            &app,
+            &client_id,
+            &batch_id,
+            total,
+            &files,
+            false,
+            false,
+            Some("Waiting for the current text-to-speech operation".to_string()),
+            Some(queued),
+        );
+        let operation_guard = match manager
+            .wait_for_batch_foreground_slot(cancellation.as_ref())
+            .await
+        {
+            Ok(guard) => guard,
+            Err(error) => {
+                files.push(batch_file_result(
+                    index,
+                    plan,
+                    TtsBatchFileStatus::Skipped,
+                    Some(error.to_string()),
+                ));
+                for (remaining_index, remaining) in
+                    request.scan.files.iter().enumerate().skip(index + 1)
+                {
+                    files.push(batch_file_result(
+                        remaining_index,
+                        remaining,
+                        TtsBatchFileStatus::Skipped,
+                        Some("Batch cancelled before this file started".to_string()),
+                    ));
+                }
+                break;
+            }
+        };
+        let processing = batch_file_result(index, plan, TtsBatchFileStatus::Processing, None);
+        emit_batch_progress(
+            &app,
+            &client_id,
+            &batch_id,
+            total,
+            &files,
+            false,
+            false,
+            None,
+            Some(processing),
+        );
+
+        match manager
+            .convert_batch_file_resolved(
+                plan,
+                request.scan.input_directory.as_deref(),
+                request.scan.recursive,
+                &request.scan.output_directory,
+                &settings,
+                operation_guard,
+                cancellation.as_ref(),
+            )
+            .await
+        {
+            Ok((resolved, source_text)) => {
+                let result = resolved.value;
+                let resolved_settings = resolved.settings;
+                let source_kind = plan
+                    .input_path
+                    .extension()
+                    .and_then(|extension| extension.to_str())
+                    .filter(|extension| extension.eq_ignore_ascii_case("md"))
+                    .map(|_| TtsHistorySourceKind::Markdown)
+                    .unwrap_or(TtsHistorySourceKind::Text);
+                let warning = save_passive_history(
+                    &app,
+                    &resolved_settings,
+                    history_metadata(
+                        &resolved_settings,
+                        TtsHistoryScope::File,
+                        source_text,
+                        source_kind,
+                        format!(
+                            "batch-{}-{}",
+                            chrono::Utc::now().timestamp_millis(),
+                            result.operation_id
+                        ),
+                        Some(result.output_path.clone()),
+                    ),
+                    result.output_path.clone(),
+                    false,
+                );
+                let mut completed =
+                    batch_file_result(index, plan, TtsBatchFileStatus::Completed, None);
+                completed.output_path = result.output_path;
+                completed.operation_id = Some(result.operation_id.to_string());
+                completed.resumed_chunks = result.resumed_chunks;
+                completed.warning = warning;
+                files.push(completed.clone());
+                emit_batch_progress(
+                    &app,
+                    &client_id,
+                    &batch_id,
+                    total,
+                    &files,
+                    false,
+                    false,
+                    None,
+                    Some(completed),
+                );
+            }
+            Err(error) => {
+                let message = error.to_string();
+                let status = if message.contains("Output file already exists") {
+                    TtsBatchFileStatus::Skipped
+                } else {
+                    TtsBatchFileStatus::Failed
+                };
+                let failed = batch_file_result(index, plan, status, Some(message));
+                files.push(failed.clone());
+                emit_batch_progress(
+                    &app,
+                    &client_id,
+                    &batch_id,
+                    total,
+                    &files,
+                    cancellation.is_cancelled(),
+                    false,
+                    None,
+                    Some(failed),
+                );
+            }
+        }
+    }
+
+    let cancelled = cancellation.is_cancelled();
+    let summary = TtsBatchSummary {
+        client_id: client_id.clone(),
+        batch_id: batch_id.clone(),
+        total,
+        finished: files.len(),
+        completed: files
+            .iter()
+            .filter(|file| file.status == TtsBatchFileStatus::Completed)
+            .count(),
+        skipped: files
+            .iter()
+            .filter(|file| file.status == TtsBatchFileStatus::Skipped)
+            .count(),
+        failed: files
+            .iter()
+            .filter(|file| file.status == TtsBatchFileStatus::Failed)
+            .count(),
+        cancelled,
+        files,
+    };
+    emit_batch_progress(
+        &app,
+        &client_id,
+        &batch_id,
+        total,
+        &summary.files,
+        cancelled,
+        true,
+        Some(if cancelled {
+            "Batch conversion cancelled".to_string()
+        } else {
+            "Batch conversion finished".to_string()
+        }),
+        None,
+    );
+    drop(lease);
+    Ok(summary)
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn cancel_tts_batch(app: AppHandle, batch_id: String) -> Result<bool, String> {
+    let batch_id = batch_id
+        .trim()
+        .parse::<u64>()
+        .map_err(|_| "The TTS batch ID is invalid".to_string())?;
+    Ok(app.state::<Arc<TtsManager>>().cancel_batch(batch_id))
 }
 
 #[tauri::command]

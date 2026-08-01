@@ -328,7 +328,7 @@ fn validate_root_scope(args: &CliArgs) -> Result<(), (i32, String)> {
         || args.toggle_post_process
         || args.cancel
         || args.transcribe_file.is_some()
-        || args.convert_file.is_some()
+        || !args.convert_file.is_empty()
         || args.output.is_some()
         || args.has_tts_file_conversion_args()
         || args.model.is_some()

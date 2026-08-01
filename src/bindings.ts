@@ -2703,6 +2703,30 @@ async convertTtsTextFile(request: ConvertTtsTextFileRequest) : Promise<Result<Co
     else return { status: "error", error: e  as any };
 }
 },
+async scanTtsBatchFiles(request: TtsBatchScanRequest) : Promise<Result<TtsBatchScanResult, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("scan_tts_batch_files", { request }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async convertTtsBatch(request: ConvertTtsBatchRequest) : Promise<Result<TtsBatchSummary, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("convert_tts_batch", { request }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async cancelTtsBatch(batchId: string) : Promise<Result<boolean, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("cancel_tts_batch", { batchId }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async getTtsOverlayState() : Promise<TtsOverlayState> {
     return await TAURI_INVOKE("get_tts_overlay_state");
 },
@@ -4054,6 +4078,7 @@ port: number;
  * Last server error (e.g., port binding failure), None if no error
  */
 server_error: string | null }
+export type ConvertTtsBatchRequest = { clientId: string; scan: TtsBatchScanResult; mp3Bitrate: number }
 export type ConvertTtsTextFileRequest = { inputPath: string; outputPath: string; outputFormat: TtsOutputFormat; mp3Bitrate: number }
 export type ConvertTtsTextFileResponse = { operation_id: string; output_path: string; source_character_count: number; processed_character_count: number; chunk_count: number; resumed_chunks: number; output_format: TtsOutputFormat; mp3_bitrate_kbps: number | null }
 export type CustomSounds = { start: boolean; stop: boolean }
@@ -4444,6 +4469,12 @@ soniox_context_text?: string;
  */
 soniox_context_terms?: string[] }
 export type TranscriptionProvider = "local" | "remote_openai_compatible" | "remote_soniox" | "remote_deepgram"
+export type TtsBatchFilePlan = { inputPath: string; relativePath: string; outputPath: string; scanError: string | null }
+export type TtsBatchFileResult = { index: number; inputPath: string; relativePath: string; outputPath: string; status: TtsBatchFileStatus; error: string | null; warning: string | null; operationId: string | null; resumedChunks: number }
+export type TtsBatchFileStatus = "queued" | "processing" | "completed" | "skipped" | "failed"
+export type TtsBatchScanRequest = { inputDirectory: string | null; inputPaths?: string[]; outputDirectory: string; recursive: boolean; outputFormat: TtsOutputFormat }
+export type TtsBatchScanResult = { inputDirectory: string | null; outputDirectory: string; recursive: boolean; outputFormat: TtsOutputFormat; files: TtsBatchFilePlan[]; eligibleCount: number; warnings: string[] }
+export type TtsBatchSummary = { clientId: string; batchId: string; total: number; finished: number; completed: number; skipped: number; failed: number; cancelled: boolean; files: TtsBatchFileResult[] }
 export type TtsHistoryDeleteOutcome = { id: number; record_deleted: boolean; managed_audio_status: TtsHistoryManagedAudioDeleteStatus; managed_audio_error: string | null }
 export type TtsHistoryEntry = { id: number; timestamp: number; scope: TtsHistoryScope;
 /**
@@ -4493,7 +4524,12 @@ export type TtsSettings = { enabled?: boolean; provider?: TtsProvider; soniox_ke
 /**
  * Stable WinRT VoiceInformation ID. Empty selects the current OS default.
  */
-windows_voice_id?: string; windows_voice_language?: string; openai_instructions?: string; prompt_presets?: TtsPromptPreset[]; selected_prompt_id?: string; synthesis_presets?: TtsSynthesisPreset[]; interactive_synthesis?: TtsScopeSynthesisSettings; file_synthesis?: TtsScopeSynthesisSettings; speed?: number; llm_preprocessing?: TtsLlmPreprocessingSettings; preprocessing_enabled?: boolean; preprocessing_rules?: TextReplacement[]; interactive_target_chars?: number; file_target_chars?: number; retry_count?: number; retry_base_delay_ms?: number; inter_chunk_pause_ms?: number; paragraph_pause_ms?: number; play_pause_hotkey?: string; play_history_when_overlay_closed?: boolean; stop_hotkey?: string; autoplay?: boolean;
+windows_voice_id?: string; windows_voice_language?: string; openai_instructions?: string; prompt_presets?: TtsPromptPreset[]; selected_prompt_id?: string; synthesis_presets?: TtsSynthesisPreset[];
+/**
+ * Version of the built-in synthesis-preset seed already applied.
+ * This is separate from the preset list so user deletion is permanent.
+ */
+synthesis_presets_seed_version?: number; interactive_synthesis?: TtsScopeSynthesisSettings; file_synthesis?: TtsScopeSynthesisSettings; speed?: number; llm_preprocessing?: TtsLlmPreprocessingSettings; preprocessing_enabled?: boolean; preprocessing_rules?: TextReplacement[]; interactive_target_chars?: number; file_target_chars?: number; retry_count?: number; retry_base_delay_ms?: number; inter_chunk_pause_ms?: number; paragraph_pause_ms?: number; play_pause_hotkey?: string; play_history_when_overlay_closed?: boolean; stop_hotkey?: string; autoplay?: boolean;
 /**
  * Pitch-only overlay playback transform. The stored/generated audio is unchanged.
  */
