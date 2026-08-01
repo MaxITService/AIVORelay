@@ -1116,8 +1116,8 @@ impl TtsManager {
         }
         .await;
 
+        self.watched_paths.lock().remove(&input_path);
         if let Err(error) = result {
-            self.watched_paths.lock().remove(&input_path);
             let message = format!(
                 "TTS folder conversion failed for {}: {}",
                 input_path.display(),
