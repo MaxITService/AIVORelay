@@ -441,7 +441,7 @@ fn delete_history(
         TtsHistoryManagedAudioDeleteStatus::Failed => Err(CliFailure::new(
             EXIT_PARTIAL,
             format!(
-                "History record {} was deleted, but its retained audio could not be removed",
+                "History record {} was kept because its retained audio could not be removed",
                 entry.id
             ),
         )

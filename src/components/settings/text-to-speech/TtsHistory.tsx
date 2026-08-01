@@ -635,8 +635,17 @@ export const TtsHistory: React.FC<TtsHistoryProps> = ({
           id: entry.id,
         },
       );
-      if (!outcome?.record_deleted) {
+      if (!outcome) {
         throw new Error(t("textToSpeech.history.errors.notFound"));
+      }
+      if (!outcome.record_deleted) {
+        throw new Error(
+          t("textToSpeech.history.deletePartial", {
+            error:
+              outcome.managed_audio_error ??
+              t("textToSpeech.history.errors.notFound"),
+          }),
+        );
       }
       if (loadedEntryIdRef.current === entry.id) stopAudio();
       setActionMessage(
