@@ -1570,9 +1570,25 @@ async changeCustomWordsNgramEnabledSetting(enabled: boolean) : Promise<Result<nu
     else return { status: "error", error: e  as any };
 }
 },
+async suspendAllBindings() : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("suspend_all_bindings") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async resumeAllBindings() : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("resume_all_bindings") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 /**
- * Temporarily unregister a binding while the user is editing it in the UI.
- * This avoids firing the action while keys are being recorded.
+ * Legacy single-binding command retained for compatibility with older
+ * frontend bundles. New code should use [`suspend_all_bindings`].
  */
 async suspendBinding(id: string) : Promise<Result<null, string>> {
     try {
@@ -1583,7 +1599,8 @@ async suspendBinding(id: string) : Promise<Result<null, string>> {
 }
 },
 /**
- * Re-register the binding after the user has finished editing.
+ * Legacy single-binding command retained for compatibility with older
+ * frontend bundles. New code should use [`resume_all_bindings`].
  */
 async resumeBinding(id: string) : Promise<Result<null, string>> {
     try {
