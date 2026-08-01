@@ -58,6 +58,8 @@ export const AudioProcessingSettings: React.FC = () => {
             </div>
           </div>
           
+          {/* Never disable the slider on its own update: that would abort an
+              in-progress drag after the first persisted value. */}
           <input
             type="range"
             min="0.1"
@@ -66,7 +68,6 @@ export const AudioProcessingSettings: React.FC = () => {
             value={settings?.vad_threshold ?? 0.3}
             onChange={(e) => updateSetting("vad_threshold", parseFloat(e.target.value))}
             className="w-full h-2 bg-[#252525] rounded-lg appearance-none cursor-pointer accent-[#9b5de5]"
-            disabled={isUpdating("vad_threshold")}
           />
           
           <div className="flex justify-between text-xs text-[#606060] mt-2">
