@@ -817,7 +817,9 @@ export const RemoteSttSettings: React.FC<RemoteSttSettingsProps> = ({
 
   const handleProviderChange = (value: string | null) => {
     if (!value) return;
-    void setTranscriptionProvider(value);
+    void setTranscriptionProvider(value).catch((error) => {
+      toast.error(String(error));
+    });
   };
 
   const handleRemoteInterfaceSelect = async (interfaceId: RemoteSttInterfaceId) => {

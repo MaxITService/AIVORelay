@@ -1313,7 +1313,8 @@ export const useSettingsStore = create<SettingsStore>()(
       invalidateModelDownloadActivationIntent();
       const { settings, setUpdating } = get();
       const updateKey = "transcription_provider";
-      const previousId = settings?.transcription_provider ?? null;
+      const previousId = settings?.transcription_provider;
+      const hadSettings = settings !== null;
 
       setUpdating(updateKey, true);
 
@@ -1334,7 +1335,7 @@ export const useSettingsStore = create<SettingsStore>()(
         }
       } catch (error) {
         console.error("Failed to set transcription provider:", error);
-        if (previousId !== null) {
+        if (hadSettings) {
           set((state) => ({
             settings:
               state.settings?.transcription_provider === providerId
@@ -1345,6 +1346,7 @@ export const useSettingsStore = create<SettingsStore>()(
                 : state.settings,
           }));
         }
+        throw error;
       } finally {
         setUpdating(updateKey, false);
       }
