@@ -18,6 +18,7 @@ import { ApiKeyField } from "../PostProcessingSettingsApi/ApiKeyField";
 import { ModelSelect } from "../PostProcessingSettingsApi/ModelSelect";
 import { usePostProcessProviderState } from "../PostProcessingSettingsApi/usePostProcessProviderState";
 import { useSettings } from "../../../hooks/useSettings";
+import { usePersistedSettingText } from "../../../hooks/usePersistedSettingText";
 import { ExtendedThinkingSection } from "../ExtendedThinkingSection";
 import { LlmConfigSection } from "../PostProcessingSettingsApi/LlmConfigSection";
 
@@ -56,8 +57,10 @@ const PostProcessingBenchmarkComponent: React.FC = () => {
   const [expandedItems, setExpandedItems] = useState<Set<string>>(new Set());
 
   const collapsed = getSetting("post_process_benchmark_collapsed") ?? true;
-  const customSystemPrompt = getSetting("post_process_benchmark_system_prompt") ?? "";
-  const userMessage = getSetting("post_process_benchmark_user_message") ?? "";
+  const customSystemPrompt = usePersistedSettingText(
+    "post_process_benchmark_system_prompt",
+  );
+  const userMessage = usePersistedSettingText("post_process_benchmark_user_message");
   const log = getSetting("post_process_benchmark_log") ?? [];
   // When true (default), benchmark uses the currently selected post-processing prompt.
   // When false, user can type a custom system prompt.
@@ -71,7 +74,7 @@ const PostProcessingBenchmarkComponent: React.FC = () => {
   const activePromptName = activePrompt?.name ?? null;
 
   // The prompt actually sent to the LLM when running the benchmark.
-  const effectiveSystemPrompt = useSelectedPrompt ? activePromptText : customSystemPrompt;
+  const effectiveSystemPrompt = useSelectedPrompt ? activePromptText : customSystemPrompt.draft;
 
   const updateCollapsed = (nextCollapsed: boolean) => {
     updateSetting("post_process_benchmark_collapsed", nextCollapsed);
@@ -96,7 +99,7 @@ const PostProcessingBenchmarkComponent: React.FC = () => {
     try {
       const result = await commands.runLlmPostProcessBenchmark(
         effectiveSystemPrompt,
-        userMessage,
+        userMessage.draft,
       );
       if (result.status === "ok") {
         const nextLog = [result.data, ...log].slice(0, 100);
@@ -265,14 +268,9 @@ const PostProcessingBenchmarkComponent: React.FC = () => {
           // "Custom" mode: editable textarea + button to revert to active prompt.
           <div className="space-y-2">
             <Textarea
-              value={customSystemPrompt}
-              onChange={(event) =>
-                updateSetting(
-                  "post_process_benchmark_system_prompt",
-                  event.target.value,
-                )
-              }
-              disabled={isUpdating("post_process_benchmark_system_prompt")}
+              value={customSystemPrompt.draft}
+              onChange={(event) => customSystemPrompt.setDraft(event.target.value)}
+              onBlur={customSystemPrompt.persistDraft}
               className="w-full"
             />
             <div className="flex justify-end">
@@ -305,14 +303,9 @@ const PostProcessingBenchmarkComponent: React.FC = () => {
         grouped={true}
       >
         <Textarea
-          value={userMessage}
-          onChange={(event) =>
-            updateSetting(
-              "post_process_benchmark_user_message",
-              event.target.value,
-            )
-          }
-          disabled={isUpdating("post_process_benchmark_user_message")}
+          value={userMessage.draft}
+          onChange={(event) => userMessage.setDraft(event.target.value)}
+          onBlur={userMessage.persistDraft}
           className="w-full"
         />
       </SettingContainer>
@@ -331,7 +324,7 @@ const PostProcessingBenchmarkComponent: React.FC = () => {
             onClick={runBenchmark}
             variant="primary"
             size="md"
-            disabled={isRunning || !userMessage.trim()}
+            disabled={isRunning || !userMessage.draft.trim()}
             className="inline-flex items-center gap-2"
           >
             {isRunning ? (

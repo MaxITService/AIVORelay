@@ -1,6 +1,7 @@
 import React from "react";
 import { useTranslation } from "react-i18next";
 import { useSettings } from "../../../hooks/useSettings";
+import { usePersistedSettingText } from "../../../hooks/usePersistedSettingText";
 import { Input } from "../../ui/Input";
 import { SettingContainer } from "../../ui/SettingContainer";
 import { Textarea } from "../../ui/Textarea";
@@ -19,24 +20,14 @@ export const AiReplaceSettings: React.FC<AiReplaceSettingsProps> = ({
   const { t } = useTranslation();
   const { getSetting, updateSetting, isUpdating } = useSettings();
 
-  const systemPrompt = getSetting("ai_replace_system_prompt") ?? "";
-  const userPrompt = getSetting("ai_replace_user_prompt") ?? "";
+  const systemPrompt = usePersistedSettingText("ai_replace_system_prompt");
+  const userPrompt = usePersistedSettingText("ai_replace_user_prompt");
+  const quickTapSystemPrompt = usePersistedSettingText("ai_replace_quick_tap_system_prompt");
+  const noSelectionSystemPrompt = usePersistedSettingText(
+    "ai_replace_no_selection_system_prompt",
+  );
   const maxChars = getSetting("ai_replace_max_chars") ?? 20000;
   const allowNoSelection = getSetting("ai_replace_allow_no_selection") ?? true;
-  const noSelectionSystemPrompt =
-    getSetting("ai_replace_no_selection_system_prompt") ?? "";
-
-  const handleSystemPromptChange = (
-    event: React.ChangeEvent<HTMLTextAreaElement>,
-  ) => {
-    updateSetting("ai_replace_system_prompt", event.target.value);
-  };
-
-  const handleUserPromptChange = (
-    event: React.ChangeEvent<HTMLTextAreaElement>,
-  ) => {
-    updateSetting("ai_replace_user_prompt", event.target.value);
-  };
 
   const handleMaxCharsChange = (
     event: React.ChangeEvent<HTMLInputElement>,
@@ -49,12 +40,6 @@ export const AiReplaceSettings: React.FC<AiReplaceSettingsProps> = ({
 
   const handleAllowNoSelectionChange = (checked: boolean) => {
     updateSetting("ai_replace_allow_no_selection", checked);
-  };
-
-  const handleNoSelectionSystemPromptChange = (
-    event: React.ChangeEvent<HTMLTextAreaElement>,
-  ) => {
-    updateSetting("ai_replace_no_selection_system_prompt", event.target.value);
   };
 
   return (
@@ -123,9 +108,9 @@ export const AiReplaceSettings: React.FC<AiReplaceSettingsProps> = ({
           layout="stacked"
         >
           <Textarea
-            value={getSetting("ai_replace_quick_tap_system_prompt") ?? ""}
-            onChange={(e) => updateSetting("ai_replace_quick_tap_system_prompt", e.target.value)}
-            disabled={isUpdating("ai_replace_quick_tap_system_prompt")}
+            value={quickTapSystemPrompt.draft}
+            onChange={(e) => quickTapSystemPrompt.setDraft(e.target.value)}
+            onBlur={quickTapSystemPrompt.persistDraft}
             className="w-full"
             rows={3}
           />
@@ -171,9 +156,9 @@ export const AiReplaceSettings: React.FC<AiReplaceSettingsProps> = ({
           layout="stacked"
         >
           <Textarea
-            value={noSelectionSystemPrompt}
-            onChange={handleNoSelectionSystemPromptChange}
-            disabled={isUpdating("ai_replace_no_selection_system_prompt")}
+            value={noSelectionSystemPrompt.draft}
+            onChange={(e) => noSelectionSystemPrompt.setDraft(e.target.value)}
+            onBlur={noSelectionSystemPrompt.persistDraft}
             className="w-full"
           />
         </SettingContainer>
@@ -187,9 +172,9 @@ export const AiReplaceSettings: React.FC<AiReplaceSettingsProps> = ({
         layout="stacked"
       >
         <Textarea
-          value={systemPrompt}
-          onChange={handleSystemPromptChange}
-          disabled={isUpdating("ai_replace_system_prompt")}
+          value={systemPrompt.draft}
+          onChange={(e) => systemPrompt.setDraft(e.target.value)}
+          onBlur={systemPrompt.persistDraft}
           className="w-full"
         />
       </SettingContainer>
@@ -201,9 +186,9 @@ export const AiReplaceSettings: React.FC<AiReplaceSettingsProps> = ({
         layout="stacked"
       >
         <Textarea
-          value={userPrompt}
-          onChange={handleUserPromptChange}
-          disabled={isUpdating("ai_replace_user_prompt")}
+          value={userPrompt.draft}
+          onChange={(e) => userPrompt.setDraft(e.target.value)}
+          onBlur={userPrompt.persistDraft}
           className="w-full"
         />
       </SettingContainer>

@@ -2,6 +2,9 @@ import React from "react";
 import { useTranslation } from "react-i18next";
 import { ChevronDown, RotateCcw } from "lucide-react";
 import { useSettings } from "../../../hooks/useSettings";
+import { usePersistedSettingText } from "../../../hooks/usePersistedSettingText";
+import type { StringSettingKey } from "../../../hooks/usePersistedSettingText";
+import { useSettingsStore } from "../../../stores/settingsStore";
 import { HandyShortcut } from "../HandyShortcut";
 import { Input } from "../../ui/Input";
 import { SettingContainer } from "../../ui/SettingContainer";
@@ -11,7 +14,6 @@ import { ToggleSwitch } from "../../ui/ToggleSwitch";
 import { TellMeMore } from "../../ui/TellMeMore";
 import { LlmConfigSection } from "../PostProcessingSettingsApi/LlmConfigSection";
 import { useAiReplaceProviderState } from "../post-processing/useAiReplaceProviderState";
-import type { AppSettings } from "../../../bindings";
 
 const AI_REPLACE_QUICK_TAP_THRESHOLD_MIN = 100;
 const AI_REPLACE_QUICK_TAP_THRESHOLD_MAX = 2000;
@@ -35,30 +37,29 @@ const ExamplePrompt: React.FC<{ label: string; children: string }> = ({ label, c
 /* ── Reusable prompt editor: reset button + textarea + TellMeMore ── */
 
 interface PromptEditorProps {
-  settingKey: keyof AppSettings;
+  settingKey: StringSettingKey;
   rows?: number;
 }
 
 const PromptEditor: React.FC<PromptEditorProps> = ({ settingKey, rows = 3 }) => {
   const { t } = useTranslation();
-  const { getSetting, updateSetting, resetSetting, isUpdating } = useSettings();
-  const value = (getSetting(settingKey) as string) ?? "";
-  const busy = isUpdating(settingKey);
+  const resetSetting = useSettingsStore((state) => state.resetSetting);
+  const { draft, setDraft, persistDraft } = usePersistedSettingText(settingKey);
 
   return (
     <div className="relative">
       <Textarea
-        value={value}
-        onChange={(e) => void updateSetting(settingKey, e.target.value)}
-        disabled={busy}
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={persistDraft}
         variant="compact"
         rows={rows}
         className="w-full py-1.5 pr-9 font-mono text-[12.5px] leading-[1.3] resize-y"
       />
       <button
         type="button"
+        onMouseDown={(event) => event.preventDefault()}
         onClick={() => void resetSetting(settingKey)}
-        disabled={busy}
         title={t("common.reset", "Reset to default")}
         aria-label={t("common.reset", "Reset to default")}
         className="absolute top-1.5 right-1.5 flex items-center justify-center h-6 w-6 text-[#b8b8b8] hover:text-white transition-colors rounded bg-[#232323]/90 hover:bg-[#2d2d2d] border border-[#3d3d3d] hover:border-[#5a5a5a]"
