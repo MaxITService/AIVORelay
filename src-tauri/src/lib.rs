@@ -1213,6 +1213,8 @@ pub fn run(cli_args: CliArgs) {
         shortcut::update_custom_words,
         shortcut::change_custom_words_enabled_setting,
         shortcut::change_custom_words_ngram_enabled_setting,
+        shortcut::suspend_all_bindings,
+        shortcut::resume_all_bindings,
         shortcut::suspend_binding,
         shortcut::resume_binding,
         shortcut_handy_keys::start_handy_keys_recording,

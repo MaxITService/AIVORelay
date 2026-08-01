@@ -465,7 +465,15 @@ pub fn start_handy_keys_recording(app: AppHandle, binding_id: String) -> Result<
     let state = app
         .try_state::<HandyKeysState>()
         .ok_or_else(|| "HandyKeys backend is not initialized".to_string())?;
-    state.start_recording(&app)
+
+    // Suspend every registered shortcut so an existing action cannot fire or
+    // swallow keys while the HandyKeys recorder captures the new combination.
+    crate::shortcut::suspend_all_shortcuts(&app);
+    let result = state.start_recording(&app);
+    if result.is_err() {
+        crate::shortcut::resume_all_shortcuts(&app);
+    }
+    result
 }
 
 #[tauri::command]
@@ -479,7 +487,9 @@ pub fn stop_handy_keys_recording(app: AppHandle) -> Result<(), String> {
     let state = app
         .try_state::<HandyKeysState>()
         .ok_or_else(|| "HandyKeys backend is not initialized".to_string())?;
-    state.stop_recording()
+    let result = state.stop_recording();
+    crate::shortcut::resume_all_shortcuts(&app);
+    result
 }
 
 #[cfg(test)]
