@@ -1089,6 +1089,7 @@ impl ModelManager {
         let _ = self.app_handle.emit("model-download-cancelled", model_id);
     }
 
+    #[cfg(test)]
     fn verify_sha256(path: &Path, expected_sha256: Option<&str>, model_id: &str) -> Result<()> {
         Self::verify_sha256_cancellable(path, expected_sha256, model_id, None).map(|_| ())
     }
@@ -1133,6 +1134,7 @@ impl ModelManager {
         }
     }
 
+    #[cfg(test)]
     fn compute_sha256(path: &Path) -> Result<String> {
         Self::compute_sha256_cancellable(path, None)?
             .ok_or_else(|| anyhow::anyhow!("SHA256 verification was unexpectedly cancelled"))
