@@ -22,6 +22,7 @@ use crate::managers::tts_resume::{self, ResumeOrigin, ResumeWorkspace, WatcherRe
 use crate::managers::windows_tts::{self, WINDOWS_TTS_PROVIDER_LIMIT};
 use crate::settings::{
     apply_text_replacements, TtsKeySource, TtsLlmScope, TtsOutputFormat, TtsProvider, TtsSettings,
+    DEFAULT_TTS_OPENAI_VOICE, DEFAULT_TTS_SONIOX_VOICE,
 };
 use anyhow::{anyhow, Context, Result};
 use futures_util::StreamExt;
@@ -2048,7 +2049,7 @@ impl TtsManager {
                     .json(&json!({
                         "model": nonempty_or(&settings.soniox_model, "tts-rt-v1"),
                         "language": nonempty_or(&settings.soniox_language, "en"),
-                        "voice": nonempty_or(&settings.soniox_voice, "Adrian"),
+                        "voice": nonempty_or(&settings.soniox_voice, DEFAULT_TTS_SONIOX_VOICE),
                         "audio_format": "pcm_s16le",
                         "sample_rate": PROVIDER_PCM_SAMPLE_RATE,
                         "speed": settings.speed.clamp(0.7, 1.3),
@@ -2078,7 +2079,7 @@ impl TtsManager {
             TtsProvider::OpenAi => {
                 let mut body = json!({
                     "model": nonempty_or(&settings.openai_model, "gpt-4o-mini-tts"),
-                    "voice": nonempty_or(&settings.openai_voice, "alloy"),
+                    "voice": nonempty_or(&settings.openai_voice, DEFAULT_TTS_OPENAI_VOICE),
                     "input": text,
                     "response_format": "pcm",
                     "speed": settings.speed.clamp(0.25, 4.0),

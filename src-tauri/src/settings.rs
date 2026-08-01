@@ -714,6 +714,9 @@ pub enum TtsProvider {
     Windows,
 }
 
+pub(crate) const DEFAULT_TTS_SONIOX_VOICE: &str = "Maya";
+pub(crate) const DEFAULT_TTS_OPENAI_VOICE: &str = "marin";
+
 impl Default for TtsProvider {
     fn default() -> Self {
         Self::Soniox
@@ -3174,7 +3177,7 @@ fn default_tts_soniox_language() -> String {
 }
 
 fn default_tts_soniox_voice() -> String {
-    "Maya".to_string()
+    DEFAULT_TTS_SONIOX_VOICE.to_string()
 }
 
 fn default_tts_deepgram_model() -> String {
@@ -3186,7 +3189,7 @@ fn default_tts_openai_model() -> String {
 }
 
 fn default_tts_openai_voice() -> String {
-    "marin".to_string()
+    DEFAULT_TTS_OPENAI_VOICE.to_string()
 }
 
 fn default_tts_edge_voice() -> String {
