@@ -34,6 +34,7 @@ export const HandyShortcut: React.FC<HandyShortcutProps> = (props) => {
     <div
       id={getShortcutAnchorId(props.shortcutId)}
       className="shortcut-settings-anchor"
+      tabIndex={-1}
       data-shortcut-id={props.shortcutId}
     >
       {shortcutInput}
