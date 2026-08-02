@@ -26,7 +26,120 @@
     "userInterface": "User Interface",
     "history": "History",
     "debug": "Debug",
+    "help": "Help",
     "about": "About"
+  },
+  "quickHelp": {
+    "learnMore": "Learn more",
+    "general": "Set the microphone, shortcut, and transcription profiles used for everyday dictation.",
+    "models": "Choose which local or cloud transcription model turns speech into text.",
+    "advanced": "Control application behaviour that is not part of everyday setup.",
+    "postprocessing": "Use an LLM to clean up transcriptions after they are created.",
+    "aiReplace": "Select text, speak an instruction, and replace the selection with the result.",
+    "voiceCommands": "Configure voice commands that can run actions after you speak.",
+    "browserConnector": "Connect AivoRelay to an LLM chat open in Chrome through the extension.",
+    "textReplacement": "Add automatic text corrections that run when results are inserted.",
+    "userInterface": "Choose how the overlay and other results look and behave.",
+    "history": "Review previous transcriptions and manage saved recordings.",
+    "audioProcessing": "Adjust microphone processing before speech is transcribed.",
+    "debug": "Test features, inspect diagnostic information, and troubleshoot problems.",
+    "liveSoundTranscription": "Transcribe computer audio live while it plays.",
+    "transcribeFile": "Turn an audio or video file into text.",
+    "textToSpeech": "Read selected text aloud with the configured speech provider.",
+    "ttsFiles": "Turn text files into MP3 or WAV audio."
+  },
+  "help": {
+    "title": "Help",
+    "definition": "Transcription means turning your voice into text.",
+    "intro": "AivoRelay is a desktop app. Press a key, speak, and it puts the words where you are working.",
+    "search": {
+      "label": "Search help",
+      "placeholder": "Search help…",
+      "loading": "Loading help search…",
+      "emptyQuery": "Type a word such as microphone, file, or history.",
+      "noResults": "No help sections match that search.",
+      "error": "Search is unavailable. Use the contents list below."
+    },
+    "smartHelp": {
+      "label": "Smart Help",
+      "title": "Start with the task you want.",
+      "description": "Choose a task below. Each choice explains the task and opens the matching settings page.",
+      "actions": {
+        "transcription": "Speak to text",
+        "cleanup": "Clean up text",
+        "readAloud": "Read text aloud"
+      }
+    },
+    "contents": {
+      "title": "Contents"
+    },
+    "sections": {
+      "transcription": {
+        "title": "Press a key. Speak. Text appears.",
+        "summary": "Set a microphone and shortcut in Speech / Mic. Choose where speech becomes text in Models: a local model works on this computer, while a cloud provider works online.",
+        "models": {
+          "title": "Choose a local model or cloud provider.",
+          "summary": "A local model works on this computer. A cloud provider processes the recording online."
+        },
+        "speechProcessing": {
+          "title": "Improve microphone audio.",
+          "summary": "Adjust input levels and microphone cleanup before transcription. This can help when speech is too quiet or background noise is distracting."
+        },
+        "advanced": {
+          "title": "Control advanced application behaviour.",
+          "summary": "Advanced contains less common controls. Use it to change startup, clipboard, or other application behaviour."
+        }
+      },
+      "postProcessing": {
+        "title": "Speak naturally. AI cleans up the result.",
+        "summary": "An LLM is an AI text editor. It can fix wording after speech becomes text."
+      },
+      "aiReplace": {
+        "title": "Select text. Say what to change. It is replaced.",
+        "summary": "Select text, then say what you want changed. AI returns replacement text for the selection."
+      },
+      "transcribeFile": {
+        "title": "Choose an audio or video file. Get text.",
+        "summary": "Choose an audio or video file. AivoRelay creates a text transcript you can save."
+      },
+      "liveMonitor": {
+        "title": "Play computer audio. See the words live.",
+        "summary": "Play audio from your computer. AivoRelay writes the words while the audio plays."
+      },
+      "speakSelectedText": {
+        "title": "Select text. Press a key. Hear it spoken.",
+        "summary": "Select text and press its shortcut. A voice reads the text aloud."
+      },
+      "textFileToMp3": {
+        "title": "Choose text files. Get MP3 or WAV audio.",
+        "summary": "Choose a text or Markdown file. AivoRelay creates MP3 or WAV audio."
+      },
+      "voiceCommands": {
+        "title": "Speak a command. AivoRelay performs it.",
+        "summary": "Say an instruction and AivoRelay can perform the enabled action. This page appears only when Voice Commands is enabled."
+      },
+      "connector": {
+        "title": "Connect to an LLM chat open in Chrome via the separate extension.",
+        "summary": "The Connector sends text to an LLM chat open in Chrome through a separate extension. Open Connector to set up that connection."
+      },
+      "textProcessing": {
+        "title": "Add corrections once. Apply them automatically.",
+        "summary": "Add a replacement such as a common spelling fix. AivoRelay applies it when matching text appears."
+      },
+      "history": {
+        "title": "Find your previous transcriptions.",
+        "summary": "History keeps previous transcriptions and recordings. Open it when you want to find an older result."
+      },
+      "userInterface": {
+        "title": "Choose how results appear.",
+        "summary": "Choose how the overlay and results look. These settings change what you see while using AivoRelay."
+      },
+      "debug": {
+        "title": "Test features and diagnose problems.",
+        "summary": "Debug contains tests, logs, and diagnostic tools. Open it when a feature does not behave as expected."
+      }
+    },
+    "aboutLinkPrefix": "Version, updates, licenses, and project information:"
   },
   "textToSpeech": {
     "title": "Speak selected text",
@@ -999,42 +1112,10 @@
     }
   },
   "settings": {
-    "generalReadiness": {
-      "title": "Things you can setup",
-      "description": "Use this as a quick guide. Optional items are nice extras, not blockers.",
-      "status": {
-        "ready": "Ready",
-        "todo": "Next",
-        "optional": "Optional"
-      },
-      "microphone": {
-        "title": "Microphone selected",
-        "detail": "Choose the device you actually speak into so the rest of the tuning starts from the right source.",
-        "action": "Review sound settings"
-      },
-      "transcriptionPath": {
-        "title": "Transcription path chosen",
-        "detail": "Your current mode is {{mode}}. Make sure that path already has a usable model or provider selected.",
-        "localMode": "Local",
-        "remoteMode": "Remote",
-        "action": "Open models"
-      },
-      "shortcut": {
-        "title": "Main recording shortcut set",
-        "detail": "Without a shortcut, the app is configured but not convenient to use day to day.",
-        "readyDetail": "Current shortcut: {{binding}}",
-        "action": "Review profiles"
-      },
-      "llm": {
-        "title": "AI refinement ready",
-        "detail": "Optional, but this is what unlocks cleanup, rewriting, translation, and smarter workflows after transcription.",
-        "action": "Open AI settings"
-      },
-      "preview": {
-        "title": "Review-before-insert workflow",
-        "detail": "Optional, but useful when you want to inspect text before it reaches the target app.",
-        "action": "Open preview settings"
-      }
+    "generalHelp": {
+      "title": "See what AivoRelay can do",
+      "description": "Open Help for a short guide to every feature and the settings page that controls it.",
+      "action": "Open Help"
     },
     "userInterface": {
       "title": "User Interface",

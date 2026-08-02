@@ -7,7 +7,7 @@ import React, {
   useEffect,
 } from "react";
 import { useTranslation } from "react-i18next";
-import { Cog, FlaskConical, Globe, History, Info, Sparkles, Wand2, Terminal, FileAudio, Replace, Mic, Palette, Cpu, Radio, Volume2 } from "lucide-react";
+import { Cog, FlaskConical, Globe, History, Info, Sparkles, Wand2, Terminal, FileAudio, Replace, Mic, Palette, Cpu, Radio, Volume2, CircleHelp } from "lucide-react";
 import { type } from "@tauri-apps/plugin-os";
 import HandyTextLogo from "./icons/HandyTextLogo";
 import HandyHand from "./icons/HandyHand";
@@ -30,6 +30,7 @@ import {
   LiveSoundTranscriptionSettings,
   TextToSpeechSettings,
   TtsFileOperationsSettings,
+  HelpSettings,
 } from "./settings";
 
 export type SidebarSection = keyof typeof SECTIONS_CONFIG;
@@ -148,6 +149,12 @@ export const SECTIONS_CONFIG = {
     component: TtsFileOperationsSettings,
     enabled: () => true,
   },
+  help: {
+    labelKey: "sidebar.help",
+    icon: CircleHelp,
+    component: HelpSettings,
+    enabled: () => true,
+  },
   about: {
     labelKey: "sidebar.about",
     icon: Info,
@@ -166,7 +173,18 @@ function loadSavedOrder(available: string[]): string[] {
       const parsed = JSON.parse(raw) as string[];
       const filtered = parsed.filter((id) => available.includes(id));
       const missing = available.filter((id) => !filtered.includes(id));
-      return [...filtered, ...missing];
+      const result = [...filtered];
+      for (const id of missing) {
+        if (id === "help") {
+          const aboutIndex = result.indexOf("about");
+          if (aboutIndex >= 0) {
+            result.splice(aboutIndex, 0, id);
+            continue;
+          }
+        }
+        result.push(id);
+      }
+      return result;
     }
   } catch {
     // ignore parse errors

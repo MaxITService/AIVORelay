@@ -6,6 +6,7 @@ import AccessibilityPermissions from "./components/AccessibilityPermissions";
 import Footer from "./components/footer";
 import Onboarding from "./components/onboarding";
 import { Sidebar, SidebarSection, SECTIONS_CONFIG } from "./components/Sidebar";
+import { QuickHelp } from "./components/settings";
 import { HotkeySidebar } from "./components/hotkey-sidebar";
 import { useSettings } from "./hooks/useSettings";
 import { commands } from "@/bindings";
@@ -443,6 +444,7 @@ function App() {
           <div className="flex-1 overflow-y-auto">
             <div className="flex flex-col items-center p-6 gap-5 max-w-3xl mx-auto min-h-full">
               <AccessibilityPermissions />
+              <QuickHelp activeSection={currentSection} />
               {renderSettingsContent(currentSection)}
             </div>
           </div>

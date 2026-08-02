@@ -9,6 +9,7 @@ import {
   getShortcutAnchorId,
   getShortcutSettingsSection,
 } from "@/lib/shortcutAnchors";
+import { scrollAndFocusAnchor } from "@/lib/anchorNavigation";
 import { useNavigationStore } from "@/stores/navigationStore";
 
 const DEFAULT_WIDTH = 350;
@@ -88,11 +89,7 @@ export const HotkeySidebar: React.FC = () => {
         const anchor = document.getElementById(anchorId);
 
         if (anchor) {
-          anchor.scrollIntoView({ behavior: "smooth", block: "center" });
-          anchor.classList.add("shortcut-settings-anchor--flash");
-          window.setTimeout(() => {
-            anchor.classList.remove("shortcut-settings-anchor--flash");
-          }, 1800);
+          scrollAndFocusAnchor(anchor, "center");
           return;
         }
 
