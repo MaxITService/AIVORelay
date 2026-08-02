@@ -308,7 +308,7 @@ export const TranscribeFileSettings: React.FC = () => {
     setError,
     setSelectedProfileId,
     setSpeakerSession,
-    clearSpeakerSession,
+    clearSpeakerSession: clearSpeakerSessionStore,
     updateSpeakerCardName,
     applySpeakerCardNames,
     setIsReapplyingSpeakerNames,
@@ -362,6 +362,7 @@ export const TranscribeFileSettings: React.FC = () => {
   const dropZoneRef = useRef<HTMLDivElement>(null);
   const selectedFileRef = useRef<SelectedFile | null>(selectedFile);
   const fileSelectionGenerationRef = useRef(0);
+  const speakerReapplyGenerationRef = useRef(0);
   const transcriptionRunIdRef = useRef(0);
   const sonioxModel = (settings as any)?.soniox_model ?? "stt-rt-v5";
   const transcriptionProvider = String(
@@ -420,6 +421,16 @@ export const TranscribeFileSettings: React.FC = () => {
     selectedFileRef.current = selectedFile;
   }, [selectedFile]);
 
+  const invalidateSpeakerNameReapply = useCallback(() => {
+    speakerReapplyGenerationRef.current += 1;
+    setIsReapplyingSpeakerNames(false);
+  }, [setIsReapplyingSpeakerNames]);
+
+  const clearSpeakerSession = useCallback(() => {
+    invalidateSpeakerNameReapply();
+    clearSpeakerSessionStore();
+  }, [clearSpeakerSessionStore, invalidateSpeakerNameReapply]);
+
   const cancelTranscriptionForFileChange = useCallback(async () => {
     if (!isTranscribing && !isTranscriptionCommandPending) return;
 
@@ -456,6 +467,7 @@ export const TranscribeFileSettings: React.FC = () => {
       }
 
       const previousFile = selectedFileRef.current;
+      invalidateSpeakerNameReapply();
       selectedFileRef.current = nextFile;
       setSelectedFile(nextFile);
 
@@ -464,7 +476,11 @@ export const TranscribeFileSettings: React.FC = () => {
       }
       return true;
     },
-    [cancelTranscriptionForFileChange, setSelectedFile],
+    [
+      cancelTranscriptionForFileChange,
+      invalidateSpeakerNameReapply,
+      setSelectedFile,
+    ],
   );
 
   const prepareAndReplaceSelectedFile = useCallback(
@@ -530,6 +546,7 @@ export const TranscribeFileSettings: React.FC = () => {
   useEffect(() => {
     return () => {
       fileSelectionGenerationRef.current += 1;
+      speakerReapplyGenerationRef.current += 1;
       void cleanupPreparedPreviewAsset(selectedFileRef.current);
     };
   }, []);
@@ -1187,6 +1204,7 @@ export const TranscribeFileSettings: React.FC = () => {
 
     setIsReapplyingSpeakerNames(true);
     setError(null);
+    const reapplyGeneration = ++speakerReapplyGenerationRef.current;
 
     try {
       const result = await commands.reapplyTranscriptionSpeakerNames(
@@ -1197,15 +1215,23 @@ export const TranscribeFileSettings: React.FC = () => {
         })),
       );
 
+      if (reapplyGeneration !== speakerReapplyGenerationRef.current) {
+        return;
+      }
+
       if (result.status === "ok") {
         setTranscriptionResult(result.data);
       } else {
         setError(result.error);
       }
     } catch (err) {
-      setError(String(err));
+      if (reapplyGeneration === speakerReapplyGenerationRef.current) {
+        setError(String(err));
+      }
     } finally {
-      setIsReapplyingSpeakerNames(false);
+      if (reapplyGeneration === speakerReapplyGenerationRef.current) {
+        setIsReapplyingSpeakerNames(false);
+      }
     }
   };
 
