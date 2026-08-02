@@ -8577,7 +8577,7 @@ impl ShortcutAction for ReadClipboardAction {
             if text.trim().is_empty() {
                 let message = "The clipboard does not contain readable text.".to_string();
                 log::warn!("{message}");
-                let _ = app_handle.emit("tts-error", message);
+                crate::commands::tts::report_tts_error(&app_handle, message);
                 return;
             }
 
@@ -8589,7 +8589,6 @@ impl ShortcutAction for ReadClipboardAction {
             .await
             {
                 log::error!("Failed to read clipboard with Text-to-Speech: {error}");
-                let _ = app_handle.emit("tts-error", error);
             }
         });
     }
@@ -8611,12 +8610,12 @@ impl ShortcutAction for ReadSelectionTtsAction {
                 Ok(_) => {
                     let message = "No readable text is selected.".to_string();
                     log::warn!("{message}");
-                    let _ = app_handle.emit("tts-error", message);
+                    crate::commands::tts::report_tts_error(&app_handle, message);
                     return;
                 }
                 Err(error) => {
                     log::error!("Failed to copy selected text for Text-to-Speech: {error}");
-                    let _ = app_handle.emit("tts-error", error);
+                    crate::commands::tts::report_tts_error(&app_handle, error);
                     return;
                 }
             };
@@ -8629,7 +8628,6 @@ impl ShortcutAction for ReadSelectionTtsAction {
             .await
             {
                 log::error!("Failed to read selected text with Text-to-Speech: {error}");
-                let _ = app_handle.emit("tts-error", error);
             }
         });
     }
@@ -8657,14 +8655,14 @@ impl ShortcutAction for ReadSelectionDirectTtsAction {
                         "No readable text is exposed as selected by the focused application."
                             .to_string();
                     log::warn!("{message}");
-                    let _ = app_handle.emit("tts-error", message);
+                    crate::commands::tts::report_tts_error(&app_handle, message);
                     return;
                 }
                 Err(error) => {
                     log::error!(
                         "Failed to read selected text without copying for Text-to-Speech: {error}"
                     );
-                    let _ = app_handle.emit("tts-error", error);
+                    crate::commands::tts::report_tts_error(&app_handle, error);
                     return;
                 }
             };
@@ -8677,7 +8675,6 @@ impl ShortcutAction for ReadSelectionDirectTtsAction {
             .await
             {
                 log::error!("Failed to read selected text with Text-to-Speech: {error}");
-                let _ = app_handle.emit("tts-error", error);
             }
         });
     }
@@ -8697,7 +8694,7 @@ impl ShortcutAction for TtsPlayHistoryFallbackAction {
     fn start(&self, app: &AppHandle, _binding_id: &str, _shortcut_str: &str) {
         if let Err(error) = crate::commands::tts::play_pause_or_replay_latest_history(app) {
             log::warn!("TTS Play history fallback was unavailable: {error}");
-            let _ = app.emit("tts-error", error);
+            crate::commands::tts::report_tts_error(app, error);
         }
     }
 
