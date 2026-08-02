@@ -1,5 +1,6 @@
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { type as getOsType } from "@tauri-apps/plugin-os";
 import {
   type ChangeEvent,
@@ -69,6 +70,8 @@ type TtsOverlayState = {
 };
 
 type UnknownRecord = Record<string, unknown>;
+
+const overlayWindow = getCurrentWindow();
 
 const EMPTY_STATE: TtsOverlayState = {
   operationId: "",
@@ -746,6 +749,12 @@ export default function TtsOverlay() {
     });
   }, [reportPlaybackState, resetAudio, t]);
 
+  const closeOverlay = useCallback(() => {
+    void overlayWindow.hide().catch((error) => {
+      console.error("Unable to hide the TTS overlay:", error);
+    });
+  }, []);
+
   const cyclePlaybackRate = useCallback(() => {
     const nextRate = nextPlaybackRate(playbackRateRef.current);
     playbackRateRef.current = nextRate;
@@ -961,17 +970,28 @@ export default function TtsOverlay() {
             </div>
           </div>
         </div>
-        {totalChunks > 0 && (
-          <div
-            className="tts-overlay__count"
-            aria-label={t("textToSpeech.overlayPlayer.chunkProgress", {
-              current: Math.min(currentPosition, totalChunks),
-              total: totalChunks,
-            })}
+        <div className="tts-overlay__header-actions">
+          {totalChunks > 0 && (
+            <div
+              className="tts-overlay__count"
+              aria-label={t("textToSpeech.overlayPlayer.chunkProgress", {
+                current: Math.min(currentPosition, totalChunks),
+                total: totalChunks,
+              })}
+            >
+              {Math.min(currentPosition, totalChunks)} / {totalChunks}
+            </div>
+          )}
+          <button
+            type="button"
+            className="tts-overlay__close"
+            onClick={closeOverlay}
+            aria-label={t("common.close")}
+            title={t("common.close")}
           >
-            {Math.min(currentPosition, totalChunks)} / {totalChunks}
-          </div>
-        )}
+            <span aria-hidden="true">×</span>
+          </button>
+        </div>
       </div>
 
       {state.textPreview && (
