@@ -106,6 +106,25 @@ export const useModels = () => {
       await beginModelDownloadActivationIntent(modelId);
       const result = await commands.downloadModel(modelId);
       if (result.status === "ok") {
+        // The command result is authoritative. Tauri events are useful for
+        // live progress, but an event emitted before listen() resolves is not
+        // replayed, so always reconcile terminal state here as well.
+        setDownloadingModels((prev) => {
+          const next = new Set(prev);
+          next.delete(modelId);
+          return next;
+        });
+        setExtractingModels((prev) => {
+          const next = new Set(prev);
+          next.delete(modelId);
+          return next;
+        });
+        setDownloadProgress((prev) => {
+          const next = new Map(prev);
+          next.delete(modelId);
+          return next;
+        });
+        await loadModels();
         return true;
       } else {
         cancelModelDownloadActivationIntent(modelId);
