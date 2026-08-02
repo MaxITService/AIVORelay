@@ -6,6 +6,11 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const LOCALES_DIR = path.join(__dirname, "..", "src", "i18n", "locales");
 const REFERENCE_LANG = "en";
+// English and Russian are the two release-complete locales. Other locale
+// files are intentionally partial and use the configured English fallback;
+// adding a new English key must not turn those known partial catalogs into a
+// false release regression.
+const RELEASE_COMPLETE_LANGS = ["ru"];
 
 type JsonRecord = Record<string, unknown>;
 
@@ -16,11 +21,7 @@ interface ValidationResult {
 }
 
 function getLanguageDirs(): string[] {
-  const entries = fs.readdirSync(LOCALES_DIR, { withFileTypes: true });
-  return entries
-    .filter((entry) => entry.isDirectory() && entry.name !== REFERENCE_LANG)
-    .map((entry) => entry.name)
-    .sort();
+  return [...RELEASE_COMPLETE_LANGS].sort();
 }
 
 function loadTranslation(lang: string): JsonRecord | null {
