@@ -361,6 +361,7 @@ export const TranscribeFileSettings: React.FC = () => {
 
   const dropZoneRef = useRef<HTMLDivElement>(null);
   const selectedFileRef = useRef<SelectedFile | null>(selectedFile);
+  const fileSelectionGenerationRef = useRef(0);
   const transcriptionRunIdRef = useRef(0);
   const sonioxModel = (settings as any)?.soniox_model ?? "stt-rt-v5";
   const transcriptionProvider = String(
@@ -443,17 +444,50 @@ export const TranscribeFileSettings: React.FC = () => {
   ]);
 
   const replaceSelectedFile = useCallback(
-    async (nextFile: SelectedFile | null) => {
+    async (
+      nextFile: SelectedFile | null,
+      selectionGeneration: number,
+    ): Promise<boolean> => {
       await cancelTranscriptionForFileChange();
-      await cleanupPreparedPreviewAsset(selectedFileRef.current);
+
+      if (selectionGeneration !== fileSelectionGenerationRef.current) {
+        await cleanupPreparedPreviewAsset(nextFile);
+        return false;
+      }
+
+      const previousFile = selectedFileRef.current;
       selectedFileRef.current = nextFile;
       setSelectedFile(nextFile);
+
+      if (previousFile?.previewAssetPath !== nextFile?.previewAssetPath) {
+        void cleanupPreparedPreviewAsset(previousFile);
+      }
+      return true;
     },
     [cancelTranscriptionForFileChange, setSelectedFile],
   );
 
+  const prepareAndReplaceSelectedFile = useCallback(
+    async (path: string): Promise<boolean> => {
+      const selectionGeneration = ++fileSelectionGenerationRef.current;
+      const nextFile = await buildSelectedFile(path);
+
+      if (selectionGeneration !== fileSelectionGenerationRef.current) {
+        await cleanupPreparedPreviewAsset(nextFile);
+        return false;
+      }
+
+      return replaceSelectedFile(nextFile, selectionGeneration);
+    },
+    [replaceSelectedFile],
+  );
+
   const clearSelectedFileState = useCallback(async () => {
-    await replaceSelectedFile(null);
+    const selectionGeneration = ++fileSelectionGenerationRef.current;
+    const didReplace = await replaceSelectedFile(null, selectionGeneration);
+    if (!didReplace) {
+      return;
+    }
     setTranscriptionResult("");
     setSavedFilePath(null);
     setInfoMessage(null);
@@ -495,6 +529,7 @@ export const TranscribeFileSettings: React.FC = () => {
 
   useEffect(() => {
     return () => {
+      fileSelectionGenerationRef.current += 1;
       void cleanupPreparedPreviewAsset(selectedFileRef.current);
     };
   }, []);
@@ -565,8 +600,10 @@ export const TranscribeFileSettings: React.FC = () => {
             return;
           }
 
-          const nextFile = await buildSelectedFile(filePath);
-          await replaceSelectedFile(nextFile);
+          const didReplace = await prepareAndReplaceSelectedFile(filePath);
+          if (!didReplace) {
+            return;
+          }
           setTranscriptionResult("");
           setSavedFilePath(null);
           setInfoMessage(null);
@@ -584,7 +621,7 @@ export const TranscribeFileSettings: React.FC = () => {
     };
   }, [
     clearSpeakerSession,
-    replaceSelectedFile,
+    prepareAndReplaceSelectedFile,
     setError,
     setSavedFilePath,
     setChunkingTrace,
@@ -924,8 +961,10 @@ export const TranscribeFileSettings: React.FC = () => {
 
       if (result) {
         const path = result as string;
-        const nextFile = await buildSelectedFile(path);
-        await replaceSelectedFile(nextFile);
+        const didReplace = await prepareAndReplaceSelectedFile(path);
+        if (!didReplace) {
+          return;
+        }
         setTranscriptionResult("");
         setSavedFilePath(null);
         setInfoMessage(null);
