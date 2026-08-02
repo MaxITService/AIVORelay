@@ -1176,6 +1176,16 @@ fn resample_audio(samples: &[f32], from_rate: u32, to_rate: u32) -> Result<Vec<f
         }
     }
 
+    // FftFixedIn buffers input internally when its FFT block does not align
+    // with our caller-side chunks. Push a final zero-padded block so delayed
+    // audio frames are emitted instead of being dropped at end of file.
+    let tail = resampler
+        .process_partial::<Vec<f32>>(None, None)
+        .map_err(|e| format!("Failed to flush resampled audio: {e}"))?;
+    if let Some(out_chunk) = tail.first() {
+        output.extend_from_slice(out_chunk);
+    }
+
     Ok(output)
 }
 
@@ -1259,7 +1269,7 @@ fn save_transcription_without_overwrite(
 #[cfg(test)]
 mod tests {
     use super::{
-        require_remote_segments, save_transcription_without_overwrite,
+        require_remote_segments, resample_audio, save_transcription_without_overwrite,
         session_blocks_local_file_transcription, validate_audio_sample_rate,
     };
     use crate::session_manager::SessionState;
@@ -1278,6 +1288,15 @@ mod tests {
         for sample_rate in [8_000, 16_000, 44_100, 48_000, 192_000, 384_000] {
             assert!(validate_audio_sample_rate(sample_rate).is_ok());
         }
+    }
+
+    #[test]
+    fn resampling_flushes_the_final_buffered_frames() {
+        let input = vec![0.0; 512_000];
+        let output = resample_audio(&input, 44_100, 16_000).unwrap();
+        let duration_preserving_minimum = input.len() * 16_000 / 44_100;
+
+        assert!(output.len() >= duration_preserving_minimum);
     }
 
     #[test]
