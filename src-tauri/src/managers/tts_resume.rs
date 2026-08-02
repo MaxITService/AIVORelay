@@ -504,7 +504,10 @@ pub(crate) fn create_ui_file_job(
         created_at_ms: now,
         updated_at_ms: now,
     };
-    persist_ui_file_job(cache_root, &manifest)?;
+    if let Err(error) = persist_ui_file_job(cache_root, &manifest) {
+        let _ = remove_ui_file_job_record(cache_root, &manifest.job_id);
+        return Err(error);
+    }
     Ok(manifest)
 }
 
@@ -530,7 +533,16 @@ pub(crate) fn find_ui_file_job_by_output(
         if validate_ui_job_id(&job_id).is_err() {
             continue;
         }
-        if let Some(manifest) = read_ui_job_candidates(&entry.path())?
+        let candidates = match read_ui_job_candidates(&entry.path()) {
+            Ok(candidates) => candidates,
+            Err(error) => {
+                log::warn!(
+                    "Ignoring corrupt unrelated TTS job while checking output ownership: {error}"
+                );
+                continue;
+            }
+        };
+        if let Some(manifest) = candidates
             .into_iter()
             .filter(|job| job.schema_version == SCHEMA_VERSION && job.job_id == job_id)
             .max_by_key(|job| job.generation)
@@ -824,6 +836,12 @@ fn read_ui_job_candidates(root: &Path) -> Result<Vec<UiFileJobManifest>> {
             "Saved TTS job {} is corrupt or inaccessible: {}",
             root.display(),
             errors.join("; ")
+        ));
+    }
+    if candidates.is_empty() && matches!(retained_source, Ok(Some(_))) {
+        return Err(anyhow!(
+            "Saved TTS job {} has a source snapshot but no readable manifest",
+            root.display()
         ));
     }
     Ok(candidates)
