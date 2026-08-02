@@ -2559,9 +2559,26 @@ impl TranscriptionManager {
         }
 
         self.ensure_file_transcription_not_cancelled()?;
-        if !pending.is_empty() && chunk_start_sample.is_some() {
-            elapsed_samples += pending.len();
-            chunk_buffer.extend_from_slice(&pending);
+        if !pending.is_empty() {
+            let frame_start_sample = elapsed_samples;
+            let pending_len = pending.len();
+            let mut padded_frame = pending.clone();
+            padded_frame.resize(frame_size, 0.0);
+            let is_speech = vad
+                .is_speech(&padded_frame)
+                .map_err(|e| anyhow::anyhow!("Chunking VAD failed at end of file: {}", e))?;
+            elapsed_samples += pending_len;
+
+            if is_speech && chunk_start_sample.is_none() {
+                let prefill = vad.drain_prefill();
+                chunk_start_sample = Some(frame_start_sample.saturating_sub(prefill.len()));
+                chunk_buffer.extend_from_slice(&prefill);
+            }
+            if chunk_start_sample.is_some() {
+                // Feed a full frame to VAD, but preserve only real input in
+                // the transcription chunk; zero padding is classifier-only.
+                chunk_buffer.extend_from_slice(&pending);
+            }
         }
 
         if !chunk_buffer.is_empty() {
