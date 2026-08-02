@@ -33,6 +33,7 @@ import { TtsBatchConversion } from "./TtsBatchConversion";
 import { TtsBetaBanner } from "./TtsBetaBanner";
 import { TtsHelpDisclosure } from "./TtsHelpDisclosure";
 import { TtsHistory } from "./TtsHistory";
+import { TtsUnfinishedJobs } from "./TtsUnfinishedJobs";
 import {
   DEFAULT_TTS_LLM_PREPROCESSING,
   TtsAiCleanup,
@@ -2140,17 +2141,17 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
     conversionBusyRef.current = true;
     try {
       await flushPendingSettingsWrites();
-      const result = await invoke<
-        | string
-        | {
-            operation_id?: string;
-            operationId?: string;
-            output_path?: string;
-            outputPath?: string;
-            resumed_chunks?: number;
-            resumedChunks?: number;
-          }
-      >("convert_tts_text_file", {
+      const result = await invoke<{
+        jobId: string;
+        conversion: {
+          operation_id?: string;
+          operationId?: string;
+          output_path?: string;
+          outputPath?: string;
+          resumed_chunks?: number;
+          resumedChunks?: number;
+        };
+      }>("start_tts_file_job", {
         request: {
           inputPath,
           outputPath,
@@ -2158,31 +2159,25 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
           mp3Bitrate,
         },
       });
-      if (typeof result === "string") {
-        setCompletedPath(result);
-      } else {
-        const returnedOperationId = result.operation_id ?? result.operationId;
-        setOperationId(
-          returnedOperationId === undefined
-            ? null
-            : String(returnedOperationId),
-        );
-        conversionOperationIdRef.current =
-          returnedOperationId === undefined
-            ? null
-            : String(returnedOperationId);
-        const finalPath = result.output_path ?? result.outputPath;
-        if (finalPath) setCompletedPath(finalPath);
-        const resumedChunks =
-          result.resumed_chunks ?? result.resumedChunks ?? 0;
-        if (resumedChunks > 0) {
-          setConversionProgress((previous) => ({
-            ...previous,
-            message: t("textToSpeech.conversion.resumeRecovered", {
-              count: resumedChunks,
-            }),
-          }));
-        }
+      const conversion = result.conversion;
+      const returnedOperationId =
+        conversion.operation_id ?? conversion.operationId;
+      setOperationId(
+        returnedOperationId === undefined ? null : String(returnedOperationId),
+      );
+      conversionOperationIdRef.current =
+        returnedOperationId === undefined ? null : String(returnedOperationId);
+      const finalPath = conversion.output_path ?? conversion.outputPath;
+      if (finalPath) setCompletedPath(finalPath);
+      const resumedChunks =
+        conversion.resumed_chunks ?? conversion.resumedChunks ?? 0;
+      if (resumedChunks > 0) {
+        setConversionProgress((previous) => ({
+          ...previous,
+          message: t("textToSpeech.conversion.resumeRecovered", {
+            count: resumedChunks,
+          }),
+        }));
       }
     } catch (error) {
       setConversionError(asErrorMessage(error));
@@ -2190,6 +2185,7 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
     } finally {
       conversionBusyRef.current = false;
       setConversionBusy(false);
+      window.dispatchEvent(new Event("aivorelay:tts-jobs-changed"));
     }
   };
 
@@ -3632,6 +3628,7 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
 
       {mode === "files" && (
         <>
+          <TtsUnfinishedJobs />
           <SettingsGroup
             title={t("textToSpeech.conversion.title")}
             description={t("textToSpeech.conversion.description")}
@@ -3864,11 +3861,11 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
               </Button>
               {conversionBusy && (
                 <Button
-                  variant="danger"
+                  variant="secondary"
                   disabled={!operationId}
                   onClick={() => void cancelConversion()}
                 >
-                  {t("textToSpeech.conversion.cancel")}
+                  {t("textToSpeech.conversion.pause")}
                 </Button>
               )}
             </div>

@@ -16,6 +16,7 @@ use crate::managers::tts_history::{
     TtsHistorySourceKind,
 };
 use crate::managers::tts_llm;
+use crate::managers::tts_resume::UiFileJobSummary;
 use crate::managers::windows_tts::{self, WindowsVoiceCatalog};
 use crate::settings::{
     get_settings, write_settings, LlmPostProcessBenchmarkResult, TtsLlmScope, TtsOperationScope,
@@ -237,6 +238,13 @@ pub struct ConvertTtsTextFileResponse {
     pub resumed_chunks: usize,
     pub output_format: TtsOutputFormat,
     pub mp3_bitrate_kbps: Option<u16>,
+}
+
+#[derive(Debug, Clone, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct TtsFileJobConversionResponse {
+    pub job_id: String,
+    pub conversion: ConvertTtsTextFileResponse,
 }
 
 impl From<FileConversionResult> for ConvertTtsTextFileResponse {
@@ -1686,6 +1694,133 @@ pub async fn convert_tts_text_file(
         );
     }
     Ok(ConvertTtsTextFileResponse::from(result))
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn list_tts_file_jobs(
+    manager: tauri::State<'_, Arc<TtsManager>>,
+) -> Result<Vec<UiFileJobSummary>, String> {
+    manager
+        .list_ui_file_jobs()
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn start_tts_file_job(
+    app: AppHandle,
+    request: ConvertTtsTextFileRequest,
+) -> Result<TtsFileJobConversionResponse, String> {
+    let mut settings = get_settings(&app)
+        .tts
+        .effective_for_scope(TtsOperationScope::File);
+    settings.output_format = request.output_format;
+    settings.mp3_bitrate_kbps = if SUPPORTED_MP3_BITRATES.contains(&request.mp3_bitrate) {
+        request.mp3_bitrate
+    } else {
+        256
+    };
+    let manager = app.state::<Arc<TtsManager>>().inner().clone();
+    let (job_id, resolved) = manager
+        .create_ui_file_job(&request.input_path, &request.output_path, &settings)
+        .await
+        .map_err(|error| error.to_string())?;
+    let result = resolved.value;
+    finish_ui_file_job(&app, &manager, &job_id, &resolved.settings, &result);
+    Ok(TtsFileJobConversionResponse {
+        job_id,
+        conversion: ConvertTtsTextFileResponse::from(result),
+    })
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn resume_tts_file_job(
+    app: AppHandle,
+    job_id: String,
+) -> Result<TtsFileJobConversionResponse, String> {
+    let manager = app.state::<Arc<TtsManager>>().inner().clone();
+    let resolved = manager
+        .resume_ui_file_job(&job_id)
+        .await
+        .map_err(|error| error.to_string())?;
+    let result = resolved.value;
+    finish_ui_file_job(&app, &manager, &job_id, &resolved.settings, &result);
+    Ok(TtsFileJobConversionResponse {
+        job_id,
+        conversion: ConvertTtsTextFileResponse::from(result),
+    })
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn discard_tts_file_job(
+    manager: tauri::State<'_, Arc<TtsManager>>,
+    job_id: String,
+) -> Result<(), String> {
+    manager
+        .discard_ui_file_job(&job_id)
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn export_tts_file_job_partial(
+    manager: tauri::State<'_, Arc<TtsManager>>,
+    job_id: String,
+    destination: PathBuf,
+) -> Result<usize, String> {
+    let manager = manager.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        manager.export_ui_file_job_partial(&job_id, &destination)
+    })
+    .await
+    .map_err(|error| format!("Partial TTS export task failed: {error}"))?
+    .map_err(|error| error.to_string())
+}
+
+fn finish_ui_file_job(
+    app: &AppHandle,
+    manager: &Arc<TtsManager>,
+    job_id: &str,
+    settings: &TtsSettings,
+    result: &FileConversionResult,
+) {
+    if settings.file_history_enabled {
+        match manager.ui_file_job_history_source(job_id) {
+            Ok((source_text, source_path)) => {
+                let source_kind = source_path
+                    .extension()
+                    .and_then(|extension| extension.to_str())
+                    .filter(|extension| extension.eq_ignore_ascii_case("md"))
+                    .map(|_| TtsHistorySourceKind::Markdown)
+                    .unwrap_or(TtsHistorySourceKind::Text);
+                let _ = save_passive_history(
+                    app,
+                    settings,
+                    history_metadata(
+                        settings,
+                        TtsHistoryScope::File,
+                        source_text,
+                        source_kind,
+                        format!(
+                            "file-job-{}-{}",
+                            chrono::Utc::now().timestamp_millis(),
+                            result.operation_id
+                        ),
+                        Some(result.output_path.clone()),
+                    ),
+                    result.output_path.clone(),
+                    false,
+                );
+            }
+            Err(error) => log::warn!("Unable to load completed TTS job History source: {error}"),
+        }
+    }
+    if let Err(error) = manager.complete_ui_file_job(job_id) {
+        log::warn!("Unable to remove completed TTS job {job_id}: {error}");
+    }
 }
 
 #[tauri::command]

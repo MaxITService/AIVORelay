@@ -10,10 +10,12 @@ use anyhow::{anyhow, Context, Result};
 use fs2::FileExt;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+use specta::Type;
 use std::ffi::OsString;
 use std::fs::{self, File, OpenOptions};
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 
 const SCHEMA_VERSION: u32 = 1;
 const PIPELINE_REVISION: &str = "pcm24k-mono-semantic-v1";
@@ -26,15 +28,91 @@ const OWNER_MARKER_CONTENTS: &[u8] = b"AIVORelay TTS resume workspace v1\n";
 const RAW_PCM_FILE: &str = "audio.pcm";
 const ENCODED_PARTIAL_FILE: &str = "audio.output.partial";
 const LEASE_FILE: &str = "lease.lock";
+const UI_JOBS_ROOT: &str = "ui-file-jobs";
+const UI_JOB_SLOTS: [&str; 2] = ["job-0.json", "job-1.json"];
+const MAX_UI_JOB_BYTES: u64 = 32 * 1024 * 1024;
+static UI_JOB_NONCE: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum ResumeOrigin {
     Manual,
+    UiJob {
+        job_id: String,
+        source_path: PathBuf,
+        output_path: PathBuf,
+    },
     Watcher {
         source_path: PathBuf,
         output_path: PathBuf,
     },
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, Type, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum UiFileJobStatus {
+    Planned,
+    Preparing,
+    Running,
+    Retrying,
+    Paused,
+    Interrupted,
+    Failed,
+    Completed,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub(crate) struct UiFileJobManifest {
+    schema_version: u32,
+    generation: u64,
+    pub job_id: String,
+    pub source_path: PathBuf,
+    pub output_path: PathBuf,
+    pub source_text: String,
+    pub processed_text: Option<String>,
+    pub chunks: Vec<TtsChunk>,
+    pub settings: TtsSettings,
+    pub status: UiFileJobStatus,
+    pub completed_chunks: usize,
+    pub last_error: Option<String>,
+    pub created_at_ms: i64,
+    pub updated_at_ms: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct UiFileJobSummary {
+    pub job_id: String,
+    pub source_path: PathBuf,
+    pub output_path: PathBuf,
+    pub provider: TtsProvider,
+    pub output_format: crate::settings::TtsOutputFormat,
+    pub status: UiFileJobStatus,
+    pub completed_chunks: usize,
+    pub total_chunks: usize,
+    pub partial_available: bool,
+    pub last_error: Option<String>,
+    pub created_at_ms: i64,
+    pub updated_at_ms: i64,
+}
+
+impl UiFileJobManifest {
+    pub fn summary(&self) -> UiFileJobSummary {
+        UiFileJobSummary {
+            job_id: self.job_id.clone(),
+            source_path: self.source_path.clone(),
+            output_path: self.output_path.clone(),
+            provider: self.settings.provider,
+            output_format: self.settings.output_format,
+            status: self.status,
+            completed_chunks: self.completed_chunks.min(self.chunks.len()),
+            total_chunks: self.chunks.len(),
+            partial_available: self.completed_chunks > 0 && !self.output_path.exists(),
+            last_error: self.last_error.clone(),
+            created_at_ms: self.created_at_ms,
+            updated_at_ms: self.updated_at_ms,
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -383,6 +461,257 @@ pub fn synthesis_signature(chunks: &[TtsChunk], settings: &TtsSettings) -> Resul
     };
     let bytes = serde_json::to_vec(&payload).context("Failed to fingerprint TTS synthesis plan")?;
     Ok(sha256_hex(&bytes))
+}
+
+pub(crate) fn create_ui_file_job(
+    cache_root: &Path,
+    source_path: PathBuf,
+    output_path: PathBuf,
+    source_text: String,
+    settings: TtsSettings,
+) -> Result<UiFileJobManifest> {
+    let now = chrono::Utc::now().timestamp_millis();
+    let nonce = UI_JOB_NONCE.fetch_add(1, Ordering::Relaxed);
+    let job_id = format!("{:x}-{:x}-{:x}", now.max(0), std::process::id(), nonce);
+    let manifest = UiFileJobManifest {
+        schema_version: SCHEMA_VERSION,
+        generation: 1,
+        job_id,
+        source_path,
+        output_path,
+        source_text,
+        processed_text: None,
+        chunks: Vec::new(),
+        settings,
+        status: UiFileJobStatus::Planned,
+        completed_chunks: 0,
+        last_error: None,
+        created_at_ms: now,
+        updated_at_ms: now,
+    };
+    persist_ui_file_job(cache_root, &manifest)?;
+    Ok(manifest)
+}
+
+pub(crate) fn load_ui_file_job(cache_root: &Path, job_id: &str) -> Result<UiFileJobManifest> {
+    validate_ui_job_id(job_id)?;
+    read_ui_job_candidates(&ui_job_root(cache_root, job_id))
+        .into_iter()
+        .filter(|job| job.schema_version == SCHEMA_VERSION && job.job_id == job_id)
+        .max_by_key(|job| job.generation)
+        .ok_or_else(|| anyhow!("The saved TTS conversion job was not found"))
+}
+
+pub(crate) fn persist_ui_file_job(cache_root: &Path, manifest: &UiFileJobManifest) -> Result<()> {
+    validate_ui_job_id(&manifest.job_id)?;
+    let root = ui_job_root(cache_root, &manifest.job_id);
+    reject_link_if_present(&root)?;
+    fs::create_dir_all(&root)
+        .with_context(|| format!("Failed to create TTS job directory {}", root.display()))?;
+    reject_link_if_present(&root)?;
+
+    let bytes = serde_json::to_vec(manifest).context("Failed to serialize the saved TTS job")?;
+    if bytes.len() as u64 > MAX_UI_JOB_BYTES {
+        return Err(anyhow!(
+            "The saved TTS job exceeds the {} MiB safety limit",
+            MAX_UI_JOB_BYTES / (1024 * 1024)
+        ));
+    }
+    let slot_index = (manifest.generation % UI_JOB_SLOTS.len() as u64) as usize;
+    let destination = root.join(UI_JOB_SLOTS[slot_index]);
+    reject_link_if_present(&destination)?;
+    let temporary = root.join(format!(
+        ".job-{}-{}-{}.partial",
+        std::process::id(),
+        manifest.generation,
+        unique_nonce()
+    ));
+    let result = (|| -> Result<()> {
+        let mut file = OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&temporary)?;
+        file.write_all(&bytes)?;
+        file.flush()?;
+        file.sync_all()?;
+        drop(file);
+        if destination.exists() {
+            fs::remove_file(&destination)?;
+        }
+        crate::no_clobber::publish_new_file(&temporary, &destination)?;
+        Ok(())
+    })();
+    if result.is_err() {
+        let _ = fs::remove_file(&temporary);
+    }
+    result.with_context(|| format!("Failed to save TTS job {}", manifest.job_id))
+}
+
+pub fn list_ui_file_jobs(cache_root: &Path) -> Result<Vec<UiFileJobSummary>> {
+    let root = cache_root.join(UI_JOBS_ROOT);
+    reject_link_if_present(&root)?;
+    let entries = match fs::read_dir(&root) {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(error) => return Err(error.into()),
+    };
+    let mut jobs = Vec::new();
+    for entry in entries {
+        let entry = entry?;
+        let file_type = entry.file_type()?;
+        if !file_type.is_dir() || file_type.is_symlink() {
+            continue;
+        }
+        let job_id = entry.file_name().to_string_lossy().into_owned();
+        if validate_ui_job_id(&job_id).is_err() {
+            continue;
+        }
+        let Some(mut manifest) = read_ui_job_candidates(&entry.path())
+            .into_iter()
+            .filter(|job| job.schema_version == SCHEMA_VERSION && job.job_id == job_id)
+            .max_by_key(|job| job.generation)
+        else {
+            continue;
+        };
+        if let Ok(completed_chunks) = ui_job_completed_chunks(&manifest) {
+            manifest.completed_chunks = completed_chunks;
+        }
+        if matches!(
+            manifest.status,
+            UiFileJobStatus::Preparing | UiFileJobStatus::Running | UiFileJobStatus::Retrying
+        ) {
+            manifest.status = UiFileJobStatus::Interrupted;
+            manifest.last_error = Some("AivoRelay closed before this conversion finished".into());
+            touch_ui_job(&mut manifest);
+            persist_ui_file_job(cache_root, &manifest)?;
+        }
+        if manifest.status != UiFileJobStatus::Completed && !manifest.output_path.exists() {
+            jobs.push(manifest.summary());
+        }
+    }
+    jobs.sort_by(|left, right| right.updated_at_ms.cmp(&left.updated_at_ms));
+    Ok(jobs)
+}
+
+pub(crate) fn touch_ui_job(manifest: &mut UiFileJobManifest) {
+    manifest.generation = manifest.generation.saturating_add(1);
+    manifest.updated_at_ms = chrono::Utc::now().timestamp_millis();
+}
+
+pub(crate) fn remove_ui_file_job_record(cache_root: &Path, job_id: &str) -> Result<()> {
+    validate_ui_job_id(job_id)?;
+    let root = ui_job_root(cache_root, job_id);
+    reject_link_if_present(&root)?;
+    if !root.exists() {
+        return Ok(());
+    }
+    for entry in fs::read_dir(&root)? {
+        let entry = entry?;
+        let file_type = entry.file_type()?;
+        if file_type.is_dir() && !file_type.is_symlink() {
+            return Err(anyhow!(
+                "The TTS job directory contains an unexpected folder"
+            ));
+        }
+        fs::remove_file(entry.path())?;
+    }
+    fs::remove_dir(&root)?;
+    Ok(())
+}
+
+pub fn discard_ui_file_job(cache_root: &Path, job_id: &str) -> Result<()> {
+    let manifest = load_ui_file_job(cache_root, job_id)?;
+    let workspace = output_workspace_root(&manifest.output_path);
+    if workspace.exists() {
+        ensure_owned_workspace(&workspace)?;
+        let lease_path = workspace.join(LEASE_FILE);
+        reject_link_if_present(&lease_path)?;
+        let lease = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(&lease_path)
+            .with_context(|| {
+                format!(
+                    "Failed to open TTS resume workspace lease {}",
+                    lease_path.display()
+                )
+            })?;
+        lease.try_lock_exclusive().map_err(|error| {
+            anyhow!(
+                "The TTS conversion is still active and cannot be discarded: {}",
+                error
+            )
+        })?;
+        discard_owned_workspace(&workspace, false)?;
+    }
+    remove_ui_file_job_record(cache_root, job_id)
+}
+
+fn ui_job_root(cache_root: &Path, job_id: &str) -> PathBuf {
+    cache_root.join(UI_JOBS_ROOT).join(job_id)
+}
+
+fn ui_job_completed_chunks(manifest: &UiFileJobManifest) -> Result<usize> {
+    if manifest.chunks.is_empty() || manifest.processed_text.is_none() {
+        return Ok(0);
+    }
+    let signature = synthesis_signature(&manifest.chunks, &manifest.settings)?;
+    let root = output_workspace_root(&manifest.output_path);
+    let raw_path = root.join(RAW_PCM_FILE);
+    let checkpoint = read_checkpoint_candidates(&root)
+        .into_iter()
+        .filter(|checkpoint| {
+            checkpoint.schema_version == SCHEMA_VERSION
+                && checkpoint.pipeline_revision == PIPELINE_REVISION
+                && checkpoint.synthesis_signature == signature
+                && checkpoint.total_chunks == manifest.chunks.len()
+        })
+        .filter(|checkpoint| validate_checkpoint(checkpoint, &raw_path).is_ok())
+        .max_by_key(|checkpoint| checkpoint.generation);
+    Ok(checkpoint
+        .map(|checkpoint| checkpoint.segments.len())
+        .unwrap_or(0))
+}
+
+fn validate_ui_job_id(job_id: &str) -> Result<()> {
+    if job_id.is_empty()
+        || job_id.len() > 128
+        || !job_id
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-')
+    {
+        return Err(anyhow!("The TTS conversion job ID is invalid"));
+    }
+    Ok(())
+}
+
+fn read_ui_job_candidates(root: &Path) -> Vec<UiFileJobManifest> {
+    UI_JOB_SLOTS
+        .iter()
+        .filter_map(|slot| read_ui_file_job(&root.join(slot)).ok().flatten())
+        .collect()
+}
+
+fn read_ui_file_job(path: &Path) -> Result<Option<UiFileJobManifest>> {
+    reject_link_if_present(path)?;
+    let metadata = match fs::metadata(path) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(error.into()),
+    };
+    if !metadata.is_file() || metadata.len() > MAX_UI_JOB_BYTES {
+        return Err(anyhow!("Invalid saved TTS job file"));
+    }
+    let mut bytes = Vec::with_capacity(metadata.len() as usize);
+    File::open(path)?
+        .take(MAX_UI_JOB_BYTES + 1)
+        .read_to_end(&mut bytes)?;
+    if bytes.len() as u64 > MAX_UI_JOB_BYTES {
+        return Err(anyhow!("The saved TTS job exceeds its safety limit"));
+    }
+    serde_json::from_slice(&bytes)
+        .map(Some)
+        .with_context(|| format!("Failed to parse saved TTS job {}", path.display()))
 }
 
 pub fn discover_watcher_tasks(output_dir: &Path) -> Result<Vec<WatcherResumeTask>> {

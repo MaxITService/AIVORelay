@@ -558,7 +558,18 @@
       "resumeRecovered": "Recovered {{count}} verified audio chunk(s) from the previous attempt.",
       "convert": "Convert",
       "cancel": "Cancel",
+      "pause": "Pause and keep progress",
       "completed": "Completed: {{path}}"
+    },
+    "unfinishedJobs": {
+      "title": "Unfinished conversions",
+      "description": "Continue an interrupted conversion without paying for completed chunks again, save the finished part, or discard its saved progress.",
+      "progress": "{{completed}} of {{total}} chunks — {{percent}}%",
+      "resume": "Resume",
+      "pause": "Pause and keep progress",
+      "savePartial": "Save completed part",
+      "discard": "Discard",
+      "discardConfirm": "Discard this conversion and permanently delete its saved progress?"
     },
     "batch": {
       "title": "Batch convert text files",

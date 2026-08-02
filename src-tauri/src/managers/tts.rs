@@ -1405,6 +1405,7 @@ impl TtsManager {
                             output_path: output_path.clone(),
                         },
                         require_resume_checkpoint,
+                        None,
                     )
                     .await
                 {
@@ -1832,6 +1833,60 @@ impl TtsManager {
             None,
             ResumeOrigin::Manual,
             false,
+            None,
+        )
+        .await
+    }
+
+    pub async fn create_ui_file_job(
+        self: &Arc<Self>,
+        input_path: impl AsRef<Path>,
+        output_path: impl AsRef<Path>,
+        settings: &TtsSettings,
+    ) -> Result<(String, ResolvedTtsResult<FileConversionResult>)> {
+        validate_enabled_independent_settings(settings)?;
+        validate_input_extension(input_path.as_ref())?;
+        let (source, _encoding) = read_supported_text_file(input_path.as_ref())?;
+        let manifest = tts_resume::create_ui_file_job(
+            &self.cache_root,
+            input_path.as_ref().to_path_buf(),
+            output_path.as_ref().to_path_buf(),
+            source,
+            settings.clone(),
+        )?;
+        let job_id = manifest.job_id.clone();
+        let result = self.resume_ui_file_job(&job_id).await?;
+        Ok((job_id, result))
+    }
+
+    pub async fn resume_ui_file_job(
+        self: &Arc<Self>,
+        job_id: &str,
+    ) -> Result<ResolvedTtsResult<FileConversionResult>> {
+        let manifest = tts_resume::load_ui_file_job(&self.cache_root, job_id)?;
+        if manifest.output_path.exists() {
+            return Err(anyhow!(
+                "Output file already exists: {}",
+                manifest.output_path.display()
+            ));
+        }
+        let operation_guard = self.try_reserve_foreground_operation()?;
+        self.convert_decoded_text_file_reserved(
+            &manifest.source_path,
+            &manifest.source_text,
+            &manifest.output_path,
+            &manifest.settings,
+            TtsLlmScope::File,
+            None,
+            ResumeOrigin::UiJob {
+                job_id: manifest.job_id.clone(),
+                source_path: manifest.source_path.clone(),
+                output_path: manifest.output_path.clone(),
+            },
+            false,
+            operation_guard,
+            None,
+            Some(job_id),
         )
         .await
     }
@@ -1859,6 +1914,7 @@ impl TtsManager {
             resume_namespace,
             ResumeOrigin::Manual,
             false,
+            None,
         )
         .await
     }
@@ -1917,6 +1973,7 @@ impl TtsManager {
                 false,
                 operation_guard,
                 Some(cancellation),
+                None,
             )
             .await?;
         Ok((result, source))
@@ -1924,6 +1981,95 @@ impl TtsManager {
 
     pub fn discard_managed_resume_namespace(&self, resume_namespace: &str) -> Result<()> {
         tts_resume::discard_managed(&self.cache_root, resume_namespace)
+    }
+
+    pub fn list_ui_file_jobs(&self) -> Result<Vec<tts_resume::UiFileJobSummary>> {
+        tts_resume::list_ui_file_jobs(&self.cache_root)
+    }
+
+    pub fn discard_ui_file_job(&self, job_id: &str) -> Result<()> {
+        tts_resume::discard_ui_file_job(&self.cache_root, job_id)
+    }
+
+    pub fn ui_file_job_history_source(&self, job_id: &str) -> Result<(String, PathBuf)> {
+        let job = tts_resume::load_ui_file_job(&self.cache_root, job_id)?;
+        Ok((job.source_text, job.source_path))
+    }
+
+    pub fn complete_ui_file_job(&self, job_id: &str) -> Result<()> {
+        tts_resume::remove_ui_file_job_record(&self.cache_root, job_id)
+    }
+
+    pub fn export_ui_file_job_partial(&self, job_id: &str, destination: &Path) -> Result<usize> {
+        let job = tts_resume::load_ui_file_job(&self.cache_root, job_id)?;
+        if matches!(
+            job.status,
+            tts_resume::UiFileJobStatus::Preparing
+                | tts_resume::UiFileJobStatus::Running
+                | tts_resume::UiFileJobStatus::Retrying
+        ) {
+            return Err(anyhow!(
+                "Pause the TTS conversion before exporting its completed part"
+            ));
+        }
+        if job.chunks.is_empty() || job.processed_text.is_none() {
+            return Err(anyhow!("This TTS job has no completed audio to export"));
+        }
+        validate_output_extension(destination, job.settings.output_format)?;
+        if destination.exists() {
+            return Err(anyhow!(
+                "Output file already exists: {}",
+                destination.display()
+            ));
+        }
+        let signature = tts_resume::synthesis_signature(&job.chunks, &job.settings)?;
+        let workspace = ResumeWorkspace::open_for_output(
+            &job.output_path,
+            signature,
+            job.chunks.len(),
+            ResumeOrigin::UiJob {
+                job_id: job.job_id.clone(),
+                source_path: job.source_path.clone(),
+                output_path: job.output_path.clone(),
+            },
+        )?;
+        let completed_chunks = workspace.completed_chunks();
+        if completed_chunks == 0 || workspace.committed_bytes() == 0 {
+            return Err(anyhow!("This TTS job has no completed audio to export"));
+        }
+        ensure_disk_reserve(
+            destination,
+            job.settings.disk_reserve_mb,
+            workspace.committed_bytes().saturating_add(64 * 1024),
+        )?;
+        let (mut output, temporary) = create_partial_export_file(destination)?;
+        let encode_result = match job.settings.output_format {
+            TtsOutputFormat::Wav => {
+                write_wav_from_pcm_file(workspace.raw_path(), &mut output, PROVIDER_PCM_SAMPLE_RATE)
+            }
+            TtsOutputFormat::Mp3 => encode_mp3_cbr_file(
+                workspace.raw_path(),
+                &mut output,
+                PROVIDER_PCM_SAMPLE_RATE,
+                job.settings.mp3_bitrate_kbps,
+            ),
+        }
+        .and_then(|_| output.sync_all().map_err(anyhow::Error::from));
+        drop(output);
+        if let Err(error) = encode_result {
+            let _ = fs::remove_file(&temporary);
+            return Err(error);
+        }
+        if let Err(error) = crate::no_clobber::publish_new_file(&temporary, destination) {
+            let _ = fs::remove_file(&temporary);
+            return Err(error).with_context(|| {
+                format!(
+                    "Failed to publish partial TTS audio {}",
+                    destination.display()
+                )
+            });
+        }
+        Ok(completed_chunks)
     }
 
     async fn convert_decoded_text_file_resolved(
@@ -1936,6 +2082,7 @@ impl TtsManager {
         resume_namespace: Option<&str>,
         resume_origin: ResumeOrigin,
         require_resume_checkpoint: bool,
+        ui_job_id: Option<&str>,
     ) -> Result<ResolvedTtsResult<FileConversionResult>> {
         validate_enabled_independent_settings(settings)?;
         let operation_guard = self.try_reserve_foreground_operation()?;
@@ -1950,6 +2097,7 @@ impl TtsManager {
             require_resume_checkpoint,
             operation_guard,
             None,
+            ui_job_id,
         )
         .await
     }
@@ -1967,6 +2115,7 @@ impl TtsManager {
         require_resume_checkpoint: bool,
         _operation_guard: tokio::sync::OwnedMutexGuard<()>,
         batch_cancellation: Option<&TtsBatchCancellation>,
+        ui_job_id: Option<&str>,
     ) -> Result<ResolvedTtsResult<FileConversionResult>> {
         validate_enabled_independent_settings(settings)?;
         validate_input_extension(input_path)?;
@@ -1979,42 +2128,115 @@ impl TtsManager {
             ));
         }
 
+        let mut ui_job = if let Some(job_id) = ui_job_id {
+            let mut job = tts_resume::load_ui_file_job(&self.cache_root, job_id)?;
+            if job.source_path != input_path || job.output_path != output_path {
+                return Err(anyhow!(
+                    "The saved TTS job paths do not match the requested conversion"
+                ));
+            }
+            job.status = if job.processed_text.is_some() && !job.chunks.is_empty() {
+                tts_resume::UiFileJobStatus::Running
+            } else {
+                tts_resume::UiFileJobStatus::Preparing
+            };
+            job.last_error = None;
+            tts_resume::touch_ui_job(&mut job);
+            tts_resume::persist_ui_file_job(&self.cache_root, &job)?;
+            Some(job)
+        } else {
+            None
+        };
+
         let operation_id =
             self.begin_operation(TtsOperationKind::FileConversion, settings.provider, 0);
         let _batch_registration = batch_cancellation
             .map(|cancellation| cancellation.attach_operation(self, operation_id));
-        let resolved_settings = match self
-            .resolve_operation_settings(operation_id, settings)
-            .await
-        {
-            Ok(settings) => settings,
-            Err(error) => {
-                self.finish_result::<()>(operation_id, &Err(anyhow!(error.to_string())));
-                return Err(error);
+        let saved_plan_available = ui_job
+            .as_ref()
+            .is_some_and(|job| job.processed_text.is_some() && !job.chunks.is_empty());
+        let resolved_settings = if saved_plan_available {
+            ui_job
+                .as_ref()
+                .map(|job| job.settings.clone())
+                .expect("saved UI job checked above")
+        } else {
+            match self
+                .resolve_operation_settings(operation_id, settings)
+                .await
+            {
+                Ok(settings) => settings,
+                Err(error) => {
+                    if let Some(job) = ui_job.as_mut() {
+                        job.status = tts_resume::UiFileJobStatus::Failed;
+                        job.last_error = Some(error.to_string());
+                        tts_resume::touch_ui_job(job);
+                        let _ = tts_resume::persist_ui_file_job(&self.cache_root, job);
+                    }
+                    self.finish_result::<()>(operation_id, &Err(anyhow!(error.to_string())));
+                    return Err(error);
+                }
             }
         };
         let settings = &resolved_settings;
-        let source_for_speech = normalize_source_text(input_path, source);
-        let processed = match self
-            .preprocess_for_scope(
-                operation_id,
-                &source_for_speech,
-                settings,
-                preprocessing_scope,
+        let (processed, chunks) = if saved_plan_available {
+            let job = ui_job.as_ref().expect("saved UI job checked above");
+            (
+                job.processed_text
+                    .clone()
+                    .expect("saved UI job plan checked above"),
+                job.chunks.clone(),
             )
-            .await
-        {
-            Ok(processed) => processed,
-            Err(error) => {
+        } else {
+            let source_for_speech = normalize_source_text(input_path, source);
+            let processed = match self
+                .preprocess_for_scope(
+                    operation_id,
+                    &source_for_speech,
+                    settings,
+                    preprocessing_scope,
+                )
+                .await
+            {
+                Ok(processed) => processed,
+                Err(error) => {
+                    if let Some(job) = ui_job.as_mut() {
+                        job.status = tts_resume::UiFileJobStatus::Failed;
+                        job.last_error = Some(error.to_string());
+                        tts_resume::touch_ui_job(job);
+                        let _ = tts_resume::persist_ui_file_job(&self.cache_root, job);
+                    }
+                    self.finish_result::<()>(operation_id, &Err(anyhow!(error.to_string())));
+                    return Err(error);
+                }
+            };
+            let chunks = Self::chunk_file(&processed, settings);
+            if chunks.is_empty() {
+                let error = anyhow!("There is no speakable text to convert");
+                if let Some(job) = ui_job.as_mut() {
+                    job.status = tts_resume::UiFileJobStatus::Failed;
+                    job.last_error = Some(error.to_string());
+                    tts_resume::touch_ui_job(job);
+                    let _ = tts_resume::persist_ui_file_job(&self.cache_root, job);
+                }
                 self.finish_result::<()>(operation_id, &Err(anyhow!(error.to_string())));
                 return Err(error);
             }
+            if let Some(job) = ui_job.as_mut() {
+                job.processed_text = Some(processed.clone());
+                job.chunks = chunks.clone();
+                job.settings = resolved_settings.clone();
+                job.status = tts_resume::UiFileJobStatus::Running;
+                job.last_error = None;
+                tts_resume::touch_ui_job(job);
+                if let Err(error) = tts_resume::persist_ui_file_job(&self.cache_root, job) {
+                    self.finish_result::<()>(operation_id, &Err(anyhow!(error.to_string())));
+                    return Err(error);
+                }
+            }
+            (processed, chunks)
         };
         let preparation = (|| -> Result<(Vec<TtsChunk>, ResumeWorkspace, usize)> {
-            let chunks = Self::chunk_file(&processed, settings);
-            if chunks.is_empty() {
-                return Err(anyhow!("There is no speakable text to convert"));
-            }
             let synthesis_signature = tts_resume::synthesis_signature(&chunks, settings)?;
             let resume_workspace = if let Some(namespace) = resume_namespace {
                 ResumeWorkspace::open_managed(
@@ -2052,11 +2274,17 @@ impl TtsManager {
                 resume_workspace.committed_bytes(),
                 settings,
             )?;
-            Ok((chunks, resume_workspace, resumed_chunks))
+            Ok((chunks.clone(), resume_workspace, resumed_chunks))
         })();
         let (chunks, mut resume_workspace, resumed_chunks) = match preparation {
             Ok(prepared) => prepared,
             Err(error) => {
+                if let Some(job) = ui_job.as_mut() {
+                    job.status = tts_resume::UiFileJobStatus::Failed;
+                    job.last_error = Some(error.to_string());
+                    tts_resume::touch_ui_job(job);
+                    let _ = tts_resume::persist_ui_file_job(&self.cache_root, job);
+                }
                 self.finish_result::<()>(operation_id, &Err(anyhow!(error.to_string())));
                 return Err(error);
             }
@@ -2184,14 +2412,33 @@ impl TtsManager {
             let _ = fs::remove_file(&encoded_partial);
         }
         let cancelled = self.active_operation_id.load(Ordering::SeqCst) != operation_id;
-        if cancelled || (result.is_ok() && resume_namespace.is_none()) {
-            resume_workspace.discard();
+        let completed_chunks = resume_workspace.completed_chunks();
+        if let Some(job) = ui_job.as_mut() {
+            job.completed_chunks = completed_chunks;
+            job.status = if result.is_ok() {
+                tts_resume::UiFileJobStatus::Completed
+            } else if cancelled {
+                tts_resume::UiFileJobStatus::Paused
+            } else {
+                tts_resume::UiFileJobStatus::Failed
+            };
+            job.last_error = result.as_ref().err().map(ToString::to_string);
+            tts_resume::touch_ui_job(job);
+            let _ = tts_resume::persist_ui_file_job(&self.cache_root, job);
         }
         self.finish_result(operation_id, &result);
-        result.map(|value| ResolvedTtsResult {
+        let resolved = result.map(|value| ResolvedTtsResult {
             value,
             settings: resolved_settings,
-        })
+        });
+        if ui_job_id.is_some() {
+            if resolved.is_ok() {
+                resume_workspace.discard();
+            }
+        } else if cancelled || (resolved.is_ok() && resume_namespace.is_none()) {
+            resume_workspace.discard();
+        }
+        resolved
     }
 
     fn begin_operation(
@@ -4305,6 +4552,34 @@ fn write_wav_from_pcm_file(
     );
     std::io::copy(&mut reader, output).context("Failed to stream PCM into WAV")?;
     Ok(())
+}
+
+fn create_partial_export_file(destination: &Path) -> Result<(File, PathBuf)> {
+    let parent = destination
+        .parent()
+        .filter(|path| !path.as_os_str().is_empty())
+        .unwrap_or_else(|| Path::new("."));
+    fs::create_dir_all(parent).with_context(|| {
+        format!(
+            "Failed to create partial TTS export directory {}",
+            parent.display()
+        )
+    })?;
+    let name = destination
+        .file_name()
+        .unwrap_or_else(|| std::ffi::OsStr::new("tts-partial"))
+        .to_string_lossy();
+    for sequence in 0..100_u32 {
+        let path = parent.join(format!(".{name}.{}-{sequence}.partial", std::process::id()));
+        match OpenOptions::new().write(true).create_new(true).open(&path) {
+            Ok(file) => return Ok((file, path)),
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(error) => return Err(error.into()),
+        }
+    }
+    Err(anyhow!(
+        "Unable to allocate a temporary partial TTS export file"
+    ))
 }
 
 /// The only MP3-encoder-specific adapter in the TTS pipeline.
