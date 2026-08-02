@@ -401,7 +401,7 @@ impl LocalTtsRuntime {
             if let Some(mut worker) = guard.take() {
                 let _ = worker.child.kill().await;
             }
-            *guard = Some(self.start_worker(&manifest).await?);
+            *guard = Some(self.start_worker(&manifest, None).await?);
         }
         let worker = guard.as_mut().expect("worker initialized");
         let request = serde_json::json!({
@@ -548,12 +548,21 @@ impl LocalTtsRuntime {
             runtime_profile,
             resolved_packages,
         };
-        let worker = self
-            .start_verified_worker_with_fallback(&mut manifest)
+        let mut worker = self
+            .start_verified_worker_with_fallback(&mut manifest, Some(cancel))
             .await?;
+        if let Err(error) = cancel_if_requested(cancel) {
+            let _ = worker.child.kill().await;
+            return Err(error);
+        }
         manifest.runtime_smoke_tested = true;
-        *self.worker.lock().await = Some(worker);
         write_json_atomic(&self.manifest_path(), &manifest)?;
+        if let Err(error) = cancel_if_requested(cancel) {
+            let _ = fs::remove_file(self.manifest_path());
+            let _ = worker.child.kill().await;
+            return Err(error);
+        }
+        *self.worker.lock().await = Some(worker);
         Ok(())
     }
 
@@ -788,6 +797,7 @@ impl LocalTtsRuntime {
     async fn start_worker(
         &self,
         manifest: &InstallManifest,
+        cancel: Option<&CancellationToken>,
     ) -> std::result::Result<LocalWorker, LocalTtsAttemptError> {
         let model_path = self
             .model_snapshot_path()
@@ -849,24 +859,35 @@ impl LocalTtsRuntime {
             stdout: BufReader::new(stdout).lines(),
             profile: manifest.runtime_profile.clone(),
         };
-        let ready_line =
-            tokio::time::timeout(Duration::from_secs(5 * 60), worker.stdout.next_line())
-                .await
-                .map_err(|_| {
-                    transient_local_error(
-                        "Timed out while loading the local Qwen3-TTS model".to_string(),
-                    )
-                })?
-                .map_err(|error| {
-                    transient_local_error(format!(
-                        "Failed to read local TTS startup response: {error}"
-                    ))
-                })?
-                .ok_or_else(|| {
-                    transient_local_error(
-                        "Local TTS worker exited while loading the model".to_string(),
-                    )
-                })?;
+        let ready_wait =
+            tokio::time::timeout(Duration::from_secs(5 * 60), worker.stdout.next_line());
+        let ready_result = if let Some(cancel) = cancel {
+            tokio::select! {
+                biased;
+                _ = cancel.cancelled() => None,
+                result = ready_wait => Some(result),
+            }
+        } else {
+            Some(ready_wait.await)
+        };
+        let Some(ready_result) = ready_result else {
+            let _ = worker.child.kill().await;
+            return Err(permanent_local_error("Local TTS installation cancelled"));
+        };
+        let ready_line = ready_result
+            .map_err(|_| {
+                transient_local_error(
+                    "Timed out while loading the local Qwen3-TTS model".to_string(),
+                )
+            })?
+            .map_err(|error| {
+                transient_local_error(format!(
+                    "Failed to read local TTS startup response: {error}"
+                ))
+            })?
+            .ok_or_else(|| {
+                transient_local_error("Local TTS worker exited while loading the model".to_string())
+            })?;
         let response: WorkerResponse =
             serde_json::from_str(&ready_line).map_err(|error| LocalTtsAttemptError {
                 safe_message: format!("Local TTS worker startup protocol is malformed: {error}"),
@@ -881,29 +902,39 @@ impl LocalTtsRuntime {
                 transient: false,
             });
         }
+        if cancel.is_some_and(CancellationToken::is_cancelled) {
+            let _ = worker.child.kill().await;
+            return Err(permanent_local_error("Local TTS installation cancelled"));
+        }
         Ok(worker)
     }
 
     async fn start_verified_worker_with_fallback(
         &self,
         manifest: &mut InstallManifest,
+        cancel: Option<&CancellationToken>,
     ) -> Result<LocalWorker> {
         self.set_status("validating_runtime", true, 0, 0, None);
-        match self.start_worker(manifest).await {
+        match self.start_worker(manifest, cancel).await {
             Ok(worker) => Ok(worker),
+            Err(_) if cancel.is_some_and(CancellationToken::is_cancelled) => {
+                Err(anyhow!("Local TTS installation cancelled"))
+            }
             Err(cuda_error) if manifest.runtime_profile == "cuda" => {
                 log::warn!(
                     "Local TTS CUDA validation failed; retrying on CPU: {}",
                     cuda_error.safe_message
                 );
                 manifest.runtime_profile = "cpu".to_string();
-                self.start_worker(manifest).await.map_err(|cpu_error| {
-                    anyhow!(
-                        "Local TTS runtime validation failed on CUDA ({}) and CPU ({})",
-                        cuda_error.safe_message,
-                        cpu_error.safe_message
-                    )
-                })
+                self.start_worker(manifest, cancel)
+                    .await
+                    .map_err(|cpu_error| {
+                        anyhow!(
+                            "Local TTS runtime validation failed on CUDA ({}) and CPU ({})",
+                            cuda_error.safe_message,
+                            cpu_error.safe_message
+                        )
+                    })
             }
             Err(error) => Err(anyhow!(
                 "Local TTS runtime validation failed: {}",
@@ -980,7 +1011,7 @@ impl LocalTtsRuntime {
         manifest.notice_bundle_sha256 = current_notice_sha;
         if needs_runtime_validation {
             let worker = self
-                .start_verified_worker_with_fallback(&mut manifest)
+                .start_verified_worker_with_fallback(&mut manifest, None)
                 .await?;
             manifest.runtime_smoke_tested = true;
             *self.worker.lock().await = Some(worker);
