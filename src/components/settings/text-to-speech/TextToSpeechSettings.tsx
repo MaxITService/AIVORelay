@@ -1229,6 +1229,9 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
   const providerCapabilities = PROVIDER_CAPABILITIES[tts.provider];
   const activeLocalKind: LocalTtsKind =
     tts.provider === "local_kokoro" ? "kokoro" : "qwen";
+  const activeLocalKindRef = useRef(activeLocalKind);
+  const localTtsStatusGenerationRef = useRef(0);
+  activeLocalKindRef.current = activeLocalKind;
   const activeLocalInstallConsent = localInstallConsent[activeLocalKind];
   const localInstallMetadata = LOCAL_TTS_INSTALL_METADATA[activeLocalKind];
   const keySourceField = !providerCapabilities.requiresApiKey
@@ -1364,14 +1367,26 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
   }, [builtinVoiceOptions, t, tts.provider, voiceCatalog]);
 
   const refreshLocalTtsStatus = useCallback(async () => {
+    const requestedKind = activeLocalKind;
+    const requestGeneration = ++localTtsStatusGenerationRef.current;
     try {
-      setLocalTtsStatus(
-        await invoke<LocalTtsStatus>("get_local_tts_status", {
-          kind: activeLocalKind,
-        }),
-      );
+      const status = await invoke<LocalTtsStatus>("get_local_tts_status", {
+        kind: requestedKind,
+      });
+      if (
+        requestGeneration === localTtsStatusGenerationRef.current &&
+        activeLocalKindRef.current === requestedKind &&
+        status.kind === requestedKind
+      ) {
+        setLocalTtsStatus(status);
+      }
     } catch (error) {
-      setSettingsError(asErrorMessage(error));
+      if (
+        requestGeneration === localTtsStatusGenerationRef.current &&
+        activeLocalKindRef.current === requestedKind
+      ) {
+        setSettingsError(asErrorMessage(error));
+      }
     }
   }, [activeLocalKind]);
 
@@ -1448,7 +1463,12 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
     let disposed = false;
     let unlisten: (() => void) | undefined;
     void listen<LocalTtsStatus>("local-tts://status", (event) => {
-      if (!disposed && event.payload.kind === activeLocalKind) {
+      if (
+        !disposed &&
+        activeLocalKindRef.current === activeLocalKind &&
+        event.payload.kind === activeLocalKind
+      ) {
+        localTtsStatusGenerationRef.current += 1;
         setLocalTtsStatus(event.payload);
       }
     }).then((dispose) => {
@@ -1721,26 +1741,36 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
     updateTts({ provider }, "provider");
 
   const installLocalTts = async () => {
+    const installKind = activeLocalKind;
+    const installConsent = activeLocalInstallConsent;
+    const requestGeneration = ++localTtsStatusGenerationRef.current;
     setLocalTtsBusy(true);
     setSettingsError(null);
     try {
-      setLocalTtsStatus(
-        await invoke<LocalTtsStatus>("install_local_tts", {
-          kind: activeLocalKind,
-          sourceTrusted: activeLocalInstallConsent.sourceTrusted,
-          riskAcknowledged: activeLocalInstallConsent.riskAcknowledged,
-        }),
-      );
+      const status = await invoke<LocalTtsStatus>("install_local_tts", {
+        kind: installKind,
+        sourceTrusted: installConsent.sourceTrusted,
+        riskAcknowledged: installConsent.riskAcknowledged,
+      });
+      if (
+        requestGeneration === localTtsStatusGenerationRef.current &&
+        activeLocalKindRef.current === installKind &&
+        status.kind === installKind
+      ) {
+        setLocalTtsStatus(status);
+      }
       setLocalInstallConsent((current) => ({
         ...current,
-        [activeLocalKind]: {
+        [installKind]: {
           sourceTrusted: false,
           riskAcknowledged: false,
         },
       }));
     } catch (error) {
-      setSettingsError(asErrorMessage(error));
-      await refreshLocalTtsStatus();
+      if (activeLocalKindRef.current === installKind) {
+        setSettingsError(asErrorMessage(error));
+        await refreshLocalTtsStatus();
+      }
     } finally {
       setLocalTtsBusy(false);
     }
