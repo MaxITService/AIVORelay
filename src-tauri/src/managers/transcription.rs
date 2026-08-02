@@ -503,10 +503,36 @@ fn merge_transcription_results(
         }
     }
 
+    let mut text = String::new();
+    let mut previous_uses_unspaced_cjk = false;
+    for chunk_text in texts {
+        let uses_unspaced_cjk = contains_unspaced_cjk_script(&chunk_text);
+        if !text.is_empty() && !(previous_uses_unspaced_cjk && uses_unspaced_cjk) {
+            text.push_str(separator);
+        }
+        text.push_str(&chunk_text);
+        previous_uses_unspaced_cjk = uses_unspaced_cjk;
+    }
+
     TranscriptionResult {
-        text: texts.join(separator),
+        text,
         segments: if saw_segments { Some(segments) } else { None },
     }
+}
+
+fn contains_unspaced_cjk_script(text: &str) -> bool {
+    text.chars().any(|character| {
+        matches!(
+            character,
+            '\u{3040}'..='\u{30ff}'
+                | '\u{31f0}'..='\u{31ff}'
+                | '\u{3400}'..='\u{4dbf}'
+                | '\u{4e00}'..='\u{9fff}'
+                | '\u{f900}'..='\u{faff}'
+                | '\u{ff66}'..='\u{ff9d}'
+                | '\u{20000}'..='\u{2fa1f}'
+        )
+    })
 }
 
 fn chunk_sample_ranges(total_samples: usize, max_chunk_secs: f32) -> Vec<(usize, usize)> {
@@ -2054,7 +2080,11 @@ impl TranscriptionManager {
             .unwrap_or_else(|| settings.selected_model.clone());
         let effective_language =
             effective_language_for_model(&self.model_manager, &active_model, &selected_language);
-        let merge_separator = merge_separator_for_language(&selected_language);
+        let merge_separator = if translate_to_english {
+            " "
+        } else {
+            merge_separator_for_language(&effective_language)
+        };
 
         let (result, meta) = {
             let mut engine_guard = self.engine.lock().unwrap();
@@ -3703,6 +3733,25 @@ mod tests {
         );
 
         assert_eq!(merged.text, "你好世界");
+    }
+
+    #[test]
+    fn merge_detects_cjk_script_when_language_is_auto() {
+        let merged = merge_transcription_results(
+            vec![
+                TranscriptionResult {
+                    text: "第一段".to_string(),
+                    segments: None,
+                },
+                TranscriptionResult {
+                    text: "第二段".to_string(),
+                    segments: None,
+                },
+            ],
+            merge_separator_for_language("auto"),
+        );
+
+        assert_eq!(merged.text, "第一段第二段");
     }
 
     #[test]
