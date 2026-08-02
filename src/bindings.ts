@@ -2703,6 +2703,46 @@ async convertTtsTextFile(request: ConvertTtsTextFileRequest) : Promise<Result<Co
     else return { status: "error", error: e  as any };
 }
 },
+async listTtsFileJobs() : Promise<Result<UiFileJobSummary[], string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("list_tts_file_jobs") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async startTtsFileJob(request: ConvertTtsTextFileRequest) : Promise<Result<TtsFileJobConversionResponse, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("start_tts_file_job", { request }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async resumeTtsFileJob(jobId: string) : Promise<Result<TtsFileJobConversionResponse, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("resume_tts_file_job", { jobId }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async discardTtsFileJob(jobId: string) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("discard_tts_file_job", { jobId }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async exportTtsFileJobPartial(jobId: string, destination: string) : Promise<Result<number, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("export_tts_file_job_partial", { jobId, destination }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async scanTtsBatchFiles(request: TtsBatchScanRequest) : Promise<Result<TtsBatchScanResult, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("scan_tts_batch_files", { request }) };
@@ -4475,6 +4515,7 @@ export type TtsBatchFileStatus = "queued" | "processing" | "completed" | "skippe
 export type TtsBatchScanRequest = { inputDirectory: string | null; inputPaths?: string[]; outputDirectory: string; recursive: boolean; outputFormat: TtsOutputFormat }
 export type TtsBatchScanResult = { inputDirectory: string | null; outputDirectory: string; recursive: boolean; outputFormat: TtsOutputFormat; files: TtsBatchFilePlan[]; eligibleCount: number; warnings: string[] }
 export type TtsBatchSummary = { clientId: string; batchId: string; total: number; finished: number; completed: number; skipped: number; failed: number; cancelled: boolean; files: TtsBatchFileResult[] }
+export type TtsFileJobConversionResponse = { jobId: string; conversion: ConvertTtsTextFileResponse }
 export type TtsHistoryDeleteOutcome = { id: number; record_deleted: boolean; managed_audio_status: TtsHistoryManagedAudioDeleteStatus; managed_audio_error: string | null }
 export type TtsHistoryEntry = { id: number; timestamp: number; scope: TtsHistoryScope;
 /**
@@ -4542,6 +4583,8 @@ export type TtsSynthesisConfig = { provider: TtsProvider; model: string; voice: 
 export type TtsSynthesisPreset = { id: string; name: string; config: TtsSynthesisConfig }
 export type TtsVoiceCatalog = { provider: TtsProvider; voices: TtsVoiceCatalogEntry[]; source: string; supports_live_refresh: boolean; replace_builtin: boolean; warning: string | null }
 export type TtsVoiceCatalogEntry = { id: string; label: string; group: string; language: string; gender: string; description: string }
+export type UiFileJobStatus = "planned" | "preparing" | "running" | "retrying" | "paused" | "interrupted" | "failed" | "completed"
+export type UiFileJobSummary = { jobId: string; sourcePath: string; outputPath: string; provider: TtsProvider; outputFormat: TtsOutputFormat; status: UiFileJobStatus; completedChunks: number; totalChunks: number; partialAvailable: boolean; lastError: string | null; createdAtMs: number; updatedAtMs: number }
 export type UpdateTranscriptionProfilePayload = { id: string; name: string; language: string; translateToEnglish: boolean; systemPrompt: string; sttPromptOverrideEnabled: boolean; includeInCycle: boolean; pushToTalk: boolean; previewOutputOnlyEnabled: boolean; sonioxLanguageHintsStrict?: boolean | null; llmSettings: ProfileLlmSettings; sonioxContextGeneralJson: string | null; sonioxContextText: string | null; sonioxContextTerms: string[] | null }
 /**
  * Information about the virtual screen (all monitors combined).
