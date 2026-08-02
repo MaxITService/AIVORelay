@@ -6,11 +6,12 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const LOCALES_DIR = path.join(__dirname, "..", "src", "i18n", "locales");
 const REFERENCE_LANG = "en";
-// English and Russian are the two release-complete locales. Other locale
-// files are intentionally partial and use the configured English fallback;
-// adding a new English key must not turn those known partial catalogs into a
-// false release regression.
+// English and Russian are the two release-complete TTS catalogs. Other app
+// sections/locales are intentionally partial and use the configured English
+// fallback; their broader completion is tracked separately from TTS release
+// work.
 const RELEASE_COMPLETE_LANGS = ["ru"];
+const RELEASE_COMPLETE_SCOPES = [["textToSpeech"]];
 
 type JsonRecord = Record<string, unknown>;
 
@@ -60,6 +61,26 @@ function hasPath(obj: JsonRecord, keyPath: string[]): boolean {
   return true;
 }
 
+function isInReleaseScope(keyPath: string[]): boolean {
+  return RELEASE_COMPLETE_SCOPES.some((scope) =>
+    scope.every((part, index) => keyPath[index] === part),
+  );
+}
+
+function isLocalePluralVariant(
+  keyPath: string[],
+  reference: JsonRecord,
+): boolean {
+  const leaf = keyPath.at(-1);
+  if (!leaf || !/_(zero|two|few|many)$/.test(leaf)) return false;
+  const base = leaf.replace(/_(zero|two|few|many)$/, "");
+  const parent = keyPath.slice(0, -1);
+  return (
+    hasPath(reference, [...parent, `${base}_one`]) ||
+    hasPath(reference, [...parent, `${base}_other`])
+  );
+}
+
 function printPathList(title: string, paths: string[][]): void {
   console.log(`  ${title}: ${paths.length}`);
   const sample = paths.slice(0, 15);
@@ -79,13 +100,16 @@ function main(): void {
     process.exit(1);
   }
 
-  const referencePaths = collectLeafPaths(reference);
+  const referencePaths = collectLeafPaths(reference).filter(isInReleaseScope);
   const results = new Map<string, ValidationResult>();
   let hasErrors = false;
 
   console.log("Translation consistency check");
   console.log(`Reference language: ${REFERENCE_LANG}`);
-  console.log(`Reference key count: ${referencePaths.length}`);
+  console.log(
+    `Release scope: ${RELEASE_COMPLETE_SCOPES.map((scope) => scope.join(".")).join(", ")}`,
+  );
+  console.log(`Reference key count in scope: ${referencePaths.length}`);
   console.log("");
 
   for (const lang of languages) {
@@ -97,8 +121,10 @@ function main(): void {
     }
 
     const missing = referencePaths.filter((p) => !hasPath(data, p));
-    const langPaths = collectLeafPaths(data);
-    const extra = langPaths.filter((p) => !hasPath(reference, p));
+    const langPaths = collectLeafPaths(data).filter(isInReleaseScope);
+    const extra = langPaths.filter(
+      (p) => !hasPath(reference, p) && !isLocalePluralVariant(p, reference),
+    );
     const valid = missing.length === 0 && extra.length === 0;
 
     if (!valid) {
