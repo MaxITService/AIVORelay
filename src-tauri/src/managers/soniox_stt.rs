@@ -8,6 +8,7 @@ use log::{debug, info, warn};
 use reqwest::multipart;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::future::Future;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 use tauri::AppHandle;
@@ -27,6 +28,7 @@ const AUDIO_CHUNK_SIZE_BYTES: usize = 32 * 1024;
 const MIN_TIMEOUT_SECONDS: u32 = 5;
 const SONIOX_FALLBACK_SAMPLE_RATE: u32 = 16_000;
 const SONIOX_FALLBACK_CHANNELS: u8 = 1;
+const CANCELLATION_POLL_INTERVAL_MS: u64 = 25;
 pub const SONIOX_ASYNC_MODEL_MAX_CHARS: usize = 32;
 pub const SONIOX_LANGUAGE_HINTS_MAX_COUNT: usize = 100;
 
@@ -188,6 +190,32 @@ impl SonioxSttManager {
         Ok(())
     }
 
+    async fn await_with_cancellation<T, F>(&self, operation_id: Option<u64>, future: F) -> Result<T>
+    where
+        F: Future<Output = T>,
+    {
+        let Some(operation_id) = operation_id else {
+            return Ok(future.await);
+        };
+
+        tokio::select! {
+            biased;
+            _ = self.wait_for_cancellation(operation_id) => {
+                Err(anyhow!("Transcription cancelled"))
+            }
+            output = future => Ok(output),
+        }
+    }
+
+    async fn wait_for_cancellation(&self, operation_id: u64) {
+        loop {
+            if self.is_cancelled(operation_id) {
+                return;
+            }
+            tokio::time::sleep(Duration::from_millis(CANCELLATION_POLL_INTERVAL_MS)).await;
+        }
+    }
+
     fn encode_pcm_s16le_bytes(samples: &[f32]) -> Vec<u8> {
         let mut bytes = Vec::with_capacity(samples.len() * std::mem::size_of::<i16>());
         for sample in samples {
@@ -212,7 +240,10 @@ impl SonioxSttManager {
         for attempt in 0..MAX_RETRIES {
             self.ensure_not_cancelled(operation_id)?;
 
-            match operation().await {
+            let attempt_result = self
+                .await_with_cancellation(operation_id, operation())
+                .await?;
+            match attempt_result {
                 Ok(result) => return Ok(result),
                 Err(err)
                     if attempt < MAX_RETRIES - 1 && Self::should_retry(operation_name, &err) =>
@@ -225,7 +256,8 @@ impl SonioxSttManager {
                         err,
                         delay
                     );
-                    tokio::time::sleep(delay).await;
+                    self.await_with_cancellation(operation_id, tokio::time::sleep(delay))
+                        .await?;
                     delay = std::cmp::min(delay * 2, Duration::from_millis(MAX_RETRY_DELAY_MS));
                 }
                 Err(err) => {
@@ -949,22 +981,28 @@ impl SonioxSttManager {
             self.ensure_not_cancelled(operation_id)?;
             poll_count += 1;
 
-            let response = self
+            let request = self
                 .http_client
                 .get(format!(
                     "{}/transcriptions/{}",
                     SONIOX_API_URL, transcription_id
                 ))
-                .header("Authorization", format!("Bearer {}", api_key))
-                .send()
-                .await?;
+                .header("Authorization", format!("Bearer {}", api_key));
+            let response = self
+                .await_with_cancellation(operation_id, request.send())
+                .await??;
 
             if !response.status().is_success() {
-                let body = response.text().await.unwrap_or_default();
+                let body = self
+                    .await_with_cancellation(operation_id, response.text())
+                    .await?
+                    .unwrap_or_default();
                 return Err(anyhow!("Failed to check transcription status: {}", body));
             }
 
-            let payload: TranscriptionStatusResponse = response.json().await?;
+            let payload: TranscriptionStatusResponse = self
+                .await_with_cancellation(operation_id, response.json())
+                .await??;
             match payload.status.as_str() {
                 "completed" => {
                     debug!(
@@ -976,7 +1014,8 @@ impl SonioxSttManager {
                 }
                 "error" => return Err(anyhow!("Transcription failed")),
                 _ => {
-                    tokio::time::sleep(poll_interval).await;
+                    self.await_with_cancellation(operation_id, tokio::time::sleep(poll_interval))
+                        .await?;
                     poll_interval = std::cmp::min(poll_interval * 2, max_poll_interval);
                 }
             }
@@ -1025,9 +1064,12 @@ impl SonioxSttManager {
         })
     }
 
-    async fn delete_file(&self, api_key: &str, file_id: &str) -> Result<()> {
-        let response = self
-            .http_client
+    async fn delete_file(
+        http_client: &reqwest::Client,
+        api_key: &str,
+        file_id: &str,
+    ) -> Result<()> {
+        let response = http_client
             .delete(format!("{}/files/{}", SONIOX_API_URL, file_id))
             .header("Authorization", format!("Bearer {}", api_key))
             .send()
@@ -1044,12 +1086,12 @@ impl SonioxSttManager {
         Ok(())
     }
 
-    async fn delete_file_with_retry(&self, api_key: &str, file_id: &str) {
+    async fn delete_file_with_retry(http_client: &reqwest::Client, api_key: &str, file_id: &str) {
         const CLEANUP_RETRIES: u32 = 3;
         const CLEANUP_DELAY: Duration = Duration::from_secs(1);
 
         for attempt in 0..CLEANUP_RETRIES {
-            match self.delete_file(api_key, file_id).await {
+            match Self::delete_file(http_client, api_key, file_id).await {
                 Ok(()) => {
                     debug!("Soniox cleanup: deleted uploaded file {}", file_id);
                     return;
@@ -1175,17 +1217,20 @@ impl SonioxSttManager {
         );
 
         let text = self
-            .transcribe_once_ws_with_callback(
+            .await_with_cancellation(
                 operation_id,
-                api_key,
-                &model,
-                timeout_seconds,
-                &audio_data,
-                language_hints,
-                context,
-                &mut on_final_chunk,
+                self.transcribe_once_ws_with_callback(
+                    operation_id,
+                    api_key,
+                    &model,
+                    timeout_seconds,
+                    &audio_data,
+                    language_hints,
+                    context,
+                    &mut on_final_chunk,
+                ),
             )
-            .await?;
+            .await??;
         info!(
             "Soniox WebSocket streaming transcription completed in {}ms, encode_ms={}, output_len={}",
             started_at.elapsed().as_millis(),
@@ -1279,7 +1324,16 @@ impl SonioxSttManager {
         }
         .await;
 
-        self.delete_file_with_retry(api_key, &file_id).await;
+        if operation_id.is_some_and(|operation_id| self.is_cancelled(operation_id)) {
+            let http_client = self.http_client.clone();
+            let api_key = api_key.to_string();
+            let cleanup_file_id = file_id.clone();
+            tokio::spawn(async move {
+                Self::delete_file_with_retry(&http_client, &api_key, &cleanup_file_id).await;
+            });
+        } else {
+            Self::delete_file_with_retry(&self.http_client, api_key, &file_id).await;
+        }
 
         if let Ok(ref text) = result {
             info!(
