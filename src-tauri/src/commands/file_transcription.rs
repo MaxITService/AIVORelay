@@ -26,7 +26,9 @@ use crate::subtitle::{
 use log::{debug, error, info};
 use serde::{Deserialize, Serialize};
 use specta::Type;
-use std::path::PathBuf;
+use std::fs::OpenOptions;
+use std::io::Write;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Instant;
 use tauri::{AppHandle, Manager};
@@ -760,9 +762,9 @@ pub async fn transcribe_audio_file(
 
     // Save to file if requested
     let saved_file_path = if save_to_file {
-        let output_path = get_output_file_path(&path, format)?;
-        std::fs::write(&output_path, &output_text)
-            .map_err(|e| format!("Failed to save transcription: {}", e))?;
+        let preferred_output_path = get_output_file_path(&path, format)?;
+        let output_path =
+            save_transcription_without_overwrite(&preferred_output_path, output_text.as_bytes())?;
         info!("Saved transcription to: {}", output_path.display());
         Some(output_path.to_string_lossy().to_string())
     } else {
@@ -1196,14 +1198,74 @@ fn get_output_file_path(audio_path: &PathBuf, format: OutputFormat) -> Result<Pa
     Ok(output_path)
 }
 
+fn save_transcription_without_overwrite(
+    preferred_path: &Path,
+    contents: &[u8],
+) -> Result<PathBuf, String> {
+    let parent = preferred_path
+        .parent()
+        .ok_or_else(|| "Transcription output path has no parent directory".to_string())?;
+    let stem = preferred_path
+        .file_stem()
+        .ok_or_else(|| "Transcription output path has no file name".to_string())?;
+    let extension = preferred_path.extension();
+
+    for index in 1..=10_000 {
+        let candidate = if index == 1 {
+            preferred_path.to_path_buf()
+        } else {
+            let mut file_name = stem.to_os_string();
+            file_name.push(format!("-{index}"));
+            if let Some(extension) = extension {
+                file_name.push(".");
+                file_name.push(extension);
+            }
+            parent.join(file_name)
+        };
+
+        let mut file = match OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&candidate)
+        {
+            Ok(file) => file,
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(error) => {
+                return Err(format!(
+                    "Failed to create transcription file {}: {error}",
+                    candidate.display()
+                ));
+            }
+        };
+
+        if let Err(error) = file.write_all(contents).and_then(|_| file.flush()) {
+            drop(file);
+            let _ = std::fs::remove_file(&candidate);
+            return Err(format!(
+                "Failed to save transcription to {}: {error}",
+                candidate.display()
+            ));
+        }
+
+        return Ok(candidate);
+    }
+
+    Err(format!(
+        "Could not allocate a collision-safe transcription name for {}",
+        preferred_path.display()
+    ))
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
-        require_remote_segments, session_blocks_local_file_transcription,
-        validate_audio_sample_rate,
+        require_remote_segments, save_transcription_without_overwrite,
+        session_blocks_local_file_transcription, validate_audio_sample_rate,
     };
     use crate::session_manager::SessionState;
     use crate::subtitle::SubtitleSegment;
+    use std::fs;
+    use std::time::{SystemTime, UNIX_EPOCH};
 
     #[test]
     fn audio_sample_rate_validation_rejects_resource_exhaustion_inputs() {
@@ -1216,6 +1278,31 @@ mod tests {
         for sample_rate in [8_000, 16_000, 44_100, 48_000, 192_000, 384_000] {
             assert!(validate_audio_sample_rate(sample_rate).is_ok());
         }
+    }
+
+    #[test]
+    fn saved_transcription_does_not_overwrite_an_existing_file() {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let directory = std::env::temp_dir().join(format!(
+            "aivorelay-transcription-collision-{}-{unique}",
+            std::process::id()
+        ));
+        fs::create_dir_all(&directory).unwrap();
+        let preferred = directory.join("meeting.txt");
+        fs::write(&preferred, "existing transcript").unwrap();
+
+        let saved = save_transcription_without_overwrite(&preferred, b"new transcript").unwrap();
+
+        assert_eq!(saved, directory.join("meeting-2.txt"));
+        assert_eq!(
+            fs::read_to_string(&preferred).unwrap(),
+            "existing transcript"
+        );
+        assert_eq!(fs::read_to_string(saved).unwrap(), "new transcript");
+        fs::remove_dir_all(directory).unwrap();
     }
 
     #[test]
