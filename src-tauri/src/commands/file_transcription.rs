@@ -13,7 +13,9 @@ use crate::file_transcription_diarization::{
 use crate::managers::deepgram_stt::{DeepgramSttManager, DeepgramTranscriptionOptions};
 use crate::managers::remote_stt::RemoteSttManager;
 use crate::managers::soniox_stt::{SonioxAsyncTranscriptionOptions, SonioxSttManager};
-use crate::managers::transcription::{FileTranscriptionChunkTraceEntry, TranscriptionManager};
+use crate::managers::transcription::{
+    FileTranscriptionChunkTraceEntry, FileTranscriptionOverrideLoadDecision, TranscriptionManager,
+};
 use crate::session_manager::{ManagedSessionState, SessionState};
 use crate::settings::{
     apply_output_whitespace_policy_for_settings, get_settings, resolve_live_sound_provider,
@@ -29,8 +31,8 @@ use specta::Type;
 use std::fs::OpenOptions;
 use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
-use std::time::Instant;
+use std::sync::{mpsc, Arc};
+use std::time::{Duration, Instant};
 use tauri::{AppHandle, Manager};
 
 /// Result of a file transcription operation
@@ -134,6 +136,7 @@ pub fn get_file_transcription_recording_state(
 const SUPPORTED_EXTENSIONS: &[&str] = &["wav", "mp3", "m4a", "ogg", "flac", "webm"];
 const SONIOX_LATEST_ASYNC_MODEL: &str = "stt-async-v5";
 const FILE_TRANSCRIPTION_CANCELLED_MESSAGE: &str = "File transcription was cancelled";
+const FILE_TRANSCRIPTION_MODEL_LOAD_POLL_INTERVAL: Duration = Duration::from_millis(50);
 
 fn file_transcription_uses_local_model(
     settings: &AppSettings,
@@ -644,13 +647,39 @@ pub async fn transcribe_audio_file(
 
             // First check if it's already the current one
             if override_changed_loaded_model {
-                if let Err(load_error) = tm.load_model(model_id) {
-                    let load_error = format!("Failed to load override model: {}", load_error);
-                    return match restore_loaded_model() {
-                        Ok(()) => Err(load_error),
-                        Err(restore_error) => Err(format!("{}; {}", load_error, restore_error)),
-                    };
+                let (load_result_rx, load_decision_tx) = tm
+                    .initiate_file_transcription_override_model_load(
+                        model_id.clone(),
+                        loaded_model_before_override.clone(),
+                    );
+                let load_result = loop {
+                    if tm.is_file_transcription_cancel_requested() {
+                        let _ =
+                            load_decision_tx.send(FileTranscriptionOverrideLoadDecision::Restore);
+                        return Err(FILE_TRANSCRIPTION_CANCELLED_MESSAGE.to_string());
+                    }
+
+                    match load_result_rx.recv_timeout(FILE_TRANSCRIPTION_MODEL_LOAD_POLL_INTERVAL) {
+                        Ok(result) => break result,
+                        Err(mpsc::RecvTimeoutError::Timeout) => continue,
+                        Err(mpsc::RecvTimeoutError::Disconnected) => {
+                            break Err("Override model loader stopped before reporting a result"
+                                .to_string());
+                        }
+                    }
+                };
+
+                load_result?;
+                if tm.is_file_transcription_cancel_requested() {
+                    let _ = load_decision_tx.send(FileTranscriptionOverrideLoadDecision::Restore);
+                    return Err(FILE_TRANSCRIPTION_CANCELLED_MESSAGE.to_string());
                 }
+                load_decision_tx
+                    .send(FileTranscriptionOverrideLoadDecision::Keep)
+                    .map_err(|_| {
+                        "Override model loader stopped before accepting the loaded model"
+                            .to_string()
+                    })?;
             }
         } else {
             // Ensure default model is loaded before transcription
