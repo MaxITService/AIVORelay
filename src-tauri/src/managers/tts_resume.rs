@@ -1703,4 +1703,127 @@ mod tests {
         workspace.discard();
         fs::remove_dir(directory).unwrap();
     }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_output_identity_ignores_path_spelling_case() {
+        let directory = temp_directory("windows-path-case");
+        fs::create_dir(&directory).unwrap();
+        let upper = directory.join("Speech.MP3");
+        let lower = PathBuf::from(directory.to_string_lossy().to_lowercase()).join("speech.mp3");
+
+        assert!(paths_refer_to_same_output(&upper, &lower));
+        fs::remove_dir(directory).unwrap();
+    }
+
+    #[test]
+    fn foreign_origin_is_refused_without_erasing_its_checkpoint() {
+        let directory = temp_directory("foreign-origin");
+        fs::create_dir(&directory).unwrap();
+        let source = directory.join("source.txt");
+        let output = directory.join("voice.mp3");
+        let watcher_origin = ResumeOrigin::Watcher {
+            source_path: source.clone(),
+            output_path: output.clone(),
+        };
+        let mut watcher = ResumeWorkspace::open_for_output(
+            &output,
+            "signature".to_string(),
+            1,
+            watcher_origin.clone(),
+        )
+        .unwrap();
+        watcher.append_segment(1, &[1, 0, 2, 0]).unwrap();
+        drop(watcher);
+
+        let ui_origin = ResumeOrigin::UiJob {
+            job_id: "job-1".to_string(),
+            source_path: source,
+            output_path: output.clone(),
+        };
+        assert!(
+            ResumeWorkspace::open_for_output(&output, "signature".to_string(), 1, ui_origin,)
+                .is_err()
+        );
+
+        let watcher =
+            ResumeWorkspace::open_for_output(&output, "signature".to_string(), 1, watcher_origin)
+                .unwrap();
+        assert_eq!(watcher.completed_chunks(), 1);
+        watcher.discard();
+        fs::remove_dir(directory).unwrap();
+    }
+
+    #[test]
+    fn ui_job_safely_claims_matching_legacy_manual_checkpoint() {
+        let directory = temp_directory("claim-manual");
+        fs::create_dir(&directory).unwrap();
+        let source = directory.join("source.txt");
+        let output = directory.join("voice.mp3");
+        let mut manual = ResumeWorkspace::open_for_output(
+            &output,
+            "signature".to_string(),
+            1,
+            ResumeOrigin::Manual,
+        )
+        .unwrap();
+        manual.append_segment(1, &[1, 0, 2, 0]).unwrap();
+        drop(manual);
+
+        let ui_origin = ResumeOrigin::UiJob {
+            job_id: "job-1".to_string(),
+            source_path: source,
+            output_path: output.clone(),
+        };
+        let claimed = ResumeWorkspace::open_for_output(
+            &output,
+            "signature".to_string(),
+            1,
+            ui_origin.clone(),
+        )
+        .unwrap();
+        assert_eq!(claimed.completed_chunks(), 1);
+        drop(claimed);
+
+        let reopened =
+            ResumeWorkspace::open_for_output(&output, "signature".to_string(), 1, ui_origin)
+                .unwrap();
+        assert_eq!(reopened.completed_chunks(), 1);
+        reopened.discard();
+        fs::remove_dir(directory).unwrap();
+    }
+
+    #[test]
+    fn ui_job_source_is_retained_outside_compact_manifest() {
+        let directory = temp_directory("compact-job");
+        fs::create_dir(&directory).unwrap();
+        let source_path = directory.join("book.txt");
+        let output_path = directory.join("book.mp3");
+        let source_text = "unique-source-quote-\"-backslash-\\".to_string();
+        let manifest = create_ui_file_job(
+            &directory,
+            source_path,
+            output_path,
+            source_text.clone(),
+            TtsSettings::default(),
+        )
+        .unwrap();
+        let root = ui_job_root(&directory, &manifest.job_id);
+        assert_eq!(
+            fs::read_to_string(root.join(UI_JOB_SOURCE_FILE)).unwrap(),
+            source_text
+        );
+        for slot in UI_JOB_SLOTS {
+            let path = root.join(slot);
+            if path.exists() {
+                assert!(!fs::read_to_string(path)
+                    .unwrap()
+                    .contains("unique-source-quote"));
+            }
+        }
+        let loaded = load_ui_file_job(&directory, &manifest.job_id).unwrap();
+        assert_eq!(loaded.source_text, source_text);
+        remove_ui_file_job_record(&directory, &manifest.job_id).unwrap();
+        fs::remove_dir_all(directory).unwrap();
+    }
 }
