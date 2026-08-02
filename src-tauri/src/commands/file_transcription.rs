@@ -1022,6 +1022,7 @@ fn decode_audio_file(path: &PathBuf) -> Result<Vec<f32>, String> {
 
     // Get source sample rate and channels
     let sample_rate = source.sample_rate();
+    validate_audio_sample_rate(sample_rate)?;
     let channels = source.channels() as usize;
 
     debug!("Audio file: {} Hz, {} channels", sample_rate, channels);
@@ -1068,6 +1069,7 @@ fn decode_wav_file(path: &PathBuf) -> Result<Vec<f32>, String> {
 
     let spec = reader.spec();
     let sample_rate = spec.sample_rate;
+    validate_audio_sample_rate(sample_rate)?;
     let channels = spec.channels as usize;
 
     debug!(
@@ -1111,6 +1113,19 @@ fn decode_wav_file(path: &PathBuf) -> Result<Vec<f32>, String> {
     };
 
     Ok(resampled)
+}
+
+const MIN_SUPPORTED_AUDIO_SAMPLE_RATE: u32 = 1_000;
+const MAX_SUPPORTED_AUDIO_SAMPLE_RATE: u32 = 384_000;
+
+fn validate_audio_sample_rate(sample_rate: u32) -> Result<(), String> {
+    if (MIN_SUPPORTED_AUDIO_SAMPLE_RATE..=MAX_SUPPORTED_AUDIO_SAMPLE_RATE).contains(&sample_rate) {
+        Ok(())
+    } else {
+        Err(format!(
+            "Unsupported audio sample rate {sample_rate} Hz; expected {MIN_SUPPORTED_AUDIO_SAMPLE_RATE}–{MAX_SUPPORTED_AUDIO_SAMPLE_RATE} Hz"
+        ))
+    }
 }
 
 /// Resample audio from one sample rate to another
@@ -1175,9 +1190,25 @@ fn get_output_file_path(audio_path: &PathBuf, format: OutputFormat) -> Result<Pa
 
 #[cfg(test)]
 mod tests {
-    use super::{require_remote_segments, session_blocks_local_file_transcription};
+    use super::{
+        require_remote_segments, session_blocks_local_file_transcription,
+        validate_audio_sample_rate,
+    };
     use crate::session_manager::SessionState;
     use crate::subtitle::SubtitleSegment;
+
+    #[test]
+    fn audio_sample_rate_validation_rejects_resource_exhaustion_inputs() {
+        assert!(validate_audio_sample_rate(u32::MAX).is_err());
+        assert!(validate_audio_sample_rate(0).is_err());
+    }
+
+    #[test]
+    fn audio_sample_rate_validation_accepts_normal_audio_rates() {
+        for sample_rate in [8_000, 16_000, 44_100, 48_000, 192_000, 384_000] {
+            assert!(validate_audio_sample_rate(sample_rate).is_ok());
+        }
+    }
 
     #[test]
     fn processing_session_blocks_local_file_transcription() {
