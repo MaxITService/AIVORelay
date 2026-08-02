@@ -262,6 +262,13 @@ pub fn is_session_current(session_id: u64) -> bool {
             .unwrap_or(false)
 }
 
+pub fn is_recording() -> bool {
+    LIVE_SOUND_TRANSCRIPTION_STATE
+        .lock()
+        .map(|state| state.recording)
+        .unwrap_or(false)
+}
+
 pub fn activate_session(app: &AppHandle, binding_id: String, auto_stop_minutes: u32) -> u64 {
     cancel_auto_stop_task();
 
