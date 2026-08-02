@@ -1197,23 +1197,16 @@ impl RemoteSttManager {
                 })?;
         }
 
-        let silence = vec![0_u8; OPENAI_REALTIME_AUDIO_CHUNK_BYTES * 2];
+        // Translation sessions use session.close as their end-of-input signal.
+        // It flushes pending audio and must be followed by reads through session.closed.
         write
             .send(Message::Text(
-                serde_json::json!({
-                    "type": "session.input_audio_buffer.append",
-                    "audio": BASE64_STANDARD.encode(silence)
-                })
-                .to_string()
-                .into(),
+                serde_json::json!({ "type": "session.close" })
+                    .to_string()
+                    .into(),
             ))
             .await
-            .map_err(|e| {
-                anyhow!(
-                    "Failed to send OpenAI Realtime Translate trailing silence: {}",
-                    e
-                )
-            })?;
+            .map_err(|e| anyhow!("Failed to close OpenAI Realtime Translate session: {}", e))?;
         write
             .flush()
             .await
@@ -1221,28 +1214,26 @@ impl RemoteSttManager {
 
         let mut output_text = String::new();
         let mut input_text = String::new();
-        let mut saw_transcript = false;
-        let idle_timeout = Duration::from_secs(3);
-        let max_wait = Instant::now() + Duration::from_secs(DEFAULT_REQUEST_TIMEOUT_SECS);
+        let close_deadline = Instant::now() + Duration::from_secs(DEFAULT_REQUEST_TIMEOUT_SECS);
 
         loop {
             let now = Instant::now();
-            if now >= max_wait {
-                break;
+            if now >= close_deadline {
+                return Err(anyhow!(
+                    "OpenAI Realtime Translate timed out waiting for session.closed"
+                ));
             }
-            let wait = if saw_transcript {
-                idle_timeout.min(max_wait.saturating_duration_since(now))
-            } else {
-                Duration::from_secs(DEFAULT_REQUEST_TIMEOUT_SECS)
-                    .min(max_wait.saturating_duration_since(now))
-            };
+            let wait = close_deadline.saturating_duration_since(now);
             let frame = match timeout(wait, read.next()).await {
                 Ok(Some(frame)) => frame,
-                Ok(None) => break,
-                Err(_) if saw_transcript => break,
+                Ok(None) => {
+                    return Err(anyhow!(
+                        "OpenAI Realtime Translate WebSocket closed before session.closed"
+                    ));
+                }
                 Err(_) => {
                     return Err(anyhow!(
-                        "OpenAI Realtime Translate WebSocket read timed out"
+                        "OpenAI Realtime Translate timed out waiting for session.closed"
                     ))
                 }
             };
@@ -1277,13 +1268,13 @@ impl RemoteSttManager {
             if msg_type == "session.output_transcript.delta" {
                 if let Some(delta) = payload.get("delta").and_then(|v| v.as_str()) {
                     output_text.push_str(delta);
-                    saw_transcript = true;
                 }
             } else if msg_type == "session.input_transcript.delta" {
                 if let Some(delta) = payload.get("delta").and_then(|v| v.as_str()) {
                     input_text.push_str(delta);
-                    saw_transcript = true;
                 }
+            } else if msg_type == "session.closed" {
+                break;
             }
         }
 
