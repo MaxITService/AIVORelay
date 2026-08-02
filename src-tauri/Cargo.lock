@@ -71,7 +71,7 @@ dependencies = [
 
 [[package]]
 name = "aivorelay"
-version = "1.0.26"
+version = "1.0.27"
 dependencies = [
  "aes-gcm",
  "anyhow",
