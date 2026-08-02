@@ -2430,10 +2430,11 @@ impl TtsManager {
         settings: &TtsSettings,
         api_key: &str,
     ) -> std::result::Result<Vec<i16>, ProviderAttemptError> {
-        if text.is_empty() {
+        if text.trim().is_empty() {
             return Err(ProviderAttemptError {
                 status: None,
-                safe_message: "Refusing to send an empty TTS request".to_string(),
+                safe_message: "Refusing to send an empty or whitespace-only TTS request"
+                    .to_string(),
                 transient: false,
                 retry_after: None,
             });
@@ -2770,7 +2771,7 @@ pub fn semantic_chunks(text: &str, requested_target: usize, hard_limit: usize) -
             .max(start + 1)
             .min((start + hard_limit).min(chars.len()));
         let chunk_text: String = chars[start..end].iter().collect();
-        if !chunk_text.is_empty() {
+        if !chunk_text.trim().is_empty() {
             chunks.push(TtsChunk {
                 index: chunks.len() + 1,
                 character_count: chunk_text.chars().count(),
@@ -4248,6 +4249,20 @@ mod tests {
     fn semantic_chunking_rejects_empty_and_whitespace_only_input() {
         assert!(semantic_chunks("", 100, 200).is_empty());
         assert!(semantic_chunks(" \r\n\t ", 100, 200).is_empty());
+    }
+
+    #[test]
+    fn semantic_chunking_drops_leading_blank_paragraph_chunks() {
+        let chunks = semantic_chunks("\n\nSpoken text", 2, 100);
+
+        assert_eq!(
+            chunks
+                .iter()
+                .map(|chunk| chunk.text.as_str())
+                .collect::<String>(),
+            "Spoken text"
+        );
+        assert!(chunks.iter().all(|chunk| !chunk.text.trim().is_empty()));
     }
 
     #[test]
