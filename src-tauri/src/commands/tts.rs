@@ -604,17 +604,41 @@ fn overlay_identity(settings: &TtsSettings) -> TtsOverlayIdentity {
     }
 }
 
-fn report_overlay_error(app: &AppHandle, error: impl std::fmt::Display) {
+pub(crate) fn report_tts_error(app: &AppHandle, error: impl std::fmt::Display) {
     let message = error.to_string();
+    let settings = get_settings(app)
+        .tts
+        .effective_for_scope(TtsOperationScope::Interactive);
+    let identity = overlay_identity(&settings);
     let runtime = app.state::<TtsOverlayRuntime>();
     let snapshot = {
         let mut runtime = runtime.inner.lock();
         runtime.playback_status = None;
-        runtime.state.status = "error".to_string();
-        runtime.state.error = Some(message);
+        runtime.latency = TtsLatencyTrace::default();
+        runtime.state = TtsOverlayState {
+            operation_id: String::new(),
+            status: "error".to_string(),
+            provider: identity.provider,
+            model: identity.model,
+            voice: identity.voice,
+            text_preview: String::new(),
+            chunks: Vec::new(),
+            current_chunk: 0,
+            total_chunks: 0,
+            retry_attempt: 0,
+            error: Some(message.clone()),
+            play_pause_hotkey: settings.play_pause_hotkey,
+            play_history_when_overlay_closed: settings.play_history_when_overlay_closed,
+            stop_hotkey: settings.stop_hotkey,
+            autoplay: settings.autoplay,
+            playback_pitch: settings.playback_pitch,
+            playback_effect: settings.playback_effect,
+        };
         runtime.state.clone()
     };
+    crate::overlay::show_tts_overlay_window(app);
     emit_overlay_state(app, &snapshot);
+    let _ = app.emit("tts-error", message);
 }
 
 fn history_metadata(
@@ -694,19 +718,30 @@ pub(crate) async fn start_tts_text_at(
         .tts
         .effective_for_scope(TtsOperationScope::Interactive);
     if !settings.enabled {
-        return Err("Text to Speech is disabled".to_string());
+        let error = "Text to Speech is disabled".to_string();
+        report_tts_error(&app, &error);
+        return Err(error);
     }
     if text.trim().is_empty() {
-        return Err("There is no clipboard text to read".to_string());
+        let error = "There is no clipboard text to read".to_string();
+        report_tts_error(&app, &error);
+        return Err(error);
     }
     if text.len() > MAX_TTS_TEXT_INPUT_BYTES {
-        return Err("TTS text input exceeds the 8 MiB safety limit".to_string());
+        let error = "TTS text input exceeds the 8 MiB safety limit".to_string();
+        report_tts_error(&app, &error);
+        return Err(error);
     }
 
     let manager = app.state::<Arc<TtsManager>>().inner().clone();
-    let operation_guard = manager
-        .try_reserve_foreground_operation()
-        .map_err(|error| error.to_string())?;
+    let operation_guard = match manager.try_reserve_foreground_operation() {
+        Ok(operation_guard) => operation_guard,
+        Err(error) => {
+            let error = error.to_string();
+            report_tts_error(&app, &error);
+            return Err(error);
+        }
+    };
     let overlay_was_cold = app
         .get_webview_window(crate::overlay::TTS_OVERLAY_WINDOW_LABEL)
         .is_none();
@@ -731,7 +766,7 @@ pub(crate) async fn start_tts_text_at(
         Ok(resolved) => resolved,
         Err(error) => {
             if manager.current_state().phase != TtsPhase::Cancelled {
-                report_overlay_error(&app, &error);
+                report_tts_error(&app, &error);
             }
             return Err(error.to_string());
         }
