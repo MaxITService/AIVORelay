@@ -414,10 +414,6 @@ pub fn stop(app: &AppHandle) {
     };
     let session_id = session.session_id;
 
-    crate::managers::live_sound_transcription::set_recording_if_session_matches(
-        app, session_id, false,
-    );
-
     // Stop both recorders (discard samples — live mode uses WebSocket stream).
     if let Err(e) = session.recorder.stop() {
         warn!("Live sound recorder stop returned error: {}", e);

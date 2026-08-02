@@ -4838,6 +4838,7 @@ pub(crate) fn start_live_sound_transcription_session(app: &AppHandle) -> Result<
 
 pub(crate) fn is_live_sound_recording(_app: &AppHandle) -> bool {
     crate::managers::live_sound_audio::is_active()
+        || crate::managers::live_sound_transcription::is_recording()
 }
 
 pub(crate) fn stop_live_sound_transcription_session(app: &AppHandle) -> Result<(), String> {
@@ -4847,8 +4848,8 @@ pub(crate) fn stop_live_sound_transcription_session(app: &AppHandle) -> Result<(
 }
 
 pub(crate) async fn process_live_sound_transcription_text(app: AppHandle) -> Result<(), String> {
-    if crate::managers::live_sound_audio::is_active() {
-        return Err("Stop live transcription before LLM processing.".to_string());
+    if is_live_sound_recording(&app) {
+        return Err("Wait for live transcription finalization before LLM processing.".to_string());
     }
 
     let original_text = crate::managers::live_sound_transcription::current_final_text();
