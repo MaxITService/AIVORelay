@@ -279,18 +279,21 @@ impl LocalTtsRuntime {
         if self.is_installed() {
             return Ok(self.status());
         }
-        if self.upgrade_worker_if_compatible().await? {
-            self.refresh_status();
-            return Ok(self.status.read().clone());
-        }
-
-        fs::create_dir_all(&self.root).context("Failed to create local TTS directory")?;
-        self.preflight_disk_space(disk_reserve_mb)?;
         let cancel = CancellationToken::new();
         *self.install_cancel.lock() = Some(cancel.clone());
-        self.set_status("preparing", true, 0, LOCAL_TTS_MODEL_BYTES, None);
 
-        let result = self.install_inner(&cancel).await;
+        let result = async {
+            if self.upgrade_worker_if_compatible(&cancel).await? {
+                return Ok(());
+            }
+
+            cancel_if_requested(&cancel)?;
+            fs::create_dir_all(&self.root).context("Failed to create local TTS directory")?;
+            self.preflight_disk_space(disk_reserve_mb)?;
+            self.set_status("preparing", true, 0, LOCAL_TTS_MODEL_BYTES, None);
+            self.install_inner(&cancel).await
+        }
+        .await;
         self.install_cancel.lock().take();
         match result {
             Ok(()) => {
@@ -966,7 +969,7 @@ impl LocalTtsRuntime {
         Ok(manifest)
     }
 
-    async fn upgrade_worker_if_compatible(&self) -> Result<bool> {
+    async fn upgrade_worker_if_compatible(&self, cancel: &CancellationToken) -> Result<bool> {
         let content = match fs::read_to_string(self.manifest_path()) {
             Ok(content) => content,
             Err(_) => return Ok(false),
@@ -975,6 +978,7 @@ impl LocalTtsRuntime {
             Ok(manifest) => manifest,
             Err(_) => return Ok(false),
         };
+        let original_manifest = manifest.clone();
         let current_worker_sha = sha256_bytes(WORKER_SOURCE.as_bytes());
         if manifest.manifest_version != INSTALL_MANIFEST_VERSION
             || manifest.worker_protocol_version != WORKER_PROTOCOL_VERSION
@@ -1004,19 +1008,36 @@ impl LocalTtsRuntime {
         {
             return Ok(false);
         }
+        cancel_if_requested(cancel)?;
         fs::write(self.worker_path(), WORKER_SOURCE)
             .context("Failed to update the managed local TTS worker")?;
         self.write_managed_notices()?;
         manifest.worker_sha256 = current_worker_sha;
         manifest.notice_bundle_sha256 = current_notice_sha;
+        let mut validated_worker = None;
         if needs_runtime_validation {
-            let worker = self
-                .start_verified_worker_with_fallback(&mut manifest, None)
+            let mut worker = self
+                .start_verified_worker_with_fallback(&mut manifest, Some(cancel))
                 .await?;
+            if let Err(error) = cancel_if_requested(cancel) {
+                let _ = worker.child.kill().await;
+                return Err(error);
+            }
             manifest.runtime_smoke_tested = true;
+            validated_worker = Some(worker);
+        }
+        cancel_if_requested(cancel)?;
+        write_json_atomic(&self.manifest_path(), &manifest)?;
+        if let Err(error) = cancel_if_requested(cancel) {
+            let _ = write_json_atomic(&self.manifest_path(), &original_manifest);
+            if let Some(mut worker) = validated_worker {
+                let _ = worker.child.kill().await;
+            }
+            return Err(error);
+        }
+        if let Some(worker) = validated_worker {
             *self.worker.lock().await = Some(worker);
         }
-        write_json_atomic(&self.manifest_path(), &manifest)?;
         Ok(true)
     }
 
