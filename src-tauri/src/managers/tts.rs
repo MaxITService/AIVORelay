@@ -1,9 +1,10 @@
 //! Provider-independent text-to-speech synthesis and file conversion.
 //!
 //! Provider responses are requested as raw signed 16-bit little-endian mono
-//! PCM at 24 kHz. Interactive synthesis writes each completed chunk as a WAV
-//! cache asset. File conversion assembles PCM first and encodes exactly one
-//! final WAV or MP3 stream.
+//! PCM at 24 kHz. Interactive cloud synthesis publishes bounded WAV cache
+//! segments while the response arrives; local/system providers publish each
+//! completed semantic chunk. File conversion still assembles PCM first and
+//! encodes exactly one final WAV or MP3 stream.
 
 use crate::managers::edge_tts::{self, DEFAULT_EDGE_TTS_VOICE, EDGE_TTS_PROVIDER_LIMIT};
 use crate::managers::local_kokoro::{
@@ -66,6 +67,9 @@ const CONNECT_TIMEOUT: Duration = Duration::from_secs(15);
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(120);
 const MAX_RETRY_DELAY: Duration = Duration::from_secs(60);
 const INTERACTIVE_CACHE_STALE_AGE: Duration = Duration::from_secs(24 * 60 * 60);
+// Keep enough PCM queued to bridge provider/network jitter without making an
+// interactive cloud request wait for the complete utterance before playback.
+const INTERACTIVE_STREAM_SEGMENT_SAMPLES: usize = PROVIDER_PCM_SAMPLE_RATE as usize * 2;
 const MAX_VOICE_CATALOG_BYTES: usize = 4 * 1024 * 1024;
 // Long enough for multi-million-character book sources while bounding the
 // additional copies created by Unicode chunking and preprocessing.
@@ -343,6 +347,9 @@ struct ProviderAttemptError {
     transient: bool,
     retry_after: Option<Duration>,
 }
+
+type PcmSegmentSink<'a> =
+    dyn FnMut(&[i16]) -> std::result::Result<(), ProviderAttemptError> + Send + 'a;
 
 impl std::fmt::Display for ProviderAttemptError {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -1561,6 +1568,11 @@ impl TtsManager {
         let result = async {
             let api_key = resolve_api_key(settings)?;
             let mut ready = Vec::with_capacity(chunks.len());
+            let streams_cloud_pcm = matches!(
+                settings.provider,
+                TtsProvider::Soniox | TtsProvider::Deepgram | TtsProvider::OpenAi
+            );
+            let mut next_playback_chunk_index = 1_usize;
             let history_raw_path = operation_cache.join("history-result.pcm.partial");
             let history_audio_path = operation_cache.join(format!(
                 "history-result.{}",
@@ -1587,55 +1599,97 @@ impl TtsManager {
             };
             for chunk in &chunks {
                 self.ensure_active(operation_id)?;
-                let pcm = self
-                    .synthesize_chunk_with_retry(
+                let pcm = if streams_cloud_pcm {
+                    let mut publish_segment =
+                        |segment: &[i16]| -> std::result::Result<(), ProviderAttemptError> {
+                            self.ensure_active(operation_id)
+                                .map_err(local_attempt_error)?;
+                            let wav_path = operation_cache
+                                .join(format!("{:05}.wav", next_playback_chunk_index));
+                            ensure_disk_reserve(
+                                &wav_path,
+                                settings.disk_reserve_mb,
+                                segment.len().saturating_mul(2).saturating_add(44) as u64,
+                            )
+                            .map_err(local_attempt_error)?;
+                            write_wav_file(&wav_path, segment, PROVIDER_PCM_SAMPLE_RATE)
+                                .map_err(local_attempt_error)?;
+
+                            let event = TtsChunkReady {
+                                operation_id,
+                                chunk_index: next_playback_chunk_index,
+                                // Zero means that more playback segments can
+                                // still arrive. The final event supplies the
+                                // authoritative total.
+                                total_chunks: 0,
+                                wav_path,
+                                boundary_after: TtsBoundary::Hard,
+                                pause_after_ms: 0,
+                            };
+                            next_playback_chunk_index = next_playback_chunk_index.saturating_add(1);
+                            ready.push(event.clone());
+                            let _ = self.app_handle.emit(TTS_EVENT_CHUNK_READY, &event);
+                            Ok(())
+                        };
+                    let result = self
+                        .synthesize_chunk_with_retry_streaming(
+                            operation_id,
+                            chunk,
+                            chunks.len(),
+                            settings,
+                            &api_key,
+                            &mut publish_segment,
+                        )
+                        .await;
+                    drop(publish_segment);
+                    result?
+                } else {
+                    self.synthesize_chunk_with_retry(
                         operation_id,
                         chunk,
                         chunks.len(),
                         settings,
                         &api_key,
                     )
-                    .await?;
+                    .await?
+                };
                 self.ensure_active(operation_id)?;
 
-                let wav_path = operation_cache.join(format!("{:05}.wav", chunk.index));
-                ensure_disk_reserve(
-                    &wav_path,
-                    settings.disk_reserve_mb,
-                    pcm.len().saturating_mul(2).saturating_add(44) as u64,
-                )?;
-                write_wav_file(&wav_path, &pcm, PROVIDER_PCM_SAMPLE_RATE)?;
-                let event = TtsChunkReady {
-                    operation_id,
-                    chunk_index: chunk.index,
-                    total_chunks: chunks.len(),
-                    wav_path,
-                    boundary_after: chunk.boundary_after,
-                    pause_after_ms: if chunk.index < chunks.len() {
-                        if chunk.boundary_after == TtsBoundary::Paragraph {
-                            settings.paragraph_pause_ms.min(10_000)
-                        } else {
-                            settings.inter_chunk_pause_ms.min(5_000)
-                        }
-                    } else {
-                        0
-                    },
-                };
-                ready.push(event.clone());
-                let _ = self.app_handle.emit(TTS_EVENT_CHUNK_READY, &event);
+                let pause_after_ms = interactive_pause_after(chunk, chunks.len(), settings);
+                if streams_cloud_pcm {
+                    let last = ready.last_mut().ok_or_else(|| {
+                        anyhow!(
+                            "{} returned empty audio for chunk {}",
+                            provider_name(settings.provider),
+                            chunk.index
+                        )
+                    })?;
+                    last.boundary_after = chunk.boundary_after;
+                    last.pause_after_ms = pause_after_ms;
+                    let _ = self.app_handle.emit(TTS_EVENT_CHUNK_READY, last.clone());
+                } else {
+                    let wav_path = operation_cache.join(format!("{:05}.wav", chunk.index));
+                    ensure_disk_reserve(
+                        &wav_path,
+                        settings.disk_reserve_mb,
+                        pcm.len().saturating_mul(2).saturating_add(44) as u64,
+                    )?;
+                    write_wav_file(&wav_path, &pcm, PROVIDER_PCM_SAMPLE_RATE)?;
+                    let event = TtsChunkReady {
+                        operation_id,
+                        chunk_index: chunk.index,
+                        total_chunks: chunks.len(),
+                        wav_path,
+                        boundary_after: chunk.boundary_after,
+                        pause_after_ms,
+                    };
+                    ready.push(event.clone());
+                    let _ = self.app_handle.emit(TTS_EVENT_CHUNK_READY, &event);
+                }
 
                 if let Some(raw_file) = history_raw_file.as_mut() {
                     write_i16_le(raw_file, &pcm)?;
-                    let pause_ms = if chunk.index < chunks.len() {
-                        if chunk.boundary_after == TtsBoundary::Paragraph {
-                            settings.paragraph_pause_ms.min(10_000)
-                        } else {
-                            settings.inter_chunk_pause_ms.min(5_000)
-                        }
-                    } else {
-                        0
-                    };
-                    let pause_bytes = u64::from(pause_ms)
+                    let pause_bytes = u64::from(pause_after_ms)
                         .saturating_mul(u64::from(PROVIDER_PCM_SAMPLE_RATE))
                         .saturating_div(1_000)
                         .saturating_mul(2);
@@ -1646,14 +1700,22 @@ impl TtsManager {
                             .saturating_mul(2)
                             .saturating_add(pause_bytes),
                     )?;
-                    if pause_ms > 0 {
-                        write_silence(raw_file, pause_ms, PROVIDER_PCM_SAMPLE_RATE)?;
+                    if pause_after_ms > 0 {
+                        write_silence(raw_file, pause_after_ms, PROVIDER_PCM_SAMPLE_RATE)?;
                     }
                     raw_file
                         .flush()
                         .context("Failed to flush interactive history PCM")?;
                 }
                 self.mark_chunk_completed(operation_id, chunk.index, chunks.len());
+            }
+            if streams_cloud_pcm {
+                let total_playback_chunks = ready.len();
+                let last = ready
+                    .last_mut()
+                    .ok_or_else(|| anyhow!("The provider returned no playable audio"))?;
+                last.total_chunks = total_playback_chunks;
+                let _ = self.app_handle.emit(TTS_EVENT_CHUNK_READY, last.clone());
             }
             let combined_audio_path = if let Some(mut raw_file) = history_raw_file {
                 raw_file
@@ -2338,6 +2400,46 @@ impl TtsManager {
         settings: &TtsSettings,
         api_key: &str,
     ) -> Result<Vec<i16>> {
+        self.synthesize_chunk_with_retry_inner(
+            operation_id,
+            chunk,
+            total_chunks,
+            settings,
+            api_key,
+            None,
+        )
+        .await
+    }
+
+    async fn synthesize_chunk_with_retry_streaming(
+        &self,
+        operation_id: u64,
+        chunk: &TtsChunk,
+        total_chunks: usize,
+        settings: &TtsSettings,
+        api_key: &str,
+        on_pcm_segment: &mut PcmSegmentSink<'_>,
+    ) -> Result<Vec<i16>> {
+        self.synthesize_chunk_with_retry_inner(
+            operation_id,
+            chunk,
+            total_chunks,
+            settings,
+            api_key,
+            Some(on_pcm_segment),
+        )
+        .await
+    }
+
+    async fn synthesize_chunk_with_retry_inner(
+        &self,
+        operation_id: u64,
+        chunk: &TtsChunk,
+        total_chunks: usize,
+        settings: &TtsSettings,
+        api_key: &str,
+        mut on_pcm_segment: Option<&mut PcmSegmentSink<'_>>,
+    ) -> Result<Vec<i16>> {
         let max_attempts = settings.retry_count.min(10).saturating_add(1);
         for attempt in 1..=max_attempts {
             self.ensure_active(operation_id)?;
@@ -2353,10 +2455,29 @@ impl TtsManager {
                 },
             );
 
-            match self
-                .synthesize_once(operation_id, &chunk.text, settings, api_key)
+            let mut emitted_during_attempt = false;
+            let synthesis = if let Some(callback) = on_pcm_segment.as_deref_mut() {
+                let mut tracked_callback = |pcm: &[i16]| {
+                    let result = callback(pcm);
+                    if result.is_ok() {
+                        emitted_during_attempt = true;
+                    }
+                    result
+                };
+                self.synthesize_once(
+                    operation_id,
+                    &chunk.text,
+                    settings,
+                    api_key,
+                    Some(&mut tracked_callback),
+                )
                 .await
-            {
+            } else {
+                self.synthesize_once(operation_id, &chunk.text, settings, api_key, None)
+                    .await
+            };
+
+            match synthesis {
                 Ok(pcm) if pcm.is_empty() => {
                     return Err(anyhow!(
                         "{} returned empty audio for chunk {}",
@@ -2365,8 +2486,15 @@ impl TtsManager {
                     ));
                 }
                 Ok(pcm) => return Ok(pcm),
-                Err(error) => {
+                Err(mut error) => {
                     self.ensure_active(operation_id)?;
+                    if emitted_during_attempt {
+                        error.transient = false;
+                        error.safe_message = format!(
+                            "{} (the streamed response ended after playback began)",
+                            error.safe_message
+                        );
+                    }
                     let safe_error = if api_key.is_empty() {
                         error.safe_message.clone()
                     } else {
@@ -2429,6 +2557,7 @@ impl TtsManager {
         text: &str,
         settings: &TtsSettings,
         api_key: &str,
+        mut on_pcm_segment: Option<&mut PcmSegmentSink<'_>>,
     ) -> std::result::Result<Vec<i16>, ProviderAttemptError> {
         if text.trim().is_empty() {
             return Err(ProviderAttemptError {
@@ -2586,7 +2715,7 @@ impl TtsManager {
             TtsProvider::Windows => unreachable!("Windows provider returned before HTTP dispatch"),
         };
 
-        let response = tokio::select! {
+        let mut response = tokio::select! {
             response = request.send() => response.map_err(network_error)?,
             _ = self.wait_for_cancellation(operation_id) => {
                 return Err(cancelled_attempt_error());
@@ -2594,13 +2723,50 @@ impl TtsManager {
         };
         let status = response.status();
         let retry_after = parse_retry_after(response.headers().get(RETRY_AFTER));
-        let bytes = tokio::select! {
-            bytes = response.bytes() => bytes.map_err(network_error)?,
-            _ = self.wait_for_cancellation(operation_id) => {
-                return Err(cancelled_attempt_error());
+        if !status.is_success() || on_pcm_segment.is_none() {
+            let bytes = tokio::select! {
+                bytes = response.bytes() => bytes.map_err(network_error)?,
+                _ = self.wait_for_cancellation(operation_id) => {
+                    return Err(cancelled_attempt_error());
+                }
+            };
+            return decode_cloud_pcm_response(status, retry_after, &bytes);
+        }
+
+        let initial_capacity = response
+            .content_length()
+            .and_then(|length| usize::try_from(length).ok())
+            .unwrap_or_default()
+            .min(16 * 1024 * 1024);
+        let mut bytes = Vec::with_capacity(initial_capacity);
+        let mut emitted_bytes = 0_usize;
+        let segment_bytes = INTERACTIVE_STREAM_SEGMENT_SAMPLES.saturating_mul(2);
+
+        loop {
+            let next = tokio::select! {
+                next = response.chunk() => next.map_err(network_error)?,
+                _ = self.wait_for_cancellation(operation_id) => {
+                    return Err(cancelled_attempt_error());
+                }
+            };
+            let Some(next) = next else {
+                break;
+            };
+            bytes.extend_from_slice(&next);
+
+            if let Some(callback) = on_pcm_segment.as_deref_mut() {
+                publish_complete_pcm_segments(&bytes, &mut emitted_bytes, segment_bytes, callback)?;
             }
-        };
-        decode_cloud_pcm_response(status, retry_after, &bytes)
+        }
+
+        let pcm = decode_cloud_pcm_response(status, retry_after, &bytes)?;
+        if emitted_bytes < bytes.len() {
+            let tail = decode_cloud_pcm_response(StatusCode::OK, None, &bytes[emitted_bytes..])?;
+            if let Some(callback) = on_pcm_segment.as_deref_mut() {
+                callback(&tail)?;
+            }
+        }
+        Ok(pcm)
     }
 
     async fn wait_for_cancellation(&self, operation_id: u64) {
@@ -2905,6 +3071,16 @@ fn provider_name(provider: TtsProvider) -> &'static str {
     }
 }
 
+fn interactive_pause_after(chunk: &TtsChunk, total_chunks: usize, settings: &TtsSettings) -> u32 {
+    if chunk.index >= total_chunks {
+        0
+    } else if chunk.boundary_after == TtsBoundary::Paragraph {
+        settings.paragraph_pause_ms.min(10_000)
+    } else {
+        settings.inter_chunk_pause_ms.min(5_000)
+    }
+}
+
 fn ensure_enabled(settings: &TtsSettings) -> Result<()> {
     if !settings.enabled {
         return Err(anyhow!("Text-to-speech is disabled"));
@@ -2943,6 +3119,15 @@ fn network_error(error: reqwest::Error) -> ProviderAttemptError {
         status: error.status(),
         safe_message: safe_text(&error.to_string()),
         transient,
+        retry_after: None,
+    }
+}
+
+fn local_attempt_error(error: anyhow::Error) -> ProviderAttemptError {
+    ProviderAttemptError {
+        status: None,
+        safe_message: safe_text(&error.to_string()),
+        transient: false,
         retry_after: None,
     }
 }
@@ -3028,6 +3213,22 @@ fn decode_cloud_pcm_response(
         transient: false,
         retry_after: None,
     })
+}
+
+fn publish_complete_pcm_segments(
+    bytes: &[u8],
+    emitted_bytes: &mut usize,
+    segment_bytes: usize,
+    callback: &mut PcmSegmentSink<'_>,
+) -> std::result::Result<(), ProviderAttemptError> {
+    debug_assert!(segment_bytes > 0 && segment_bytes % 2 == 0);
+    while bytes.len().saturating_sub(*emitted_bytes) >= segment_bytes {
+        let end = (*emitted_bytes).saturating_add(segment_bytes);
+        let pcm = decode_cloud_pcm_response(StatusCode::OK, None, &bytes[*emitted_bytes..end])?;
+        callback(&pcm)?;
+        *emitted_bytes = end;
+    }
+    Ok(())
 }
 
 fn decode_pcm_s16_le(bytes: &[u8]) -> Result<Vec<i16>> {
@@ -4680,6 +4881,54 @@ mod tests {
         .expect("valid little-endian PCM should decode through the shared cloud path");
 
         assert_eq!(pcm, vec![i16::MIN, -1, 0, i16::MAX]);
+    }
+
+    #[test]
+    fn interactive_cloud_stream_publishes_only_complete_pcm_segments() {
+        let samples = [1_i16, 2, 3, 4, 5, 6, 7, 8];
+        let bytes = samples
+            .iter()
+            .flat_map(|sample| sample.to_le_bytes())
+            .collect::<Vec<_>>();
+        let mut emitted_bytes = 0;
+        let mut published = Vec::<Vec<i16>>::new();
+        {
+            let mut callback = |pcm: &[i16]| {
+                published.push(pcm.to_vec());
+                Ok(())
+            };
+            publish_complete_pcm_segments(&bytes[..6], &mut emitted_bytes, 8, &mut callback)
+                .expect("an incomplete segment should remain buffered");
+        }
+        assert!(published.is_empty());
+        assert_eq!(emitted_bytes, 0);
+
+        {
+            let mut callback = |pcm: &[i16]| {
+                published.push(pcm.to_vec());
+                Ok(())
+            };
+            publish_complete_pcm_segments(&bytes[..12], &mut emitted_bytes, 8, &mut callback)
+                .expect("one complete segment should be published");
+        }
+        assert_eq!(published, vec![vec![1, 2, 3, 4]]);
+        assert_eq!(emitted_bytes, 8);
+        let expected_tail = samples[4..6]
+            .iter()
+            .flat_map(|sample| sample.to_le_bytes())
+            .collect::<Vec<_>>();
+        assert_eq!(&bytes[emitted_bytes..12], expected_tail.as_slice());
+
+        {
+            let mut callback = |pcm: &[i16]| {
+                published.push(pcm.to_vec());
+                Ok(())
+            };
+            publish_complete_pcm_segments(&bytes, &mut emitted_bytes, 8, &mut callback)
+                .expect("the next complete segment should be published once");
+        }
+        assert_eq!(published, vec![vec![1, 2, 3, 4], vec![5, 6, 7, 8]]);
+        assert_eq!(emitted_bytes, bytes.len());
     }
 
     #[test]
