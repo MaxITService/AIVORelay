@@ -295,6 +295,7 @@ export const TtsBatchConversion: React.FC<TtsBatchConversionProps> = ({
     } finally {
       batchBusyRef.current = false;
       setBatchBusy(false);
+      window.dispatchEvent(new Event("aivorelay:tts-jobs-changed"));
     }
   };
 

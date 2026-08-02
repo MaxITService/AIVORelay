@@ -2050,7 +2050,7 @@ pub async fn convert_tts_batch(
             )
             .await
         {
-            Ok((resolved, source_text)) => {
+            Ok((resolved, source_text, job_id)) => {
                 let result = resolved.value;
                 let resolved_settings = resolved.settings;
                 let source_kind = plan
@@ -2084,6 +2084,9 @@ pub async fn convert_tts_batch(
                 completed.operation_id = Some(result.operation_id.to_string());
                 completed.resumed_chunks = result.resumed_chunks;
                 completed.warning = warning;
+                if let Err(error) = manager.complete_ui_file_job(&job_id) {
+                    log::warn!("Unable to remove completed batch TTS job {job_id}: {error}");
+                }
                 files.push(completed.clone());
                 emit_batch_progress(
                     &app,
