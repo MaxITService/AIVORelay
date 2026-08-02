@@ -401,6 +401,12 @@ pub struct FileTranscriptionCancelGuard {
     cancel_requested: Arc<AtomicBool>,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FileTranscriptionOverrideLoadDecision {
+    Keep,
+    Restore,
+}
+
 impl Drop for FileTranscriptionCancelGuard {
     fn drop(&mut self) {
         self.cancel_requested.store(false, Ordering::Relaxed);
@@ -427,6 +433,7 @@ fn build_whisper_initial_prompt(
 }
 
 const FILE_TRANSCRIPTION_SAMPLE_RATE: f32 = 16_000.0;
+const FILE_TRANSCRIPTION_MODEL_LOAD_POLL_INTERVAL: Duration = Duration::from_millis(50);
 const FILE_TRANSCRIPTION_CHUNK_PADDING_SECS: f32 = 0.25;
 const FILE_TRANSCRIPTION_MIN_CHUNK_SECS: f32 = 1.0;
 const FILE_TRANSCRIPTION_SMART_SPLIT_SEARCH_SECS: f32 = 5.0;
@@ -1496,6 +1503,130 @@ impl TranscriptionManager {
         });
     }
 
+    /// Loads a temporary file-transcription override without forcing the command thread to
+    /// remain blocked inside a native model loader. The caller must send `Keep` after a
+    /// successful load to use the override for transcription. Sending `Restore`, dropping the
+    /// decision channel, or dropping the result receiver restores the previously loaded model.
+    pub fn initiate_file_transcription_override_model_load(
+        &self,
+        model_id: String,
+        previous_model_id: Option<String>,
+    ) -> (
+        mpsc::Receiver<std::result::Result<(), String>>,
+        mpsc::SyncSender<FileTranscriptionOverrideLoadDecision>,
+    ) {
+        let manager = self.clone();
+        let (result_tx, result_rx) = mpsc::sync_channel(1);
+        let (decision_tx, decision_rx) = mpsc::sync_channel(1);
+
+        thread::spawn(move || {
+            manager.run_file_transcription_override_model_load(
+                &model_id,
+                previous_model_id.as_deref(),
+                result_tx,
+                decision_rx,
+            );
+        });
+
+        (result_rx, decision_tx)
+    }
+
+    fn run_file_transcription_override_model_load(
+        &self,
+        model_id: &str,
+        previous_model_id: Option<&str>,
+        result_tx: mpsc::SyncSender<std::result::Result<(), String>>,
+        decision_rx: mpsc::Receiver<FileTranscriptionOverrideLoadDecision>,
+    ) {
+        let mut keep_requested = false;
+        let loading_guard = loop {
+            match decision_rx.try_recv() {
+                Ok(FileTranscriptionOverrideLoadDecision::Restore)
+                | Err(mpsc::TryRecvError::Disconnected) => return,
+                Ok(FileTranscriptionOverrideLoadDecision::Keep) => {
+                    keep_requested = true;
+                    warn!(
+                        "File-transcription override model was accepted before loading completed"
+                    );
+                }
+                Err(mpsc::TryRecvError::Empty) => {}
+            }
+
+            {
+                let mut is_loading = self.is_loading.lock().unwrap();
+                if *is_loading {
+                    let (next_guard, _) = self
+                        .loading_condvar
+                        .wait_timeout(is_loading, FILE_TRANSCRIPTION_MODEL_LOAD_POLL_INTERVAL)
+                        .unwrap();
+                    is_loading = next_guard;
+                }
+                if *is_loading {
+                    continue;
+                }
+            }
+
+            if let Some(loading_guard) = self.try_start_loading() {
+                break loading_guard;
+            }
+        };
+
+        match decision_rx.try_recv() {
+            Ok(FileTranscriptionOverrideLoadDecision::Restore)
+            | Err(mpsc::TryRecvError::Disconnected) => return,
+            Ok(FileTranscriptionOverrideLoadDecision::Keep) => {
+                keep_requested = true;
+                warn!("File-transcription override model was accepted before loading started");
+            }
+            Err(mpsc::TryRecvError::Empty) => {}
+        }
+
+        let load_result = self
+            .load_model(model_id)
+            .map_err(|error| format!("Failed to load override model: {error}"));
+
+        if let Err(load_error) = load_result {
+            let error = match self.restore_file_transcription_override_model(previous_model_id) {
+                Ok(()) => load_error,
+                Err(restore_error) => format!("{load_error}; {restore_error}"),
+            };
+            let _ = result_tx.send(Err(error));
+            return;
+        }
+
+        if result_tx.send(Ok(())).is_err()
+            || (!keep_requested
+                && decision_rx.recv() != Ok(FileTranscriptionOverrideLoadDecision::Keep))
+        {
+            if let Err(error) = self.restore_file_transcription_override_model(previous_model_id) {
+                error!(
+                    "Failed to restore local model after cancelling override load: {}",
+                    error
+                );
+            }
+        }
+
+        drop(loading_guard);
+    }
+
+    fn restore_file_transcription_override_model(
+        &self,
+        previous_model_id: Option<&str>,
+    ) -> std::result::Result<(), String> {
+        match previous_model_id {
+            Some(previous_model_id) if self.is_model_loaded_for(previous_model_id) => Ok(()),
+            Some(previous_model_id) => self.load_model(previous_model_id).map_err(|error| {
+                format!(
+                    "Failed to restore previously loaded model '{}': {}",
+                    previous_model_id, error
+                )
+            }),
+            None => self
+                .unload_model()
+                .map_err(|error| format!("Failed to unload temporary override model: {error}")),
+        }
+    }
+
     pub fn get_current_model(&self) -> Option<String> {
         let current_model = self.current_model_id.lock().unwrap();
         current_model.clone()
@@ -2061,8 +2192,14 @@ impl TranscriptionManager {
         {
             let mut is_loading = self.is_loading.lock().unwrap();
             while *is_loading {
-                is_loading = self.loading_condvar.wait(is_loading).unwrap();
+                self.ensure_file_transcription_not_cancelled()?;
+                let (next_guard, _) = self
+                    .loading_condvar
+                    .wait_timeout(is_loading, FILE_TRANSCRIPTION_MODEL_LOAD_POLL_INTERVAL)
+                    .unwrap();
+                is_loading = next_guard;
             }
+            self.ensure_file_transcription_not_cancelled()?;
 
             let engine_guard = self.engine.lock().unwrap();
             if engine_guard.is_none() {
