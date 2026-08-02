@@ -1010,10 +1010,11 @@ impl SonioxSttManager {
 
         let raw_text = response.text().await?;
         let payload: TranscriptResponse = serde_json::from_str(&raw_text).map_err(|e| {
+            let preview: String = raw_text.chars().take(200).collect();
             anyhow!(
                 "Failed to parse transcript response: {} - body: {}",
                 e,
-                &raw_text[..raw_text.len().min(200)]
+                preview
             )
         })?;
 
