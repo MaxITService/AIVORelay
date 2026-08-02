@@ -2061,6 +2061,7 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
   };
 
   const chooseInputFile = async () => {
+    if (conversionBusyRef.current) return;
     const selected = await open({
       multiple: false,
       directory: false,
@@ -2071,7 +2072,7 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
         },
       ],
     });
-    if (typeof selected !== "string") return;
+    if (typeof selected !== "string" || conversionBusyRef.current) return;
     setInputPath(selected);
     setOutputPath("");
     setInspection(null);
@@ -3684,6 +3685,7 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
                 />
                 <Button
                   variant="secondary"
+                  disabled={conversionBusy}
                   onClick={() => void chooseInputFile()}
                 >
                   <FileText className="mr-2 inline h-4 w-4" />
