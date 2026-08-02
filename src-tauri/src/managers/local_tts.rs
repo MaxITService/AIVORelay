@@ -1396,11 +1396,13 @@ pub(crate) async fn download_resumable(
     if resume_from > 0 {
         request = request.header(RANGE, format!("bytes={resume_from}-"));
     }
-    let mut response = request.send().await.context("Runtime download failed")?;
+    let mut response = send_download_request(request, cancel, "Runtime download failed").await?;
     if resume_from > 0 && response.status() == reqwest::StatusCode::OK {
         let _ = fs::remove_file(&partial_path);
         resume_from = 0;
-        response = client.get(url).send().await?;
+        response =
+            send_download_request(client.get(url), cancel, "Runtime download restart failed")
+                .await?;
     }
     if resume_from > 0 && response.status() == reqwest::StatusCode::RANGE_NOT_SATISFIABLE {
         if unsatisfied_range_length(&response) == Some(resume_from) {
@@ -1411,11 +1413,9 @@ pub(crate) async fn download_resumable(
         fs::remove_file(&partial_path)
             .context("Failed to reset an incompatible partial runtime download")?;
         resume_from = 0;
-        response = client
-            .get(url)
-            .send()
-            .await
-            .context("Runtime download restart failed")?;
+        response =
+            send_download_request(client.get(url), cancel, "Runtime download restart failed")
+                .await?;
     }
     if !response.status().is_success() && response.status() != reqwest::StatusCode::PARTIAL_CONTENT
     {
@@ -1456,6 +1456,18 @@ pub(crate) async fn download_resumable(
     }
     publish_managed_download(&partial_path, final_path)?;
     Ok(())
+}
+
+async fn send_download_request(
+    request: reqwest::RequestBuilder,
+    cancel: &CancellationToken,
+    context: &'static str,
+) -> Result<reqwest::Response> {
+    tokio::select! {
+        biased;
+        _ = cancel.cancelled() => Err(anyhow!("Local TTS installation cancelled")),
+        response = request.send() => response.context(context),
+    }
 }
 
 fn publish_managed_download(partial_path: &Path, final_path: &Path) -> Result<()> {
