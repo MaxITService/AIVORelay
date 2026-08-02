@@ -1213,6 +1213,7 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
   const [operationId, setOperationId] = useState<string | null>(null);
   const conversionBusyRef = useRef(false);
   const conversionOperationIdRef = useRef<string | null>(null);
+  const inspectionGenerationRef = useRef(0);
   const llmProviders = useMemo(
     () =>
       ((settings as any)?.post_process_providers as
@@ -1232,6 +1233,11 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
   const activeLocalKindRef = useRef(activeLocalKind);
   const localTtsStatusGenerationRef = useRef(0);
   activeLocalKindRef.current = activeLocalKind;
+  const invalidateInspection = useCallback(() => {
+    inspectionGenerationRef.current += 1;
+    setInspecting(false);
+    setInspection(null);
+  }, []);
   const activeLocalInstallConsent = localInstallConsent[activeLocalKind];
   const localInstallMetadata = LOCAL_TTS_INSTALL_METADATA[activeLocalKind];
   const keySourceField = !providerCapabilities.requiresApiKey
@@ -1498,7 +1504,7 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
           ].includes(key),
         )
       ) {
-        setInspection(null);
+        invalidateInspection();
       }
       pendingSettingsWritesRef.current += 1;
       setSavingField(field);
@@ -1558,7 +1564,7 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
         }
       }
     },
-    [mode, refreshSettings],
+    [invalidateInspection, mode, refreshSettings],
   );
 
   const updateTtsLlmPreprocessing = useCallback(
@@ -2036,7 +2042,7 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
     );
     setOutputFormat(preset.config.output_format);
     setMp3Bitrate(preset.config.mp3_bitrate_kbps);
-    setInspection(null);
+    invalidateInspection();
   };
 
   const deleteSelectedSynthesisPreset = async () => {
@@ -2075,26 +2081,35 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
     if (typeof selected !== "string" || conversionBusyRef.current) return;
     setInputPath(selected);
     setOutputPath("");
-    setInspection(null);
+    invalidateInspection();
     setCompletedPath("");
     setConversionError(null);
   };
 
   const inspectFile = async () => {
     if (!inputPath) return;
+    const inspectionGeneration = ++inspectionGenerationRef.current;
+    const inspectedPath = inputPath;
     setInspecting(true);
     setConversionError(null);
     try {
       await flushPendingSettingsWrites();
+      if (inspectionGeneration !== inspectionGenerationRef.current) return;
       const result = await invoke<FileInspection>("inspect_tts_text_file", {
-        path: inputPath,
+        path: inspectedPath,
       });
-      setInspection(result);
+      if (inspectionGeneration === inspectionGenerationRef.current) {
+        setInspection(result);
+      }
     } catch (error) {
-      setInspection(null);
-      setConversionError(asErrorMessage(error));
+      if (inspectionGeneration === inspectionGenerationRef.current) {
+        setInspection(null);
+        setConversionError(asErrorMessage(error));
+      }
     } finally {
-      setInspecting(false);
+      if (inspectionGeneration === inspectionGenerationRef.current) {
+        setInspecting(false);
+      }
     }
   };
 
