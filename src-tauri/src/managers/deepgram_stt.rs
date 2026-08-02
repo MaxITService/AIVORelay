@@ -4,6 +4,7 @@ use anyhow::{anyhow, Result};
 use futures_util::{SinkExt, StreamExt};
 use serde_json::Value;
 use std::error::Error as _;
+use std::future::Future;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 use tauri::AppHandle;
@@ -17,6 +18,7 @@ const DEFAULT_CONNECT_TIMEOUT_SECS: u64 = 10;
 const DEFAULT_READ_TIMEOUT_SECS: u64 = 60;
 const MIN_TIMEOUT_SECONDS: u32 = 5;
 const AUDIO_CHUNK_SIZE_BYTES: usize = 32 * 1024;
+const CANCELLATION_POLL_INTERVAL_MS: u64 = 25;
 
 #[derive(Debug, Clone, Default)]
 pub struct DeepgramTranscriptionOptions {
@@ -84,6 +86,32 @@ impl DeepgramSttManager {
             }
         }
         Ok(())
+    }
+
+    async fn await_with_cancellation<T, F>(&self, operation_id: Option<u64>, future: F) -> Result<T>
+    where
+        F: Future<Output = T>,
+    {
+        let Some(operation_id) = operation_id else {
+            return Ok(future.await);
+        };
+
+        tokio::select! {
+            biased;
+            _ = self.wait_for_cancellation(operation_id) => {
+                Err(anyhow!("Transcription cancelled"))
+            }
+            output = future => Ok(output),
+        }
+    }
+
+    async fn wait_for_cancellation(&self, operation_id: u64) {
+        loop {
+            if self.is_cancelled(operation_id) {
+                return;
+            }
+            tokio::time::sleep(Duration::from_millis(CANCELLATION_POLL_INTERVAL_MS)).await;
+        }
     }
 
     fn normalize_model(model: &str) -> String {
@@ -672,7 +700,7 @@ impl DeepgramSttManager {
         let diarize_enabled = options.diarize.unwrap_or(false);
         let multichannel_enabled = options.multichannel.unwrap_or(false);
         let url = Self::build_prerecorded_url(&model, language, &options)?;
-        let response = self
+        let request = self
             .client
             .post(url)
             .header("Authorization", format!("Token {}", api_key.trim()))
@@ -680,9 +708,10 @@ impl DeepgramSttManager {
             .timeout(Duration::from_secs(
                 timeout_seconds.max(MIN_TIMEOUT_SECONDS) as u64,
             ))
-            .body(audio_bytes.to_vec())
-            .send()
-            .await
+            .body(audio_bytes.to_vec());
+        let response = self
+            .await_with_cancellation(operation_id, request.send())
+            .await?
             .map_err(|e| {
                 anyhow!(
                     "Deepgram pre-recorded request failed (timeout={}s, audio_bytes={}): {}",
@@ -695,12 +724,15 @@ impl DeepgramSttManager {
         self.ensure_not_cancelled(operation_id)?;
 
         let status = response.status();
-        let body = response.text().await.map_err(|e| {
-            anyhow!(
-                "Failed to read Deepgram pre-recorded response: {}",
-                Self::format_reqwest_error(&e)
-            )
-        })?;
+        let body = self
+            .await_with_cancellation(operation_id, response.text())
+            .await?
+            .map_err(|e| {
+                anyhow!(
+                    "Failed to read Deepgram pre-recorded response: {}",
+                    Self::format_reqwest_error(&e)
+                )
+            })?;
 
         self.ensure_not_cancelled(operation_id)?;
 
