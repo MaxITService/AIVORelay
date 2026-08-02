@@ -340,6 +340,27 @@ pub(crate) struct ResolvedTtsResult<T> {
     pub settings: TtsSettings,
 }
 
+struct ActiveUiJobRegistration<'a> {
+    slot: &'a parking_lot::Mutex<Option<String>>,
+    job_id: String,
+}
+
+impl<'a> ActiveUiJobRegistration<'a> {
+    fn new(slot: &'a parking_lot::Mutex<Option<String>>, job_id: String) -> Self {
+        *slot.lock() = Some(job_id.clone());
+        Self { slot, job_id }
+    }
+}
+
+impl Drop for ActiveUiJobRegistration<'_> {
+    fn drop(&mut self) {
+        let mut active = self.slot.lock();
+        if active.as_deref() == Some(self.job_id.as_str()) {
+            *active = None;
+        }
+    }
+}
+
 #[derive(Debug)]
 struct ProviderAttemptError {
     status: Option<StatusCode>,
@@ -370,6 +391,8 @@ pub struct TtsManager {
     foreground_operation_lock: Arc<tokio::sync::Mutex<()>>,
     active_batch: parking_lot::Mutex<Option<ActiveTtsBatch>>,
     next_batch_id: AtomicU64,
+    ui_jobs_lock: parking_lot::Mutex<()>,
+    active_ui_job: parking_lot::Mutex<Option<String>>,
     finalization_lock: parking_lot::Mutex<()>,
     local_tts: LocalTtsRuntime,
     local_kokoro: KokoroTtsRuntime,
@@ -405,6 +428,8 @@ impl TtsManager {
             foreground_operation_lock: Arc::new(tokio::sync::Mutex::new(())),
             active_batch: parking_lot::Mutex::new(None),
             next_batch_id: AtomicU64::new(0),
+            ui_jobs_lock: parking_lot::Mutex::new(()),
+            active_ui_job: parking_lot::Mutex::new(None),
             finalization_lock: parking_lot::Mutex::new(()),
             local_tts,
             local_kokoro,
@@ -1823,6 +1848,14 @@ impl TtsManager {
     ) -> Result<ResolvedTtsResult<FileConversionResult>> {
         validate_enabled_independent_settings(settings)?;
         validate_input_extension(input_path.as_ref())?;
+        validate_output_extension(output_path.as_ref(), settings.output_format)?;
+        validate_output_settings(settings)?;
+        if output_path.as_ref().exists() {
+            return Err(anyhow!(
+                "Output file already exists: {}",
+                output_path.as_ref().display()
+            ));
+        }
         let (source, _encoding) = read_supported_text_file(input_path.as_ref())?;
         self.convert_decoded_text_file_resolved(
             input_path.as_ref(),
@@ -1846,14 +1879,25 @@ impl TtsManager {
     ) -> Result<(String, ResolvedTtsResult<FileConversionResult>)> {
         validate_enabled_independent_settings(settings)?;
         validate_input_extension(input_path.as_ref())?;
+        validate_output_extension(output_path.as_ref(), settings.output_format)?;
+        validate_output_settings(settings)?;
+        if output_path.as_ref().exists() {
+            return Err(anyhow!(
+                "Output file already exists: {}",
+                output_path.as_ref().display()
+            ));
+        }
         let (source, _encoding) = read_supported_text_file(input_path.as_ref())?;
-        let manifest = tts_resume::create_ui_file_job(
-            &self.cache_root,
-            input_path.as_ref().to_path_buf(),
-            output_path.as_ref().to_path_buf(),
-            source,
-            settings.clone(),
-        )?;
+        let manifest = {
+            let _registry_guard = self.ui_jobs_lock.lock();
+            tts_resume::create_ui_file_job(
+                &self.cache_root,
+                input_path.as_ref().to_path_buf(),
+                output_path.as_ref().to_path_buf(),
+                source,
+                settings.clone(),
+            )?
+        };
         let job_id = manifest.job_id.clone();
         let result = self.resume_ui_file_job(&job_id).await?;
         Ok((job_id, result))
@@ -1928,7 +1972,7 @@ impl TtsManager {
         settings: &TtsSettings,
         operation_guard: tokio::sync::OwnedMutexGuard<()>,
         cancellation: &TtsBatchCancellation,
-    ) -> Result<(ResolvedTtsResult<FileConversionResult>, String)> {
+    ) -> Result<(ResolvedTtsResult<FileConversionResult>, String, String)> {
         if cancellation.is_cancelled() {
             return Err(anyhow!("Text-to-speech batch cancelled"));
         }
@@ -1961,6 +2005,30 @@ impl TtsManager {
         if cancellation.is_cancelled() {
             return Err(anyhow!("Text-to-speech batch cancelled"));
         }
+        let manifest = {
+            let _registry_guard = self.ui_jobs_lock.lock();
+            match tts_resume::find_ui_file_job_by_output(&self.cache_root, &plan.output_path)? {
+                Some(existing)
+                    if existing.source_path == canonical_input
+                        && existing.source_text == source =>
+                {
+                    existing
+                }
+                Some(_) => {
+                    return Err(anyhow!(
+                        "An unfinished conversion already owns this output path but its source has changed. Resume or discard that saved conversion first."
+                    ));
+                }
+                None => tts_resume::create_ui_file_job(
+                    &self.cache_root,
+                    canonical_input.clone(),
+                    plan.output_path.clone(),
+                    source.clone(),
+                    settings.clone(),
+                )?,
+            }
+        };
+        let job_id = manifest.job_id.clone();
         let result = self
             .convert_decoded_text_file_reserved(
                 &canonical_input,
@@ -1969,14 +2037,18 @@ impl TtsManager {
                 settings,
                 TtsLlmScope::File,
                 None,
-                ResumeOrigin::Manual,
+                ResumeOrigin::UiJob {
+                    job_id: job_id.clone(),
+                    source_path: canonical_input.clone(),
+                    output_path: plan.output_path.clone(),
+                },
                 false,
                 operation_guard,
                 Some(cancellation),
-                None,
+                Some(&job_id),
             )
             .await?;
-        Ok((result, source))
+        Ok((result, source, job_id))
     }
 
     pub fn discard_managed_resume_namespace(&self, resume_namespace: &str) -> Result<()> {
@@ -1984,10 +2056,13 @@ impl TtsManager {
     }
 
     pub fn list_ui_file_jobs(&self) -> Result<Vec<tts_resume::UiFileJobSummary>> {
-        tts_resume::list_ui_file_jobs(&self.cache_root)
+        let _registry_guard = self.ui_jobs_lock.lock();
+        let active_job_id = self.active_ui_job.lock().clone();
+        tts_resume::list_ui_file_jobs(&self.cache_root, active_job_id.as_deref())
     }
 
     pub fn discard_ui_file_job(&self, job_id: &str) -> Result<()> {
+        let _registry_guard = self.ui_jobs_lock.lock();
         tts_resume::discard_ui_file_job(&self.cache_root, job_id)
     }
 
@@ -1997,6 +2072,7 @@ impl TtsManager {
     }
 
     pub fn complete_ui_file_job(&self, job_id: &str) -> Result<()> {
+        let _registry_guard = self.ui_jobs_lock.lock();
         tts_resume::remove_ui_file_job_record(&self.cache_root, job_id)
     }
 
@@ -2127,6 +2203,9 @@ impl TtsManager {
                 output_path.display()
             ));
         }
+
+        let _active_ui_job = ui_job_id
+            .map(|job_id| ActiveUiJobRegistration::new(&self.active_ui_job, job_id.to_string()));
 
         let mut ui_job = if let Some(job_id) = ui_job_id {
             let mut job = tts_resume::load_ui_file_job(&self.cache_root, job_id)?;

@@ -470,6 +470,11 @@ pub(crate) fn create_ui_file_job(
     source_text: String,
     settings: TtsSettings,
 ) -> Result<UiFileJobManifest> {
+    if find_ui_file_job_by_output(cache_root, &output_path)?.is_some() {
+        return Err(anyhow!(
+            "An unfinished TTS conversion already owns this output path. Resume or discard it first."
+        ));
+    }
     let now = chrono::Utc::now().timestamp_millis();
     let nonce = UI_JOB_NONCE.fetch_add(1, Ordering::Relaxed);
     let job_id = format!("{:x}-{:x}-{:x}", now.max(0), std::process::id(), nonce);
@@ -491,6 +496,43 @@ pub(crate) fn create_ui_file_job(
     };
     persist_ui_file_job(cache_root, &manifest)?;
     Ok(manifest)
+}
+
+pub(crate) fn find_ui_file_job_by_output(
+    cache_root: &Path,
+    output_path: &Path,
+) -> Result<Option<UiFileJobManifest>> {
+    let root = cache_root.join(UI_JOBS_ROOT);
+    reject_link_if_present(&root)?;
+    let entries = match fs::read_dir(&root) {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(error.into()),
+    };
+    let mut matching = Vec::new();
+    for entry in entries {
+        let entry = entry?;
+        let file_type = entry.file_type()?;
+        if !file_type.is_dir() || file_type.is_symlink() {
+            continue;
+        }
+        let job_id = entry.file_name().to_string_lossy().into_owned();
+        if validate_ui_job_id(&job_id).is_err() {
+            continue;
+        }
+        if let Some(manifest) = read_ui_job_candidates(&entry.path())
+            .into_iter()
+            .filter(|job| job.schema_version == SCHEMA_VERSION && job.job_id == job_id)
+            .max_by_key(|job| job.generation)
+            .filter(|job| {
+                job.status != UiFileJobStatus::Completed && job.output_path == output_path
+            })
+        {
+            matching.push(manifest);
+        }
+    }
+    matching.sort_by_key(|job| job.updated_at_ms);
+    Ok(matching.pop())
 }
 
 pub(crate) fn load_ui_file_job(cache_root: &Path, job_id: &str) -> Result<UiFileJobManifest> {
@@ -547,7 +589,10 @@ pub(crate) fn persist_ui_file_job(cache_root: &Path, manifest: &UiFileJobManifes
     result.with_context(|| format!("Failed to save TTS job {}", manifest.job_id))
 }
 
-pub fn list_ui_file_jobs(cache_root: &Path) -> Result<Vec<UiFileJobSummary>> {
+pub fn list_ui_file_jobs(
+    cache_root: &Path,
+    active_job_id: Option<&str>,
+) -> Result<Vec<UiFileJobSummary>> {
     let root = cache_root.join(UI_JOBS_ROOT);
     reject_link_if_present(&root)?;
     let entries = match fs::read_dir(&root) {
@@ -579,7 +624,8 @@ pub fn list_ui_file_jobs(cache_root: &Path) -> Result<Vec<UiFileJobSummary>> {
         if matches!(
             manifest.status,
             UiFileJobStatus::Preparing | UiFileJobStatus::Running | UiFileJobStatus::Retrying
-        ) {
+        ) && active_job_id != Some(manifest.job_id.as_str())
+        {
             manifest.status = UiFileJobStatus::Interrupted;
             manifest.last_error = Some("AivoRelay closed before this conversion finished".into());
             touch_ui_job(&mut manifest);
