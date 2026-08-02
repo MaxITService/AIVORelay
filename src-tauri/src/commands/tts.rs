@@ -210,6 +210,7 @@ struct TtsOverlayRuntimeInner {
     state: TtsOverlayState,
     playback_status: Option<String>,
     latency: TtsLatencyTrace,
+    segmented_playback: bool,
 }
 
 #[derive(Default)]
@@ -400,6 +401,7 @@ pub fn play_pause_or_replay_latest_history(app: &AppHandle) -> Result<(), String
         let mut runtime = runtime.inner.lock();
         runtime.playback_status = None;
         runtime.latency = TtsLatencyTrace::default();
+        runtime.segmented_playback = false;
         runtime.state = TtsOverlayState {
             operation_id,
             status: "ready".to_string(),
@@ -439,14 +441,17 @@ fn apply_manager_state(app: &AppHandle, manager_state: TtsState) {
         {
             runtime.state.chunks.clear();
             runtime.playback_status = None;
+            runtime.segmented_playback = false;
         }
         runtime.state.operation_id = next_operation_id;
         runtime.state.provider = manager_state
             .provider
             .map(|provider| provider.as_str().to_string())
             .unwrap_or_default();
-        runtime.state.current_chunk = manager_state.completed_chunks;
-        runtime.state.total_chunks = manager_state.total_chunks;
+        if !runtime.segmented_playback {
+            runtime.state.current_chunk = manager_state.completed_chunks;
+            runtime.state.total_chunks = manager_state.total_chunks;
+        }
         runtime.state.retry_attempt = manager_state.current_attempt;
         if manager_state.phase == TtsPhase::Retrying || manager_state.current_attempt > 1 {
             runtime.latency.had_retry = true;
@@ -484,12 +489,18 @@ fn apply_chunk_ready(app: &AppHandle, chunk: TtsChunkReady) {
             first_chunk_ready_ms = runtime.latency.record_first_chunk_ready(Instant::now());
         }
         let overlay_index = chunk.chunk_index.saturating_sub(1);
-        if !runtime
+        if chunk.total_chunks == 0 {
+            runtime.segmented_playback = true;
+        }
+        if let Some(existing) = runtime
             .state
             .chunks
-            .iter()
-            .any(|existing| existing.index == overlay_index)
+            .iter_mut()
+            .find(|existing| existing.index == overlay_index)
         {
+            existing.path = chunk.wav_path.to_string_lossy().into_owned();
+            existing.pause_after_ms = chunk.pause_after_ms;
+        } else {
             runtime.state.chunks.push(TtsOverlayChunk {
                 index: overlay_index,
                 path: chunk.wav_path.to_string_lossy().into_owned(),
@@ -532,6 +543,7 @@ fn prepare_overlay(
     let snapshot = {
         let mut runtime = runtime.inner.lock();
         runtime.playback_status = None;
+        runtime.segmented_playback = false;
         runtime.latency.start(
             activation_started_at,
             overlay_was_cold,
@@ -615,6 +627,7 @@ pub(crate) fn report_tts_error(app: &AppHandle, error: impl std::fmt::Display) {
         let mut runtime = runtime.inner.lock();
         runtime.playback_status = None;
         runtime.latency = TtsLatencyTrace::default();
+        runtime.segmented_playback = false;
         runtime.state = TtsOverlayState {
             operation_id: String::new(),
             status: "error".to_string(),
