@@ -2095,7 +2095,7 @@ impl TtsManager {
                 "Pause the TTS conversion before exporting its completed part"
             ));
         }
-        if job.chunks.is_empty() || job.processed_text.is_none() {
+        if job.chunks.is_empty() || job.processed_character_count.is_none() {
             return Err(anyhow!("This TTS job has no completed audio to export"));
         }
         validate_output_extension(destination, job.settings.output_format)?;
@@ -2223,7 +2223,7 @@ impl TtsManager {
                     "The saved TTS job paths do not match the requested conversion"
                 ));
             }
-            job.status = if job.processed_text.is_some() && !job.chunks.is_empty() {
+            job.status = if job.processed_character_count.is_some() && !job.chunks.is_empty() {
                 tts_resume::UiFileJobStatus::Running
             } else {
                 tts_resume::UiFileJobStatus::Preparing
@@ -2242,7 +2242,7 @@ impl TtsManager {
             .map(|cancellation| cancellation.attach_operation(self, operation_id));
         let saved_plan_available = ui_job
             .as_ref()
-            .is_some_and(|job| job.processed_text.is_some() && !job.chunks.is_empty());
+            .is_some_and(|job| job.processed_character_count.is_some() && !job.chunks.is_empty());
         let resolved_settings = if saved_plan_available {
             ui_job
                 .as_ref()
@@ -2267,11 +2267,10 @@ impl TtsManager {
             }
         };
         let settings = &resolved_settings;
-        let (processed, chunks) = if saved_plan_available {
+        let (processed_character_count, chunks) = if saved_plan_available {
             let job = ui_job.as_ref().expect("saved UI job checked above");
             (
-                job.processed_text
-                    .clone()
+                job.processed_character_count
                     .expect("saved UI job plan checked above"),
                 job.chunks.clone(),
             )
@@ -2299,6 +2298,7 @@ impl TtsManager {
                 }
             };
             let chunks = Self::chunk_file(&processed, settings);
+            let processed_character_count = processed.chars().count();
             if chunks.is_empty() {
                 let error = anyhow!("There is no speakable text to convert");
                 if let Some(job) = ui_job.as_mut() {
@@ -2311,7 +2311,8 @@ impl TtsManager {
                 return Err(error);
             }
             if let Some(job) = ui_job.as_mut() {
-                job.processed_text = Some(processed.clone());
+                job.processed_text = None;
+                job.processed_character_count = Some(processed_character_count);
                 job.chunks = chunks.clone();
                 job.settings = resolved_settings.clone();
                 job.status = tts_resume::UiFileJobStatus::Running;
@@ -2322,7 +2323,7 @@ impl TtsManager {
                     return Err(error);
                 }
             }
-            (processed, chunks)
+            (processed_character_count, chunks)
         };
         let preparation = (|| -> Result<(Vec<TtsChunk>, ResumeWorkspace, usize)> {
             let synthesis_signature = tts_resume::synthesis_signature(&chunks, settings)?;
@@ -2357,7 +2358,7 @@ impl TtsManager {
             }
             ensure_disk_capacity(
                 output_path,
-                processed.chars().count(),
+                processed_character_count,
                 chunks.len(),
                 resume_workspace.committed_bytes(),
                 settings,
@@ -2486,7 +2487,7 @@ impl TtsManager {
                 operation_id,
                 output_path: output_path.to_path_buf(),
                 source_character_count: source.chars().count(),
-                processed_character_count: processed.chars().count(),
+                processed_character_count,
                 chunk_count: chunks.len(),
                 resumed_chunks,
                 output_format: settings.output_format,

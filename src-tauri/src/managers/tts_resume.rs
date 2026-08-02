@@ -4,7 +4,7 @@
 //! verified PCM prefix. Each PCM segment is synced before an alternating JSON
 //! checkpoint is atomically published.
 
-use super::tts::{TtsChunk, TtsManager, PROVIDER_PCM_SAMPLE_RATE};
+use super::tts::{TtsChunk, TtsManager, MAX_TTS_TEXT_INPUT_BYTES, PROVIDER_PCM_SAMPLE_RATE};
 use crate::settings::{TtsKeySource, TtsProvider, TtsSettings};
 use anyhow::{anyhow, Context, Result};
 use fs2::FileExt;
@@ -30,7 +30,12 @@ const ENCODED_PARTIAL_FILE: &str = "audio.output.partial";
 const LEASE_FILE: &str = "lease.lock";
 const UI_JOBS_ROOT: &str = "ui-file-jobs";
 const UI_JOB_SLOTS: [&str; 2] = ["job-0.json", "job-1.json"];
-const MAX_UI_JOB_BYTES: u64 = 32 * 1024 * 1024;
+const UI_JOB_SOURCE_FILE: &str = "source.txt";
+const MAX_UI_JOB_SOURCE_BYTES: usize = MAX_TTS_TEXT_INPUT_BYTES * 2;
+// The source snapshot is stored separately. A manifest keeps one processed
+// chunk copy; 64 MiB still accommodates the worst JSON escaping expansion of
+// an otherwise valid 8 MiB input without allowing unbounded recovery files.
+const MAX_UI_JOB_BYTES: u64 = 64 * 1024 * 1024;
 static UI_JOB_NONCE: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -68,8 +73,12 @@ pub(crate) struct UiFileJobManifest {
     pub job_id: String,
     pub source_path: PathBuf,
     pub output_path: PathBuf,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
     pub source_text: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub processed_text: Option<String>,
+    #[serde(default)]
+    pub processed_character_count: Option<usize>,
     pub chunks: Vec<TtsChunk>,
     pub settings: TtsSettings,
     pub status: UiFileJobStatus,
@@ -486,6 +495,7 @@ pub(crate) fn create_ui_file_job(
         output_path,
         source_text,
         processed_text: None,
+        processed_character_count: None,
         chunks: Vec::new(),
         settings,
         status: UiFileJobStatus::Planned,
@@ -520,7 +530,7 @@ pub(crate) fn find_ui_file_job_by_output(
         if validate_ui_job_id(&job_id).is_err() {
             continue;
         }
-        if let Some(manifest) = read_ui_job_candidates(&entry.path())
+        if let Some(manifest) = read_ui_job_candidates(&entry.path())?
             .into_iter()
             .filter(|job| job.schema_version == SCHEMA_VERSION && job.job_id == job_id)
             .max_by_key(|job| job.generation)
@@ -538,7 +548,7 @@ pub(crate) fn find_ui_file_job_by_output(
 
 pub(crate) fn load_ui_file_job(cache_root: &Path, job_id: &str) -> Result<UiFileJobManifest> {
     validate_ui_job_id(job_id)?;
-    read_ui_job_candidates(&ui_job_root(cache_root, job_id))
+    read_ui_job_candidates(&ui_job_root(cache_root, job_id))?
         .into_iter()
         .filter(|job| job.schema_version == SCHEMA_VERSION && job.job_id == job_id)
         .max_by_key(|job| job.generation)
@@ -552,8 +562,18 @@ pub(crate) fn persist_ui_file_job(cache_root: &Path, manifest: &UiFileJobManifes
     fs::create_dir_all(&root)
         .with_context(|| format!("Failed to create TTS job directory {}", root.display()))?;
     reject_link_if_present(&root)?;
+    persist_ui_job_source(&root, &manifest.source_text)?;
 
-    let bytes = serde_json::to_vec(manifest).context("Failed to serialize the saved TTS job")?;
+    let mut compact = manifest.clone();
+    compact.processed_character_count = compact.processed_character_count.or_else(|| {
+        compact
+            .processed_text
+            .as_ref()
+            .map(|text| text.chars().count())
+    });
+    compact.source_text.clear();
+    compact.processed_text = None;
+    let bytes = serde_json::to_vec(&compact).context("Failed to serialize the saved TTS job")?;
     if bytes.len() as u64 > MAX_UI_JOB_BYTES {
         return Err(anyhow!(
             "The saved TTS job exceeds the {} MiB safety limit",
@@ -613,7 +633,7 @@ pub fn list_ui_file_jobs(
         if validate_ui_job_id(&job_id).is_err() {
             continue;
         }
-        let Some(mut manifest) = read_ui_job_candidates(&entry.path())
+        let Some(mut manifest) = read_ui_job_candidates(&entry.path())?
             .into_iter()
             .filter(|job| job.schema_version == SCHEMA_VERSION && job.job_id == job_id)
             .max_by_key(|job| job.generation)
@@ -736,7 +756,7 @@ fn ui_job_root(cache_root: &Path, job_id: &str) -> PathBuf {
 }
 
 fn ui_job_completed_chunks(manifest: &UiFileJobManifest) -> Result<usize> {
-    if manifest.chunks.is_empty() || manifest.processed_text.is_none() {
+    if manifest.chunks.is_empty() || manifest.processed_character_count.is_none() {
         return Ok(0);
     }
     let signature = synthesis_signature(&manifest.chunks, &manifest.settings)?;
@@ -769,11 +789,110 @@ fn validate_ui_job_id(job_id: &str) -> Result<()> {
     Ok(())
 }
 
-fn read_ui_job_candidates(root: &Path) -> Vec<UiFileJobManifest> {
-    UI_JOB_SLOTS
-        .iter()
-        .filter_map(|slot| read_ui_file_job(&root.join(slot)).ok().flatten())
-        .collect()
+fn read_ui_job_candidates(root: &Path) -> Result<Vec<UiFileJobManifest>> {
+    let retained_source = read_ui_job_source(root);
+    let mut candidates = Vec::new();
+    let mut errors = Vec::new();
+    for slot in UI_JOB_SLOTS {
+        match read_ui_file_job(&root.join(slot)) {
+            Ok(Some(mut manifest)) => {
+                if manifest.source_text.is_empty() {
+                    match &retained_source {
+                        Ok(Some(source)) => manifest.source_text = source.clone(),
+                        Ok(None) => {
+                            errors.push("the immutable source snapshot is missing".to_string());
+                            continue;
+                        }
+                        Err(error) => {
+                            errors.push(error.to_string());
+                            continue;
+                        }
+                    }
+                }
+                if manifest.processed_character_count.is_none() {
+                    manifest.processed_character_count = manifest
+                        .processed_text
+                        .as_ref()
+                        .map(|text| text.chars().count());
+                }
+                candidates.push(manifest);
+            }
+            Ok(None) => {}
+            Err(error) => errors.push(error.to_string()),
+        }
+    }
+    if candidates.is_empty() && !errors.is_empty() {
+        return Err(anyhow!(
+            "Saved TTS job {} is corrupt or inaccessible: {}",
+            root.display(),
+            errors.join("; ")
+        ));
+    }
+    Ok(candidates)
+}
+
+fn persist_ui_job_source(root: &Path, source_text: &str) -> Result<()> {
+    if source_text.len() > MAX_UI_JOB_SOURCE_BYTES {
+        return Err(anyhow!(
+            "The decoded retained TTS source exceeds the 16 MiB safety limit"
+        ));
+    }
+    let destination = root.join(UI_JOB_SOURCE_FILE);
+    reject_link_if_present(&destination)?;
+    if destination.exists() {
+        let existing = read_ui_job_source(root)?
+            .ok_or_else(|| anyhow!("The retained TTS source is unavailable"))?;
+        if existing != source_text {
+            return Err(anyhow!(
+                "Refusing to replace the immutable source of a saved TTS job"
+            ));
+        }
+        return Ok(());
+    }
+    let temporary = root.join(format!(
+        ".source-{}-{}.partial",
+        std::process::id(),
+        unique_nonce()
+    ));
+    let result = (|| -> Result<()> {
+        let mut file = OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&temporary)?;
+        file.write_all(source_text.as_bytes())?;
+        file.flush()?;
+        file.sync_all()?;
+        drop(file);
+        crate::no_clobber::publish_new_file(&temporary, &destination)?;
+        Ok(())
+    })();
+    if result.is_err() {
+        let _ = fs::remove_file(&temporary);
+    }
+    result.context("Failed to retain the immutable TTS job source")
+}
+
+fn read_ui_job_source(root: &Path) -> Result<Option<String>> {
+    let path = root.join(UI_JOB_SOURCE_FILE);
+    reject_link_if_present(&path)?;
+    let metadata = match fs::metadata(&path) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(error.into()),
+    };
+    if !metadata.is_file() || metadata.len() > MAX_UI_JOB_SOURCE_BYTES as u64 {
+        return Err(anyhow!("Invalid retained TTS source file"));
+    }
+    let mut bytes = Vec::with_capacity(metadata.len() as usize);
+    File::open(&path)?
+        .take(MAX_UI_JOB_SOURCE_BYTES.saturating_add(1) as u64)
+        .read_to_end(&mut bytes)?;
+    if bytes.len() > MAX_UI_JOB_SOURCE_BYTES {
+        return Err(anyhow!("The retained TTS source exceeds its safety limit"));
+    }
+    String::from_utf8(bytes)
+        .map(Some)
+        .context("The retained TTS source is not valid UTF-8")
 }
 
 fn read_ui_file_job(path: &Path) -> Result<Option<UiFileJobManifest>> {
