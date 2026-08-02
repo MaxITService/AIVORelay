@@ -235,7 +235,7 @@ export const TtsUnfinishedJobs: React.FC = () => {
                 )}
               </div>
               <div className="flex flex-wrap gap-2">
-                {active ? (
+                {job.status === "completed" ? null : active ? (
                   <Button
                     variant="secondary"
                     disabled={!operationId}
@@ -255,7 +255,11 @@ export const TtsUnfinishedJobs: React.FC = () => {
                 )}
                 <Button
                   variant="secondary"
-                  disabled={!job.partialAvailable || activeJobId !== null}
+                  disabled={
+                    job.status === "completed" ||
+                    !job.partialAvailable ||
+                    activeJobId !== null
+                  }
                   onClick={() => void exportPartial(job)}
                 >
                   <Download className="mr-2 inline h-4 w-4" />

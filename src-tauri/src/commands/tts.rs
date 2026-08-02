@@ -1698,11 +1698,13 @@ pub async fn convert_tts_text_file(
 
 #[tauri::command]
 #[specta::specta]
-pub fn list_tts_file_jobs(
+pub async fn list_tts_file_jobs(
     manager: tauri::State<'_, Arc<TtsManager>>,
 ) -> Result<Vec<UiFileJobSummary>, String> {
-    manager
-        .list_ui_file_jobs()
+    let manager = manager.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || manager.list_ui_file_jobs())
+        .await
+        .map_err(|error| format!("TTS job recovery scan failed: {error}"))?
         .map_err(|error| error.to_string())
 }
 

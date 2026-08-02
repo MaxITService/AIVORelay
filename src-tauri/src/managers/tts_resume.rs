@@ -247,7 +247,7 @@ impl ResumeWorkspace {
 
         let raw_path = root.join(RAW_PCM_FILE);
         reject_link_if_present(&raw_path)?;
-        let checkpoint = load_checkpoint(&root, &raw_path, &signature, total_chunks)?;
+        let checkpoint = load_checkpoint(&root, &raw_path, &signature, total_chunks, &origin)?;
         let committed_bytes = checkpoint
             .as_ref()
             .and_then(|checkpoint| checkpoint.segments.last())
@@ -525,7 +525,8 @@ pub(crate) fn find_ui_file_job_by_output(
             .filter(|job| job.schema_version == SCHEMA_VERSION && job.job_id == job_id)
             .max_by_key(|job| job.generation)
             .filter(|job| {
-                job.status != UiFileJobStatus::Completed && job.output_path == output_path
+                job.status != UiFileJobStatus::Completed
+                    && paths_refer_to_same_output(&job.output_path, output_path)
             })
         {
             matching.push(manifest);
@@ -601,6 +602,7 @@ pub fn list_ui_file_jobs(
         Err(error) => return Err(error.into()),
     };
     let mut jobs = Vec::new();
+    let mut completed_jobs = Vec::new();
     for entry in entries {
         let entry = entry?;
         let file_type = entry.file_type()?;
@@ -631,7 +633,18 @@ pub fn list_ui_file_jobs(
             touch_ui_job(&mut manifest);
             persist_ui_file_job(cache_root, &manifest)?;
         }
-        if manifest.status != UiFileJobStatus::Completed && !manifest.output_path.exists() {
+        if manifest.status == UiFileJobStatus::Completed || manifest.output_path.exists() {
+            completed_jobs.push(manifest);
+        } else {
+            jobs.push(manifest.summary());
+        }
+    }
+    for mut manifest in completed_jobs {
+        if let Err(error) = discard_ui_file_job(cache_root, &manifest.job_id) {
+            manifest.status = UiFileJobStatus::Completed;
+            manifest.last_error = Some(format!(
+                "The final output exists, but saved recovery data could not be cleaned up: {error}"
+            ));
             jobs.push(manifest.summary());
         }
     }
@@ -688,7 +701,32 @@ pub fn discard_ui_file_job(cache_root: &Path, job_id: &str) -> Result<()> {
                 error
             )
         })?;
-        discard_owned_workspace(&workspace, false)?;
+        let candidates = read_checkpoint_candidates(&workspace);
+        let owns_workspace = candidates
+            .iter()
+            .max_by_key(|checkpoint| checkpoint.generation)
+            .map(|checkpoint| {
+                resume_origins_are_compatible(
+                    &checkpoint.origin,
+                    &ResumeOrigin::UiJob {
+                        job_id: manifest.job_id.clone(),
+                        source_path: manifest.source_path.clone(),
+                        output_path: manifest.output_path.clone(),
+                    },
+                )
+            })
+            .unwrap_or_else(|| !workspace.join(RAW_PCM_FILE).exists());
+        if owns_workspace {
+            discard_owned_workspace(&workspace, false)?;
+            drop(lease);
+            discard_owned_workspace(&workspace, true)?;
+        } else {
+            log::warn!(
+                "Preserving TTS resume workspace not owned by UI job {}: {}",
+                manifest.job_id,
+                workspace.display()
+            );
+        }
     }
     remove_ui_file_job_record(cache_root, job_id)
 }
@@ -792,7 +830,9 @@ pub fn discover_watcher_tasks(output_dir: &Path) -> Result<Vec<WatcherResumeTask
         else {
             continue;
         };
-        if output_path.exists() || output_workspace_root(&output_path) != root {
+        if output_path.exists()
+            || !paths_refer_to_same_output(&output_workspace_root(&output_path), &root)
+        {
             continue;
         }
         tasks.push(WatcherResumeTask {
@@ -843,11 +883,22 @@ fn load_checkpoint(
     raw_path: &Path,
     signature: &str,
     total_chunks: usize,
+    requested_origin: &ResumeOrigin,
 ) -> Result<Option<ResumeCheckpoint>> {
     let raw_length = fs::metadata(raw_path)
         .map(|metadata| metadata.len())
         .unwrap_or(0);
     let candidates = read_checkpoint_candidates(root);
+    if let Some(foreign) = candidates
+        .iter()
+        .max_by_key(|checkpoint| checkpoint.generation)
+        .filter(|checkpoint| !resume_origins_are_compatible(&checkpoint.origin, requested_origin))
+    {
+        return Err(anyhow!(
+            "This output path already has saved TTS progress owned by {}. Resume or clear that operation before reusing the output path.",
+            resume_origin_name(&foreign.origin)
+        ));
+    }
     let compatible = candidates
         .iter()
         .filter(|checkpoint| {
@@ -855,6 +906,7 @@ fn load_checkpoint(
                 && checkpoint.pipeline_revision == PIPELINE_REVISION
                 && checkpoint.synthesis_signature == signature
                 && checkpoint.total_chunks == total_chunks
+                && resume_origins_are_compatible(&checkpoint.origin, requested_origin)
         })
         .cloned()
         .collect::<Vec<_>>();
@@ -1203,6 +1255,77 @@ fn output_workspace_root(output_path: &Path) -> PathBuf {
     );
     directory_name.push(DIRECTORY_SUFFIX);
     output_path.with_file_name(directory_name)
+}
+
+pub(crate) fn paths_refer_to_same_output(left: &Path, right: &Path) -> bool {
+    output_path_identity(left) == output_path_identity(right)
+}
+
+fn output_path_identity(path: &Path) -> String {
+    let parent = path
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+        .unwrap_or_else(|| Path::new("."));
+    let canonical_parent = fs::canonicalize(parent).unwrap_or_else(|_| parent.to_path_buf());
+    let normalized = canonical_parent.join(
+        path.file_name()
+            .unwrap_or_else(|| std::ffi::OsStr::new("tts-audio")),
+    );
+    #[cfg(windows)]
+    {
+        normalized
+            .to_string_lossy()
+            .replace('/', "\\")
+            .to_lowercase()
+    }
+    #[cfg(not(windows))]
+    {
+        normalized.to_string_lossy().into_owned()
+    }
+}
+
+fn resume_origins_are_compatible(existing: &ResumeOrigin, requested: &ResumeOrigin) -> bool {
+    match (existing, requested) {
+        (ResumeOrigin::Manual, ResumeOrigin::Manual) => true,
+        (
+            ResumeOrigin::UiJob {
+                job_id: existing_id,
+                source_path: existing_source,
+                output_path: existing_output,
+            },
+            ResumeOrigin::UiJob {
+                job_id: requested_id,
+                source_path: requested_source,
+                output_path: requested_output,
+            },
+        ) => {
+            existing_id == requested_id
+                && paths_refer_to_same_output(existing_source, requested_source)
+                && paths_refer_to_same_output(existing_output, requested_output)
+        }
+        (
+            ResumeOrigin::Watcher {
+                source_path: existing_source,
+                output_path: existing_output,
+            },
+            ResumeOrigin::Watcher {
+                source_path: requested_source,
+                output_path: requested_output,
+            },
+        ) => {
+            paths_refer_to_same_output(existing_source, requested_source)
+                && paths_refer_to_same_output(existing_output, requested_output)
+        }
+        _ => false,
+    }
+}
+
+fn resume_origin_name(origin: &ResumeOrigin) -> &'static str {
+    match origin {
+        ResumeOrigin::Manual => "another manual conversion",
+        ResumeOrigin::UiJob { .. } => "an unfinished UI conversion",
+        ResumeOrigin::Watcher { .. } => "automatic folder conversion",
+    }
 }
 
 fn reject_link_if_present(path: &Path) -> Result<()> {

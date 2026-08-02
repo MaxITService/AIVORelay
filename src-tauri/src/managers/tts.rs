@@ -2009,8 +2009,10 @@ impl TtsManager {
             let _registry_guard = self.ui_jobs_lock.lock();
             match tts_resume::find_ui_file_job_by_output(&self.cache_root, &plan.output_path)? {
                 Some(existing)
-                    if existing.source_path == canonical_input
-                        && existing.source_text == source =>
+                    if tts_resume::paths_refer_to_same_output(
+                        &existing.source_path,
+                        &canonical_input,
+                    ) && existing.source_text == source =>
                 {
                     existing
                 }
@@ -2063,6 +2065,11 @@ impl TtsManager {
 
     pub fn discard_ui_file_job(&self, job_id: &str) -> Result<()> {
         let _registry_guard = self.ui_jobs_lock.lock();
+        if self.active_ui_job.lock().as_deref() == Some(job_id) {
+            return Err(anyhow!(
+                "Pause this TTS conversion before discarding its saved progress"
+            ));
+        }
         tts_resume::discard_ui_file_job(&self.cache_root, job_id)
     }
 
@@ -2209,7 +2216,9 @@ impl TtsManager {
 
         let mut ui_job = if let Some(job_id) = ui_job_id {
             let mut job = tts_resume::load_ui_file_job(&self.cache_root, job_id)?;
-            if job.source_path != input_path || job.output_path != output_path {
+            if !tts_resume::paths_refer_to_same_output(&job.source_path, input_path)
+                || !tts_resume::paths_refer_to_same_output(&job.output_path, output_path)
+            {
                 return Err(anyhow!(
                     "The saved TTS job paths do not match the requested conversion"
                 ));
@@ -2247,7 +2256,7 @@ impl TtsManager {
                 Ok(settings) => settings,
                 Err(error) => {
                     if let Some(job) = ui_job.as_mut() {
-                        job.status = tts_resume::UiFileJobStatus::Failed;
+                        job.status = self.ui_job_error_status(operation_id);
                         job.last_error = Some(error.to_string());
                         tts_resume::touch_ui_job(job);
                         let _ = tts_resume::persist_ui_file_job(&self.cache_root, job);
@@ -2280,7 +2289,7 @@ impl TtsManager {
                 Ok(processed) => processed,
                 Err(error) => {
                     if let Some(job) = ui_job.as_mut() {
-                        job.status = tts_resume::UiFileJobStatus::Failed;
+                        job.status = self.ui_job_error_status(operation_id);
                         job.last_error = Some(error.to_string());
                         tts_resume::touch_ui_job(job);
                         let _ = tts_resume::persist_ui_file_job(&self.cache_root, job);
@@ -2293,7 +2302,7 @@ impl TtsManager {
             if chunks.is_empty() {
                 let error = anyhow!("There is no speakable text to convert");
                 if let Some(job) = ui_job.as_mut() {
-                    job.status = tts_resume::UiFileJobStatus::Failed;
+                    job.status = self.ui_job_error_status(operation_id);
                     job.last_error = Some(error.to_string());
                     tts_resume::touch_ui_job(job);
                     let _ = tts_resume::persist_ui_file_job(&self.cache_root, job);
@@ -2359,7 +2368,7 @@ impl TtsManager {
             Ok(prepared) => prepared,
             Err(error) => {
                 if let Some(job) = ui_job.as_mut() {
-                    job.status = tts_resume::UiFileJobStatus::Failed;
+                    job.status = self.ui_job_error_status(operation_id);
                     job.last_error = Some(error.to_string());
                     tts_resume::touch_ui_job(job);
                     let _ = tts_resume::persist_ui_file_job(&self.cache_root, job);
@@ -2547,6 +2556,14 @@ impl TtsManager {
             Err(anyhow!("Text-to-speech operation cancelled"))
         } else {
             Ok(())
+        }
+    }
+
+    fn ui_job_error_status(&self, operation_id: u64) -> tts_resume::UiFileJobStatus {
+        if operation_is_active(&self.active_operation_id, operation_id) {
+            tts_resume::UiFileJobStatus::Failed
+        } else {
+            tts_resume::UiFileJobStatus::Paused
         }
     }
 
