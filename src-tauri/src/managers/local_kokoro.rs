@@ -356,12 +356,12 @@ impl KokoroTtsRuntime {
             })?;
         let mut guard = self.worker.lock().await;
         if guard.is_none() {
-            *guard = Some(self.start_worker().await?);
+            *guard = Some(self.start_worker(None).await?);
         }
         let id = self.request_id.fetch_add(1, Ordering::Relaxed).to_string();
         let worker = guard.as_mut().expect("Kokoro worker initialized");
         match self
-            .synthesize_with_worker(worker, &id, text, sid, speed)
+            .synthesize_with_worker(worker, &id, text, sid, speed, None)
             .await
         {
             Ok(samples) => Ok(samples),
@@ -403,12 +403,19 @@ impl KokoroTtsRuntime {
         let resolved_packages = self.freeze_packages(cancel).await?;
         self.set_status("validating_runtime", true, 0, 0, None);
         let mut worker = self
-            .start_worker()
+            .start_worker(Some(cancel))
             .await
             .map_err(|error| anyhow!("Kokoro runtime validation failed: {}", error.safe_message))?;
         let smoke_id = "install-smoke";
         let smoke = self
-            .synthesize_with_worker(&mut worker, smoke_id, "AivoRelay Kokoro is ready.", 0, 1.0)
+            .synthesize_with_worker(
+                &mut worker,
+                smoke_id,
+                "AivoRelay Kokoro is ready.",
+                0,
+                1.0,
+                Some(cancel),
+            )
             .await
             .map_err(|error| {
                 anyhow!("Kokoro synthesis smoke test failed: {}", error.safe_message)
@@ -418,6 +425,10 @@ impl KokoroTtsRuntime {
             return Err(anyhow!(
                 "Kokoro synthesis smoke test returned too little audio"
             ));
+        }
+        if let Err(error) = cancel_if_requested(cancel) {
+            let _ = worker.child.kill().await;
+            return Err(error);
         }
         let manifest = KokoroInstallManifest {
             manifest_version: INSTALL_MANIFEST_VERSION,
@@ -435,6 +446,11 @@ impl KokoroTtsRuntime {
             resolved_packages,
         };
         write_json_atomic(&self.manifest_path(), &manifest)?;
+        if let Err(error) = cancel_if_requested(cancel) {
+            let _ = fs::remove_file(self.manifest_path());
+            let _ = worker.child.kill().await;
+            return Err(error);
+        }
         *self.worker.lock().await = Some(worker);
         Ok(())
     }
@@ -634,7 +650,10 @@ impl KokoroTtsRuntime {
         Ok(String::from_utf8_lossy(&output.stdout).to_string())
     }
 
-    async fn start_worker(&self) -> std::result::Result<KokoroWorker, LocalTtsAttemptError> {
+    async fn start_worker(
+        &self,
+        cancel: Option<&CancellationToken>,
+    ) -> std::result::Result<KokoroWorker, LocalTtsAttemptError> {
         validate_model_dir(&self.model_dir()).map_err(permanent_local_error)?;
         fs::create_dir_all(self.output_dir()).map_err(permanent_local_error)?;
         let threads = std::thread::available_parallelism()
@@ -684,20 +703,29 @@ impl KokoroTtsRuntime {
             stdin,
             stdout: BufReader::new(stdout).lines(),
         };
-        let ready_line =
-            tokio::time::timeout(Duration::from_secs(5 * 60), worker.stdout.next_line())
-                .await
-                .map_err(|_| transient_local_error("Timed out while loading Kokoro".to_string()))?
-                .map_err(|error| {
-                    transient_local_error(format!(
-                        "Failed to read Kokoro startup response: {error}"
-                    ))
-                })?
-                .ok_or_else(|| {
-                    transient_local_error(
-                        "Kokoro worker exited while loading the model".to_string(),
-                    )
-                })?;
+        let ready_wait =
+            tokio::time::timeout(Duration::from_secs(5 * 60), worker.stdout.next_line());
+        let ready_result = if let Some(cancel) = cancel {
+            tokio::select! {
+                biased;
+                _ = cancel.cancelled() => None,
+                result = ready_wait => Some(result),
+            }
+        } else {
+            Some(ready_wait.await)
+        };
+        let Some(ready_result) = ready_result else {
+            let _ = worker.child.kill().await;
+            return Err(permanent_local_error("Kokoro installation cancelled"));
+        };
+        let ready_line = ready_result
+            .map_err(|_| transient_local_error("Timed out while loading Kokoro".to_string()))?
+            .map_err(|error| {
+                transient_local_error(format!("Failed to read Kokoro startup response: {error}"))
+            })?
+            .ok_or_else(|| {
+                transient_local_error("Kokoro worker exited while loading the model".to_string())
+            })?;
         let response: WorkerResponse =
             serde_json::from_str(&ready_line).map_err(|error| LocalTtsAttemptError {
                 safe_message: format!("Kokoro startup protocol is malformed: {error}"),
@@ -717,6 +745,10 @@ impl KokoroTtsRuntime {
                 transient: false,
             });
         }
+        if cancel.is_some_and(CancellationToken::is_cancelled) {
+            let _ = worker.child.kill().await;
+            return Err(permanent_local_error("Kokoro installation cancelled"));
+        }
         Ok(worker)
     }
 
@@ -727,6 +759,7 @@ impl KokoroTtsRuntime {
         text: &str,
         sid: i32,
         speed: f32,
+        cancel: Option<&CancellationToken>,
     ) -> std::result::Result<Vec<i16>, LocalTtsAttemptError> {
         let output_path = self.output_dir().join(format!("request-{id}.wav"));
         let _ = fs::remove_file(&output_path);
@@ -740,25 +773,49 @@ impl KokoroTtsRuntime {
             "output_path": output_path,
         });
         let serialized = serde_json::to_string(&request).map_err(permanent_local_error)?;
-        worker
-            .stdin
-            .write_all(format!("{serialized}\n").as_bytes())
-            .await
-            .map_err(|error| {
-                transient_local_error(format!("Kokoro worker stopped accepting requests: {error}"))
+        let exchange = async {
+            worker
+                .stdin
+                .write_all(format!("{serialized}\n").as_bytes())
+                .await
+                .map_err(|error| {
+                    transient_local_error(format!(
+                        "Kokoro worker stopped accepting requests: {error}"
+                    ))
+                })?;
+            worker.stdin.flush().await.map_err(|error| {
+                transient_local_error(format!("Failed to flush Kokoro request: {error}"))
             })?;
-        worker.stdin.flush().await.map_err(|error| {
-            transient_local_error(format!("Failed to flush Kokoro request: {error}"))
-        })?;
-        let line = tokio::time::timeout(Duration::from_secs(10 * 60), worker.stdout.next_line())
-            .await
-            .map_err(|_| transient_local_error("Kokoro synthesis timed out".to_string()))?
-            .map_err(|error| {
-                transient_local_error(format!("Failed to read Kokoro response: {error}"))
-            })?
-            .ok_or_else(|| {
-                transient_local_error("Kokoro worker exited during synthesis".to_string())
-            })?;
+            tokio::time::timeout(Duration::from_secs(10 * 60), worker.stdout.next_line())
+                .await
+                .map_err(|_| transient_local_error("Kokoro synthesis timed out".to_string()))?
+                .map_err(|error| {
+                    transient_local_error(format!("Failed to read Kokoro response: {error}"))
+                })?
+                .ok_or_else(|| {
+                    transient_local_error("Kokoro worker exited during synthesis".to_string())
+                })
+        };
+        let exchange_result = if let Some(cancel) = cancel {
+            tokio::select! {
+                biased;
+                _ = cancel.cancelled() => None,
+                result = exchange => Some(result),
+            }
+        } else {
+            Some(exchange.await)
+        };
+        let Some(exchange_result) = exchange_result else {
+            let _ = worker.child.kill().await;
+            let _ = fs::remove_file(&output_path);
+            return Err(permanent_local_error("Kokoro installation cancelled"));
+        };
+        let line = exchange_result?;
+        if cancel.is_some_and(CancellationToken::is_cancelled) {
+            let _ = worker.child.kill().await;
+            let _ = fs::remove_file(&output_path);
+            return Err(permanent_local_error("Kokoro installation cancelled"));
+        }
         let response: WorkerResponse =
             serde_json::from_str(&line).map_err(|error| LocalTtsAttemptError {
                 safe_message: format!("Kokoro response protocol is malformed: {error}"),
