@@ -1024,11 +1024,26 @@ fn load_checkpoint(
         .map(|metadata| metadata.len())
         .unwrap_or(0);
     let candidates = read_checkpoint_candidates(root);
-    if let Some(foreign) = candidates
+    let latest = candidates
         .iter()
-        .max_by_key(|checkpoint| checkpoint.generation)
+        .max_by_key(|checkpoint| checkpoint.generation);
+    if let Some(foreign) = latest
         .filter(|checkpoint| !resume_origins_are_compatible(&checkpoint.origin, requested_origin))
     {
+        let can_claim_legacy_manual = matches!(&foreign.origin, ResumeOrigin::Manual)
+            && matches!(requested_origin, ResumeOrigin::UiJob { .. })
+            && foreign.schema_version == SCHEMA_VERSION
+            && foreign.pipeline_revision == PIPELINE_REVISION
+            && foreign.synthesis_signature == signature
+            && foreign.total_chunks == total_chunks
+            && validate_checkpoint(foreign, raw_path).is_ok();
+        if can_claim_legacy_manual {
+            let mut claimed = foreign.clone();
+            claimed.generation = claimed.generation.saturating_add(1);
+            claimed.origin = requested_origin.clone();
+            persist_checkpoint(root, &claimed)?;
+            return Ok(Some(claimed));
+        }
         return Err(anyhow!(
             "This output path already has saved TTS progress owned by {}. Resume or clear that operation before reusing the output path.",
             resume_origin_name(&foreign.origin)
