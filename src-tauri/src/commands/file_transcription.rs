@@ -1084,14 +1084,22 @@ fn decode_wav_file(path: &PathBuf) -> Result<Vec<f32>, String> {
             let max_val = (1_i64 << (spec.bits_per_sample - 1)) as f32;
             reader
                 .into_samples::<i32>()
-                .filter_map(Result::ok)
-                .map(|s| s as f32 / max_val)
-                .collect()
+                .enumerate()
+                .map(|(sample_index, sample)| {
+                    sample.map(|value| value as f32 / max_val).map_err(|error| {
+                        format!("Failed to decode WAV sample {sample_index}: {error}")
+                    })
+                })
+                .collect::<Result<Vec<_>, String>>()?
         }
         hound::SampleFormat::Float => reader
             .into_samples::<f32>()
-            .filter_map(Result::ok)
-            .collect(),
+            .enumerate()
+            .map(|(sample_index, sample)| {
+                sample
+                    .map_err(|error| format!("Failed to decode WAV sample {sample_index}: {error}"))
+            })
+            .collect::<Result<Vec<_>, String>>()?,
     };
 
     // Convert to mono if stereo
