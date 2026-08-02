@@ -640,14 +640,12 @@ pub fn list_ui_file_jobs(
         else {
             continue;
         };
-        if let Ok(completed_chunks) = ui_job_completed_chunks(&manifest) {
-            manifest.completed_chunks = completed_chunks;
-        }
-        if matches!(
+        let was_left_in_flight = matches!(
             manifest.status,
             UiFileJobStatus::Preparing | UiFileJobStatus::Running | UiFileJobStatus::Retrying
-        ) && active_job_id != Some(manifest.job_id.as_str())
-        {
+        );
+        if was_left_in_flight && active_job_id != Some(manifest.job_id.as_str()) {
+            manifest.completed_chunks = ui_job_completed_chunks(&manifest)?;
             manifest.status = UiFileJobStatus::Interrupted;
             manifest.last_error = Some("AivoRelay closed before this conversion finished".into());
             touch_ui_job(&mut manifest);
