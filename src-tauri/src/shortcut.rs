@@ -2498,6 +2498,14 @@ pub fn change_start_hidden_setting(app: AppHandle, enabled: bool) -> Result<(), 
 #[tauri::command]
 #[specta::specta]
 pub fn change_autostart_setting(app: AppHandle, enabled: bool) -> Result<(), String> {
+    #[cfg(debug_assertions)]
+    if enabled {
+        return Err(
+            "Autostart cannot be enabled from a development build. Use an installed release build."
+                .to_string(),
+        );
+    }
+
     // Apply OS-level autostart first so UI/store can roll back on failure.
     let autostart_manager = app.autolaunch();
     if enabled {

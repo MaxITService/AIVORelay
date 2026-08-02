@@ -106,7 +106,9 @@ use tauri::image::Image;
 use tauri::tray::TrayIconBuilder;
 use tauri::Emitter;
 use tauri::{AppHandle, Listener, Manager};
-use tauri_plugin_autostart::{MacosLauncher, ManagerExt};
+use tauri_plugin_autostart::MacosLauncher;
+#[cfg(not(debug_assertions))]
+use tauri_plugin_autostart::ManagerExt;
 use tauri_plugin_log::{
     Builder as LogBuilder, RotationStrategy, Target, TargetKind, TimezoneStrategy,
 };
@@ -748,16 +750,25 @@ fn initialize_core_logic(app_handle: &AppHandle) {
         tray::refresh_tray_menu(&tray_refresh_handle, None);
     });
 
-    // Get the autostart manager and configure based on user setting
-    let autostart_manager = app_handle.autolaunch();
-    let settings = settings::get_settings(&app_handle);
+    // A development executable lives under Cargo's target directory and must
+    // never replace the installed application's OS autostart registration.
+    #[cfg(not(debug_assertions))]
+    {
+        let autostart_manager = app_handle.autolaunch();
+        let settings = settings::get_settings(&app_handle);
 
-    if settings.autostart_enabled {
-        // Enable autostart if user has opted in
-        let _ = autostart_manager.enable();
-    } else {
-        // Disable autostart if user has opted out
-        let _ = autostart_manager.disable();
+        if settings.autostart_enabled {
+            // Enable autostart if user has opted in
+            let _ = autostart_manager.enable();
+        } else {
+            // Disable autostart if user has opted out
+            let _ = autostart_manager.disable();
+        }
+    }
+
+    #[cfg(debug_assertions)]
+    if settings::get_settings(&app_handle).autostart_enabled {
+        log::warn!("Skipping OS autostart registration for a development build");
     }
 
     // Create the recording overlay window (hidden by default)
