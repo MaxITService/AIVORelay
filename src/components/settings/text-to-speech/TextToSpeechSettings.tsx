@@ -119,6 +119,19 @@ type TtsSynthesisPreset = {
   config: TtsSynthesisConfig;
 };
 
+const isBuiltinTtsSynthesisPreset = (preset: TtsSynthesisPreset) =>
+  preset.id.startsWith("builtin_tts_");
+
+const defaultTtsSynthesisPresetForProvider = (
+  presets: TtsSynthesisPreset[],
+  provider: TtsProvider,
+) =>
+  presets.find(
+    (preset) =>
+      isBuiltinTtsSynthesisPreset(preset) &&
+      preset.config.provider === provider,
+  );
+
 type TtsSettings = {
   enabled: boolean;
   provider: TtsProvider;
@@ -846,6 +859,40 @@ const COALESCED_TTS_LLM_FIELDS = new Set([
   "llm_preprocessing.interactive_benchmark_text",
   "llm_preprocessing.file_benchmark_text",
 ]);
+const TTS_SYNTHESIS_CUSTOMIZATION_FIELDS = new Set([
+  "provider",
+  "soniox_key_source",
+  "deepgram_key_source",
+  "openai_key_source",
+  "soniox_model",
+  "soniox_language",
+  "soniox_voice",
+  "deepgram_model",
+  "openai_model",
+  "openai_voice",
+  "edge_voice",
+  "edge_voice_language",
+  "local_qwen_voice",
+  "local_qwen_language",
+  "local_kokoro_voice",
+  "local_kokoro_language",
+  "windows_voice_id",
+  "windows_voice_language",
+  "openai_instructions",
+  "selected_prompt_id",
+  "prompt_presets",
+  "speed",
+  "preprocessing_enabled",
+  "preprocessing_rules",
+  "interactive_target_chars",
+  "file_target_chars",
+  "retry_count",
+  "retry_base_delay_ms",
+  "inter_chunk_pause_ms",
+  "paragraph_pause_ms",
+  "output_format",
+  "mp3_bitrate_kbps",
+]);
 
 const asErrorMessage = (error: unknown) =>
   error instanceof Error ? error.message : String(error);
@@ -1015,6 +1062,15 @@ const applySynthesisConfig = (
   }
   return next;
 };
+
+const synthesisPresetConfigForMode = (
+  settings: TtsSettings,
+  preset: TtsSynthesisPreset,
+  mode: TextToSpeechSettingsProps["mode"],
+): TtsSynthesisConfig =>
+  mode === "files" && isBuiltinTtsSynthesisPreset(preset)
+    ? { ...preset.config, target_chars: settings.file_target_chars }
+    : preset.config;
 
 const upsertScopeConfig = (
   scope: TtsScopeSynthesisSettings,
@@ -1208,6 +1264,7 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
     );
   });
   const synthesisPresetModeRef = useRef(mode);
+  const fileSynthesisInitializationRef = useRef(false);
 
   useEffect(() => {
     if (synthesisPresetModeRef.current === mode) return;
@@ -1512,7 +1569,15 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
   const updateTts = useCallback(
     async (patch: Partial<TtsSettings>, field: string) => {
       const writeGeneration = ++settingsWriteGenerationRef.current;
-      const nextSettings = { ...ttsRef.current, ...patch };
+      const nextSettings: TtsSettings = { ...ttsRef.current, ...patch };
+      if (TTS_SYNTHESIS_CUSTOMIZATION_FIELDS.has(field)) {
+        const scopeKey = scopeSettingsKey(mode);
+        nextSettings[scopeKey] = {
+          ...nextSettings[scopeKey],
+          selected_preset_id: "",
+        };
+        setSynthesisPresetName("");
+      }
       ttsRef.current = nextSettings;
       setTts(nextSettings);
       if (
@@ -1765,8 +1830,40 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
     };
   }, [t]);
 
-  const chooseProvider = (provider: TtsProvider) =>
-    updateTts({ provider }, "provider");
+  const chooseProvider = async (provider: TtsProvider) => {
+    const current = ttsRef.current;
+    const fileScope = current.file_synthesis;
+    const activeFileConfig = fileScope.models.find(
+      (entry) => entry.model_key === fileScope.active_model_key,
+    )?.config;
+    const selectedFilePreset = current.synthesis_presets.find(
+      (preset) => preset.id === fileScope.selected_preset_id,
+    );
+    const firstFileProviderSelection =
+      mode === "files" &&
+      fileScope.models.length === 0 &&
+      !fileScope.active_model_key.trim();
+    const switchingFromBuiltinFilePreset =
+      mode === "files" &&
+      provider !== current.provider &&
+      selectedFilePreset !== undefined &&
+      isBuiltinTtsSynthesisPreset(selectedFilePreset) &&
+      activeFileConfig?.provider === current.provider;
+    const shouldLoadDefaultPreset =
+      firstFileProviderSelection || switchingFromBuiltinFilePreset;
+    if (shouldLoadDefaultPreset) {
+      const preset = defaultTtsSynthesisPresetForProvider(
+        current.synthesis_presets,
+        provider,
+      );
+      if (preset) {
+        fileSynthesisInitializationRef.current = true;
+        await loadSynthesisPreset(preset.id);
+        return;
+      }
+    }
+    await updateTts({ provider }, "provider");
+  };
 
   const installLocalTts = async () => {
     const installKind = activeLocalKind;
@@ -2054,18 +2151,46 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
     }
     setSynthesisPresetName(preset.name);
     const scopeKey = scopeSettingsKey(mode);
-    const applied = applySynthesisConfig(tts, preset.config, mode);
+    const config = synthesisPresetConfigForMode(tts, preset, mode);
+    const applied = applySynthesisConfig(tts, config, mode);
     await updateTts(
       {
         ...applied,
-        [scopeKey]: upsertScopeConfig(tts[scopeKey], preset.config, preset.id),
+        [scopeKey]: upsertScopeConfig(tts[scopeKey], config, preset.id),
       },
       "synthesis_preset_load",
     );
-    setOutputFormat(preset.config.output_format);
-    setMp3Bitrate(preset.config.mp3_bitrate_kbps);
+    setOutputFormat(config.output_format);
+    setMp3Bitrate(config.mp3_bitrate_kbps);
     invalidateInspection();
   };
+
+  useEffect(() => {
+    if (mode !== "files" || fileSynthesisInitializationRef.current) return;
+
+    const fileScope = tts.file_synthesis;
+    if (fileScope.models.length > 0 || fileScope.active_model_key.trim()) {
+      fileSynthesisInitializationRef.current = true;
+      return;
+    }
+
+    const preset = defaultTtsSynthesisPresetForProvider(
+      tts.synthesis_presets,
+      tts.provider,
+    );
+    if (!preset) return;
+
+    fileSynthesisInitializationRef.current = true;
+    void loadSynthesisPreset(preset.id);
+  }, [
+    fileSynthesisInitializationRef,
+    mode,
+    loadSynthesisPreset,
+    tts.file_synthesis.active_model_key,
+    tts.file_synthesis.models.length,
+    tts.provider,
+    tts.synthesis_presets,
+  ]);
 
   const deleteSelectedSynthesisPreset = async () => {
     if (!selectedSynthesisPresetId) return;
