@@ -455,10 +455,14 @@ impl OpenAiRealtimeWhisperManager {
 
     fn build_session_update_payload(options: &OpenAiRealtimeWhisperOptions) -> Value {
         let model = options.model.trim();
-        let mut transcription = json!({
-            "model": model,
-            "delay": options.delay.as_str(),
-        });
+        let mut transcription = json!({ "model": model });
+
+        // OpenAI documents `delay` only for gpt-realtime-whisper. The local
+        // commit interval still uses this setting for gpt-live-transcribe,
+        // but that model must not receive the unsupported session field.
+        if model.eq_ignore_ascii_case(OPENAI_REALTIME_WHISPER_MODEL) {
+            transcription["delay"] = json!(options.delay.as_str());
+        }
 
         if let Some(language) = Self::normalize_language(options.language.clone()) {
             if model.eq_ignore_ascii_case(OPENAI_LIVE_TRANSCRIBE_MODEL) {
@@ -1031,6 +1035,7 @@ mod tests {
         );
         assert_eq!(transcription["keywords"], json!(["AC-42", "premium plan"]));
         assert!(transcription.get("language").is_none());
+        assert!(transcription.get("delay").is_none());
     }
 
     #[test]
