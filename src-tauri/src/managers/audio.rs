@@ -8,7 +8,7 @@ use crate::settings::{
     TranscriptionProvider,
 };
 use crate::utils;
-use log::{debug, error, info, warn};
+use log::{debug, error, info, trace, warn};
 use std::fmt;
 use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -891,14 +891,42 @@ impl AudioRecordingManager {
         let is_open = *self.is_open.lock().unwrap();
         let active_selection = self.active_selection.lock().unwrap().clone();
         if is_open && active_selection.as_ref() == Some(&selection) {
-            debug!(
-                "Audio capture stream already active for {:?}",
+            // `is_open` only records that we opened a stream at some point, not
+            // that one is still running. If the capture worker has since exited
+            // (mic unplugged mid-session, USB dropout), returning Ok here hands
+            // the caller a dead recorder: it captures nothing, then fails in
+            // stop() on the closed channel, and stays wedged until the
+            // on-demand close timeout eventually resets the manager.
+            let worker_dead = self
+                .recorder
+                .lock()
+                .unwrap()
+                .as_ref()
+                .is_some_and(|rec| rec.is_capture_worker_dead());
+
+            if !worker_dead {
+                trace!(
+                    "Audio capture stream already active for {:?}",
+                    selection.source
+                );
+                return Ok(());
+            }
+
+            warn!(
+                "Audio capture stream for {:?} is no longer running; reopening",
                 selection.source
             );
-            return Ok(());
-        }
-
-        if is_open {
+            if let Some(rec) = self.recorder.lock().unwrap().as_mut() {
+                // Skipping rec.stop() here: the worker is gone, so the command
+                // would only fail on the closed channel.
+                let _ = rec.close();
+            }
+            *self.is_recording.lock().unwrap() = false;
+            *self.is_open.lock().unwrap() = false;
+            *self.active_selection.lock().unwrap() = None;
+            self.resume_media_if_paused();
+            // Fall through and open a fresh stream.
+        } else if is_open {
             self.stop_microphone_stream();
         }
 
