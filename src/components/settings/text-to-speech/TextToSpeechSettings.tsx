@@ -855,6 +855,26 @@ const formatBytes = (bytes: number) =>
     ? `${(bytes / 1024 ** 3).toFixed(2)} GiB`
     : `${(bytes / 1024 ** 2).toFixed(1)} MiB`;
 
+const defaultTtsOutputPath = (
+  inputPath: string,
+  outputFormat: TtsOutputFormat,
+): string => {
+  const normalizedPath = inputPath.trim();
+  if (!normalizedPath) return "";
+
+  const separatorIndex = Math.max(
+    normalizedPath.lastIndexOf("\\"),
+    normalizedPath.lastIndexOf("/"),
+  );
+  const directory =
+    separatorIndex >= 0 ? normalizedPath.slice(0, separatorIndex + 1) : "";
+  const fileName = normalizedPath.slice(separatorIndex + 1);
+  const extensionIndex = fileName.lastIndexOf(".");
+  const baseName = extensionIndex > 0 ? fileName.slice(0, extensionIndex) : fileName;
+
+  return `${directory}${baseName}.${outputFormat}`;
+};
+
 const clampNumber = (
   value: string,
   min: number,
@@ -1215,6 +1235,7 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
   const conversionBusyRef = useRef(false);
   const conversionOperationIdRef = useRef<string | null>(null);
   const inspectionGenerationRef = useRef(0);
+  const outputPathCustomizedRef = useRef(false);
   const llmProviders = useMemo(
     () =>
       ((settings as any)?.post_process_providers as
@@ -2067,6 +2088,76 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
     setSynthesisPresetName("");
   };
 
+  const inspectionSettingsKey = useMemo(
+    () =>
+      JSON.stringify({
+        provider: tts.provider,
+        sonioxKeySource: tts.soniox_key_source,
+        sonioxModel: tts.soniox_model,
+        sonioxVoice: tts.soniox_voice,
+        sonioxLanguage: tts.soniox_language,
+        deepgramKeySource: tts.deepgram_key_source,
+        deepgramModel: tts.deepgram_model,
+        openaiKeySource: tts.openai_key_source,
+        openaiModel: tts.openai_model,
+        openaiVoice: tts.openai_voice,
+        edgeVoice: tts.edge_voice,
+        edgeVoiceLanguage: tts.edge_voice_language,
+        localQwenVoice: tts.local_qwen_voice,
+        localQwenLanguage: tts.local_qwen_language,
+        localKokoroVoice: tts.local_kokoro_voice,
+        localKokoroLanguage: tts.local_kokoro_language,
+        windowsVoiceId: tts.windows_voice_id,
+        windowsVoiceLanguage: tts.windows_voice_language,
+        speed: tts.speed,
+        openaiInstructions: tts.openai_instructions,
+        selectedPromptId: tts.selected_prompt_id,
+        preprocessingEnabled: tts.preprocessing_enabled,
+        preprocessingRules: tts.preprocessing_rules,
+        fileTargetChars: tts.file_target_chars,
+        retryCount: tts.retry_count,
+        retryBaseDelayMs: tts.retry_base_delay_ms,
+        interChunkPauseMs: tts.inter_chunk_pause_ms,
+        paragraphPauseMs: tts.paragraph_pause_ms,
+        llmPreprocessing: tts.llm_preprocessing,
+        outputFormat,
+        mp3Bitrate,
+      }),
+    [
+      mp3Bitrate,
+      outputFormat,
+      tts.deepgram_key_source,
+      tts.deepgram_model,
+      tts.edge_voice,
+      tts.edge_voice_language,
+      tts.file_target_chars,
+      tts.inter_chunk_pause_ms,
+      tts.llm_preprocessing,
+      tts.local_kokoro_language,
+      tts.local_kokoro_voice,
+      tts.local_qwen_language,
+      tts.local_qwen_voice,
+      tts.openai_instructions,
+      tts.openai_key_source,
+      tts.openai_model,
+      tts.openai_voice,
+      tts.paragraph_pause_ms,
+      tts.preprocessing_enabled,
+      tts.preprocessing_rules,
+      tts.provider,
+      tts.retry_base_delay_ms,
+      tts.retry_count,
+      tts.selected_prompt_id,
+      tts.soniox_key_source,
+      tts.soniox_language,
+      tts.soniox_model,
+      tts.soniox_voice,
+      tts.speed,
+      tts.windows_voice_id,
+      tts.windows_voice_language,
+    ],
+  );
+
   const chooseInputFile = async () => {
     if (conversionBusyRef.current) return;
     const selected = await open({
@@ -2081,13 +2172,14 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
     });
     if (typeof selected !== "string" || conversionBusyRef.current) return;
     setInputPath(selected);
-    setOutputPath("");
+    outputPathCustomizedRef.current = false;
+    setOutputPath(defaultTtsOutputPath(selected, outputFormat));
     invalidateInspection();
     setCompletedPath("");
     setConversionError(null);
   };
 
-  const inspectFile = async () => {
+  const inspectFile = useCallback(async () => {
     if (!inputPath) return;
     const inspectionGeneration = ++inspectionGenerationRef.current;
     const inspectedPath = inputPath;
@@ -2112,11 +2204,20 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
         setInspecting(false);
       }
     }
-  };
+  }, [flushPendingSettingsWrites, inputPath]);
+
+  useEffect(() => {
+    if (!inputPath) return;
+    const timeoutId = window.setTimeout(() => {
+      void inspectFile();
+    }, 0);
+    return () => window.clearTimeout(timeoutId);
+  }, [inputPath, inspectFile, inspectionSettingsKey]);
 
   const chooseOutputFile = async () => {
+    const defaultPath = defaultTtsOutputPath(inputPath, outputFormat);
     const selected = await save({
-      defaultPath: outputPath || undefined,
+      defaultPath: outputPath || defaultPath || undefined,
       filters: [
         {
           name:
@@ -2127,7 +2228,10 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
         },
       ],
     });
-    if (selected) setOutputPath(selected);
+    if (selected) {
+      outputPathCustomizedRef.current = true;
+      setOutputPath(selected);
+    }
   };
 
   const convertFile = async () => {
@@ -2237,6 +2341,11 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
     setOutputFormat(tts.output_format);
     setMp3Bitrate(tts.mp3_bitrate_kbps);
   }, [tts.mp3_bitrate_kbps, tts.output_format]);
+
+  useEffect(() => {
+    if (!inputPath || outputPathCustomizedRef.current) return;
+    setOutputPath(defaultTtsOutputPath(inputPath, outputFormat));
+  }, [inputPath, outputFormat]);
 
   const handleInteractiveHistoryAvailability = useCallback(
     (hasEntries: boolean) => setInteractiveHistoryHasEntries(hasEntries),
@@ -2394,6 +2503,68 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
                 </div>
               </div>
             )}
+            <SettingContainer
+              grouped
+              layout="stacked"
+              title={t("textToSpeech.conversion.sourceTitle")}
+              description={t("textToSpeech.conversion.sourceDescription")}
+              descriptionMode="inline"
+            >
+              <div className="flex gap-2">
+                <Input
+                  className="min-w-0 flex-1"
+                  readOnly
+                  value={inputPath}
+                  placeholder={t("textToSpeech.conversion.noFileSelected")}
+                />
+                <Button
+                  variant="secondary"
+                  disabled={conversionBusy}
+                  onClick={() => void chooseInputFile()}
+                >
+                  <FileText className="mr-2 inline h-4 w-4" />
+                  {t("textToSpeech.conversion.chooseFile")}
+                </Button>
+              </div>
+              {inputPath && inspecting && (
+                <div
+                  role="status"
+                  aria-live="polite"
+                  className="mt-3 flex items-center gap-2 text-xs text-[#a0a0a0]"
+                >
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  {t("textToSpeech.conversion.inspect")}
+                </div>
+              )}
+              {inspection && (
+                <div className="mt-3 grid grid-cols-3 gap-3">
+                  {[
+                    [
+                      t("textToSpeech.conversion.sourceCharacters"),
+                      characterCount(inspection, "source"),
+                    ],
+                    [
+                      t("textToSpeech.conversion.processedCharacters"),
+                      characterCount(inspection, "processed"),
+                    ],
+                    [
+                      t("textToSpeech.conversion.chunks"),
+                      chunkCount(inspection),
+                    ],
+                  ].map(([label, value]) => (
+                    <div
+                      key={String(label)}
+                      className="rounded-lg border border-white/[0.06] bg-black/15 p-3"
+                    >
+                      <div className="text-xs text-[#808080]">{label}</div>
+                      <div className="mt-1 text-lg font-semibold text-[#f5f5f5]">
+                        {value ?? "—"}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </SettingContainer>
           </SettingsGroup>
         )}
 
@@ -3683,71 +3854,6 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
             </details>
             <SettingContainer
               grouped
-              layout="stacked"
-              title={t("textToSpeech.conversion.sourceTitle")}
-              description={t("textToSpeech.conversion.sourceDescription")}
-              descriptionMode="inline"
-            >
-              <div className="flex gap-2">
-                <Input
-                  className="min-w-0 flex-1"
-                  readOnly
-                  value={inputPath}
-                  placeholder={t("textToSpeech.conversion.noFileSelected")}
-                />
-                <Button
-                  variant="secondary"
-                  disabled={conversionBusy}
-                  onClick={() => void chooseInputFile()}
-                >
-                  <FileText className="mr-2 inline h-4 w-4" />
-                  {t("textToSpeech.conversion.chooseFile")}
-                </Button>
-              </div>
-              <div className="mt-3">
-                <Button
-                  variant="secondary"
-                  disabled={!inputPath || inspecting || conversionBusy}
-                  onClick={() => void inspectFile()}
-                >
-                  {inspecting && (
-                    <Loader2 className="mr-2 inline h-4 w-4 animate-spin" />
-                  )}
-                  {t("textToSpeech.conversion.inspect")}
-                </Button>
-              </div>
-              {inspection && (
-                <div className="mt-3 grid grid-cols-3 gap-3">
-                  {[
-                    [
-                      t("textToSpeech.conversion.sourceCharacters"),
-                      characterCount(inspection, "source"),
-                    ],
-                    [
-                      t("textToSpeech.conversion.processedCharacters"),
-                      characterCount(inspection, "processed"),
-                    ],
-                    [
-                      t("textToSpeech.conversion.chunks"),
-                      chunkCount(inspection),
-                    ],
-                  ].map(([label, value]) => (
-                    <div
-                      key={String(label)}
-                      className="rounded-lg border border-white/[0.06] bg-black/15 p-3"
-                    >
-                      <div className="text-xs text-[#808080]">{label}</div>
-                      <div className="mt-1 text-lg font-semibold text-[#f5f5f5]">
-                        {value ?? "—"}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </SettingContainer>
-
-            <SettingContainer
-              grouped
               title={t("textToSpeech.conversion.finalFormatTitle")}
               description={t("textToSpeech.conversion.finalFormatDescription")}
             >
@@ -3762,7 +3868,9 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
                   if (!value) return;
                   const format = value as TtsOutputFormat;
                   setOutputFormat(format);
-                  setOutputPath("");
+                  if (!outputPathCustomizedRef.current) {
+                    setOutputPath(defaultTtsOutputPath(inputPath, format));
+                  }
                   void updateTts({ output_format: format }, "output_format");
                 }}
                 isClearable={false}
