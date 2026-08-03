@@ -67,9 +67,11 @@ const CONNECT_TIMEOUT: Duration = Duration::from_secs(15);
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(120);
 const MAX_RETRY_DELAY: Duration = Duration::from_secs(60);
 const INTERACTIVE_CACHE_STALE_AGE: Duration = Duration::from_secs(24 * 60 * 60);
-// Keep enough PCM queued to bridge provider/network jitter without making an
-// interactive cloud request wait for the complete utterance before playback.
-const INTERACTIVE_STREAM_SEGMENT_SAMPLES: usize = PROVIDER_PCM_SAMPLE_RATE as usize * 2;
+// Match the small-buffer Web Audio queues used by provider demos: emit enough
+// PCM for 250 ms of playback instead of waiting for multi-second WAV parts.
+// Soniox, Deepgram, and OpenAI share this provider-independent streaming path.
+const INTERACTIVE_STREAM_SEGMENT_SAMPLES: usize =
+    PROVIDER_PCM_SAMPLE_RATE as usize / 4;
 const MAX_VOICE_CATALOG_BYTES: usize = 4 * 1024 * 1024;
 // Long enough for multi-million-character book sources while bounding the
 // additional copies created by Unicode chunking and preprocessing.
