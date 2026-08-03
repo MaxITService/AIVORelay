@@ -23,9 +23,19 @@ import { Input } from "@/components/ui/Input";
 import { SettingContainer } from "@/components/ui/SettingContainer";
 import { SettingsGroup } from "@/components/ui/SettingsGroup";
 import { ToggleSwitch } from "@/components/ui/ToggleSwitch";
+import { Tooltip } from "@/components/ui/Tooltip";
 
 type TtsOutputFormat = "mp3" | "wav";
 type BatchSourceMode = "files" | "folder";
+
+const ActionTooltip: React.FC<{
+  content?: string | null;
+  children: React.ReactNode;
+}> = ({ content, children }) =>
+  content ? <Tooltip content={content}>{children}</Tooltip> : children;
+
+const waitForUiTick = (delayMs: number) =>
+  new Promise<void>((resolve) => window.setTimeout(resolve, delayMs));
 type BatchFileStatus =
   | "queued"
   | "processing"
@@ -131,19 +141,20 @@ export const TtsBatchConversion: React.FC<TtsBatchConversionProps> = ({
   const [scanResult, setScanResult] = useState<BatchScanResult | null>(null);
   const [rows, setRows] = useState<BatchFileResult[]>([]);
   const [batchBusy, setBatchBusy] = useState(false);
-  const [batchId, setBatchId] = useState<string | null>(null);
+  const [batchStopping, setBatchStopping] = useState(false);
   const [progress, setProgress] = useState<BatchProgress | null>(null);
   const [summary, setSummary] = useState<BatchSummary | null>(null);
   const [error, setError] = useState<string | null>(null);
   const activeClientIdRef = useRef<string | null>(null);
   const batchBusyRef = useRef(false);
+  const batchIdRef = useRef<string | null>(null);
 
   const clearPreview = () => {
     setScanResult(null);
     setRows([]);
     setProgress(null);
     setSummary(null);
-    setBatchId(null);
+    batchIdRef.current = null;
     setError(null);
     activeClientIdRef.current = null;
   };
@@ -160,7 +171,7 @@ export const TtsBatchConversion: React.FC<TtsBatchConversionProps> = ({
       if (disposed || !batchBusyRef.current) return;
       const next = event.payload;
       if (next.clientId !== activeClientIdRef.current) return;
-      setBatchId(next.batchId);
+      batchIdRef.current = next.batchId;
       setProgress(next);
       const file = next.file;
       if (file) {
@@ -231,7 +242,7 @@ export const TtsBatchConversion: React.FC<TtsBatchConversionProps> = ({
     setError(null);
     setSummary(null);
     setProgress(null);
-    setBatchId(null);
+    batchIdRef.current = null;
     try {
       await flushPendingSettingsWrites();
       const result = await invoke<BatchScanResult>("scan_tts_batch_files", {
@@ -260,7 +271,7 @@ export const TtsBatchConversion: React.FC<TtsBatchConversionProps> = ({
     activeClientIdRef.current = clientId;
     batchBusyRef.current = true;
     setBatchBusy(true);
-    setBatchId(null);
+    batchIdRef.current = null;
     setError(null);
     setSummary(null);
     setProgress(null);
@@ -274,7 +285,7 @@ export const TtsBatchConversion: React.FC<TtsBatchConversionProps> = ({
           mp3Bitrate,
         },
       });
-      setBatchId(result.batchId);
+      batchIdRef.current = result.batchId;
       setRows(result.files);
       setSummary(result);
       setProgress((current) => ({
@@ -295,16 +306,35 @@ export const TtsBatchConversion: React.FC<TtsBatchConversionProps> = ({
     } finally {
       batchBusyRef.current = false;
       setBatchBusy(false);
+      setBatchStopping(false);
       window.dispatchEvent(new Event("aivorelay:tts-jobs-changed"));
     }
   };
 
   const cancelBatch = async () => {
-    if (!batchId) return;
+    setBatchStopping(true);
+    setError(null);
     try {
-      await invoke("cancel_tts_batch", { batchId });
+      let activeBatchId = batchIdRef.current;
+      for (
+        let attempt = 0;
+        !activeBatchId && batchBusyRef.current && attempt < 1_300;
+        attempt += 1
+      ) {
+        await waitForUiTick(100);
+        activeBatchId = batchIdRef.current;
+      }
+      if (!activeBatchId) {
+        if (!batchBusyRef.current) {
+          setBatchStopping(false);
+          return;
+        }
+        throw new Error(t("textToSpeech.batch.idUnavailable"));
+      }
+      await invoke("cancel_tts_batch", { batchId: activeBatchId });
     } catch (cancelError) {
       setError(String(cancelError));
+      setBatchStopping(false);
     }
   };
 
@@ -338,22 +368,42 @@ export const TtsBatchConversion: React.FC<TtsBatchConversionProps> = ({
         descriptionMode="inline"
       >
         <div className="mb-3 flex flex-wrap gap-2">
-          <Button
-            variant={sourceMode === "folder" ? "primary" : "secondary"}
-            disabled={batchBusy || scanning}
-            onClick={() => void chooseInputDirectory()}
+          <ActionTooltip
+            content={
+              batchBusy
+                ? t("textToSpeech.batch.disabledWhileRunning")
+                : scanning
+                  ? t("textToSpeech.batch.disabledWhileScanning")
+                  : null
+            }
           >
-            <FolderOpen className="mr-2 inline h-4 w-4" />
-            {t("textToSpeech.batch.chooseFolder")}
-          </Button>
-          <Button
-            variant={sourceMode === "files" ? "primary" : "secondary"}
-            disabled={batchBusy || scanning}
-            onClick={() => void chooseFiles()}
+            <Button
+              variant={sourceMode === "folder" ? "primary" : "secondary"}
+              disabled={batchBusy || scanning}
+              onClick={() => void chooseInputDirectory()}
+            >
+              <FolderOpen className="mr-2 inline h-4 w-4" />
+              {t("textToSpeech.batch.chooseFolder")}
+            </Button>
+          </ActionTooltip>
+          <ActionTooltip
+            content={
+              batchBusy
+                ? t("textToSpeech.batch.disabledWhileRunning")
+                : scanning
+                  ? t("textToSpeech.batch.disabledWhileScanning")
+                  : null
+            }
           >
-            <Files className="mr-2 inline h-4 w-4" />
-            {t("textToSpeech.batch.chooseFiles")}
-          </Button>
+            <Button
+              variant={sourceMode === "files" ? "primary" : "secondary"}
+              disabled={batchBusy || scanning}
+              onClick={() => void chooseFiles()}
+            >
+              <Files className="mr-2 inline h-4 w-4" />
+              {t("textToSpeech.batch.chooseFiles")}
+            </Button>
+          </ActionTooltip>
         </div>
         <Input
           readOnly
@@ -391,32 +441,56 @@ export const TtsBatchConversion: React.FC<TtsBatchConversionProps> = ({
             value={outputDirectory}
             placeholder={t("textToSpeech.batch.noOutput")}
           />
-          <Button
-            variant="secondary"
-            disabled={batchBusy || scanning}
-            onClick={() => void chooseOutputDirectory()}
+          <ActionTooltip
+            content={
+              batchBusy
+                ? t("textToSpeech.batch.disabledWhileRunning")
+                : scanning
+                  ? t("textToSpeech.batch.disabledWhileScanning")
+                  : null
+            }
           >
-            <FolderOpen className="mr-2 inline h-4 w-4" />
-            {t("textToSpeech.batch.chooseOutput")}
-          </Button>
+            <Button
+              variant="secondary"
+              disabled={batchBusy || scanning}
+              onClick={() => void chooseOutputDirectory()}
+            >
+              <FolderOpen className="mr-2 inline h-4 w-4" />
+              {t("textToSpeech.batch.chooseOutput")}
+            </Button>
+          </ActionTooltip>
         </div>
       </SettingContainer>
 
       <div className="flex flex-wrap items-center gap-3 px-6 py-4">
-        <Button
-          variant="secondary"
-          disabled={!canScan}
-          onClick={() => void scanFiles()}
+        <ActionTooltip
+          content={
+            batchBusy
+              ? t("textToSpeech.batch.disabledWhileRunning")
+              : scanning
+                ? t("textToSpeech.batch.disabledWhileScanning")
+                : !selectedSource
+                  ? t("textToSpeech.batch.chooseSourceFirst")
+                  : !outputDirectory
+                    ? t("textToSpeech.batch.chooseOutputFirst")
+                    : null
+          }
         >
-          {scanning ? (
-            <Loader2 className="mr-2 inline h-4 w-4 animate-spin" />
-          ) : (
-            <ScanSearch className="mr-2 inline h-4 w-4" />
-          )}
-          {scanning
-            ? t("textToSpeech.batch.scanning")
-            : t("textToSpeech.batch.scan")}
-        </Button>
+          <Button
+            variant="secondary"
+            disabled={!canScan}
+            onClick={() => void scanFiles()}
+          >
+            {scanning ? (
+              <Loader2 className="mr-2 inline h-4 w-4 animate-spin" />
+            ) : (
+              <ScanSearch className="mr-2 inline h-4 w-4" />
+            )}
+            {scanning
+              ? t("textToSpeech.batch.scanning")
+              : t("textToSpeech.batch.scan")}
+          </Button>
+        </ActionTooltip>
         {scanResult && (
           <span className="text-xs text-[#a0a0a0]">
             {t("textToSpeech.batch.scanCount", {
@@ -519,33 +593,61 @@ export const TtsBatchConversion: React.FC<TtsBatchConversionProps> = ({
       )}
 
       <div className="flex flex-wrap items-center gap-3 border-t border-white/[0.05] px-6 py-4">
-        <Button
-          disabled={
-            !scanResult ||
-            scanResult.eligibleCount === 0 ||
-            batchBusy ||
-            scanning
+        <ActionTooltip
+          content={
+            batchBusy
+              ? t("textToSpeech.batch.disabledWhileRunning")
+              : scanning
+                ? t("textToSpeech.batch.disabledWhileScanning")
+                : !scanResult
+                  ? t("textToSpeech.batch.scanFirst")
+                  : scanResult.eligibleCount === 0
+                    ? t("textToSpeech.batch.noEligibleFiles")
+                    : null
           }
-          onClick={() => void startBatch()}
         >
-          {batchBusy ? (
-            <Loader2 className="mr-2 inline h-4 w-4 animate-spin" />
-          ) : (
-            <Play className="mr-2 inline h-4 w-4" />
-          )}
-          {batchBusy
-            ? t("textToSpeech.batch.running")
-            : t("textToSpeech.batch.start")}
-        </Button>
-        {batchBusy && (
           <Button
-            variant="danger"
-            disabled={!batchId}
-            onClick={() => void cancelBatch()}
+            disabled={
+              !scanResult ||
+              scanResult.eligibleCount === 0 ||
+              batchBusy ||
+              scanning
+            }
+            onClick={() => void startBatch()}
           >
-            <Square className="mr-2 inline h-3.5 w-3.5" />
-            {t("textToSpeech.batch.cancel")}
+            {batchBusy ? (
+              <Loader2 className="mr-2 inline h-4 w-4 animate-spin" />
+            ) : (
+              <Play className="mr-2 inline h-4 w-4" />
+            )}
+            {batchBusy
+              ? t("textToSpeech.batch.running")
+              : t("textToSpeech.batch.start")}
           </Button>
+        </ActionTooltip>
+        {batchBusy && (
+          <ActionTooltip
+            content={
+              batchStopping
+                ? t("textToSpeech.batch.stopAlreadyRequested")
+                : t("textToSpeech.batch.stopDescription")
+            }
+          >
+            <Button
+              variant="danger"
+              disabled={batchStopping}
+              onClick={() => void cancelBatch()}
+            >
+              {batchStopping ? (
+                <Loader2 className="mr-2 inline h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Square className="mr-2 inline h-3.5 w-3.5" />
+              )}
+              {batchStopping
+                ? t("textToSpeech.batch.stopping")
+                : t("textToSpeech.batch.stop")}
+            </Button>
+          </ActionTooltip>
         )}
       </div>
 

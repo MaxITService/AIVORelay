@@ -14,6 +14,7 @@ import { useTranslation } from "react-i18next";
 
 import { Button } from "@/components/ui/Button";
 import { SettingsGroup } from "@/components/ui/SettingsGroup";
+import { Tooltip } from "@/components/ui/Tooltip";
 
 type JobStatus =
   | "planned"
@@ -42,6 +43,7 @@ type TtsFileJob = {
 
 type TtsStateEvent = {
   kind?: string | null;
+  phase?: string | null;
   operationId?: string | number;
   operation_id?: string | number;
   completedChunks?: number;
@@ -50,6 +52,26 @@ type TtsStateEvent = {
   total_chunks?: number;
 };
 
+type TtsUnfinishedJobsProps = {
+  activeOperationId?: string | null;
+  activeCompletedChunks?: number;
+  activeTotalChunks?: number;
+};
+
+const isInFlight = (job: TtsFileJob) =>
+  job.status === "preparing" ||
+  job.status === "running" ||
+  job.status === "retrying";
+
+const waitForUiTick = (delayMs: number) =>
+  new Promise<void>((resolve) => window.setTimeout(resolve, delayMs));
+
+const ActionTooltip: React.FC<{
+  content?: string | null;
+  children: React.ReactNode;
+}> = ({ content, children }) =>
+  content ? <Tooltip content={content}>{children}</Tooltip> : children;
+
 const partialDefaultPath = (job: TtsFileJob) => {
   const suffix = `.${job.outputFormat}`;
   return job.outputPath.toLocaleLowerCase().endsWith(suffix)
@@ -57,29 +79,87 @@ const partialDefaultPath = (job: TtsFileJob) => {
     : `${job.outputPath}.partial${suffix}`;
 };
 
-export const TtsUnfinishedJobs: React.FC = () => {
+export const TtsUnfinishedJobs: React.FC<TtsUnfinishedJobsProps> = ({
+  activeOperationId: parentOperationId = null,
+  activeCompletedChunks,
+  activeTotalChunks,
+}) => {
   const { t } = useTranslation();
   const [jobs, setJobs] = useState<TtsFileJob[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeJobId, setActiveJobId] = useState<string | null>(null);
-  const [operationId, setOperationId] = useState<string | null>(null);
+  const [pausingJobId, setPausingJobId] = useState<string | null>(null);
+  const [discardingJobId, setDiscardingJobId] = useState<string | null>(null);
   const [liveProgress, setLiveProgress] = useState<{
     completed: number;
     total: number;
   } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const activeJobIdRef = useRef<string | null>(null);
+  const operationIdRef = useRef<string | null>(null);
+  const pendingResumeJobIdRef = useRef<string | null>(null);
+
+  const updateOperationId = useCallback((nextOperationId: string | null) => {
+    operationIdRef.current = nextOperationId;
+  }, []);
 
   const refresh = useCallback(async () => {
     try {
       const result = await invoke<TtsFileJob[]>("list_tts_file_jobs");
       setJobs(result);
+      const runningJob = result.find(isInFlight);
+      if (runningJob) {
+        const attachedToNewJob = activeJobIdRef.current !== runningJob.jobId;
+        activeJobIdRef.current = runningJob.jobId;
+        setActiveJobId(runningJob.jobId);
+        if (attachedToNewJob) {
+          updateOperationId(null);
+          setLiveProgress({
+            completed: runningJob.completedChunks,
+            total: runningJob.totalChunks,
+          });
+        }
+        setError(null);
+      } else if (!pendingResumeJobIdRef.current) {
+        activeJobIdRef.current = null;
+        setActiveJobId(null);
+        updateOperationId(null);
+        setLiveProgress(null);
+      }
     } catch (refreshError) {
       setError(String(refreshError));
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [updateOperationId]);
+
+  useEffect(() => {
+    if (!parentOperationId) return;
+    const runningJob = jobs.find(isInFlight);
+    if (!runningJob) return;
+    activeJobIdRef.current = runningJob.jobId;
+    setActiveJobId(runningJob.jobId);
+    updateOperationId(parentOperationId);
+    setLiveProgress((previous) => ({
+      completed: Math.max(
+        previous?.completed ?? 0,
+        runningJob.completedChunks,
+        activeCompletedChunks ?? 0,
+      ),
+      total: Math.max(
+        previous?.total ?? 0,
+        runningJob.totalChunks,
+        activeTotalChunks ?? 0,
+      ),
+    }));
+    setError(null);
+  }, [
+    activeCompletedChunks,
+    activeTotalChunks,
+    jobs,
+    parentOperationId,
+    updateOperationId,
+  ]);
 
   useEffect(() => {
     void refresh();
@@ -101,12 +181,22 @@ export const TtsUnfinishedJobs: React.FC = () => {
         return;
       }
       const id = event.payload.operationId ?? event.payload.operation_id;
-      if (id !== undefined) setOperationId(String(id));
-      setLiveProgress({
-        completed:
-          event.payload.completedChunks ?? event.payload.completed_chunks ?? 0,
-        total: event.payload.totalChunks ?? event.payload.total_chunks ?? 0,
-      });
+      if (id !== undefined) updateOperationId(String(id));
+      const reportedCompleted =
+        event.payload.completedChunks ?? event.payload.completed_chunks ?? 0;
+      const reportedTotal =
+        event.payload.totalChunks ?? event.payload.total_chunks ?? 0;
+      setLiveProgress((previous) => ({
+        completed: Math.max(previous?.completed ?? 0, reportedCompleted),
+        total: Math.max(previous?.total ?? 0, reportedTotal),
+      }));
+      if (
+        event.payload.phase === "completed" ||
+        event.payload.phase === "cancelled" ||
+        event.payload.phase === "error"
+      ) {
+        window.setTimeout(() => void refresh(), 250);
+      }
     }).then((dispose) => {
       if (disposed) dispose();
       else unlisten = dispose;
@@ -115,33 +205,65 @@ export const TtsUnfinishedJobs: React.FC = () => {
       disposed = true;
       unlisten?.();
     };
-  }, []);
+  }, [refresh, updateOperationId]);
 
   const resumeJob = async (job: TtsFileJob) => {
+    pendingResumeJobIdRef.current = job.jobId;
     activeJobIdRef.current = job.jobId;
     setActiveJobId(job.jobId);
-    setOperationId(null);
-    setLiveProgress(null);
+    updateOperationId(null);
+    setLiveProgress({
+      completed: job.completedChunks,
+      total: job.totalChunks,
+    });
     setError(null);
     try {
       await invoke("resume_tts_file_job", { jobId: job.jobId });
     } catch (resumeError) {
       setError(String(resumeError));
     } finally {
+      pendingResumeJobIdRef.current = null;
       activeJobIdRef.current = null;
       setActiveJobId(null);
-      setOperationId(null);
+      updateOperationId(null);
       setLiveProgress(null);
       await refresh();
     }
   };
 
-  const pauseJob = async () => {
-    if (!operationId) return;
+  const waitForActiveOperationId = async (jobId: string) => {
+    let activeOperationId = operationIdRef.current;
+    for (
+      let attempt = 0;
+      !activeOperationId && attempt < 1_300;
+      attempt += 1
+    ) {
+      if (activeJobIdRef.current !== jobId) return null;
+      await waitForUiTick(100);
+      activeOperationId = operationIdRef.current;
+    }
+    if (!activeOperationId && activeJobIdRef.current === jobId) {
+      throw new Error(
+        t("textToSpeech.unfinishedJobs.activeOperationUnavailable"),
+      );
+    }
+    return activeOperationId;
+  };
+
+  const pauseJob = async (job: TtsFileJob) => {
+    setError(null);
+    setPausingJobId(job.jobId);
     try {
-      await invoke("cancel_tts_operation", { operationId });
+      const activeOperationId = await waitForActiveOperationId(job.jobId);
+      if (activeOperationId) {
+        await invoke("cancel_tts_operation", {
+          operationId: activeOperationId,
+        });
+      }
     } catch (pauseError) {
       setError(String(pauseError));
+    } finally {
+      setPausingJobId(null);
     }
   };
 
@@ -168,14 +290,47 @@ export const TtsUnfinishedJobs: React.FC = () => {
   };
 
   const discardJob = async (job: TtsFileJob) => {
-    if (!window.confirm(t("textToSpeech.unfinishedJobs.discardConfirm")))
-      return;
+    const active = activeJobIdRef.current === job.jobId || isInFlight(job);
+    const confirmationKey = active
+      ? "textToSpeech.unfinishedJobs.discardActiveConfirm"
+      : "textToSpeech.unfinishedJobs.discardConfirm";
+    if (!window.confirm(t(confirmationKey))) return;
     setError(null);
+    setDiscardingJobId(job.jobId);
     try {
-      await invoke("discard_tts_file_job", { jobId: job.jobId });
+      if (active) {
+        const activeOperationId = await waitForActiveOperationId(job.jobId);
+        if (activeOperationId) {
+          await invoke("cancel_tts_operation", {
+            operationId: activeOperationId,
+          });
+        }
+      }
+
+      let discardError: unknown = null;
+      for (let attempt = 0; attempt < 100; attempt += 1) {
+        try {
+          await invoke("discard_tts_file_job", { jobId: job.jobId });
+          discardError = null;
+          break;
+        } catch (retryError) {
+          discardError = retryError;
+          const message = String(retryError);
+          if (
+            !message.includes("Pause this TTS conversion") &&
+            !message.includes("still active and cannot be discarded")
+          ) {
+            throw retryError;
+          }
+          await waitForUiTick(100);
+        }
+      }
+      if (discardError) throw discardError;
       await refresh();
     } catch (discardError) {
       setError(String(discardError));
+    } finally {
+      setDiscardingJobId(null);
     }
   };
 
@@ -193,7 +348,56 @@ export const TtsUnfinishedJobs: React.FC = () => {
         </div>
       )}
       {jobs.map((job) => {
-        const active = activeJobId === job.jobId;
+        const active = activeJobId === job.jobId || isInFlight(job);
+        const hasActiveJob = activeJobId !== null || jobs.some(isInFlight);
+        const controlsBusy =
+          pausingJobId !== null || discardingJobId !== null;
+        const controlsBusyReason = pausingJobId
+          ? t("textToSpeech.unfinishedJobs.pauseInProgress")
+          : discardingJobId
+            ? t("textToSpeech.unfinishedJobs.discardInProgress")
+            : null;
+        const savePartialDisabled =
+          job.status === "completed" ||
+          !job.partialAvailable ||
+          hasActiveJob ||
+          controlsBusy;
+        let savePartialDisabledReason: string | null = null;
+        if (job.status === "completed") {
+          savePartialDisabledReason = t(
+            "textToSpeech.unfinishedJobs.savePartialDisabledCompleted",
+          );
+        } else if (hasActiveJob && job.partialAvailable) {
+          savePartialDisabledReason = t(
+            "textToSpeech.unfinishedJobs.savePartialDisabledActive",
+          );
+        } else if (hasActiveJob) {
+          savePartialDisabledReason = t(
+            "textToSpeech.unfinishedJobs.savePartialDisabledActiveEmpty",
+          );
+        } else if (!job.partialAvailable) {
+          savePartialDisabledReason = t(
+            "textToSpeech.unfinishedJobs.savePartialDisabledEmpty",
+          );
+        }
+        const savePartialLabel = t(
+          "textToSpeech.unfinishedJobs.savePartial",
+        );
+        const savePartialButton = (
+          <Button
+            variant="secondary"
+            disabled={savePartialDisabled}
+            aria-label={
+              savePartialDisabledReason
+                ? `${savePartialLabel}. ${savePartialDisabledReason}`
+                : savePartialLabel
+            }
+            onClick={() => void exportPartial(job)}
+          >
+            <Download className="mr-2 inline h-4 w-4" />
+            {savePartialLabel}
+          </Button>
+        );
         const completed = active
           ? (liveProgress?.completed ?? job.completedChunks)
           : job.completedChunks;
@@ -246,43 +450,63 @@ export const TtsUnfinishedJobs: React.FC = () => {
               </div>
               <div className="flex w-full flex-wrap gap-2">
                 {job.status === "completed" ? null : active ? (
-                  <Button
-                    variant="secondary"
-                    disabled={!operationId}
-                    onClick={() => void pauseJob()}
-                  >
-                    <Pause className="mr-2 inline h-4 w-4" />
-                    {t("textToSpeech.unfinishedJobs.pause")}
-                  </Button>
+                  <ActionTooltip content={controlsBusyReason}>
+                    <Button
+                      variant="secondary"
+                      disabled={controlsBusy}
+                      onClick={() => void pauseJob(job)}
+                    >
+                      {pausingJobId === job.jobId ? (
+                        <Loader2 className="mr-2 inline h-4 w-4 animate-spin" />
+                      ) : (
+                        <Pause className="mr-2 inline h-4 w-4" />
+                      )}
+                      {pausingJobId === job.jobId
+                        ? t("textToSpeech.unfinishedJobs.pausing")
+                        : t("textToSpeech.unfinishedJobs.pause")}
+                    </Button>
+                  </ActionTooltip>
                 ) : (
-                  <Button
-                    disabled={activeJobId !== null}
-                    onClick={() => void resumeJob(job)}
+                  <ActionTooltip
+                    content={
+                      controlsBusyReason ??
+                      (hasActiveJob
+                        ? t("textToSpeech.unfinishedJobs.resumeBlockedActive")
+                        : null)
+                    }
                   >
-                    <Play className="mr-2 inline h-4 w-4" />
-                    {t("textToSpeech.unfinishedJobs.resume")}
-                  </Button>
+                    <Button
+                      disabled={hasActiveJob || controlsBusy}
+                      onClick={() => void resumeJob(job)}
+                    >
+                      <Play className="mr-2 inline h-4 w-4" />
+                      {t("textToSpeech.unfinishedJobs.resume")}
+                    </Button>
+                  </ActionTooltip>
                 )}
-                <Button
-                  variant="secondary"
-                  disabled={
-                    job.status === "completed" ||
-                    !job.partialAvailable ||
-                    activeJobId !== null
-                  }
-                  onClick={() => void exportPartial(job)}
-                >
-                  <Download className="mr-2 inline h-4 w-4" />
-                  {t("textToSpeech.unfinishedJobs.savePartial")}
-                </Button>
-                <Button
-                  variant="danger"
-                  disabled={activeJobId !== null}
-                  onClick={() => void discardJob(job)}
-                >
-                  <Trash2 className="mr-2 inline h-4 w-4" />
-                  {t("textToSpeech.unfinishedJobs.discard")}
-                </Button>
+                {savePartialDisabledReason ? (
+                  <Tooltip content={savePartialDisabledReason}>
+                    {savePartialButton}
+                  </Tooltip>
+                ) : (
+                  savePartialButton
+                )}
+                <ActionTooltip content={controlsBusyReason}>
+                  <Button
+                    variant="danger"
+                    disabled={controlsBusy}
+                    onClick={() => void discardJob(job)}
+                  >
+                    {discardingJobId === job.jobId ? (
+                      <Loader2 className="mr-2 inline h-4 w-4 animate-spin" />
+                    ) : (
+                      <Trash2 className="mr-2 inline h-4 w-4" />
+                    )}
+                    {discardingJobId === job.jobId
+                      ? t("textToSpeech.unfinishedJobs.discarding")
+                      : t("textToSpeech.unfinishedJobs.discard")}
+                  </Button>
+                </ActionTooltip>
               </div>
             </div>
           </div>

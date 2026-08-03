@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/Input";
 import { SettingContainer } from "@/components/ui/SettingContainer";
 import { SettingsGroup } from "@/components/ui/SettingsGroup";
 import { ToggleSwitch } from "@/components/ui/ToggleSwitch";
+import { Tooltip } from "@/components/ui/Tooltip";
 import { AIVORELAY_TTS_GUIDE_URL } from "@/lib/tts/ttsProviderMetadata";
 import { TtsHelpDisclosure } from "./TtsHelpDisclosure";
 
@@ -16,6 +17,12 @@ type TtsFolderAutomationProps = {
   savingField: string | null;
   updateTts: (patch: any, field: string) => Promise<void>;
 };
+
+const ActionTooltip: React.FC<{
+  content?: string | null;
+  children: React.ReactNode;
+}> = ({ content, children }) =>
+  content ? <Tooltip content={content}>{children}</Tooltip> : children;
 
 const asBoundedNumber = (
   value: string,
@@ -145,14 +152,22 @@ export const TtsFolderAutomation: React.FC<TtsFolderAutomationProps> = ({
             readOnly
             placeholder={t("textToSpeech.folder.noInput")}
           />
-          <Button
-            variant="secondary"
-            disabled={savingField !== null}
-            onClick={() => void chooseDirectory("watch_input_directory")}
+          <ActionTooltip
+            content={
+              savingField !== null
+                ? t("textToSpeech.disabledWhileSaving")
+                : null
+            }
           >
-            <FolderOpen className="mr-2 inline h-4 w-4" />
-            {t("textToSpeech.folder.choose")}
-          </Button>
+            <Button
+              variant="secondary"
+              disabled={savingField !== null}
+              onClick={() => void chooseDirectory("watch_input_directory")}
+            >
+              <FolderOpen className="mr-2 inline h-4 w-4" />
+              {t("textToSpeech.folder.chooseInput")}
+            </Button>
+          </ActionTooltip>
         </div>
       </SettingContainer>
 
@@ -170,14 +185,22 @@ export const TtsFolderAutomation: React.FC<TtsFolderAutomationProps> = ({
             readOnly
             placeholder={t("textToSpeech.folder.noOutput")}
           />
-          <Button
-            variant="secondary"
-            disabled={savingField !== null}
-            onClick={() => void chooseDirectory("watch_output_directory")}
+          <ActionTooltip
+            content={
+              savingField !== null
+                ? t("textToSpeech.disabledWhileSaving")
+                : null
+            }
           >
-            <FolderOpen className="mr-2 inline h-4 w-4" />
-            {t("textToSpeech.folder.choose")}
-          </Button>
+            <Button
+              variant="secondary"
+              disabled={savingField !== null}
+              onClick={() => void chooseDirectory("watch_output_directory")}
+            >
+              <FolderOpen className="mr-2 inline h-4 w-4" />
+              {t("textToSpeech.folder.chooseOutput")}
+            </Button>
+          </ActionTooltip>
         </div>
       </SettingContainer>
 

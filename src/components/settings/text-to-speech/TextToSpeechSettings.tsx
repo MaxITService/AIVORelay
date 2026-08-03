@@ -40,6 +40,7 @@ import {
   type TtsLlmPreprocessingSettings,
 } from "./TtsAiCleanup";
 import { Button } from "@/components/ui/Button";
+import { ConfirmationModal } from "@/components/ui/ConfirmationModal";
 import { HotkeyCapture } from "@/components/ui/HotkeyCapture";
 import { Input } from "@/components/ui/Input";
 import { Select, type SelectOption } from "@/components/ui/Select";
@@ -47,6 +48,8 @@ import { SettingContainer } from "@/components/ui/SettingContainer";
 import { SettingsGroup } from "@/components/ui/SettingsGroup";
 import { Textarea } from "@/components/ui/Textarea";
 import { ToggleSwitch } from "@/components/ui/ToggleSwitch";
+import { Tooltip } from "@/components/ui/Tooltip";
+import { sessionToast as toast } from "@/lib/sessionToast";
 import type { OSType } from "@/lib/utils/keyboard";
 import {
   AIVORELAY_TTS_GUIDE_URL,
@@ -75,6 +78,20 @@ type TtsReplacementRule = {
   case_sensitive: boolean;
   is_regex: boolean;
 };
+
+type TtsDeleteConfirmation =
+  | { kind: "synthesisPreset"; name: string }
+  | { kind: "promptPreset"; name: string }
+  | { kind: "localModel" };
+
+const ActionTooltip: React.FC<{
+  content?: string | null;
+  children: React.ReactNode;
+}> = ({ content, children }) =>
+  content ? <Tooltip content={content}>{children}</Tooltip> : children;
+
+const waitForUiTick = (delayMs: number) =>
+  new Promise<void>((resolve) => window.setTimeout(resolve, delayMs));
 
 type TtsPromptPreset = {
   id: string;
@@ -783,6 +800,7 @@ const CloudVoiceSelector: React.FC<CloudVoiceSelectorProps> = ({
   onChange,
   onRefresh,
 }) => {
+  const { t } = useTranslation();
   return (
     <div className="w-full space-y-2 md:w-96">
       <Select
@@ -804,12 +822,18 @@ const CloudVoiceSelector: React.FC<CloudVoiceSelectorProps> = ({
       />
       <div className="flex flex-wrap items-center gap-2">
         {onRefresh && (
-          <Button variant="secondary" disabled={busy} onClick={onRefresh}>
-            <RefreshCw
-              className={`mr-2 inline h-4 w-4 ${busy ? "animate-spin" : ""}`}
-            />
-            {refreshLabel}
-          </Button>
+          <ActionTooltip
+            content={
+              busy ? t("textToSpeech.voice.refreshInProgress") : null
+            }
+          >
+            <Button variant="secondary" disabled={busy} onClick={onRefresh}>
+              <RefreshCw
+                className={`mr-2 inline h-4 w-4 ${busy ? "animate-spin" : ""}`}
+              />
+              {refreshLabel}
+            </Button>
+          </ActionTooltip>
         )}
         {sourceLabel && (
           <span className="text-xs text-emerald-200/80">{sourceLabel}</span>
@@ -1212,6 +1236,8 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
 
   const [savingField, setSavingField] = useState<string | null>(null);
   const [settingsError, setSettingsError] = useState<string | null>(null);
+  const [deleteConfirmation, setDeleteConfirmation] =
+    useState<TtsDeleteConfirmation | null>(null);
   const [showFirstVisitNotice, setShowFirstVisitNotice] = useState(() =>
     shouldShowFirstVisitNotice(mode),
   );
@@ -1285,6 +1311,7 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
   const [outputFormat, setOutputFormat] = useState<TtsOutputFormat>("mp3");
   const [mp3Bitrate, setMp3Bitrate] = useState(256);
   const [conversionBusy, setConversionBusy] = useState(false);
+  const [conversionStopping, setConversionStopping] = useState(false);
   const [conversionProgress, setConversionProgress] =
     useState<ConversionProgress | null>(null);
   const [conversionError, setConversionError] = useState<string | null>(null);
@@ -2016,15 +2043,37 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
       "preprocessing_rules",
     );
 
-  const removeRule = (id: string) =>
-    updateTts(
+  const removeRule = async (id: string) => {
+    const rules = ttsRef.current.preprocessing_rules;
+    const removedIndex = rules.findIndex((rule) => rule.id === id);
+    if (removedIndex < 0) return;
+    const removedRule = rules[removedIndex];
+    await updateTts(
       {
-        preprocessing_rules: tts.preprocessing_rules.filter(
-          (rule) => rule.id !== id,
-        ),
+        preprocessing_rules: rules.filter((rule) => rule.id !== id),
       },
       "preprocessing_rules",
     );
+    toast.success(t("textToSpeech.preprocessing.ruleDeleted"), {
+      action: {
+        label: t("textToSpeech.preprocessing.undo"),
+        onClick: () => {
+          const currentRules = ttsRef.current.preprocessing_rules;
+          if (currentRules.some((rule) => rule.id === removedRule.id)) return;
+          const restoredRules = [...currentRules];
+          restoredRules.splice(
+            Math.min(removedIndex, restoredRules.length),
+            0,
+            removedRule,
+          );
+          void updateTts(
+            { preprocessing_rules: restoredRules },
+            "preprocessing_rules",
+          );
+        },
+      },
+    });
+  };
 
   const selectPromptPreset = (id: string) => {
     const preset = tts.prompt_presets.find((item) => item.id === id);
@@ -2212,6 +2261,21 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
       "synthesis_presets",
     );
     setSynthesisPresetName("");
+  };
+
+  const confirmDelete = () => {
+    if (!deleteConfirmation) return;
+    switch (deleteConfirmation.kind) {
+      case "synthesisPreset":
+        void deleteSelectedSynthesisPreset();
+        break;
+      case "promptPreset":
+        void deleteSelectedPromptPreset();
+        break;
+      case "localModel":
+        void deleteLocalTts();
+        break;
+    }
   };
 
   const inspectionSettingsKey = useMemo(
@@ -2415,17 +2479,37 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
     } finally {
       conversionBusyRef.current = false;
       setConversionBusy(false);
+      setConversionStopping(false);
       window.dispatchEvent(new Event("aivorelay:tts-jobs-changed"));
     }
   };
 
   const cancelConversion = async () => {
+    setConversionStopping(true);
+    setConversionError(null);
     try {
+      let activeOperationId = conversionOperationIdRef.current;
+      for (
+        let attempt = 0;
+        !activeOperationId && conversionBusyRef.current && attempt < 1_300;
+        attempt += 1
+      ) {
+        await waitForUiTick(100);
+        activeOperationId = conversionOperationIdRef.current;
+      }
+      if (!activeOperationId) {
+        if (!conversionBusyRef.current) {
+          setConversionStopping(false);
+          return;
+        }
+        throw new Error(t("textToSpeech.conversion.operationUnavailable"));
+      }
       await invoke("cancel_tts_operation", {
-        operationId,
+        operationId: activeOperationId,
       });
     } catch (error) {
       setConversionError(asErrorMessage(error));
+      setConversionStopping(false);
     }
   };
 
@@ -2643,14 +2727,22 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
                   value={inputPath}
                   placeholder={t("textToSpeech.conversion.noFileSelected")}
                 />
-                <Button
-                  variant="secondary"
-                  disabled={conversionBusy}
-                  onClick={() => void chooseInputFile()}
+                <ActionTooltip
+                  content={
+                    conversionBusy
+                      ? t("textToSpeech.conversion.disabledWhileRunning")
+                      : null
+                  }
                 >
-                  <FileText className="mr-2 inline h-4 w-4" />
-                  {t("textToSpeech.conversion.chooseFile")}
-                </Button>
+                  <Button
+                    variant="secondary"
+                    disabled={conversionBusy}
+                    onClick={() => void chooseInputFile()}
+                  >
+                    <FileText className="mr-2 inline h-4 w-4" />
+                    {t("textToSpeech.conversion.chooseFile")}
+                  </Button>
+                </ActionTooltip>
               </div>
               {inputPath && inspecting && (
                 <div
@@ -2774,7 +2866,13 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
 
         {mode === "files" && (
           <>
-            <TtsUnfinishedJobs />
+            <TtsUnfinishedJobs
+              activeOperationId={conversionBusy ? operationId : null}
+              activeCompletedChunks={
+                conversionBusy ? completedChunks : undefined
+              }
+              activeTotalChunks={conversionBusy ? totalChunks : undefined}
+            />
             <SettingsGroup
               title={t("textToSpeech.conversion.title")}
               description={t("textToSpeech.conversion.description")}
@@ -2813,14 +2911,22 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
                     value={inputPath}
                     placeholder={t("textToSpeech.conversion.noFileSelected")}
                   />
-                  <Button
-                    variant="secondary"
-                    disabled={conversionBusy}
-                    onClick={() => void chooseInputFile()}
+                  <ActionTooltip
+                    content={
+                      conversionBusy
+                        ? t("textToSpeech.conversion.disabledWhileRunning")
+                        : null
+                    }
                   >
-                    <FileText className="mr-2 inline h-4 w-4" />
-                    {t("textToSpeech.conversion.chooseFile")}
-                  </Button>
+                    <Button
+                      variant="secondary"
+                      disabled={conversionBusy}
+                      onClick={() => void chooseInputFile()}
+                    >
+                      <FileText className="mr-2 inline h-4 w-4" />
+                      {t("textToSpeech.conversion.chooseFile")}
+                    </Button>
+                  </ActionTooltip>
                 </div>
                 {inputPath && inspecting && (
                   <div
@@ -2957,14 +3063,24 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
                     value={outputPath}
                     placeholder={t("textToSpeech.conversion.noOutputSelected")}
                   />
-                  <Button
-                    variant="secondary"
-                    disabled={!inputPath || conversionBusy}
-                    onClick={() => void chooseOutputFile()}
+                  <ActionTooltip
+                    content={
+                      conversionBusy
+                        ? t("textToSpeech.conversion.disabledWhileRunning")
+                        : !inputPath
+                          ? t("textToSpeech.conversion.chooseInputFirst")
+                          : null
+                    }
                   >
-                    <FileAudio className="mr-2 inline h-4 w-4" />
-                    {t("textToSpeech.conversion.saveAs")}
-                  </Button>
+                    <Button
+                      variant="secondary"
+                      disabled={!inputPath || conversionBusy}
+                      onClick={() => void chooseOutputFile()}
+                    >
+                      <FileAudio className="mr-2 inline h-4 w-4" />
+                      {t("textToSpeech.conversion.saveAs")}
+                    </Button>
+                  </ActionTooltip>
                 </div>
               </SettingContainer>
 
@@ -2997,23 +3113,52 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
               )}
 
               <div className="flex flex-wrap items-center gap-3 px-6 py-4">
-                <Button
-                  disabled={!inspection || !outputPath || conversionBusy}
-                  onClick={() => void convertFile()}
+                <ActionTooltip
+                  content={
+                    conversionBusy
+                      ? t("textToSpeech.conversion.alreadyRunning")
+                      : !inputPath
+                        ? t("textToSpeech.conversion.chooseInputFirst")
+                        : inspecting || !inspection
+                          ? t("textToSpeech.conversion.waitForInspection")
+                          : !outputPath
+                            ? t("textToSpeech.conversion.chooseOutputFirst")
+                            : null
+                  }
                 >
-                  {conversionBusy && (
-                    <Loader2 className="mr-2 inline h-4 w-4 animate-spin" />
-                  )}
-                  {t("textToSpeech.conversion.convert")}
-                </Button>
-                {conversionBusy && (
                   <Button
-                    variant="secondary"
-                    disabled={!operationId}
-                    onClick={() => void cancelConversion()}
+                    disabled={!inspection || !outputPath || conversionBusy}
+                    onClick={() => void convertFile()}
                   >
-                    {t("textToSpeech.conversion.pause")}
+                    {conversionBusy && (
+                      <Loader2 className="mr-2 inline h-4 w-4 animate-spin" />
+                    )}
+                    {conversionBusy
+                      ? t("textToSpeech.conversion.convertingAction")
+                      : t("textToSpeech.conversion.startConversion")}
                   </Button>
+                </ActionTooltip>
+                {conversionBusy && (
+                  <ActionTooltip
+                    content={
+                      conversionStopping
+                        ? t("textToSpeech.conversion.stopAlreadyRequested")
+                        : null
+                    }
+                  >
+                    <Button
+                      variant="secondary"
+                      disabled={conversionStopping}
+                      onClick={() => void cancelConversion()}
+                    >
+                      {conversionStopping && (
+                        <Loader2 className="mr-2 inline h-4 w-4 animate-spin" />
+                      )}
+                      {conversionStopping
+                        ? t("textToSpeech.conversion.stopping")
+                        : t("textToSpeech.conversion.pause")}
+                    </Button>
+                  </ActionTooltip>
                 )}
               </div>
 
@@ -3092,14 +3237,32 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
                 isClearable={false}
                 disabled={savingField !== null}
               />
-              <Button
-                variant="danger"
-                disabled={!selectedSynthesisPresetId || savingField !== null}
-                onClick={() => void deleteSelectedSynthesisPreset()}
+              <ActionTooltip
+                content={
+                  savingField !== null
+                    ? t("textToSpeech.disabledWhileSaving")
+                    : !selectedSynthesisPresetId
+                      ? t("textToSpeech.synthesisPresets.selectToDelete")
+                      : null
+                }
               >
-                <Trash2 className="mr-2 inline h-4 w-4" />
-                {t("textToSpeech.synthesisPresets.delete")}
-              </Button>
+                <Button
+                  variant="danger"
+                  disabled={!selectedSynthesisPresetId || savingField !== null}
+                  onClick={() =>
+                    setDeleteConfirmation({
+                      kind: "synthesisPreset",
+                      name:
+                        tts.synthesis_presets.find(
+                          (preset) => preset.id === selectedSynthesisPresetId,
+                        )?.name ?? "",
+                    })
+                  }
+                >
+                  <Trash2 className="mr-2 inline h-4 w-4" />
+                  {t("textToSpeech.synthesisPresets.delete")}
+                </Button>
+              </ActionTooltip>
             </div>
           </SettingContainer>
           <SettingContainer
@@ -3117,14 +3280,24 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
                 placeholder={t("textToSpeech.synthesisPresets.namePlaceholder")}
                 onChange={(event) => setSynthesisPresetName(event.target.value)}
               />
-              <Button
-                variant="secondary"
-                disabled={!synthesisPresetName.trim() || savingField !== null}
-                onClick={() => void saveSynthesisPreset()}
+              <ActionTooltip
+                content={
+                  savingField !== null
+                    ? t("textToSpeech.disabledWhileSaving")
+                    : !synthesisPresetName.trim()
+                      ? t("textToSpeech.synthesisPresets.enterName")
+                      : null
+                }
               >
-                <SaveIcon className="mr-2 inline h-4 w-4" />
-                {t("textToSpeech.synthesisPresets.save")}
-              </Button>
+                <Button
+                  variant="secondary"
+                  disabled={!synthesisPresetName.trim() || savingField !== null}
+                  onClick={() => void saveSynthesisPreset()}
+                >
+                  <SaveIcon className="mr-2 inline h-4 w-4" />
+                  {t("textToSpeech.synthesisPresets.save")}
+                </Button>
+              </ActionTooltip>
             </div>
           </SettingContainer>
           <div className="px-6 py-4 text-xs leading-relaxed text-text/60">
@@ -3358,23 +3531,36 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
                 <div className="flex flex-wrap gap-2">
                   {!localTtsStatus?.installed &&
                     !localTtsStatus?.installing && (
-                      <Button
-                        variant="primary"
-                        disabled={
-                          localTtsBusy ||
-                          !localTtsStatus?.install_root ||
-                          !activeLocalInstallConsent.sourceTrusted ||
-                          !activeLocalInstallConsent.riskAcknowledged
+                      <ActionTooltip
+                        content={
+                          localTtsBusy
+                            ? t("textToSpeech.local.operationInProgress")
+                            : !localTtsStatus?.install_root
+                              ? t("textToSpeech.local.pathUnavailable")
+                              : !activeLocalInstallConsent.sourceTrusted ||
+                                  !activeLocalInstallConsent.riskAcknowledged
+                                ? t("textToSpeech.local.acceptWarningsFirst")
+                                : null
                         }
-                        onClick={() => void installLocalTts()}
                       >
-                        {localTtsBusy && (
-                          <Loader2 className="mr-2 inline h-4 w-4 animate-spin" />
-                        )}
-                        {(localTtsStatus?.installed_size_bytes ?? 0) > 0
-                          ? t("textToSpeech.local.repairOrInstall")
-                          : t("textToSpeech.local.install")}
-                      </Button>
+                        <Button
+                          variant="primary"
+                          disabled={
+                            localTtsBusy ||
+                            !localTtsStatus?.install_root ||
+                            !activeLocalInstallConsent.sourceTrusted ||
+                            !activeLocalInstallConsent.riskAcknowledged
+                          }
+                          onClick={() => void installLocalTts()}
+                        >
+                          {localTtsBusy && (
+                            <Loader2 className="mr-2 inline h-4 w-4 animate-spin" />
+                          )}
+                          {(localTtsStatus?.installed_size_bytes ?? 0) > 0
+                            ? t("textToSpeech.local.repairOrInstall")
+                            : t("textToSpeech.local.install")}
+                        </Button>
+                      </ActionTooltip>
                     )}
                   {localTtsStatus?.installing && (
                     <Button
@@ -3386,15 +3572,25 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
                   )}
                   {localTtsStatus?.installed && (
                     <>
-                      <Button
-                        variant="secondary"
-                        disabled={!localTtsStatus.install_root}
-                        onClick={() =>
-                          void openLocalInstallPath(localTtsStatus.install_root)
+                      <ActionTooltip
+                        content={
+                          !localTtsStatus.install_root
+                            ? t("textToSpeech.local.pathUnavailable")
+                            : null
                         }
                       >
-                        {t("textToSpeech.local.openInstallFolder")}
-                      </Button>
+                        <Button
+                          variant="secondary"
+                          disabled={!localTtsStatus.install_root}
+                          onClick={() =>
+                            void openLocalInstallPath(
+                              localTtsStatus.install_root,
+                            )
+                          }
+                        >
+                          {t("textToSpeech.local.openInstallFolder")}
+                        </Button>
+                      </ActionTooltip>
                       {localTtsStatus.model_license_available &&
                         localTtsStatus.model_license_path && (
                           <Button
@@ -3408,14 +3604,24 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
                             {t("textToSpeech.local.openLocalLicense")}
                           </Button>
                         )}
-                      <Button
-                        variant="danger"
-                        disabled={localTtsBusy}
-                        onClick={() => void deleteLocalTts()}
+                      <ActionTooltip
+                        content={
+                          localTtsBusy
+                            ? t("textToSpeech.local.operationInProgress")
+                            : null
+                        }
                       >
-                        <Trash2 className="mr-2 inline h-4 w-4" />
-                        {t("textToSpeech.local.delete")}
-                      </Button>
+                        <Button
+                          variant="danger"
+                          disabled={localTtsBusy}
+                          onClick={() =>
+                            setDeleteConfirmation({ kind: "localModel" })
+                          }
+                        >
+                          <Trash2 className="mr-2 inline h-4 w-4" />
+                          {t("textToSpeech.local.delete")}
+                        </Button>
+                      </ActionTooltip>
                     </>
                   )}
                 </div>
@@ -3632,13 +3838,24 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
                     disabled={savingField !== null}
                   />
                 )}
-                <Button
-                  variant="secondary"
-                  disabled={windowsCatalogBusy}
-                  onClick={() => void refreshWindowsCatalog()}
+                <ActionTooltip
+                  content={
+                    windowsCatalogBusy
+                      ? t("textToSpeech.windows.refreshInProgress")
+                      : null
+                  }
                 >
-                  {t("textToSpeech.windows.refresh")}
-                </Button>
+                  <Button
+                    variant="secondary"
+                    disabled={windowsCatalogBusy}
+                    onClick={() => void refreshWindowsCatalog()}
+                  >
+                    {windowsCatalogBusy && (
+                      <Loader2 className="mr-2 inline h-4 w-4 animate-spin" />
+                    )}
+                    {t("textToSpeech.windows.refresh")}
+                  </Button>
+                </ActionTooltip>
                 <p className="text-xs text-text/60">
                   {t("textToSpeech.windows.help")}
                 </p>
@@ -3957,14 +4174,32 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
                     isClearable={false}
                     disabled={savingField !== null}
                   />
-                  <Button
-                    variant="danger"
-                    disabled={!tts.selected_prompt_id || savingField !== null}
-                    onClick={() => void deleteSelectedPromptPreset()}
+                  <ActionTooltip
+                    content={
+                      savingField !== null
+                        ? t("textToSpeech.disabledWhileSaving")
+                        : !tts.selected_prompt_id
+                          ? t("textToSpeech.prompts.selectToDelete")
+                          : null
+                    }
                   >
-                    <Trash2 className="mr-2 inline h-4 w-4" />
-                    {t("textToSpeech.prompts.deletePreset")}
-                  </Button>
+                    <Button
+                      variant="danger"
+                      disabled={!tts.selected_prompt_id || savingField !== null}
+                      onClick={() =>
+                        setDeleteConfirmation({
+                          kind: "promptPreset",
+                          name:
+                            tts.prompt_presets.find(
+                              (preset) => preset.id === tts.selected_prompt_id,
+                            )?.name ?? "",
+                        })
+                      }
+                    >
+                      <Trash2 className="mr-2 inline h-4 w-4" />
+                      {t("textToSpeech.prompts.deletePreset")}
+                    </Button>
+                  </ActionTooltip>
                 </div>
               </SettingContainer>
               <SettingContainer
@@ -4004,18 +4239,30 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
                       setPromptPresetName(event.target.value)
                     }
                   />
-                  <Button
-                    variant="secondary"
-                    disabled={
-                      !promptPresetName.trim() ||
-                      !tts.openai_instructions.trim() ||
+                  <ActionTooltip
+                    content={
                       savingField !== null
+                        ? t("textToSpeech.disabledWhileSaving")
+                        : !promptPresetName.trim()
+                          ? t("textToSpeech.prompts.enterName")
+                          : !tts.openai_instructions.trim()
+                            ? t("textToSpeech.prompts.enterInstructions")
+                            : null
                     }
-                    onClick={() => void savePromptPreset()}
                   >
-                    <SaveIcon className="mr-2 inline h-4 w-4" />
-                    {t("textToSpeech.prompts.saveNamed")}
-                  </Button>
+                    <Button
+                      variant="secondary"
+                      disabled={
+                        !promptPresetName.trim() ||
+                        !tts.openai_instructions.trim() ||
+                        savingField !== null
+                      }
+                      onClick={() => void savePromptPreset()}
+                    >
+                      <SaveIcon className="mr-2 inline h-4 w-4" />
+                      {t("textToSpeech.prompts.saveNamed")}
+                    </Button>
+                  </ActionTooltip>
                 </div>
               </SettingContainer>
               <div className="px-6 py-4 text-xs text-amber-200/90">
@@ -4272,14 +4519,22 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
                 "textToSpeech.preprocessing.replacementPlaceholder",
               )}
             />
-            <Button
-              size="sm"
-              disabled={!ruleFrom}
-              onClick={() => void addRule()}
+            <ActionTooltip
+              content={
+                !ruleFrom
+                  ? t("textToSpeech.preprocessing.enterFindText")
+                  : null
+              }
             >
-              <Plus className="mr-1 inline h-4 w-4" />
-              {t("textToSpeech.preprocessing.add")}
-            </Button>
+              <Button
+                size="sm"
+                disabled={!ruleFrom}
+                onClick={() => void addRule()}
+              >
+                <Plus className="mr-1 inline h-4 w-4" />
+                {t("textToSpeech.preprocessing.add")}
+              </Button>
+            </ActionTooltip>
           </div>
           <div className="flex flex-wrap gap-5">
             <label className="flex items-center gap-2 text-xs text-[#b8b8b8]">
@@ -4330,14 +4585,16 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
                   : t("textToSpeech.preprocessing.caseInsensitive")}
               </div>
             </div>
-            <button
-              type="button"
-              className="rounded p-2 text-[#808080] hover:bg-red-500/10 hover:text-red-300"
-              onClick={() => void removeRule(rule.id)}
-              aria-label={t("textToSpeech.preprocessing.deleteRule")}
-            >
-              <Trash2 className="h-4 w-4" />
-            </button>
+            <Tooltip content={t("textToSpeech.preprocessing.deleteRule")}>
+              <button
+                type="button"
+                className="rounded p-2 text-[#808080] hover:bg-red-500/10 hover:text-red-300"
+                onClick={() => void removeRule(rule.id)}
+                aria-label={t("textToSpeech.preprocessing.deleteRule")}
+              >
+                <Trash2 className="h-4 w-4" />
+              </button>
+            </Tooltip>
           </div>
         ))}
         {tts.preprocessing_rules.length === 0 && (
@@ -4609,6 +4866,41 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
           flushPendingSettingsWrites={flushPendingSettingsWrites}
         />
       )}
+      <ConfirmationModal
+        isOpen={deleteConfirmation !== null}
+        onClose={() => setDeleteConfirmation(null)}
+        onConfirm={confirmDelete}
+        title={
+          deleteConfirmation?.kind === "localModel"
+            ? t("textToSpeech.local.deleteConfirmTitle")
+            : deleteConfirmation?.kind === "promptPreset"
+              ? t("textToSpeech.prompts.deleteConfirmTitle")
+              : t("textToSpeech.synthesisPresets.deleteConfirmTitle")
+        }
+        message={
+          deleteConfirmation?.kind === "localModel"
+            ? t("textToSpeech.local.deleteConfirmMessage")
+            : deleteConfirmation?.kind === "promptPreset"
+              ? t("textToSpeech.prompts.deleteConfirmMessage", {
+                  name: deleteConfirmation.name,
+                })
+              : t("textToSpeech.synthesisPresets.deleteConfirmMessage", {
+                  name:
+                    deleteConfirmation?.kind === "synthesisPreset"
+                      ? deleteConfirmation.name
+                      : "",
+                })
+        }
+        confirmText={
+          deleteConfirmation?.kind === "localModel"
+            ? t("textToSpeech.local.delete")
+            : deleteConfirmation?.kind === "promptPreset"
+              ? t("textToSpeech.prompts.deletePreset")
+              : t("textToSpeech.synthesisPresets.delete")
+        }
+        cancelText={t("common.cancel")}
+        variant="danger"
+      />
     </div>
   );
 };
