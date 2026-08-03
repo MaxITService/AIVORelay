@@ -7,7 +7,7 @@ import React, {
   useEffect,
 } from "react";
 import { useTranslation } from "react-i18next";
-import { Cog, FlaskConical, Globe, History, Info, Sparkles, Wand2, Terminal, FileAudio, Replace, Mic, Palette, Cpu, Radio, Volume2, CircleHelp } from "lucide-react";
+import { Cog, FlaskConical, Globe, History, Info, Sparkles, Wand2, Terminal, FileAudio, FileVolume2, Replace, Mic, Palette, Cpu, Radio, TextSelect, CircleHelp } from "lucide-react";
 import { type } from "@tauri-apps/plugin-os";
 import HandyTextLogo from "./icons/HandyTextLogo";
 import HandyHand from "./icons/HandyHand";
@@ -133,13 +133,13 @@ export const SECTIONS_CONFIG = {
   },
   transcribeFile: {
     labelKey: "sidebar.transcribeFile",
-    icon: FileAudio,
+    icon: FileVolume2,
     component: TranscribeFileSettings,
     enabled: () => true,
   },
   textToSpeech: {
     labelKey: "sidebar.textToSpeech",
-    icon: Volume2,
+    icon: TextSelect,
     component: TextToSpeechSettings,
     enabled: () => true,
   },
