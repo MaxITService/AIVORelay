@@ -206,13 +206,23 @@ export const TtsUnfinishedJobs: React.FC = () => {
             key={job.jobId}
             className="border-b border-white/[0.05] px-6 py-4 last:border-b-0"
           >
-            <div className="flex flex-wrap items-start justify-between gap-3">
-              <div className="min-w-0 flex-1">
-                <div className="truncate text-sm font-medium text-[#f2f2f2]">
-                  {job.sourcePath}
+            <div className="flex flex-col gap-3">
+              <div className="min-w-0">
+                <div className="flex items-start gap-2 text-sm font-medium text-[#f2f2f2]">
+                  <span className="shrink-0 text-xs font-semibold text-[#a0a0a0]">
+                    {t("textToSpeech.unfinishedJobs.from")}
+                  </span>
+                  <span className="break-all" title={job.sourcePath}>
+                    {job.sourcePath}
+                  </span>
                 </div>
-                <div className="mt-1 break-all text-xs text-[#888]">
-                  {job.outputPath}
+                <div className="mt-1 flex items-start gap-2 text-xs text-[#888]">
+                  <span className="shrink-0 font-semibold text-[#a0a0a0]">
+                    {t("textToSpeech.unfinishedJobs.to")}
+                  </span>
+                  <span className="break-all" title={job.outputPath}>
+                    {job.outputPath}
+                  </span>
                 </div>
                 <div className="mt-2 text-xs text-[#b8b8b8]">
                   {t("textToSpeech.unfinishedJobs.progress", {
@@ -234,7 +244,7 @@ export const TtsUnfinishedJobs: React.FC = () => {
                   </div>
                 )}
               </div>
-              <div className="flex flex-wrap gap-2">
+              <div className="flex w-full flex-wrap gap-2">
                 {job.status === "completed" ? null : active ? (
                   <Button
                     variant="secondary"

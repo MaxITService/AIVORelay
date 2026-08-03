@@ -277,7 +277,7 @@
     },
     "fileSettings": {
       "title": "Text file to mp3",
-      "description": "Provider and synthesis settings used by manual file conversion, folder automation, the CLI, and File History."
+      "description": "Select the cloud provider or local model that will convert your text files to audio. These settings also apply to folder automation, the CLI, and File History."
     },
     "synthesisPresets": {
       "title": "Presets of all settings",
@@ -564,6 +564,8 @@
     "unfinishedJobs": {
       "title": "Unfinished conversions",
       "description": "Continue an interrupted conversion without paying for completed chunks again, save the finished part, or discard its saved progress.",
+      "from": "From:",
+      "to": "To:",
       "progress": "{{completed}} of {{total}} chunks — {{percent}}%",
       "resume": "Resume",
       "pause": "Pause and keep progress",
