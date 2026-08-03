@@ -2771,6 +2771,211 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
           </SettingsGroup>
         )}
 
+        {mode === "files" && (
+          <SettingsGroup
+            title={t("textToSpeech.conversion.title")}
+            description={t("textToSpeech.conversion.description")}
+            help={
+              <TtsHelpDisclosure
+                summary={t("textToSpeech.help.conversionSummary")}
+                items={[
+                  {
+                    term: t("textToSpeech.help.input"),
+                    description: t("textToSpeech.help.inputDescription"),
+                  },
+                  {
+                    term: t("textToSpeech.help.output"),
+                    description: t("textToSpeech.help.outputDescription"),
+                  },
+                  {
+                    term: t("textToSpeech.help.resume"),
+                    description: t("textToSpeech.help.resumeDescription"),
+                  },
+                ]}
+                links={aivoRelayTtsGuideLink}
+              />
+            }
+          >
+            <details className="group border-b border-white/[0.05] px-6 py-4">
+              <summary className="cursor-pointer select-none text-sm font-medium text-[#d7b9ff]">
+                {t("textToSpeech.conversion.cliHelpTitle")}
+              </summary>
+              <div className="mt-3 space-y-2 text-xs leading-relaxed text-[#a0a0a0]">
+                <p>{t("textToSpeech.conversion.cliHelpDescription")}</p>
+                <code className="block overflow-x-auto rounded-lg bg-black/30 p-3 text-[#e8e8e8]">
+                  {t("textToSpeech.conversion.cliExample")}
+                </code>
+                <code className="block overflow-x-auto rounded-lg bg-black/30 p-3 text-[#e8e8e8]">
+                  {t("textToSpeech.conversion.cliBatchExample")}
+                </code>
+                <p>{t("textToSpeech.conversion.cliBatchDescription")}</p>
+                <code className="block overflow-x-auto rounded-lg bg-black/30 p-3 text-[#e8e8e8]">
+                  {t("textToSpeech.conversion.cliOverrideExample")}
+                </code>
+                <p>{t("textToSpeech.conversion.cliOverrideDescription")}</p>
+                <code className="block overflow-x-auto rounded-lg bg-black/30 p-3 text-[#e8e8e8]">
+                  {t("textToSpeech.conversion.cliPromptExample")}
+                </code>
+                <p>{t("textToSpeech.conversion.cliLongInstructions")}</p>
+                <p>{t("textToSpeech.conversion.cliHistory")}</p>
+                <code className="block overflow-x-auto rounded-lg bg-black/30 p-3 text-[#e8e8e8]">
+                  {t("textToSpeech.conversion.cliRegenerateExample")}
+                </code>
+                <p>{t("textToSpeech.conversion.cliRegenerateDescription")}</p>
+              </div>
+            </details>
+            <SettingContainer
+              grouped
+              title={t("textToSpeech.conversion.finalFormatTitle")}
+              description={t("textToSpeech.conversion.finalFormatDescription")}
+            >
+              <Select
+                className="w-full md:w-72"
+                value={outputFormat}
+                options={[
+                  { value: "mp3", label: "MP3" },
+                  { value: "wav", label: "WAV" },
+                ]}
+                onChange={(value) => {
+                  if (!value) return;
+                  const format = value as TtsOutputFormat;
+                  setOutputFormat(format);
+                  if (!outputPathCustomizedRef.current) {
+                    setOutputPath(defaultTtsOutputPath(inputPath, format));
+                  }
+                  void updateTts({ output_format: format }, "output_format");
+                }}
+                isClearable={false}
+                disabled={conversionBusy}
+              />
+            </SettingContainer>
+            {outputFormat === "mp3" && (
+              <SettingContainer
+                grouped
+                title={t("textToSpeech.conversion.bitrateTitle")}
+                description={t("textToSpeech.conversion.bitrateDescription")}
+              >
+                <Select
+                  className="w-full md:w-72"
+                  value={String(mp3Bitrate)}
+                  options={BITRATES.map((bitrate) => ({
+                    value: String(bitrate),
+                    label: `${bitrate} kb/s`,
+                  }))}
+                  onChange={(value) => {
+                    if (!value) return;
+                    const bitrate = Number(value);
+                    setMp3Bitrate(bitrate);
+                    void updateTts(
+                      { mp3_bitrate_kbps: bitrate },
+                      "mp3_bitrate_kbps",
+                    );
+                  }}
+                  isClearable={false}
+                  disabled={conversionBusy}
+                />
+              </SettingContainer>
+            )}
+            <SettingContainer
+              grouped
+              layout="stacked"
+              title={t("textToSpeech.conversion.outputTitle")}
+              description={t("textToSpeech.conversion.outputDescription")}
+              descriptionMode="inline"
+            >
+              <div className="flex gap-2">
+                <Input
+                  className="min-w-0 flex-1"
+                  readOnly
+                  value={outputPath}
+                  placeholder={t("textToSpeech.conversion.noOutputSelected")}
+                />
+                <Button
+                  variant="secondary"
+                  disabled={!inputPath || conversionBusy}
+                  onClick={() => void chooseOutputFile()}
+                >
+                  <FileAudio className="mr-2 inline h-4 w-4" />
+                  {t("textToSpeech.conversion.saveAs")}
+                </Button>
+              </div>
+            </SettingContainer>
+
+            {(conversionBusy || conversionProgress) && (
+              <div className="space-y-2 px-6 py-4">
+                <div className="flex items-center justify-between text-xs text-[#b8b8b8]">
+                  <span>
+                    {conversionStatus}{" "}
+                    {totalChunks > 0
+                      ? t("textToSpeech.conversion.chunkProgress", {
+                          completed: completedChunks,
+                          total: totalChunks,
+                        })
+                      : ""}
+                  </span>
+                  <span>{progressPercent}%</span>
+                </div>
+                <div className="h-2 overflow-hidden rounded-full bg-[#252525]">
+                  <div
+                    className="h-full rounded-full bg-[#9b5de5] transition-[width]"
+                    style={{ width: `${progressPercent}%` }}
+                  />
+                </div>
+                {conversionProgress?.message && (
+                  <p className="text-xs text-[#a0a0a0]">
+                    {conversionProgress.message}
+                  </p>
+                )}
+              </div>
+            )}
+
+            <div className="flex flex-wrap items-center gap-3 px-6 py-4">
+              <Button
+                disabled={!inspection || !outputPath || conversionBusy}
+                onClick={() => void convertFile()}
+              >
+                {conversionBusy && (
+                  <Loader2 className="mr-2 inline h-4 w-4 animate-spin" />
+                )}
+                {t("textToSpeech.conversion.convert")}
+              </Button>
+              {conversionBusy && (
+                <Button
+                  variant="secondary"
+                  disabled={!operationId}
+                  onClick={() => void cancelConversion()}
+                >
+                  {t("textToSpeech.conversion.pause")}
+                </Button>
+              )}
+            </div>
+
+            {conversionError && (
+              <div
+                role="alert"
+                className="flex items-start gap-2 px-6 py-4 text-sm text-red-300"
+              >
+                <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+                <span>{conversionError}</span>
+              </div>
+            )}
+            {completedPath && (
+              <div
+                role="status"
+                aria-live="polite"
+                className="flex items-start gap-2 px-6 py-4 text-sm text-green-300"
+              >
+                <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />
+                <span className="min-w-0 break-all">
+                  {t("textToSpeech.conversion.completed", {
+                    path: completedPath,
+                  })}
+                </span>
+              </div>
+            )}
+          </SettingsGroup>
+        )}
+
         <SettingsGroup
           title={t("textToSpeech.synthesisPresets.title")}
           description={t("textToSpeech.synthesisPresets.description")}
@@ -3925,208 +4130,6 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
       {mode === "files" && (
         <>
           <TtsUnfinishedJobs />
-          <SettingsGroup
-            title={t("textToSpeech.conversion.title")}
-            description={t("textToSpeech.conversion.description")}
-            help={
-              <TtsHelpDisclosure
-                summary={t("textToSpeech.help.conversionSummary")}
-                items={[
-                  {
-                    term: t("textToSpeech.help.input"),
-                    description: t("textToSpeech.help.inputDescription"),
-                  },
-                  {
-                    term: t("textToSpeech.help.output"),
-                    description: t("textToSpeech.help.outputDescription"),
-                  },
-                  {
-                    term: t("textToSpeech.help.resume"),
-                    description: t("textToSpeech.help.resumeDescription"),
-                  },
-                ]}
-                links={aivoRelayTtsGuideLink}
-              />
-            }
-          >
-            <details className="group border-b border-white/[0.05] px-6 py-4">
-              <summary className="cursor-pointer select-none text-sm font-medium text-[#d7b9ff]">
-                {t("textToSpeech.conversion.cliHelpTitle")}
-              </summary>
-              <div className="mt-3 space-y-2 text-xs leading-relaxed text-[#a0a0a0]">
-                <p>{t("textToSpeech.conversion.cliHelpDescription")}</p>
-                <code className="block overflow-x-auto rounded-lg bg-black/30 p-3 text-[#e8e8e8]">
-                  {t("textToSpeech.conversion.cliExample")}
-                </code>
-                <code className="block overflow-x-auto rounded-lg bg-black/30 p-3 text-[#e8e8e8]">
-                  {t("textToSpeech.conversion.cliBatchExample")}
-                </code>
-                <p>{t("textToSpeech.conversion.cliBatchDescription")}</p>
-                <code className="block overflow-x-auto rounded-lg bg-black/30 p-3 text-[#e8e8e8]">
-                  {t("textToSpeech.conversion.cliOverrideExample")}
-                </code>
-                <p>{t("textToSpeech.conversion.cliOverrideDescription")}</p>
-                <code className="block overflow-x-auto rounded-lg bg-black/30 p-3 text-[#e8e8e8]">
-                  {t("textToSpeech.conversion.cliPromptExample")}
-                </code>
-                <p>{t("textToSpeech.conversion.cliLongInstructions")}</p>
-                <p>{t("textToSpeech.conversion.cliHistory")}</p>
-                <code className="block overflow-x-auto rounded-lg bg-black/30 p-3 text-[#e8e8e8]">
-                  {t("textToSpeech.conversion.cliRegenerateExample")}
-                </code>
-                <p>{t("textToSpeech.conversion.cliRegenerateDescription")}</p>
-              </div>
-            </details>
-            <SettingContainer
-              grouped
-              title={t("textToSpeech.conversion.finalFormatTitle")}
-              description={t("textToSpeech.conversion.finalFormatDescription")}
-            >
-              <Select
-                className="w-full md:w-72"
-                value={outputFormat}
-                options={[
-                  { value: "mp3", label: "MP3" },
-                  { value: "wav", label: "WAV" },
-                ]}
-                onChange={(value) => {
-                  if (!value) return;
-                  const format = value as TtsOutputFormat;
-                  setOutputFormat(format);
-                  if (!outputPathCustomizedRef.current) {
-                    setOutputPath(defaultTtsOutputPath(inputPath, format));
-                  }
-                  void updateTts({ output_format: format }, "output_format");
-                }}
-                isClearable={false}
-                disabled={conversionBusy}
-              />
-            </SettingContainer>
-            {outputFormat === "mp3" && (
-              <SettingContainer
-                grouped
-                title={t("textToSpeech.conversion.bitrateTitle")}
-                description={t("textToSpeech.conversion.bitrateDescription")}
-              >
-                <Select
-                  className="w-full md:w-72"
-                  value={String(mp3Bitrate)}
-                  options={BITRATES.map((bitrate) => ({
-                    value: String(bitrate),
-                    label: `${bitrate} kb/s`,
-                  }))}
-                  onChange={(value) => {
-                    if (!value) return;
-                    const bitrate = Number(value);
-                    setMp3Bitrate(bitrate);
-                    void updateTts(
-                      { mp3_bitrate_kbps: bitrate },
-                      "mp3_bitrate_kbps",
-                    );
-                  }}
-                  isClearable={false}
-                  disabled={conversionBusy}
-                />
-              </SettingContainer>
-            )}
-            <SettingContainer
-              grouped
-              layout="stacked"
-              title={t("textToSpeech.conversion.outputTitle")}
-              description={t("textToSpeech.conversion.outputDescription")}
-              descriptionMode="inline"
-            >
-              <div className="flex gap-2">
-                <Input
-                  className="min-w-0 flex-1"
-                  readOnly
-                  value={outputPath}
-                  placeholder={t("textToSpeech.conversion.noOutputSelected")}
-                />
-                <Button
-                  variant="secondary"
-                  disabled={!inputPath || conversionBusy}
-                  onClick={() => void chooseOutputFile()}
-                >
-                  <FileAudio className="mr-2 inline h-4 w-4" />
-                  {t("textToSpeech.conversion.saveAs")}
-                </Button>
-              </div>
-            </SettingContainer>
-
-            {(conversionBusy || conversionProgress) && (
-              <div className="space-y-2 px-6 py-4">
-                <div className="flex items-center justify-between text-xs text-[#b8b8b8]">
-                  <span>
-                    {conversionStatus}{" "}
-                    {totalChunks > 0
-                      ? t("textToSpeech.conversion.chunkProgress", {
-                          completed: completedChunks,
-                          total: totalChunks,
-                        })
-                      : ""}
-                  </span>
-                  <span>{progressPercent}%</span>
-                </div>
-                <div className="h-2 overflow-hidden rounded-full bg-[#252525]">
-                  <div
-                    className="h-full rounded-full bg-[#9b5de5] transition-[width]"
-                    style={{ width: `${progressPercent}%` }}
-                  />
-                </div>
-                {conversionProgress?.message && (
-                  <p className="text-xs text-[#a0a0a0]">
-                    {conversionProgress.message}
-                  </p>
-                )}
-              </div>
-            )}
-
-            <div className="flex flex-wrap items-center gap-3 px-6 py-4">
-              <Button
-                disabled={!inspection || !outputPath || conversionBusy}
-                onClick={() => void convertFile()}
-              >
-                {conversionBusy && (
-                  <Loader2 className="mr-2 inline h-4 w-4 animate-spin" />
-                )}
-                {t("textToSpeech.conversion.convert")}
-              </Button>
-              {conversionBusy && (
-                <Button
-                  variant="secondary"
-                  disabled={!operationId}
-                  onClick={() => void cancelConversion()}
-                >
-                  {t("textToSpeech.conversion.pause")}
-                </Button>
-              )}
-            </div>
-
-            {conversionError && (
-              <div
-                role="alert"
-                className="flex items-start gap-2 px-6 py-4 text-sm text-red-300"
-              >
-                <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
-                <span>{conversionError}</span>
-              </div>
-            )}
-            {completedPath && (
-              <div
-                role="status"
-                aria-live="polite"
-                className="flex items-start gap-2 px-6 py-4 text-sm text-green-300"
-              >
-                <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />
-                <span className="min-w-0 break-all">
-                  {t("textToSpeech.conversion.completed", {
-                    path: completedPath,
-                  })}
-                </span>
-              </div>
-            )}
-          </SettingsGroup>
 
           <TtsBatchConversion
             outputFormat={outputFormat}
