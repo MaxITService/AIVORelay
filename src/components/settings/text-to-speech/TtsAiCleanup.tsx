@@ -13,12 +13,14 @@ import { ApiKeyEditor, StoredApiKeyDisplay } from "../ApiKeyControls";
 import { ModelSelect } from "../PostProcessingSettingsApi/ModelSelect";
 import { TtsHelpDisclosure } from "./TtsHelpDisclosure";
 import { Button } from "@/components/ui/Button";
+import { ConfirmationModal } from "@/components/ui/ConfirmationModal";
 import { Input } from "@/components/ui/Input";
 import { Select, type SelectOption } from "@/components/ui/Select";
 import { SettingContainer } from "@/components/ui/SettingContainer";
 import { SettingsGroup } from "@/components/ui/SettingsGroup";
 import { Textarea } from "@/components/ui/Textarea";
 import { ToggleSwitch } from "@/components/ui/ToggleSwitch";
+import { Tooltip } from "@/components/ui/Tooltip";
 
 export type TtsLlmPrompt = {
   id: string;
@@ -135,6 +137,12 @@ const LLM_PROVIDER_DOCUMENTATION: Record<string, string> = {
 const AIVORELAY_TTS_GUIDE_URL =
   "https://github.com/MaxITService/AIVORelay/blob/main/CLI-TEXT-TO-SPEECH.md";
 
+const ActionTooltip: React.FC<{
+  content?: string | null;
+  children: React.ReactNode;
+}> = ({ content, children }) =>
+  content ? <Tooltip content={content}>{children}</Tooltip> : children;
+
 export const TtsAiCleanup: React.FC<TtsAiCleanupProps> = ({
   mode,
   value,
@@ -178,6 +186,7 @@ export const TtsAiCleanup: React.FC<TtsAiCleanupProps> = ({
   const [keyBusy, setKeyBusy] = useState(false);
   const [keyDraft, setKeyDraft] = useState("");
   const [editingKey, setEditingKey] = useState(false);
+  const [confirmDeletePrompt, setConfirmDeletePrompt] = useState(false);
   const valueRef = useRef(value);
   const keyStatusGenerationRef = useRef(0);
   const modelsGenerationRef = useRef(0);
@@ -699,20 +708,34 @@ export const TtsAiCleanup: React.FC<TtsAiCleanupProps> = ({
             onBlur={() => void flushPendingSettingsWrites()}
             className="min-w-[300px] flex-1"
           />
-          <Button
-            variant="secondary"
-            size="sm"
-            onClick={() => void loadModels()}
-            disabled={modelsBusy || keyBusy || !effectiveKeyAvailable}
-            className="inline-flex items-center gap-2"
+          <ActionTooltip
+            content={
+              modelsBusy
+                ? t("textToSpeech.aiCleanup.modelsLoading")
+                : keyBusy
+                  ? t("textToSpeech.aiCleanup.keyStatusLoading")
+                  : !effectiveKeyAvailable
+                    ? t("textToSpeech.aiCleanup.apiKeyRequired")
+                    : null
+            }
           >
-            {modelsBusy ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : (
-              <RefreshCcw className="h-4 w-4" />
-            )}
-            {t("textToSpeech.aiCleanup.loadModels", "Load models")}
-          </Button>
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => void loadModels()}
+              disabled={modelsBusy || keyBusy || !effectiveKeyAvailable}
+              className="inline-flex items-center gap-2"
+            >
+              {modelsBusy ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <RefreshCcw className="h-4 w-4" />
+              )}
+              {modelsBusy
+                ? t("textToSpeech.aiCleanup.loadingModels")
+                : t("textToSpeech.aiCleanup.loadModels", "Load models")}
+            </Button>
+          </ActionTooltip>
         </div>
       </SettingContainer>
 
@@ -750,16 +773,24 @@ export const TtsAiCleanup: React.FC<TtsAiCleanupProps> = ({
               <Plus className="h-4 w-4" />
               {t("common.add", "Add")}
             </Button>
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => void deletePrompt()}
-              disabled={prompts.length <= 1}
-              className="inline-flex items-center gap-2"
+            <ActionTooltip
+              content={
+                prompts.length <= 1
+                  ? t("textToSpeech.aiCleanup.keepOnePrompt")
+                  : null
+              }
             >
-              <Trash2 className="h-4 w-4" />
-              {t("common.delete", "Delete")}
-            </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setConfirmDeletePrompt(true)}
+                disabled={prompts.length <= 1}
+                className="inline-flex items-center gap-2"
+              >
+                <Trash2 className="h-4 w-4" />
+                {t("common.delete", "Delete")}
+              </Button>
+            </ActionTooltip>
           </div>
           {selectedPrompt && (
             <>
@@ -957,44 +988,68 @@ export const TtsAiCleanup: React.FC<TtsAiCleanupProps> = ({
             onBlur={() => void flushPendingSettingsWrites()}
           />
           <div className="mt-3 flex justify-end gap-2">
-            <Button
-              variant="primary"
-              size="sm"
-              onClick={() => void runBenchmark()}
-              disabled={
-                benchmarkBusy ||
-                !benchmarkText.trim() ||
-                !value.model.trim() ||
-                !effectiveKeyAvailable ||
-                !selectedPrompt?.prompt.trim()
-              }
-              className="inline-flex items-center gap-2"
-            >
-              {benchmarkBusy ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : (
-                <RefreshCcw className="h-4 w-4" />
-              )}
-              {benchmarkBusy
-                ? t("textToSpeech.aiCleanup.running", "Running…")
-                : t(
-                    "textToSpeech.aiCleanup.runBenchmark",
-                    "Run test and benchmark",
-                  )}
-            </Button>
-            <Button
-              variant="secondary"
-              size="sm"
-              disabled={benchmarkLog.length === 0}
-              onClick={() =>
-                void patch(
-                  { [benchmarkLogField]: [] },
-                  `llm_preprocessing.${benchmarkLogField}`,
-                )
+            <ActionTooltip
+              content={
+                benchmarkBusy
+                  ? t("textToSpeech.aiCleanup.benchmarkInProgress")
+                  : !benchmarkText.trim()
+                    ? t("textToSpeech.aiCleanup.testTextRequired")
+                    : !value.model.trim()
+                      ? t("textToSpeech.aiCleanup.modelRequired")
+                      : !effectiveKeyAvailable
+                        ? t("textToSpeech.aiCleanup.apiKeyRequired")
+                        : !selectedPrompt?.prompt.trim()
+                          ? t("textToSpeech.aiCleanup.promptRequired")
+                          : null
               }
             >
-              {t("textToSpeech.aiCleanup.clearLog", "Clear log")}
-            </Button>
+              <Button
+                variant="primary"
+                size="sm"
+                onClick={() => void runBenchmark()}
+                disabled={
+                  benchmarkBusy ||
+                  !benchmarkText.trim() ||
+                  !value.model.trim() ||
+                  !effectiveKeyAvailable ||
+                  !selectedPrompt?.prompt.trim()
+                }
+                className="inline-flex items-center gap-2"
+              >
+                {benchmarkBusy ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <RefreshCcw className="h-4 w-4" />
+                )}
+                {benchmarkBusy
+                  ? t("textToSpeech.aiCleanup.running", "Running…")
+                  : t(
+                      "textToSpeech.aiCleanup.runBenchmark",
+                      "Run test and benchmark",
+                    )}
+              </Button>
+            </ActionTooltip>
+            <ActionTooltip
+              content={
+                benchmarkLog.length === 0
+                  ? t("textToSpeech.aiCleanup.noResultsToClear")
+                  : null
+              }
+            >
+              <Button
+                variant="secondary"
+                size="sm"
+                disabled={benchmarkLog.length === 0}
+                onClick={() =>
+                  void patch(
+                    { [benchmarkLogField]: [] },
+                    `llm_preprocessing.${benchmarkLogField}`,
+                  )
+                }
+              >
+                {t("textToSpeech.aiCleanup.clearResults")}
+              </Button>
+            </ActionTooltip>
           </div>
         </SettingContainer>
 
@@ -1059,6 +1114,18 @@ export const TtsAiCleanup: React.FC<TtsAiCleanupProps> = ({
           {error}
         </div>
       )}
+      <ConfirmationModal
+        isOpen={confirmDeletePrompt}
+        onClose={() => setConfirmDeletePrompt(false)}
+        onConfirm={() => void deletePrompt()}
+        title={t("textToSpeech.aiCleanup.deletePromptConfirmTitle")}
+        message={t("textToSpeech.aiCleanup.deletePromptConfirmMessage", {
+          name: selectedPrompt?.name ?? "",
+        })}
+        confirmText={t("common.delete", "Delete")}
+        cancelText={t("common.cancel")}
+        variant="danger"
+      />
     </SettingsGroup>
   );
 };

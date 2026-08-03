@@ -25,6 +25,7 @@ import { useTranslation } from "react-i18next";
 
 import { Button } from "@/components/ui/Button";
 import { ConfirmationModal } from "@/components/ui/ConfirmationModal";
+import { Tooltip } from "@/components/ui/Tooltip";
 import { Input } from "@/components/ui/Input";
 import { SettingContainer } from "@/components/ui/SettingContainer";
 import { SettingsGroup } from "@/components/ui/SettingsGroup";
@@ -115,6 +116,12 @@ type TtsHistoryProps = {
   ) => Promise<void>;
   flushPendingSettingsWrites: () => Promise<void>;
 };
+
+const ActionTooltip: React.FC<{
+  content?: string | null;
+  children: React.ReactNode;
+}> = ({ content, children }) =>
+  content ? <Tooltip content={content}>{children}</Tooltip> : children;
 
 type Confirmation =
   | { kind: "delete"; entry: TtsHistoryEntry }
@@ -916,19 +923,27 @@ export const TtsHistory: React.FC<TtsHistoryProps> = ({
                 </span>
               )}
             </div>
-            <Button
-              variant="ghost"
-              size="sm"
-              disabled={loading}
-              onClick={() => void refreshHistory()}
-              title={t("textToSpeech.history.refresh")}
+            <ActionTooltip
+              content={
+                loading ? t("textToSpeech.history.refreshInProgress") : null
+              }
             >
-              <RefreshCw
-                className={`mr-1.5 inline h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`}
-                aria-hidden="true"
-              />
-              {t("textToSpeech.history.refresh")}
-            </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                disabled={loading}
+                onClick={() => void refreshHistory()}
+                title={t("textToSpeech.history.refresh")}
+              >
+                <RefreshCw
+                  className={`mr-1.5 inline h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`}
+                  aria-hidden="true"
+                />
+                {loading
+                  ? t("textToSpeech.history.refreshing")
+                  : t("textToSpeech.history.refresh")}
+              </Button>
+            </ActionTooltip>
           </div>
 
           {actionMessage && (
@@ -1150,86 +1165,124 @@ export const TtsHistory: React.FC<TtsHistoryProps> = ({
                           </div>
 
                           <div className="mt-4 flex flex-wrap gap-2">
-                            <Button
-                              variant={isPlaying ? "primary" : "secondary"}
-                              size="sm"
-                              disabled={isBusy}
-                              onClick={() => void togglePlayback(entry)}
-                              title={
-                                isPlaying
-                                  ? t("textToSpeech.history.pause")
-                                  : t("textToSpeech.history.play")
+                            <ActionTooltip
+                              content={
+                                isBusy
+                                  ? t("textToSpeech.history.actionInProgress")
+                                  : null
                               }
                             >
-                              {isBusy ? (
-                                <Loader2
-                                  className="mr-1.5 inline h-3.5 w-3.5 animate-spin"
-                                  aria-hidden="true"
-                                />
-                              ) : isPlaying ? (
-                                <Pause
+                              <Button
+                                variant={isPlaying ? "primary" : "secondary"}
+                                size="sm"
+                                disabled={isBusy}
+                                onClick={() => void togglePlayback(entry)}
+                                title={
+                                  isPlaying
+                                    ? t("textToSpeech.history.pause")
+                                    : t("textToSpeech.history.play")
+                                }
+                              >
+                                {isBusy ? (
+                                  <Loader2
+                                    className="mr-1.5 inline h-3.5 w-3.5 animate-spin"
+                                    aria-hidden="true"
+                                  />
+                                ) : isPlaying ? (
+                                  <Pause
+                                    className="mr-1.5 inline h-3.5 w-3.5"
+                                    aria-hidden="true"
+                                  />
+                                ) : (
+                                  <Play
+                                    className="mr-1.5 inline h-3.5 w-3.5"
+                                    aria-hidden="true"
+                                  />
+                                )}
+                                {isBusy
+                                  ? t("textToSpeech.history.preparing")
+                                  : isPlaying
+                                    ? t("textToSpeech.history.pause")
+                                    : t("textToSpeech.history.play")}
+                              </Button>
+                            </ActionTooltip>
+                            <ActionTooltip
+                              content={
+                                isBusy
+                                  ? t("textToSpeech.history.actionInProgress")
+                                  : null
+                              }
+                            >
+                              <Button
+                                variant="secondary"
+                                size="sm"
+                                disabled={isBusy}
+                                onClick={() => void exportEntry(entry)}
+                                title={t("textToSpeech.history.export")}
+                              >
+                                <Download
                                   className="mr-1.5 inline h-3.5 w-3.5"
                                   aria-hidden="true"
                                 />
-                              ) : (
-                                <Play
+                                {t("textToSpeech.history.export")}
+                              </Button>
+                            </ActionTooltip>
+                            <ActionTooltip
+                              content={
+                                isBusy
+                                  ? t("textToSpeech.history.actionInProgress")
+                                  : null
+                              }
+                            >
+                              <Button
+                                variant="secondary"
+                                size="sm"
+                                disabled={isBusy}
+                                onClick={() =>
+                                  setConfirmation({
+                                    kind: "regenerate",
+                                    entry,
+                                  })
+                                }
+                                title={t("textToSpeech.history.regenerate")}
+                              >
+                                <RotateCcw
                                   className="mr-1.5 inline h-3.5 w-3.5"
                                   aria-hidden="true"
                                 />
-                              )}
-                              {isPlaying
-                                ? t("textToSpeech.history.pause")
-                                : t("textToSpeech.history.play")}
-                            </Button>
-                            <Button
-                              variant="secondary"
-                              size="sm"
-                              disabled={isBusy}
-                              onClick={() => void exportEntry(entry)}
-                              title={t("textToSpeech.history.export")}
-                            >
-                              <Download
-                                className="mr-1.5 inline h-3.5 w-3.5"
-                                aria-hidden="true"
-                              />
-                              {t("textToSpeech.history.export")}
-                            </Button>
-                            <Button
-                              variant="secondary"
-                              size="sm"
-                              disabled={isBusy}
-                              onClick={() =>
-                                setConfirmation({
-                                  kind: "regenerate",
-                                  entry,
-                                })
-                              }
-                              title={t("textToSpeech.history.regenerate")}
-                            >
-                              <RotateCcw
-                                className="mr-1.5 inline h-3.5 w-3.5"
-                                aria-hidden="true"
-                              />
-                              {t("textToSpeech.history.regenerate")}
-                            </Button>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              disabled={isBusy}
-                              onClick={() =>
-                                setConfirmation({ kind: "delete", entry })
-                              }
-                              className="ml-auto text-red-300 hover:text-red-200"
-                              title={t("textToSpeech.history.delete")}
-                            >
-                              <Trash2
-                                className="h-3.5 w-3.5"
-                                aria-hidden="true"
-                              />
-                              <span className="sr-only">
-                                {t("textToSpeech.history.delete")}
-                              </span>
-                            </Button>
+                                {t("textToSpeech.history.regenerate")}
+                              </Button>
+                            </ActionTooltip>
+                            <span className="ml-auto">
+                              <ActionTooltip
+                                content={
+                                  isBusy
+                                    ? t(
+                                        "textToSpeech.history.actionInProgress",
+                                      )
+                                    : null
+                                }
+                              >
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  disabled={isBusy}
+                                  onClick={() =>
+                                    setConfirmation({ kind: "delete", entry })
+                                  }
+                                  className="text-red-300 hover:text-red-200"
+                                  title={t("textToSpeech.history.delete")}
+                                >
+                                  <Trash2
+                                    className="h-3.5 w-3.5"
+                                    aria-hidden="true"
+                                  />
+                                  <span className="sr-only">
+                                    {t("textToSpeech.history.delete")}
+                                  </span>
+                                </Button>
+                              </ActionTooltip>
+                            </span>
                           </div>
                         </article>
                       );
