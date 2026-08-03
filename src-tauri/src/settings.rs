@@ -1555,8 +1555,12 @@ impl TtsSettings {
             .find(|preset| preset.id == preset_id)
             .cloned()
             .ok_or_else(|| "The selected TTS synthesis preset no longer exists".to_string())?;
+        let mut config = preset.config;
+        if scope == TtsOperationScope::File && preset.id.starts_with("builtin_tts_") {
+            config.target_chars = self.file_target_chars;
+        }
         let scope_settings = self.scope_synthesis_mut(scope);
-        scope_settings.upsert(preset.config);
+        scope_settings.upsert(config);
         scope_settings.selected_preset_id = preset.id;
         Ok(())
     }
@@ -5188,6 +5192,36 @@ fn ensure_default_tts_synthesis_presets(settings: &mut AppSettings) -> bool {
     true
 }
 
+fn ensure_builtin_file_tts_target_chars(settings: &mut AppSettings) -> bool {
+    let should_migrate = {
+        let scope = &settings.tts.file_synthesis;
+        scope.selected_preset_id.starts_with("builtin_tts_")
+            && scope
+                .models
+                .iter()
+                .find(|entry| entry.model_key == scope.active_model_key)
+                .is_some_and(|entry| {
+                    entry.config.target_chars == default_tts_interactive_target_chars()
+                })
+    };
+    if !should_migrate {
+        return false;
+    }
+
+    let target_chars = default_tts_file_target_chars();
+    let scope = &mut settings.tts.file_synthesis;
+    let active_model_key = scope.active_model_key.clone();
+    if let Some(entry) = scope
+        .models
+        .iter_mut()
+        .find(|entry| entry.model_key == active_model_key)
+    {
+        entry.config.target_chars = target_chars;
+    }
+    settings.tts.file_target_chars = target_chars;
+    true
+}
+
 fn ensure_preview_delete_last_word_binding(settings: &mut AppSettings) -> bool {
     let preview_delete_last_word_binding = build_preview_delete_last_word_binding(
         settings
@@ -5327,6 +5361,7 @@ fn repair_runtime_settings(settings: &mut AppSettings) -> bool {
     let mut changed = false;
     changed |= ensure_default_bindings(settings);
     changed |= ensure_default_tts_synthesis_presets(settings);
+    changed |= ensure_builtin_file_tts_target_chars(settings);
     changed |= ensure_preview_delete_last_word_binding(settings);
     changed |= migrate_legacy_settings_fields(settings);
     changed |= ensure_post_process_defaults(settings);
@@ -6154,6 +6189,49 @@ mod tests {
         assert!(settings.tts.synthesis_presets.is_empty());
         assert!(!ensure_default_tts_synthesis_presets(&mut settings));
         assert!(settings.tts.synthesis_presets.is_empty());
+    }
+
+    #[test]
+    fn built_in_file_tts_preset_keeps_the_current_file_chunk_size() {
+        let mut settings = get_default_settings();
+        assert!(ensure_default_tts_synthesis_presets(&mut settings));
+        settings.tts.file_target_chars = 2_400;
+
+        settings
+            .tts
+            .load_synthesis_preset(TtsOperationScope::File, "builtin_tts_soniox_maya")
+            .unwrap();
+
+        let config = settings.tts.file_synthesis.active_config().unwrap();
+        assert_eq!(config.provider, TtsProvider::Soniox);
+        assert_eq!(config.target_chars, 2_400);
+        assert_eq!(
+            settings.tts.file_synthesis.selected_preset_id,
+            "builtin_tts_soniox_maya"
+        );
+    }
+
+    #[test]
+    fn legacy_builtin_file_tts_chunk_size_migrates_to_file_default() {
+        let mut settings = get_default_settings();
+        assert!(ensure_default_tts_synthesis_presets(&mut settings));
+        settings.tts.file_target_chars = default_tts_interactive_target_chars();
+        settings
+            .tts
+            .load_synthesis_preset(TtsOperationScope::File, "builtin_tts_soniox_maya")
+            .unwrap();
+
+        assert!(ensure_builtin_file_tts_target_chars(&mut settings));
+        assert_eq!(settings.tts.file_target_chars, default_tts_file_target_chars());
+        assert_eq!(
+            settings
+                .tts
+                .file_synthesis
+                .active_config()
+                .unwrap()
+                .target_chars,
+            default_tts_file_target_chars()
+        );
     }
 
     #[test]
