@@ -1,4 +1,4 @@
-import { convertFileSrc, invoke } from "@tauri-apps/api/core";
+import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { type as getOsType } from "@tauri-apps/plugin-os";
@@ -7,7 +7,6 @@ import {
   type CSSProperties,
   useCallback,
   useEffect,
-  useMemo,
   useRef,
   useState,
 } from "react";
@@ -20,16 +19,16 @@ import {
   normalizePreviewHotkeyString,
 } from "../lib/utils/previewHotkeys";
 import {
-  applyPlaybackRate,
   DEFAULT_PLAYBACK_RATE,
   formatPlaybackRate,
   nextPlaybackRate,
   type PlaybackRate,
 } from "../lib/utils/playbackRate";
+import type { TtsPlaybackEffect } from "../lib/utils/ttsPlaybackEffects";
 import {
-  prepareTtsPlaybackSource,
-  type TtsPlaybackEffect,
-} from "../lib/utils/ttsPlaybackEffects";
+  GaplessTtsPlayer,
+  type GaplessPlaybackSnapshot,
+} from "./GaplessTtsPlayer";
 
 type TtsStatus =
   | "idle"
@@ -319,21 +318,13 @@ export default function TtsOverlay() {
   const [playbackRate, setPlaybackRate] = useState<PlaybackRate>(
     DEFAULT_PLAYBACK_RATE,
   );
-  const audioRef = useRef<HTMLAudioElement | null>(null);
-  const playbackProcessingAbortRef = useRef<AbortController | null>(null);
-  const processingChunkIndexRef = useRef<number | null>(null);
-  const playbackObjectUrlRef = useRef<string | null>(null);
-  const pitchCompensationRef = useRef(1);
+  const playerRef = useRef<GaplessTtsPlayer | null>(null);
   const playbackRateRef = useRef<PlaybackRate>(DEFAULT_PLAYBACK_RATE);
   const stateRef = useRef(state);
   const desiredPlayingRef = useRef(false);
   const activeChunkIndexRef = useRef<number | null>(null);
   const operationIdRef = useRef("");
   const lastLoggedProviderErrorRef = useRef("");
-  const pauseTimerRef = useRef<number | null>(null);
-  const playChunkRef = useRef<((chunk: TtsChunk) => Promise<void>) | null>(
-    null,
-  );
 
   useEffect(() => {
     stateRef.current = state;
@@ -359,225 +350,71 @@ export default function TtsOverlay() {
     [],
   );
 
-  const clearPendingPause = useCallback(() => {
-    if (pauseTimerRef.current !== null) {
-      window.clearTimeout(pauseTimerRef.current);
-      pauseTimerRef.current = null;
+  const getPlayer = useCallback(() => {
+    const callbacks = {
+      onSnapshot: (snapshot: GaplessPlaybackSnapshot) => {
+        activeChunkIndexRef.current = snapshot.chunkIndex;
+        setActiveChunkIndex(snapshot.chunkIndex);
+        setIsPlaying(snapshot.isPlaying);
+        setPlaybackTime(snapshot.playbackTime);
+        setPlaybackDuration(snapshot.playbackDuration);
+      },
+      onChunkStart: (chunkIndex: number) => {
+        activeChunkIndexRef.current = chunkIndex;
+        setActiveChunkIndex(chunkIndex);
+        setPlaybackError(null);
+        reportPlaybackState("playing", chunkIndex);
+      },
+      onCompleted: (chunkIndex: number) => {
+        desiredPlayingRef.current = false;
+        setIsPlaying(false);
+        reportPlaybackState("completed", chunkIndex);
+      },
+      onError: (error: unknown, chunkIndex: number) => {
+        const message = t("textToSpeech.overlayPlayer.chunkPlaybackError");
+        desiredPlayingRef.current = false;
+        setIsPlaying(false);
+        setPlaybackError(message);
+        console.error(
+          `TTS playback error at chunk ${chunkIndex + 1}:`,
+          error,
+        );
+        reportPlaybackState("paused", chunkIndex);
+      },
+    };
+    if (!playerRef.current) {
+      playerRef.current = new GaplessTtsPlayer(callbacks);
+    } else {
+      playerRef.current.setCallbacks(callbacks);
     }
-  }, []);
+    return playerRef.current;
+  }, [reportPlaybackState, t]);
 
   const resetAudio = useCallback(() => {
-    clearPendingPause();
-    playbackProcessingAbortRef.current?.abort();
-    playbackProcessingAbortRef.current = null;
-    processingChunkIndexRef.current = null;
-    const audio = audioRef.current;
-    if (audio) {
-      audio.pause();
-      audio.removeAttribute("src");
-      audio.load();
-    }
-    audioRef.current = null;
-    if (playbackObjectUrlRef.current) {
-      URL.revokeObjectURL(playbackObjectUrlRef.current);
-      playbackObjectUrlRef.current = null;
-    }
-    pitchCompensationRef.current = 1;
+    playerRef.current?.stop();
+    playerRef.current = null;
     activeChunkIndexRef.current = null;
     setActiveChunkIndex(null);
     setIsPlaying(false);
     setPlaybackTime(0);
     setPlaybackDuration(0);
-  }, [clearPendingPause]);
-
-  const findNextChunk = useCallback((afterIndex: number | null) => {
-    const chunks = stateRef.current.chunks;
-    if (afterIndex === null) {
-      return chunks[0] ?? null;
-    }
-    return chunks.find((chunk) => chunk.index > afterIndex) ?? null;
   }, []);
 
-  const playChunk = useCallback(
-    async (chunk: TtsChunk) => {
-      if (!desiredPlayingRef.current) {
-        return;
-      }
-      if (processingChunkIndexRef.current === chunk.index) return;
-      processingChunkIndexRef.current = chunk.index;
-      clearPendingPause();
-
-      const priorAudio = audioRef.current;
-      if (priorAudio) {
-        priorAudio.pause();
-      }
-
-      playbackProcessingAbortRef.current?.abort();
-      const processingAbort = new AbortController();
-      playbackProcessingAbortRef.current = processingAbort;
-      if (playbackObjectUrlRef.current) {
-        URL.revokeObjectURL(playbackObjectUrlRef.current);
-        playbackObjectUrlRef.current = null;
-      }
-
-      const sourceUrl = convertFileSrc(chunk.path, "asset");
-      let prepared = {
-        url: sourceUrl,
-        objectUrl: null as string | null,
-        pitchCompensation: 1,
-      };
-      try {
-        prepared = await prepareTtsPlaybackSource(
-          sourceUrl,
-          stateRef.current.playbackPitch,
-          stateRef.current.playbackEffect,
-          processingAbort.signal,
-        );
-      } catch (error) {
-        if (processingAbort.signal.aborted) {
-          if (playbackProcessingAbortRef.current === processingAbort) {
-            processingChunkIndexRef.current = null;
-          }
-          return;
-        }
-        console.warn(
-          "Unable to apply optional TTS playback processing; using the original audio:",
-          error,
-        );
-      }
-      if (processingAbort.signal.aborted || !desiredPlayingRef.current) {
-        if (prepared.objectUrl) URL.revokeObjectURL(prepared.objectUrl);
-        if (playbackProcessingAbortRef.current === processingAbort) {
-          processingChunkIndexRef.current = null;
-        }
-        return;
-      }
-      playbackProcessingAbortRef.current = null;
-      processingChunkIndexRef.current = null;
-      playbackObjectUrlRef.current = prepared.objectUrl;
-      pitchCompensationRef.current = prepared.pitchCompensation;
-
-      const audio = new Audio(prepared.url);
-      audio.preload = "auto";
-      applyPlaybackRate(
-        audio,
-        playbackRateRef.current / prepared.pitchCompensation,
-      );
-      audioRef.current = audio;
-      activeChunkIndexRef.current = chunk.index;
-      setActiveChunkIndex(chunk.index);
-      setPlaybackTime(0);
-      setPlaybackDuration(0);
-      setPlaybackError(null);
-
-      const updateTimeline = () => {
-        if (audioRef.current !== audio) {
-          return;
-        }
-        setPlaybackTime(
-          Number.isFinite(audio.currentTime)
-            ? audio.currentTime * pitchCompensationRef.current
-            : 0,
-        );
-        setPlaybackDuration(
-          Number.isFinite(audio.duration)
-            ? audio.duration * pitchCompensationRef.current
-            : 0,
-        );
-      };
-      audio.addEventListener("loadedmetadata", updateTimeline);
-      audio.addEventListener("durationchange", updateTimeline);
-      audio.addEventListener("timeupdate", updateTimeline);
-      audio.addEventListener(
-        "ended",
-        () => {
-          if (audioRef.current !== audio) {
-            return;
-          }
-          setIsPlaying(false);
-          updateTimeline();
-          const nextChunk = findNextChunk(chunk.index);
-          const completedOrdinal =
-            stateRef.current.chunks.findIndex(
-              (candidate) => candidate.index === chunk.index,
-            ) + 1;
-          const waitingForNextChunk =
-            stateRef.current.status !== "completed" &&
-            (stateRef.current.totalChunks <= 0 ||
-              completedOrdinal < stateRef.current.totalChunks);
-          audioRef.current = null;
-          if (desiredPlayingRef.current && (nextChunk || waitingForNextChunk)) {
-            const continuePlayback = () => {
-              pauseTimerRef.current = null;
-              if (desiredPlayingRef.current) {
-                const pendingChunk = findNextChunk(chunk.index);
-                if (pendingChunk) {
-                  void playChunkRef.current?.(pendingChunk);
-                }
-              }
-            };
-            if (chunk.pauseAfterMs > 0) {
-              pauseTimerRef.current = window.setTimeout(
-                continuePlayback,
-                chunk.pauseAfterMs,
-              );
-            } else {
-              continuePlayback();
-            }
-            return;
-          }
-          if (
-            stateRef.current.status === "completed" ||
-            (stateRef.current.totalChunks > 0 &&
-              completedOrdinal >= stateRef.current.totalChunks)
-          ) {
-            desiredPlayingRef.current = false;
-            reportPlaybackState("completed", chunk.index);
-          }
-        },
-        { once: true },
-      );
-      audio.addEventListener(
-        "error",
-        () => {
-          if (audioRef.current !== audio) {
-            return;
-          }
-          const message = t("textToSpeech.overlayPlayer.chunkPlaybackError");
-          desiredPlayingRef.current = false;
-          setIsPlaying(false);
-          setPlaybackError(message);
-          console.error(
-            `TTS playback error at chunk ${chunk.index + 1}:`,
-            audio.error,
-          );
-          reportPlaybackState("paused", chunk.index);
-        },
-        { once: true },
-      );
-
-      try {
-        await audio.play();
-        if (audioRef.current !== audio) {
-          audio.pause();
-          return;
-        }
-        setIsPlaying(true);
-        reportPlaybackState("playing", chunk.index);
-      } catch (error) {
-        if (audioRef.current !== audio) {
+  const startAudio = useCallback(
+    (player: GaplessTtsPlayer) => {
+      void player.play().catch((error) => {
+        if (playerRef.current !== player || !desiredPlayingRef.current) {
           return;
         }
         desiredPlayingRef.current = false;
         setIsPlaying(false);
         setPlaybackError(t("textToSpeech.overlayPlayer.playbackStartError"));
         console.error("Unable to start TTS playback:", error);
-        reportPlaybackState("paused", chunk.index);
-      }
+        reportPlaybackState("paused");
+      });
     },
-    [clearPendingPause, findNextChunk, reportPlaybackState, t],
+    [reportPlaybackState, t],
   );
-  playChunkRef.current = playChunk;
 
   const applyState = useCallback(
     (raw: unknown) => {
@@ -619,35 +456,21 @@ export default function TtsOverlay() {
       if (next.status === "stopped" || next.status === "error") {
         desiredPlayingRef.current = false;
         resetAudio();
-      } else if (
-        next.status === "completed" &&
-        !audioRef.current &&
-        activeChunkIndexRef.current !== null &&
-        !next.chunks.some(
-          (chunk) => chunk.index > (activeChunkIndexRef.current ?? -1),
-        )
-      ) {
-        desiredPlayingRef.current = false;
-        reportPlaybackState("completed", activeChunkIndexRef.current);
-      } else if (
-        desiredPlayingRef.current &&
-        !audioRef.current &&
-        processingChunkIndexRef.current === null &&
-        pauseTimerRef.current === null &&
-        next.chunks.length > 0
-      ) {
-        const nextChunk =
-          activeChunkIndexRef.current === null
-            ? next.chunks[0]
-            : next.chunks.find(
-                (chunk) => chunk.index > (activeChunkIndexRef.current ?? -1),
-              );
-        if (nextChunk) {
-          void playChunk(nextChunk);
-        }
+        return;
+      }
+
+      const player = getPlayer();
+      player.configure(
+        next.playbackPitch,
+        next.playbackEffect,
+        playbackRateRef.current,
+      );
+      player.setChunks(next.chunks, next.totalChunks);
+      if (desiredPlayingRef.current && next.chunks.length > 0) {
+        startAudio(player);
       }
     },
-    [playChunk, reportPlaybackState, resetAudio],
+    [getPlayer, resetAudio, startAudio],
   );
 
   useEffect(() => {
@@ -694,55 +517,38 @@ export default function TtsOverlay() {
   }, [applyState, resetAudio, t]);
 
   const togglePlayback = useCallback(() => {
-    const audio = audioRef.current;
-    if (audio && !audio.paused) {
+    const player = getPlayer();
+    if (isPlaying || desiredPlayingRef.current) {
       desiredPlayingRef.current = false;
-      audio.pause();
-      setIsPlaying(false);
+      player.pause();
       reportPlaybackState("paused");
       return;
     }
 
     desiredPlayingRef.current = true;
-    clearPendingPause();
     setPlaybackError(null);
-    if (audio && activeChunkIndexRef.current !== null && !audio.ended) {
-      void audio
-        .play()
-        .then(() => {
-          if (audioRef.current !== audio || !desiredPlayingRef.current) {
-            audio.pause();
-            return;
-          }
-          setIsPlaying(true);
-          reportPlaybackState("playing");
-        })
-        .catch((error) => {
-          if (audioRef.current !== audio || !desiredPlayingRef.current) {
-            return;
-          }
-          desiredPlayingRef.current = false;
-          setPlaybackError(t("textToSpeech.overlayPlayer.playbackStartError"));
-          console.error("Unable to resume TTS playback:", error);
-        });
-      return;
+    player.configure(
+      stateRef.current.playbackPitch,
+      stateRef.current.playbackEffect,
+      playbackRateRef.current,
+    );
+    player.setChunks(
+      stateRef.current.chunks,
+      stateRef.current.totalChunks,
+    );
+    if (stateRef.current.chunks.length > 0) {
+      startAudio(player);
     }
-
-    const nextChunk = findNextChunk(activeChunkIndexRef.current);
-    if (nextChunk) {
-      void playChunk(nextChunk);
-    }
-  }, [clearPendingPause, findNextChunk, playChunk, reportPlaybackState, t]);
+  }, [getPlayer, isPlaying, reportPlaybackState, startAudio]);
 
   const stopPlayback = useCallback(() => {
     const operationId = operationIdRef.current;
     desiredPlayingRef.current = false;
     resetAudio();
     reportPlaybackState("stopped");
-    if (!operationId) {
-      return;
-    }
-    void invoke("cancel_tts_operation", { operationId }).catch((error) => {
+    void invoke("cancel_tts_operation", {
+      operationId: operationId || null,
+    }).catch((error) => {
       const message = t("textToSpeech.overlayPlayer.cancelError");
       setPlaybackError(message);
       console.error(message, error);
@@ -750,19 +556,35 @@ export default function TtsOverlay() {
   }, [reportPlaybackState, resetAudio, t]);
 
   const closeOverlay = useCallback(() => {
+    stopPlayback();
     void overlayWindow.hide().catch((error) => {
       console.error("Unable to hide the TTS overlay:", error);
     });
-  }, []);
+  }, [stopPlayback]);
+
+  useEffect(() => {
+    let disposed = false;
+    let unlisten: (() => void) | undefined;
+    void overlayWindow.onCloseRequested((event) => {
+      event.preventDefault();
+      if (!disposed) {
+        closeOverlay();
+      }
+    }).then((dispose) => {
+      if (disposed) dispose();
+      else unlisten = dispose;
+    });
+    return () => {
+      disposed = true;
+      unlisten?.();
+    };
+  }, [closeOverlay]);
 
   const cyclePlaybackRate = useCallback(() => {
     const nextRate = nextPlaybackRate(playbackRateRef.current);
     playbackRateRef.current = nextRate;
     setPlaybackRate(nextRate);
-    const audio = audioRef.current;
-    if (audio) {
-      applyPlaybackRate(audio, nextRate / pitchCompensationRef.current);
-    }
+    playerRef.current?.setPlaybackRate(nextRate);
   }, []);
 
   useEffect(() => {
@@ -823,33 +645,25 @@ export default function TtsOverlay() {
     togglePlayback,
   ]);
 
-  const currentPosition = useMemo(() => {
-    if (activeChunkIndex !== null) {
-      const ordinal = state.chunks.findIndex(
-        (chunk) => chunk.index === activeChunkIndex,
-      );
-      return ordinal >= 0 ? ordinal + 1 : activeChunkIndex + 1;
-    }
-    return state.currentChunk;
-  }, [activeChunkIndex, state.chunks, state.currentChunk]);
-  const totalChunks = Math.max(state.totalChunks, state.chunks.length);
-  const progress =
-    totalChunks > 0
-      ? Math.min(100, Math.max(0, (currentPosition / totalChunks) * 100))
-      : 0;
+  const streamLengthPending =
+    state.chunks.length > 0 &&
+    state.totalChunks === 0 &&
+    state.status !== "completed" &&
+    state.status !== "error" &&
+    state.status !== "stopped";
   const seekValue =
-    playbackDuration > 0
+    !streamLengthPending && playbackDuration > 0
       ? Math.min(playbackDuration, Math.max(0, playbackTime))
-      : progress;
-  const seekMaximum = playbackDuration > 0 ? playbackDuration : 100;
+      : 0;
+  const seekMaximum =
+    !streamLengthPending && playbackDuration > 0 ? playbackDuration : 100;
   const seekPercent =
     seekMaximum > 0
       ? Math.min(100, Math.max(0, (seekValue / seekMaximum) * 100))
       : 0;
   const seekPlayback = useCallback(
     (event: ChangeEvent<HTMLInputElement>) => {
-      const audio = audioRef.current;
-      if (!audio || playbackDuration <= 0) {
+      if (!playerRef.current || playbackDuration <= 0) {
         return;
       }
       const nextTime = Number(event.target.value);
@@ -857,7 +671,7 @@ export default function TtsOverlay() {
         return;
       }
       const boundedTime = Math.min(playbackDuration, Math.max(0, nextTime));
-      audio.currentTime = boundedTime / pitchCompensationRef.current;
+      playerRef.current.seek(boundedTime);
       setPlaybackTime(boundedTime);
     },
     [playbackDuration],
@@ -877,10 +691,9 @@ export default function TtsOverlay() {
   const canPlay =
     state.status !== "stopped" &&
     state.status !== "error" &&
-    (isPlaying ||
-      Boolean(audioRef.current && !audioRef.current.ended) ||
-      activeChunkIndex === null ||
-      state.chunks.some((chunk) => chunk.index > activeChunkIndex)) &&
+    (state.status !== "completed" ||
+      isPlaying ||
+      desiredPlayingRef.current) &&
     (state.chunks.length > 0 ||
       state.status === "loading" ||
       state.status === "retrying");
@@ -891,7 +704,7 @@ export default function TtsOverlay() {
     state.status !== "error" &&
     (state.status !== "completed" ||
       isPlaying ||
-      Boolean(audioRef.current && !audioRef.current.ended));
+      desiredPlayingRef.current);
   const playHotkeyLabel = formatPreviewHotkeyForDisplay(
     state.playPauseHotkey,
     osType,
@@ -971,17 +784,6 @@ export default function TtsOverlay() {
           </div>
         </div>
         <div className="tts-overlay__header-actions">
-          {totalChunks > 0 && (
-            <div
-              className="tts-overlay__count"
-              aria-label={t("textToSpeech.overlayPlayer.chunkProgress", {
-                current: Math.min(currentPosition, totalChunks),
-                total: totalChunks,
-              })}
-            >
-              {Math.min(currentPosition, totalChunks)} / {totalChunks}
-            </div>
-          )}
           <button
             type="button"
             className="tts-overlay__close"
@@ -1008,7 +810,7 @@ export default function TtsOverlay() {
         max={seekMaximum}
         step={playbackDuration > 0 ? 0.01 : 1}
         value={seekValue}
-        disabled={playbackDuration <= 0}
+        disabled={streamLengthPending || playbackDuration <= 0}
         onChange={seekPlayback}
         style={{ "--tts-seek-progress": `${seekPercent}%` } as CSSProperties}
       />

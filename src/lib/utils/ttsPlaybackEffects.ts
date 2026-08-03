@@ -6,6 +6,11 @@ export type PreparedTtsPlaybackSource = {
   pitchCompensation: number;
 };
 
+export type PreparedTtsPlaybackBuffer = {
+  buffer: AudioBuffer;
+  pitchCompensation: number;
+};
+
 const MAX_PROCESSING_INPUT_BYTES = 64 * 1024 * 1024;
 const MAX_RENDERED_SAMPLE_VALUES = 24_000_000;
 
@@ -23,34 +28,91 @@ export async function prepareTtsPlaybackSource(
     return { url: sourceUrl, objectUrl: null, pitchCompensation: 1 };
   }
 
+  const decoder = new AudioContext();
+  let prepared: PreparedTtsPlaybackBuffer;
+  try {
+    prepared = await prepareTtsPlaybackBuffer(
+      sourceUrl,
+      normalizedPitch,
+      effect,
+      decoder,
+      signal,
+    );
+  } finally {
+    await decoder.close();
+  }
+  throwIfAborted(signal);
+
+  const objectUrl = URL.createObjectURL(
+    new Blob([encodePcm16Wav(prepared.buffer)], { type: "audio/wav" }),
+  );
+  return {
+    url: objectUrl,
+    objectUrl,
+    pitchCompensation: prepared.pitchCompensation,
+  };
+}
+
+/**
+ * Decode one generated chunk for sample-accurate Web Audio scheduling.
+ * Unlike the HTMLAudioElement helper above, this deliberately returns an
+ * AudioBuffer so callers can place consecutive chunks on one AudioContext
+ * timeline without media-element gaps.
+ */
+export async function prepareTtsPlaybackBuffer(
+  sourceUrl: string,
+  pitch: number,
+  effect: TtsPlaybackEffect,
+  decoder: AudioContext,
+  signal: AbortSignal,
+): Promise<PreparedTtsPlaybackBuffer> {
+  const normalizedPitch = clampPitch(pitch);
+  const encoded = await loadEncodedAudio(sourceUrl, signal);
+  const decoded = await decoder.decodeAudioData(encoded.slice(0));
+  throwIfAborted(signal);
+
+  if (normalizedPitch === 1 && effect === "none") {
+    return { buffer: decoded, pitchCompensation: 1 };
+  }
+
+  const rendered = await renderPlaybackEffect(
+    decoded,
+    normalizedPitch,
+    effect,
+    signal,
+  );
+  return { buffer: rendered, pitchCompensation: normalizedPitch };
+}
+
+async function loadEncodedAudio(
+  sourceUrl: string,
+  signal: AbortSignal,
+): Promise<ArrayBuffer> {
   const response = await fetch(sourceUrl, { signal });
   if (!response.ok) {
-    throw new Error(
-      `Unable to load audio for playback processing (${response.status})`,
-    );
+    throw new Error(`Unable to load audio for playback (${response.status})`);
   }
   const declaredLength = Number(response.headers.get("content-length"));
   if (
     Number.isFinite(declaredLength) &&
     declaredLength > MAX_PROCESSING_INPUT_BYTES
   ) {
-    throw new Error("Audio is too large for optional playback processing");
+    throw new Error("Audio is too large for playback processing");
   }
   const encoded = await response.arrayBuffer();
   if (encoded.byteLength > MAX_PROCESSING_INPUT_BYTES) {
-    throw new Error("Audio is too large for optional playback processing");
+    throw new Error("Audio is too large for playback processing");
   }
   throwIfAborted(signal);
+  return encoded;
+}
 
-  const decoder = new AudioContext();
-  let decoded: AudioBuffer;
-  try {
-    decoded = await decoder.decodeAudioData(encoded.slice(0));
-  } finally {
-    await decoder.close();
-  }
-  throwIfAborted(signal);
-
+async function renderPlaybackEffect(
+  decoded: AudioBuffer,
+  normalizedPitch: number,
+  effect: TtsPlaybackEffect,
+  signal: AbortSignal,
+): Promise<AudioBuffer> {
   const outputFrames = Math.max(1, Math.ceil(decoded.length / normalizedPitch));
   if (outputFrames * decoded.numberOfChannels > MAX_RENDERED_SAMPLE_VALUES) {
     throw new Error("Audio is too long for optional playback processing");
@@ -69,15 +131,7 @@ export async function prepareTtsPlaybackSource(
   source.start(0);
   const rendered = await offline.startRendering();
   throwIfAborted(signal);
-
-  const objectUrl = URL.createObjectURL(
-    new Blob([encodePcm16Wav(rendered)], { type: "audio/wav" }),
-  );
-  return {
-    url: objectUrl,
-    objectUrl,
-    pitchCompensation: normalizedPitch,
-  };
+  return rendered;
 }
 
 function connectEffect(

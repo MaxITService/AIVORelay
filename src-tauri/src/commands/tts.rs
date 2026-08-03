@@ -2185,14 +2185,22 @@ pub fn get_tts_overlay_state(app: AppHandle) -> TtsOverlayState {
 #[tauri::command]
 #[specta::specta]
 pub fn cancel_tts_operation(app: AppHandle, operation_id: Option<String>) -> Result<(), String> {
-    let requested = operation_id
-        .filter(|value| !value.trim().is_empty())
-        .ok_or_else(|| "A TTS operation ID is required".to_string())?
-        .parse::<u64>()
-        .map_err(|_| "The TTS operation ID is invalid".to_string())?;
+    let manager = app.state::<Arc<TtsManager>>();
+    let requested = if let Some(operation_id) = operation_id.filter(|value| !value.trim().is_empty())
+    {
+        operation_id
+            .parse::<u64>()
+            .map_err(|_| "The TTS operation ID is invalid".to_string())?
+    } else {
+        let current = manager.current_state();
+        if current.kind != Some(TtsOperationKind::Interactive) {
+            return Ok(());
+        }
+        current.operation_id
+    };
     // Cancellation is intentionally idempotent. A completed overlay can still
     // stop local playback, but its stale ID must never cancel a newer export.
-    app.state::<Arc<TtsManager>>().cancel_operation(requested);
+    manager.cancel_operation(requested);
     Ok(())
 }
 
