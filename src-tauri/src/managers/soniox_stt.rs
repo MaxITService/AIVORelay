@@ -108,6 +108,10 @@ struct CreateTranscriptionResponse {
 #[derive(Deserialize, Debug)]
 struct TranscriptionStatusResponse {
     status: String,
+    #[serde(default)]
+    error_type: Option<String>,
+    #[serde(default)]
+    error_message: Option<String>,
 }
 
 #[derive(Deserialize, Debug)]
@@ -484,6 +488,33 @@ impl SonioxSttManager {
             ));
         }
         Ok(total - elapsed)
+    }
+
+    fn async_transcription_failure_message(payload: &TranscriptionStatusResponse) -> String {
+        let error_type = payload
+            .error_type
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty());
+        let error_message = payload
+            .error_message
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty());
+
+        match (error_type, error_message) {
+            (Some(error_type), Some(error_message)) => format!(
+                "Soniox transcription failed ({}): {}",
+                error_type, error_message
+            ),
+            (Some(error_type), None) => {
+                format!("Soniox transcription failed ({})", error_type)
+            }
+            (None, Some(error_message)) => {
+                format!("Soniox transcription failed: {}", error_message)
+            }
+            (None, None) => "Soniox transcription failed".to_string(),
+        }
     }
 
     async fn transcribe_once_ws(
@@ -1012,7 +1043,9 @@ impl SonioxSttManager {
                     );
                     return Ok(());
                 }
-                "error" => return Err(anyhow!("Transcription failed")),
+                "error" => {
+                    return Err(anyhow!(Self::async_transcription_failure_message(&payload)));
+                }
                 _ => {
                     self.await_with_cancellation(operation_id, tokio::time::sleep(poll_interval))
                         .await?;
@@ -1399,6 +1432,21 @@ mod tests {
                 .map(|token| token.text.as_str())
                 .collect::<String>(),
             "Beautiful day."
+        );
+    }
+
+    #[test]
+    fn async_failure_preserves_provider_error_details() {
+        let payload: TranscriptionStatusResponse = serde_json::from_value(serde_json::json!({
+            "status": "error",
+            "error_type": "invalid_audio_file",
+            "error_message": "Audio could not be decoded"
+        }))
+        .unwrap();
+
+        assert_eq!(
+            SonioxSttManager::async_transcription_failure_message(&payload),
+            "Soniox transcription failed (invalid_audio_file): Audio could not be decoded"
         );
     }
 }

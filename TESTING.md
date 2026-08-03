@@ -64,6 +64,31 @@ Run it with:
 
 Update this section every time new tests are added.
 
+### Soniox async failure details (2026-08-03)
+
+- `managers::soniox_stt::tests::async_failure_preserves_provider_error_details`
+  covers the documented Soniox `error` status payload and verifies that both
+  `error_type` and `error_message` remain available in the user-facing error.
+- The focused harness filter passed 5/5 tests. The unit tests do not make
+  network requests.
+- A CLI smoke converted a short existing WAV with the saved Soniox credential
+  in 4.38 seconds; it produced 12 words and 76 characters. The CLI correctly
+  selected `stt-async-v5` for file transcription when the saved live model was
+  `stt-rt-v5`.
+
+### OpenAI realtime transcription payloads (2026-08-03)
+
+- `managers::openai_realtime_whisper::tests::live_transcribe_session_uses_plural_languages_and_prompt`
+  also verifies the documented model split: `delay` is emitted for
+  `gpt-realtime-whisper` but omitted for `gpt-live-transcribe`, which does not
+  support that field.
+- The focused harness filter passed 5/5 tests and only inspects generated JSON;
+  it does not contact OpenAI.
+
+The existing provider filters were rerun in the same pass:
+`managers::remote_stt::tests` (13) and `managers::deepgram_stt::tests` (1),
+for 24/24 focused STT tests passing in total.
+
 ### TTS settings transparency pass (2026-07-31)
 
 - The active `bun tauri dev` watcher rebuilt and relaunched the debug app after
