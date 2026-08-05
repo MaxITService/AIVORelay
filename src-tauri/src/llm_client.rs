@@ -48,6 +48,7 @@ struct ReasoningParams {
 struct ChatCompletionRequest {
     model: String,
     messages: Vec<ChatMessage>,
+    stream: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     max_tokens: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -233,6 +234,7 @@ async fn send_chat_completion_with_messages_internal(
     let request_body = ChatCompletionRequest {
         model: model.to_string(),
         messages: messages.clone(),
+        stream: false,
         max_tokens,
         reasoning_effort,
         reasoning: reasoning_params,
