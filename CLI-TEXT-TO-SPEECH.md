@@ -10,6 +10,9 @@ AivoRelay.exe --convert-file .\chapter.md --output .\chapter.mp3
 AivoRelay.exe --convert-file .\notes.txt --output .\notes.wav
 AivoRelay.exe --convert-file .\chapter.md --output .\windows.wav --tts-provider windows
 AivoRelay.exe --convert-file .\chapter.md --output .\edge.mp3 --tts-provider edge --tts-voice en-US-AriaNeural
+AivoRelay.exe --convert-file .\chapter.md --output .\murf.mp3 --tts-provider murf --tts-model falcon-2
+AivoRelay.exe --convert-file .\chapter.md --output .\elevenlabs.mp3 --tts-provider elevenlabs --tts-model eleven_multilingual_v2
+AivoRelay.exe --convert-file .\chapter.md --output .\cartesia.mp3 --tts-provider cartesia --tts-model sonic-3.5
 AivoRelay.exe --convert-file .\chapter.md --output .\qwen.mp3 --tts-provider local-qwen --tts-voice Vivian
 AivoRelay.exe --convert-file .\chapter.md --output .\kokoro.mp3 --tts-provider local-kokoro --tts-voice af_maple --tts-language English
 ```
@@ -43,12 +46,23 @@ AivoRelay.exe --convert-file .\chapter.md --output .\chapter.mp3 `
 
 | Option | Accepted values and behavior |
 | --- | --- |
-| `--tts-provider` | `soniox`, `deepgram`, `openai`, experimental `edge`, `local-qwen`, `local-kokoro`, or `windows` |
-| `--tts-model` | Soniox, Deepgram, or OpenAI model ID |
-| `--tts-voice` | Soniox/OpenAI/Edge voice ID, official Qwen/Kokoro speaker ID, or stable Windows voice ID; `default` selects the current Windows default |
-| `--tts-language` | Soniox language code, Qwen language name, or Kokoro `English`/`Chinese` |
-| `--tts-speed` | Soniox `0.7–1.3`; Deepgram `0.7–1.5`; OpenAI `0.25–4.0`; Edge/Qwen/Kokoro/Windows `0.5–2.0` |
-| `--tts-key-source` | `shared` or `separate`; chooses an already-stored cloud credential and never exposes a secret on the command line |
+| `--tts-provider` | `soniox`, `deepgram`, `openai`, `murf`, `elevenlabs`, `cartesia`, experimental `edge`, `local-qwen`, `local-kokoro`, or `windows` |
+| `--tts-model` | Provider model ID; Murf accepts `falcon-2`/`gen2`, ElevenLabs accepts `eleven_v3`/`eleven_multilingual_v2`, and Cartesia accepts `sonic-3.5` |
+| `--tts-voice` | Cloud voice ID, official Qwen/Kokoro speaker ID, or stable Windows voice ID; `default` selects the current Windows default |
+| `--tts-language` | Murf locale; a two-letter ISO 639-1 hint for Eleven v3; a two-letter Cartesia language code; Soniox language code; Qwen language name; or Kokoro `English`/`Chinese`. ElevenLabs Multilingual v2 infers language from text and rejects this flag |
+| `--tts-speed` | Soniox `0.7–1.3`; Deepgram `0.7–1.5`; OpenAI `0.25–4.0`; ElevenLabs Multilingual v2 `0.7–1.2`; Cartesia Sonic 3.5 `0.6–1.5`; Edge/Qwen/Kokoro/Windows `0.5–2.0`. Murf uses `--tts-murf-rate`; Eleven v3 does not accept numeric speed |
+| `--tts-key-source` | `shared` or `separate`; Murf, ElevenLabs, and Cartesia accept only `separate`. Selects an already-stored credential and never exposes a secret on the command line |
+| `--tts-murf-rate` | Murf integer rate from `-50` to `50` |
+| `--tts-murf-pitch` | Murf integer pitch from `-50` to `50` |
+| `--tts-murf-variation` | Murf Gen2-only variation from `0` to `5` |
+| `--tts-murf-style` | Murf voice/locale style, or `none` to clear it |
+| `--tts-elevenlabs-stability` | ElevenLabs stability from `0` to `1` |
+| `--tts-elevenlabs-similarity-boost` | Multilingual v2 similarity boost from `0` to `1`; unavailable for Eleven v3 |
+| `--tts-elevenlabs-style` | ElevenLabs style exaggeration from `0` to `1` |
+| `--tts-elevenlabs-speaker-boost` | Multilingual v2 only: `true` or `false`; unavailable for Eleven v3 |
+| `--tts-elevenlabs-text-normalization` | `auto`, `on`, or `off` |
+| `--tts-cartesia-emotion` | Cartesia emotion, or `none` to clear it |
+| `--tts-cartesia-volume` | Cartesia Sonic 3.5 generation volume from `0.5` to `2.0` |
 | `--tts-format` | `mp3` or `wav`; with `--output`, it must match the extension |
 | `--tts-bitrate` | MP3 only: `64`, `96`, `128`, `192`, `256`, or `320` kb/s |
 | `--tts-chunk-chars` | `50` through the selected provider's hard character limit |
@@ -77,7 +91,7 @@ AivoRelay.exe --convert-file .\chapter.md --output .\chapter.mp3 `
 | `--tts-history` | `true` or `false` for this result's History capture |
 
 The final `--json` object reports the effective provider, model, voice,
-language, key source, speed, format/bitrate, chunk/retry/pause settings,
+language, key source, speed, provider-specific controls, format/bitrate, chunk/retry/pause settings,
 preprocessing rule count, disk reserve, and History request state.
 
 Provider-specific options are strict. AivoRelay returns exit code `2` with an
@@ -88,6 +102,17 @@ value:
   `--tts-voice` and `--tts-language` are rejected.
 - OpenAI does not expose a separate language option, so `--tts-language` is
   rejected.
+- Murf accepts only `falcon-2` and `gen2`; generic `--tts-speed` is rejected in
+  favor of its integer rate control, and variation is accepted only for Gen2.
+- ElevenLabs accepts only `eleven_v3` and `eleven_multilingual_v2`. Its voice
+  settings and text-normalization controls are rejected for other providers.
+  Multilingual v2 infers language from the text and does not accept
+  `--tts-language`; Eleven v3 does not accept numeric speed, Similarity, or
+  Speaker Boost controls.
+- Cartesia currently uses the fixed `sonic-3.5` model. Its 4,000-character
+  request cap is an AivoRelay safety limit because Cartesia does not publish a
+  single transcript-character maximum for the bytes endpoint. Speed, volume,
+  and emotion are sent through Cartesia's `generation_config` object.
 - Experimental Edge-TTS uses the fixed `microsoft-edge-read-aloud` service
   model and derives language from its voice ID, so use `--tts-voice`; model,
   language, and key-source flags are rejected. AivoRelay's native Rust client
@@ -235,7 +260,7 @@ network, app, or computer fails, repeating the same conversion to the same
 output path automatically recovers compatible chunks instead of paying to
 synthesize them again. The terminal and `--json` result report
 `resumed_chunks`. Changing the source text, provider, active model/voice,
-voice instructions, speed, chunk plan, or pauses starts safely from zero;
+voice instructions, effective provider-specific voice controls, speed, chunk plan, or pauses starts safely from zero;
 retry count, API-key source, disk/history limits, final MP3 bitrate, and
 MP3/WAV selection do not invalidate compatible PCM.
 
@@ -335,7 +360,7 @@ AivoRelay.exe tts-history --scope interactive show 7
 ```
 
 `list` is newest-first. `show` includes the retained raw source text, provider,
-model, voice, output format, voice-prompt metadata, secret-free AI-cleanup
+model, voice, output format, provider-specific synthesis controls, voice-prompt metadata, secret-free AI-cleanup
 configuration/prompt identity, and whether the managed audio copy still exists.
 
 Exporting copies retained audio and does **not** make an API request:
@@ -388,8 +413,8 @@ format and must match any explicit `--format`. Managed-only regeneration also
 recovers verified chunks after a failed process and reports
 `resumed_chunks`.
 
-Supported providers are `soniox`, `deepgram`, `openai`, `local-qwen`,
-`local-kokoro`, and `windows`. For Windows, `--voice` is the stable WinRT installed-voice ID, not
+Supported providers are `soniox`, `deepgram`, `openai`, `murf`, `elevenlabs`,
+`cartesia`, experimental `edge`, `local-qwen`, `local-kokoro`, and `windows`. For Windows, `--voice` is the stable WinRT installed-voice ID, not
 its display name; an empty saved voice selects the current Windows default.
 Before synthesis, AivoRelay resolves that default to one concrete stable ID for
 the whole operation and its resume checkpoint. History list/show output includes

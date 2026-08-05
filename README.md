@@ -99,12 +99,12 @@ The "Default Profile" uses your global settings (Settings → Speech). It cannot
 
 **Want to turn your text into an audiobook? You can do that now.** AivoRelay can speak selected text from any Windows application or convert complete `.txt` and `.md` documents into MP3 or WAV. For especially natural speech, choose one of the supported cloud TTS APIs; cloud synthesis is often inexpensive for personal-sized projects, although each provider sets its own pricing. For offline or private use, choose installed Windows voices or an optional local model instead.
 
-You do not need to understand every setting to begin. AivoRelay includes ready-made presets for every TTS provider.
+You do not need to understand every setting to begin. AivoRelay includes ready-made presets for every TTS provider and automatically opens the recommended preset the first time you select a provider on each TTS page.
 
 #### Speak selected text
 
 1. Open **Settings → Speak selected text**.
-2. Choose a provider and load one of its presets.
+2. Choose a provider. Its recommended preset is loaded automatically the first time; you can select a different preset later.
 3. Add an API key if the selected cloud provider requires one. Windows voices and the unofficial Microsoft Read Aloud integration do not require a key; local models keep synthesis on the device after installation.
 4. Assign a keyboard shortcut under **Actions**. Other settings can stay at their defaults.
 5. Select text in any application and press the shortcut to hear it.
@@ -113,7 +113,7 @@ You do not need to understand every setting to begin. AivoRelay includes ready-m
 
 Open **Settings → Text file to mp3** to convert existing `.txt` or `.md` documents. Select one or multiple files with the native Windows file picker, scan a whole folder once, optionally include subfolders, and cancel a running batch. Every source file gets its own audio result, and existing outputs are never overwritten. The same workflow is also available from the [TTS file-conversion CLI](CLI-TEXT-TO-SPEECH.md).
 
-Available choices include Soniox, Deepgram, OpenAI, Windows installed voices, the unofficial Microsoft Read Aloud integration, and optional local Qwen or Kokoro models. File conversion and interactive speech keep separate active settings while sharing saved presets.
+Available choices include Soniox, Deepgram, OpenAI, Murf AI (Falcon 2 and Gen2), ElevenLabs (Eleven v3 and Multilingual v2), Cartesia Sonic 3.5, Windows installed voices, the unofficial Microsoft Read Aloud integration, and optional local Qwen or Kokoro models. File conversion and interactive speech keep separate active settings while sharing saved presets.
 
 
 ### 📺 Live Preview (only if you want it)

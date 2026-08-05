@@ -1,10 +1,12 @@
 use crate::managers::tts::{FileConversionResult, TtsManager};
 use crate::managers::tts_history::{
-    llm_cleanup_config_from_settings, NewTtsHistoryEntry, TtsHistoryDeleteOutcome, TtsHistoryEntry,
-    TtsHistoryManager, TtsHistoryScope, TtsHistorySourceKind,
+    apply_provider_synthesis_config, llm_cleanup_config_from_settings,
+    provider_synthesis_config_from_settings, NewTtsHistoryEntry, TtsHistoryDeleteOutcome,
+    TtsHistoryEntry, TtsHistoryManager, TtsHistoryScope, TtsHistorySourceKind,
 };
 use crate::settings::{
     LLMPrompt, TtsKeySource, TtsLlmScope, TtsOutputFormat, TtsProvider, TtsSettings,
+    DEFAULT_TTS_MURF_GEN2_VOICE, DEFAULT_TTS_MURF_VOICE,
 };
 use serde::{Deserialize, Serialize};
 use specta::Type;
@@ -267,6 +269,10 @@ pub async fn regenerate_tts_history_entry_core(
             Some(&source_entry.voice),
         )?;
         restore_source_language(&mut settings, &source_entry.language);
+        if let Some(provider_controls) = source_entry.provider_synthesis_config.as_deref() {
+            apply_provider_synthesis_config(&mut settings, provider_controls)
+                .map_err(|error| error.to_string())?;
+        }
     }
     let selected_provider = settings.provider;
     set_model_and_voice(
@@ -362,6 +368,7 @@ pub async fn regenerate_tts_history_entry_core(
                 prompt_preset_name: prompt.preset_name,
                 resolved_instructions: prompt.instructions,
                 llm_cleanup_config: llm_cleanup_config_from_settings(&settings, source_entry.scope),
+                provider_synthesis_config: provider_synthesis_config_from_settings(&settings),
             },
             &output_path,
         )
@@ -686,6 +693,41 @@ fn set_model_and_voice(
             TtsProvider::Soniox => settings.soniox_model = model,
             TtsProvider::Deepgram => settings.deepgram_model = model,
             TtsProvider::OpenAi => settings.openai_model = model,
+            TtsProvider::Murf => {
+                if !matches!(model.as_str(), "falcon-2" | "gen2") {
+                    return Err("Murf model must be falcon-2 or gen2".to_string());
+                }
+                if settings.murf_model != model && voice.is_none() {
+                    settings.murf_voice = if model == "gen2" {
+                        DEFAULT_TTS_MURF_GEN2_VOICE
+                    } else {
+                        DEFAULT_TTS_MURF_VOICE
+                    }
+                    .to_string();
+                }
+                settings.murf_model = model;
+            }
+            TtsProvider::ElevenLabs => {
+                if !matches!(
+                    model.as_str(),
+                    "eleven_v3" | "eleven_multilingual_v2"
+                ) {
+                    return Err(
+                        "ElevenLabs model must be eleven_v3 or eleven_multilingual_v2"
+                            .to_string(),
+                    );
+                }
+                settings.elevenlabs_model = model;
+                if settings.elevenlabs_model == "eleven_v3" {
+                    settings.speed = 1.0;
+                }
+            }
+            TtsProvider::Cartesia => {
+                if model != "sonic-3.5" {
+                    return Err("Cartesia uses the fixed model sonic-3.5".to_string());
+                }
+                settings.cartesia_model = model;
+            }
             TtsProvider::Edge => {
                 if model != crate::managers::edge_tts::EDGE_TTS_MODEL {
                     return Err(format!(
@@ -742,6 +784,9 @@ fn set_model_and_voice(
             // Deepgram represents its voice as the speak endpoint's model.
             TtsProvider::Deepgram => settings.deepgram_model = voice,
             TtsProvider::OpenAi => settings.openai_voice = voice,
+            TtsProvider::Murf => settings.murf_voice = voice,
+            TtsProvider::ElevenLabs => settings.elevenlabs_voice = voice,
+            TtsProvider::Cartesia => settings.cartesia_voice = voice,
             TtsProvider::Edge => {
                 settings.edge_voice_language = crate::managers::edge_tts::voice_language(&voice);
                 settings.edge_voice = voice;
@@ -771,6 +816,15 @@ fn current_model_and_voice(settings: &TtsSettings) -> (String, String) {
             settings.deepgram_model.clone(),
         ),
         TtsProvider::OpenAi => (settings.openai_model.clone(), settings.openai_voice.clone()),
+        TtsProvider::Murf => (settings.murf_model.clone(), settings.murf_voice.clone()),
+        TtsProvider::ElevenLabs => (
+            settings.elevenlabs_model.clone(),
+            settings.elevenlabs_voice.clone(),
+        ),
+        TtsProvider::Cartesia => (
+            settings.cartesia_model.clone(),
+            settings.cartesia_voice.clone(),
+        ),
         TtsProvider::Edge => (
             crate::managers::edge_tts::EDGE_TTS_MODEL.to_string(),
             settings.edge_voice.clone(),
@@ -805,6 +859,9 @@ fn current_language(settings: &TtsSettings) -> String {
         TtsProvider::LocalKokoro => settings.local_kokoro_language.clone(),
         TtsProvider::Windows => settings.windows_voice_language.clone(),
         TtsProvider::Edge => settings.edge_voice_language.clone(),
+        TtsProvider::Murf => settings.murf_language.clone(),
+        TtsProvider::ElevenLabs => settings.elevenlabs_language.clone(),
+        TtsProvider::Cartesia => settings.cartesia_language.clone(),
         TtsProvider::Deepgram | TtsProvider::OpenAi => String::new(),
     }
 }
@@ -820,6 +877,9 @@ fn restore_source_language(settings: &mut TtsSettings, source_language: &str) {
         TtsProvider::LocalKokoro => settings.local_kokoro_language = source_language.to_string(),
         TtsProvider::Windows => settings.windows_voice_language = source_language.to_string(),
         TtsProvider::Edge => settings.edge_voice_language = source_language.to_string(),
+        TtsProvider::Murf => settings.murf_language = source_language.to_string(),
+        TtsProvider::ElevenLabs => settings.elevenlabs_language = source_language.to_string(),
+        TtsProvider::Cartesia => settings.cartesia_language = source_language.to_string(),
         TtsProvider::Deepgram | TtsProvider::OpenAi => {}
     }
 }
@@ -1109,5 +1169,30 @@ mod tests {
             None,
         )
         .is_err());
+    }
+
+    #[test]
+    fn murf_history_model_override_selects_a_compatible_default_voice() {
+        let mut settings = TtsSettings {
+            provider: TtsProvider::Murf,
+            ..TtsSettings::default()
+        };
+        set_model_and_voice(
+            &mut settings,
+            TtsProvider::Murf,
+            Some("gen2"),
+            None,
+        )
+        .unwrap();
+        assert_eq!(settings.murf_voice, DEFAULT_TTS_MURF_GEN2_VOICE);
+
+        set_model_and_voice(
+            &mut settings,
+            TtsProvider::Murf,
+            Some("falcon-2"),
+            None,
+        )
+        .unwrap();
+        assert_eq!(settings.murf_voice, DEFAULT_TTS_MURF_VOICE);
     }
 }

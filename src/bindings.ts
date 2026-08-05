@@ -2679,9 +2679,9 @@ async deleteLocalTts(kind: LocalTtsKind) : Promise<Result<null, string>> {
 async getWindowsTtsVoiceCatalog() : Promise<WindowsVoiceCatalog> {
     return await TAURI_INVOKE("get_windows_tts_voice_catalog");
 },
-async getTtsVoiceCatalog(provider: TtsProvider, scope: TtsOperationScope | null) : Promise<Result<TtsVoiceCatalog, string>> {
+async getTtsVoiceCatalog(provider: TtsProvider, scope: TtsOperationScope | null, model: string | null) : Promise<Result<TtsVoiceCatalog, string>> {
     try {
-    return { status: "ok", data: await TAURI_INVOKE("get_tts_voice_catalog", { provider, scope }) };
+    return { status: "ok", data: await TAURI_INVOKE("get_tts_voice_catalog", { provider, scope, model }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
@@ -4127,6 +4127,7 @@ export type DeepgramFileTranscriptionOptions = { diarize: boolean | null; multic
 export type DiarizationSpeakerNameProfile = { id: string; name: string; speaker_names?: string[] }
 export type DiarizedTranscriptProvider = "deepgram" | "soniox"
 export type DictationStatsRuntimeState = { is_editing: boolean; is_recording: boolean; is_processing: boolean; can_start_edit: boolean; can_apply_edit: boolean; max_count: number; warning_threshold: number }
+export type ElevenLabsTextNormalization = "auto" | "on" | "off"
 export type EngineType = "TranscribeCpp" |
 /**
  * Legacy catalog/settings tag. Runtime loading is routed through
@@ -4539,7 +4540,11 @@ resolved_instructions: string | null;
  * Effective TTS AI-cleanup metadata as secret-free JSON. This is separate
  * from provider voice instructions and may be absent when cleanup was off.
  */
-llm_cleanup_config: string | null }
+llm_cleanup_config: string | null;
+/**
+ * Secret-free provider-specific controls used to generate this variant.
+ */
+provider_synthesis_config: string | null }
 export type TtsHistoryManagedAudioDeleteStatus = "deleted" | "missing" | "failed"
 export type TtsHistoryScope = "interactive" | "file"
 export type TtsHistorySourceKind = "text" | "markdown"
@@ -4553,15 +4558,16 @@ export type TtsOverlayChunk = { index: number; path: string; pause_after_ms: num
 export type TtsOverlayState = { operation_id: string; status: string; provider: string; model: string; voice: string; text_preview: string; chunks: TtsOverlayChunk[]; current_chunk: number; total_chunks: number; retry_attempt: number; error: string | null; play_pause_hotkey: string; play_history_when_overlay_closed: boolean; stop_hotkey: string; autoplay: boolean; playback_pitch: number; playback_effect: TtsPlaybackEffect }
 export type TtsPlaybackEffect = "none" | "radio" | "retro"
 export type TtsPromptPreset = { id: string; name: string; instructions: string }
-export type TtsProvider = "soniox" | "deepgram" | "openai" | "edge" | "local_qwen" | "local_kokoro" | "windows"
-export type TtsScopeSynthesisSettings = { active_model_key?: string; selected_preset_id?: string; models?: TtsModelSynthesisSettings[] }
+export type TtsProvider = "soniox" | "deepgram" | "openai" | "murf" | "elevenlabs" | "cartesia" | "edge" | "local_qwen" | "local_kokoro" | "windows"
+export type TtsProviderModelSelection = { provider: TtsProvider; model_key: string }
+export type TtsScopeSynthesisSettings = { active_model_key?: string; selected_preset_id?: string; models?: TtsModelSynthesisSettings[]; active_models_by_provider?: TtsProviderModelSelection[]; initialized_providers?: TtsProvider[] }
 /**
  * Text-to-Speech configuration with separate Interactive and File Operations
  * synthesis profiles plus a shared named-preset catalog.
  *
  * API secrets are deliberately excluded and live in Windows Credential Manager.
  */
-export type TtsSettings = { enabled?: boolean; provider?: TtsProvider; soniox_key_source?: TtsKeySource; deepgram_key_source?: TtsKeySource; openai_key_source?: TtsKeySource; soniox_model?: string; soniox_language?: string; soniox_voice?: string; deepgram_model?: string; openai_model?: string; openai_voice?: string; edge_voice?: string; edge_voice_language?: string; local_qwen_voice?: string; local_qwen_language?: string; local_kokoro_voice?: string; local_kokoro_language?: string;
+export type TtsSettings = { enabled?: boolean; provider?: TtsProvider; soniox_key_source?: TtsKeySource; deepgram_key_source?: TtsKeySource; openai_key_source?: TtsKeySource; murf_key_source?: TtsKeySource; elevenlabs_key_source?: TtsKeySource; cartesia_key_source?: TtsKeySource; soniox_model?: string; soniox_language?: string; soniox_voice?: string; deepgram_model?: string; openai_model?: string; openai_voice?: string; murf_model?: string; murf_voice?: string; murf_language?: string; murf_rate?: number; murf_pitch?: number; murf_variation?: number; murf_style?: string | null; elevenlabs_model?: string; elevenlabs_voice?: string; elevenlabs_language?: string; elevenlabs_stability?: number; elevenlabs_similarity_boost?: number; elevenlabs_style?: number; elevenlabs_use_speaker_boost?: boolean; elevenlabs_apply_text_normalization?: ElevenLabsTextNormalization; cartesia_model?: string; cartesia_voice?: string; cartesia_language?: string; cartesia_emotion?: string | null; cartesia_volume?: number; edge_voice?: string; edge_voice_language?: string; local_qwen_voice?: string; local_qwen_language?: string; local_kokoro_voice?: string; local_kokoro_language?: string;
 /**
  * Stable WinRT VoiceInformation ID. Empty selects the current OS default.
  */
@@ -4579,10 +4585,11 @@ playback_pitch?: number;
  * Optional overlay playback effect. The stored/generated audio is unchanged.
  */
 playback_effect?: TtsPlaybackEffect; output_format?: TtsOutputFormat; mp3_bitrate_kbps?: number; watch_folder_enabled?: boolean; watch_recursive?: boolean; watch_input_directory?: string; watch_output_directory?: string; watch_settle_delay_ms?: number; disk_reserve_mb?: number; interactive_history_enabled?: boolean; interactive_history_max_entries?: number; interactive_history_max_storage_mb?: number; file_history_enabled?: boolean; file_history_max_entries?: number; file_history_max_storage_mb?: number }
-export type TtsSynthesisConfig = { provider: TtsProvider; model: string; voice: string; language: string; key_source?: TtsKeySource; speed?: number; voice_instructions?: string; voice_prompt_preset_id?: string; preprocessing_enabled?: boolean; preprocessing_rules?: TextReplacement[]; target_chars?: number; retry_count?: number; retry_base_delay_ms?: number; inter_chunk_pause_ms?: number; paragraph_pause_ms?: number; output_format?: TtsOutputFormat; mp3_bitrate_kbps?: number }
+export type TtsSynthesisConfig = { provider: TtsProvider; model: string; voice: string; language: string; key_source?: TtsKeySource; speed?: number; murf_rate?: number; murf_pitch?: number; murf_variation?: number; murf_style?: string | null; elevenlabs_stability?: number; elevenlabs_similarity_boost?: number; elevenlabs_style?: number; elevenlabs_use_speaker_boost?: boolean; elevenlabs_apply_text_normalization?: ElevenLabsTextNormalization; cartesia_emotion?: string | null; cartesia_volume?: number; voice_instructions?: string; voice_prompt_preset_id?: string; preprocessing_enabled?: boolean; preprocessing_rules?: TextReplacement[]; target_chars?: number; retry_count?: number; retry_base_delay_ms?: number; inter_chunk_pause_ms?: number; paragraph_pause_ms?: number; output_format?: TtsOutputFormat; mp3_bitrate_kbps?: number }
 export type TtsSynthesisPreset = { id: string; name: string; config: TtsSynthesisConfig }
 export type TtsVoiceCatalog = { provider: TtsProvider; voices: TtsVoiceCatalogEntry[]; source: string; supports_live_refresh: boolean; replace_builtin: boolean; warning: string | null }
-export type TtsVoiceCatalogEntry = { id: string; label: string; group: string; language: string; gender: string; description: string }
+export type TtsVoiceCatalogEntry = { id: string; label: string; group: string; language: string; gender: string; description: string; locales?: TtsVoiceCatalogLocale[] }
+export type TtsVoiceCatalogLocale = { locale: string; label: string; styles: string[] }
 export type UiFileJobStatus = "planned" | "preparing" | "running" | "retrying" | "paused" | "interrupted" | "failed" | "completed"
 export type UiFileJobSummary = { jobId: string; sourcePath: string; outputPath: string; provider: TtsProvider; outputFormat: TtsOutputFormat; status: UiFileJobStatus; completedChunks: number; totalChunks: number; partialAvailable: boolean; lastError: string | null; createdAtMs: number; updatedAtMs: number }
 export type UpdateTranscriptionProfilePayload = { id: string; name: string; language: string; translateToEnglish: boolean; systemPrompt: string; sttPromptOverrideEnabled: boolean; includeInCycle: boolean; pushToTalk: boolean; previewOutputOnlyEnabled: boolean; sonioxLanguageHintsStrict?: boolean | null; llmSettings: ProfileLlmSettings; sonioxContextGeneralJson: string | null; sonioxContextText: string | null; sonioxContextTerms: string[] | null }

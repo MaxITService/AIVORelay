@@ -708,6 +708,10 @@ pub enum TtsProvider {
     Deepgram,
     #[serde(rename = "openai")]
     OpenAi,
+    Murf,
+    #[serde(rename = "elevenlabs")]
+    ElevenLabs,
+    Cartesia,
     Edge,
     LocalQwen,
     LocalKokoro,
@@ -716,7 +720,12 @@ pub enum TtsProvider {
 
 pub(crate) const DEFAULT_TTS_SONIOX_VOICE: &str = "Maya";
 pub(crate) const DEFAULT_TTS_OPENAI_VOICE: &str = "marin";
-const DEFAULT_TTS_SYNTHESIS_PRESET_SEED_VERSION: u8 = 1;
+pub(crate) const DEFAULT_TTS_MURF_VOICE: &str = "Gordon";
+pub(crate) const DEFAULT_TTS_MURF_GEN2_VOICE: &str = "en-US-natalie";
+pub(crate) const DEFAULT_TTS_ELEVENLABS_VOICE: &str = "JBFqnCBsd6RMkjVDRZzb";
+pub(crate) const DEFAULT_TTS_CARTESIA_VOICE: &str =
+    "f786b574-daa5-4673-aa0c-cbe3e8534c02";
+const DEFAULT_TTS_SYNTHESIS_PRESET_SEED_VERSION: u8 = 2;
 
 impl Default for TtsProvider {
     fn default() -> Self {
@@ -730,6 +739,9 @@ impl TtsProvider {
             Self::Soniox => "soniox",
             Self::Deepgram => "deepgram",
             Self::OpenAi => "openai",
+            Self::Murf => "murf",
+            Self::ElevenLabs => "elevenlabs",
+            Self::Cartesia => "cartesia",
             Self::Edge => "edge",
             Self::LocalQwen => "local_qwen",
             Self::LocalKokoro => "local_kokoro",
@@ -738,7 +750,15 @@ impl TtsProvider {
     }
 
     pub fn requires_api_key(self) -> bool {
-        matches!(self, Self::Soniox | Self::Deepgram | Self::OpenAi)
+        matches!(
+            self,
+            Self::Soniox
+                | Self::Deepgram
+                | Self::OpenAi
+                | Self::Murf
+                | Self::ElevenLabs
+                | Self::Cartesia
+        )
     }
 
     pub fn requires_paid_confirmation(self) -> bool {
@@ -750,6 +770,10 @@ impl TtsProvider {
             && (model.trim().is_empty() || model.trim().starts_with("gpt-4o-mini-tts"))
     }
 
+    pub fn supports_shared_key(self) -> bool {
+        matches!(self, Self::Soniox | Self::Deepgram | Self::OpenAi)
+    }
+
     pub fn is_local_or_system(self) -> bool {
         matches!(self, Self::LocalQwen | Self::LocalKokoro | Self::Windows)
     }
@@ -757,6 +781,20 @@ impl TtsProvider {
     #[allow(dead_code)] // Used by the next downloadable provider registry slice.
     pub fn supports_downloadable_local_runtime(self) -> bool {
         matches!(self, Self::LocalQwen | Self::LocalKokoro)
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Type)]
+#[serde(rename_all = "snake_case")]
+pub enum ElevenLabsTextNormalization {
+    Auto,
+    On,
+    Off,
+}
+
+impl Default for ElevenLabsTextNormalization {
+    fn default() -> Self {
+        Self::Auto
     }
 }
 
@@ -825,6 +863,28 @@ pub struct TtsSynthesisConfig {
     pub key_source: TtsKeySource,
     #[serde(default = "default_tts_speed")]
     pub speed: f32,
+    #[serde(default = "default_tts_murf_rate")]
+    pub murf_rate: i8,
+    #[serde(default = "default_tts_murf_pitch")]
+    pub murf_pitch: i8,
+    #[serde(default = "default_tts_murf_variation")]
+    pub murf_variation: u8,
+    #[serde(default)]
+    pub murf_style: Option<String>,
+    #[serde(default = "default_tts_elevenlabs_stability")]
+    pub elevenlabs_stability: f32,
+    #[serde(default = "default_tts_elevenlabs_similarity_boost")]
+    pub elevenlabs_similarity_boost: f32,
+    #[serde(default = "default_tts_elevenlabs_style")]
+    pub elevenlabs_style: f32,
+    #[serde(default = "default_true")]
+    pub elevenlabs_use_speaker_boost: bool,
+    #[serde(default)]
+    pub elevenlabs_apply_text_normalization: ElevenLabsTextNormalization,
+    #[serde(default)]
+    pub cartesia_emotion: Option<String>,
+    #[serde(default = "default_tts_cartesia_volume")]
+    pub cartesia_volume: f32,
     #[serde(default)]
     pub voice_instructions: String,
     #[serde(default)]
@@ -871,6 +931,21 @@ impl TtsSynthesisConfig {
                 settings.openai_voice.clone(),
                 String::new(),
             ),
+            TtsProvider::Murf => (
+                settings.murf_model.clone(),
+                settings.murf_voice.clone(),
+                settings.murf_language.clone(),
+            ),
+            TtsProvider::ElevenLabs => (
+                settings.elevenlabs_model.clone(),
+                settings.elevenlabs_voice.clone(),
+                settings.elevenlabs_language.clone(),
+            ),
+            TtsProvider::Cartesia => (
+                settings.cartesia_model.clone(),
+                settings.cartesia_voice.clone(),
+                settings.cartesia_language.clone(),
+            ),
             TtsProvider::Edge => (
                 "microsoft-edge-read-aloud".to_string(),
                 settings.edge_voice.clone(),
@@ -896,6 +971,9 @@ impl TtsSynthesisConfig {
             TtsProvider::Soniox => settings.soniox_key_source,
             TtsProvider::Deepgram => settings.deepgram_key_source,
             TtsProvider::OpenAi => settings.openai_key_source,
+            TtsProvider::Murf => settings.murf_key_source,
+            TtsProvider::ElevenLabs => settings.elevenlabs_key_source,
+            TtsProvider::Cartesia => settings.cartesia_key_source,
             TtsProvider::Edge
             | TtsProvider::LocalQwen
             | TtsProvider::LocalKokoro
@@ -912,6 +990,18 @@ impl TtsSynthesisConfig {
             language,
             key_source,
             speed: settings.speed,
+            murf_rate: settings.murf_rate,
+            murf_pitch: settings.murf_pitch,
+            murf_variation: settings.murf_variation,
+            murf_style: settings.murf_style.clone(),
+            elevenlabs_stability: settings.elevenlabs_stability,
+            elevenlabs_similarity_boost: settings.elevenlabs_similarity_boost,
+            elevenlabs_style: settings.elevenlabs_style,
+            elevenlabs_use_speaker_boost: settings.elevenlabs_use_speaker_boost,
+            elevenlabs_apply_text_normalization: settings
+                .elevenlabs_apply_text_normalization,
+            cartesia_emotion: settings.cartesia_emotion.clone(),
+            cartesia_volume: settings.cartesia_volume,
             voice_instructions: settings.openai_instructions.clone(),
             voice_prompt_preset_id: settings.selected_prompt_id.clone(),
             preprocessing_enabled: settings.preprocessing_enabled,
@@ -944,6 +1034,36 @@ impl TtsSynthesisConfig {
                 settings.openai_voice = self.voice.clone();
                 settings.openai_key_source = self.key_source;
             }
+            TtsProvider::Murf => {
+                settings.murf_model = self.model.clone();
+                settings.murf_voice = self.voice.clone();
+                settings.murf_language = self.language.clone();
+                settings.murf_key_source = TtsKeySource::Separate;
+                settings.murf_rate = self.murf_rate;
+                settings.murf_pitch = self.murf_pitch;
+                settings.murf_variation = self.murf_variation;
+                settings.murf_style = self.murf_style.clone();
+            }
+            TtsProvider::ElevenLabs => {
+                settings.elevenlabs_model = self.model.clone();
+                settings.elevenlabs_voice = self.voice.clone();
+                settings.elevenlabs_language = self.language.clone();
+                settings.elevenlabs_key_source = TtsKeySource::Separate;
+                settings.elevenlabs_stability = self.elevenlabs_stability;
+                settings.elevenlabs_similarity_boost = self.elevenlabs_similarity_boost;
+                settings.elevenlabs_style = self.elevenlabs_style;
+                settings.elevenlabs_use_speaker_boost = self.elevenlabs_use_speaker_boost;
+                settings.elevenlabs_apply_text_normalization =
+                    self.elevenlabs_apply_text_normalization;
+            }
+            TtsProvider::Cartesia => {
+                settings.cartesia_model = self.model.clone();
+                settings.cartesia_voice = self.voice.clone();
+                settings.cartesia_language = self.language.clone();
+                settings.cartesia_key_source = TtsKeySource::Separate;
+                settings.cartesia_emotion = self.cartesia_emotion.clone();
+                settings.cartesia_volume = self.cartesia_volume;
+            }
             TtsProvider::Edge => {
                 settings.edge_voice = self.voice.clone();
                 settings.edge_voice_language = self.language.clone();
@@ -961,7 +1081,13 @@ impl TtsSynthesisConfig {
                 settings.windows_voice_language = self.language.clone();
             }
         }
-        settings.speed = self.speed;
+        settings.speed = if self.provider == TtsProvider::Murf
+            || (self.provider == TtsProvider::ElevenLabs && self.model == "eleven_v3")
+        {
+            1.0
+        } else {
+            self.speed
+        };
         settings.openai_instructions = self.voice_instructions.clone();
         settings.selected_prompt_id = self.voice_prompt_preset_id.clone();
         settings.preprocessing_enabled = self.preprocessing_enabled;
@@ -989,6 +1115,12 @@ pub struct TtsModelSynthesisSettings {
     pub config: TtsSynthesisConfig,
 }
 
+#[derive(Serialize, Deserialize, Debug, Clone, Type)]
+pub struct TtsProviderModelSelection {
+    pub provider: TtsProvider,
+    pub model_key: String,
+}
+
 #[derive(Serialize, Deserialize, Debug, Clone, Default, Type)]
 pub struct TtsScopeSynthesisSettings {
     #[serde(default)]
@@ -997,6 +1129,10 @@ pub struct TtsScopeSynthesisSettings {
     pub selected_preset_id: String,
     #[serde(default)]
     pub models: Vec<TtsModelSynthesisSettings>,
+    #[serde(default)]
+    pub active_models_by_provider: Vec<TtsProviderModelSelection>,
+    #[serde(default)]
+    pub initialized_providers: Vec<TtsProvider>,
 }
 
 impl TtsScopeSynthesisSettings {
@@ -1007,7 +1143,30 @@ impl TtsScopeSynthesisSettings {
             .map(|entry| &entry.config)
     }
 
+    fn mark_provider_initialized(&mut self, provider: TtsProvider) {
+        if !self.initialized_providers.contains(&provider) {
+            self.initialized_providers.push(provider);
+        }
+    }
+
+    fn remember_active_model(&mut self, provider: TtsProvider, model_key: &str) {
+        if let Some(selection) = self
+            .active_models_by_provider
+            .iter_mut()
+            .find(|selection| selection.provider == provider)
+        {
+            selection.model_key = model_key.to_string();
+        } else {
+            self.active_models_by_provider
+                .push(TtsProviderModelSelection {
+                    provider,
+                    model_key: model_key.to_string(),
+                });
+        }
+    }
+
     fn upsert(&mut self, config: TtsSynthesisConfig) {
+        let provider = config.provider;
         let model_key = config.model_key();
         if let Some(existing) = self
             .models
@@ -1022,6 +1181,64 @@ impl TtsScopeSynthesisSettings {
             });
         }
         self.active_model_key = model_key;
+        let active_model_key = self.active_model_key.clone();
+        self.remember_active_model(provider, &active_model_key);
+        self.mark_provider_initialized(provider);
+    }
+
+    pub(crate) fn normalize_provider_memories(&mut self) {
+        for entry in &mut self.models {
+            entry.model_key = entry.config.model_key();
+        }
+        let mut model_keys = std::collections::HashSet::new();
+        self.models
+            .retain(|entry| model_keys.insert(entry.model_key.clone()));
+
+        let valid_selection = |selection: &TtsProviderModelSelection,
+                               models: &[TtsModelSynthesisSettings]| {
+            models.iter().any(|entry| {
+                entry.model_key == selection.model_key
+                    && entry.config.provider == selection.provider
+            })
+        };
+        let mut remembered_providers = std::collections::HashSet::new();
+        let models = &self.models;
+        self.active_models_by_provider.retain(|selection| {
+            valid_selection(selection, models)
+                && remembered_providers.insert(selection.provider.as_str())
+        });
+
+        let active = self
+            .models
+            .iter()
+            .find(|entry| entry.model_key == self.active_model_key)
+            .map(|entry| (entry.config.provider, entry.model_key.clone()));
+        if let Some((provider, model_key)) = active {
+            self.remember_active_model(provider, &model_key);
+        } else if let Some(entry) = self.models.last() {
+            let provider = entry.config.provider;
+            let model_key = entry.model_key.clone();
+            self.active_model_key = model_key.clone();
+            self.remember_active_model(provider, &model_key);
+        }
+
+        let model_providers = self
+            .models
+            .iter()
+            .map(|entry| entry.config.provider)
+            .collect::<Vec<_>>();
+        let mut initialized = Vec::new();
+        for provider in self
+            .initialized_providers
+            .iter()
+            .copied()
+            .chain(model_providers)
+        {
+            if !initialized.contains(&provider) {
+                initialized.push(provider);
+            }
+        }
+        self.initialized_providers = initialized;
     }
 }
 
@@ -1049,8 +1266,23 @@ fn builtin_tts_synthesis_preset(
             model: model.to_string(),
             voice: voice.to_string(),
             language: language.to_string(),
-            key_source: TtsKeySource::Shared,
+            key_source: if provider.supports_shared_key() {
+                TtsKeySource::Shared
+            } else {
+                TtsKeySource::Separate
+            },
             speed,
+            murf_rate: default_tts_murf_rate(),
+            murf_pitch: default_tts_murf_pitch(),
+            murf_variation: default_tts_murf_variation(),
+            murf_style: None,
+            elevenlabs_stability: default_tts_elevenlabs_stability(),
+            elevenlabs_similarity_boost: default_tts_elevenlabs_similarity_boost(),
+            elevenlabs_style: default_tts_elevenlabs_style(),
+            elevenlabs_use_speaker_boost: true,
+            elevenlabs_apply_text_normalization: ElevenLabsTextNormalization::Auto,
+            cartesia_emotion: None,
+            cartesia_volume: default_tts_cartesia_volume(),
             voice_instructions: String::new(),
             voice_prompt_preset_id: String::new(),
             preprocessing_enabled: true,
@@ -1128,6 +1360,51 @@ fn default_tts_synthesis_presets() -> Vec<TtsSynthesisPreset> {
             1.0,
         ),
         builtin_tts_synthesis_preset(
+            "builtin_tts_murf_falcon2",
+            "Murf AI — Falcon 2 (Recommended)",
+            TtsProvider::Murf,
+            "falcon-2",
+            DEFAULT_TTS_MURF_VOICE,
+            "en-US",
+            1.0,
+        ),
+        builtin_tts_synthesis_preset(
+            "builtin_tts_murf_gen2_natural",
+            "Murf AI — Gen2 (Natural)",
+            TtsProvider::Murf,
+            "gen2",
+            DEFAULT_TTS_MURF_GEN2_VOICE,
+            "en-US",
+            1.0,
+        ),
+        builtin_tts_synthesis_preset(
+            "builtin_tts_elevenlabs_multilingual_v2",
+            "ElevenLabs — Multilingual v2 (Recommended)",
+            TtsProvider::ElevenLabs,
+            "eleven_multilingual_v2",
+            DEFAULT_TTS_ELEVENLABS_VOICE,
+            "en",
+            1.0,
+        ),
+        builtin_tts_synthesis_preset(
+            "builtin_tts_elevenlabs_v3_expressive",
+            "ElevenLabs — Eleven v3 (Expressive)",
+            TtsProvider::ElevenLabs,
+            "eleven_v3",
+            DEFAULT_TTS_ELEVENLABS_VOICE,
+            "en",
+            1.0,
+        ),
+        builtin_tts_synthesis_preset(
+            "builtin_tts_cartesia_sonic_3_5",
+            "Cartesia — Sonic 3.5 (Recommended)",
+            TtsProvider::Cartesia,
+            "sonic-3.5",
+            DEFAULT_TTS_CARTESIA_VOICE,
+            "en",
+            1.0,
+        ),
+        builtin_tts_synthesis_preset(
             "builtin_tts_edge_aria",
             "Microsoft Read Aloud (unofficial) — Aria",
             TtsProvider::Edge,
@@ -1200,6 +1477,12 @@ fn default_tts_synthesis_presets() -> Vec<TtsSynthesisPreset> {
             0.9,
         ),
     ]
+}
+
+fn recommended_tts_synthesis_preset(provider: TtsProvider) -> Option<TtsSynthesisPreset> {
+    default_tts_synthesis_presets()
+        .into_iter()
+        .find(|preset| preset.config.provider == provider)
 }
 
 pub fn tts_model_key(provider: TtsProvider, model: &str) -> String {
@@ -1309,6 +1592,12 @@ pub struct TtsSettings {
     pub deepgram_key_source: TtsKeySource,
     #[serde(default)]
     pub openai_key_source: TtsKeySource,
+    #[serde(default = "default_tts_separate_key_source")]
+    pub murf_key_source: TtsKeySource,
+    #[serde(default = "default_tts_separate_key_source")]
+    pub elevenlabs_key_source: TtsKeySource,
+    #[serde(default = "default_tts_separate_key_source")]
+    pub cartesia_key_source: TtsKeySource,
     #[serde(default = "default_tts_soniox_model")]
     pub soniox_model: String,
     #[serde(default = "default_tts_soniox_language")]
@@ -1321,6 +1610,46 @@ pub struct TtsSettings {
     pub openai_model: String,
     #[serde(default = "default_tts_openai_voice")]
     pub openai_voice: String,
+    #[serde(default = "default_tts_murf_model")]
+    pub murf_model: String,
+    #[serde(default = "default_tts_murf_voice")]
+    pub murf_voice: String,
+    #[serde(default = "default_tts_murf_language")]
+    pub murf_language: String,
+    #[serde(default = "default_tts_murf_rate")]
+    pub murf_rate: i8,
+    #[serde(default = "default_tts_murf_pitch")]
+    pub murf_pitch: i8,
+    #[serde(default = "default_tts_murf_variation")]
+    pub murf_variation: u8,
+    #[serde(default)]
+    pub murf_style: Option<String>,
+    #[serde(default = "default_tts_elevenlabs_model")]
+    pub elevenlabs_model: String,
+    #[serde(default = "default_tts_elevenlabs_voice")]
+    pub elevenlabs_voice: String,
+    #[serde(default = "default_tts_elevenlabs_language")]
+    pub elevenlabs_language: String,
+    #[serde(default = "default_tts_elevenlabs_stability")]
+    pub elevenlabs_stability: f32,
+    #[serde(default = "default_tts_elevenlabs_similarity_boost")]
+    pub elevenlabs_similarity_boost: f32,
+    #[serde(default = "default_tts_elevenlabs_style")]
+    pub elevenlabs_style: f32,
+    #[serde(default = "default_true")]
+    pub elevenlabs_use_speaker_boost: bool,
+    #[serde(default)]
+    pub elevenlabs_apply_text_normalization: ElevenLabsTextNormalization,
+    #[serde(default = "default_tts_cartesia_model")]
+    pub cartesia_model: String,
+    #[serde(default = "default_tts_cartesia_voice")]
+    pub cartesia_voice: String,
+    #[serde(default = "default_tts_cartesia_language")]
+    pub cartesia_language: String,
+    #[serde(default)]
+    pub cartesia_emotion: Option<String>,
+    #[serde(default = "default_tts_cartesia_volume")]
+    pub cartesia_volume: f32,
     #[serde(default = "default_tts_edge_voice")]
     pub edge_voice: String,
     #[serde(default = "default_tts_edge_voice_language")]
@@ -1426,12 +1755,35 @@ impl Default for TtsSettings {
             soniox_key_source: TtsKeySource::Shared,
             deepgram_key_source: TtsKeySource::Shared,
             openai_key_source: TtsKeySource::Shared,
+            murf_key_source: TtsKeySource::Separate,
+            elevenlabs_key_source: TtsKeySource::Separate,
+            cartesia_key_source: TtsKeySource::Separate,
             soniox_model: default_tts_soniox_model(),
             soniox_language: default_tts_soniox_language(),
             soniox_voice: default_tts_soniox_voice(),
             deepgram_model: default_tts_deepgram_model(),
             openai_model: default_tts_openai_model(),
             openai_voice: default_tts_openai_voice(),
+            murf_model: default_tts_murf_model(),
+            murf_voice: default_tts_murf_voice(),
+            murf_language: default_tts_murf_language(),
+            murf_rate: default_tts_murf_rate(),
+            murf_pitch: default_tts_murf_pitch(),
+            murf_variation: default_tts_murf_variation(),
+            murf_style: None,
+            elevenlabs_model: default_tts_elevenlabs_model(),
+            elevenlabs_voice: default_tts_elevenlabs_voice(),
+            elevenlabs_language: default_tts_elevenlabs_language(),
+            elevenlabs_stability: default_tts_elevenlabs_stability(),
+            elevenlabs_similarity_boost: default_tts_elevenlabs_similarity_boost(),
+            elevenlabs_style: default_tts_elevenlabs_style(),
+            elevenlabs_use_speaker_boost: true,
+            elevenlabs_apply_text_normalization: ElevenLabsTextNormalization::Auto,
+            cartesia_model: default_tts_cartesia_model(),
+            cartesia_voice: default_tts_cartesia_voice(),
+            cartesia_language: default_tts_cartesia_language(),
+            cartesia_emotion: None,
+            cartesia_volume: default_tts_cartesia_volume(),
             edge_voice: default_tts_edge_voice(),
             edge_voice_language: default_tts_edge_voice_language(),
             local_qwen_voice: default_tts_local_qwen_voice(),
@@ -1515,12 +1867,18 @@ impl TtsSettings {
     }
 
     pub fn ensure_synthesis_scopes(&mut self) {
+        self.normalize_synthesis_memories();
         for scope in [TtsOperationScope::Interactive, TtsOperationScope::File] {
             if self.scope_synthesis(scope).active_config().is_none() {
                 let config = TtsSynthesisConfig::from_settings(self, scope);
                 self.scope_synthesis_mut(scope).upsert(config);
             }
         }
+    }
+
+    pub fn normalize_synthesis_memories(&mut self) {
+        self.interactive_synthesis.normalize_provider_memories();
+        self.file_synthesis.normalize_provider_memories();
     }
 
     pub fn capture_scope_settings(&mut self, scope: TtsOperationScope, settings: &TtsSettings) {
@@ -1542,6 +1900,86 @@ impl TtsSettings {
             scope_settings.upsert(requested_config);
         }
         scope_settings.selected_preset_id.clear();
+    }
+
+    pub fn select_scope_provider(
+        &mut self,
+        scope: TtsOperationScope,
+        provider: TtsProvider,
+    ) -> Result<(), String> {
+        self.ensure_synthesis_scopes();
+        let initialized = {
+            let scope_settings = self.scope_synthesis(scope);
+            scope_settings.initialized_providers.contains(&provider)
+                || scope_settings
+                    .models
+                    .iter()
+                    .any(|entry| entry.config.provider == provider)
+        };
+
+        let remembered = if initialized {
+            let scope_settings = self.scope_synthesis(scope);
+            let remembered_key = scope_settings
+                .active_models_by_provider
+                .iter()
+                .find(|selection| selection.provider == provider)
+                .map(|selection| selection.model_key.as_str());
+            remembered_key
+                .and_then(|model_key| {
+                    scope_settings
+                        .models
+                        .iter()
+                        .find(|entry| entry.model_key == model_key)
+                })
+                .or_else(|| {
+                    scope_settings
+                        .models
+                        .iter()
+                        .rev()
+                        .find(|entry| entry.config.provider == provider)
+                })
+                .map(|entry| entry.config.clone())
+        } else {
+            None
+        };
+
+        let (mut config, selected_preset_id) = if let Some(config) = remembered {
+            (config, String::new())
+        } else if !initialized {
+            if let Some(preset) = recommended_tts_synthesis_preset(provider) {
+                let selected_preset_id = self
+                    .synthesis_presets
+                    .iter()
+                    .any(|existing| existing.id == preset.id)
+                    .then_some(preset.id)
+                    .unwrap_or_default();
+                (preset.config, selected_preset_id)
+            } else {
+                let mut defaults = TtsSettings::default();
+                defaults.provider = provider;
+                (
+                    TtsSynthesisConfig::from_settings(&defaults, scope),
+                    String::new(),
+                )
+            }
+        } else {
+            let mut defaults = TtsSettings::default();
+            defaults.provider = provider;
+            (
+                TtsSynthesisConfig::from_settings(&defaults, scope),
+                String::new(),
+            )
+        };
+
+        if scope == TtsOperationScope::File {
+            config.target_chars = self.file_target_chars;
+        }
+        let applied = config.clone();
+        let scope_settings = self.scope_synthesis_mut(scope);
+        scope_settings.upsert(config);
+        scope_settings.selected_preset_id = selected_preset_id;
+        applied.apply_to(self, scope);
+        Ok(())
     }
 
     pub fn load_synthesis_preset(
@@ -3372,6 +3810,74 @@ fn default_tts_openai_voice() -> String {
     DEFAULT_TTS_OPENAI_VOICE.to_string()
 }
 
+fn default_tts_separate_key_source() -> TtsKeySource {
+    TtsKeySource::Separate
+}
+
+fn default_tts_murf_model() -> String {
+    "falcon-2".to_string()
+}
+
+fn default_tts_murf_voice() -> String {
+    DEFAULT_TTS_MURF_VOICE.to_string()
+}
+
+fn default_tts_murf_language() -> String {
+    "en-US".to_string()
+}
+
+fn default_tts_murf_rate() -> i8 {
+    0
+}
+
+fn default_tts_murf_pitch() -> i8 {
+    0
+}
+
+fn default_tts_murf_variation() -> u8 {
+    1
+}
+
+fn default_tts_elevenlabs_model() -> String {
+    "eleven_multilingual_v2".to_string()
+}
+
+fn default_tts_elevenlabs_voice() -> String {
+    DEFAULT_TTS_ELEVENLABS_VOICE.to_string()
+}
+
+fn default_tts_elevenlabs_language() -> String {
+    "en".to_string()
+}
+
+fn default_tts_elevenlabs_stability() -> f32 {
+    0.5
+}
+
+fn default_tts_elevenlabs_similarity_boost() -> f32 {
+    0.75
+}
+
+fn default_tts_elevenlabs_style() -> f32 {
+    0.0
+}
+
+fn default_tts_cartesia_model() -> String {
+    "sonic-3.5".to_string()
+}
+
+fn default_tts_cartesia_voice() -> String {
+    DEFAULT_TTS_CARTESIA_VOICE.to_string()
+}
+
+fn default_tts_cartesia_language() -> String {
+    "en".to_string()
+}
+
+fn default_tts_cartesia_volume() -> f32 {
+    1.0
+}
+
 fn default_tts_edge_voice() -> String {
     "en-US-AriaNeural".to_string()
 }
@@ -5150,7 +5656,8 @@ fn ensure_default_tts_synthesis_presets(settings: &mut AppSettings) -> bool {
         }
     }
 
-    if settings.tts.synthesis_presets_seed_version >= DEFAULT_TTS_SYNTHESIS_PRESET_SEED_VERSION {
+    let previous_seed_version = settings.tts.synthesis_presets_seed_version;
+    if previous_seed_version >= DEFAULT_TTS_SYNTHESIS_PRESET_SEED_VERSION {
         return changed;
     }
 
@@ -5170,7 +5677,16 @@ fn ensure_default_tts_synthesis_presets(settings: &mut AppSettings) -> bool {
     let mut names = existing_names;
     let mut added = 0usize;
 
-    for preset in default_tts_synthesis_presets() {
+    const VERSION_TWO_PRESET_IDS: [&str; 5] = [
+        "builtin_tts_murf_falcon2",
+        "builtin_tts_murf_gen2_natural",
+        "builtin_tts_elevenlabs_multilingual_v2",
+        "builtin_tts_elevenlabs_v3_expressive",
+        "builtin_tts_cartesia_sonic_3_5",
+    ];
+    for preset in default_tts_synthesis_presets().into_iter().filter(|preset| {
+        previous_seed_version == 0 || VERSION_TWO_PRESET_IDS.contains(&preset.id.as_str())
+    }) {
         if settings.tts.synthesis_presets.len() >= 100 {
             break;
         }
@@ -6124,6 +6640,13 @@ mod tests {
         assert_eq!(settings.deepgram_model, "aura-2-thalia-en");
         assert_eq!(settings.openai_model, "gpt-4o-mini-tts");
         assert_eq!(settings.openai_voice, "marin");
+        assert_eq!(settings.murf_model, "falcon-2");
+        assert_eq!(settings.murf_voice, DEFAULT_TTS_MURF_VOICE);
+        assert_eq!(settings.elevenlabs_model, "eleven_multilingual_v2");
+        assert_eq!(settings.elevenlabs_voice, DEFAULT_TTS_ELEVENLABS_VOICE);
+        assert_eq!(settings.cartesia_model, "sonic-3.5");
+        assert_eq!(settings.cartesia_voice, DEFAULT_TTS_CARTESIA_VOICE);
+        assert_eq!(settings.cartesia_volume, 1.0);
         assert_eq!(settings.edge_voice, "en-US-AriaNeural");
         assert_eq!(settings.edge_voice_language, "en-US");
         assert_eq!(settings.local_qwen_voice, "Ryan");
@@ -6140,7 +6663,7 @@ mod tests {
         assert_eq!(settings.tts.synthesis_presets_seed_version, 0);
 
         assert!(ensure_default_tts_synthesis_presets(&mut settings));
-        assert_eq!(settings.tts.synthesis_presets.len(), 14);
+        assert_eq!(settings.tts.synthesis_presets.len(), 19);
         assert_eq!(
             settings.tts.synthesis_presets_seed_version,
             DEFAULT_TTS_SYNTHESIS_PRESET_SEED_VERSION
@@ -6156,6 +6679,8 @@ mod tests {
             TtsProvider::Soniox,
             TtsProvider::Deepgram,
             TtsProvider::OpenAi,
+            TtsProvider::Murf,
+            TtsProvider::ElevenLabs,
             TtsProvider::Edge,
             TtsProvider::LocalQwen,
             TtsProvider::LocalKokoro,
@@ -6163,6 +6688,7 @@ mod tests {
         ] {
             assert_eq!(provider_counts.get(provider.as_str()), Some(&2));
         }
+        assert_eq!(provider_counts.get(TtsProvider::Cartesia.as_str()), Some(&1));
 
         let edge_aria = settings
             .tts
@@ -6189,6 +6715,72 @@ mod tests {
         assert!(settings.tts.synthesis_presets.is_empty());
         assert!(!ensure_default_tts_synthesis_presets(&mut settings));
         assert!(settings.tts.synthesis_presets.is_empty());
+    }
+
+    #[test]
+    fn preset_seed_version_two_adds_only_the_new_provider_presets() {
+        let mut settings = get_default_settings();
+        assert!(ensure_default_tts_synthesis_presets(&mut settings));
+        settings
+            .tts
+            .synthesis_presets
+            .retain(|preset| !matches!(preset.config.provider, TtsProvider::Murf | TtsProvider::ElevenLabs | TtsProvider::Cartesia));
+        settings
+            .tts
+            .synthesis_presets
+            .retain(|preset| preset.id != "builtin_tts_edge_aria");
+        settings.tts.synthesis_presets_seed_version = 1;
+
+        assert!(ensure_default_tts_synthesis_presets(&mut settings));
+        assert_eq!(settings.tts.synthesis_presets.len(), 18);
+        assert!(!settings
+            .tts
+            .synthesis_presets
+            .iter()
+            .any(|preset| preset.id == "builtin_tts_edge_aria"));
+        assert_eq!(
+            settings
+                .tts
+                .synthesis_presets
+                .iter()
+                .filter(|preset| matches!(
+                    preset.config.provider,
+                    TtsProvider::Murf | TtsProvider::ElevenLabs | TtsProvider::Cartesia
+                ))
+                .count(),
+            5
+        );
+    }
+
+    #[test]
+    fn first_provider_selection_loads_recommended_preset_then_restores_edits() {
+        let mut app_settings = get_default_settings();
+        assert!(ensure_default_tts_synthesis_presets(&mut app_settings));
+        let settings = &mut app_settings.tts;
+        settings.ensure_synthesis_scopes();
+
+        settings
+            .select_scope_provider(TtsOperationScope::Interactive, TtsProvider::Murf)
+            .unwrap();
+        assert_eq!(settings.provider, TtsProvider::Murf);
+        assert_eq!(settings.murf_model, "falcon-2");
+        assert_eq!(
+            settings.interactive_synthesis.selected_preset_id,
+            "builtin_tts_murf_falcon2"
+        );
+
+        settings.murf_rate = 12;
+        let edited = settings.clone();
+        settings.capture_scope_settings(TtsOperationScope::Interactive, &edited);
+        settings
+            .select_scope_provider(TtsOperationScope::Interactive, TtsProvider::Soniox)
+            .unwrap();
+        settings
+            .select_scope_provider(TtsOperationScope::Interactive, TtsProvider::Murf)
+            .unwrap();
+
+        assert_eq!(settings.murf_rate, 12);
+        assert!(settings.interactive_synthesis.selected_preset_id.is_empty());
     }
 
     #[test]

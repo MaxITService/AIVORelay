@@ -5,7 +5,9 @@
 //! checkpoint is atomically published.
 
 use super::tts::{TtsChunk, TtsManager, MAX_TTS_TEXT_INPUT_BYTES, PROVIDER_PCM_SAMPLE_RATE};
-use crate::settings::{TtsKeySource, TtsProvider, TtsSettings};
+use crate::settings::{
+    ElevenLabsTextNormalization, TtsKeySource, TtsProvider, TtsSettings,
+};
 use anyhow::{anyhow, Context, Result};
 use fs2::FileExt;
 use serde::{Deserialize, Serialize};
@@ -18,7 +20,7 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
 const SCHEMA_VERSION: u32 = 1;
-const PIPELINE_REVISION: &str = "pcm24k-mono-semantic-v1";
+const PIPELINE_REVISION: &str = "pcm24k-mono-semantic-v2-provider-controls";
 const DIRECTORY_SUFFIX: &str = ".aivorelay-tts-resume";
 const MANAGED_ROOT: &str = "file-resume";
 const CHECKPOINT_SLOTS: [&str; 2] = ["checkpoint-0.json", "checkpoint-1.json"];
@@ -159,6 +161,7 @@ struct EffectiveSynthesisSignature<'a> {
     voice: &'a str,
     instructions: &'a str,
     speed_bits: u32,
+    provider_controls: ProviderSynthesisSignature<'a>,
     inter_chunk_pause_ms: u32,
     paragraph_pause_ms: u32,
     llm_cleanup_enabled: bool,
@@ -171,6 +174,30 @@ struct EffectiveSynthesisSignature<'a> {
     llm_cleanup_reasoning_enabled: bool,
     llm_cleanup_reasoning_budget: u32,
     llm_cleanup_chunk_target_chars: u32,
+}
+
+#[derive(Serialize)]
+#[serde(tag = "provider", rename_all = "snake_case")]
+enum ProviderSynthesisSignature<'a> {
+    None,
+    Murf {
+        rate: i8,
+        pitch: i8,
+        variation: Option<u8>,
+        style: Option<&'a str>,
+    },
+    #[serde(rename = "elevenlabs")]
+    ElevenLabs {
+        stability_bits: u32,
+        similarity_boost_bits: Option<u32>,
+        style_bits: u32,
+        use_speaker_boost: Option<bool>,
+        apply_text_normalization: ElevenLabsTextNormalization,
+    },
+    Cartesia {
+        volume_bits: u32,
+        emotion: Option<&'a str>,
+    },
 }
 
 pub struct ResumeWorkspace {
@@ -376,13 +403,14 @@ impl ResumeWorkspace {
 }
 
 pub fn synthesis_signature(chunks: &[TtsChunk], settings: &TtsSettings) -> Result<String> {
-    let (model, language, voice, instructions, speed) = match settings.provider {
+    let (model, language, voice, instructions, speed, provider_controls) = match settings.provider {
         TtsProvider::Soniox => (
             settings.soniox_model.trim(),
             settings.soniox_language.trim(),
             settings.soniox_voice.trim(),
             "",
             settings.speed.clamp(0.7, 1.3),
+            ProviderSynthesisSignature::None,
         ),
         TtsProvider::Deepgram => (
             settings.deepgram_model.trim(),
@@ -390,6 +418,7 @@ pub fn synthesis_signature(chunks: &[TtsChunk], settings: &TtsSettings) -> Resul
             "",
             "",
             settings.speed.clamp(0.7, 1.5),
+            ProviderSynthesisSignature::None,
         ),
         TtsProvider::OpenAi => (
             settings.openai_model.trim(),
@@ -401,6 +430,56 @@ pub fn synthesis_signature(chunks: &[TtsChunk], settings: &TtsSettings) -> Resul
                 ""
             },
             settings.speed.clamp(0.25, 4.0),
+            ProviderSynthesisSignature::None,
+        ),
+        TtsProvider::Murf => (
+            settings.murf_model.trim(),
+            settings.murf_language.trim(),
+            settings.murf_voice.trim(),
+            "",
+            1.0,
+            ProviderSynthesisSignature::Murf {
+                rate: settings.murf_rate,
+                pitch: settings.murf_pitch,
+                variation: (settings.murf_model == "gen2")
+                    .then_some(settings.murf_variation),
+                style: settings.murf_style.as_deref(),
+            },
+        ),
+        TtsProvider::ElevenLabs => (
+            settings.elevenlabs_model.trim(),
+            if settings.elevenlabs_model == "eleven_v3" {
+                settings.elevenlabs_language.trim()
+            } else {
+                ""
+            },
+            settings.elevenlabs_voice.trim(),
+            "",
+            if settings.elevenlabs_model == "eleven_v3" {
+                1.0
+            } else {
+                settings.speed.clamp(0.7, 1.2)
+            },
+            ProviderSynthesisSignature::ElevenLabs {
+                stability_bits: settings.elevenlabs_stability.to_bits(),
+                similarity_boost_bits: (settings.elevenlabs_model != "eleven_v3")
+                    .then_some(settings.elevenlabs_similarity_boost.to_bits()),
+                style_bits: settings.elevenlabs_style.to_bits(),
+                use_speaker_boost: (settings.elevenlabs_model != "eleven_v3")
+                    .then_some(settings.elevenlabs_use_speaker_boost),
+                apply_text_normalization: settings.elevenlabs_apply_text_normalization,
+            },
+        ),
+        TtsProvider::Cartesia => (
+            settings.cartesia_model.trim(),
+            settings.cartesia_language.trim(),
+            settings.cartesia_voice.trim(),
+            "",
+            settings.speed.clamp(0.6, 1.5),
+            ProviderSynthesisSignature::Cartesia {
+                volume_bits: settings.cartesia_volume.clamp(0.5, 2.0).to_bits(),
+                emotion: settings.cartesia_emotion.as_deref(),
+            },
         ),
         TtsProvider::Edge => (
             crate::managers::edge_tts::EDGE_TTS_MODEL,
@@ -408,6 +487,7 @@ pub fn synthesis_signature(chunks: &[TtsChunk], settings: &TtsSettings) -> Resul
             settings.edge_voice.trim(),
             "",
             settings.speed.clamp(0.5, 2.0),
+            ProviderSynthesisSignature::None,
         ),
         TtsProvider::LocalQwen => (
             crate::managers::local_tts::LOCAL_TTS_MODEL_REVISION,
@@ -415,6 +495,7 @@ pub fn synthesis_signature(chunks: &[TtsChunk], settings: &TtsSettings) -> Resul
             settings.local_qwen_voice.trim(),
             "",
             settings.speed.clamp(0.5, 2.0),
+            ProviderSynthesisSignature::None,
         ),
         TtsProvider::LocalKokoro => (
             crate::managers::local_kokoro::KOKORO_MODEL_REVISION,
@@ -422,6 +503,7 @@ pub fn synthesis_signature(chunks: &[TtsChunk], settings: &TtsSettings) -> Resul
             settings.local_kokoro_voice.trim(),
             "",
             settings.speed.clamp(0.5, 2.0),
+            ProviderSynthesisSignature::None,
         ),
         TtsProvider::Windows => {
             let voice = settings.windows_voice_id.trim();
@@ -436,6 +518,7 @@ pub fn synthesis_signature(chunks: &[TtsChunk], settings: &TtsSettings) -> Resul
                 voice,
                 "",
                 settings.speed.clamp(0.5, 2.0),
+                ProviderSynthesisSignature::None,
             )
         }
     };
@@ -449,6 +532,7 @@ pub fn synthesis_signature(chunks: &[TtsChunk], settings: &TtsSettings) -> Resul
         voice,
         instructions,
         speed_bits: speed.to_bits(),
+        provider_controls,
         inter_chunk_pause_ms: settings.inter_chunk_pause_ms.min(5_000),
         paragraph_pause_ms: settings.paragraph_pause_ms.min(10_000),
         llm_cleanup_enabled: settings.llm_preprocessing.file_enabled,
@@ -1553,6 +1637,79 @@ mod tests {
 
         changed.soniox_voice.push_str("-different");
         assert_ne!(synthesis_signature(&chunks, &changed).unwrap(), expected);
+    }
+
+    #[test]
+    fn synthesis_signature_tracks_only_effective_new_provider_controls() {
+        let chunks = vec![TtsChunk {
+            index: 1,
+            text: "hello".to_string(),
+            character_count: 5,
+            boundary_after: TtsBoundary::End,
+        }];
+        let mut murf = TtsSettings {
+            provider: TtsProvider::Murf,
+            ..TtsSettings::default()
+        };
+        let falcon = synthesis_signature(&chunks, &murf).unwrap();
+        murf.murf_variation = 5;
+        assert_eq!(synthesis_signature(&chunks, &murf).unwrap(), falcon);
+        murf.murf_rate = 1;
+        assert_ne!(synthesis_signature(&chunks, &murf).unwrap(), falcon);
+
+        murf.murf_model = "gen2".to_string();
+        let gen2 = synthesis_signature(&chunks, &murf).unwrap();
+        murf.murf_variation = 4;
+        assert_ne!(synthesis_signature(&chunks, &murf).unwrap(), gen2);
+
+        let mut elevenlabs = TtsSettings {
+            provider: TtsProvider::ElevenLabs,
+            ..TtsSettings::default()
+        };
+        let elevenlabs_signature = synthesis_signature(&chunks, &elevenlabs).unwrap();
+        elevenlabs.elevenlabs_stability = 0.6;
+        assert_ne!(
+            synthesis_signature(&chunks, &elevenlabs).unwrap(),
+            elevenlabs_signature
+        );
+
+        elevenlabs.elevenlabs_model = "eleven_v3".to_string();
+        let v3_signature = synthesis_signature(&chunks, &elevenlabs).unwrap();
+        elevenlabs.speed = 1.2;
+        elevenlabs.elevenlabs_similarity_boost = 0.1;
+        elevenlabs.elevenlabs_use_speaker_boost = false;
+        assert_eq!(
+            synthesis_signature(&chunks, &elevenlabs).unwrap(),
+            v3_signature
+        );
+        elevenlabs.elevenlabs_stability = 0.7;
+        assert_ne!(
+            synthesis_signature(&chunks, &elevenlabs).unwrap(),
+            v3_signature
+        );
+
+        let mut cartesia = TtsSettings {
+            provider: TtsProvider::Cartesia,
+            ..TtsSettings::default()
+        };
+        let cartesia_signature = synthesis_signature(&chunks, &cartesia).unwrap();
+        cartesia.speed = 1.4;
+        assert_ne!(
+            synthesis_signature(&chunks, &cartesia).unwrap(),
+            cartesia_signature
+        );
+        let cartesia_speed_signature = synthesis_signature(&chunks, &cartesia).unwrap();
+        cartesia.cartesia_volume = 1.5;
+        assert_ne!(
+            synthesis_signature(&chunks, &cartesia).unwrap(),
+            cartesia_speed_signature
+        );
+        let cartesia_volume_signature = synthesis_signature(&chunks, &cartesia).unwrap();
+        cartesia.cartesia_emotion = Some("content".to_string());
+        assert_ne!(
+            synthesis_signature(&chunks, &cartesia).unwrap(),
+            cartesia_volume_signature
+        );
     }
 
     #[test]

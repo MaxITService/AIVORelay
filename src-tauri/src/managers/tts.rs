@@ -22,10 +22,14 @@ use crate::managers::tts_llm::{self, TtsLlmProgress};
 use crate::managers::tts_resume::{self, ResumeOrigin, ResumeWorkspace, WatcherResumeTask};
 use crate::managers::windows_tts::{self, WINDOWS_TTS_PROVIDER_LIMIT};
 use crate::settings::{
-    apply_text_replacements, TtsKeySource, TtsLlmScope, TtsOutputFormat, TtsProvider, TtsSettings,
+    apply_text_replacements, ElevenLabsTextNormalization, TtsKeySource, TtsLlmScope,
+    TtsOutputFormat, TtsProvider, TtsSettings, DEFAULT_TTS_CARTESIA_VOICE,
+    DEFAULT_TTS_ELEVENLABS_VOICE, DEFAULT_TTS_MURF_GEN2_VOICE, DEFAULT_TTS_MURF_VOICE,
     DEFAULT_TTS_OPENAI_VOICE, DEFAULT_TTS_SONIOX_VOICE,
 };
 use anyhow::{anyhow, Context, Result};
+use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
+use base64::Engine;
 use futures_util::StreamExt;
 use mp3lame_encoder::{Bitrate, Builder as LameBuilder, FlushGap, Mode, MonoPcm, Quality, VbrMode};
 use parking_lot::RwLock;
@@ -51,6 +55,10 @@ pub const TTS_EVENT_BATCH_PROGRESS: &str = "tts://batch-progress";
 pub const SONIOX_CHARACTER_LIMIT: usize = 5_000;
 pub const DEEPGRAM_CHARACTER_LIMIT: usize = 2_000;
 pub const OPENAI_CHARACTER_LIMIT: usize = 4_096;
+pub const MURF_CHARACTER_LIMIT: usize = 3_000;
+pub const ELEVENLABS_V3_CHARACTER_LIMIT: usize = 5_000;
+pub const ELEVENLABS_MULTILINGUAL_V2_CHARACTER_LIMIT: usize = 10_000;
+pub const CARTESIA_CONSERVATIVE_CHARACTER_LIMIT: usize = 4_000;
 pub const SONIOX_TTS_MODEL_MAX_CHARS: usize = 50;
 pub const SONIOX_TTS_LANGUAGE_MAX_CHARS: usize = 50;
 pub const SONIOX_TTS_VOICE_MAX_CHARS: usize = 50;
@@ -63,16 +71,30 @@ pub const SUPPORTED_MP3_BITRATES: [u16; 6] = [64, 96, 128, 192, 256, 320];
 const SONIOX_TTS_URL: &str = "https://tts-rt.soniox.com/tts";
 const DEEPGRAM_TTS_URL: &str = "https://api.deepgram.com/v1/speak";
 const OPENAI_TTS_URL: &str = "https://api.openai.com/v1/audio/speech";
+const MURF_FALCON_TTS_URL: &str = "https://global.api.murf.ai/v1/speech/stream";
+const MURF_GEN2_TTS_URL: &str = "https://api.murf.ai/v1/speech/generate";
+const MURF_VOICES_URL: &str = "https://api.murf.ai/v1/speech/voices";
+const ELEVENLABS_TTS_BASE_URL: &str = "https://api.elevenlabs.io/v1/text-to-speech/";
+const ELEVENLABS_VOICES_URL: &str = "https://api.elevenlabs.io/v2/voices";
+const CARTESIA_TTS_URL: &str = "https://api.cartesia.ai/tts/bytes";
+const CARTESIA_VOICES_URL: &str = "https://api.cartesia.ai/voices";
+const CARTESIA_API_VERSION: &str = "2026-03-01";
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(15);
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(120);
 const MAX_RETRY_DELAY: Duration = Duration::from_secs(60);
 const INTERACTIVE_CACHE_STALE_AGE: Duration = Duration::from_secs(24 * 60 * 60);
 // Match the small-buffer Web Audio queues used by provider demos: emit enough
 // PCM for 250 ms of playback instead of waiting for multi-second WAV parts.
-// Soniox, Deepgram, and OpenAI share this provider-independent streaming path.
+// Cloud providers that return raw PCM share this provider-independent streaming path.
 const INTERACTIVE_STREAM_SEGMENT_SAMPLES: usize =
     PROVIDER_PCM_SAMPLE_RATE as usize / 4;
 const MAX_VOICE_CATALOG_BYTES: usize = 4 * 1024 * 1024;
+const MAX_VOICE_CATALOG_PAGES: usize = 20;
+const MAX_VOICE_CATALOG_ENTRIES: usize = 2_000;
+const MAX_PROVIDER_ERROR_BODY_BYTES: usize = 64 * 1024;
+const MAX_CLOUD_PCM_RESPONSE_BYTES: usize = 64 * 1024 * 1024;
+const MAX_MURF_GEN2_PCM_BYTES: usize = 24 * 1024 * 1024;
+const MAX_MURF_GEN2_JSON_BYTES: usize = 36 * 1024 * 1024;
 // Long enough for multi-million-character book sources while bounding the
 // additional copies created by Unicode chunking and preprocessing.
 pub(crate) const MAX_TTS_TEXT_INPUT_BYTES: usize = 8 * 1024 * 1024;
@@ -164,6 +186,15 @@ pub struct TtsVoiceCatalogEntry {
     pub language: String,
     pub gender: String,
     pub description: String,
+    #[serde(default)]
+    pub locales: Vec<TtsVoiceCatalogLocale>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+pub struct TtsVoiceCatalogLocale {
+    pub locale: String,
+    pub label: String,
+    pub styles: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
@@ -438,16 +469,39 @@ impl TtsManager {
         }))
     }
 
-    pub fn provider_character_limit(provider: TtsProvider) -> usize {
+    pub fn provider_character_limit(provider: TtsProvider, model: &str) -> usize {
         match provider {
             TtsProvider::Soniox => SONIOX_CHARACTER_LIMIT,
             TtsProvider::Deepgram => DEEPGRAM_CHARACTER_LIMIT,
             TtsProvider::OpenAi => OPENAI_CHARACTER_LIMIT,
+            TtsProvider::Murf => MURF_CHARACTER_LIMIT,
+            TtsProvider::ElevenLabs => match model.trim() {
+                "eleven_multilingual_v2" => ELEVENLABS_MULTILINGUAL_V2_CHARACTER_LIMIT,
+                "eleven_v3" => ELEVENLABS_V3_CHARACTER_LIMIT,
+                _ => ELEVENLABS_V3_CHARACTER_LIMIT,
+            },
+            TtsProvider::Cartesia => CARTESIA_CONSERVATIVE_CHARACTER_LIMIT,
             TtsProvider::Edge => EDGE_TTS_PROVIDER_LIMIT,
             TtsProvider::LocalQwen => LOCAL_TTS_PROVIDER_LIMIT,
             TtsProvider::LocalKokoro => KOKORO_PROVIDER_LIMIT,
             TtsProvider::Windows => WINDOWS_TTS_PROVIDER_LIMIT,
         }
+    }
+
+    pub fn settings_character_limit(settings: &TtsSettings) -> usize {
+        let model = match settings.provider {
+            TtsProvider::Soniox => &settings.soniox_model,
+            TtsProvider::Deepgram => &settings.deepgram_model,
+            TtsProvider::OpenAi => &settings.openai_model,
+            TtsProvider::Murf => &settings.murf_model,
+            TtsProvider::ElevenLabs => &settings.elevenlabs_model,
+            TtsProvider::Cartesia => &settings.cartesia_model,
+            TtsProvider::Edge
+            | TtsProvider::LocalQwen
+            | TtsProvider::LocalKokoro
+            | TtsProvider::Windows => "",
+        };
+        Self::provider_character_limit(settings.provider, model)
     }
 
     pub fn openai_model_supports_instructions(model: &str) -> bool {
@@ -479,6 +533,103 @@ impl TtsManager {
                 &settings.soniox_voice,
                 SONIOX_TTS_VOICE_MAX_CHARS,
             )?;
+        }
+        if settings.provider == TtsProvider::Murf {
+            if !matches!(settings.murf_model.as_str(), "falcon-2" | "gen2") {
+                return Err(anyhow!("Unsupported Murf TTS model: {}", settings.murf_model));
+            }
+            validate_required_max_chars("Murf voice ID", &settings.murf_voice, 256)?;
+            validate_required_max_chars("Murf locale", &settings.murf_language, 32)?;
+            if !(-50..=50).contains(&settings.murf_rate) {
+                return Err(anyhow!("Murf rate must be between -50 and 50"));
+            }
+            if !(-50..=50).contains(&settings.murf_pitch) {
+                return Err(anyhow!("Murf pitch must be between -50 and 50"));
+            }
+            if settings.murf_variation > 5 {
+                return Err(anyhow!("Murf variation must be between 0 and 5"));
+            }
+            if let Some(style) = settings.murf_style.as_deref() {
+                validate_max_chars("Murf style", style, 128)?;
+            }
+            if settings.murf_key_source != TtsKeySource::Separate {
+                return Err(anyhow!("Murf always uses its separately stored TTS key"));
+            }
+        }
+        if settings.provider == TtsProvider::ElevenLabs {
+            if !matches!(
+                settings.elevenlabs_model.as_str(),
+                "eleven_v3" | "eleven_multilingual_v2"
+            ) {
+                return Err(anyhow!(
+                    "Unsupported ElevenLabs TTS model: {}",
+                    settings.elevenlabs_model
+                ));
+            }
+            validate_required_max_chars(
+                "ElevenLabs voice ID",
+                &settings.elevenlabs_voice,
+                256,
+            )?;
+            validate_required_max_chars(
+                "ElevenLabs language",
+                &settings.elevenlabs_language,
+                32,
+            )?;
+            validate_iso_639_1_code("ElevenLabs language", &settings.elevenlabs_language)?;
+            if settings.elevenlabs_model == "eleven_v3" {
+                if settings.speed != 1.0 {
+                    return Err(anyhow!(
+                        "ElevenLabs speed is unavailable for the Eleven v3 model"
+                    ));
+                }
+            } else {
+                validate_finite_range("ElevenLabs speed", settings.speed, 0.7, 1.2)?;
+            }
+            validate_finite_range(
+                "ElevenLabs stability",
+                settings.elevenlabs_stability,
+                0.0,
+                1.0,
+            )?;
+            validate_finite_range(
+                "ElevenLabs similarity boost",
+                settings.elevenlabs_similarity_boost,
+                0.0,
+                1.0,
+            )?;
+            validate_finite_range(
+                "ElevenLabs style",
+                settings.elevenlabs_style,
+                0.0,
+                1.0,
+            )?;
+            if settings.elevenlabs_key_source != TtsKeySource::Separate {
+                return Err(anyhow!(
+                    "ElevenLabs always uses its separately stored TTS key"
+                ));
+            }
+        }
+        if settings.provider == TtsProvider::Cartesia {
+            if settings.cartesia_model != "sonic-3.5" {
+                return Err(anyhow!(
+                    "Unsupported Cartesia TTS model: {}",
+                    settings.cartesia_model
+                ));
+            }
+            validate_required_max_chars("Cartesia voice ID", &settings.cartesia_voice, 256)?;
+            validate_required_max_chars("Cartesia language", &settings.cartesia_language, 32)?;
+            validate_iso_639_1_code("Cartesia language", &settings.cartesia_language)?;
+            validate_finite_range("Cartesia speed", settings.speed, 0.6, 1.5)?;
+            validate_finite_range("Cartesia volume", settings.cartesia_volume, 0.5, 2.0)?;
+            if let Some(emotion) = settings.cartesia_emotion.as_deref() {
+                validate_max_chars("Cartesia emotion", emotion, 64)?;
+            }
+            if settings.cartesia_key_source != TtsKeySource::Separate {
+                return Err(anyhow!(
+                    "Cartesia always uses its separately stored TTS key"
+                ));
+            }
         }
         if settings.provider == TtsProvider::LocalQwen {
             if !LOCAL_TTS_VOICES.contains(&settings.local_qwen_voice.as_str()) {
@@ -647,6 +798,7 @@ impl TtsManager {
                         gender: voice.gender,
                         description: voice.description,
                         id: voice.id,
+                        locales: Vec::new(),
                     })
                     .collect();
                 Ok(TtsVoiceCatalog {
@@ -718,6 +870,47 @@ impl TtsManager {
                         "Project voice refresh adds custom Soniox voices to the built-in catalog."
                             .to_string(),
                     ),
+                })
+            }
+            TtsProvider::Murf => {
+                let api_key = resolve_api_key(settings)?;
+                let voices = murf_voice_catalog(
+                    &self.client,
+                    &api_key,
+                    nonempty_or(&settings.murf_model, "falcon-2"),
+                )
+                .await?;
+                Ok(TtsVoiceCatalog {
+                    provider: settings.provider,
+                    voices,
+                    source: "live".to_string(),
+                    supports_live_refresh: true,
+                    replace_builtin: true,
+                    warning: None,
+                })
+            }
+            TtsProvider::ElevenLabs => {
+                let api_key = resolve_api_key(settings)?;
+                let voices = elevenlabs_voice_catalog(&self.client, &api_key).await?;
+                Ok(TtsVoiceCatalog {
+                    provider: settings.provider,
+                    voices,
+                    source: "live".to_string(),
+                    supports_live_refresh: true,
+                    replace_builtin: true,
+                    warning: None,
+                })
+            }
+            TtsProvider::Cartesia => {
+                let api_key = resolve_api_key(settings)?;
+                let voices = cartesia_voice_catalog(&self.client, &api_key).await?;
+                Ok(TtsVoiceCatalog {
+                    provider: settings.provider,
+                    voices,
+                    source: "live".to_string(),
+                    supports_live_refresh: true,
+                    replace_builtin: true,
+                    warning: None,
                 })
             }
             TtsProvider::OpenAi => Ok(openai_voice_catalog()),
@@ -872,6 +1065,56 @@ impl TtsManager {
             resolved.windows_voice_id = voice.id;
             resolved.windows_voice_language = voice.language;
         }
+        if resolved.provider == TtsProvider::Murf && resolved.murf_style.is_some() {
+            let api_key = resolve_api_key(&resolved)?;
+            let catalog = tokio::select! {
+                result = murf_voice_catalog(
+                    &self.client,
+                    &api_key,
+                    nonempty_or(&resolved.murf_model, "falcon-2"),
+                ) => result?,
+                _ = self.wait_for_cancellation(operation_id) => {
+                    return Err(anyhow!("Text-to-speech operation cancelled"));
+                }
+            };
+            let voice = catalog
+                .iter()
+                .find(|voice| voice.id == resolved.murf_voice)
+                .ok_or_else(|| {
+                    anyhow!(
+                        "Murf voice '{}' is not available for model {}",
+                        resolved.murf_voice,
+                        resolved.murf_model
+                    )
+                })?;
+            let locale = voice
+                .locales
+                .iter()
+                .find(|locale| locale.locale.eq_ignore_ascii_case(&resolved.murf_language))
+                .ok_or_else(|| {
+                    anyhow!(
+                        "Murf voice '{}' does not advertise locale '{}'",
+                        resolved.murf_voice,
+                        resolved.murf_language
+                    )
+                })?;
+            let requested_style = resolved.murf_style.as_deref().unwrap_or_default();
+            let style = locale
+                .styles
+                .iter()
+                .find(|style| style.eq_ignore_ascii_case(requested_style))
+                .ok_or_else(|| {
+                    anyhow!(
+                        "Murf voice '{}' does not advertise style '{}' for locale '{}'",
+                        resolved.murf_voice,
+                        requested_style,
+                        resolved.murf_language
+                    )
+                })?;
+            resolved.murf_voice = voice.id.clone();
+            resolved.murf_language = locale.locale.clone();
+            resolved.murf_style = Some(style.clone());
+        }
         Ok(resolved)
     }
 
@@ -941,7 +1184,7 @@ impl TtsManager {
     }
 
     pub fn chunk_interactive(text: &str, settings: &TtsSettings) -> Vec<TtsChunk> {
-        let hard_limit = Self::provider_character_limit(settings.provider);
+        let hard_limit = Self::settings_character_limit(settings);
         semantic_chunks(
             text,
             (settings.interactive_target_chars as usize).clamp(50, hard_limit),
@@ -950,7 +1193,7 @@ impl TtsManager {
     }
 
     pub fn chunk_file(text: &str, settings: &TtsSettings) -> Vec<TtsChunk> {
-        let hard_limit = Self::provider_character_limit(settings.provider);
+        let hard_limit = Self::settings_character_limit(settings);
         semantic_chunks(
             text,
             (settings.file_target_chars as usize).clamp(50, hard_limit),
@@ -1598,8 +1841,13 @@ impl TtsManager {
             let mut ready = Vec::with_capacity(chunks.len());
             let streams_cloud_pcm = matches!(
                 settings.provider,
-                TtsProvider::Soniox | TtsProvider::Deepgram | TtsProvider::OpenAi
-            );
+                TtsProvider::Soniox
+                    | TtsProvider::Deepgram
+                    | TtsProvider::OpenAi
+                    | TtsProvider::ElevenLabs
+                    | TtsProvider::Cartesia
+            ) || (settings.provider == TtsProvider::Murf
+                && settings.murf_model == "falcon-2");
             let mut next_playback_chunk_index = 1_usize;
             let history_raw_path = operation_cache.join("history-result.pcm.partial");
             let history_audio_path = operation_cache.join(format!(
@@ -2914,7 +3162,7 @@ impl TtsManager {
                 retry_after: None,
             });
         }
-        if text.chars().count() > Self::provider_character_limit(settings.provider) {
+        if text.chars().count() > Self::settings_character_limit(settings) {
             return Err(ProviderAttemptError {
                 status: None,
                 safe_message: "TTS chunk exceeds the provider character limit".to_string(),
@@ -3053,6 +3301,137 @@ impl TtsManager {
                     .bearer_auth(api_key)
                     .json(&body)
             }
+            TtsProvider::Murf => {
+                if settings.murf_model == "gen2" {
+                    let mut body = json!({
+                        "text": text,
+                        "voiceId": nonempty_or(&settings.murf_voice, DEFAULT_TTS_MURF_GEN2_VOICE),
+                        "modelVersion": "GEN2",
+                        "format": "PCM",
+                        "sampleRate": PROVIDER_PCM_SAMPLE_RATE,
+                        "channelType": "MONO",
+                        "encodeAsBase64": true,
+                        "locale": nonempty_or(&settings.murf_language, "en-US"),
+                        "rate": settings.murf_rate.clamp(-50, 50),
+                        "pitch": settings.murf_pitch.clamp(-50, 50),
+                        "variation": settings.murf_variation.min(5),
+                    });
+                    if let Some(style) = settings.murf_style.as_deref() {
+                        body["style"] = Value::String(style.to_string());
+                    }
+                    self.client
+                        .post(MURF_GEN2_TTS_URL)
+                        .header("api-key", api_key)
+                        .json(&body)
+                } else {
+                    let mut body = json!({
+                        "text": text,
+                        "voiceId": nonempty_or(&settings.murf_voice, DEFAULT_TTS_MURF_VOICE),
+                        "model": "falcon-2",
+                        "format": "PCM",
+                        "sampleRate": PROVIDER_PCM_SAMPLE_RATE,
+                        "channelType": "MONO",
+                        "locale": nonempty_or(&settings.murf_language, "en-US"),
+                        "rate": settings.murf_rate.clamp(-50, 50),
+                        "pitch": settings.murf_pitch.clamp(-50, 50),
+                    });
+                    if let Some(style) = settings.murf_style.as_deref() {
+                        body["style"] = Value::String(style.to_string());
+                    }
+                    self.client
+                        .post(MURF_FALCON_TTS_URL)
+                        .header("api-key", api_key)
+                        .json(&body)
+                }
+            }
+            TtsProvider::ElevenLabs => {
+                let mut url = reqwest::Url::parse(ELEVENLABS_TTS_BASE_URL).map_err(|error| {
+                    ProviderAttemptError {
+                        status: None,
+                        safe_message: format!("Invalid ElevenLabs endpoint: {error}"),
+                        transient: false,
+                        retry_after: None,
+                    }
+                })?;
+                url.path_segments_mut()
+                    .map_err(|_| ProviderAttemptError {
+                        status: None,
+                        safe_message: "Invalid ElevenLabs endpoint".to_string(),
+                        transient: false,
+                        retry_after: None,
+                    })?
+                    .push(nonempty_or(
+                        &settings.elevenlabs_voice,
+                        DEFAULT_TTS_ELEVENLABS_VOICE,
+                    ));
+                url.query_pairs_mut()
+                    .append_pair("output_format", "pcm_24000");
+                let is_v3 = settings.elevenlabs_model == "eleven_v3";
+                let mut voice_settings = json!({
+                    "stability": settings.elevenlabs_stability.clamp(0.0, 1.0),
+                    "style": settings.elevenlabs_style.clamp(0.0, 1.0),
+                });
+                if !is_v3 {
+                    voice_settings["similarity_boost"] = Value::from(
+                        settings.elevenlabs_similarity_boost.clamp(0.0, 1.0),
+                    );
+                    voice_settings["use_speaker_boost"] =
+                        Value::Bool(settings.elevenlabs_use_speaker_boost);
+                    voice_settings["speed"] = Value::from(settings.speed.clamp(0.7, 1.2));
+                }
+                let mut body = json!({
+                    "text": text,
+                    "model_id": nonempty_or(
+                        &settings.elevenlabs_model,
+                        "eleven_multilingual_v2"
+                    ),
+                    "voice_settings": voice_settings,
+                    "apply_text_normalization": elevenlabs_normalization_value(
+                        settings.elevenlabs_apply_text_normalization
+                    ),
+                });
+                // ElevenLabs explicitly does not support language_code for
+                // Multilingual v2. Eleven v3 accepts it as a pronunciation and
+                // text-normalization hint for short or ambiguous input.
+                if is_v3 && !settings.elevenlabs_language.trim().is_empty() {
+                    body["language_code"] = Value::String(
+                        settings.elevenlabs_language.trim().to_ascii_lowercase(),
+                    );
+                }
+                self.client
+                    .post(url)
+                    .header("xi-api-key", api_key)
+                    .json(&body)
+            }
+            TtsProvider::Cartesia => {
+                let mut body = json!({
+                    "model_id": "sonic-3.5",
+                    "transcript": text,
+                    "voice": {
+                        "mode": "id",
+                        "id": nonempty_or(&settings.cartesia_voice, DEFAULT_TTS_CARTESIA_VOICE),
+                    },
+                    "language": nonempty_or(&settings.cartesia_language, "en").to_ascii_lowercase(),
+                    "output_format": {
+                        "container": "raw",
+                        "encoding": "pcm_s16le",
+                        "sample_rate": PROVIDER_PCM_SAMPLE_RATE,
+                    },
+                });
+                let mut generation_config = json!({
+                    "speed": settings.speed.clamp(0.6, 1.5),
+                    "volume": settings.cartesia_volume.clamp(0.5, 2.0),
+                });
+                if let Some(emotion) = settings.cartesia_emotion.as_deref() {
+                    generation_config["emotion"] = Value::String(emotion.to_string());
+                }
+                body["generation_config"] = generation_config;
+                self.client
+                    .post(CARTESIA_TTS_URL)
+                    .bearer_auth(api_key)
+                    .header("Cartesia-Version", CARTESIA_API_VERSION)
+                    .json(&body)
+            }
             TtsProvider::Edge => unreachable!("Edge provider returned before HTTP dispatch"),
             TtsProvider::LocalQwen => unreachable!("local provider returned before HTTP dispatch"),
             TtsProvider::LocalKokoro => {
@@ -3069,13 +3448,34 @@ impl TtsManager {
         };
         let status = response.status();
         let retry_after = parse_retry_after(response.headers().get(RETRY_AFTER));
-        if !status.is_success() || on_pcm_segment.is_none() {
-            let bytes = tokio::select! {
-                bytes = response.bytes() => bytes.map_err(network_error)?,
-                _ = self.wait_for_cancellation(operation_id) => {
-                    return Err(cancelled_attempt_error());
-                }
-            };
+        if settings.provider == TtsProvider::Murf && settings.murf_model == "gen2" {
+            return self
+                .decode_murf_gen2_response(operation_id, response, status, retry_after)
+                .await;
+        }
+        if !status.is_success() {
+            let bytes = self
+                .read_error_body_bounded(operation_id, response)
+                .await?;
+            return decode_cloud_pcm_response(status, retry_after, &bytes);
+        }
+        if response
+            .content_length()
+            .is_some_and(|length| length > MAX_CLOUD_PCM_RESPONSE_BYTES as u64)
+        {
+            return Err(nontransient_attempt_error(
+                "The TTS provider audio response is unexpectedly large",
+            ));
+        }
+        if on_pcm_segment.is_none() {
+            let bytes = self
+                .read_success_body_bounded(
+                    operation_id,
+                    response,
+                    MAX_CLOUD_PCM_RESPONSE_BYTES,
+                    "The TTS provider audio response is unexpectedly large",
+                )
+                .await?;
             return decode_cloud_pcm_response(status, retry_after, &bytes);
         }
 
@@ -3098,6 +3498,11 @@ impl TtsManager {
             let Some(next) = next else {
                 break;
             };
+            if bytes.len().saturating_add(next.len()) > MAX_CLOUD_PCM_RESPONSE_BYTES {
+                return Err(nontransient_attempt_error(
+                    "The TTS provider audio response is unexpectedly large",
+                ));
+            }
             bytes.extend_from_slice(&next);
 
             if let Some(callback) = on_pcm_segment.as_deref_mut() {
@@ -3115,6 +3520,120 @@ impl TtsManager {
         Ok(pcm)
     }
 
+    async fn read_error_body_bounded(
+        &self,
+        operation_id: u64,
+        mut response: reqwest::Response,
+    ) -> std::result::Result<Vec<u8>, ProviderAttemptError> {
+        let mut bytes = Vec::new();
+        while bytes.len() < MAX_PROVIDER_ERROR_BODY_BYTES {
+            let next = tokio::select! {
+                next = response.chunk() => next.map_err(network_error)?,
+                _ = self.wait_for_cancellation(operation_id) => {
+                    return Err(cancelled_attempt_error());
+                }
+            };
+            let Some(next) = next else {
+                break;
+            };
+            let remaining = MAX_PROVIDER_ERROR_BODY_BYTES.saturating_sub(bytes.len());
+            bytes.extend_from_slice(&next[..next.len().min(remaining)]);
+        }
+        Ok(bytes)
+    }
+
+    async fn read_success_body_bounded(
+        &self,
+        operation_id: u64,
+        mut response: reqwest::Response,
+        maximum: usize,
+        oversized_message: &str,
+    ) -> std::result::Result<Vec<u8>, ProviderAttemptError> {
+        if response
+            .content_length()
+            .is_some_and(|length| length > maximum as u64)
+        {
+            return Err(nontransient_attempt_error(oversized_message));
+        }
+        let mut bytes = Vec::with_capacity(
+            response
+                .content_length()
+                .and_then(|length| usize::try_from(length).ok())
+                .unwrap_or_default()
+                .min(maximum),
+        );
+        loop {
+            let next = tokio::select! {
+                next = response.chunk() => next.map_err(network_error)?,
+                _ = self.wait_for_cancellation(operation_id) => {
+                    return Err(cancelled_attempt_error());
+                }
+            };
+            let Some(next) = next else {
+                break;
+            };
+            if bytes.len().saturating_add(next.len()) > maximum {
+                return Err(nontransient_attempt_error(oversized_message));
+            }
+            bytes.extend_from_slice(&next);
+        }
+        Ok(bytes)
+    }
+
+    async fn decode_murf_gen2_response(
+        &self,
+        operation_id: u64,
+        response: reqwest::Response,
+        status: StatusCode,
+        retry_after: Option<Duration>,
+    ) -> std::result::Result<Vec<i16>, ProviderAttemptError> {
+        if !status.is_success() {
+            let bytes = self
+                .read_error_body_bounded(operation_id, response)
+                .await?;
+            return decode_cloud_pcm_response(status, retry_after, &bytes);
+        }
+        let bytes = self
+            .read_success_body_bounded(
+                operation_id,
+                response,
+                MAX_MURF_GEN2_JSON_BYTES,
+                "The Murf Gen2 JSON response is unexpectedly large",
+            )
+            .await?;
+        self.ensure_active(operation_id)
+            .map_err(local_attempt_error)?;
+        let json: Value = serde_json::from_slice(&bytes).map_err(|_| {
+            nontransient_attempt_error("Murf Gen2 returned an invalid JSON response")
+        })?;
+        let encoded = json
+            .get("encodedAudio")
+            .and_then(Value::as_str)
+            .filter(|value| !value.is_empty())
+            .ok_or_else(|| {
+                nontransient_attempt_error(
+                    "Murf Gen2 response did not contain nonempty encodedAudio",
+                )
+            })?;
+        let maximum_encoded_length = MAX_MURF_GEN2_PCM_BYTES.div_ceil(3).saturating_mul(4);
+        if encoded.len() > maximum_encoded_length {
+            return Err(nontransient_attempt_error(
+                "The Murf Gen2 audio payload is unexpectedly large",
+            ));
+        }
+        let decoded = BASE64_STANDARD.decode(encoded).map_err(|_| {
+            nontransient_attempt_error("Murf Gen2 returned invalid base64 audio")
+        })?;
+        if decoded.len() > MAX_MURF_GEN2_PCM_BYTES {
+            return Err(nontransient_attempt_error(
+                "The Murf Gen2 audio payload is unexpectedly large",
+            ));
+        }
+        self.ensure_active(operation_id)
+            .map_err(local_attempt_error)?;
+        decode_cloud_pcm_response(StatusCode::OK, None, &decoded)
+    }
+
     async fn wait_for_cancellation(&self, operation_id: u64) {
         while self.active_operation_id.load(Ordering::SeqCst) == operation_id {
             tokio::time::sleep(Duration::from_millis(50)).await;
@@ -3123,10 +3642,18 @@ impl TtsManager {
 }
 
 async fn bounded_catalog_json(response: reqwest::Response) -> Result<Value> {
+    let mut remaining_bytes = MAX_VOICE_CATALOG_BYTES;
+    bounded_catalog_json_with_budget(response, &mut remaining_bytes).await
+}
+
+async fn bounded_catalog_json_with_budget(
+    response: reqwest::Response,
+    remaining_bytes: &mut usize,
+) -> Result<Value> {
     let status = response.status();
     if response
         .content_length()
-        .is_some_and(|length| length > MAX_VOICE_CATALOG_BYTES as u64)
+        .is_some_and(|length| length > *remaining_bytes as u64)
     {
         return Err(anyhow!("The provider voice catalog is unexpectedly large"));
     }
@@ -3134,11 +3661,12 @@ async fn bounded_catalog_json(response: reqwest::Response) -> Result<Value> {
     let mut stream = response.bytes_stream();
     while let Some(chunk) = stream.next().await {
         let chunk = chunk.map_err(|error| anyhow!(safe_text(&error.to_string())))?;
-        if bytes.len().saturating_add(chunk.len()) > MAX_VOICE_CATALOG_BYTES {
+        if bytes.len().saturating_add(chunk.len()) > *remaining_bytes {
             return Err(anyhow!("The provider voice catalog is unexpectedly large"));
         }
         bytes.extend_from_slice(&chunk);
     }
+    *remaining_bytes = (*remaining_bytes).saturating_sub(bytes.len());
     if !status.is_success() {
         return Err(anyhow!(
             "Voice catalog refresh failed: {}",
@@ -3146,6 +3674,437 @@ async fn bounded_catalog_json(response: reqwest::Response) -> Result<Value> {
         ));
     }
     serde_json::from_slice(&bytes).context("The provider returned an invalid voice catalog")
+}
+
+async fn murf_voice_catalog(
+    client: &reqwest::Client,
+    api_key: &str,
+    model: &str,
+) -> Result<Vec<TtsVoiceCatalogEntry>> {
+    let model = if model == "gen2" { "gen2" } else { "falcon-2" };
+    let response = client
+        .get(MURF_VOICES_URL)
+        .query(&[("model", model)])
+        .header("api-key", api_key)
+        .send()
+        .await
+        .map_err(|error| anyhow!(safe_text(&error.to_string())))?;
+    let json = bounded_catalog_json(response).await?;
+    let values = json
+        .as_array()
+        .or_else(|| json.get("voices").and_then(Value::as_array))
+        .ok_or_else(|| anyhow!("Murf returned an invalid voice catalog"))?;
+    let mut seen = HashSet::new();
+    let voices = values
+        .iter()
+        .filter_map(murf_catalog_entry)
+        .filter(|voice| seen.insert(voice.id.clone()))
+        .take(MAX_VOICE_CATALOG_ENTRIES)
+        .collect::<Vec<_>>();
+    if voices.is_empty() {
+        Err(anyhow!("Murf returned no TTS voices for {model}"))
+    } else {
+        Ok(voices)
+    }
+}
+
+fn murf_catalog_entry(value: &Value) -> Option<TtsVoiceCatalogEntry> {
+    let id = value.get("voiceId")?.as_str()?.trim();
+    if id.is_empty() {
+        return None;
+    }
+    let display_name = value
+        .get("displayName")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or(id);
+    let primary_locale = value
+        .get("locale")
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .trim();
+    let display_language = value
+        .get("displayLanguage")
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .trim();
+    let accent = value
+        .get("accent")
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .trim();
+    let mut locales = Vec::new();
+    if let Some(supported) = value.get("supportedLocales").and_then(Value::as_object) {
+        for (locale, details) in supported {
+            let label = details
+                .get("detail")
+                .and_then(Value::as_str)
+                .unwrap_or(locale)
+                .trim()
+                .to_string();
+            let styles = json_string_array(details.get("availableStyles"));
+            locales.push(TtsVoiceCatalogLocale {
+                locale: locale.clone(),
+                label,
+                styles,
+            });
+        }
+    }
+    if locales.is_empty() && !primary_locale.is_empty() {
+        locales.push(TtsVoiceCatalogLocale {
+            locale: primary_locale.to_string(),
+            label: if display_language.is_empty() {
+                primary_locale.to_string()
+            } else {
+                display_language.to_string()
+            },
+            styles: json_string_array(value.get("availableStyles")),
+        });
+    }
+    let group = [display_language, primary_locale, accent]
+        .into_iter()
+        .filter(|value| !value.is_empty())
+        .collect::<Vec<_>>()
+        .join(" · ");
+    Some(TtsVoiceCatalogEntry {
+        id: id.to_string(),
+        label: format!("{display_name} — {id}"),
+        group: if group.is_empty() {
+            "Other".to_string()
+        } else {
+            group
+        },
+        language: primary_locale.to_string(),
+        gender: value
+            .get("gender")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string(),
+        description: value
+            .get("description")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string(),
+        locales,
+    })
+}
+
+async fn elevenlabs_voice_catalog(
+    client: &reqwest::Client,
+    api_key: &str,
+) -> Result<Vec<TtsVoiceCatalogEntry>> {
+    let mut remaining_bytes = MAX_VOICE_CATALOG_BYTES;
+    let mut next_page_token: Option<String> = None;
+    let mut seen_tokens = HashSet::new();
+    let mut seen_voices = HashSet::new();
+    let mut voices = Vec::new();
+
+    for page in 0..MAX_VOICE_CATALOG_PAGES {
+        let mut request = client
+            .get(ELEVENLABS_VOICES_URL)
+            .query(&[("page_size", "100")])
+            .header("xi-api-key", api_key);
+        if let Some(token) = next_page_token.as_deref() {
+            request = request.query(&[("next_page_token", token)]);
+        }
+        let response = request
+            .send()
+            .await
+            .map_err(|error| anyhow!(safe_text(&error.to_string())))?;
+        let json = bounded_catalog_json_with_budget(response, &mut remaining_bytes).await?;
+        for value in json
+            .get("voices")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+        {
+            if let Some(voice) = elevenlabs_catalog_entry(value) {
+                if seen_voices.insert(voice.id.clone()) {
+                    voices.push(voice);
+                    if voices.len() >= MAX_VOICE_CATALOG_ENTRIES {
+                        break;
+                    }
+                }
+            }
+        }
+        if voices.len() >= MAX_VOICE_CATALOG_ENTRIES
+            || !json.get("has_more").and_then(Value::as_bool).unwrap_or(false)
+        {
+            break;
+        }
+        if page + 1 >= MAX_VOICE_CATALOG_PAGES {
+            return Err(anyhow!("ElevenLabs voice catalog exceeded the page limit"));
+        }
+        let token = json
+            .get("next_page_token")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|token| !token.is_empty())
+            .ok_or_else(|| anyhow!("ElevenLabs voice catalog omitted its next-page token"))?
+            .to_string();
+        if !seen_tokens.insert(token.clone()) {
+            return Err(anyhow!("ElevenLabs voice catalog repeated a page token"));
+        }
+        next_page_token = Some(token);
+    }
+    if voices.is_empty() {
+        Err(anyhow!("ElevenLabs returned no accessible TTS voices"))
+    } else {
+        Ok(voices)
+    }
+}
+
+fn elevenlabs_catalog_entry(value: &Value) -> Option<TtsVoiceCatalogEntry> {
+    let id = value.get("voice_id")?.as_str()?.trim();
+    if id.is_empty() {
+        return None;
+    }
+    let name = value
+        .get("name")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|name| !name.is_empty())
+        .unwrap_or(id);
+    let labels = value.get("labels").and_then(Value::as_object);
+    let advertised_language = value
+        .get("language")
+        .and_then(Value::as_str)
+        .or_else(|| labels.and_then(|labels| labels.get("language")?.as_str()))
+        .unwrap_or_default()
+        .trim();
+    let language = advertised_language
+        .split(['-', '_'])
+        .next()
+        .filter(|value| value.len() == 2 && value.bytes().all(|byte| byte.is_ascii_alphabetic()))
+        .unwrap_or_default();
+    let gender = labels
+        .and_then(|labels| labels.get("gender"))
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .trim();
+    let mut locale_ids = HashSet::new();
+    let mut locales = Vec::new();
+    if let Some(verified_languages) = value.get("verified_languages").and_then(Value::as_array) {
+        for verified in verified_languages {
+            let verified_language = verified
+                .get("language")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .trim();
+            let advertised_locale = verified
+                .get("locale")
+                .and_then(Value::as_str)
+                .unwrap_or(verified_language)
+                .trim();
+            let locale = if verified_language.is_empty() {
+                advertised_locale
+                    .split(['-', '_'])
+                    .next()
+                    .unwrap_or_default()
+            } else {
+                verified_language
+            };
+            if locale.is_empty() || !locale_ids.insert(locale.to_ascii_lowercase()) {
+                continue;
+            }
+            let accent = verified
+                .get("accent")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .trim();
+            locales.push(TtsVoiceCatalogLocale {
+                locale: locale.to_string(),
+                label: [advertised_locale, accent]
+                    .into_iter()
+                    .filter(|value| !value.is_empty())
+                    .collect::<Vec<_>>()
+                    .join(" · "),
+                styles: Vec::new(),
+            });
+        }
+    }
+    if locales.is_empty() && !language.is_empty() {
+        locales.push(TtsVoiceCatalogLocale {
+            locale: language.to_string(),
+            label: language.to_string(),
+            styles: Vec::new(),
+        });
+    }
+    let primary_language = locales
+        .first()
+        .map(|locale| locale.locale.as_str())
+        .filter(|locale| !locale.is_empty())
+        .unwrap_or(language);
+    Some(TtsVoiceCatalogEntry {
+        id: id.to_string(),
+        label: format!("{name} — {id}"),
+        group: value
+            .get("category")
+            .and_then(Value::as_str)
+            .unwrap_or("Other")
+            .to_string(),
+        language: primary_language.to_string(),
+        gender: gender.to_string(),
+        description: value
+            .get("description")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string(),
+        locales,
+    })
+}
+
+async fn cartesia_voice_catalog(
+    client: &reqwest::Client,
+    api_key: &str,
+) -> Result<Vec<TtsVoiceCatalogEntry>> {
+    let mut remaining_bytes = MAX_VOICE_CATALOG_BYTES;
+    let mut starting_after: Option<String> = None;
+    let mut seen_cursors = HashSet::new();
+    let mut seen_voices = HashSet::new();
+    let mut voices = Vec::new();
+
+    for page in 0..MAX_VOICE_CATALOG_PAGES {
+        let mut request = client
+            .get(CARTESIA_VOICES_URL)
+            .query(&[("limit", "100")])
+            .bearer_auth(api_key)
+            .header("Cartesia-Version", CARTESIA_API_VERSION);
+        if let Some(cursor) = starting_after.as_deref() {
+            request = request.query(&[("starting_after", cursor)]);
+        }
+        let response = request
+            .send()
+            .await
+            .map_err(|error| anyhow!(safe_text(&error.to_string())))?;
+        let json = bounded_catalog_json_with_budget(response, &mut remaining_bytes).await?;
+        for value in json
+            .get("data")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+        {
+            if let Some(voice) = cartesia_catalog_entry(value) {
+                if seen_voices.insert(voice.id.clone()) {
+                    voices.push(voice);
+                    if voices.len() >= MAX_VOICE_CATALOG_ENTRIES {
+                        break;
+                    }
+                }
+            }
+        }
+        if voices.len() >= MAX_VOICE_CATALOG_ENTRIES
+            || !json.get("has_more").and_then(Value::as_bool).unwrap_or(false)
+        {
+            break;
+        }
+        if page + 1 >= MAX_VOICE_CATALOG_PAGES {
+            return Err(anyhow!("Cartesia voice catalog exceeded the page limit"));
+        }
+        let cursor = json
+            .get("next_page")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|cursor| !cursor.is_empty())
+            .ok_or_else(|| anyhow!("Cartesia voice catalog omitted its next-page cursor"))?
+            .to_string();
+        if !seen_cursors.insert(cursor.clone()) {
+            return Err(anyhow!("Cartesia voice catalog repeated a page cursor"));
+        }
+        starting_after = Some(cursor);
+    }
+    if voices.is_empty() {
+        Err(anyhow!("Cartesia returned no accessible TTS voices"))
+    } else {
+        Ok(voices)
+    }
+}
+
+fn cartesia_catalog_entry(value: &Value) -> Option<TtsVoiceCatalogEntry> {
+    let id = value.get("id")?.as_str()?.trim();
+    if id.is_empty() {
+        return None;
+    }
+    let name = value
+        .get("name")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|name| !name.is_empty())
+        .unwrap_or(id);
+    let language = value
+        .get("language")
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .trim();
+    let country = value
+        .get("country")
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .trim();
+    let group = [language, country]
+        .into_iter()
+        .filter(|value| !value.is_empty())
+        .collect::<Vec<_>>()
+        .join(" · ");
+    let mut locale_ids = HashSet::new();
+    let mut locales = value
+        .get("locales")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|entry| entry.get("locale").and_then(Value::as_str))
+        .map(str::trim)
+        .filter(|locale| !locale.is_empty())
+        .filter(|locale| locale_ids.insert(locale.to_ascii_lowercase()))
+        .map(|locale| TtsVoiceCatalogLocale {
+            locale: locale.to_string(),
+            label: locale.to_string(),
+            styles: Vec::new(),
+        })
+        .collect::<Vec<_>>();
+    if locales.is_empty() && !language.is_empty() {
+        locales.push(TtsVoiceCatalogLocale {
+            locale: language.to_string(),
+            label: language.to_string(),
+            styles: Vec::new(),
+        });
+    }
+    Some(TtsVoiceCatalogEntry {
+        id: id.to_string(),
+        label: format!("{name} — {id}"),
+        group: if group.is_empty() {
+            "Other".to_string()
+        } else {
+            group
+        },
+        language: language.to_string(),
+        gender: value
+            .get("gender")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string(),
+        description: value
+            .get("description")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string(),
+        locales,
+    })
+}
+
+fn json_string_array(value: Option<&Value>) -> Vec<String> {
+    let mut seen = HashSet::new();
+    value
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .filter(|value| seen.insert((*value).to_string()))
+        .map(str::to_string)
+        .collect()
 }
 
 fn deepgram_catalog_entry(value: &Value) -> Option<TtsVoiceCatalogEntry> {
@@ -3198,6 +4157,7 @@ fn deepgram_catalog_entry(value: &Value) -> Option<TtsVoiceCatalogEntry> {
         language: languages.first().copied().unwrap_or_default().to_string(),
         gender: gender.to_string(),
         description: tags.join(", "),
+        locales: Vec::new(),
     })
 }
 
@@ -3232,6 +4192,7 @@ fn soniox_catalog_entry(value: &Value) -> Option<TtsVoiceCatalogEntry> {
         language: String::new(),
         gender: String::new(),
         description: statuses.join(", "),
+        locales: Vec::new(),
     })
 }
 
@@ -3248,6 +4209,7 @@ fn openai_voice_catalog() -> TtsVoiceCatalog {
         language: String::new(),
         gender: String::new(),
         description: String::new(),
+        locales: Vec::new(),
     })
     .collect();
     TtsVoiceCatalog {
@@ -3367,6 +4329,9 @@ fn resolve_api_key(settings: &TtsSettings) -> Result<String> {
         TtsProvider::Soniox => settings.soniox_key_source,
         TtsProvider::Deepgram => settings.deepgram_key_source,
         TtsProvider::OpenAi => settings.openai_key_source,
+        TtsProvider::Murf => settings.murf_key_source,
+        TtsProvider::ElevenLabs => settings.elevenlabs_key_source,
+        TtsProvider::Cartesia => settings.cartesia_key_source,
         TtsProvider::Edge => unreachable!("handled above"),
         TtsProvider::LocalQwen => unreachable!("handled above"),
         TtsProvider::LocalKokoro => unreachable!("handled above"),
@@ -3380,6 +4345,12 @@ fn resolve_api_key(settings: &TtsSettings) -> Result<String> {
         (TtsProvider::Deepgram, TtsKeySource::Shared) => crate::secure_keys::get_deepgram_api_key(),
         (TtsProvider::OpenAi, TtsKeySource::Shared) => {
             crate::secure_keys::get_post_process_api_key("openai")
+        }
+        (TtsProvider::Murf | TtsProvider::ElevenLabs | TtsProvider::Cartesia, TtsKeySource::Shared) => {
+            return Err(anyhow!(
+                "{} always uses its separately stored TTS key",
+                provider_name(settings.provider)
+            ));
         }
         (TtsProvider::Edge, _) => unreachable!("handled above"),
         (TtsProvider::LocalQwen, _) => unreachable!("handled above"),
@@ -3410,6 +4381,9 @@ fn provider_name(provider: TtsProvider) -> &'static str {
         TtsProvider::Soniox => "Soniox",
         TtsProvider::Deepgram => "Deepgram",
         TtsProvider::OpenAi => "OpenAI",
+        TtsProvider::Murf => "Murf AI",
+        TtsProvider::ElevenLabs => "ElevenLabs",
+        TtsProvider::Cartesia => "Cartesia",
         TtsProvider::Edge => "Microsoft Read Aloud (unofficial)",
         TtsProvider::LocalQwen => "Local Qwen3-TTS",
         TtsProvider::LocalKokoro => "Local Kokoro",
@@ -3450,11 +4424,45 @@ fn validate_max_chars(label: &str, value: &str, maximum: usize) -> Result<()> {
     }
 }
 
+fn validate_required_max_chars(label: &str, value: &str, maximum: usize) -> Result<()> {
+    if value.trim().is_empty() {
+        return Err(anyhow!("{label} cannot be empty"));
+    }
+    validate_max_chars(label, value, maximum)
+}
+
+fn validate_iso_639_1_code(label: &str, value: &str) -> Result<()> {
+    let value = value.trim();
+    if value.len() == 2 && value.bytes().all(|byte| byte.is_ascii_alphabetic()) {
+        Ok(())
+    } else {
+        Err(anyhow!("{label} must be a two-letter ISO 639-1 code"))
+    }
+}
+
+fn validate_finite_range(label: &str, value: f32, minimum: f32, maximum: f32) -> Result<()> {
+    if !value.is_finite() || value < minimum || value > maximum {
+        Err(anyhow!(
+            "{label} must be a finite number between {minimum} and {maximum}"
+        ))
+    } else {
+        Ok(())
+    }
+}
+
 fn nonempty_or<'a>(value: &'a str, fallback: &'a str) -> &'a str {
     if value.trim().is_empty() {
         fallback
     } else {
         value.trim()
+    }
+}
+
+fn elevenlabs_normalization_value(value: ElevenLabsTextNormalization) -> &'static str {
+    match value {
+        ElevenLabsTextNormalization::Auto => "auto",
+        ElevenLabsTextNormalization::On => "on",
+        ElevenLabsTextNormalization::Off => "off",
     }
 }
 
@@ -3495,6 +4503,15 @@ fn cancelled_attempt_error() -> ProviderAttemptError {
     ProviderAttemptError {
         status: None,
         safe_message: "Text-to-speech operation cancelled".to_string(),
+        transient: false,
+        retry_after: None,
+    }
+}
+
+fn nontransient_attempt_error(message: impl Into<String>) -> ProviderAttemptError {
+    ProviderAttemptError {
+        status: None,
+        safe_message: message.into(),
         transient: false,
         retry_after: None,
     }
@@ -4789,9 +5806,55 @@ mod tests {
     #[test]
     fn edge_provider_has_a_bounded_chunk_limit() {
         assert_eq!(
-            TtsManager::provider_character_limit(TtsProvider::Edge),
+            TtsManager::provider_character_limit(TtsProvider::Edge, ""),
             EDGE_TTS_PROVIDER_LIMIT
         );
+    }
+
+    #[test]
+    fn new_cloud_provider_limits_are_model_aware() {
+        assert_eq!(
+            TtsManager::provider_character_limit(TtsProvider::Murf, "falcon-2"),
+            MURF_CHARACTER_LIMIT
+        );
+        assert_eq!(
+            TtsManager::provider_character_limit(TtsProvider::ElevenLabs, "eleven_v3"),
+            ELEVENLABS_V3_CHARACTER_LIMIT
+        );
+        assert_eq!(
+            TtsManager::provider_character_limit(
+                TtsProvider::ElevenLabs,
+                "eleven_multilingual_v2"
+            ),
+            ELEVENLABS_MULTILINGUAL_V2_CHARACTER_LIMIT
+        );
+        assert_eq!(
+            TtsManager::provider_character_limit(TtsProvider::Cartesia, "sonic-3.5"),
+            CARTESIA_CONSERVATIVE_CHARACTER_LIMIT
+        );
+    }
+
+    #[test]
+    fn elevenlabs_and_cartesia_reject_locale_ids_as_language_codes() {
+        let mut elevenlabs = TtsSettings {
+            provider: TtsProvider::ElevenLabs,
+            ..TtsSettings::default()
+        };
+        elevenlabs.elevenlabs_language = "en-US".to_string();
+        assert!(TtsManager::validate_settings(&elevenlabs)
+            .unwrap_err()
+            .to_string()
+            .contains("two-letter ISO 639-1"));
+
+        let mut cartesia = TtsSettings {
+            provider: TtsProvider::Cartesia,
+            ..TtsSettings::default()
+        };
+        cartesia.cartesia_language = "en-US".to_string();
+        assert!(TtsManager::validate_settings(&cartesia)
+            .unwrap_err()
+            .to_string()
+            .contains("two-letter ISO 639-1"));
     }
 
     #[test]

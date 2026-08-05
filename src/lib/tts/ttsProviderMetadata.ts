@@ -2,6 +2,9 @@ export type TtsProvider =
   | "soniox"
   | "deepgram"
   | "openai"
+  | "murf"
+  | "elevenlabs"
+  | "cartesia"
   | "edge"
   | "local_qwen"
   | "local_kokoro"
@@ -25,6 +28,9 @@ export const TTS_PROVIDER_OPTIONS: TtsProviderOption[] = [
   { value: "soniox", label: "Soniox", group: "Cloud" },
   { value: "deepgram", label: "Deepgram", group: "Cloud" },
   { value: "openai", label: "OpenAI", group: "Cloud" },
+  { value: "murf", label: "Murf AI", group: "Cloud" },
+  { value: "elevenlabs", label: "ElevenLabs", group: "Cloud" },
+  { value: "cartesia", label: "Cartesia", group: "Cloud" },
   {
     value: "edge",
     label: "Microsoft Read Aloud (unofficial)",
@@ -61,6 +67,24 @@ export const TTS_PROVIDER_DEFAULTS: Record<
     language: "",
     speed: 1,
   },
+  murf: {
+    model: "falcon-2",
+    voice: "Gordon",
+    language: "en-US",
+    speed: 1,
+  },
+  elevenlabs: {
+    model: "eleven_multilingual_v2",
+    voice: "JBFqnCBsd6RMkjVDRZzb",
+    language: "en",
+    speed: 1,
+  },
+  cartesia: {
+    model: "sonic-3.5",
+    voice: "f786b574-daa5-4673-aa0c-cbe3e8534c02",
+    language: "en",
+    speed: 1,
+  },
   edge: {
     model: "microsoft-edge-read-aloud",
     voice: "en-US-AriaNeural",
@@ -87,6 +111,9 @@ export const TTS_PROVIDER_SPEED_RANGES: Record<TtsProvider, [number, number]> =
     soniox: [0.7, 1.3],
     deepgram: [0.7, 1.5],
     openai: [0.25, 4],
+    murf: [1, 1],
+    elevenlabs: [0.7, 1.2],
+    cartesia: [0.6, 1.5],
     edge: [0.5, 2],
     local_qwen: [0.5, 2],
     local_kokoro: [0.5, 2],
@@ -120,6 +147,31 @@ export const TTS_PROVIDER_DOCUMENTATION: Record<
       "https://developers.openai.com/api/reference/resources/audio/subresources/speech/methods/create",
     authentication: "https://developers.openai.com/api/docs/quickstart",
     playground: "https://www.openai.fm/",
+  },
+  murf: {
+    overview: "https://murf.ai/api/docs/introduction/overview",
+    voices: "https://murf.ai/api/docs/api-reference/voices/get-voices",
+    parameters:
+      "https://murf.ai/api/docs/text-to-speech/speech-customization",
+    authentication: "https://murf.ai/api/docs/introduction/overview",
+  },
+  elevenlabs: {
+    overview:
+      "https://elevenlabs.io/docs/overview/capabilities/text-to-speech",
+    voices: "https://elevenlabs.io/docs/api-reference/voices/search",
+    parameters:
+      "https://elevenlabs.io/docs/api-reference/text-to-speech/convert",
+    authentication:
+      "https://elevenlabs.io/docs/api-reference/authentication",
+  },
+  cartesia: {
+    overview:
+      "https://docs.cartesia.ai/build-with-cartesia/tts-models/latest",
+    voices: "https://docs.cartesia.ai/api-reference/voices/list",
+    parameters:
+      "https://docs.cartesia.ai/build-with-cartesia/capability-guides/volume-speed-emotion",
+    authentication:
+      "https://docs.cartesia.ai/use-the-api/api-conventions",
   },
   edge: {
     overview: "https://www.microsoft.com/en-us/edge/features/read-aloud",
@@ -161,6 +213,15 @@ export const OPENAI_MODEL_OPTIONS = [
   "tts-1",
   "tts-1-hd",
 ];
+
+export const MURF_MODEL_OPTIONS = ["falcon-2", "gen2"];
+
+export const ELEVENLABS_MODEL_OPTIONS = [
+  "eleven_multilingual_v2",
+  "eleven_v3",
+];
+
+export const CARTESIA_MODEL_OPTIONS = ["sonic-3.5"];
 
 export const AIVORELAY_TTS_GUIDE_URL =
   "https://github.com/MaxITService/AIVORelay/blob/main/CLI-TEXT-TO-SPEECH.md";

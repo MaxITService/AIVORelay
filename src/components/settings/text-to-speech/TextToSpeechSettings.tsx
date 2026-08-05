@@ -53,8 +53,11 @@ import { sessionToast as toast } from "@/lib/sessionToast";
 import type { OSType } from "@/lib/utils/keyboard";
 import {
   AIVORELAY_TTS_GUIDE_URL,
+  CARTESIA_MODEL_OPTIONS,
+  ELEVENLABS_MODEL_OPTIONS,
   LOCAL_TTS_INSTALL_METADATA,
   OPENAI_MODEL_OPTIONS,
+  MURF_MODEL_OPTIONS,
   SONIOX_LANGUAGE_OPTIONS,
   SONIOX_MODEL_OPTIONS,
   TTS_PROVIDER_DEFAULTS,
@@ -69,6 +72,7 @@ type TtsKeySource = "shared" | "separate";
 type TtsOutputFormat = "mp3" | "wav";
 type TtsPlaybackEffect = "none" | "radio" | "retro";
 type TtsOperationScope = "interactive" | "file";
+type ElevenLabsTextNormalization = "auto" | "on" | "off";
 
 type TtsReplacementRule = {
   id: string;
@@ -106,6 +110,17 @@ type TtsSynthesisConfig = {
   language: string;
   key_source: TtsKeySource;
   speed: number;
+  murf_rate: number;
+  murf_pitch: number;
+  murf_variation: number;
+  murf_style: string | null;
+  elevenlabs_stability: number;
+  elevenlabs_similarity_boost: number;
+  elevenlabs_style: number;
+  elevenlabs_use_speaker_boost: boolean;
+  elevenlabs_apply_text_normalization: ElevenLabsTextNormalization;
+  cartesia_emotion: string | null;
+  cartesia_volume: number;
   voice_instructions: string;
   voice_prompt_preset_id: string;
   preprocessing_enabled: boolean;
@@ -128,6 +143,11 @@ type TtsScopeSynthesisSettings = {
   active_model_key: string;
   selected_preset_id: string;
   models: TtsModelSynthesisSettings[];
+  active_models_by_provider: Array<{
+    provider: TtsProvider;
+    model_key: string;
+  }>;
+  initialized_providers: TtsProvider[];
 };
 
 type TtsSynthesisPreset = {
@@ -139,28 +159,41 @@ type TtsSynthesisPreset = {
 const isBuiltinTtsSynthesisPreset = (preset: TtsSynthesisPreset) =>
   preset.id.startsWith("builtin_tts_");
 
-const defaultTtsSynthesisPresetForProvider = (
-  presets: TtsSynthesisPreset[],
-  provider: TtsProvider,
-) =>
-  presets.find(
-    (preset) =>
-      isBuiltinTtsSynthesisPreset(preset) &&
-      preset.config.provider === provider,
-  );
-
 type TtsSettings = {
   enabled: boolean;
   provider: TtsProvider;
   soniox_key_source: TtsKeySource;
   deepgram_key_source: TtsKeySource;
   openai_key_source: TtsKeySource;
+  murf_key_source: TtsKeySource;
+  elevenlabs_key_source: TtsKeySource;
+  cartesia_key_source: TtsKeySource;
   soniox_model: string;
   soniox_language: string;
   soniox_voice: string;
   deepgram_model: string;
   openai_model: string;
   openai_voice: string;
+  murf_model: string;
+  murf_voice: string;
+  murf_language: string;
+  murf_rate: number;
+  murf_pitch: number;
+  murf_variation: number;
+  murf_style: string | null;
+  elevenlabs_model: string;
+  elevenlabs_voice: string;
+  elevenlabs_language: string;
+  elevenlabs_stability: number;
+  elevenlabs_similarity_boost: number;
+  elevenlabs_style: number;
+  elevenlabs_use_speaker_boost: boolean;
+  elevenlabs_apply_text_normalization: ElevenLabsTextNormalization;
+  cartesia_model: string;
+  cartesia_voice: string;
+  cartesia_language: string;
+  cartesia_emotion: string | null;
+  cartesia_volume: number;
   edge_voice: string;
   edge_voice_language: string;
   local_qwen_voice: string;
@@ -174,6 +207,7 @@ type TtsSettings = {
   prompt_presets: TtsPromptPreset[];
   selected_prompt_id: string;
   synthesis_presets: TtsSynthesisPreset[];
+  synthesis_presets_seed_version: number;
   interactive_synthesis: TtsScopeSynthesisSettings;
   file_synthesis: TtsScopeSynthesisSettings;
   llm_preprocessing: TtsLlmPreprocessingSettings;
@@ -288,6 +322,11 @@ type TtsVoiceCatalog = {
     language: string;
     gender: string;
     description: string;
+    locales: Array<{
+      locale: string;
+      label: string;
+      styles: string[];
+    }>;
   }>;
   source: "live" | "builtin";
   supports_live_refresh: boolean;
@@ -301,12 +340,35 @@ const DEFAULT_TTS_SETTINGS: TtsSettings = {
   soniox_key_source: "shared",
   deepgram_key_source: "shared",
   openai_key_source: "shared",
+  murf_key_source: "separate",
+  elevenlabs_key_source: "separate",
+  cartesia_key_source: "separate",
   soniox_model: TTS_PROVIDER_DEFAULTS.soniox.model,
   soniox_language: TTS_PROVIDER_DEFAULTS.soniox.language,
   soniox_voice: TTS_PROVIDER_DEFAULTS.soniox.voice,
   deepgram_model: TTS_PROVIDER_DEFAULTS.deepgram.model,
   openai_model: TTS_PROVIDER_DEFAULTS.openai.model,
   openai_voice: TTS_PROVIDER_DEFAULTS.openai.voice,
+  murf_model: TTS_PROVIDER_DEFAULTS.murf.model,
+  murf_voice: TTS_PROVIDER_DEFAULTS.murf.voice,
+  murf_language: TTS_PROVIDER_DEFAULTS.murf.language,
+  murf_rate: 0,
+  murf_pitch: 0,
+  murf_variation: 1,
+  murf_style: null,
+  elevenlabs_model: TTS_PROVIDER_DEFAULTS.elevenlabs.model,
+  elevenlabs_voice: TTS_PROVIDER_DEFAULTS.elevenlabs.voice,
+  elevenlabs_language: TTS_PROVIDER_DEFAULTS.elevenlabs.language,
+  elevenlabs_stability: 0.5,
+  elevenlabs_similarity_boost: 0.75,
+  elevenlabs_style: 0,
+  elevenlabs_use_speaker_boost: true,
+  elevenlabs_apply_text_normalization: "auto",
+  cartesia_model: TTS_PROVIDER_DEFAULTS.cartesia.model,
+  cartesia_voice: TTS_PROVIDER_DEFAULTS.cartesia.voice,
+  cartesia_language: TTS_PROVIDER_DEFAULTS.cartesia.language,
+  cartesia_emotion: null,
+  cartesia_volume: 1,
   edge_voice: TTS_PROVIDER_DEFAULTS.edge.voice,
   edge_voice_language: TTS_PROVIDER_DEFAULTS.edge.language,
   local_qwen_voice: TTS_PROVIDER_DEFAULTS.local_qwen.voice,
@@ -320,15 +382,20 @@ const DEFAULT_TTS_SETTINGS: TtsSettings = {
   prompt_presets: [],
   selected_prompt_id: "",
   synthesis_presets: [],
+  synthesis_presets_seed_version: 0,
   interactive_synthesis: {
     active_model_key: "",
     selected_preset_id: "",
     models: [],
+    active_models_by_provider: [],
+    initialized_providers: [],
   },
   file_synthesis: {
     active_model_key: "",
     selected_preset_id: "",
     models: [],
+    active_models_by_provider: [],
+    initialized_providers: [],
   },
   llm_preprocessing: DEFAULT_TTS_LLM_PREPROCESSING,
   play_pause_hotkey: "space",
@@ -361,19 +428,23 @@ const DEFAULT_TTS_SETTINGS: TtsSettings = {
   file_history_max_storage_mb: 1024,
 };
 
-const PROVIDER_INPUT_LIMITS: Record<TtsProvider, number> = {
+const providerInputLimit = (provider: TtsProvider, model: string): number => ({
   soniox: 5000,
   deepgram: 2000,
   openai: 4096,
+  murf: 3000,
+  elevenlabs: model === "eleven_multilingual_v2" ? 10000 : 5000,
+  cartesia: 4000,
   edge: 4096,
   local_qwen: 4096,
   local_kokoro: 4096,
   windows: 4096,
-};
+})[provider];
 const PROVIDER_CAPABILITIES: Record<
   TtsProvider,
   {
     requiresApiKey: boolean;
+    supportsSharedKey: boolean;
     localOrSystem: boolean;
     downloadableRuntime: boolean;
     supportsInstructions: boolean;
@@ -382,6 +453,7 @@ const PROVIDER_CAPABILITIES: Record<
 > = {
   soniox: {
     requiresApiKey: true,
+    supportsSharedKey: true,
     localOrSystem: false,
     downloadableRuntime: false,
     supportsInstructions: false,
@@ -389,6 +461,7 @@ const PROVIDER_CAPABILITIES: Record<
   },
   deepgram: {
     requiresApiKey: true,
+    supportsSharedKey: true,
     localOrSystem: false,
     downloadableRuntime: false,
     supportsInstructions: false,
@@ -396,13 +469,39 @@ const PROVIDER_CAPABILITIES: Record<
   },
   openai: {
     requiresApiKey: true,
+    supportsSharedKey: true,
     localOrSystem: false,
     downloadableRuntime: false,
     supportsInstructions: true,
     speed: TTS_PROVIDER_SPEED_RANGES.openai,
   },
+  murf: {
+    requiresApiKey: true,
+    supportsSharedKey: false,
+    localOrSystem: false,
+    downloadableRuntime: false,
+    supportsInstructions: false,
+    speed: TTS_PROVIDER_SPEED_RANGES.murf,
+  },
+  elevenlabs: {
+    requiresApiKey: true,
+    supportsSharedKey: false,
+    localOrSystem: false,
+    downloadableRuntime: false,
+    supportsInstructions: false,
+    speed: TTS_PROVIDER_SPEED_RANGES.elevenlabs,
+  },
+  cartesia: {
+    requiresApiKey: true,
+    supportsSharedKey: false,
+    localOrSystem: false,
+    downloadableRuntime: false,
+    supportsInstructions: false,
+    speed: TTS_PROVIDER_SPEED_RANGES.cartesia,
+  },
   edge: {
     requiresApiKey: false,
+    supportsSharedKey: false,
     localOrSystem: false,
     downloadableRuntime: false,
     supportsInstructions: false,
@@ -410,6 +509,7 @@ const PROVIDER_CAPABILITIES: Record<
   },
   local_qwen: {
     requiresApiKey: false,
+    supportsSharedKey: false,
     localOrSystem: true,
     downloadableRuntime: true,
     supportsInstructions: false,
@@ -417,6 +517,7 @@ const PROVIDER_CAPABILITIES: Record<
   },
   local_kokoro: {
     requiresApiKey: false,
+    supportsSharedKey: false,
     localOrSystem: true,
     downloadableRuntime: true,
     supportsInstructions: false,
@@ -424,6 +525,7 @@ const PROVIDER_CAPABILITIES: Record<
   },
   windows: {
     requiresApiKey: false,
+    supportsSharedKey: false,
     localOrSystem: true,
     downloadableRuntime: false,
     supportsInstructions: false,
@@ -769,6 +871,28 @@ const OPENAI_MODEL_SELECT_OPTIONS: SelectOption[] = OPENAI_MODEL_OPTIONS.map(
   }),
 );
 
+const MURF_MODEL_SELECT_OPTIONS: SelectOption[] = MURF_MODEL_OPTIONS.map(
+  (value) => ({
+    value,
+    label: value === "falcon-2" ? "Falcon 2" : "Gen2",
+  }),
+);
+
+const ELEVENLABS_MODEL_SELECT_OPTIONS: SelectOption[] =
+  ELEVENLABS_MODEL_OPTIONS.map((value) => ({
+    value,
+    label:
+      value === "eleven_multilingual_v2"
+        ? "Multilingual v2"
+        : "Eleven v3",
+  }));
+
+const CARTESIA_MODEL_SELECT_OPTIONS: SelectOption[] =
+  CARTESIA_MODEL_OPTIONS.map((value) => ({
+    value,
+    label: "Sonic 3.5",
+  }));
+
 type CloudVoiceSelectorProps = {
   value: string;
   options: SelectOption[];
@@ -854,6 +978,24 @@ const COALESCED_TTS_FIELDS = new Set([
   "deepgram_model",
   "openai_model",
   "openai_voice",
+  "murf_model",
+  "murf_voice",
+  "murf_language",
+  "murf_rate",
+  "murf_pitch",
+  "murf_variation",
+  "murf_style",
+  "elevenlabs_model",
+  "elevenlabs_voice",
+  "elevenlabs_language",
+  "elevenlabs_stability",
+  "elevenlabs_similarity_boost",
+  "elevenlabs_style",
+  "cartesia_model",
+  "cartesia_voice",
+  "cartesia_language",
+  "cartesia_emotion",
+  "cartesia_volume",
   "edge_voice",
   "edge_voice_language",
   "speed",
@@ -888,12 +1030,35 @@ const TTS_SYNTHESIS_CUSTOMIZATION_FIELDS = new Set([
   "soniox_key_source",
   "deepgram_key_source",
   "openai_key_source",
+  "murf_key_source",
+  "elevenlabs_key_source",
+  "cartesia_key_source",
   "soniox_model",
   "soniox_language",
   "soniox_voice",
   "deepgram_model",
   "openai_model",
   "openai_voice",
+  "murf_model",
+  "murf_voice",
+  "murf_language",
+  "murf_rate",
+  "murf_pitch",
+  "murf_variation",
+  "murf_style",
+  "elevenlabs_model",
+  "elevenlabs_voice",
+  "elevenlabs_language",
+  "elevenlabs_stability",
+  "elevenlabs_similarity_boost",
+  "elevenlabs_style",
+  "elevenlabs_use_speaker_boost",
+  "elevenlabs_apply_text_normalization",
+  "cartesia_model",
+  "cartesia_voice",
+  "cartesia_language",
+  "cartesia_emotion",
+  "cartesia_volume",
   "edge_voice",
   "edge_voice_language",
   "local_qwen_voice",
@@ -982,29 +1147,43 @@ const synthesisConfigFromSettings = (
         ? [settings.deepgram_model, settings.deepgram_model, ""]
         : settings.provider === "openai"
           ? [settings.openai_model, settings.openai_voice, ""]
-          : settings.provider === "edge"
-            ? [
-                "microsoft-edge-read-aloud",
-                settings.edge_voice,
-                settings.edge_voice_language,
-              ]
-            : settings.provider === "local_qwen"
+          : settings.provider === "murf"
+            ? [settings.murf_model, settings.murf_voice, settings.murf_language]
+            : settings.provider === "elevenlabs"
               ? [
-                  "qwen3-tts-12hz-0.6b-customvoice",
-                  settings.local_qwen_voice,
-                  settings.local_qwen_language,
+                  settings.elevenlabs_model,
+                  settings.elevenlabs_voice,
+                  settings.elevenlabs_language,
                 ]
-              : settings.provider === "local_kokoro"
+              : settings.provider === "cartesia"
                 ? [
-                    "kokoro-82m",
-                    settings.local_kokoro_voice,
-                    settings.local_kokoro_language,
+                    settings.cartesia_model,
+                    settings.cartesia_voice,
+                    settings.cartesia_language,
                   ]
-                : [
-                    "windows.media.speechsynthesis",
-                    settings.windows_voice_id,
-                    settings.windows_voice_language,
-                  ];
+                : settings.provider === "edge"
+                  ? [
+                      "microsoft-edge-read-aloud",
+                      settings.edge_voice,
+                      settings.edge_voice_language,
+                    ]
+                  : settings.provider === "local_qwen"
+                    ? [
+                        "qwen3-tts-12hz-0.6b-customvoice",
+                        settings.local_qwen_voice,
+                        settings.local_qwen_language,
+                      ]
+                    : settings.provider === "local_kokoro"
+                      ? [
+                          "kokoro-82m",
+                          settings.local_kokoro_voice,
+                          settings.local_kokoro_language,
+                        ]
+                      : [
+                          "windows.media.speechsynthesis",
+                          settings.windows_voice_id,
+                          settings.windows_voice_language,
+                        ];
   const keySource =
     settings.provider === "soniox"
       ? settings.soniox_key_source
@@ -1012,7 +1191,13 @@ const synthesisConfigFromSettings = (
         ? settings.deepgram_key_source
         : settings.provider === "openai"
           ? settings.openai_key_source
-          : "shared";
+          : settings.provider === "murf"
+            ? settings.murf_key_source
+            : settings.provider === "elevenlabs"
+              ? settings.elevenlabs_key_source
+              : settings.provider === "cartesia"
+                ? settings.cartesia_key_source
+                : "shared";
   return {
     provider: settings.provider,
     model,
@@ -1020,6 +1205,18 @@ const synthesisConfigFromSettings = (
     language,
     key_source: keySource,
     speed: settings.speed,
+    murf_rate: settings.murf_rate,
+    murf_pitch: settings.murf_pitch,
+    murf_variation: settings.murf_variation,
+    murf_style: settings.murf_style,
+    elevenlabs_stability: settings.elevenlabs_stability,
+    elevenlabs_similarity_boost: settings.elevenlabs_similarity_boost,
+    elevenlabs_style: settings.elevenlabs_style,
+    elevenlabs_use_speaker_boost: settings.elevenlabs_use_speaker_boost,
+    elevenlabs_apply_text_normalization:
+      settings.elevenlabs_apply_text_normalization,
+    cartesia_emotion: settings.cartesia_emotion,
+    cartesia_volume: settings.cartesia_volume,
     voice_instructions: settings.openai_instructions,
     voice_prompt_preset_id: settings.selected_prompt_id,
     preprocessing_enabled: settings.preprocessing_enabled,
@@ -1045,7 +1242,11 @@ const applySynthesisConfig = (
   const next: TtsSettings = {
     ...settings,
     provider: config.provider,
-    speed: config.speed,
+    speed:
+      config.provider === "murf" ||
+      (config.provider === "elevenlabs" && config.model === "eleven_v3")
+        ? 1
+        : config.speed,
     openai_instructions: config.voice_instructions,
     selected_prompt_id: config.voice_prompt_preset_id,
     preprocessing_enabled: config.preprocessing_enabled,
@@ -1072,6 +1273,33 @@ const applySynthesisConfig = (
     next.openai_model = config.model;
     next.openai_voice = config.voice;
     next.openai_key_source = config.key_source;
+  } else if (config.provider === "murf") {
+    next.murf_model = config.model;
+    next.murf_voice = config.voice;
+    next.murf_language = config.language;
+    next.murf_key_source = "separate";
+    next.murf_rate = config.murf_rate;
+    next.murf_pitch = config.murf_pitch;
+    next.murf_variation = config.murf_variation;
+    next.murf_style = config.murf_style;
+  } else if (config.provider === "elevenlabs") {
+    next.elevenlabs_model = config.model;
+    next.elevenlabs_voice = config.voice;
+    next.elevenlabs_language = config.language;
+    next.elevenlabs_key_source = "separate";
+    next.elevenlabs_stability = config.elevenlabs_stability;
+    next.elevenlabs_similarity_boost = config.elevenlabs_similarity_boost;
+    next.elevenlabs_style = config.elevenlabs_style;
+    next.elevenlabs_use_speaker_boost = config.elevenlabs_use_speaker_boost;
+    next.elevenlabs_apply_text_normalization =
+      config.elevenlabs_apply_text_normalization;
+  } else if (config.provider === "cartesia") {
+    next.cartesia_model = config.model;
+    next.cartesia_voice = config.voice;
+    next.cartesia_language = config.language;
+    next.cartesia_key_source = "separate";
+    next.cartesia_emotion = config.cartesia_emotion;
+    next.cartesia_volume = config.cartesia_volume;
   } else if (config.provider === "edge") {
     next.edge_voice = config.voice;
     next.edge_voice_language = config.language;
@@ -1113,9 +1341,19 @@ const upsertScopeConfig = (
         )
       : [...scope.models, { model_key: modelKey, config }];
   return {
+    ...scope,
     active_model_key: modelKey,
     selected_preset_id: selectedPresetId,
     models: models.slice(-100),
+    active_models_by_provider: [
+      ...scope.active_models_by_provider.filter(
+        (selection) => selection.provider !== config.provider,
+      ),
+      { provider: config.provider, model_key: modelKey },
+    ],
+    initialized_providers: scope.initialized_providers.includes(config.provider)
+      ? scope.initialized_providers
+      : [...scope.initialized_providers, config.provider],
   };
 };
 
@@ -1205,11 +1443,19 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
         ...DEFAULT_TTS_SETTINGS.interactive_synthesis,
         ...storedTts?.interactive_synthesis,
         models: storedTts?.interactive_synthesis?.models ?? [],
+        active_models_by_provider:
+          storedTts?.interactive_synthesis?.active_models_by_provider ?? [],
+        initialized_providers:
+          storedTts?.interactive_synthesis?.initialized_providers ?? [],
       },
       file_synthesis: {
         ...DEFAULT_TTS_SETTINGS.file_synthesis,
         ...storedTts?.file_synthesis,
         models: storedTts?.file_synthesis?.models ?? [],
+        active_models_by_provider:
+          storedTts?.file_synthesis?.active_models_by_provider ?? [],
+        initialized_providers:
+          storedTts?.file_synthesis?.initialized_providers ?? [],
       },
     };
     return materializeSynthesisScope(merged, mode);
@@ -1220,6 +1466,7 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
   const pendingSettingsWritesRef = useRef(0);
   const settingsWriteGenerationRef = useRef(0);
   const keyStatusGenerationRef = useRef(0);
+  const voiceCatalogGenerationRef = useRef(0);
 
   useEffect(() => {
     if (pendingSettingsWritesRef.current === 0) {
@@ -1291,7 +1538,6 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
     );
   });
   const synthesisPresetModeRef = useRef(mode);
-  const fileSynthesisInitializationRef = useRef(false);
 
   useEffect(() => {
     if (synthesisPresetModeRef.current === mode) return;
@@ -1347,12 +1593,27 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
   }, []);
   const activeLocalInstallConsent = localInstallConsent[activeLocalKind];
   const localInstallMetadata = LOCAL_TTS_INSTALL_METADATA[activeLocalKind];
-  const keySourceField = !providerCapabilities.requiresApiKey
-    ? null
-    : (`${tts.provider}_key_source` as
-        | "soniox_key_source"
-        | "deepgram_key_source"
-        | "openai_key_source");
+  const keySourceField:
+    | "soniox_key_source"
+    | "deepgram_key_source"
+    | "openai_key_source"
+    | "murf_key_source"
+    | "elevenlabs_key_source"
+    | "cartesia_key_source"
+    | null =
+    tts.provider === "soniox"
+      ? "soniox_key_source"
+      : tts.provider === "deepgram"
+        ? "deepgram_key_source"
+        : tts.provider === "openai"
+          ? "openai_key_source"
+          : tts.provider === "murf"
+            ? "murf_key_source"
+            : tts.provider === "elevenlabs"
+              ? "elevenlabs_key_source"
+              : tts.provider === "cartesia"
+                ? "cartesia_key_source"
+                : null;
   const keySource = keySourceField ? tts[keySourceField] : "shared";
   const voiceValue =
     tts.provider === "soniox"
@@ -1361,13 +1622,19 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
         ? tts.deepgram_model
         : tts.provider === "openai"
           ? tts.openai_voice
-          : tts.provider === "edge"
-            ? tts.edge_voice
-            : tts.provider === "windows"
-              ? tts.windows_voice_id
-              : tts.provider === "local_kokoro"
-                ? tts.local_kokoro_voice
-                : tts.local_qwen_voice;
+          : tts.provider === "murf"
+            ? tts.murf_voice
+            : tts.provider === "elevenlabs"
+              ? tts.elevenlabs_voice
+              : tts.provider === "cartesia"
+                ? tts.cartesia_voice
+                : tts.provider === "edge"
+                  ? tts.edge_voice
+                  : tts.provider === "windows"
+                    ? tts.windows_voice_id
+                    : tts.provider === "local_kokoro"
+                      ? tts.local_kokoro_voice
+                      : tts.local_qwen_voice;
   const modelValue =
     tts.provider === "soniox"
       ? tts.soniox_model
@@ -1375,14 +1642,22 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
         ? tts.deepgram_model
         : tts.provider === "openai"
           ? tts.openai_model
-          : tts.provider === "edge"
-            ? "microsoft-edge-read-aloud"
-            : tts.provider === "windows"
-              ? "windows.media.speechsynthesis"
-              : tts.provider === "local_kokoro"
-                ? "kokoro-int8-multi-lang-v1_1"
-                : "Qwen3-TTS-12Hz-0.6B-CustomVoice";
+          : tts.provider === "murf"
+            ? tts.murf_model
+            : tts.provider === "elevenlabs"
+              ? tts.elevenlabs_model
+              : tts.provider === "cartesia"
+                ? tts.cartesia_model
+                : tts.provider === "edge"
+                  ? "microsoft-edge-read-aloud"
+                  : tts.provider === "windows"
+                    ? "windows.media.speechsynthesis"
+                    : tts.provider === "local_kokoro"
+                      ? "kokoro-int8-multi-lang-v1_1"
+                      : "Qwen3-TTS-12Hz-0.6B-CustomVoice";
   const [speedMinimum, speedMaximum] = providerCapabilities.speed;
+  const elevenV3Selected =
+    tts.provider === "elevenlabs" && tts.elevenlabs_model === "eleven_v3";
   const openAiInstructionsSupported =
     !tts.openai_model.trim() ||
     tts.openai_model.trim().startsWith("gpt-4o-mini-tts");
@@ -1441,12 +1716,34 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
         return DEEPGRAM_AURA_2_VOICES;
       case "openai":
         return OPENAI_VOICES;
+      case "murf": {
+        const voice =
+          tts.murf_model === "gen2"
+            ? "en-US-natalie"
+            : TTS_PROVIDER_DEFAULTS.murf.voice;
+        return [
+          {
+            value: voice,
+            label: voice,
+            group: "Recommended voice",
+          },
+        ];
+      }
+      case "elevenlabs":
+      case "cartesia":
+        return [
+          {
+            value: TTS_PROVIDER_DEFAULTS[tts.provider].voice,
+            label: TTS_PROVIDER_DEFAULTS[tts.provider].voice,
+            group: "Recommended voice",
+          },
+        ];
       case "edge":
         return EDGE_FALLBACK_VOICES;
       default:
         return [];
     }
-  }, [tts.provider]);
+  }, [tts.murf_model, tts.provider]);
   const cloudVoiceOptions = useMemo<SelectOption[]>(() => {
     if (!voiceCatalog || voiceCatalog.provider !== tts.provider) {
       return builtinVoiceOptions;
@@ -1478,6 +1775,86 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
                 : option.group,
       }));
   }, [builtinVoiceOptions, t, tts.provider, voiceCatalog]);
+  const providerLanguageValue =
+    tts.provider === "murf"
+      ? tts.murf_language
+      : tts.provider === "elevenlabs"
+        ? tts.elevenlabs_language
+        : tts.provider === "cartesia"
+          ? tts.cartesia_language
+          : "";
+  const selectedCatalogVoice =
+    voiceCatalog?.provider === tts.provider
+      ? voiceCatalog.voices.find((voice) => voice.id === voiceValue)
+      : undefined;
+  const providerLanguageOptions = useMemo<SelectOption[]>(() => {
+    if (
+      tts.provider !== "murf" &&
+      tts.provider !== "elevenlabs" &&
+      tts.provider !== "cartesia"
+    ) {
+      return [];
+    }
+    const languageCode = (value: string) => {
+      const candidate = value.split(/[-_]/, 1)[0] ?? "";
+      return /^[a-z]{2}$/i.test(candidate) ? candidate.toLowerCase() : "";
+    };
+    const catalogLocales = selectedCatalogVoice?.locales ?? [];
+    const catalogValues =
+      tts.provider === "murf"
+        ? catalogLocales.map((locale) => locale.locale)
+        : [
+            selectedCatalogVoice?.language ?? "",
+            ...catalogLocales.map((locale) => languageCode(locale.locale)),
+          ];
+    const values = [
+      providerLanguageValue,
+      TTS_PROVIDER_DEFAULTS[tts.provider].language,
+      ...catalogValues,
+    ].filter(Boolean);
+    return [...new Set(values)].map((value) => {
+      const locale = catalogLocales.find((candidate) =>
+        tts.provider === "murf"
+          ? candidate.locale === value
+          : languageCode(candidate.locale) === value,
+      );
+      return {
+        value,
+        label: locale?.label
+          ? [locale.label, " (", value, ")"].join("")
+          : value,
+      };
+    });
+  }, [providerLanguageValue, selectedCatalogVoice, tts.provider]);
+  const murfStyleOptions = useMemo<SelectOption[]>(() => {
+    const locale = (selectedCatalogVoice?.locales ?? []).find(
+      (candidate) =>
+        candidate.locale.toLowerCase() === tts.murf_language.toLowerCase(),
+    );
+    return [
+      { value: "", label: t("textToSpeech.voice.unsetStyle") },
+      ...(locale?.styles ?? []).map((style) => ({
+        value: style,
+        label: style,
+      })),
+    ];
+  }, [selectedCatalogVoice, t, tts.murf_language]);
+  const retainedMurfStyle = (voiceId: string, localeId: string) => {
+    if (!tts.murf_style) return null;
+    const voice =
+      voiceCatalog?.provider === "murf"
+        ? voiceCatalog.voices.find((candidate) => candidate.id === voiceId)
+        : undefined;
+    const locale = (voice?.locales ?? []).find(
+      (candidate) =>
+        candidate.locale.toLowerCase() === localeId.toLowerCase(),
+    );
+    return locale?.styles.some(
+      (style) => style.toLowerCase() === tts.murf_style?.toLowerCase(),
+    )
+      ? tts.murf_style
+      : null;
+  };
 
   const refreshLocalTtsStatus = useCallback(async () => {
     const requestedKind = activeLocalKind;
@@ -1525,27 +1902,44 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
 
   const refreshVoiceCatalog = useCallback(async () => {
     const provider = ttsRef.current.provider;
+    const murfModel = provider === "murf" ? ttsRef.current.murf_model : null;
     if (
-      !(["soniox", "deepgram", "openai", "edge"] as TtsProvider[]).includes(
-        provider,
-      )
+      !(
+        [
+          "soniox",
+          "deepgram",
+          "openai",
+          "murf",
+          "elevenlabs",
+          "cartesia",
+          "edge",
+        ] as TtsProvider[]
+      ).includes(provider)
     ) {
-      return;
+      return false;
     }
+    const requestGeneration = ++voiceCatalogGenerationRef.current;
+    const requestIsCurrent = () =>
+      requestGeneration === voiceCatalogGenerationRef.current &&
+      ttsRef.current.provider === provider &&
+      (provider !== "murf" || ttsRef.current.murf_model === murfModel);
     setVoiceCatalogBusy(true);
     setVoiceCatalogError(null);
     try {
       const catalog = await invoke<TtsVoiceCatalog>("get_tts_voice_catalog", {
         provider,
         scope: operationScope(mode),
+        model: murfModel,
       });
-      if (ttsRef.current.provider === provider) setVoiceCatalog(catalog);
+      if (requestIsCurrent()) setVoiceCatalog(catalog);
+      return true;
     } catch (error) {
-      if (ttsRef.current.provider === provider) {
+      if (requestIsCurrent()) {
         setVoiceCatalogError(asErrorMessage(error));
       }
+      return false;
     } finally {
-      if (ttsRef.current.provider === provider) setVoiceCatalogBusy(false);
+      if (requestIsCurrent()) setVoiceCatalogBusy(false);
     }
   }, [mode]);
 
@@ -1556,19 +1950,32 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
   }, [refreshWindowsCatalog, tts.provider, windowsCatalog]);
 
   useEffect(() => {
+    voiceCatalogGenerationRef.current += 1;
     setVoiceCatalog(null);
     setVoiceCatalogError(null);
     setVoiceCatalogBusy(false);
     if (
       tts.provider === "edge" ||
       tts.provider === "openai" ||
-      ((tts.provider === "soniox" || tts.provider === "deepgram") &&
+      ([
+        "soniox",
+        "deepgram",
+        "murf",
+        "elevenlabs",
+        "cartesia",
+      ].includes(tts.provider) &&
         keyStatusLoaded &&
         hasEffectiveKey)
     ) {
       void refreshVoiceCatalog();
     }
-  }, [hasEffectiveKey, keyStatusLoaded, refreshVoiceCatalog, tts.provider]);
+  }, [
+    hasEffectiveKey,
+    keyStatusLoaded,
+    refreshVoiceCatalog,
+    tts.murf_model,
+    tts.provider,
+  ]);
 
   useEffect(() => {
     setLocalTtsStatus(null);
@@ -1731,7 +2138,7 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
       });
 
       let effectiveKeyExists = separateKeyExists;
-      if (keySource === "shared") {
+      if (providerCapabilities.supportsSharedKey && keySource === "shared") {
         effectiveKeyExists =
           tts.provider === "soniox"
             ? await invoke<boolean>("soniox_has_api_key")
@@ -1755,7 +2162,12 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
         setKeyBusy(false);
       }
     }
-  }, [keySource, providerCapabilities.requiresApiKey, tts.provider]);
+  }, [
+    keySource,
+    providerCapabilities.requiresApiKey,
+    providerCapabilities.supportsSharedKey,
+    tts.provider,
+  ]);
 
   useEffect(() => {
     void refreshKeyStatus();
@@ -1859,37 +2271,6 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
   }, [t]);
 
   const chooseProvider = async (provider: TtsProvider) => {
-    const current = ttsRef.current;
-    const fileScope = current.file_synthesis;
-    const activeFileConfig = fileScope.models.find(
-      (entry) => entry.model_key === fileScope.active_model_key,
-    )?.config;
-    const selectedFilePreset = current.synthesis_presets.find(
-      (preset) => preset.id === fileScope.selected_preset_id,
-    );
-    const firstFileProviderSelection =
-      mode === "files" &&
-      fileScope.models.length === 0 &&
-      !fileScope.active_model_key.trim();
-    const switchingFromBuiltinFilePreset =
-      mode === "files" &&
-      provider !== current.provider &&
-      selectedFilePreset !== undefined &&
-      isBuiltinTtsSynthesisPreset(selectedFilePreset) &&
-      activeFileConfig?.provider === current.provider;
-    const shouldLoadDefaultPreset =
-      firstFileProviderSelection || switchingFromBuiltinFilePreset;
-    if (shouldLoadDefaultPreset) {
-      const preset = defaultTtsSynthesisPresetForProvider(
-        current.synthesis_presets,
-        provider,
-      );
-      if (preset) {
-        fileSynthesisInitializationRef.current = true;
-        await loadSynthesisPreset(preset.id);
-        return;
-      }
-    }
     await updateTts({ provider }, "provider");
   };
 
@@ -2008,10 +2389,21 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
       setHasEffectiveKey(false);
       setEditingKey(false);
       setKeyDraft("");
+      setVoiceCatalog(null);
+      setVoiceCatalogError(null);
     } catch (error) {
       setSettingsError(asErrorMessage(error));
     } finally {
       setKeyBusy(false);
+    }
+  };
+
+  const testProviderKey = async () => {
+    const valid = await refreshVoiceCatalog();
+    if (valid) {
+      toast.success(t("textToSpeech.api.testKeySuccess"));
+    } else {
+      toast.error(t("textToSpeech.api.testKeyFailed"));
     }
   };
 
@@ -2214,33 +2606,6 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
     setMp3Bitrate(config.mp3_bitrate_kbps);
     invalidateInspection();
   };
-
-  useEffect(() => {
-    if (mode !== "files" || fileSynthesisInitializationRef.current) return;
-
-    const fileScope = tts.file_synthesis;
-    if (fileScope.models.length > 0 || fileScope.active_model_key.trim()) {
-      fileSynthesisInitializationRef.current = true;
-      return;
-    }
-
-    const preset = defaultTtsSynthesisPresetForProvider(
-      tts.synthesis_presets,
-      tts.provider,
-    );
-    if (!preset) return;
-
-    fileSynthesisInitializationRef.current = true;
-    void loadSynthesisPreset(preset.id);
-  }, [
-    fileSynthesisInitializationRef,
-    mode,
-    loadSynthesisPreset,
-    tts.file_synthesis.active_model_key,
-    tts.file_synthesis.models.length,
-    tts.provider,
-    tts.synthesis_presets,
-  ]);
 
   const deleteSelectedSynthesisPreset = async () => {
     if (!selectedSynthesisPresetId) return;
@@ -3863,6 +4228,9 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
             ) : tts.provider === "soniox" ||
               tts.provider === "deepgram" ||
               tts.provider === "openai" ||
+              tts.provider === "murf" ||
+              tts.provider === "elevenlabs" ||
+              tts.provider === "cartesia" ||
               tts.provider === "edge" ? (
               <CloudVoiceSelector
                 key={tts.provider}
@@ -3908,6 +4276,27 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
                     void updateTts({ deepgram_model: value }, "deepgram_model");
                   } else if (tts.provider === "openai") {
                     void updateTts({ openai_voice: value }, "openai_voice");
+                  } else if (tts.provider === "murf") {
+                    void updateTts(
+                      {
+                        murf_voice: value,
+                        murf_style: retainedMurfStyle(
+                          value,
+                          tts.murf_language,
+                        ),
+                      },
+                      "murf_voice",
+                    );
+                  } else if (tts.provider === "elevenlabs") {
+                    void updateTts(
+                      { elevenlabs_voice: value },
+                      "elevenlabs_voice",
+                    );
+                  } else if (tts.provider === "cartesia") {
+                    void updateTts(
+                      { cartesia_voice: value },
+                      "cartesia_voice",
+                    );
                   } else {
                     void updateTts(
                       {
@@ -3956,6 +4345,74 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
                     void updateTts(
                       { soniox_language: value },
                       "soniox_language",
+                    );
+                  }
+                }}
+                disabled={savingField !== null}
+              />
+            </SettingContainer>
+          )}
+          {(tts.provider === "murf" ||
+            (tts.provider === "elevenlabs" &&
+              tts.elevenlabs_model !== "eleven_multilingual_v2") ||
+            tts.provider === "cartesia") && (
+            <SettingContainer
+              grouped
+              title={t("textToSpeech.voice.languageTitle")}
+              description={t("textToSpeech.voice.languageDescription")}
+            >
+              <Select
+                className="w-full md:w-72"
+                value={providerLanguageValue}
+                options={providerLanguageOptions}
+                placeholder={TTS_PROVIDER_DEFAULTS[tts.provider].language}
+                isClearable={false}
+                isCreatable
+                formatCreateLabel={(input) =>
+                  `${t("textToSpeech.voice.custom")}: ${input}`
+                }
+                onCreateOption={(input) => {
+                  const value = input.trim().slice(0, 32);
+                  if (!value) return;
+                  if (tts.provider === "murf") {
+                    void updateTts(
+                      {
+                        murf_language: value,
+                        murf_style: retainedMurfStyle(tts.murf_voice, value),
+                      },
+                      "murf_language",
+                    );
+                  } else if (tts.provider === "elevenlabs") {
+                    void updateTts(
+                      { elevenlabs_language: value },
+                      "elevenlabs_language",
+                    );
+                  } else {
+                    void updateTts(
+                      { cartesia_language: value },
+                      "cartesia_language",
+                    );
+                  }
+                }}
+                onChange={(value) => {
+                  if (!value) return;
+                  if (tts.provider === "murf") {
+                    void updateTts(
+                      {
+                        murf_language: value,
+                        murf_style: retainedMurfStyle(tts.murf_voice, value),
+                      },
+                      "murf_language",
+                    );
+                  } else if (tts.provider === "elevenlabs") {
+                    void updateTts(
+                      { elevenlabs_language: value },
+                      "elevenlabs_language",
+                    );
+                  } else {
+                    void updateTts(
+                      { cartesia_language: value },
+                      "cartesia_language",
                     );
                   }
                 }}
@@ -4029,77 +4486,424 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
                   options={
                     tts.provider === "soniox"
                       ? SONIOX_MODEL_SELECT_OPTIONS
-                      : OPENAI_MODEL_SELECT_OPTIONS
+                      : tts.provider === "openai"
+                        ? OPENAI_MODEL_SELECT_OPTIONS
+                        : tts.provider === "murf"
+                          ? MURF_MODEL_SELECT_OPTIONS
+                          : tts.provider === "elevenlabs"
+                            ? ELEVENLABS_MODEL_SELECT_OPTIONS
+                            : CARTESIA_MODEL_SELECT_OPTIONS
                   }
                   isClearable={false}
-                  isCreatable
-                  formatCreateLabel={(input) =>
-                    `${t("textToSpeech.voice.custom")}: ${input}`
-                  }
-                  onCreateOption={(input) => {
-                    const value = input
-                      .trim()
-                      .slice(
-                        0,
-                        tts.provider === "soniox"
-                          ? SONIOX_TTS_FIELD_MAX_LENGTH
-                          : 256,
-                      );
-                    if (!value) return;
-                    void updateTts(
-                      tts.provider === "soniox"
-                        ? { soniox_model: value }
-                        : { openai_model: value },
-                      tts.provider === "soniox"
-                        ? "soniox_model"
-                        : "openai_model",
-                    );
-                  }}
+                  {...(tts.provider === "soniox" || tts.provider === "openai"
+                    ? {
+                        isCreatable: true as const,
+                        formatCreateLabel: (input: string) =>
+                          `${t("textToSpeech.voice.custom")}: ${input}`,
+                        onCreateOption: (input: string) => {
+                          const value = input
+                            .trim()
+                            .slice(
+                              0,
+                              tts.provider === "soniox"
+                                ? SONIOX_TTS_FIELD_MAX_LENGTH
+                                : 256,
+                            );
+                          if (!value) return;
+                          void updateTts(
+                            tts.provider === "soniox"
+                              ? { soniox_model: value }
+                              : { openai_model: value },
+                            tts.provider === "soniox"
+                              ? "soniox_model"
+                              : "openai_model",
+                          );
+                        },
+                      }
+                    : { isCreatable: false as const })}
                   onChange={(value) => {
                     if (!value) return;
-                    void updateTts(
-                      tts.provider === "soniox"
-                        ? { soniox_model: value }
-                        : { openai_model: value },
-                      tts.provider === "soniox"
-                        ? "soniox_model"
-                        : "openai_model",
-                    );
+                    if (tts.provider === "soniox") {
+                      void updateTts({ soniox_model: value }, "soniox_model");
+                    } else if (tts.provider === "openai") {
+                      void updateTts({ openai_model: value }, "openai_model");
+                    } else if (tts.provider === "murf") {
+                      void updateTts({ murf_model: value }, "murf_model");
+                    } else if (tts.provider === "elevenlabs") {
+                      void updateTts(
+                        { elevenlabs_model: value },
+                        "elevenlabs_model",
+                      );
+                    } else {
+                      void updateTts(
+                        { cartesia_model: value },
+                        "cartesia_model",
+                      );
+                    }
                   }}
                   disabled={savingField !== null}
                 />
               </SettingContainer>
             )}
-          <SettingContainer
-            grouped
-            title={t("textToSpeech.voice.speedTitle")}
-            description={t("textToSpeech.voice.speedDescription", {
-              minimum: speedMinimum,
-              maximum: speedMaximum,
-            })}
-          >
-            <Input
-              className="w-28"
-              type="number"
-              min={speedMinimum}
-              max={speedMaximum}
-              step={0.05}
-              value={tts.speed}
-              onChange={(event) =>
-                void updateTts(
-                  {
-                    speed: clampNumber(
-                      event.target.value,
-                      speedMinimum,
-                      speedMaximum,
-                      1,
-                    ),
-                  },
-                  "speed",
-                )
-              }
-            />
-          </SettingContainer>
+          {tts.provider !== "murf" && !elevenV3Selected && (
+              <SettingContainer
+                grouped
+                title={t("textToSpeech.voice.speedTitle")}
+                description={t("textToSpeech.voice.speedDescription", {
+                  minimum: speedMinimum,
+                  maximum: speedMaximum,
+                })}
+              >
+                <Input
+                  className="w-28"
+                  type="number"
+                  min={speedMinimum}
+                  max={speedMaximum}
+                  step={0.05}
+                  value={tts.speed}
+                  onChange={(event) =>
+                    void updateTts(
+                      {
+                        speed: clampNumber(
+                          event.target.value,
+                          speedMinimum,
+                          speedMaximum,
+                          1,
+                        ),
+                      },
+                      "speed",
+                    )
+                  }
+                />
+              </SettingContainer>
+            )}
+          {tts.provider === "murf" && (
+            <>
+              <SettingContainer
+                grouped
+                title={t("textToSpeech.voice.murfRateTitle")}
+                description={t("textToSpeech.voice.murfRateDescription")}
+              >
+                <Input
+                  className="w-28"
+                  type="number"
+                  min={-50}
+                  max={50}
+                  step={1}
+                  value={tts.murf_rate}
+                  onChange={(event) =>
+                    void updateTts(
+                      {
+                        murf_rate: Math.round(
+                          clampNumber(event.target.value, -50, 50, 0),
+                        ),
+                      },
+                      "murf_rate",
+                    )
+                  }
+                />
+              </SettingContainer>
+              <SettingContainer
+                grouped
+                title={t("textToSpeech.voice.murfPitchTitle")}
+                description={t("textToSpeech.voice.murfPitchDescription")}
+              >
+                <Input
+                  className="w-28"
+                  type="number"
+                  min={-50}
+                  max={50}
+                  step={1}
+                  value={tts.murf_pitch}
+                  onChange={(event) =>
+                    void updateTts(
+                      {
+                        murf_pitch: Math.round(
+                          clampNumber(event.target.value, -50, 50, 0),
+                        ),
+                      },
+                      "murf_pitch",
+                    )
+                  }
+                />
+              </SettingContainer>
+              {tts.murf_model === "gen2" && (
+                <SettingContainer
+                  grouped
+                  title={t("textToSpeech.voice.murfVariationTitle")}
+                  description={t(
+                    "textToSpeech.voice.murfVariationDescription",
+                  )}
+                >
+                  <Input
+                    className="w-28"
+                    type="number"
+                    min={0}
+                    max={5}
+                    step={1}
+                    value={tts.murf_variation}
+                    onChange={(event) =>
+                      void updateTts(
+                        {
+                          murf_variation: Math.round(
+                            clampNumber(event.target.value, 0, 5, 1),
+                          ),
+                        },
+                        "murf_variation",
+                      )
+                    }
+                  />
+                </SettingContainer>
+              )}
+              <SettingContainer
+                grouped
+                title={t("textToSpeech.voice.murfStyleTitle")}
+                description={t("textToSpeech.voice.murfStyleDescription")}
+              >
+                <Select
+                  className="w-full md:w-72"
+                  value={tts.murf_style ?? ""}
+                  options={murfStyleOptions}
+                  isClearable={false}
+                  onChange={(value) =>
+                    void updateTts(
+                      { murf_style: value ? value : null },
+                      "murf_style",
+                    )
+                  }
+                  disabled={savingField !== null}
+                />
+              </SettingContainer>
+            </>
+          )}
+          {tts.provider === "elevenlabs" && (
+            <>
+              {elevenV3Selected && (
+                <div className="bg-sky-400/10 px-6 py-3 text-sm text-sky-100">
+                  {t("textToSpeech.voice.elevenV3ControlsNote")}
+                </div>
+              )}
+              <SettingContainer
+                grouped
+                title={t("textToSpeech.voice.elevenStabilityTitle")}
+                description={t(
+                  "textToSpeech.voice.elevenStabilityDescription",
+                )}
+              >
+                <Input
+                  className="w-28"
+                  type="number"
+                  min={0}
+                  max={1}
+                  step={0.05}
+                  value={tts.elevenlabs_stability}
+                  onChange={(event) =>
+                    void updateTts(
+                      {
+                        elevenlabs_stability: clampNumber(
+                          event.target.value,
+                          0,
+                          1,
+                          0.5,
+                        ),
+                      },
+                      "elevenlabs_stability",
+                    )
+                  }
+                />
+              </SettingContainer>
+              {!elevenV3Selected && (
+                <SettingContainer
+                  grouped
+                  title={t("textToSpeech.voice.elevenSimilarityTitle")}
+                  description={t(
+                    "textToSpeech.voice.elevenSimilarityDescription",
+                  )}
+                >
+                  <Input
+                    className="w-28"
+                    type="number"
+                    min={0}
+                    max={1}
+                    step={0.05}
+                    value={tts.elevenlabs_similarity_boost}
+                    onChange={(event) =>
+                      void updateTts(
+                        {
+                          elevenlabs_similarity_boost: clampNumber(
+                            event.target.value,
+                            0,
+                            1,
+                            0.75,
+                          ),
+                        },
+                        "elevenlabs_similarity_boost",
+                      )
+                    }
+                  />
+                </SettingContainer>
+              )}
+              <SettingContainer
+                grouped
+                title={t("textToSpeech.voice.elevenStyleTitle")}
+                description={t("textToSpeech.voice.elevenStyleDescription")}
+              >
+                <Input
+                  className="w-28"
+                  type="number"
+                  min={0}
+                  max={1}
+                  step={0.05}
+                  value={tts.elevenlabs_style}
+                  onChange={(event) =>
+                    void updateTts(
+                      {
+                        elevenlabs_style: clampNumber(
+                          event.target.value,
+                          0,
+                          1,
+                          0,
+                        ),
+                      },
+                      "elevenlabs_style",
+                    )
+                  }
+                />
+              </SettingContainer>
+              {!elevenV3Selected && (
+                <ToggleSwitch
+                  grouped
+                  checked={tts.elevenlabs_use_speaker_boost}
+                  onChange={(elevenlabs_use_speaker_boost) =>
+                    void updateTts(
+                      { elevenlabs_use_speaker_boost },
+                      "elevenlabs_use_speaker_boost",
+                    )
+                  }
+                  isUpdating={
+                    savingField === "elevenlabs_use_speaker_boost"
+                  }
+                  label={t("textToSpeech.voice.elevenSpeakerBoostTitle")}
+                  description={t(
+                    "textToSpeech.voice.elevenSpeakerBoostDescription",
+                  )}
+                  descriptionMode="inline"
+                />
+              )}
+              <SettingContainer
+                grouped
+                title={t("textToSpeech.voice.elevenNormalizationTitle")}
+                description={t(
+                  "textToSpeech.voice.elevenNormalizationDescription",
+                )}
+              >
+                <Select
+                  className="w-full md:w-72"
+                  value={tts.elevenlabs_apply_text_normalization}
+                  options={[
+                    {
+                      value: "auto",
+                      label: t("textToSpeech.voice.normalizationAuto"),
+                    },
+                    {
+                      value: "on",
+                      label: t("textToSpeech.voice.normalizationOn"),
+                    },
+                    {
+                      value: "off",
+                      label: t("textToSpeech.voice.normalizationOff"),
+                    },
+                  ]}
+                  isClearable={false}
+                  onChange={(value) => {
+                    if (value) {
+                      void updateTts(
+                        {
+                          elevenlabs_apply_text_normalization:
+                            value as ElevenLabsTextNormalization,
+                        },
+                        "elevenlabs_apply_text_normalization",
+                      );
+                    }
+                  }}
+                  disabled={savingField !== null}
+                />
+              </SettingContainer>
+            </>
+          )}
+          {tts.provider === "cartesia" && (
+            <>
+              <div className="bg-sky-400/10 px-6 py-3 text-sm text-sky-100">
+                {t("textToSpeech.voice.cartesiaSonic35ControlsNote")}
+              </div>
+              <SettingContainer
+                grouped
+                title={t("textToSpeech.voice.cartesiaVolumeTitle")}
+                description={t(
+                  "textToSpeech.voice.cartesiaVolumeDescription",
+                )}
+              >
+                <Input
+                  className="w-28"
+                  type="number"
+                  min={0.5}
+                  max={2}
+                  step={0.05}
+                  value={tts.cartesia_volume}
+                  onChange={(event) =>
+                    void updateTts(
+                      {
+                        cartesia_volume: clampNumber(
+                          event.target.value,
+                          0.5,
+                          2,
+                          1,
+                        ),
+                      },
+                      "cartesia_volume",
+                    )
+                  }
+                />
+              </SettingContainer>
+              <SettingContainer
+                grouped
+                title={t("textToSpeech.voice.cartesiaEmotionTitle")}
+                description={t(
+                  "textToSpeech.voice.cartesiaEmotionDescription",
+                )}
+              >
+                <Select
+                  className="w-full md:w-72"
+                  value={tts.cartesia_emotion ?? ""}
+                  options={[
+                    {
+                      value: "",
+                      label: t("textToSpeech.voice.emotionAutomatic"),
+                    },
+                    ...[
+                      "neutral",
+                      "calm",
+                      "angry",
+                      "content",
+                      "sad",
+                      "scared",
+                    ].map((emotion) => ({
+                      value: emotion,
+                      label: t(`textToSpeech.voice.emotion.${emotion}`),
+                    })),
+                  ]}
+                  isClearable={false}
+                  onChange={(value) =>
+                    void updateTts(
+                      { cartesia_emotion: value ? value : null },
+                      "cartesia_emotion",
+                    )
+                  }
+                  disabled={savingField !== null}
+                />
+              </SettingContainer>
+            </>
+          )}
           <SettingContainer
             grouped
             layout="stacked"
@@ -4607,14 +5411,19 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
       <SettingsGroup
         title={t("textToSpeech.chunking.title")}
         description={t("textToSpeech.chunking.description", {
-          limit: PROVIDER_INPUT_LIMITS[tts.provider],
+          limit: providerInputLimit(tts.provider, modelValue),
         })}
         help={
           <TtsHelpDisclosure
-            summary={t("textToSpeech.help.chunkingSummary", {
-              provider: providerLabel,
-              limit: PROVIDER_INPUT_LIMITS[tts.provider],
-            })}
+            summary={t(
+              tts.provider === "cartesia"
+                ? "textToSpeech.help.chunkingSafetyCapSummary"
+                : "textToSpeech.help.chunkingSummary",
+              {
+                provider: providerLabel,
+                limit: providerInputLimit(tts.provider, modelValue),
+              },
+            )}
             items={[
               {
                 term: t("textToSpeech.help.targetSize"),
@@ -4739,9 +5548,12 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
           description={t("textToSpeech.api.description")}
           help={
             <TtsHelpDisclosure
-              summary={t("textToSpeech.help.apiSummary", {
-                provider: providerLabel,
-              })}
+              summary={t(
+                providerCapabilities.supportsSharedKey
+                  ? "textToSpeech.help.apiSummary"
+                  : "textToSpeech.help.apiSeparateOnlySummary",
+                { provider: providerLabel },
+              )}
               items={[
                 {
                   term: t("textToSpeech.help.keySource"),
@@ -4786,19 +5598,32 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
             grouped
             layout="stacked"
             title={t("textToSpeech.api.sourceTitle")}
-            description={t("textToSpeech.api.sourceDescription")}
+            description={
+              providerCapabilities.supportsSharedKey
+                ? t("textToSpeech.api.sourceDescription")
+                : t("textToSpeech.api.separateOnlyDescription")
+            }
             descriptionMode="inline"
           >
             <Select
               className="max-w-md"
               value={keySource}
-              options={[
-                { value: "shared", label: keySourceLabel },
-                {
-                  value: "separate",
-                  label: t("textToSpeech.api.separateKey"),
-                },
-              ]}
+              options={
+                providerCapabilities.supportsSharedKey
+                  ? [
+                      { value: "shared", label: keySourceLabel },
+                      {
+                        value: "separate",
+                        label: t("textToSpeech.api.separateKey"),
+                      },
+                    ]
+                  : [
+                      {
+                        value: "separate",
+                        label: t("textToSpeech.api.separateKey"),
+                      },
+                    ]
+              }
               onChange={(value) => {
                 if (keySourceField && value) {
                   void updateTts(
@@ -4808,7 +5633,9 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
                 }
               }}
               isClearable={false}
-              disabled={savingField !== null}
+              disabled={
+                savingField !== null || !providerCapabilities.supportsSharedKey
+              }
             />
           </SettingContainer>
           {keySource === "separate" && (
@@ -4853,6 +5680,19 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
                   }
                 />
               )}
+              {hasSeparateKey &&
+                !editingKey &&
+                !providerCapabilities.supportsSharedKey && (
+                  <Button
+                    variant="secondary"
+                    disabled={voiceCatalogBusy}
+                    onClick={() => void testProviderKey()}
+                  >
+                    {voiceCatalogBusy
+                      ? t("textToSpeech.api.testingKey")
+                      : t("textToSpeech.api.testKey")}
+                  </Button>
+                )}
             </SettingContainer>
           )}
         </SettingsGroup>

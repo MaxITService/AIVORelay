@@ -1,3 +1,5 @@
+#![recursion_limit = "256"]
+
 mod actions;
 mod active_app;
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
