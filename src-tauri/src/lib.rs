@@ -540,42 +540,50 @@ fn initialize_core_logic(app_handle: &AppHandle) {
         })
         .on_menu_event(|app, event| {
             if let Some(selection) = tray::parse_microphone_menu_selection(event.id.as_ref()) {
-                let result = match selection {
-                    None => {
-                        commands::audio::set_selected_microphone(app.clone(), "default".to_string())
-                    }
-                    Some(device_index) => match commands::audio::get_available_microphones() {
-                        Ok(devices) => {
-                            if let Some(device) = devices
-                                .into_iter()
-                                .find(|device| !device.is_default && device.index == device_index)
-                            {
-                                commands::audio::set_selected_microphone(app.clone(), device.name)
-                            } else {
-                                log::warn!(
-                                    "Tray microphone selection '{}' is no longer available.",
-                                    device_index
-                                );
-                                tray::refresh_tray_menu(app, None);
-                                Ok(())
+                let app_clone = app.clone();
+                std::thread::spawn(move || {
+                    let result = match selection {
+                        None => commands::audio::set_selected_microphone_blocking(
+                            app_clone.clone(),
+                            "default".to_string(),
+                        ),
+                        Some(device_index) => {
+                            match commands::audio::get_available_microphones_blocking() {
+                                Ok(devices) => {
+                                    if let Some(device) = devices.into_iter().find(|device| {
+                                        !device.is_default && device.index == device_index
+                                    }) {
+                                        commands::audio::set_selected_microphone_blocking(
+                                            app_clone.clone(),
+                                            device.name,
+                                        )
+                                    } else {
+                                        log::warn!(
+                                            "Tray microphone selection '{}' is no longer available.",
+                                            device_index
+                                        );
+                                        tray::refresh_tray_menu(&app_clone, None);
+                                        Ok(())
+                                    }
+                                }
+                                Err(err) => {
+                                    log::error!(
+                                        "Failed to resolve tray microphone selection '{}': {}",
+                                        device_index,
+                                        err
+                                    );
+                                    tray::refresh_tray_menu(&app_clone, None);
+                                    Ok(())
+                                }
                             }
                         }
-                        Err(err) => {
-                            log::error!(
-                                "Failed to resolve tray microphone selection '{}': {}",
-                                device_index,
-                                err
-                            );
-                            tray::refresh_tray_menu(app, None);
-                            Ok(())
-                        }
-                    },
-                };
+                    };
 
-                if let Err(err) = result {
-                    log::error!("Failed to apply tray microphone selection: {}", err);
-                    tray::refresh_tray_menu(app, None);
-                }
+                    if let Err(err) = result {
+                        log::error!("Failed to apply tray microphone selection: {}", err);
+                        tray::refresh_tray_menu(&app_clone, None);
+                    }
+                });
                 return;
             }
 
