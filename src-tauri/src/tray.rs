@@ -446,7 +446,7 @@ fn append_microphone_items(
     )?;
     menu.append(&header_item)?;
 
-    let available_microphones = match audio::get_available_microphones() {
+    let available_microphones = match audio::get_available_microphones_blocking() {
         Ok(devices) => devices,
         Err(err) => {
             warn!("Failed to list microphones for tray menu: {}", err);

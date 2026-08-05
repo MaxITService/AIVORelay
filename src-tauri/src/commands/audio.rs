@@ -162,27 +162,39 @@ pub fn open_microphone_privacy_settings() -> Result<(), String> {
 
 #[tauri::command]
 #[specta::specta]
-pub fn update_microphone_mode(app: AppHandle, always_on: bool) -> Result<(), String> {
-    // Update settings
+pub async fn update_microphone_mode(app: AppHandle, always_on: bool) -> Result<(), String> {
+    // Update settings (fast, stays inline)
     let mut settings = get_settings(&app);
     settings.always_on_microphone = always_on;
     write_settings(&app, settings);
 
-    // Update the audio manager mode
-    let rm = app.state::<Arc<AudioRecordingManager>>();
+    // Update the audio manager mode. update_mode can stop/start the cpal stream
+    // (blocking CoreAudio) and takes the manager std mutexes — run it on a
+    // blocking thread, NOT inline on the webview/main run loop (a slow device
+    // open/close would freeze the UI).
+    let rm = app.state::<Arc<AudioRecordingManager>>().inner().clone();
     let new_mode = if always_on {
         MicrophoneMode::AlwaysOn
     } else {
         MicrophoneMode::OnDemand
     };
 
-    rm.update_mode(new_mode)
+    tokio::task::spawn_blocking(move || rm.update_mode(new_mode))
+        .await
+        .map_err(|e| format!("audio task join failed: {}", e))?
         .map_err(|e| format!("Failed to update microphone mode: {}", e))
 }
 
 #[tauri::command]
 #[specta::specta]
-pub fn get_available_microphones() -> Result<Vec<AudioDevice>, String> {
+pub async fn get_available_microphones() -> Result<Vec<AudioDevice>, String> {
+    // cpal device enumeration can stall — run it off the webview/main run loop.
+    tokio::task::spawn_blocking(get_available_microphones_blocking)
+        .await
+        .map_err(|e| format!("audio task join failed: {}", e))?
+}
+
+pub(crate) fn get_available_microphones_blocking() -> Result<Vec<AudioDevice>, String> {
     let devices =
         list_input_devices().map_err(|e| format!("Failed to list audio devices: {}", e))?;
 
@@ -203,7 +215,16 @@ pub fn get_available_microphones() -> Result<Vec<AudioDevice>, String> {
 
 #[tauri::command]
 #[specta::specta]
-pub fn set_selected_microphone(app: AppHandle, device_name: String) -> Result<(), String> {
+pub async fn set_selected_microphone(app: AppHandle, device_name: String) -> Result<(), String> {
+    tokio::task::spawn_blocking(move || set_selected_microphone_blocking(app, device_name))
+        .await
+        .map_err(|e| format!("audio task join failed: {}", e))?
+}
+
+pub(crate) fn set_selected_microphone_blocking(
+    app: AppHandle,
+    device_name: String,
+) -> Result<(), String> {
     let mut settings = get_settings(&app);
     let selected_microphone = if device_name == "default" {
         None
@@ -266,23 +287,28 @@ pub fn change_selected_microphone_name_pattern_setting(
 
 #[tauri::command]
 #[specta::specta]
-pub fn get_available_output_devices() -> Result<Vec<AudioDevice>, String> {
-    let devices =
-        list_output_devices().map_err(|e| format!("Failed to list output devices: {}", e))?;
+pub async fn get_available_output_devices() -> Result<Vec<AudioDevice>, String> {
+    // cpal device enumeration can stall — run it off the webview/main run loop.
+    tokio::task::spawn_blocking(|| {
+        let devices =
+            list_output_devices().map_err(|e| format!("Failed to list output devices: {}", e))?;
 
-    let mut result = vec![AudioDevice {
-        index: "default".to_string(),
-        name: "Default".to_string(),
-        is_default: true,
-    }];
+        let mut result = vec![AudioDevice {
+            index: "default".to_string(),
+            name: "Default".to_string(),
+            is_default: true,
+        }];
 
-    result.extend(devices.into_iter().map(|d| AudioDevice {
-        index: d.index,
-        name: d.name,
-        is_default: false, // The explicit default is handled separately
-    }));
+        result.extend(devices.into_iter().map(|d| AudioDevice {
+            index: d.index,
+            name: d.name,
+            is_default: false, // The explicit default is handled separately
+        }));
 
-    Ok(result)
+        Ok::<_, String>(result)
+    })
+    .await
+    .map_err(|e| format!("audio task join failed: {}", e))?
 }
 
 #[tauri::command]
