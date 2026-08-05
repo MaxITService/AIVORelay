@@ -95,6 +95,45 @@ pub struct CliArgs {
     #[arg(long, value_name = "MULTIPLIER", requires = "convert_file")]
     pub tts_speed: Option<f32>,
 
+    /// Override Murf's integer rate control for this conversion only.
+    #[arg(long, value_name = "INTEGER", requires = "convert_file")]
+    pub tts_murf_rate: Option<i8>,
+
+    /// Override Murf's integer pitch control for this conversion only.
+    #[arg(long, value_name = "INTEGER", requires = "convert_file")]
+    pub tts_murf_pitch: Option<i8>,
+
+    /// Override Murf Gen2 variation for this conversion only.
+    #[arg(long, value_name = "INTEGER", requires = "convert_file")]
+    pub tts_murf_variation: Option<u8>,
+
+    /// Override Murf style, or use `none` to clear it.
+    #[arg(long, value_name = "STYLE|none", requires = "convert_file")]
+    pub tts_murf_style: Option<String>,
+
+    #[arg(long, value_name = "NUMBER", requires = "convert_file")]
+    pub tts_elevenlabs_stability: Option<f32>,
+
+    #[arg(long, value_name = "NUMBER", requires = "convert_file")]
+    pub tts_elevenlabs_similarity_boost: Option<f32>,
+
+    #[arg(long, value_name = "NUMBER", requires = "convert_file")]
+    pub tts_elevenlabs_style: Option<f32>,
+
+    #[arg(long, value_name = "true|false", requires = "convert_file")]
+    pub tts_elevenlabs_speaker_boost: Option<bool>,
+
+    #[arg(long, value_enum, requires = "convert_file")]
+    pub tts_elevenlabs_text_normalization: Option<CliElevenLabsTextNormalization>,
+
+    /// Override Cartesia emotion, or use `none` to clear it.
+    #[arg(long, value_name = "EMOTION|none", requires = "convert_file")]
+    pub tts_cartesia_emotion: Option<String>,
+
+    /// Override Cartesia generation volume for this conversion only.
+    #[arg(long, value_name = "MULTIPLIER", requires = "convert_file")]
+    pub tts_cartesia_volume: Option<f32>,
+
     /// Select which already-stored credential to use for this conversion.
     /// Cloud providers only; no secret is accepted on the command line.
     #[arg(long, value_enum, requires = "convert_file")]
@@ -255,6 +294,17 @@ impl CliArgs {
             || self.tts_model.is_some()
             || self.tts_language.is_some()
             || self.tts_speed.is_some()
+            || self.tts_murf_rate.is_some()
+            || self.tts_murf_pitch.is_some()
+            || self.tts_murf_variation.is_some()
+            || self.tts_murf_style.is_some()
+            || self.tts_elevenlabs_stability.is_some()
+            || self.tts_elevenlabs_similarity_boost.is_some()
+            || self.tts_elevenlabs_style.is_some()
+            || self.tts_elevenlabs_speaker_boost.is_some()
+            || self.tts_elevenlabs_text_normalization.is_some()
+            || self.tts_cartesia_emotion.is_some()
+            || self.tts_cartesia_volume.is_some()
             || self.tts_key_source.is_some()
             || self.tts_format.is_some()
             || self.tts_bitrate.is_some()
@@ -532,10 +582,22 @@ pub enum CliTtsProvider {
     Soniox,
     Deepgram,
     Openai,
+    #[value(name = "murf", alias = "murf-ai")]
+    Murf,
+    #[value(name = "elevenlabs", alias = "eleven-labs")]
+    Elevenlabs,
+    Cartesia,
     Edge,
     LocalQwen,
     LocalKokoro,
     Windows,
+}
+
+#[derive(ValueEnum, Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CliElevenLabsTextNormalization {
+    Auto,
+    On,
+    Off,
 }
 
 #[derive(ValueEnum, Debug, Clone, Copy, PartialEq, Eq)]

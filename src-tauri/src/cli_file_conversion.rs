@@ -4,7 +4,10 @@
 //! text/Markdown -> TTS audio, and common audio -> text/Markdown. Provider
 //! credentials and conversion behavior continue to come from saved settings.
 
-use crate::cli::{CliArgs, CliTtsKeySource, CliTtsOutputFormat, CliTtsProvider};
+use crate::cli::{
+    CliArgs, CliElevenLabsTextNormalization, CliTtsKeySource, CliTtsOutputFormat,
+    CliTtsProvider,
+};
 use crate::commands::file_transcription;
 use crate::managers::deepgram_stt::DeepgramSttManager;
 use crate::managers::model::ModelManager;
@@ -18,8 +21,9 @@ use crate::managers::tts_history::{
     metadata_from_settings, TtsHistoryManager, TtsHistoryScope, TtsHistorySourceKind,
 };
 use crate::settings::{
-    get_settings, LLMPrompt, TextReplacement, TranscriptionProvider, TtsKeySource, TtsOutputFormat,
-    TtsProvider, TtsSettings,
+    get_settings, ElevenLabsTextNormalization, LLMPrompt, TextReplacement,
+    TranscriptionProvider, TtsKeySource, TtsOutputFormat, TtsProvider, TtsSettings,
+    DEFAULT_TTS_MURF_GEN2_VOICE, DEFAULT_TTS_MURF_VOICE,
 };
 use crate::subtitle::OutputFormat;
 use serde_json::{json, Value};
@@ -608,7 +612,8 @@ async fn convert_text_to_audio(
         "voice": effective_tts_voice(&settings),
         "language": effective_tts_language(&settings),
         "key_source": effective_tts_key_source(&settings),
-        "speed": settings.speed,
+        "speed": effective_tts_speed(&settings),
+        "provider_controls": effective_provider_controls(&settings),
         "output_format": result.output_format,
         "mp3_bitrate_kbps": result.mp3_bitrate_kbps,
         "file_chunk_target_chars": settings.file_target_chars,
@@ -652,6 +657,9 @@ fn apply_tts_provider_override(
             CliTtsProvider::Soniox => TtsProvider::Soniox,
             CliTtsProvider::Deepgram => TtsProvider::Deepgram,
             CliTtsProvider::Openai => TtsProvider::OpenAi,
+            CliTtsProvider::Murf => TtsProvider::Murf,
+            CliTtsProvider::Elevenlabs => TtsProvider::ElevenLabs,
+            CliTtsProvider::Cartesia => TtsProvider::Cartesia,
             CliTtsProvider::Edge => TtsProvider::Edge,
             CliTtsProvider::LocalQwen => TtsProvider::LocalQwen,
             CliTtsProvider::LocalKokoro => TtsProvider::LocalKokoro,
@@ -668,6 +676,38 @@ fn apply_tts_provider_override(
             TtsProvider::Soniox => settings.soniox_model = model.to_string(),
             TtsProvider::Deepgram => settings.deepgram_model = model.to_string(),
             TtsProvider::OpenAi => settings.openai_model = model.to_string(),
+            TtsProvider::Murf => {
+                if !matches!(model, "falcon-2" | "gen2") {
+                    return Err(CliFailure::usage(
+                        "--tts-model for murf must be falcon-2 or gen2",
+                    ));
+                }
+                if settings.murf_model != model && args.tts_voice.is_none() {
+                    settings.murf_voice = if model == "gen2" {
+                        DEFAULT_TTS_MURF_GEN2_VOICE
+                    } else {
+                        DEFAULT_TTS_MURF_VOICE
+                    }
+                    .to_string();
+                }
+                settings.murf_model = model.to_string();
+            }
+            TtsProvider::ElevenLabs => {
+                if !matches!(model, "eleven_v3" | "eleven_multilingual_v2") {
+                    return Err(CliFailure::usage(
+                        "--tts-model for elevenlabs must be eleven_v3 or eleven_multilingual_v2",
+                    ));
+                }
+                settings.elevenlabs_model = model.to_string();
+            }
+            TtsProvider::Cartesia => {
+                if model != "sonic-3.5" {
+                    return Err(CliFailure::usage(
+                        "--tts-model for cartesia must be sonic-3.5",
+                    ));
+                }
+                settings.cartesia_model = model.to_string();
+            }
             TtsProvider::Edge => {
                 return Err(CliFailure::usage(
                     "--tts-model is not supported by edge because the experimental adapter uses one fixed service; use --tts-voice instead",
@@ -700,6 +740,9 @@ fn apply_tts_provider_override(
                 ));
             }
             TtsProvider::OpenAi => settings.openai_voice = voice.to_string(),
+            TtsProvider::Murf => settings.murf_voice = voice.to_string(),
+            TtsProvider::ElevenLabs => settings.elevenlabs_voice = voice.to_string(),
+            TtsProvider::Cartesia => settings.cartesia_voice = voice.to_string(),
             TtsProvider::Edge => {
                 settings.edge_voice = voice.to_string();
                 settings.edge_voice_language = crate::managers::edge_tts::voice_language(voice);
@@ -723,6 +766,18 @@ fn apply_tts_provider_override(
             TtsProvider::Soniox => settings.soniox_language = language.to_string(),
             TtsProvider::LocalQwen => settings.local_qwen_language = language.to_string(),
             TtsProvider::LocalKokoro => settings.local_kokoro_language = language.to_string(),
+            TtsProvider::Murf => settings.murf_language = language.to_string(),
+            TtsProvider::ElevenLabs => {
+                if settings.elevenlabs_model == "eleven_multilingual_v2" {
+                    return Err(CliFailure::usage(
+                        "--tts-language is not supported by ElevenLabs Multilingual v2; the model infers language from the text",
+                    ));
+                }
+                settings.elevenlabs_language = iso_639_1_cli_value("--tts-language", language)?;
+            }
+            TtsProvider::Cartesia => {
+                settings.cartesia_language = iso_639_1_cli_value("--tts-language", language)?;
+            }
             TtsProvider::Deepgram => {
                 return Err(CliFailure::usage(
                     "Deepgram TTS language is part of its model/voice ID; use --tts-model instead of --tts-language",
@@ -754,6 +809,30 @@ fn apply_tts_provider_override(
             TtsProvider::Soniox => settings.soniox_key_source = source,
             TtsProvider::Deepgram => settings.deepgram_key_source = source,
             TtsProvider::OpenAi => settings.openai_key_source = source,
+            TtsProvider::Murf => {
+                if source != TtsKeySource::Separate {
+                    return Err(CliFailure::usage(
+                        "--tts-key-source for murf must be separate",
+                    ));
+                }
+                settings.murf_key_source = source;
+            }
+            TtsProvider::ElevenLabs => {
+                if source != TtsKeySource::Separate {
+                    return Err(CliFailure::usage(
+                        "--tts-key-source for elevenlabs must be separate",
+                    ));
+                }
+                settings.elevenlabs_key_source = source;
+            }
+            TtsProvider::Cartesia => {
+                if source != TtsKeySource::Separate {
+                    return Err(CliFailure::usage(
+                        "--tts-key-source for cartesia must be separate",
+                    ));
+                }
+                settings.cartesia_key_source = source;
+            }
             TtsProvider::Edge
             | TtsProvider::LocalQwen
             | TtsProvider::LocalKokoro
@@ -765,6 +844,12 @@ fn apply_tts_provider_override(
             }
         }
     }
+    match settings.provider {
+        TtsProvider::Murf => settings.murf_key_source = TtsKeySource::Separate,
+        TtsProvider::ElevenLabs => settings.elevenlabs_key_source = TtsKeySource::Separate,
+        TtsProvider::Cartesia => settings.cartesia_key_source = TtsKeySource::Separate,
+        _ => {}
+    }
     Ok(())
 }
 
@@ -773,6 +858,18 @@ fn apply_tts_conversion_overrides(
     settings: &mut TtsSettings,
 ) -> Result<(), CliFailure> {
     if let Some(speed) = args.tts_speed {
+        if settings.provider == TtsProvider::Murf {
+            return Err(CliFailure::usage(
+                "--tts-speed is not supported by murf; use --tts-murf-rate instead",
+            ));
+        }
+        if settings.provider == TtsProvider::ElevenLabs
+            && settings.elevenlabs_model == "eleven_v3"
+        {
+            return Err(CliFailure::usage(
+                "--tts-speed is not supported by Eleven v3; use v3 audio tags and punctuation to guide pacing",
+            ));
+        }
         if !speed.is_finite() {
             return Err(CliFailure::usage("--tts-speed must be a finite number"));
         }
@@ -780,6 +877,9 @@ fn apply_tts_conversion_overrides(
             TtsProvider::Soniox => (0.7, 1.3),
             TtsProvider::Deepgram => (0.7, 1.5),
             TtsProvider::OpenAi => (0.25, 4.0),
+            TtsProvider::Murf => unreachable!("handled above"),
+            TtsProvider::ElevenLabs => (0.7, 1.2),
+            TtsProvider::Cartesia => (0.6, 1.5),
             TtsProvider::Edge
             | TtsProvider::LocalQwen
             | TtsProvider::LocalKokoro
@@ -792,6 +892,124 @@ fn apply_tts_conversion_overrides(
             )));
         }
         settings.speed = speed;
+    }
+    if let Some(rate) = args.tts_murf_rate {
+        require_tts_provider(settings, TtsProvider::Murf, "--tts-murf-rate")?;
+        if !(-50..=50).contains(&rate) {
+            return Err(CliFailure::usage(
+                "--tts-murf-rate must be between -50 and 50",
+            ));
+        }
+        settings.murf_rate = rate;
+    }
+    if let Some(pitch) = args.tts_murf_pitch {
+        require_tts_provider(settings, TtsProvider::Murf, "--tts-murf-pitch")?;
+        if !(-50..=50).contains(&pitch) {
+            return Err(CliFailure::usage(
+                "--tts-murf-pitch must be between -50 and 50",
+            ));
+        }
+        settings.murf_pitch = pitch;
+    }
+    if let Some(variation) = args.tts_murf_variation {
+        require_tts_provider(settings, TtsProvider::Murf, "--tts-murf-variation")?;
+        if settings.murf_model != "gen2" {
+            return Err(CliFailure::usage(
+                "--tts-murf-variation is supported only with --tts-model gen2",
+            ));
+        }
+        if variation > 5 {
+            return Err(CliFailure::usage(
+                "--tts-murf-variation must be between 0 and 5",
+            ));
+        }
+        settings.murf_variation = variation;
+    }
+    if let Some(style) = args.tts_murf_style.as_deref() {
+        require_tts_provider(settings, TtsProvider::Murf, "--tts-murf-style")?;
+        settings.murf_style = optional_cli_control(style);
+    }
+    if let Some(value) = args.tts_elevenlabs_stability {
+        require_tts_provider(
+            settings,
+            TtsProvider::ElevenLabs,
+            "--tts-elevenlabs-stability",
+        )?;
+        settings.elevenlabs_stability = validate_cli_float_range(
+            "--tts-elevenlabs-stability",
+            value,
+            0.0,
+            1.0,
+        )?;
+    }
+    if let Some(value) = args.tts_elevenlabs_similarity_boost {
+        require_tts_provider(
+            settings,
+            TtsProvider::ElevenLabs,
+            "--tts-elevenlabs-similarity-boost",
+        )?;
+        if settings.elevenlabs_model == "eleven_v3" {
+            return Err(CliFailure::usage(
+                "--tts-elevenlabs-similarity-boost is unavailable for Eleven v3",
+            ));
+        }
+        settings.elevenlabs_similarity_boost = validate_cli_float_range(
+            "--tts-elevenlabs-similarity-boost",
+            value,
+            0.0,
+            1.0,
+        )?;
+    }
+    if let Some(value) = args.tts_elevenlabs_style {
+        require_tts_provider(
+            settings,
+            TtsProvider::ElevenLabs,
+            "--tts-elevenlabs-style",
+        )?;
+        settings.elevenlabs_style =
+            validate_cli_float_range("--tts-elevenlabs-style", value, 0.0, 1.0)?;
+    }
+    if let Some(value) = args.tts_elevenlabs_speaker_boost {
+        require_tts_provider(
+            settings,
+            TtsProvider::ElevenLabs,
+            "--tts-elevenlabs-speaker-boost",
+        )?;
+        if settings.elevenlabs_model == "eleven_v3" {
+            return Err(CliFailure::usage(
+                "--tts-elevenlabs-speaker-boost is unavailable for Eleven v3",
+            ));
+        }
+        settings.elevenlabs_use_speaker_boost = value;
+    }
+    if let Some(value) = args.tts_elevenlabs_text_normalization {
+        require_tts_provider(
+            settings,
+            TtsProvider::ElevenLabs,
+            "--tts-elevenlabs-text-normalization",
+        )?;
+        settings.elevenlabs_apply_text_normalization = match value {
+            CliElevenLabsTextNormalization::Auto => ElevenLabsTextNormalization::Auto,
+            CliElevenLabsTextNormalization::On => ElevenLabsTextNormalization::On,
+            CliElevenLabsTextNormalization::Off => ElevenLabsTextNormalization::Off,
+        };
+    }
+    if let Some(emotion) = args.tts_cartesia_emotion.as_deref() {
+        require_tts_provider(
+            settings,
+            TtsProvider::Cartesia,
+            "--tts-cartesia-emotion",
+        )?;
+        settings.cartesia_emotion = optional_cli_control(emotion);
+    }
+    if let Some(volume) = args.tts_cartesia_volume {
+        require_tts_provider(
+            settings,
+            TtsProvider::Cartesia,
+            "--tts-cartesia-volume",
+        )?;
+        settings.cartesia_volume =
+            validate_cli_float_range("--tts-cartesia-volume", volume, 0.5, 2.0)?;
     }
     if let Some(format) = args.tts_format {
         settings.output_format = match format {
@@ -813,10 +1031,15 @@ fn apply_tts_conversion_overrides(
         settings.mp3_bitrate_kbps = bitrate;
     }
     if let Some(chars) = args.tts_chunk_chars {
-        let hard_limit = TtsManager::provider_character_limit(settings.provider) as u32;
+        let hard_limit = TtsManager::settings_character_limit(settings) as u32;
         if !(50..=hard_limit).contains(&chars) {
+            let qualification = if settings.provider == TtsProvider::Cartesia {
+                " (AivoRelay's conservative per-request cap, not a published Cartesia limit)"
+            } else {
+                ""
+            };
             return Err(CliFailure::usage(format!(
-                "--tts-chunk-chars for {} must be between 50 and {hard_limit}",
+                "--tts-chunk-chars for {} must be between 50 and {hard_limit}{qualification}",
                 settings.provider.as_str()
             )));
         }
@@ -885,6 +1108,52 @@ fn nonempty_cli_value<'a>(flag: &str, value: &'a str) -> Result<&'a str, CliFail
     } else {
         Ok(value)
     }
+}
+
+fn iso_639_1_cli_value(flag: &str, value: &str) -> Result<String, CliFailure> {
+    if value.len() == 2 && value.bytes().all(|byte| byte.is_ascii_alphabetic()) {
+        Ok(value.to_ascii_lowercase())
+    } else {
+        Err(CliFailure::usage(format!(
+            "{flag} must be a two-letter ISO 639-1 code for this provider"
+        )))
+    }
+}
+
+fn require_tts_provider(
+    settings: &TtsSettings,
+    expected: TtsProvider,
+    flag: &str,
+) -> Result<(), CliFailure> {
+    if settings.provider == expected {
+        Ok(())
+    } else {
+        Err(CliFailure::usage(format!(
+            "{flag} requires --tts-provider {} (effective provider is {})",
+            expected.as_str(),
+            settings.provider.as_str()
+        )))
+    }
+}
+
+fn validate_cli_float_range(
+    flag: &str,
+    value: f32,
+    minimum: f32,
+    maximum: f32,
+) -> Result<f32, CliFailure> {
+    if !value.is_finite() || value < minimum || value > maximum {
+        Err(CliFailure::usage(format!(
+            "{flag} must be a finite number between {minimum} and {maximum}"
+        )))
+    } else {
+        Ok(value)
+    }
+}
+
+fn optional_cli_control(value: &str) -> Option<String> {
+    let value = value.trim();
+    (!value.is_empty() && !value.eq_ignore_ascii_case("none")).then(|| value.to_string())
 }
 
 fn apply_tts_llm_overrides(
@@ -1146,6 +1415,9 @@ fn effective_tts_model(settings: &TtsSettings) -> &str {
         TtsProvider::Soniox => &settings.soniox_model,
         TtsProvider::Deepgram => &settings.deepgram_model,
         TtsProvider::OpenAi => &settings.openai_model,
+        TtsProvider::Murf => &settings.murf_model,
+        TtsProvider::ElevenLabs => &settings.elevenlabs_model,
+        TtsProvider::Cartesia => &settings.cartesia_model,
         TtsProvider::Edge => crate::managers::edge_tts::EDGE_TTS_MODEL,
         TtsProvider::LocalQwen => "Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice",
         TtsProvider::LocalKokoro => crate::managers::local_kokoro::KOKORO_MODEL_REPOSITORY,
@@ -1158,6 +1430,9 @@ fn effective_tts_voice(settings: &TtsSettings) -> &str {
         TtsProvider::Soniox => &settings.soniox_voice,
         TtsProvider::Deepgram => &settings.deepgram_model,
         TtsProvider::OpenAi => &settings.openai_voice,
+        TtsProvider::Murf => &settings.murf_voice,
+        TtsProvider::ElevenLabs => &settings.elevenlabs_voice,
+        TtsProvider::Cartesia => &settings.cartesia_voice,
         TtsProvider::Edge => &settings.edge_voice,
         TtsProvider::LocalQwen => &settings.local_qwen_voice,
         TtsProvider::LocalKokoro => &settings.local_kokoro_voice,
@@ -1172,6 +1447,9 @@ fn effective_tts_language(settings: &TtsSettings) -> &str {
         TtsProvider::LocalKokoro => &settings.local_kokoro_language,
         TtsProvider::Windows => &settings.windows_voice_language,
         TtsProvider::Edge => &settings.edge_voice_language,
+        TtsProvider::Murf => &settings.murf_language,
+        TtsProvider::ElevenLabs => &settings.elevenlabs_language,
+        TtsProvider::Cartesia => &settings.cartesia_language,
         TtsProvider::Deepgram | TtsProvider::OpenAi => "",
     }
 }
@@ -1181,10 +1459,56 @@ fn effective_tts_key_source(settings: &TtsSettings) -> Option<TtsKeySource> {
         TtsProvider::Soniox => Some(settings.soniox_key_source),
         TtsProvider::Deepgram => Some(settings.deepgram_key_source),
         TtsProvider::OpenAi => Some(settings.openai_key_source),
+        TtsProvider::Murf | TtsProvider::ElevenLabs | TtsProvider::Cartesia => {
+            Some(TtsKeySource::Separate)
+        }
         TtsProvider::Edge
         | TtsProvider::LocalQwen
         | TtsProvider::LocalKokoro
         | TtsProvider::Windows => None,
+    }
+}
+
+fn effective_provider_controls(settings: &TtsSettings) -> Value {
+    match settings.provider {
+        TtsProvider::Murf if settings.murf_model == "gen2" => json!({
+            "rate": settings.murf_rate,
+            "pitch": settings.murf_pitch,
+            "variation": settings.murf_variation,
+            "style": settings.murf_style,
+        }),
+        TtsProvider::Murf => json!({
+            "rate": settings.murf_rate,
+            "pitch": settings.murf_pitch,
+            "style": settings.murf_style,
+        }),
+        TtsProvider::ElevenLabs if settings.elevenlabs_model == "eleven_v3" => json!({
+            "stability": settings.elevenlabs_stability,
+            "style": settings.elevenlabs_style,
+            "apply_text_normalization": settings.elevenlabs_apply_text_normalization,
+        }),
+        TtsProvider::ElevenLabs => json!({
+            "speed": settings.speed,
+            "stability": settings.elevenlabs_stability,
+            "similarity_boost": settings.elevenlabs_similarity_boost,
+            "style": settings.elevenlabs_style,
+            "use_speaker_boost": settings.elevenlabs_use_speaker_boost,
+            "apply_text_normalization": settings.elevenlabs_apply_text_normalization,
+        }),
+        TtsProvider::Cartesia => json!({
+            "speed": settings.speed,
+            "volume": settings.cartesia_volume,
+            "emotion": settings.cartesia_emotion,
+        }),
+        _ => Value::Null,
+    }
+}
+
+fn effective_tts_speed(settings: &TtsSettings) -> f32 {
+    match settings.provider {
+        TtsProvider::Murf => 1.0,
+        TtsProvider::ElevenLabs if settings.elevenlabs_model == "eleven_v3" => 1.0,
+        _ => settings.speed,
     }
 }
 
@@ -1651,6 +1975,184 @@ mod tests {
         apply_tts_provider_override(&args, &mut qwen).unwrap();
         assert_eq!(qwen.provider, TtsProvider::LocalQwen);
         assert_eq!(qwen.local_qwen_voice, "Vivian");
+    }
+
+    #[test]
+    fn new_provider_cli_overrides_are_provider_specific() {
+        let mut murf = TtsSettings::default();
+        let murf_args = CliArgs {
+            convert_file: vec![PathBuf::from("chapter.md")],
+            tts_provider: Some(CliTtsProvider::Murf),
+            tts_model: Some("gen2".to_string()),
+            tts_voice: Some("en-US-natalie".to_string()),
+            tts_language: Some("en-US".to_string()),
+            tts_murf_rate: Some(4),
+            tts_murf_pitch: Some(-2),
+            tts_murf_variation: Some(3),
+            tts_murf_style: Some("Conversational".to_string()),
+            ..CliArgs::default()
+        };
+        apply_tts_provider_override(&murf_args, &mut murf).unwrap();
+        apply_tts_conversion_overrides(&murf_args, &mut murf).unwrap();
+        assert_eq!(murf.provider, TtsProvider::Murf);
+        assert_eq!(murf.murf_model, "gen2");
+        assert_eq!(murf.murf_variation, 3);
+        assert_eq!(murf.murf_style.as_deref(), Some("Conversational"));
+
+        let mut elevenlabs = TtsSettings::default();
+        let elevenlabs_args = CliArgs {
+            convert_file: vec![PathBuf::from("chapter.md")],
+            tts_provider: Some(CliTtsProvider::Elevenlabs),
+            tts_speed: Some(1.1),
+            tts_elevenlabs_stability: Some(0.6),
+            tts_elevenlabs_text_normalization:
+                Some(CliElevenLabsTextNormalization::On),
+            ..CliArgs::default()
+        };
+        apply_tts_provider_override(&elevenlabs_args, &mut elevenlabs).unwrap();
+        apply_tts_conversion_overrides(&elevenlabs_args, &mut elevenlabs).unwrap();
+        assert_eq!(elevenlabs.provider, TtsProvider::ElevenLabs);
+        assert_eq!(elevenlabs.speed, 1.1);
+        assert_eq!(elevenlabs.elevenlabs_stability, 0.6);
+        assert_eq!(
+            elevenlabs.elevenlabs_apply_text_normalization,
+            ElevenLabsTextNormalization::On
+        );
+
+        let mut cartesia = TtsSettings::default();
+        let cartesia_args = CliArgs {
+            convert_file: vec![PathBuf::from("chapter.md")],
+            tts_provider: Some(CliTtsProvider::Cartesia),
+            tts_speed: Some(1.2),
+            tts_cartesia_volume: Some(1.25),
+            tts_cartesia_emotion: Some("calm".to_string()),
+            ..CliArgs::default()
+        };
+        apply_tts_provider_override(&cartesia_args, &mut cartesia).unwrap();
+        apply_tts_conversion_overrides(&cartesia_args, &mut cartesia).unwrap();
+        assert_eq!(cartesia.provider, TtsProvider::Cartesia);
+        assert_eq!(cartesia.speed, 1.2);
+        assert_eq!(cartesia.cartesia_volume, 1.25);
+        assert_eq!(cartesia.cartesia_emotion.as_deref(), Some("calm"));
+
+        let mut wrong_provider = TtsSettings::default();
+        assert!(apply_tts_conversion_overrides(&elevenlabs_args, &mut wrong_provider).is_err());
+    }
+
+    #[test]
+    fn murf_model_override_selects_a_compatible_default_voice() {
+        let mut settings = TtsSettings::default();
+        let gen2_args = CliArgs {
+            convert_file: vec![PathBuf::from("chapter.md")],
+            tts_provider: Some(CliTtsProvider::Murf),
+            tts_model: Some("gen2".to_string()),
+            ..CliArgs::default()
+        };
+
+        apply_tts_provider_override(&gen2_args, &mut settings).unwrap();
+        assert_eq!(settings.murf_model, "gen2");
+        assert_eq!(settings.murf_voice, DEFAULT_TTS_MURF_GEN2_VOICE);
+
+        let falcon_args = CliArgs {
+            convert_file: vec![PathBuf::from("chapter.md")],
+            tts_provider: Some(CliTtsProvider::Murf),
+            tts_model: Some("falcon-2".to_string()),
+            ..CliArgs::default()
+        };
+
+        apply_tts_provider_override(&falcon_args, &mut settings).unwrap();
+        assert_eq!(settings.murf_model, "falcon-2");
+        assert_eq!(settings.murf_voice, DEFAULT_TTS_MURF_VOICE);
+    }
+
+    #[test]
+    fn new_provider_cli_rejects_model_incompatible_controls() {
+        let v3_cases = [
+            (
+                CliArgs {
+                    tts_provider: Some(CliTtsProvider::Elevenlabs),
+                    tts_model: Some("eleven_v3".to_string()),
+                    tts_speed: Some(1.1),
+                    ..CliArgs::default()
+                },
+                "--tts-speed",
+            ),
+            (
+                CliArgs {
+                    tts_provider: Some(CliTtsProvider::Elevenlabs),
+                    tts_model: Some("eleven_v3".to_string()),
+                    tts_elevenlabs_similarity_boost: Some(0.8),
+                    ..CliArgs::default()
+                },
+                "--tts-elevenlabs-similarity-boost",
+            ),
+            (
+                CliArgs {
+                    tts_provider: Some(CliTtsProvider::Elevenlabs),
+                    tts_model: Some("eleven_v3".to_string()),
+                    tts_elevenlabs_speaker_boost: Some(true),
+                    ..CliArgs::default()
+                },
+                "--tts-elevenlabs-speaker-boost",
+            ),
+        ];
+
+        for (args, expected) in v3_cases {
+            let mut settings = TtsSettings::default();
+            apply_tts_provider_override(&args, &mut settings).unwrap();
+            let error = apply_tts_conversion_overrides(&args, &mut settings)
+                .expect_err("Eleven v3-only restriction must fail");
+            assert!(error.message.contains(expected), "{}", error.message);
+        }
+
+        let multilingual_language = CliArgs {
+            tts_provider: Some(CliTtsProvider::Elevenlabs),
+            tts_model: Some("eleven_multilingual_v2".to_string()),
+            tts_language: Some("en".to_string()),
+            ..CliArgs::default()
+        };
+        let mut settings = TtsSettings::default();
+        let error = apply_tts_provider_override(&multilingual_language, &mut settings)
+            .expect_err("Multilingual v2 language override must fail");
+        assert!(error.message.contains("infers language"), "{}", error.message);
+
+    }
+
+    #[test]
+    fn cli_json_reports_only_effective_new_provider_controls() {
+        let mut murf = TtsSettings {
+            provider: TtsProvider::Murf,
+            speed: 1.5,
+            murf_variation: 5,
+            ..TtsSettings::default()
+        };
+        assert_eq!(effective_tts_speed(&murf), 1.0);
+        assert!(effective_provider_controls(&murf).get("variation").is_none());
+
+        murf.murf_model = "gen2".to_string();
+        assert_eq!(effective_provider_controls(&murf)["variation"], 5);
+
+        let eleven_v3 = TtsSettings {
+            provider: TtsProvider::ElevenLabs,
+            elevenlabs_model: "eleven_v3".to_string(),
+            speed: 1.2,
+            ..TtsSettings::default()
+        };
+        let controls = effective_provider_controls(&eleven_v3);
+        assert_eq!(effective_tts_speed(&eleven_v3), 1.0);
+        assert!(controls.get("similarity_boost").is_none());
+        assert!(controls.get("use_speaker_boost").is_none());
+
+        let cartesia = TtsSettings {
+            provider: TtsProvider::Cartesia,
+            speed: 1.4,
+            cartesia_volume: 1.5,
+            ..TtsSettings::default()
+        };
+        let controls = effective_provider_controls(&cartesia);
+        assert_eq!(effective_tts_speed(&cartesia), 1.4);
+        assert_eq!(controls["speed"], 1.4);
+        assert_eq!(controls["volume"], 1.5);
     }
 
     #[test]

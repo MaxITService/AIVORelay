@@ -309,6 +309,9 @@ fn show_history(
         );
         println!("Format: {}", output_format_name(entry.output_format));
         println!("Source kind: {:?}", entry.source_kind);
+        if let Some(controls) = entry.provider_synthesis_config.as_deref() {
+            println!("Provider controls: {controls}");
+        }
         println!(
             "Prompt preset: {}",
             entry.prompt_preset_name.as_deref().unwrap_or("(none)")
@@ -808,6 +811,7 @@ fn history_entry_json(
         "prompt_preset_name": entry.prompt_preset_name,
         "resolved_instructions": entry.resolved_instructions,
         "llm_cleanup_config": entry.llm_cleanup_config,
+        "provider_synthesis_config": entry.provider_synthesis_config,
         "audio_available": audio_available,
         "retained_audio_path": retained_path,
     }))
@@ -1053,6 +1057,9 @@ fn cli_provider(provider: CliTtsProvider) -> TtsProvider {
         CliTtsProvider::Soniox => TtsProvider::Soniox,
         CliTtsProvider::Deepgram => TtsProvider::Deepgram,
         CliTtsProvider::Openai => TtsProvider::OpenAi,
+        CliTtsProvider::Murf => TtsProvider::Murf,
+        CliTtsProvider::Elevenlabs => TtsProvider::ElevenLabs,
+        CliTtsProvider::Cartesia => TtsProvider::Cartesia,
         CliTtsProvider::Edge => TtsProvider::Edge,
         CliTtsProvider::LocalQwen => TtsProvider::LocalQwen,
         CliTtsProvider::LocalKokoro => TtsProvider::LocalKokoro,

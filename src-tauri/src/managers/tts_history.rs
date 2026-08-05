@@ -4,7 +4,9 @@
 //! recordings directory. Only managed copies in `tts-history-audio` may be
 //! removed; external user output paths are metadata and are never deleted.
 
-use crate::settings::{TtsOutputFormat, TtsProvider, TtsSettings};
+use crate::settings::{
+    ElevenLabsTextNormalization, TtsOutputFormat, TtsProvider, TtsSettings,
+};
 use anyhow::{anyhow, Context, Result};
 use parking_lot::Mutex;
 use rusqlite::{params, Connection, OptionalExtension, Row};
@@ -66,12 +68,14 @@ static MIGRATIONS: &[M] = &[
             ON tts_history(scope, timestamp DESC, id DESC);",
     ),
     M::up("ALTER TABLE tts_history ADD COLUMN llm_cleanup_config TEXT;"),
+    M::up("ALTER TABLE tts_history ADD COLUMN provider_synthesis_config TEXT;"),
 ];
 
 const ENTRY_COLUMNS: &str =
     "id, timestamp, scope, group_id, source_text, source_kind, provider, model, voice, \
     output_format, managed_audio_filename, external_output_path, prompt_preset_id, \
-    prompt_preset_name, resolved_instructions, language, llm_cleanup_config";
+    prompt_preset_name, resolved_instructions, language, llm_cleanup_config, \
+    provider_synthesis_config";
 
 #[derive(Clone, Copy, Debug, Serialize, Deserialize, Type, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -113,6 +117,8 @@ pub struct TtsHistoryEntry {
     /// Effective TTS AI-cleanup metadata as secret-free JSON. This is separate
     /// from provider voice instructions and may be absent when cleanup was off.
     pub llm_cleanup_config: Option<String>,
+    /// Secret-free provider-specific controls used to generate this variant.
+    pub provider_synthesis_config: Option<String>,
 }
 
 #[derive(Clone, Debug)]
@@ -135,6 +141,150 @@ pub struct NewTtsHistoryEntry {
     pub prompt_preset_name: Option<String>,
     pub resolved_instructions: Option<String>,
     pub llm_cleanup_config: Option<String>,
+    pub provider_synthesis_config: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(tag = "provider", rename_all = "snake_case")]
+enum ProviderSynthesisConfigSnapshot {
+    Murf {
+        version: u8,
+        rate: i8,
+        pitch: i8,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        variation: Option<u8>,
+        style: Option<String>,
+    },
+    #[serde(rename = "elevenlabs")]
+    ElevenLabs {
+        version: u8,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        speed: Option<f32>,
+        stability: f32,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        similarity_boost: Option<f32>,
+        style: f32,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        use_speaker_boost: Option<bool>,
+        apply_text_normalization: ElevenLabsTextNormalization,
+    },
+    Cartesia {
+        version: u8,
+        #[serde(default = "default_control_multiplier")]
+        speed: f32,
+        #[serde(default = "default_control_multiplier")]
+        volume: f32,
+        emotion: Option<String>,
+    },
+}
+
+fn default_control_multiplier() -> f32 {
+    1.0
+}
+
+pub fn provider_synthesis_config_from_settings(settings: &TtsSettings) -> Option<String> {
+    let snapshot = match settings.provider {
+        TtsProvider::Murf => ProviderSynthesisConfigSnapshot::Murf {
+            version: 1,
+            rate: settings.murf_rate,
+            pitch: settings.murf_pitch,
+            variation: (settings.murf_model == "gen2").then_some(settings.murf_variation),
+            style: settings.murf_style.clone(),
+        },
+        TtsProvider::ElevenLabs => ProviderSynthesisConfigSnapshot::ElevenLabs {
+            version: 1,
+            speed: (settings.elevenlabs_model != "eleven_v3").then_some(settings.speed),
+            stability: settings.elevenlabs_stability,
+            similarity_boost: (settings.elevenlabs_model != "eleven_v3")
+                .then_some(settings.elevenlabs_similarity_boost),
+            style: settings.elevenlabs_style,
+            use_speaker_boost: (settings.elevenlabs_model != "eleven_v3")
+                .then_some(settings.elevenlabs_use_speaker_boost),
+            apply_text_normalization: settings.elevenlabs_apply_text_normalization,
+        },
+        TtsProvider::Cartesia => ProviderSynthesisConfigSnapshot::Cartesia {
+            version: 1,
+            speed: settings.speed,
+            volume: settings.cartesia_volume,
+            emotion: settings.cartesia_emotion.clone(),
+        },
+        TtsProvider::Soniox
+        | TtsProvider::Deepgram
+        | TtsProvider::OpenAi
+        | TtsProvider::Edge
+        | TtsProvider::LocalQwen
+        | TtsProvider::LocalKokoro
+        | TtsProvider::Windows => return None,
+    };
+    serde_json::to_string(&snapshot).ok()
+}
+
+pub fn apply_provider_synthesis_config(
+    settings: &mut TtsSettings,
+    serialized: &str,
+) -> Result<()> {
+    let snapshot: ProviderSynthesisConfigSnapshot = serde_json::from_str(serialized)
+        .context("TTS History provider controls contain invalid JSON")?;
+    match snapshot {
+        ProviderSynthesisConfigSnapshot::Murf {
+            version,
+            rate,
+            pitch,
+            variation,
+            style,
+        } if settings.provider == TtsProvider::Murf && version == 1 => {
+            settings.murf_rate = rate;
+            settings.murf_pitch = pitch;
+            if settings.murf_model == "gen2" {
+                if let Some(variation) = variation {
+                    settings.murf_variation = variation;
+                }
+            }
+            settings.murf_style = style;
+        }
+        ProviderSynthesisConfigSnapshot::ElevenLabs {
+            version,
+            speed,
+            stability,
+            similarity_boost,
+            style,
+            use_speaker_boost,
+            apply_text_normalization,
+        } if settings.provider == TtsProvider::ElevenLabs && version == 1 => {
+            settings.elevenlabs_stability = stability;
+            settings.elevenlabs_style = style;
+            if settings.elevenlabs_model == "eleven_v3" {
+                settings.speed = 1.0;
+            } else {
+                if let Some(speed) = speed {
+                    settings.speed = speed;
+                }
+                if let Some(similarity_boost) = similarity_boost {
+                    settings.elevenlabs_similarity_boost = similarity_boost;
+                }
+                if let Some(use_speaker_boost) = use_speaker_boost {
+                    settings.elevenlabs_use_speaker_boost = use_speaker_boost;
+                }
+            }
+            settings.elevenlabs_apply_text_normalization = apply_text_normalization;
+        }
+        ProviderSynthesisConfigSnapshot::Cartesia {
+            version,
+            speed,
+            volume,
+            emotion,
+        } if settings.provider == TtsProvider::Cartesia && version == 1 => {
+            settings.speed = speed;
+            settings.cartesia_volume = volume;
+            settings.cartesia_emotion = emotion;
+        }
+        _ => {
+            return Err(anyhow!(
+                "TTS History provider controls do not match the selected provider or version"
+            ));
+        }
+    }
+    Ok(())
 }
 
 pub fn llm_cleanup_config_from_settings(
@@ -200,6 +350,21 @@ pub fn metadata_from_settings(
             settings.openai_voice.clone(),
             String::new(),
         ),
+        TtsProvider::Murf => (
+            settings.murf_model.clone(),
+            settings.murf_voice.clone(),
+            settings.murf_language.clone(),
+        ),
+        TtsProvider::ElevenLabs => (
+            settings.elevenlabs_model.clone(),
+            settings.elevenlabs_voice.clone(),
+            settings.elevenlabs_language.clone(),
+        ),
+        TtsProvider::Cartesia => (
+            settings.cartesia_model.clone(),
+            settings.cartesia_voice.clone(),
+            settings.cartesia_language.clone(),
+        ),
         TtsProvider::Edge => (
             crate::managers::edge_tts::EDGE_TTS_MODEL.to_string(),
             settings.edge_voice.clone(),
@@ -245,6 +410,7 @@ pub fn metadata_from_settings(
         .filter(|instructions| !instructions.is_empty())
         .map(str::to_string);
     let llm_cleanup_config = llm_cleanup_config_from_settings(settings, scope);
+    let provider_synthesis_config = provider_synthesis_config_from_settings(settings);
 
     NewTtsHistoryEntry {
         scope,
@@ -261,6 +427,7 @@ pub fn metadata_from_settings(
         prompt_preset_name: selected_preset.map(|preset| preset.name.clone()),
         resolved_instructions,
         llm_cleanup_config,
+        provider_synthesis_config,
     }
 }
 
@@ -785,10 +952,12 @@ fn normalize_squashed_pre_release_schema_version(connection: &Connection) -> Res
         // Pre-release builds briefly shipped the then-final schema while
         // retaining user_version=1. Promote it to the last migration whose
         // columns are present, then allow any newer additive migration to run.
-        let promoted_version = if columns.contains("llm_cleanup_config") {
+        let promoted_version = if columns.contains("provider_synthesis_config") {
             MIGRATIONS.len()
-        } else {
+        } else if columns.contains("llm_cleanup_config") {
             MIGRATIONS.len().saturating_sub(1)
+        } else {
+            MIGRATIONS.len().saturating_sub(2)
         };
         connection.pragma_update(None, "user_version", promoted_version as i64)?;
         log::info!(
@@ -814,8 +983,8 @@ fn insert_entry(
             timestamp, scope, group_id, source_text, source_kind, provider, model, voice,
             output_format, managed_audio_filename, external_output_path,
             prompt_preset_id, prompt_preset_name, resolved_instructions, language,
-            llm_cleanup_config
-        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)",
+            llm_cleanup_config, provider_synthesis_config
+        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)",
         params![
             timestamp,
             scope_to_db(metadata.scope),
@@ -833,6 +1002,7 @@ fn insert_entry(
             metadata.resolved_instructions.as_deref(),
             &metadata.language,
             metadata.llm_cleanup_config.as_deref(),
+            metadata.provider_synthesis_config.as_deref(),
         ],
     )?;
     let id = connection.last_insert_rowid();
@@ -884,6 +1054,7 @@ fn map_entry(row: &Row<'_>) -> rusqlite::Result<TtsHistoryEntry> {
         prompt_preset_name: row.get("prompt_preset_name")?,
         resolved_instructions: row.get("resolved_instructions")?,
         llm_cleanup_config: row.get("llm_cleanup_config")?,
+        provider_synthesis_config: row.get("provider_synthesis_config")?,
     })
 }
 
@@ -922,6 +1093,9 @@ fn provider_from_db(value: &str) -> Result<TtsProvider> {
         "soniox" => Ok(TtsProvider::Soniox),
         "deepgram" => Ok(TtsProvider::Deepgram),
         "openai" => Ok(TtsProvider::OpenAi),
+        "murf" => Ok(TtsProvider::Murf),
+        "elevenlabs" => Ok(TtsProvider::ElevenLabs),
+        "cartesia" => Ok(TtsProvider::Cartesia),
         "edge" => Ok(TtsProvider::Edge),
         "local_qwen" => Ok(TtsProvider::LocalQwen),
         "local_kokoro" => Ok(TtsProvider::LocalKokoro),
@@ -1095,6 +1269,7 @@ mod tests {
             prompt_preset_name: Some("Calm narrator".to_string()),
             resolved_instructions: Some("Speak calmly.".to_string()),
             llm_cleanup_config: None,
+            provider_synthesis_config: None,
         }
     }
 
@@ -1165,6 +1340,7 @@ mod tests {
             .collect::<rusqlite::Result<HashSet<_>>>()
             .expect("read promoted columns");
         assert!(columns.contains("llm_cleanup_config"));
+        assert!(columns.contains("provider_synthesis_config"));
     }
 
     #[test]
@@ -1224,6 +1400,7 @@ mod tests {
         assert_eq!(version, MIGRATIONS.len() as i64);
         assert_eq!(scopes, vec!["interactive".to_string(), "file".to_string()]);
         assert!(columns.contains("llm_cleanup_config"));
+        assert!(columns.contains("provider_synthesis_config"));
     }
 
     #[test]
@@ -1303,6 +1480,113 @@ mod tests {
             settings.llm_preprocessing.file_selected_prompt_id
         );
         assert!(config.get("api_key").is_none());
+    }
+
+    #[test]
+    fn provider_controls_round_trip_without_credentials() {
+        let mut source = TtsSettings {
+            provider: TtsProvider::ElevenLabs,
+            speed: 1.1,
+            elevenlabs_stability: 0.6,
+            elevenlabs_similarity_boost: 0.8,
+            elevenlabs_style: 0.2,
+            elevenlabs_use_speaker_boost: false,
+            elevenlabs_apply_text_normalization: ElevenLabsTextNormalization::On,
+            ..TtsSettings::default()
+        };
+        let serialized = provider_synthesis_config_from_settings(&source)
+            .expect("ElevenLabs provider controls");
+        assert!(!serialized.to_lowercase().contains("key"));
+
+        source.speed = 1.0;
+        source.elevenlabs_stability = 0.5;
+        apply_provider_synthesis_config(&mut source, &serialized)
+            .expect("restore ElevenLabs provider controls");
+        assert_eq!(source.speed, 1.1);
+        assert_eq!(source.elevenlabs_stability, 0.6);
+        assert_eq!(
+            source.elevenlabs_apply_text_normalization,
+            ElevenLabsTextNormalization::On
+        );
+
+        source.provider = TtsProvider::Murf;
+        assert!(apply_provider_synthesis_config(&mut source, &serialized).is_err());
+    }
+
+    #[test]
+    fn provider_control_snapshots_include_only_model_effective_fields() {
+        let mut murf = TtsSettings {
+            provider: TtsProvider::Murf,
+            murf_variation: 5,
+            ..TtsSettings::default()
+        };
+        let falcon: serde_json::Value = serde_json::from_str(
+            &provider_synthesis_config_from_settings(&murf).expect("Falcon controls"),
+        )
+        .unwrap();
+        assert!(falcon.get("variation").is_none());
+
+        murf.murf_model = "gen2".to_string();
+        let gen2: serde_json::Value = serde_json::from_str(
+            &provider_synthesis_config_from_settings(&murf).expect("Gen2 controls"),
+        )
+        .unwrap();
+        assert_eq!(gen2["variation"], 5);
+
+        let mut eleven_v3 = TtsSettings {
+            provider: TtsProvider::ElevenLabs,
+            elevenlabs_model: "eleven_v3".to_string(),
+            speed: 1.2,
+            elevenlabs_stability: 0.6,
+            elevenlabs_similarity_boost: 0.9,
+            elevenlabs_use_speaker_boost: false,
+            ..TtsSettings::default()
+        };
+        let serialized =
+            provider_synthesis_config_from_settings(&eleven_v3).expect("Eleven v3 controls");
+        let v3: serde_json::Value = serde_json::from_str(&serialized).unwrap();
+        assert!(v3.get("speed").is_none());
+        assert!(v3.get("similarity_boost").is_none());
+        assert!(v3.get("use_speaker_boost").is_none());
+
+        eleven_v3.speed = 1.2;
+        eleven_v3.elevenlabs_stability = 0.4;
+        eleven_v3.elevenlabs_similarity_boost = 0.3;
+        eleven_v3.elevenlabs_use_speaker_boost = true;
+        apply_provider_synthesis_config(&mut eleven_v3, &serialized).unwrap();
+        assert_eq!(eleven_v3.speed, 1.0);
+        assert_eq!(eleven_v3.elevenlabs_stability, 0.6);
+        assert_eq!(eleven_v3.elevenlabs_similarity_boost, 0.3);
+        assert!(eleven_v3.elevenlabs_use_speaker_boost);
+
+        let cartesia = TtsSettings {
+            provider: TtsProvider::Cartesia,
+            speed: 1.4,
+            cartesia_volume: 1.5,
+            cartesia_emotion: Some("calm".to_string()),
+            ..TtsSettings::default()
+        };
+        let cartesia: serde_json::Value = serde_json::from_str(
+            &provider_synthesis_config_from_settings(&cartesia).expect("Cartesia controls"),
+        )
+        .unwrap();
+        assert_eq!(cartesia["speed"], 1.4);
+        assert_eq!(cartesia["volume"], 1.5);
+        assert_eq!(cartesia["emotion"], "calm");
+
+        let mut legacy_cartesia = TtsSettings {
+            provider: TtsProvider::Cartesia,
+            speed: 1.3,
+            cartesia_volume: 1.4,
+            ..TtsSettings::default()
+        };
+        apply_provider_synthesis_config(
+            &mut legacy_cartesia,
+            r#"{"provider":"cartesia","version":1,"emotion":null}"#,
+        )
+        .unwrap();
+        assert_eq!(legacy_cartesia.speed, 1.0);
+        assert_eq!(legacy_cartesia.cartesia_volume, 1.0);
     }
 
     #[test]

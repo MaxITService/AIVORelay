@@ -21,8 +21,9 @@ use crate::managers::windows_tts::{self, WindowsVoiceCatalog};
 use crate::settings::{
     get_settings, write_settings, LlmPostProcessBenchmarkResult, TtsLlmScope, TtsOperationScope,
     TtsOutputFormat, TtsPlaybackEffect, TtsProvider, TtsScopeSynthesisSettings, TtsSettings,
-    TtsSynthesisConfig, APPLE_INTELLIGENCE_PROVIDER_ID, DEFAULT_TTS_OPENAI_VOICE,
-    DEFAULT_TTS_SONIOX_VOICE,
+    TtsSynthesisConfig, APPLE_INTELLIGENCE_PROVIDER_ID, DEFAULT_TTS_CARTESIA_VOICE,
+    DEFAULT_TTS_ELEVENLABS_VOICE, DEFAULT_TTS_MURF_GEN2_VOICE, DEFAULT_TTS_MURF_VOICE,
+    DEFAULT_TTS_OPENAI_VOICE, DEFAULT_TTS_SONIOX_VOICE,
 };
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
@@ -54,11 +55,22 @@ pub async fn get_tts_voice_catalog(
     app: AppHandle,
     provider: TtsProvider,
     scope: Option<TtsOperationScope>,
+    model: Option<String>,
 ) -> Result<TtsVoiceCatalog, String> {
     let mut settings = get_settings(&app)
         .tts
         .effective_for_scope(scope.unwrap_or(TtsOperationScope::Interactive));
     settings.provider = provider;
+    if provider == TtsProvider::Murf {
+        let model = model
+            .as_deref()
+            .unwrap_or(&settings.murf_model)
+            .trim();
+        if !matches!(model, "falcon-2" | "gen2") {
+            return Err(format!("Unsupported Murf TTS model: {model}"));
+        }
+        settings.murf_model = model.to_string();
+    }
     app.state::<Arc<TtsManager>>()
         .voice_catalog(&settings)
         .await
@@ -603,6 +615,15 @@ fn overlay_identity(settings: &TtsSettings) -> TtsOverlayIdentity {
             settings.deepgram_model.clone(),
         ),
         TtsProvider::OpenAi => (settings.openai_model.clone(), settings.openai_voice.clone()),
+        TtsProvider::Murf => (settings.murf_model.clone(), settings.murf_voice.clone()),
+        TtsProvider::ElevenLabs => (
+            settings.elevenlabs_model.clone(),
+            settings.elevenlabs_voice.clone(),
+        ),
+        TtsProvider::Cartesia => (
+            settings.cartesia_model.clone(),
+            settings.cartesia_voice.clone(),
+        ),
         TtsProvider::Edge => (EDGE_TTS_MODEL.to_string(), settings.edge_voice.clone()),
         TtsProvider::LocalQwen => (
             format!("{LOCAL_TTS_MODEL_REPO}@{LOCAL_TTS_MODEL_REVISION}"),
@@ -831,6 +852,9 @@ fn parse_provider(provider: &str) -> Result<TtsProvider, String> {
         "soniox" => Ok(TtsProvider::Soniox),
         "deepgram" => Ok(TtsProvider::Deepgram),
         "openai" | "open_ai" => Ok(TtsProvider::OpenAi),
+        "murf" | "murf_ai" | "murf-ai" => Ok(TtsProvider::Murf),
+        "elevenlabs" | "eleven_labs" | "eleven-labs" => Ok(TtsProvider::ElevenLabs),
+        "cartesia" => Ok(TtsProvider::Cartesia),
         "edge" | "edge_tts" | "edge-tts" => Ok(TtsProvider::Edge),
         "local_qwen" | "qwen" | "qwen3" => Ok(TtsProvider::LocalQwen),
         "local_kokoro" | "kokoro" | "kokoro82m" => Ok(TtsProvider::LocalKokoro),
@@ -846,6 +870,37 @@ fn normalize_settings(mut settings: TtsSettings) -> TtsSettings {
     settings.deepgram_model = nonempty_setting(settings.deepgram_model, "aura-2-thalia-en");
     settings.openai_model = nonempty_setting(settings.openai_model, "gpt-4o-mini-tts");
     settings.openai_voice = nonempty_setting(settings.openai_voice, DEFAULT_TTS_OPENAI_VOICE);
+    settings.murf_key_source = crate::settings::TtsKeySource::Separate;
+    settings.elevenlabs_key_source = crate::settings::TtsKeySource::Separate;
+    settings.cartesia_key_source = crate::settings::TtsKeySource::Separate;
+    settings.murf_model = nonempty_setting(settings.murf_model, "falcon-2");
+    settings.murf_voice = normalize_murf_voice(&settings.murf_model, settings.murf_voice);
+    settings.murf_language = nonempty_setting(settings.murf_language, "en-US");
+    settings.murf_rate = settings.murf_rate.clamp(-50, 50);
+    settings.murf_pitch = settings.murf_pitch.clamp(-50, 50);
+    settings.murf_variation = settings.murf_variation.min(5);
+    settings.murf_style = normalize_optional_setting(settings.murf_style);
+    settings.elevenlabs_model =
+        nonempty_setting(settings.elevenlabs_model, "eleven_multilingual_v2");
+    settings.elevenlabs_voice = nonempty_setting(
+        settings.elevenlabs_voice,
+        DEFAULT_TTS_ELEVENLABS_VOICE,
+    );
+    settings.elevenlabs_language =
+        nonempty_setting(settings.elevenlabs_language, "en").to_ascii_lowercase();
+    settings.elevenlabs_stability =
+        finite_clamped(settings.elevenlabs_stability, 0.5, 0.0, 1.0);
+    settings.elevenlabs_similarity_boost =
+        finite_clamped(settings.elevenlabs_similarity_boost, 0.75, 0.0, 1.0);
+    settings.elevenlabs_style = finite_clamped(settings.elevenlabs_style, 0.0, 0.0, 1.0);
+    settings.cartesia_model = nonempty_setting(settings.cartesia_model, "sonic-3.5");
+    settings.cartesia_voice =
+        nonempty_setting(settings.cartesia_voice, DEFAULT_TTS_CARTESIA_VOICE);
+    settings.cartesia_language =
+        nonempty_setting(settings.cartesia_language, "en").to_ascii_lowercase();
+    settings.cartesia_emotion = normalize_optional_setting(settings.cartesia_emotion);
+    settings.cartesia_volume =
+        finite_clamped(settings.cartesia_volume, 1.0, 0.5, 2.0);
     settings.edge_voice = nonempty_setting(settings.edge_voice, DEFAULT_EDGE_TTS_VOICE);
     settings.edge_voice_language = edge_voice_language(&settings.edge_voice);
     settings.local_qwen_voice = nonempty_setting(settings.local_qwen_voice, "Ryan");
@@ -892,7 +947,7 @@ fn normalize_settings(mut settings: TtsSettings) -> TtsSettings {
     );
     trim_tts_llm_benchmark_log(&mut settings.llm_preprocessing.interactive_benchmark_log);
     trim_tts_llm_benchmark_log(&mut settings.llm_preprocessing.file_benchmark_log);
-    let hard_limit = TtsManager::provider_character_limit(settings.provider) as u32;
+    let hard_limit = TtsManager::settings_character_limit(&settings) as u32;
     settings.interactive_target_chars = settings.interactive_target_chars.clamp(50, hard_limit);
     settings.file_target_chars = settings.file_target_chars.clamp(50, hard_limit);
     settings.retry_count = settings.retry_count.min(10);
@@ -912,6 +967,10 @@ fn normalize_settings(mut settings: TtsSettings) -> TtsSettings {
         TtsProvider::Soniox => settings.speed.clamp(0.7, 1.3),
         TtsProvider::Deepgram => settings.speed.clamp(0.7, 1.5),
         TtsProvider::OpenAi => settings.speed.clamp(0.25, 4.0),
+        TtsProvider::Murf => 1.0,
+        TtsProvider::ElevenLabs if settings.elevenlabs_model == "eleven_v3" => 1.0,
+        TtsProvider::ElevenLabs => settings.speed.clamp(0.7, 1.2),
+        TtsProvider::Cartesia => settings.speed.clamp(0.6, 1.5),
         TtsProvider::Edge => settings.speed.clamp(0.5, 2.0),
         TtsProvider::LocalQwen => settings.speed.clamp(0.5, 2.0),
         TtsProvider::LocalKokoro => settings.speed.clamp(0.5, 2.0),
@@ -962,7 +1021,8 @@ fn normalize_synthesis_config(
             config.model = nonempty_setting(std::mem::take(&mut config.model), "tts-rt-v1");
             config.voice =
                 nonempty_setting(std::mem::take(&mut config.voice), DEFAULT_TTS_SONIOX_VOICE);
-            config.language = nonempty_setting(std::mem::take(&mut config.language), "en");
+            config.language = nonempty_setting(std::mem::take(&mut config.language), "en")
+                .to_ascii_lowercase();
         }
         TtsProvider::Deepgram => {
             config.model = nonempty_setting(std::mem::take(&mut config.model), "aura-2-thalia-en");
@@ -974,6 +1034,34 @@ fn normalize_synthesis_config(
             config.voice =
                 nonempty_setting(std::mem::take(&mut config.voice), DEFAULT_TTS_OPENAI_VOICE);
             config.language.clear();
+        }
+        TtsProvider::Murf => {
+            config.model = nonempty_setting(std::mem::take(&mut config.model), "falcon-2");
+            config.voice = normalize_murf_voice(&config.model, std::mem::take(&mut config.voice));
+            config.language = nonempty_setting(std::mem::take(&mut config.language), "en-US");
+            config.key_source = crate::settings::TtsKeySource::Separate;
+        }
+        TtsProvider::ElevenLabs => {
+            config.model = nonempty_setting(
+                std::mem::take(&mut config.model),
+                "eleven_multilingual_v2",
+            );
+            config.voice = nonempty_setting(
+                std::mem::take(&mut config.voice),
+                DEFAULT_TTS_ELEVENLABS_VOICE,
+            );
+            config.language = nonempty_setting(std::mem::take(&mut config.language), "en")
+                .to_ascii_lowercase();
+            config.key_source = crate::settings::TtsKeySource::Separate;
+        }
+        TtsProvider::Cartesia => {
+            config.model = nonempty_setting(std::mem::take(&mut config.model), "sonic-3.5");
+            config.voice = nonempty_setting(
+                std::mem::take(&mut config.voice),
+                DEFAULT_TTS_CARTESIA_VOICE,
+            );
+            config.language = nonempty_setting(std::mem::take(&mut config.language), "en");
+            config.key_source = crate::settings::TtsKeySource::Separate;
         }
         TtsProvider::Edge => {
             config.model = EDGE_TTS_MODEL.to_string();
@@ -1003,14 +1091,29 @@ fn normalize_synthesis_config(
         TtsProvider::Soniox => config.speed.clamp(0.7, 1.3),
         TtsProvider::Deepgram => config.speed.clamp(0.7, 1.5),
         TtsProvider::OpenAi => config.speed.clamp(0.25, 4.0),
+        TtsProvider::Murf => 1.0,
+        TtsProvider::ElevenLabs if config.model == "eleven_v3" => 1.0,
+        TtsProvider::ElevenLabs => config.speed.clamp(0.7, 1.2),
+        TtsProvider::Cartesia => config.speed.clamp(0.6, 1.5),
         TtsProvider::Edge
         | TtsProvider::LocalQwen
         | TtsProvider::LocalKokoro
         | TtsProvider::Windows => config.speed.clamp(0.5, 2.0),
     };
+    config.murf_rate = config.murf_rate.clamp(-50, 50);
+    config.murf_pitch = config.murf_pitch.clamp(-50, 50);
+    config.murf_variation = config.murf_variation.min(5);
+    config.murf_style = normalize_optional_setting(config.murf_style.take());
+    config.elevenlabs_stability =
+        finite_clamped(config.elevenlabs_stability, 0.5, 0.0, 1.0);
+    config.elevenlabs_similarity_boost =
+        finite_clamped(config.elevenlabs_similarity_boost, 0.75, 0.0, 1.0);
+    config.elevenlabs_style = finite_clamped(config.elevenlabs_style, 0.0, 0.0, 1.0);
+    config.cartesia_emotion = normalize_optional_setting(config.cartesia_emotion.take());
+    config.cartesia_volume = finite_clamped(config.cartesia_volume, 1.0, 0.5, 2.0);
     config.target_chars = config.target_chars.clamp(
         50,
-        TtsManager::provider_character_limit(config.provider) as u32,
+        TtsManager::provider_character_limit(config.provider, &config.model) as u32,
     );
     config.retry_count = config.retry_count.min(10);
     config.retry_base_delay_ms = config.retry_base_delay_ms.clamp(100, 30_000);
@@ -1063,6 +1166,7 @@ fn normalize_synthesis_scope(
     {
         scope.selected_preset_id.clear();
     }
+    scope.normalize_provider_memories();
 }
 
 fn normalize_synthesis_presets(settings: &mut TtsSettings) {
@@ -1186,7 +1290,12 @@ fn validate_all_synthesis_configs(settings: &TtsSettings) -> Result<(), String> 
 fn is_tts_model_identity_field(field: &str) -> bool {
     matches!(
         field,
-        "provider" | "soniox_model" | "deepgram_model" | "openai_model"
+        "soniox_model"
+            | "deepgram_model"
+            | "openai_model"
+            | "murf_model"
+            | "elevenlabs_model"
+            | "cartesia_model"
     )
 }
 
@@ -1197,12 +1306,35 @@ fn is_tts_synthesis_field(field: &str) -> bool {
             | "soniox_key_source"
             | "deepgram_key_source"
             | "openai_key_source"
+            | "murf_key_source"
+            | "elevenlabs_key_source"
+            | "cartesia_key_source"
             | "soniox_model"
             | "soniox_language"
             | "soniox_voice"
             | "deepgram_model"
             | "openai_model"
             | "openai_voice"
+            | "murf_model"
+            | "murf_voice"
+            | "murf_language"
+            | "murf_rate"
+            | "murf_pitch"
+            | "murf_variation"
+            | "murf_style"
+            | "elevenlabs_model"
+            | "elevenlabs_voice"
+            | "elevenlabs_language"
+            | "elevenlabs_stability"
+            | "elevenlabs_similarity_boost"
+            | "elevenlabs_style"
+            | "elevenlabs_use_speaker_boost"
+            | "elevenlabs_apply_text_normalization"
+            | "cartesia_model"
+            | "cartesia_voice"
+            | "cartesia_language"
+            | "cartesia_emotion"
+            | "cartesia_volume"
             | "edge_voice"
             | "edge_voice_language"
             | "local_qwen_voice"
@@ -1274,6 +1406,39 @@ fn nonempty_setting(value: String, fallback: &str) -> String {
     }
 }
 
+fn normalize_murf_voice(model: &str, value: String) -> String {
+    let value = value.trim();
+    let gen2 = model == "gen2";
+    let incompatible_builtin = if gen2 {
+        value == DEFAULT_TTS_MURF_VOICE
+    } else {
+        value == DEFAULT_TTS_MURF_GEN2_VOICE
+    };
+    if value.is_empty() || incompatible_builtin {
+        if gen2 {
+            DEFAULT_TTS_MURF_GEN2_VOICE.to_string()
+        } else {
+            DEFAULT_TTS_MURF_VOICE.to_string()
+        }
+    } else {
+        value.to_string()
+    }
+}
+
+fn normalize_optional_setting(value: Option<String>) -> Option<String> {
+    value
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+}
+
+fn finite_clamped(value: f32, fallback: f32, minimum: f32, maximum: f32) -> f32 {
+    if value.is_finite() {
+        value.clamp(minimum, maximum)
+    } else {
+        fallback
+    }
+}
+
 fn watcher_configuration_changed(previous: &TtsSettings, current: &TtsSettings) -> bool {
     previous.watch_folder_enabled != current.watch_folder_enabled
         || ((previous.watch_folder_enabled || current.watch_folder_enabled)
@@ -1294,7 +1459,9 @@ pub fn update_tts_settings(
     let mut settings = normalize_settings(settings);
     if let Some(scope) = scope {
         let changed_field = changed_field.as_deref().unwrap_or_default();
-        if changed_field == "synthesis_preset_load" {
+        if changed_field == "provider" {
+            settings.select_scope_provider(scope, settings.provider)?;
+        } else if changed_field == "synthesis_preset_load" {
             let preset_id = settings.scope_synthesis(scope).selected_preset_id.clone();
             settings.load_synthesis_preset(scope, &preset_id)?;
         } else if is_tts_model_identity_field(changed_field) {
@@ -2295,6 +2462,22 @@ mod tests {
         assert!(require_local_tts_install_consent(true, false).is_err());
         assert!(require_local_tts_install_consent(false, true).is_err());
         assert!(require_local_tts_install_consent(true, true).is_ok());
+    }
+
+    #[test]
+    fn murf_voice_normalization_keeps_model_specific_builtin_defaults_compatible() {
+        assert_eq!(
+            normalize_murf_voice("gen2", DEFAULT_TTS_MURF_VOICE.to_string()),
+            DEFAULT_TTS_MURF_GEN2_VOICE
+        );
+        assert_eq!(
+            normalize_murf_voice("falcon-2", DEFAULT_TTS_MURF_GEN2_VOICE.to_string()),
+            DEFAULT_TTS_MURF_VOICE
+        );
+        assert_eq!(
+            normalize_murf_voice("gen2", "custom-voice".to_string()),
+            "custom-voice"
+        );
     }
 
     #[test]

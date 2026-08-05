@@ -30,7 +30,10 @@ import { Input } from "@/components/ui/Input";
 import { SettingContainer } from "@/components/ui/SettingContainer";
 import { SettingsGroup } from "@/components/ui/SettingsGroup";
 import { ToggleSwitch } from "@/components/ui/ToggleSwitch";
-import { AIVORELAY_TTS_GUIDE_URL } from "@/lib/tts/ttsProviderMetadata";
+import {
+  AIVORELAY_TTS_GUIDE_URL,
+  type TtsProvider,
+} from "@/lib/tts/ttsProviderMetadata";
 import type { TtsLlmPreprocessingSettings } from "./TtsAiCleanup";
 import { TtsHelpDisclosure } from "./TtsHelpDisclosure";
 import { applyPlaybackRate } from "@/lib/utils/playbackRate";
@@ -39,14 +42,6 @@ import {
   type TtsPlaybackEffect,
 } from "@/lib/utils/ttsPlaybackEffects";
 
-type TtsProvider =
-  | "soniox"
-  | "deepgram"
-  | "openai"
-  | "edge"
-  | "local_qwen"
-  | "local_kokoro"
-  | "windows";
 type TtsOutputFormat = "mp3" | "wav";
 export type TtsHistoryScope = "interactive" | "file";
 
@@ -63,6 +58,12 @@ export type TtsHistorySettingsSnapshot = {
   deepgram_model?: string;
   openai_model?: string;
   openai_voice?: string;
+  murf_model?: string;
+  murf_voice?: string;
+  elevenlabs_model?: string;
+  elevenlabs_voice?: string;
+  cartesia_model?: string;
+  cartesia_voice?: string;
   edge_voice?: string;
   edge_voice_language?: string;
   local_qwen_voice?: string;
@@ -103,6 +104,7 @@ export type TtsHistoryEntry = {
   prompt_preset_name?: string | null;
   resolved_instructions?: string | null;
   llm_cleanup_config?: string | null;
+  provider_synthesis_config?: string | null;
 };
 
 type TtsHistoryProps = {
@@ -178,6 +180,62 @@ const llmCleanupSummary = (entry: TtsHistoryEntry): string | null => {
   }
 };
 
+const providerControlsSummary = (entry: TtsHistoryEntry): string | null => {
+  if (!entry.provider_synthesis_config) return null;
+  try {
+    const config = JSON.parse(entry.provider_synthesis_config) as Record<
+      string,
+      unknown
+    >;
+    if (config.provider === "murf") {
+      return [
+        `rate ${config.rate ?? 0}`,
+        `pitch ${config.pitch ?? 0}`,
+        typeof config.variation === "number"
+          ? `variation ${config.variation}`
+          : null,
+        typeof config.style === "string" && config.style
+          ? `style ${config.style}`
+          : null,
+      ]
+        .filter(Boolean)
+        .join(" · ");
+    }
+    if (config.provider === "elevenlabs") {
+      return [
+        typeof config.speed === "number" ? `speed ${config.speed}` : null,
+        `stability ${config.stability ?? 0.5}`,
+        typeof config.similarity_boost === "number"
+          ? `similarity ${config.similarity_boost}`
+          : null,
+        `style ${config.style ?? 0}`,
+        typeof config.use_speaker_boost === "boolean"
+          ? `speaker boost ${config.use_speaker_boost ? "on" : "off"}`
+          : null,
+        typeof config.apply_text_normalization === "string"
+          ? `normalization ${config.apply_text_normalization}`
+          : null,
+      ]
+        .filter(Boolean)
+        .join(" · ");
+    }
+    if (config.provider === "cartesia") {
+      return [
+        typeof config.speed === "number" ? `speed ${config.speed}` : null,
+        typeof config.volume === "number" ? `volume ${config.volume}` : null,
+        typeof config.emotion === "string" && config.emotion
+          ? `emotion ${config.emotion}`
+          : null,
+      ]
+        .filter(Boolean)
+        .join(" · ");
+    }
+    return null;
+  } catch {
+    return null;
+  }
+};
+
 const formatPlaybackTime = (seconds: number) => {
   const safeSeconds =
     Number.isFinite(seconds) && seconds > 0 ? Math.floor(seconds) : 0;
@@ -204,6 +262,12 @@ const providerLabel = (provider: TtsProvider) => {
       return "Deepgram";
     case "openai":
       return "OpenAI";
+    case "murf":
+      return "Murf AI";
+    case "elevenlabs":
+      return "ElevenLabs";
+    case "cartesia":
+      return "Cartesia";
     case "edge":
       return "Microsoft Read Aloud (unofficial)";
     case "local_qwen":
@@ -216,7 +280,12 @@ const providerLabel = (provider: TtsProvider) => {
 };
 
 const providerUsesPaidApi = (provider: TtsProvider | undefined) =>
-  provider === "soniox" || provider === "deepgram" || provider === "openai";
+  provider === "soniox" ||
+  provider === "deepgram" ||
+  provider === "openai" ||
+  provider === "murf" ||
+  provider === "elevenlabs" ||
+  provider === "cartesia";
 
 const modelForProvider = (
   tts: TtsHistorySettingsSnapshot,
@@ -229,6 +298,12 @@ const modelForProvider = (
       return tts.deepgram_model;
     case "openai":
       return tts.openai_model;
+    case "murf":
+      return tts.murf_model;
+    case "elevenlabs":
+      return tts.elevenlabs_model;
+    case "cartesia":
+      return tts.cartesia_model;
     case "edge":
       return "microsoft-edge-read-aloud";
     case "local_qwen":
@@ -251,6 +326,12 @@ const voiceForProvider = (
       return tts.deepgram_model;
     case "openai":
       return tts.openai_voice;
+    case "murf":
+      return tts.murf_voice;
+    case "elevenlabs":
+      return tts.elevenlabs_voice;
+    case "cartesia":
+      return tts.cartesia_voice;
     case "edge":
       return tts.edge_voice;
     case "local_qwen":
@@ -1129,6 +1210,23 @@ export const TtsHistory: React.FC<TtsHistoryProps> = ({
                               {llmCleanupSummary(entry) ||
                                 t("textToSpeech.history.none")}
                             </dd>
+                            {providerControlsSummary(entry) && (
+                              <>
+                                <dt className="text-[#707070]">
+                                  {t(
+                                    "textToSpeech.history.metadata.providerControls",
+                                  )}
+                                </dt>
+                                <dd
+                                  className="truncate text-right text-[#c8c8c8]"
+                                  title={
+                                    providerControlsSummary(entry) ?? undefined
+                                  }
+                                >
+                                  {providerControlsSummary(entry)}
+                                </dd>
+                              </>
+                            )}
                             <dt className="text-[#707070]">
                               {t("textToSpeech.history.metadata.format")}
                             </dt>
