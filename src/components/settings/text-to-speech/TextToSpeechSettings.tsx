@@ -26,6 +26,7 @@ import {
 } from "lucide-react";
 
 import { useSettings } from "@/hooks/useSettings";
+import { scrollAndFocusAnchor } from "@/lib/anchorNavigation";
 import { ApiKeyEditor, StoredApiKeyDisplay } from "../ApiKeyControls";
 import { HandyShortcut } from "../HandyShortcut";
 import { TtsFolderAutomation } from "./TtsFolderAutomation";
@@ -3064,12 +3065,10 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
                     href="#tts-api-settings"
                     onClick={(event) => {
                       event.preventDefault();
-                      document
-                        .getElementById("tts-api-settings")
-                        ?.scrollIntoView({
-                          behavior: "smooth",
-                          block: "start",
-                        });
+                      const target = document.getElementById("tts-api-settings");
+                      if (target) {
+                        scrollAndFocusAnchor(target, "nearest");
+                      }
                     }}
                     className="font-semibold text-amber-200 underline decoration-amber-200/60 underline-offset-2 hover:text-amber-100"
                   >
@@ -3212,12 +3211,10 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
                     href="#tts-api-settings"
                     onClick={(event) => {
                       event.preventDefault();
-                      document
-                        .getElementById("tts-api-settings")
-                        ?.scrollIntoView({
-                          behavior: "smooth",
-                          block: "start",
-                        });
+                      const target = document.getElementById("tts-api-settings");
+                      if (target) {
+                        scrollAndFocusAnchor(target, "nearest");
+                      }
                     }}
                     className="font-semibold text-amber-200 underline decoration-amber-200/60 underline-offset-2 hover:text-amber-100"
                   >
