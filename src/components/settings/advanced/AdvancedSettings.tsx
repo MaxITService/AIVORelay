@@ -191,21 +191,31 @@ export const AdvancedSettings: React.FC = () => {
                 <p>
                   <strong>
                     {t(
-                      "settings.advanced.tellMeMore.clipboardHandling.dontModify.title",
+                      "settings.advanced.tellMeMore.clipboardHandling.keepTranscription.title",
                     )}
                   </strong>{" "}
                   {t(
-                    "settings.advanced.tellMeMore.clipboardHandling.dontModify.description",
+                    "settings.advanced.tellMeMore.clipboardHandling.keepTranscription.description",
                   )}
                 </p>
                 <p>
                   <strong>
                     {t(
-                      "settings.advanced.tellMeMore.clipboardHandling.copyToClipboard.title",
+                      "settings.advanced.tellMeMore.clipboardHandling.restore.title",
                     )}
                   </strong>{" "}
                   {t(
-                    "settings.advanced.tellMeMore.clipboardHandling.copyToClipboard.description",
+                    "settings.advanced.tellMeMore.clipboardHandling.restore.description",
+                  )}
+                </p>
+                <p>
+                  <strong>
+                    {t(
+                      "settings.advanced.tellMeMore.clipboardHandling.restorePlain.title",
+                    )}
+                  </strong>{" "}
+                  {t(
+                    "settings.advanced.tellMeMore.clipboardHandling.restorePlain.description",
                   )}
                 </p>
                 <p>
@@ -216,6 +226,26 @@ export const AdvancedSettings: React.FC = () => {
                   </strong>{" "}
                   {t(
                     "settings.advanced.tellMeMore.clipboardHandling.restoreAdvanced.description",
+                  )}
+                </p>
+                <p>
+                  <strong>
+                    {t(
+                      "settings.advanced.tellMeMore.clipboardHandling.restoreAdvancedOwned.title",
+                    )}
+                  </strong>{" "}
+                  {t(
+                    "settings.advanced.tellMeMore.clipboardHandling.restoreAdvancedOwned.description",
+                  )}
+                </p>
+                <p>
+                  <strong>
+                    {t(
+                      "settings.advanced.tellMeMore.clipboardHandling.history.title",
+                    )}
+                  </strong>{" "}
+                  {t(
+                    "settings.advanced.tellMeMore.clipboardHandling.history.description",
                   )}
                 </p>
               </div>

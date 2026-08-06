@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import { type as getOsType } from "@tauri-apps/plugin-os";
 import { Dropdown } from "../ui/Dropdown";
 import { SettingContainer } from "../ui/SettingContainer";
+import { ToggleSwitch } from "../ui/ToggleSwitch";
 import { useSettings } from "../../hooks/useSettings";
 import type { ClipboardHandling } from "@/bindings";
 
@@ -21,57 +22,129 @@ export const ClipboardHandlingSetting: React.FC<ClipboardHandlingProps> =
       setOsType(getOsType());
     }, []);
 
-    const clipboardHandlingOptions = [
+    // The whole section only makes sense when pasting actually goes through
+    // the clipboard.
+    const pasteMethod = (getSetting("paste_method") || "ctrl_v") as string;
+    const usesClipboard = ["ctrl_v", "ctrl_shift_v", "shift_insert"].includes(
+      pasteMethod,
+    );
+
+    const handling = (getSetting("clipboard_handling") ||
+      "restore_plain_text") as ClipboardHandling;
+    const restoreSelected = handling !== "keep_transcription";
+    const historyAllowed = (getSetting("clipboard_history_allowed") ??
+      true) as boolean;
+
+    if (!usesClipboard) {
+      return null;
+    }
+
+    const restoreMethodOptions = [
       {
-        value: "dont_modify",
-        label: t("settings.advanced.clipboardHandling.options.dontModify"),
-      },
-      {
-        value: "copy_to_clipboard",
-        label: t("settings.advanced.clipboardHandling.options.copyToClipboard"),
+        value: "restore_plain_text",
+        label: t(
+          "settings.advanced.clipboardHandling.restoreMethod.options.plainText",
+        ),
       },
     ];
 
-    // Add Windows-only experimental option
     if (osType === "windows") {
-      clipboardHandlingOptions.push({
+      restoreMethodOptions.push({
         value: "restore_advanced",
-        label: t("settings.advanced.clipboardHandling.options.restoreAdvanced"),
+        label: t(
+          "settings.advanced.clipboardHandling.restoreMethod.options.allFormats",
+        ),
       });
-      clipboardHandlingOptions.push({
+      restoreMethodOptions.push({
         value: "restore_advanced_owned",
         label: t(
-          "settings.advanced.clipboardHandling.options.restoreAdvancedOwned",
+          "settings.advanced.clipboardHandling.restoreMethod.options.allFormatsOwned",
         ),
       });
     }
 
-    const selectedHandling = (getSetting("clipboard_handling") ||
-      "dont_modify") as ClipboardHandling;
-
-    // Show extended description for the experimental option
-    const description =
-      (selectedHandling as string) === "restore_advanced"
-        ? t("settings.advanced.clipboardHandling.descriptionAdvanced")
-        : (selectedHandling as string) === "restore_advanced_owned"
-          ? t("settings.advanced.clipboardHandling.descriptionAdvancedOwned")
-          : t("settings.advanced.clipboardHandling.description");
+    const radio = (
+      value: "restore" | "keep",
+      labelKey: string,
+      checked: boolean,
+      target: ClipboardHandling,
+    ) => (
+      <label
+        className={`inline-flex items-center gap-2 text-sm ${
+          isUpdating("clipboard_handling")
+            ? "cursor-not-allowed opacity-60"
+            : "cursor-pointer"
+        }`}
+      >
+        <input
+          type="radio"
+          name="clipboard-after-paste"
+          value={value}
+          checked={checked}
+          disabled={isUpdating("clipboard_handling")}
+          onChange={() => updateSetting("clipboard_handling", target)}
+          className="accent-[#9b5de5]"
+        />
+        <span>{t(labelKey)}</span>
+      </label>
+    );
 
     return (
-      <SettingContainer
-        title={t("settings.advanced.clipboardHandling.title")}
-        description={description}
-        descriptionMode={descriptionMode}
-        grouped={grouped}
-      >
-        <Dropdown
-          options={clipboardHandlingOptions}
-          selectedValue={selectedHandling}
-          onSelect={(value) =>
-            updateSetting("clipboard_handling", value as ClipboardHandling)
-          }
-          disabled={isUpdating("clipboard_handling")}
-        />
-      </SettingContainer>
+      <>
+        <SettingContainer
+          title={t("settings.advanced.clipboardHandling.title")}
+          description={t("settings.advanced.clipboardHandling.description")}
+          descriptionMode={descriptionMode}
+          grouped={grouped}
+        >
+          <div className="flex flex-col gap-1.5">
+            {radio(
+              "restore",
+              "settings.advanced.clipboardHandling.options.restore",
+              restoreSelected,
+              "restore_plain_text" as ClipboardHandling,
+            )}
+            {radio(
+              "keep",
+              "settings.advanced.clipboardHandling.options.keepTranscription",
+              !restoreSelected,
+              "keep_transcription" as ClipboardHandling,
+            )}
+          </div>
+        </SettingContainer>
+        <SettingContainer
+          title={t("settings.advanced.clipboardHandling.restoreMethod.title")}
+          description={t(
+            "settings.advanced.clipboardHandling.restoreMethod.description",
+          )}
+          descriptionMode={descriptionMode}
+          grouped={grouped}
+          disabled={!restoreSelected}
+        >
+          <Dropdown
+            options={restoreMethodOptions}
+            selectedValue={restoreSelected ? handling : "restore_plain_text"}
+            onSelect={(value) =>
+              updateSetting("clipboard_handling", value as ClipboardHandling)
+            }
+            disabled={!restoreSelected || isUpdating("clipboard_handling")}
+          />
+        </SettingContainer>
+        {restoreSelected && osType === "windows" && (
+          <ToggleSwitch
+            label={t("settings.advanced.clipboardHandling.history.title")}
+            description={t(
+              "settings.advanced.clipboardHandling.history.description",
+            )}
+            descriptionMode={descriptionMode}
+            grouped={grouped}
+            checked={historyAllowed}
+            onChange={(value) =>
+              updateSetting("clipboard_history_allowed", value)
+            }
+            isUpdating={isUpdating("clipboard_history_allowed")}
+          />
+        )}
+      </>
     );
   });

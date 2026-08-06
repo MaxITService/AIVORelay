@@ -797,6 +797,14 @@ async changeClipboardHandlingSetting(handling: string) : Promise<Result<null, st
     else return { status: "error", error: e  as any };
 }
 },
+async changeClipboardHistoryAllowedSetting(allowed: boolean) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("change_clipboard_history_allowed_setting", { allowed }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async changeAutoSubmitSetting(enabled: boolean) : Promise<Result<null, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("change_auto_submit_setting", { enabled }) };
@@ -3744,7 +3752,7 @@ native_streaming_latency_presets?: Partial<{ [key in string]: NativeStreamingLat
 /**
  * Convert LF to CRLF before clipboard paste (fixes newlines on Windows)
  */
-convert_lf_to_crlf?: boolean; clipboard_handling?: ClipboardHandling; auto_submit?: boolean; auto_submit_key?: AutoSubmitKey; post_process_enabled?: boolean; post_process_provider_id?: string; post_process_providers?: PostProcessProvider[]; post_process_api_keys?: SecretMap; post_process_models?: Partial<{ [key in string]: string }>; post_process_prompts?: LLMPrompt[]; post_process_selected_prompt_id?: string | null; post_process_benchmark_collapsed?: boolean; post_process_benchmark_system_prompt?: string; post_process_benchmark_user_message?: string; post_process_benchmark_log?: LlmPostProcessBenchmarkResult[];
+convert_lf_to_crlf?: boolean; clipboard_handling?: ClipboardHandling; clipboard_history_allowed?: boolean; auto_submit?: boolean; auto_submit_key?: AutoSubmitKey; post_process_enabled?: boolean; post_process_provider_id?: string; post_process_providers?: PostProcessProvider[]; post_process_api_keys?: SecretMap; post_process_models?: Partial<{ [key in string]: string }>; post_process_prompts?: LLMPrompt[]; post_process_selected_prompt_id?: string | null; post_process_benchmark_collapsed?: boolean; post_process_benchmark_system_prompt?: string; post_process_benchmark_user_message?: string; post_process_benchmark_log?: LlmPostProcessBenchmarkResult[];
 /**
  * When true, the benchmark uses the currently selected post-processing prompt as the system
  * prompt instead of the separate custom benchmark system prompt field.
@@ -4089,7 +4097,16 @@ export type AutoSubmitKey = "enter" | "ctrl_enter" | "cmd_enter"
 export type AvailableAccelerators = { whisper: string[]; ort: string[]; gpu_devices: GpuDeviceOption[] }
 export type BindingResponse = { success: boolean; binding: ShortcutBinding | null; error: string | null }
 export type BundledExtensionExportResult = { exportPath: string; extensionId: string; configuredOrigin: string; generatedPassword: string; reusedExistingId: boolean; replacedExistingExport: boolean }
-export type ClipboardHandling = "dont_modify" | "copy_to_clipboard" |
+export type ClipboardHandling =
+/**
+ * Do nothing after pasting: the transcript stays in the clipboard and
+ * the previous clipboard content is lost.
+ */
+"keep_transcription" |
+/**
+ * Restore plain text after pasting.
+ */
+"restore_plain_text" |
 /**
  * Experimental: Try to restore all clipboard formats including images, HTML, files (Windows-only)
  */

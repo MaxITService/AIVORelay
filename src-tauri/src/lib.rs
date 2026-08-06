@@ -1132,6 +1132,7 @@ pub fn run(cli_args: CliArgs) {
         shortcut::change_paste_method_setting,
         shortcut::change_paste_delay_ms_setting,
         shortcut::change_clipboard_handling_setting,
+        shortcut::change_clipboard_history_allowed_setting,
         shortcut::change_auto_submit_setting,
         shortcut::change_auto_submit_key_setting,
         shortcut::change_convert_lf_to_crlf_setting,

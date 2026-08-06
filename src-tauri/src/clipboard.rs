@@ -1,5 +1,7 @@
 use crate::input::{self, EnigoState};
-use crate::settings::{get_settings, AutoSubmitKey, ClipboardHandling, PasteMethod};
+use crate::settings::{
+    get_settings, AppSettings, AutoSubmitKey, ClipboardHandling, PasteMethod,
+};
 use enigo::{Direction, Enigo, Key, Keyboard};
 use log::{debug, info, warn};
 use once_cell::sync::Lazy;
@@ -46,7 +48,7 @@ mod win_clipboard {
     };
     use windows::Win32::System::DataExchange::{
         CloseClipboard, EmptyClipboard, EnumClipboardFormats, GetClipboardData, OpenClipboard,
-        SetClipboardData, METAFILEPICT,
+        RegisterClipboardFormatW, SetClipboardData, METAFILEPICT,
     };
     use windows::Win32::System::Memory::{GlobalAlloc, GlobalLock, GlobalSize, GlobalUnlock, GHND};
     use windows::Win32::UI::WindowsAndMessaging::{CopyImage, IMAGE_BITMAP, IMAGE_FLAGS};
@@ -260,6 +262,49 @@ mod win_clipboard {
     }
 
     /// Restore all backed-up clipboard formats
+    const CF_UNICODETEXT_ID: u32 = 13;
+
+    /// Registers a clipboard-history marker format (honored by the Windows
+    /// clipboard history and cloud clipboard; also used by password managers
+    /// such as KeePass) and sets it to the given DWORD value. Best-effort:
+    /// failures are logged, not propagated, so the paste itself never breaks.
+    unsafe fn write_history_marker(format_name: &str, value: u32) {
+        let wide: Vec<u16> = format_name
+            .encode_utf16()
+            .chain(std::iter::once(0))
+            .collect();
+        let format = RegisterClipboardFormatW(PCWSTR(wide.as_ptr()));
+        if format == 0 {
+            warn!("RegisterClipboardFormatW failed for {}", format_name);
+            return;
+        }
+        if let Err(e) = write_global_memory(format, &value.to_le_bytes()) {
+            warn!("Failed to set clipboard marker {}: {}", format_name, e);
+        }
+    }
+
+    /// Writes UTF-16 text to the clipboard and marks it to be skipped by the
+    /// Windows clipboard history (Win+V) and cloud clipboard sync.
+    pub fn write_text_excluded_from_history(text: &str) -> Result<(), String> {
+        unsafe {
+            OpenClipboard(None).map_err(|e| format!("Failed to open clipboard: {}", e))?;
+            let result = (|| {
+                EmptyClipboard().map_err(|e| format!("Failed to empty clipboard: {}", e))?;
+                let mut wide: Vec<u16> = text.encode_utf16().collect();
+                wide.push(0);
+                let bytes =
+                    std::slice::from_raw_parts(wide.as_ptr() as *const u8, wide.len() * 2);
+                write_global_memory(CF_UNICODETEXT_ID, bytes)?;
+                write_history_marker("ExcludeClipboardContentFromMonitorProcessing", 1);
+                write_history_marker("CanIncludeInClipboardHistory", 0);
+                write_history_marker("CanUploadToCloudClipboard", 0);
+                Ok(())
+            })();
+            let _ = CloseClipboard();
+            result
+        }
+    }
+
     pub fn restore_all_formats(
         mut backup: ClipboardBackup,
         owner: Option<HWND>,
@@ -544,6 +589,46 @@ fn send_paste_shortcut(enigo: &mut Enigo, paste_method: &PasteMethod) -> Result<
     Ok(())
 }
 
+/// Writes transcription-owned text to the clipboard. On Windows, when
+/// `exclude_from_history` is set, the write is marked so the clipboard
+/// history (Win+V) and cloud clipboard sync skip it.
+fn write_transcription_text(
+    app_handle: &AppHandle,
+    text: &str,
+    exclude_from_history: bool,
+) -> Result<(), String> {
+    #[cfg(target_os = "windows")]
+    if exclude_from_history {
+        return win_clipboard::write_text_excluded_from_history(text);
+    }
+    #[cfg(not(target_os = "windows"))]
+    let _ = exclude_from_history;
+    app_handle
+        .clipboard()
+        .write_text(text)
+        .map_err(|e| format!("Failed to write to clipboard: {}", e))
+}
+
+/// Whether the final full-text write is excluded from the clipboard history.
+/// In KeepTranscription mode the final text is always recorded (matching the
+/// legacy copy_to_clipboard behavior); in the restore modes it follows the
+/// user's history toggle.
+pub fn exclude_final_write_from_history(settings: &AppSettings) -> bool {
+    settings.clipboard_handling != ClipboardHandling::KeepTranscription
+        && !settings.clipboard_history_allowed
+}
+
+/// Final full-text transcription write at the end of an operation. Unless
+/// excluded, the clipboard always ends with the complete final text and the
+/// history captures it once.
+pub fn write_final_transcription_text(
+    app_handle: &AppHandle,
+    text: &str,
+    exclude_from_history: bool,
+) -> Result<(), String> {
+    write_transcription_text(app_handle, text, exclude_from_history)
+}
+
 fn paste_via_clipboard_no_restore(
     enigo: &mut Enigo,
     text: &str,
@@ -551,13 +636,11 @@ fn paste_via_clipboard_no_restore(
     paste_method: &PasteMethod,
     paste_delay_ms: u64,
     convert_lf_to_crlf: bool,
+    exclude_from_history: bool,
 ) -> Result<Instant, String> {
-    let clipboard = app_handle.clipboard();
     let text = convert_text_for_clipboard(text, convert_lf_to_crlf);
 
-    clipboard
-        .write_text(&text)
-        .map_err(|e| format!("Failed to write to clipboard: {}", e))?;
+    write_transcription_text(app_handle, &text, exclude_from_history)?;
 
     std::thread::sleep(Duration::from_millis(paste_delay_ms));
     send_paste_shortcut(enigo, paste_method)?;
@@ -607,7 +690,7 @@ fn restore_streaming_session(
 
     if matches!(
         session.clipboard_handling,
-        ClipboardHandling::DontModify
+        ClipboardHandling::RestorePlainText
             | ClipboardHandling::RestoreAdvanced
             | ClipboardHandling::RestoreAdvancedOwned
     ) {
@@ -651,7 +734,7 @@ pub fn begin_streaming_paste_session(
 
     let text_backup = if matches!(
         settings.clipboard_handling,
-        ClipboardHandling::DontModify
+        ClipboardHandling::RestorePlainText
             | ClipboardHandling::RestoreAdvanced
             | ClipboardHandling::RestoreAdvancedOwned
     ) {
@@ -739,6 +822,7 @@ fn paste_via_clipboard(
     paste_delay_ms: u64,
     convert_lf_to_crlf: bool,
     clipboard_handling: ClipboardHandling,
+    exclude_final_from_history: bool,
 ) -> Result<(), String> {
     let clipboard = app_handle.clipboard();
 
@@ -763,11 +847,11 @@ fn paste_via_clipboard(
     };
 
     // Capture text backup for:
-    // - DontModify mode (existing behavior)
+    // - RestorePlainText mode (existing behavior)
     // - RestoreAdvanced fallback when rich-format restore is partial/failed
     let text_backup = if matches!(
         clipboard_handling,
-        ClipboardHandling::DontModify
+        ClipboardHandling::RestorePlainText
             | ClipboardHandling::RestoreAdvanced
             | ClipboardHandling::RestoreAdvancedOwned
     ) {
@@ -776,6 +860,7 @@ fn paste_via_clipboard(
         String::new()
     };
 
+    // The non-streaming paste write is also the final write.
     let paste_sent_at = paste_via_clipboard_no_restore(
         enigo,
         text,
@@ -783,6 +868,7 @@ fn paste_via_clipboard(
         paste_method,
         paste_delay_ms,
         convert_lf_to_crlf,
+        exclude_final_from_history,
     )?;
     wait_for_clipboard_consumer(Some(paste_sent_at));
 
@@ -797,11 +883,11 @@ fn paste_via_clipboard(
         );
     }
 
-    // Text-only restore for DontModify and as the fallback when an advanced
+    // Text-only restore for RestorePlainText and as the fallback when an advanced
     // backup could not be created (including non-Windows platforms).
     if matches!(
         clipboard_handling,
-        ClipboardHandling::DontModify
+        ClipboardHandling::RestorePlainText
             | ClipboardHandling::RestoreAdvanced
             | ClipboardHandling::RestoreAdvancedOwned
     ) {
@@ -1171,6 +1257,7 @@ pub fn paste(text: String, app_handle: AppHandle) -> Result<(), String> {
     let settings = get_settings(&app_handle);
     let paste_method = settings.paste_method;
     let clipboard_handling = settings.clipboard_handling;
+    let exclude_final_from_history = exclude_final_write_from_history(&settings);
     let paste_delay_ms = settings.paste_delay_ms;
 
     info!(
@@ -1204,6 +1291,7 @@ pub fn paste(text: String, app_handle: AppHandle) -> Result<(), String> {
                 paste_delay_ms,
                 settings.convert_lf_to_crlf,
                 clipboard_handling,
+                exclude_final_from_history,
             )?
         }
     }
@@ -1213,20 +1301,11 @@ pub fn paste(text: String, app_handle: AppHandle) -> Result<(), String> {
         send_return_key(&mut enigo, settings.auto_submit_key)?;
     }
 
-    // After pasting, optionally copy to clipboard based on settings
-    // (only if CopyToClipboard mode, which means we intentionally want to keep the transcription)
-    if clipboard_handling == ClipboardHandling::CopyToClipboard {
-        let clipboard = app_handle.clipboard();
-        clipboard
-            .write_text(&text)
-            .map_err(|e| format!("Failed to copy to clipboard: {}", e))?;
-    }
-
     Ok(())
 }
 
 /// Pastes a streaming chunk without appending trailing space and without
-/// overriding clipboard contents in CopyToClipboard mode.
+/// restoring clipboard contents until the session ends.
 pub fn paste_stream_chunk(text: String, app_handle: AppHandle) -> Result<(), String> {
     if text.is_empty() {
         return Ok(());
@@ -1254,7 +1333,9 @@ pub fn paste_stream_chunk(text: String, app_handle: AppHandle) -> Result<(), Str
         .lock()
         .map_err(|e| format!("Failed to lock Enigo: {}", e))?;
 
-    if let Some((paste_method, paste_delay_ms, convert_lf_to_crlf)) = active_stream_config {
+    if let Some((paste_method, paste_delay_ms, convert_lf_to_crlf)) =
+        active_stream_config
+    {
         match paste_method {
             PasteMethod::None => {
                 info!("PasteMethod::None selected - skipping streaming chunk paste");
@@ -1270,6 +1351,8 @@ pub fn paste_stream_chunk(text: String, app_handle: AppHandle) -> Result<(), Str
                         .as_ref()
                         .and_then(|session| session.last_clipboard_paste_sent_at),
                 );
+                // Streaming chunks are always excluded from the clipboard
+                // history; only the final full-text write may be captured.
                 let paste_sent_at = paste_via_clipboard_no_restore(
                     &mut enigo,
                     &text,
@@ -1277,6 +1360,7 @@ pub fn paste_stream_chunk(text: String, app_handle: AppHandle) -> Result<(), Str
                     &paste_method,
                     paste_delay_ms,
                     convert_lf_to_crlf,
+                    true,
                 )?;
                 if let Some(session) = stream_session_guard.as_mut() {
                     session.last_clipboard_paste_sent_at = Some(paste_sent_at);
@@ -1294,6 +1378,7 @@ pub fn paste_stream_chunk(text: String, app_handle: AppHandle) -> Result<(), Str
                 paste_direct(&mut enigo, &text)?;
             }
             PasteMethod::CtrlV | PasteMethod::CtrlShiftV | PasteMethod::ShiftInsert => {
+                // Streaming chunks are always excluded from the clipboard history.
                 paste_via_clipboard(
                     &mut enigo,
                     &text,
@@ -1301,7 +1386,8 @@ pub fn paste_stream_chunk(text: String, app_handle: AppHandle) -> Result<(), Str
                     &settings.paste_method,
                     settings.paste_delay_ms,
                     settings.convert_lf_to_crlf,
-                    ClipboardHandling::DontModify,
+                    settings.clipboard_handling,
+                    true,
                 )?
             }
         }
@@ -1542,7 +1628,7 @@ mod tests {
             ClipboardHandling::RestoreAdvancedOwned
         ));
         assert!(!restores_all_clipboard_formats(
-            ClipboardHandling::DontModify
+            ClipboardHandling::RestorePlainText
         ));
     }
 
