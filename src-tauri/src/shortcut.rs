@@ -2709,19 +2709,34 @@ pub fn change_paste_delay_ms_setting(app: AppHandle, delay: u64) -> Result<(), S
 pub fn change_clipboard_handling_setting(app: AppHandle, handling: String) -> Result<(), String> {
     let mut settings = settings::get_settings(&app);
     let parsed = match handling.as_str() {
-        "dont_modify" => ClipboardHandling::DontModify,
-        "copy_to_clipboard" => ClipboardHandling::CopyToClipboard,
+        "keep_transcription" => ClipboardHandling::KeepTranscription,
+        "restore_plain_text" => ClipboardHandling::RestorePlainText,
+        "dont_modify" => ClipboardHandling::RestorePlainText,
+        // Legacy value, superseded by keep_transcription + clipboard_history_allowed.
+        "copy_to_clipboard" => ClipboardHandling::KeepTranscription,
         "restore_advanced" => ClipboardHandling::RestoreAdvanced,
         "restore_advanced_owned" => ClipboardHandling::RestoreAdvancedOwned,
         other => {
             warn!(
-                "Invalid clipboard handling '{}', defaulting to dont_modify",
+                "Invalid clipboard handling '{}', defaulting to restore_plain_text",
                 other
             );
-            ClipboardHandling::DontModify
+            ClipboardHandling::RestorePlainText
         }
     };
     settings.clipboard_handling = parsed;
+    settings::write_settings(&app, settings);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_clipboard_history_allowed_setting(
+    app: AppHandle,
+    allowed: bool,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.clipboard_history_allowed = allowed;
     settings::write_settings(&app, settings);
     Ok(())
 }

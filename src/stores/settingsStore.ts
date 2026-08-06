@@ -201,6 +201,8 @@ const settingUpdaters: {
     commands.changePasteDelayMsSetting(Math.round(value as number)),
   clipboard_handling: (value) =>
     commands.changeClipboardHandlingSetting(value as string),
+  clipboard_history_allowed: (value) =>
+    commands.changeClipboardHistoryAllowedSetting(value as boolean),
   auto_submit: (value) => commands.changeAutoSubmitSetting(value as boolean),
   auto_submit_key: (value) =>
     commands.changeAutoSubmitKeySetting(value as string),

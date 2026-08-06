@@ -6806,8 +6806,8 @@ impl ShortcutAction for TranscribeAction {
 
                 let stream_trailing_adjustment =
                     resolve_stream_trailing_adjustment(&recording_settings, &transcription);
-                let copy_to_clipboard = recording_settings.clipboard_handling
-                    == crate::settings::ClipboardHandling::CopyToClipboard;
+                let exclude_final_from_history =
+                    crate::clipboard::exclude_final_write_from_history(&recording_settings);
                 let transcription_before_post_process = transcription.clone();
                 let preview_processing_before_insert = should_show_preview_processing_before_insert(
                     &recording_settings,
@@ -6906,8 +6906,22 @@ impl ShortcutAction for TranscribeAction {
                                     final_text_for_ui.clone(),
                                     ah_clone.clone(),
                                 );
-                            } else if copy_to_clipboard {
-                                let _ = ah_clone.clipboard().write_text(final_text_for_ui.clone());
+                                // The replay chunk above is the complete text; in
+                                // SaveFinalTextOnly mode it must be re-written
+                                // visibly so the history captures it once.
+                                if !exclude_final_from_history {
+                                    let _ = crate::clipboard::write_final_transcription_text(
+                                        &ah_clone,
+                                        &final_text_for_ui,
+                                        exclude_final_from_history,
+                                    );
+                                }
+                            } else {
+                                let _ = crate::clipboard::write_final_transcription_text(
+                                    &ah_clone,
+                                    &final_text_for_ui,
+                                    exclude_final_from_history,
+                                );
                             }
                         } else {
                             if recovered_from_soniox_replay {
@@ -6917,6 +6931,16 @@ impl ShortcutAction for TranscribeAction {
                                     final_text_for_ui.clone(),
                                     ah_clone.clone(),
                                 );
+                                // The replay chunk is the complete text; in
+                                // SaveFinalTextOnly mode it must be re-written
+                                // visibly so the history captures it once.
+                                if !exclude_final_from_history {
+                                    let _ = crate::clipboard::write_final_transcription_text(
+                                        &ah_clone,
+                                        &final_text_for_ui,
+                                        exclude_final_from_history,
+                                    );
+                                }
                             } else {
                                 // Soniox live mode already inserted text incrementally while
                                 // chunks arrived. Apply only the final boundary adjustment.
@@ -6924,9 +6948,13 @@ impl ShortcutAction for TranscribeAction {
                                     &ah_clone,
                                     stream_trailing_adjustment,
                                 );
-                            }
-                            if copy_to_clipboard {
-                                let _ = ah_clone.clipboard().write_text(final_text_for_ui.clone());
+                                if !exclude_final_from_history {
+                                    let _ = crate::clipboard::write_final_transcription_text(
+                                        &ah_clone,
+                                        &final_text_for_ui,
+                                        exclude_final_from_history,
+                                    );
+                                }
                             }
                         }
                     }
@@ -7203,11 +7231,10 @@ impl ShortcutAction for TranscribeAction {
             } else {
                 StreamTrailingAdjustment::None
             };
-            let copy_to_clipboard = if is_soniox_streaming_insert {
-                recording_settings.clipboard_handling
-                    == crate::settings::ClipboardHandling::CopyToClipboard
+            let stream_exclude_final_from_history = if is_soniox_streaming_insert {
+                Some(crate::clipboard::exclude_final_write_from_history(&recording_settings))
             } else {
-                false
+                None
             };
             let preview_processing_before_insert = should_show_preview_processing_before_insert(
                 &recording_settings,
@@ -7289,8 +7316,12 @@ impl ShortcutAction for TranscribeAction {
                     // Streaming paths already inserted only committed text incrementally.
                     // Apply only boundary-level trailing adjustment at finalization.
                     apply_stream_trailing_adjustment(&ah_clone, stream_trailing_adjustment);
-                    if copy_to_clipboard {
-                        let _ = ah_clone.clipboard().write_text(final_text_for_ui.clone());
+                    if let Some(exclude_final_from_history) = stream_exclude_final_from_history {
+                        let _ = crate::clipboard::write_final_transcription_text(
+                            &ah_clone,
+                            &final_text_for_ui,
+                            exclude_final_from_history,
+                        );
                     }
                 } else if !preview_output_only_enabled {
                     match utils::paste(final_text_for_ui.clone(), ah_clone.clone()) {

@@ -2454,13 +2454,18 @@ pub enum PasteMethod {
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Type)]
 #[serde(rename_all = "snake_case")]
 pub enum ClipboardHandling {
-    DontModify,
-    CopyToClipboard,
+    /// Do nothing after pasting: the transcript stays in the clipboard and
+    /// the previous clipboard content is lost.
+    KeepTranscription,
+    /// Restore plain text after pasting.
+    #[serde(alias = "dont_modify")]
+    RestorePlainText,
     /// Experimental: Try to restore all clipboard formats including images, HTML, files (Windows-only)
     RestoreAdvanced,
     /// Restore all supported formats using an AivoRelay HWND as the documented clipboard owner.
     RestoreAdvancedOwned,
 }
+ 
 
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Type)]
 #[serde(rename_all = "snake_case")]
@@ -2506,7 +2511,7 @@ impl Default for PasteMethod {
 
 impl Default for ClipboardHandling {
     fn default() -> Self {
-        ClipboardHandling::DontModify
+        ClipboardHandling::RestorePlainText
     }
 }
 
@@ -3087,6 +3092,8 @@ pub struct AppSettings {
     pub convert_lf_to_crlf: bool,
     #[serde(default)]
     pub clipboard_handling: ClipboardHandling,
+    #[serde(default = "default_true")]
+    pub clipboard_history_allowed: bool,
     #[serde(default = "default_auto_submit")]
     pub auto_submit: bool,
     #[serde(default)]
@@ -5125,6 +5132,7 @@ pub fn get_default_settings() -> AppSettings {
         paste_delay_ms: default_paste_delay_ms(),
         convert_lf_to_crlf: true,
         clipboard_handling: ClipboardHandling::default(),
+        clipboard_history_allowed: default_true(),
         auto_submit: default_auto_submit(),
         auto_submit_key: AutoSubmitKey::default(),
         post_process_enabled: default_post_process_enabled(),
@@ -5535,6 +5543,52 @@ fn normalize_legacy_aliases(candidate: &mut Value) -> bool {
         "soniox_live_preview_local_auto_flush_overlap_ms",
     );
     changed |= normalize_legacy_recording_overlay_settings(candidate);
+    changed |= normalize_legacy_clipboard_history(candidate);
+    changed
+}
+
+/// Legacy `copy_to_clipboard` handling mode is superseded by the dedicated
+/// history setting: it used to keep the final transcription on the clipboard,
+/// which now maps to "don't restore" + "save final text only".
+/// Migrates two legacy clipboard shapes:
+/// - `clipboard_handling: "copy_to_clipboard"` (pre-history-setting builds)
+///   becomes `keep_transcription` with history capture allowed, preserving
+///   the exact legacy behavior.
+/// - `clipboard_history_mode` (short-lived enum: dont_save /
+///   save_final_text_only / keep_chunks) becomes the boolean
+///   `clipboard_history_allowed`.
+fn normalize_legacy_clipboard_history(candidate: &mut Value) -> bool {
+    let Some(object) = candidate.as_object_mut() else {
+        return false;
+    };
+    let mut changed = false;
+    if object.get("clipboard_handling").and_then(Value::as_str)
+        == Some("copy_to_clipboard")
+    {
+        object.insert(
+            "clipboard_handling".to_string(),
+            Value::String("keep_transcription".to_string()),
+        );
+        object
+            .entry("clipboard_history_allowed".to_string())
+            .or_insert(Value::Bool(true));
+        changed = true;
+    }
+    if object.get("clipboard_handling").and_then(Value::as_str) == Some("dont_modify") {
+        object.insert(
+            "clipboard_handling".to_string(),
+            Value::String("restore_plain_text".to_string()),
+        );
+        changed = true;
+    }
+    if let Some(mode) = object.get("clipboard_history_mode").and_then(Value::as_str) {
+        let allowed = mode != "dont_save";
+        object
+            .entry("clipboard_history_allowed".to_string())
+            .or_insert(Value::Bool(allowed));
+        object.remove("clipboard_history_mode");
+        changed = true;
+    }
     changed
 }
 

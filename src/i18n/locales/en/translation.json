@@ -1928,27 +1928,35 @@
           "direct": "Direct: Simulates typing character-by-character (more compatible with games/terminals)."
         },
         "clipboardHandling": {
-          "title": "Clipboard Handling:",
-          "intro": "This setting decides what happens to whatever is already in your clipboard after AivoRelay pastes the transcript.",
+          "title": "After pasting:",
+          "intro": "Since pasting goes through the clipboard, after pasting do you want the text to remain in the clipboard, or return the previous clipboard content?",
           "safestChoiceTitle": "Best default:",
-          "safestChoiceDescription": "If you are not sure which one to choose, use Restore previous text. It is the safest everyday option for most people.",
-          "dontModify": {
-            "title": "Restore previous text:",
-            "description": "AivoRelay remembers the text currently in your clipboard, pastes the transcript, then tries to put your old text back. Best if you often copy notes, links, or code and do not want the transcript to replace them. This usually restores plain text only."
+          "safestChoiceDescription": "If you are not sure, choose Restore previous clipboard content with the Plain text only method. It is the safest everyday option for most people.",
+          "keepTranscription": {
+            "title": "Keep transcription in the clipboard:",
+            "description": "Do nothing after pasting. The transcript simply stays in your clipboard, and whatever was there before is gone. Choose this if you want to paste the same transcript again in another app."
           },
-          "copyToClipboard": {
-            "title": "Keep transcription in clipboard:",
-            "description": "AivoRelay leaves the transcript in your clipboard after pasting. Best if you want to paste the same transcript again in another app. Your previous clipboard content will be replaced by the transcript."
+          "restore": {
+            "title": "Restore previous clipboard content:",
+            "description": "AivoRelay remembers what is in your clipboard, pastes the transcript, then puts your old content back. Best if you often copy notes, links, or code and do not want the transcript to replace them."
+          },
+          "restorePlain": {
+            "title": "Plain text only:",
+            "description": "The lightest and most reliable restore: only the text that was in your clipboard is put back."
           },
           "restoreAdvanced": {
-            "title": "Restore all formats (Windows only, experimental):",
-            "description": "This mode tries to back up and restore more than plain text, including copied images, files, and formatted content. Use it only if the normal restore option is not enough. It can be less predictable because different apps expose clipboard data in different ways."
+            "title": "All formats (Windows):",
+            "description": "Tries to restore everything that was in the clipboard — roughly speaking, including copied images, files, and formatted content. Some formats may fail to restore, because different apps expose clipboard data in different ways."
           },
           "restoreAdvancedOwned": {
-            "title": "Restore all formats with a documented owner (Windows only):",
-            "description": "Uses an AivoRelay window as the Win32 clipboard owner before clearing and restoring supported formats, as required by Microsoft documentation. If no application window handle is available, AivoRelay falls back to restoring plain text. Choose this mode to avoid the legacy mode's null-owner compatibility behavior."
+            "title": "All formats, documented owner (Windows):",
+            "description": "Same as All formats, but uses an AivoRelay window as the Win32 clipboard owner, as required by Microsoft documentation. Falls back to plain text if no app window is available."
           },
-          "note": "If clipboard behavior ever feels unreliable, switch back to Restore previous text first."
+          "history": {
+            "title": "Allow transcription in Windows clipboard history (Win+V):",
+            "description": "Even after the restore, the full final transcript is kept as a single entry in the Windows clipboard history, so you can paste it again with Win+V. Turn this off if you do not want transcripts recorded there. Streaming chunks are never saved."
+          },
+          "note": "If clipboard behavior ever feels unreliable, switch back to the Plain text only restore method first."
         },
         "modelUnload": {
           "title": "Model Unload:",
@@ -2090,15 +2098,24 @@
         }
       },
       "clipboardHandling": {
-        "title": "Clipboard Handling",
-        "description": "Choose what happens to your clipboard after pasting. If you are not sure, use Restore previous text.",
-        "descriptionAdvanced": "Experimental Windows mode. Tries to restore text, images, files, and other clipboard formats after pasting. Use it only if you specifically need better recovery of rich clipboard content.",
-        "descriptionAdvancedOwned": "Windows mode that restores supported clipboard formats using an AivoRelay window as the documented Win32 clipboard owner. It falls back to plain text if a valid app window is unavailable.",
+        "title": "After Pasting",
+        "description": "Since pasting goes through the clipboard, after pasting do you want the text to remain in the clipboard, or return the previous clipboard content?",
         "options": {
-          "dontModify": "Restore previous text",
-          "copyToClipboard": "Keep transcription in clipboard",
-          "restoreAdvanced": "⚠️ Legacy compatible: Restore all formats (Windows)",
-          "restoreAdvancedOwned": "🛡️ Documented owner: Restore all formats (Windows)"
+          "restore": "Restore previous clipboard content",
+          "keepTranscription": "Keep transcription in the clipboard"
+        },
+        "restoreMethod": {
+          "title": "Restore Method",
+          "description": "How to bring back your previous clipboard content. Plain text only is the lightest and most reliable option.",
+          "options": {
+            "plainText": "Plain text only",
+            "allFormats": "⚠️ All formats — images, files, formatting (Windows)",
+            "allFormatsOwned": "🛡️ All formats, documented owner (Windows)"
+          }
+        },
+        "history": {
+          "title": "Allow Transcription in Clipboard History (Win+V)",
+          "description": "After the restore, the full final transcript is kept as a single entry in the Windows clipboard history, so you can paste it again later. Streaming chunks are never saved."
         }
       },
       "autoSubmit": {
