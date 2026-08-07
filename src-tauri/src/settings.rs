@@ -712,6 +712,8 @@ pub enum TtsProvider {
     #[serde(rename = "elevenlabs")]
     ElevenLabs,
     Cartesia,
+    #[serde(rename = "openai_compatible")]
+    OpenAiCompatible,
     Edge,
     LocalQwen,
     LocalKokoro,
@@ -720,6 +722,9 @@ pub enum TtsProvider {
 
 pub(crate) const DEFAULT_TTS_SONIOX_VOICE: &str = "Maya";
 pub(crate) const DEFAULT_TTS_OPENAI_VOICE: &str = "marin";
+pub(crate) const DEFAULT_TTS_OPENAI_COMPATIBLE_BASE_URL: &str = "https://api.openai.com/v1";
+pub(crate) const DEFAULT_TTS_OPENAI_COMPATIBLE_MODEL: &str = "tts-1";
+pub(crate) const DEFAULT_TTS_OPENAI_COMPATIBLE_VOICE: &str = "alloy";
 pub(crate) const DEFAULT_TTS_MURF_VOICE: &str = "Gordon";
 pub(crate) const DEFAULT_TTS_MURF_GEN2_VOICE: &str = "en-US-natalie";
 pub(crate) const DEFAULT_TTS_ELEVENLABS_VOICE: &str = "JBFqnCBsd6RMkjVDRZzb";
@@ -742,6 +747,7 @@ impl TtsProvider {
             Self::Murf => "murf",
             Self::ElevenLabs => "elevenlabs",
             Self::Cartesia => "cartesia",
+            Self::OpenAiCompatible => "openai_compatible",
             Self::Edge => "edge",
             Self::LocalQwen => "local_qwen",
             Self::LocalKokoro => "local_kokoro",
@@ -755,6 +761,7 @@ impl TtsProvider {
             Self::Soniox
                 | Self::Deepgram
                 | Self::OpenAi
+                | Self::OpenAiCompatible
                 | Self::Murf
                 | Self::ElevenLabs
                 | Self::Cartesia
@@ -762,7 +769,15 @@ impl TtsProvider {
     }
 
     pub fn requires_paid_confirmation(self) -> bool {
-        self.requires_api_key()
+        matches!(
+            self,
+            Self::Soniox
+                | Self::Deepgram
+                | Self::OpenAi
+                | Self::Murf
+                | Self::ElevenLabs
+                | Self::Cartesia
+        )
     }
 
     pub fn supports_instructions(self, model: &str) -> bool {
@@ -771,7 +786,13 @@ impl TtsProvider {
     }
 
     pub fn supports_shared_key(self) -> bool {
-        matches!(self, Self::Soniox | Self::Deepgram | Self::OpenAi)
+        matches!(
+            self,
+            Self::Soniox
+                | Self::Deepgram
+                | Self::OpenAi
+                | Self::OpenAiCompatible
+        )
     }
 
     pub fn is_local_or_system(self) -> bool {
@@ -861,6 +882,10 @@ pub struct TtsSynthesisConfig {
     pub language: String,
     #[serde(default)]
     pub key_source: TtsKeySource,
+    #[serde(default = "default_tts_openai_compatible_base_url")]
+    pub openai_compatible_base_url: String,
+    #[serde(default)]
+    pub openai_compatible_allow_insecure_http: bool,
     #[serde(default = "default_tts_speed")]
     pub speed: f32,
     #[serde(default = "default_tts_murf_rate")]
@@ -911,7 +936,11 @@ pub struct TtsSynthesisConfig {
 
 impl TtsSynthesisConfig {
     pub fn model_key(&self) -> String {
-        tts_model_key(self.provider, &self.model)
+        tts_model_key(
+            self.provider,
+            &self.model,
+            &self.openai_compatible_base_url,
+        )
     }
 
     pub fn from_settings(settings: &TtsSettings, scope: TtsOperationScope) -> Self {
@@ -929,6 +958,11 @@ impl TtsSynthesisConfig {
             TtsProvider::OpenAi => (
                 settings.openai_model.clone(),
                 settings.openai_voice.clone(),
+                String::new(),
+            ),
+            TtsProvider::OpenAiCompatible => (
+                settings.openai_compatible_model.clone(),
+                settings.openai_compatible_voice.clone(),
                 String::new(),
             ),
             TtsProvider::Murf => (
@@ -971,6 +1005,7 @@ impl TtsSynthesisConfig {
             TtsProvider::Soniox => settings.soniox_key_source,
             TtsProvider::Deepgram => settings.deepgram_key_source,
             TtsProvider::OpenAi => settings.openai_key_source,
+            TtsProvider::OpenAiCompatible => settings.openai_compatible_key_source,
             TtsProvider::Murf => settings.murf_key_source,
             TtsProvider::ElevenLabs => settings.elevenlabs_key_source,
             TtsProvider::Cartesia => settings.cartesia_key_source,
@@ -989,6 +1024,8 @@ impl TtsSynthesisConfig {
             voice,
             language,
             key_source,
+            openai_compatible_base_url: settings.openai_compatible_base_url.clone(),
+            openai_compatible_allow_insecure_http: settings.openai_compatible_allow_insecure_http,
             speed: settings.speed,
             murf_rate: settings.murf_rate,
             murf_pitch: settings.murf_pitch,
@@ -1033,6 +1070,13 @@ impl TtsSynthesisConfig {
                 settings.openai_model = self.model.clone();
                 settings.openai_voice = self.voice.clone();
                 settings.openai_key_source = self.key_source;
+            }
+            TtsProvider::OpenAiCompatible => {
+                settings.openai_compatible_model = self.model.clone();
+                settings.openai_compatible_voice = self.voice.clone();
+                settings.openai_compatible_key_source = self.key_source;
+                settings.openai_compatible_base_url = self.openai_compatible_base_url.clone();
+                settings.openai_compatible_allow_insecure_http = self.openai_compatible_allow_insecure_http;
             }
             TtsProvider::Murf => {
                 settings.murf_model = self.model.clone();
@@ -1166,6 +1210,7 @@ impl TtsScopeSynthesisSettings {
     }
 
     fn upsert(&mut self, config: TtsSynthesisConfig) {
+        self.normalize_provider_memories();
         let provider = config.provider;
         let model_key = config.model_key();
         if let Some(existing) = self
@@ -1187,12 +1232,56 @@ impl TtsScopeSynthesisSettings {
     }
 
     pub(crate) fn normalize_provider_memories(&mut self) {
+        let previous_active_model_key = self.active_model_key.clone();
+        let mut exact_key_migrations = Vec::with_capacity(self.models.len());
+        let mut legacy_key_migrations = Vec::with_capacity(self.models.len());
         for entry in &mut self.models {
-            entry.model_key = entry.config.model_key();
+            let previous_model_key = entry.model_key.clone();
+            let model_key = entry.config.model_key();
+            exact_key_migrations.push((
+                entry.config.provider,
+                previous_model_key,
+                model_key.clone(),
+            ));
+            legacy_key_migrations.push((
+                entry.config.provider,
+                legacy_tts_model_key(entry.config.provider, &entry.config.model),
+                model_key.clone(),
+            ));
+            entry.model_key = model_key;
         }
         let mut model_keys = std::collections::HashSet::new();
         self.models
             .retain(|entry| model_keys.insert(entry.model_key.clone()));
+
+        let migrated_key = |provider: Option<TtsProvider>, previous_key: &str| {
+            exact_key_migrations
+                .iter()
+                .rev()
+                .find(|(candidate_provider, old_key, _)| {
+                    provider.map_or(true, |expected| expected == *candidate_provider)
+                        && old_key == previous_key
+                })
+                .or_else(|| {
+                    legacy_key_migrations
+                        .iter()
+                        .rev()
+                        .find(|(candidate_provider, legacy_key, _)| {
+                            provider.map_or(true, |expected| expected == *candidate_provider)
+                                && legacy_key == previous_key
+                        })
+                })
+                .map(|(_, _, new_key)| new_key.clone())
+        };
+
+        if let Some(model_key) = migrated_key(None, &previous_active_model_key) {
+            self.active_model_key = model_key;
+        }
+        for selection in &mut self.active_models_by_provider {
+            if let Some(model_key) = migrated_key(Some(selection.provider), &selection.model_key) {
+                selection.model_key = model_key;
+            }
+        }
 
         let valid_selection = |selection: &TtsProviderModelSelection,
                                models: &[TtsModelSynthesisSettings]| {
@@ -1271,6 +1360,8 @@ fn builtin_tts_synthesis_preset(
             } else {
                 TtsKeySource::Separate
             },
+            openai_compatible_base_url: default_tts_openai_compatible_base_url(),
+            openai_compatible_allow_insecure_http: false,
             speed,
             murf_rate: default_tts_murf_rate(),
             murf_pitch: default_tts_murf_pitch(),
@@ -1356,6 +1447,15 @@ fn default_tts_synthesis_presets() -> Vec<TtsSynthesisPreset> {
             TtsProvider::OpenAi,
             "gpt-4o-mini-tts",
             "cedar",
+            "",
+            1.0,
+        ),
+        builtin_tts_synthesis_preset(
+            "builtin_tts_openai_compatible_custom",
+            "OpenAI-compatible — Custom (Default)",
+            TtsProvider::OpenAiCompatible,
+            "tts-1",
+            "alloy",
             "",
             1.0,
         ),
@@ -1485,8 +1585,36 @@ fn recommended_tts_synthesis_preset(provider: TtsProvider) -> Option<TtsSynthesi
         .find(|preset| preset.config.provider == provider)
 }
 
-pub fn tts_model_key(provider: TtsProvider, model: &str) -> String {
+fn legacy_tts_model_key(provider: TtsProvider, model: &str) -> String {
     format!("{}:{}", provider.as_str(), model.trim())
+}
+
+pub fn tts_model_key(
+    provider: TtsProvider,
+    model: &str,
+    openai_compatible_base_url: &str,
+) -> String {
+    if provider != TtsProvider::OpenAiCompatible {
+        return legacy_tts_model_key(provider, model);
+    }
+
+    let normalized_endpoint = crate::url_security::validate_openai_compatible_tts_base_url(
+        openai_compatible_base_url,
+        true,
+    )
+    .unwrap_or_else(|_| {
+        openai_compatible_base_url
+            .trim()
+            .trim_end_matches('/')
+            .to_string()
+    });
+    format!(
+        "{}:{}:{}:{}",
+        provider.as_str(),
+        normalized_endpoint.chars().count(),
+        normalized_endpoint,
+        model.trim()
+    )
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Type)]
@@ -1593,6 +1721,8 @@ pub struct TtsSettings {
     #[serde(default)]
     pub openai_key_source: TtsKeySource,
     #[serde(default = "default_tts_separate_key_source")]
+    pub openai_compatible_key_source: TtsKeySource,
+    #[serde(default = "default_tts_separate_key_source")]
     pub murf_key_source: TtsKeySource,
     #[serde(default = "default_tts_separate_key_source")]
     pub elevenlabs_key_source: TtsKeySource,
@@ -1610,6 +1740,14 @@ pub struct TtsSettings {
     pub openai_model: String,
     #[serde(default = "default_tts_openai_voice")]
     pub openai_voice: String,
+    #[serde(default = "default_tts_openai_compatible_base_url")]
+    pub openai_compatible_base_url: String,
+    #[serde(default)]
+    pub openai_compatible_allow_insecure_http: bool,
+    #[serde(default = "default_tts_openai_compatible_model")]
+    pub openai_compatible_model: String,
+    #[serde(default = "default_tts_openai_compatible_voice")]
+    pub openai_compatible_voice: String,
     #[serde(default = "default_tts_murf_model")]
     pub murf_model: String,
     #[serde(default = "default_tts_murf_voice")]
@@ -1755,6 +1893,7 @@ impl Default for TtsSettings {
             soniox_key_source: TtsKeySource::Shared,
             deepgram_key_source: TtsKeySource::Shared,
             openai_key_source: TtsKeySource::Shared,
+            openai_compatible_key_source: TtsKeySource::Separate,
             murf_key_source: TtsKeySource::Separate,
             elevenlabs_key_source: TtsKeySource::Separate,
             cartesia_key_source: TtsKeySource::Separate,
@@ -1764,6 +1903,10 @@ impl Default for TtsSettings {
             deepgram_model: default_tts_deepgram_model(),
             openai_model: default_tts_openai_model(),
             openai_voice: default_tts_openai_voice(),
+            openai_compatible_base_url: default_tts_openai_compatible_base_url(),
+            openai_compatible_allow_insecure_http: false,
+            openai_compatible_model: default_tts_openai_compatible_model(),
+            openai_compatible_voice: default_tts_openai_compatible_voice(),
             murf_model: default_tts_murf_model(),
             murf_voice: default_tts_murf_voice(),
             murf_language: default_tts_murf_language(),
@@ -1890,6 +2033,7 @@ impl TtsSettings {
         let requested_config = TtsSynthesisConfig::from_settings(requested, scope);
         let requested_key = requested_config.model_key();
         let scope_settings = self.scope_synthesis_mut(scope);
+        scope_settings.normalize_provider_memories();
         if scope_settings
             .models
             .iter()
@@ -3815,6 +3959,18 @@ fn default_tts_openai_model() -> String {
 
 fn default_tts_openai_voice() -> String {
     DEFAULT_TTS_OPENAI_VOICE.to_string()
+}
+
+fn default_tts_openai_compatible_base_url() -> String {
+    DEFAULT_TTS_OPENAI_COMPATIBLE_BASE_URL.to_string()
+}
+
+fn default_tts_openai_compatible_model() -> String {
+    DEFAULT_TTS_OPENAI_COMPATIBLE_MODEL.to_string()
+}
+
+fn default_tts_openai_compatible_voice() -> String {
+    DEFAULT_TTS_OPENAI_COMPATIBLE_VOICE.to_string()
 }
 
 fn default_tts_separate_key_source() -> TtsKeySource {
@@ -6666,6 +6822,7 @@ mod tests {
         assert!(TtsProvider::Windows.is_local_or_system());
         assert!(!TtsProvider::Windows.supports_downloadable_local_runtime());
         assert!(!TtsProvider::Windows.supports_instructions(""));
+        assert!(TtsProvider::OpenAiCompatible.requires_paid_confirmation());
         assert!(TtsProvider::OpenAi.supports_instructions("gpt-4o-mini-tts"));
         assert!(!TtsProvider::OpenAi.supports_instructions("tts-1"));
         assert!(TtsProvider::LocalKokoro.supports_downloadable_local_runtime());
@@ -6708,6 +6865,87 @@ mod tests {
         assert_eq!(settings.local_kokoro_voice, "af_maple");
         assert_eq!(settings.local_kokoro_language, "English");
         assert_eq!(settings.speed, 1.0);
+    }
+
+    #[test]
+    fn openai_compatible_model_identity_includes_normalized_endpoint() {
+        let mut settings = TtsSettings::default();
+        settings.provider = TtsProvider::OpenAiCompatible;
+        settings.openai_compatible_model = "tts-1".to_string();
+        settings.openai_compatible_base_url = "localhost:8000/v1/".to_string();
+        let localhost =
+            TtsSynthesisConfig::from_settings(&settings, TtsOperationScope::Interactive);
+
+        settings.openai_compatible_base_url = "http://localhost:8000/v1".to_string();
+        let normalized_localhost =
+            TtsSynthesisConfig::from_settings(&settings, TtsOperationScope::Interactive);
+
+        settings.openai_compatible_base_url = "https://vendor.example/v1".to_string();
+        let vendor = TtsSynthesisConfig::from_settings(&settings, TtsOperationScope::Interactive);
+
+        assert_eq!(localhost.model_key(), normalized_localhost.model_key());
+        assert_ne!(localhost.model_key(), vendor.model_key());
+        assert_eq!(
+            localhost.model_key(),
+            "openai_compatible:24:http://localhost:8000/v1:tts-1"
+        );
+    }
+
+    #[test]
+    fn openai_compatible_scope_migrates_legacy_model_key_and_memories() {
+        let mut settings = TtsSettings::default();
+        settings.provider = TtsProvider::OpenAiCompatible;
+        settings.openai_compatible_model = "tts-1".to_string();
+        settings.openai_compatible_base_url = "http://localhost:8000/v1".to_string();
+        let config = TtsSynthesisConfig::from_settings(&settings, TtsOperationScope::Interactive);
+        let legacy_key = legacy_tts_model_key(config.provider, &config.model);
+        let expected_key = config.model_key();
+        let mut scope = TtsScopeSynthesisSettings {
+            active_model_key: legacy_key.clone(),
+            models: vec![TtsModelSynthesisSettings {
+                model_key: legacy_key.clone(),
+                config,
+            }],
+            active_models_by_provider: vec![TtsProviderModelSelection {
+                provider: TtsProvider::OpenAiCompatible,
+                model_key: legacy_key,
+            }],
+            ..Default::default()
+        };
+
+        scope.normalize_provider_memories();
+
+        assert_eq!(scope.models[0].model_key, expected_key);
+        assert_eq!(scope.active_model_key, expected_key);
+        assert_eq!(scope.active_models_by_provider[0].model_key, expected_key);
+    }
+
+    #[test]
+    fn openai_compatible_scope_keeps_same_model_on_different_endpoints() {
+        let mut settings = TtsSettings::default();
+        settings.provider = TtsProvider::OpenAiCompatible;
+        settings.openai_compatible_model = "tts-1".to_string();
+        settings.openai_compatible_base_url = "http://localhost:8000/v1".to_string();
+        let localhost =
+            TtsSynthesisConfig::from_settings(&settings, TtsOperationScope::Interactive);
+
+        settings.openai_compatible_base_url = "https://vendor.example/v1".to_string();
+        let vendor = TtsSynthesisConfig::from_settings(&settings, TtsOperationScope::Interactive);
+
+        let mut scope = TtsScopeSynthesisSettings::default();
+        scope.upsert(localhost.clone());
+        scope.upsert(vendor.clone());
+
+        assert_eq!(scope.models.len(), 2);
+        assert!(scope
+            .models
+            .iter()
+            .any(|entry| entry.model_key == localhost.model_key()));
+        assert!(scope
+            .models
+            .iter()
+            .any(|entry| entry.model_key == vendor.model_key()));
+        assert_eq!(scope.active_model_key, vendor.model_key());
     }
 
     #[test]

@@ -43,6 +43,7 @@ assert.ok(
   CARTESIA_MODEL_OPTIONS.includes(TTS_PROVIDER_DEFAULTS.cartesia.model),
 );
 assert.deepEqual(TTS_PROVIDER_SPEED_RANGES.cartesia, [0.6, 1.5]);
+assert.equal(TTS_PROVIDER_DEFAULTS.openai_compatible.model, "tts-1");
 assert.equal(TTS_PROVIDER_DEFAULTS.deepgram.model, "aura-2-thalia-en");
 assert.equal(TTS_PROVIDER_DEFAULTS.edge.voice, "en-US-AriaNeural");
 assert.equal(TTS_PROVIDER_DEFAULTS.local_qwen.voice, "Ryan");

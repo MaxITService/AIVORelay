@@ -660,6 +660,7 @@ fn apply_tts_provider_override(
             CliTtsProvider::Murf => TtsProvider::Murf,
             CliTtsProvider::Elevenlabs => TtsProvider::ElevenLabs,
             CliTtsProvider::Cartesia => TtsProvider::Cartesia,
+            CliTtsProvider::OpenAiCompatible => TtsProvider::OpenAiCompatible,
             CliTtsProvider::Edge => TtsProvider::Edge,
             CliTtsProvider::LocalQwen => TtsProvider::LocalQwen,
             CliTtsProvider::LocalKokoro => TtsProvider::LocalKokoro,
@@ -676,6 +677,7 @@ fn apply_tts_provider_override(
             TtsProvider::Soniox => settings.soniox_model = model.to_string(),
             TtsProvider::Deepgram => settings.deepgram_model = model.to_string(),
             TtsProvider::OpenAi => settings.openai_model = model.to_string(),
+            TtsProvider::OpenAiCompatible => settings.openai_compatible_model = model.to_string(),
             TtsProvider::Murf => {
                 if !matches!(model, "falcon-2" | "gen2") {
                     return Err(CliFailure::usage(
@@ -740,6 +742,7 @@ fn apply_tts_provider_override(
                 ));
             }
             TtsProvider::OpenAi => settings.openai_voice = voice.to_string(),
+            TtsProvider::OpenAiCompatible => settings.openai_compatible_voice = voice.to_string(),
             TtsProvider::Murf => settings.murf_voice = voice.to_string(),
             TtsProvider::ElevenLabs => settings.elevenlabs_voice = voice.to_string(),
             TtsProvider::Cartesia => settings.cartesia_voice = voice.to_string(),
@@ -783,9 +786,9 @@ fn apply_tts_provider_override(
                     "Deepgram TTS language is part of its model/voice ID; use --tts-model instead of --tts-language",
                 ));
             }
-            TtsProvider::OpenAi => {
+            TtsProvider::OpenAi | TtsProvider::OpenAiCompatible => {
                 return Err(CliFailure::usage(
-                    "--tts-language is not supported by OpenAI TTS; choose a voice/model and provide the intended language in the input text",
+                    "--tts-language is not supported by OpenAI/OpenAI-compatible TTS; provide language in the input text",
                 ));
             }
             TtsProvider::Edge => {
@@ -809,6 +812,7 @@ fn apply_tts_provider_override(
             TtsProvider::Soniox => settings.soniox_key_source = source,
             TtsProvider::Deepgram => settings.deepgram_key_source = source,
             TtsProvider::OpenAi => settings.openai_key_source = source,
+            TtsProvider::OpenAiCompatible => settings.openai_compatible_key_source = source,
             TtsProvider::Murf => {
                 if source != TtsKeySource::Separate {
                     return Err(CliFailure::usage(
@@ -844,6 +848,15 @@ fn apply_tts_provider_override(
             }
         }
     }
+    if let Some(base_url) = args.tts_base_url.as_deref() {
+        let base_url = nonempty_cli_value("--tts-base-url", base_url)?;
+        require_tts_provider(
+            settings,
+            TtsProvider::OpenAiCompatible,
+            "--tts-base-url",
+        )?;
+        settings.openai_compatible_base_url = base_url.to_string();
+    }
     match settings.provider {
         TtsProvider::Murf => settings.murf_key_source = TtsKeySource::Separate,
         TtsProvider::ElevenLabs => settings.elevenlabs_key_source = TtsKeySource::Separate,
@@ -876,7 +889,7 @@ fn apply_tts_conversion_overrides(
         let (minimum, maximum) = match settings.provider {
             TtsProvider::Soniox => (0.7, 1.3),
             TtsProvider::Deepgram => (0.7, 1.5),
-            TtsProvider::OpenAi => (0.25, 4.0),
+            TtsProvider::OpenAi | TtsProvider::OpenAiCompatible => (0.25, 4.0),
             TtsProvider::Murf => unreachable!("handled above"),
             TtsProvider::ElevenLabs => (0.7, 1.2),
             TtsProvider::Cartesia => (0.6, 1.5),
@@ -1415,6 +1428,7 @@ fn effective_tts_model(settings: &TtsSettings) -> &str {
         TtsProvider::Soniox => &settings.soniox_model,
         TtsProvider::Deepgram => &settings.deepgram_model,
         TtsProvider::OpenAi => &settings.openai_model,
+        TtsProvider::OpenAiCompatible => &settings.openai_compatible_model,
         TtsProvider::Murf => &settings.murf_model,
         TtsProvider::ElevenLabs => &settings.elevenlabs_model,
         TtsProvider::Cartesia => &settings.cartesia_model,
@@ -1430,6 +1444,7 @@ fn effective_tts_voice(settings: &TtsSettings) -> &str {
         TtsProvider::Soniox => &settings.soniox_voice,
         TtsProvider::Deepgram => &settings.deepgram_model,
         TtsProvider::OpenAi => &settings.openai_voice,
+        TtsProvider::OpenAiCompatible => &settings.openai_compatible_voice,
         TtsProvider::Murf => &settings.murf_voice,
         TtsProvider::ElevenLabs => &settings.elevenlabs_voice,
         TtsProvider::Cartesia => &settings.cartesia_voice,
@@ -1450,7 +1465,7 @@ fn effective_tts_language(settings: &TtsSettings) -> &str {
         TtsProvider::Murf => &settings.murf_language,
         TtsProvider::ElevenLabs => &settings.elevenlabs_language,
         TtsProvider::Cartesia => &settings.cartesia_language,
-        TtsProvider::Deepgram | TtsProvider::OpenAi => "",
+        TtsProvider::Deepgram | TtsProvider::OpenAi | TtsProvider::OpenAiCompatible => "",
     }
 }
 
@@ -1459,6 +1474,7 @@ fn effective_tts_key_source(settings: &TtsSettings) -> Option<TtsKeySource> {
         TtsProvider::Soniox => Some(settings.soniox_key_source),
         TtsProvider::Deepgram => Some(settings.deepgram_key_source),
         TtsProvider::OpenAi => Some(settings.openai_key_source),
+        TtsProvider::OpenAiCompatible => Some(settings.openai_compatible_key_source),
         TtsProvider::Murf | TtsProvider::ElevenLabs | TtsProvider::Cartesia => {
             Some(TtsKeySource::Separate)
         }

@@ -34,6 +34,22 @@ fn normalize_url(url: &Url) -> String {
     url.as_str().trim_end_matches('/').to_string()
 }
 
+pub fn is_loopback_host(url: &Url) -> bool {
+    if let Some(host) = url.host_str() {
+        let clean_host = host.trim_start_matches('[').trim_end_matches(']');
+        if clean_host.eq_ignore_ascii_case("localhost") {
+            return true;
+        }
+        if let Ok(ip) = clean_host.parse::<std::net::IpAddr>() {
+            return match ip {
+                std::net::IpAddr::V4(v4) => v4.is_loopback(),
+                std::net::IpAddr::V6(v6) => v6.is_loopback(),
+            };
+        }
+    }
+    false
+}
+
 fn validate_network_base_url(
     input: &str,
     allow_insecure_http: bool,
@@ -43,7 +59,7 @@ fn validate_network_base_url(
 
     match url.scheme() {
         "https" => Ok(normalize_url(&url)),
-        "http" if allow_insecure_http => Ok(normalize_url(&url)),
+        "http" if allow_insecure_http || is_loopback_host(&url) => Ok(normalize_url(&url)),
         "http" => Err(format!(
             "{} must use HTTPS. Plain HTTP is allowed only for a Custom endpoint after enabling the advanced insecure HTTP override.",
             context
@@ -54,6 +70,42 @@ fn validate_network_base_url(
         )),
     }
 }
+
+pub fn validate_openai_compatible_tts_base_url(
+    raw: &str,
+    allow_insecure_http: bool,
+) -> Result<String, String> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return Ok(REMOTE_STT_OPENAI_BASE_URL.to_string());
+    }
+    let with_scheme = if !trimmed.starts_with("http://") && !trimmed.starts_with("https://") {
+        let host_and_port = trimmed.split('/').next().unwrap_or("");
+        let host = if host_and_port.starts_with('[') {
+            host_and_port
+                .split(']')
+                .next()
+                .unwrap_or("")
+                .trim_start_matches('[')
+        } else {
+            host_and_port.split(':').next().unwrap_or("")
+        };
+        let is_loopback = host.eq_ignore_ascii_case("localhost")
+            || host
+                .parse::<std::net::IpAddr>()
+                .map(|ip| match ip {
+                    std::net::IpAddr::V4(v4) => v4.is_loopback(),
+                    std::net::IpAddr::V6(v6) => v6.is_loopback(),
+                })
+                .unwrap_or(false);
+        format!("{}{trimmed}", if is_loopback { "http://" } else { "https://" })
+    } else {
+        trimmed.to_string()
+    };
+
+    validate_network_base_url(&with_scheme, allow_insecure_http, "OpenAI-compatible TTS base URL")
+}
+
 
 pub fn remote_stt_base_url_for_preset(preset: &str) -> Option<&'static str> {
     match preset {
@@ -245,12 +297,37 @@ mod tests {
 
     #[test]
     fn validate_remote_stt_base_url_rejects_plain_http_without_override_flag() {
-        let settings = remote_settings(REMOTE_STT_PRESET_CUSTOM, "http://localhost:8000/v1", false);
+        let settings = remote_settings(REMOTE_STT_PRESET_CUSTOM, "http://192.168.1.50:8000/v1", false);
 
         let error = validate_remote_stt_base_url(&settings, None).unwrap_err();
         assert!(error.contains("must use HTTPS"));
         assert!(error.contains("advanced insecure HTTP override"));
     }
+
+    #[test]
+    fn validate_openai_compatible_tts_base_url_behavior() {
+        assert_eq!(
+            validate_openai_compatible_tts_base_url("localhost:8000/v1", false).unwrap(),
+            "http://localhost:8000/v1"
+        );
+        assert_eq!(
+            validate_openai_compatible_tts_base_url("api.example.com/v1", false).unwrap(),
+            "https://api.example.com/v1"
+        );
+        assert_eq!(
+            validate_openai_compatible_tts_base_url("http://127.0.0.1:8000/v1", false).unwrap(),
+            "http://127.0.0.1:8000/v1"
+        );
+        let err = validate_openai_compatible_tts_base_url("http://192.168.1.50:8000/v1", false)
+            .unwrap_err();
+        assert!(err.contains("must use HTTPS"));
+
+        assert_eq!(
+            validate_openai_compatible_tts_base_url("http://192.168.1.50:8000/v1", true).unwrap(),
+            "http://192.168.1.50:8000/v1"
+        );
+    }
+
 
     #[test]
     fn validate_remote_stt_base_url_accepts_plain_http_when_override_flag_enabled() {

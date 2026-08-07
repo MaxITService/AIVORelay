@@ -134,6 +134,10 @@ pub struct CliArgs {
     #[arg(long, value_name = "MULTIPLIER", requires = "convert_file")]
     pub tts_cartesia_volume: Option<f32>,
 
+    /// Override the OpenAI-compatible TTS base URL for this conversion only.
+    #[arg(long, value_name = "URL", requires = "convert_file")]
+    pub tts_base_url: Option<String>,
+
     /// Select which already-stored credential to use for this conversion.
     /// Cloud providers only; no secret is accepted on the command line.
     #[arg(long, value_enum, requires = "convert_file")]
@@ -305,6 +309,7 @@ impl CliArgs {
             || self.tts_elevenlabs_text_normalization.is_some()
             || self.tts_cartesia_emotion.is_some()
             || self.tts_cartesia_volume.is_some()
+            || self.tts_base_url.is_some()
             || self.tts_key_source.is_some()
             || self.tts_format.is_some()
             || self.tts_bitrate.is_some()
@@ -587,6 +592,8 @@ pub enum CliTtsProvider {
     #[value(name = "elevenlabs", alias = "eleven-labs")]
     Elevenlabs,
     Cartesia,
+    #[value(name = "openai-compatible", alias = "openai_compatible")]
+    OpenAiCompatible,
     Edge,
     LocalQwen,
     LocalKokoro,

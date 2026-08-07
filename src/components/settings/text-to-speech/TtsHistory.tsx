@@ -58,6 +58,8 @@ export type TtsHistorySettingsSnapshot = {
   deepgram_model?: string;
   openai_model?: string;
   openai_voice?: string;
+  openai_compatible_model?: string;
+  openai_compatible_voice?: string;
   murf_model?: string;
   murf_voice?: string;
   elevenlabs_model?: string;
@@ -268,6 +270,8 @@ const providerLabel = (provider: TtsProvider) => {
       return "ElevenLabs";
     case "cartesia":
       return "Cartesia";
+    case "openai_compatible":
+      return "OpenAI-compatible";
     case "edge":
       return "Microsoft Read Aloud (unofficial)";
     case "local_qwen":
@@ -283,6 +287,7 @@ const providerUsesPaidApi = (provider: TtsProvider | undefined) =>
   provider === "soniox" ||
   provider === "deepgram" ||
   provider === "openai" ||
+  provider === "openai_compatible" ||
   provider === "murf" ||
   provider === "elevenlabs" ||
   provider === "cartesia";
@@ -298,6 +303,8 @@ const modelForProvider = (
       return tts.deepgram_model;
     case "openai":
       return tts.openai_model;
+    case "openai_compatible":
+      return tts.openai_compatible_model;
     case "murf":
       return tts.murf_model;
     case "elevenlabs":
@@ -326,6 +333,8 @@ const voiceForProvider = (
       return tts.deepgram_model;
     case "openai":
       return tts.openai_voice;
+    case "openai_compatible":
+      return tts.openai_compatible_voice;
     case "murf":
       return tts.murf_voice;
     case "elevenlabs":

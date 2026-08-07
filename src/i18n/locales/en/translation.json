@@ -322,6 +322,15 @@
       "testKeySuccess": "The key works and the voice catalog was loaded.",
       "testKeyFailed": "The key or voice catalog request failed."
     },
+    "openaiCompatible": {
+      "title": "OpenAI-compatible TTS",
+      "baseUrlTitle": "API Base URL",
+      "baseUrlDescription": "Custom endpoint for OpenAI-compatible audio speech synthesis API.",
+      "modelTitle": "Model Name",
+      "modelDescription": "Model identifier expected by your OpenAI-compatible server (e.g. tts-1).",
+      "voiceTitle": "Voice Name",
+      "voiceDescription": "Voice identifier expected by your OpenAI-compatible server (e.g. alloy)."
+    },
     "local": {
       "title": "Local TTS model",
       "description": "Optional on-device speech synthesis. Text and generated audio stay on this computer after installation.",

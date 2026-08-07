@@ -1060,6 +1060,7 @@ fn cli_provider(provider: CliTtsProvider) -> TtsProvider {
         CliTtsProvider::Murf => TtsProvider::Murf,
         CliTtsProvider::Elevenlabs => TtsProvider::ElevenLabs,
         CliTtsProvider::Cartesia => TtsProvider::Cartesia,
+        CliTtsProvider::OpenAiCompatible => TtsProvider::OpenAiCompatible,
         CliTtsProvider::Edge => TtsProvider::Edge,
         CliTtsProvider::LocalQwen => TtsProvider::LocalQwen,
         CliTtsProvider::LocalKokoro => TtsProvider::LocalKokoro,

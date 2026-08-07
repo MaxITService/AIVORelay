@@ -5,6 +5,7 @@ export type TtsProvider =
   | "murf"
   | "elevenlabs"
   | "cartesia"
+  | "openai_compatible"
   | "edge"
   | "local_qwen"
   | "local_kokoro"
@@ -31,6 +32,7 @@ export const TTS_PROVIDER_OPTIONS: TtsProviderOption[] = [
   { value: "murf", label: "Murf AI", group: "Cloud" },
   { value: "elevenlabs", label: "ElevenLabs", group: "Cloud" },
   { value: "cartesia", label: "Cartesia", group: "Cloud" },
+  { value: "openai_compatible", label: "OpenAI-compatible", group: "Cloud" },
   {
     value: "edge",
     label: "Microsoft Read Aloud (unofficial)",
@@ -85,6 +87,12 @@ export const TTS_PROVIDER_DEFAULTS: Record<
     language: "en",
     speed: 1,
   },
+  openai_compatible: {
+    model: "tts-1",
+    voice: "alloy",
+    language: "",
+    speed: 1,
+  },
   edge: {
     model: "microsoft-edge-read-aloud",
     voice: "en-US-AriaNeural",
@@ -114,6 +122,7 @@ export const TTS_PROVIDER_SPEED_RANGES: Record<TtsProvider, [number, number]> =
     murf: [1, 1],
     elevenlabs: [0.7, 1.2],
     cartesia: [0.6, 1.5],
+    openai_compatible: [0.25, 4],
     edge: [0.5, 2],
     local_qwen: [0.5, 2],
     local_kokoro: [0.5, 2],
@@ -172,6 +181,13 @@ export const TTS_PROVIDER_DOCUMENTATION: Record<
       "https://docs.cartesia.ai/build-with-cartesia/capability-guides/volume-speed-emotion",
     authentication:
       "https://docs.cartesia.ai/use-the-api/api-conventions",
+  },
+  openai_compatible: {
+    overview: "https://platform.openai.com/docs/guides/text-to-speech",
+    voices:
+      "https://platform.openai.com/docs/guides/text-to-speech#voice-options",
+    parameters:
+      "https://platform.openai.com/docs/api-reference/audio/createSpeech",
   },
   edge: {
     overview: "https://www.microsoft.com/en-us/edge/features/read-aloud",

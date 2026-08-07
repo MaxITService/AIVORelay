@@ -624,6 +624,10 @@ fn overlay_identity(settings: &TtsSettings) -> TtsOverlayIdentity {
             settings.cartesia_model.clone(),
             settings.cartesia_voice.clone(),
         ),
+        TtsProvider::OpenAiCompatible => (
+            settings.openai_compatible_model.clone(),
+            settings.openai_compatible_voice.clone(),
+        ),
         TtsProvider::Edge => (EDGE_TTS_MODEL.to_string(), settings.edge_voice.clone()),
         TtsProvider::LocalQwen => (
             format!("{LOCAL_TTS_MODEL_REPO}@{LOCAL_TTS_MODEL_REVISION}"),
@@ -852,6 +856,7 @@ fn parse_provider(provider: &str) -> Result<TtsProvider, String> {
         "soniox" => Ok(TtsProvider::Soniox),
         "deepgram" => Ok(TtsProvider::Deepgram),
         "openai" | "open_ai" => Ok(TtsProvider::OpenAi),
+        "openai_compatible" | "openai-compatible" => Ok(TtsProvider::OpenAiCompatible),
         "murf" | "murf_ai" | "murf-ai" => Ok(TtsProvider::Murf),
         "elevenlabs" | "eleven_labs" | "eleven-labs" => Ok(TtsProvider::ElevenLabs),
         "cartesia" => Ok(TtsProvider::Cartesia),
@@ -967,6 +972,7 @@ fn normalize_settings(mut settings: TtsSettings) -> TtsSettings {
         TtsProvider::Soniox => settings.speed.clamp(0.7, 1.3),
         TtsProvider::Deepgram => settings.speed.clamp(0.7, 1.5),
         TtsProvider::OpenAi => settings.speed.clamp(0.25, 4.0),
+        TtsProvider::OpenAiCompatible => settings.speed.clamp(0.25, 4.0),
         TtsProvider::Murf => 1.0,
         TtsProvider::ElevenLabs if settings.elevenlabs_model == "eleven_v3" => 1.0,
         TtsProvider::ElevenLabs => settings.speed.clamp(0.7, 1.2),
@@ -1035,6 +1041,11 @@ fn normalize_synthesis_config(
                 nonempty_setting(std::mem::take(&mut config.voice), DEFAULT_TTS_OPENAI_VOICE);
             config.language.clear();
         }
+        TtsProvider::OpenAiCompatible => {
+            config.model = nonempty_setting(std::mem::take(&mut config.model), "tts-1");
+            config.voice = nonempty_setting(std::mem::take(&mut config.voice), "alloy");
+            config.language.clear();
+        }
         TtsProvider::Murf => {
             config.model = nonempty_setting(std::mem::take(&mut config.model), "falcon-2");
             config.voice = normalize_murf_voice(&config.model, std::mem::take(&mut config.voice));
@@ -1090,7 +1101,7 @@ fn normalize_synthesis_config(
     config.speed = match config.provider {
         TtsProvider::Soniox => config.speed.clamp(0.7, 1.3),
         TtsProvider::Deepgram => config.speed.clamp(0.7, 1.5),
-        TtsProvider::OpenAi => config.speed.clamp(0.25, 4.0),
+        TtsProvider::OpenAi | TtsProvider::OpenAiCompatible => config.speed.clamp(0.25, 4.0),
         TtsProvider::Murf => 1.0,
         TtsProvider::ElevenLabs if config.model == "eleven_v3" => 1.0,
         TtsProvider::ElevenLabs => config.speed.clamp(0.7, 1.2),
@@ -1140,8 +1151,8 @@ fn normalize_synthesis_scope(
     let mut keys = std::collections::HashSet::new();
     for entry in &mut scope.models {
         normalize_synthesis_config(&mut entry.config, prompt_presets);
-        entry.model_key = entry.config.model_key();
     }
+    scope.normalize_provider_memories();
     scope
         .models
         .retain(|entry| keys.insert(entry.model_key.clone()));
@@ -1250,7 +1261,7 @@ fn validate_synthesis_collections(settings: &TtsSettings) -> Result<(), String> 
         for entry in &scope.models {
             if !model_keys.insert(entry.config.model_key()) {
                 return Err(format!(
-                    "{scope_name} TTS settings contain more than one profile for the same provider/model"
+                    "{scope_name} TTS settings contain more than one profile for the same synthesis model identity"
                 ));
             }
         }
@@ -1296,6 +1307,7 @@ fn is_tts_model_identity_field(field: &str) -> bool {
             | "murf_model"
             | "elevenlabs_model"
             | "cartesia_model"
+            | "openai_compatible_model"
     )
 }
 
@@ -1306,6 +1318,7 @@ fn is_tts_synthesis_field(field: &str) -> bool {
             | "soniox_key_source"
             | "deepgram_key_source"
             | "openai_key_source"
+            | "openai_compatible_key_source"
             | "murf_key_source"
             | "elevenlabs_key_source"
             | "cartesia_key_source"
@@ -1315,6 +1328,10 @@ fn is_tts_synthesis_field(field: &str) -> bool {
             | "deepgram_model"
             | "openai_model"
             | "openai_voice"
+            | "openai_compatible_base_url"
+            | "openai_compatible_allow_insecure_http"
+            | "openai_compatible_model"
+            | "openai_compatible_voice"
             | "murf_model"
             | "murf_voice"
             | "murf_language"

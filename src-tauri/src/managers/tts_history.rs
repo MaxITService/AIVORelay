@@ -176,6 +176,13 @@ enum ProviderSynthesisConfigSnapshot {
         volume: f32,
         emotion: Option<String>,
     },
+    #[serde(rename = "openai_compatible")]
+    OpenAiCompatible {
+        version: u8,
+        openai_compatible_base_url: String,
+        #[serde(default)]
+        openai_compatible_allow_insecure_http: bool,
+    },
 }
 
 fn default_control_multiplier() -> f32 {
@@ -207,6 +214,11 @@ pub fn provider_synthesis_config_from_settings(settings: &TtsSettings) -> Option
             speed: settings.speed,
             volume: settings.cartesia_volume,
             emotion: settings.cartesia_emotion.clone(),
+        },
+        TtsProvider::OpenAiCompatible => ProviderSynthesisConfigSnapshot::OpenAiCompatible {
+            version: 1,
+            openai_compatible_base_url: settings.openai_compatible_base_url.clone(),
+            openai_compatible_allow_insecure_http: settings.openai_compatible_allow_insecure_http,
         },
         TtsProvider::Soniox
         | TtsProvider::Deepgram
@@ -278,6 +290,14 @@ pub fn apply_provider_synthesis_config(
             settings.cartesia_volume = volume;
             settings.cartesia_emotion = emotion;
         }
+        ProviderSynthesisConfigSnapshot::OpenAiCompatible {
+            version,
+            openai_compatible_base_url,
+            openai_compatible_allow_insecure_http,
+        } if settings.provider == TtsProvider::OpenAiCompatible && version == 1 => {
+            settings.openai_compatible_base_url = openai_compatible_base_url;
+            settings.openai_compatible_allow_insecure_http = openai_compatible_allow_insecure_http;
+        }
         _ => {
             return Err(anyhow!(
                 "TTS History provider controls do not match the selected provider or version"
@@ -348,6 +368,11 @@ pub fn metadata_from_settings(
         TtsProvider::OpenAi => (
             settings.openai_model.clone(),
             settings.openai_voice.clone(),
+            String::new(),
+        ),
+        TtsProvider::OpenAiCompatible => (
+            settings.openai_compatible_model.clone(),
+            settings.openai_compatible_voice.clone(),
             String::new(),
         ),
         TtsProvider::Murf => (
@@ -1093,6 +1118,7 @@ fn provider_from_db(value: &str) -> Result<TtsProvider> {
         "soniox" => Ok(TtsProvider::Soniox),
         "deepgram" => Ok(TtsProvider::Deepgram),
         "openai" => Ok(TtsProvider::OpenAi),
+        "openai_compatible" => Ok(TtsProvider::OpenAiCompatible),
         "murf" => Ok(TtsProvider::Murf),
         "elevenlabs" => Ok(TtsProvider::ElevenLabs),
         "cartesia" => Ok(TtsProvider::Cartesia),
@@ -1676,5 +1702,30 @@ mod tests {
         );
 
         fs::remove_dir_all(&test_dir).expect("remove test directory");
+    }
+
+    #[test]
+    fn openai_compatible_provider_from_db_and_config_snapshot() {
+        assert_eq!(
+            provider_from_db("openai_compatible").unwrap(),
+            TtsProvider::OpenAiCompatible
+        );
+
+        let mut settings = TtsSettings::default();
+        settings.provider = TtsProvider::OpenAiCompatible;
+        settings.openai_compatible_base_url = "http://localhost:11434/v1".to_string();
+
+        let serialized = provider_synthesis_config_from_settings(&settings)
+            .expect("openai_compatible snapshot");
+        assert!(serialized.contains("http://localhost:11434/v1"));
+
+        let mut restored_settings = TtsSettings::default();
+        restored_settings.provider = TtsProvider::OpenAiCompatible;
+        apply_provider_synthesis_config(&mut restored_settings, &serialized)
+            .expect("apply config snapshot");
+        assert_eq!(
+            restored_settings.openai_compatible_base_url,
+            "http://localhost:11434/v1"
+        );
     }
 }
