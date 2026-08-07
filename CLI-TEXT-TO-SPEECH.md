@@ -46,12 +46,13 @@ AivoRelay.exe --convert-file .\chapter.md --output .\chapter.mp3 `
 
 | Option | Accepted values and behavior |
 | --- | --- |
-| `--tts-provider` | `soniox`, `deepgram`, `openai`, `murf`, `elevenlabs`, `cartesia`, experimental `edge`, `local-qwen`, `local-kokoro`, or `windows` |
+| `--tts-provider` | `soniox`, `deepgram`, `openai`, `murf`, `elevenlabs`, `cartesia`, `openai-compatible` (custom OpenAI-compatible server), experimental `edge`, `local-qwen`, `local-kokoro`, or `windows` |
 | `--tts-model` | Provider model ID; Murf accepts `falcon-2`/`gen2`, ElevenLabs accepts `eleven_v3`/`eleven_multilingual_v2`, and Cartesia accepts `sonic-3.5` |
 | `--tts-voice` | Cloud voice ID, official Qwen/Kokoro speaker ID, or stable Windows voice ID; `default` selects the current Windows default |
 | `--tts-language` | Murf locale; a two-letter ISO 639-1 hint for Eleven v3; a two-letter Cartesia language code; Soniox language code; Qwen language name; or Kokoro `English`/`Chinese`. ElevenLabs Multilingual v2 infers language from text and rejects this flag |
 | `--tts-speed` | Soniox `0.7–1.3`; Deepgram `0.7–1.5`; OpenAI `0.25–4.0`; ElevenLabs Multilingual v2 `0.7–1.2`; Cartesia Sonic 3.5 `0.6–1.5`; Edge/Qwen/Kokoro/Windows `0.5–2.0`. Murf uses `--tts-murf-rate`; Eleven v3 does not accept numeric speed |
 | `--tts-key-source` | `shared` or `separate`; Murf, ElevenLabs, and Cartesia accept only `separate`. Selects an already-stored credential and never exposes a secret on the command line |
+| `--tts-base-url` | OpenAI-compatible provider only: custom API base URL for this conversion, e.g. `http://localhost:8000/v1` |
 | `--tts-murf-rate` | Murf integer rate from `-50` to `50` |
 | `--tts-murf-pitch` | Murf integer pitch from `-50` to `50` |
 | `--tts-murf-variation` | Murf Gen2-only variation from `0` to `5` |
@@ -414,7 +415,7 @@ recovers verified chunks after a failed process and reports
 `resumed_chunks`.
 
 Supported providers are `soniox`, `deepgram`, `openai`, `murf`, `elevenlabs`,
-`cartesia`, experimental `edge`, `local-qwen`, `local-kokoro`, and `windows`. For Windows, `--voice` is the stable WinRT installed-voice ID, not
+`cartesia`, `openai-compatible`, experimental `edge`, `local-qwen`, `local-kokoro`, and `windows`. For Windows, `--voice` is the stable WinRT installed-voice ID, not
 its display name; an empty saved voice selects the current Windows default.
 Before synthesis, AivoRelay resolves that default to one concrete stable ID for
 the whole operation and its resume checkpoint. History list/show output includes

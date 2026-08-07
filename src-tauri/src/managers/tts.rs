@@ -25,8 +25,22 @@ use crate::settings::{
     apply_text_replacements, ElevenLabsTextNormalization, TtsKeySource, TtsLlmScope,
     TtsOutputFormat, TtsProvider, TtsSettings, DEFAULT_TTS_CARTESIA_VOICE,
     DEFAULT_TTS_ELEVENLABS_VOICE, DEFAULT_TTS_MURF_GEN2_VOICE, DEFAULT_TTS_MURF_VOICE,
+    DEFAULT_TTS_OPENAI_COMPATIBLE_MODEL, DEFAULT_TTS_OPENAI_COMPATIBLE_VOICE,
     DEFAULT_TTS_OPENAI_VOICE, DEFAULT_TTS_SONIOX_VOICE,
 };
+
+#[allow(dead_code)]
+pub fn normalize_openai_compatible_base_url(raw: &str) -> String {
+    normalize_openai_compatible_base_url_with_insecure_option(raw, false)
+        .unwrap_or_else(|_| raw.trim().trim_end_matches('/').to_string())
+}
+
+pub fn normalize_openai_compatible_base_url_with_insecure_option(
+    raw: &str,
+    allow_insecure_http: bool,
+) -> std::result::Result<String, String> {
+    crate::url_security::validate_openai_compatible_tts_base_url(raw, allow_insecure_http)
+}
 use anyhow::{anyhow, Context, Result};
 use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
 use base64::Engine;
@@ -473,7 +487,7 @@ impl TtsManager {
         match provider {
             TtsProvider::Soniox => SONIOX_CHARACTER_LIMIT,
             TtsProvider::Deepgram => DEEPGRAM_CHARACTER_LIMIT,
-            TtsProvider::OpenAi => OPENAI_CHARACTER_LIMIT,
+            TtsProvider::OpenAi | TtsProvider::OpenAiCompatible => OPENAI_CHARACTER_LIMIT,
             TtsProvider::Murf => MURF_CHARACTER_LIMIT,
             TtsProvider::ElevenLabs => match model.trim() {
                 "eleven_multilingual_v2" => ELEVENLABS_MULTILINGUAL_V2_CHARACTER_LIMIT,
@@ -493,6 +507,7 @@ impl TtsManager {
             TtsProvider::Soniox => &settings.soniox_model,
             TtsProvider::Deepgram => &settings.deepgram_model,
             TtsProvider::OpenAi => &settings.openai_model,
+            TtsProvider::OpenAiCompatible => &settings.openai_compatible_model,
             TtsProvider::Murf => &settings.murf_model,
             TtsProvider::ElevenLabs => &settings.elevenlabs_model,
             TtsProvider::Cartesia => &settings.cartesia_model,
@@ -532,6 +547,23 @@ impl TtsManager {
                 "Soniox TTS voice",
                 &settings.soniox_voice,
                 SONIOX_TTS_VOICE_MAX_CHARS,
+            )?;
+        }
+        if settings.provider == TtsProvider::OpenAiCompatible {
+            validate_required_max_chars(
+                "OpenAI-compatible Base URL",
+                &settings.openai_compatible_base_url,
+                2048,
+            )?;
+            validate_required_max_chars(
+                "OpenAI-compatible model",
+                &settings.openai_compatible_model,
+                256,
+            )?;
+            validate_required_max_chars(
+                "OpenAI-compatible voice",
+                &settings.openai_compatible_voice,
+                256,
             )?;
         }
         if settings.provider == TtsProvider::Murf {
@@ -914,6 +946,9 @@ impl TtsManager {
                 })
             }
             TtsProvider::OpenAi => Ok(openai_voice_catalog()),
+            TtsProvider::OpenAiCompatible => Err(anyhow!(
+                "Live voice catalog refresh is unavailable for custom OpenAI-compatible servers"
+            )),
             TtsProvider::LocalQwen | TtsProvider::LocalKokoro | TtsProvider::Windows => Err(
                 anyhow!("Live voice refresh is unavailable for this provider"),
             ),
@@ -1844,6 +1879,7 @@ impl TtsManager {
                 TtsProvider::Soniox
                     | TtsProvider::Deepgram
                     | TtsProvider::OpenAi
+                    | TtsProvider::OpenAiCompatible
                     | TtsProvider::ElevenLabs
                     | TtsProvider::Cartesia
             ) || (settings.provider == TtsProvider::Murf
@@ -3301,6 +3337,41 @@ impl TtsManager {
                     .bearer_auth(api_key)
                     .json(&body)
             }
+            TtsProvider::OpenAiCompatible => {
+                let base_url = match normalize_openai_compatible_base_url_with_insecure_option(
+                    &settings.openai_compatible_base_url,
+                    settings.openai_compatible_allow_insecure_http,
+                ) {
+                    Ok(url) => url,
+                    Err(err) => {
+                        return Err(ProviderAttemptError {
+                            status: None,
+                            safe_message: err,
+                            transient: false,
+                            retry_after: None,
+                        });
+                    }
+                };
+                let speech_url = if base_url.ends_with("/audio/speech") || base_url.ends_with("/speech") {
+                    base_url.to_string()
+                } else if base_url.ends_with("/audio") {
+                    format!("{base_url}/speech")
+                } else {
+                    format!("{base_url}/audio/speech")
+                };
+                let body = json!({
+                    "model": nonempty_or(&settings.openai_compatible_model, DEFAULT_TTS_OPENAI_COMPATIBLE_MODEL),
+                    "voice": nonempty_or(&settings.openai_compatible_voice, DEFAULT_TTS_OPENAI_COMPATIBLE_VOICE),
+                    "input": text,
+                    "response_format": "pcm",
+                    "speed": settings.speed.clamp(0.25, 4.0),
+                });
+                let mut req = self.client.post(&speech_url);
+                if !api_key.trim().is_empty() {
+                    req = req.bearer_auth(api_key);
+                }
+                req.json(&body)
+            }
             TtsProvider::Murf => {
                 if settings.murf_model == "gen2" {
                     let mut body = json!({
@@ -4329,6 +4400,7 @@ fn resolve_api_key(settings: &TtsSettings) -> Result<String> {
         TtsProvider::Soniox => settings.soniox_key_source,
         TtsProvider::Deepgram => settings.deepgram_key_source,
         TtsProvider::OpenAi => settings.openai_key_source,
+        TtsProvider::OpenAiCompatible => settings.openai_compatible_key_source,
         TtsProvider::Murf => settings.murf_key_source,
         TtsProvider::ElevenLabs => settings.elevenlabs_key_source,
         TtsProvider::Cartesia => settings.cartesia_key_source,
@@ -4346,7 +4418,13 @@ fn resolve_api_key(settings: &TtsSettings) -> Result<String> {
         (TtsProvider::OpenAi, TtsKeySource::Shared) => {
             crate::secure_keys::get_post_process_api_key("openai")
         }
-        (TtsProvider::Murf | TtsProvider::ElevenLabs | TtsProvider::Cartesia, TtsKeySource::Shared) => {
+        (
+            TtsProvider::OpenAiCompatible
+            | TtsProvider::Murf
+            | TtsProvider::ElevenLabs
+            | TtsProvider::Cartesia,
+            TtsKeySource::Shared,
+        ) => {
             return Err(anyhow!(
                 "{} always uses its separately stored TTS key",
                 provider_name(settings.provider)
@@ -4359,6 +4437,12 @@ fn resolve_api_key(settings: &TtsSettings) -> Result<String> {
     };
     let key = key.trim();
     if key.is_empty() {
+        if settings.provider == TtsProvider::OpenAiCompatible {
+            // Custom OpenAI-compatible servers (e.g. local Kokoro-FastAPI) may
+            // not require authentication; synthesize without an Authorization
+            // header when no key is configured.
+            return Ok(String::new());
+        }
         Err(anyhow!(
             "No {} API key is configured for text-to-speech",
             provider_name(settings.provider)
@@ -4381,6 +4465,7 @@ fn provider_name(provider: TtsProvider) -> &'static str {
         TtsProvider::Soniox => "Soniox",
         TtsProvider::Deepgram => "Deepgram",
         TtsProvider::OpenAi => "OpenAI",
+        TtsProvider::OpenAiCompatible => "OpenAI-compatible",
         TtsProvider::Murf => "Murf AI",
         TtsProvider::ElevenLabs => "ElevenLabs",
         TtsProvider::Cartesia => "Cartesia",
@@ -6475,5 +6560,21 @@ mod tests {
             StatusCode::TOO_MANY_REQUESTS,
             "Rate limit reached; retry later"
         ));
+    }
+
+    #[test]
+    fn test_normalize_openai_compatible_base_url_ipv6() {
+        assert_eq!(
+            normalize_openai_compatible_base_url("[::1]:8000/v1"),
+            "http://[::1]:8000/v1"
+        );
+        assert_eq!(
+            normalize_openai_compatible_base_url("127.0.0.1:8000/v1"),
+            "http://127.0.0.1:8000/v1"
+        );
+        assert_eq!(
+            normalize_openai_compatible_base_url("api.example.com/v1"),
+            "https://api.example.com/v1"
+        );
     }
 }

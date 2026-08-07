@@ -110,6 +110,8 @@ type TtsSynthesisConfig = {
   voice: string;
   language: string;
   key_source: TtsKeySource;
+  openai_compatible_base_url?: string;
+  openai_compatible_allow_insecure_http?: boolean;
   speed: number;
   murf_rate: number;
   murf_pitch: number;
@@ -166,6 +168,7 @@ type TtsSettings = {
   soniox_key_source: TtsKeySource;
   deepgram_key_source: TtsKeySource;
   openai_key_source: TtsKeySource;
+  openai_compatible_key_source: TtsKeySource;
   murf_key_source: TtsKeySource;
   elevenlabs_key_source: TtsKeySource;
   cartesia_key_source: TtsKeySource;
@@ -175,6 +178,10 @@ type TtsSettings = {
   deepgram_model: string;
   openai_model: string;
   openai_voice: string;
+  openai_compatible_base_url: string;
+  openai_compatible_allow_insecure_http: boolean;
+  openai_compatible_model: string;
+  openai_compatible_voice: string;
   murf_model: string;
   murf_voice: string;
   murf_language: string;
@@ -341,6 +348,7 @@ const DEFAULT_TTS_SETTINGS: TtsSettings = {
   soniox_key_source: "shared",
   deepgram_key_source: "shared",
   openai_key_source: "shared",
+  openai_compatible_key_source: "separate",
   murf_key_source: "separate",
   elevenlabs_key_source: "separate",
   cartesia_key_source: "separate",
@@ -350,6 +358,10 @@ const DEFAULT_TTS_SETTINGS: TtsSettings = {
   deepgram_model: TTS_PROVIDER_DEFAULTS.deepgram.model,
   openai_model: TTS_PROVIDER_DEFAULTS.openai.model,
   openai_voice: TTS_PROVIDER_DEFAULTS.openai.voice,
+  openai_compatible_base_url: "https://api.openai.com/v1",
+  openai_compatible_allow_insecure_http: false,
+  openai_compatible_model: TTS_PROVIDER_DEFAULTS.openai_compatible.model,
+  openai_compatible_voice: TTS_PROVIDER_DEFAULTS.openai_compatible.voice,
   murf_model: TTS_PROVIDER_DEFAULTS.murf.model,
   murf_voice: TTS_PROVIDER_DEFAULTS.murf.voice,
   murf_language: TTS_PROVIDER_DEFAULTS.murf.language,
@@ -433,6 +445,7 @@ const providerInputLimit = (provider: TtsProvider, model: string): number => ({
   soniox: 5000,
   deepgram: 2000,
   openai: 4096,
+  openai_compatible: 4096,
   murf: 3000,
   elevenlabs: model === "eleven_multilingual_v2" ? 10000 : 5000,
   cartesia: 4000,
@@ -475,6 +488,14 @@ const PROVIDER_CAPABILITIES: Record<
     downloadableRuntime: false,
     supportsInstructions: true,
     speed: TTS_PROVIDER_SPEED_RANGES.openai,
+  },
+  openai_compatible: {
+    requiresApiKey: true,
+    supportsSharedKey: true,
+    localOrSystem: false,
+    downloadableRuntime: false,
+    supportsInstructions: false,
+    speed: TTS_PROVIDER_SPEED_RANGES.openai_compatible,
   },
   murf: {
     requiresApiKey: true,
@@ -979,6 +1000,9 @@ const COALESCED_TTS_FIELDS = new Set([
   "deepgram_model",
   "openai_model",
   "openai_voice",
+  "openai_compatible_base_url",
+  "openai_compatible_model",
+  "openai_compatible_voice",
   "murf_model",
   "murf_voice",
   "murf_language",
@@ -1134,77 +1158,253 @@ const scopeSettingsKey = (
 ): "interactive_synthesis" | "file_synthesis" =>
   mode === "files" ? "file_synthesis" : "interactive_synthesis";
 
-const synthesisModelIdentity = (provider: TtsProvider, model: string): string =>
-  `${provider}:${model.trim()}`;
+const legacySynthesisModelIdentity = (
+  provider: TtsProvider,
+  model: string,
+): string => `${provider}:${model.trim()}`;
+
+const normalizedOpenAiCompatibleEndpointIdentity = (raw?: string): string => {
+  const trimmed = (raw ?? "").trim();
+  if (!trimmed) return DEFAULT_TTS_SETTINGS.openai_compatible_base_url;
+
+  let candidate = trimmed;
+  if (!trimmed.startsWith("http://") && !trimmed.startsWith("https://")) {
+    const hostAndPort = trimmed.split("/", 1)[0] ?? "";
+    const host = hostAndPort.startsWith("[")
+      ? hostAndPort.slice(1, hostAndPort.indexOf("]"))
+      : (hostAndPort.split(":", 1)[0] ?? "");
+    const normalizedHost = host.toLowerCase();
+    const isLoopback =
+      normalizedHost === "localhost" ||
+      normalizedHost === "::1" ||
+      /^127(?:\.\d{1,3}){3}$/.test(normalizedHost);
+    candidate = `${isLoopback ? "http" : "https"}://${trimmed}`;
+  }
+
+  try {
+    return new URL(candidate).toString().replace(/\/+$/, "");
+  } catch {
+    return trimmed.replace(/\/+$/, "");
+  }
+};
+
+const synthesisModelIdentity = (config: TtsSynthesisConfig): string => {
+  if (config.provider !== "openai_compatible") {
+    return legacySynthesisModelIdentity(config.provider, config.model);
+  }
+  const endpoint = normalizedOpenAiCompatibleEndpointIdentity(
+    config.openai_compatible_base_url,
+  );
+  return `${config.provider}:${Array.from(endpoint).length}:${endpoint}:${config.model.trim()}`;
+};
+
+const normalizeScopeModelIdentities = (
+  scope: TtsScopeSynthesisSettings,
+): TtsScopeSynthesisSettings => {
+  const migrations = scope.models.map((entry) => ({
+    provider: entry.config.provider,
+    oldKey: entry.model_key,
+    legacyKey: legacySynthesisModelIdentity(
+      entry.config.provider,
+      entry.config.model,
+    ),
+    newKey: synthesisModelIdentity(entry.config),
+    config: entry.config,
+  }));
+
+  const migrateKey = (key: string, provider?: TtsProvider): string => {
+    for (let index = migrations.length - 1; index >= 0; index -= 1) {
+      const migration = migrations[index];
+      if (
+        (provider === undefined || migration.provider === provider) &&
+        migration.oldKey === key
+      ) {
+        return migration.newKey;
+      }
+    }
+    for (let index = migrations.length - 1; index >= 0; index -= 1) {
+      const migration = migrations[index];
+      if (
+        (provider === undefined || migration.provider === provider) &&
+        migration.legacyKey === key
+      ) {
+        return migration.newKey;
+      }
+    }
+    return key;
+  };
+
+  const seenModelKeys = new Set<string>();
+  const models = migrations.flatMap((migration) => {
+    if (seenModelKeys.has(migration.newKey)) return [];
+    seenModelKeys.add(migration.newKey);
+    return [{ model_key: migration.newKey, config: migration.config }];
+  });
+  const activeModelKey = migrateKey(scope.active_model_key);
+  const active_model_key = models.some(
+    (entry) => entry.model_key === activeModelKey,
+  )
+    ? activeModelKey
+    : (models[models.length - 1]?.model_key ?? "");
+
+  const seenProviders = new Set<TtsProvider>();
+  const active_models_by_provider = scope.active_models_by_provider.flatMap(
+    (selection) => {
+      if (seenProviders.has(selection.provider)) return [];
+      const modelKey = migrateKey(selection.model_key, selection.provider);
+      if (
+        !models.some(
+          (entry) =>
+            entry.model_key === modelKey &&
+            entry.config.provider === selection.provider,
+        )
+      ) {
+        return [];
+      }
+      seenProviders.add(selection.provider);
+      return [{ provider: selection.provider, model_key: modelKey }];
+    },
+  );
+
+  const activeModel = models.find(
+    (entry) => entry.model_key === active_model_key,
+  );
+  if (activeModel) {
+    const existingIndex = active_models_by_provider.findIndex(
+      (selection) => selection.provider === activeModel.config.provider,
+    );
+    const selection = {
+      provider: activeModel.config.provider,
+      model_key: active_model_key,
+    };
+    if (existingIndex >= 0) {
+      active_models_by_provider[existingIndex] = selection;
+    } else {
+      active_models_by_provider.push(selection);
+    }
+  }
+
+  return {
+    ...scope,
+    active_model_key,
+    models,
+    active_models_by_provider,
+  };
+};
+
+function assertNever(x: never): never {
+  throw new Error(`Unexpected provider: ${x}`);
+}
 
 const synthesisConfigFromSettings = (
   settings: TtsSettings,
   mode: TextToSpeechSettingsProps["mode"],
 ): TtsSynthesisConfig => {
-  const [model, voice, language] =
-    settings.provider === "soniox"
-      ? [settings.soniox_model, settings.soniox_voice, settings.soniox_language]
-      : settings.provider === "deepgram"
-        ? [settings.deepgram_model, settings.deepgram_model, ""]
-        : settings.provider === "openai"
-          ? [settings.openai_model, settings.openai_voice, ""]
-          : settings.provider === "murf"
-            ? [settings.murf_model, settings.murf_voice, settings.murf_language]
-            : settings.provider === "elevenlabs"
-              ? [
-                  settings.elevenlabs_model,
-                  settings.elevenlabs_voice,
-                  settings.elevenlabs_language,
-                ]
-              : settings.provider === "cartesia"
-                ? [
-                    settings.cartesia_model,
-                    settings.cartesia_voice,
-                    settings.cartesia_language,
-                  ]
-                : settings.provider === "edge"
-                  ? [
-                      "microsoft-edge-read-aloud",
-                      settings.edge_voice,
-                      settings.edge_voice_language,
-                    ]
-                  : settings.provider === "local_qwen"
-                    ? [
-                        "qwen3-tts-12hz-0.6b-customvoice",
-                        settings.local_qwen_voice,
-                        settings.local_qwen_language,
-                      ]
-                    : settings.provider === "local_kokoro"
-                      ? [
-                          "kokoro-82m",
-                          settings.local_kokoro_voice,
-                          settings.local_kokoro_language,
-                        ]
-                      : [
-                          "windows.media.speechsynthesis",
-                          settings.windows_voice_id,
-                          settings.windows_voice_language,
-                        ];
-  const keySource =
-    settings.provider === "soniox"
-      ? settings.soniox_key_source
-      : settings.provider === "deepgram"
-        ? settings.deepgram_key_source
-        : settings.provider === "openai"
-          ? settings.openai_key_source
-          : settings.provider === "murf"
-            ? settings.murf_key_source
-            : settings.provider === "elevenlabs"
-              ? settings.elevenlabs_key_source
-              : settings.provider === "cartesia"
-                ? settings.cartesia_key_source
-                : "shared";
+  let model: string;
+  let voice: string;
+  let language: string;
+  switch (settings.provider) {
+    case "soniox":
+      model = settings.soniox_model;
+      voice = settings.soniox_voice;
+      language = settings.soniox_language;
+      break;
+    case "deepgram":
+      model = settings.deepgram_model;
+      voice = settings.deepgram_model;
+      language = "";
+      break;
+    case "openai":
+      model = settings.openai_model;
+      voice = settings.openai_voice;
+      language = "";
+      break;
+    case "openai_compatible":
+      model = settings.openai_compatible_model;
+      voice = settings.openai_compatible_voice;
+      language = "";
+      break;
+    case "murf":
+      model = settings.murf_model;
+      voice = settings.murf_voice;
+      language = settings.murf_language;
+      break;
+    case "elevenlabs":
+      model = settings.elevenlabs_model;
+      voice = settings.elevenlabs_voice;
+      language = settings.elevenlabs_language;
+      break;
+    case "cartesia":
+      model = settings.cartesia_model;
+      voice = settings.cartesia_voice;
+      language = settings.cartesia_language;
+      break;
+    case "edge":
+      model = "microsoft-edge-read-aloud";
+      voice = settings.edge_voice;
+      language = settings.edge_voice_language;
+      break;
+    case "local_qwen":
+      model = "qwen3-tts-12hz-0.6b-customvoice";
+      voice = settings.local_qwen_voice;
+      language = settings.local_qwen_language;
+      break;
+    case "local_kokoro":
+      model = "kokoro-82m";
+      voice = settings.local_kokoro_voice;
+      language = settings.local_kokoro_language;
+      break;
+    case "windows":
+      model = "windows.media.speechsynthesis";
+      voice = settings.windows_voice_id;
+      language = settings.windows_voice_language;
+      break;
+    default:
+      assertNever(settings.provider);
+  }
+
+  let keySource: TtsKeySource;
+  switch (settings.provider) {
+    case "soniox":
+      keySource = settings.soniox_key_source;
+      break;
+    case "deepgram":
+      keySource = settings.deepgram_key_source;
+      break;
+    case "openai":
+      keySource = settings.openai_key_source;
+      break;
+    case "openai_compatible":
+      keySource = settings.openai_compatible_key_source;
+      break;
+    case "murf":
+      keySource = settings.murf_key_source;
+      break;
+    case "elevenlabs":
+      keySource = settings.elevenlabs_key_source;
+      break;
+    case "cartesia":
+      keySource = settings.cartesia_key_source;
+      break;
+    case "edge":
+    case "local_qwen":
+    case "local_kokoro":
+    case "windows":
+      keySource = "shared";
+      break;
+    default:
+      assertNever(settings.provider);
+  }
+
   return {
     provider: settings.provider,
     model,
     voice,
     language,
     key_source: keySource,
+    openai_compatible_base_url: settings.openai_compatible_base_url,
+    openai_compatible_allow_insecure_http:
+      settings.openai_compatible_allow_insecure_http,
     speed: settings.speed,
     murf_rate: settings.murf_rate,
     murf_pitch: settings.murf_pitch,
@@ -1262,57 +1462,83 @@ const applySynthesisConfig = (
       ? { file_target_chars: config.target_chars }
       : { interactive_target_chars: config.target_chars }),
   };
-  if (config.provider === "soniox") {
-    next.soniox_model = config.model;
-    next.soniox_voice = config.voice;
-    next.soniox_language = config.language;
-    next.soniox_key_source = config.key_source;
-  } else if (config.provider === "deepgram") {
-    next.deepgram_model = config.model;
-    next.deepgram_key_source = config.key_source;
-  } else if (config.provider === "openai") {
-    next.openai_model = config.model;
-    next.openai_voice = config.voice;
-    next.openai_key_source = config.key_source;
-  } else if (config.provider === "murf") {
-    next.murf_model = config.model;
-    next.murf_voice = config.voice;
-    next.murf_language = config.language;
-    next.murf_key_source = "separate";
-    next.murf_rate = config.murf_rate;
-    next.murf_pitch = config.murf_pitch;
-    next.murf_variation = config.murf_variation;
-    next.murf_style = config.murf_style;
-  } else if (config.provider === "elevenlabs") {
-    next.elevenlabs_model = config.model;
-    next.elevenlabs_voice = config.voice;
-    next.elevenlabs_language = config.language;
-    next.elevenlabs_key_source = "separate";
-    next.elevenlabs_stability = config.elevenlabs_stability;
-    next.elevenlabs_similarity_boost = config.elevenlabs_similarity_boost;
-    next.elevenlabs_style = config.elevenlabs_style;
-    next.elevenlabs_use_speaker_boost = config.elevenlabs_use_speaker_boost;
-    next.elevenlabs_apply_text_normalization =
-      config.elevenlabs_apply_text_normalization;
-  } else if (config.provider === "cartesia") {
-    next.cartesia_model = config.model;
-    next.cartesia_voice = config.voice;
-    next.cartesia_language = config.language;
-    next.cartesia_key_source = "separate";
-    next.cartesia_emotion = config.cartesia_emotion;
-    next.cartesia_volume = config.cartesia_volume;
-  } else if (config.provider === "edge") {
-    next.edge_voice = config.voice;
-    next.edge_voice_language = config.language;
-  } else if (config.provider === "local_qwen") {
-    next.local_qwen_voice = config.voice;
-    next.local_qwen_language = config.language;
-  } else if (config.provider === "local_kokoro") {
-    next.local_kokoro_voice = config.voice;
-    next.local_kokoro_language = config.language;
-  } else {
-    next.windows_voice_id = config.voice;
-    next.windows_voice_language = config.language;
+
+  switch (config.provider) {
+    case "soniox":
+      next.soniox_model = config.model;
+      next.soniox_voice = config.voice;
+      next.soniox_language = config.language;
+      next.soniox_key_source = config.key_source ?? "separate";
+      break;
+    case "deepgram":
+      next.deepgram_model = config.model;
+      next.deepgram_key_source = config.key_source ?? "separate";
+      break;
+    case "openai":
+      next.openai_model = config.model;
+      next.openai_voice = config.voice;
+      next.openai_key_source = config.key_source ?? "separate";
+      break;
+    case "openai_compatible":
+      next.openai_compatible_model = config.model;
+      next.openai_compatible_voice = config.voice;
+      next.openai_compatible_key_source = config.key_source ?? "separate";
+      if (config.openai_compatible_base_url !== undefined) {
+        next.openai_compatible_base_url = config.openai_compatible_base_url;
+      }
+      if (config.openai_compatible_allow_insecure_http !== undefined) {
+        next.openai_compatible_allow_insecure_http =
+          config.openai_compatible_allow_insecure_http;
+      }
+      break;
+    case "murf":
+      next.murf_model = config.model;
+      next.murf_voice = config.voice;
+      next.murf_language = config.language;
+      next.murf_key_source = "separate";
+      next.murf_rate = config.murf_rate;
+      next.murf_pitch = config.murf_pitch;
+      next.murf_variation = config.murf_variation;
+      next.murf_style = config.murf_style;
+      break;
+    case "elevenlabs":
+      next.elevenlabs_model = config.model;
+      next.elevenlabs_voice = config.voice;
+      next.elevenlabs_language = config.language;
+      next.elevenlabs_key_source = "separate";
+      next.elevenlabs_stability = config.elevenlabs_stability;
+      next.elevenlabs_similarity_boost = config.elevenlabs_similarity_boost;
+      next.elevenlabs_style = config.elevenlabs_style;
+      next.elevenlabs_use_speaker_boost = config.elevenlabs_use_speaker_boost;
+      next.elevenlabs_apply_text_normalization =
+        config.elevenlabs_apply_text_normalization;
+      break;
+    case "cartesia":
+      next.cartesia_model = config.model;
+      next.cartesia_voice = config.voice;
+      next.cartesia_language = config.language;
+      next.cartesia_key_source = "separate";
+      next.cartesia_emotion = config.cartesia_emotion;
+      next.cartesia_volume = config.cartesia_volume;
+      break;
+    case "edge":
+      next.edge_voice = config.voice;
+      next.edge_voice_language = config.language;
+      break;
+    case "local_qwen":
+      next.local_qwen_voice = config.voice;
+      next.local_qwen_language = config.language;
+      break;
+    case "local_kokoro":
+      next.local_kokoro_voice = config.voice;
+      next.local_kokoro_language = config.language;
+      break;
+    case "windows":
+      next.windows_voice_id = config.voice;
+      next.windows_voice_language = config.language;
+      break;
+    default:
+      assertNever(config.provider);
   }
   return next;
 };
@@ -1331,30 +1557,33 @@ const upsertScopeConfig = (
   config: TtsSynthesisConfig,
   selectedPresetId: string,
 ): TtsScopeSynthesisSettings => {
-  const modelKey = synthesisModelIdentity(config.provider, config.model);
-  const existingIndex = scope.models.findIndex(
+  const normalizedScope = normalizeScopeModelIdentities(scope);
+  const modelKey = synthesisModelIdentity(config);
+  const existingIndex = normalizedScope.models.findIndex(
     (entry) => entry.model_key === modelKey,
   );
   const models =
     existingIndex >= 0
-      ? scope.models.map((entry, index) =>
+      ? normalizedScope.models.map((entry, index) =>
           index === existingIndex ? { model_key: modelKey, config } : entry,
         )
-      : [...scope.models, { model_key: modelKey, config }];
+      : [...normalizedScope.models, { model_key: modelKey, config }];
   return {
-    ...scope,
+    ...normalizedScope,
     active_model_key: modelKey,
     selected_preset_id: selectedPresetId,
     models: models.slice(-100),
     active_models_by_provider: [
-      ...scope.active_models_by_provider.filter(
+      ...normalizedScope.active_models_by_provider.filter(
         (selection) => selection.provider !== config.provider,
       ),
       { provider: config.provider, model_key: modelKey },
     ],
-    initialized_providers: scope.initialized_providers.includes(config.provider)
-      ? scope.initialized_providers
-      : [...scope.initialized_providers, config.provider],
+    initialized_providers: normalizedScope.initialized_providers.includes(
+      config.provider,
+    )
+      ? normalizedScope.initialized_providers
+      : [...normalizedScope.initialized_providers, config.provider],
   };
 };
 
@@ -1362,13 +1591,14 @@ const materializeSynthesisScope = (
   settings: TtsSettings,
   mode: TextToSpeechSettingsProps["mode"],
 ): TtsSettings => {
-  const scope = settings[scopeSettingsKey(mode)];
+  const scopeKey = scopeSettingsKey(mode);
+  const scope = normalizeScopeModelIdentities(settings[scopeKey]);
   const active = scope.models.find(
     (entry) => entry.model_key === scope.active_model_key,
   );
   return active
-    ? applySynthesisConfig(settings, active.config, mode)
-    : settings;
+    ? applySynthesisConfig({ ...settings, [scopeKey]: scope }, active.config, mode)
+    : { ...settings, [scopeKey]: scope };
 };
 
 const characterCount = (
@@ -1598,6 +1828,7 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
     | "soniox_key_source"
     | "deepgram_key_source"
     | "openai_key_source"
+    | "openai_compatible_key_source"
     | "murf_key_source"
     | "elevenlabs_key_source"
     | "cartesia_key_source"
@@ -1608,13 +1839,15 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
         ? "deepgram_key_source"
         : tts.provider === "openai"
           ? "openai_key_source"
-          : tts.provider === "murf"
-            ? "murf_key_source"
-            : tts.provider === "elevenlabs"
-              ? "elevenlabs_key_source"
-              : tts.provider === "cartesia"
-                ? "cartesia_key_source"
-                : null;
+          : tts.provider === "openai_compatible"
+            ? "openai_compatible_key_source"
+            : tts.provider === "murf"
+              ? "murf_key_source"
+              : tts.provider === "elevenlabs"
+                ? "elevenlabs_key_source"
+                : tts.provider === "cartesia"
+                  ? "cartesia_key_source"
+                  : null;
   const keySource = keySourceField ? tts[keySourceField] : "shared";
   const voiceValue =
     tts.provider === "soniox"
@@ -1623,19 +1856,21 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
         ? tts.deepgram_model
         : tts.provider === "openai"
           ? tts.openai_voice
-          : tts.provider === "murf"
-            ? tts.murf_voice
-            : tts.provider === "elevenlabs"
-              ? tts.elevenlabs_voice
-              : tts.provider === "cartesia"
-                ? tts.cartesia_voice
-                : tts.provider === "edge"
-                  ? tts.edge_voice
-                  : tts.provider === "windows"
-                    ? tts.windows_voice_id
-                    : tts.provider === "local_kokoro"
-                      ? tts.local_kokoro_voice
-                      : tts.local_qwen_voice;
+          : tts.provider === "openai_compatible"
+            ? tts.openai_compatible_voice
+            : tts.provider === "murf"
+              ? tts.murf_voice
+              : tts.provider === "elevenlabs"
+                ? tts.elevenlabs_voice
+                : tts.provider === "cartesia"
+                  ? tts.cartesia_voice
+                  : tts.provider === "edge"
+                    ? tts.edge_voice
+                    : tts.provider === "windows"
+                      ? tts.windows_voice_id
+                      : tts.provider === "local_kokoro"
+                        ? tts.local_kokoro_voice
+                        : tts.local_qwen_voice;
   const modelValue =
     tts.provider === "soniox"
       ? tts.soniox_model
@@ -1643,10 +1878,12 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
         ? tts.deepgram_model
         : tts.provider === "openai"
           ? tts.openai_model
-          : tts.provider === "murf"
-            ? tts.murf_model
-            : tts.provider === "elevenlabs"
-              ? tts.elevenlabs_model
+          : tts.provider === "openai_compatible"
+            ? tts.openai_compatible_model
+            : tts.provider === "murf"
+              ? tts.murf_model
+              : tts.provider === "elevenlabs"
+                ? tts.elevenlabs_model
               : tts.provider === "cartesia"
                 ? tts.cartesia_model
                 : tts.provider === "edge"
@@ -2901,13 +3138,14 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
         ? t("textToSpeech.overlayPlayer.preparing")
         : t("textToSpeech.conversion.converting");
   const keySourceLabel =
-    tts.provider === "openai"
+    tts.provider === "openai" || tts.provider === "openai_compatible"
       ? t("textToSpeech.api.sameAsOpenAi")
       : t("textToSpeech.api.sameAsStt", {
           provider: tts.provider === "soniox" ? "Soniox" : "Deepgram",
         });
   const selectedApiKeyMissing =
     providerCapabilities.requiresApiKey &&
+    tts.provider !== "openai_compatible" &&
     !keyBusy &&
     (keySource === "separate"
       ? !hasSeparateKey
@@ -4308,6 +4546,18 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
                   }
                 }}
               />
+            ) : tts.provider === "openai_compatible" ? (
+              <Input
+                className="w-full md:w-72"
+                value={tts.openai_compatible_voice}
+                placeholder="alloy"
+                onChange={(event) =>
+                  void updateTts(
+                    { openai_compatible_voice: event.target.value },
+                    "openai_compatible_voice",
+                  )
+                }
+              />
             ) : null}
           </SettingContainer>
           {tts.provider === "soniox" && (
@@ -4477,6 +4727,19 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
                 title={t("textToSpeech.voice.modelTitle")}
                 description={t("textToSpeech.voice.modelDescription")}
               >
+                {tts.provider === "openai_compatible" ? (
+                  <Input
+                    className="w-full md:w-72"
+                    value={tts.openai_compatible_model}
+                    placeholder="tts-1"
+                    onChange={(event) =>
+                      void updateTts(
+                        { openai_compatible_model: event.target.value },
+                        "openai_compatible_model",
+                      )
+                    }
+                  />
+                ) : (
                 <Select
                   className="w-full md:w-72"
                   value={modelValue}
@@ -4540,6 +4803,7 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
                   }}
                   disabled={savingField !== null}
                 />
+                )}
               </SettingContainer>
             )}
           {tts.provider !== "murf" && !elevenV3Selected && (
@@ -5635,6 +5899,54 @@ export const TextToSpeechSettings: React.FC<TextToSpeechSettingsProps> = ({
               }
             />
           </SettingContainer>
+          {tts.provider === "openai_compatible" && (
+            <>
+              <SettingContainer
+                grouped
+                layout="stacked"
+                title={t("textToSpeech.openaiCompatible.baseUrlTitle")}
+                description={t("textToSpeech.openaiCompatible.baseUrlDescription")}
+                descriptionMode="inline"
+              >
+                <Input
+                  className="w-full max-w-md"
+                  value={tts.openai_compatible_base_url}
+                  placeholder="https://api.openai.com/v1"
+                  onChange={(event) =>
+                    void updateTts(
+                      { openai_compatible_base_url: event.target.value },
+                      "openai_compatible_base_url",
+                    )
+                  }
+                />
+              </SettingContainer>
+              <SettingContainer
+                grouped
+                layout="horizontal"
+                title={t("textToSpeech.openaiCompatible.allowInsecureHttpTitle", {
+                  defaultValue: "Allow Insecure HTTP",
+                })}
+                description={t(
+                  "textToSpeech.openaiCompatible.allowInsecureHttpDescription",
+                  {
+                    defaultValue:
+                      "Allow unencrypted http:// connections to non-loopback endpoints.",
+                  },
+                )}
+                descriptionMode="inline"
+              >
+                <ToggleSwitch
+                  checked={tts.openai_compatible_allow_insecure_http ?? false}
+                  onChange={(checked) =>
+                    void updateTts(
+                      { openai_compatible_allow_insecure_http: checked },
+                      "openai_compatible_allow_insecure_http",
+                    )
+                  }
+                />
+              </SettingContainer>
+            </>
+          )}
           {keySource === "separate" && (
             <SettingContainer
               grouped

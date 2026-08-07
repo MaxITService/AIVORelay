@@ -113,7 +113,7 @@ You do not need to understand every setting to begin. AivoRelay includes ready-m
 
 Open **Settings → Text file to mp3** to convert existing `.txt` or `.md` documents. Select one or multiple files with the native Windows file picker, scan a whole folder once, optionally include subfolders, and cancel a running batch. Every source file gets its own audio result, and existing outputs are never overwritten. The same workflow is also available from the [TTS file-conversion CLI](CLI-TEXT-TO-SPEECH.md).
 
-Available choices include Soniox, Deepgram, OpenAI, Murf AI (Falcon 2 and Gen2), ElevenLabs (Eleven v3 and Multilingual v2), Cartesia Sonic 3.5, Windows installed voices, the unofficial Microsoft Read Aloud integration, and optional local Qwen or Kokoro models. File conversion and interactive speech keep separate active settings while sharing saved presets.
+Available choices include Soniox, Deepgram, OpenAI, OpenAI-compatible custom servers, Murf AI (Falcon 2 and Gen2), ElevenLabs (Eleven v3 and Multilingual v2), Cartesia Sonic 3.5, Windows installed voices, the unofficial Microsoft Read Aloud integration, and optional local Qwen or Kokoro models. File conversion and interactive speech keep separate active settings while sharing saved presets.
 
 
 ### 📺 Live Preview (only if you want it)

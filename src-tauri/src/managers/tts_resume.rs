@@ -180,6 +180,11 @@ struct EffectiveSynthesisSignature<'a> {
 #[serde(tag = "provider", rename_all = "snake_case")]
 enum ProviderSynthesisSignature<'a> {
     None,
+    #[serde(rename = "openai_compatible")]
+    OpenAiCompatible {
+        base_url: &'a str,
+        allow_insecure_http: bool,
+    },
     Murf {
         rate: i8,
         pitch: i8,
@@ -403,6 +408,12 @@ impl ResumeWorkspace {
 }
 
 pub fn synthesis_signature(chunks: &[TtsChunk], settings: &TtsSettings) -> Result<String> {
+    let normalized_openai_compatible_base_url =
+        crate::managers::tts::normalize_openai_compatible_base_url_with_insecure_option(
+            &settings.openai_compatible_base_url,
+            settings.openai_compatible_allow_insecure_http,
+        )
+        .unwrap_or_else(|_| settings.openai_compatible_base_url.trim().trim_end_matches('/').to_string());
     let (model, language, voice, instructions, speed, provider_controls) = match settings.provider {
         TtsProvider::Soniox => (
             settings.soniox_model.trim(),
@@ -431,6 +442,17 @@ pub fn synthesis_signature(chunks: &[TtsChunk], settings: &TtsSettings) -> Resul
             },
             settings.speed.clamp(0.25, 4.0),
             ProviderSynthesisSignature::None,
+        ),
+        TtsProvider::OpenAiCompatible => (
+            settings.openai_compatible_model.trim(),
+            "",
+            settings.openai_compatible_voice.trim(),
+            "",
+            settings.speed.clamp(0.25, 4.0),
+            ProviderSynthesisSignature::OpenAiCompatible {
+                base_url: normalized_openai_compatible_base_url.as_str(),
+                allow_insecure_http: settings.openai_compatible_allow_insecure_http,
+            },
         ),
         TtsProvider::Murf => (
             settings.murf_model.trim(),
@@ -1982,5 +2004,33 @@ mod tests {
         assert_eq!(loaded.source_text, source_text);
         remove_ui_file_job_record(&directory, &manifest.job_id).unwrap();
         fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn openai_compatible_synthesis_signature_includes_normalized_base_url() {
+        let chunk = TtsChunk {
+            index: 1,
+            text: "Hello world".to_string(),
+            character_count: 11,
+            boundary_after: TtsBoundary::Paragraph,
+        };
+        let mut settings_a = TtsSettings::default();
+        settings_a.provider = TtsProvider::OpenAiCompatible;
+        settings_a.openai_compatible_base_url = "http://localhost:8000/v1".to_string();
+
+        let mut settings_b = TtsSettings::default();
+        settings_b.provider = TtsProvider::OpenAiCompatible;
+        settings_b.openai_compatible_base_url = "http://localhost:8000/v1/".to_string();
+
+        let mut settings_c = TtsSettings::default();
+        settings_c.provider = TtsProvider::OpenAiCompatible;
+        settings_c.openai_compatible_base_url = "https://api.openai.com/v1".to_string();
+
+        let sig_a = synthesis_signature(&[chunk.clone()], &settings_a).unwrap();
+        let sig_b = synthesis_signature(&[chunk.clone()], &settings_b).unwrap();
+        let sig_c = synthesis_signature(&[chunk.clone()], &settings_c).unwrap();
+
+        assert_eq!(sig_a, sig_b);
+        assert_ne!(sig_a, sig_c);
     }
 }

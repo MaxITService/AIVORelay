@@ -728,6 +728,7 @@ fn set_model_and_voice(
                 }
                 settings.cartesia_model = model;
             }
+            TtsProvider::OpenAiCompatible => settings.openai_compatible_model = model,
             TtsProvider::Edge => {
                 if model != crate::managers::edge_tts::EDGE_TTS_MODEL {
                     return Err(format!(
@@ -787,6 +788,7 @@ fn set_model_and_voice(
             TtsProvider::Murf => settings.murf_voice = voice,
             TtsProvider::ElevenLabs => settings.elevenlabs_voice = voice,
             TtsProvider::Cartesia => settings.cartesia_voice = voice,
+            TtsProvider::OpenAiCompatible => settings.openai_compatible_voice = voice,
             TtsProvider::Edge => {
                 settings.edge_voice_language = crate::managers::edge_tts::voice_language(&voice);
                 settings.edge_voice = voice;
@@ -825,6 +827,10 @@ fn current_model_and_voice(settings: &TtsSettings) -> (String, String) {
             settings.cartesia_model.clone(),
             settings.cartesia_voice.clone(),
         ),
+        TtsProvider::OpenAiCompatible => (
+            settings.openai_compatible_model.clone(),
+            settings.openai_compatible_voice.clone(),
+        ),
         TtsProvider::Edge => (
             crate::managers::edge_tts::EDGE_TTS_MODEL.to_string(),
             settings.edge_voice.clone(),
@@ -862,7 +868,7 @@ fn current_language(settings: &TtsSettings) -> String {
         TtsProvider::Murf => settings.murf_language.clone(),
         TtsProvider::ElevenLabs => settings.elevenlabs_language.clone(),
         TtsProvider::Cartesia => settings.cartesia_language.clone(),
-        TtsProvider::Deepgram | TtsProvider::OpenAi => String::new(),
+        TtsProvider::Deepgram | TtsProvider::OpenAi | TtsProvider::OpenAiCompatible => String::new(),
     }
 }
 
@@ -880,7 +886,7 @@ fn restore_source_language(settings: &mut TtsSettings, source_language: &str) {
         TtsProvider::Murf => settings.murf_language = source_language.to_string(),
         TtsProvider::ElevenLabs => settings.elevenlabs_language = source_language.to_string(),
         TtsProvider::Cartesia => settings.cartesia_language = source_language.to_string(),
-        TtsProvider::Deepgram | TtsProvider::OpenAi => {}
+        TtsProvider::Deepgram | TtsProvider::OpenAi | TtsProvider::OpenAiCompatible => {}
     }
 }
 
