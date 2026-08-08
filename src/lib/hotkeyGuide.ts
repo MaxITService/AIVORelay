@@ -42,12 +42,48 @@ const isFeatureEnabled = (
 const profileBindingIds = (profiles: TranscriptionProfile[]): Set<string> =>
   new Set(profiles.map((profile) => `transcribe_${profile.id}`));
 
+const decapitalizeMonitorBindings = (
+  settings: AppSettings | null,
+): ShortcutBinding[] => {
+  if (!settings?.text_replacement_decapitalize_after_edit_key_enabled) {
+    return [];
+  }
+
+  const bindings: ShortcutBinding[] = [
+    {
+      id: "text_replacement_decapitalize_after_edit_key",
+      name: "Decapitalize monitored key",
+      description: "Primary passive edit key used by Decapitalize After Manual Edit",
+      default_binding: "backspace",
+      current_binding:
+        settings.text_replacement_decapitalize_after_edit_key ?? "backspace",
+    },
+  ];
+
+  if (settings.text_replacement_decapitalize_after_edit_secondary_key_enabled) {
+    bindings.push({
+      id: "text_replacement_decapitalize_after_edit_secondary_key",
+      name: "Decapitalize secondary monitored key",
+      description: "Secondary passive edit key used by Decapitalize After Manual Edit",
+      default_binding: "delete",
+      current_binding:
+        settings.text_replacement_decapitalize_after_edit_secondary_key ??
+        "delete",
+    });
+  }
+
+  return bindings;
+};
+
 export const buildHotkeyGuideCategories = (
   bindings: Record<string, ShortcutBinding>,
   profiles: TranscriptionProfile[],
   settings: AppSettings | null,
 ): HotkeyGuideCategoryItems[] => {
-  const assigned = Object.values(bindings).filter(
+  const assigned = [
+    ...Object.values(bindings),
+    ...decapitalizeMonitorBindings(settings),
+  ].filter(
     (binding) =>
       Boolean(binding.current_binding?.trim()) &&
       isFeatureEnabled(binding.id, settings),

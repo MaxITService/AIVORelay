@@ -892,7 +892,12 @@
     "categories": {
       "recording": "Recording",
       "actions": "Actions",
+      "textEditing": "Text editing",
       "profiles": "Profiles"
+    },
+    "bindings": {
+      "text_replacement_decapitalize_after_edit_key": "Decapitalize monitored key",
+      "text_replacement_decapitalize_after_edit_secondary_key": "Decapitalize secondary monitored key"
     },
     "visibleHints": {
       "repasteLastNetworkRetry": "Repastes latest text. Or, in case of network error, resends the recording and tries again."
@@ -3866,6 +3871,8 @@
     "decapitalizeAfterEditKeyLabel": "Monitored Key",
     "decapitalizeAfterEditKeyDescription": "Click the field and press any key or key combination. Monitoring is passive, and any combo containing the monitored key also counts.",
     "decapitalizeAfterEditComboHint": "If you choose Backspace, Ctrl+Backspace also triggers.",
+    "decapitalizeAfterEditUnsupportedKey": "This key is not supported. The previous monitored key was restored. Press another key or Escape to cancel.",
+    "decapitalizeAfterEditKeySaveFailed": "This monitored key could not be saved. The previous key was restored. {{error}}",
     "decapitalizeAfterEditSecondaryKeyEnableLabel": "Enable Secondary Monitored Key (OR)",
     "decapitalizeAfterEditSecondaryKeyEnableDescription": "Default is OFF. When enabled, pressing either primary or secondary key triggers decapitalize monitoring.",
     "decapitalizeAfterEditSecondaryKeyDescription": "Optional second key. Works with OR logic together with the primary key.",

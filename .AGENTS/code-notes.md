@@ -34,6 +34,7 @@ Files that are added by this fork rather than upstream files that were modified.
 | `src-tauri/src/transcript_context.rs` | Prompt Context Cache. |
 | `src-tauri/src/url_security.rs` | Canonical provider URLs and HTTPS/HTTP override validation for Remote STT and LLM endpoints. |
 | `src-tauri/src/managers/key_listener.rs` | rdev Key Listener (Windows). |
+| `src-tauri/src/hotkey_guide.rs` | Native tray adapter for the shared hotkey-guide manifest and synthetic Decapitalize monitor entries. |
 | `src-tauri/src/commands/key_listener.rs` | Commands for key listener. |
 | `src-tauri/src/shortcut_handy_keys.rs` | Ported upstream HandyKeys shortcut backend and backend-side shortcut recording. |
 | `src-tauri/src/language_resolver.rs` | Soniox language resolver. |
@@ -67,7 +68,10 @@ Files that are added by this fork rather than upstream files that were modified.
 | `src/command-confirm/CommandConfirmOverlay.css` | Styles for command popup. |
 | `src/soniox-live-preview/SonioxLivePreview.tsx` | Live preview window UI, drag grip, edge resize handles, persisted geometry, preview delete actions. |
 | `src/lib/utils/previewHotkeys.ts` | Preview hotkeys logic. |
-| `src/components/ui/HotkeyCapture.tsx` | Hotkey capture UI. |
+| `src/components/ui/HotkeyCapture.tsx` | Reusable hotkey field backed by the same browser keyboard-capture hook as Tauri/rdev global shortcuts. |
+| `src/hooks/useKeyboardCapture.ts` | Shared DOM keyboard-event collection and normalization for browser-captured shortcut and feature-local hotkey fields. |
+| `src/components/hotkey-sidebar/HotkeySidebar.tsx` | Keyboard-accessible right-side assigned-hotkey guide, including enabled Decapitalize monitor keys. |
+| `src/lib/hotkeyGuide.ts` | Frontend adapter for the shared hotkey-guide manifest, including feature-local synthetic guide entries. |
 | `src/soniox-live-preview/SonioxLivePreview.css` | Styles for live preview, drag grip, edge resize handles. |
 | `src/components/settings/voice-commands/VoiceCommandSettings.tsx` | Voice Command Center. |
 | `src/components/settings/live-sound-transcription/LiveSoundTranscriptionSettings.tsx` | Live Sound Transcription page with in-page diarized transcript and source/device controls. |

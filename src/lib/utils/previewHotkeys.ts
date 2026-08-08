@@ -1,61 +1,14 @@
 import {
+  canonicalizeHotkeyToken,
   formatKeyCombination,
   getKeyName,
+  normalizeHotkeyString,
   normalizeKey,
   type OSType,
 } from "./keyboard";
 
-const MODIFIER_ORDER = ["ctrl", "shift", "alt", "win"] as const;
-
-function canonicalizeToken(token: string): string {
-  const trimmed = token.trim().toLowerCase();
-  if (!trimmed) {
-    return "";
-  }
-  switch (trimmed) {
-    case "control":
-      return "ctrl";
-    case "option":
-      return "alt";
-    case "command":
-    case "meta":
-    case "super":
-      return "win";
-    default:
-      return trimmed;
-  }
-}
-
-function sortAndDedupeParts(parts: string[]): string[] {
-  const seen = new Set<string>();
-  const modifiersPresent = new Set<string>();
-  const nonModifiers: string[] = [];
-
-  for (const rawPart of parts) {
-    const part = canonicalizeToken(rawPart);
-    if (!part || seen.has(part)) {
-      continue;
-    }
-    seen.add(part);
-    if (MODIFIER_ORDER.includes(part as (typeof MODIFIER_ORDER)[number])) {
-      modifiersPresent.add(part);
-    } else {
-      nonModifiers.push(part);
-    }
-  }
-
-  const orderedModifiers = MODIFIER_ORDER.filter((modifier) =>
-    modifiersPresent.has(modifier),
-  );
-  return [...orderedModifiers, ...nonModifiers];
-}
-
 export function normalizePreviewHotkeyString(value: string): string {
-  if (!value || typeof value !== "string") {
-    return "";
-  }
-  const rawParts = value.split("+");
-  return sortAndDedupeParts(rawParts).join("+");
+  return normalizeHotkeyString(value);
 }
 
 export function buildPreviewHotkeyFromKeyboardEvent(
@@ -63,7 +16,7 @@ export function buildPreviewHotkeyFromKeyboardEvent(
   osType: OSType,
 ): string | null {
   const rawKey = normalizeKey(getKeyName(event, osType));
-  const key = canonicalizeToken(rawKey);
+  const key = canonicalizeHotkeyToken(rawKey);
   if (!key) {
     return null;
   }
@@ -97,4 +50,3 @@ export function formatPreviewHotkeyForDisplay(
   }
   return formatKeyCombination(normalized, osType);
 }
-

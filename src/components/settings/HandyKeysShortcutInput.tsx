@@ -300,19 +300,23 @@ export const HandyKeysShortcutInput: React.FC<HandyKeysShortcutInputProps> = ({
         {isRecording ? (
           <div
             ref={shortcutRef}
+            role="status"
+            aria-live="polite"
             className="px-2 py-1 text-sm font-semibold border border-logo-primary bg-logo-primary/30 rounded min-w-[120px] text-center"
           >
             {formatCurrentKeys()}
           </div>
         ) : (
-          <div
+          <button
+            type="button"
             className="px-2 py-1 text-sm font-semibold bg-mid-gray/10 border border-mid-gray/80 hover:bg-logo-primary/10 rounded cursor-pointer hover:border-logo-primary min-w-[120px] text-center"
             onClick={startRecording}
+            disabled={disabled}
           >
             {binding.current_binding
               ? formatKeyCombination(binding.current_binding, osType)
               : t("settings.general.shortcut.notSet")}
-          </div>
+          </button>
         )}
         <ResetButton
           onClick={() => resetBinding(shortcutId)}

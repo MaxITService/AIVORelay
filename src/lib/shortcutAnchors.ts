@@ -12,6 +12,8 @@ const SHORTCUT_SECTION_BY_ID: Record<string, SidebarSection> = {
   send_to_extension: "browserConnector",
   send_to_extension_with_selection: "browserConnector",
   spawn_button: "userInterface",
+  text_replacement_decapitalize_after_edit_key: "textReplacement",
+  text_replacement_decapitalize_after_edit_secondary_key: "textReplacement",
   transcribe: "general",
   transcribe_default: "general",
   voice_command: "voiceCommands",

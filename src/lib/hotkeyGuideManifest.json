@@ -34,6 +34,16 @@
       "dynamicPrefixes": []
     },
     {
+      "id": "textEditing",
+      "title": "Text editing",
+      "titleKey": "hotkeySidebar.categories.textEditing",
+      "bindingIds": [
+        "text_replacement_decapitalize_after_edit_key",
+        "text_replacement_decapitalize_after_edit_secondary_key"
+      ],
+      "dynamicPrefixes": []
+    },
+    {
       "id": "profiles",
       "title": "Profiles",
       "titleKey": "hotkeySidebar.categories.profiles",

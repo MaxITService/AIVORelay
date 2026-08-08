@@ -33,34 +33,40 @@ export const HotkeyGroup: React.FC<HotkeyGroupProps> = ({
         {title}
       </h3>
       <div className="flex flex-col gap-1.5">
-        {hotkeys.map((hotkey) => (
-          <a
-            key={hotkey.id}
-            href={`#${getShortcutAnchorId(hotkey.id)}`}
-            onClick={(event) => {
-              event.preventDefault();
-              onHotkeyClick(hotkey.id);
-            }}
-            className="flex items-center justify-between gap-2 px-3 py-2 rounded-lg bg-[#1a1a1a]/60 hover:bg-[#252525]/80 transition-colors focus:outline-none focus:ring-2 focus:ring-[#ff4d8d]/45"
-          >
-            <span
-              className="flex min-w-0 flex-1 flex-wrap items-baseline gap-x-2 gap-y-0.5 pr-2"
-              title={hotkey.name}
+        {hotkeys.map((hotkey) => {
+          const displayName = t(
+            `hotkeySidebar.bindings.${hotkey.id}`,
+            hotkey.name,
+          );
+          return (
+            <a
+              key={hotkey.id}
+              href={`#${getShortcutAnchorId(hotkey.id)}`}
+              onClick={(event) => {
+                event.preventDefault();
+                onHotkeyClick(hotkey.id);
+              }}
+              className="flex items-center justify-between gap-2 px-3 py-2 rounded-lg bg-[#1a1a1a]/60 hover:bg-[#252525]/80 transition-colors focus:outline-none focus:ring-2 focus:ring-[#ff4d8d]/45"
             >
-              <span className="text-sm text-[#d0d0d0] truncate">
-                {hotkey.name}
-              </span>
-              {hotkey.id === "repaste_last" && (
-                <span className="rounded-md border border-amber-400/30 bg-amber-400/10 px-1.5 py-0.5 text-[11px] font-semibold leading-snug text-amber-200">
-                  {t("hotkeySidebar.visibleHints.repasteLastNetworkRetry")}
+              <span
+                className="flex min-w-0 flex-1 flex-wrap items-baseline gap-x-2 gap-y-0.5 pr-2"
+                title={displayName}
+              >
+                <span className="text-sm text-[#d0d0d0] truncate">
+                  {displayName}
                 </span>
-              )}
-            </span>
-            <kbd className="text-xs font-mono text-[#ff6b9d] bg-[#2a1a22] px-2 py-1 rounded border border-[#3a2a32] whitespace-nowrap">
-              {formatShortcut(hotkey.current_binding)}
-            </kbd>
-          </a>
-        ))}
+                {hotkey.id === "repaste_last" && (
+                  <span className="rounded-md border border-amber-400/30 bg-amber-400/10 px-1.5 py-0.5 text-[11px] font-semibold leading-snug text-amber-200">
+                    {t("hotkeySidebar.visibleHints.repasteLastNetworkRetry")}
+                  </span>
+                )}
+              </span>
+              <kbd className="text-xs font-mono text-[#ff6b9d] bg-[#2a1a22] px-2 py-1 rounded border border-[#3a2a32] whitespace-nowrap">
+                {formatShortcut(hotkey.current_binding)}
+              </kbd>
+            </a>
+          );
+        })}
       </div>
     </div>
   );
