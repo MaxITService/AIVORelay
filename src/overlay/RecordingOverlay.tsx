@@ -858,6 +858,8 @@ const RecordingOverlay: React.FC = () => {
     };
   }, [decapIndicatorEligible, isVisible, state]);
 
+  if (!isVisible) return null;
+
   const overlayTheme = appearance.theme as RecordingOverlayTheme;
   const backgroundMode =
     appearance.background_mode as RecordingOverlayBackgroundMode;
