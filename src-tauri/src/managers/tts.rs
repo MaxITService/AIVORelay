@@ -4415,14 +4415,14 @@ fn resolve_api_key(settings: &TtsSettings) -> Result<String> {
         }
         (TtsProvider::Soniox, TtsKeySource::Shared) => crate::secure_keys::get_soniox_api_key(),
         (TtsProvider::Deepgram, TtsKeySource::Shared) => crate::secure_keys::get_deepgram_api_key(),
-        (TtsProvider::OpenAi, TtsKeySource::Shared) => {
+        (
+            TtsProvider::OpenAi | TtsProvider::OpenAiCompatible,
+            TtsKeySource::Shared,
+        ) => {
             crate::secure_keys::get_post_process_api_key("openai")
         }
         (
-            TtsProvider::OpenAiCompatible
-            | TtsProvider::Murf
-            | TtsProvider::ElevenLabs
-            | TtsProvider::Cartesia,
+            TtsProvider::Murf | TtsProvider::ElevenLabs | TtsProvider::Cartesia,
             TtsKeySource::Shared,
         ) => {
             return Err(anyhow!(
