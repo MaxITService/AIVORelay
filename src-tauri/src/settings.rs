@@ -2984,6 +2984,9 @@ pub struct AppSettings {
     pub always_on_microphone: bool,
     #[serde(default)]
     pub selected_microphone: Option<String>,
+    /// Which microphone input channel to use. None averages all channels.
+    #[serde(default)]
+    pub selected_channel: Option<u16>,
     #[serde(default)]
     pub last_manual_microphone: Option<String>,
     #[serde(default = "default_false")]
@@ -5161,6 +5164,7 @@ pub fn get_default_settings() -> AppSettings {
         deepgram_endpointing_ms: default_deepgram_endpointing_ms(),
         always_on_microphone: false,
         selected_microphone: None,
+        selected_channel: None,
         last_manual_microphone: None,
         selected_microphone_auto_switch_enabled: default_false(),
         selected_microphone_name_pattern: String::new(),

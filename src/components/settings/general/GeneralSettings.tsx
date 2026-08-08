@@ -4,6 +4,7 @@ import { AutomaticMicrophoneMask } from "../AutomaticMicrophoneMask";
 import { MicrophoneInputBoost } from "../MicrophoneInputBoost";
 import { MicrophoneNoiseCancellation } from "../MicrophoneNoiseCancellation";
 import { MicrophoneSelector } from "../MicrophoneSelector";
+import { ChannelSelector } from "../ChannelSelector";
 import { SettingsGroup } from "../../ui/SettingsGroup";
 import { OutputDeviceSelector } from "../OutputDeviceSelector";
 import { AudioFeedback } from "../AudioFeedback";
@@ -29,6 +30,7 @@ export const GeneralSettings: React.FC = () => {
       <div>
         <SettingsGroup title={t("settings.sound.title")}>
           <MicrophoneSelector descriptionMode="tooltip" grouped={true} />
+          <ChannelSelector descriptionMode="tooltip" grouped={true} />
           <MicrophoneInputBoost descriptionMode="tooltip" grouped={true} />
           <MicrophoneNoiseCancellation
             descriptionMode="tooltip"

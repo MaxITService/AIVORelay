@@ -53,6 +53,8 @@ pub struct AudioRecorder {
     stream_frame_cb: Arc<Mutex<Option<StreamFrameCallback>>>,
     microphone_input_gain: Arc<Mutex<f32>>,
     microphone_noise_cancellation_enabled: Arc<AtomicBool>,
+    /// Which microphone input channel to use. None averages all channels.
+    selected_channel: Option<usize>,
     config_cache: Arc<Mutex<Option<(AudioCaptureSource, String, cpal::SupportedStreamConfig)>>>,
 }
 
@@ -67,6 +69,7 @@ impl AudioRecorder {
             stream_frame_cb: Arc::new(Mutex::new(None)),
             microphone_input_gain: Arc::new(Mutex::new(1.0)),
             microphone_noise_cancellation_enabled: Arc::new(AtomicBool::new(false)),
+            selected_channel: None,
             config_cache: Arc::new(Mutex::new(None)),
         })
     }
@@ -92,6 +95,15 @@ impl AudioRecorder {
     pub fn with_microphone_noise_cancellation_enabled(self, enabled: bool) -> Self {
         self.set_microphone_noise_cancellation_enabled(enabled);
         self
+    }
+
+    pub fn with_selected_channel(mut self, channel: Option<u16>) -> Self {
+        self.set_selected_channel(channel);
+        self
+    }
+
+    pub fn set_selected_channel(&mut self, channel: Option<u16>) {
+        self.selected_channel = channel.map(usize::from);
     }
 
     pub fn set_stream_frame_callback(&self, callback: Option<StreamFrameCallback>) {
@@ -146,6 +158,11 @@ impl AudioRecorder {
         let microphone_input_gain = Arc::clone(&self.microphone_input_gain);
         let microphone_noise_cancellation_enabled =
             Arc::clone(&self.microphone_noise_cancellation_enabled);
+        let selected_channel = if source == AudioCaptureSource::Microphone {
+            self.selected_channel
+        } else {
+            None
+        };
         let config_cache = Arc::clone(&self.config_cache);
 
         let worker = std::thread::spawn(move || {
@@ -192,6 +209,7 @@ impl AudioRecorder {
                         &config,
                         sample_tx,
                         channels,
+                        selected_channel,
                         stop_flag_for_stream,
                     )
                     .map_err(|e| format!("Failed to build audio stream: {}", e))?,
@@ -200,6 +218,7 @@ impl AudioRecorder {
                         &config,
                         sample_tx,
                         channels,
+                        selected_channel,
                         stop_flag_for_stream,
                     )
                     .map_err(|e| format!("Failed to build audio stream: {}", e))?,
@@ -208,6 +227,7 @@ impl AudioRecorder {
                         &config,
                         sample_tx,
                         channels,
+                        selected_channel,
                         stop_flag_for_stream,
                     )
                     .map_err(|e| format!("Failed to build audio stream: {}", e))?,
@@ -216,6 +236,7 @@ impl AudioRecorder {
                         &config,
                         sample_tx,
                         channels,
+                        selected_channel,
                         stop_flag_for_stream,
                     )
                     .map_err(|e| format!("Failed to build audio stream: {}", e))?,
@@ -224,6 +245,7 @@ impl AudioRecorder {
                         &config,
                         sample_tx,
                         channels,
+                        selected_channel,
                         stop_flag_for_stream,
                     )
                     .map_err(|e| format!("Failed to build audio stream: {}", e))?,
@@ -380,6 +402,7 @@ impl AudioRecorder {
         config: &cpal::SupportedStreamConfig,
         sample_tx: mpsc::Sender<AudioChunk>,
         channels: usize,
+        selected_channel: Option<usize>,
         stop_flag: Arc<AtomicBool>,
     ) -> Result<cpal::Stream, cpal::BuildStreamError>
     where
@@ -388,6 +411,7 @@ impl AudioRecorder {
     {
         let mut output_buffer = Vec::new();
         let mut eos_sent = false;
+        let use_channel = selected_channel.filter(|channel| *channel < channels);
 
         let stream_cb = move |data: &[T], _: &cpal::InputCallbackInfo| {
             if stop_flag.load(Ordering::Relaxed) {
@@ -407,13 +431,19 @@ impl AudioRecorder {
                 let frame_count = data.len() / channels;
                 output_buffer.reserve(frame_count);
 
-                for frame in data.chunks_exact(channels) {
-                    let mono_sample = frame
-                        .iter()
-                        .map(|&sample| sample.to_sample::<f32>())
-                        .sum::<f32>()
-                        / channels as f32;
-                    output_buffer.push(mono_sample);
+                if let Some(channel) = use_channel {
+                    for frame in data.chunks_exact(channels) {
+                        output_buffer.push(frame[channel].to_sample::<f32>());
+                    }
+                } else {
+                    for frame in data.chunks_exact(channels) {
+                        let mono_sample = frame
+                            .iter()
+                            .map(|&sample| sample.to_sample::<f32>())
+                            .sum::<f32>()
+                            / channels as f32;
+                        output_buffer.push(mono_sample);
+                    }
                 }
             }
 
@@ -431,6 +461,12 @@ impl AudioRecorder {
             |err| log::error!("Stream error: {}", err),
             None,
         )
+    }
+
+    pub fn preferred_input_channel_count(
+        device: &cpal::Device,
+    ) -> Result<u16, Box<dyn std::error::Error>> {
+        Ok(Self::get_preferred_config(device, AudioCaptureSource::Microphone)?.channels())
     }
 
     fn get_preferred_config(

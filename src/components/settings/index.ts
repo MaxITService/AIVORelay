@@ -21,6 +21,7 @@ export { QuickHelp } from "./QuickHelp";
 
 // Individual setting components
 export { MicrophoneSelector } from "./MicrophoneSelector";
+export { ChannelSelector } from "./ChannelSelector";
 export { MicrophoneInputBoost } from "./MicrophoneInputBoost";
 export { ClamshellMicrophoneSelector } from "./ClamshellMicrophoneSelector";
 export { OutputDeviceSelector } from "./OutputDeviceSelector";
